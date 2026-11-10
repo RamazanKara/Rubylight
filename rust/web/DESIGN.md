@@ -1,12 +1,12 @@
 # Rubylight console design system
 
-One visual language for the console, the tray, setup and Nightjar: quiet surfaces, one ruby accent, status in words as well as colour. Every 3.0 page builds from these tokens and components; a new raw value or a one-off component needs a reason in its commit.
+One visual language for the console, the tray and setup: quiet surfaces, one ruby accent, status in words as well as colour. Every 3.0 page builds from these tokens and components; a new raw value or a one-off component needs a reason in its commit.
 
 - Tokens: [src/styles/tokens.css](src/styles/tokens.css). Checked by [Tokens.test.mjs](Tokens.test.mjs).
 - Components: [src/components/](src/components/). Checked by [Components.test.mjs](Components.test.mjs) and, with Playwright, [Design.browser.cjs](Design.browser.cjs).
 - Gallery: `npm run dev`, then open `/design.html` (dev only, not in the build).
-- Screenshots: `PLAYWRIGHT_MODULE=<playwright> CHROMIUM_EXECUTABLE=<chrome.exe> node scripts/screenshots.cjs <dir> <label>` writes each page in light and dark, desktop and phone, against fixture data. It never contacts a host. `SHOT_PAGES=/,/devices` picks pages (`/design.html` is the gallery), `SHOT_FULL=1` shoots full desktop pages, and `SHOT_AUTH=signed-out` or `SHOT_AUTH=setup` shows the sign-in or first-run setup page.
-- Nightjar mapping: `C:\src\butterpollo-release\unified\design-tokens-nightjar.md` (moves to `client/` with the import).
+- Screenshots: `PLAYWRIGHT_MODULE=<playwright> CHROMIUM_EXECUTABLE=<chrome.exe> node scripts/screenshots.cjs <dir> <label>` writes each page in light and dark, desktop and phone, against fixture data. It never contacts a host. `SHOT_PAGES=/,/devices` picks pages (`/design.html` is the gallery), `SHOT_FULL=1` shoots full desktop pages, `SHOT_AUTH=signed-out` or `SHOT_AUTH=setup` shows the sign-in or first-run setup page, `SHOT_CLICK=Select,"Select all"` clicks those buttons before each shot, `SHOT_CONFIG='{"amd_usage":"auto"}'` adds saved settings to the fixture, and `SHOT_COOP=missing` (or `failed`, `blocked`, `notice`) sets Nucleus Co-op's folder state.
+- Nightjar has its own design numbers and amber palette: [client/design/tokens.json](../../client/design/tokens.json), generated into Android, Rust and CSS by `client/scripts/gen_design_tokens.py` ([client/design/README.md](../../client/design/README.md)).
 
 ## Tokens
 
@@ -34,6 +34,7 @@ One visual language for the console, the tray, setup and Nightjar: quiet surface
 | Accent | `--accent`, `--accent-strong`, `--accent-ink`, `--accent-soft`, `--accent-text` | Ruby: one primary action per view, selection, the on switch. Text in the accent colour uses `--accent-text`. |
 | Status | `--ok`, `--warn`, `--danger` (+ `-soft`), `--live` | Text and icons in the status colour on its soft tint or a surface. |
 | Media | `--media-bg`, `--media-ink`, `--media-ink-2`, `--media-line`, `--media-idle`, `--media-ok`, `--media-warn` | Text over game art and video; dark in both themes. |
+| Brand | `--brand`, `--brand-ink` | The app icon's fixed ruby and the mark on it (`BrandMark`), the same in both themes. Actions use the accent, not these. |
 | Other | `--skeleton`, `--scrim` | Loading placeholders, dialog backdrops. |
 
 Every text colour reaches 4.5:1 on every surface it is drawn on, in both themes; focus rings and control outlines reach 3:1. `Tokens.test.mjs` lists the pairs: add a pair there when you draw text on a new background. The `system` dark block must equal the `dark` block (the test checks it).
@@ -58,6 +59,9 @@ Every text colour reaches 4.5:1 on every surface it is drawn on, in both themes;
 | `BrandMark` | The app icon's mark (white R on `--brand`), the same as the tray, setup and favicon. | Decorative; the name sits beside it. |
 | `AuthLayout` | Pages before the console: sign in, setup, cannot connect. One card under the mark. | |
 | `Skeleton` | Content loading for more than a moment: text lines, a block or a circle. One `label` per region. | `LoadState` stays for load failures with Retry. |
+| `Icon` | The console's 24-pixel stroke icons. | |
+| `CopyButton` | Copies a value such as an address or a path and confirms it with a toast. `label` is read out and shown as the tooltip. | |
+| `PathPicker` | Browses the host's folders for a program, a file or a folder and fills the text field it wraps. | Escape closes it, like a menu. |
 
 ## Rules
 

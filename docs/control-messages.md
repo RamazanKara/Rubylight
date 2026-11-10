@@ -6,13 +6,13 @@ Besides Moonlight's own control messages, Rubylight takes a few of its own from 
 
 ## Negotiation
 
-From 2.2.0 the host's RTSP `DESCRIBE` answer lists the Rubylight control messages it takes:
+From 2.2.0 the host's RTSP `DESCRIBE` answer lists the Rubylight control messages it takes. The first line is the same for every stream:
 
 ```
-a=x-rl-control:0x5530,0x5531,0x5532
+a=x-rl-control:0x5530,0x5531,0x5532,0x5533,0x5534,0x5535,0x5536,0x5537,0x5538
 ```
 
-Send a message only when its id is in that list. Older hosts and other Moonlight hosts do not send the line; to them, send none of these messages. A host ignores control message ids it does not know.
+A second line lists the messages offered by setting or by launch request ([3.0 extensions](#30-extensions)). Read every `a=x-rl-control:` line and merge them. Send a message only when its id is listed. Older hosts and other Moonlight hosts do not send the line; to them, send none of these messages. A host ignores control message ids it does not know.
 
 ## PyroWave hints in the RTSP `ANNOUNCE`
 
@@ -33,12 +33,15 @@ Each message travels on the control stream like Moonlight's client-to-host contr
 | Id | Name | Crate type | Host behaviour |
 | --- | --- | --- | --- |
 | `0x5530` | Phase lock report | `phase_lock::Report` | Times captures to the client's display latch while reports arrive about every 500 ms; after 3 s without one the host returns to its own pacing. |
-| `0x5531` | Display luminance | `control::DisplayCaps` | Records the client's screen capabilities for diagnostics ([below](#0x5531-display-luminance)). |
+| `0x5531` | Display luminance | `control::DisplayCaps` | Records the client's screen capabilities, and targets Dolby Vision metadata at its peak ([below](#0x5531-display-luminance)). |
 | `0x5532` | Reconfigure | `control::Reconfigure` | Changes the stream's resolution or frame rate without reconnecting ([below](#0x5532-reconfigure)). |
+| `0x5533` | Controller speaker | none (host: `controller_audio::SPEAKER`) | Host to client: the virtual DualSense's speaker PCM ([DualSense haptics](dualsense-haptics.md#controller-speaker-headset-and-microphone)). |
+| `0x5534` | Controller microphone | none (host: `controller_audio::MICROPHONE`) | Client to host: the physical controller's microphone PCM. |
+| `0x5535` | Controller audio state | none (host: `controller_audio::CONTROL`) | Both ways: capability, mute and volume state of controller audio. The wire formats of `0x5533`-`0x5535` are in Nightjar's [DualSense guide](https://github.com/RamazanKara/nightjar/blob/main/docs/dualsense-haptics.md#protocol-and-implementation). |
 | `0x5536` | Host timing | `control::HostTimingRequest` | Sends reports of where each new picture's time went on the host, after its last packet left ([below](#0x5536-host-timing)). |
 | `0x5537` | Clock sync | `control::ClockSyncRequest` | Answers at once with a `control::ClockSyncReply` on the video RTP clock ([below](#0x5537-clock-sync)). |
 | `0x5538` | Link notice | `control::LinkNoticeRequest`, `control::LinkNotice` | Tells the client when it lowers the video bitrate for the network, and when it is back ([below](#0x5538-link-notice)). |
-| `0x5508` | Clipboard sync | `clipboard_sync::Frame` | Both ways: puts the client's copies on the PC's clipboard and sends the PC's copies back. Listed only for a `/launch` or `/resume` with `rlClipboardSync=1` from a device that may view and read or write the clipboard. The frame is version `1`, kind (`1` UTF-8 text, `2` PNG, `3` blob reference, which the host refuses), a u32 echo token, a u32 length and the payload, at most 65500 bytes in all. An empty text frame starts the PC's copies without touching its clipboard. The client's copies need "Write to the clipboard", the PC's "Read the clipboard", PNGs `clipboard_image`; a frame that comes back with a token the sender used recently is dropped. |
+| `0x5508` | Clipboard sync | `clipboard_sync::Frame` | Both ways: puts the client's copies on the PC's clipboard and sends the PC's copies back. Listed on the second `a=x-rl-control` line only for a `/launch` or `/resume` with `rlClipboardSync=1` from a device that may view and read or write the clipboard. The frame is Moonlight V+'s: version `1`, kind (`1` UTF-8 text, `2` PNG, `3` blob reference, which the host refuses), a u32 echo token, a u32 length and the payload, at most 65500 bytes in all. An empty text frame starts the PC's copies without touching its clipboard. The client's copies need "Write to the clipboard", the PC's "Read the clipboard", PNGs `clipboard_image`; a frame that comes back with a token the sender used recently is dropped. |
 
 ## 0x5536 host timing
 
@@ -70,7 +73,7 @@ Header byte 2, `extra`, is the number of bytes per record in a trailing block: `
 
 A reader takes the first 16 bytes of each entry and skips the rest, so later fields can be appended. The extension is valid only when `capture_us + convert_us <= queue_us`; a client drops the extension of a record that breaks this, or of a report that is cut short, and keeps the base records. With it, a client has every host stage on the host clock: capture present `P = presented_at_us`, acquired `P + capture_us`, submitted `P + queue_us`, encoded `P + queue_us + encode_us`, last packet sent `P + host_us`, first packet sent `P + host_us - send_us`. Hold and claim are `queue_us - capture_us - convert_us`. The game's own present is the frame's RTP timestamp.
 
-An extended report carries at most 17 records (616 bytes). The limit is not the ENet packet size: Nightjar's patched moonlight-common-c hands a `0x5536` message to its Java layer only when it is at most 644 bytes (a v1 report of 32 records), and shipped Nightjar builds drop anything longer in native code. 17 extended records (`4 + 17 × 36`) fit and 18 do not. A v1 report carries up to 32. The Rust and Java decoders check only that the data holds `4 + count × 20` bytes and ignore the rest, so they read an extended report as a v1 one, but only if the transport delivers it. The host sends the extension for H.264, HEVC, AV1 and PyroWave alike.
+An extended report carries at most 17 records (616 bytes). The limit is not the ENet packet size: older Nightjar builds' patched moonlight-common-c hands a `0x5536` message to its Java layer only when it is at most 644 bytes (a v1 report of 32 records) and drops anything longer in native code; 17 extended records (`4 + 17 × 36`) fit and 18 do not. Current Nightjar accepts up to 1156 bytes (`4 + 32 × 36`). A v1 report carries up to 32. The Rust and Java decoders check only that the data holds `4 + count × 20` bytes and ignore the rest, so they read an extended report as a v1 one, but only if the transport delivers it. The host sends the extension for H.264, HEVC, AV1 and PyroWave alike.
 
 ## 0x5537 clock sync
 
@@ -112,7 +115,7 @@ Send it once the control stream is connected and again whenever the display chan
 
 The host ignores a message whose peak is outside 1–10,000 nits, whose average is above the peak, or whose black level is 1 nit or more.
 
-The host records the reported values for diagnostics. They do **not** replace HDR10 mastering luminance, MaxCLL, MaxFALL or black level, change the virtual display, or trigger an HDR mode update.
+The host logs the reported values for diagnostics. The reported peak is also the target display luminance of the Dolby Vision metadata the host writes (level 2); without a report that is the host display's peak, else 1000 nits. The values do **not** replace HDR10 mastering luminance, MaxCLL, MaxFALL or black level, change the virtual display, or trigger an HDR mode update.
 
 HDR10 metadata describes the captured source and the light levels of its pixels. Receiver capabilities are not content light levels. Earlier versions substituted the client's luminance without tone-mapping the pixels, which could change Android tone mapping and restart its decoder when brightness reports changed. The stream now keeps the source metadata; genuine source HDR changes still update the control message and encoded bitstream. An HDR profile or peak brightness selected on the host continues to configure the source display before capture.
 
@@ -159,6 +162,20 @@ The host logs each switch as `reconfigure` with the old and new mode and how lon
 - Read the size of the picture from the stream, not from the request: the host may have kept the old one.
 - Send it only to a host that supports it (Rubylight 2.2.0 and later). Other hosts ignore it, and the stream then keeps its size.
 
+## Controller messages of other forks
+
+The host also takes and sends these, with the wire formats of the projects that defined them. None is listed in `a=x-rl-control`; each is gated as its origin gates it.
+
+| Id | Direction | Message | Gate |
+| --- | --- | --- | --- |
+| `0x5500` | host to client | Trigger rumble | The client's controller arrival (Sunshine family) |
+| `0x5501` | host to client | Motion event request | The client's controller arrival (Sunshine family) |
+| `0x5502` | host to client / client to host | RGB LED / frame FEC status ([below](#error-correction-reports)) | As in moonlight-common-c |
+| `0x5503` | host to client | Adaptive triggers | The client's controller arrival (Sunshine family) |
+| `0x5504` | host to client | Steam Controller haptic report | A Steam Controller arrival with capability `0x800` (Vibepollo's format, `steam_controller::SteamHaptic`) |
+| `0x5505` | host to client | Steam Controller settings write | A Steam Controller arrival with capability `0x2000` (`steam_controller::SteamSettings`) |
+| `0x5601` | host to client | DualSense waveform haptics | Connection feature `0x04` and controller capability `0x8000` ([DualSense haptics](dualsense-haptics.md)) |
+
 ## Error correction reports
 
 Moonlight's own FEC status message (`0x5502`, `SS_FRAME_FEC_STATUS` in moonlight-common-c) needs no announcement. A client that sends it for frames it had to repair or could not rebuild gets adaptive error correction from 2.2.0: the share of recovery packets rises with reported loss, returns to the configured `fec_percentage` when a frame could not be rebuilt, and falls slowly towards 5 % while no loss is reported. A client that never sends it keeps the configured percentage.
@@ -183,26 +200,26 @@ By default (`link_rate_adaptation`, [configuration](configuration.md#lower-bitra
 
 ## 3.0 extensions
 
-These are defined for 3.0, in the same crate. Rubylight offers `0x5539` FEC reports and `0x553D` pipeline rates, text input (`0x553B`) and keyboard layouts (`0x553E`) while the keyboard is on, with `keyboard_follows_focus` on and `keyboard_layout = client` (both the default), and `0x553A` USB forwarding while its USB forwarding setting is on and its USB/IP driver is installed; no host offers the others yet. A host that takes some of them adds a second line to its `DESCRIBE` answer, after the first:
+These are defined for 3.0, in the same crate. A host that takes some of them adds a second `a=x-rl-control` line to its `DESCRIBE` answer, after the first, the packed 4:4:4 lines and before the microphone's `m=audio`. With the default settings it is:
 
 ```
-a=x-rl-control:0x553b,0x553e
+a=x-rl-control:0x5539,0x553b,0x553d,0x553e
 ```
 
-Read every `a=x-rl-control:` line and merge them. The second line appears only when the host offers something, and stock clients ignore it; Rubylight's default is `a=x-rl-control:0x5539,0x553b,0x553d,0x553e`, after the packed 4:4:4 lines and before the microphone's `m=audio`. Each feature is also announced in serverinfo; send its messages only when both say so.
+The second line appears only when the host offers something, and stock clients ignore it. Each message is also announced in serverinfo or asked for in the launch; send it only when both say so.
 
-| Id | Name | Crate type | Direction | Serverinfo element |
-| --- | --- | --- | --- | --- |
-| `0x5539` | FEC report | `fec_report::FecReport` | client to host | `FecControlVersion` |
-| `0x553A` | USB forwarding | `usb::UsbMessage` | both | none (native API feature `usb`) |
-| `0x553B` | Text input | `text_input::TextInputRequest`, `text_input::TextInputNotice` | both | `TextInputVersion` |
-| `0x553C` | Rate change | `rate_change::RateChangeRequest`, `rate_change::RateChangeResult` | both | none (launch parameter `rlRateChange=1`) |
-| `0x553D` | Pipeline rates | `pipeline_rates::PipelineRatesRequest`, `pipeline_rates::PipelineRatesReport` | both | `PipelineRatesVersion` |
-| `0x553E` | Keyboard layout | `keyboard_layout::KeyboardLayout` | client to host | `KeyboardLayoutVersion` |
-| `0x5540` | Cursor shape request | `cursor_shape::CursorShapeRequest` | client to host | `CursorShapeVersion` |
-| `0x5541` | Cursor shape | `cursor_shape::CursorShape` | host to client | `CursorShapeVersion` |
+| Id | Name | Crate type | Direction | Offered | Serverinfo element |
+| --- | --- | --- | --- | --- | --- |
+| `0x5539` | FEC report | `fec_report::FecReport` | client to host | always | `FecControlVersion` |
+| `0x553A` | USB forwarding | `usb::UsbMessage` | both | while `usb_forwarding` is on and the USB/IP driver is installed | none (native API feature `usb`) |
+| `0x553B` | Text input | `text_input::TextInputRequest`, `text_input::TextInputNotice` | both | while `keyboard` and `keyboard_follows_focus` are on (the default) | `TextInputVersion` |
+| `0x553C` | Rate change | `rate_change::RateChangeRequest`, `rate_change::RateChangeResult` | both | for a launch with `rlRateChange=1` | none |
+| `0x553D` | Pipeline rates | `pipeline_rates::PipelineRatesRequest`, `pipeline_rates::PipelineRatesReport` | both | always | `PipelineRatesVersion` |
+| `0x553E` | Keyboard layout | `keyboard_layout::KeyboardLayout` | client to host | while `keyboard` is on and `keyboard_layout = client` (the default) | `KeyboardLayoutVersion` |
+| `0x5540` | Cursor shape request | `cursor_shape::CursorShapeRequest` | client to host | while `client_cursor` is on (the default) and `capture` is `ddx` or `dxgi` | `CursorShapeVersion` |
+| `0x5541` | Cursor shape | `cursor_shape::CursorShape` | host to client | with `0x5540` | `CursorShapeVersion` |
 
-`0x5542` is reserved. Rubylight defines nothing in `0x5506`-`0x5510`, which other clients use.
+`0x5508` (clipboard sync, above) goes on the same second line. `0x5542` is reserved. `0x5506`-`0x5510` belong to other clients and hosts: Rubylight takes `0x5508` with Moonlight V+'s frame unchanged and defines nothing else there. Nightjar sends `0x5510` (FEC summary, Moonlight V+'s format) only to a host whose `DESCRIBE` has `x-ss-video[0].fecControlVersion`, which Rubylight does not send.
 
 The layouts below are little-endian; byte 0 is the version, `1`.
 

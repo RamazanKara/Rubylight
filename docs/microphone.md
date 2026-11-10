@@ -4,7 +4,7 @@
 
 A streaming device can send its microphone to the PC. Games and chat applications on the PC receive it as **Microphone (Steam Streaming Microphone)**, a recording device that Steam provides. Rubylight implements the wire format of Apollo's microphone passthrough ([Apollo pull request #1428](https://github.com/ClassicOldSong/Apollo/pull/1428), client side in [ClassicOldSong/moonlight-common-c](https://github.com/ClassicOldSong/moonlight-common-c/blob/784fa1d0f501155ab01fea7cefe8a0e9c9628b77/src/MicrophoneStream.c)), so a client built for it works with Rubylight unchanged.
 
-**USB DualSense microphone.** With a client that supports it, such as Nightjar, the controller's own microphone reaches the PC as the **virtual DualSense microphone** instead. That path needs the optional USB/IP support and the paired device's Controllers permission; [DualSense USB audio and haptics](dualsense-haptics.md) covers endpoint readiness, muting and fallback. The rest of this page describes the ordinary client microphone path.
+**USB DualSense microphone.** With a client that supports it, such as Nightjar, the controller's own microphone reaches the PC as the **virtual DualSense microphone** instead. That path needs the optional USB/IP support and the paired device's Controllers permission; [DualSense USB audio and haptics](dualsense-haptics.md#controller-speaker-headset-and-microphone) covers endpoint readiness, muting and fallback. The rest of this page describes the ordinary client microphone path.
 
 ## On the PC
 

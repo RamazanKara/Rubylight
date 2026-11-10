@@ -21,6 +21,9 @@ People who reported issues, tested builds and gave feedback on [Rubylight's issu
 - [dovi_tool](https://github.com/quietvoid/dovi_tool) by [quietvoid](https://github.com/quietvoid), the reference for the Dolby Vision RPU writer
 - [InputPlumber](https://github.com/ShadowBlip/InputPlumber) by [ShadowBlip](https://github.com/ShadowBlip), for the virtual Steam Deck controller
 - [usbip-win2](https://github.com/vadimgrn/usbip-win2) by [vadimgrn](https://github.com/vadimgrn)
+- [libvirtualgamepad](https://github.com/Nonary/libvirtualgamepad) by [Nonary](https://github.com/Nonary) and Chase Payne, the virtual gamepad driver, with jlobue10's Steam Controller profile, and HIDMaestro's composite DualSense descriptors by the HIDMaestro contributors
+- [punktfunk](https://github.com/unom/punktfunk) by Enrico Bühler ([unom](https://github.com/unom)), whose pf-vdisplay driver Rubylight's virtual display driver is based on
+- The [SADIE II](https://zenodo.org/records/10886409) head-related impulse responses by the University of York's AudioLab, for headphone surround
 - [rusty_enet](https://github.com/jabuwu/rusty_enet) by [jabuwu](https://github.com/jabuwu) and [ENet](https://github.com/lsalzman/enet) by [lsalzman](https://github.com/lsalzman)
 - [Annex](https://github.com/mattxslv/annex) by [mattxslv](https://github.com/mattxslv)
 - [Nucleus Co-op](https://github.com/SplitScreen-Me/splitscreenme-nucleus) by [SplitScreen-Me](https://github.com/SplitScreen-Me)

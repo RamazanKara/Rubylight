@@ -2,7 +2,7 @@
 
 [Documentation](README.md)
 
-Webhooks notify your own services when devices pair, apps start and stop, and streams begin and end. Each event is an HTTP POST with a JSON body, signed with a secret known only to the host and the receiver.
+Webhooks notify your own services when devices pair, apps start and stop, streams begin and end, and a device restarts, shuts down or updates the PC. Each event is an HTTP POST with a JSON body, signed with a secret known only to the host and the receiver.
 
 ## Set up a hook
 
@@ -10,7 +10,16 @@ Open **Webhooks** under **Advanced** in the console's sidebar (or go to `/webhoo
 
 The host keeps the hooks in the `webhooks` setting of its configuration file, with the other host secrets in `ProgramData\Butterpollo`. It never shows the secrets again: the settings API leaves the setting out and refuses to write it, the support bundle redacts it, and the host log names a hook by its origin (`https://example.com`) only, since a path or query may hold a token. At most 16 hooks can be saved.
 
-Scripts can manage hooks through the same API (`GET`/`POST /api/webhooks`, `POST /api/webhooks/delete`, `POST /api/webhooks/test`) with an [API token](api.md).
+Scripts can manage hooks through the console's routes, with an [API token](api.md#scoped-tokens) or the administrator's sign-in:
+
+| Request | Body | Answer |
+| --- | --- | --- |
+| `GET /api/webhooks` | | `events` (every event name), `max` (16), `hooks` (each `url`, `events` and `last`, the last delivery since the host started, or `null`) and `error` (why the saved setting does not parse, or `null`). Never a secret. |
+| `POST /api/webhooks` | `url`, `events` (a non-empty list of event names); to change a hook, `previous` (its current URL); `rotate_secret: true` for a new secret | `secret`: the new secret when the hook is new, its URL moved to another host or `rotate_secret` was set, otherwise `null` |
+| `POST /api/webhooks/delete` | `url` | `status` |
+| `POST /api/webhooks/test` | `url` | `result`: one try of `webhook.test`, with `event`, `delivery`, `time_unix_ms`, `ok`, `http_status`, `error` and `attempts` (`last` in the list has the same fields) |
+
+The general settings API (`/api/config`) leaves `webhooks` out and refuses to write it.
 
 ## Events
 
@@ -19,8 +28,8 @@ Scripts can manage hooks through the same API (`GET`/`POST /api/webhooks`, `POST
 | `pairing.paired` | A device finished pairing (Moonlight PIN or one-time PIN, or a WebRTC browser approved) | `device`, `transport` (`moonlight` or `webrtc`), and `approved_by` (the device that approved it) when approved from a paired device, not the console |
 | `pairing.unpaired` | A device was removed, or a WebRTC browser past the limit was dropped | `device`, and `reason: "limit"` for the latter |
 | `app.started` | An app started (from a device, the console, or after a deferred sign-in) | `app` (`id`, `name`), `device` (null for the console) |
-| `app.stopped` | The running app ended or was closed | `app`, `device`, `reason`, `by` (the device that closed it, or null) |
-| `session.started` | A stream session started | `session`, `device`, `app_id`, `role` (`stream`, `remote_monitor`, `input_only`), `transport` |
+| `app.stopped` | The running app ended or was closed | `app`, `device`, `reason` (`cancel`, `terminate`, `webrtc`, `close game`, `replaced`, `web ui`, `tray`, `exited`, `launch failed` or `shutdown`), `by` (the device that closed it, or null) |
+| `session.started` | A stream session started | `session`, `device`, `app_id`, `role` (`stream`, `remote_monitor`, `input_only`), `transport` (`moonlight` or `webrtc`) |
 | `session.ended` | A stream session ended | as `session.started`, plus `failed` |
 | `power.restart` | A device restarted the PC (`POST /api/native/v1/power/restart`), raised just before the host asks Windows, so a slow receiver may miss it | `device` |
 | `power.shutdown` | A device shut down the PC, raised as `power.restart` is | `device` |

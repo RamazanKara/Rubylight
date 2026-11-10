@@ -12,15 +12,15 @@ This page is for the maintainer. It describes what the workflow does, then lists
 
 A signed release:
 
-1. Builds and tests the tagged commit afresh, without the dependency cache, instead of reusing `main`'s unsigned build.
-2. Checks that every Rubylight binary names the product **Rubylight** and the release version (every build runs this check, signed or not). SignPath refuses files whose version information doesn't match.
-3. Uploads Rubylight's own executables and DLLs as a GitHub artifact and submits them with the [`binaries`](../.signpath/binaries.xml) artifact configuration. The request passes the release version as the `version` parameter and waits up to an hour for the approval.
+1. Builds the tagged commit afresh, without the SDK and compiled-dependency caches, instead of reusing `main`'s unsigned build. The same run's `test` and `lint` jobs test and lint that commit (they may use the caches, since nothing from them ships); the build waits for both to pass before it sends anything for signing.
+2. Checks that every Rubylight binary names the product **Rubylight** and the release version (every build runs this check, signed or not, with `sign-artifacts.ps1 -Phase CheckMetadata`). The service is the exception: it carries its own version from `rust/service/Cargo.toml`, so its file can stay the same from release to release. SignPath refuses files whose version information doesn't match.
+3. Uploads Rubylight's own executables and DLLs as a GitHub artifact and submits them with the [`binaries`](../.signpath/binaries.xml) artifact configuration. The request passes the release version as the `version` parameter and the service's as `service_version`, and waits up to an hour for the approval. A package that ships the previous release's signed service ([previous_service.py](../rust/release/previous_service.py)) leaves it out of the request.
 4. Checks every returned signature and timestamp, puts the signed files in the package and regenerates its SHA-256 manifest.
-5. If the package carries Rubylight's own display driver, catalogs it and signs the catalog with the [`driver`](../.signpath/driver.xml) configuration. See [Rubylight's display driver](#rubylights-display-driver).
+5. Catalogs Rubylight's own display driver, which every package carries, and signs the catalog with the [`driver`](../.signpath/driver.xml) configuration. See [Rubylight's display driver](#rubylights-display-driver).
 6. Builds the ZIP and the self-extracting installer, submits the installer with the [`installer`](../.signpath/installer.xml) configuration, and checks its signature.
 7. Publishes the release only if all of that succeeded. A configured signing request that fails, times out, lacks a file, or returns an invalid or untimestamped signature fails the build; it never publishes unsigned binaries.
 
-A signed release therefore needs two approvals, three once the driver ships. The first request arrives when the build finishes, roughly 35 to 45 minutes after the run starts, and each later one a few minutes after the approval before it. The job allows four hours in total.
+A signed release therefore needs three approvals: the binaries, the driver catalog and the installer. The first request arrives when the build finishes, roughly 35 to 45 minutes after the run starts, and each later one a few minutes after the approval before it. The job allows four hours in total.
 
 Third-party drivers and DLLs keep their upstream signatures and are never submitted. The signed setup executable inside the package becomes `uninstall.exe`; removing an outer installer's appended payload would invalidate its signature. The payload reader recognizes the PE certificate table and alignment padding, so the appended installer signature does not hide the package footer.
 
@@ -48,7 +48,7 @@ Do these in order. Steps 1 to 5 can happen before applying; steps 7 to 18 need t
 10. **Create the artifact configurations.** In the project, add three artifact configurations with these slugs, choosing the custom XML option and pasting the file from the repository:
     - `binaries`: [.signpath/binaries.xml](../.signpath/binaries.xml)
     - `installer`: [.signpath/installer.xml](../.signpath/installer.xml)
-    - `driver`: [.signpath/driver.xml](../.signpath/driver.xml). Only used once the display driver ships, but harmless to create now.
+    - `driver`: [.signpath/driver.xml](../.signpath/driver.xml), for the display driver's catalog.
 
     SignPath's copy is the one that signs. When a file in `.signpath/` changes, paste it again.
 11. **Create the CI user.** Under **Users**, add a CI user such as `rubylight-github`, generate its API token and keep it for step 13. It needs no other role.
@@ -81,9 +81,9 @@ Do these in order. Steps 1 to 5 can happen before applying; steps 7 to 18 need t
 ### First signed release
 
 15. **Release a candidate.** Bump to a release candidate (`python rust/release/bump.py 3.0.1-rc.1`), fill in its notes and push to `main`. Then use Actions, **Rubylight Windows**, **Run workflow** on `main` with **publish**. A failed signing run publishes nothing and creates no tag, so you can fix SignPath's settings and run it again.
-16. **Approve the requests.** SignPath e-mails you for each request: first the binaries, then (once it ships) the driver catalog, then the installer. Approve each one that came from this run; its page shows the repository, commit and workflow run. Each request waits up to an hour.
+16. **Approve the requests.** SignPath e-mails you for each request: first the binaries, then the driver catalog, then the installer. Approve each one that came from this run; its page shows the repository, commit and workflow run. Each request waits up to an hour.
 17. **Check the result.** Download both release files and run `Get-AuthenticodeSignature` on the installer and on the executables and DLLs in the ZIP: each must be `Valid`, signed by SignPath Foundation, with a timestamp. Install, update and uninstall on a clean Windows PC, check the installed `uninstall.exe` the same way, and note what SmartScreen shows.
-18. **Record it.** Name the first signed version in the [code signing policy](code-signing-policy.md), add the change to the release notes, and close [issue #25](https://github.com/RamazanKara/Rubylight/issues/25).
+18. **Record it.** Name the first signed version in the [code signing policy](code-signing-policy.md) and add the change to the release notes.
 
 ## Rubylight's display driver
 
@@ -94,7 +94,7 @@ Do these in order. Steps 1 to 5 can happen before applying; steps 7 to 18 need t
 - **Signing order.** The `binaries` request signs the DLL. Inf2Cat then makes the catalog from the INF and the signed DLL, and the `driver` request signs the catalog after checking the DLL's signature and version information. This is the order Microsoft documents: signing the DLL after the catalog would change bytes the catalog has hashed. [sign-artifacts.ps1](../rust/release/sign-artifacts.ps1) checks that the signed catalog covers the INF and the DLL before the package is built.
 - **SignPath.** Create the `driver` artifact configuration (step 10) before the first signed release, or that release fails at signing.
 - **Tools.** The driver build and the signing steps take stampinf, Inf2Cat, signtool, rc.exe and the IddCx stub library from the Windows Driver Kit. The workflow installs the kit when the runner image lacks it.
-- **Unsigned builds.** Until SignPath signs releases, and in every `main` and local build, the catalog is unsigned. Setup's `install-local.ps1` signs it on the user's PC with a key it deletes at once (see the driver's README).
+- **Unsigned builds.** Until SignPath signs releases, and in every `main` and local build, the catalog is unsigned. Setup's `install-local.ps1` signs it on the user's PC with a key it deletes at once (see the driver's README, [Shipping before SignPath signs it](../rust/drivers/rubylight-vdisplay/README.md#shipping-before-signpath-signs-it-signed-on-the-users-pc)).
 - **Installing silently.** Windows asks before installing a driver from a publisher it doesn't trust yet. For a SignPath-signed catalog `install-local.ps1` adds that exact signer certificate to the machine's `TrustedPublisher` store before `pnputil`, as Vibepollo's installer does, and its `-Uninstall` removes the certificate again if it added it.
 
 Kernel-mode drivers cannot be signed this way; Windows requires Microsoft's attestation or WHQL signature for them.
@@ -122,13 +122,13 @@ The form at [signpath.org/apply](https://signpath.org/apply) asks for these fiel
 
 > Rubylight streams games and the Windows desktop from a gaming PC to phones, tablets, TVs and other PCs running Moonlight, the open-source GameStream client. It is a GPL-3.0 host written in Rust that began as a fork of Vibepollo, from the Sunshine and Apollo family, and is built around the GPU frame path: screen capture, colour conversion and the hardware encoder of AMD Radeon and NVIDIA GPUs, with HDR, per-device virtual displays, controller and haptics support, and PyroWave for very low latency on local networks. It runs as a Windows service with a web console on the local PC. Releases are built from tagged commits by GitHub Actions on GitHub-hosted runners, with no manual build steps.
 >
-> We would like to sign because Windows warns about the unsigned installer: SmartScreen stops it with a "Windows protected your PC" warning and Smart App Control can block it outright, which pushes users to turn off protections they should keep. The installer also sets up a Windows service and drivers, so users should be able to see who published what they run. A future Rubylight virtual display driver (user-mode, IddCx) also needs a trusted signature on its catalog to install. Rubylight already ships the display and gamepad drivers your Foundation signed for Vibepollo, unchanged, with their original signatures.
+> We would like to sign because Windows warns about the unsigned installer: SmartScreen stops it with a "Windows protected your PC" warning and Smart App Control can block it outright, which pushes users to turn off protections they should keep. The installer also sets up a Windows service and drivers, so users should be able to see who published what they run. Rubylight's own virtual display driver (user-mode, IddCx) also needs a trusted signature on its catalog to install without a prompt. Rubylight already ships the gamepad driver your Foundation signed for Vibepollo, unchanged, with its original signature.
 >
 > Rubylight has one maintainer, Ramazan Kara (GitHub: RamazanKara), who writes, reviews and releases the code and will approve every signing request. GitHub and SignPath access use multi-factor authentication. The code signing policy is at https://ramazankara.github.io/Rubylight/docs/code-signing-policy.html.
 
 **Reputation** (update the numbers on the day you apply; the first three come from `gh api repos/RamazanKara/Rubylight/releases` and the issue list):
 
-> Rubylight's Rust host was first published on GitHub at the end of September 2026, continuing the Butterpollo project, a fork of Vibepollo, whose drivers your Foundation signs. As of mid-October 2026 its 39 releases had been downloaded 3,030 times, 15 different people had reported issues on GitHub, and the repository had 58 stars. Users discuss it on Reddit: [add the links to your Reddit posts and the threads quoted in the README]. Rubylight has its own website with documentation (https://ramazankara.github.io/Rubylight/) and its own Android client, Nightjar (https://github.com/RamazanKara/nightjar). Since 2.3.0 every release must pass the full test suite and stream tests on real Radeon hardware before it ships, and attaches the results to its release page.
+> Rubylight's Rust host was first published on GitHub at the end of September 2026, continuing the Butterpollo project, a fork of Vibepollo, whose drivers your Foundation signs. As of mid-October 2026 its 39 releases had been downloaded 3,030 times, 15 different people had reported issues on GitHub, and the repository had 58 stars. Users discuss it on Reddit: [add the links to your Reddit posts and the threads quoted in the README]. Rubylight has its own website with documentation (https://ramazankara.github.io/Rubylight/) and its own client, Nightjar, for Android and desktop (https://github.com/RamazanKara/nightjar). Since 2.3.0 every release must pass the full test suite and stream tests on real Radeon hardware before it ships, and attaches the results to its release page.
 
 **Primary Discovery Channel:** your own answer. Vibepollo's SignPath Foundation signing is an honest "exact source".
 
@@ -145,8 +145,3 @@ The form at [signpath.org/apply](https://signpath.org/apply) asks for these fiel
 | Artifact configuration | `driver` | [.signpath/driver.xml](../.signpath/driver.xml) |
 
 Sources: [SignPath Foundation conditions](https://signpath.org/terms), [SignPath's GitHub integration](https://docs.signpath.io/trusted-build-systems/github), [artifact configuration reference](https://docs.signpath.io/artifact-configuration/reference), [signing policies](https://docs.signpath.io/projects), [origin verification](https://docs.signpath.io/origin-verification).
-
-Rubylight's own display driver (`rust/drivers/rubylight-vdisplay`) does not wait for
-SignPath: until SignPath signs its catalog, it ships unsigned and
-`install-local.ps1` signs it on each user's PC with a key it deletes at once. See the
-driver's README, "Shipping before SignPath signs it".

@@ -2,7 +2,7 @@
 
 [Rubylight](../README.md) · [Download 3.11.8](https://github.com/RamazanKara/Rubylight/releases/tag/v3.11.8) · [Release notes](../rust/RELEASE_NOTES.md)
 
-Rubylight is a Moonlight-compatible game-streaming host for Windows 10 and 11 PCs with an AMD Radeon GPU that has a working AMF encoder or an NVIDIA GPU with NVENC ([NVENC](nvenc.md)). PCs with Intel graphics use [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0).
+Rubylight is a Moonlight-compatible game-streaming host for Windows 10 and 11 PCs with an AMD Radeon GPU that has a working AMF encoder or an NVIDIA GPU with NVENC ([NVENC](nvenc.md)). PCs with only Intel graphics use [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0).
 
 **First stream:** [install the host](getting-started.md#install-or-run-portable), [open the console](getting-started.md#open-the-console), [pair a device](getting-started.md#pair-a-device-and-start-desktop), then start **Desktop** at 1080p60 in SDR.
 
@@ -24,19 +24,21 @@ Feature guides: [Co-op and background streaming](nucleus-coop.md) · [WebRTC ser
 
 | Task | Read |
 | --- | --- |
-| Bring settings from Apollo or Vibepollo, or update the host | [Import a profile](getting-started.md#bring-an-existing-profile) · [Upgrading](getting-started.md#upgrading) |
+| Bring settings from Apollo or Vibepollo, try Rubylight beside them, or update the host | [Import a profile](getting-started.md#bring-an-existing-profile) · [Install alongside](getting-started.md#keep-another-host-and-install-alongside) · [Upgrading](getting-started.md#upgrading) |
 | Choose a codec, turn on HDR or use PyroWave | [Choose your stream format](getting-started.md#choose-your-stream-format) · [Capture and video](configuration.md#capture-and-video) |
 | Stream Dolby Vision, HDR10+ or HLG to a TV | [Capture and video](configuration.md#capture-and-video) |
 | Send PCM or Dolby Digital to a receiver, or use 7.1.4, night mode or headphone surround | [PCM and Dolby Digital audio](configuration.md#pcm-and-dolby-digital-audio) · [Surround, night mode and headphone surround](configuration.md#surround-night-mode-and-headphone-surround) |
 | Stream only the game's sound | [Game-only audio](configuration.md#game-only-audio) |
 | Give each device its own display, or cap a game's frame rate | [Displays and RTSS](configuration.md#displays-and-rtss) · [Settings for one app or device](configuration.md#settings-for-one-app-or-device) |
+| Keep each device's own in-game settings, or add Neural Rendering to a game | [Managed game files](configuration.md#managed-game-files) · [Neural Rendering](configuration.md#neural-rendering) |
+| Move a running game to another device, share it, or stream a second screen | [Displays](features.md#displays) · [Control from a client](features.md#control-from-a-client) |
 | Keep the stream steady on a slow or lossy link, or pick a latency or quality preset | [Link-rate adaptation](configuration.md#lower-bitrate-when-the-link-cannot-carry-it) · [Host bitrate adaptation](configuration.md#host-bitrate-adaptation) · [Stream presets](configuration.md#stream-presets) |
 | Let a device play while someone else uses the PC, or play together on one PC | [Background streaming](configuration.md#background-streaming) · [Co-op and background streaming](nucleus-coop.md) |
 | Let a device close games or change Radeon settings | [Host control](configuration.md#host-control-for-a-device) · [Session actions](configuration.md#session-actions) · [Radeon settings with restore](configuration.md#radeon-settings-with-restore) · [Radeon settings per game](configuration.md#radeon-settings-per-game) |
 | Set up a controller or use the client's microphone | [Controllers](configuration.md#controllers) · [DualSense USB audio and haptics](dualsense-haptics.md) · [Microphone](microphone.md) |
 | Open a menu inside the stream | [Couch menu](configuration.md#couch-menu) |
 | Share the clipboard, files, folders or USB devices with a device | [Clipboard, files and USB](configuration.md#clipboard-files-and-usb) · [USB forwarding](usb-forwarding.md) |
-| Stream to a browser or a Samsung TV | [WebRTC server](webrtc.md) |
+| Stream to a browser or a Samsung TV, play from a TV or console browser, or invite friends | [WebRTC server](webrtc.md) · [Play in a TV browser](webrtc.md#play-in-a-tv-browser) · [Guests in the browser](browser-guests.md) |
 | Launch Steam games from a Steam Deck with MoonDeck | [MoonDeck](configuration.md#moondeck) |
 | Check a remote Tailscale route | [Remote connection route](network-path.md) |
 | Report a problem | [Logs and a useful report](troubleshooting.md#logs-and-a-useful-report) |

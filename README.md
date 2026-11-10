@@ -210,7 +210,7 @@
 
 ## Recently added
 
-- **More controller choices.** A [Steam Controller (2026) profile](docs/configuration.md#controllers) with trackpads, back grips, motion and haptics, plus **Xbox 360 (ViGEmBus)** for tools such as reWASD that need a USB controller. Steam Controller needs the updated gamepad driver; ViGEmBus is installed separately.
+- **More controller choices.** A [Steam Controller (2026) profile](docs/configuration.md#controllers) with trackpads, back grips, motion and haptics, plus **Xbox 360 (ViGEmBus)** for tools such as reWASD that look for a USB controller.
 - **Move a game between devices, or use two screens.** **Continue here** moves the stream while the game keeps running; **Stream here too** joins it. Nightjar's **Dual screen mode** gets a second virtual display, or the PC's other physical monitor. [Release notes](rust/RELEASE_NOTES.md#new-in-3111)
 - **Play in a browser and invite friends.** A PIN-paired play page for browsers, TVs and consoles, plus guest links with access controls; H.264, HEVC and AV1, with HDR where supported. [Browser streaming](docs/webrtc.md)
 - **Manage the PC from the couch.** Authorised Nightjar devices can approve another device's pairing, restart or shut down an idle PC, and install a pending host update. Permissions control each action. [Release notes](rust/RELEASE_NOTES.md#new-in-370)
@@ -339,36 +339,24 @@ Rubylight implements the Moonlight protocol as Sunshine does and keeps its proto
 
 ## Coming from Apollo or Vibepollo
 
-The installer finds an existing Apollo or Vibepollo installation and brings its settings, paired devices, host identity, console sign-in, apps and covers along. Your devices see the same PC and stay paired, and you sign in to the console with the name and password you already use. This uninstalls the other host. To keep it, choose [**Keep it and install alongside**](docs/getting-started.md#keep-another-host-and-install-alongside): Rubylight then runs next to it with its own service, ports and settings.
+The installer brings an existing Apollo or Vibepollo installation's settings, paired devices, host identity, console sign-in, apps and covers along, so your devices see the same PC and stay paired. Or [install alongside it](docs/getting-started.md#keep-another-host-and-install-alongside), with Rubylight's own service, ports and settings.
 
 ## Get started
 
-### Install
+1. Download and run `rubylight-setup-3.11.8.exe` from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v3.11.8). It sets up the Windows service, the virtual display driver and controller support. To try Rubylight without installing, extract `rubylight-3.11.8-windows-x64.zip` and run **Start Rubylight.exe**.
+2. Open **https://localhost:47990** on the PC and create the console account.
+3. Pair a device: Nightjar scans the QR code on **Home**; for Moonlight, enter the PIN it shows on the console's **Devices** page.
+4. Start **Desktop** at 1080p60, then raise the resolution, frame rate and bitrate and turn on HDR.
 
-Download one of the packages from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v3.11.8):
-
-| Package | Use |
-| --- | --- |
-| `rubylight-setup-3.11.8.exe` | The installer. Sets up the Windows service, the virtual display driver and controller support, and either replaces a detected Apollo or Vibepollo installation, importing its settings, or installs alongside it. |
-| `rubylight-3.11.8-windows-x64.zip` | Portable. Extract it and run `Start Rubylight.exe`. Streams a physical display unless the drivers are installed separately. |
-
-The console offers updates and, if you allow it, installs them while nothing is streaming; settings and paired devices are kept. [Getting started](docs/getting-started.md#install-or-run-portable) lists the installer's command-line options, and [Upgrading](docs/getting-started.md#upgrading) covers updates, backups and uninstalling.
-
-### First stream
-
-1. Open **https://localhost:47990** on the PC and create the console account.
-2. Pair a device. In Nightjar, scan the QR code on the console's **Devices** page (Home shows it too until the first device is paired). In Moonlight, select the PC; Moonlight shows a four-digit PIN. On the console's **Devices** page, enter it for the waiting device and select **Pair**.
-3. Start **Desktop** at 1080p60 with HDR off. Once picture, sound and input work, raise the resolution, frame rate and bitrate, and turn on HDR.
-
-[Getting started](docs/getting-started.md) walks through each step, choosing a stream format and importing an existing Apollo or Vibepollo profile.
+[Getting started](docs/getting-started.md) walks through each step, choosing a stream format, importing a profile and updating.
 
 ## Requirements
 
 | | Requirement |
 | --- | --- |
-| **Operating system** | Windows 10 or Windows 11, x64. Virtual displays need Windows 11 23H2 or later; earlier versions stream a physical display. |
-| **Graphics** | An AMD Radeon GPU with a working AMF video encoder, and AMD Software. The host probes each codec at startup and offers only what the driver encodes. AV1 needs a VCN 4.0 or 5.0 engine (RX 7000 and RX 9000 series, Radeon 780M and 890M). The RX 6300, 6400 and 6500 have no video encoder. Or an NVIDIA GPU with NVENC and the NVIDIA driver, which encodes H.264, HEVC and, where its NVENC lists it, AV1 ([NVENC](docs/nvenc.md)). |
-| **Intel** | Use [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). Setup for 3.x stops and says so on PCs with only Intel graphics. |
+| **Operating system** | Windows 10 or Windows 11, x64. Virtual displays need Windows 11 23H2 or later. |
+| **Graphics** | An AMD Radeon GPU with an AMF video encoder and AMD Software, or an NVIDIA GPU with NVENC and the NVIDIA driver ([NVENC](docs/nvenc.md)). AV1 on Radeon needs an RX 7000 or RX 9000 series GPU or a Radeon 780M or 890M. |
+| **Intel** | PCs with only Intel graphics use [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). |
 | **Network** | A local network or your own VPN; a wired connection for the host is recommended. PyroWave needs a fast local network, about 400 Mbps for 1080p60. |
 | **Client** | Any Moonlight-compatible client; see [Works with the client you already have](#works-with-the-client-you-already-have). |
 
@@ -425,9 +413,9 @@ The [build guide](docs/building.md) lists the prerequisites, options and outputs
 
 ## Project status
 
-- **Rubylight 3.0** is the current release line, developed on `main`, and supports AMD Radeon GPUs with AMF and NVIDIA GPUs with NVENC. Patch releases fix bugs; minor releases add features. Changes are listed in the [release notes](rust/RELEASE_NOTES.md).
+- **Rubylight 3** is the current release line, developed on `main`, and supports AMD Radeon GPUs with AMF and NVIDIA GPUs with NVENC. Patch releases fix bugs; minor releases add features. Changes are listed in the [release notes](rust/RELEASE_NOTES.md).
 - **Rubylight 2.6.x** remains available for PCs with Intel graphics. It does not receive 3.x features.
-- **Nightjar**, the companion client for Android, Android TV, Windows and Linux, is developed in this repository under `client/` and released from [RamazanKara/nightjar](https://github.com/RamazanKara/nightjar) with its own version numbers.
+- **Nightjar**, the companion client for Android, Android TV, Fire TV, Windows and Linux, is developed in this repository under `client/` and released from [RamazanKara/nightjar](https://github.com/RamazanKara/nightjar) with its own version numbers.
 - Rubylight was called **Butterpollo** until October 2026. The executable (`butterpollo.exe`), the profile folder (`%ProgramData%\Butterpollo`) and the `BUTTERPOLLO_*` environment variables keep that name, so existing installations and scripts continue to work.
 
 ## Support
@@ -445,6 +433,8 @@ Rubylight is licensed under **GPL-3.0**. Everyone who helped, with their GitHub 
 - PyroWave and Granite are by **Themaister** (MIT); the PyroWave Moonlight protocol and clients are **joemossjr16's** work.
 - Composite DualSense haptics draw on **Nonary's** Vibepollo protocol and its DualSense rumble-stop fix, **Chase Payne's** libvirtualgamepad USB reports and **HIDMaestro contributors'** composite descriptors.
 - The virtual Steam Controller is **jlobue10's** profile in Nonary's libvirtualgamepad, and the host maps clients onto it as **Nonary's** Vibepollo does.
+- Clipboard sync uses the control message frame of **qiin2333's** Moonlight V+ (GPL-3.0).
+- Rubylight's virtual display driver is based on **Enrico Bühler's (unom)** pf-vdisplay driver from [punktfunk](https://github.com/unom/punktfunk) (MIT OR Apache-2.0).
 - Background streaming and co-op run games through **SplitScreen.Me's** [Nucleus Co-op](https://github.com/SplitScreen-Me/splitscreenme-nucleus) (GPL-3.0) and **Ilyaki's** ProtoInput (MIT), which you download yourself; Rubylight neither bundles nor downloads them.
 
 [License](LICENSE) · [Third-party components](rust/THIRD_PARTY.md) · [Project history](docs/butterpollo-cpp.md) · [Code signing policy](docs/code-signing-policy.md) · [Privacy](docs/privacy.md)

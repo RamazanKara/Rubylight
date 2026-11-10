@@ -2,6 +2,8 @@
 
 Design and implementer briefs for [plan](rubylight-3.0-plan.md) item A8. Nothing here changes how a frame is captured, encoded, sent, decoded or shown. No `PROTOCOL_VERSION` change; stock Moonlight sees no difference.
 
+Section 2 is the reference for the record's format, the join and the report (`rust/release/timing_report.py` and code comments cite it). Sections 1, 3 and 4 record the design as decided on 2026-10-22: what was missing then, the implementer briefs, and the decisions. [Performance](../rust/PERFORMANCE.md#october-23-per-frame-timing-record-baselines) has the measured baselines.
+
 ## 1. What exists and what is missing
 
 | Point | Where it is stamped today | Reaches the other side? | Gap |
@@ -37,7 +39,7 @@ The v1 report has a header (`version, count, reserved, reserved`) followed by `c
 - Header byte 2 is `extra`, the bytes per record in a trailing block. It is `0` in v1 and `16` now. The version stays `1`.
 - After the v1 records, `count × extra` bytes follow. For each record: `presented_at_us` u64 (capture present on the media clock), `capture_us` u32 (presented to acquired), `convert_us` u32 (claimed to submitted). A decoder reads the first 16 bytes of each entry and skips the rest, so later fields can be appended.
 - It is valid only if `capture_us + convert_us ≤ queue_us`. If not, the client drops the extension and keeps the base records.
-- An extended report carries at most 17 records (616 bytes). The Rust and Java decoders accept counts up to 32 and ignore trailing bytes, but shipped Nightjar's patched common-c (`host-timing.patch`) hands 0x5536 to Java only if the message is at most 644 bytes, and `4 + 36 × N` exceeds that from N = 18. The cap constant lives in the protocol crate.
+- An extended report carries at most 17 records (616 bytes, `HOST_TIMING_EXTENDED_MAX_RECORDS` in the protocol crate). The Rust and Java decoders accept counts up to 32 and ignore trailing bytes, but older Nightjar builds' patched common-c (`host-timing.patch`) hands 0x5536 to Java only if the message is at most 644 bytes, and `4 + 36 × N` exceeds that from N = 18. The current patch accepts up to 1156 bytes (`4 + 36 × 32`), as brief B step 1a asked.
 - The API is additive: `HostTimingExtra`, `HostTiming::encode_report_with(&[(HostTiming, HostTimingExtra)])` and `decode_report_with(&[u8]) -> Option<Vec<(HostTiming, Option<HostTimingExtra>)>>`. `encode_report`/`decode_report` are unchanged, so existing callers keep compiling.
 
 The client derives these from the extension: capture present = `P`, acquired = `P + capture_us`, submit = `P + queue_us`, encoded = submit + `encode_us`, last sent = `P + host_us`, first sent = last sent − `send_us`. Hold + claim = `queue − capture − convert`, and packetize + pacing = `residual_us()`. Game present comes from the frame's RTP µs, which the client already has.
@@ -49,13 +51,13 @@ Set `BUTTERPOLLO_TIMING_RECORD=<dir>` on the host process. It is unset by defaul
 ```
 # rubylight timing record 1
 # media_epoch_qpc_ms=<QPC ms at media_epoch, as clock_ms() in moonlight_client.c>
-# codec=<h264|hevc|av1|pyrowave> capture=<wgc|dda> present_source=<etw|capture>
+# codec=<h264|hevc|av1|pyrowave> capture=<wgc|ddx|dxgi|idd-push> present_source=<etw|capture>
 wire_frame,rtp_us,present_us,acquired_us,published_us,claimed_us,submitted_us,encoded_us,packetized_us,prepared_us,first_sent_us,last_sent_us,first_unit_us,early_blocks
 ...
 # dropped=<rows dropped because the writer fell behind>
 ```
 
-All values are integer µs on the media clock. `first_unit_us` and `early_blocks` are empty unless the frame was streamed (below); records written before they existed end at `last_sent_us`, and the report reads both. The send thread does a non-blocking `try_send` into a bounded channel (4096 rows) at the point where `host_timings.record` is called today. A writer thread does the file IO. A full channel drops rows and counts them, and never blocks the send thread.
+`capture` is the stream's capture method (`auto` is recorded as `wgc`); `present_source` is `etw` when the ETW present tracker stamped the game's presents (WGC only), else `capture`. All values are integer µs on the media clock. `first_unit_us` and `early_blocks` are empty unless the frame was streamed (below); records written before they existed end at `last_sent_us`, and the report reads both. The send thread does a non-blocking `try_send` into a bounded channel (4096 rows) at the point where `host_timings.record` is called today. A writer thread does the file IO. A full channel drops rows and counts them, and never blocks the send thread.
 
 #### Streamed frames (`video_slice_delivery`)
 
@@ -69,7 +71,7 @@ A P-frame the host sends block by block while the encoder still produces it has 
 
 ### Client record
 
-- **Nightjar latency CSV**: append these columns at the end and leave the existing ones and their order as they are: `rtp_host_us` (game present), `host_present_us`, `host_acquired_us`, `host_submitted_us`, `host_encoded_us`, `host_first_sent_us`, `host_last_sent_us`, `clock_offset_us`, `clock_rtt_us`. Host columns are µs on the host clock. A column is empty when its source is missing (no extension, report lost, or no 0x5537). The offset and RTT are read once per CSV flush, outside the stats lock, for the newest exchange. Drift within one flush is about 50 µs/s at most.
+- **Nightjar latency CSV** (`FrameLatencyStats.CSV_HEADER` on Android; Nightjar desktop writes the same file): nine columns follow `callback_delay_ms`, the existing ones keeping their order: `rtp_host_us` (game present), `host_present_us`, `host_acquired_us`, `host_submitted_us`, `host_encoded_us`, `host_first_sent_us`, `host_last_sent_us`, `clock_offset_us`, `clock_rtt_us`. Later columns, such as the present scheduler's `sched_vsync_ns` to `drop_reason`, come after them, so read columns by name. Host columns are µs on the host clock. A column is empty when its source is missing (no extension, report lost, or no 0x5537). The offset and RTT are read once per CSV flush, outside the stats lock, for the newest exchange. Drift within one flush is about 50 µs/s at most.
 - **Test receivers** (`BUTTERPOLLO_TEST_TIMING_CSV`, `frames.csv`): `moonlight_client.c` stays as it is. nightjar-cli appends the same nine columns after its existing ones. `csv.DictReader` users are unaffected.
 
 ### Join and error bound
@@ -86,7 +88,7 @@ Host: `game_to_present` (RTP to capture present, ETW only), `capture`, `hold_cla
 
 Cadence (B1; each is one row of n, median, p95, p99, and is left out of the table when it has no pairs): the series are taken in frame-number order and each frame is paired with the previous one that has the stamp. `present_interval` is the gap between the game's present times of adjacent frames, the content's own cadence (the host record's rows, so it includes frames the client lost; consecutive rows are paired, so a static repeat, which has no row but uses up a frame number, shows as one long interval). `host_cadence_error` is `|(last_sent_i - last_sent_{i-1}) - (present_i - present_{i-1})|`, the cadence the host adds; it is judged against the present stamp, or the RTP stamp when a row has none, and uses the host record's rows when there is one, otherwise the client file's host columns. `client_present_interval` is the gap between `render_ns` of adjacent shown frames and `client_cadence_error` is `|render_ns gap - rtp_host_us gap|` over consecutive shown frames. `arrival_interval` and `arrival_cadence_error` are the same two against `enqueue_ns` (assembled, before the decoder); they need no display, so they also work for a frames.csv. A frame that never showed (lost, or dropped by the client) is skipped: the error of a pair that spans it is kept, since the shown gap should still equal the content's gap, but the client's interval is reported for adjacent frame numbers only. A pair whose stamps are on different clocks (a present time against an RTP stamp) has no error. RTP stamps are differenced the short way round the 32-bit wrap. No clock offset is involved, so these rows have no bound. `--skip-first SECONDS` leaves the warm-up out of every row (the first frame whose time is that late is the cutoff on both sides, read from one clock column per file). `rust/release/cadence_matrix.py` runs the host's cadence across stream rates, codecs and the VRR hint with these rows. The percentiles are nearest-rank like the other rows, so p99 is meaningful from a few hundred pairs.
 
-The 5 s `stream timings` line carries the capture's age when the stream takes it, from its acquire: `capture_age_at_claim_ms` (acquire to the pacer's claim) and `capture_age_at_submit_ms` (to the encoder's submit), each p50/p95/p99. A fixed claim tick unrelated to the content's frame phase is expected to show here as an age spread as wide as the content's frame interval (to be confirmed by the measurements); the same two are `acquire_to_claim` and `acquire_to_submit` in the stage snapshot and the `stages=trace` picture line. `cadence_matrix.py` groups: `core` and `codecs` (a 90 Hz game family at 90/120/144 fps), `sixty` (60 Hz game, 60 fps) and `surplus` (120 and 240 Hz game, 60 fps).
+The 5 s `stream timings` line carries the capture's age when the stream takes it, from its acquire: `capture_age_at_claim_ms` (acquire to the pacer's claim) and `capture_age_at_submit_ms` (to the encoder's submit), each p50/p95/p99. They show whether the claim tick follows the content's frame phase: a fixed tick unrelated to it spreads the age across up to one content frame interval. The same two are `acquire_to_claim` and `acquire_to_submit` in the stage snapshot and the `stages=trace` picture line. `cadence_matrix.py` groups: `core` and `codecs` (a 90 Hz game family at 90/120/144 fps), `sixty` (60 Hz game, 60 fps) and `surplus` (120 and 240 Hz game, 60 fps).
 
 ### What a moonlight-common-c receiver provides
 

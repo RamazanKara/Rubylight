@@ -34,14 +34,37 @@ GET /api/native/v1/capabilities
 ```json
 {
   "api_version": 1,
-  "host": { "name": "GAMING-PC", "version": "3.0.0", "unique_id": "5E0F4B1C-..." },
-  "features": ["library", "session", "session.close_game", "session.launcher", "radeon.read", "radeon.write", "radeon.profile"],
-  "permissions": { "list": true, "view": true, "launch": true, "host_control": false }
+  "host": { "name": "GAMING-PC", "version": "3.11.8", "unique_id": "5E0F4B1C-..." },
+  "features": ["library", "session", "session.close_game", "session.launcher", "wake",
+               "audio.night_mode", "audio.headphone_surround", "session.mic_only",
+               "session.continue_here", "power.restart", "power.shutdown",
+               "radeon.read", "radeon.write", "radeon.profile", "session.couch_menu",
+               "update", "pairing.approve", "clipboard.image"],
+  "permissions": { "list": true, "view": true, "launch": true, "host_control": false,
+                   "file_upload": false, "file_download": false, "usb": false,
+                   "shared_folders": false, "coop_join": true, "restart_shutdown": false,
+                   "pairing_approve": true }
 }
 ```
 
-- `features` says what the host implements and has turned on, the same for every client. `radeon.read`, `radeon.write` and `radeon.profile` appear only where the host started its Radeon worker; `files.upload` and `files.download` only while the host's File transfer setting is on. Clients ignore feature strings they don't know.
-- `permissions` belongs to the calling device. `file_upload` and `file_download` (bits `1 << 18` and `1 << 19`) are missing from hosts before file transfer and decode as `false`. `coop_join` is whether the device may join co-op games (Launch apps and its **Can join co-op games** setting, which follows Launch apps until set), never a permission bit; hosts before 3.0 leave it out, which decodes as `false`. `restart_shutdown` is the device's **Restart and shut down PC** grant (see Power and update); older hosts leave it out. `pairing_approve` is the device's **Approve new devices** grant (see Approve a device), which is not implied by Host control and is reported apart from it; older hosts leave it out. With a feature listed but its permission off, the client shows the control disabled, with the sentence from the matching error (for example "Turn on Host control for this device in the Rubylight console").
+`features` says what the host implements and has turned on. Clients ignore feature strings they don't know. Only `session.couch_menu` depends on the calling device; every other feature is the same for every client.
+
+| Feature | Listed | Section |
+| --- | --- | --- |
+| `library`, `session`, `session.close_game`, `session.launcher`, `session.mic_only`, `session.continue_here` | always | [Library](#library), [Session](#session) |
+| `wake`, `audio.night_mode`, `audio.headphone_surround` | always | [Wake targets](#wake-targets-wake), [Audio processing](#audio-processing-audionight_mode-audioheadphone_surround) |
+| `power.restart`, `power.shutdown` | always | [Power and update](#power-and-update-powerrestart-powershutdown-update) |
+| `radeon.read`, `radeon.write`, `radeon.profile` | where the host started its Radeon worker | [Radeon state and writes](#radeon-state-and-writes) |
+| `files.upload`, `files.download` | while the host's `file_transfer` setting is on | [Files](#files) |
+| `session.couch_menu` | to a device with View or Launch whose `couch_menu` setting (host or device) is on | [Session](#session) |
+| `coop` | while this host can run Nucleus Co-op sessions | [Endpoints](#endpoints) |
+| `update` | where the host installs its own updates (an installed service) | [Power and update](#power-and-update-powerrestart-powershutdown-update) |
+| `pairing.approve` | while pairing is on (`enable_pairing`) | [Approve a device](#approve-a-device-pairingapprove) |
+| `usb` | while `usb_forwarding` is on and the USB/IP driver is installed | [USB forwarding](#usb-forwarding) |
+| `clipboard.image` | while `clipboard_image` is on (the default) | [Image clipboard](#image-clipboard) |
+| `folders` | while the host shares at least one folder | [Shared folders](#shared-folders) |
+
+- `permissions` belongs to the calling device. `list`, `view` and `launch` are the List apps, View streams and Launch apps bits. `host_control` is the device's **Host control** grant (see [The host control permission](#the-host-control-permission)), and `usb` and `shared_folders` are described with their features. `file_upload` and `file_download` (bits `1 << 18` and `1 << 19`) are missing from hosts before file transfer and decode as `false`. `coop_join` is whether the device may join co-op games (Launch apps and its **Can join co-op games** setting, which follows Launch apps until set), never a permission bit; hosts before 3.0 leave it out, which decodes as `false`. `restart_shutdown` is the device's **Restart and shut down PC** grant (see Power and update); older hosts leave it out. `pairing_approve` is the device's **Approve new devices** grant (see Approve a device), which is not implied by Host control and is reported apart from it; older hosts leave it out. With a feature listed but its permission off, the client shows the control disabled, with the sentence from the matching error (for example "Turn on Host control for this device in the Rubylight console").
 
 ## Endpoints
 
@@ -58,6 +81,7 @@ All paths start with `/api/native/v1`. "Owner" means the caller owns the current
 | POST | `/session/end` | Launch, owner | Session |
 | POST | `/session/close-game` | Launch + **host control**, owner, or no session | Session |
 | POST | `/session/continue-here` | View and Launch | Session. Moves the running game's stream to this device (feature `session.continue_here`). 403 `permission_required`, 409 `no_session`, `session_busy` or `host_in_use` |
+| POST | `/session/couch-menu` `{"open": true}` | View or Launch, a live stream of the caller's own | `{"open"}`: whether the menu is open now (feature `session.couch_menu`). 409 `no_session`, 503 `temporarily_unavailable` with the reason the stream can't show it |
 | GET | `/launch`, `/resume` (existing) | Launch / View | Play and Resume, unchanged |
 | GET | `/radeon` | View or Launch | Radeon |
 | POST | `/radeon/settings` | View + **host control**, owner of a `streaming` or `suspended` session | Radeon |
@@ -80,7 +104,8 @@ All paths start with `/api/native/v1`. "Owner" means the caller owns the current
 | GET | `/pairing/requests` | **approve new devices** or **host control** | PairingRequests: the devices waiting to pair, never a certificate (feature `pairing.approve`, listed while pairing is on) |
 | POST | `/pairing/approve` `{"id", "pin"}` | **approve new devices** or **host control** | PairingApproved `{"name"}` once the device has paired. 403 `permission_required`, 404 `not_found`, 409 `pairing_ended`, `pairing_cooldown` or `pairing_unconfirmed`, 422 `wrong_pin` or `invalid_value` |
 | POST | `/pairing/deny` `{"id"}` | **approve new devices** or **host control** | PairingRequests: those still waiting. 404 `not_found` |
-| POST | `/coop/join` `{"session": N}` | Launch; **Can join co-op games** to take another device's free slot | Joined `{"session", "slot", "app_id"}`: the slot is held until this device launches `app_id`. 403 `permission_required`, 409 `no_session` or `coop_refused` |
+| POST | `/coop/join` `{"session": N}` | Launch; **Can join co-op games** to take another device's free slot | Joined `{"session", "slot", "app_id"}`: the slot is held until this device launches `app_id`. 403 `permission_required`, 409 `no_session` or `coop_refused`, 503 `temporarily_unavailable` while Nucleus Co-op cannot run |
+| GET | `/usb/tunnel` | `usb`, a token from `0x553A` | 101, then USB/IP (feature `usb`, see [USB forwarding](#usb-forwarding)) |
 
 Permission bits are the existing ones: List `1 << 24`, View `1 << 25`, Launch `1 << 26`, Upload files `1 << 18`, Download files `1 << 19`. Host control and Approve new devices are separate per-device flags (see below).
 
@@ -241,6 +266,8 @@ Only asking for the game shares: `/resume`, or a `/launch` of a Resume tile. Any
 `kind` is `update` (an update, install or download is in the way), `sign_in` (a sign in, a verification code or Steam Guard) or `prompt` (a launcher window in front for more than 20 s with a title that names nothing; a client shows `window_title`). An unknown kind reads as `prompt`. The host reads the visible windows every 2 s while the game has not shown up (`rust/host/src/launcher_watch.rs`, classifier in `rust/core/src/launcher_prompt.rs`). A note needs two looks in a row, goes when two looks in a row find no launcher window, and goes at once when the game's process or window appears. It is a note, not a state: the session state does not change, and the host never clicks or types into a launcher. Only the owner sees it, and an app that starts no program of its own (a desktop tile) or only opens a launcher (Steam Big Picture, a bare `steam.exe`) is not watched, because the launcher is the app. A Playnite-started game counts as seen when Playnite reports it running. A windowed game that the host cannot tell from the launcher can leave a note up until the launcher window closes or the watch's 10-minute limit passes, after which the host stops looking. The fixture is `rust/core/native-api/tests/fixtures/session_launcher.json`.
 
 **Radeon profile (`radeon.profile`).** An app with `radeon-profile` set (see [Radeon settings per game](configuration.md#radeon-settings-per-game)) puts `radeon_profile` in the owner's Session: `profile` (`competitive`, `smoothness`, `quality` or `custom`), `state` (`applying`, `applied` or `failed`), `settings` (the ids written, which go back when the session ends) and, when something was left out or failed, `message`. A failed profile does not stop the launch: the game runs without it, the host log names the setting with `ERROR`, and the session shows `failed` with the reason. The profile goes through the same journaled path as `POST /radeon/settings` and is restored by the same session-end hooks. It needs no `host_control` on the device: the app's config is the consent.
+
+**Couch menu (`session.couch_menu`).** `POST /session/couch-menu` with `{"open": true}` opens the menu the host draws into the caller's own live stream, and `{"open": false}` closes it ([Couch menu](configuration.md#couch-menu)). It is idempotent and answers `{"open"}`, whether the menu is open now. The body takes no other field. Without a live stream of its own the caller gets 409 `no_session`; a stream that can't show the menu (the menu off for it, a stream too small, or its control stream not connected yet) gets 503 `temporarily_unavailable` with the reason. The feature is listed only to a device with View or Launch whose `couch_menu` setting, the host's or its own, is on.
 
 ## Radeon state and writes
 
@@ -581,7 +608,7 @@ Every non-2xx answer has the same body:
 |---|---|---|
 | 403 | `not_paired` | No TLS client certificate, or the device is unknown or disabled |
 | 403 | `permission_required` | List, View or Launch missing, or Approve new devices on a `/pairing` route. `message` names the permission, as `authenticated()` does for the Moonlight endpoints |
-| 403 | `host_control_required` | Write or Close game without host control |
+| 403 | `host_control_required` | Radeon write or restore, Close game or Install update without host control |
 | 403 | `file_transfer_disabled` / `forbidden` | Files: the host's File transfer setting is off / the device lacks Upload files or Download files |
 | 404 | `not_found` | Unknown path under `/api/native/v1`, GPU or setting id, or Radeon controls this host does not have (a restore or write on a host without them) |
 | 400 | `invalid_request` | Malformed JSON, unknown fields in a write, or a body over 16 KiB |
@@ -595,8 +622,11 @@ Every non-2xx answer has the same body:
 | 409 | `no_console_user` / `transfer_busy` | Files: nobody is signed in to Windows / the device already has an upload or two downloads running, the PC eight downloads, or another program holds the file |
 | 409 | `pairing_ended` / `pairing_cooldown` / `pairing_unconfirmed` | Approving a device: three wrong PINs ended this address's requests / a wrong PIN just came from it / the device did not answer the handshake |
 | 422 | `wrong_pin` | Approving a device: the handshake failed, and the device starts over with a new PIN |
-| 409 | `host_in_use` / `token_expired` / `update_unavailable` | Power and update: the PC is in use, and `message` names the device or what runs / the power token expired or was used, so confirm again / no update to install, `message` says why |
-| 503 | `temporarily_unavailable` | ADLX is busy or reinitialising, with `retry_after_ms` |
+| 409 | `host_in_use` / `token_expired` / `update_unavailable` | Power and update: the PC is in use, and `message` names the device or what runs / the power token expired or was used, so confirm again / no update to install, `message` says why. Continue here also answers `host_in_use` |
+| 409 | `coop_refused` | Co-op: the session is full or ended, or the device was removed from it; `message` says which |
+| 403 | `usb_disabled` / 409 `usb_limit` | USB forwarding: the setting is off or the device has no `usb` permission / the host forwards as many devices as it allows |
+| 403 | `folders_disabled` / `folder_unreadable` | Shared folders: the host shares none / Windows denies the signed-in user reading it |
+| 503 | `temporarily_unavailable` | ADLX is busy or reinitialising, with `retry_after_ms`; Nucleus Co-op cannot run (`/coop`); the stream can't show the couch menu |
 | 500 | `internal` | A bug. The message is logged on the host too |
 
 `not_streaming` appears only as an action `reason`: a `disconnect` POST on a session that is already `suspended` is idempotent and returns 200 (with no session at all it is `409 no_session`). `message` is plain English that the client can show as it is. Clients branch on `code` only. An unknown code decodes as `ErrorCode::Unknown`, which carries no status, so the client must keep the HTTP status of the response and treat the error by that.
@@ -608,100 +638,36 @@ Which actions are allowed (`GET /session`, and the same rules apply to the POSTs
 - The path carries the major version (`/v1`). Within v1, changes are additive only: new fields, features, setting ids, actions, error codes and enum values. Clients ignore unknown fields. They treat an unknown state as `unsupported`, an unknown session state as `idle` with no actions, and hide unknown actions.
 - Removing or renaming a field, changing a type, or changing an action's meaning needs `/v2`. Then `NativeApiVersion` reports 2, and the host keeps serving v1 for at least the whole 3.x line.
 - `api_version` in the capabilities response is the version of the path that answered.
-- Compatibility: stock Moonlight and Nightjar 0.7.x ignore the field on a 3.0 host, and `/applist`, `/cancel` and the tiles are unchanged for them; Nightjar 0.8.0 and newer against 2.6.x, Sunshine or Apollo finds the field missing and shows the classic grid.
+- Compatibility: stock Moonlight and clients without native API support ignore the field, and `/applist`, `/cancel` and the tiles are unchanged for them; Nightjar against a host without the field (Rubylight 2.6.x and other Moonlight hosts) shows the classic grid.
 
 ## Where the types live
 
 The API types live in a dependency-light crate inside `rust/core`, re-exported by butterpollo-core:
 
-- `rust/core/native-api/Cargo.toml`: package `rubylight-native-api`, a workspace member. Its only dependency is `serde` with `derive` (`serde_json` for tests). Its manifest is self-contained: it sets `version`, `edition = "2021"`, `rust-version = "1.80"`, `license` and `repository` itself and copies the workspace lints, because a `*.workspace = true` key makes cargo read the root manifest, whose `resolver = "3"` a 1.80 cargo can't parse. The crate has its own version, `1.0.0`, which follows the API and not the host, so `rust/release/bump.py` (which only bumps `rust/*/Cargo.toml`) leaves it alone.
+- `rust/core/native-api/Cargo.toml`: package `rubylight-native-api`, a workspace member. Its only dependency is `serde` with `derive` (`serde_json` for tests). Its manifest is self-contained: it sets `version`, `edition = "2021"`, `rust-version = "1.80"`, `license` and `repository` itself and copies the workspace lints, because a `*.workspace = true` key makes cargo read the root manifest, whose `resolver = "3"` a 1.80 cargo can't parse. The crate has its own version (`1.1.0`), which follows the API and not the host, so `rust/release/bump.py` (which only bumps `rust/*/Cargo.toml`) leaves it alone.
 - `butterpollo-core` depends on it by path and exposes it as `butterpollo_core::native_api` (`pub use rubylight_native_api as native_api;` in `rust/core/src/lib.rs`).
 - Why not `butterpollo-core` itself: nightjar-core uses butterpollo-core only as a **dev-dependency** for interop tests. As a runtime dependency it would pull `x509-parser`, `rcgen`, `regex`, `quick-xml`, `prost`, `anyhow` and an `embed-resource` build script into the Android library, and its edition 2024 / Rust 1.88 floor into Nightjar's 1.80 workspace. Why not `rubylight-protocol`: it is `no_std` without serde, and JSON doesn't belong there.
 
-Modules (serde shapes as in the examples above, all `snake_case`):
+Modules (serde shapes as in the examples above, all `snake_case`; the source is authoritative):
 
-```rust
-// rubylight_native_api
-pub const API_VERSION: u32 = 1;
-pub const PREFIX: &str = "/api/native/v1";
-pub const SERVERINFO_FIELD: &str = "NativeApiVersion";
-pub mod feature { pub const LIBRARY: &str = "library"; pub const SESSION: &str = "session";
-    pub const CLOSE_GAME: &str = "session.close_game"; pub const RADEON_READ: &str = "radeon.read";
-    pub const RADEON_WRITE: &str = "radeon.write"; }
+| Module | Types |
+| --- | --- |
+| crate root | `API_VERSION` (1), `PREFIX` (`/api/native/v1`), `SERVERINFO_FIELD` (`NativeApiVersion`), and `feature`, the feature strings above |
+| `capabilities` | `Capabilities`, `HostInfo`, `Permissions` |
+| `library` | `Library`, `Game`, `Store`, `Artwork` |
+| `session` | `Session`, `State`, `Owner`, `Action`, `ActionId`, `SessionApp`, `LauncherNotice`, `LauncherKind`, `RadeonProfile`, `ProfileState`, `PlayingOn`, `MovedTo`, `CouchMenuRequest`, `CouchMenu` |
+| `radeon` | `Radeon`, `Gpu`, `Setting`, `ControlState`, `Kind`, `Value`, `Range`, `Choice`, `Restore`, `SettingsWrite`, `Change` |
+| `wake` | `Wake`, `Target`, `AdapterKind`, `TargetState`, `Check`, `CheckState`, `System`, `Sleep`, `FastStartup`, `ShutdownWake`, `IdleSleep`, `IdleSleepState`; check ids in `wake::check` |
+| `audio` | `Audio`, `AudioWrite` (Radeon `Setting` and `Change`), the ids `NIGHT_MODE` and `HEADPHONE_SURROUND`, `GROUP`; reasons in `audio::reason` |
+| `files` | `FileList`, `FileEntry`, `Uploaded` |
+| `folders` | `FolderList`, `SharedFolder`, `FolderAccess`, `FolderEntries`, `FolderEntry`, `EntryKind` |
+| `coop` | `Coop`, `Game`, `Session`, `Player`, `Phase`, `End`, `EndReason`, `JoinRequest`, `Joined` |
+| `power` | `Power`, `Availability`, `PowerRequest`, `PowerAccepted`, `Update` |
+| `pairing` | `PairingRequests`, `PairingRequest`, `PairingApprove`, `PairingDeny`, `PairingApproved` |
+| `usb` | `TUNNEL_PATH`, `UPGRADE`, `TOKEN_HEADER`, `TOKEN_BYTES`, `TOKEN_TTL_SECS` |
+| `error` | `ErrorBody`, `ApiError`, `ErrorCode` with `ErrorCode::status()`, the table in [Errors](#errors) |
 
-// capabilities.rs
-pub struct Capabilities { pub api_version: u32, pub host: HostInfo, pub features: Vec<String>, pub permissions: Permissions }
-pub struct HostInfo { pub name: String, pub version: String, pub unique_id: String }
-pub struct Permissions { pub list: bool, pub view: bool, pub launch: bool, pub host_control: bool }
-
-// library.rs
-pub struct Library { pub revision: String, pub games: Vec<Game> }
-pub struct Game { pub install_id: String, pub app_id: u32, pub title: String, pub game_id: Option<String>,
-    pub store: Option<Store>, pub installed: Option<bool>, pub running: bool, pub artwork: Artwork }
-pub struct Store { pub source: String, pub id: String, pub name: String }
-pub struct Artwork { pub cover: Option<String>, pub version: String }
-
-// session.rs
-pub enum State { Idle, Preparing, Launching, Streaming, Suspended, Stopping, #[serde(other)] Unknown }
-pub enum Owner { None, You, OtherDevice, #[serde(other)] Unknown }
-pub enum ActionId { Resume, Disconnect, End, CloseGame, #[serde(other)] Unknown }
-pub struct Action { pub id: ActionId, pub allowed: bool, pub reason: Option<ErrorCode> }
-pub struct SessionApp { pub install_id: String, pub app_id: u32, pub title: String }
-pub struct Session { pub revision: u64, pub state: State, pub owner: Owner, pub app: Option<SessionApp>,
-    pub game_running: bool, pub since_unix_ms: Option<u64>, pub suspended_until_unix_ms: Option<u64>,
-    pub actions: Vec<Action> }
-
-// radeon.rs
-pub enum ControlState { Configurable, ReadOnly, NeedsExternalSetup, Unsupported, TemporarilyUnavailable,
-    #[serde(other)] Unknown }
-pub enum Kind { Toggle, Integer, Choice, #[serde(other)] Unknown }
-#[serde(untagged)] pub enum Value { Bool(bool), Integer(i64), Choice(String) }
-pub struct Range { pub min: i64, pub max: i64, pub step: i64 }
-pub struct Choice { pub value: String, pub label: String }
-pub struct Restore { pub original: Value, pub written: Value }
-pub struct Setting { pub id: String, pub group: String, pub kind: Kind, pub state: ControlState,
-    pub value: Option<Value>, pub range: Option<Range>, pub options: Vec<Choice>, pub unit: Option<String>,
-    pub restore: Option<Restore>, pub reason: Option<String>, pub message: Option<String> }
-pub struct Gpu { pub id: i32, pub name: String, pub driver: String, pub settings: Vec<Setting> }
-pub struct Radeon { pub revision: u64, pub state: ControlState, pub reason: Option<String>,
-    pub message: Option<String>, pub host_control: bool, pub writable_now: bool, pub gpus: Vec<Gpu> }
-pub struct SettingsWrite { pub gpu: i32, pub changes: Vec<Change> }   // deny_unknown_fields
-pub struct Change { pub id: String, pub value: Value }
-
-// wake.rs (feature::WAKE), check-id constants in wake::check
-pub enum AdapterKind { Ethernet, Wifi, #[serde(other)] Unknown }
-pub enum TargetState { Ready, NeedsSetup, Experimental, #[serde(other)] Unknown }
-pub enum CheckState { Ok, Warning, Error, #[serde(other)] Unknown }
-pub enum Sleep { S3, None, #[serde(other)] Unknown }
-pub enum FastStartup { Active, Inactive, Off, #[serde(other)] Unknown }
-pub enum ShutdownWake { FirmwareUnknown, #[serde(other)] Unknown }
-pub enum IdleSleepState { Off, Armed, Blocked, Unsupported, #[serde(other)] Unknown }
-pub struct Check { pub id: String, pub state: CheckState }
-pub struct Target { pub mac: String, pub kind: AdapterKind, pub connected: bool, pub route: bool,
-    pub broadcasts: Vec<String>, pub state: TargetState, pub checks: Vec<Check> }
-pub struct System { pub sleep: Sleep, pub modern_standby: bool, pub hibernate: bool,
-    pub fast_startup: FastStartup, pub shutdown_wake: ShutdownWake }
-pub struct IdleSleep { pub state: IdleSleepState, pub minutes: u32, pub reason: Option<String> }
-pub struct Wake { pub revision: u64, pub primary: Option<String>, pub targets: Vec<Target>,
-    pub system: System, pub idle_sleep: IdleSleep }
-
-// audio.rs (feature::AUDIO_NIGHT_MODE, feature::AUDIO_HEADPHONE_SURROUND)
-pub const NIGHT_MODE: &str = "audio.night_mode"; pub const HEADPHONE_SURROUND: &str = "audio.headphone_surround";
-pub const GROUP: &str = "sound"; // reason constants in audio::reason
-pub struct Audio { pub revision: u64, pub settings: Vec<radeon::Setting> }
-pub struct AudioWrite { pub changes: Vec<radeon::Change> }   // deny_unknown_fields
-
-// error.rs
-pub enum ErrorCode { NotPaired, PermissionRequired, HostControlRequired, NotFound, InvalidRequest,
-    InvalidValue, NotWritable, NoSession, NotSessionOwner, SessionBusy, DriverRejected,
-    TemporarilyUnavailable, Internal, NotStreaming, #[serde(other)] Unknown }
-pub struct ErrorBody { pub error: ApiError }
-pub struct ApiError { pub code: ErrorCode, pub message: String, pub setting: Option<String>,
-    pub retry_after_ms: Option<u64> }
-impl ErrorCode { pub fn status(self) -> u16 { /* table above */ } }
-```
-
-`Option` fields skip serialisation when `None`, except where the examples show `null` on purpose (`game_id`, `store`, `installed`, `app`, `setting` and `retry_after_ms` in an error, and `primary` and `idle_sleep.reason` in Wake). Response structs don't deny unknown fields, so old clients read newer hosts. In a Radeon response, a setting's `value`, `range` or `restore` of a shape the client doesn't know (a float, an array) reads as absent instead of failing the whole response. Requests stay strict. Request structs do, so typos fail loudly. The crate carries JSON fixtures (`rust/core/native-api/tests/fixtures/*.json`, one per example above) with round-trip tests, and Nightjar's tests reuse them.
+`Option` fields skip serialisation when `None`, except where the examples show `null` on purpose (`game_id`, `store`, `installed`, `app`, `setting` and `retry_after_ms` in an error, and `primary` and `idle_sleep.reason` in Wake). Response structs don't deny unknown fields, so old clients read newer hosts. In a Radeon response, a setting's `value`, `range` or `restore` of a shape the client doesn't know (a float, an array) reads as absent instead of failing the whole response. Request structs deny unknown fields, so typos fail loudly. The crate carries JSON fixtures (`rust/core/native-api/tests/fixtures/*.json`, one per example above) with round-trip tests, and Nightjar's tests reuse them.
 
 ## Design decisions
 

@@ -37,12 +37,15 @@ controller to its own device. This enables two modes:
 ![A running co-op game on Home: Player 1 on Living room PC playing, Player 2 on Retroid Pocket 5 away and keeping the slot for 1:24, two free slots, and Let Bedroom TV join.](media/showcase/coop-home.png)
 
 Co-op and background streams need the host to run as the Windows service
-(the installer's default) and accept controllers only. Co-op, hub handlers
-and games that need administrator rights also need a Windows administrator
-account that Windows elevates; [Without administrator
-rights](#without-administrator-rights) lists what runs on other accounts. The
-sections below describe each step in detail, and the [hardware
-matrix](hardware-matrix.md) records the tested configurations.
+(the installer's default), because Nucleus Co-op runs as the signed-in user;
+a portable host refuses these launches and says why. They accept controllers
+only. Co-op, hub handlers and games that need administrator rights also need
+a Windows administrator account that Windows elevates; [Without administrator
+rights](#without-administrator-rights) lists what runs on other accounts. When
+a device takes a seat (a background stream or a co-op slot), the PC shows a
+notice, "\<device> started playing \<app>.", once per seat: a reconnect to the
+same seat shows nothing. The sections below describe each step in detail, and
+the [hardware matrix](hardware-matrix.md) records the tested configurations.
 
 ## Background streams
 
@@ -54,6 +57,13 @@ Nucleus Co-op session of its own with one player, and the host log says once
 that background streams run through Nucleus Co-op. Only the device that
 started it can return to it; nobody else can join a background stream.
 
+The stream carries only the game's sound ([Game-only
+audio](configuration.md#game-only-audio)). The game plays on a virtual
+playback device, so it stays off the PC's speakers even when the device asks
+to play audio on the PC; that setting still applies to the device's normal
+streams. Without a virtual playback device the game stays audible on the PC
+and the stream warns.
+
 Quitting the game on the device ends the background stream, also after its
 stream already ended: Moonlight's Quit (`/cancel`) and Nightjar's Quit (Close
 game where the device has host control) stop Nucleus Co-op and the game
@@ -64,8 +74,8 @@ isn't refused while the game runs on unseen.
 
 A background launch that Nucleus Co-op cannot run is refused with the reason,
 for example "Store Game can't stream in the background: Nucleus Co-op starts
-games by their .exe, and Store Game does not name one". It never falls back to
-streaming the PC's monitors.
+games by their .exe, and Store Game does not name one: set the app's command
+to the game's .exe". It never falls back to streaming the PC's monitors.
 
 ### Games without a handler
 
@@ -118,6 +128,15 @@ client's screen. A game window with a title bar or sizing border loses it, so
 the stream shows the game alone; a window that doesn't respond keeps it until
 it does.
 
+Nucleus Co-op ends a game it can't inject ProtoInput's input hooks into. A
+game that refuses them gets them another way at its next start: into the
+running game first, then as Nucleus Co-op starts it, then from one of the
+game's own threads, and last none at all. Without hooks a keyboard, mouse or
+controller on the PC can reach the game too, and the host log says so. The
+host keeps which way each game gets in `Rubylight-injection-2.json` in
+Nucleus Co-op's folder; if that file can't be read, the launch says so: delete
+it to start over.
+
 - **The app names the game's .exe, or is a Steam link.** For
   `steam://rungameid/<id>` the host starts the .exe Steam would, with that
   launch option's arguments (Portal is `hl2.exe -game portal`), found from
@@ -127,7 +146,18 @@ it does.
   one that is not installed, or that Steam's app cache does not list yet, is
   refused with the reason (start it once in Steam). Other launchers' links
   are refused: set the app's command to the game's .exe. The game gets the
-  arguments the app's command passes it. A game's .exe in a Steam library
+  arguments the app's command passes it.
+- **Epic games start as their launcher would.** For a game the Epic Games
+  Launcher installed, the host reads the launcher's manifest and adds the
+  arguments that say which game it is (`-EpicPortal -epicapp=… -epicenv=Prod
+  -epicsandboxid=…`), without the launcher's sign-in and without the
+  manifest's own launch options: the app's arguments can add those. Every
+  user on the PC can write those manifests, so only the game's name and
+  namespace are taken from them, from a restricted set of characters;
+  oversized manifests and links are refused, and the game must be an .exe
+  inside the manifest's install folder. A game that insists on the sign-in
+  may still restart through the launcher on the PC's monitor: when its
+  instance exits right after it started, the stream says that may be why. A game's .exe in a Steam library
   (`steamapps\common\<folder>`) counts as that Steam game: it gets its app id
   and Valve Anti-Cheat check the same way. Steam libraries on a network share
   are skipped. A Steam app's folder in a library Steam doesn't list is
@@ -164,9 +194,10 @@ it does.
 A background stream with Rubylight's own handler runs Nucleus Co-op as the
 signed-in user, without administrator rights, unless the game needs them.
 That holds on an administrator account too. It runs from the user's own copy
-of Nucleus Co-op in `C:\ProgramData\Butterpollo\nucleus-user\<SID>`, which
-the host copies from Nucleus Co-op's folder, once Nucleus Co-op is closed,
-without its settings, logs, game list and game data, and copies again when a
+of Nucleus Co-op in a folder below
+`C:\ProgramData\Butterpollo\nucleus-user\<SID>`, which the host copies from
+Nucleus Co-op's folder, once Nucleus Co-op is closed, without its settings,
+logs, game list and game data, and copies again, into a new folder, when a
 program file changes on either side. Only the files of the pinned 2.4.2
 release are copied; anything else in that folder stays there. The copy is
 needed because the folder Nucleus Co-op runs from elevated may only be
@@ -305,6 +336,8 @@ with "No Nucleus Co-op handler for \<exe>: add one in Nucleus Co-op's handler
 hub"; a background stream of it uses Rubylight's own handler
 ([Games without a handler](#games-without-a-handler)).
 
+## How a session starts
+
 Rubylight writes a Nucleus profile named **Rubylight** for each session and
 loads it. For that it sets a few of Nucleus Co-op's settings: pads by XInput
 index and game profiles on, which stay, and, for the session only, no
@@ -328,8 +361,9 @@ another program before the launch doesn't count), that it doesn't list the
 game (naming the game list it reads),
 no profile Rubylight (open Nucleus Co-op and load the profile Rubylight once,
 then launch again), that it still shows its setup screen with the profile
-Rubylight (Nucleus Co-op plays a profile once every player has a controller),
-or no window at all, with the last error from its `crashlog.txt` if it wrote
+Rubylight (Nucleus Co-op shows Play, or with auto-play starts the game, once
+every player has a controller there), that the press of Play failed (and why,
+such as a window that kept covering it) or started nothing, or no window at all, with the last error from its `crashlog.txt` if it wrote
 one (in the user's own copy, read as the user). The host clicks the profile
 without moving the mouse or taking the focus. Nucleus Co-op only takes a click
 on the window it shows at that point, so when another window covers its list
@@ -347,25 +381,15 @@ every 5 seconds while Nucleus Co-op still lists it and shows no message box.
 Once Nucleus Co-op hides the list to play the profile, it is never clicked
 again. When the last click ends in such a box, the start fails saying so.
 
-The host then presses Nucleus Co-op's Play once, without moving the mouse.
+The host then presses Nucleus Co-op's Play once, without moving the mouse and
+in the same way as the click on the profile.
 The profile has Nucleus Co-op's auto-play off, because auto-play runs from the
 setup screen's paint and can start the game a second time during a start, which
 kills the first one (#59). Nucleus Co-op shows Play only once every player of
 the profile has a controller, on the options step if the handler has options,
-so the press waits for that. A handler with steps of its own
+so the press waits until Play is shown and enabled. A handler with steps of its own
 (`Game.ShowOptionAsStep`, `Game.CustomSteps`) shows no Play until someone
 answers them, so its profile keeps auto-play and can still start twice.
-
-The host must run as the Windows service (the installer's default), because
-Nucleus Co-op runs as the signed-in user, elevated or from their own copy. A
-portable host refuses these launches and says why. Everything that runs
-elevated needs an administrator account that Windows gives an elevated token:
-for a standard account, or with Windows' Administrator protection on (which
-elevates only into a separate account after a Windows Hello prompt), co-op,
-hub handlers, games that need administrator rights and **Open Nucleus Co-op
-on this PC** are refused and say so. A background stream that needs no
-administrator rights runs there anyway
-([Without administrator rights](#without-administrator-rights)).
 
 ## Playing co-op
 
@@ -411,8 +435,9 @@ why it can't run from it are in the Nucleus Co-op panel under **Help**.
 
 ## Limits
 
-- **Controllers only.** Each slot gets one virtual Xbox controller, so up to 4
-  XInput players. The device's first controller drives its slot. Keyboard,
+- **Controllers only.** Each slot gets one virtual Xbox controller (a USB
+  Xbox 360 pad on ViGEmBus when the controller type is **Xbox 360
+  (ViGEmBus)**, `gamepad = vigem_x360`), so up to 4 XInput players. The device's first controller drives its slot. Keyboard,
   mouse, touch and pen are not sent to the game, and the stream says so. A
   session first unplugs the virtual controllers an earlier session still
   holds, and those that streams which ended still keep plugged in for a
@@ -432,6 +457,10 @@ why it can't run from it are in the Nucleus Co-op panel under **Help**.
   away from the monitors is left there.
 - **Sound.** Each stream carries its own instance's sound. Separate sound per
   player needs Windows build 20348 or later. On older builds the host says so.
+  The instances play on a virtual playback device from their start, off the
+  PC's speakers; in co-op, a player whose device asks to play audio on the PC
+  gets their instance back on the PC's device. A background stream never
+  does ([Background streams](#background-streams)).
 - One Nucleus Co-op session at a time: a second one is refused while Nucleus
   Co-op is busy with another game.
 - **Compatibility settings come back.** As it starts each instance, Nucleus

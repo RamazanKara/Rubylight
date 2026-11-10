@@ -10,13 +10,13 @@ Start with the stream card on **Home**, **Help → Log analysis** and the host l
 | Connecting | [Pairing](#moonlight-cannot-find-or-pair-with-the-pc) · [Outside your network](#clients-outside-your-network-cannot-connect) · [Browser stream or guest link](#the-browser-stream-or-a-guest-link-fails-to-connect) · [os error 10035](#the-stream-disconnects-after-a-second-with-os-error-10035) · [Drops and timeouts](#the-stream-breaks-up-drops-or-times-out-on-the-network) |
 | Picture | [Stream card warnings](#what-the-stream-card-warnings-mean) · [Codec not available](#the-client-asks-for-a-codec-this-gpu-cannot-encode) · [Black screen](#black-picture-no-display-or-wgc-fails) · [HDR colour](#hdr-looks-washed-out-too-bright-or-different-between-clients) · [Blurred PyroWave](#pyrowave-shows-blurred-grey-blocks) · [Stutter](#low-latency-is-reported-but-motion-still-stutters) · [Frozen picture](#the-picture-freezes-while-audio-and-input-continue) · [GPU reset](#the-picture-freezes-and-the-gpu-resets-during-a-stream) |
 | Displays | [Layout not restored](#monitors-stay-on-or-the-display-layout-does-not-return) · [Mode refused](#windows-refuses-the-virtual-displays-requested-mode) · [Display not active](#virtual-display-did-not-become-active-before-the-deadline) |
-| Sound and input | [Audio](#audio-cuts-out-or-lags) · [Controllers](#a-controller-or-other-input-does-nothing) · [Two controllers in Steam](#steam-shows-two-controllers) · [Xbox button prompts](#games-show-xbox-button-prompts-with-a-dualsense) · [Steam Deck](#a-steam-deck-has-no-gyro-trackpads-or-back-grips) |
+| Sound and input | [Audio](#audio-cuts-out-or-lags) · [Controllers](#a-controller-or-other-input-does-nothing) · [reWASD](#rewasd-or-another-tool-doesnt-see-the-virtual-controller) · [Two controllers in Steam](#steam-shows-two-controllers) · [DualSense keeps vibrating](#a-dualsense-keeps-vibrating-after-steam-stops-it) · [Xbox button prompts](#games-show-xbox-button-prompts-with-a-dualsense) · [Steam Deck](#a-steam-deck-has-no-gyro-trackpads-or-back-grips) |
 | Games | [Playnite](#playnite-does-not-launch) · [RTSS](#rtss-does-not-start-or-the-game-ignores-the-cap) · [Nightjar host control](#nightjar-cannot-close-a-game-or-change-radeon-settings) |
 | Reporting | [Logs and a useful report](#logs-and-a-useful-report) |
 
 ## Setup or the host says this PC cannot run Rubylight 3.0
 
-Rubylight 3.0 encodes only on an AMD Radeon GPU, through the AMF video encoder in AMD's driver. Any Radeon generation with AMF works, on Windows 10 or 11. Setup checks before it installs or updates anything, and the host checks at startup and for every stream.
+Rubylight 3 encodes on an AMD Radeon GPU through the AMF video encoder in AMD's driver, or on an NVIDIA GPU through NVENC in NVIDIA's driver, on Windows 10 or 11. Setup checks before it installs or updates anything, and the host checks at startup and for every stream.
 
 | Message | What it means and what to do |
 | --- | --- |
@@ -51,11 +51,11 @@ Setup still rejects reparse points (including links and junctions) and untrusted
 The Rubylight service runs as SYSTEM from the install folder, so setup only updates a folder that no one but Administrators, SYSTEM or TrustedInstaller owns. The system drive's root (`C:\`) may also belong to an account in the Administrators group, for example after taking its ownership in Explorer or through a tweak, because whoever owns it could already change Program Files. When setup refuses a folder, the error names the owner it found.
 
 - **The install folder itself belongs to a user** (for example `D:\Rubylight`, created in Explorer, or locked down by an installer up to 2.2.1 without taking it from the user who created it): an update gives it to Administrators, locks it down again as it does for the profile folder, and carries on.
-- **A folder above it belongs to a user** (for example `D:\Games` for `D:\Games\Rubylight`): that user could put another folder in its place, so Rubylight cannot stay there. **Help → Updates** says so. Run the installer from the release page: it offers `C:\Program Files\Rubylight` (or another folder through **Change folder…**) and moves Rubylight there, keeping the service, settings, paired devices and drivers. If Rubylight does not start from the new folder, setup returns the service to the old one. Afterwards nothing uses the old folder; delete it yourself. A quiet setup without `--install-dir` moves to `C:\Program Files\Rubylight` as well.
+- **A folder above it belongs to a user** (for example `D:\Games` for `D:\Games\Rubylight`): that user could put another folder in its place, so Rubylight cannot stay there. **Settings → Updates** says so. Run the installer from the release page: it offers `C:\Program Files\Rubylight` (or another folder through **Change folder…**) and moves Rubylight there, keeping the service, settings, paired devices and drivers. If Rubylight does not start from the new folder, setup returns the service to the old one. Afterwards nothing uses the old folder; delete it yourself. A quiet setup without `--install-dir` moves to `C:\Program Files\Rubylight` as well.
 
 ## An update stays queued
 
-In **Help → Updates**, read the current phase and any error. Installation needs the installed Windows service and one minute without streams, pending connections, remote monitors or host apps. Quit a retained desktop or game session as well as disconnecting its video. A new connection defers the update.
+Under **Settings → Updates**, read the current phase and any error; the panel names the stream an update waits for, and **Install now** installs without waiting. Installation needs the installed Windows service and one minute without streams, pending connections, remote monitors or host apps. Quit a retained desktop or game session as well as disconnecting its video. A new connection defers the update.
 
 **Install updates automatically** (**Settings → Updates**) is opt-in. **Include pre-releases** (**All settings → General → Updates**) controls whether release candidates are offered, and an update-check interval of `0` disables automatic checks and installation. Manual checks remain available. Portable builds update through the release page.
 
@@ -101,15 +101,15 @@ In the host log, `WebRTC offer's host candidate` and `guest offer's host candida
 ## The stream breaks up, drops or times out on the network
 
 - **"client control stream timed out" or "client audio ping timed out":** the device stopped sending on the stream's UDP ports. It lost Wi-Fi, went to sleep, closed the app, or a firewall dropped the traffic. Keep the device awake on the same network, and check that Windows Firewall allows `butterpollo.exe` on private networks; setup adds that rule, but other security software can block it.
-- **"Video frames were lost on the way to this device", "could not carry" or "keyframes are not arriving":** packets did not reach the device, usually on Wi-Fi or a busy link. The host paces the video or lowers the bitrate to get it through. Lower the bitrate in the client, use 5 GHz Wi-Fi closer to the access point, or connect the device by cable.
+- **"Video frames were lost on the way to this device", "could not carry" or "video frames are not arriving":** packets did not reach the device, usually on Wi-Fi or a busy link. The host paces the video or lowers the bitrate to get it through. Lower the bitrate in the client, use 5 GHz Wi-Fi closer to the access point, or connect the device by cable.
 - **"roaming reply not sent":** the device moved to another address during the stream, and the host could not answer it there. Reconnect once the device has settled on its new network.
 
 ## What the stream card warnings mean
 
 The stream card shows the active encoder and warnings for the current session. Each warning also writes a `WARN` log line with its cause and a next step. Capture recovery and audio capture warnings clear when those paths recover. Dropped packets, frames and input, and audio device changes, stay on the card for 30 seconds after they last happened. A warning describes a fallback or limitation, not a measured latency penalty.
 
-- **Encoder failure:** AMF is the only encoder for H.264, HEVC and AV1. If it cannot start, the stream fails with AMF's error in the log; there is no other encoder to fall back to. Check that error and the AMD graphics driver.
-- **Graphics queue conversion or copies:** compute setup failed. A busy game can delay capture or conversion. Lower the game's GPU load or check the AMD driver.
+- **Encoder failure:** AMF on Radeon and NVENC on NVIDIA are the only encoders for H.264, HEVC and AV1. If the GPU's encoder cannot start, the stream fails with its error in the log; there is no software encoder to fall back to. Check that error and the graphics driver.
+- **Graphics queue conversion or copies:** compute setup failed. A busy game can delay capture or conversion. Lower the game's GPU load or check the graphics driver.
 - **Desktop Duplication or capture interrupted:** WGC or its helper could not capture. UAC and lock screens can cause a temporary change. Unlock the desktop; if the warning persists, check the helper error. A display size change reopens capture.
 - **Physical display, refresh, HDR or limiter:** the requested setup is unavailable, unsupported or owned by another stream. Check the actual display mode and RTSS. A 60 Hz source cannot supply 116 fresh pictures per second.
 - **Audio:** a missing virtual sink can send sound to the host's speakers. Device changes and capture failures can pause sound. The host-loss warning names what was lost: sound Windows dropped because the host's audio sender read too late (a busy CPU or a host problem, not bitrate), or audio packets the network adapter refused (lower the video bitrate or check the adapter).
@@ -120,7 +120,7 @@ The stream card shows the active encoder and warnings for the current session. E
 
 ## The client asks for a codec this GPU cannot encode
 
-`AMF_CODEC_NOT_SUPPORTED`, `AMF_ENCODER_NOT_PRESENT` or "this GPU or driver has no encoder for the request" in the log means the device asked for something this Radeon's video encoder does not have: a codec (AV1 on a Radeon without an AV1 encoder, for example), HDR with H.264, or a size or frame rate beyond the encoder's limit. **Home → Host readiness** lists the codecs this GPU encodes. Choose one of those in the client's video settings, or a lower resolution or frame rate, and reconnect. If a codec the GPU should have is missing, update the AMD Radeon driver.
+`AMF_CODEC_NOT_SUPPORTED`, `AMF_ENCODER_NOT_PRESENT` or "this GPU or driver has no encoder for the request" in the log means the device asked for something this GPU's video encoder does not have: a codec (AV1 on a Radeon without an AV1 encoder, for example), HDR with H.264, a YUV 4:4:4 mode the host did not offer, or a size or frame rate beyond the encoder's limit. **Home → Host readiness** lists the codecs, and on NVIDIA the 4:4:4 modes, this GPU encodes. Choose one of those in the client's video settings, or a lower resolution or frame rate, and reconnect. If a codec the GPU should have is missing, update the graphics driver.
 
 ## Black picture, no display, or WGC fails
 
@@ -183,7 +183,7 @@ If the problem starts when the GPU is fully occupied, compare with a lower game 
 
 **Try AV1 first** when the client decodes it in hardware, then HEVC.
 
-Start from the default encoder settings: `amd_usage=ultralowlatency`, `amd_lowlatency_mode=auto`, `amd_input_queue_size=0`, `amd_preanalysis=disabled`, `amd_split_frame=auto` and `compute_queue_realtime=false`. Use `amd_smart_access_video=disabled` while diagnosing a freeze. Install AMD's current Recommended driver for your card from [AMD's driver page](https://www.amd.com/en/support/download/drivers.html).
+On a Radeon, start from the default encoder settings: `amd_usage=ultralowlatency`, `amd_lowlatency_mode=auto`, `amd_input_queue_size=0`, `amd_preanalysis=false`, `amd_split_frame=auto` and `compute_queue_realtime=false`. Use `amd_smart_access_video=disabled` while diagnosing a freeze. Install AMD's current Recommended driver for your card from [AMD's driver page](https://www.amd.com/en/support/download/drivers.html).
 
 If the freeze returns, change one setting per reconnect (WGC against Desktop Duplication, then `gpu_compute_conversion` on against off) and note which one changes the result.
 
@@ -211,9 +211,9 @@ If it happens on your PC:
 
 ## Monitors stay on, or the display layout does not return
 
-Check **All settings → Display & HDR** and app or device overrides first. **Extended** intentionally keeps physical displays alongside the virtual display; exclusive and isolated layouts behave differently. A client may also request its own virtual-display arrangement.
+Check **All settings → Display & HDR** and app or device overrides first. The **Extend** layouts intentionally keep physical displays alongside the virtual display; exclusive and isolated layouts behave differently. A client may also request its own virtual-display arrangement.
 
-Check **Restore displays on disconnect**, **Restore delay** and **Keep a disconnected display for** against the expected lifecycle. An app or a retained remote-monitor session may still own a display after video disconnects.
+Check **Restore displays on disconnect**, **Restore delay** and **Keep a disconnected display for** against how long you want displays kept. An app or a retained remote-monitor session may still own a display after video disconnects.
 
 **Restore displays on disconnect** is on by default, with a three-second restore delay. Exclusive layouts always restore after this delay, even when an older profile turns the setting off. The final stream restores the original displays even if you used Win+P to regain local access. With restoring turned off, non-exclusive layouts can be retained for reconnection and keep local layout changes while paused. Resuming a retained display reactivates it and reapplies the stream layout. A separate remote-monitor session keeps its monitor until it disconnects.
 
@@ -253,18 +253,25 @@ Compare Moonlight's loss statistics and the host log before and after. `referenc
 Check the stream card in the console first.
 
 - **"…its device permissions do not allow it"**: the device lacks that input permission. Devices paired after the first get the permissions chosen at pairing (**Watch only** has no input), or view-only permissions when no choice was made. Turn on **Controllers** (or Touch, Pen, Mouse, Keyboard) for it under **Devices**, then reconnect.
-- **"Virtual gamepad driver unavailable"**: the VHF gamepad driver could not be opened. Run the installer again with the gamepad driver selected.
+- **"Virtual gamepad driver unavailable"**: the virtual gamepad driver could not be opened. Run the installer again with the gamepad driver selected.
 - **"Xbox 360 (ViGEmBus) controller unavailable"**: that controller type is chosen and ViGEmBus could not be opened. The installer doesn't bring it: install [ViGEmBus](https://github.com/nefarius/ViGEmBus/releases), or choose another controller type.
 
 ## reWASD or another tool doesn't see the virtual controller
 
-Windows lists the standard pads as HID devices of a virtual driver, not as USB devices, and some tools only look for USB controllers. Choose **Xbox 360 (ViGEmBus)** as the [controller type](configuration.md#controllers), with ViGEmBus installed: that pad is an emulated USB device. We have no reWASD to test it with; tell us if it still doesn't show up.
+Windows lists the standard pads as HID devices of a virtual driver, not as USB devices, and some tools only look for USB controllers. Choose **Xbox 360 (ViGEmBus)** as the [controller type](configuration.md#controllers), with ViGEmBus installed: that pad is an emulated USB device. If the tool still doesn't list it, open an issue naming the tool and its version.
 
 ## Steam shows two controllers
 
-Some Steam builds list one VHF Xbox controller twice: Steam's SDL controller discovery races its XInput and GameInput backends for the same device. Start+Select may then open both Xbox Game Bar and Steam's keyboard. SDL has an [upstream fix](https://github.com/libsdl-org/SDL/commit/c4cfb739), and users report that the Steam beta, which includes it, lists the pad once; switch to it under Steam → Settings → Interface → Client Beta Participation until the stable client carries the fix.
+Some Steam builds list one virtual Xbox controller twice: Steam's SDL controller discovery races its XInput and GameInput backends for the same device. Start+Select may then open both Xbox Game Bar and Steam's keyboard. SDL has an [upstream fix](https://github.com/libsdl-org/SDL/commit/c4cfb739), and users report that the Steam beta, which includes it, lists the pad once; switch to it under Steam → Settings → Interface → Client Beta Participation until the stable client carries the fix.
 
 Steam's `logs/controller.txt` shows each arrival. Rubylight uses ViGEmBus only when you choose Xbox 360 (ViGEmBus) as the [controller type](configuration.md#controllers); otherwise an installed copy can be uninstalled.
+
+## A DualSense keeps vibrating after Steam stops it
+
+With the virtual DualSense from the virtual gamepad driver, Steam's rumble stop (after **Identify Controller**, for example) can be lost, because the driver reports it as the previous rumble. Until the driver is fixed, use one of these:
+
+- Run the installer again with **Install USB audio and haptics support** selected and choose **DualSense with waveform haptics (USB/IP)** as the [controller type](configuration.md#controllers). That DualSense stops when Steam stops it.
+- Choose **DualShock 4** as the controller type.
 
 ## Games show Xbox button prompts with a DualSense
 
@@ -298,7 +305,7 @@ Set **Log level** to **Debug** before reproducing so the log includes `Playnite 
 
 ## RTSS does not start, or the game ignores the cap
 
-Open **Help → Frame limiter** during the affected stream. Record **Configured**, **Active now**, the RTSS detection and running state, and **RTSS folder**. A missing tray icon alone does not show whether the limiter is active.
+Open **All settings → Display & HDR → Integrations → Frame limiter** during the affected stream. Record **Configured**, **Active now**, the RTSS detection and running state, and **RTSS folder**. A missing tray icon alone does not show whether the limiter is active.
 
 In **All settings → Streaming**, check **Limiter**, **Frame limit**, **Virtual display refresh** and **RTSS folder**. **None** turns limiting off. Physical-monitor streams need **Limit every stream** for a cap on every stream; virtual-display policy can apply its own cap. A frame limit of `0` follows the stream rate, including fractional values such as 59.94.
 

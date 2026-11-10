@@ -15,6 +15,7 @@ Each row lists a feature the AMF path has and how NVENC provides it. Fake-driver
 | HDR10+, HDR Vivid, Dolby Vision RPU | Yes | Yes | Both take the D3D11 conversion's luminance statistics and use the same splice (`amf::dynamic`). On a sliced frame the metadata goes before the first slice and the RPU after the last. |
 | 4:4:4 | Packed 4:4:4 over 4:2:0 | Packed 4:4:4 over 4:2:0, and native 4:4:4 in H.264 (8-bit) and HEVC (8-bit and 10-bit) | Native 4:4:4 follows LizardByte Sunshine (Foundation Sunshine has the same path). The D3D11 conversion writes 8-bit as one AYUV picture and 10-bit as the Y, U and V planes stacked in one R16 texture, which the CUDA interop (`nvenc/cuda.rs`) copies to a `YUV444_10BIT` surface. Same matrix, range and HDR transfer as 4:2:0. H.264 uses the High 4:4:4 profile and HEVC the FREXT profile, with `chromaFormatIDC` 3. The startup check encodes each 4:4:4 mode where the driver reports `NV_ENC_CAPS_SUPPORT_YUV444_ENCODE` and advertises the ones that pass (`ServerCodecModeSupport` 0x40000, 0x80000, 0x100000). AV1 4:4:4 is refused: NVENC SDK 13.0 encodes AV1 in 4:2:0 only. A request the host did not advertise, or a session the driver refuses, fails with the reason and never streams 4:2:0 instead. Dolby Vision drops to static HDR10, as profile 8 is 4:2:0. Rate control, the frame budget guard, split encoding and spatial AQ run as in 4:2:0. |
 | Rate control | Yes | CBR (default), VBR (`nvenc_rate_control`) | A one-frame VBV, with `nvenc_vbv_increase`. VBR and its bounds follow Foundation Sunshine. |
+| Stalled encoder | Yes | Yes | The stream's stall policy (`encoder_stall_limit` in `stream_policy.rs`) is shared with AMF: an encoder that returns nothing with a full backlog is recreated after 250 ms, and each recreation that brings no frame back doubles the wait, up to 2 s, so a game that holds the GPU while loading does not restart the encoder. A frame still unfinished 3 s after submission counts as a hung driver. |
 | Bitrate changes | Yes | Yes | Reconfigured in place with frames in flight, without a reset or a keyframe, in both directions, where the driver reports `NV_ENC_CAPS_SUPPORT_DYN_BITRATE_CHANGE`. Without it, or when the driver refuses the change in place (logged as a warning), a change waits for the frames in flight, resets the encoder and forces a keyframe. |
 | Reference frame invalidation | Yes | Yes | Used where the driver reports it and keeps more than one reference. Otherwise a lost frame is recovered with a keyframe. |
 | Intra refresh | Yes | Yes | Off while slice delivery runs, as on AMF. |
@@ -36,7 +37,7 @@ With `gpu_compute_conversion` on (the default), NVENC takes the compute queue's 
 
 - **The GPU waits, not the CPU.** For the D3D12 interface `nvEncMapInputResource` "does not provide synchronization guarantee" (`nvEncodeAPI.h`). Each picture's input is an `NV_ENC_INPUT_RESOURCE_D3D12` whose `inputFencePoint` waits for the conversion's fence at its value.
 - **Output goes to READBACK buffers.** Each conversion target gets a buffer of twice an uncompressed picture (at most 16 MiB), registered as `NV_ENC_OUTPUT_BITSTREAM` and passed as an `NV_ENC_OUTPUT_RESOURCE_D3D12`. Its `outputFencePoint` signals the session's own fence.
-- **Completion is read from the output fence.** The poll locks a frame once that fence reaches the frame's value and never waits on the CPU. A frame the fence never reaches fails at the completion timeout.
+- **Completion is read from the output fence.** The poll locks a frame once that fence reaches the frame's value and never waits on the CPU. With `nvenc_output_event` (on by default) the fence also wakes the stream thread as the oldest frame is written, instead of on the next 100 µs output poll, which stays as the bound. A frame the fence never reaches fails at the completion timeout.
 - **What the D3D12 interface leaves out.** It has no weighted prediction, so `nvenc_weighted_prediction` warns and stays off. Slice delivery returns whole frames there; set `gpu_compute_conversion = false` for either.
 - **Driver floor.** The D3D12 interface needs API 12.0, NVIDIA driver 522.25 or newer. An older driver, a missing D3D12 device or a refused session warns (`encoder_conversion`) and converts on the D3D11 graphics queue, as AMF falls back. Native 4:4:4 converts on the D3D11 graphics queue, since the compute conversion writes 4:2:0 only, so encoder focus is off for it.
 
@@ -51,13 +52,14 @@ Focus works as on AMF: the D3D12 compute conversion builds the importance map fr
 
 The D3D11 conversion builds no map, so focus needs the D3D12 conversion on NVENC too.
 
-## Not yet run on NVIDIA hardware
+## Not run on NVIDIA hardware
 
-The rows above pass the fake-driver tests. These behaviours follow NVIDIA's headers and other hosts' code and still need a first run on an NVIDIA GPU:
+The rows above pass the fake-driver tests. No NVIDIA GPU is available to the project, so these behaviours follow NVIDIA's headers and other hosts' code and have not run on one:
 
 - Subframe completion: `hwEncodeStatus` 2 as the end of a picture, and the slice offsets a partial lock reports. The debug lines of the first four frames settle both.
 - Keyframes within the one-frame VBV, which the driver does not guarantee.
 - Rate control changes applied with frames in flight.
+- The stall policy's waits during game loading.
 - The D3D12 session: fence points, READBACK output and completion by fence.
 - Encoder focus: the delta map's effect per codec, `qpMapMode` switched by a reconfigure, and the block statistics the probe reads.
 - The GPU clocks profile: that the driver takes it for the running host, and NVENC's encode time with it on and off on a lightly loaded GPU.

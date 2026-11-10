@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Security fixes go into the latest Rubylight release (currently 3.0.x). Older releases, 2.6.x included, don't get them, so please update before reporting.
+Security fixes go into the latest Rubylight 3 release. Older releases, 2.6.x included, don't get them, so please update before reporting.
 
 ## Reporting a vulnerability
 

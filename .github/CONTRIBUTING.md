@@ -11,9 +11,11 @@ Search the existing issues first, then use the bug or crash form. Attach the sup
 | Path | What it is |
 | --- | --- |
 | `rust/core` | Portable protocol, state and policy. No vendor SDKs; builds and tests on any OS. |
-| `rust/windows` | Windows platform layer: capture, Radeon compute, AMF and PyroWave encoders, displays, input, audio. |
+| `rust/windows` | Windows platform layer: capture, GPU compute, the AMF, NVENC and PyroWave encoders, displays, input, audio. |
 | `rust/host` | The `butterpollo` executables: HTTP, RTSP and stream servers, sessions and the console API. |
 | `rust/setup` | The installer. |
+| `rust/service` | The Windows service, a Cargo workspace of its own with its own version. |
+| `rust/drivers` | Rubylight's virtual display driver and its protocol crate, outside the workspace. |
 | `rust/vulkan-layer` | The Vulkan layer that offers HDR formats on virtual displays. |
 | `rust/web` | The Svelte web console. |
 | `rust/tests`, `rust/release` | Hand-run harnesses (independent Moonlight client, soak, release checks). |
@@ -28,15 +30,14 @@ Search the existing issues first, then use the bug or crash form. Attach the sup
 .\rust\build.ps1 -FetchDependencies
 ```
 
-Before sending a change, run the checks CI runs, in the same shell:
+Before sending a change, run the checks CI runs, in the same shell. Both stages check formatting; Test runs the tests and Lint runs Clippy with warnings denied, for the workspace and the service:
 
 ```powershell
-cargo +1.98.1-x86_64-pc-windows-gnu fmt -- --check
-cargo +1.98.1-x86_64-pc-windows-gnu clippy --workspace --all-targets --locked -- -D warnings
-cargo +1.98.1-x86_64-pc-windows-gnu test --workspace --locked
+.\rust\build.ps1 -FetchDependencies -Stage Test
+.\rust\build.ps1 -FetchDependencies -Stage Lint
 ```
 
-For console changes, also run `npm ci` and `npm run check` in `rust/web`. Changes confined to `rust/core` can be checked anywhere with `cargo test -p butterpollo-core`.
+For console changes, also run `npm ci`, `npm run check` and `node --test "*.test.mjs"` in `rust/web`. Changes confined to `rust/core` can be checked anywhere with `cargo test -p butterpollo-core`.
 
 ## Expectations for a change
 

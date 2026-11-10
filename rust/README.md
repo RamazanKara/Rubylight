@@ -12,16 +12,13 @@ Use [Getting started](../docs/getting-started.md) for installation, migration, p
 
 ## Build
 
-The Cargo workspace is at the repository root. Build from a Windows x64 checkout with the pinned toolchain in [rust-toolchain.toml](../rust-toolchain.toml) and the SDK environment described in the [build guide](../docs/building.md).
+The Cargo workspace is at the repository root. Build from a Windows x64 checkout with the pinned toolchain in [rust-toolchain.toml](../rust-toolchain.toml); the [build guide](../docs/building.md) lists the prerequisites, toolchains and SDK environment. In a Visual Studio x64 developer PowerShell, which the display driver build needs:
 
 ```powershell
-rustup toolchain install 1.98.1-x86_64-pc-windows-gnu --profile minimal --component rustfmt --component clippy
-rustup target add x86_64-pc-windows-msvc --toolchain 1.98.1-x86_64-pc-windows-gnu
-
 .\rust\build.ps1 -FetchDependencies -Package
 ```
 
-Run in a Visual Studio x64 developer PowerShell, which the display driver build needs. An existing PyroWave SDK can be supplied with `-PyrowaveRoot`.
+An existing PyroWave SDK can be supplied with `-PyrowaveRoot`.
 
 The [build script](build.ps1) checks formatting, tests and lints, then builds and packages the runtime, helpers, performance probes, console, notices and SHA-256 manifest. PyroWave uses a pinned SDK identity and matching patches. CMake builds the external PyroWave SDK; Cargo builds the host. [rust-windows.yml](../.github/workflows/rust-windows.yml) defines the Windows CI path.
 
@@ -56,13 +53,7 @@ Keep development profiles and ports distinct from the installed service. See [mu
 
 ## Implementation
 
-| Workspace member | Responsibility |
-| --- | --- |
-| [core](core) | Moonlight protocol, crypto, FEC, input parsing, audio mixing, permissions and state. |
-| [windows](windows) | Capture, GPU conversion, native codecs, audio, input, displays, limiter integration, tray and SCM. |
-| [host](host) | HTTP/TLS, administration, RTSP, ENet control, UDP transport and stream lifecycle. |
-| [setup](setup) | Installation, upgrade and recovery. |
-| [vulkan-layer](vulkan-layer) | Implicit Vulkan HDR layer for owned sessions. |
+The [architecture guide's component table](../docs/architecture.md#components) lists the crates: `butterpollo-core` ([core](core)), `butterpollo-windows` ([windows](windows)), `butterpollo` ([host](host)), [setup](setup), [vulkan-layer](vulkan-layer), [probes](probes), the [native API types](core/native-api) and the display driver's [ring protocol](drivers/rubylight-vdisplay-proto). The display driver ([drivers/rubylight-vdisplay](drivers/rubylight-vdisplay)) builds outside the workspace with the MSVC toolchain.
 
 The Windows service, [service](service), is a workspace of its own with its own version, so `butterpollo-service.exe` stays the same file across releases while that version is unchanged ([the rule](release/README.md#the-service-executable)). It starts and supervises the host, rolls back interrupted updates and runs the rest as `butterpollo.exe` tasks.
 
@@ -94,9 +85,9 @@ Native fixtures may require an active moving desktop, codec DLLs, compatible dri
 
 ### Running the native checks
 
+After the ordinary checks, in the same SDK environment:
+
 ```powershell
-cargo test --workspace --locked
-cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test -p butterpollo-windows --locked -- --ignored --skip native_av1_geometry_and_hdr_are_preserved --skip primary_multitouch_and_secondary_isolation_match_native_hid_reports --skip two_announced_touchpads_share_one_native_surface_side_by_side --skip crash::tests::reporter_process --skip crash::tests::crashing_process --test-threads=1 --nocapture
 ```
 
@@ -116,7 +107,7 @@ An optional [Moonlight 6.2.0 source patch](compatibility/moonlight-6.2.0/README.
 
 ## Updates
 
-[Configuration](../docs/configuration.md) describes the notify-first controls and idle-install policy. The updater requires the installed service, verifies the official GitHub installer's advertised size and SHA-256 digest, then waits for one minute without active/pending streams, remote monitors or host apps. **Install now** skips that wait and runs setup with `--end-streams`; automatic updates always wait.
+[Configuration](../docs/configuration.md) describes the notify-first controls and idle-install policy. The updater requires the installed service, verifies the official GitHub installer's advertised size and SHA-256 digest, then waits for one minute without active/pending streams, remote monitors or host apps. **Install now** skips that wait and runs setup with `--end-streams`; requested from a paired device, it still waits for other devices' streams. Automatic updates always wait.
 
 Setup backs up replaced package files, verifies that the requested host version starts and restores those files on copying or startup failure. A failed version is not retried automatically; the console offers a manual retry. Recovery records stay under the service profile's `updates` directory.
 

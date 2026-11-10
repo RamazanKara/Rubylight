@@ -4,7 +4,7 @@
 
 Rubylight turns a Windows display into a Moonlight stream. On Radeon, captured pixels stay on the GPU, are prepared on D3D12 compute queues and go straight to AMD's native encoder. The host bounds outstanding work, so a busy encoder or network cannot turn into a growing queue of old pictures.
 
-Rubylight 3.0 encodes on AMD and NVIDIA GPUs: AMF for H.264, HEVC and AV1 on AMD, NVENC for the same codecs on NVIDIA ([NVENC](nvenc.md)), and PyroWave's own encoder. The Quick Sync and software encoders were removed in 3.0; PCs with Intel graphics use [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). Physical displays, WGC, Desktop Duplication and the D3D11 fallback remain supported.
+Rubylight encodes on AMD and NVIDIA GPUs: AMF for H.264, HEVC and AV1 on AMD, NVENC for the same codecs on NVIDIA ([NVENC](nvenc.md)), and PyroWave's own encoder. The Quick Sync and software encoders were removed in 3.0; PCs with Intel graphics use [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). Physical displays, WGC, Desktop Duplication and the D3D11 fallback remain supported.
 
 This document follows a frame from capture to delivery, then covers the process boundaries, colour paths and recovery that keep a stream running. [Performance](performance.md) separates measured host processing from the complete render-to-client path.
 
@@ -19,11 +19,13 @@ The Windows host, the Moonlight protocol implementation, native helpers, the ser
 | [Host](../rust/host) | HTTP/TLS, Moonlight endpoints, the console API, control and media transport, scheduling and session lifecycle. |
 | [Service](../rust/service) | The Windows service: starts and supervises the host in the console session. A workspace of its own with its own version, so its executable stays the same file across releases while that version is unchanged. |
 | [Setup](../rust/setup) | Installation, upgrades and package recovery. |
+| [Display driver](../rust/drivers/rubylight-vdisplay) | Rubylight's IddCx virtual-display driver. A workspace of its own, built with the MSVC toolchain and the Windows Driver Kit; [its ring protocol](../rust/drivers/rubylight-vdisplay-proto) is shared with the host. |
+| [Native API types](../rust/core/native-api) | The wire types of the [native API](native-api.md), versioned on their own and shared with Nightjar. |
 | [Web console](../rust/web) | Devices, games, settings, stream statistics, logs and maintenance. |
 | [Vulkan layer](../rust/vulkan-layer) | Native HDR integration for Vulkan games. |
 | [Probes](../rust/probes) | The diagnostic probes the package ships: encoder throughput, error correction and video packetization. |
 
-The earlier C++ host was removed after 2.0.0-rc.23; [that tag](https://github.com/RamazanKara/Rubylight/tree/2.0.0-rc.23) keeps its sources. The [Rust build](building.md) uses the workspace at the repository root.
+The earlier C++ host was removed after 2.0.0-rc.23; [that tag](https://github.com/RamazanKara/Rubylight/tree/2.0.0-rc.23) keeps its sources. The [Rust build](building.md) uses the workspace at the repository root; the service and the display driver build as workspaces of their own, and Nightjar's protocol crate comes from `client/protocol` by path.
 
 ## The Radeon frame path
 
@@ -73,7 +75,7 @@ The ring belongs to the monitor, not to the swap chain: when Windows replaces th
 
 ## WGC through the Windows service
 
-The service starts a hidden capture worker as the signed-in user, giving WGC access to the user's Windows capture broker. Three shared GPU textures transfer frames to the host; a local pipe carries bounded metadata and checks the participating process identities. The worker belongs to the capture session and closes with it.
+The service starts a hidden capture worker as the signed-in user, giving WGC access to the user's Windows capture broker. Four shared GPU textures transfer frames to the host; a local pipe carries bounded metadata and checks the participating process identities. The worker belongs to the capture session and closes with it.
 
 WGC startup failures select Desktop Duplication. The implementation also falls back for lock/UAC desktops and retries WGC on return to the normal desktop. While Windows is locked, the stream's display is set up, kept and restored from the lock screen's desktop, so you can stream the sign-in screen and unlock the PC remotely.
 
@@ -109,11 +111,12 @@ Each of these sits beside the paths above; none replaces one.
 - **Roaming.** A device whose address changes proves the new one with the stream key before the host moves control, video and audio there ([`roaming`](../rust/core/src/roaming.rs), [host side](../rust/host/src/stream/roaming.rs)); the new path's pacing and bitrate are learned from scratch.
 - **Nucleus Co-op.** Background streams and co-op run each player's copy of the game as a Nucleus Co-op instance ([`nucleus`](../rust/core/src/nucleus.rs), [host](../rust/host/src/nucleus.rs)). The host captures that instance's window alone with WGC, plays only that instance's sound, and routes each device's controllers to its own instance; keyboard, mouse and clipboard stay with the PC user.
 - **Clipboard, files and folders.** Clipboard sync ([`clipboard_sync.rs`](../rust/host/src/stream/clipboard_sync.rs)), file transfer and shared folders ([`files.rs`](../rust/windows/src/files.rs), [`shared_folder.rs`](../rust/windows/src/shared_folder.rs)) run on the streaming HTTPS port and the control channel, each behind its own per-device permission. Files are read and written as the signed-in Windows user.
+- **Play in a browser.** A TV or PC browser can play over WebRTC on its own ports, and a stream from the console's **Stream** page can invite up to four browser guests ([`webrtc`](../rust/host/src/webrtc), [policy](../rust/core/src/webrtc)); see [Play in a TV browser](webrtc.md) and [Browser guests](browser-guests.md).
 - **USB forwarding.** The device serves a USB device over USB/IP inside a TLS tunnel on the stream's HTTPS port; the host relays the tunnel to usbip-win2 on 127.0.0.1 ([`usb_forward`](../rust/host/src/usb_forward.rs)), so no USB/IP port is open to the network.
 
 ## Recovery and updates
 
-An encoder that returns no frame is recreated with the same encoder settings after 250 ms, then 500 ms, 1 s and 2 s; the session ends after 20 s without output. After a second encoder failure in one session, colour conversion moves to the graphics queue for the rest of it. A session that hears nothing from its client for the ping timeout (10 s by default) ends as a disconnect does.
+An encoder that returns no frame is recreated with the same encoder settings after 250 ms, then 500 ms, 1 s and 2 s; the session ends after 20 s without output. AMF and NVENC share this policy; on NVENC a frame still unfinished 3 s after submission counts as a hung driver. After a second encoder failure in one session, colour conversion moves to the graphics queue for the rest of it. A session that hears nothing from its client for the ping timeout (10 s by default) ends as a disconnect does.
 
 A GPU device loss triggers a broader rebuild: capture consumers first release their encoders, images and filters, then capture and encoding restart together. This has a separate [30-second recovery deadline](../rust/host/src/stream/device_recovery.rs); repeated failures do not extend it. If the GPU stays unavailable, the stream ends while the host console remains available.
 

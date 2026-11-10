@@ -36,7 +36,9 @@ for `x86_64-pc-windows-msvc` with the static CRT and the Windows Driver Kit.
 
 ## How frames reach the host
 
-The standard transport uses keyed mutexes and remains the default:
+Two transports carry the frames. The [GPU fence transport](#gpu-fence-transport) is the
+default where the driver, GPU and capture support it; otherwise the host uses the keyed-mutex
+ring, which works like this:
 
 1. The host creates the display with `IOCTL_ADD` and
    keeps it alive with `IOCTL_HEARTBEAT` every second. A monitor belongs to the process that
@@ -102,10 +104,10 @@ installed driver; compiling the DLL does not perform those transitions.
 
 ### GPU fence transport
 
-The advanced Video setting **GPU fence transport** (`idd_push_fence_ring`) is the default
-transport for this driver's displays with `capture = auto` or `idd-push`. Set it to
-`false` to use the keyed-mutex ring instead. End every stream before changing it, then
-start a new stream. The fence transport requires the driver capability `CAP_FENCE_RING`,
+**GPU fence transport** (`idd_push_fence_ring`, on by default, an advanced setting in the
+**Capture troubleshooting** group) is the default transport for this driver's displays with
+`capture = auto` or `idd-push`. Set it to `false` to use the keyed-mutex ring instead. End
+every stream before changing it, then start a new stream. The fence transport requires the driver capability `CAP_FENCE_RING`,
 compatible AMD compute capture (`gpu_compute_conversion = true`) and in-place reads
 (`idd_push_zero_copy = true`). An older display driver or an incompatible capture device
 uses the keyed-mutex ring and produces a console warning.
@@ -135,8 +137,7 @@ The two-device native tests in `rust/windows/src/capture/idd_push/fence_tests.rs
 SDR/HDR pixels, multiple readers, ring replacement and delayed GPU completion without
 installing a driver. Its ignored ABBA transport probe measures producer copy through
 completed conversion. These component checks do not establish latency or picture quality
-for a live IddCx stream, encoder, network or receiver. Keep this option experimental until
-those measurements justify a wider default.
+for a live IddCx stream, encoder, network or receiver.
 
 ## Build
 
@@ -174,7 +175,7 @@ WDK 28000 NuGet package) links that one instead and enables the `rlvd_iddcx_newe
 so `DriverEntry` can call `IddCxCheckOsFeatureSupport` and log whether the OS reports D3D12
 swap chains. That build is **probe-only**: its client config is the 1.10 one, which
 `IddCxDeviceInitConfig` rejects, so no adapter is created. Cargo prints a warning when the
-variable is set, and `rustuild.ps1 -Package` refuses to run with it. Never package or
+variable is set, and `rust\build.ps1 -Package` refuses to run with it. Never package or
 install such a driver for streaming. Without the variable the probe is skipped (the 1.10
 stub has no slot for that DDI) and the log says so.
 
@@ -261,8 +262,8 @@ removes; its optional debug log (`RLVD_DEBUG_LOG`) is
 No test-signing mode, no Secure Boot change, no reboot, no prompt. It works because a UMDF
 driver needs no Microsoft signature: Plug and Play accepts a catalog that chains to a root in
 `Root` with its signer in `TrustedPublisher`, and WUDFHost loads a DLL without an embedded
-signature once it is linked without `/INTEGRITYCHECK` (see above). The installer already
-does the same for the bundled Sunshine driver with that project's certificate, whose key its
+signature once it is linked without `/INTEGRITYCHECK` (see above). Vibepollo's installer did
+the same for its libvirtualdisplay driver with that project's certificate, whose key its
 maintainers hold. Here no key outlives the install, so the trusted certificate can sign
 nothing else, for Rubylight or anyone who compromises it; every PC trusts only its own.
 
@@ -323,9 +324,9 @@ deletes a locally signed install's packages and certificate.
 ## Release signing
 
 A release package must be signed in this order, because the catalog hashes the signed DLL:
-sign `rubylight_vdisplay.dll`, run Inf2Cat, sign `rubylight_vdisplay.cat`. With SignPath that
-is two signing requests (or one per file type in a single artifact configuration that signs
-the DLL before the catalog is generated). A package signed with a publicly trusted, non
-Microsoft certificate still prompts unless its certificate is in Trusted Publishers; a silent
-install on users' PCs needs Microsoft attestation signing (an EV certificate and Partner
-Center) or the installer adding the publisher certificate to Trusted Publishers.
+sign `rubylight_vdisplay.dll`, run Inf2Cat, sign `rubylight_vdisplay.cat`. The release workflow
+does this with two SignPath requests (`binaries`, then `driver`); see
+[Rubylight's display driver](../../../docs/code-signing.md#rubylights-display-driver) in the
+signing guide. A catalog signed with a publicly trusted certificate other than Microsoft's
+still prompts unless its signer is in Trusted Publishers, which is why `install-local.ps1`
+adds the SignPath signer there.

@@ -8,13 +8,13 @@ To install a release instead, see [Getting started](getting-started.md). The [ar
 
 ## Windows prerequisites
 
-Windows x64 with PowerShell, Git, Rustup, Node.js 22, MSYS2, and Visual Studio with the C++ workload and the Windows Driver Kit (for the display driver). In an MSYS2 UCRT64 shell, install these packages, matching CI:
+Windows x64 with PowerShell, Git, Python 3, Rustup, Node.js 22, MSYS2, and Visual Studio with the C++ workload. The display driver also needs the Windows Driver Kit (CI installs `Microsoft.WindowsWDK.10.0.26100`) and LLVM for its bindings (`winget install LLVM.LLVM`). In an MSYS2 UCRT64 shell, install these packages, matching CI:
 
 ```sh
 pacman -S --needed git mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-vulkan-headers mingw-w64-ucrt-x86_64-opus mingw-w64-ucrt-x86_64-nasm make
 ```
 
-The default MSYS2 path is `C:\msys64`; pass `-MsysRoot` if yours differs. The host uses the GNU Rust target.
+The default MSYS2 path is `C:\msys64`; pass `-MsysRoot` if yours differs. The host uses the GNU Rust target; the display driver uses the MSVC toolchain pinned by its own `rust-toolchain.toml`.
 
 Clone the repository with its submodules and install the pinned toolchains in PowerShell:
 
@@ -25,6 +25,7 @@ git submodule update --init --recursive
 
 rustup toolchain install 1.98.1-x86_64-pc-windows-gnu --profile minimal --component rustfmt --component clippy
 rustup target add x86_64-pc-windows-msvc --toolchain 1.98.1-x86_64-pc-windows-gnu
+rustup toolchain install 1.98.1-x86_64-pc-windows-msvc --profile minimal
 ```
 
 The pinned version is defined by [rust-toolchain.toml](../rust-toolchain.toml) and the build script; `Cargo.lock` pins Rust dependencies.
@@ -39,7 +40,7 @@ Run the full build from the repository root in a **Visual Studio x64 developer P
 
 The script builds the pinned PyroWave SDK and FFmpeg 8.1.3's AC3 and E-AC3 codecs (LGPL, `rust/tools/build_ffmpeg.sh`, kept when the dependency folder already holds the same build), and extracts the signed gamepad driver package (libvirtualgamepad 0.1.0-beta.10) from the pinned Vibepollo 2.0.6 release, and `nefconc.exe` and the Playnite plugin from the pinned Vibepollo 2.0.0 release. Rubylight's own display driver is built from source in this repository. Archive hashes, the PyroWave and FFmpeg build identities and the gamepad driver's signatures and file hashes are checked. CMake builds the external PyroWave SDK; Cargo builds the host.
 
-The build checks Rust formatting, runs ordinary workspace tests and Clippy with warnings denied, then builds the release executables, performance probes and the display driver. Packaging also builds the Svelte console and includes runtime libraries, drivers, the Playnite plugin, artwork, licenses, the optional Moonlight source patch and a SHA-256 file manifest. Building a package does not install it. Packaging also downloads and verifies the pinned, signed usbip-win2 0.9.8.1 installer (about 26 MB), cached in the dependencies folder, and includes it with its BSD license. It never executes that installer. `rust/drivers/usbip/bundle.ps1` can check this small packaging step independently of a host build.
+The build checks Rust formatting, runs ordinary workspace tests and Clippy with warnings denied, then builds the release executables, performance probes and the display driver. Packaging also builds the Svelte console and includes runtime libraries, drivers, the Playnite plugin, artwork, licenses, the optional Moonlight source patch and a SHA-256 file manifest. Building a package does not install it. While the service's version is unchanged, the package carries the previous release's `butterpollo-service.exe`, checked against that release's `SHA256SUMS`, so the file stays the same across releases ([the rule](../rust/release/README.md#the-service-executable)); a local build without network keeps the fresh one. Packaging also downloads and verifies the pinned, signed usbip-win2 0.9.8.1 installer (about 26 MB), cached in the dependencies folder, and includes it with its BSD license. It never executes that installer. `rust/drivers/usbip/bundle.ps1` can check this small packaging step independently of a host build.
 
 Default outputs are under `%LOCALAPPDATA%\ButterpolloRust\target`:
 
@@ -56,12 +57,15 @@ Useful options:
 
 | Option | Purpose |
 | --- | --- |
+| `-FetchDependencies` | Download, verify and build the pinned SDKs and driver packages missing from the dependency folder. |
+| `-Package` | Build the portable package and installer (needs the `Build` stage). |
 | `-DebugBuild` | Build debug executables for development. Use release builds for streaming measurements. |
 | `-PyrowaveRoot` | Reuse an existing PyroWave SDK. Its identity must match the pinned revision and patches. |
 | `-FfmpegRoot` | Reuse an existing `rust/tools/build_ffmpeg.sh` build. Its `build-info.txt` must name the pinned source and the LGPL. |
 | `-DriverRoot <path>` | Take the signed gamepad driver package from a Vibepollo installation's `drivers` folder instead of the pinned releases; its gamepad driver must be libvirtualgamepad 0.1.0-beta.10 (Vibepollo 2.0.6). |
 | `-SkipTests` | Skip workspace tests and Clippy for a local iteration. Formatting still runs; this is not the release validation path. |
 | `-Stage Test\|Lint\|Build` | Run one stage: tests, Clippy, or the release build (with `-Package`). CI runs the three as parallel jobs; the default `All` runs them in order. |
+| `-Jobs <n>` | Parallel jobs for Cargo, CMake, PyroWave and FFmpeg (default 4). |
 
 ## SDK environment
 
@@ -88,15 +92,21 @@ cargo +1.98.1-x86_64-pc-windows-gnu test --workspace --locked
 cargo +1.98.1-x86_64-pc-windows-gnu clippy --workspace --all-targets --locked -- -D warnings
 ```
 
+The service is a separate workspace: `rust/build.ps1` runs the same three commands for it with `--manifest-path rust/service/Cargo.toml`.
+
 ### Faster local builds
 
 Use `tools\dev.ps1 check -DryRun` to preview the checks selected for this
-worktree's changes, then `tools\dev.ps1 check` to run them. Build-producing
+worktree's changes, then `tools\dev.ps1 check` to run them. Changes are
+compared against the merge base with `-Base` (default `origin/main`), plus
+uncommitted files; `-Base HEAD` checks only uncommitted changes. Build-producing
 checks share `BUILD-LOCK` across worktrees, including Nightjar's Cargo and
 Gradle checks. Pure Python suites can run alongside them. A failure stops
 later checks by default; `-KeepGoing` runs the remaining independent checks.
-Every invocation writes a separate run folder and `summary.json` with the
-commit, worktree, selected paths and results. These are development results,
+Every invocation writes a separate run folder, by default under
+`C:\src\butterpollo-release\unified\dev-check\<worktree>` (`-LogDir` chooses
+another), with one log per check and `summary.json` with the commit, worktree,
+selected paths and results. `-TargetDir` sets the Cargo target folder. These are development results,
 not release approval; uncommitted changes may be included.
 
 For the workflow's own Python tests, install the small pinned test dependency
@@ -107,13 +117,12 @@ host installation or GPU work.
 Local web checks reuse an npm install only after a successful `npm ci` with
 matching manifests, Node/npm versions, npm configuration and installed lock
 file. `-FreshDependencies` forces a clean install when investigating dependency
-problems. CI and release packaging still install dependencies afresh. The
-checker no longer stops other Vite processes.
+problems. CI and release packaging still install dependencies afresh.
 
 `rust\build.ps1` automatically takes the same machine-wide lease before SDK
 setup, tests or packaging. `-Jobs` defaults to 4 and sets the Cargo, CMake,
-PyroWave and FFmpeg build limits. For a manual heavy command, use the tracked
-wrapper instead of the older workstation-only `build-lock.ps1`:
+PyroWave and FFmpeg build limits. Wrap any other heavy Cargo, Gradle or
+packaging command with `tools/build_lock.py`:
 
 ```powershell
 python tools/build_lock.py --label nightjar-apk -- cmd /c client\gradlew.bat -p client --no-daemon --max-workers=2 assembleNonRootDebug
@@ -123,7 +132,8 @@ The shared directory defaults to `C:\src\butterpollo-release` on Windows.
 Set `RUBYLIGHT_LOCK_DIRECTORY` consistently for all build callers when using
 another machine directory; pass the same `-LockDirectory` to release checks.
 The developer checker also accepts `-LockDirectory` and `-LockTimeout` (seconds,
-default 1800). The manual wrapper accepts `--lock-directory` and `--timeout`.
+default 1800). The wrapper accepts `--lock-directory`, `--timeout` (seconds,
+default 1800) and `--label`, the owner name waiting builds see.
 A nested command inherits the lease rather than waiting for itself. Do not
 start independent parallel builds inside a single lease.
 

@@ -14,7 +14,7 @@ Rubylight can stream over WebRTC to a Samsung Tizen TV or a browser, alongside t
 2. Switch on **WebRTC server**.
 3. Save and restart Rubylight when the console asks; the setting takes effect after a restart.
 
-If another program already holds a port, the console shows a `webrtc_server` warning, the log names the error and the server does not run. Rubylight never moves to another port on its own. Pick a free **WebRTC signalling port** instead.
+If another program already holds a port, the console shows a `webrtc_server` warning, the log names the error and the server does not run. Rubylight never moves to another port on its own. Pick a free **WebRTC signalling port** or **WebRTC media port** instead.
 
 ### Ports and firewall
 
@@ -26,7 +26,7 @@ If another program already holds a port, the console shows a `webrtc_server` war
 | Guests of the console's stream | UDP 8002-8005 | `webrtc_media_port` + 1 to + 4 |
 | The guest and play pages and their sockets | TCP 47991 | Base port + 2; the guest page answers only while an invite link works, the play page only the local network and Tailscale |
 
-TVs send their discovery broadcast to UDP 8000, so discovery stays there even when you move the signalling port. The reply tells the TV which signalling port to use. The installer's Windows Firewall rule allows `butterpollo.exe` inbound on every port, so an installed host needs nothing more. On a portable host, allow these three ports. The full list of settings is in [Configuration](configuration.md#webrtc-server).
+TVs send their discovery broadcast to UDP 8000, so discovery stays there even when you move the signalling port. The reply tells the TV which signalling port to use. The installer's Windows Firewall rule allows `butterpollo.exe` inbound on every port, so an installed host needs nothing more. On a portable host, allow these ports. The full list of settings is in [Configuration](configuration.md#webrtc-server).
 
 Broadcasts do not cross routers. A TV on another subnet needs the PC's address entered by hand.
 
@@ -53,7 +53,7 @@ The browser does not say why the host refused the connection, so the page lists 
 
 Once the offer is answered, the picture and sound travel over UDP `webrtc_media_port`, not over the console's port. If nothing comes back on it within 8 seconds, or the encrypted connection isn't up 30 seconds after the first answer, the page ends the attempt and says what it saw, with the address and port ([what each message means](troubleshooting.md#the-browser-stream-or-a-guest-link-fails-to-connect)).
 
-A browser on the PC itself may open the console at `127.0.0.1` or `localhost`. Firefox makes no connection attempt to a loopback address, so on a host bound to all addresses the page is offered the PC's network address instead (the first hardware adapter's IPv4 address). With `--bind 127.0.0.1` there is no other address to offer, and Firefox says so on the page. Such a stream doesn't turn off the monitors: an `exclusive` display layout, and `ensure_only_display` on a physical display, run as `extended_primary`, because the browser showing the stream is on one of them. The device doesn't learn that layout, and the log's `stream display selection` line says why it ran.
+A browser on the PC itself may open the console at `127.0.0.1` or `localhost`. Firefox makes no connection attempt to a loopback address, so on a host bound to all addresses the page is offered the PC's network address instead (the first hardware adapter's IPv4 address). With `bind_address = 127.0.0.1` (or `--bind 127.0.0.1`) there is no other address to offer, and Firefox says so on the page. Such a stream doesn't turn off the monitors: an `exclusive` display layout, and `ensure_only_display` on a physical display, run as `extended_primary`, because the browser showing the stream is on one of them. The device doesn't learn that layout, and the log's `stream display selection` line says why it ran.
 
 A reverse proxy or tunnel on the PC also connects from the PC, for a browser that may be anywhere, so such a request doesn't count as the PC's own and the configured layout stays. The host looks for `Forwarded` or `X-Forwarded-*`, a `Host` at another port than the one connected to (no port means 80 or 443), and a `Host` or `Origin` other than loopback, the address the connection reached, or the PC's own name (with or without `.local`). That covers nginx, cloudflared, `tailscale serve`, and `ssh -L` or `netsh portproxy` at another port or address. A forward that adds no header and that the browser opens at `localhost` on the same port, like `ssh -L 47990:localhost:47990`, can't be told apart: the monitors stay on, so what plays is visible at the PC. A browser on the PC that opens the console under a longer name, such as `pc.tailnet.ts.net`, counts as elsewhere, and an `exclusive` layout turns its monitors off.
 
@@ -72,7 +72,7 @@ The browser keeps its device ID and secret in its site data (`localStorage`), ne
 
 ### Guests
 
-While you stream on the Stream page, **Guests → Invite** makes a link for up to four friends to watch in their own browsers, view only or with their controller, keyboard and mouse, for 1 hour, 24 hours or a time you set. Guests need no app, account or pairing, and connect straight to your PC with no relay: on the local network nothing needs setting up, from the internet forward the guest port, TCP 47991, and UDP 8002-8005 (Tailscale or WireGuard is safer: the guest page's certificate is the console's own). The PC encodes once for everyone, and a slow guest drops frames alone. Setup, ports, the certificate warning and the threat model: [Guests in the browser](browser-guests.md).
+While you stream on the Stream page, **Guests → Invite** makes a link for up to four friends to watch in their own browsers, view only or with their controller, keyboard and mouse. Guests need no app, account or pairing, and connect straight to your PC with no relay. The PC encodes once for everyone, and a slow guest drops frames alone. [Guests in the browser](browser-guests.md) has the setup, the ports to forward, the certificate warning and the threat model.
 
 ### The Devices page
 
@@ -82,14 +82,14 @@ Paired TVs and browsers are listed on **Devices** with a **WebRTC** badge. Disab
 
 | Part | What you get |
 | --- | --- |
-| Video | H.264, HEVC and AV1 at 720p, 1080p and 1440p; HEVC and AV1 also at 4K. AV1 appears only when the GPU's AMD encoder supports it. 30, 60, 90 and 120 fps at every resolution, as far as the GPU's encoder can keep up (see below). |
+| Video | H.264, HEVC and AV1 at 720p, 1080p and 1440p; HEVC and AV1 also at 4K. AV1 appears only when the GPU's encoder supports it. 30, 60, 90 and 120 fps at every resolution, as far as the GPU's encoder can keep up (see below). |
 | HDR | HEVC Main10 and AV1 10-bit at 1080p, 1440p and 4K. The host display must already be in HDR. If it is not, or it leaves HDR during the stream, the stream ends with an error. The host never tone-maps to SDR. |
 | Audio | Stereo, 5.1 and 7.1. Surround needs a client that asks for it and decodes it; in practice, a Chromium-based browser. |
 | Gamepad | Gamepads with rumble. |
 | Gamepad as a mouse | Hold Start for 750 ms and release it. The stick moves the pointer, the D-pad scrolls, and A, B, X, LB and RB click. Do it again to turn it off. |
 | Keyboard and mouse | From a client that opens the `input` channel (see below), such as the console's Stream page. The browser client does not. |
 
-The host reads how much its encoder can do (AMF's throughput limit per codec) and offers only the frame rates it can encode in real time: a slower AMD GPU may list 4K at 30 and 60 only. A driver that reports no limit gets 60 fps and below. Measured clean on an RX 7900 XT: 90 and 120 fps at 1080p with all three codecs, 1440p120 with HEVC, and 4K120 with HEVC and AV1. Also offered where the encoder reports it can: 720p at 90 and 120, H.264 at 1440p above 60, AV1 at 1440p90 and 1440p120, 90 fps at 1440p and 4K, HDR above 60 fps, GPUs with a lower throughput limit, and drivers that report no limit.
+The host reads how much its encoder can do (the throughput limit AMF or NVENC reports per codec) and offers only the frame rates it can encode in real time: a slower AMD GPU may list 4K at 30 and 60 only. A driver that reports no limit gets 60 fps and below. Measured clean on an RX 7900 XT: 90 and 120 fps at 1080p with all three codecs, 1440p120 with HEVC, and 4K120 with HEVC and AV1. Also offered where the encoder reports it can: 720p at 90 and 120, H.264 at 1440p above 60, AV1 at 1440p90 and 1440p120, 90 fps at 1440p and 4K, HDR above 60 fps, GPUs with a lower throughput limit, and drivers that report no limit.
 
 A request for anything the host cannot send is refused with an error. There is no fallback: no SDR for an HDR request, no H.264 for AV1, no stereo for a surround request.
 
@@ -99,7 +99,7 @@ One stream runs at a time. A WebRTC stream and a Moonlight stream exclude each o
 
 Signalling is plain `ws://`, so it is not encrypted. Signing in keeps other devices from using or interrupting the stream; it does not hide what the app and the PC say to each other. The media itself is encrypted (DTLS-SRTP). Use it on a trusted LAN only.
 
-Rubylight serves only peers on the local network: loopback, private (RFC 1918), link-local, unique-local IPv6 and carrier-grade NAT (100.64.0.0/10) addresses. Anything else is closed before its first message and logged. Do not forward these ports on your router. The one exception is guests of the console's stream, who may come from anywhere with a link: their media ports (UDP 8002-8005) and the guest port (TCP 47991, which serves nothing of the console's) may be forwarded; the play page on that port refuses every address outside the local network and Tailscale, and pairs only with the PIN you type in the console ([Play in a TV browser](#play-in-a-tv-browser) has the setups that make an internet address look local). Never forward the console's port, TCP 47990 ([Guests in the browser](browser-guests.md#what-must-be-reachable)).
+Rubylight serves only peers on the local network: loopback, private (RFC 1918), link-local, unique-local IPv6 and carrier-grade NAT (100.64.0.0/10) addresses. Anything else is closed before its first message and logged. Do not forward these ports on your router. The one exception is guests of the console's stream, who may come from anywhere with a link: the guest port (TCP 47991, which serves nothing of the console's) and their media ports (UDP 8002-8005) may be forwarded ([What must be reachable](browser-guests.md#what-must-be-reachable)). The play page on the guest port still refuses every address outside the local network and Tailscale, and pairs only with the PIN you type in the console ([Play in a TV browser](#play-in-a-tv-browser)). Never forward the console's port, TCP 47990.
 
 ## For client authors
 
@@ -137,7 +137,7 @@ A client may ask for a keyframe on the `control` channel, besides an RTCP PLI or
 {"type":"request-keyframe"}
 ```
 
-`client-log` is a signalling message, not a DataChannel message. It travels on the WebSocket like any other protocol message, and carries at most 100 lines. The host writes them to its debug log.
+`client-log` is a signalling message, not a DataChannel message. It travels on the WebSocket like any other protocol message, and carries at most 100 lines. The host writes them to its debug log. The first line of a session that starts with `connection failed:` goes in the default log as a warning instead, so a report of why the peer connection failed reaches a log users send in; the host limits how often such lines are logged across all connections.
 
 ```json
 {"version":2,"type":"client-log","lines":["decoder reset","frame 1024 late"]}
@@ -145,7 +145,7 @@ A client may ask for a keyframe on the `control` channel, besides an RTCP PLI or
 
 ### The extensions object
 
-`capabilities` carries an `extensions` object. Stock clients ignore it. In 3.0 it reads:
+`capabilities` carries an `extensions` object. Stock clients ignore it. It reads:
 
 ```json
 "extensions": {

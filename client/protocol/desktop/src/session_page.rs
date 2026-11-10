@@ -905,9 +905,11 @@ mod tests {
         *fake.radeon.lock().unwrap() = None;
         let page = open(fake, 20, 20);
         until("hidden", || page.state().radeon.hidden);
-        std::thread::sleep(Duration::from_millis(120));
+        // Waits on the session reads rather than a fixed sleep: a slow CI runner may poll only once in 120 ms. Several
+        // intervals pass meanwhile, any of which would have read Radeon again.
+        let sessions = counters.sessions.load(Ordering::SeqCst);
+        until("the session read again", || counters.sessions.load(Ordering::SeqCst) >= sessions + 3);
         assert_eq!(counters.reads.load(Ordering::SeqCst), 1, "a 404 is not asked again");
-        assert!(counters.sessions.load(Ordering::SeqCst) >= 2, "the session is still read");
     }
 
     #[test]

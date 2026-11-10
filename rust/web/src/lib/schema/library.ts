@@ -183,6 +183,21 @@ const playniteSettings: Setting[] = [
     visibleWhen: playnite,
   },
   {
+    key: 'playnite_exit_wait_secs',
+    label: 'Wait after a game closes',
+    description:
+      'How long a game must stay closed before its stream ends, which shows the desktop meanwhile. 0 ends the stream at once.',
+    details:
+      'Counts from when Playnite reports the game closed and none of its programs is running. Lower it to leave the desktop sooner after quitting a game. A game that restarts itself, or starts through a launcher, is briefly reported closed, and a shorter wait can end its stream then. This is not the exit timeout, which is how long a game gets to close when Rubylight ends it. 0 to 300 seconds. Applies to the next game started.',
+    category: 'library',
+    group: 'Playnite',
+    control: { kind: 'number', min: 0, max: 300, step: 1, unit: 's' },
+    default: 15,
+    inactiveHint: "Turn on Playnite to use this setting. The Rubylight plugin must be installed in Playnite.",
+    visibleWhen: playnite,
+    advanced: true,
+  },
+  {
     key: 'playnite_focus_attempts',
     label: 'Confirm game focus',
     description:
@@ -240,8 +255,8 @@ export const settings: Setting[] = [
   {
     key: 'exit_timeout',
     label: 'Exit timeout',
-    description: 'How long to wait for an app to close before ending it. 0 ends it at once.',
-    details: 'Applies to every app without its own exit timeout under Behavior, including games added by the Steam and Playnite syncs. 0 to 300 seconds.',
+    description: 'How long an app gets to close when Rubylight ends it, before it is ended by force. 0 ends it at once.',
+    details: 'Applies to every app without its own exit timeout under Behavior, including games added by the Steam and Playnite syncs. 0 to 300 seconds. It is not how soon a stream ends after you quit a game yourself; for Playnite games that is Wait after a game closes.',
     category: 'library',
     group: 'App behavior',
     control: { kind: 'number', min: 0, max: 300, step: 1, unit: 's' },

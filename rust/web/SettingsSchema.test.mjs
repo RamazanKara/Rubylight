@@ -461,7 +461,7 @@ test('library counts and time limits reject fractions instead of saving values t
   for (const key of [
     'steam_recent_games', 'steam_recent_max_age_days',
     'playnite_recent_games', 'playnite_recent_max_age_days', 'playnite_autosync_delete_after_days',
-    'playnite_focus_attempts', 'playnite_focus_timeout_secs',
+    'playnite_focus_attempts', 'playnite_focus_timeout_secs', 'playnite_exit_wait_secs',
   ]) {
     const setting = settings.get(key);
     assert.equal(numberError(setting, '2.5'), 'Enter a whole number.', key);

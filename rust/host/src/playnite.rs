@@ -3,6 +3,7 @@
 //! environment, ending when Playnite reports the game stopped.
 use crate::state::Shared;
 use anyhow::{Context, Result, bail, ensure};
+use butterpollo_core::game_settings::Watched;
 use butterpollo_core::playnite::{self, Artwork, Game, Message, Settings};
 use butterpollo_core::version;
 use butterpollo_windows::playnite::Pipe;
@@ -632,7 +633,101 @@ enum Phase {
     Untracked,
 }
 const START_TIMEOUT: Duration = Duration::from_secs(120);
-const EXIT_GRACE: Duration = Duration::from_secs(15);
+/// How long a game must stay closed before its stream ends, unless
+/// `playnite_exit_wait_secs` says otherwise.
+const EXIT_GRACE: Duration = playnite::EXIT_WAIT;
+/// The wait of one launch (`playnite_exit_wait_secs`).
+struct ExitGrace(Duration);
+impl Default for ExitGrace {
+    fn default() -> Self {
+        Self(EXIT_GRACE)
+    }
+}
+/// How often a running game's processes are looked for, for its swapped
+/// settings files: every second while none was found in the game's first
+/// minute, so a host crash soon after the launch still waits for the game,
+/// and every five seconds otherwise (a launcher hands over to the game, a
+/// game starts helpers).
+const WATCH_SOON: Duration = Duration::from_secs(1);
+const WATCH_LATER: Duration = Duration::from_secs(5);
+const WATCH_START: Duration = Duration::from_secs(60);
+/// Finds the processes of the game Playnite started, for its swapped settings
+/// files (`RunningApp::watch_game`, issue #82): those started since the launch
+/// whose program is in the game's folder, the ones [`Launch::stop`] ends. A
+/// process's program is read once.
+struct GameWatch {
+    /// The processes already running when the launch began (id, creation time).
+    baseline: BTreeSet<(u32, u64)>,
+    /// The processes already looked at for `game`.
+    seen: BTreeSet<(u32, u64)>,
+    /// The game's folder and program, as Playnite reported them.
+    game: (String, String),
+    /// When `game` was first looked for, and whether a process of it was found.
+    since: Instant,
+    found: bool,
+    next: Instant,
+}
+impl GameWatch {
+    fn new(baseline: &[butterpollo_core::steam::Process], now: Instant) -> Self {
+        Self {
+            baseline: baseline.iter().map(|p| (p.pid, p.started)).collect(),
+            seen: BTreeSet::new(),
+            game: Default::default(),
+            since: now,
+            found: false,
+            next: now,
+        }
+    }
+    fn due(&self, now: Instant) -> bool {
+        now >= self.next
+    }
+    /// The process list could not be read: look again later.
+    fn failed(&mut self, now: Instant) {
+        self.next = now + WATCH_LATER;
+    }
+    /// The processes of the game in `folder`, or of the program `exe`, among
+    /// `processes` that no earlier call returned. `program` reads a process's
+    /// program; one it cannot read yet is looked at again.
+    fn scan(
+        &mut self,
+        now: Instant,
+        (folder, exe): (&str, &str),
+        processes: &[butterpollo_core::steam::Process],
+        program: impl Fn(u32) -> Option<String>,
+    ) -> Vec<Watched> {
+        if self.game.0 != folder || self.game.1 != exe {
+            // Another game from the fullscreen menu, or Playnite named the program later.
+            self.game = (folder.to_owned(), exe.to_owned());
+            self.seen.clear();
+            self.since = now;
+            self.found = false;
+        }
+        let running: BTreeSet<(u32, u64)> = processes.iter().map(|p| (p.pid, p.started)).collect();
+        self.seen.retain(|process| running.contains(process));
+        let mut found = Vec::new();
+        for process in processes {
+            let key = (process.pid, process.started);
+            if process.started == 0 || self.baseline.contains(&key) || self.seen.contains(&key) {
+                continue;
+            }
+            let Some(program) = program(process.pid) else {
+                continue;
+            };
+            self.seen.insert(key);
+            if playnite::game_process(&program, folder, exe) {
+                found.push(Watched {
+                    pid: process.pid,
+                    started: process.started,
+                    program,
+                });
+            }
+        }
+        self.found |= !found.is_empty();
+        let soon = !self.found && now.duration_since(self.since) < WATCH_START;
+        self.next = now + if soon { WATCH_SOON } else { WATCH_LATER };
+        found
+    }
+}
 #[derive(Default)]
 struct LaunchState {
     phase: Phase,
@@ -651,6 +746,12 @@ struct LaunchState {
     focus_menu: bool,
     /// The phase is Exited because the game's processes ended.
     game_ended: bool,
+    exit_grace: ExitGrace,
+    /// Looks for the game's processes when its settings files were swapped;
+    /// the worker takes it, to read the process list without this state held.
+    watch: Option<GameWatch>,
+    /// The game's processes found since [`Launch::take_game_processes`].
+    game_processes: Vec<Watched>,
 }
 impl LaunchState {
     fn status(&mut self, id: &str, message: Message) {
@@ -695,6 +796,7 @@ impl LaunchState {
                     self.stopped = true;
                     tracing::info!(
                         id,
+                        wait_secs = self.exit_grace.0.as_secs(),
                         "Playnite reports the game stopped; verifying game processes"
                     );
                 } else {
@@ -768,7 +870,7 @@ impl LaunchState {
             if missing >= START_TIMEOUT {
                 self.phase = Phase::Untracked;
             }
-        } else if missing >= EXIT_GRACE {
+        } else if missing >= self.exit_grace.0 {
             self.phase = Phase::Exited;
             self.game_ended = true;
         }
@@ -822,12 +924,14 @@ pub struct Launch {
 impl Launch {
     /// Start a game, or the fullscreen menu without an id, with the
     /// stream's environment. A background stream's game is never brought to
-    /// the front.
+    /// the front. `watch`: the game's settings files were swapped, so its
+    /// processes are found for them ([`Self::take_game_processes`]).
     pub fn start(
         h: &Shared,
         id: Option<&str>,
         environment: &BTreeMap<String, String>,
         background: bool,
+        watch: bool,
     ) -> Result<Self> {
         let fullscreen = id.is_none();
         let id = id
@@ -848,6 +952,8 @@ impl Launch {
         let baseline = butterpollo_windows::playnite::session_processes().unwrap_or_default();
         let state = Arc::new(Mutex::new(LaunchState {
             fullscreen,
+            exit_grace: ExitGrace(settings.exit_wait),
+            watch: watch.then(|| GameWatch::new(&baseline, Instant::now())),
             ..Default::default()
         }));
         let stop = Arc::new(AtomicBool::new(false));
@@ -921,6 +1027,28 @@ impl Launch {
             })
             .map(|p| (p.pid, p.started))
             .collect())
+    }
+    /// The game's processes found since the last call, for its swapped
+    /// settings files. The launch's worker looks for them, so that the caller
+    /// (the stream's thread, with the app held) reads no process list. None
+    /// are found for a game started without the plugin, or one whose folder
+    /// Playnite does not know.
+    pub fn take_game_processes(&self) -> Vec<Watched> {
+        std::mem::take(&mut self.state.lock().unwrap().game_processes)
+    }
+    /// A launch whose worker found `processes`.
+    #[cfg(test)]
+    pub fn with_game_processes(processes: Vec<Watched>) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(LaunchState {
+                phase: Phase::Running,
+                game_processes: processes,
+                ..Default::default()
+            })),
+            stop: Arc::new(AtomicBool::new(false)),
+            worker: None,
+            baseline: Vec::new(),
+        }
     }
     /// The game's folder, once Playnite has reported it.
     pub fn folder(&self) -> impl Fn() -> Option<String> + Send + 'static {
@@ -1031,6 +1159,7 @@ fn run(
     let shared = state;
     // What to bring to the front: the game (false) or the fullscreen menu.
     let mut focus: Option<(bool, playnite::Focus)> = None;
+    let mut watch = state.lock().unwrap().watch.take();
     // The connection stays open for the stream: Playnite keeps the
     // stream's environment for the game until it closes.
     while !stop.load(Ordering::Acquire) {
@@ -1118,7 +1247,33 @@ fn run(
             focus = playnite::Focus::arm(settings, Instant::now()).map(|f| (!game, f));
         }
         let (install_dir, exe) = (state.install_dir.clone(), state.exe.clone());
+        let running = state.phase == Phase::Running && state.has_process_hint();
         drop(state);
+        // The game's settings files wait for its processes. They are looked
+        // for without the state held: the stream's thread reads it.
+        if running
+            && let Some(watch) = &mut watch
+            && watch.due(Instant::now())
+        {
+            match butterpollo_windows::playnite::session_processes() {
+                Ok(processes) => {
+                    let found = watch.scan(
+                        Instant::now(),
+                        (&install_dir, &exe),
+                        &processes,
+                        butterpollo_windows::process::image_path,
+                    );
+                    if !found.is_empty() {
+                        tracing::info!(id, processes = ?found, "Playnite game processes recorded for its settings files");
+                        shared.lock().unwrap().game_processes.extend(found);
+                    }
+                }
+                Err(error) => {
+                    tracing::debug!(id, error = %format!("{error:#}"), "the Playnite game's processes could not be looked for");
+                    watch.failed(Instant::now());
+                }
+            }
+        }
         if relaunch
             && let Err(error) =
                 butterpollo_windows::playnite::launch(program, &["--startfullscreen"], environment)
@@ -1337,6 +1492,110 @@ mod tests {
         state.poll(at + EXIT_GRACE, None);
         state.poll(at + EXIT_GRACE + Duration::from_secs(1), Some(false));
         assert_eq!(state.phase, Phase::Running);
+    }
+    /// Issue #83: how long a closed game's stream stays is `playnite_exit_wait_secs`, which
+    /// was a fixed 15 s whatever the settings said.
+    #[test]
+    fn a_closed_games_stream_ends_after_the_wait_that_is_set() {
+        let closed = |wait: u64| {
+            let mut state = LaunchState {
+                exit_grace: ExitGrace(Duration::from_secs(wait)),
+                ..Default::default()
+            };
+            state.status("game", status("gameStarted", "game"));
+            state.status("game", status("gameStopped", "game"));
+            state
+        };
+        let at = Instant::now();
+        let mut state = closed(5);
+        state.poll(at, Some(false));
+        state.poll(at + Duration::from_secs(4), Some(false));
+        assert_eq!(state.phase, Phase::Running);
+        state.poll(at + Duration::from_secs(5), Some(false));
+        assert_eq!(state.phase, Phase::Exited);
+        // 0 ends the stream at the first check that finds no process of the game.
+        let mut at_once = closed(0);
+        at_once.poll(at, Some(true));
+        assert_eq!(at_once.phase, Phase::Running);
+        at_once.poll(at + Duration::from_secs(1), Some(false));
+        assert_eq!(at_once.phase, Phase::Exited);
+        assert_eq!(LaunchState::default().exit_grace.0, Duration::from_secs(15));
+    }
+    /// Issue #82: a Playnite game's processes were never recorded for its swapped settings
+    /// files, so every stream of one ended with the "no process was seen" warning.
+    #[test]
+    fn a_running_games_new_processes_are_found_once_for_its_settings_files() {
+        let process = |pid, started| butterpollo_core::steam::Process {
+            pid,
+            parent: 1,
+            started,
+            name: String::new(),
+        };
+        let programs = BTreeMap::from([
+            (10, "C:\\Games\\Nightfire\\Nightfire.exe"),
+            (11, "C:\\Games\\Nightfire\\bin\\Crash Reporter.exe"),
+            (12, "C:\\Windows\\explorer.exe"),
+            (13, "C:\\Games\\Nightfire\\Nightfire.exe"),
+            (14, "C:\\Program Files (x86)\\Steam\\steam.exe"),
+        ]);
+        let reads = std::cell::Cell::new(0);
+        let program = |pid: u32| {
+            reads.set(reads.get() + 1);
+            programs.get(&pid).map(|program| (*program).to_owned())
+        };
+        let game = ("C:/Games/Nightfire", "");
+        let at = Instant::now();
+        // Process 13 is the game left running at the desk before this launch.
+        let mut watch = GameWatch::new(&[process(13, 5)], at);
+        assert!(watch.due(at));
+        // The launcher is up, the game not yet; process 15 cannot be read.
+        let starting = [
+            process(12, 90),
+            process(13, 5),
+            process(14, 95),
+            process(15, 96),
+        ];
+        assert!(watch.scan(at, game, &starting, program).is_empty());
+        assert!(watch.due(at + WATCH_SOON), "looked for again at once");
+        let started = at + WATCH_SOON;
+        let running = [
+            process(10, 100),
+            process(12, 90),
+            process(13, 5),
+            process(14, 95),
+            process(15, 96),
+        ];
+        reads.set(0);
+        assert_eq!(
+            watch.scan(started, game, &running, program),
+            [Watched {
+                pid: 10,
+                started: 100,
+                program: "C:\\Games\\Nightfire\\Nightfire.exe".into(),
+            }]
+        );
+        assert_eq!(reads.get(), 2, "the new process and the unreadable one");
+        assert!(!watch.due(started + WATCH_SOON));
+        assert!(watch.due(started + WATCH_LATER));
+        // A helper it starts later is found; the game is not returned a second time.
+        let helper = [process(10, 100), process(11, 200), process(13, 5)];
+        let found = watch.scan(started + WATCH_LATER, game, &helper, program);
+        assert_eq!(found.iter().map(|p| p.pid).collect::<Vec<_>>(), [11]);
+        // Another game from the fullscreen menu: its processes are looked for afresh.
+        let other = ("C:/Games/Other", "");
+        assert!(
+            watch
+                .scan(started + WATCH_LATER, other, &helper, program)
+                .is_empty()
+        );
+        assert!(watch.due(started + WATCH_LATER + WATCH_SOON));
+        // A game that never shows a process is looked for less often after its first minute.
+        let late = started + WATCH_LATER + WATCH_START;
+        assert!(watch.scan(late, other, &helper, program).is_empty());
+        assert!(!watch.due(late + WATCH_SOON));
+        assert!(watch.due(late + WATCH_LATER));
+        watch.failed(late + WATCH_LATER);
+        assert!(!watch.due(late + WATCH_LATER + WATCH_SOON));
     }
 
     #[test]

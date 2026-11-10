@@ -574,6 +574,12 @@ Each app's **Behavior → Close the app when the last device disconnects** offer
 
 Closing an app runs its normal shutdown and cleanup; unsaved progress may be lost. This setting controls what happens when a device disconnects. Ending the stream when a game exits remains governed by app process tracking, **Keep the stream when a launcher exits within 5 seconds** and **Wait for every process the app starts**.
 
+## When a Playnite game closes
+
+The stream of a Playnite game ends once Playnite reports the game closed and no program in the game's folder has run for **Wait after a game closes** (`playnite_exit_wait_secs`, default `15` seconds, under **All settings → Games & automation → Playnite**). The wait keeps the stream open while a launcher hands over to its game or a game restarts itself; until it is over, the stream shows the desktop. Lower it to leave sooner, or set `0` to end the stream at the first check after the game closed; raise it if a stream ends while a game is still starting. It applies to the next game started.
+
+The **Exit timeout** (`exit_timeout`) is a different wait: how long a game gets to close when Rubylight ends it, for example when you quit the app from the device.
+
 ## Playnite launch focus
 
 When launching a Playnite game or fullscreen menu, Rubylight can bring its window to the front so controller input reaches it. Under **All settings → Games & automation → Playnite launch focus**, **Confirm game focus** (`playnite_focus_attempts`, default `3`) sets the number of successful focus confirmations. Rubylight checks once a second, for at most **Stop focusing after** (`playnite_focus_timeout_secs`, default `15` seconds).
@@ -1171,6 +1177,7 @@ Every setting in the console, by the console's own groups, with its key and the 
 | Playnite: Remove unplayed after | `playnite_autosync_delete_after_days` | `14` days | Removes an added app not played within this many days of being added. 0 keeps it. |
 | Playnite: Replace older recent games | `playnite_autosync_require_replacement` | `true` | When more recent games are played, removes as many older added games as are newly added, keeping the count. |
 | Playnite: Playnite fullscreen app | `playnite_fullscreen_entry_enabled` | `false` | Adds a “Playnite (Fullscreen)” app that opens Playnite’s fullscreen mode, for choosing a game on the device. |
+| Playnite: Wait after a game closes | `playnite_exit_wait_secs` | `15` s | How long a game must stay closed before its stream ends, which shows the desktop meanwhile. 0 ends the stream at once. |
 | Playnite launch focus: Confirm game focus | `playnite_focus_attempts` | `3` | How many times the game or Playnite fullscreen menu must be confirmed in front after launch. Lower it if Rubylight keeps interrupting another window. |
 | Playnite launch focus: Stop focusing after | `playnite_focus_timeout_secs` | `15` s | Maximum time spent bringing a launched game or Playnite fullscreen menu to the front. 0 leaves focus alone, even when Confirm game focus is above 0. |
 | Playnite launch focus: Stop after the first focus confirmation | `playnite_focus_exit_on_first` | `false` | Stop as soon as the game or Playnite menu is confirmed in front. Prevents later focus changes, but a launcher or splash screen may then take focus back. |

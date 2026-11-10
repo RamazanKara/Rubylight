@@ -581,9 +581,9 @@ impl RunningApp {
         Ok(running)
     }
     /// Record the programs of the game as the host sees it (the app's processes, the Steam
-    /// game, a store game it noticed) for its settings files: they stay while one of these
-    /// still runs, also after a host crash. Launchers and store clients are left out; they
-    /// stay open after a game.
+    /// game, the game Playnite started, a store game it noticed) for its settings files: they
+    /// stay while one of these still runs, also after a host crash. Launchers and store
+    /// clients are left out; they stay open after a game.
     fn watch_game(&mut self) {
         if self.settings_swap.is_none() {
             return;
@@ -603,7 +603,7 @@ impl RunningApp {
         pids.remove(&std::process::id());
         // By id and creation time: a shared helper or the same game started later at the desk
         // is a process of its own, and never holds the files.
-        let processes: Vec<butterpollo_core::game_settings::Watched> = pids
+        let mut processes: Vec<butterpollo_core::game_settings::Watched> = pids
             .into_iter()
             .filter_map(|pid| {
                 let program = butterpollo_windows::process::image_path(pid)?;
@@ -617,6 +617,16 @@ impl RunningApp {
                 )
             })
             .collect();
+        // A game started through Playnite is no process of this app's: its launch finds
+        // them, in the game's folder (issue #82).
+        if let Some(launch) = &self.playnite {
+            processes.extend(
+                launch
+                    .take_game_processes()
+                    .into_iter()
+                    .filter(|process| watches_program(&process.program)),
+            );
+        }
         if let Some(swap) = &mut self.settings_swap {
             swap.watch(processes);
         }
@@ -1546,6 +1556,7 @@ fn launch_with_environment(
             },
             &running.environment,
             background,
+            running.settings_swap.is_some(),
         );
         match launch {
             Ok(launch) => running.playnite = Some(launch),
@@ -1626,6 +1637,49 @@ mod tests {
         ] {
             assert!(!watches_program(program), "{program}");
         }
+    }
+    /// Issue #82: a game started through Playnite is no process of the app's, so none was
+    /// recorded for its swapped settings files and every stream of one ended with the "no
+    /// process was seen" warning.
+    #[test]
+    fn a_playnite_games_processes_are_recorded_for_its_settings_files() {
+        let f = crate::state::test_support::Fixture::new();
+        let folder = f.host.directory.join("game");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("Settings.ini"), "pc").unwrap();
+        let app: App = serde_json::from_value(serde_json::json!({
+            "name": "Game",
+            "uuid": "game-1",
+            "game-settings-files": ["%GameDir%\\Settings.ini"],
+        }))
+        .unwrap();
+        f.host.apps.write().unwrap().push(app.clone());
+        let environment =
+            BTreeMap::from([("GAMEDIR".to_owned(), folder.to_string_lossy().into_owned())]);
+        let args = HashMap::from([
+            ("clientUuid".to_owned(), "tv".to_owned()),
+            ("clientName".to_owned(), "tv name".to_owned()),
+        ]);
+        let mut running = RunningApp::with_environment(&app, environment.clone()).unwrap();
+        running.settings_swap =
+            crate::game_settings::launching(&f.host, &app, &args, &environment).unwrap();
+        assert!(running.settings_swap.is_some());
+        running.playnite = Some(crate::playnite::Launch::with_game_processes(vec![
+            butterpollo_core::game_settings::Watched {
+                pid: 7171,
+                started: 9,
+                program: folder.join("Game.exe").to_string_lossy().into_owned(),
+            },
+        ]));
+        running.stop();
+        assert!(
+            !f.host
+                .warnings
+                .snapshot()
+                .iter()
+                .any(|warning| warning.code == crate::game_settings::UNWATCHED_WARNING),
+            "the game was seen"
+        );
     }
     #[test]
     fn an_apps_exit_timeout_overrides_the_hosts_and_the_hosts_overrides_ten_seconds() {

@@ -286,7 +286,15 @@ pub struct Settings {
     pub focus_timeout_secs: i64,
     pub focus_exit_on_first: bool,
     pub fullscreen_entry: bool,
+    /// How long a game must stay closed before its stream ends
+    /// (`playnite_exit_wait_secs`, at most [`EXIT_WAIT_MAX`]).
+    pub exit_wait: Duration,
 }
+/// The default of `playnite_exit_wait_secs`: Playnite reports a game stopped
+/// when its launcher hands over to the game, or when the game restarts itself,
+/// and the stream has to outlast that.
+pub const EXIT_WAIT: Duration = Duration::from_secs(15);
+pub const EXIT_WAIT_MAX: Duration = Duration::from_secs(300);
 impl Settings {
     pub fn from_config(config: &Config) -> Self {
         let count = |key: &str, default: i64| config.integer(key, default).max(0);
@@ -323,6 +331,11 @@ impl Settings {
             focus_timeout_secs: count("playnite_focus_timeout_secs", 15),
             focus_exit_on_first: config.boolean("playnite_focus_exit_on_first", false),
             fullscreen_entry: config.boolean("playnite_fullscreen_entry_enabled", false),
+            exit_wait: Duration::from_secs(count(
+                "playnite_exit_wait_secs",
+                EXIT_WAIT.as_secs() as i64,
+            ) as u64)
+            .min(EXIT_WAIT_MAX),
         }
     }
 }
@@ -1243,6 +1256,19 @@ mod tests {
         let now = Instant::now();
         assert!(Focus::arm(&focus_settings(0, 15, false), now).is_none());
         assert!(Focus::arm(&focus_settings(3, 0, true), now).is_none());
+    }
+    /// Issue #83: the wait after a game closes is a setting; unset, it stays 15 s.
+    #[test]
+    fn the_wait_after_a_game_closes_is_fifteen_seconds_unless_set() {
+        let wait = |config: &str| Settings::from_config(&Config::parse(config).unwrap()).exit_wait;
+        assert_eq!(wait(""), Duration::from_secs(15));
+        assert_eq!(
+            wait("playnite_exit_wait_secs = 5\n"),
+            Duration::from_secs(5)
+        );
+        assert_eq!(wait("playnite_exit_wait_secs = 0\n"), Duration::ZERO);
+        assert_eq!(wait("playnite_exit_wait_secs = -3\n"), Duration::ZERO);
+        assert_eq!(wait("playnite_exit_wait_secs = 900\n"), EXIT_WAIT_MAX);
     }
     #[test]
     fn focus_retries_once_a_second_until_confirmed_the_set_number_of_times() {

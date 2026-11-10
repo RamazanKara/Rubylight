@@ -317,6 +317,7 @@ unsafe fn forget_pass_through(window: *mut SDL_Window) {
 ///
 /// # Safety
 /// `window` is live, `props` the renderer's create properties.
+#[cfg(any(not(target_os = "macos"), test))]
 unsafe fn pq_renderer(window: *mut SDL_Window, props: SDL_PropertiesID) -> *mut SDL_Renderer {
     #[cfg(target_os = "linux")]
     {
@@ -781,6 +782,7 @@ unsafe fn set_window_hdr(window: *mut SDL_Window, hdr: Option<(f32, f32)>) {
 ///
 /// # Safety
 /// `window` is live.
+#[cfg(any(not(target_os = "macos"), test))]
 unsafe fn set_renderer_sdr_white(window: *mut SDL_Window, white: Option<f32>) {
     let props = SDL_GetWindowProperties(window);
     let name = crate::handheld::RENDERER_SDR_WHITE_PROPERTY.as_ptr();

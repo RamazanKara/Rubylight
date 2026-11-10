@@ -828,7 +828,8 @@ pub struct GpuStream {
     stages: Stages<5>,
     /// The beam race (`set_slices`); None decodes each frame once, as before.
     race: Option<Race>,
-    /// The AMD GPU's clocks while the stream runs (Linux; None elsewhere or without amdgpu).
+    /// The AMD GPU's clocks while the stream runs (None without amdgpu).
+    #[cfg(target_os = "linux")]
     clocks: Option<super::gpu_clocks::Sampler>,
 }
 
@@ -925,6 +926,7 @@ impl GpuStream {
             source: Source::Frame,
             stages: Stages::new(GPU_STAGE_NAMES),
             race: None,
+            #[cfg(target_os = "linux")]
             clocks: super::gpu_clocks::Sampler::start(),
         }
     }
@@ -938,9 +940,15 @@ impl GpuStream {
         super::pyrowave_sdk::pass_summary(&self.gpu.performance_stats(false))
     }
 
-    /// What the AMD GPU's clocks did during the stream (`gpu_clocks`), where they can be read.
+    /// What the AMD GPU's clocks did during the stream (`gpu_clocks`), where they can be read:
+    /// on Linux.
     pub fn clock_summary(&self) -> Option<String> {
-        self.clocks.as_ref().and_then(super::gpu_clocks::Sampler::summary)
+        #[cfg(target_os = "linux")]
+        {
+            self.clocks.as_ref().and_then(super::gpu_clocks::Sampler::summary)
+        }
+        #[cfg(not(target_os = "linux"))]
+        None
     }
 
     /// Decodes the picture in `slices` slices while a row-ordered frame arrives (0 turns it off).

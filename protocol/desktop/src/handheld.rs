@@ -292,6 +292,7 @@ pub fn gamescope_hdr_properties() -> (f32, f32) {
 
 /// The window property the patched SDL's renderer takes its SDR white from, in place of the
 /// window's own level (`vendor/sdl3-src/patches/renderer-sdr-white.patch`): a float, in scRGB units.
+#[cfg(any(not(target_os = "macos"), test))]
 pub const RENDERER_SDR_WHITE_PROPERTY: &std::ffi::CStr = c"SDL.window.renderer.sdr_white_level";
 
 /// The SDR white SDL's renderer draws its linear output with, in scRGB units (80 nits each),
@@ -304,6 +305,7 @@ pub const RENDERER_SDR_WHITE_PROPERTY: &std::ffi::CStr = c"SDL.window.renderer.s
 /// PQ's present encodes 1.0 as 80 nits, absolute, so the window's own level is right there, and
 /// with its headroom gives an HDR stream the display's peak. Under gamescope Nightjar sets the
 /// window's HDR state itself ([`gamescope_hdr_properties`]).
+#[cfg(any(not(target_os = "macos"), test))]
 pub fn renderer_sdr_white(gamescope: bool, output_pq: bool) -> Option<f32> {
     (!gamescope && !output_pq).then_some(1.0)
 }

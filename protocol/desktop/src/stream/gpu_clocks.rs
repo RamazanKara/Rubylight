@@ -3,9 +3,9 @@
 //! shader and memory clocks against the fastest level, with the performance level and the
 //! platform profile. A decode that takes several times longer than on the same GPU elsewhere can
 //! then be told apart from a GPU held at low clocks (a power profile, a TDP limit or bursty work
-//! the governor does not clock up for). Linux only in practice: elsewhere no card is found and no
-//! thread starts. Reading the files needs no rights; inside Flatpak `/sys/class` is visible, and
-//! a file that cannot be read is left out of the line.
+//! the governor does not clock up for). Linux only; the parsing is tested everywhere. Reading the
+//! files needs no rights; inside Flatpak `/sys/class` is visible, and a file that cannot be read is
+//! left out of the line.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};

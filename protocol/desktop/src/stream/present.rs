@@ -734,9 +734,9 @@ pub struct VideoTexture {
     #[cfg(unix)]
     direct_planes_failed: bool,
     /// This frame is video only (`VideoOnly`): the plane pass writes PQ into the window's target.
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     pq_target: bool,
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     video_only: VideoOnly,
     /// Why the last `upload` failed, when it knows more than the caller can say.
     pub failure: Option<String>,
@@ -831,9 +831,9 @@ impl Default for VideoTexture {
             pyrowave_stages_open: false,
             #[cfg(unix)]
             direct_planes_failed: false,
-            #[cfg(unix)]
+            #[cfg(target_os = "linux")]
             pq_target: false,
-            #[cfg(unix)]
+            #[cfg(target_os = "linux")]
             video_only: VideoOnly::from_environment(),
             failure: None,
             logged_failure: None,
@@ -1771,18 +1771,18 @@ impl VideoTexture {
 
     /// Whether `draw_direct` will draw the current picture with the plane pass (unless the pass
     /// fails then): its planes are pending, the pass is there and has not failed.
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     pub fn draws_planes_direct(&self) -> bool {
         self.planes_pending.is_some() && self.planes.is_some() && !self.texture.is_null() && !self.direct_planes_failed
     }
 
     /// Whether SDL settled this frame as video only: `draw_direct` then writes PQ (`VideoOnly`).
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     pub fn set_pq_target(&mut self, pq_target: bool) {
         self.pq_target = pq_target;
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     pub fn video_only(&mut self) -> &mut VideoOnly {
         &mut self.video_only
     }
@@ -1796,7 +1796,9 @@ impl VideoTexture {
         let Some(parameters) = self.planes_pending.filter(|_| texture == self.texture && !texture.is_null()) else { return false };
         let step = std::time::Instant::now();
         // SAFETY: The live renderer and texture of the presenting thread.
-        let look = super::planes_gpu::SdlLook { pq_target: self.pq_target, ..unsafe { super::planes_gpu::SdlLook::of(renderer, texture) } };
+        let look = unsafe { super::planes_gpu::SdlLook::of(renderer, texture) };
+        #[cfg(target_os = "linux")]
+        let look = super::planes_gpu::SdlLook { pq_target: self.pq_target, ..look };
         let visible = self.size();
         let Some(pass) = self.planes.as_mut() else { return false };
         // SAFETY: The pass copied the current picture's planes on this renderer, for `parameters`.
@@ -2284,7 +2286,7 @@ impl VideoTexture {
             dmabuf_declined: self.dmabuf_declined,
             #[cfg(unix)]
             direct_planes_failed: self.direct_planes_failed,
-            #[cfg(unix)]
+            #[cfg(target_os = "linux")]
             video_only: std::mem::replace(&mut self.video_only, VideoOnly::of(None)),
             // The pass outlives the texture; the next pictures are a new scene to it.
             #[cfg(windows)]
@@ -2307,19 +2309,19 @@ fn planes_after_upload(uploaded: bool, new: Option<[u32; 8]>, last: Option<[u32;
 }
 
 /// `0` keeps every HDR frame on the PQ pass through the back buffer, as before video-only frames.
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub const VIDEO_ONLY_ENVIRONMENT: &str = "NIGHTJAR_PQ_VIDEO_ONLY";
 
 /// How long the first frame that lost draws holds video-only frames off; each further one doubles it.
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 const VIDEO_ONLY_HOLD_US: u64 = 2_000_000;
 
 /// After this many frames that lost draws, a stream draws no more video-only frames.
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 const VIDEO_ONLY_MISSES: u32 = 4;
 
 /// What a frame on the window's target will draw, for whether it can be video only.
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct VideoOnlyFrame {
     /// The renderer presents through the patched SDL's PQ pass (`handheld::Output::Pq`).
@@ -2339,7 +2341,7 @@ pub struct VideoOnlyFrame {
 /// such a frame and counts them; a frame that lost any (something drew that `VideoOnlyFrame` did
 /// not foresee) holds video-only frames off for a while, longer each time, and after
 /// `VIDEO_ONLY_MISSES` for the rest of the stream.
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 #[derive(Debug)]
 pub struct VideoOnly {
     switched_on: bool,
@@ -2351,7 +2353,7 @@ pub struct VideoOnly {
     held_until_us: u64,
 }
 
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 impl VideoOnly {
     pub fn of(value: Option<&std::ffi::OsStr>) -> Self {
         Self { switched_on: !value.is_some_and(|value| value == "0"), said: false, dropped_seen: 0, misses: 0, held_until_us: 0 }

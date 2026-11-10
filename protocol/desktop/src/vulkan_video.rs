@@ -574,7 +574,7 @@ pub struct VaapiMap {
     frames: *mut AVBufferRef,
     shape: (c_int, c_int, AVPixelFormat),
     /// The per-surface imports, while they work.
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     imports: Option<SurfaceImports>,
     /// Whether the per-surface imports were used at all, for the count at the end.
     cached: bool,
@@ -594,17 +594,17 @@ impl VaapiMap {
         same_gpu: Result<(), String>,
     ) -> Result<Self, String> {
         let device = map_device_context(gpu, switched_on, same_gpu)?;
-        #[cfg(unix)]
+        #[cfg(target_os = "linux")]
         let imports = SurfaceImports::start(gpu);
         Ok(Self {
             device,
             frames: ptr::null_mut(),
             shape: (0, 0, AV_PIX_FMT_NONE),
-            #[cfg(unix)]
+            #[cfg(target_os = "linux")]
             cached: imports.is_some(),
-            #[cfg(not(unix))]
+            #[cfg(not(target_os = "linux"))]
             cached: false,
-            #[cfg(unix)]
+            #[cfg(target_os = "linux")]
             imports,
             pictures: (0, 0),
         })
@@ -663,7 +663,7 @@ impl VaapiMap {
         // Whether the surface's kept import served the picture, when one of ours mapped it.
         #[allow(unused_mut)]
         let mut cached = None;
-        #[cfg(unix)]
+        #[cfg(target_os = "linux")]
         if interleaved.is_none() {
             if let Some(imports) = self.imports.as_mut() {
                 match imports.map(source, target, self.frames, shape.2 == AV_PIX_FMT_P010LE) {
@@ -722,7 +722,7 @@ impl Drop for VaapiMap {
             );
         }
         // The cache's imports go once no mapped frame uses them (`CachedImport`).
-        #[cfg(unix)]
+        #[cfg(target_os = "linux")]
         drop(self.imports.take());
         // SAFETY: Our references; mapped frames hold their own.
         unsafe {
@@ -849,11 +849,11 @@ fn ready_for_reuse(frame: &mut VkFrame) {
     }
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 use imports::SurfaceImports;
 
 /// `VaapiMap`'s imports of a decoder's surfaces, one per surface, kept while the pool lasts.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 mod imports {
     use super::*;
     use crate::dmabuf::{self, Descriptor, FramesRef, SurfaceCache, CACHE_LIMIT};

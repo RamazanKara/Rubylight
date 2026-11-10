@@ -61,6 +61,30 @@ public final class StreamGlass {
         show(dialog, null);
     }
 
+    /**
+     * Has the system compose the stream on the GPU for {@code durationMs}, under a blurred pixel in the corner that nobody sees,
+     * then hand it back to the display hardware: what opening the stream menu does to the stream's colours. Some screens show
+     * a Vulkan HDR stream that returns from the background with SDR colours until that happens (nightjar#93). False when the
+     * system cannot blur now.
+     */
+    public static boolean recompose(Activity owner, long durationMs) {
+        return recompose(owner, durationMs, null);
+    }
+
+    /** {@link #recompose(Activity, long)}, telling {@code opened} the window it opened: for a test. */
+    static boolean recompose(Activity owner, long durationMs, java.util.function.Consumer<MenuBlurWindow> opened) {
+        if (owner.isFinishing() || owner.isDestroyed()) return false;
+        MenuBlurWindow blur;
+        try {
+            blur = MenuBlurWindow.flash(owner, durationMs);
+        } catch (RuntimeException e) {
+            // The stream's window is going: nothing to compose.
+            return false;
+        }
+        if (opened != null) opened.accept(blur);
+        return blur != null;
+    }
+
     /** {@link #show(Dialog)}, telling {@code opened} which blur window it opened, if any: for a test. */
     static void show(Dialog dialog, java.util.function.Consumer<MenuBlurWindow> opened) {
         Window window = dialog.getWindow();

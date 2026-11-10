@@ -957,6 +957,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     protected void onResume() {
         super.onResume();
         foreground = true;
+        videoOutput.armHdrRecomposition();
         if (streamRecovery.resumeStoppedStreamIfNeeded()) {
             recoveryCancelledOnPause = false;
             restoreInputOnResume = false;

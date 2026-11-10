@@ -2078,6 +2078,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return vulkan != null && vulkan.isHdrToneMapped();
     }
 
+    /** The Vulkan renderer presents HDR10 or HLG, not tone mapped: its current swapchain is an HDR one. */
+    public boolean isVulkanHdrOutput() {
+        VulkanRendererBridge vulkan = vulkanRenderer;
+        return vulkan != null && Boolean.TRUE.equals(currentHdrMode) &&
+                HdrRecomposition.rendererShowsHdr(vulkan.getRendererText());
+    }
+
     /** The Vulkan renderer hands this stream's HDR10+ metadata to the screen. */
     private boolean vulkanPassesHdr10Plus() {
         VulkanRendererBridge vulkan = vulkanRenderer;

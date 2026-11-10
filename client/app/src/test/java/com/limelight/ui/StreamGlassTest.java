@@ -147,6 +147,28 @@ public class StreamGlassTest {
     }
 
     @Test
+    public void recomposingStandsABlurredPixelForAMomentOnAnyTier() {
+        try (var controller = Robolectric.buildActivity(Stream.class).setup().visible()) {
+            Activity activity = controller.get();
+            GlassTier.force(activity, GlassTier.SOLID);
+            MenuBlurWindow.enabledForTest = true;
+            MenuBlurWindow[] opened = new MenuBlurWindow[1];
+            try {
+                assertTrue(StreamGlass.recompose(activity, 120, blur -> opened[0] = blur));
+            } finally {
+                GlassTier.force(activity, null);
+            }
+            assertNotNull(opened[0]);
+            assertTrue("it stands while the system composes", opened[0].isShowing());
+            org.robolectric.shadows.ShadowLooper.idleMainLooper(120, java.util.concurrent.TimeUnit.MILLISECONDS);
+            assertFalse("and goes after the moment", opened[0].isShowing());
+
+            MenuBlurWindow.enabledForTest = false;
+            assertFalse("not without the system's blur", StreamGlass.recompose(activity, 120));
+        }
+    }
+
+    @Test
     public void theHudIsSeeThroughAndNeverOverABlur() {
         try (var controller = Robolectric.buildActivity(Stream.class).setup()) {
             Activity activity = controller.get();

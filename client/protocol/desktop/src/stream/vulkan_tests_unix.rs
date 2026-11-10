@@ -569,6 +569,7 @@ fn a_sequence_of_vulkan_pictures_reuses_the_copy_slots_and_stays_the_software_pi
 
 /// A VAAPI decoder of `case` whose pictures are mapped into the renderer's Vulkan device
 /// (`vulkan_video::VaapiMap`), and its first picture, tagged with `look`.
+#[cfg(target_os = "linux")]
 fn mapped_vaapi(rig: &Rig, case: &Case, look: Look) -> Result<(VideoDecoder, media::Frame), String> {
     let vaapi_node = media::vaapi_node(Hardware::Auto(rig.device(), None));
     let pictures = Pictures { ten_bit: case.ten, chroma444: false, packed: false, waiting: 0, vaapi_node };
@@ -594,6 +595,7 @@ fn mapped_vaapi(rig: &Rig, case: &Case, look: Look) -> Result<(VideoDecoder, med
 /// Vulkan device (the NUC's Intel iHD, an AMD GPU with radeonsi) and SDL's offscreen driver, and
 /// the cache on (no `NIGHTJAR_DMABUF_CACHE=0`):
 /// `cargo test -p nightjar-desktop -- --ignored --test-threads=1 mapped_vaapi_pictures`.
+#[cfg(target_os = "linux")]
 #[test]
 #[ignore = "needs a VAAPI GPU that is the renderer's Vulkan device, and SDL's offscreen driver"]
 fn a_sequence_of_mapped_vaapi_pictures_reuses_each_surfaces_import_and_stays_the_software_picture() {

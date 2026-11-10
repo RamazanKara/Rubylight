@@ -59,6 +59,9 @@ pub(crate) mod pyrowave;
 pub mod pyrowave_gpu;
 pub mod pyrowave_mode;
 pub(crate) mod stage_times;
+// amdgpu's sysfs files are Linux's; the parsing is tested everywhere.
+#[cfg(any(target_os = "linux", test))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) mod gpu_clocks;
 #[cfg(windows)]
 mod d3d11;

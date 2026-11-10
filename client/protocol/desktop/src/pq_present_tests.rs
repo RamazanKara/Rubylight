@@ -148,7 +148,7 @@ fn the_pq_pass_writes_scrgb_as_bt2020_pq() {
 /// The scanout pass (`scanout_present.hlsl`) with the PQ encoding pushed writes what the PQ pass
 /// writes; with the gamma 2.2 one, KWin's blending space on a 700-nit output (0.005 nits to 700),
 /// each channel within its half code of dither and a code.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[test]
 #[ignore = "needs a Vulkan device"]
 fn the_scanout_pass_writes_pq_or_the_blending_space() {

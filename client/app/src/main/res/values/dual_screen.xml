@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
+<resources>
     <string name="title_checkbox_dual_screen">Dual screen mode</string>
     <string name="summary_checkbox_dual_screen">On a device with a second screen, starts a second stream of the same game on it, at that screen\'s own resolution. The second stream is the same device as the first, so the PC pairs once. The first screen keeps the sound, the controllers and the microphone, and a touch mode change on either screen applies to both. The PC must be a Rubylight host that supports it, and decides which of its screens each one shows. Takes effect on the next stream.</string>
     <string name="title_resolution_screen2">Second screen resolution</string>

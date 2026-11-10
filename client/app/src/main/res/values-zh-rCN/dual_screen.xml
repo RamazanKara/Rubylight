@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_dual_screen">双屏模式</string>
+    <string name="summary_checkbox_dual_screen">在带有第二个屏幕的设备上，于该屏幕以其原生分辨率启动同一游戏的第二路串流。第二路串流与第一路是同一设备，因此电脑只需配对一次。第一个屏幕保留声音、手柄和麦克风，在任一屏幕上更改触控模式都会同时应用于两个屏幕。电脑必须是支持此功能的 Rubylight 主机，并由它决定每个屏幕显示它的哪个屏幕。从下次串流开始生效。</string>
+    <string name="title_resolution_screen2">第二屏幕分辨率</string>
+    <string name="summary_resolution_screen2">第二个屏幕串流的分辨率，与第一个屏幕分开设置。选择原生尺寸时，以该屏幕的完整分辨率串流。</string>
+    <string name="resolution_screen2_native">第二屏幕的原生尺寸</string>
+    <string name="dual_screen_unavailable">无法打开第二个屏幕。</string>
+</resources>

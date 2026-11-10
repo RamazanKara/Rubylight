@@ -1323,7 +1323,7 @@ sudo sysctl -w net.core.rmem_max={}", "수신 버퍼: 시스템이 요청한 {1}
     ("Text and button size", "텍스트 및 버튼 크기"),
     ("Makes everything in Nightjar bigger or smaller. Ctrl+= and Ctrl+- change it, Ctrl+0 resets it.", "Nightjar의 모든 것을 크게 또는 작게 만듭니다. Ctrl+=와 Ctrl+-로 바꾸고 Ctrl+0으로 초기화합니다."),
     ("Black surfaces, white text, and thicker outlines and focus rings.", "검은 배경, 흰 텍스트, 더 두꺼운 윤곽선과 포커스 링."),
-    ("Stops fades, slides and the spinning wheel. Follow system uses the Windows animation setting; other systems don't report one, so motion stays on.", "페이드, 슬라이드, 회전하는 표시를 멈춥니다. 시스템 따르기는 Windows 애니메이션 설정을 사용합니다. 다른 시스템은 이를 알려 주지 않으므로 움직임이 켜진 상태로 유지됩니다."),
+    ("Stops fades, slides and the spinning wheel. Follow system uses the animation setting of Windows or the Reduce motion setting of macOS; Linux doesn't report one, so motion stays on there.", "페이드, 슬라이드, 회전하는 표시를 멈춥니다. 시스템 설정 따르기는 Windows의 애니메이션 설정이나 macOS의 동작 줄이기 설정을 사용합니다. Linux는 이를 알려 주지 않으므로 Linux에서는 움직임이 켜진 상태로 유지됩니다."),
     ("Adds Input-only to a game’s menu on PCs without an Input-only mode of their own. The PC still sends video and audio at the smallest size, under 1 Mbit/s, which Nightjar doesn’t show or play.", "자체 입력 전용 모드가 없는 PC에서 게임 메뉴에 입력 전용을 추가합니다. PC는 여전히 가장 작은 크기(1 Mbit/s 미만)로 비디오와 오디오를 보내지만 Nightjar는 표시하거나 재생하지 않습니다."),
     ("Asks the PC for the full range of brightness levels. Turn on only if dark scenes look washed out or crushed.", "PC에 밝기 단계의 전체 범위를 요청합니다. 어두운 장면이 뿌옇거나 뭉개져 보일 때만 켜세요."),
     ("Lower bitrate when frames are lost", "프레임이 손실되면 비트레이트 낮추기"),

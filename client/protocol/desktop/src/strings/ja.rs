@@ -1323,7 +1323,7 @@ sudo sysctl -w net.core.rmem_max={}", "受信バッファー：システムは�
     ("Text and button size", "テキストとボタンのサイズ"),
     ("Makes everything in Nightjar bigger or smaller. Ctrl+= and Ctrl+- change it, Ctrl+0 resets it.", "Nightjarのすべてを大きくまたは小さくします。Ctrl+=とCtrl+-で変更、Ctrl+0でリセットします。"),
     ("Black surfaces, white text, and thicker outlines and focus rings.", "黒い背景、白い文字、太い輪郭線とフォーカスリング。"),
-    ("Stops fades, slides and the spinning wheel. Follow system uses the Windows animation setting; other systems don't report one, so motion stays on.", "フェード、スライド、回転するインジケーターを止めます。「システムに従う」はWindowsのアニメーション設定を使います。他のシステムはこれを報告しないため、動きはオンのままです。"),
+    ("Stops fades, slides and the spinning wheel. Follow system uses the animation setting of Windows or the Reduce motion setting of macOS; Linux doesn't report one, so motion stays on there.", "フェード、スライド、回転するインジケーターを止めます。「システムに従う」はWindowsのアニメーション設定またはmacOSの「視差効果を減らす」設定を使います。Linuxはこれを報告しないため、Linuxでは動きはオンのままです。"),
     ("Adds Input-only to a game’s menu on PCs without an Input-only mode of their own. The PC still sends video and audio at the smallest size, under 1 Mbit/s, which Nightjar doesn’t show or play.", "独自の入力専用モードがないPCで、ゲームのメニューに「入力専用」を追加します。PCは最小サイズ（1 Mbit/s未満）で映像と音声を送り続けますが、Nightjarは表示も再生もしません。"),
     ("Asks the PC for the full range of brightness levels. Turn on only if dark scenes look washed out or crushed.", "PCに明るさの全範囲を要求します。暗いシーンが白っぽく見えたり黒つぶれしたりする場合にのみオンにしてください。"),
     ("Lower bitrate when frames are lost", "フレームが失われたらビットレートを下げる"),

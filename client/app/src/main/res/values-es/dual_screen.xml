@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_dual_screen">Modo de doble pantalla</string>
+    <string name="summary_checkbox_dual_screen">En un dispositivo con una segunda pantalla, inicia en ella una segunda transmisión del mismo juego, a la resolución propia de esa pantalla. La segunda transmisión es el mismo dispositivo que la primera, así que el PC se vincula una sola vez. La primera pantalla conserva el sonido, los mandos y el micrófono, y un cambio de modo táctil en cualquiera de las pantallas se aplica a ambas. El PC debe ser un servidor Rubylight compatible, y decide cuál de sus pantallas muestra cada una. Se aplica a partir de la próxima transmisión.</string>
+    <string name="title_resolution_screen2">Resolución de la segunda pantalla</string>
+    <string name="summary_resolution_screen2">La resolución de la transmisión de la segunda pantalla, aparte de la de la primera. Con su tamaño propio, se transmite a la resolución completa de esa pantalla.</string>
+    <string name="resolution_screen2_native">Tamaño propio de la segunda pantalla</string>
+    <string name="dual_screen_unavailable">No se pudo abrir la segunda pantalla.</string>
+</resources>

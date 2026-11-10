@@ -1113,7 +1113,7 @@ impl Launcher {
                 setting_row(ui, s, &mut rows, &["high_contrast"], "High contrast", "Black surfaces, white text, and thicker outlines and focus rings.", |ui, s| {
                     toggle(ui, &mut s.high_contrast)
                 });
-                setting_row(ui, s, &mut rows, &["reduce_motion"], "Reduce motion", "Stops fades, slides and the spinning wheel. Follow system uses the Windows animation setting; other systems don't report one, so motion stays on.", |ui, s| {
+                setting_row(ui, s, &mut rows, &["reduce_motion"], "Reduce motion", "Stops fades, slides and the spinning wheel. Follow system uses the animation setting of Windows or the Reduce motion setting of macOS; Linux doesn't report one, so motion stays on there.", |ui, s| {
                     Combo::from_id_salt("reduce-motion")
                         .selected_text(reduce_motion_name(s.reduce_motion))
                         .show_ui(ui, |ui| {

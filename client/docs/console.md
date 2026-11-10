@@ -2,7 +2,7 @@
 
 [Documentation](index.md)
 
-Home, store shelves, game pages and the in-stream **Session and graphics** page use a host's native library and session API, which [Rubylight](https://github.com/RamazanKara/Rubylight) 3.0 provides. On Android, Home also shows the app lists of paired PCs without that API (Sunshine, Apollo, Vibepollo and other hosts), once they have sent one; those PCs still open on the PC list and their classic app grid. This page applies to Android and to Nightjar for Windows and Linux unless a section names one of them.
+Home, store shelves, game pages and the in-stream **Session and graphics** page use a host's native library and session API, which [Rubylight](https://github.com/RamazanKara/Rubylight) 3.0 provides. Home also shows the app lists of paired PCs without that API (Sunshine, Apollo, Vibepollo and other hosts), once they have sent one; those PCs still open on the PC list and their classic app grid. This page applies to Android and to Nightjar for Windows and Linux unless a section names one of them.
 
 ## Home
 

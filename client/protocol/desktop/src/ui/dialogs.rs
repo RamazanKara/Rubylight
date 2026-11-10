@@ -1678,7 +1678,7 @@ pub(super) fn game_menu(host: &Host, view: &View<'_>, game: GameTarget, favourit
     let _ = view;
     match game {
         GameTarget::Library { app, favourite } => {
-            let listed = host.native.library.as_ref().and_then(|l| l.games.iter().find(|g| g.app_id == app));
+            let listed = host.library().and_then(|l| l.games.iter().find(|g| g.app_id == app));
             let (title, starred) = match listed {
                 Some(entry) => {
                     let sources: Vec<Source> = std::iter::once(Source::of(host)).collect();
@@ -1725,7 +1725,7 @@ pub(super) fn game_menu(host: &Host, view: &View<'_>, game: GameTarget, favourit
 /// control action) or a PC without a unique id to find it by again.
 pub(super) fn open_game_of(host: &Host, game: GameTarget, favourites: &[crate::config::Favourite]) -> Option<crate::config::OpenGame> {
     let (install_id, app_id, title) = match game {
-        GameTarget::Library { app, .. } => match host.native.library.as_ref().and_then(|l| l.games.iter().find(|g| g.app_id == app)) {
+        GameTarget::Library { app, .. } => match host.library().and_then(|l| l.games.iter().find(|g| g.app_id == app)) {
             Some(entry) => (entry.install_id.clone(), app, entry.title.clone()),
             None => {
                 let star = stored_favourite(host, app, favourites)?;
@@ -1770,7 +1770,7 @@ pub(super) fn classic_of<'a>(host: &'a Host, game: GameTarget, favourites: &[cra
     match game {
         GameTarget::Classic { app } => apps.iter().find(|a| a.id == app),
         GameTarget::Library { app, .. } => {
-            let install_id = match host.native.library.as_ref().and_then(|l| l.games.iter().find(|g| g.app_id == app)) {
+            let install_id = match host.library().and_then(|l| l.games.iter().find(|g| g.app_id == app)) {
                 Some(entry) => entry.install_id.as_str(),
                 None => stored_favourite(host, app, favourites)?.install_id.as_str(),
             };

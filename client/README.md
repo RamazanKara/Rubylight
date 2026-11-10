@@ -231,7 +231,7 @@ Nightjar streams games from your PC to Android phones, tablets and handhelds, An
 <td width="50%" valign="top">
 
 ### One library for every PC
-Home gathers the games of every paired PC, with cover art, **Continue playing** and a page for each game; on a TV, each store gets its own shelf. Pick a game on a sleeping PC and Nightjar wakes the PC and starts it. Store shelves and the richer game pages use the native library API (Rubylight 3.0); Android's Home also shows app lists from other paired hosts.
+Home gathers the games of every paired PC, with cover art, **Continue playing** and a page for each game; on a TV, each store gets its own shelf. Pick a game on a sleeping PC and Nightjar wakes the PC and starts it. Store shelves and the richer game pages use the native library API (Rubylight 3.0); Home also shows app lists from other paired hosts.
 
 </td>
 </tr>

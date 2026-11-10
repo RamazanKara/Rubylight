@@ -1748,10 +1748,35 @@ impl Store {
         self.write(&path, library)
     }
 
+    /// The last app list a PC without the native library sent, for Home while the PC is away or
+    /// not polled yet (Android keeps the same per PC). None when nothing usable is saved.
+    pub fn classic_apps(&self, host: &str) -> Option<ClassicApps> {
+        read_json::<ClassicApps>(&self.classic_apps_path(host))
+    }
+
+    pub fn save_classic_apps(&self, host: &str, apps: &ClassicApps) -> std::io::Result<()> {
+        let path = self.classic_apps_path(host);
+        if self.read_only {
+            return Ok(());
+        }
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        self.write(&path, apps)
+    }
+
+    pub fn forget_classic_apps(&self, host: &str) {
+        if !self.read_only {
+            let _ = std::fs::remove_file(self.classic_apps_path(host));
+        }
+    }
+
+    /// The saved native library and app list of a PC.
     pub fn forget_library(&self, host: &str) {
         if !self.read_only {
             let _ = std::fs::remove_file(self.library_path(host));
         }
+        self.forget_classic_apps(host);
     }
 
     /// Everything kept for a PC that is removed: its library, its covers, and its games in the
@@ -1785,6 +1810,50 @@ impl Store {
 
     fn library_path(&self, host: &str) -> PathBuf {
         self.dir.join("library").join(format!("{}.json", sanitize(host)))
+    }
+
+    fn classic_apps_path(&self, host: &str) -> PathBuf {
+        self.dir.join("apps").join(format!("{}.json", sanitize(host)))
+    }
+}
+
+/// The version of the saved app list's format. A later format that only adds fields keeps it;
+/// fields this build does not know are ignored, and missing ones take their defaults.
+pub const CLASSIC_APPS_VERSION: u32 = 1;
+
+/// A PC's app list as saved for Home: its games, without the control tiles.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClassicApps {
+    #[serde(default)]
+    pub version: u32,
+    #[serde(default)]
+    pub apps: Vec<ClassicApp>,
+}
+
+/// One game of a saved app list.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClassicApp {
+    pub id: i32,
+    #[serde(default)]
+    pub name: String,
+    /// The host's UUID for the app; empty when it sends none.
+    #[serde(default)]
+    pub uuid: String,
+    /// The box art's version, empty when the host sends none.
+    #[serde(default)]
+    pub art_version: String,
+}
+
+impl ClassicApps {
+    /// The games of a loaded app list, in its order: the control tiles (Resume, Disconnect,
+    /// Terminate, Remote Input...) are not games and stay on the PC's own screen.
+    pub fn of(apps: &[nightjar_core::http::App]) -> Self {
+        let apps = apps
+            .iter()
+            .filter(|a| a.control == nightjar_core::http::AppControl::None)
+            .map(|a| ClassicApp { id: a.id, name: a.name.clone(), uuid: a.uuid.clone(), art_version: a.art_version.clone() })
+            .collect();
+        Self { version: CLASSIC_APPS_VERSION, apps }
     }
 }
 
@@ -2245,6 +2314,47 @@ mod tests {
         // A new cover version is a new file; no version keeps the classic name.
         assert_ne!(store.art_path(host, 7, "a41c09e2"), store.art_path(host, 7, "0c1d2e3f"));
         assert!(store.art_path(host, 7, "").ends_with("7.img"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_classic_app_list_is_saved_without_its_control_tiles_and_goes_with_the_library() {
+        use nightjar_core::http::{App, AppControl};
+        let app = |id: i32, name: &str, uuid: &str, control: AppControl| App {
+            name: name.into(),
+            id,
+            hdr_supported: false,
+            uuid: uuid.into(),
+            host_index: None,
+            art_version: if id == 1 { "v2".into() } else { String::new() },
+            control,
+            monitor_resume: false,
+        };
+        let apps = ClassicApps::of(&[
+            app(1, "Desktop", "A1", AppControl::None),
+            app(2, "Terminate", "E16CBE1B-295D-4632-9A76-EC4180C857D3", AppControl::Terminate),
+            app(3, "Hades", "", AppControl::None),
+        ]);
+        assert_eq!(apps.version, CLASSIC_APPS_VERSION);
+        assert_eq!(apps.apps.iter().map(|a| (a.id, a.name.as_str(), a.uuid.as_str(), a.art_version.as_str())).collect::<Vec<_>>(), [(1, "Desktop", "A1", "v2"), (3, "Hades", "", "")]);
+
+        let dir = std::env::temp_dir().join(format!("nightjar-classic-apps-{}", std::process::id()));
+        let store = Store::at(dir.clone()).unwrap();
+        let host = "pc-1";
+        assert!(store.classic_apps(host).is_none());
+        store.save_classic_apps(host, &apps).unwrap();
+        assert_eq!(store.classic_apps(host), Some(apps.clone()));
+        assert!(store.classic_apps("other").is_none());
+        assert!(store.classic_apps_path("../../x").starts_with(dir.join("apps")));
+        // An older or newer file reads too: missing fields take defaults, unknown ones are ignored.
+        std::fs::write(store.classic_apps_path("old"), r#"{"apps":[{"id":5}]}"#).unwrap();
+        let old = store.classic_apps("old").unwrap();
+        assert_eq!((old.version, old.apps[0].id, old.apps[0].name.as_str()), (0, 5, ""));
+        std::fs::write(store.classic_apps_path("new"), r#"{"version":2,"apps":[{"id":5,"name":"A","hdr":true}],"more":1}"#).unwrap();
+        assert_eq!(store.classic_apps("new").unwrap().apps[0].name, "A");
+        // Unpairing or removing the PC drops it with the native library.
+        store.forget_library(host);
+        assert!(store.classic_apps(host).is_none());
         let _ = std::fs::remove_dir_all(dir);
     }
 

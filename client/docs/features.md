@@ -8,7 +8,7 @@ This page lists every feature with a link to its guide. Features available on on
 
 ## Library
 
-- **Home.** Favourites, **Continue playing** and the games of every paired PC in one library. Cover art is cached on the device, so Home works while a PC sleeps, and an offline PC offers **Wake**. Store shelves, Steam collections and Playnite categories, and the richer game pages need a host with the native library API (Rubylight 3.0); on Android, Home also shows the app lists of other paired hosts. [Home](console.md#home)
+- **Home.** Favourites, **Continue playing** and the games of every paired PC in one library. Cover art is cached on the device, so Home works while a PC sleeps, and an offline PC offers **Wake**. Store shelves, Steam collections and Playnite categories, and the richer game pages need a host with the native library API (Rubylight 3.0); Home also shows the app lists of other paired hosts, such as Sunshine, Apollo or Vibepollo. [Home](console.md#home)
 - **View.** Grid, rows or a list with each game's store and last-played time; grouped by store, by type, by collection or not at all; small, medium or large cards. [View](console.md#view)
 - **Store shelves on a TV.** Rows for Steam, Epic Games, GOG, EA app, Ubisoft Connect, Battle.net and Xbox under a large hero, plus Recently played, Other apps, and games the PC found but that were never added. Android. [On a TV](console.md#on-a-tv)
 - **All games.** One poster grid, filtered by store, by installed, by hidden or by not yet added.

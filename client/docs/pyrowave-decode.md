@@ -544,6 +544,45 @@ Verdict: the keep rule fails (the p99 gain is not separable from noise, one B le
 
 Not measured: 1440p and 4K, the early-decode leg, and a forced backlog (for example a throttled decoder) that would exercise the skip on purpose. The Nightjar timing CSV leaves its fps columns blank, so shown fps above is the rendered frames over their span.
 
+## Skipping to the newest frame when a backlog forms (desktop, CPU and GPU decode): shipped, measured on the 780M laptop (GPU decode)
+
+A decoder whose decode takes longer than the frame interval never catches up: the 15-frame decode queue fills, every frame waits behind the ones before it, and the full queue is flushed with a key-frame request, after which it fills again. A reported 4K 112 fps session on an integrated GPU showed that (GPU decode about 11 ms a frame against an 8.9 ms interval, a queue overflow about once a second). That configuration (10-bit HDR, Linux) was not reproduced here; the same ratio of decode time to frame interval was, with a larger picture (below).
+
+The decode loop (`session/video.rs` in `client/protocol/client`) now skips for a decoder that reports `intra_only()`:
+
+- A frame is skipped when two or more newer frames are queued behind it (`SKIP_BACKLOG`). Within one second of the last skip (`SKIP_HOLD_US`) one newer frame is enough, so a decoder that is steadily too slow stays at the newest frame instead of oscillating between a backlog of zero and two.
+- With nothing queued behind the frame the rule is one integer comparison and nothing changes; a pair of frames that arrive together is not a backlog and both are decoded. That is the case the candidate above made 0.2 to 0.3 ms slower.
+- Early chunks of a frame that is certain to be skipped are dropped. A skipped frame goes to `VideoDecoder::skip`, which on desktop passes it through the records cache (`Records::push_frame`, or `finish_frame` when the early chunks already held the whole frame) so recovery of a later lossy frame reads the same cache a decode would have left. A skipped key frame is reported decoded with the next frame that is decoded.
+- Desktop reports `intra_only()` for PyroWave on the CPU and on the GPU, except while beam racing is active. Other codecs and Android are unchanged (Android's decoder keeps its own records cache behind JNI and has no skip entry yet).
+
+Skipped frames are counted with the overlay's "Decoder drops" line and in the session-end log line ("skipped for a newer frame").
+
+The unit tests drive a gated decoder that is slower than its stream and check that the queue never holds more than three frames, that the newest frame is always decoded and that no key frame is requested.
+
+Measured on the 780M laptop (Windows 11, 2880x1800 at 120 Hz, Wi-Fi 6E at 160 MHz) from an isolated Rubylight host on the RX 7900 XT PC: PyroWave 4:2:0 8-bit SDR at 120 fps, 1.4 Gbps configured (about 1.24 Gbps sent), GPU decode through the SDK, pacing Immediate, overlay off. The host captured an unchanged 2560x1440 desktop, scaled it to the stream size and resent the still picture at 120 fps, so a frame left every frame period (the host sent 116 to 120 fps in every leg). A is the released 4.12.3 Windows build, B a release build of this change run beside the same DLLs. Percentiles come from the timing CSV (one row per picture shown) after the first 5 s; frame counts are the session-end line's and cover the whole leg; key-frame requests are the host's `idr_requests`, which counts the one that starts a stream. "End to end" is the overlay's figure computed per row: the present call's return minus the frame's host timestamp moved onto the client's clock.
+
+| Stream | Leg | `input_to_output_ms` p50 / p95 | `queue_wait_ms` p50 / p95 | `receive_to_present_ms` p50 / p95 | End to end p50 / p95 | Decoded | Skipped | Queue overflows | Key-frame requests | Shown fps |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 7168x4032, 45 s, order ABBA | A | 10.60 / 10.96, 11.08 / 11.43 | 57.0 / 120.3, 58.2 / 118.2 | 80.3 / 143.3, 82.8 / 142.4 | 87.9 / 149.6, 89.5 / 150.3 | 4398, 4171 | | 63, 78 | 64, 79 | 22.8, 21.5 |
+| 7168x4032, 45 s, order ABBA | B | 10.62 / 11.13, 10.73 / 11.02 | 4.2 / 8.9, 4.2 / 8.8 | 27.1 / 33.4, 27.4 / 33.4 | 33.9 / 40.4, 33.6 / 40.2 | 4252, 4238 | 1164, 1091 | 0, 0 | 1, 1 | 21.9, 21.7 |
+| 7680x4320, 30 s | A | 12.35 / 12.54 | 40.6 / 118.8 | 69.5 / 145.7 | 78.5 / 153.2 | 2728 | | 56 | 56 | 22.8 |
+| 7680x4320, 30 s | B | 12.11 / 12.43 | 4.0 / 9.4 | 32.0 / 37.2 | 38.5 / 45.5 | 2550 | 1062 | 0 | 1 | 19.8 |
+| 6400x3600, 45 s | A | 5.15 / 5.62 | 0.45 / 0.59 | 24.7 / 30.6 | 31.1 / 38.1 | 5409 | | 0 | 1 | 100.8 |
+| 6400x3600, 45 s | B | 5.08 / 5.43 | 0.40 / 0.53 | 23.7 / 26.8 | 29.4 / 32.6 | 5236 | 4 | 0 | 1 | 112.6 |
+| 3840x2160, 30 s | A | 2.55 / 2.71 | 0.15 / 0.24 | 9.8 / 11.6 | 13.7 / 18.2 | 3652 | | 0 | 1 | 120.1 |
+| 3840x2160, 30 s | B | 2.64 / 2.77 | 0.14 / 0.18 | 9.7 / 11.2 | 13.1 / 17.1 | 3508 | 0 | 0 | 1 | 116.8 |
+
+What it shows:
+
+- 4K at 120 fps does not make this laptop's decoder slower than the stream: a frame decodes in about 2.6 ms and the stream shows 117 to 120 fps at 13 to 14 ms end to end with either build. The reported 11 ms at 4K is therefore not what a 780M needs for the decode as such; which of 10-bit HDR, Linux and its compositor makes the difference is not measured. A decode slower than the 8.33 ms interval needed a picture of 7168x4032 here.
+- With the decoder slower than the stream (7168x4032 and 8K), A waits in the queue for 41 to 58 ms at the median and about 120 ms at p95, overflows the queue 1.4 to 1.9 times a second and asks for a key frame each time. B waits 4 ms at the median and 9 ms at p95 (the longest wait was 11 ms, one decode), never overflows and asks for no key frame after the first. End to end falls from 88 to 90 ms to 34 ms at the median and from 150 ms to 40 ms at p95 (7168x4032, both orders).
+- B skips 20 to 22 % of the frames at 7168x4032, which is what a 10.7 ms decode against an 8.33 ms interval leaves no time for (22 %), so two frames and one second do not skip more than the decoder's rate requires. Decode time is the same in A and B.
+- With the decoder faster than the stream the rule stays out of the way: 0 skips in the 4K leg and 4 of 5240 frames at 6400x3600, with the queue wait unchanged.
+- Shown fps at 7168x4032 and 8K is about 22 in both builds: the presenter replaced about three of four decoded pictures before showing them. That is a limit of presenting pictures this large on this laptop, not of the decode queue (the reported 4K session replaced 0 to 2 pictures), and it is not explained here. The shown fps difference at 6400x3600 is one leg each.
+- The host logged transient UDP send failures in three A legs (46, 46 and 310 packets) and in no B leg; the client's health line reported 0.0 % worst loss in every leg.
+
+Not measured: 10-bit HDR, Linux, the CPU decoder's skip path on hardware, and the time from the present call to the screen.
+
 ## Beam racing: measured, opt-in (helps the median at low pace, not p95, worse `receive_to_present` at high pace)
 
 The idea: with the host sending each row of blocks with the data it depends on (`pyrowaveRowOrder`),

@@ -508,6 +508,12 @@ impl VideoReceiver {
         }
     }
 
+    /// Whether [`frame_decoded`](Self::frame_decoded) has been told of a key frame.
+    #[cfg(test)]
+    pub(crate) fn idr_decoded(&self) -> bool {
+        self.depacketizer.idr_decoded()
+    }
+
     /// The decoder needs a key frame (`DR_NEED_IDR`, `requestDecoderRefresh`): flushes the
     /// sink's queued frames, drops the frame in progress at its end and requests a key frame.
     pub fn request_decoder_refresh(&mut self, sink: &mut impl VideoSink) {

@@ -188,6 +188,11 @@ impl Depacketizer {
         self.idr_frame_processed = true;
     }
 
+    #[cfg(test)]
+    pub(super) fn idr_decoded(&self) -> bool {
+        self.idr_frame_processed
+    }
+
     fn cleanup_frame_state(&mut self) {
         self.data.clear();
         self.buffers.clear();

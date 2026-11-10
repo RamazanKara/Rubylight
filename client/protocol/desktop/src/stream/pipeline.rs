@@ -935,6 +935,20 @@ impl VideoDecoder for Decoder {
         }
     }
 
+    /// PyroWave frames decode on their own, so one that a newer frame is already queued behind
+    /// can go undecoded: a decoder slower than the stream then shows fewer frames, each of them
+    /// fresh, where it would show every frame late.
+    fn intra_only(&self) -> bool {
+        self.pyrowave.as_ref().is_some_and(|decoder| decoder.skips_frames())
+    }
+
+    fn skip(&mut self, frame: &Frame) {
+        // The frame arrived: the host's timing and the bitrate count it as they count a decoded one.
+        self.shared.counters.count_host_latency(frame.host_processing_latency);
+        self.shared.counters.video_bytes.fetch_add(frame.data().len() as u64, Ordering::Relaxed);
+        if let Some(decoder) = &mut self.pyrowave { decoder.skip(frame.data()); }
+    }
+
     fn submit(&mut self, frame: &Frame) -> DecodeStatus {
         let pictures = self.shared.counters.decoded.load(Ordering::Relaxed);
         self.lost = false;

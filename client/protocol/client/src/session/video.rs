@@ -135,11 +135,18 @@ impl FrameQueue {
         frames
     }
 
-    /// The next frame or chunk, or `None` once shut down. The chunk buffers in `returned` go
-    /// back to the spares under the lock this takes anyway: once [`RETURN_BATCH`] have
-    /// gathered, before sleeping on an empty queue, and with every frame, which the decoder
-    /// may take a while over while the receiver needs buffers for the next frame's chunks.
+    /// [`wait_behind`](Self::wait_behind) without the frame count.
+    #[cfg(test)]
     pub fn wait(&self, returned: &mut Vec<Vec<u8>>) -> Option<Item> {
+        self.wait_behind(returned).map(|(item, _)| item)
+    }
+
+    /// The next frame or chunk with the number of frames still queued behind it, or `None`
+    /// once shut down. The chunk buffers in `returned` go back to the spares under the lock
+    /// this takes anyway: once [`RETURN_BATCH`] have gathered, before sleeping on an empty
+    /// queue, and with every frame, which the decoder may take a while over while the receiver
+    /// needs buffers for the next frame's chunks.
+    pub fn wait_behind(&self, returned: &mut Vec<Vec<u8>>) -> Option<(Item, usize)> {
         let mut state = lock(&self.state);
         loop {
             if state.shutdown {
@@ -156,7 +163,7 @@ impl FrameQueue {
                     }
                     Item::Chunk(_) => state.chunks -= 1,
                 }
-                return Some(item);
+                return Some((item, state.frames));
             }
             state.take_spares(returned);
             state = self.ready.wait(state).unwrap_or_else(|p| p.into_inner());
@@ -173,6 +180,51 @@ impl FrameQueue {
     }
 }
 
+/// Newer frames queued behind the one the decoder thread just took at which an intra-only
+/// decoder is behind for certain. One newer frame can be a pair the network delivered together,
+/// which a decoder that keeps up works off within a frame; two mean every frame after it would
+/// be shown at least two frame intervals late, and with a decoder slower than the stream the
+/// queue would only grow until it overflows.
+const SKIP_BACKLOG: usize = 2;
+/// For this long after a skip a single newer frame is enough for the next one. A decoder a
+/// little slower than the stream then drops one frame at a time as each falls due, instead of
+/// two in a row each time the backlog reaches [`SKIP_BACKLOG`] again.
+const SKIP_HOLD_US: u64 = 1_000_000;
+
+/// Which frames of a decoder whose frames decode on their own ([`VideoDecoder::intra_only`])
+/// give way to a newer one already queued, so that the decoder falling behind costs frames and
+/// not latency. Without it every frame waits behind the ones before it, up to
+/// [`DECODE_UNIT_QUEUE_BOUND`] decodes, until the queue overflows and is flushed. A decoder that
+/// keeps up never has two newer frames queued, and nothing changes for it.
+#[derive(Default)]
+struct Backlog {
+    /// When the last frame was skipped (session clock, us).
+    skipped_us: Option<u64>,
+}
+
+impl Backlog {
+    fn held(&self, now_us: u64) -> bool {
+        self.skipped_us
+            .is_some_and(|at| now_us.saturating_sub(at) < SKIP_HOLD_US)
+    }
+
+    /// Whether the frame just taken, with `behind` newer frames queued, is skipped.
+    fn skips(&mut self, behind: usize, now_us: u64) -> bool {
+        let skip = behind >= SKIP_BACKLOG || (behind >= 1 && self.held(now_us));
+        if skip {
+            self.skipped_us = Some(now_us);
+        }
+        skip
+    }
+
+    /// Whether a chunk taken with `behind` frames queued after it is of no use: the first of
+    /// those frames is its own (or a later one, when its own was lost), and that one will be
+    /// skipped when it is taken with the rest still behind it.
+    fn skips_chunk(&self, behind: usize, now_us: u64) -> bool {
+        behind > SKIP_BACKLOG || (behind >= 2 && self.held(now_us))
+    }
+}
+
 /// Counters the session reports.
 #[derive(Default)]
 pub struct VideoCounters {
@@ -182,6 +234,11 @@ pub struct VideoCounters {
     /// Early chunks dropped because the decoder fell behind (the decoder then decodes the
     /// frame whole).
     pub chunks_dropped: AtomicU64,
+    /// Frames an intra-only decoder that had fallen behind passed over for a newer queued one
+    /// (see [`Backlog`]), and the early chunks dropped with them (not `chunks_dropped`: their
+    /// frames are never decoded).
+    pub frames_skipped: AtomicU64,
+    pub chunks_skipped: AtomicU64,
     /// The receiver's `VideoStats::decoder_drops`, published after each datagram so it can be
     /// read without the receiver's lock: a direct-submit decoder asks for it from inside its
     /// submit (nightjar#80), on the thread that takes that lock for each batch.
@@ -658,21 +715,38 @@ fn decode_loop(
     let mut signals = Vec::new();
     // Chunk buffers go back to the queue with the next wait, in one lock.
     let mut returned: Vec<Vec<u8>> = Vec::with_capacity(RETURN_BATCH);
-    while let Some(item) = shared.queue.wait(&mut returned) {
+    let mut backlog = Backlog::default();
+    // A key frame was skipped: the next decoded frame stands in for it.
+    let mut skipped_idr = false;
+    while let Some((item, behind)) = shared.queue.wait_behind(&mut returned) {
         let frame = match item {
             Item::Chunk(chunk) => {
-                decoder.chunk(chunk.first, chunk.flags, &chunk.data);
+                // Fewer than two frames behind a chunk never make its frame one to skip.
+                if behind >= 2 && decoder.intra_only() && backlog.skips_chunk(behind, now_us()) {
+                    shared.counters.chunks_skipped.fetch_add(1, Ordering::Relaxed);
+                } else {
+                    decoder.chunk(chunk.first, chunk.flags, &chunk.data);
+                }
                 returned.push(chunk.data);
                 continue;
             }
             Item::Frame(frame) => frame,
         };
+        // With nothing queued behind the frame this costs one comparison.
+        if behind >= 1 && decoder.intra_only() && backlog.skips(behind, now_us()) {
+            decoder.skip(&frame);
+            shared.counters.frames_skipped.fetch_add(1, Ordering::Relaxed);
+            skipped_idr |= frame.frame_type == FrameType::Idr;
+            lock(&shared.receiver).recycle(frame);
+            continue;
+        }
         shared.counters.submitted.fetch_add(1, Ordering::Relaxed);
         let status = decoder.submit(&frame);
         {
             let mut receiver = lock(&shared.receiver);
             match status {
                 DecodeStatus::NeedIdr => {
+                    skipped_idr = false;
                     shared.counters.need_idr.fetch_add(1, Ordering::Relaxed);
                     let mut sink = Sink {
                         shared,
@@ -682,7 +756,7 @@ fn decode_loop(
                     receiver.request_decoder_refresh(&mut sink);
                 }
                 DecodeStatus::Ok => {
-                    if frame.frame_type == FrameType::Idr {
+                    if std::mem::take(&mut skipped_idr) || frame.frame_type == FrameType::Idr {
                         receiver.frame_decoded(FrameType::Idr);
                     }
                 }
@@ -876,6 +950,8 @@ mod tests {
         Chunk { first: bool },
         /// A frame, and whether the chunks since the last first add up to its envelope.
         Frame { number: u32, whole: bool },
+        /// A frame passed over for a newer one.
+        Skipped { number: u32 },
     }
 
     /// Accumulates the chunks the way the desktop decoder checks them against the frame.
@@ -884,6 +960,7 @@ mod tests {
         envelope: Vec<u8>,
         status: DecodeStatus,
         rfi: bool,
+        intra_only: bool,
     }
 
     impl Recorder {
@@ -893,7 +970,13 @@ mod tests {
                 envelope: Vec::new(),
                 status: DecodeStatus::Ok,
                 rfi: true,
+                intra_only: false,
             }
+        }
+
+        fn intra_only(mut self) -> Self {
+            self.intra_only = true;
+            self
         }
     }
 
@@ -915,6 +998,19 @@ mod tests {
             self.envelope.extend_from_slice(&flags.to_le_bytes());
             self.envelope.extend_from_slice(payload);
             self.seen.send(Seen::Chunk { first }).unwrap();
+        }
+
+        fn intra_only(&self) -> bool {
+            self.intra_only
+        }
+
+        fn skip(&mut self, frame: &Frame) {
+            self.envelope.clear();
+            self.seen
+                .send(Seen::Skipped {
+                    number: frame.number,
+                })
+                .unwrap();
         }
 
         fn submit(&mut self, frame: &Frame) -> DecodeStatus {
@@ -997,9 +1093,310 @@ mod tests {
         seen.iter()
             .filter_map(|s| match s {
                 Seen::Frame { number, whole } => Some((*number, *whole)),
-                Seen::Chunk { .. } => None,
+                Seen::Chunk { .. } | Seen::Skipped { .. } => None,
             })
             .collect()
+    }
+
+    fn decoded_numbers(seen: &[Seen]) -> Vec<u32> {
+        frames_seen(seen).iter().map(|frame| frame.0).collect()
+    }
+
+    fn skipped_numbers(seen: &[Seen]) -> Vec<u32> {
+        seen.iter()
+            .filter_map(|s| match s {
+                Seen::Skipped { number } => Some(*number),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn chunks_seen(seen: &[Seen]) -> usize {
+        seen.iter()
+            .filter(|s| matches!(s, Seen::Chunk { .. }))
+            .count()
+    }
+
+    // The data and buffers are private to the video module, so no struct update.
+    #[allow(clippy::field_reassign_with_default)]
+    fn numbered(number: u32, frame_type: FrameType) -> Frame {
+        let mut frame = Frame::default();
+        frame.number = number;
+        frame.frame_type = frame_type;
+        frame
+    }
+
+    /// `frames` frames queued as the receiver would, each behind its three chunks, with
+    /// nothing taking them yet: the decoder finds them as a backlog when it starts.
+    fn backlog(shared: &VideoShared, frames: u32, first_type: FrameType) {
+        for number in 1..=frames {
+            for i in 0..3 {
+                assert!(shared.queue.offer_chunk(i == 0, 0, &[number as u8, i]));
+            }
+            let frame_type = if number == 1 {
+                first_type
+            } else {
+                FrameType::P
+            };
+            assert!(shared.queue.offer(numbered(number, frame_type)).is_ok());
+        }
+    }
+
+    #[test]
+    fn the_backlog_rule_needs_two_newer_frames_and_then_holds_at_one() {
+        let mut rule = Backlog::default();
+        // A decoder that keeps up: nothing behind, or the one frame of a pair that arrived
+        // together, however long that goes on.
+        for now in [0, 5_000, 2_000_000] {
+            assert!(!rule.skips(0, now));
+            assert!(!rule.skips(1, now));
+            assert!(!rule.skips_chunk(2, now), "its frame is taken with one behind");
+        }
+        // Two newer frames: behind for certain, and so is a chunk whose frame has two behind.
+        assert!(rule.skips_chunk(3, 3_000_000));
+        assert!(rule.skips(2, 3_000_000));
+        // From here one newer frame is enough, down to the newest, which is decoded.
+        assert!(rule.skips_chunk(2, 3_000_100));
+        assert!(rule.skips(1, 3_000_100));
+        assert!(!rule.skips(0, 3_000_200));
+        assert!(!rule.skips_chunk(1, 3_000_200), "the newest frame keeps its chunks");
+        // Each skip holds the rule for another second: a decoder a little slower than the
+        // stream drops single frames, each as it falls due.
+        assert!(rule.skips(1, 3_000_100 + SKIP_HOLD_US - 1));
+        assert!(rule.skips(1, 3_000_100 + 2 * SKIP_HOLD_US - 2));
+        // A second without a skip, and it takes two newer frames again.
+        let later = 3_000_100 + 3 * SKIP_HOLD_US;
+        assert!(!rule.skips(1, later));
+        assert!(!rule.skips_chunk(2, later));
+        assert!(rule.skips(2, later));
+    }
+
+    #[test]
+    fn a_backlog_decodes_only_the_newest_frame_of_an_intra_only_decoder() {
+        let shared = Arc::new(VideoShared::new(records(true)));
+        backlog(&shared, 5, FrameType::P);
+        let (tx, rx) = mpsc::channel();
+        let running = Running::start(&shared, Recorder::new(tx).intra_only(), rx);
+        let seen = running.finish();
+        assert_eq!(skipped_numbers(&seen), [1, 2, 3, 4], "{seen:?}");
+        assert_eq!(decoded_numbers(&seen), [5], "{seen:?}");
+        let counters = &shared.counters;
+        assert_eq!(counters.frames_skipped.load(Ordering::Relaxed), 4);
+        assert_eq!(
+            counters.submitted.load(Ordering::Relaxed),
+            1,
+            "skipped frames are not submitted"
+        );
+        assert_eq!(counters.need_idr.load(Ordering::Relaxed), 0);
+        assert_eq!(counters.queue_overflows.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn the_chunks_of_skipped_frames_are_dropped_and_not_counted_as_dropped() {
+        let shared = Arc::new(VideoShared::new(records(true)));
+        backlog(&shared, 4, FrameType::P);
+        let (tx, rx) = mpsc::channel();
+        let running = Running::start(&shared, Recorder::new(tx).intra_only(), rx);
+        let seen = running.finish();
+        // Frame 1's chunks have four frames behind them and frame 2's three, so they go
+        // unseen. Frame 3's have two, which is one behind the frame itself: only the skips
+        // before it say that it goes too. Frame 4 keeps its chunks, first one first.
+        assert_eq!(skipped_numbers(&seen), [1, 2, 3], "{seen:?}");
+        assert_eq!(chunks_seen(&seen), 3, "{seen:?}");
+        assert!(
+            matches!(seen[seen.len() - 4], Seen::Chunk { first: true }),
+            "{seen:?}"
+        );
+        assert!(
+            matches!(seen.last(), Some(Seen::Frame { number: 4, .. })),
+            "{seen:?}"
+        );
+        let counters = &shared.counters;
+        assert_eq!(counters.chunks_skipped.load(Ordering::Relaxed), 9);
+        assert_eq!(counters.chunks_dropped.load(Ordering::Relaxed), 0);
+        assert_eq!(
+            lock(&shared.queue.state).chunks,
+            0,
+            "their buffers left the queue"
+        );
+    }
+
+    #[test]
+    fn a_pair_of_frames_is_no_backlog_and_both_are_decoded_with_their_chunks() {
+        let shared = Arc::new(VideoShared::new(records(true)));
+        backlog(&shared, 2, FrameType::P);
+        let (tx, rx) = mpsc::channel();
+        let running = Running::start(&shared, Recorder::new(tx).intra_only(), rx);
+        let seen = running.finish();
+        assert!(skipped_numbers(&seen).is_empty(), "{seen:?}");
+        assert_eq!(decoded_numbers(&seen), [1, 2], "{seen:?}");
+        assert_eq!(chunks_seen(&seen), 6, "{seen:?}");
+        let counters = &shared.counters;
+        assert_eq!(counters.submitted.load(Ordering::Relaxed), 2);
+        assert_eq!(counters.frames_skipped.load(Ordering::Relaxed), 0);
+        assert_eq!(counters.chunks_skipped.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn a_decoder_that_predicts_from_earlier_frames_sees_every_frame() {
+        let shared = Arc::new(VideoShared::new(records(true)));
+        backlog(&shared, 5, FrameType::P);
+        let (tx, rx) = mpsc::channel();
+        let running = Running::start(&shared, Recorder::new(tx), rx);
+        let seen = running.finish();
+        assert_eq!(decoded_numbers(&seen), [1, 2, 3, 4, 5], "{seen:?}");
+        assert_eq!(chunks_seen(&seen), 15);
+        let counters = &shared.counters;
+        assert_eq!(counters.submitted.load(Ordering::Relaxed), 5);
+        assert_eq!(counters.frames_skipped.load(Ordering::Relaxed), 0);
+        assert_eq!(counters.chunks_skipped.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn a_skipped_key_frame_is_reported_decoded_with_the_next_frame_that_is() {
+        // Frame 3 is decoded, but the decoder refuses it: no key frame has been decoded.
+        let shared = Arc::new(VideoShared::new(records(true)));
+        backlog(&shared, 3, FrameType::Idr);
+        assert!(!lock(&shared.receiver).idr_decoded());
+        let (tx, rx) = mpsc::channel();
+        let mut recorder = Recorder::new(tx).intra_only();
+        recorder.status = DecodeStatus::NeedIdr;
+        let seen = Running::start(&shared, recorder, rx).finish();
+        assert_eq!(skipped_numbers(&seen), [1, 2], "{seen:?}");
+        assert!(!lock(&shared.receiver).idr_decoded());
+        assert_eq!(shared.counters.need_idr.load(Ordering::Relaxed), 1);
+
+        // Accepted, it stands for the key frame skipped before it.
+        let shared = Arc::new(VideoShared::new(records(true)));
+        backlog(&shared, 3, FrameType::Idr);
+        let (tx, rx) = mpsc::channel();
+        let seen = Running::start(&shared, Recorder::new(tx).intra_only(), rx).finish();
+        assert_eq!(skipped_numbers(&seen), [1, 2], "{seen:?}");
+        assert!(
+            lock(&shared.receiver).idr_decoded(),
+            "the accepted frame reports the skipped key frame"
+        );
+
+        // Without a skipped key frame a decoded inter frame reports none.
+        let shared = Arc::new(VideoShared::new(records(true)));
+        backlog(&shared, 3, FrameType::P);
+        let (tx, rx) = mpsc::channel();
+        Running::start(&shared, Recorder::new(tx).intra_only(), rx).finish();
+        assert!(!lock(&shared.receiver).idr_decoded());
+
+        // A key frame that is decoded itself is reported as before.
+        let shared = Arc::new(VideoShared::new(records(true)));
+        backlog(&shared, 1, FrameType::Idr);
+        let (tx, rx) = mpsc::channel();
+        Running::start(&shared, Recorder::new(tx).intra_only(), rx).finish();
+        assert!(lock(&shared.receiver).idr_decoded());
+    }
+
+    #[test]
+    fn a_decoder_slower_than_the_stream_never_fills_the_queue() {
+        // Without the skip the frames pile up until one finds the queue full, which flushes
+        // it and asks for a key frame.
+        let (shared, full, _, seen) = slower_than_the_stream(false);
+        assert!(full.is_some(), "the backlog never reached the bound");
+        assert!(skipped_numbers(&seen).is_empty());
+        assert_eq!(shared.counters.frames_skipped.load(Ordering::Relaxed), 0);
+
+        let (shared, full, deepest, seen) = slower_than_the_stream(true);
+        assert_eq!(full, None, "a frame found the queue full");
+        assert!(deepest <= SKIP_BACKLOG + 1, "the queue held {deepest}");
+        let (decoded, skipped) = (decoded_numbers(&seen), skipped_numbers(&seen));
+        assert_eq!(decoded.len() + skipped.len(), SLOW_FRAMES as usize);
+        assert!(decoded.windows(2).all(|pair| pair[0] < pair[1]), "{decoded:?}");
+        assert_eq!(decoded.last(), Some(&SLOW_FRAMES), "the newest frame is decoded");
+        // One frame in six goes, less the few that built the first backlog.
+        assert!(skipped.len() >= 15 && skipped.len() <= 20, "{skipped:?}");
+        let counters = &shared.counters;
+        assert_eq!(counters.submitted.load(Ordering::Relaxed), decoded.len() as u64);
+        assert_eq!(counters.frames_skipped.load(Ordering::Relaxed), skipped.len() as u64);
+        assert_eq!(counters.need_idr.load(Ordering::Relaxed), 0);
+    }
+
+    /// The frames [`slower_than_the_stream`] sends: six for every five decodes.
+    const SLOW_FRAMES: u32 = 121;
+
+    /// Holds each decode until the test lets it go, so the test decides how many frames
+    /// arrive during one: no sleeps, and nothing depends on how threads are scheduled.
+    struct Gated {
+        recorder: Recorder,
+        started: mpsc::Sender<()>,
+        go: mpsc::Receiver<()>,
+    }
+
+    impl VideoDecoder for Gated {
+        fn setup(&mut self, setup: &crate::session::VideoSetup) -> Result<(), i32> {
+            self.recorder.setup(setup)
+        }
+
+        fn intra_only(&self) -> bool {
+            self.recorder.intra_only
+        }
+
+        fn skip(&mut self, frame: &Frame) {
+            self.recorder.skip(frame);
+        }
+
+        fn submit(&mut self, frame: &Frame) -> DecodeStatus {
+            self.started.send(()).unwrap();
+            // A closed gate lets everything through: the test is over.
+            let _ = self.go.recv();
+            self.recorder.submit(frame)
+        }
+    }
+
+    /// A stream a fifth faster than its decoder: one frame arrives during each decode and
+    /// two during every fifth. Returns the first frame that found the queue full, if one
+    /// did, the most frames the queue held, and what the decoder saw.
+    fn slower_than_the_stream(
+        intra_only: bool,
+    ) -> (Arc<VideoShared>, Option<u32>, usize, Vec<Seen>) {
+        let shared = Arc::new(VideoShared::new(records(true)));
+        let (tx, rx) = mpsc::channel();
+        let (started, in_decode) = mpsc::channel();
+        let (go, gate) = mpsc::channel();
+        let mut recorder = Recorder::new(tx);
+        recorder.intra_only = intra_only;
+        let decoder = Gated {
+            recorder,
+            started,
+            go: gate,
+        };
+        let for_thread = shared.clone();
+        let thread =
+            std::thread::spawn(move || decode_loop(Box::new(decoder), &for_thread, |_| {}));
+        let decoding = || {
+            in_decode
+                .recv_timeout(HANG_GUARD)
+                .expect("the decoder never took the next frame")
+        };
+        assert!(shared.queue.offer(numbered(1, FrameType::P)).is_ok());
+        decoding();
+        let (mut number, mut full, mut deepest) = (1, None, 0);
+        'stream: for decode in 1..=100 {
+            let arriving = if decode % 5 == 0 { 2 } else { 1 };
+            for _ in 0..arriving {
+                number += 1;
+                if shared.queue.offer(numbered(number, FrameType::P)).is_err() {
+                    full = Some(number);
+                    break 'stream;
+                }
+            }
+            deepest = deepest.max(shared.queue.len());
+            go.send(()).unwrap();
+            // The newest frame is never skipped, so another decode always follows.
+            decoding();
+        }
+        drop(go);
+        wait_until("the decoder never took everything queued", || {
+            lock(&shared.queue.state).items.is_empty()
+        });
+        shared.queue.shutdown();
+        thread.join().unwrap();
+        (shared, full, deepest, rx.try_iter().collect())
     }
 
     #[test]

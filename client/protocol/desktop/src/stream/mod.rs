@@ -1995,7 +1995,7 @@ impl Streaming {
             }
         }
         let stats = self.session.stats();
-        eprintln!("{}", video_summary(stats.frames_submitted, stats.decode_queue_overflows,
+        eprintln!("{}", video_summary(stats.frames_submitted, stats.frames_skipped, stats.decode_queue_overflows,
             self.shared.counters.replaced.load(Ordering::Relaxed)));
         if self.facts.early_decode {
             let c = &self.shared.counters;

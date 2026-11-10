@@ -154,7 +154,7 @@ android {
     testOptions {
         unitTests.includeAndroidResources = true
         unitTests.all {
-            // -PunitTestForks=4 for a machine with the memory for four 2 GB test JVMs (CI's test job).
+            // -PunitTestForks=N for more 2 GB test JVMs; on CI's four cores four took 490 s, two 376 s.
             maxParallelForks = (project.findProperty('unitTestForks') ?: '2') as int
             // The root flavor adds only src/root's evdev classes to the shared code, so its unit
             // test tasks run src/testRoot's tests; the shared suite (about 6 minutes) runs once, in

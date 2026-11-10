@@ -46,7 +46,7 @@ On Linux/macOS:
 bash gradlew --no-daemon --max-workers=2 :app:assembleNonRootDebug :app:lintNonRootDebug :app:testNonRootDebugUnitTest
 ```
 
-`--no-daemon` avoids retaining a build daemon and `--max-workers=2` limits Gradle workers. Native make and unit-test forks are also capped at two in the app build (`-PunitTestForks=4` raises the forks, as CI does; each fork takes up to 2 GB). The root flavor adds only its evdev classes, so `testRootDebugUnitTest` runs only `src/testRoot`'s tests; the shared suite runs in `testNonRootDebugUnitTest`. Add `--offline` only when the wrapper distribution and dependencies are cached; it does not supply missing artifacts. For a smaller arm64-only APK, add `-PabiFilters=arm64-v8a`; comma-separated ABI values are also accepted.
+`--no-daemon` avoids retaining a build daemon and `--max-workers=2` limits Gradle workers. Native make and unit-test forks are also capped at two in the app build (`-PunitTestForks=N` changes the forks; each takes up to 2 GB, and on CI's four cores four forks were slower than two). The root flavor adds only its evdev classes, so `testRootDebugUnitTest` runs only `src/testRoot`'s tests; the shared suite runs in `testNonRootDebugUnitTest`. Add `--offline` only when the wrapper distribution and dependencies are cached; it does not supply missing artifacts. For a smaller arm64-only APK, add `-PabiFilters=arm64-v8a`; comma-separated ABI values are also accepted.
 
 With the local build cache on (`org.gradle.caching=true` in `~/.gradle/gradle.properties`), another checkout or a clean build takes compiled classes and the Rust engine from the cache. A cold arm64 debug build and unit-test run in a second checkout dropped from 139 to 58 s.
 

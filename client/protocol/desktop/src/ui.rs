@@ -213,6 +213,18 @@ impl Screen {
         }
     }
 
+    /// How often the network is read while this page is open. Every page takes its profile from
+    /// the kind of network, which the system tells of when it changes; these two also show the
+    /// link's speed or keep it with a test's result, and a Wi-Fi link's speed moves on its own.
+    pub fn network_pace(self) -> crate::network::Pace {
+        match self {
+            Self::Profiles | Self::HostSettings(_) => crate::network::Pace::Live,
+            Self::Home | Self::AllGames | Self::Game { .. } | Self::Hosts | Self::Apps(_) | Self::HostDetails(_) | Self::Files(_)
+            | Self::Settings | Self::AppSettings(_) | Self::ProfileSettings(_) | Self::Controllers | Self::Shortcuts
+            | Self::StreamHotkeys | Self::Help => crate::network::Pace::Idle,
+        }
+    }
+
     pub fn save_command(self) -> Option<Command> {
         match self {
             Self::Settings => Some(Command::SaveSettings),
@@ -341,6 +353,8 @@ pub struct Launcher {
     pub profiles: Profiles,
     pub network: crate::network::Network,
     home_wifi_name: String,
+    /// Every PC's library merged, kept while the PCs and the hidden games are what it was made from.
+    pub(crate) library: console::LibraryMemo,
     pub edit_settings: Settings,
     pub inherited_settings: Settings,
     pub edit_overrides: Overrides,
@@ -484,6 +498,7 @@ impl Launcher {
             profiles,
             network: crate::network::Network::default(),
             home_wifi_name: String::new(),
+            library: console::LibraryMemo::default(),
             edit_settings: Settings::default(),
             inherited_settings: Settings::default(),
             edit_overrides: Overrides::default(),

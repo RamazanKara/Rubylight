@@ -180,8 +180,11 @@ pub(super) fn monitor(ui: &Ui, out: &mut Vec<Shape>, host: &Host, face: Rect, re
         .and_then(|app| host.art.get(&app))
         .and_then(|art| match art {
             Art::Ready(texture) => Some(texture),
-            Art::Loading | Art::Missing => None,
+            Art::Loading | Art::Missing | Art::Dropped => None,
         });
+    if let Some(texture) = art {
+        crate::hosts::cover_used(ctx, texture);
+    }
     let name = host.display_name();
     if offline {
         glass::solid(out, ctx, face, r, if flat { *SURFACE } else { FACE_OFF });

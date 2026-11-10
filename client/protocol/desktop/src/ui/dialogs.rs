@@ -357,9 +357,10 @@ impl Launcher {
                 // the menu stays open to try the next.
                 let s = &self.settings;
                 let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
-                let (entries, _) = console::split_hidden(console::merge_library(&sources), &sources, &self.hidden_games);
-                let groups = console::offered_groups(&entries);
-                let group = console::shown_group(s.home_group, &entries);
+                let library = self.library.get(&sources, &self.hidden_games);
+                let entries = library.shown();
+                let groups = console::offered_groups(entries);
+                let group = console::shown_group(s.home_group, entries);
                 let mut rows = vec![
                     MenuRow { icon: Icon::Grid, label: en("Layout"), hint: Some(s.home_layout.label()), destructive: false, blocked: None },
                     MenuRow { icon: Icon::Folder, label: en("Group by"), hint: Some(group.label()), destructive: false, blocked: None },

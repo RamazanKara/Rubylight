@@ -5,7 +5,7 @@ use std::time::Duration;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind { Mobile, HomeWifi, Wifi, Other }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Network {
     pub wifi: bool,
     pub cellular: bool,
@@ -549,6 +549,215 @@ pub fn query(waker: crate::hosts::Waker) -> Receiver<Network> {
     rx
 }
 
+/// How often the launcher's watcher ([`Watch`]) reads the network.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pace {
+    /// A page shows the link speed or starts a test that keeps it: every [`LIVE_EVERY`], as often
+    /// as the launcher always read it. A Wi-Fi link's speed moves without the network changing.
+    Live,
+    /// Only what kind of network it is matters (which profile applies): when the system tells of
+    /// a change, and every [`IDLE_EVERY`] besides. Where it tells of none, as often as `Live`.
+    Idle,
+    /// A stream is up, with a watcher of its own ([`RoamWatch`]): not at all.
+    Paused,
+}
+
+/// The launcher always read the network this often, with a new thread each time.
+const LIVE_EVERY: Duration = Duration::from_secs(5);
+/// Between the system's notices the network is still read this often, in case one was missed.
+const IDLE_EVERY: Duration = Duration::from_secs(60);
+/// A change comes as several notices at once; they are read as one, this long after the first.
+const GATHER: Duration = Duration::from_millis(200);
+/// A notice can come before the new connection has its name and cost, so it is read once more.
+const SETTLE: Duration = Duration::from_secs(2);
+
+enum Ask {
+    Pace(Pace),
+    /// The system told of a change.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    Changed,
+    Stop,
+}
+
+/// When the watcher reads next, kept apart from its thread so the rules are tested without one.
+struct Plan {
+    /// Whether the system tells of changes.
+    told: bool,
+    pace: Pace,
+    /// When the next read is due; None while paused.
+    due: Option<std::time::Instant>,
+    /// The read that is due follows a notice, and is done once more a little later.
+    settle: bool,
+    last: Option<Network>,
+}
+
+impl Plan {
+    fn new(told: bool, now: std::time::Instant) -> Self {
+        Self { told, pace: Pace::Idle, due: Some(now), settle: false, last: None }
+    }
+
+    fn every(&self) -> Duration {
+        if self.pace == Pace::Idle && self.told { IDLE_EVERY } else { LIVE_EVERY }
+    }
+
+    fn ask(&mut self, ask: &Ask, now: std::time::Instant) {
+        match *ask {
+            Ask::Pace(pace) if pace == self.pace => {}
+            Ask::Pace(pace) => {
+                self.due = match pace {
+                    Pace::Paused => None,
+                    // A page that shows the speed opened: it shows what is so now.
+                    Pace::Live => Some(now),
+                    // Back from a stream the network may be another; else the read that was due
+                    // is still due, and the longer wait starts after it.
+                    Pace::Idle => Some(self.due.unwrap_or(now)),
+                };
+                self.pace = pace;
+            }
+            // While paused nothing is read; the return from the pause reads at once.
+            Ask::Changed => {
+                if let Some(due) = self.due {
+                    self.due = Some(due.min(now + GATHER));
+                    self.settle = true;
+                }
+            }
+            Ask::Stop => {}
+        }
+    }
+
+    /// Takes in what a read at `now` gave and plans the next. Whether it differs from the last.
+    fn read(&mut self, network: &Network, now: std::time::Instant) -> bool {
+        let wait = if std::mem::take(&mut self.settle) { SETTLE.min(self.every()) } else { self.every() };
+        self.due = Some(now + wait);
+        let changed = self.last.as_ref() != Some(network);
+        if changed {
+            self.last = Some(network.clone());
+        }
+        changed
+    }
+}
+
+/// The launcher's view of the network, read on one thread that lives as long as the launcher.
+///
+/// The launcher used to start a thread every five seconds for as long as it ran, each one
+/// entering a WinRT apartment, asking the system a dozen questions and waking the UI with the
+/// answer. Now one thread asks, at the pace the open page needs ([`Pace`]), and wakes the UI only
+/// when the answer is another one. Every answer is still handed over, so [`Watch::latest`] is
+/// never older than the pace.
+pub struct Watch {
+    asks: Sender<Ask>,
+    news: Receiver<Network>,
+    pace: Pace,
+}
+
+impl Watch {
+    pub fn start(waker: crate::hosts::Waker) -> Self {
+        Self::spawn(read, told, waker)
+    }
+
+    /// The watcher with its reads taken from `read` and the system's notices asked for by `tell`,
+    /// which gives what keeps them coming, or None when there are none to have.
+    fn spawn(
+        mut read: impl FnMut() -> Result<Network, String> + Send + 'static,
+        tell: impl FnOnce(Sender<Ask>) -> Option<Box<dyn std::any::Any>> + Send + 'static,
+        waker: crate::hosts::Waker,
+    ) -> Self {
+        let (asks, asked) = channel();
+        let (tell_news, news) = channel();
+        let notices = asks.clone();
+        // Without its thread nothing is read; a start still reads for itself (`query`).
+        let _ = std::thread::Builder::new().name("NetworkWatch".into()).spawn(move || {
+            let told = tell(notices);
+            let mut plan = Plan::new(told.is_some(), std::time::Instant::now());
+            loop {
+                let ask = match plan.due {
+                    Some(due) => match asked.recv_timeout(due.saturating_duration_since(std::time::Instant::now())) {
+                        Ok(ask) => Some(ask),
+                        Err(RecvTimeoutError::Timeout) => None,
+                        Err(RecvTimeoutError::Disconnected) => return,
+                    },
+                    None => match asked.recv() {
+                        Ok(ask) => Some(ask),
+                        Err(_) => return,
+                    },
+                };
+                match ask {
+                    Some(Ask::Stop) => return,
+                    Some(ask) => plan.ask(&ask, std::time::Instant::now()),
+                    None => {
+                        let network = read().unwrap_or_else(|error| Network { error: Some(error), ..Default::default() });
+                        let changed = plan.read(&network, std::time::Instant::now());
+                        if tell_news.send(network).is_err() {
+                            return;
+                        }
+                        if changed {
+                            waker();
+                        }
+                    }
+                }
+            }
+        });
+        Self { asks, news, pace: Pace::Idle }
+    }
+
+    /// Sets how often the network is read from here on.
+    pub fn pace(&mut self, pace: Pace) {
+        if pace != self.pace {
+            self.pace = pace;
+            let _ = self.asks.send(Ask::Pace(pace));
+        }
+    }
+
+    /// The newest answer since the last call, if there was one.
+    pub fn latest(&self) -> Option<Network> {
+        self.news.try_iter().last()
+    }
+}
+
+impl Drop for Watch {
+    fn drop(&mut self) {
+        // The system's notices hold a sender too, so the thread is told rather than left to
+        // find the channel closed.
+        let _ = self.asks.send(Ask::Stop);
+    }
+}
+
+/// Asks Windows to tell of network changes (`NetworkInformation.NetworkStatusChanged`) for as long
+/// as what it gives lives. Called on the watcher's thread, whose apartment it holds until then.
+#[cfg(windows)]
+fn told(asks: Sender<Ask>) -> Option<Box<dyn std::any::Any>> {
+    use windows::Networking::Connectivity::{NetworkInformation, NetworkStatusChangedEventHandler};
+    use windows::Win32::System::WinRT::{RoInitialize, RoUninitialize, RO_INIT_MULTITHREADED};
+    struct Told(i64);
+    impl Drop for Told {
+        fn drop(&mut self) {
+            let _ = NetworkInformation::RemoveNetworkStatusChanged(self.0);
+            // SAFETY: balances the `RoInitialize` below, on the thread that made it.
+            unsafe { RoUninitialize() };
+        }
+    }
+    // SAFETY: the watcher's own thread, which enters no other apartment.
+    unsafe { RoInitialize(RO_INIT_MULTITHREADED) }.ok()?;
+    let handler = NetworkStatusChangedEventHandler::new(move |_| {
+        let _ = asks.send(Ask::Changed);
+        Ok(())
+    });
+    match NetworkInformation::NetworkStatusChanged(&handler) {
+        Ok(token) => Some(Box::new(Told(token))),
+        Err(_) => {
+            // SAFETY: balances the `RoInitialize` above.
+            unsafe { RoUninitialize() };
+            None
+        }
+    }
+}
+
+/// NetworkManager's signals are not listened for: the network is read at the launcher's old pace.
+#[cfg(not(windows))]
+fn told(_asks: Sender<Ask>) -> Option<Box<dyn std::any::Any>> {
+    None
+}
+
 #[cfg(windows)]
 fn read() -> Result<Network, String> {
     use windows::Networking::Connectivity::{NetworkInformation, NetworkCostType};
@@ -901,5 +1110,185 @@ mod tests {
     fn fallback_reasons_are_told_apart() {
         let reasons = [Fallback::Resolve, Fallback::Route, Fallback::NotTelling].map(|why| why.to_string());
         assert!(reasons[0] != reasons[1] && reasons[1] != reasons[2] && reasons[0] != reasons[2]);
+    }
+
+    fn on_wifi(link_mbps: u32) -> Network {
+        Network { wifi: true, ssid: Some("Home".into()), link_mbps, ..Default::default() }
+    }
+
+    #[test]
+    fn the_watcher_reads_at_once_and_then_as_often_as_the_open_page_needs() {
+        let start = std::time::Instant::now();
+        let mut plan = Plan::new(true, start);
+        assert_eq!(plan.due, Some(start), "the launcher opens with the network known");
+        plan.read(&on_wifi(866), start);
+        assert_eq!(plan.due, Some(start + IDLE_EVERY), "the system tells of changes, so the reads in between are few");
+        // A page that shows the link's speed opens: read now, then as often as it always was.
+        let opened = start + Duration::from_secs(7);
+        plan.ask(&Ask::Pace(Pace::Live), opened);
+        assert_eq!(plan.due, Some(opened));
+        plan.read(&on_wifi(866), opened);
+        assert_eq!(plan.due, Some(opened + LIVE_EVERY));
+        // Asked for the pace it has, nothing moves.
+        plan.ask(&Ask::Pace(Pace::Live), opened + Duration::from_secs(1));
+        assert_eq!(plan.due, Some(opened + LIVE_EVERY));
+        // The page closes: the read that was due still comes, and the long wait follows it.
+        plan.ask(&Ask::Pace(Pace::Idle), opened + Duration::from_secs(2));
+        assert_eq!(plan.due, Some(opened + LIVE_EVERY));
+        plan.read(&on_wifi(866), opened + LIVE_EVERY);
+        assert_eq!(plan.due, Some(opened + LIVE_EVERY + IDLE_EVERY));
+    }
+
+    #[test]
+    fn a_system_that_tells_of_no_changes_is_read_as_often_as_ever() {
+        let start = std::time::Instant::now();
+        let mut plan = Plan::new(false, start);
+        plan.read(&on_wifi(866), start);
+        assert_eq!(plan.due, Some(start + LIVE_EVERY), "nothing else would tell of another network for a minute");
+        assert_eq!(LIVE_EVERY, Duration::from_secs(5), "the launcher's pace before there was a watcher");
+    }
+
+    #[test]
+    fn a_notice_from_the_system_is_read_soon_and_once_more_when_it_has_settled() {
+        let start = std::time::Instant::now();
+        let mut plan = Plan::new(true, start);
+        plan.read(&on_wifi(866), start);
+        // A change comes as a burst of notices, read as one.
+        let told = start + Duration::from_secs(20);
+        plan.ask(&Ask::Changed, told);
+        assert_eq!(plan.due, Some(told + GATHER));
+        plan.ask(&Ask::Changed, told + Duration::from_millis(50));
+        plan.ask(&Ask::Changed, told + Duration::from_millis(120));
+        assert_eq!(plan.due, Some(told + GATHER), "a later notice of the burst does not put the read off");
+        let wired = Network { link_mbps: 2500, ..Default::default() };
+        assert!(plan.read(&wired, told + GATHER));
+        assert_eq!(plan.due, Some(told + GATHER + SETTLE), "the new connection may not have had its name and cost yet");
+        assert!(!plan.read(&wired, told + GATHER + SETTLE));
+        assert_eq!(plan.due, Some(told + GATHER + SETTLE + IDLE_EVERY), "and then the long wait again");
+        // A read that is due sooner than the notice asks for stays where it is.
+        let mut plan = Plan::new(true, start);
+        plan.ask(&Ask::Changed, start);
+        assert_eq!(plan.due, Some(start));
+    }
+
+    #[test]
+    fn the_watcher_reads_nothing_during_a_stream_and_at_once_after_it() {
+        let start = std::time::Instant::now();
+        let mut plan = Plan::new(true, start);
+        plan.read(&on_wifi(866), start);
+        plan.ask(&Ask::Pace(Pace::Paused), start + Duration::from_secs(1));
+        assert_eq!(plan.due, None);
+        // The stream has its own watcher for a network that changes under it.
+        plan.ask(&Ask::Changed, start + Duration::from_secs(30));
+        assert_eq!(plan.due, None);
+        let ended = start + Duration::from_secs(3600);
+        plan.ask(&Ask::Pace(Pace::Idle), ended);
+        assert_eq!(plan.due, Some(ended), "the network may be another one after an hour's stream");
+        // Back to a page that shows the speed is no different.
+        plan.ask(&Ask::Pace(Pace::Paused), ended);
+        plan.ask(&Ask::Pace(Pace::Live), ended + Duration::from_secs(9));
+        assert_eq!(plan.due, Some(ended + Duration::from_secs(9)));
+    }
+
+    #[test]
+    fn only_an_answer_that_differs_from_the_last_is_news() {
+        let start = std::time::Instant::now();
+        let mut plan = Plan::new(true, start);
+        assert!(plan.read(&on_wifi(866), start), "the first answer");
+        assert!(!plan.read(&on_wifi(866), start));
+        assert!(plan.read(&on_wifi(720), start), "the link's speed");
+        assert!(plan.read(&Network { ssid: Some("Guest".into()), ..on_wifi(720) }, start), "the network's name");
+        assert!(plan.read(&Network { metered: true, ssid: Some("Guest".into()), ..on_wifi(720) }, start), "its cost");
+        assert!(plan.read(&Network { cellular: true, ..Default::default() }, start), "its kind");
+        let failed = Network { error: Some("no answer".into()), ..Default::default() };
+        assert!(plan.read(&failed, start), "a read that failed");
+        assert!(!plan.read(&failed, start));
+        assert!(plan.read(&on_wifi(866), start), "and the first answer again");
+    }
+
+    #[test]
+    fn the_watcher_hands_over_every_answer_and_wakes_the_launcher_only_for_news() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        use std::sync::{Arc, Mutex};
+        let long = Duration::from_secs(10);
+        let answer = Arc::new(Mutex::new(Ok(on_wifi(866))));
+        let (read_tx, reads) = channel();
+        let (notices_tx, notices) = channel();
+        let (woken_tx, woken) = channel();
+        let wakes = Arc::new(AtomicU32::new(0));
+        let reader = {
+            let answer = answer.clone();
+            move || {
+                let _ = read_tx.send(());
+                answer.lock().unwrap().clone()
+            }
+        };
+        let waker: crate::hosts::Waker = {
+            let wakes = wakes.clone();
+            let woken_tx = Mutex::new(woken_tx);
+            Arc::new(move || {
+                wakes.fetch_add(1, Ordering::SeqCst);
+                let _ = woken_tx.lock().unwrap().send(());
+            })
+        };
+        let mut watch = Watch::spawn(
+            reader,
+            move |asks| {
+                let _ = notices_tx.send(asks);
+                Some(Box::new(()) as Box<dyn std::any::Any>)
+            },
+            waker,
+        );
+        // The system's notices would come through this, and it keeps the thread's channel open.
+        let notice = notices.recv_timeout(long).expect("the watcher asks for the system's notices");
+
+        // At the start, with nobody asking.
+        woken.recv_timeout(long).expect("the first answer wakes the launcher");
+        assert_eq!(watch.latest(), Some(on_wifi(866)));
+        assert_eq!(watch.latest(), None, "an answer is handed over once");
+
+        // A page that shows the speed reads at once. The same answer wakes nobody, and is there
+        // all the same for the frame that comes next.
+        watch.pace(Pace::Live);
+        assert_eq!(watch.news.recv_timeout(long), Ok(on_wifi(866)));
+        assert_eq!(wakes.load(Ordering::SeqCst), 1);
+
+        // A stream: nothing is read. After it the network is another one, read at once.
+        watch.pace(Pace::Paused);
+        let mobile = Network { cellular: true, metered: true, ..Default::default() };
+        *answer.lock().unwrap() = Ok(mobile.clone());
+        watch.pace(Pace::Idle);
+        woken.recv_timeout(long).expect("another network wakes the launcher");
+        assert_eq!(watch.latest(), Some(mobile));
+        assert_eq!(wakes.load(Ordering::SeqCst), 2, "the answer that was no news woke nobody");
+
+        // The system tells of a change, and the read that follows fails.
+        *answer.lock().unwrap() = Err("no answer".to_owned());
+        notice.send(Ask::Changed).unwrap();
+        woken.recv_timeout(long).expect("a notice is read within moments, not at the next minute");
+        assert_eq!(watch.latest(), Some(Network { error: Some("no answer".into()), ..Default::default() }));
+
+        // Closed with the launcher, though the system's notices still hold the channel open.
+        drop(watch);
+        loop {
+            match reads.recv_timeout(long) {
+                Ok(()) => {}
+                Err(RecvTimeoutError::Disconnected) => break,
+                Err(RecvTimeoutError::Timeout) => panic!("the watcher's thread outlived it"),
+            }
+        }
+        drop(notice);
+    }
+
+    #[test]
+    fn the_pages_that_show_the_link_speed_are_the_ones_read_often() {
+        use crate::ui::Screen;
+        // The Profiles page prints "Link speed", and a PC's settings start the network test that
+        // keeps the speed with its result.
+        assert_eq!(Screen::Profiles.network_pace(), Pace::Live);
+        assert_eq!(Screen::HostSettings(1).network_pace(), Pace::Live);
+        for screen in [Screen::Home, Screen::AllGames, Screen::Game { host: 1, app: 2 }, Screen::Hosts, Screen::Apps(1), Screen::Settings] {
+            assert_eq!(screen.network_pace(), Pace::Idle, "{screen:?}");
+        }
     }
 }

@@ -3792,7 +3792,7 @@ fn log_window_hdr(event: &SDL_Event) {
     unsafe {
         if SDL_EventType(event.r#type) == SDL_EVENT_WINDOW_HDR_STATE_CHANGED
             && LAST.swap(event.window.data1, std::sync::atomic::Ordering::Relaxed) != event.window.data1 {
-            eprintln!("nightjar: the compositor reports window HDR {}", if event.window.data1 != 0 { "on" } else { "off" });
+            eprintln!("nightjar: the compositor reports window HDR {} ({})", if event.window.data1 != 0 { "on" } else { "off" }, sdl::window_hdr_levels(event.window.windowID));
         }
     }
 }

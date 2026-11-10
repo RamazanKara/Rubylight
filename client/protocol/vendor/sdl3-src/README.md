@@ -48,11 +48,19 @@ either (libsdl-org/SDL issue 10876; pull request 14157 adds no Vulkan path).
 - `patches/display-hdr-state.patch` keeps `SDL_PROP_DISPLAY_HDR_ENABLED_BOOLEAN` true to the
   display's HDR state. SDL 3.4.20 sets it once, when the display is added, and a Wayland
   compositor's answer about an output can come later. Drop it once upstream SDL updates it.
+- `patches/renderer-sdr-white.patch` lets the app set the SDR white a renderer with `SRGB_LINEAR`
+  output draws with, in the float window property `SDL.window.renderer.sdr_white_level` (above
+  zero; read where the renderer reads the window's own level, at creation and on each HDR report).
+  SDL 3.4.20 reports a Wayland window's SDR white as the compositor's reference luminance over
+  80 nits and multiplies all it draws by that, which is right for the PQ present (1.0 is 80 nits
+  there) and about 2.5 times too bright on Mesa's scRGB swapchain, where 1.0 already is the
+  reference white. `handheld::renderer_sdr_white` says which output gets which. Check it again
+  when upstream SDL changes what the Wayland backend reports (its `main` sets 1.0 there).
 - `build.rs` copies the submodule into the build directory and applies the patches there; a hunk
   that does not match fails the build, and so does a patch that would change nothing (no
   `+++ b/` file, a file without hunks). Its tests: see the top of `build.rs`.
 
 To move to another SDL release: check out the new tag in the submodule, bump the version here
 and in `src/lib.rs` to the one sdl3-sys pins, and regenerate the patches against the new files
-(`diff -u` of `include/SDL3/SDL_gpu.h` and `src/gpu/vulkan/SDL_gpu_vulkan.c`, of `src/render/gpu/SDL_render_gpu.c`, and of `src/video/SDL_video.c`, paths `a/` and `b/`).
+(`diff -u` of `include/SDL3/SDL_gpu.h` and `src/gpu/vulkan/SDL_gpu_vulkan.c`, of `src/render/gpu/SDL_render_gpu.c`, of `src/render/SDL_render.c`, and of `src/video/SDL_video.c`, paths `a/` and `b/`).
 Drop the interop patch once upstream SDL can share the device, and the PQ patch once its GPU renderer outputs HDR10.

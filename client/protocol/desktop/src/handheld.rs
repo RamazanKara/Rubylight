@@ -290,6 +290,31 @@ pub fn gamescope_hdr_properties() -> (f32, f32) {
     (GAMESCOPE_SDR_WHITE_NITS / 80.0, GAMESCOPE_PEAK_NITS / GAMESCOPE_SDR_WHITE_NITS)
 }
 
+/// The window property the patched SDL's renderer takes its SDR white from, in place of the
+/// window's own level (`vendor/sdl3-src/patches/renderer-sdr-white.patch`): a float, in scRGB units.
+pub const RENDERER_SDR_WHITE_PROPERTY: &std::ffi::CStr = c"SDL.window.renderer.sdr_white_level";
+
+/// The SDR white SDL's renderer draws its linear output with, in scRGB units (80 nits each),
+/// where Nightjar sets it ([`RENDERER_SDR_WHITE_PROPERTY`]); None leaves the window's own level.
+/// A desktop's scRGB: 1.0. Mesa describes an scRGB swapchain to a Wayland compositor with the
+/// colour management protocol's default luminances, where 1.0 is the reference white, which the
+/// compositor shows as its SDR white. SDL 3.4.20 reports the window's SDR white as the
+/// compositor's reference luminance over 80 nits (2.5 at 203 nits) and its renderer multiplies
+/// all it draws by that: the launcher and SDR streams came out that many times too bright.
+/// PQ's present encodes 1.0 as 80 nits, absolute, so the window's own level is right there, and
+/// with its headroom gives an HDR stream the display's peak. Under gamescope Nightjar sets the
+/// window's HDR state itself ([`gamescope_hdr_properties`]).
+pub fn renderer_sdr_white(gamescope: bool, output_pq: bool) -> Option<f32> {
+    (!gamescope && !output_pq).then_some(1.0)
+}
+
+/// What the log adds to a window's HDR report: the SDR white and headroom the compositor gave SDL
+/// for the window (`white` in scRGB units), and the SDR white its renderer draws with (`drawn`).
+pub fn describe_levels(white: f32, headroom: f32, drawn: Option<f32>) -> String {
+    let drawn = drawn.map(|drawn| format!(", drawn with SDR white {drawn:.2}")).unwrap_or_default();
+    format!("SDR white {:.0} nits, headroom {headroom:.2}{drawn}", white * 80.0)
+}
+
 /// An HDR stream asked for where the output is SDR: outside gamescope the launcher refuses it as
 /// before (the desktop can turn HDR on); under gamescope the stream plays in SDR with a note,
 /// so a controller-only session never ends at a dialog it cannot fix.
@@ -755,6 +780,28 @@ mod tests {
         assert!((white - 2.5375).abs() < 1e-4, "{white}");
         assert!((headroom * GAMESCOPE_SDR_WHITE_NITS - 1000.0).abs() < 1e-2, "{headroom}");
         assert!(headroom > 1.0, "SDL's HDR is on only above 1");
+    }
+
+    #[test]
+    fn a_desktops_scrgb_is_drawn_with_sdr_white_at_one_whatever_the_compositor_reports() {
+        // SDL 3.4.20 reports reference luminance / 80 for a Wayland window (2.5 at 203 nits): on
+        // scRGB, where 1.0 already is the compositor's SDR white, the launcher came out that much too bright.
+        assert_eq!(renderer_sdr_white(false, false), Some(1.0), "the launcher and SDR streams on a desktop's scRGB");
+        assert_eq!(renderer_sdr_white(false, true), None, "PQ's present keeps the window's level: an HDR stream's peak comes from it");
+        assert_eq!(renderer_sdr_white(true, false), None, "gamescope's scRGB keeps the HDR state Nightjar sets on the window");
+        assert_eq!(renderer_sdr_white(true, true), None);
+        // The property SDL's renderer reads is the one the patch adds.
+        let patch = include_str!("../../vendor/sdl3-src/patches/renderer-sdr-white.patch");
+        let name = RENDERER_SDR_WHITE_PROPERTY.to_str().unwrap();
+        assert!(patch.contains(&format!("SDL_GetFloatProperty(window_props, \"{name}\", 0.0f)")), "{name} is not what the patch reads");
+        assert!(patch.contains("+++ b/src/render/SDL_render.c"));
+    }
+
+    #[test]
+    fn a_window_hdr_report_says_the_compositors_levels_and_what_is_drawn() {
+        assert_eq!(describe_levels(2.5375, 4.926, Some(1.0)), "SDR white 203 nits, headroom 4.93, drawn with SDR white 1.00");
+        assert_eq!(describe_levels(2.5375, 4.926, Some(2.5375)), "SDR white 203 nits, headroom 4.93, drawn with SDR white 2.54");
+        assert_eq!(describe_levels(1.0, 1.0, None), "SDR white 80 nits, headroom 1.00");
     }
 
     #[test]

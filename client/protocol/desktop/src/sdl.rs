@@ -543,6 +543,41 @@ unsafe fn set_window_hdr(window: *mut SDL_Window, hdr: Option<(f32, f32)>) {
     WINDOW_HDR_SET.store(hdr.is_some(), std::sync::atomic::Ordering::Relaxed);
 }
 
+/// Sets, before a renderer for `window` is made, the SDR white the patched SDL's renderer draws
+/// its linear output with (`handheld::renderer_sdr_white`); None leaves it the window's own level.
+/// SDL reads it when it makes the renderer and on each HDR report for the window.
+///
+/// # Safety
+/// `window` is live.
+unsafe fn set_renderer_sdr_white(window: *mut SDL_Window, white: Option<f32>) {
+    let props = SDL_GetWindowProperties(window);
+    let name = crate::handheld::RENDERER_SDR_WHITE_PROPERTY.as_ptr();
+    match white {
+        Some(white) => SDL_SetFloatProperty(props, name, white),
+        None => SDL_ClearProperty(props, name),
+    };
+}
+
+/// What the log adds to a window's HDR report (`handheld::describe_levels`): the compositor's SDR
+/// white and headroom for the window, and the SDR white its renderer draws with.
+pub fn window_hdr_levels(window: SDL_WindowID) -> String {
+    // SAFETY: SDL's video is initialized on this thread; a window that is gone has no levels.
+    unsafe {
+        let window = SDL_GetWindowFromID(window);
+        if window.is_null() {
+            return crate::handheld::describe_levels(1.0, 1.0, None);
+        }
+        let props = SDL_GetWindowProperties(window);
+        let renderer = SDL_GetRenderer(window);
+        let drawn = (!renderer.is_null()).then(|| SDL_GetFloatProperty(SDL_GetRendererProperties(renderer), SDL_PROP_RENDERER_SDR_WHITE_POINT_FLOAT, 1.0));
+        crate::handheld::describe_levels(
+            SDL_GetFloatProperty(props, SDL_PROP_WINDOW_SDR_WHITE_LEVEL_FLOAT, 1.0),
+            SDL_GetFloatProperty(props, SDL_PROP_WINDOW_HDR_HEADROOM_FLOAT, 1.0),
+            drawn,
+        )
+    }
+}
+
 /// Linux's GPU renderer `renderer`, made from `props` with linear output: the HDR output for its
 /// window (`handheld::plan`) or null for SDR. scRGB keeps it, on a desktop with [`hdr_available`]
 /// following the window's state once the compositor reports it (made again under gamescope, after
@@ -584,6 +619,7 @@ unsafe fn hdr_output(window: *mut SDL_Window, props: SDL_PropertiesID, renderer:
         // SDL reads the window's HDR state when it makes the renderer.
         if plan.rebuild {
             SDL_DestroyRenderer(renderer);
+            set_renderer_sdr_white(window, handheld::renderer_sdr_white(gamescope, output == Output::Pq));
             if output == Output::Pq { set_pq_present(props, true); }
             renderer = SDL_CreateRendererWithProperties(props);
             if output == Output::Pq {
@@ -598,6 +634,7 @@ unsafe fn hdr_output(window: *mut SDL_Window, props: SDL_PropertiesID, renderer:
         // A desktop's PQ that could not be made: scRGB where it is offered, not SDR.
         if let (Err(_), Some(next)) = (decision, handheld::fallback(output, offered)) {
             if !renderer.is_null() { SDL_DestroyRenderer(renderer); }
+            set_renderer_sdr_white(window, handheld::renderer_sdr_white(gamescope, next == Output::Pq));
             renderer = SDL_CreateRendererWithProperties(props);
             pq_failed = true;
             decision = handheld::settle(next, !renderer.is_null(), !renderer.is_null() && swapchain_takes_hdr(renderer));
@@ -876,6 +913,10 @@ fn make_renderer(window: *mut SDL_Window, gpu: bool, vulkan: *mut SDL_GPUVulkanO
                 SDL_COLORSPACE_SRGB.0
             }),
         );
+        // Linux's GPU renderer starts as scRGB or SDR; `hdr_output` sets it again for another output.
+        if !cfg!(windows) && gpu {
+            set_renderer_sdr_white(window, crate::handheld::renderer_sdr_white(crate::handheld::gamescope(), false));
+        }
         let mut renderer = SDL_CreateRendererWithProperties(props);
         if !cfg!(windows) && gpu && !renderer.is_null() {
             renderer = hdr_output(window, props, renderer);

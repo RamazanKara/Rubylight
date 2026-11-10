@@ -45,7 +45,7 @@ jobs:
           persist-credentials: false
       - name: Install build tools
         run: |
-          brew install cmake meson ninja pkg-config
+          brew install cmake meson ninja pkg-config nasm
           rustup toolchain install stable --profile minimal --component clippy --no-self-update
       - name: Build the application and verify a relocated copy
         run: |
@@ -58,3 +58,10 @@ jobs:
           cargo clippy --locked -p nightjar-desktop -p nightjar-core -p nightjar-policy --all-targets --features demo-library -- -D warnings
           cargo test --locked -p nightjar-desktop -p nightjar-core -p nightjar-policy
           cargo test --locked --manifest-path core/Cargo.toml
+      - name: Cross-package and inspect the Intel archive on Apple Silicon
+        if: runner.arch == 'ARM64'
+        run: |
+          rustup target add x86_64-apple-darwin
+          python3 desktop/package-macos.py --debug --arch x86_64 --zip
+          ditto -x -k target/x86_64-apple-darwin/debug/Nightjar-*-macos-x86_64.zip "$RUNNER_TEMP/intel-archive"
+          python3 desktop/tests/verify_macos_bundle.py --arch x86_64 --inspect-only "$RUNNER_TEMP/intel-archive/Nightjar.app"

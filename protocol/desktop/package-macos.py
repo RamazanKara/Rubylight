@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Build a relocatable, ad-hoc-signed Nightjar.app for the current Mac."""
+"""Build a relocatable, ad-hoc-signed Nightjar.app for Intel or Apple Silicon."""
 import argparse
 import json
 import os
 from pathlib import Path
+import platform
 import plistlib
 import re
 import shutil
@@ -15,6 +16,7 @@ import tempfile
 DESKTOP = Path(__file__).resolve().parent
 WORKSPACE = DESKTOP.parent
 ROOT = WORKSPACE.parent
+RUST_TARGETS = {"arm64": "aarch64-apple-darwin", "x86_64": "x86_64-apple-darwin"}
 
 
 def output(*args):
@@ -80,10 +82,15 @@ def minimum_version(binary):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--debug", action="store_true", help="bundle a debug build")
+    parser.add_argument("--arch", choices=RUST_TARGETS, help="build for this Mac architecture (default: native)")
+    parser.add_argument("--zip", action="store_true", help="also write a ZIP you can copy to another Mac")
     args = parser.parse_args()
     if sys.platform != "darwin":
         parser.error("build the app on macOS with the Xcode Command Line Tools")
     profile = "debug" if args.debug else "release"
+    host = platform.machine()
+    arch = args.arch or host
+    triple = RUST_TARGETS[arch]
     target_root = Path(json.loads(output("cargo", "metadata", "--no-deps", "--format-version=1"))["target_directory"])
     deploy = os.environ.get("MACOSX_DEPLOYMENT_TARGET", "13.0")
     # Serialize updates to the source/build cache and bundle, including concurrent invocations.
@@ -96,12 +103,15 @@ def main():
     # available on disk and surface the tail if any build step fails.
     log = target_root / "macos-deps.log"
     with log.open("w") as stream:
-        result = subprocess.run([DESKTOP / "macos-deps.sh", target_root / "macos-native"],
+        result = subprocess.run([DESKTOP / "macos-deps.sh", target_root / "macos-native", arch],
                                 env=env, stdout=stream, stderr=subprocess.STDOUT)
     if result.returncode:
         raise SystemExit(f"{log}\n" + "\n".join(log.read_text().splitlines()[-20:]))
     prefix = Path(log.read_text().splitlines()[-1])
-    env.update(NIGHTJAR_FFMPEG_DIR=str(prefix), PKG_CONFIG_PATH=str(prefix / "lib/pkgconfig"))
+    pkgconfig = str(prefix / "lib/pkgconfig")
+    env.update(NIGHTJAR_FFMPEG_DIR=str(prefix), PKG_CONFIG_PATH=pkgconfig, PKG_CONFIG_LIBDIR=pkgconfig)
+    if arch != host:
+        env["PKG_CONFIG_ALLOW_CROSS"] = "1"
     # These paths otherwise survive in Rust panic locations in the distributed binary.
     # Add macOS target flags so Cargo still applies the workspace's ARM crypto flags.
     cargo_home = Path(os.environ.get("CARGO_HOME", Path.home() / ".cargo")).resolve()
@@ -109,12 +119,21 @@ def main():
              (target_root, "/target")]
     flags = [f"--remap-path-prefix={source}={public}" for source, public in roots]
     config = """target.'cfg(target_os = "macos")'.rustflags = """ + json.dumps(flags)
-    command = ["cargo", "--config", config, "build", "--locked", "-p", "nightjar-desktop"]
+    command = ["cargo", "--config", config, "build", "--locked", "-p", "nightjar-desktop",
+               "--message-format=json-render-diagnostics"]
+    target = target_root
+    if args.arch:
+        command += ["--target", triple]
+        target = target / triple
     if not args.debug:
         command.append("--release")
-    subprocess.run(command, env=env, cwd=WORKSPACE, check=True)
-    target = target_root / profile
-    version = output(target / "nightjar", "--version").split()[-1]
+    build = subprocess.run(command, env=env, cwd=WORKSPACE, check=True, stdout=subprocess.PIPE, text=True)
+    # build.rs emits the same version that it embeds in the executable. Cross builds
+    # can read it without running an Intel executable on the build machine.
+    messages = (json.loads(line) for line in build.stdout.splitlines())
+    version = next(value for message in messages if message["reason"] == "build-script-executed"
+                   for name, value in message["env"] if name == "NIGHTJAR_VERSION")
+    target = target / profile
     # Stage everything before replacing a previous successful app.
     with tempfile.TemporaryDirectory(dir=target) as work:
         work = Path(work)
@@ -143,6 +162,10 @@ def main():
         shutil.copytree(prefix / "licenses", notices, dirs_exist_ok=True)
         shutil.copy2(DESKTOP / "macos-deps.sh", notices / "media-sources.sh")
         libs = bundle_libraries(binary, frameworks, prefix)
+        for item in [binary, *libs]:
+            slices = output("lipo", "-archs", item).split()
+            if slices != [arch]:
+                raise RuntimeError(f"{item.name} has architectures {slices}, expected {arch}")
         minimum = max(minimum_version(item) for item in [binary, *libs])
         if minimum > tuple(map(int, deploy.split("."))) + (0,):
             raise RuntimeError(f"A bundled binary requires macOS {minimum}, newer than the requested {deploy}")
@@ -164,8 +187,11 @@ def main():
             subprocess.run(["codesign", "--force", "--sign", "-", lib], check=True)
         subprocess.run(["codesign", "--force", "--sign", "-", app], check=True)
         subprocess.run(["codesign", "--verify", "--deep", "--strict", app], check=True)
-        if output(binary, "--version") != f"Nightjar {version}":
+        if arch == host and output(binary, "--version") != f"Nightjar {version}":
             raise RuntimeError("The packaged executable did not report the built version")
+        archive = work / f"Nightjar-{version}-macos-{arch}.zip"
+        if args.zip:
+            subprocess.run(["ditto", "-c", "-k", "--norsrc", "--keepParent", app, archive], check=True)
         final = target / app.name
         previous = work / "previous.app"
         if final.exists():
@@ -177,6 +203,9 @@ def main():
                 previous.rename(final)
             raise
         print(final)
+        if args.zip:
+            archive.replace(target / archive.name)
+            print(target / archive.name)
 
 
 if __name__ == "__main__":

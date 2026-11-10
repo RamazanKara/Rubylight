@@ -26,7 +26,7 @@ cargo run --locked -p nightjar-desktop
 To build a Finder application, start from the repository root.
 
 ```sh
-brew install cmake meson ninja pkg-config
+brew install cmake meson ninja pkg-config nasm
 python3 protocol/desktop/package-macos.py
 open protocol/target/release/Nightjar.app
 ```
@@ -38,6 +38,23 @@ build Mac. Set `MACOSX_DEPLOYMENT_TARGET` to choose a newer minimum. The bundle 
 Applications and carries its own media libraries. This is a local source build with an ad-hoc
 signature. The published release downloads cover Android, Windows and Linux.
 
+### Build for an Intel Mac
+
+An Intel Mac running macOS Ventura 13 or later uses the `x86_64` build. On an Apple Silicon build
+Mac with Rust installed through rustup, add the Intel target first. NASM enables the optimized
+Intel code in FFmpeg and dav1d.
+
+```sh
+rustup target add x86_64-apple-darwin
+python3 protocol/desktop/package-macos.py --arch x86_64 --zip
+```
+
+The packager writes `Nightjar-<version>-macos-x86_64.zip` under
+`protocol/target/x86_64-apple-darwin/release/`. It checks the executable and every bundled dylib
+for the requested architecture and minimum OS. Copy the ZIP to the Intel Mac, double-click it and
+move `Nightjar.app` to Applications. The receiving Mac needs only the app. Pair it as a new device
+on the streaming host.
+
 ### Connect to a PC
 
 Allow Local Network access when macOS asks. Select a discovered PC or use **Add PC** with its LAN
@@ -48,9 +65,11 @@ open the host's device permissions and enable **Launch applications** for the pa
 
 FSR1, SGSR1, planar conversion, packed full chroma and PyroWave's Rust decoder use Metal fragment
 shaders. PyroWave defaults to the CPU decoder on macOS. Its upstream Vulkan SDK backend is available
-on Windows and Linux. HDR requires an HDR display and a compatible host. Live verification covered
-Apple Silicon, HEVC, audio reception and mouse input. Live HDR, physical controllers and playback
-on an Intel Mac still need hardware verification.
+on Windows and Linux. HDR requires an HDR display and a compatible host. The Metal and VideoToolbox
+checks passed on Apple Silicon and on an Intel MacBook Pro with a Radeon Pro 560 running Ventura
+13.7.8. The Intel Mac decoded HEVC Main and Main10. Its hardware probe declined AV1. Live HDR and
+physical controllers still need hardware verification.
+The launcher opens Core Audio when a stream starts, so pairing and browsing work while an audio device is unavailable.
 
 ### Verify on a Mac
 
@@ -67,8 +86,11 @@ cargo test --locked -p nightjar-desktop --features demo-library --test macos_vid
 python3 desktop/tests/verify_macos_bundle.py target/release/Nightjar.app
 ```
 
-The last command uses a previously packaged release app. To update the Metal shaders after changing
-their SPIR-V inputs, run `python3 desktop/src/metal/generate.py /path/to/spirv-cross` from
+The last command uses a previously packaged release app. When checking an Intel cross-build on
+Apple Silicon, add `--arch x86_64 --inspect-only` and supply the Intel app path. Run the same
+check on the Intel Mac without `--inspect-only` to exercise native launch.
+
+To update the Metal shaders after changing their SPIR-V inputs, run `python3 desktop/src/metal/generate.py /path/to/spirv-cross` from
 `protocol/` with SPIRV-Cross tag `vulkan-sdk-1.4.321.0`. Commit the regenerated `.metal` files
 alongside their inputs and run the hardware check.
 

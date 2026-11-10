@@ -594,9 +594,14 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
 
     // The second screen's stream takes no controllers: they stay with the first.
     let gamepads = if second_screen::this_process() { SDL_InitFlags::default() } else { SDL_INIT_GAMEPAD };
+    let subsystems = SDL_INIT_VIDEO | gamepads | SDL_INIT_EVENTS;
+    // On macOS the first stream opens Core Audio. Enumerating a cold audio driver
+    // can otherwise hold the Cocoa thread before the launcher has drawn a window.
+    #[cfg(not(target_os = "macos"))]
+    let subsystems = subsystems | SDL_INIT_AUDIO;
     // SAFETY: SDL initialisation on the main thread.
     unsafe {
-        if !SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | gamepads | SDL_INIT_EVENTS) {
+        if !SDL_Init(subsystems) {
             return Err(format!("SDL could not start: {}", sdl::error()));
         }
     }

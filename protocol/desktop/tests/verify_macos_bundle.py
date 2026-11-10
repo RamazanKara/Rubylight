@@ -1,6 +1,7 @@
 """Smoke-test a built Nightjar.app using only the system libraries and its own Frameworks."""
 import argparse
 from pathlib import Path
+import platform
 import plistlib
 import subprocess
 import tempfile
@@ -24,6 +25,10 @@ def check_links(binary, frameworks, *, executable):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("app", type=Path)
+    parser.add_argument("--arch", choices=["arm64", "x86_64"], default=platform.machine(),
+                        help="architecture expected in the executable and every bundled dylib")
+    parser.add_argument("--inspect-only", action="store_true",
+                        help="check a cross build on a Mac that cannot execute it")
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="Nightjar relocation ") as folder:
         app = Path(folder) / "Nightjar.app"
@@ -33,13 +38,18 @@ def main():
         info = plistlib.loads((contents / "Info.plist").read_bytes())
         binary = contents / "MacOS" / info["CFBundleExecutable"]
         frameworks = contents / "Frameworks"
-        check_links(binary, frameworks, executable=True)
-        for lib in frameworks.glob("*.dylib"):
-            check_links(lib, frameworks, executable=False)
+        for item in [binary, *frameworks.glob("*.dylib")]:
+            slices = subprocess.check_output(["lipo", "-archs", item], text=True).split()
+            if slices != [args.arch]:
+                raise ValueError(f"{item.name}: expected {args.arch}, found {slices}")
+            check_links(item, frameworks, executable=item == binary)
+        if args.inspect_only:
+            print(f"Inspected relocated, signed {args.arch} app for macOS {info['LSMinimumSystemVersion']} or later")
+            return
         version = subprocess.check_output([binary, "--version"], cwd=folder, text=True).strip()
         if version != "Nightjar " + info["CFBundleShortVersionString"]:
             raise ValueError(f"Unexpected version from relocated app: {version}")
-        print(f"{version} launched from a relocated, signed bundle")
+        print(f"{version} launched from a relocated, signed {args.arch} bundle")
 
 
 if __name__ == "__main__":

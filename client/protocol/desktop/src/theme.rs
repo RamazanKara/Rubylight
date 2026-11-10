@@ -199,9 +199,13 @@ pub fn state_fill(base: Role, hovered: bool, pressed: bool) -> Role {
 }
 
 /// Whether the operating system asks for less motion. Windows: "Show animations in Windows" is
-/// off (`SPI_GETCLIENTAREAANIMATION`). Other systems expose no setting we read, so motion stays.
-/// Asked again at most every two seconds; the answer is cheap but frames are many.
+/// off (`SPI_GETCLIENTAREAANIMATION`); macOS: Reduce motion is on. Linux exposes no setting we
+/// read, so motion stays. Asked again at most every two seconds; the answer is cheap but frames
+/// are many. Tests draw the same frames whatever the machine's setting (macOS runners reduce motion).
 pub fn system_reduces_motion() -> bool {
+    if cfg!(test) {
+        return false;
+    }
     static CHECKED: OnceLock<Instant> = OnceLock::new();
     static LAST_MS: AtomicU64 = AtomicU64::new(u64::MAX);
     static ANSWER: AtomicBool = AtomicBool::new(false);

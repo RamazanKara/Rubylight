@@ -1313,7 +1313,8 @@ fn reduced_motion_turns_off_animated_transitions_and_full_motion_keeps_them() {
     f.l.settings.reduce_motion = ReduceMotion::Full;
     f.settle();
     assert!(f.ctx.global_style().animation_time > 0.0);
-    // The system setting decides only on Follow system; the tests' machine may say either.
+    // The system setting decides only on Follow system; tests answer it with full motion, whatever
+    // the machine's own setting (`theme::system_reduces_motion`).
     f.l.settings.reduce_motion = ReduceMotion::System;
     f.settle();
     assert_eq!(f.ctx.global_style().animation_time == 0.0, crate::theme::system_reduces_motion());

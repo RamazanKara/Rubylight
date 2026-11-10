@@ -1433,16 +1433,6 @@ impl App {
                 _ => {}
             }
         }
-        // Box art for the library on screen.
-        if let Screen::Apps(id) = self.launcher.screen {
-            let ids: Vec<i32> = match self.hosts.get(id).map(|h| &h.apps) {
-                Some(Apps::Loaded(apps)) => apps.iter().map(|a| a.id).collect(),
-                _ => Vec::new(),
-            };
-            for app in ids {
-                self.hosts.request_art(id, app, "", &self.store);
-            }
-        }
         // A launch without a network query in flight is waiting for its app list (see
         // `launch_ready`); it goes on once the list is no longer loading.
         if self.network_query.is_none() {

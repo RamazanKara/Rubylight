@@ -72,8 +72,6 @@ pub struct Copy {
     pub store: Option<String>,
     /// The store's name as the PC writes it, else the one Nightjar knows.
     pub store_name: Option<String>,
-    /// The cover's version, empty when the PC has no cover for it.
-    pub cover_version: String,
     pub has_cover: bool,
     /// When the PC says the game was last played (seconds since the epoch, `0` for never), None
     /// when it says nothing.
@@ -473,7 +471,6 @@ pub fn merge_library(sources: &[Source<'_>]) -> Vec<Entry> {
                 installed: installed(game),
                 store: game.store.as_ref().map(|s| s.source.clone()).filter(|s| !s.is_empty()),
                 store_name: game.store.as_ref().filter(|s| !s.source.is_empty()).map(|s| store_name(&s.source, &s.name)),
-                cover_version: game.artwork.version.clone(),
                 has_cover: game.artwork.cover.is_some(),
                 last_played: source.last_played.and_then(|played| played.get(&game.install_id).copied()),
                 collections: source.collections.and_then(|names| names.get(&game.install_id).cloned()).unwrap_or_default(),

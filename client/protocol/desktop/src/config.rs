@@ -3,7 +3,7 @@
 //! (`%APPDATA%\Nightjar` on Windows, `~/.config/nightjar` on Linux).
 
 use std::path::{Path, PathBuf};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use nightjar_core::http::NativeLibrary;
 use serde::{Deserialize, Serialize};
@@ -1766,21 +1766,54 @@ impl Store {
     }
 }
 
-/// After a cover is saved at `keep` (`<app>.img` or `<app>-<version>.img`), removes the other
-/// files of the same app in that folder: older versions of the cover are never asked for again.
-pub fn prune_art(keep: &Path, app_id: i32) {
-    let Some(dir) = keep.parent() else { return };
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
-    let plain = format!("{app_id}.img");
-    let versioned = format!("{app_id}-");
+/// The cover files of the art folders, by app. A folder is read once, when the first cover is
+/// saved into it, and kept up from then on: filling a library saves a cover per game, and reading
+/// the folder for each of them reads every cover saved so far again.
+#[derive(Default)]
+pub struct ArtFiles {
+    folders: HashMap<PathBuf, HashMap<i32, Vec<PathBuf>>>,
+    #[cfg(test)]
+    folders_read: usize,
+}
+
+impl ArtFiles {
+    /// After a cover is saved at `keep` (`<app>.img` or `<app>-<version>.img`), removes the other
+    /// files of the same app in that folder: older versions of the cover are never asked for again.
+    pub fn saved(&mut self, keep: &Path, app_id: i32) {
+        let Some(dir) = keep.parent() else { return };
+        if !self.folders.contains_key(dir) {
+            self.folders.insert(dir.to_owned(), art_files(dir));
+            #[cfg(test)]
+            {
+                self.folders_read += 1;
+            }
+        }
+        let Some(apps) = self.folders.get_mut(dir) else { return };
+        let files = apps.entry(app_id).or_default();
+        for old in files.iter().filter(|old| *old != keep) {
+            let _ = std::fs::remove_file(old);
+        }
+        *files = vec![keep.to_owned()];
+    }
+}
+
+/// The cover files in `dir`, by the app each is of.
+fn art_files(dir: &Path) -> HashMap<i32, Vec<PathBuf>> {
+    let mut apps: HashMap<i32, Vec<PathBuf>> = HashMap::new();
+    let Ok(entries) = std::fs::read_dir(dir) else { return apps };
     for entry in entries.flatten() {
         let path = entry.path();
-        let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
-        let same_app = name == plain || (name.starts_with(&versioned) && name.ends_with(".img"));
-        if same_app && path != keep {
-            let _ = std::fs::remove_file(&path);
+        if let Some(app_id) = path.file_name().and_then(|n| n.to_str()).and_then(art_app) {
+            apps.entry(app_id).or_default().push(path);
         }
     }
+    apps
+}
+
+/// The app a cover file is of, by its name: `<app>.img` or `<app>-<version>.img` ([`Store::art_path`]).
+fn art_app(name: &str) -> Option<i32> {
+    let stem = name.strip_suffix(".img")?;
+    stem.parse().ok().or_else(|| stem.rsplit_once('-')?.0.parse().ok())
 }
 
 fn sanitize(name: &str) -> String {
@@ -2207,11 +2240,65 @@ mod tests {
         for path in [&old, &new, &plain, &other_app, &other_app_plain] {
             std::fs::write(path, b"x").unwrap();
         }
-        prune_art(&new, 7);
+        let mut files = ArtFiles::default();
+        files.saved(&new, 7);
         assert!(new.exists(), "the cover just saved stays");
         assert!(!old.exists() && !plain.exists(), "older versions of app 7 go");
         assert!(other_app.exists() && other_app_plain.exists(), "other apps keep theirs (70 is not 7)");
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A library's covers are saved one after another: the folder is read for the first of them
+    /// only, and every one still leaves its app a single file.
+    #[test]
+    fn saving_many_covers_reads_the_folder_once_and_leaves_no_older_version() {
+        let dir = std::env::temp_dir().join(format!("nightjar-art-many-{}", std::process::id()));
+        let store = Store::at(dir.clone()).unwrap();
+        let host = "5E0F4B1C";
+        let folder = store.art_path(host, 0, "").parent().unwrap().to_owned();
+        std::fs::create_dir_all(&folder).unwrap();
+        // What an earlier run left: a versioned and a plain cover of each app.
+        for app in 1..=20 {
+            std::fs::write(store.art_path(host, app, "old"), b"x").unwrap();
+            std::fs::write(store.art_path(host, app, ""), b"x").unwrap();
+        }
+        let mut files = ArtFiles::default();
+        for app in 1..=20 {
+            let new = store.art_path(host, app, "new");
+            std::fs::write(&new, b"x").unwrap();
+            files.saved(&new, app);
+        }
+        // A cover that changes again in the same run is known without the folder.
+        let newer = store.art_path(host, 7, "newer");
+        std::fs::write(&newer, b"x").unwrap();
+        files.saved(&newer, 7);
+        assert_eq!(files.folders_read, 1, "not once per cover");
+        let mut left: Vec<String> = std::fs::read_dir(&folder).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+        left.sort();
+        let mut expected: Vec<String> = (1..=20).map(|app| if app == 7 { "7-newer.img".to_owned() } else { format!("{app}-new.img") }).collect();
+        expected.sort();
+        assert_eq!(left, expected, "one file per app, the newest");
+
+        // Another PC's folder is its own.
+        let other = store.art_path("0A1B2C3D", 7, "new");
+        std::fs::create_dir_all(other.parent().unwrap()).unwrap();
+        std::fs::write(store.art_path("0A1B2C3D", 7, ""), b"x").unwrap();
+        std::fs::write(&other, b"x").unwrap();
+        files.saved(&other, 7);
+        assert_eq!(files.folders_read, 2);
+        assert!(other.exists() && !store.art_path("0A1B2C3D", 7, "").exists() && newer.exists());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_cover_file_names_its_app() {
+        assert_eq!(art_app("7.img"), Some(7));
+        assert_eq!(art_app("7-0c1d2e3f.img"), Some(7));
+        assert_eq!(art_app("881448767-881448767.img"), Some(881448767), "a version of digits is no app id");
+        assert_eq!(art_app("-5.img"), Some(-5));
+        assert_eq!(art_app("-5-a41c09e2.img"), Some(-5));
+        assert_eq!(art_app("7.png"), None);
+        assert_eq!(art_app("notes.img"), None);
     }
 
     #[test]

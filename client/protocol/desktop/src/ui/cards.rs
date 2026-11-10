@@ -549,15 +549,22 @@ pub(super) fn request_cover(
     view: &View<'_>,
     host: u64,
     app: u32,
-    version: &str,
     response: &Response,
     commands: &mut Vec<Command>,
 ) {
-    let wanted = view
-        .hosts
-        .get(host)
-        .is_some_and(|h| h.reach == Reach::Online && h.art_wanted(app as i32, version));
-    if wanted && ui.is_rect_visible(response.rect) {
+    if ui.is_rect_visible(response.rect) {
+        request_cover_unseen(view, host, app, commands);
+    }
+}
+
+/// Asks for a cover the page needs wherever its card is, when the PC can send it. Every page asks
+/// for an app's cover at the one version its PC gives it ([`Host::cover_version`]).
+pub(super) fn request_cover_unseen(view: &View<'_>, host: u64, app: u32, commands: &mut Vec<Command>) {
+    let Some(pc) = view.hosts.get(host).filter(|h| h.reach == Reach::Online) else {
+        return;
+    };
+    let version = pc.cover_version(app as i32);
+    if pc.art_wanted(app as i32, version) {
         commands.push(Command::RequestArt { host, app: app as i32, version: version.to_owned() });
     }
 }

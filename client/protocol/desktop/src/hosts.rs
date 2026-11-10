@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use nightjar_core::http::native_api::feature;
@@ -227,7 +227,42 @@ impl Host {
 
     /// Whether the cover of `app` at `version` has not been asked for yet.
     pub fn art_wanted(&self, app: i32, version: &str) -> bool {
-        self.art_versions.get(&app).is_none_or(|v| v != version) || !self.art.contains_key(&app)
+        !self.art.contains_key(&app) || self.art_versions.get(&app).is_none_or(|known| replaces(known, version))
+    }
+
+    /// Takes a cover asked for at `version` as loading and gives the version it loads at, or
+    /// nothing when the cover there is, or the one on its way, is the one asked for.
+    pub(crate) fn begin_art(&mut self, app: i32, version: &str) -> Option<String> {
+        let known = self.art_versions.get(&app);
+        if known.is_some_and(|known| replaces(known, version)) {
+            self.art.remove(&app);
+            self.ambient.remove(&app);
+            self.ambient_glow.remove(&app);
+        }
+        if self.art.contains_key(&app) {
+            return None;
+        }
+        // Asked for without a version, a cover that was dropped (a new renderer) loads as the
+        // one it was, from its file.
+        let version = match known {
+            Some(known) if version.is_empty() => known.clone(),
+            _ => version.to_owned(),
+        };
+        self.art.insert(app, Art::Loading);
+        self.art_versions.insert(app, version.clone());
+        Some(version)
+    }
+
+    /// The version the cover of `app` is asked for with, the same on every page: the native
+    /// library's where it lists the app, else the app list's `ArtVersion`, else none. Pages that
+    /// asked with versions of their own had each other's covers fetched again.
+    pub fn cover_version(&self, app: i32) -> &str {
+        let listed = self.native.library.as_ref().and_then(|l| l.games.iter().find(|g| g.app_id == app as u32));
+        match (listed, &self.apps) {
+            (Some(game), _) => &game.artwork.version,
+            (None, Apps::Loaded(apps)) => apps.iter().find(|a| a.id == app).map_or("", |a| &a.art_version),
+            (None, _) => "",
+        }
     }
 
     /// The name this device shows: the one chosen here, else the PC's own, else its address.
@@ -520,6 +555,10 @@ pub struct Hosts {
     link_claims: HashMap<u64, [u8; 32]>,
     /// Hosts whose live library changed since the last `take_library_saves`.
     library_saves: Vec<u64>,
+    /// The threads covers load on.
+    art_pool: ArtPool,
+    /// The cover files on disk, for the workers that save one.
+    art_files: Arc<Mutex<crate::config::ArtFiles>>,
     /// STUN for the remote address of PCs found on the LAN; off in tests, which stay offline.
     stun: bool,
     _mdns: Option<mdns_sd::ServiceDaemon>,
@@ -955,6 +994,8 @@ impl Hosts {
             pairing_generation: 0,
             link_claims: HashMap::new(),
             library_saves: Vec::new(),
+            art_pool: ArtPool::default(),
+            art_files: Arc::default(),
             stun: false,
             _mdns: None,
             discovering: false,
@@ -1058,6 +1099,21 @@ impl Hosts {
                     waker();
                 }
             });
+    }
+
+    /// As [`Self::spawn`], for a cover: on one of the few threads covers load on.
+    fn load_art(&self, work: impl FnOnce() -> Option<Event> + Send + 'static) {
+        if cfg!(feature = "demo-library") {
+            return;
+        }
+        let sender = self.sender.clone();
+        let waker = self.waker.clone();
+        self.art_pool.run(move || {
+            if let Some(event) = work() {
+                let _ = sender.send(event);
+                waker();
+            }
+        });
     }
 
     fn start_discovery(&self) -> Option<mdns_sd::ServiceDaemon> {
@@ -1763,8 +1819,9 @@ impl Hosts {
             .collect()
     }
 
-    /// Fetches box art once per app, from the disk cache when present. `version` is the cover
-    /// version the native library reports (empty for classic box art); a new one fetches again.
+    /// Fetches box art once per app, from the disk cache when present. `version` is the cover's
+    /// version ([`Host::cover_version`], empty when the PC gives none); a new one fetches again,
+    /// and none keeps the cover that is known. At most [`ART_WORKERS`] covers load at once.
     pub fn request_art(&mut self, id: u64, app: i32, version: &str, store: &Store) {
         let Some(identity) = self.identity.clone() else {
             return;
@@ -1772,20 +1829,13 @@ impl Hosts {
         let Some(host) = self.get_mut(id) else {
             return;
         };
-        if host.art_versions.get(&app).is_some_and(|old| old != version) {
-            host.art.remove(&app);
-            host.ambient.remove(&app);
-            host.ambient_glow.remove(&app);
-        }
-        if host.art.contains_key(&app) {
+        let Some(version) = host.begin_art(app, version) else {
             return;
-        }
-        host.art.insert(app, Art::Loading);
-        host.art_versions.insert(app, version.to_owned());
-        let version = version.to_owned();
+        };
         let record = host.connect_record();
         let cache = store.art_path(&record.unique_id, app, &version);
-        self.spawn("boxart", move || {
+        let files = self.art_files.clone();
+        self.load_art(move || {
             let bytes = std::fs::read(&cache).ok().or_else(|| {
                 let bytes = match client_for(&identity, &record, &record.address).and_then(|c| {
                     c.box_art(app).map_err(|e| e.to_string())
@@ -1803,7 +1853,7 @@ impl Hosts {
                     let _ = std::fs::create_dir_all(dir);
                 }
                 if std::fs::write(&cache, &bytes).is_ok() {
-                    crate::config::prune_art(&cache, app);
+                    files.lock().unwrap_or_else(std::sync::PoisonError::into_inner).saved(&cache, app);
                 }
                 Some(bytes)
             });
@@ -2381,6 +2431,71 @@ fn completed_action(control: AppControl, error: &nightjar_core::http::Error) -> 
     known.iter().any(|known| message.eq_ignore_ascii_case(known))
 }
 
+/// Whether a cover asked for at `asked` replaces the one known at `known`. No version says nothing
+/// of the cover (an app list that is not read yet has none), so it never replaces a known one.
+fn replaces(known: &str, asked: &str) -> bool {
+    !asked.is_empty() && known != asked
+}
+
+/// How many covers load at once. A long list asks for its covers together, and each one is a
+/// thread and a TLS handshake with the PC; the rest wait their turn.
+const ART_WORKERS: usize = 4;
+
+type ArtJob = Box<dyn FnOnce() + Send>;
+
+/// The covers waiting to load and the threads loading them, at most [`ART_WORKERS`].
+#[derive(Default)]
+struct ArtQueue {
+    waiting: std::collections::VecDeque<ArtJob>,
+    workers: usize,
+}
+
+/// Loads covers in the order they were asked for. A worker lives while covers wait and ends with
+/// the last one, so an idle launcher keeps no thread.
+#[derive(Clone, Default)]
+struct ArtPool(Arc<Mutex<ArtQueue>>);
+
+impl ArtPool {
+    fn queue(&self) -> std::sync::MutexGuard<'_, ArtQueue> {
+        // Held only to move a job: a cover that panics does so outside it.
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn run(&self, job: impl FnOnce() + Send + 'static) {
+        let mut queue = self.queue();
+        queue.waiting.push_back(Box::new(job));
+        if queue.workers == ART_WORKERS {
+            return;
+        }
+        queue.workers += 1;
+        drop(queue);
+        let pool = self.clone();
+        if std::thread::Builder::new().name("boxart".into()).spawn(move || pool.work()).is_err() {
+            // The covers stay queued for the workers there are, or the next one that starts.
+            self.queue().workers -= 1;
+        }
+    }
+
+    fn work(&self) {
+        loop {
+            // The seat is given up under the lock that found nothing waiting, so a cover queued
+            // right after starts a worker of its own.
+            let job = {
+                let mut queue = self.queue();
+                match queue.waiting.pop_front() {
+                    Some(job) => job,
+                    None => {
+                        queue.workers -= 1;
+                        return;
+                    }
+                }
+            };
+            // A cover that panics takes neither the worker nor the covers behind it.
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job));
+        }
+    }
+}
+
 /// An app's cover from its box art bytes. A host's grey placeholder is no cover, so the card shows the title.
 fn art_image(bytes: Option<Vec<u8>>) -> Option<egui::ColorImage> {
     bytes.filter(|b| !nightjar_core::http::is_placeholder_box_art(b)).and_then(|b| decode_image(&b))
@@ -2909,6 +3024,117 @@ pub(crate) mod tests {
         assert!(matches!(pc.art.get(&9), Some(Art::Loading)), "one on its way lands as it is");
         let mut output = ctx.run_ui(egui::RawInput::default(), |_| {});
         output.textures_delta.clear();
+    }
+
+    /// The Apps page asked for every cover without a version each pass, and the pages that knew
+    /// one asked with it: each dropped the other's cover and fetched it again.
+    #[test]
+    fn a_cover_asked_for_without_a_version_keeps_the_known_one() {
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+        let pc = &mut hosts.list[0];
+        assert!(pc.art_wanted(7, "") && pc.art_wanted(7, "v1"), "not asked for yet");
+        assert_eq!(pc.begin_art(7, "v1").as_deref(), Some("v1"));
+        pc.ambient_glow.insert(7, egui::Color32::RED);
+
+        assert!(!pc.art_wanted(7, "") && !pc.art_wanted(7, "v1"));
+        assert_eq!(pc.begin_art(7, ""), None, "no version says nothing of the cover");
+        assert_eq!(pc.begin_art(7, "v1"), None);
+        assert_eq!(pc.art_versions[&7], "v1");
+        assert!(matches!(pc.art.get(&7), Some(Art::Loading)) && pc.ambient_glow.contains_key(&7), "kept");
+
+        // Dropped with its renderer, it loads as the cover it was: from the file of that version.
+        pc.art.remove(&7);
+        assert!(pc.art_wanted(7, ""));
+        assert_eq!(pc.begin_art(7, "").as_deref(), Some("v1"));
+
+        assert!(pc.art_wanted(7, "v2"), "a new version is another cover");
+        assert_eq!(pc.begin_art(7, "v2").as_deref(), Some("v2"));
+        assert_eq!(pc.art_versions[&7], "v2");
+        assert!(!pc.ambient_glow.contains_key(&7), "the old cover's glow goes with it");
+
+        // A PC that gives its covers no version: asked for once.
+        assert_eq!(pc.begin_art(8, "").as_deref(), Some(""));
+        assert!(!pc.art_wanted(8, ""));
+        assert_eq!(pc.begin_art(8, ""), None);
+    }
+
+    #[test]
+    fn every_page_asks_for_a_cover_at_one_version() {
+        let app = |id: i32, art_version: &str| App {
+            name: "Game".into(),
+            id,
+            hdr_supported: false,
+            uuid: String::new(),
+            host_index: None,
+            art_version: art_version.into(),
+            control: AppControl::None,
+            monitor_resume: false,
+        };
+        let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+        let pc = &mut hosts.list[0];
+        assert_eq!(pc.cover_version(7), "", "nothing read yet");
+        pc.apps = Apps::Loaded(vec![app(7, "7"), app(8, "8"), app(9, "")]);
+        assert_eq!((pc.cover_version(7), pc.cover_version(8), pc.cover_version(9)), ("7", "8", ""));
+        assert_eq!(pc.cover_version(10), "", "not an app of this PC");
+
+        let mut library = library();
+        let listed = library.games[0].app_id as i32;
+        library.games[0].artwork.version = "a41c09e2".into();
+        pc.apps = Apps::Loaded(vec![app(listed, "7"), app(listed + 1000, "8")]);
+        pc.native.library = Some(library);
+        assert_eq!(pc.cover_version(listed), "a41c09e2", "the library's, whatever the app list says");
+        assert_eq!(pc.cover_version(listed + 1000), "8", "the app list's for an app the library leaves out");
+        pc.apps = Apps::Loading;
+        assert_eq!(pc.cover_version(listed), "a41c09e2");
+    }
+
+    /// A long app list asked for all its covers at once, a thread and a TLS handshake each.
+    #[test]
+    fn covers_load_a_few_at_a_time_and_all_of_them() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Condvar;
+
+        let wait_for = |what: &str, met: &dyn Fn() -> bool| {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while !met() {
+                assert!(Instant::now() < deadline, "{what}");
+                std::thread::sleep(Duration::from_millis(2));
+            }
+        };
+        let pool = ArtPool::default();
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let (started, done) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+        let asked = ART_WORKERS * 3;
+        for cover in 0..asked {
+            let (gate, started, done) = (gate.clone(), started.clone(), done.clone());
+            pool.run(move || {
+                started.fetch_add(1, Ordering::SeqCst);
+                let (open, opened) = &*gate;
+                drop(opened.wait_while(open.lock().unwrap(), |open| !*open).unwrap());
+                done.fetch_add(1, Ordering::SeqCst);
+                assert!(cover != 1, "a cover that panics takes no other with it");
+            });
+        }
+        wait_for("the first covers start", &|| started.load(Ordering::SeqCst) == ART_WORKERS);
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(started.load(Ordering::SeqCst), ART_WORKERS, "the rest wait their turn");
+        let (workers, waiting) = {
+            let queue = pool.queue();
+            (queue.workers, queue.waiting.len())
+        };
+        assert_eq!((workers, waiting), (ART_WORKERS, asked - ART_WORKERS));
+
+        *gate.0.lock().unwrap() = true;
+        gate.1.notify_all();
+        wait_for("every cover loads", &|| done.load(Ordering::SeqCst) == asked);
+        wait_for("the workers end with the last cover", &|| pool.queue().workers == 0);
+
+        // An idle pool starts again for the next cover.
+        let (again, landed) = (done.clone(), done.clone());
+        pool.run(move || {
+            again.fetch_add(1, Ordering::SeqCst);
+        });
+        wait_for("a cover asked for later loads", &|| landed.load(Ordering::SeqCst) == asked + 1);
     }
 
     #[test]

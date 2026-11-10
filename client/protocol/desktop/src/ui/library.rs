@@ -75,6 +75,10 @@ impl Launcher {
                 let hides = |app: &nightjar_core::http::App| console::is_hidden(&source, &app.uuid, app.id as u32, &self.hidden_games);
                 let any_hidden = apps.iter().any(hides);
                 let shown: Vec<&nightjar_core::http::App> = apps.iter().filter(|app| self.show_hidden_apps || !hides(app)).collect();
+                // The running game lights the page from its cover, on screen or not (`page_backdrop`).
+                if let Some(app) = running_app_id(host) {
+                    request_cover_unseen(view, id, app as u32, commands);
+                }
                 for (row, chunk) in shown.chunks(columns).enumerate() {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = POSTER_GAP;
@@ -82,6 +86,7 @@ impl Launcher {
                             let is_running = running.is_some_and(|r| app.matches_running_app(r, None));
                             let art = shown_art(view, id, app.id as u32);
                             let response = bare_poster(ui, &app.name, art, if is_running { Badge::Running } else { Badge::None }, width);
+                            request_cover(ui, view, id, app.id as u32, &response, commands);
                             let first = if running.is_some() { is_running } else { row == 0 && i == 0 };
                             let key = format!("app:{}", app.id);
                             self.focus_card(&response, &key, &key, first);
@@ -324,7 +329,7 @@ impl Launcher {
         };
         let response = list_row(ui, &entry.title, line, art, badge, width);
         if let Some(c) = cover {
-            request_cover(ui, view, c.host, c.app_id, &c.cover_version, &response, commands);
+            request_cover(ui, view, c.host, c.app_id, &response, commands);
         }
         let key = format!("{row}:game:{}", entry.key);
         self.focus_card(&response, &key, &entry.key, first);
@@ -353,7 +358,7 @@ impl Launcher {
         // Home's shelves name their covers; the grid of all games lets the art say it.
         let response = if row.is_some() { poster(ui, &entry.title, art, badge, width) } else { bare_poster(ui, &entry.title, art, badge, width) };
         if let Some(c) = cover {
-            request_cover(ui, view, c.host, c.app_id, &c.cover_version, &response, commands);
+            request_cover(ui, view, c.host, c.app_id, &response, commands);
         }
         let key = match row {
             Some(row) => format!("{row}:game:{}", entry.key),

@@ -232,15 +232,7 @@ impl Launcher {
             1.0,
         );
         ui.painter().extend(out);
-        request_cover(
-            ui,
-            view,
-            host_id,
-            app_id,
-            &game.artwork.version,
-            &cover_response,
-            commands,
-        );
+        request_cover(ui, view, host_id, app_id, &cover_response, commands);
         let target = GameTarget::Library {
             app: app_id,
             favourite: false,

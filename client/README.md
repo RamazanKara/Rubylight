@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <b>Android</b> · <b>Android TV</b> · <b>Fire TV</b> · <b>Windows</b> · <b>Linux</b> · <a href="protocol/desktop/README.md#macos"><b>macOS (build locally)</b></a><br>
+  <b>Android</b> · <b>Android TV</b> · <b>Fire TV</b> · <b>Windows</b> · <b>Linux</b> · <b>macOS</b><br>
   <sub>Works with Sunshine, Apollo, Vibepollo, Rubylight, NVIDIA GameStream and every other Moonlight-compatible host.</sub>
 </p>
 
@@ -345,14 +345,14 @@ Download from the [latest release](https://github.com/RamazanKara/nightjar/relea
 | --- | --- | --- |
 | Android phones, tablets and handhelds | [`nightjar.apk`](https://github.com/RamazanKara/nightjar/releases/latest/download/nightjar.apk) | Open the APK and allow installation from the app that opened it. To receive updates through [Obtainium](https://github.com/ImranR98/Obtainium), add `https://github.com/RamazanKara/nightjar`. |
 | Android TV and Fire TV | The same APK | Install AFTVnews' [Downloader](https://www.aftvnews.com/downloader/) from the TV's app store, enter the code **`3815143`** and install the APK it downloads. The code always points to the latest release. |
-| macOS | `Nightjar.app` (local build) | [Build the application on a Mac](protocol/desktop/README.md#macos) and move it to Applications. |
+| macOS 13 or later | `nightjar-desktop-<version>-macos-arm64.zip` (Apple Silicon), `…-macos-x86_64.zip` (Intel) | Unpack it and move `Nightjar.app` to Applications. The app is not notarized, so macOS asks once on first start: [allow it to open](protocol/desktop/README.md#install). |
 | Windows 10 and 11 | `nightjar-desktop-<version>-windows-x86_64-setup.exe` | Run the installer. It installs for the current user without administrator rights and updates in place, keeping settings and paired PCs. The `.zip` contains the same files and runs without installation. |
 | Debian, Ubuntu | `nightjar-desktop-<version>-linux-x86_64.deb` | `sudo apt install ./nightjar-desktop-<version>-linux-x86_64.deb` |
 | Fedora | `nightjar-desktop-<version>-linux-x86_64.rpm` | `sudo dnf install ./nightjar-desktop-<version>-linux-x86_64.rpm` |
 | Other Linux distributions | `.AppImage` or `.tar.gz` | Make the AppImage executable and run it, or unpack the archive and run `./nightjar`. |
 | Linux on ARM handhelds and boards | The same packages and a Flatpak, with `aarch64` in the name | As above. |
 
-Release APKs are signed with the Nightjar release key (certificate SHA-256 `312ed322c7c29d1aec4fae4a3979ebcb557af44d821d7f4746c0968548eb630b`), so every later release installs over the previous one. Outside Google Play, the Android app checks GitHub for new releases and asks before installing one; the Windows app reports a new release once per launch. The Windows and Linux release packages are unsigned.
+Release APKs are signed with the Nightjar release key (certificate SHA-256 `312ed322c7c29d1aec4fae4a3979ebcb557af44d821d7f4746c0968548eb630b`), so every later release installs over the previous one. Outside Google Play, the Android app checks GitHub for new releases and asks before installing one; the Windows app reports a new release once per launch. The Windows and Linux release packages are unsigned; the macOS app has an ad-hoc signature and is not notarized.
 
 Nightjar has its own application ID and pairs separately, so it installs beside Moonlight and other clients without affecting them. [Installing the desktop client](protocol/desktop/README.md#installing) covers removal and the location of settings.
 
@@ -402,7 +402,7 @@ The [documentation index](docs/index.md) lists every page. The most used:
 
 ## Building from source
 
-The [macOS build instructions](protocol/desktop/README.md#macos) cover running the Rust client and packaging a standalone Nightjar.app.
+The [macOS guide](protocol/desktop/README.md#macos) covers installing the release download, running the Rust client and packaging Nightjar.app yourself.
 
 The Android app builds with Gradle and JDK 21; its native code needs the Android NDK and Rust. The streaming engine and the desktop client are a Cargo workspace under [`protocol/`](protocol), shared by both apps.
 

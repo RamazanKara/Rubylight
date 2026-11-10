@@ -12,6 +12,24 @@ mapped-plane fallback. The client probes HEVC and AV1 with fixtures before offer
 
 ![Nightjar's offline demo library rendered on macOS with Metal](../../docs/assets/shots/macos-home.webp)
 
+### Install
+
+Each release has `nightjar-desktop-<version>-macos-arm64.zip` for Apple Silicon and
+`nightjar-desktop-<version>-macos-x86_64.zip` for Intel Macs, both for macOS 13 or later. Unpack the
+ZIP and move `Nightjar.app` to Applications.
+
+The app has an ad-hoc signature and is not notarized by Apple, so macOS asks once before the first
+start. On macOS 15 or later, open Nightjar, close the warning with **Done**, then choose **Open Anyway**
+under **System Settings → Privacy & Security** and confirm. On macOS 13 and 14, Control-click the app,
+choose **Open** and confirm. Alternatively, clear the download's quarantine flag in Terminal:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Nightjar.app
+```
+
+A newer version installs the same way: replace the app in Applications. Settings and paired PCs stay
+in `~/Library/Application Support/Nightjar/`.
+
 ### Build and run
 
 Install the Xcode Command Line Tools, Rust 1.95 or newer and Python 3.9 or newer. To run against Homebrew libraries,
@@ -35,8 +53,8 @@ The packager builds checksum-pinned SDL, Opus, dav1d and a decode-only FFmpeg, e
 licenses, and verifies an ad-hoc signature. The first build downloads the sources. Later builds reuse
 the Cargo target directory. The default deployment target is macOS 13.0 on the architecture of the
 build Mac. Set `MACOSX_DEPLOYMENT_TARGET` to choose a newer minimum. The bundle can be moved to
-Applications and carries its own media libraries. This is a local source build with an ad-hoc
-signature. The published release downloads cover Android, Windows and Linux.
+Applications and carries its own media libraries. The release downloads are built the same way by
+the release workflow, on an Apple Silicon and an Intel runner.
 
 ### Build for an Intel Mac
 
@@ -107,12 +125,13 @@ Every release carries these files. The installer and the packages contain the sa
 | `nightjar-desktop-<version>-x86_64.flatpak` | `flatpak install --user nightjar-desktop-<version>-x86_64.flatpak` (the runtime comes from Flathub); to update, the same with `--reinstall`. For the Steam Deck, see [Steam Deck and Linux handhelds](../../docs/steam-deck.md). | `flatpak uninstall io.github.ramazankara.nightjar` |
 | `nightjar-desktop-<version>-x86_64.AppImage` | Make it executable (`chmod +x`) and run it; nothing is installed. Without FUSE, run it with `--appimage-extract-and-run`. | Delete the file. |
 | `nightjar-desktop-<version>-linux-x86_64.tar.gz` | Unpack it and run `./nightjar`. `share/` holds the desktop entry and icons, laid out as under `/usr/share`. | Delete the folder. |
+| `nightjar-desktop-<version>-macos-arm64.zip`, `…-macos-x86_64.zip` | Unpack it and move `Nightjar.app` to Applications; `arm64` is for Apple Silicon, `x86_64` for Intel Macs (macOS 13 and later). The app is not notarized: [allow it once](#install) on first start. | Move `Nightjar.app` to the Trash. |
 
 The `.deb` and `.rpm` install the program in `/opt/nightjar`, `nightjar` in `/usr/bin`, and the desktop entry `io.github.ramazankara.nightjar.desktop`, the hicolor icons and the AppStream metadata in `/usr/share`. They require glibc 2.35 or newer, libopus, libva, libudev, and the ALSA, libX11 and libXext libraries without which SDL3 cannot start, and recommend the libraries SDL3 and PyroWave load at run time (Wayland, PulseAudio, PipeWire, Vulkan, a VA-API driver). The AppImage also carries libopus, plus libva, libva-drm and libdrm as fallbacks: its `AppRun` uses them only where the system has none, so an installed libva still finds the system's VA-API drivers (without one, decoding falls back to software, with a notice). ALSA and X11 come from the system.
 
 Every Linux package also comes for ARM handhelds and boards, with `aarch64` in place of `x86_64` in its name.
 
-Settings, paired PCs, controller layouts, app lists, cover art, logs, screenshots and exported statistics are stored in `%APPDATA%\Nightjar\config` on Windows or `~/.config/nightjar` on Linux, outside every install folder. Updates never touch them, and uninstalling keeps them, except that the Windows uninstaller offers **Remove them too** (off unless ticked; `unins000.exe /VERYSILENT /REMOVESETTINGS` does the same silently). That option removes everything except the `screenshots` and `statistics` folders. On Linux, delete `~/.config/nightjar` by hand.
+Settings, paired PCs, controller layouts, app lists, cover art, logs, screenshots and exported statistics are stored in `%APPDATA%\Nightjar\config` on Windows, `~/.config/nightjar` on Linux or `~/Library/Application Support/Nightjar` on macOS, outside every install folder. Updates never touch them, and uninstalling keeps them, except that the Windows uninstaller offers **Remove them too** (off unless ticked; `unins000.exe /VERYSILENT /REMOVESETTINGS` does the same silently). That option removes everything except the `screenshots` and `statistics` folders. On Linux, delete `~/.config/nightjar` by hand.
 
 `nightjar --version` prints the version and exits without opening a window; on Windows it prints into the Command Prompt or PowerShell window it was started from.
 

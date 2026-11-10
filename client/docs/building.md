@@ -145,11 +145,12 @@ Releases are built and signed by [`release.yml`](../.github/workflows/release.ym
 
 ### Releasing from CI
 
-Pushing a tag such as `v4.0.1` first checks that the tag equals `v` plus `versionName` in `app/build.gradle`, then runs four jobs:
+Pushing a tag such as `v4.0.1` first checks that the tag equals `v` plus `versionName` in `app/build.gradle`, then runs five jobs:
 
 - **`desktop-windows` and `desktop-linux`** build the desktop client with `protocol/desktop/package-windows.ps1` and `package-linux.sh`, including the PyroWave SDK (`scripts/build-pyrowave-sdk.*`, pinned by `protocol/desktop/pyrowave-sdk.pin`; patch 0002 and the Windows build script come from the public Rubylight repository at the `RUBYLIGHT_SHA` in `release.yml`), and check that each unpacked package loads it. The Linux job installs and starts the `.deb`, `.rpm` and AppImage in clean distributions.
+- **`desktop-macos`** builds the release `Nightjar.app` with `protocol/desktop/package-macos.py --zip` on an Apple Silicon and an Intel runner, and checks and launches the unpacked zip on each. The app carries an ad-hoc signature and is not notarized. A failed Mac leg, like a failed Linux aarch64 leg, leaves a warning and the release ships without it.
 - **`android`**, beside the desktop jobs, builds the non-root APK, the root APK and the non-root bundle with the release key, and checks that all three are signed with the Nightjar certificate (SHA-256 `312ed322c7c29d1aec4fae4a3979ebcb557af44d821d7f4746c0968548eb630b`) and that the APKs' IDs are `com.butterpollo.client` and `com.butterpollo.client.root`. It hands them to `release` as an artifact kept for one day.
-- **`release`** waits for the other three, so a failed build publishes nothing, and publishes their files.
+- **`release`** waits for the other four, so a failed build publishes nothing, and publishes their files.
 
 The release then receives these assets:
 
@@ -160,6 +161,7 @@ The release then receives these assets:
 | `nightjar-<version>-mapping.txt`, `nightjar-<version>-native-debug-symbols.zip` | R8 mapping and native symbols of the non-root build, for reading crash traces |
 | `nightjar-desktop-<version>-windows-x86_64-setup.exe`, `…-windows-x86_64.zip` | The Windows installer and portable archive |
 | `nightjar-desktop-<version>-linux-<x86_64 or aarch64>.deb`, `.rpm`, `.tar.gz`, `nightjar-desktop-<version>-<x86_64 or aarch64>.AppImage`, `.flatpak` | The Linux packages |
+| `nightjar-desktop-<version>-macos-arm64.zip`, `…-macos-x86_64.zip` | `Nightjar.app` for Apple Silicon and Intel Macs |
 | `SHA256SUMS-<version>.txt` | SHA-256 of every file above |
 
 A tag with a `-` suffix publishes a prerelease that is not marked Latest. CI replaces assets only on a draft release; on a published release it refuses to overwrite an existing asset. If the release does not exist, the workflow creates it with placeholder text; replace that with `gh release edit <tag> --notes-file <file>`. The release job does not run tests, so tag a commit whose `android.yml` run on main is green. Running the workflow by hand with `dry_run` (the default) builds and verifies everything without publishing; do that before the first real tag of a release.

@@ -3393,6 +3393,36 @@ fn a_packed_stream_drops_dolby_vision_loudly_and_streams_hdr10() {
     assert!(p84.hdr && p84.hdr_format == 0 && !p84.hlg());
 }
 #[test]
+fn a_native_444_stream_drops_dolby_vision_loudly_and_streams_hdr10() {
+    use rubylight_protocol::hdr;
+    let offered = crate::extensions::Offered {
+        hdr_formats: crate::extensions::hdr_offer(0x200, true, true),
+        ..crate::extensions::Offered::NONE
+    };
+    let warnings = crate::session::Warnings::default();
+    for format in [hdr::DV_81, hdr::DV_84] {
+        let mut native = Negotiated::from_sdp(
+            format!(
+                "a=x-nv-video[0].dynamicRangeMode:1\na=x-nv-vqos[0].bitStreamFormat:1\na=x-ss-video[0].chromaSamplingType:1\na=x-rl-video[0].hdrFormat:{format}\n"
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+        assert!(native.yuv444 && native.chroma_packing == 0);
+        offered.check_announce(&native).unwrap();
+        assert!(packed_drops_dolby_vision(&mut native, &warnings));
+        // Dolby Vision profile 8 is HEVC Main10 4:2:0; the HEVC Rext stream
+        // carries static HDR10, which was offered.
+        assert!(native.hdr && native.hdr_format == 0);
+        assert_eq!(crate::dovi::negotiated(&native), None);
+        offered.check_announce(&native).unwrap();
+        let shown = warnings.snapshot();
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].code, "hdr_dolby_vision");
+        assert_eq!(shown[0].message, NATIVE_444_DOLBY_VISION);
+    }
+}
+#[test]
 fn a_packed_stream_drops_hlg_loudly_and_streams_hdr10() {
     let offered = crate::extensions::Offered {
         hdr_formats: crate::extensions::hdr_offer(0x200, true, true),

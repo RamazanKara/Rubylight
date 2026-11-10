@@ -493,6 +493,39 @@ void pyro_menu_cs(uint3 id : SV_DispatchThreadID) {
     if (any(id.xy >= menuBlocks)) return;
     pyroBlocks(menuOriginBlocks + id.xy, true);
 }
+// NVENC's native 4:4:4 input: every pixel's own chroma, unfiltered, with the
+// matrix, range and rounding of `lumaCode` and `chromaCode`, so a 4:4:4
+// stream codes the colours a 4:2:0 one does. The layouts are ported from
+// LizardByte Sunshine's src_assets/windows/assets/shaders/directx/
+// include/convert_yuv444_ps_base.hlsl and convert_yuv444_planar_vs.hlsl
+// (ec2676b60bb8220a1807fc761bc2157e5e6dba63), GPL-3.0: 8-bit AYUV through
+// an R8G8B8A8_UINT view (V, U, Y, A in R, G, B, A), and 10-bit as three
+// R16_UINT planes stacked in one texture (Y, then U, then V, each code in
+// the upper ten bits as P010 stores it), which the CUDA copy hands NVENC as
+// YUV444_10BIT (`nvenc/cuda.rs`). Sunshine draws the planes through three
+// viewports; here one viewport three pictures tall covers them and each
+// pixel finds its plane from its row.
+uint3 yuv444Codes(float3 rgb) {
+    // `lumaCode` and `chromaCode` return what a UNORM view stores: code / 255,
+    // or code * 64 / 65535 for ten bits. A UINT view takes the integer.
+    return uint3(round(float3(lumaCode(rgb), chromaCode(rgb)) * (tenBit != 0 ? 65535.0 : 255.0)));
+}
+uint4 yuv444Ayuv(float2 p, bool menu) {
+    if (menu) menu_clip(uint2(p));
+    uint3 c = yuv444Codes(rgb_at(p - 0.5, menu));
+    return uint4(c.z, c.y, c.x, 0);
+}
+uint yuv444Plane(float2 p, bool menu) {
+    uint plane = min(uint(p.y) / targetSize.y, 2u);
+    float2 at = float2(p.x, p.y - plane * targetSize.y);
+    if (menu) menu_clip(uint2(at));
+    uint3 c = yuv444Codes(rgb_at(at - 0.5, menu));
+    return plane == 0 ? c.x : plane == 1 ? c.y : c.z;
+}
+uint4 yuv444_ayuv(float4 p : SV_Position) : SV_Target { return yuv444Ayuv(p.xy, false); }
+uint4 menu_yuv444_ayuv(float4 p : SV_Position) : SV_Target { return yuv444Ayuv(p.xy, true); }
+uint yuv444_planes(float4 p : SV_Position) : SV_Target { return yuv444Plane(p.xy, false); }
+uint menu_yuv444_planes(float4 p : SV_Position) : SV_Target { return yuv444Plane(p.xy, true); }
 // Encoder focus (docs/encoder-focus-design.md): `yuv420_cs` plus a still-age
 // per 16x16 block, then the codec blocks' importances AMF reads as its ROI
 // map. Kept apart so the focus-off pipeline stays the shader it was.

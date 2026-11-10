@@ -51,8 +51,25 @@ The NVIDIA encoder's frame budget guard and its per-preset encode-time calibrati
 (src/nvenc/frame_budget.cpp), its VBR rate control and bounds, the fixed split-encode
 strip counts and the slice-mode rule that keeps split encoding available, the codec
 check and spatial AQ by default (rust/core/src/nvenc.rs, rust/windows/src/nvenc.rs)
-follow Foundation Sunshine's src/nvenc/.
+follow Foundation Sunshine's src/nvenc/. Its native YUV 4:4:4 path for NVENC (commit
+79423092eda6ccd011e58d04236c8f16e02765c5, src/nvenc/common_impl/ and the
+convert_yuv444_* shaders) was compared with LizardByte Sunshine's, where that path
+originates and from which Rubylight's is ported (see LizardByte Sunshine below).
 Copyright (c) Foundation Sunshine authors, GPL-3.0.
+
+LizardByte Sunshine
+
+The NVIDIA encoder's native YUV 4:4:4 path is ported from LizardByte Sunshine
+(https://github.com/LizardByte/Sunshine) commit
+ec2676b60bb8220a1807fc761bc2157e5e6dba63: the input formats, 8-bit AYUV written
+through an R8G8B8A8_UINT view and 10-bit as three R16_UINT planes stacked in one
+texture and copied through CUDA (src/nvenc/nvenc_utils.cpp, nvenc_d3d11_native.cpp,
+nvenc_d3d11_on_cuda.cpp, src/platform/windows/display_vram.cpp; rust/core/src/nvenc.rs,
+rust/windows/src/gpu_color.rs), the conversion shaders' output layout
+(src_assets/windows/assets/shaders/directx/include/convert_yuv444_ps_base.hlsl and
+convert_yuv444_planar_vs.hlsl; yuv444_* in rust/windows/src/shaders/color.hlsl), and
+the YUV 4:4:4 capability check (validate_encoder_capabilities in src/nvenc/nvenc_base.cpp;
+rust/windows/src/nvenc.rs). Copyright (c) LizardByte and the Sunshine contributors, GPL-3.0.
 
 The Dolby Vision profile 8.1 RPU writer (rust/core/src/dovi.rs) follows the syntax,
 default values and L1 limits of the dolby_vision crate 3.4.0 of dovi_tool

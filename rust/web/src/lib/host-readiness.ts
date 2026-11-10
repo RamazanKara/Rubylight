@@ -55,15 +55,22 @@ function encoder(meta: Metadata): Check {
       help: 'Check the selected encoder and graphics adapter in Encoder settings, then check the graphics driver.',
     };
   }
+  const full = yuv444(status.yuv444);
   if (!status.h264) {
     return {
       ...base,
       tone: 'warn',
       state: 'Limited',
-      text: `Encodes ${list.format(codecs)}. Devices that only decode H.264 can't stream.`,
+      text: `Encodes ${list.format(codecs)}.${full} Devices that only decode H.264 can't stream.`,
     };
   }
-  return { ...base, tone: 'ok', state: 'Ready', text: `Encodes ${list.format(codecs)}.` };
+  return { ...base, tone: 'ok', state: 'Ready', text: `Encodes ${list.format(codecs)}.${full}` };
+}
+
+/** The native YUV 4:4:4 modes as a sentence, empty when there are none. */
+function yuv444(modes: string[] | undefined): string {
+  const names = (modes ?? []).map((mode) => mode.replace(/ 4:4:4$/, ''));
+  return names.length ? ` YUV 4:4:4 in ${list.format(names)}.` : '';
 }
 
 function virtualDisplay(meta: Metadata): Check {

@@ -1039,20 +1039,33 @@ impl Host {
         let mut adapter = String::new();
         let mut focus: [butterpollo_core::encoder_focus::Support; 5] =
             std::array::from_fn(|_| butterpollo_core::encoder_focus::Support::NotProbed);
-        // Bits follow moonlight-common-c's SCM_* values. AMF encodes 4:2:0
-        // only, so H.264, HEVC and AV1 advertise no 4:4:4 mode.
-        for (codec, hdr, bit) in [
-            (0, false, 1),
-            (1, false, 0x100),
-            (1, true, 0x200),
-            (2, false, 0x10000),
-            (2, true, 0x20000),
-        ] {
+        // Bits follow moonlight-common-c's SCM_* values. Native 4:4:4 is
+        // probed after the 4:2:0 modes, as Sunshine's encoder check does
+        // (`src/video.cpp`), and only where its 4:2:0 mode works: a real
+        // session opens in 4:4:4 and must return a frame, so NVENC's
+        // NV_ENC_CAPS_SUPPORT_YUV444_ENCODE on this GPU decides, never its
+        // name. AMF encodes 4:2:0 only and is not opened for it.
+        use butterpollo_core::codec_support::{Codec, Outcome};
+        for probed in Codec::ALL.into_iter().chain(Codec::NATIVE_444) {
+            let (codec, hdr, bit) = (probed.id, probed.hdr, probed.bit());
             let mode = config.integer(if codec == 1 { "hevc_mode" } else { "av1_mode" }, 0);
-            let probed = butterpollo_core::codec_support::Codec { id: codec, hdr };
             if matches!(codec, 1 | 2) && (mode == 1 || (hdr && mode == 2)) {
-                outcomes.push((probed, butterpollo_core::codec_support::Outcome::Disabled));
+                outcomes.push((probed, Outcome::Disabled));
                 continue;
+            }
+            if probed.yuv444 {
+                // A 4:2:0 gap is explained already.
+                if flags & probed.chroma_420().bit() == 0 {
+                    continue;
+                }
+                let refusal = match *self.probed_encoder.lock().unwrap() {
+                    "nvenc" => butterpollo_core::nvenc::sdk_444_refusal(codec),
+                    _ => Some(butterpollo_core::codec_support::AMF_NATIVE_444),
+                };
+                if let Some(reason) = refusal {
+                    outcomes.push((probed, Outcome::Failed(reason.into())));
+                    continue;
+                }
             }
             if self.stop.load(std::sync::atomic::Ordering::Acquire) {
                 break;
@@ -1067,6 +1080,7 @@ impl Host {
                 bitrate_kbps: 2000,
                 codec,
                 hdr,
+                yuv444: probed.yuv444,
                 ..Default::default()
             };
             match butterpollo_windows::encoder::Encoder::new_options(
@@ -1078,10 +1092,10 @@ impl Host {
                     if adapter.is_empty() {
                         adapter = encoder.adapter().unwrap_or_default().to_string();
                     }
-                    if codec == 0 {
+                    if codec == 0 && !probed.yuv444 {
                         *self.probed_encoder.lock().unwrap() = encoder.backend();
                     }
-                    if !hdr {
+                    if !hdr && !probed.yuv444 {
                         self.record_throughput(codec, &encoder);
                     }
                     let mut outcome = butterpollo_core::codec_support::Outcome::Failed(
@@ -1110,7 +1124,9 @@ impl Host {
                             _ => std::thread::sleep(Duration::from_millis(5)),
                         }
                     }
+                    // The focus check is a 4:2:0 verdict per codec and depth.
                     if outcome == butterpollo_core::codec_support::Outcome::Available
+                        && !probed.yuv444
                         && !busy()
                         && let Some(index) =
                             butterpollo_core::encoder_focus::support_index(codec, hdr)
@@ -1229,8 +1245,9 @@ impl Host {
     ) {
         let missing = butterpollo_core::codec_support::explain_all(adapter, outcomes);
         for m in &missing {
-            // A setting is the user's choice, not a fault.
-            if m.reason.contains("turned off in the host settings") {
+            // A setting is the user's choice, not a fault, and most GPUs
+            // encode 4:2:0 only.
+            if m.codec.yuv444 || m.reason.contains("turned off in the host settings") {
                 tracing::info!(adapter, codec = m.codec.label(), reason = %m.reason, "codec not advertised");
             } else {
                 tracing::warn!(adapter, codec = m.codec.label(), reason = %m.reason, "codec not advertised");

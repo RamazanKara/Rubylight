@@ -8,7 +8,7 @@ const SOURCE: &str = include_str!("src/shaders/color.hlsl");
 #[cfg(windows)]
 pub fn compile(out: &Path) {
     println!("cargo:rerun-if-changed=src/shaders/color.hlsl");
-    const ENTRIES: [(&str, &str); 27] = [
+    const ENTRIES: [(&str, &str); 31] = [
         ("vertex", "vs_5_0"),
         ("luma", "ps_5_0"),
         ("chroma", "ps_5_0"),
@@ -36,6 +36,11 @@ pub fn compile(out: &Path) {
         ("menu_pyro_u", "ps_5_0"),
         ("menu_pyro_v", "ps_5_0"),
         ("menu_pyro_444", "ps_5_0"),
+        // NVENC's native 4:4:4 input (`gpu_color::Layout::Ayuv`, `Planes444`).
+        ("yuv444_ayuv", "ps_5_0"),
+        ("yuv444_planes", "ps_5_0"),
+        ("menu_yuv444_ayuv", "ps_5_0"),
+        ("menu_yuv444_planes", "ps_5_0"),
         // HDR dynamic metadata statistics (`compute_hdr_stats.rs`).
         ("hdr_stats_clear_cs", "cs_5_0"),
         ("hdr_stats_cs", "cs_5_0"),

@@ -1395,20 +1395,29 @@ pub fn apply_color(stream: &mut Negotiated, config: &Config) {
 /// Why a packed 4:4:4 stream never carries Dolby Vision, for the log, the
 /// session warning and the setting's note in the console.
 pub const PACKED_DOLBY_VISION: &str = "Dolby Vision is off for packed 4:4:4 streams: the device unpacks the packed picture itself, so a Dolby Vision decoder would tone-map the packed layout instead of the picture. The stream carries static HDR10 instead";
+/// Why a native 4:4:4 stream never carries Dolby Vision.
+pub const NATIVE_444_DOLBY_VISION: &str = "Dolby Vision is off for YUV 4:4:4 streams: its profiles 8.1 and 8.4 are 4:2:0 only. The stream carries static HDR10 instead";
 /// A packed 4:4:4 stream whose client picked Dolby Vision streams static
 /// HDR10, from the control channel: the client decodes the packed
 /// picture as plain sample data and unpacks it in its own shader, and the
-/// RPU would not survive the unpack. The log and the session's warnings say
-/// so; any other stream clears the warning. Returns whether it dropped it.
+/// RPU would not survive the unpack. A native 4:4:4 stream (HEVC Rext) does
+/// the same: Dolby Vision profile 8 is HEVC Main10 4:2:0. The log and the
+/// session's warnings say so; any other stream clears the warning. Returns
+/// whether it dropped it.
 pub fn packed_drops_dolby_vision(
     stream: &mut Negotiated,
     warnings: &crate::session::Warnings,
 ) -> bool {
-    let dropped = stream.chroma_packing != 0
+    let dropped = (stream.chroma_packing != 0 || stream.yuv444)
         && stream.hdr_format & rubylight_protocol::hdr::DOLBY_VISION != 0;
     if dropped {
-        tracing::warn!(hdr_format = stream.hdr_format, "{PACKED_DOLBY_VISION}");
-        warnings.set("hdr_dolby_vision", PACKED_DOLBY_VISION);
+        let reason = if stream.yuv444 {
+            NATIVE_444_DOLBY_VISION
+        } else {
+            PACKED_DOLBY_VISION
+        };
+        tracing::warn!(hdr_format = stream.hdr_format, "{reason}");
+        warnings.set("hdr_dolby_vision", reason);
         stream.hdr_format = 0;
     } else {
         warnings.clear("hdr_dolby_vision");

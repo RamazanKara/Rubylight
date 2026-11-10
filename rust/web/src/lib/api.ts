@@ -254,7 +254,15 @@ export interface Metadata {
   /** The console shows a pairing QR code (Settings, Pair with a QR code). */
   qr_pairing?: boolean;
   warnings: { code: string; message: string }[];
-  encoder_status: { state: 'checking' | 'failed' | 'ready'; h264: boolean; hevc: boolean; av1: boolean; pyrowave: boolean };
+  encoder_status: {
+    state: 'checking' | 'failed' | 'ready';
+    h264: boolean;
+    hevc: boolean;
+    av1: boolean;
+    pyrowave: boolean;
+    /** The native YUV 4:4:4 modes the encoder check found, such as "HEVC 10-bit 4:4:4". */
+    yuv444?: string[];
+  };
   capture_status: {
     configured_backend: string;
     virtual_display_configured: boolean;

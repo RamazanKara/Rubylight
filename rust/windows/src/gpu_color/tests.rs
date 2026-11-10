@@ -1146,6 +1146,196 @@ fn gpu_sdr_ten_bit_respects_client_matrix_and_full_range() -> Result<()> {
     }
     Ok(())
 }
+/// Pure red's Y, Cb and Cr codes under BT.601 (`csc_mode` 0 and 1) or
+/// BT.709 (2 and 3), limited range for even modes, at `bits` bits. The
+/// reference the native 4:4:4 tests below check the shader against.
+fn red_codes(csc_mode: u8, bits: u32) -> [u16; 3] {
+    let (kr, kb) = if csc_mode < 2 {
+        (0.299, 0.114)
+    } else {
+        (0.2126, 0.0722)
+    };
+    let (y, cb, cr) = (kr, -kr / (2. * (1. - kb)), 0.5);
+    let scale = f64::from(1u32 << (bits - 8));
+    let max = f64::from((1u32 << bits) - 1);
+    let mid = 128. * scale;
+    let (black, luma_range, chroma_range) = if csc_mode.is_multiple_of(2) {
+        (16. * scale, 219. * scale, 224. * scale)
+    } else {
+        (0., max, max)
+    };
+    let y = black + luma_range * y;
+    let cb = mid + chroma_range * cb;
+    let cr = mid + chroma_range * cr;
+    [y, cb, cr].map(|code: f64| code.round().clamp(0., max) as u16)
+}
+#[test]
+fn the_red_reference_matches_the_published_csc_tables() {
+    // The 10-bit codes are the ones the 4:2:0 test above checks the GPU
+    // against; the 8-bit ones follow from the same matrices at 8 bits.
+    for (csc_mode, eight, ten) in [
+        (0, [81, 90, 240], [326, 361, 960]),
+        (1, [76, 85, 255], [306, 339, 1023]),
+        (2, [63, 102, 240], [250, 409, 960]),
+        (3, [54, 99, 255], [217, 395, 1023]),
+    ] {
+        assert_eq!(red_codes(csc_mode, 8), eight, "CSC {csc_mode}");
+        assert_eq!(red_codes(csc_mode, 10), ten, "CSC {csc_mode}");
+    }
+}
+#[test]
+fn native_444_targets_follow_sunshines_nvenc_input_formats() {
+    let mut config = butterpollo_core::rtsp::Negotiated {
+        width: 64,
+        height: 64,
+        codec: 1,
+        yuv444: true,
+        ..Default::default()
+    };
+    assert_eq!(Layout::of(&config), Layout::Ayuv);
+    assert_eq!(
+        Layout::Ayuv.formats(),
+        (DXGI_FORMAT_AYUV, DXGI_FORMAT_R8G8B8A8_UINT, None)
+    );
+    assert_eq!(Layout::Ayuv.rows(64), 64);
+    for (hdr, sdr_10bit) in [(true, false), (false, true)] {
+        config.hdr = hdr;
+        config.sdr_10bit = sdr_10bit;
+        assert_eq!(Layout::of(&config), Layout::Planes444);
+    }
+    assert_eq!(
+        Layout::Planes444.formats(),
+        (DXGI_FORMAT_R16_UINT, DXGI_FORMAT_R16_UINT, None)
+    );
+    assert_eq!(Layout::Planes444.rows(64), 192);
+    config.yuv444 = false;
+    assert_eq!(Layout::of(&config), Layout::P010);
+    config.hdr = false;
+    config.sdr_10bit = false;
+    assert_eq!(Layout::of(&config), Layout::Nv12);
+    assert_eq!(Layout::Nv12.rows(64), 64);
+}
+/// An AYUV texture's pixels as `[V, U, Y, A]` bytes, its memory order.
+fn readback_ayuv(gpu: &Device, texture: &ID3D11Texture2D) -> Result<Vec<[u8; 4]>> {
+    // SAFETY: `staging` is a CPU-readable copy of `texture`; each row read is `Width * 4` bytes
+    // within `RowPitch` and stays valid until Unmap below.
+    unsafe {
+        let mut desc = D3D11_TEXTURE2D_DESC::default();
+        texture.GetDesc(&mut desc);
+        desc.Usage = D3D11_USAGE_STAGING;
+        desc.BindFlags = 0;
+        desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
+        desc.MiscFlags = 0;
+        let mut staging = None;
+        gpu.device
+            .CreateTexture2D(&desc, None, Some(&mut staging))?;
+        let staging = staging.unwrap();
+        gpu.context.CopyResource(&staging, texture);
+        let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+        gpu.context
+            .Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))?;
+        let mut pixels = Vec::new();
+        for y in 0..desc.Height as usize {
+            let row = std::slice::from_raw_parts(
+                (mapped.pData as *const u8).add(y * mapped.RowPitch as usize),
+                desc.Width as usize * 4,
+            );
+            pixels.extend(row.as_chunks::<4>().0.iter().copied());
+        }
+        gpu.context.Unmap(&staging, 0);
+        Ok(pixels)
+    }
+}
+#[test]
+#[ignore = "requires a D3D11 GPU with AYUV render views"]
+fn gpu_native_444_eight_bit_writes_full_resolution_ayuv_codes() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let image = Image {
+        width: 64,
+        height: 64,
+        stride: 256,
+        bytes: [0, 0, 255, 255].repeat(64 * 64),
+        pixel: Pixel::Bgra8,
+        captured: Instant::now(),
+    };
+    let uploaded = GpuImage::upload(&gpu, &image)?;
+    for csc_mode in 0..4u8 {
+        let config = butterpollo_core::rtsp::Negotiated {
+            width: 64,
+            height: 64,
+            codec: 1,
+            yuv444: true,
+            csc_mode,
+            ..Default::default()
+        };
+        let mut convert = Converter::new(&gpu, &config, (64, 64, Pixel::Bgra8))?;
+        let output = readback_ayuv(&gpu, convert.convert(&uploaded)?.as_ref())?;
+        assert_eq!(output.len(), 64 * 64);
+        let [y, cb, cr] = red_codes(csc_mode, 8);
+        for [v, u, luma, _] in [output[0], output[64 * 64 - 1]] {
+            let observed = [luma, u, v].map(u16::from);
+            for (actual, wanted) in observed.into_iter().zip([y, cb, cr]) {
+                assert!(actual.abs_diff(wanted) <= 1, "CSC {csc_mode}: {observed:?}");
+            }
+        }
+    }
+    Ok(())
+}
+#[test]
+#[ignore = "requires a D3D11 GPU with R16_UINT render views"]
+fn gpu_native_444_ten_bit_stacks_y_u_and_v_planes() -> Result<()> {
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    // Red on the left half and blue on the right, so a plane that is
+    // subsampled or misplaced shows in the chroma rows.
+    let red_half = [0, 0, 255, 255].repeat(32);
+    let blue_half = [255, 0, 0, 255].repeat(32);
+    let image = Image {
+        width: 64,
+        height: 64,
+        stride: 256,
+        bytes: [red_half, blue_half].concat().repeat(64),
+        pixel: Pixel::Bgra8,
+        captured: Instant::now(),
+    };
+    let uploaded = GpuImage::upload(&gpu, &image)?;
+    for csc_mode in 0..4u8 {
+        let config = butterpollo_core::rtsp::Negotiated {
+            width: 64,
+            height: 64,
+            codec: 1,
+            yuv444: true,
+            sdr_10bit: true,
+            csc_mode,
+            ..Default::default()
+        };
+        let mut convert = Converter::new(&gpu, &config, (64, 64, Pixel::Bgra8))?;
+        // The R16_UINT target holds 16-bit codes; `readback` keeps the top ten bits.
+        let output = readback(&gpu, convert.convert(&uploaded)?.as_ref())?;
+        assert_eq!(output.len(), 64 * 64 * 3);
+        let red = red_codes(csc_mode, 10);
+        for row in [0, 63] {
+            for (plane, wanted) in red.into_iter().enumerate() {
+                let at = plane * 4096 + row * 64;
+                let observed = output[at + 31];
+                assert!(
+                    observed.abs_diff(wanted) <= 1,
+                    "CSC {csc_mode} plane {plane} row {row}: {observed} versus {wanted}"
+                );
+                // The blue neighbour's Cb is high and its Cr low: a chroma
+                // plane averaged across pixels would not keep both columns.
+                let blue = output[at + 32];
+                match plane {
+                    1 => assert!(blue > observed + 300, "CSC {csc_mode}: Cb {blue}"),
+                    2 => assert!(observed > blue + 300, "CSC {csc_mode}: Cr {blue}"),
+                    _ => {}
+                }
+            }
+        }
+    }
+    Ok(())
+}
 #[test]
 #[ignore = "requires a D3D11 GPU with native P010 render views"]
 fn hdr_full_and_limited_range_match_absolute_pq_on_both_gpu_paths() -> Result<()> {

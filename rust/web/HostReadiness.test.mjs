@@ -53,6 +53,17 @@ test('host readiness clears the warning when encoders recover', () => {
   assert.match(result, /Encodes H\.264\./);
 });
 
+test('host readiness names the YUV 4:4:4 modes the encoder check found', () => {
+  const ready = { ...metadata.encoder_status, state: 'ready', h264: true, hevc: true, av1: true };
+  const full = html({ warnings: [], encoder_status: { ...ready, yuv444: ['H.264 4:4:4', 'HEVC 4:4:4', 'HEVC 10-bit 4:4:4'] } });
+  assert.match(full, /Encodes H\.264, HEVC, and AV1\. YUV 4:4:4 in H\.264, HEVC, and HEVC 10-bit\./);
+  for (const yuv444 of [[], undefined]) {
+    const plain = html({ warnings: [], encoder_status: { ...ready, yuv444 } });
+    assert.match(plain, /Encodes H\.264, HEVC, and AV1\./);
+    assert.doesNotMatch(plain, /4:4:4/);
+  }
+});
+
 test('host readiness escapes driver errors', () => {
   const result = html({ warnings: [{ code: 'video_encoder', message: 'No video encoder available: <script>alert(1)</script>. Retrying.' }] });
   assert.match(result, /&lt;script/);

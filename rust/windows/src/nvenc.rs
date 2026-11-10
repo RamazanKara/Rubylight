@@ -880,9 +880,19 @@ impl Session {
         {
             bail!("this NVENC driver/codec cannot encode 10-bit input");
         }
-        if self.stream.yuv444 && !self.optional_cap(_NV_ENC_CAPS_NV_ENC_CAPS_SUPPORT_YUV444_ENCODE)
-        {
-            bail!("this NVENC codec does not support 4:4:4");
+        // YUV 4:4:4 capability check ported from LizardByte Sunshine
+        // src/nvenc/nvenc_base.cpp `validate_encoder_capabilities`
+        // (ec2676b60bb8220a1807fc761bc2157e5e6dba63), GPL-3.0: the GPU's
+        // answer for this codec decides, beside the 10-bit check above for a
+        // 10-bit stream.
+        if self.stream.yuv444 {
+            refuse_native_444(&self.stream)?;
+            if !self.optional_cap(_NV_ENC_CAPS_NV_ENC_CAPS_SUPPORT_YUV444_ENCODE) {
+                bail!(
+                    "this NVIDIA GPU's NVENC reports no {} 4:4:4 encoding (NV_ENC_CAPS_SUPPORT_YUV444_ENCODE is 0). Turn off YUV 4:4:4 on the device to stream 4:2:0",
+                    codec_name(self.stream.codec)
+                );
+            }
         }
         // Slice delivery reads a frame while it encodes. The driver writes
         // each slice as it finishes only in synchronous mode, polled without
@@ -1987,6 +1997,7 @@ impl Session {
                     units.next += 1;
                     units.sent = ready;
                     self.ready.push_back(Encoded {
+                        framing: None,
                         bytes,
                         unit: crate::encoder::Unit::Slice { index },
                         idr: false,
@@ -2026,6 +2037,7 @@ impl Session {
                 };
                 Ok((
                     Encoded {
+                        framing: None,
                         bytes: crate::frame_pool::copy(&written[sent..]),
                         unit,
                         idr: whole && idr,
@@ -2428,16 +2440,22 @@ fn coded(config: &Negotiated) -> Negotiated {
     }
     coded
 }
-/// Both conversions write NV12 or P010 only (`gpu_color`, `compute`), which
-/// a native 4:4:4 session would read as AYUV or as three full planes. A
-/// 4:4:4 stream is refused until a conversion writes 4:4:4; packed 4:4:4
-/// codes 4:2:0 and is unaffected.
+/// A native 4:4:4 stream the SDK this host uses cannot configure (AV1, see
+/// `nvenc::sdk_444_refusal`) is refused before a session opens; the GPU's
+/// `NV_ENC_CAPS_SUPPORT_YUV444_ENCODE` decides the rest in `configure`.
+/// Packed 4:4:4 codes 4:2:0 and is unaffected. A refused stream fails with
+/// this reason: it is never encoded in 4:2:0 instead.
 fn refuse_native_444(coded: &Negotiated) -> Result<()> {
-    anyhow::ensure!(
-        !coded.yuv444,
-        "NVENC cannot encode native 4:4:4: the colour conversion writes 4:2:0 only. Turn off 4:4:4 on the device"
-    );
-    Ok(())
+    if !coded.yuv444 {
+        return Ok(());
+    }
+    match butterpollo_core::nvenc::sdk_444_refusal(coded.codec) {
+        Some(reason) => bail!(
+            "NVENC cannot encode {} 4:4:4: {reason}",
+            codec_name(coded.codec)
+        ),
+        None => Ok(()),
+    }
 }
 /// A D3D12 fence point: the driver waits for `value` before it reads the
 /// input, or signals it once the output is written.
@@ -2588,6 +2606,23 @@ impl Encoder {
         refuse_native_444(&coded)?;
         let runtime = Runtime::load()?;
         let mut tuning = Tuning::new(options, &coded)?;
+        // Native 4:4:4 converts on the D3D11 graphics queue (`gpu_color`),
+        // whose AYUV or stacked 16-bit planes NVENC reads as Sunshine feeds
+        // it; the D3D12 compute conversion writes 4:2:0 only.
+        let compute = compute.filter(|_| !coded.yuv444);
+        if coded.yuv444 {
+            use butterpollo_core::nvenc::Input444;
+            let input = match butterpollo_core::nvenc::input_444(coded.ten_bit()) {
+                Input444::Ayuv => "AYUV on the D3D11 device",
+                Input444::Planar16 => "three 16-bit planes copied through CUDA",
+            };
+            tracing::info!(
+                codec = codec_name(coded.codec),
+                ten_bit = coded.ten_bit(),
+                input,
+                "NVENC native 4:4:4 stream: the colour conversion runs on the graphics queue"
+            );
+        }
         let converter = compute
             .map(|compute| -> Result<_> {
                 let mut converter = crate::compute::Converter::new(

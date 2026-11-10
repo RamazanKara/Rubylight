@@ -73,10 +73,57 @@ struct Target {
     chroma: Option<ID3D11RenderTargetView>,
     unordered: Option<[ID3D11UnorderedAccessView; 2]>,
 }
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Layout {
     Nv12,
     P010,
+    /// NVENC's 8-bit native 4:4:4 (`nvenc::Input444::Ayuv`): one packed
+    /// AYUV picture, written through an R8G8B8A8_UINT view.
+    Ayuv,
+    /// NVENC's 10-bit native 4:4:4 (`nvenc::Input444::Planar16`): the Y, U
+    /// and V planes stacked in one R16_UINT texture three pictures tall.
+    Planes444,
+}
+impl Layout {
+    fn of(config: &butterpollo_core::rtsp::Negotiated) -> Self {
+        match (config.yuv444, config.ten_bit()) {
+            (false, false) => Self::Nv12,
+            (false, true) => Self::P010,
+            (true, _) => match butterpollo_core::nvenc::input_444(config.ten_bit()) {
+                butterpollo_core::nvenc::Input444::Ayuv => Self::Ayuv,
+                butterpollo_core::nvenc::Input444::Planar16 => Self::Planes444,
+            },
+        }
+    }
+    /// The target texture's format, and the formats of its luma (or only)
+    /// and chroma render views.
+    // The 4:4:4 texture and view formats are ported from LizardByte Sunshine
+    // src/platform/windows/display_vram.cpp and src/nvenc/nvenc_utils.cpp
+    // (ec2676b60bb8220a1807fc761bc2157e5e6dba63), GPL-3.0.
+    fn formats(self) -> (DXGI_FORMAT, DXGI_FORMAT, Option<DXGI_FORMAT>) {
+        match self {
+            Self::Nv12 => (
+                DXGI_FORMAT_NV12,
+                DXGI_FORMAT_R8_UNORM,
+                Some(DXGI_FORMAT_R8G8_UNORM),
+            ),
+            Self::P010 => (
+                DXGI_FORMAT_P010,
+                DXGI_FORMAT_R16_UNORM,
+                Some(DXGI_FORMAT_R16G16_UNORM),
+            ),
+            Self::Ayuv => (DXGI_FORMAT_AYUV, DXGI_FORMAT_R8G8B8A8_UINT, None),
+            Self::Planes444 => (DXGI_FORMAT_R16_UINT, DXGI_FORMAT_R16_UINT, None),
+        }
+    }
+    /// The target's rows for a picture `height` rows tall.
+    fn rows(self, height: u32) -> u32 {
+        if self == Self::Planes444 {
+            height * 3
+        } else {
+            height
+        }
+    }
 }
 pub(crate) struct Converter {
     gpu: Device,
@@ -201,23 +248,17 @@ impl Converter {
                 None,
                 Some(&mut vertex),
             )?;
-            let layout = if config.ten_bit() {
-                Layout::P010
-            } else {
-                Layout::Nv12
+            let layout = Layout::of(config);
+            // A 4:4:4 target is one draw: the AYUV picture, or the three
+            // stacked planes.
+            let first: &'static [u8] = match (config.chroma_packing != 0, layout) {
+                (true, _) => b"chroma_pack_y\0",
+                (false, Layout::Ayuv) => b"yuv444_ayuv\0",
+                (false, Layout::Planes444) => b"yuv444_planes\0",
+                (false, _) => b"luma\0",
             };
-            gpu.device.CreatePixelShader(
-                &compile(
-                    if config.chroma_packing != 0 {
-                        b"chroma_pack_y\0"
-                    } else {
-                        b"luma\0"
-                    },
-                    b"ps_5_0\0",
-                )?,
-                None,
-                Some(&mut luma),
-            )?;
+            gpu.device
+                .CreatePixelShader(&compile(first, b"ps_5_0\0")?, None, Some(&mut luma))?;
             gpu.device.CreatePixelShader(
                 &compile(
                     if config.chroma_packing != 0 {
@@ -308,19 +349,17 @@ impl Converter {
         if self.targets.len() >= 8 {
             bail!("GPU conversion queue reached its bounded limit");
         }
+        let (format, luma_view, chroma_view) = self.layout.formats();
         // SAFETY: `gpu.device` is live, each descriptor outlives its call, and the views target the
         // new texture.
         unsafe {
             let mut texture = None;
             let mut desc = D3D11_TEXTURE2D_DESC {
                 Width: self.width,
-                Height: self.height,
+                Height: self.layout.rows(self.height),
                 MipLevels: 1,
                 ArraySize: 1,
-                Format: match self.layout {
-                    Layout::Nv12 => DXGI_FORMAT_NV12,
-                    Layout::P010 => DXGI_FORMAT_P010,
-                },
+                Format: format,
                 SampleDesc: DXGI_SAMPLE_DESC {
                     Count: 1,
                     Quality: 0,
@@ -366,14 +405,8 @@ impl Converter {
                 )?;
                 Ok(view.unwrap())
             };
-            let luma = view(match self.layout {
-                Layout::Nv12 => DXGI_FORMAT_R8_UNORM,
-                Layout::P010 => DXGI_FORMAT_R16_UNORM,
-            })?;
-            let chroma = Some(view(match self.layout {
-                Layout::Nv12 => DXGI_FORMAT_R8G8_UNORM,
-                Layout::P010 => DXGI_FORMAT_R16G16_UNORM,
-            })?);
+            let luma = view(luma_view)?;
+            let chroma = chroma_view.map(view).transpose()?;
             let unordered = if self.compute.is_some() {
                 let formats = if self.layout == Layout::Nv12 {
                     [DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8_UNORM]
@@ -435,10 +468,12 @@ impl Converter {
             &self.gpu,
             &self.values,
             if packing == 1 { [2, 1] } else { [2, 2] },
-            match (computes, packing) {
-                (true, _) => &[],
-                (false, 0) => &[b"menu_luma\0", b"menu_chroma\0"],
-                (false, _) => &[b"menu_chroma_pack_y\0", b"menu_chroma_pack_uv\0"],
+            match (computes, packing, self.layout) {
+                (true, _, _) => &[],
+                (false, 0, Layout::Ayuv) => &[b"menu_yuv444_ayuv\0"],
+                (false, 0, Layout::Planes444) => &[b"menu_yuv444_planes\0"],
+                (false, 0, _) => &[b"menu_luma\0", b"menu_chroma\0"],
+                (false, _, _) => &[b"menu_chroma_pack_y\0", b"menu_chroma_pack_uv\0"],
             },
             computes.then_some(if packing == 0 {
                 &b"yuv420_menu_cs\0"[..]
@@ -502,9 +537,11 @@ impl Converter {
                         .chain(target.chroma.as_ref().map(|view| (view, &self.chroma, 2)))
                         .enumerate()
                 {
+                    // The stacked 4:4:4 planes are one viewport three
+                    // pictures tall.
                     context.RSSetViewports(Some(&[D3D11_VIEWPORT {
                         Width: (self.width / divisor) as f32,
-                        Height: (self.height / divisor) as f32,
+                        Height: (self.layout.rows(self.height) / divisor) as f32,
                         MinDepth: 0.,
                         MaxDepth: 1.,
                         ..Default::default()

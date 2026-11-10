@@ -129,36 +129,85 @@ pub struct Codec {
     pub id: u8,
     /// 10-bit HDR (Main10 / AV1 10-bit).
     pub hdr: bool,
+    /// Native 4:4:4 chroma (H.264 High 4:4:4, HEVC Rext, AV1 High), which
+    /// Moonlight asks for with `x-ss-video[0].chromaSamplingType`.
+    pub yuv444: bool,
 }
 
 impl Codec {
     pub const ALL: [Codec; 5] = [
-        Codec { id: 0, hdr: false },
-        Codec { id: 1, hdr: false },
-        Codec { id: 1, hdr: true },
-        Codec { id: 2, hdr: false },
-        Codec { id: 2, hdr: true },
+        Codec::new(0, false, false),
+        Codec::new(1, false, false),
+        Codec::new(1, true, false),
+        Codec::new(2, false, false),
+        Codec::new(2, true, false),
     ];
-    /// The SCM_* bit the host advertises.
+    /// The native 4:4:4 modes moonlight-common-c defines, probed after
+    /// [`Codec::ALL`]: H.264 has no 10-bit one.
+    pub const NATIVE_444: [Codec; 5] = [
+        Codec::new(0, false, true),
+        Codec::new(1, false, true),
+        Codec::new(1, true, true),
+        Codec::new(2, false, true),
+        Codec::new(2, true, true),
+    ];
+    pub const fn new(id: u8, hdr: bool, yuv444: bool) -> Self {
+        Self { id, hdr, yuv444 }
+    }
+    /// The SCM_* bit the host advertises (moonlight-common-c `Limelight.h`).
     pub fn bit(self) -> u32 {
-        match (self.id, self.hdr) {
-            (0, _) => 1,
-            (1, false) => 0x100,
-            (1, true) => 0x200,
-            (2, false) => 0x10000,
-            _ => 0x20000,
+        match (self.id, self.hdr, self.yuv444) {
+            (0, _, false) => 1,
+            (1, false, false) => 0x100,
+            (1, true, false) => 0x200,
+            (_, false, false) => 0x10000,
+            (_, true, false) => 0x20000,
+            // SCM_H264_HIGH8_444; there is no 10-bit H.264 4:4:4 bit.
+            (0, false, true) => 0x40000,
+            (0, true, true) => 0,
+            (1, false, true) => 0x80000,
+            (1, true, true) => 0x100000,
+            (_, false, true) => 0x200000,
+            (_, true, true) => 0x400000,
+        }
+    }
+    /// The 4:2:0 mode of the same codec and bit depth.
+    pub fn chroma_420(self) -> Self {
+        Self {
+            yuv444: false,
+            ..self
         }
     }
     pub fn label(self) -> &'static str {
-        match (self.id, self.hdr) {
-            (0, _) => "H.264",
-            (1, false) => "HEVC",
-            (1, true) => "HEVC 10-bit HDR",
-            (2, false) => "AV1",
-            _ => "AV1 10-bit HDR",
+        match (self.id, self.hdr, self.yuv444) {
+            (0, _, false) => "H.264",
+            (1, false, false) => "HEVC",
+            (1, true, false) => "HEVC 10-bit HDR",
+            (_, false, false) => "AV1",
+            (_, true, false) => "AV1 10-bit HDR",
+            (0, false, true) => "H.264 4:4:4",
+            (0, true, true) => "H.264 10-bit 4:4:4",
+            (1, false, true) => "HEVC 4:4:4",
+            (1, true, true) => "HEVC 10-bit 4:4:4",
+            (_, false, true) => "AV1 4:4:4",
+            (_, true, true) => "AV1 10-bit 4:4:4",
         }
     }
 }
+
+/// The native 4:4:4 modes in `flags` (`ServerCodecModeSupport`), named for
+/// the console.
+pub fn native_444_labels(flags: u32) -> Vec<&'static str> {
+    Codec::NATIVE_444
+        .iter()
+        .filter(|codec| flags & codec.bit() != 0)
+        .map(|codec| codec.label())
+        .collect()
+}
+
+/// Why an AMD host offers no native 4:4:4, as `amf::create` refuses it.
+pub const AMF_NATIVE_444: &str =
+    "AMD's video encoder supports only 4:2:0; PyroWave can stream 4:4:4";
 
 /// Whether the AMD table says `engine` has an encoder for `codec`. None means
 /// the table does not say (older or unidentified hardware): then only the
@@ -204,6 +253,11 @@ pub fn explain(adapter: &str, codec: Codec, outcome: &Outcome) -> Option<Unavail
             "{} is turned off in the host settings (HEVC/AV1 mode).",
             codec.label()
         ),
+        // AMD's table says nothing about 4:4:4, which VCN never encodes: the
+        // encoder's own words say why (NVENC's capability or AMF's 4:2:0).
+        Outcome::Failed(error) if codec.yuv444 => {
+            format!("{} is not available: {}", codec.label(), error.trim())
+        }
         Outcome::Failed(error) => {
             let engine = engine(adapter);
             let driver = error.trim();
@@ -247,12 +301,13 @@ pub fn explain_all(adapter: &str, outcomes: &[(Codec, Outcome)]) -> Vec<Unavaila
 }
 
 /// The one-line console warning for a pass where some standard codecs work and
-/// others do not. Codecs the user turned off are not a warning. None when
+/// others do not. Codecs the user turned off are not a warning, and neither is
+/// a missing native 4:4:4 mode: most GPUs encode 4:2:0 only. None when
 /// nothing a user would expect is missing.
 pub fn warning(missing: &[Unavailable]) -> Option<String> {
     let failed: Vec<&Unavailable> = missing
         .iter()
-        .filter(|m| !m.reason.contains("turned off in the host settings"))
+        .filter(|m| !m.codec.yuv444 && !m.reason.contains("turned off in the host settings"))
         .collect();
     if failed.is_empty() {
         return None;
@@ -274,26 +329,31 @@ pub fn refusal(missing: &[Unavailable], codec: Codec) -> String {
         .find(|m| m.codec == codec)
         .map(|m| m.reason.clone())
         .unwrap_or_else(|| {
-            format!(
-                "{} was not found by the host's encoder check. Check the host console for the encoder status.",
-                codec.label()
-            )
+            if codec.yuv444 {
+                // Not probed: its 4:2:0 mode is missing, or the pass has not
+                // reached it.
+                format!(
+                    "{} is not advertised by this host's encoder check; turn off YUV 4:4:4 on the device to stream 4:2:0.",
+                    codec.label()
+                )
+            } else {
+                format!(
+                    "{} was not found by the host's encoder check. Check the host console for the encoder status.",
+                    codec.label()
+                )
+            }
         })
 }
 
 /// `refusal` for what a client negotiated: `codec` as in RTSP (0 H.264, 1 HEVC,
 /// 2 AV1, 3 PyroWave), `ten_bit` for an HDR or 10-bit stream, `yuv444` for a
-/// full-chroma mode. Only the 4:2:0 H.264/HEVC/AV1 modes have a probe reason.
+/// native 4:4:4 mode. H.264, HEVC and AV1 have a probe reason in either chroma.
 pub fn refusal_for(missing: &[Unavailable], codec: u8, ten_bit: bool, yuv444: bool) -> String {
     match (codec, ten_bit, yuv444) {
         (0, true, _) => {
             "H.264 has no 10-bit mode on this host; choose HEVC or AV1 for HDR.".to_string()
         }
-        (0..=2, _, true) => {
-            "4:4:4 chroma is not advertised by this host's encoder check; stream 4:2:0 instead."
-                .to_string()
-        }
-        (0..=2, ten_bit, false) => refusal(missing, Codec { id: codec, hdr: ten_bit }),
+        (0..=2, ten_bit, yuv444) => refusal(missing, Codec::new(codec, ten_bit, yuv444)),
         _ => "The requested codec is not available on this host; see the host console for the PyroWave and encoder status.".to_string(),
     }
 }
@@ -319,11 +379,11 @@ mod tests {
             })
             .collect()
     }
-    const H264: Codec = Codec { id: 0, hdr: false };
-    const HEVC: Codec = Codec { id: 1, hdr: false };
-    const HEVC10: Codec = Codec { id: 1, hdr: true };
-    const AV1: Codec = Codec { id: 2, hdr: false };
-    const AV110: Codec = Codec { id: 2, hdr: true };
+    const H264: Codec = Codec::new(0, false, false);
+    const HEVC: Codec = Codec::new(1, false, false);
+    const HEVC10: Codec = Codec::new(1, true, false);
+    const AV1: Codec = Codec::new(2, false, false);
+    const AV110: Codec = Codec::new(2, true, false);
 
     #[test]
     fn names_map_to_engines() {
@@ -480,5 +540,82 @@ mod tests {
     fn bits_match_the_advertised_flags() {
         let bits: Vec<u32> = Codec::ALL.iter().map(|c| c.bit()).collect();
         assert_eq!(bits, [1, 0x100, 0x200, 0x10000, 0x20000]);
+        // moonlight-common-c Limelight.h: SCM_H264_HIGH8_444,
+        // SCM_HEVC_REXT8_444, SCM_HEVC_REXT10_444, SCM_AV1_HIGH8_444 and
+        // SCM_AV1_HIGH10_444, the bits `rtsp_server` checks a 4:4:4 ANNOUNCE
+        // against.
+        let bits: Vec<u32> = Codec::NATIVE_444.iter().map(|c| c.bit()).collect();
+        assert_eq!(bits, [0x40000, 0x80000, 0x100000, 0x200000, 0x400000]);
+        assert_eq!(Codec::new(0, true, true).bit(), 0);
+        for codec in Codec::NATIVE_444 {
+            assert!(codec.label().ends_with("4:4:4"), "{codec:?}");
+            assert_eq!(codec.chroma_420().bit() & codec.bit(), 0);
+            assert!(Codec::ALL.contains(&codec.chroma_420()));
+        }
+    }
+
+    #[test]
+    fn the_console_names_the_advertised_444_modes_only() {
+        assert!(native_444_labels(0x1 | 0x100 | 0x200 | 0x10000 | 0x20000).is_empty());
+        assert_eq!(
+            native_444_labels(0x1 | 0x100 | 0x200 | 0x40000 | 0x80000 | 0x100000 | 0x40000000),
+            ["H.264 4:4:4", "HEVC 4:4:4", "HEVC 10-bit 4:4:4"]
+        );
+        // PyroWave's 4:4:4 bits (0x1000000, 0x4000000) are not native ones.
+        assert!(native_444_labels(0x0780_0000).is_empty());
+    }
+
+    const NO_HEVC_444: &str = "this NVIDIA GPU's NVENC reports no HEVC 4:4:4 encoding";
+    const NO_AV1_444: &str = "NVENC SDK 13.0 has no AV1 4:4:4 mode";
+
+    #[test]
+    fn a_missing_444_mode_is_explained_by_the_encoder_and_never_warns() {
+        let name = "NVIDIA GeForce RTX 5070";
+        let outcomes = [
+            (Codec::NATIVE_444[0], Outcome::Available),
+            (Codec::NATIVE_444[1], Outcome::Failed(NO_HEVC_444.into())),
+            (Codec::NATIVE_444[3], Outcome::Failed(NO_AV1_444.into())),
+        ];
+        let missing = explain_all(name, &outcomes);
+        assert_eq!(missing.len(), 2);
+        assert_eq!(
+            missing[0].reason,
+            format!("HEVC 4:4:4 is not available: {NO_HEVC_444}")
+        );
+        assert!(
+            missing[1]
+                .reason
+                .starts_with("AV1 4:4:4 is not available: NVENC SDK")
+        );
+        assert_eq!(warning(&missing), None);
+        // AMD's table never words a 4:4:4 gap as a driver fault.
+        let missing = explain_all(
+            "AMD Radeon RX 7900 XT",
+            &[(Codec::NATIVE_444[1], Outcome::Failed(AMF_NATIVE_444.into()))],
+        );
+        assert!(missing[0].reason.contains("supports only 4:2:0"));
+        assert!(!missing[0].reason.contains("Update the Radeon driver"));
+        assert_eq!(warning(&missing), None);
+    }
+
+    #[test]
+    fn a_444_launch_is_refused_with_the_probe_reason_or_a_plain_sentence() {
+        let missing = explain_all(
+            "NVIDIA GeForce RTX 5070",
+            &[(Codec::NATIVE_444[2], Outcome::Failed(NO_HEVC_444.into()))],
+        );
+        assert!(refusal_for(&missing, 1, true, true).contains("reports no HEVC 4:4:4"));
+        // Not probed (the 4:2:0 mode is missing): the sentence names the mode
+        // and what the device can do instead.
+        let unprobed = refusal_for(&missing, 2, false, true);
+        assert!(
+            unprobed.starts_with("AV1 4:4:4 is not advertised"),
+            "{unprobed}"
+        );
+        assert!(unprobed.contains("turn off YUV 4:4:4"), "{unprobed}");
+        // H.264 has no 10-bit mode in any chroma.
+        assert!(refusal_for(&missing, 0, true, true).contains("no 10-bit"));
+        // 4:2:0 refusals keep their own reasons.
+        assert!(refusal_for(&missing, 1, true, false).contains("HEVC 10-bit HDR was not found"));
     }
 }

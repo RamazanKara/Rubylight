@@ -700,6 +700,7 @@ impl Actor {
                 Codec::Av1 => 2,
             },
             hdr: settings.hdr,
+            yuv444: false,
         };
         if codecs & codec.bit() == 0 {
             let detail = butterpollo_core::codec_support::refusal_for(

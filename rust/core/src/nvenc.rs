@@ -113,6 +113,48 @@ impl ApiVersion {
     }
 }
 
+/// Why NVENC as this host builds it cannot encode `codec` in native 4:4:4,
+/// before any driver is asked; None for H.264 (High 4:4:4) and HEVC (Rext),
+/// which the GPU's `NV_ENC_CAPS_SUPPORT_YUV444_ENCODE` then decides. The SDK
+/// headers this host uses (13.0, `rust/windows/include/nvEncodeAPI.h`) say
+/// of `NV_ENC_CONFIG_AV1::chromaFormatIDC` "yuv444 input currently not
+/// supported" and define no AV1 profile beyond Main, so AV1 4:4:4 is refused
+/// rather than configured from a guess.
+pub fn sdk_444_refusal(codec: u8) -> Option<&'static str> {
+    match codec {
+        0 | 1 => None,
+        2 => Some(
+            "NVENC SDK 13.0, which this host is built with, encodes AV1 in 4:2:0 only. Choose HEVC for YUV 4:4:4",
+        ),
+        _ => Some("NVENC encodes 4:4:4 in H.264 and HEVC only"),
+    }
+}
+
+/// The input a native 4:4:4 session reads, chosen as LizardByte Sunshine
+/// feeds NVENC (`src/nvenc/nvenc_utils.cpp`, `nvenc_d3d11_native.cpp` and
+/// `nvenc_d3d11_on_cuda.cpp` at ec2676b60bb8220a1807fc761bc2157e5e6dba63,
+/// GPL-3.0).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Input444 {
+    /// 8-bit: one packed AYUV texture on the D3D11 device
+    /// (`NV_ENC_BUFFER_FORMAT_AYUV`).
+    Ayuv,
+    /// 10-bit: the Y, U and V planes stacked in one 16-bit texture three
+    /// pictures tall, each code in the upper ten bits, copied through CUDA
+    /// and read as `NV_ENC_BUFFER_FORMAT_YUV444_10BIT`. No D3D11 surface
+    /// format holds planar 4:4:4, so NVENC cannot register it directly.
+    Planar16,
+}
+
+/// The native 4:4:4 input for a stream's bit depth.
+pub const fn input_444(ten_bit: bool) -> Input444 {
+    if ten_bit {
+        Input444::Planar16
+    } else {
+        Input444::Ayuv
+    }
+}
+
 /// The block edge of NVENC's per-picture QP delta map: a 16x16 macroblock
 /// for H.264, the 32x32 CTB for HEVC (the only CTB size NVENC codes) and a
 /// 64x64 superblock for AV1.
@@ -460,6 +502,19 @@ impl References {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn native_444_is_h264_and_hevc_as_the_sdk_defines_it() {
+        assert_eq!(sdk_444_refusal(0), None);
+        assert_eq!(sdk_444_refusal(1), None);
+        let av1 = sdk_444_refusal(2).unwrap();
+        assert!(av1.contains("AV1 in 4:2:0 only"), "{av1}");
+        assert!(av1.contains("Choose HEVC"), "{av1}");
+        assert!(sdk_444_refusal(3).is_some());
+        // 8-bit is AYUV on the D3D11 device; 10-bit goes through CUDA as
+        // three 16-bit planes.
+        assert_eq!(input_444(false), Input444::Ayuv);
+        assert_eq!(input_444(true), Input444::Planar16);
+    }
     #[test]
     fn reviewed_driver_negotiation_keeps_older_h264_hevc_and_av1_layouts() {
         assert_eq!(ApiVersion::from_driver(0xc1), ApiVersion(12, 1));

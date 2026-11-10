@@ -166,6 +166,27 @@ fn every_configuration_negotiates_as_intended_on_the_host() {
             bitrate: 16000,
             encryption: 1,
         },
+        // Native 4:4:4 as an NVENC host encodes it: H.264 High 4:4:4 and HEVC RExt 10-bit.
+        Case {
+            config: base.clone(),
+            version: SUNSHINE,
+            format: VIDEO_FORMAT_H264_HIGH8_444,
+            codec: 0,
+            hdr: false,
+            yuv444: true,
+            bitrate: 16000,
+            encryption: 7,
+        },
+        Case {
+            config: base.clone(),
+            version: SUNSHINE,
+            format: VIDEO_FORMAT_H265_REXT10_444,
+            codec: 1,
+            hdr: true,
+            yuv444: true,
+            bitrate: 16000,
+            encryption: 7,
+        },
         Case {
             config: base.clone(),
             version: [7, 1, 431, 0],

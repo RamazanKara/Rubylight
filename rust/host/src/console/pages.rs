@@ -272,6 +272,17 @@ async fn overview(
             }
         );
     }
+    // The native YUV 4:4:4 modes the encoder check found, as the codecs above.
+    let full: Vec<&str> = meta["encoder_status"]["yuv444"]
+        .as_array()
+        .map(|modes| modes.iter().filter_map(|mode| mode.as_str()).collect())
+        .unwrap_or_default();
+    if !full.is_empty() {
+        badges += &format!(
+            "<span class=\"badge ready\">YUV 4:4:4 · {}</span>",
+            i18n::data(&full.join(", ").replace(" 4:4:4", ""))
+        );
+    }
     content += &card(
         "Streaming capabilities",
         &format!(

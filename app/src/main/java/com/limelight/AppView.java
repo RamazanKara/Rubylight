@@ -1023,7 +1023,7 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
         try {
             result = com.limelight.binding.input.TouchLayoutImport.importFiles(texts, width, height);
         } catch (IllegalArgumentException e) {
-            UiHelper.showDialog(this, new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            UiHelper.showDialog(this, new com.limelight.ui.NavigationDialogBuilder(this)
                     .setTitle(getString(R.string.library_import_controls_title, game))
                     .setMessage(com.limelight.ui.GameTouchControls.errorMessage(this, e))
                     .setPositiveButton(android.R.string.ok, null).create());

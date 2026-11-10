@@ -35,6 +35,7 @@ public class PageBlurTest {
     @After
     public void forget() {
         MenuBlurWindow.enabledForTest = null;
+        PageBlur.blursOffForTest = null;
         highContrast(false);
     }
 
@@ -69,6 +70,21 @@ public class PageBlurTest {
     }
 
     @Test
+    public void withoutTheSystemsBlurTheAppBlursItsOwnPageUnlessTheUserTurnedBlursOff() {
+        int api = Build.VERSION_CODES.UPSIDE_DOWN_CAKE;
+        for (GlassTier tier : GlassTier.values()) {
+            boolean live = tier == GlassTier.LENS || tier == GlassTier.LIVE;
+            assertEquals(tier.name(), live ? PageBlur.Kind.WINDOW : PageBlur.Kind.NONE, PageBlur.kind(false, api, tier, true, false));
+            // A device that ships Android 12+ without cross-window blur (an iQOO 7 on Android 14, #61): the app blurs the page.
+            assertEquals(tier.name(), live ? PageBlur.Kind.PAGE : PageBlur.Kind.NONE, PageBlur.kind(false, api, tier, false, false));
+            assertEquals(tier + " turned off by the user", PageBlur.Kind.NONE, PageBlur.kind(false, api, tier, false, true));
+            assertEquals(tier + " over a stream", PageBlur.Kind.NONE, PageBlur.kind(true, api, tier, false, false));
+            assertEquals(tier + " over a stream", PageBlur.Kind.NONE, PageBlur.kind(true, api, tier, true, false));
+            assertEquals(tier + " on Android 11", PageBlur.Kind.NONE, PageBlur.kind(false, Build.VERSION_CODES.R, tier, false, false));
+        }
+    }
+
+    @Test
     public void aDialogOnAPageBlursThePageUnderItsDim() {
         try (var controller = Robolectric.buildActivity(Activity.class).setup().visible()) {
             Activity activity = page(controller);
@@ -89,14 +105,18 @@ public class PageBlurTest {
     public void whereTheBlurIsNotAllowedTheDimAloneStays() {
         try (var controller = Robolectric.buildActivity(Activity.class).setup().visible()) {
             Activity activity = page(controller);
-            // The system's switch is off: battery saver, a device without the effect, or the user's own choice.
+            // The system's switch is off and the user turned window blurs off: no blur of either kind.
             MenuBlurWindow.enabledForTest = false;
+            PageBlur.blursOffForTest = true;
             AlertDialog off = new NavigationDialogBuilder(activity).setTitle("Pair").create();
             off.show();
+            ShadowLooper.idleMainLooper();
             assertFalse(blurred(off.getWindow()));
             assertEquals(0, off.getWindow().getAttributes().getBlurBehindRadius());
+            assertFalse(PageBlur.pageBlurred(activity));
             assertTrue(dimmed(off.getWindow()));
             off.dismiss();
+            PageBlur.blursOffForTest = false;
 
             // High contrast lands on the solid tier: no live glass of any kind.
             MenuBlurWindow.enabledForTest = true;
@@ -106,6 +126,43 @@ public class PageBlurTest {
             assertFalse(blurred(solid.getWindow()));
             assertTrue(dimmed(solid.getWindow()));
             solid.dismiss();
+
+            // With the system's switch off as well, the app's own blur stays off too.
+            MenuBlurWindow.enabledForTest = false;
+            AlertDialog contrast = new NavigationDialogBuilder(activity).setTitle("Pair").create();
+            contrast.show();
+            ShadowLooper.idleMainLooper();
+            assertFalse(PageBlur.pageBlurred(activity));
+            contrast.dismiss();
+        }
+    }
+
+    @Test
+    public void withoutTheSystemsBlurTheAppBlursThePageWhileTheDialogIsUp() {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup().visible()) {
+            Activity activity = page(controller);
+            // A device on Android 12+ whose system has no cross-window blur.
+            MenuBlurWindow.enabledForTest = false;
+            PageBlur.blursOffForTest = false;
+            AlertDialog dialog = new NavigationDialogBuilder(activity).setTitle("Pair").create();
+            assertFalse("nothing before it shows", PageBlur.pageBlurred(activity));
+            dialog.show();
+            ShadowLooper.idleMainLooper();
+            assertFalse("no system blur asked for", blurred(dialog.getWindow()));
+            assertTrue("the page blurs in the app", PageBlur.pageBlurred(activity));
+            assertTrue("the dim stays", dimmed(dialog.getWindow()));
+
+            // A sheet over the same page, and the dialog closing first: the page stays blurred under the sheet.
+            ActionSheet sheet = new ActionSheet(activity, "Options");
+            sheet.show();
+            ShadowLooper.idleMainLooper();
+            assertEquals(PageBlur.Kind.PAGE, sheet.pageBlur().kind());
+            dialog.dismiss();
+            ShadowLooper.idleMainLooper();
+            assertTrue("held by the sheet", PageBlur.pageBlurred(activity));
+            sheet.dismiss();
+            ShadowLooper.idleMainLooper();
+            assertFalse("gone with the last window", PageBlur.pageBlurred(activity));
         }
     }
 
@@ -142,6 +199,15 @@ public class PageBlurTest {
             assertNull(hung.pageBlur());
             assertFalse("a panel hung under a button of the stream", blurred(hung.getWindow()));
             hung.dismiss();
+
+            // Nor does the app blur the stream itself where the system has no blur.
+            MenuBlurWindow.enabledForTest = false;
+            PageBlur.blursOffForTest = false;
+            AlertDialog noSystemBlur = new NavigationDialogBuilder(stream).setTitle("Touch mode").create();
+            StreamGlass.show(noSystemBlur);
+            ShadowLooper.idleMainLooper();
+            assertFalse(PageBlur.pageBlurred(stream));
+            noSystemBlur.dismiss();
         }
     }
 
@@ -157,13 +223,18 @@ public class PageBlurTest {
             assertTrue(dimmed(sheet.getWindow()));
             sheet.dismiss();
 
-            // Battery saver came on in between: the same sheet, shown again, is the dim alone.
+            // The system's switch went off in between: the same sheet, shown again, has the app blur the page instead.
             MenuBlurWindow.enabledForTest = false;
+            PageBlur.blursOffForTest = false;
             sheet.show();
+            ShadowLooper.idleMainLooper();
             assertFalse(blurred(sheet.getWindow()));
             assertEquals(0, sheet.getWindow().getAttributes().getBlurBehindRadius());
+            assertTrue(PageBlur.pageBlurred(activity));
             assertTrue(dimmed(sheet.getWindow()));
             sheet.dismiss();
+            ShadowLooper.idleMainLooper();
+            assertFalse(PageBlur.pageBlurred(activity));
 
             MenuBlurWindow.enabledForTest = true;
             View anchor = new View(activity);

@@ -625,6 +625,9 @@ pub struct Hosts {
     pairing_generation: u64,
     /// The certificate a pairing link named, for each record it was opened on.
     link_claims: HashMap<u64, [u8; 32]>,
+    /// Addresses and ports that answered as a PC listed under another port, with that PC's ID:
+    /// a sighting there is that PC, not a new one every time. Until Nightjar closes.
+    same_pc: HashMap<(String, u16), u64>,
     /// Hosts whose live library changed since the last `take_library_saves`.
     library_saves: Vec<u64>,
     /// The threads covers load on.
@@ -648,12 +651,17 @@ pub struct Hosts {
     pub(crate) demo_shelf: Vec<Host>,
 }
 
-pub fn client_for(identity: &Arc<ClientIdentity>, record: &HostRecord, address: &str) -> Result<HostClient, String> {
-    let port = if record.http_port == 0 {
+/// The HTTP port a saved or sighted `port` means: 0 is the default one.
+fn http_port(port: u16) -> u16 {
+    if port == 0 {
         DEFAULT_HTTP_PORT
     } else {
-        record.http_port
-    };
+        port
+    }
+}
+
+pub fn client_for(identity: &Arc<ClientIdentity>, record: &HostRecord, address: &str) -> Result<HostClient, String> {
+    let port = http_port(record.http_port);
     let mut client = HostClient::new(address, port, identity.clone())
         .map_err(|e| e.to_string())?
         .with_device_name(device_name());
@@ -1072,6 +1080,7 @@ impl Hosts {
             pairing: None,
             pairing_generation: 0,
             link_claims: HashMap::new(),
+            same_pc: HashMap::new(),
             library_saves: Vec::new(),
             art_pool: ArtPool::default(),
             art_files: Arc::default(),
@@ -1246,7 +1255,7 @@ impl Hosts {
     pub fn add_manual(&mut self, address: &str, port: Option<u16>) -> u64 {
         if let Some(host) = self.list.iter_mut().find(|h| {
             h.record.address.eq_ignore_ascii_case(address)
-                && port.is_none_or(|p| p == h.record.http_port)
+                && port.is_none_or(|p| http_port(p) == http_port(h.record.http_port))
         }) {
             host.record.manual = true;
             let id = host.id;
@@ -1323,6 +1332,7 @@ impl Hosts {
     pub fn remove(&mut self, id: u64) {
         self.list.retain(|h| h.id != id);
         self.link_claims.remove(&id);
+        self.same_pc.retain(|_, pc| *pc != id);
     }
 
     /// Checks every host that is due.
@@ -2443,6 +2453,14 @@ impl Hosts {
                     (index, other)
                 };
                 let dropped = self.list[drop].record.clone();
+                let keep_id = self.list[keep].id;
+                // The PC keeps the port it is listed under. It answered on this one too, so a
+                // sighting here is that PC from now on.
+                if http_port(dropped.http_port) != http_port(self.list[keep].record.http_port) {
+                    for a in std::iter::once(&dropped.address).chain(&dropped.other_addresses) {
+                        self.same_pc.insert((a.clone(), http_port(dropped.http_port)), keep_id);
+                    }
+                }
                 let kept = &mut self.list[keep].record;
                 kept.manual |= dropped.manual;
                 if kept.alias.is_none() {
@@ -2468,7 +2486,6 @@ impl Hosts {
                 if kept.remote_address.is_none() {
                     kept.remote_address = dropped.remote_address;
                 }
-                let keep_id = self.list[keep].id;
                 self.list.remove(drop);
                 changed = true;
                 let index = self.list.iter().position(|h| h.id == keep_id).unwrap_or(0);
@@ -2562,9 +2579,22 @@ impl Hosts {
             return false;
         };
         let texts: Vec<String> = addresses.iter().map(IpAddr::to_string).collect();
-        if let Some(host) = self.list.iter_mut().find(|h| {
-            texts.contains(&h.record.address) || h.record.other_addresses.iter().any(|a| texts.contains(a))
-        }) {
+        // A PC is an address and a port: another port on the same address is another PC (a
+        // second host on that machine, or one added by hand with its own port), until it
+        // answers with a listed PC's unique ID.
+        let port = http_port(port);
+        let listed = self
+            .list
+            .iter()
+            .position(|h| {
+                http_port(h.record.http_port) == port
+                    && (texts.contains(&h.record.address) || h.record.other_addresses.iter().any(|a| texts.contains(a)))
+            })
+            .or_else(|| {
+                let id = texts.iter().find_map(|a| self.same_pc.get(&(a.clone(), port)))?;
+                self.list.iter().position(|h| h.id == *id)
+            });
+        if let Some(host) = listed.map(|at| &mut self.list[at]) {
             if host.record.name.is_empty() {
                 host.record.name = name;
                 crate::logfile::add_secrets(&host.record);
@@ -2584,7 +2614,7 @@ impl Hosts {
             name,
             address: first.to_string(),
             other_addresses: texts[1..].to_vec(),
-            http_port: if port == 0 { DEFAULT_HTTP_PORT } else { port },
+            http_port: port,
             ..Default::default()
         });
         if first.is_ipv4() {
@@ -2980,6 +3010,106 @@ pub(crate) mod tests {
         assert!(hosts.apply_discovery("PC".into(), vec!["192.0.2.1".parse().unwrap()], 0));
         assert_eq!(hosts.list[0].record.address, "192.0.2.1");
         assert_eq!(hosts.list[0].connect_address(), "192.0.2.1");
+    }
+
+    fn sight(hosts: &mut Hosts, name: &str, address: &str, port: u16) -> bool {
+        hosts.apply_discovery(name.into(), vec![address.parse().unwrap()], port)
+    }
+
+    // Nightjar #7: two hosts on one machine share an address, so a sighting is a listed PC only
+    // at its port too. Either side may write the default port as 0.
+    #[test]
+    fn a_sighting_is_a_listed_pc_at_its_address_and_port() {
+        let listed = |port, other: &str| {
+            let record = HostRecord { address: "192.0.2.1".into(), other_addresses: vec![other.into()], http_port: port, ..Default::default() };
+            Hosts::without_discovery(vec![record], Arc::new(|| {}))
+        };
+        for (saved, sighted) in [(0, 0), (0, DEFAULT_HTTP_PORT), (DEFAULT_HTTP_PORT, 0), (48989, 48989)] {
+            for address in ["192.0.2.1", "192.0.2.2"] {
+                let mut hosts = listed(saved, "192.0.2.2");
+                sight(&mut hosts, "Desk", address, sighted);
+                assert_eq!(hosts.list.len(), 1, "{address}, saved {saved}, seen {sighted}");
+                assert_eq!((hosts.list[0].record.name.as_str(), hosts.list[0].record.http_port), ("Desk", saved), "its name, and its port as saved");
+            }
+        }
+        // Another port is another PC, listed once however often it is seen.
+        for (saved, sighted) in [(48989, 0), (48989, DEFAULT_HTTP_PORT), (0, 48989), (DEFAULT_HTTP_PORT, 48989)] {
+            for address in ["192.0.2.1", "192.0.2.2"] {
+                let mut hosts = listed(saved, "192.0.2.2");
+                for _ in 0..3 {
+                    sight(&mut hosts, "Desk", address, sighted);
+                }
+                let pcs: Vec<(&str, &str, u16)> = hosts.list.iter().map(|h| (h.record.name.as_str(), h.record.address.as_str(), h.record.http_port)).collect();
+                assert_eq!(pcs, [("", "192.0.2.1", saved), ("Desk", address, http_port(sighted))], "saved {saved}, seen {sighted}");
+            }
+        }
+    }
+
+    // The unique ID is the PC: a sighting that answers with a listed PC's is that PC, at
+    // whatever address and port, and stays it when seen again.
+    #[test]
+    fn a_sighting_that_answers_with_a_listed_pcs_unique_id_is_that_pc() {
+        for address in ["192.0.2.1", "192.0.2.7"] {
+            let mut record = paired_record("uid");
+            (record.http_port, record.manual) = (48989, true);
+            let mut hosts = Hosts::without_discovery(vec![record], Arc::new(|| {}));
+            let known = hosts.list[0].id;
+            sight(&mut hosts, "Desk", address, 0);
+            assert_eq!(hosts.list.len(), 2, "{address}: another port, so another PC until it answers");
+            let seen = hosts.list[1].id;
+            info_lands(&mut hosts, seen, native_info_of("uid", true));
+            assert_eq!(hosts.list.len(), 1, "{address}");
+            let host = &hosts.list[0];
+            assert_eq!((host.id, host.record.http_port, host.record.manual), (known, 48989, true), "{address}: the PC as it was listed");
+            assert!(host.record.server_certificate.is_some(), "{address}: still paired");
+            assert!(host.record.address == address || host.record.other_addresses.iter().any(|a| a == address), "{address}: {:?}", host.record);
+            for _ in 0..2 {
+                sight(&mut hosts, "Desk", address, DEFAULT_HTTP_PORT);
+            }
+            assert_eq!(hosts.list.len(), 1, "{address}: seen again, it is that PC");
+
+            // Another PC on a third port there is its own, also once it has answered.
+            sight(&mut hosts, "Den", address, 50000);
+            let den = hosts.list[1].id;
+            info_lands(&mut hosts, den, native_info_of("den", false));
+            sight(&mut hosts, "Den", address, 50000);
+            assert_eq!(hosts.list.iter().map(|h| (h.id, h.record.http_port)).collect::<Vec<_>>(), [(known, 48989), (den, 50000)], "{address}");
+
+            // Forgotten, the PC is found again like any other.
+            hosts.remove(known);
+            sight(&mut hosts, "Desk", address, 0);
+            assert_eq!(hosts.list.iter().map(|h| h.record.http_port).collect::<Vec<_>>(), [50000, DEFAULT_HTTP_PORT], "{address}");
+        }
+    }
+
+    // A PC added by hand with its own port and the one discovery finds at the default port of
+    // the same address are two PCs: neither takes the other's place, neither is listed twice.
+    #[test]
+    fn a_pc_added_by_hand_with_a_port_stays_beside_the_one_found_at_the_default_port() {
+        let mut hosts = Hosts::without_discovery(Vec::new(), Arc::new(|| {}));
+        let own = hosts.add_manual("192.0.2.1", Some(48989));
+        for port in [0, DEFAULT_HTTP_PORT, 0] {
+            sight(&mut hosts, "Desk", "192.0.2.1", port);
+        }
+        assert_eq!(hosts.list.len(), 2, "the one at the default port, once");
+        let by_hand = &hosts.get(own).unwrap().record;
+        assert_eq!((by_hand.name.as_str(), by_hand.http_port, by_hand.manual), ("", 48989, true), "not the found PC's name or port");
+        let found = hosts.list[1].id;
+        let record = &hosts.list[1].record;
+        assert_eq!((record.name.as_str(), record.http_port, record.manual), ("Desk", DEFAULT_HTTP_PORT, false));
+
+        // Each is seen and added again as itself.
+        sight(&mut hosts, "Den", "192.0.2.1", 48989);
+        assert_eq!(hosts.get(own).unwrap().record.name, "Den");
+        assert_eq!(hosts.add_manual("192.0.2.1", Some(48989)), own);
+        assert_eq!(hosts.add_manual("192.0.2.1", Some(DEFAULT_HTTP_PORT)), found);
+        assert_eq!(hosts.list.len(), 2);
+
+        // By hand at the default port, saved as 0 by an older build: discovery's is that PC.
+        let mut hosts = Hosts::without_discovery(vec![HostRecord { address: "192.0.2.1".into(), manual: true, ..Default::default() }], Arc::new(|| {}));
+        sight(&mut hosts, "Desk", "192.0.2.1", DEFAULT_HTTP_PORT);
+        assert_eq!(hosts.add_manual("192.0.2.1", Some(DEFAULT_HTTP_PORT)), hosts.list[0].id);
+        assert_eq!((hosts.list.len(), hosts.list[0].record.name.as_str(), hosts.list[0].record.manual), (1, "Desk", true));
     }
 
     // Test speed goes to a Sunshine-family PC only once it said it has Foundation's test; stock

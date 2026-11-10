@@ -3,9 +3,16 @@
 
 use super::*;
 
+/// The codec a format streams, for the log and the overlay. PyroWave names its chroma too: its
+/// 4:4:4 is a codec choice of its own and decodes about one and a half times as long.
 pub fn codec_name(format: u32) -> &'static str {
     if format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
-        if format & VIDEO_FORMAT_MASK_10BIT != 0 { "PyroWave 10-bit" } else { "PyroWave" }
+        match (format & VIDEO_FORMAT_MASK_10BIT != 0, format & VIDEO_FORMAT_MASK_YUV444 != 0) {
+            (false, false) => "PyroWave",
+            (false, true) => "PyroWave 4:4:4",
+            (true, false) => "PyroWave 10-bit",
+            (true, true) => "PyroWave 10-bit 4:4:4",
+        }
     } else if format & VIDEO_FORMAT_MASK_AV1 != 0 {
         if format & VIDEO_FORMAT_MASK_10BIT != 0 {
             "AV1 10-bit"
@@ -265,7 +272,8 @@ pub(super) fn codec_fallback(settings: &Settings, scm: u32, hardware_decodable: 
     if decodes || negotiated & asked != 0 || !encoded {
         return None;
     }
-    let name = |format| if format & VIDEO_FORMAT_MASK_YUV444 != 0 { format!("{} 4:4:4", codec_name(format)) } else { codec_name(format).to_owned() };
+    // PyroWave's name has its chroma already.
+    let name = |format| if format & VIDEO_FORMAT_MASK_YUV444 != 0 && format & VIDEO_FORMAT_MASK_PYROWAVE == 0 { format!("{} 4:4:4", codec_name(format)) } else { codec_name(format).to_owned() };
     let (asked, streamed) = (name(asked), name(negotiated));
     Some((
         format!("nightjar: {asked} was chosen, but no hardware decoder here decodes it; streaming {streamed}"),

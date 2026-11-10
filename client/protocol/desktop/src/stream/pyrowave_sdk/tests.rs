@@ -640,18 +640,18 @@ fn block_count(width: usize, height: usize, full: bool) -> usize {
     count
 }
 
-/// A full 4:2:0 frame of `width`x`height` as the SDK's packets: the sequence header and one record
-/// for every block, each a fixture record re-addressed. The records are picked for a frame about
+/// A full frame of `width`x`height` (4:4:4 with `full`, else 4:2:0) as the SDK's packets: the sequence
+/// header and one record for every block, each a fixture record re-addressed. The records are picked for a frame about
 /// `bytes` long, which with Rubylight's link-speed rate (300 Mbps at 60 fps) is 0.3 byte per pixel.
-pub(crate) fn synthetic_frame(pool: &[Vec<u8>], width: usize, height: usize, bytes: usize, sequence: u32) -> Vec<Vec<u8>> {
-    let count = block_count(width, height, false);
+pub(crate) fn synthetic_frame(pool: &[Vec<u8>], width: usize, height: usize, full: bool, bytes: usize, sequence: u32) -> Vec<Vec<u8>> {
+    let count = block_count(width, height, full);
     let average = bytes / count;
     let mut pool: Vec<&Vec<u8>> = pool.iter().collect();
     pool.sort_by_key(|record| record.len().abs_diff(average));
     pool.truncate(128);
     let mut header = vec![0u8; 8];
     header[..4].copy_from_slice(&(HEADER_BIT | (width as u32 - 1) | ((height as u32 - 1) << 14) | (sequence << 28)).to_le_bytes());
-    header[4..].copy_from_slice(&(count as u32).to_le_bytes());
+    header[4..].copy_from_slice(&(count as u32 | u32::from(full) << 26).to_le_bytes());
     let mut out = vec![header];
     for index in 0..count {
         let mut record = pool[index % pool.len()].clone();
@@ -685,6 +685,13 @@ pub(crate) fn percentile(values: &mut [f64], p: usize) -> f64 {
     values[(values.len() * p / 100).min(values.len() - 1)]
 }
 
+/// The decode timing tests' pictures (name, width, height, 4:4:4, 10-bit): three sizes in 8-bit
+/// 4:2:0, and 4K once more in 4:4:4 and into the 16-bit planes of a 10-bit stream.
+const TIMING_SIZES: [(&str, usize, usize, bool, bool); 6] = [
+    ("1080p", 1920, 1080, false, false), ("1440p", 2560, 1440, false, false), ("4K", 3840, 2160, false, false),
+    ("4K 10-bit", 3840, 2160, false, true), ("4K 4:4:4", 3840, 2160, true, false), ("4K 4:4:4 10-bit", 3840, 2160, true, true),
+];
+
 /// CPU time to push the records and submit, and the GPU's own time, per decode at three sizes.
 /// The input is synthetic (fixture records spread over every block of a frame), so the GPU time
 /// is for a realistic data volume and not for a real picture.
@@ -706,10 +713,11 @@ fn decode_timing_at_1080p_1440p_and_4k() {
             }
         }
     }
-    for (name, width, height) in [("1080p", 1920usize, 1080usize), ("1440p", 2560, 1440), ("4K", 3840, 2160)] {
-        let config = GpuConfig { width: width as u32, height: height as u32, chroma444: false, ten_bit: false, slots: 1 };
+    // The same records into 16-bit planes: what a 10-bit stream's decode adds (its output).
+    for (name, width, height, chroma444, ten_bit) in TIMING_SIZES {
+        let config = GpuConfig { width: width as u32, height: height as u32, chroma444, ten_bit, slots: 1 };
         let mut gpu = GpuDecoder::with_api(api.clone(), &d3d, config).unwrap();
-        let frames: Vec<Vec<Vec<u8>>> = (0..8).map(|s| synthetic_frame(&pool, width, height, width * height * 3 / 10, s)).collect();
+        let frames: Vec<Vec<Vec<u8>>> = (0..8).map(|s| synthetic_frame(&pool, width, height, chroma444, width * height * 3 / 10, s)).collect();
         let size: usize = frames[0].iter().map(Vec::len).sum();
         let (mut submit, mut total, mut gpu_ms) = (Vec::new(), Vec::new(), Vec::new());
         let queue = Handoff::new(&d3d);
@@ -822,15 +830,24 @@ impl Handoff {
 /// report is "iDWT: 0.051 ms per frame", "Dequant: 0.020 ms per frame" and memory heap lines, and
 /// a frame's GPU time is the sum of the passes.
 fn parse_gpu_ms(line: &str) -> Option<f64> {
-    let (_, rest) = line.split_once(": ")?;
-    rest.strip_suffix(" ms per frame")?.parse().ok()
+    super::pass_ms(line).map(|(_, ms)| ms)
 }
 
 #[test]
 fn gpu_time_is_read_from_the_pass_lines_only() {
     assert_eq!(parse_gpu_ms("iDWT: 0.051 ms per frame"), Some(0.051));
+    assert_eq!(super::pass_ms("Dequant: 0.020 ms per frame"), Some(("Dequant", 0.020)));
     assert_eq!(parse_gpu_ms("Memory Heap 0 (HOST): MaxSize 16346.938 MiB, BudgetSize 15578.938 MiB"), None);
     assert_eq!(parse_gpu_ms("nothing here"), None);
+}
+
+#[test]
+fn the_pass_summary_sums_the_passes_and_skips_the_heap_lines() {
+    let lines = ["Dequant: 0.020 ms per frame", "Memory Heap 0 (HOST): MaxSize 16346.938 MiB, BudgetSize 15578.938 MiB", "iDWT: 1.500 ms per frame"]
+        .map(String::from);
+    assert_eq!(super::pass_summary(&lines).as_deref(), Some("(SDK GPU timestamps, ms per frame): 1.52 in all; Dequant 0.020, iDWT 1.500"));
+    assert_eq!(super::pass_summary(&lines[1..2]), None, "no pass line, no summary");
+    assert_eq!(super::pass_summary(&[]), None);
 }
 
 /// The Vulkan side must not overwrite a plane set while D3D11 may still read the picture in it: the
@@ -1219,10 +1236,10 @@ fn decode_timing_at_1080p_1440p_and_4k() {
     let _gpu = gpu_lock();
     let api = sdk();
     let pool = record_pool();
-    for (name, width, height) in [("1080p", 1920usize, 1080usize), ("1440p", 2560, 1440), ("4K", 3840, 2160)] {
-        let config = GpuConfig { width: width as u32, height: height as u32, chroma444: false, ten_bit: false, slots: 1 };
+    for (name, width, height, chroma444, ten_bit) in TIMING_SIZES {
+        let config = GpuConfig { width: width as u32, height: height as u32, chroma444, ten_bit, slots: 1 };
         let mut gpu = GpuDecoder::with_api(api.clone(), config).unwrap();
-        let frames: Vec<Vec<Vec<u8>>> = (0..8).map(|s| synthetic_frame(&pool, width, height, width * height * 3 / 10, s)).collect();
+        let frames: Vec<Vec<Vec<u8>>> = (0..8).map(|s| synthetic_frame(&pool, width, height, chroma444, width * height * 3 / 10, s)).collect();
         let size: usize = frames[0].iter().map(Vec::len).sum();
         let mut buffers = plane_buffers(config);
         let (mut push, mut total, mut gpu_ms) = (Vec::new(), Vec::new(), Vec::new());

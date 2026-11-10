@@ -352,7 +352,7 @@ fn zero_copy_against_readback_timing_at_1080p_and_4k() {
     let pool = record_pool();
     let (warmup, frames) = (30, 300);
     for (name, width, height) in [("1080p", 1920usize, 1080usize), ("4K", 3840, 2160)] {
-        let data: Vec<Vec<u8>> = (0..8).map(|s| container(&synthetic_frame(&pool, width, height, width * height * 3 / 10, s))).collect();
+        let data: Vec<Vec<u8>> = (0..8).map(|s| container(&synthetic_frame(&pool, width, height, false, width * height * 3 / 10, s))).collect();
         let setup = setup(width, height, false, false, 0);
         for zero_copy in [false, true] {
             let config = GpuConfig { width: width as u32, height: height as u32, chroma444: false, ten_bit: false, slots: 3 };

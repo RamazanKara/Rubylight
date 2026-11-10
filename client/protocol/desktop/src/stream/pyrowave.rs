@@ -700,6 +700,26 @@ impl Pyrowave {
             Self::Gpu(stream) => stream.stage_summary(),
         }
     }
+
+    /// The log lines a GPU decoder adds at the stream's end: the SDK's GPU time per frame and the
+    /// GPU's clocks, each where available.
+    pub fn gpu_report(&self) -> Vec<String> {
+        match self {
+            Self::Cpu(_) => Vec::new(),
+            Self::Gpu(stream) => [
+                stream.pass_summary().map(|passes| format!("PyroWave GPU passes {passes}")),
+                stream.clock_summary().map(|clocks| format!("GPU during the stream: {clocks}")),
+            ].into_iter().flatten().collect(),
+        }
+    }
+}
+
+/// Where a Linux decode call that began at `start` splits into its submit and its wait for the
+/// GPU: when the SDK's submit returned, or `start` when that is unknown (the whole call is then
+/// the wait, as before the split) or earlier than `start`.
+#[cfg_attr(not(unix), allow(dead_code))]
+fn submit_split(start: Instant, submitted: Option<Instant>) -> Instant {
+    submitted.filter(|&at| at >= start).unwrap_or(start)
 }
 
 /// The most a frame may have lost (the SDK gate's 90% packet ratio) once its slices were decoded.
@@ -769,6 +789,8 @@ pub struct GpuStream {
     stages: Stages<5>,
     /// The beam race (`set_slices`); None decodes each frame once, as before.
     race: Option<Race>,
+    /// The AMD GPU's clocks while the stream runs (Linux; None elsewhere or without amdgpu).
+    clocks: Option<super::gpu_clocks::Sampler>,
 }
 
 /// The beam race state of the frame in flight.
@@ -864,7 +886,22 @@ impl GpuStream {
             source: Source::Frame,
             stages: Stages::new(GPU_STAGE_NAMES),
             race: None,
+            clocks: super::gpu_clocks::Sampler::start(),
         }
+    }
+
+    /// The SDK's own GPU time per frame over the stream (`pyrowave_sdk::pass_summary`), for the
+    /// log beside the stages, whose "gpu" stage also holds the time the decode waited for the queue.
+    pub fn pass_summary(&self) -> Option<String> {
+        // A stalled decoder is never called again.
+        #[cfg(unix)]
+        if self.gpu.stalled() { return None; }
+        super::pyrowave_sdk::pass_summary(&self.gpu.performance_stats(false))
+    }
+
+    /// What the AMD GPU's clocks did during the stream (`gpu_clocks`), where they can be read.
+    pub fn clock_summary(&self) -> Option<String> {
+        self.clocks.as_ref().and_then(super::gpu_clocks::Sampler::summary)
     }
 
     /// Decodes the picture in `slices` slices while a row-ordered frame arrives (0 turns it off).
@@ -1073,8 +1110,9 @@ impl GpuStream {
             fence_value
         };
         // The decode blocks until the GPU is done and the planes are final (in the set's images on
-        // the renderer's device, or read back into its CPU buffers), so the whole of it is the
-        // "gpu" stage.
+        // the renderer's device, or read back into its CPU buffers). Up to the submit's return
+        // (on the wait thread) it is the "submit" stage, as on Windows, which holds the wait for
+        // the renderer's queue lock; the rest is the "gpu" stage.
         #[cfg(unix)]
         {
             let decoded = if self.gpu.images().is_some() {
@@ -1089,7 +1127,9 @@ impl GpuStream {
                 if self.gpu.stalled() { std::mem::forget(lease); }
                 return Err(Failure::Device(format!("PyroWave GPU decode failed: {e}")));
             }
-            self.stages.add(GPU_WAIT, step);
+            let submitted = submit_split(step, self.gpu.submitted_at());
+            self.stages.add_between(GPU_SUBMIT, step, submitted);
+            self.stages.add(GPU_WAIT, submitted);
         }
         self.stages.commit();
         let first_block_us = if source == Source::Early { self.first_block_us } else { 0 };
@@ -1130,6 +1170,15 @@ mod gpu_tests_unix;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_linux_decode_splits_at_the_submit_when_it_is_known() {
+        let start = Instant::now();
+        let later = start + std::time::Duration::from_millis(3);
+        assert_eq!(submit_split(start, Some(later)), later, "submit up to there, the GPU after");
+        assert_eq!(submit_split(start, None), start, "unknown: the whole call is the GPU wait");
+        assert_eq!(submit_split(later, Some(start)), later, "a mark from an earlier decode is not this one's");
+    }
 
     #[test]
     fn half_storage_rounds_ties_to_even() {

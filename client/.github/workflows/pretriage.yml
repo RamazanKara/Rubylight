@@ -1,0 +1,128 @@
+name: Pre-triage
+
+# First look at new issues and pull requests from other people, written by Hermes Agent
+# (OpenCode Go) and posted by the rubylight-pretriage-bot GitHub App. The model gets no tools;
+# .github/scripts/pretriage.mjs gathers the input and decides what is posted. Pull requests are
+# read through the API only: their code is never checked out or run.
+
+on:
+  issues:
+    types: [opened]
+  pull_request_target:
+    types: [opened]
+  workflow_dispatch:
+    inputs:
+      number:
+        description: Issue or pull request number
+        required: true
+      instruction:
+        description: Optional instruction for this run
+        required: false
+        default: ""
+      dry_run:
+        description: Print the result instead of posting it
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: pretriage-${{ github.event.issue.number || github.event.pull_request.number || inputs.number }}
+
+env:
+  HERMES_TAG: v0.23.1
+  HERMES_COMMIT: 3b421578588243f920886e6fe79a6faa87ea026e
+  OTHER_REPO: RamazanKara/Rubylight
+  INSTRUCTIONS: .github/pretriage.md
+  DOCS: docs/TROUBLESHOOTING.md,docs/faq.md,docs/quick-start.md,docs/features.md,docs/devices.md,docs/pairing.md,docs/settings.md@headings
+  LABELS: bug,enhancement,question,documentation,duplicate,needs info,accessibility,good first issue
+
+jobs:
+  pretriage:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.sender.type != 'Bot' &&
+       (github.event.issue.author_association || github.event.pull_request.author_association) != 'OWNER')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: |
+            .github
+            docs
+
+      - id: gather
+        run: node .github/scripts/pretriage.mjs gather
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NUMBER: ${{ inputs.number }}
+          INSTRUCTION: ${{ inputs.instruction }}
+          WORK: ${{ runner.temp }}/pretriage
+
+      - if: steps.gather.outputs.skip == 'false'
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+
+      - if: steps.gather.outputs.skip == 'false'
+        name: Install Hermes Agent
+        run: |
+          git clone --quiet --depth 1 --branch "$HERMES_TAG" https://github.com/NousResearch/hermes-agent "$RUNNER_TEMP/hermes"
+          test "$(git -C "$RUNNER_TEMP/hermes" rev-parse HEAD)" = "$HERMES_COMMIT"
+          uv sync --project "$RUNNER_TEMP/hermes" --frozen --no-dev --quiet
+
+      - if: steps.gather.outputs.skip == 'false'
+        name: Run Hermes Agent
+        env:
+          OPENCODE_GO_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
+          HERMES_HOME: ${{ runner.temp }}/hermes-home
+          WORK: ${{ runner.temp }}/pretriage
+        run: |
+          mkdir -p "$HERMES_HOME"
+          cat > "$HERMES_HOME/config.yaml" <<'EOF'
+          model:
+            provider: opencode-go
+            default: deepseek-v4.1-flash
+          fallback_providers:
+            - provider: opencode-go
+              model: gpt-6-luna
+            - provider: opencode-go
+              model: kimi-k3.1-pro
+          approvals:
+            mode: manual
+          tools:
+            tool_search:
+              enabled: "off"
+          context_file_max_chars: 200000
+          memory:
+            memory_enabled: false
+            user_profile_enabled: false
+          telemetry:
+            shared_metrics:
+              enabled: false
+              send: false
+          EOF
+          cd "$WORK"
+          "$RUNNER_TEMP/hermes/.venv/bin/hermes" -z "$(cat prompt.txt)" -t todo > answer.txt
+          cat answer.txt
+
+      - if: steps.gather.outputs.skip == 'false'
+        id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510
+        with:
+          client-id: ${{ vars.PRETRIAGE_CLIENT_ID }}
+          private-key: ${{ secrets.PRETRIAGE_APP_KEY }}
+          permission-issues: write
+          permission-pull-requests: write
+
+      - if: steps.gather.outputs.skip == 'false'
+        run: node .github/scripts/pretriage.mjs post
+        env:
+          GH_APP_TOKEN: ${{ steps.app.outputs.token }}
+          NUMBER: ${{ steps.gather.outputs.number }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          WORK: ${{ runner.temp }}/pretriage

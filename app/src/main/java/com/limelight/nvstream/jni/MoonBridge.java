@@ -1,6 +1,7 @@
 package com.limelight.nvstream.jni;
 
 import com.limelight.LimeLog;
+import com.limelight.binding.video.PackedFallback;
 import com.limelight.nativeapi.HostEndpoint;
 import com.limelight.nvstream.NvConnectionListener;
 import com.limelight.nvstream.RateChangeResult;
@@ -666,6 +667,20 @@ public class MoonBridge {
     }
     private static native int cGetAnnouncedHdrFormat();
 
+    /**
+     * Full chroma cannot start on this device, found before either engine ran a stage. The
+     * failure is reported as an engine's would be: nothing else ends the connecting screen, and
+     * the session reconnects without full chroma as it does when a PC refuses it. The start's
+     * result stays -1, so what the PC offers is not forgotten for a refusal that is not its own.
+     */
+    private static int refusePacked444(String message) {
+        bridgeClDisplayMessage(message);
+        if (connectionListener != null) {
+            connectionListener.stageFailed(PackedFallback.CHECK_STAGE, 0, CLIENT_ERROR_PACKED_444_REFUSED);
+        }
+        return -1;
+    }
+
     public static int startConnection(String address, String appVersion, String gfeVersion,
                                       String rtspSessionUrl, int serverCodecModeSupport,
                                       int width, int height, int fps,
@@ -683,8 +698,7 @@ public class MoonBridge {
         int packedModes = 0;
         if (packed444Requested && !rustEngineRequested) {
             StreamEngine.record(false, false, null);
-            bridgeClDisplayMessage("Full chroma requires the New streaming engine setting.");
-            return -1;
+            return refusePacked444("Full chroma requires the New streaming engine setting.");
         }
         String reason = null;
         if (rustEngineRequested) {
@@ -697,8 +711,7 @@ public class MoonBridge {
         StreamEngine.record(rustEngineRequested, rust, reason);
         if (rustEngineRequested && !rust && packed444Requested) {
             LimeLog.warning("Streaming engine: " + StreamEngine.summary());
-            bridgeClDisplayMessage("Full chroma is unavailable: " + reason);
-            return -1;
+            return refusePacked444("Full chroma is unavailable: " + reason);
         }
         // Warnings stay in the redacted problem report whatever its level filter; a fallback
         // must be visible there, not only in logcat.
@@ -717,8 +730,7 @@ public class MoonBridge {
                 packedModes = videoRenderer == null ? 0 :
                         videoRenderer.preparePacked444Modes(supportedVideoFormats, width, height, fps);
                 if (packedModes == 0) {
-                    bridgeClDisplayMessage("Full chroma requires a hardware decoder for the coded size/rate and verified raw 8/10-bit GL_EXT_YUV_target sampling.");
-                    return -1;
+                    return refusePacked444("Full chroma requires a hardware decoder for the coded size/rate and verified raw 8/10-bit GL_EXT_YUV_target sampling.");
                 }
             }
             return RustBridge.startConnection(address, appVersion, rtspSessionUrl, serverCodecModeSupport,

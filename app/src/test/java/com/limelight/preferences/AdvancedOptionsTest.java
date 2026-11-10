@@ -402,9 +402,15 @@ public class AdvancedOptionsTest {
     public void resettingSettingsLeavesAdvancedAndDebugAvailable() {
         prefs().edit().putBoolean(LEGACY_UNLOCK, true).putString("performance_overlay_mode", "debug")
                 .putBoolean("checkbox_enable_perf_overlay", true)
-                .putBoolean(com.limelight.ui.AppTheme.OLED_BLACK, true).putBoolean("checkbox_unlock_fps", true).commit();
+                .putBoolean(com.limelight.ui.AppTheme.OLED_BLACK, true).putBoolean("checkbox_unlock_fps", true)
+                .putString(com.limelight.binding.input.touch.TouchMode.PREF, "native")
+                .putBoolean(com.limelight.binding.input.touch.TouchMode.NATIVE_TOUCH_PREF, true)
+                .putString(com.limelight.ui.VideoScaling.PREF, "fill")
+                .putBoolean(com.limelight.ui.VideoScaling.STRETCH_PREF, false).commit();
         StreamSettings.resetAllSettings(RuntimeEnvironment.getApplication());
         // The pickers' own keys have no row in the XML; a reset must still clear them.
+        assertFalse(prefs().contains(com.limelight.binding.input.touch.TouchMode.PREF));
+        assertFalse(prefs().contains(com.limelight.ui.VideoScaling.PREF));
         assertFalse(prefs().contains("performance_overlay_mode"));
         assertFalse(prefs().contains(com.limelight.ui.AppTheme.OLED_BLACK));
         assertFalse(prefs().getBoolean("checkbox_unlock_fps", false));

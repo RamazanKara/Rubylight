@@ -1876,11 +1876,14 @@ impl Streaming {
         }
     }
 
-    /// The overlay as the user left it, once it differs from what the settings keep: the stream
-    /// menu and the shortcut change the global setting too, as on Android.
-    pub fn take_overlay_change(&mut self) -> Option<(bool, OverlayMode, OverlayCorner)> {
+    /// What the user changed of the overlay since the settings last kept it: the stream menu and
+    /// the shortcut change the global setting too, as on Android. Only the changed values, since
+    /// the others may be this PC's, game's or profile's own and are not the global ones.
+    pub fn take_overlay_change(&mut self) -> Option<OverlayChange> {
         let now = (self.overlay_visible, self.overlay_mode, self.overlay_corner);
-        (now != self.overlay_kept).then(|| { self.overlay_kept = now; now })
+        let change = overlay_change(self.overlay_kept, now)?;
+        self.overlay_kept = now;
+        Some(change)
     }
 
     /// Whether the stream has shown its first picture.
@@ -2051,9 +2054,29 @@ fn shortcut_refusal(ready: bool, system_keys: bool, keys: &[String]) -> Option<&
     None
 }
 
+/// The overlay values a stream changed: whether it shows, its mode and its corner. `None` for
+/// one the user left alone.
+pub type OverlayChange = (Option<bool>, Option<OverlayMode>, Option<OverlayCorner>);
+
+/// What differs between the overlay the settings keep and the one on the stream; `None` when
+/// nothing does.
+fn overlay_change(kept: (bool, OverlayMode, OverlayCorner), now: (bool, OverlayMode, OverlayCorner)) -> Option<OverlayChange> {
+    (now != kept).then(|| ((now.0 != kept.0).then_some(now.0), (now.1 != kept.1).then_some(now.1), (now.2 != kept.2).then_some(now.2)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_overlay_change_names_only_what_the_user_changed() {
+        // A PC's own Debug overlay in the top right, toggled off: the global mode and corner stay.
+        let kept = (true, OverlayMode::Debug, OverlayCorner::TopRight);
+        assert_eq!(overlay_change(kept, kept), None);
+        assert_eq!(overlay_change(kept, (false, OverlayMode::Debug, OverlayCorner::TopRight)), Some((Some(false), None, None)));
+        assert_eq!(overlay_change(kept, (true, OverlayMode::Statistics, OverlayCorner::TopLeft)),
+            Some((None, Some(OverlayMode::Statistics), Some(OverlayCorner::TopLeft))));
+    }
 
     #[test]
     fn an_hdr_streams_output_change_is_said_once() {

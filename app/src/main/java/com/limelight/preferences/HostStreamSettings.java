@@ -314,7 +314,7 @@ public class HostStreamSettings extends NightjarActivity {
     /** The main settings with the layers below this one on top: what a value not set here uses. */
     private PreferenceConfiguration baseConfig() {
         PreferenceConfiguration config = PreferenceConfiguration.readPreferences(this);
-        applyWithScreen(below.values, config);
+        applyWithScreen(below.values, config, below.values.pacing);
         // A layer's bitrate is chosen, as when the stream starts (readPreferences with layers).
         config.automaticBitrate &= !below.bitrateLayered;
         return config;
@@ -338,7 +338,8 @@ public class HostStreamSettings extends NightjarActivity {
         return GameProfilePreset.qualityBitrate(GameProfilePreset.baseBitrate(main.bitrate, pc));
     }
 
-    private void applyWithScreen(HostStreamProfile values, PreferenceConfiguration config) {
+    /** {@code pacing} is the pacing of the layers up to {@code values}, null when none sets it. */
+    private void applyWithScreen(HostStreamProfile values, PreferenceConfiguration config, String pacing) {
         boolean followedScreen = config.resolutionFollowsScreen;
         values.applyTo(config);
         // As when the stream starts: VRR set in a layer stays off where no screen has ARR.
@@ -350,7 +351,10 @@ public class HostStreamSettings extends NightjarActivity {
                 config.height = PreferenceConfiguration.getHeightFromResolutionString(nativeResolution);
             }
         }
-        if (config.vrr) config.framePacing = PreferenceConfiguration.FRAME_PACING_MIN_LATENCY;
+        // As when the stream starts: a bitrate nobody chose follows the size and frame rate, and
+        // a layer that turns VRR off gets its pacing back.
+        if (config.automaticBitrate && values.bitrate == null) config.bitrate = config.automaticBitrateKbps();
+        config.framePacing = PreferenceConfiguration.layeredFramePacing(this, config, pacing);
     }
 
     @Override
@@ -769,7 +773,7 @@ public class HostStreamSettings extends NightjarActivity {
     /** What the next stream uses: the layers below with the values edited here on top. */
     private PreferenceConfiguration effective() {
         PreferenceConfiguration config = baseConfig();
-        applyWithScreen(overrides, config);
+        applyWithScreen(overrides, config, overrides.pacing != null ? overrides.pacing : below.values.pacing);
         config.automaticBitrate &= overrides.bitrate == null;
         return config;
     }

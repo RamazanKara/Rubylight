@@ -35,8 +35,15 @@ public final class PackedFallback {
         return "Full chroma stopped. Reconnecting without it.";
     }
 
-    /** The PC refused full chroma at stream start (or no mode is in common); the reason goes to the log. */
-    public static String refusedToast() {
-        return "PC can't stream full chroma. Starting without it.";
+    /** The stage that failed when this device found, before the stream started, that it cannot show full chroma. */
+    public static final String CHECK_STAGE = "full chroma check";
+
+    /**
+     * Full chroma was refused at stream start, at {@code stage}: by the PC (or no mode is in common),
+     * or by this device's own check ({@link #CHECK_STAGE}). The reason goes to the log.
+     */
+    public static String refusedToast(String stage) {
+        return CHECK_STAGE.equals(stage) ? "Full chroma isn't available for this stream. Starting without it."
+                : "PC can't stream full chroma. Starting without it.";
     }
 }

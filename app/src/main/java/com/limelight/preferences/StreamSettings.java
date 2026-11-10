@@ -793,8 +793,11 @@ public class StreamSettings extends NightjarActivity {
             LimeLog.warning("Unable to read preference keys: " + e);
             return;
         }
-        // Stored by the frame rate, overlay and theme pickers, which have no row of their own for them.
+        // Stored by the frame rate, overlay, theme, touch mode and video scaling pickers, which have
+        // no row of their own for them.
         editor.remove("checkbox_native_touch")
+                .remove(com.limelight.binding.input.touch.TouchMode.PREF)
+                .remove(com.limelight.ui.VideoScaling.PREF)
                 .remove(PreferenceConfiguration.UNLOCK_FPS_STRING)
                 .remove(PreferenceConfiguration.OVERLAY_MODE_PREF_STRING)
                 .remove(com.limelight.ui.AppTheme.OLED_BLACK)

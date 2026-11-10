@@ -779,6 +779,21 @@ public class PreferenceConfiguration {
         }
     }
 
+    /**
+     * The pacing of a stream whose layers left {@code config}'s VRR and set {@code layerPacing}
+     * (null when none did): frames show as they arrive under VRR and with host frame times, else
+     * the layers' pacing, else the main setting. A layer that turns VRR off gets its pacing back.
+     */
+    static int layeredFramePacing(Context context, PreferenceConfiguration config, String layerPacing) {
+        if (config.vrr || config.hostFrameTimes) return FRAME_PACING_MIN_LATENCY;
+        return layerPacing != null ? framePacingValue(layerPacing) : getFramePacingValue(context);
+    }
+
+    /** The bitrate for this configuration's size and frame rate when nobody chose one. */
+    int automaticBitrateKbps() {
+        return getDefaultBitrate(getResolutionText(width, height), Integer.toString(fps));
+    }
+
     static int framePacingValue(String str) {
         if (str.equals("latency")) {
             return FRAME_PACING_MIN_LATENCY;
@@ -938,12 +953,19 @@ public class PreferenceConfiguration {
                     config.height = getHeightFromResolutionString(nativeResolution);
                 }
             }
+            if (config.automaticBitrate) {
+                // A bitrate nobody chose follows the size and frame rate the layers leave, under
+                // the mobile data limit (which StreamLayers held against the main settings' bitrate).
+                int automatic = config.automaticBitrateKbps();
+                boolean limited = input.network == StreamLayers.Network.MOBILE && input.mobileLimitKbps > 0 &&
+                        automatic > input.mobileLimitKbps;
+                config.bitrate = limited ? input.mobileLimitKbps : automatic;
+                layers.bitrateLimited = limited;
+            }
             config.pcSettings = layers.pcApplied ? input.pcValues : null;
             SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
-            config.framePacing = config.vrr ? FRAME_PACING_MIN_LATENCY :
-                    profile.pacing != null ? framePacingValue(profile.pacing) : getFramePacingValue(context);
+            config.framePacing = layeredFramePacing(context, config, profile.pacing);
             config.reduceRefreshRate = !config.vrr && prefs.getBoolean(REDUCE_REFRESH_RATE_PREF_STRING, DEFAULT_REDUCE_REFRESH_RATE);
-            if (config.hostFrameTimes) config.framePacing = FRAME_PACING_MIN_LATENCY;
             config.enableHdr &= !isShieldAtvFirmwareWithBrokenHdr();
             config.useTextureView = prefs.getBoolean(TEXTURE_VIEW_PREF_STRING, false) && !config.enableHdr && !config.enableSdr10Bit &&
                     config.videoFormat != FormatOption.FORCE_PYROWAVE;
@@ -1445,11 +1467,9 @@ public class PreferenceConfiguration {
         // A bitrate the user did not pick follows the size the stream really uses. It is the default
         // for the conventional codecs, also when the settings show PyroWave's (a PyroWave stream
         // starts at PyroWave's own once it is negotiated, NvConnection.pyroWaveStartKbps).
-        String fpsString = Integer.toString(config.fps);
-        String used = getResolutionText(config.width, config.height);
         config.automaticBitrate = !isBitrateUserSet(prefs);
         if (config.automaticBitrate) {
-            config.bitrate = getDefaultBitrate(used, fpsString);
+            config.bitrate = config.automaticBitrateKbps();
         }
 
         String audioConfig = prefs.getString(AUDIO_CONFIG_PREF_STRING, DEFAULT_AUDIO_CONFIG);

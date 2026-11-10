@@ -960,7 +960,7 @@ final class GameConnection {
                 // already without it (never expected: it does not ask) shows the error as usual.
                 if (packedRefused && game.streamRecovery.reconnectWithoutPackedChroma("Full chroma refused at stream start (" +
                         Game.terminationDescription(errorCode) + (game.connectionErrorMessage != null ?
-                        "): " + game.connectionErrorMessage : ")"), PackedFallback.refusedToast())) return;
+                        "): " + game.connectionErrorMessage : ")"), PackedFallback.refusedToast(stage))) return;
                 if (transientRecoveryFailure && game.streamRecovery.tryAutomaticRecovery()) return;
                 if (game.spinner != null) {
                     game.spinner.dismiss();

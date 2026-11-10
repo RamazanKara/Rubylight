@@ -2111,8 +2111,14 @@ mod tests {
         )?;
         let output = std::fs::read_to_string(log)?;
         assert!(output.lines().any(|line| line == expected), "{output}");
+        // Only the folder's own name is compared: the temp folder above it
+        // can be an 8.3 short path here (`RUNNER~1` on a CI runner) while
+        // PowerShell reports the long one.
+        let reported = format!("\\{expected}=");
         assert!(
-            output.contains(&format!("ROOT={}=", folder.display())),
+            output
+                .lines()
+                .any(|line| line.starts_with("ROOT=") && line.ends_with(&reported)),
             "{output}"
         );
         assert!(output.contains("BUTTERPOLLO-EXIT=3010"), "{output}");

@@ -1,10 +1,31 @@
-# Rubylight 3.11.6 for Windows
+# Rubylight 3.11.7 for Windows
 
 [Documentation](../docs/README.md) · [Install and migrate](../docs/getting-started.md) · [Configuration](../docs/configuration.md) · [Features](../docs/features.md)
 
-**Release history:** [3.11.6](#new-in-3116) · [3.11.5](#new-in-3115) · [3.11.4](#new-in-3114) · [3.11.3](#new-in-3113) · [3.11.2](#new-in-3112) · [3.11.1](#new-in-3111) · [3.11.0](#new-in-3110) · [3.10.0](#new-in-3100) · [3.9.0](#new-in-390) · [3.8.0](#new-in-380) · [3.7.0](#new-in-370) · [3.6.2](#new-in-362) · [3.6.1](#new-in-361) · [3.6.0](#new-in-360) · [3.5.0](#new-in-350) · [3.4.0](#new-in-340) · [3.3.0](#new-in-330) · [3.2.2](#new-in-322) · [3.2.1](#new-in-321) · [3.2.0](#new-in-320) · [3.1.1](#new-in-311) · [3.1.0](#new-in-310) · [3.0.1](#new-in-301) · [3.0.0](#new-in-300) · [3.0.0-rc.5](#new-in-300-rc5) · [3.0.0-rc.4](#new-in-300-rc4) · [3.0.0-rc.3](#new-in-300-rc3) · [3.0.0-rc.2](#new-in-300-rc2) · [3.0.0-rc.1](#new-in-300-rc1) · [3.0.0-beta.1](#new-in-300-beta1) · [3.0.0-alpha.3](#new-in-300-alpha3) · [3.0.0-alpha.2](#new-in-300-alpha2) · [3.0.0-alpha.1](#new-in-300-alpha1) · [2.6.0](#new-in-260) · [2.5.13](#new-in-2513) · [2.5.12](#new-in-2512) · [2.5.11](#new-in-2511) · [2.5.10](#new-in-2510) · [2.5.9](#new-in-259) · [2.5.8](#new-in-258) · [2.5.7](#new-in-257) · [2.5.6](#new-in-256) · [2.5.5](#new-in-255) · [2.5.4](#new-in-254) · [2.5.3](#new-in-253) · [2.5.2](#new-in-252) · [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
+**Release history:** [3.11.7](#new-in-3117) · [3.11.6](#new-in-3116) · [3.11.5](#new-in-3115) · [3.11.4](#new-in-3114) · [3.11.3](#new-in-3113) · [3.11.2](#new-in-3112) · [3.11.1](#new-in-3111) · [3.11.0](#new-in-3110) · [3.10.0](#new-in-3100) · [3.9.0](#new-in-390) · [3.8.0](#new-in-380) · [3.7.0](#new-in-370) · [3.6.2](#new-in-362) · [3.6.1](#new-in-361) · [3.6.0](#new-in-360) · [3.5.0](#new-in-350) · [3.4.0](#new-in-340) · [3.3.0](#new-in-330) · [3.2.2](#new-in-322) · [3.2.1](#new-in-321) · [3.2.0](#new-in-320) · [3.1.1](#new-in-311) · [3.1.0](#new-in-310) · [3.0.1](#new-in-301) · [3.0.0](#new-in-300) · [3.0.0-rc.5](#new-in-300-rc5) · [3.0.0-rc.4](#new-in-300-rc4) · [3.0.0-rc.3](#new-in-300-rc3) · [3.0.0-rc.2](#new-in-300-rc2) · [3.0.0-rc.1](#new-in-300-rc1) · [3.0.0-beta.1](#new-in-300-beta1) · [3.0.0-alpha.3](#new-in-300-alpha3) · [3.0.0-alpha.2](#new-in-300-alpha2) · [3.0.0-alpha.1](#new-in-300-alpha1) · [2.6.0](#new-in-260) · [2.5.13](#new-in-2513) · [2.5.12](#new-in-2512) · [2.5.11](#new-in-2511) · [2.5.10](#new-in-2510) · [2.5.9](#new-in-259) · [2.5.8](#new-in-258) · [2.5.7](#new-in-257) · [2.5.6](#new-in-256) · [2.5.5](#new-in-255) · [2.5.4](#new-in-254) · [2.5.3](#new-in-253) · [2.5.2](#new-in-252) · [2.5.1](#new-in-251) · [2.5.0](#new-in-250) · [2.4.8](#new-in-248) · [2.4.7](#new-in-247) · [2.4.6](#new-in-246) · [2.4.5](#new-in-245) · [2.4.4](#new-in-244) · [2.4.3](#new-in-243) · [2.4.2](#new-in-242) · [2.4.1](#new-in-241) · [2.4.0](#new-in-240) · [2.3.1](#new-in-231) · [2.3.0](#new-in-230) · [2.2.2 – 2.2.21](#new-in-2221) · [2.2.1](#new-in-221) · [2.2.0](#new-in-220) · [2.1.0](#new-in-210) · [2.0.x](#new-in-201) · [release candidates](#new-in-rc30)
 
-Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 3.11.6 installer is named `rubylight-setup-3.11.6.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+Rubylight, called Butterpollo until rc.29, is written in Rust: host, native helpers, service and setup, with a Svelte web console. The 3.11.7 installer is named `rubylight-setup-3.11.7.exe` and upgrades an existing Vibepollo or Butterpollo installation in place, keeping settings, paired devices, the app library and covers. Codec SDKs and Windows drivers remain external components; the setup installs the drivers.
+
+## New in 3.11.7
+
+- A Moonlight stream that joins another device's game from the Resume or Running Game tile no longer ends that game.
+- A device that may only view streams can no longer start a Remote Monitor or Remote Input session.
+- A resolution switch the encoder refuses puts the display, the co-op window and the bitrate back to the mode the stream keeps.
+- Ending a game's leftover processes can no longer end an unrelated program that took over one of their process ids.
+- A stream above 250 fps, a sound device with only rear height speakers, a Playnite date with unusual characters, a deeply nested Steam file or a hand-written Lossless Scaling start delay could stop the host. They no longer do.
+- A second stream that joins a device's display leaves that display with the device it belongs to.
+- The text a host text field sends to the client's keyboard keeps its last character whole.
+- A virtual controller the driver refuses to unplug keeps its slot until the session ends.
+- Console: a game's "Let Lossless Scaling start by itself" can follow the host setting, and an untouched game no longer turns it off.
+- Console: Updates says whose stream an Install now waits for and still offers to install without waiting.
+- Console: the library marks the game that runs, not every game with its name.
+- Console: Neural Rendering names what failed (install, removal or the check at launch) and keeps refreshing after it is switched.
+- Setup: elevating with a folder that ends in a backslash keeps the arguments after it, and removal deletes Rubylight's service when the registered path differs only in case.
+- The host reads Steam's app list again only after Steam changed it, instead of every five minutes.
+- A Steam game the store has no cover for is asked about less often: after ten minutes, then an hour, then once a day.
+- The console keeps the covers and icons it already loaded and only asks the host whether they changed.
+
+**Tested.** The host, core and Windows unit suites passed on Windows 11, with formatting checked and Clippy run with warnings denied. New tests cover reading Steam's app list only after it changed, the longer waits for a cover the store does not have, and the console's unchanged-cover answer.
 
 ## New in 3.11.6
 

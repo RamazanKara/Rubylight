@@ -107,12 +107,14 @@ final class CoverLoaders {
         return loader;
     }
 
-    /** Stops loading and frees what the loaders hold; call when the screen goes away. */
+    /**
+     * Stops loading; call when the screen goes away. The covers in memory stay: every screen shares that cache, and
+     * the one this screen returns to would have to decode all of its own again.
+     */
     void release() {
         for (CachedAppAssetLoader loader : loaders.values()) {
             loader.cancelForegroundLoads();
             loader.cancelBackgroundLoads();
-            loader.freeCacheMemory();
         }
         loaders.clear();
         addresses.clear();

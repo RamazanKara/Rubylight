@@ -3,6 +3,7 @@ package com.limelight;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
@@ -374,6 +375,8 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         // and our activity is in the foreground.
         if (managerBinder != null && !runningPolling && inForeground) {
             freezeUpdates = false;
+            // Another screen may have removed or disabled a shortcut since: the first poll publishes each again.
+            shortcutHelper.forgetPublished();
             managerBinder.startPolling(new ComputerManagerListener() {
                 @Override
                 public void notifyComputerUpdated(final ComputerDetails details) {
@@ -1065,8 +1068,12 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         View home = details.rawAppList != null ? findViewById(R.id.shell_home) : null;
         if (home != null && home.getVisibility() != View.VISIBLE) ShellBar.refresh(this);
 
-        // Notify the view that the data has changed
-        pcGridAdapter.notifyDataSetChanged();
+        // Notify the view that the data has changed. Every poll reports its PC, changed or not, and a refresh sorts
+        // and binds every row, so only news asks for one. A running game's cover that was not on disk is looked for
+        // again by a later bind, so the grid keeps refreshing while one is missing.
+        if (existingEntry.changedSinceDrawn() || pcGridAdapter.awaitsCover()) {
+            pcGridAdapter.notifyDataSetChanged();
+        }
     }
 
     /** Looks the running game up in the PC's app list, off the main thread, whenever it changes. */
@@ -1149,6 +1156,9 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         String runningGameKey;
         /** When this device last sent the PC a wake signal, in elapsed realtime; 0 for never. */
         public long wakeSentAt;
+        /** What a poll last had the grid draw this row from: every field of the PC, and whether it was waking. */
+        private Object[] drawnFields;
+        private boolean drawnWaking;
 
         public ComputerObject(ComputerDetails details) {
             if (details == null) {
@@ -1163,6 +1173,22 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
 
         public PcGridAdapter.RowState rowState() {
             return PcGridAdapter.rowState(details, isWaking());
+        }
+
+        /**
+         * Whether the row has news since a poll last had the grid draw it, which counts as drawn from now on. It
+         * compares every field of the PC ({@link ComputerDetails#fields}), not only the ones the row is known to
+         * read, and the waking state, which ends by the clock with no poll saying so.
+         */
+        boolean changedSinceDrawn() {
+            Object[] fields = details.fields();
+            boolean waking = isWaking();
+            if (waking == drawnWaking && Arrays.deepEquals(fields, drawnFields)) {
+                return false;
+            }
+            drawnFields = fields;
+            drawnWaking = waking;
+            return true;
         }
 
         @Override

@@ -308,6 +308,23 @@ public class ComputerDetails {
         this.hostLastFailure = details.hostLastFailure;
     }
 
+    /**
+     * Every field's value as it is now, for telling whether a poll brought news: two PCs are the same while
+     * {@code Arrays.deepEquals} says so of these. A screen that redraws only on news misses a field left out
+     * here, so a new field goes in too; ComputerDetailsFieldsTest fails until it does.
+     */
+    public Object[] fields() {
+        return new Object[] {
+                uuid, name, alias, localAddress, remoteAddress, manualAddress, ipv6Address, pinnedAddress,
+                macAddress, serverCert, state, activeAddress, httpsPort, externalPort, pairState, runningGameId,
+                sessionIdle, runningGameUuid, rawAppList, nvidiaServer, permission, caps, encoderBitrateSupported,
+                encoderBitrateKbps, initialEncoderBitrateKbps, new ArrayList<>(serverCommands), frameLimiterEnabled,
+                virtualDisplayFrameLimiterEnabled, frameLimiterFpsLimitMilliHz, pyroWaveHostLinkMbps,
+                pyroWaveBandwidthProbeBytes, pyroWaveBurstProbe, pyroWaveCriticalFecPercentage,
+                pyroWaveMinParityShards, packed444Modes, hostLastFailure,
+        };
+    }
+
     private static void appendIfKnown(StringBuilder str, String label, Object value) {
         if (value != null) {
             str.append(label).append(value).append("\n");

@@ -763,6 +763,104 @@ public class PcViewLifecycleTest {
         }
     }
 
+    /** How often the grid was told to sort and bind its rows again since {@code grid} was handed over. */
+    private static int[] refreshesOf(GridView grid) {
+        int[] refreshes = new int[1];
+        grid.getAdapter().registerDataSetObserver(new android.database.DataSetObserver() {
+            @Override public void onChanged() {
+                refreshes[0]++;
+            }
+        });
+        return refreshes;
+    }
+
+    @Test
+    public void aPollWithNoNewsLeavesTheRowsAloneAndAnyNewsDrawsThem() {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            ComputerDetails den = pc("den", "Den", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED);
+            ComputerDetails attic = pc("attic", "Attic", ComputerDetails.State.OFFLINE, PairingManager.PairState.PAIRED);
+            report(den);
+            report(attic);
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            int[] refreshes = refreshesOf(grid);
+
+            // Every poll reports every PC, a second or two apart.
+            report(den);
+            report(attic);
+            report(den);
+            assertEquals(0, refreshes[0]);
+
+            // The manager reports the PC it holds and changes it in place, so the row compares values it took.
+            den.pairState = PairingManager.PairState.NOT_PAIRED;
+            report(den);
+            assertEquals(1, refreshes[0]);
+            assertEquals(screen.getString(R.string.pcview_menu_pair_pc), screen.getString(
+                    com.limelight.grid.PcGridAdapter.mainActionLabel(screen, rowOf(grid, "den"))));
+            report(den);
+            assertEquals(1, refreshes[0]);
+
+            // A field no row shows today is still news: nothing has to remember to add it when one starts to.
+            den.httpsPort = 47984;
+            report(den);
+            assertEquals(2, refreshes[0]);
+
+            // A new PC is news once.
+            ComputerDetails loft = pc("loft", "Loft", ComputerDetails.State.OFFLINE, PairingManager.PairState.PAIRED);
+            report(loft);
+            int withLoft = refreshes[0];
+            assertTrue(withLoft > 2);
+            report(loft);
+            assertEquals(withLoft, refreshes[0]);
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test
+    public void aWakingRowIsDrawnWhenItsWaitStartsAndWhenTheClockEndsIt() {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(0), 47989);
+        try {
+            Library screen = controller.get();
+            ComputerDetails attic = pc("attic", "Attic", ComputerDetails.State.OFFLINE, PairingManager.PairState.PAIRED);
+            attic.macAddress = "02:00:00:00:00:01";
+            report(attic);
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            PcView.ComputerObject row = rowOf(grid, "attic");
+            int[] refreshes = refreshesOf(grid);
+
+            row.wakeSentAt = android.os.SystemClock.elapsedRealtime();
+            report(attic);
+            assertEquals(1, refreshes[0]);
+            assertEquals(screen.getString(R.string.pc_status_waking),
+                    com.limelight.grid.PcGridAdapter.statusText(screen, row));
+            report(attic);
+            assertEquals(1, refreshes[0]);
+
+            // The PC never answered. No poll says the wait is over; the clock does.
+            org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(PcView.WAKE_WINDOW_MS));
+            report(attic);
+            assertEquals(2, refreshes[0]);
+            assertEquals(screen.getString(R.string.pc_offline),
+                    com.limelight.grid.PcGridAdapter.statusText(screen, row));
+            report(attic);
+            assertEquals(2, refreshes[0]);
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    private static PcView.ComputerObject rowOf(GridView grid, String uuid) {
+        for (int i = 0; i < grid.getCount(); i++) {
+            PcView.ComputerObject computer = (PcView.ComputerObject) grid.getItemAtPosition(i);
+            if (computer.details.uuid.equals(uuid)) {
+                return computer;
+            }
+        }
+        throw new AssertionError("No row for " + uuid);
+    }
+
     @Test
     public void rightFromThePcCardStepsOntoItsOverflowButtonThenOntoAddPc() {
         rightStepsOntoTheOverflowButtonThenOntoAddPc();

@@ -56,4 +56,32 @@ final class AudioDiagnostics {
     static String drops(long late, long failed) {
         return "lateDropped=" + late + ", failedWrites=" + failed;
     }
+
+    /**
+     * Paces a log line for something that can happen with every packet: one line a second, which says how many it
+     * stands for. Each line is built and written on the thread that plays the audio, just when that is already late.
+     */
+    static final class Paced {
+        static final long EVERY_MS = 1000;
+
+        private boolean said;
+        private long nextAt;
+        private int held;
+
+        /**
+         * Counts one more. Returns how many the line due now stands for, this one included, or 0 while the last
+         * line is less than a second old.
+         */
+        int count(long nowMs) {
+            held++;
+            if (said && nowMs < nextAt) {
+                return 0;
+            }
+            said = true;
+            nextAt = nowMs + EVERY_MS;
+            int stoodFor = held;
+            held = 0;
+            return stoodFor;
+        }
+    }
 }

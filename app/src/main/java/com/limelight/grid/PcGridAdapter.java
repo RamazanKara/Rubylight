@@ -130,6 +130,23 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
         }
     }
 
+    /**
+     * A running game's cover was not on disk when its row looked for it. Only a bind looks again, so the grid has to
+     * keep refreshing until it is there.
+     */
+    public boolean awaitsCover() {
+        if (tiles == null) {
+            return false;
+        }
+        for (PcView.ComputerObject computer : itemList) {
+            if (computer.runningGame != null && computer.rowState() == RowState.RUNNING
+                    && tiles.missed(computer.details.uuid, computer.runningGame)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** What tapping the row does, named for screen readers. */
     public static int mainActionLabel(Context context, PcView.ComputerObject computer) {
         switch (computer.rowState()) {

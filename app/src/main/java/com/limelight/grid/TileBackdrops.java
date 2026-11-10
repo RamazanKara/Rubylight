@@ -115,6 +115,12 @@ final class TileBackdrops {
         });
     }
 
+    /** The running game's cover was not on disk when a row last looked; a later bind looks again. */
+    boolean missed(String hostUuid, NvApp running) {
+        return missing.containsKey(key(hostUuid, running, Cut.SCREEN))
+                || missing.containsKey(key(hostUuid, running, Cut.COVER));
+    }
+
     private static void cover(ImageView view, String key, Bitmap tile) {
         view.setTag(R.id.grid_backdrop, key);
         view.setImageBitmap(tile);

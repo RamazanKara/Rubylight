@@ -38,6 +38,7 @@ import com.limelight.utils.UiHelper;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
@@ -86,6 +87,8 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     private String hostNameExtra;
     private int generation;
     private String loadedSignature;
+    /** What the last reload drew the PC from; a poll that brings nothing else does not reload. */
+    private final HostsDrawn drawn = new HostsDrawn();
     private boolean shown;
     private boolean focusPending = true;
     private GameDetailModel model;
@@ -529,7 +532,16 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
 
     @Override
     public void onHostsChanged() {
-        scheduleReload();
+        // An automatic start and a wake wait on the polls themselves, so each one reloads as long as they last.
+        // Otherwise every poll reports the PC, changed or not, and only news is worth reading the page again for.
+        boolean waitsOnPolls = auto != Auto.OFF || playWhenReady || (waker != null && waker.isWaiting());
+        if (waitsOnPolls || drawn.changed(drawnFrom(feed.host(hostUuid)), false)) {
+            scheduleReload();
+        }
+    }
+
+    private static List<ComputerDetails> drawnFrom(ComputerDetails host) {
+        return host == null ? Collections.<ComputerDetails>emptyList() : Collections.singletonList(host);
     }
 
     private void scheduleReload() {
@@ -558,6 +570,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         }
         final ConsoleRepository repo = repository;
         final ComputerDetails computer = new ComputerDetails(current);
+        drawn.set(drawnFrom(current), false);
         final String signature = ConsoleHomeActivity.signature(Collections.singletonList(computer));
         // An automatic start acts only on a live page: a redraw of what the page has will not do.
         final boolean refresh = !signature.equals(loadedSignature) || (auto == Auto.GOING && !modelLive);
@@ -587,11 +600,24 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
                     control = controlCache;
                 }
                 show(mine, computer, online, nativeHost, snapshot, control, true, refresh, starVersion, starred);
+                if (refresh) {
+                    redrawAtNextPoll(mine);
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             } catch (RuntimeException e) {
                 com.limelight.LimeLog.warning("Game detail could not load: " + e);
                 show(mine, computer, online, nativeHost, ConsoleSnapshot.empty(), false, true, false, starVersion, null);
+                redrawAtNextPoll(mine);
+            }
+        });
+    }
+
+    /** A read of the PC changed what is saved, and a failed load drew nothing: the next poll draws again, once. */
+    private void redrawAtNextPoll(int mine) {
+        runOnUiThread(() -> {
+            if (mine == generation) {
+                drawn.forget();
             }
         });
     }

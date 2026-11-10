@@ -673,6 +673,8 @@
     "notify_pre_releases_desc": "是否接收 Rubylight 新预发布版本的通知",
     "update_check_interval": "更新检查间隔（秒）",
     "update_check_interval_desc": "Rubylight 自动检查更新的频率（基于 Git 标签）。设为 0 可禁用定期检查。",
+    "update_check_time": "更新检查时间 (HH:MM)",
+    "update_check_time_desc": "每天按此电脑的时钟在该时间（例如 03:00）检查一次更新，而不是按间隔检查。如果届时电脑已关机、处于睡眠状态或正在串流，将在之后尽快检查。留空则使用间隔。",
     "origin_web_ui_allowed": "允许的 Web UI 访问来源",
     "origin_web_ui_allowed_desc": "未被拒绝访问 Web UI 的远端地址来源",
     "origin_web_ui_allowed_lan": "仅局域网中的设备可以访问 Web UI",

@@ -232,6 +232,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "auto_update", "Install updates automatically when idle", Bool;
         "notify_pre_releases", "Include prerelease updates", Bool;
         "update_check_interval", "Update check interval (seconds; 0 disables)", Number;
+        "update_check_time", "Update check time (HH:MM, 24-hour clock; empty to use the interval)", Text;
         "legacy_ordering", "Use legacy app ordering", Bool;
         "envvar_compatibility_mode", "Set legacy SUNSHINE device environment variables", Bool;
         "global_prep_cmd", "Global preparation and cleanup commands", Json;

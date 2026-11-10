@@ -673,6 +673,8 @@
     "notify_pre_releases_desc": "Czy otrzymywać powiadomienia o nowych przedpremierowych wersjach Rubylight",
     "update_check_interval": "Interwał sprawdzania aktualizacji (sekundy)",
     "update_check_interval_desc": "Jak często Rubylight ma automatycznie sprawdzać aktualizacje (na podstawie tagów git). Ustaw 0, aby wyłączyć okresowe sprawdzanie.",
+    "update_check_time": "Godzina sprawdzania aktualizacji (GG:MM)",
+    "update_check_time_desc": "Sprawdza aktualizacje raz dziennie o tej godzinie według zegara tego komputera, na przykład 03:00, zamiast według interwału. Jeśli komputer jest wtedy wyłączony, uśpiony lub trwa transmisja, sprawdzenie nastąpi później przy najbliższej okazji. Pozostaw puste, aby używać interwału.",
     "origin_web_ui_allowed": "Interfejs Origin Web UI dozwolony",
     "origin_web_ui_allowed_desc": "Pochodzenie adresu zdalnego punktu końcowego, któremu nie odmówiono dostępu do interfejsu Web UI",
     "origin_web_ui_allowed_lan": "Tylko osoby w sieci LAN mogą uzyskać dostęp do interfejsu użytkownika",

@@ -673,6 +673,8 @@
     "notify_pre_releases_desc": "Rubylight의 새 사전 출시 버전에 대한 알림 여부입니다.",
     "update_check_interval": "업데이트 확인 간격(초)",
     "update_check_interval_desc": "Rubylight이 자동으로 업데이트를 확인해야 하는 빈도입니다(git 태그 기반). 정기적인 확인을 비활성화하려면 0을 설정합니다.",
+    "update_check_time": "업데이트 확인 시각 (HH:MM)",
+    "update_check_time_desc": "간격 대신 이 PC의 시계로 매일 이 시각(예: 03:00)에 업데이트를 확인합니다. 그 시각에 PC가 꺼져 있거나 절전 중이거나 스트리밍 중이면 이후 가능한 가장 빠른 때에 확인합니다. 비워 두면 간격을 사용합니다.",
     "origin_web_ui_allowed": "웹 UI 접근 권한",
     "origin_web_ui_allowed_desc": "웹 UI에 대한 액세스가 거부되지 않은 원격 엔드포인트 주소의 원본입니다.",
     "origin_web_ui_allowed_lan": "같은 LAN에 있는 사용자만 접근 허용",

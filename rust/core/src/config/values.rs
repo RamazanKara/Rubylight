@@ -50,6 +50,17 @@ pub fn parse_boolean(value: &str) -> Option<bool> {
         _ => None,
     }
 }
+/// A time of day on the 24-hour clock, `HH:MM` (`3:00` is read as `03:00`),
+/// as seconds after midnight; `None` when the text is not one.
+pub fn parse_time_of_day(value: &str) -> Option<u32> {
+    let (hours, minutes) = unquote(value.trim()).trim().split_once(':')?;
+    let digits = |text: &str| text.bytes().all(|b| b.is_ascii_digit());
+    if !matches!(hours.len(), 1 | 2) || minutes.len() != 2 || !digits(hours) || !digits(minutes) {
+        return None;
+    }
+    let (hours, minutes): (u32, u32) = (hours.parse().ok()?, minutes.parse().ok()?);
+    (hours < 24 && minutes < 60).then_some(hours * 3600 + minutes * 60)
+}
 pub fn parse_integer(value: &str) -> Option<i64> {
     let value = number_text(value);
     if let Some(hex) = value

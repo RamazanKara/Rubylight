@@ -673,6 +673,8 @@
     "notify_pre_releases_desc": "Có muốn nhận thông báo về các phiên bản thử nghiệm mới của Rubylight không?",
     "update_check_interval": "Khoảng thời gian kiểm tra cập nhật (giây)",
     "update_check_interval_desc": "Tần suất Rubylight nên tự động kiểm tra các bản cập nhật (dựa trên thẻ git). Đặt 0 để tắt kiểm tra định kỳ.",
+    "update_check_time": "Giờ kiểm tra cập nhật (HH:MM)",
+    "update_check_time_desc": "Kiểm tra cập nhật mỗi ngày một lần vào giờ này theo đồng hồ của PC này, ví dụ 03:00, thay vì theo khoảng thời gian. Nếu lúc đó PC đang tắt, đang ngủ hoặc đang phát trực tuyến, việc kiểm tra sẽ chạy ngay khi có thể sau đó. Để trống để dùng khoảng thời gian.",
     "origin_web_ui_allowed": "Giao diện người dùng web gốc được phép",
     "origin_web_ui_allowed_desc": "Nguồn gốc của địa chỉ điểm cuối từ xa không bị từ chối truy cập vào giao diện người dùng web (Web UI).",
     "origin_web_ui_allowed_lan": "Chỉ những người trong mạng LAN mới có thể truy cập giao diện người dùng web.",

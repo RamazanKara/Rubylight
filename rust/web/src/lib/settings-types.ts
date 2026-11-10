@@ -30,8 +30,11 @@ export type Control =
   | { kind: 'toggle' }
   | { kind: 'select'; options: Option[] }
   | { kind: 'number'; min?: number; max?: number; step?: number; unit?: string }
-  /** `browse` adds a picker for a program, file or folder on the host. */
-  | { kind: 'text'; placeholder?: string; mono?: boolean; browse?: BrowseType }
+  /**
+   * `browse` adds a picker for a program, file or folder on the host. `time`
+   * makes it the browser's time field, for a time of day stored as HH:MM.
+   */
+  | { kind: 'text'; placeholder?: string; mono?: boolean; browse?: BrowseType; time?: boolean }
   /** A string list, stored as a JSON array of strings. */
   | { kind: 'list'; placeholder?: string }
   /** Any JSON value, edited as text and validated. */

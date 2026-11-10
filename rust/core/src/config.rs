@@ -26,7 +26,9 @@ pub use retired::{
     retired_warning,
 };
 use text::{bracket_depth, decode, strip_comment};
-pub use values::{fallback, invalid, number_text, parse_boolean, parse_integer, refused};
+pub use values::{
+    fallback, invalid, number_text, parse_boolean, parse_integer, parse_time_of_day, refused,
+};
 use values::{first_report, unquote};
 
 pub const HARDWARE_METRICS: &[&str] = &[
@@ -372,6 +374,21 @@ impl Config {
     /// text input (0x553B) and watches the focus for devices that ask.
     pub fn keyboard_follows_focus(&self) -> bool {
         self.boolean("keyboard_follows_focus", true)
+    }
+    /// `update_check_time`: the time of day (`HH:MM` on this PC's clock) of
+    /// the daily automatic update check, as seconds after midnight. `None`
+    /// when it is unset, and for text that is not a time (reported once):
+    /// the check then follows `update_check_interval`.
+    pub fn update_check_time(&self) -> Option<u32> {
+        let value = self
+            .values
+            .get("update_check_time")
+            .filter(|v| !v.trim().is_empty())?;
+        let time = parse_time_of_day(value);
+        if time.is_none() {
+            invalid("update_check_time", value);
+        }
+        time
     }
     /// Send the text around the cursor to the device's keyboard
     /// (`text_input_surrounding_text`, off by default); never for password or

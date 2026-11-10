@@ -838,6 +838,8 @@ export interface UpdatesState {
   check_failed: boolean;
   check_error?: string | null;
   checked_at: number;
+  /** The last successful check before the host started, while it has not checked since (checked_at is 0). */
+  previous_check_at?: number | null;
   /** Unix seconds of the next automatic check; null when automatic checks are off. */
   next_check_at?: number | null;
   /** The check is due but held back by an active or pending stream. */
@@ -848,6 +850,8 @@ export interface UpdatesState {
   install_supported: boolean;
   auto_update: boolean;
   update_check_interval: number;
+  /** HH:MM when the automatic check runs once a day at that time; null when the interval decides. */
+  update_check_time?: string | null;
   phase?: 'idle' | 'waiting' | 'downloading' | 'ready' | 'installing' | 'failed';
   queued_version?: string | null;
   /** Install now: does not wait for an idle host and ends a running stream. */

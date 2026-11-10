@@ -49,6 +49,7 @@ pub mod keylayout;
 pub mod launcher;
 pub mod library;
 pub mod limiter;
+pub mod local_time;
 pub mod lossless;
 pub mod mic;
 pub mod net;

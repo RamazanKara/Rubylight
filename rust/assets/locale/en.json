@@ -728,6 +728,8 @@
     "notify_pre_releases_desc": "Whether to be notified of new pre-release versions of Rubylight",
     "update_check_interval": "Update Check Interval (seconds)",
     "update_check_interval_desc": "How often Rubylight should check for updates automatically (based on git tags). Set 0 to disable periodic checks.",
+    "update_check_time": "Update Check Time (HH:MM)",
+    "update_check_time_desc": "Check for updates once a day at this time on this PC's clock, for example 03:00, instead of after the interval. If the PC is off, asleep or streaming at that time, the check runs as soon as it can afterwards. Leave empty to use the interval.",
     "origin_web_ui_allowed": "Origin Web UI Allowed",
     "origin_web_ui_allowed_desc": "The origin of the remote endpoint address that is not denied access to Web UI",
     "origin_web_ui_allowed_lan": "Only those in LAN may access Web UI",

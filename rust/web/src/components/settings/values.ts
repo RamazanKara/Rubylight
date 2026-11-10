@@ -86,9 +86,27 @@ export function numberError(setting: Setting, text: string, badInput = false): s
   return '';
 }
 
+/**
+ * A time of day as the host's parse_time_of_day reads it (HH:MM on the
+ * 24-hour clock, the hour with one or two digits), as the HH:MM a time field
+ * takes; empty when the text is not one.
+ */
+export function timeOfDay(text: string): string {
+  const [, hours, minutes] = /^(\d{1,2}):(\d{2})$/.exec(unquote(text).trim()) ?? [];
+  if (hours === undefined || minutes === undefined || Number(hours) > 23 || Number(minutes) > 59) return '';
+  return `${hours.padStart(2, '0')}:${minutes}`;
+}
+
 /** Check edited text the host parses strictly, before it can enter the PATCH. */
 export function textError(setting: Setting, text: string): string {
-  if (setting.key !== 'dd_manual_resolution' || text.trim() === '') return '';
+  if (text.trim() === '') return '';
+  if (setting.control.kind === 'text' && setting.control.time) {
+    // A time field never holds such text, so it names what was saved or typed.
+    return timeOfDay(text)
+      ? ''
+      : `“${clip(text.trim(), 20)}” is not a time of day. Enter one as HH:MM on the 24-hour clock, for example 03:00.`;
+  }
+  if (setting.key !== 'dd_manual_resolution') return '';
   // config.rs splits on a lowercase x and checks the limits when a stream starts.
   const match = /^\s*(\d+)\s*x\s*(\d+)\s*$/.exec(text);
   if (!match) return 'Enter WIDTHxHEIGHT, for example 2560x1440.';

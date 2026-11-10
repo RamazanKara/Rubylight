@@ -227,6 +227,44 @@ fn the_keyboard_follows_text_fields_without_their_text_by_default() {
 }
 
 #[test]
+fn the_update_check_time_is_a_time_of_day_and_unset_otherwise() {
+    assert_eq!(super::Config::default().update_check_time(), None);
+    for (text, seconds) in [
+        ("03:00", Some(3 * 3600)),
+        ("3:00", Some(3 * 3600)),
+        ("00:00", Some(0)),
+        ("23:59", Some(23 * 3600 + 59 * 60)),
+        (" 05:30 ", Some(5 * 3600 + 30 * 60)),
+        // As Vibepollo writes values, in quotes.
+        ("\"05:30\"", Some(5 * 3600 + 30 * 60)),
+        // Unset, and text that is not a time: the interval applies.
+        ("", None),
+        ("24:00", None),
+        ("12:60", None),
+        ("3am", None),
+        ("3", None),
+        ("03:0", None),
+        ("03:000", None),
+        ("003:00", None),
+        ("03:00:00", None),
+        ("-3:00", None),
+        ("+3:00", None),
+        ("3.5", None),
+        (":30", None),
+        ("10800", None),
+    ] {
+        let c = super::Config::parse(&format!("update_check_time = {text}\n")).unwrap();
+        assert_eq!(c.update_check_time(), seconds, "{text:?}");
+        assert_eq!(super::parse_time_of_day(text), seconds, "{text:?}");
+    }
+    // A malformed time leaves the interval as it is set.
+    let c =
+        super::Config::parse("update_check_time = soon\nupdate_check_interval = 7200\n").unwrap();
+    assert_eq!(c.update_check_time(), None);
+    assert_eq!(c.integer("update_check_interval", 86400), 7200);
+}
+
+#[test]
 fn the_bandwidth_probe_is_on_unless_turned_off() {
     assert!(super::Config::default().bandwidth_probe());
     for (text, on) in [

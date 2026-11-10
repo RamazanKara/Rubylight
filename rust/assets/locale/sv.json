@@ -673,6 +673,8 @@
     "notify_pre_releases_desc": "Huruvida meddelas om nya förhandsversioner av Rubylight",
     "update_check_interval": "Intervall för uppdateringskontroll (sekunder)",
     "update_check_interval_desc": "Hur ofta Rubylight automatiskt ska söka efter uppdateringar (baserat på git-taggar). Sätt till 0 för att inaktivera periodiska kontroller.",
+    "update_check_time": "Tid för uppdateringskontroll (TT:MM)",
+    "update_check_time_desc": "Söker efter uppdateringar en gång om dagen vid den här tiden enligt datorns klocka, till exempel 03:00, i stället för efter intervallet. Om datorn är avstängd, i viloläge eller strömmar vid den tiden görs kontrollen så snart det går efteråt. Lämna tomt för att använda intervallet.",
     "origin_web_ui_allowed": "Ursprung webbgränssnitt tillåtet",
     "origin_web_ui_allowed_desc": "Ursprunget till fjärradressen som inte nekas åtkomst till Web UI",
     "origin_web_ui_allowed_lan": "Endast de i LAN kan komma åt Web UI",

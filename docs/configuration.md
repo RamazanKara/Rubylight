@@ -147,6 +147,7 @@ Each default below is what a fresh 3.0.0 install uses, checked against the host 
 | Co-op players — `nucleus_coop_players` | `4` | The game's handler and the free controller slots can allow fewer. |
 | Sleep after idle — `sleep_after_idle_minutes` | `0` (off) | The PC sleeps only when you ask it to. |
 | Update check interval — `update_check_interval` | `86400` seconds | Once a day. |
+| Update check time — `update_check_time` | empty | The interval decides when the host checks, not a time of day. |
 | Install updates automatically — `auto_update` | `false` | You are told about an update and install it when you choose. |
 | Include pre-releases — `notify_pre_releases` | `false` | Release candidates are offered only when you ask for them. |
 
@@ -926,6 +927,8 @@ If you opt into **Install updates automatically**, the installed Windows service
 
 Set `update_check_interval = 0` to disable scheduled checks; manual checks remain available.
 
+To check at a time of day instead, set **Update check time** (**All settings → General → Updates**, `update_check_time`) to a time on the 24-hour clock such as `03:00`. The host then checks once a day, at the first moment it is free at or after that time on the PC's own clock, and with **Install updates automatically** on a new release installs after that check under the same idle rule. If the PC is off, asleep or streaming at that time, the check runs as soon as it can afterwards, not a day later. The time follows the PC's time zone and daylight saving time. While a time is set the interval's length is not used, but `update_check_interval = 0` still turns scheduled checks off. A value that is not a time (`3am`, `25:00`) is reported in the host log and ignored, and the interval decides. An empty value, the default, keeps the interval.
+
 ## All settings
 
 Every setting in the console, by the console's own groups, with its key and the default an unset key uses. Settings on the **Settings** home are in bold. Search the console for a key to find its field.
@@ -942,6 +945,7 @@ Every setting in the console, by the console's own groups, with its key and the 
 | Tray: Tray icon | `system_tray` | `true` | Show a Rubylight icon in the Windows notification area, with a shortcut to this console. |
 | Tray: Hide tray controls | `hide_tray_controls` | `false` | Remove the disconnect, restart and quit actions from the tray icon's menu, so people at the PC cannot stop the host from there. |
 | Updates: Update check interval | `update_check_interval` | `86400` s | How often the host looks for a new Rubylight release. Set it to 0 to turn off automatic checks. |
+| Updates: Update check time | `update_check_time` | empty | Look for a new Rubylight release once a day at this time on this PC's clock, in place of the interval. Leave it empty to use the interval. |
 | **Updates: Install updates automatically** | `auto_update` | `false` | Download and install new releases on their own while nothing is streaming. |
 | Updates: Include pre-releases | `notify_pre_releases` | `false` | Also offer pre-release versions when checking for updates. They get fixes sooner but may have more bugs. |
 | Power: Sleep after idle | `sleep_after_idle_minutes` | `0` min | Put this PC to sleep when nobody has streamed or used it for this many minutes. 0 turns it off. |

@@ -673,6 +673,8 @@
     "notify_pre_releases_desc": "Rubylightの新しいプレリリースバージョンを通知するかどうか",
     "update_check_interval": "更新確認間隔 (秒)",
     "update_check_interval_desc": "Rubylight が自動的に更新を確認する頻度です (git タグに基づく)。0 に設定すると定期確認を無効化します。",
+    "update_check_time": "更新確認時刻 (HH:MM)",
+    "update_check_time_desc": "間隔の代わりに、この PC の時計で毎日この時刻 (例: 03:00) に更新を確認します。その時刻に PC の電源が切れている、スリープ中、またはストリーミング中の場合は、その後できるだけ早く確認します。空欄にすると間隔を使用します。",
     "origin_web_ui_allowed": "許可されたオリジンウェブUI",
     "origin_web_ui_allowed_desc": "Web UIへのアクセスが拒否されていないリモートエンドポイントアドレスのオリジンです",
     "origin_web_ui_allowed_lan": "LAN 内のユーザだけが Web UI にアクセスできます",

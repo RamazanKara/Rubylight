@@ -715,6 +715,8 @@
     "crash_dump_dismiss_error": "Failed to dismiss crash notification.",
     "update_check_interval": "Update Check Interval (seconds)",
     "update_check_interval_desc": "How often Rubylight should check for updates automatically (based on git tags). Set 0 to disable periodic checks.",
+    "update_check_time": "Update Check Time (HH:MM)",
+    "update_check_time_desc": "Check for updates once a day at this time on this PC's clock, for example 03:00, instead of after the interval. If the PC is off, asleep or streaming at that time, the check runs as soon as it can afterwards. Leave empty to use the interval.",
     "hot_applied_now": "Settings saved and applied immediately.",
     "hot_deferred": "Settings saved. Changes will apply when the current stream ends (or on next start).",
     "saving": "Saving…",

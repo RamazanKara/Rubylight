@@ -14,6 +14,7 @@
     parseJson,
     sameValue,
     textError,
+    timeOfDay,
     toCommands,
     toList,
     toNumber,
@@ -164,6 +165,10 @@
 
   const textShown = $derived(invalidText ?? current);
   const textProblem = $derived(control.kind === 'text' ? textError(setting, textShown) : '');
+  const isTime = $derived(control.kind === 'text' && control.time === true);
+  // A time field shows nothing for text it cannot read, such as 3:00, which
+  // the host reads as 03:00.
+  const fieldValue = $derived(isTime ? timeOfDay(textShown) : textShown);
 
   function editText(text: string) {
     if (textError(setting, text)) {
@@ -296,13 +301,13 @@
       {id}
       class="input"
       class:mono={control.mono}
-      type="text"
+      type={isTime ? 'time' : 'text'}
       autocomplete="off"
       spellcheck={control.mono ? 'false' : undefined}
       placeholder={control.placeholder ?? (toText(setting.default) || undefined)}
       aria-invalid={textProblem ? 'true' : undefined}
       aria-describedby={describe(!!textProblem && `${id}-text`)}
-      value={textShown}
+      value={fieldValue}
       oninput={(event) => editText(event.currentTarget.value)}
     />
   {/snippet}

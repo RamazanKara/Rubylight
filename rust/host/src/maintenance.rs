@@ -110,6 +110,7 @@ pub fn trigger_update(h: &Shared, tell: bool) {
                 state["latest_version"] = json!(latest);
                 state["releases"] = json!(releases);
                 drop(state);
+                crate::updater::remember_check(&h);
                 tracing::info!(current, latest = ?latest, "release check succeeded");
                 if tell && latest.is_none() {
                     butterpollo_windows::tray::notify(

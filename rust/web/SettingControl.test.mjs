@@ -8,7 +8,7 @@ const server = await createTestServer();
 const { schema } = await server.ssrLoadModule('/src/lib/settings-schema.ts');
 const { default: SettingControl } = await server.ssrLoadModule('/src/components/settings/SettingControl.svelte');
 const { render } = await server.ssrLoadModule('svelte/server');
-const { describeDefault, normalise, numberError } = await server.ssrLoadModule('/src/components/settings/values.ts');
+const { computeChanges, describeDefault, normalise, numberError, textError, timeOfDay } = await server.ssrLoadModule('/src/components/settings/values.ts');
 const { session } = await server.ssrLoadModule('/src/lib/session.svelte.ts');
 
 const intel = 'Intel(R) HD Graphics 530';
@@ -91,6 +91,45 @@ for (const [key, valid, invalid] of [
     }
   });
 }
+
+test('the update check time is a time field beside the interval that takes only a time of day', () => {
+  const settings = schema.settings.filter((setting) => setting.group === 'Updates').map((setting) => setting.key);
+  assert.deepEqual(settings.slice(0, 2), ['update_check_interval', 'update_check_time']);
+  const setting = schema.settings.find((setting) => setting.key === 'update_check_time');
+  assert.equal(setting.category, 'general');
+  assert.equal(setting.advanced, schema.settings.find((item) => item.key === 'update_check_interval').advanced);
+  assert.equal(setting.default, '');
+  assert.equal(describeDefault(setting).text, 'Not set');
+  // As the host's parse_time_of_day: HH:MM or H:MM on the 24-hour clock.
+  for (const [text, time] of [['03:00', '03:00'], ['3:00', '03:00'], ['00:00', '00:00'], ['23:59', '23:59'], [' 05:30 ', '05:30'], ['"05:30"', '05:30']]) {
+    assert.equal(timeOfDay(text), time, text);
+    assert.equal(textError(setting, text), '', text);
+  }
+  for (const text of ['24:00', '12:60', '3am', '3', '03:0', '03:000', '003:00', '03:00:00', '-3:00', '3.5', ':30', '10800']) {
+    assert.equal(timeOfDay(text), '', text);
+    assert.match(textError(setting, text), /is not a time of day\. Enter one as HH:MM/, text);
+  }
+  // Empty is valid: it clears the time, and the interval decides again.
+  assert.equal(textError(setting, ''), '');
+  const map = new Map([[setting.key, setting]]);
+  assert.deepEqual(computeChanges(map, { update_check_time: '' }, { update_check_time: '03:00' }), { update_check_time: null });
+  assert.deepEqual(computeChanges(map, { update_check_time: '05:00' }, {}), { update_check_time: '05:00' });
+
+  const field = (value, invalidText) =>
+    render(SettingControl, { props: { setting, id: setting.key, value: normalise(setting, value), invalidText, onchange: () => {} } }).body;
+  assert.match(field('03:00'), /<input[^>]*type="time"[^>]*value="03:00"/);
+  assert.doesNotMatch(field('03:00'), /aria-invalid/);
+  // A saved 3:00 is 03:00 to the host; a time field would show it as empty.
+  assert.match(field('3:00'), /value="03:00"/);
+  assert.doesNotMatch(field(undefined), /aria-invalid|class="error"/);
+  // A value written by hand that the host ignores is named, not hidden.
+  const unreadable = field('3am');
+  assert.match(unreadable, /aria-invalid="true"/);
+  assert.match(unreadable, /“3am” is not a time of day\./);
+  // Other text settings stay text fields.
+  const name = schema.settings.find((item) => item.key === 'sunshine_name');
+  assert.match(render(SettingControl, { props: { setting: name, id: name.key, value: 'PC', onchange: () => {} } }).body, /type="text"/);
+});
 
 test('hardware metrics are opt-in with a bounded interval and an optional selection', () => {
   const settings = Object.fromEntries(schema.settings.map((setting) => [setting.key, setting]));

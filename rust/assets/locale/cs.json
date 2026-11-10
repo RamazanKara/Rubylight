@@ -673,6 +673,8 @@
     "notify_pre_releases_desc": "Zda mají být informovány o nových předběžných verzích Rubylight",
     "update_check_interval": "Interval kontroly aktualizace (sekundy)",
     "update_check_interval_desc": "Jak často má Rubylight automaticky kontrolovat aktualizace (na základě značek git). Nastavením 0 zakážete pravidelné kontroly.",
+    "update_check_time": "Čas kontroly aktualizací (HH:MM)",
+    "update_check_time_desc": "Kontroluje aktualizace jednou denně v tento čas podle hodin tohoto počítače, například 03:00, místo podle intervalu. Pokud je počítač v tu dobu vypnutý, uspaný nebo streamuje, kontrola proběhne, jakmile to poté bude možné. Ponechte prázdné, chcete-li použít interval.",
     "origin_web_ui_allowed": "Origin Web UI povoleno",
     "origin_web_ui_allowed_desc": "Původ adresy vzdáleného koncového bodu, které není odepřen přístup k webovému uživatelskému rozhraní",
     "origin_web_ui_allowed_lan": "Přístup k webovému uživatelskému rozhraní mohou mít pouze uživatelé LAN",

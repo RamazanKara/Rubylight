@@ -12,6 +12,8 @@ use std::{
 };
 use tokio::io::AsyncWriteExt;
 
+mod schedule;
+
 /// The repository was RamazanKara/Butterpollo until the product became
 /// Rubylight. Before the rename only the old name answers; after it, the old
 /// name redirects to an API address `client` refuses, so the new one is first.
@@ -151,6 +153,19 @@ pub fn status(h: &Shared) -> Value {
             .unwrap()
             .integer("update_check_interval", 86400)
     );
+    // "HH:MM" when the check runs once a day at that time; null when the
+    // interval decides.
+    state["update_check_time"] = json!(
+        h.config
+            .read()
+            .unwrap()
+            .update_check_time()
+            .map(|time| format!("{:02}:{:02}", time / 3600, time % 3600 / 60))
+    );
+    // Until this run has checked, the console shows when the last one did.
+    if state["checked_at"].as_u64().unwrap_or(0) == 0 {
+        state["previous_check_at"] = json!(Some(remembered_check(h)).filter(|at| *at > 0));
+    }
     // Null when automatic checks are off.
     state["next_check_at"] = json!(next_check(h));
     // Due, but held back by a stream; the console says "After the stream".
@@ -200,18 +215,63 @@ pub fn next_check_at(interval: i64, checked_at: u64, failures: u64, now: u64) ->
 }
 
 fn next_check(h: &Shared) -> Option<u64> {
-    let interval = h
-        .config
-        .read()
-        .unwrap()
-        .integer("update_check_interval", 86400);
-    let state = h.updates.lock().unwrap();
-    next_check_at(
-        interval,
-        state["checked_at"].as_u64().unwrap_or(0),
-        state["check_failures"].as_u64().unwrap_or(0),
-        now(),
-    )
+    let schedule = {
+        let config = h.config.read().unwrap();
+        schedule::Schedule {
+            interval: config.integer("update_check_interval", 86400),
+            time: config.update_check_time(),
+        }
+    };
+    let (mut checked_at, failures) = {
+        let state = h.updates.lock().unwrap();
+        (
+            state["checked_at"].as_u64().unwrap_or(0),
+            state["check_failures"].as_u64().unwrap_or(0),
+        )
+    };
+    // With an interval the host checks whenever it starts. With a time of day
+    // it must not, or a PC switched on in the evening would check and install
+    // then: the last check from before the restart counts.
+    if checked_at == 0 && schedule.time.is_some() {
+        checked_at = remembered_check(h);
+    }
+    schedule::next_at(schedule, checked_at, failures, now(), &local_clock)
+}
+
+/// What this PC's clock shows at a moment, as Unix seconds as if it were UTC.
+fn local_clock(at: u64) -> i64 {
+    butterpollo_windows::local_time::utc_to_local(at).unwrap_or(at as i64)
+}
+
+/// The state file's entry for the last successful release check.
+const LAST_CHECK: &str = "last_update_check";
+
+/// The last successful release check before this run, as Unix seconds; 0
+/// when there was none.
+fn remembered_check(h: &Shared) -> u64 {
+    h.aliases.lock().unwrap()["root"][LAST_CHECK]
+        .as_u64()
+        .unwrap_or(0)
+}
+
+/// Keep the moment of the release check that just succeeded across restarts,
+/// for the daily check at a time of day ([`schedule`]).
+pub fn remember_check(h: &Shared) {
+    let checked_at = h.updates.lock().unwrap()["checked_at"]
+        .as_u64()
+        .unwrap_or(0);
+    let mut aliases = h.aliases.lock().unwrap();
+    let mut next = aliases.clone();
+    if !next["root"].is_object() {
+        next["root"] = json!({});
+    }
+    next["root"][LAST_CHECK] = json!(checked_at);
+    match butterpollo_core::state::write_json(&h.aliases_path, &next) {
+        Ok(()) => *aliases = next,
+        Err(error) => {
+            tracing::warn!(error = %format!("{error:#}"), "the release check time could not be saved");
+        }
+    }
 }
 
 /// A client is streaming or about to; a game left running does not count.
@@ -1215,6 +1275,109 @@ mod tests {
         assert!(busy(h), "the install path still waits for an idle host");
         assert!(check_due(h));
         assert_eq!(status(h)["deferred"], false);
+    }
+    fn set_time(h: &Shared, time: &str) {
+        h.config
+            .write()
+            .unwrap()
+            .values
+            .insert("update_check_time".into(), time.into());
+    }
+    /// The time this PC's clock showed `hours` ago, as the setting takes it.
+    fn hours_ago(hours: i64) -> String {
+        let local = local_clock(now()) - hours * 3600;
+        format!(
+            "{:02}:{:02}",
+            local.rem_euclid(86400) / 3600,
+            local.rem_euclid(3600) / 60
+        )
+    }
+    #[test]
+    fn a_time_of_day_decides_the_check_in_place_of_the_interval() {
+        let f = Fixture::new();
+        let h = &f.host;
+        let t = now();
+        let checked = |seconds_ago: u64| {
+            *h.updates.lock().unwrap() =
+                json!({"checking":false,"check_failed":false,"checked_at":t - seconds_ago});
+        };
+        assert!(status(h)["update_check_time"].is_null());
+        // The time was four hours ago and the last check eight hours ago: due,
+        // although the daily interval has not passed.
+        let time = hours_ago(4);
+        set_time(h, &time);
+        checked(8 * 3600);
+        assert!(check_due(h));
+        assert_eq!(status(h)["update_check_time"], time);
+        assert!(status(h)["next_check_at"].as_u64().unwrap() <= t);
+        // Checked since: not again today, however short the interval.
+        set_interval(h, "3600");
+        checked(2 * 3600);
+        assert!(!check_due(h));
+        let next = status(h)["next_check_at"].as_u64().unwrap();
+        assert!(next > t + 18 * 3600 && next < t + 22 * 3600, "{next}");
+        // Without the time the interval decides again, same running host.
+        set_time(h, "");
+        assert!(check_due(h));
+        assert!(status(h)["update_check_time"].is_null());
+        // So does it with a time the host cannot read.
+        for unreadable in ["3am", "25:00", "0300"] {
+            set_time(h, unreadable);
+            assert!(check_due(h), "{unreadable}");
+            assert!(status(h)["update_check_time"].is_null(), "{unreadable}");
+            assert_eq!(status(h)["next_check_at"], t - 2 * 3600 + 3600);
+        }
+        // An interval of 0 turns automatic checks off with a time as well.
+        set_time(h, &time);
+        set_interval(h, "0");
+        checked(8 * 3600);
+        assert!(!check_due(h));
+        assert!(status(h)["next_check_at"].is_null());
+        // A stream defers the daily check like any other.
+        set_interval(h, "86400");
+        assert!(check_due(h));
+        h.sessions
+            .lock()
+            .unwrap()
+            .queue(launch(butterpollo_core::session::Role::Stream))
+            .unwrap();
+        assert!(!check_due(h));
+        assert_eq!(status(h)["deferred"], true);
+    }
+    #[test]
+    fn the_daily_check_counts_the_last_check_before_a_restart() {
+        let f = Fixture::new();
+        let h = &f.host;
+        let t = now();
+        let time = hours_ago(4);
+        // Never checked: at once.
+        set_time(h, &time);
+        assert!(check_due(h));
+        // A check two hours ago succeeded; then the host restarts.
+        h.updates.lock().unwrap()["checked_at"] = json!(t - 2 * 3600);
+        remember_check(h);
+        let saved = butterpollo_core::state::load_json(&h.aliases_path, json!(null)).unwrap();
+        assert_eq!(saved["root"][LAST_CHECK], t - 2 * 3600);
+        let again = crate::state::Host::load(f.directory.clone(), f.directory.join("assets"), None)
+            .unwrap();
+        assert_eq!(again.updates.lock().unwrap()["checked_at"], 0);
+        // Today's check is done: the restarted host waits for tomorrow's time.
+        set_time(&again, &time);
+        assert!(!check_due(&again));
+        assert!(status(&again)["next_check_at"].as_u64().unwrap() > t);
+        // With an interval it checks at every start, as before.
+        set_time(&again, "");
+        assert!(check_due(&again));
+        // A restart after the time passed catches the check up.
+        again.aliases.lock().unwrap()["root"][LAST_CHECK] = json!(t - 8 * 3600);
+        set_time(&again, &time);
+        assert!(check_due(&again));
+        // A check that failed in this run is retried by its own time, not
+        // held back by the one remembered.
+        again.aliases.lock().unwrap()["root"][LAST_CHECK] = json!(t - 2 * 3600);
+        *again.updates.lock().unwrap() =
+            json!({"checking":false,"check_failed":true,"check_failures":1,"checked_at":t - 600});
+        assert!(check_due(&again));
     }
     #[tokio::test]
     #[ignore = "downloads the official public installer; never executes it"]

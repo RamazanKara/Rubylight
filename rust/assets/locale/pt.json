@@ -673,6 +673,8 @@
     "notify_pre_releases_desc": "Se deve ser notificado de novas versões de lançamento do Rubylight",
     "update_check_interval": "Intervalo de verificação de atualizações (segundos)",
     "update_check_interval_desc": "Com que frequência o Rubylight deve procurar atualizações automaticamente (com base em tags git). Defina 0 para desativar verificações periódicas.",
+    "update_check_time": "Hora da verificação de atualizações (HH:MM)",
+    "update_check_time_desc": "Procura atualizações uma vez por dia a esta hora do relógio deste PC, por exemplo 03:00, em vez de usar o intervalo. Se o PC estiver desligado, suspenso ou a transmitir a essa hora, a verificação é feita depois, assim que possível. Deixe vazio para usar o intervalo.",
     "origin_web_ui_allowed": "Interface de Origem Web Permitida",
     "origin_web_ui_allowed_desc": "A origem do endereço do endpoint remoto que não é negado o acesso à Web UI",
     "origin_web_ui_allowed_lan": "Somente aqueles em LAN podem acessar a interface Web",

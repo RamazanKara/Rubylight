@@ -673,6 +673,8 @@
     "notify_pre_releases_desc": "Legyen-e értesítés a Rubylight új előzetes verzióiról",
     "update_check_interval": "Frissítés-ellenőrzési időköz (másodperc)",
     "update_check_interval_desc": "Milyen gyakran keressen a Rubylight automatikusan frissítéseket (git-címkék alapján). Állítsd 0-ra az időszakos ellenőrzések letiltásához.",
+    "update_check_time": "Frissítések keresésének időpontja (ÓÓ:PP)",
+    "update_check_time_desc": "Naponta egyszer, a számítógép órája szerinti ebben az időpontban keres frissítéseket (például 03:00), az időköz helyett. Ha a számítógép ekkor ki van kapcsolva, alszik vagy éppen streamel, a keresés utána a lehető leghamarabb megtörténik. Hagyja üresen az időköz használatához.",
     "origin_web_ui_allowed": "Origin webes felhasználói felület engedélyezve",
     "origin_web_ui_allowed_desc": "A távoli végpont cím eredete, aminek nincs megtagadva a hozzáférése a webes felülethez",
     "origin_web_ui_allowed_lan": "Csak a LAN-ban lévők férhetnek hozzá a webes felülethez",

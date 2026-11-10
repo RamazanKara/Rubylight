@@ -94,7 +94,7 @@
           {#if latest}<span class="num">{latest.tag_name}</span>
             {#if latest.prerelease}<Badge>Pre-release</Badge>{/if}
             {#if latest.published_at}<span class="muted"> · {localTime(latest.published_at)}</span>{/if}
-          {:else}<span class="muted">{updates.checked_at ? 'No releases found for your update settings' : 'Not checked yet'}</span>{/if}
+          {:else}<span class="muted">{updates.checked_at ? 'No releases found for your update settings' : updates.previous_check_at ? 'Not checked since Rubylight started' : 'Not checked yet'}</span>{/if}
         </dd>
       </dl>
       {#if updates.check_failed}<p class="notice warn" role="alert">The last check failed. {updates.check_error || 'Check that this PC can reach GitHub.'}{updates.next_check_at != null ? ' Rubylight tries again automatically.' : ''}</p>{/if}
@@ -134,7 +134,7 @@
         <summary>More<span class="visually-hidden"> about updates</span></summary>
         <div class="links">
         <dl class="facts">
-          <dt>Last checked</dt><dd>{updates.checked_at ? `${ago(updates.checked_at)}${updates.check_failed ? ' (failed)' : ''}` : 'Never'}</dd>
+          <dt>Last checked</dt><dd>{updates.checked_at ? `${ago(updates.checked_at)}${updates.check_failed ? ' (failed)' : ''}` : updates.previous_check_at ? ago(updates.previous_check_at) : 'Never'}</dd>
           {#if updates.next_check_at != null}
             <dt>Next check</dt><dd>{updates.deferred ? 'After the stream' : updates.next_check_at * 1000 <= Date.now() ? 'Shortly' : when(updates.next_check_at)}</dd>
           {/if}

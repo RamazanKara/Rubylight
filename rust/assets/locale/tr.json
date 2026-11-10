@@ -673,6 +673,8 @@
     "notify_pre_releases_desc": "Rubylight'ın yeni yayın öncesi sürümlerinden haberdar edilip edilmeme",
     "update_check_interval": "Güncelleme denetim aralığı (saniye)",
     "update_check_interval_desc": "Rubylight'nun güncellemeleri ne sıklıkla otomatik denetleyeceği (git tag'lerine göre). Periyodik denetimleri devre dışı bırakmak için 0 girin.",
+    "update_check_time": "Güncelleme denetimi saati (SS:DD)",
+    "update_check_time_desc": "Güncellemeleri aralık yerine günde bir kez, bu bilgisayarın saatine göre bu saatte denetler (örneğin 03:00). Bilgisayar o saatte kapalıysa, uykudaysa veya yayın yapıyorsa denetim sonrasında mümkün olan ilk anda yapılır. Aralığı kullanmak için boş bırakın.",
     "origin_web_ui_allowed": "Origin Web Kullanıcı Arayüzüne İzin Verildi",
     "origin_web_ui_allowed_desc": "Web UI'ye erişimi reddedilmeyen uzak uç nokta adresinin kaynağı",
     "origin_web_ui_allowed_lan": "Yalnızca LAN'da bulunanlar Web UI'ye erişebilir",

@@ -1,0 +1,2 @@
+# Update check time
+- **Choose the time of day Rubylight looks for updates.** Set **Update check time** under All settings → General → Updates, for example 03:00. With **Install updates automatically** on, a new release installs after that check once nothing is streaming. A time that passes while the PC is off, asleep or streaming is caught up at the next opportunity; leave the field empty to keep the interval.

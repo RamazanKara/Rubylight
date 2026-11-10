@@ -1,7 +1,8 @@
 name: Release
 
 # A pushed v* tag builds the signed release APKs and bundle and the desktop client
-# (Windows zip and installer; Linux tar.gz, .deb, .rpm, AppImage and Flatpak for x86_64 and aarch64) and attaches them to the
+# (Windows zip and installer; Linux tar.gz, .deb, .rpm, AppImage and Flatpak for x86_64 and aarch64;
+# macOS zip for Apple Silicon and Intel) and attaches them to the
 # GitHub release for that tag
 # (created here when it does not exist yet). The desktop jobs and the signed Android build run
 # side by side, and the release job publishes only once all of them passed, so a tag publishes
@@ -527,6 +528,65 @@ jobs:
             dist/*-setup.exe
           if-no-files-found: error
 
+  desktop-macos:
+    # The Mac desktop client: protocol/desktop/package-macos.py builds the release Nightjar.app
+    # with its own SDL, Opus, dav1d and decode-only FFmpeg (macos-deps.sh) and zips it. Each
+    # architecture builds on its own runner, so the unpacked zip is verified and launched there.
+    # The app carries an ad-hoc signature only (no Developer ID, not notarized): Gatekeeper asks
+    # once on first start, as protocol/desktop/README.md#macos describes.
+    needs: preflight
+    # A Mac failure shows as a failed leg and a warning at the release; the rest still ships.
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x86_64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.preflight.outputs.version }}
+      NJ_ARCH: ${{ matrix.arch }}
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
+      RUSTUP_TOOLCHAIN: stable
+    defaults:
+      run:
+        working-directory: protocol
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install build tools
+        run: |
+          brew install cmake meson ninja pkg-config nasm
+          rustup toolchain install stable --profile minimal --no-self-update
+      # The media libraries macos.yml caches on main; restored only, so a release never writes it.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: protocol/target/macos-native/*/prefix
+          key: macos-media-${{ runner.arch }}-${{ hashFiles('protocol/desktop/macos-deps.sh') }}
+      - name: Build and zip the application
+        run: python3 desktop/package-macos.py --arch "$NJ_ARCH" --zip
+      - name: Verify and launch the unpacked zip
+        run: |
+          triple=$( [ "$NJ_ARCH" = arm64 ] && echo aarch64-apple-darwin || echo x86_64-apple-darwin )
+          zip="target/$triple/release/Nightjar-$VERSION-macos-$NJ_ARCH.zip"
+          test -s "$zip" || { echo "::error::$zip was not built (the app version must match $VERSION)"; exit 1; }
+          ditto -x -k "$zip" "$RUNNER_TEMP/unpacked"
+          python3 desktop/tests/verify_macos_bundle.py --arch "$NJ_ARCH" "$RUNNER_TEMP/unpacked/Nightjar.app"
+          mkdir -p ../dist
+          cp "$zip" "../dist/nightjar-desktop-$VERSION-macos-$NJ_ARCH.zip"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: desktop-macos-${{ matrix.arch }}
+          path: dist/*.zip
+          if-no-files-found: error
+
   android:
     # The signed APKs and bundle, built beside the desktop jobs instead of after them (the
     # release took 37 minutes with this job waiting 25 of them).
@@ -657,7 +717,7 @@ jobs:
         run: rm -f "$RUNNER_TEMP/nightjar-release.keystore"
 
   release:
-    needs: [preflight, desktop-linux, desktop-windows, android]
+    needs: [preflight, desktop-linux, desktop-windows, desktop-macos, android]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -682,6 +742,10 @@ jobs:
         run: |
           for file in "desktop/nightjar-desktop-$VERSION-linux-aarch64."{tar.gz,deb,rpm} "desktop/nightjar-desktop-$VERSION-aarch64."{AppImage,flatpak}; do
             test -s "$file" || echo "::warning::$file is missing: the aarch64 leg failed, this release goes out without it"
+          done
+          for arch in arm64 x86_64; do
+            file="desktop/nightjar-desktop-$VERSION-macos-$arch.zip"
+            test -s "$file" || echo "::warning::$file is missing: the macOS $arch leg failed, this release goes out without it"
           done
           for file in "desktop/nightjar-desktop-$VERSION-linux-x86_64."{tar.gz,deb,rpm} "desktop/nightjar-desktop-$VERSION-x86_64."{AppImage,flatpak}               "desktop/nightjar-desktop-$VERSION-windows-x86_64.zip" "desktop/nightjar-desktop-$VERSION-windows-x86_64-setup.exe"; do
             test -s "$file" || { echo "::error::$file is missing from the desktop artifacts"; exit 1; }
@@ -717,7 +781,7 @@ jobs:
             if [ "${#flags[@]}" != 0 ]; then gh release edit "$GITHUB_REF_NAME" "${flags[@]}"; fi
           else
             gh release create "$GITHUB_REF_NAME" out/* --verify-tag --title "Nightjar $VERSION" \
-              --notes "The APKs are signed by CI with the Nightjar release key; the desktop packages (Windows installer and zip; Linux .deb, .rpm, AppImage, Flatpak and tar.gz) are not signed. SHA-256 hashes of everything are in SHA256SUMS-$VERSION.txt." "${flags[@]}"
+              --notes "The APKs are signed by CI with the Nightjar release key; the desktop packages (Windows installer and zip; Linux .deb, .rpm, AppImage, Flatpak and tar.gz; macOS zip with an ad-hoc signature, not notarized) are not signed. SHA-256 hashes of everything are in SHA256SUMS-$VERSION.txt." "${flags[@]}"
           fi
           echo "::notice::published $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME"
       - name: Dry run result

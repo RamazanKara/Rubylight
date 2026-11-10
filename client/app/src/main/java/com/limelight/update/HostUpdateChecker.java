@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 
 import com.limelight.LimeLog;
+import com.limelight.nativeapi.KnownUpdates;
 import com.limelight.nvstream.http.HostCapabilities;
 
 public final class HostUpdateChecker {
@@ -16,14 +17,25 @@ public final class HostUpdateChecker {
         return context.getSharedPreferences("host_update_state", Context.MODE_PRIVATE);
     }
 
+    /**
+     * Only a build that updates itself asks GitHub, and there Settings can turn the check off. A store build hides that
+     * switch, so it never asks: it shows what the host itself reports ({@link KnownUpdates}).
+     */
     private static boolean isDue(Context context, HostCapabilities caps) {
-        return caps.family() == HostCapabilities.Family.RUBYLIGHT && SemVer.parse(caps.hostVersion()) != null &&
+        return UpdateFlow.isAvailable(context) &&
+                caps.family() == HostCapabilities.Family.RUBYLIGHT && SemVer.parse(caps.hostVersion()) != null &&
                 UpdatePolicy.isCheckDue(new UpdatePrefs(context).isAutoCheck(),
                         state(context).getLong("last_check", 0), System.currentTimeMillis());
     }
 
-    public static String availableVersion(Context context, HostCapabilities caps) {
+    /**
+     * The newer Rubylight version for this PC, or null. The host's own answer (GET /update, which also knows its
+     * update channel) wins; without one, a build that updates itself falls back to the latest GitHub release.
+     */
+    public static String availableVersion(Context context, String hostUuid, HostCapabilities caps) {
         if (caps.family() != HostCapabilities.Family.RUBYLIGHT) return null;
+        if (KnownUpdates.answered(hostUuid)) return KnownUpdates.offered(hostUuid);
+        if (!UpdateFlow.isAvailable(context)) return null;
         String latest = state(context).getString("latest_version", "");
         return SemVer.isNewer(latest, caps.hostVersion()) ? latest : null;
     }

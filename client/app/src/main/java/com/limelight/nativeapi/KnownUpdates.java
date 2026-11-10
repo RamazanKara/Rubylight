@@ -32,6 +32,11 @@ public final class KnownUpdates {
         return update == null || update.installingNow ? null : update.offered();
     }
 
+    /** Whether the host has answered GET /update in this process, so {@link #offered} speaks for it. */
+    public static boolean answered(String hostUuid) {
+        return hostUuid != null && byHost.containsKey(hostUuid);
+    }
+
     /** The host took this device's install: no second one is offered until its next answer says otherwise. */
     static void installing(String hostUuid, NativePcPower.Update answer) {
         record(hostUuid, answer.installing());

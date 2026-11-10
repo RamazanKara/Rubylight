@@ -65,9 +65,11 @@ See [sharing](sharing.md).
 
 **Check for updates automatically** (not in the Google Play build) asks
 GitHub's public API for Nightjar's latest release when the app opens, at most
-twice a day, and Nightjar can ask the same API for the latest Rubylight release
-to tell you that your PC's host has an update. GitHub receives your public IP
-address. Nothing is installed without your choice.
+twice a day, and when a Rubylight PC does not report its own updates, the same
+setting asks that API for the latest Rubylight release to tell you that your
+PC's host has an update. GitHub receives your public IP address. Nothing is
+installed without your choice. The Google Play build never asks GitHub; it shows
+a host update only when the Rubylight PC reports one itself.
 
 If you enable **Send hardware metrics to client** on a host that supports it
 (Rubylight 3.0), Nightjar can request host CPU usage and available AMD GPU

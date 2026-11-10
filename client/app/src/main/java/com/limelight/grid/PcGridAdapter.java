@@ -260,7 +260,7 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
         }
         bindActions(parentView, obj);
 
-        String update = HostUpdateChecker.availableVersion(context, obj.details.caps);
+        String update = HostUpdateChecker.availableVersion(context, obj.details.uuid, obj.details.caps);
         TextView updateView = parentView.findViewById(R.id.grid_update);
         updateView.setVisibility(update == null ? View.GONE : View.VISIBLE);
         if (update != null) {

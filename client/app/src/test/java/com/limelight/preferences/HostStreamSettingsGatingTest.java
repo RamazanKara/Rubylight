@@ -116,6 +116,32 @@ public class HostStreamSettingsGatingTest {
     }
 
     @Test
+    public void aPcThatTurnsVrrOffShowsThePacingItsStreamsUse() {
+        android.content.SharedPreferences main = android.preference.PreferenceManager.getDefaultSharedPreferences(app);
+        com.limelight.binding.video.DisplayFrameRatePolicy.vrrOfferedOverride = true;
+        try {
+            PreferenceConfiguration.readPreferences(app);
+            main.edit().putBoolean(PreferenceConfiguration.VRR_PREF_STRING, true).putString("frame_pacing", "balanced")
+                    .putString("list_resolution", "1920x1080").putString("list_fps", "60")
+                    .putBoolean(PreferenceConfiguration.RESOLUTION_FOLLOWS_SCREEN_PREF_STRING, false).commit();
+            HostStreamProfile.deserialize("v2;res=3840x2160;refresh=12000;vrr=false").save(app, "vrr-off-pc");
+            withSettings("vrr-off-pc", TestHosts.rubylightWithDisplayScale(), fragment -> {
+                String pacing = summary(fragment.findPreference("pacing"));
+                assertTrue(pacing, pacing.contains(app.getString(R.string.pacing_balanced)));
+                assertFalse(pacing, pacing.contains(app.getString(R.string.layers_pacing_vrr)));
+                // The bitrate nobody chose is the one for this PC's size and frame rate.
+                String bitrate = summary(fragment.findPreference("bitrate"));
+                assertTrue(bitrate, bitrate.contains(HostStreamProfile.formatBitrateMbps(
+                        PreferenceConfiguration.getDefaultBitrate("3840x2160", "120")) + " Mbps"));
+            });
+        } finally {
+            com.limelight.binding.video.DisplayFrameRatePolicy.vrrOfferedOverride = null;
+            main.edit().clear().commit();
+            app.getSharedPreferences("HostStreamProfiles", android.content.Context.MODE_PRIVATE).edit().clear().commit();
+        }
+    }
+
+    @Test
     public void aPcChoosesItsOwnDisplayScaleApartFromTheRenderResolution() {
         withSettings("rubylight-dpi-pc", TestHosts.rubylightWithDisplayScale(), fragment -> {
             Preference dpi = fragment.findPreference("dpi");

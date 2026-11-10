@@ -28,7 +28,16 @@ public class PackedFallbackTest {
         // Android 12+ shows two lines at most; the reason (an exception message at worst) is logged.
         assertTrue(PackedFallback.toast().length() <= 60);
         assertTrue(PackedFallback.toast().contains("without"));
-        assertTrue(PackedFallback.refusedToast().length() <= 60);
-        assertTrue(PackedFallback.refusedToast().contains("without"));
+        for (String stage : new String[] {"RTSP handshake", PackedFallback.CHECK_STAGE, null}) {
+            assertTrue(PackedFallback.refusedToast(stage).length() <= 70);
+            assertTrue(PackedFallback.refusedToast(stage).contains("without"));
+        }
+    }
+
+    @Test
+    public void aRefusalThisDeviceMadeIsNotBlamedOnThePc() {
+        assertTrue(PackedFallback.refusedToast("RTSP handshake").contains("PC"));
+        assertTrue(PackedFallback.refusedToast(null).contains("PC"));
+        assertFalse(PackedFallback.refusedToast(PackedFallback.CHECK_STAGE).contains("PC"));
     }
 }

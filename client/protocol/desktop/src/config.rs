@@ -1342,6 +1342,48 @@ fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Option<T> {
     }
 }
 
+/// Removes from a settings object the values this version can't read (one a newer version wrote,
+/// or a hand edit), so one of them doesn't cost the others. Anything but an object becomes empty.
+fn keep_readable_settings(values: &mut serde_json::Value) {
+    let Some(map) = values.as_object_mut() else {
+        *values = serde_json::Value::Object(serde_json::Map::new());
+        return;
+    };
+    map.retain(|key, value| {
+        let one = serde_json::Map::from_iter([(key.clone(), value.clone())]);
+        let readable = serde_json::from_value::<Settings>(serde_json::Value::Object(one)).is_ok();
+        if !readable {
+            eprintln!("nightjar: leaving out the setting {key}: this version can't read {value}");
+        }
+        readable
+    });
+}
+
+/// profiles.json with each profile's unreadable settings left out.
+fn keep_readable_profiles(profiles: &mut serde_json::Value) {
+    let entries = profiles.get_mut("entries").and_then(serde_json::Value::as_array_mut);
+    for settings in entries.into_iter().flatten().filter_map(|profile| profile.get_mut("settings")) {
+        keep_readable_settings(settings);
+    }
+}
+
+/// hosts.json with each PC's and game's unreadable settings left out, then the PCs that still
+/// can't be read: the others keep their pairing.
+fn keep_readable_hosts(hosts: &mut serde_json::Value) {
+    let Some(hosts) = hosts.as_array_mut() else { return };
+    for host in hosts.iter_mut() {
+        if let Some(settings) = host.get_mut("settings").filter(|settings| !settings.is_null()) {
+            keep_readable_settings(settings);
+        }
+        match host.get_mut("app_settings") {
+            Some(serde_json::Value::Object(games)) => games.values_mut().for_each(keep_readable_settings),
+            Some(other) => *other = serde_json::Value::Object(serde_json::Map::new()),
+            None => {}
+        }
+    }
+    hosts.retain(|host| serde_json::from_value::<HostRecord>(host.clone()).is_ok());
+}
+
 const HOTKEYS_FILE: &str = "stream_hotkeys.json";
 /// stream_hotkeys.json's format: `{"version": 1, "bindings": {"quit": "CTRL+F9", "overlay": "off"}}`.
 const HOTKEYS_VERSION: u64 = 1;
@@ -1467,8 +1509,36 @@ impl Store {
         &self.dir
     }
 
+    /// Reads `name`, or the default when there is none. A file this version can't read whole is
+    /// first copied to `<name>.bad`, because the next save replaces it; then it is read again
+    /// with what `keep_readable` left of it, so one unreadable value doesn't cost the rest.
+    fn read_or_keep_readable<T: Default + for<'de> Deserialize<'de>>(&self, name: &str, keep_readable: fn(&mut serde_json::Value)) -> T {
+        let path = self.dir.join(name);
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            return T::default();
+        };
+        let error = match serde_json::from_str(&text) {
+            Ok(value) => return value,
+            Err(error) => error,
+        };
+        eprintln!("nightjar: {} can't be read whole: {error}", path.display());
+        if !self.read_only {
+            if let Err(e) = back_up(&path, "bad") {
+                eprintln!("nightjar: could not keep a copy of {}: {e}", path.display());
+            }
+        }
+        let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&text) else {
+            return T::default();
+        };
+        keep_readable(&mut value);
+        serde_json::from_value(value).unwrap_or_else(|e| {
+            eprintln!("nightjar: ignoring {}: {e}", path.display());
+            T::default()
+        })
+    }
+
     pub fn settings(&self) -> Settings {
-        let mut settings: Settings = read_json(&self.dir.join("settings.json")).unwrap_or_default();
+        let mut settings: Settings = self.read_or_keep_readable("settings.json", keep_readable_settings);
         settings.migrate();
         settings
     }
@@ -1478,7 +1548,7 @@ impl Store {
     }
 
     pub fn profiles(&self) -> Profiles {
-        read_json(&self.dir.join("profiles.json")).unwrap_or_default()
+        self.read_or_keep_readable("profiles.json", keep_readable_profiles)
     }
 
     pub fn save_profiles(&self, profiles: &Profiles) -> std::io::Result<()> {
@@ -1486,7 +1556,7 @@ impl Store {
     }
 
     pub fn controller_mappings(&self) -> BTreeMap<String, crate::gamepad::Mapping> {
-        let mut mappings: BTreeMap<String, crate::gamepad::Mapping> = read_json(&self.dir.join("controllers.json")).unwrap_or_default();
+        let mut mappings: BTreeMap<String, crate::gamepad::Mapping> = self.read_or_keep_readable("controllers.json", |_| {});
         mappings.retain(|_, mapping| mapping.valid());
         mappings
     }
@@ -1573,7 +1643,7 @@ impl Store {
     }
 
     pub fn hosts(&self) -> Vec<HostRecord> {
-        read_json(&self.dir.join("hosts.json")).unwrap_or_default()
+        self.read_or_keep_readable("hosts.json", keep_readable_hosts)
     }
 
     pub fn save_hosts(&self, hosts: &[HostRecord]) -> std::io::Result<()> {
@@ -1839,6 +1909,60 @@ mod tests {
         for written in ["recent.json", HOTKEYS_FILE] {
             assert!(!dir.join(written).exists(), "{written} written");
         }
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn one_unreadable_value_costs_neither_the_pcs_nor_the_other_settings() {
+        let dir = std::env::temp_dir().join(format!("nightjar-unreadable-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = Store::at(dir.clone()).unwrap();
+        let kept = |name: &str| std::fs::read_to_string(dir.join(name)).ok();
+
+        // A codec a newer version wrote, as after a downgrade.
+        let settings = r#"{"fps":90,"codec":"a newer version's codec"}"#;
+        std::fs::write(dir.join("settings.json"), settings).unwrap();
+        let loaded = store.settings();
+        assert_eq!((loaded.fps, loaded.codec), (90, Settings::default().codec));
+        assert_eq!(kept("settings.json.bad").as_deref(), Some(settings), "the next save replaces the file");
+
+        // The same in one PC's and one game's settings, and a PC that can't be read at all.
+        let hosts = r#"[
+            {"unique_id":"a","name":"A","server_certificate":"pem","settings":{"fps":120,"codec":"newer"},
+             "app_settings":{"id:7":{"codec":"newer","bitrate_kbps":5000}}},
+            {"unique_id":"b","name":"B","http_port":"not a port"},
+            {"unique_id":"c","name":"C","server_certificate":"pem","settings":null}]"#;
+        std::fs::write(dir.join("hosts.json"), hosts).unwrap();
+        let loaded = store.hosts();
+        assert_eq!(loaded.iter().map(|host| host.unique_id.as_str()).collect::<Vec<_>>(), ["a", "c"]);
+        assert_eq!(loaded[0].server_certificate.as_deref(), Some("pem"), "the pairing stays");
+        let pc = loaded[0].settings.as_ref().unwrap();
+        assert!(pc.has(&["fps"]) && !pc.has(&["codec"]));
+        assert_eq!(pc.apply(&Settings::default()).fps, 120);
+        let game = &loaded[0].app_settings["id:7"];
+        assert!(game.has(&["bitrate_kbps"]) && !game.has(&["codec"]));
+        assert_eq!(loaded[1].settings, None);
+        assert_eq!(kept("hosts.json.bad").as_deref(), Some(hosts));
+
+        let profiles = r#"{"active":1,"entries":[{"id":1,"name":"Couch","settings":{"fps":30,"codec":"newer"}}]}"#;
+        std::fs::write(dir.join("profiles.json"), profiles).unwrap();
+        let loaded = store.profiles();
+        assert_eq!(loaded.active, Some(1));
+        assert!(loaded.entries[0].settings.has(&["fps"]) && !loaded.entries[0].settings.has(&["codec"]));
+        assert_eq!(kept("profiles.json.bad").as_deref(), Some(profiles));
+
+        // A file that is no JSON reads as none, and is kept beside the earlier copy.
+        std::fs::write(dir.join("hosts.json"), "[{ cut off").unwrap();
+        assert!(store.hosts().is_empty());
+        assert_eq!(kept("hosts.json.bad.2").as_deref(), Some("[{ cut off"));
+
+        // A file that reads whole leaves no copy, and the second screen's store writes none.
+        std::fs::remove_file(dir.join("settings.json.bad")).unwrap();
+        std::fs::write(dir.join("settings.json"), r#"{"fps":90}"#).unwrap();
+        assert_eq!(store.settings().fps, 90);
+        std::fs::write(dir.join("settings.json"), settings).unwrap();
+        assert_eq!(Store::at(dir.clone()).unwrap().read_only().settings().fps, 90);
+        assert_eq!(kept("settings.json.bad"), None);
         std::fs::remove_dir_all(dir).ok();
     }
 

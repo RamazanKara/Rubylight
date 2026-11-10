@@ -210,6 +210,55 @@ public class StreamProfilesTest {
     }
 
     @Test
+    public void aBitrateNobodyChoseFollowsTheSizeALayerSets() {
+        PreferenceConfiguration.readPreferences(app);
+        SharedPreferences main = PreferenceManager.getDefaultSharedPreferences(app);
+        main.edit().putString("list_resolution", "1920x1080").putString("list_fps", "60")
+                .putBoolean(PreferenceConfiguration.RESOLUTION_FOLLOWS_SCREEN_PREF_STRING, false)
+                .putString(PreferenceConfiguration.MOBILE_BITRATE_PREF_STRING, "15000").commit();
+        int small = PreferenceConfiguration.getDefaultBitrate("1920x1080", "60");
+        int large = PreferenceConfiguration.getDefaultBitrate("3840x2160", "120");
+        assertTrue(large > small && small > 15000);
+        assertEquals(small, PreferenceConfiguration.readPreferences(app).bitrate);
+        values("v2;res=3840x2160;refresh=12000").save(app, "pc");
+
+        PreferenceConfiguration wifi = PreferenceConfiguration.readPreferences(app, "pc",
+                com.limelight.nvstream.http.HostCapabilities.UNKNOWN, "game", 3, StreamLayers.Network.WIFI);
+        assertEquals(3840, wifi.width);
+        assertEquals(120, wifi.fps);
+        assertTrue(wifi.automaticBitrate);
+        assertEquals(large, wifi.bitrate);
+        assertFalse(wifi.layers.bitrateLimited);
+
+        PreferenceConfiguration mobile = PreferenceConfiguration.readPreferences(app, "pc",
+                com.limelight.nvstream.http.HostCapabilities.UNKNOWN, "game", 3, StreamLayers.Network.MOBILE);
+        assertEquals(15000, mobile.bitrate);
+        assertTrue(mobile.layers.bitrateLimited);
+
+        // A chosen bitrate stays what was chosen.
+        main.edit().putInt("seekbar_bitrate_kbps", 20000).putBoolean("bitrate_user_set", true).commit();
+        assertEquals(20000, PreferenceConfiguration.readPreferences(app, "pc",
+                com.limelight.nvstream.http.HostCapabilities.UNKNOWN, "game", 3, StreamLayers.Network.WIFI).bitrate);
+    }
+
+    @Test
+    public void aLayerThatTurnsVrrOffGetsItsPacingBack() {
+        PreferenceConfiguration.readPreferences(app);
+        PreferenceManager.getDefaultSharedPreferences(app).edit().putString("frame_pacing", "balanced").commit();
+        PreferenceConfiguration config = PreferenceConfiguration.readPreferences(app);
+        config.vrr = true;
+        assertEquals(PreferenceConfiguration.FRAME_PACING_MIN_LATENCY,
+                PreferenceConfiguration.layeredFramePacing(app, config, "smoothness"));
+        config.vrr = false;
+        assertEquals(PreferenceConfiguration.FRAME_PACING_BALANCED, PreferenceConfiguration.layeredFramePacing(app, config, null));
+        assertEquals(PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS,
+                PreferenceConfiguration.layeredFramePacing(app, config, "smoothness"));
+        config.hostFrameTimes = true;
+        assertEquals(PreferenceConfiguration.FRAME_PACING_MIN_LATENCY,
+                PreferenceConfiguration.layeredFramePacing(app, config, "smoothness"));
+    }
+
+    @Test
     public void aMobileLimitOutsideTheChoicesIsReadSafely() {
         assertEquals(0, PreferenceConfiguration.mobileBitrateLimit("0"));
         assertEquals(0, PreferenceConfiguration.mobileBitrateLimit("junk"));

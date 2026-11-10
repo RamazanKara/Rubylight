@@ -9,6 +9,9 @@ use super::AudioOutput;
 
 /// Lost frames reported for one gap in the frame numbers; a longer gap is a resync.
 const MAX_GAP_FRAMES: u16 = 8;
+/// The longest frame there is: E-AC3's 11-bit `frmsiz` (AC3 stops at 2560 bytes). Chunks
+/// that never end a frame would otherwise grow it for as long as the stream runs.
+const MAX_FRAME_BYTES: usize = 4096;
 
 /// The codec to ask for (one `CODEC_*` bit), or 0 to send nothing and stream Opus. `output` is
 /// what the platform's audio output can play for `channels` (PCM, AC3, E-AC3 bits), `offered`
@@ -105,6 +108,12 @@ impl FrameAssembler {
             self.collecting = Some(header.frame_index);
         } else if self.collecting != Some(header.frame_index) {
             self.collecting = None;
+            return;
+        }
+        if self.frame.len() + piece.len() > MAX_FRAME_BYTES {
+            self.frame.clear();
+            self.collecting = None;
+            self.invalid += 1;
             return;
         }
         self.frame.extend_from_slice(piece);
@@ -225,6 +234,33 @@ mod tests {
         }
         assert_eq!(packet_ms(CODEC_AC3, 6, 5), 32);
         assert_eq!(packet_ms(CODEC_EAC3, 2, 20), 32);
+    }
+
+    #[test]
+    fn chunks_that_never_end_a_frame_do_not_grow_it_without_limit() {
+        let mut assembler = FrameAssembler::default();
+        let chunk = |first| {
+            let header = ChunkHeader {
+                first,
+                last: false,
+                frame_index: 7,
+            };
+            let mut payload = header.encode().to_vec();
+            payload.resize(audio_ext::CHUNK_PAYLOAD_BYTES, 0);
+            Some(payload)
+        };
+        let mut items = vec![chunk(true)];
+        items.extend((0..64).map(|_| chunk(false)));
+        assert_eq!(feed(&mut assembler, &items), []);
+        assert_eq!(assembler.invalid, 1);
+        assert!(assembler.frame.capacity() <= 2 * MAX_FRAME_BYTES);
+        // The longest frame there is still fits, and the stream goes on after the bad one.
+        let mut longest = vec![1; MAX_FRAME_BYTES];
+        longest[..6].copy_from_slice(&[0x0B, 0x77, 0x07, 0xFF, 0, 16 << 3]);
+        assert_eq!(
+            feed(&mut assembler, &chunks(&longest, 8).into_iter().map(Some).collect::<Vec<_>>()),
+            [Got::Frame(longest)]
+        );
     }
 
     #[test]

@@ -2894,6 +2894,9 @@ impl App {
     }
 
     fn stream_frame(&mut self) {
+        // A second screen that fails during the stream says so on it; the launcher's frames
+        // only run again once the stream has ended.
+        self.second_screen_step();
         let window = self.window;
         let renderer = self.renderer;
         let display = display_of(window);
@@ -2974,7 +2977,9 @@ impl App {
         }
         if let Some((shown, mode, corner)) = streaming.take_overlay_change() {
             let s = &mut self.launcher.settings;
-            (s.overlay, s.overlay_mode, s.overlay_position) = (shown, mode, corner);
+            s.overlay = shown.unwrap_or(s.overlay);
+            s.overlay_mode = mode.unwrap_or(s.overlay_mode);
+            s.overlay_position = corner.unwrap_or(s.overlay_position);
             if let Err(e) = self.store.save_settings(s) {
                 eprintln!("nightjar: saving settings failed: {e}");
             }

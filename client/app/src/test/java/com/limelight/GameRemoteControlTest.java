@@ -35,6 +35,10 @@ public class GameRemoteControlTest {
 
     public static class RemoteGame extends Game {
         int menus, backs;
+        boolean window;
+        Boolean systemKeysGrabbed;
+        @Override boolean inWindow() { return window; }
+        @Override public void setMetaKeyCaptureState(boolean enabled) { systemKeysGrabbed = enabled; }
         @Override public void showStreamMenu() { menus++; }
         @Override public void showStreamMenuFromController() { menus++; }
         @Override void onBack(boolean byController) { backs++; }
@@ -214,6 +218,51 @@ public class GameRemoteControlTest {
         prefs.captureSystemKeys = false;
         assertFalse(game.handleKeyDown(event(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, keyboard.getId(), InputDevice.SOURCE_KEYBOARD)));
         assertEquals(2, connection.keys.size());
+    }
+
+    // Nightjar #87: with System keys only in full screen, a stream in split screen or a window leaves the system keys,
+    // and a keyboard's Back as Esc, to Android; full screen sends them again, and held keys go up at each change.
+    @Test public void systemKeysOnlyInFullScreenFollowTheWindow() {
+        InputDevice keyboard = device(InputDevice.SOURCE_KEYBOARD, InputDevice.KEYBOARD_TYPE_ALPHABETIC);
+        ReflectionHelpers.setField(keyboard, "mIsExternal", true);
+        RecordingConnection connection = new RecordingConnection();
+        RemoteGame game = game(connection);
+        ReflectionHelpers.setField(game, "connected", true);
+        PreferenceConfiguration prefs = ReflectionHelpers.getField(game, "prefConfig");
+
+        // The rule: off by default, and nothing without Send system keys.
+        assertFalse(prefs.systemKeysFullscreenOnly);
+        assertTrue(prefs.sendsSystemKeys(true));
+        prefs.systemKeysFullscreenOnly = true;
+        assertTrue(prefs.sendsSystemKeys(false));
+        assertFalse(prefs.sendsSystemKeys(true));
+        prefs.captureSystemKeys = false;
+        assertFalse(prefs.sendsSystemKeys(false));
+        prefs.captureSystemKeys = true;
+
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) return;
+        // In a window a keyboard's Back is Android's Back.
+        game.window = true;
+        assertFalse(game.handleKeyDown(event(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, keyboard.getId(), InputDevice.SOURCE_KEYBOARD)));
+        assertTrue(connection.keys.isEmpty());
+
+        // Full screen again: the grab comes back.
+        game.window = false;
+        game.reapplySystemKeys();
+        assertEquals(Boolean.TRUE, game.systemKeysGrabbed);
+        assertTrue(game.handleKeyDown(event(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, keyboard.getId(), InputDevice.SOURCE_KEYBOARD)));
+        assertTrue(game.handleKeyUp(event(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK, keyboard.getId(), InputDevice.SOURCE_KEYBOARD)));
+        assertEquals("27:" + KeyboardPacket.KEY_UP, connection.keys.get(connection.keys.size() - 1));
+
+        game.window = true;
+        game.reapplySystemKeys();
+        assertEquals(Boolean.FALSE, game.systemKeysGrabbed);
+
+        // Without the option the window changes nothing.
+        prefs.systemKeysFullscreenOnly = false;
+        game.systemKeysGrabbed = null;
+        game.reapplySystemKeys();
+        assertNull(game.systemKeysGrabbed);
     }
 
     // #49: a handheld whose firmware injects Back for its system button sends Guide with Back button as

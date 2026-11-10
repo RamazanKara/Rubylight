@@ -7,4 +7,5 @@
     <string name="continue_here_browser_stream">Başka bir cihaz bu oyunu tarayıcıda oynuyor ve bu yayın onunla birlikte çalışamaz. Önce o yayını sonlandırın.</string>
     <string name="stream_recovery_exhausted">Otomatik kurtarma bir dakika içinde yeniden bağlanamadı. Oyununuz kapatılmadı. Bağlantıyı kontrol edin, ardından tekrar denemek için Yeniden bağlan’ı seçin.</string>
     <string name="stream_recovery_paused">Yayından ayrıldığınız için otomatik kurtarma durduruldu. Devam etmek için Yeniden bağlan’ı seçin.</string>
+    <string name="stream_stop_timeout">Önceki bağlantı henüz kapanmadı. Birazdan tekrar deneyin.</string>
 </resources>

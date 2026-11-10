@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="pace_calibration_title">Frame-Pacing kalibrieren</string>
+    <string name="network_tests_title">Netzwerktests</string>
     <string name="pace_calibration_summary">PyroWave: höchste Geschwindigkeit finden, mit der der Host ganze Frames an dieses Gerät sendet</string>
     <string name="pace_calibration_saved">PyroWave-Frame-Tempo: %1$d Mbit/s. Tippen, um neu zu kalibrieren.</string>
     <string name="pace_calibration_intro">Der Host sendet Test-Frames mit verschiedenen Geschwindigkeiten, und Nightjar behält die schnellste, bei der ganze Frames ankommen. PyroWave-Streams nutzen sie dann. Beende zuerst jeden Stream auf diesem PC. Das dauert ein bis drei Minuten.</string>

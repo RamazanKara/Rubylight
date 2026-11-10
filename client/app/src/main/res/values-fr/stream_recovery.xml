@@ -7,4 +7,5 @@
     <string name="continue_here_browser_stream">Un autre appareil joue à ce jeu dans un navigateur, et ce stream ne peut pas fonctionner en parallèle. Arrêtez d\'abord l\'autre stream.</string>
     <string name="stream_recovery_exhausted">La récupération automatique n’a pas pu se reconnecter en une minute. Votre jeu n’a pas été quitté. Vérifiez la connexion, puis choisissez Reconnecter pour réessayer.</string>
     <string name="stream_recovery_paused">La récupération automatique s’est arrêtée quand vous avez quitté le stream. Choisissez Reconnecter pour continuer.</string>
+    <string name="stream_stop_timeout">La connexion précédente n’est pas encore fermée. Réessayez dans un instant.</string>
 </resources>

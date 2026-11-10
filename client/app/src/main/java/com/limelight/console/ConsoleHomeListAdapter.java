@@ -460,6 +460,12 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
                 if (libraryCover && event.getAction() == KeyEvent.ACTION_DOWN && movesFocus(keyCode)) {
                     travel.onMove(event.getRepeatCount(), SystemClock.uptimeMillis());
                 }
+                if (keyCode == KeyEvent.KEYCODE_BUTTON_X || com.limelight.ui.InputSource.isMoreKey(event)) {
+                    // Y, F and X open the game's options, like a long press and like a poster. Left alone, Android
+                    // turns a pad's Y into Space, which presses the card: the game would start (Nightjar #81).
+                    if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) listener.onGameMenu(card);
+                    return true;
+                }
                 if (keyCode != KeyEvent.KEYCODE_MENU) {
                     return false;
                 }
@@ -491,8 +497,8 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
                 if (event.getAction() == KeyEvent.ACTION_DOWN && movesFocus(keyCode)) {
                     tv.travel.onMove(event.getRepeatCount(), SystemClock.uptimeMillis());
                 }
-                if (keyCode == KeyEvent.KEYCODE_BUTTON_X || keyCode == KeyEvent.KEYCODE_MENU) {
-                    // X and Menu open the game's options (where it is starred), as on a poster.
+                if (keyCode == KeyEvent.KEYCODE_BUTTON_X || keyCode == KeyEvent.KEYCODE_MENU || com.limelight.ui.InputSource.isMoreKey(event)) {
+                    // Y, F, X and Menu open the game's options (where it is starred), as on a poster.
                     if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) listener.onGameMenu(card);
                     return true;
                 }
@@ -553,10 +559,10 @@ final class ConsoleHomeListAdapter extends RecyclerView.Adapter<RecyclerView.Vie
          */
         private boolean onHostKey(HomeModel.HostCard card, int keyCode, KeyEvent event) {
             boolean down = event.getAction() == KeyEvent.ACTION_DOWN;
-            if (keyCode == KeyEvent.KEYCODE_MENU || keyCode == KeyEvent.KEYCODE_BUTTON_X
+            if (keyCode == KeyEvent.KEYCODE_MENU || keyCode == KeyEvent.KEYCODE_BUTTON_X || com.limelight.ui.InputSource.isMoreKey(event)
                     || (keyCode == KeyEvent.KEYCODE_F10 && event.isShiftPressed())) {
                 markMore(false);
-                if (!down) {
+                if (!down && !event.isCanceled()) {
                     listener.onHostOptions(card);
                 }
                 return true;

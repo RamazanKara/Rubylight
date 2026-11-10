@@ -8,6 +8,8 @@
     <string name="stream_mouse_step">Mouse step: %1$d px</string>
     <string name="title_checkbox_capture_system_keys">Send system keys</string>
     <string name="summary_checkbox_capture_system_keys">Esc, Alt+Tab, the Windows key and similar go to the PC while input is captured, as does the Back key many Android keyboards have in place of Esc. Android hands over Alt+Tab and the Windows key only on Android 16 QPR2 (December 2025) and newer and on many Samsung devices; elsewhere it keeps them. Home, power and volume always stay with Android. Open the stream menu with its stream hotkey or Android\'s Back gesture or button. Applies to the next stream.</string>
+    <string name="title_checkbox_system_keys_fullscreen_only">System keys only in full screen</string>
+    <string name="summary_checkbox_system_keys_fullscreen_only">In a window, Alt+Tab, the Windows key and similar stay with this device.</string>
     <string name="title_checkbox_back_as_meta">Keyboard Back sends Windows key</string>
     <string name="summary_checkbox_back_as_meta">The Back key on a physical keyboard sends the Windows key (Command on a Mac). Open the stream menu with its stream hotkey, Android\'s Back gesture or button, or the controller chord.</string>
     <string name="title_checkbox_right_alt_as_meta">Right Alt as Command</string>

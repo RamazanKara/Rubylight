@@ -47,6 +47,7 @@ import com.limelight.binding.audio.MicrophoneCapture;
 import com.limelight.binding.audio.MicrophoneStatus;
 import com.limelight.binding.audio.Surround714;
 import com.limelight.binding.input.InputBatcher;
+import com.limelight.binding.video.PackedFallback;
 import com.limelight.binding.video.PyroWaveDecoderRenderer;
 import com.limelight.binding.video.Sdr10Policy;
 import com.limelight.computers.HostNotices;
@@ -707,6 +708,17 @@ public class NvConnection {
         }
     }
 
+    // Why this start ended before the launch for full chroma's sake, else null.
+    private volatile PackedFallback.Unavailable packedUnavailable;
+
+    /**
+     * Whether this start's full chroma failure came before anything was launched on the PC: the
+     * stream can then simply be started again without it, instead of resuming a running game.
+     */
+    public boolean packedRefusedBeforeLaunch() {
+        return packedUnavailable != null;
+    }
+
     /**
      * The packed modes a launch can count on, before DESCRIBE: the PC's serverinfo when it says,
      * else what its last DESCRIBE offered, else -1.
@@ -724,11 +736,13 @@ public class NvConnection {
     /**
      * After a packed stream's start ({@code startResult}): a started stream keeps what its DESCRIBE
      * offered for the next launch; a refusal of packed forgets the PC, so a cache from before the
-     * host turned full chroma off does not make every launch ask for SDR first.
+     * host turned full chroma off does not make every launch ask for SDR first. The refusal itself
+     * is kept, so the next launch on a PC that does not say its modes starts without full chroma.
      */
     static void rememberPackedModes(Context appContext, String uuid, int startResult, int describeModes) {
         if (startResult == MoonBridge.CLIENT_ERROR_PACKED_444_REFUSED) {
             HostPackedModes.store(appContext, uuid, 0);
+            HostPackedModes.markRefused(appContext, uuid);
         } else if (startResult == 0) {
             HostPackedModes.store(appContext, uuid, describeModes);
         }
@@ -921,8 +935,10 @@ public class NvConnection {
             }
             renderer.setStreamFrameRateMilliHz(NvHTTP.getStreamFrameRateMilliHz(context));
             renderer.setHostCodecModeSupport(context.serverCodecModeSupport);
+            int hostPacked = -1;
             if (context.streamConfig.isPacked444()) {
-                renderer.setHostPacked444Modes(hostPackedModesBeforeLaunch(appContext, details));
+                hostPacked = hostPackedModesBeforeLaunch(appContext, details);
+                renderer.setHostPacked444Modes(hostPacked);
             }
             int preparedFormats = renderer.prepareVideoFormats(commonFormats, context.negotiatedWidth,
                     context.negotiatedHeight, context.streamConfig.getRefreshRate());
@@ -937,6 +953,21 @@ public class NvConnection {
                 // Dolby Vision on the automatic codec: the codec that carries it (HEVC for profile 8, AV1 for
                 // profile 10).
                 context.negotiatedVideoFormats = hdrFormatVideoFormats;
+            }
+            if (context.streamConfig.isPacked444()) {
+                // Before the launch: afterwards the only way out is to tear the half-started stream
+                // down and resume the game that was just launched for nothing.
+                final int packedFormats = context.negotiatedVideoFormats;
+                packedUnavailable = PackedFallback.beforeLaunch(
+                        PreferenceConfiguration.readPreferences(appContext).rustEngine, hostPacked,
+                        HostPackedModes.refused(appContext, details.uuid),
+                        () -> renderer.preparePacked444Modes(packedFormats, context.negotiatedWidth,
+                                context.negotiatedHeight, context.streamConfig.getRefreshRate()));
+                if (packedUnavailable != null) {
+                    LimeLog.warning("Full chroma is unavailable before the launch (" + packedUnavailable +
+                            "): PC modes " + hostPacked + ", formats 0x" + Integer.toHexString(packedFormats));
+                    return false;
+                }
             }
             // The decoder for the negotiated format and HDR format sets the reference-frame and slice capabilities.
             context.videoCapabilities = renderer.getCapabilities(context.negotiatedVideoFormats, context.hdrFormat);
@@ -1333,7 +1364,14 @@ public class NvConnection {
                     connectionAllowed.acquire();
                     acquired = true;
                     if (!startApp(videoDecoderRenderer)) {
-                        if (!stopRequested && !context.launchActionCompleted) {
+                        PackedFallback.Unavailable packed = packedUnavailable;
+                        if (stopRequested || context.launchActionCompleted) {
+                            return;
+                        }
+                        if (packed != null) {
+                            // Nothing was launched; the listener starts this stream again without full chroma.
+                            context.connListener.stageFailed(packed.stage, 0, MoonBridge.CLIENT_ERROR_PACKED_444_REFUSED);
+                        } else {
                             context.connListener.stageFailed(appName, 0, 0);
                         }
                         return;
@@ -1435,9 +1473,17 @@ public class NvConnection {
                             rememberPackedModes(appContext, hostDetails.uuid, ret, MoonBridge.getHostPacked444Modes());
                         }
                         if (ret != 0) {
+                            // An engine names the stage that failed, which ends the connecting
+                            // screen. A start that fails without one would leave it up for good.
+                            if (!stopRequested && !MoonBridge.startFailureReported()) {
+                                LimeLog.warning("The stream start failed (" + ret + ") without a failed stage");
+                                context.connListener.stageFailed(appName, 0, ret);
+                            }
                             return;
                         }
                         if (context.streamConfig.isPacked444()) {
+                            // It runs here now; if it stops being available, say so again.
+                            HostNotices.reset(appContext, hostDetails.uuid, HostNotices.Notice.PACKED_UNAVAILABLE);
                             noticePackedAfterStart(appContext, hostDetails.uuid, context.connListener,
                                     context.negotiatedHdr, packedHdrDropAtLaunch,
                                     videoDecoderRenderer.packedHdrDropReason());

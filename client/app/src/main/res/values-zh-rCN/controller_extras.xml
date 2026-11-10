@@ -8,6 +8,8 @@
     <string name="stream_mouse_step">鼠标步长：%1$d 像素</string>
     <string name="title_checkbox_capture_system_keys">发送系统按键</string>
     <string name="summary_checkbox_capture_system_keys">捕获输入时，Esc、Alt+Tab、Windows 键等会发送到电脑，许多 Android 键盘上代替 Esc 的返回键也会作为 Esc 发送。只有 Android 16 QPR2（2025 年 12 月）及更高版本和许多三星设备会把 Alt+Tab 和 Windows 键交给应用，其他设备上由 Android 处理。主屏幕、电源和音量键始终由 Android 处理。可使用专用快捷键或 Android 的返回手势或按钮打开串流菜单。下次串流生效。</string>
+    <string name="title_checkbox_system_keys_fullscreen_only">仅全屏时发送系统按键</string>
+    <string name="summary_checkbox_system_keys_fullscreen_only">窗口模式下，Alt+Tab、Windows 键等留在这台设备上。</string>
     <string name="title_checkbox_back_as_meta">键盘返回键发送 Windows 键</string>
     <string name="summary_checkbox_back_as_meta">实体键盘上的返回键会发送 Windows 键（在 Mac 上为 Command）。可使用专用快捷键、Android 的返回手势或按钮，或手柄组合键打开串流菜单。</string>
     <string name="title_checkbox_right_alt_as_meta">右 Alt 用作 Command</string>

@@ -1860,7 +1860,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             continue;
                         }
                     }
-                    if (Packed444.verifySampling(context, decoder.getName(), codecs[codec], depth == 1)) modes |= 1 << bit;
+                    // Under a watchdog: this runs while the connecting screen waits, and a decoder
+                    // or GPU driver that never returns must not hold the start.
+                    final String decoderName = decoder.getName();
+                    final String codecName = codecs[codec];
+                    final boolean tenBit = depth == 1;
+                    if (PackedFallback.within(() -> Packed444.verifySampling(context, decoderName, codecName, tenBit),
+                            PackedFallback.CHECK_TIMEOUT_MS, decoderName + (tenBit ? " 10-bit" : " 8-bit"))) modes |= 1 << bit;
                     else if (depth == 1) packedTenBitIssue = ISSUE_TEN_BIT_SAMPLING;
                 }
             } catch (IllegalArgumentException e) {

@@ -435,7 +435,7 @@ final class GameTouchInput {
         }
 
         // Grab/ungrab system keyboard shortcuts, unless the user leaves them to Android
-        game.setMetaKeyCaptureState(grab && game.prefConfig.captureSystemKeys);
+        game.setMetaKeyCaptureState(grab && game.prefConfig.sendsSystemKeys(game.inWindow()));
 
         game.grabbedInput = grab;
         if (game.controllerHandler != null) {

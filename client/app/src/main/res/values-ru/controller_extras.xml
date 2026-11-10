@@ -8,6 +8,8 @@
     <string name="stream_mouse_step">Шаг мыши: %1$d пкс</string>
     <string name="title_checkbox_capture_system_keys">Отправлять системные клавиши</string>
     <string name="summary_checkbox_capture_system_keys">Esc, Alt+Tab, клавиша Windows и подобные уходят на ПК, пока ввод захвачен, как и клавиша «Назад», которая на многих клавиатурах для Android стоит вместо Esc. Alt+Tab и клавишу Windows Android отдаёт приложению только начиная с Android 16 QPR2 (декабрь 2025) и на многих устройствах Samsung; в остальных случаях оставляет себе. «Домой», питание и громкость всегда остаются за Android. Меню потока открывается своей горячей клавишей либо жестом или кнопкой «Назад» Android. Со следующего потока.</string>
+    <string name="title_checkbox_system_keys_fullscreen_only">Системные клавиши только на полном экране</string>
+    <string name="summary_checkbox_system_keys_fullscreen_only">В окне Alt+Tab, клавиша Windows и подобные остаются на этом устройстве.</string>
     <string name="title_checkbox_back_as_meta">«Назад» на клавиатуре как клавиша Windows</string>
     <string name="summary_checkbox_back_as_meta">Клавиша «Назад» на физической клавиатуре отправляет клавишу Windows (Command на Mac). Меню трансляции открывается своей горячей клавишей, жестом или кнопкой «Назад» Android либо комбинацией кнопок контроллера.</string>
     <string name="title_checkbox_right_alt_as_meta">Правый Alt как Command</string>

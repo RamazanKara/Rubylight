@@ -2254,6 +2254,99 @@ public class GameRecoveryTest {
         assertTrue(Game.terminationDescription(MoonBridge.CLIENT_ERROR_PACKED_444_REFUSED).contains("full chroma"));
     }
 
+    // Nightjar #88: ruled out before /launch, so nothing runs on the PC and there is nothing to resume.
+    private static void ruleOutFullChromaBeforeLaunch(Game game, com.limelight.binding.video.PackedFallback.Unavailable why) {
+        ReflectionHelpers.setField(NvConnection.class, ReflectionHelpers.getField(game, "conn"), "packedUnavailable", why);
+        ReflectionHelpers.setField(game, "connected", false);
+        ReflectionHelpers.setField(game, "connecting", true);
+        game.stageFailed(why.stage, 0, MoonBridge.CLIENT_ERROR_PACKED_444_REFUSED);
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void fullChromaRuledOutBeforeTheLaunchStartsTheSameStreamAgainWithoutIt() throws Exception {
+        for (boolean second : new boolean[] {false, true}) {
+            Game game = recoveryGame();
+            game.setIntent(new Intent().putExtra(Game.EXTRA_APP_ID, 73).putExtra(Game.EXTRA_PC_UUID, "pc-88")
+                    .putExtra(GameRecovery.EXTRA_JOIN_RUNNING, true));
+            // The start read the press's join mark, which clears it; the restart is still that press.
+            assertTrue(game.streamRecovery.isJoinRunningStream());
+            PreferenceConfiguration config = ReflectionHelpers.getField(game, "prefConfig");
+            config.autoReconnect = false;
+            RecoveryBridge.connectivityTests = 0;
+            org.robolectric.shadows.ShadowToast.reset();
+            try {
+                ruleOutFullChromaBeforeLaunch(game, com.limelight.binding.video.PackedFallback.Unavailable.HOST);
+                assertNull("no error dialog", ReflectionHelpers.getField(game, "streamMenu"));
+                assertNull("no delayed recovery", ReflectionHelpers.getField(game, "pendingRecovery"));
+                assertEquals("not a network failure", 0, RecoveryBridge.connectivityTests);
+                Intent again = awaitStartedActivity(game);
+                assertTrue(again.getBooleanExtra("PackedChromaOff", false));
+                // Not a recovery: that would only resume a game, and none was launched.
+                assertEquals(0, again.getIntExtra("RecoveryAttempts", 0));
+                assertFalse(again.getBooleanExtra("rubylight.outputResumeOnly", false));
+                assertEquals(73, again.getIntExtra(Game.EXTRA_APP_ID, 0));
+                assertTrue(again.getBooleanExtra(GameRecovery.EXTRA_JOIN_RUNNING, false));
+                // Said once per PC; later starts fall back just the same, quietly.
+                assertEquals(second ? 0 : 1, org.robolectric.shadows.ShadowToast.shownToastCount());
+                if (!second) assertTrue(org.robolectric.shadows.ShadowToast.getTextOfLatestToast().contains("PC"));
+            } finally {
+                cleanupRecovery(game);
+            }
+        }
+    }
+
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void fullChromaRuledOutInASessionAlreadyWithoutItShowsTheError() {
+        Game game = recoveryGame();
+        game.setIntent(new Intent().putExtra("PackedChromaOff", true).putExtra(Game.EXTRA_PC_UUID, "pc-88"));
+        try {
+            ruleOutFullChromaBeforeLaunch(game, com.limelight.binding.video.PackedFallback.Unavailable.DEVICE);
+            assertNull(org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
+            assertTrue(ReflectionHelpers.getField(game, "displayedFailureDialog"));
+            assertNotNull("the usual connection error", ReflectionHelpers.getField(game, "streamMenu"));
+        } finally {
+            cleanupRecovery(game);
+        }
+    }
+
+    // Nightjar #88: a restart waited for the old connection's stop without a limit, behind a spinner.
+    @Test
+    @Config(shadows = RecoveryBridge.class, instrumentedPackages = "com.limelight.nvstream.jni")
+    public void aRestartWhoseOldConnectionNeverEndsSaysSoInsteadOfWaitingOn() throws Exception {
+        Game game = recoveryGame();
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        ReflectionHelpers.setField(game, "conn", new NvConnection(null,
+                new ComputerDetails.AddressTuple("192.0.2.1", 47989), 47984, "test",
+                new StreamConfiguration.Builder().build(), null, null) {
+            @Override public void stop() {
+                try {
+                    release.await();
+                } catch (InterruptedException ignored) {
+                }
+            }
+        });
+        game.setIntent(new Intent().putExtra(Game.EXTRA_APP_ID, 73).putExtra(Game.EXTRA_PC_UUID, "pc-88"));
+        game.streamRecovery.stopWaitMs = 50;
+        try {
+            ruleOutFullChromaBeforeLaunch(game, com.limelight.binding.video.PackedFallback.Unavailable.HOST);
+            for (Thread thread : Thread.getAllStackTraces().keySet()) {
+                if ("Stream reconnect".equals(thread.getName())) join(thread);
+            }
+            org.robolectric.shadows.ShadowLooper.idleMainLooper();
+            assertNull("nothing starts over a connection that has not ended",
+                    org.robolectric.Shadows.shadowOf(game).getNextStartedActivity());
+            assertFalse(ReflectionHelpers.getField(game, "recoveryHandoffInProgress"));
+            assertNull("no spinner left up", ReflectionHelpers.getField(game, "spinner"));
+            assertNotNull("a visible failure with Try again", ReflectionHelpers.getField(game, "streamMenu"));
+        } finally {
+            release.countDown();
+            join(ReflectionHelpers.getField(game, "connectionStopThread"));
+            cleanupRecovery(game);
+        }
+    }
+
     @Test public void recoveryQueuesOneAttemptAndStoppingCancelsIt() {
         Game game = recoveryGame();
         try {

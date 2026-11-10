@@ -61,6 +61,29 @@ public class HostPackedModesTest {
     }
 
     @Test
+    public void aRefusalIsKeptPerPcUntilAStreamStartsWithItOrTheSettingIsSwitched() {
+        assertFalse(HostPackedModes.refused(context, "pc"));
+        HostPackedModes.markRefused(context, "pc");
+        HostPackedModes.markRefused(context, "other");
+        assertTrue(HostPackedModes.refused(context, "pc"));
+        // A refusal is not a mode mask: the PC's modes stay unknown.
+        assertEquals(-1, HostPackedModes.cached(context, "pc"));
+        // Forgetting the modes (a DESCRIBE without any) keeps the refusal.
+        HostPackedModes.store(context, "pc", 0);
+        assertTrue(HostPackedModes.refused(context, "pc"));
+        // A stream that started with full chroma ends it, for that PC.
+        HostPackedModes.store(context, "pc", 0b0011);
+        assertFalse(HostPackedModes.refused(context, "pc"));
+        assertTrue(HostPackedModes.refused(context, "other"));
+        // Switching the setting asks every PC again and leaves the known modes alone.
+        HostPackedModes.clearRefusals(context);
+        assertFalse(HostPackedModes.refused(context, "other"));
+        assertEquals(0b0011, HostPackedModes.cached(context, "pc"));
+        assertFalse(HostPackedModes.refused(context, null));
+        assertFalse(HostPackedModes.refused(null, "pc"));
+    }
+
+    @Test
     public void noPcOrContextIsUnknown() {
         HostPackedModes.store(context, null, 0b0011);
         HostPackedModes.store(null, "pc", 0b0011);

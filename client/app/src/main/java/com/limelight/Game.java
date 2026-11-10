@@ -705,6 +705,22 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         keyboardInput.setMetaKeyCaptureState(enabled);
     }
 
+    /** Split screen, a freeform window or picture-in-picture: the stream does not fill the screen. */
+    boolean inWindow() {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && (isInMultiWindowMode() || isInPictureInPictureMode());
+    }
+
+    /**
+     * "System keys only in full screen": the grab follows the window. Keys held across the change go up first, so none
+     * stays down on the PC once Android takes the keys back.
+     */
+    void reapplySystemKeys() {
+        if (prefConfig == null || keyboardInput == null) return;
+        if (!prefConfig.captureSystemKeys || !prefConfig.systemKeysFullscreenOnly) return;
+        if (conn != null && touchInput != null) keyboardInput.releaseKeyboardInput();
+        setMetaKeyCaptureState(grabbedInput && prefConfig.sendsSystemKeys(inWindow()));
+    }
+
     @Override
     public void onUserLeaveHint() {
         super.onUserLeaveHint();
@@ -844,6 +860,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @TargetApi(Build.VERSION_CODES.N)
     public void onMultiWindowModeChanged(boolean isInMultiWindowMode) {
         super.onMultiWindowModeChanged(isInMultiWindowMode);
+        reapplySystemKeys();
         videoOutput.configureStreamWindow();
         if (decoderRenderer == null) {
             return;

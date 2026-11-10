@@ -101,6 +101,8 @@ public class StreamSettings extends NightjarActivity {
     public static final String EXTRA_SECTION = "com.limelight.preferences.SECTION";
     /** The key of the setting to scroll to and select once the section shows; see {@link #open}. */
     public static final String EXTRA_FOCUS_KEY = "com.limelight.preferences.FOCUS_KEY";
+    /** The Streaming row that leads to a saved PC's connection test and frame pace calibration. */
+    static final String NETWORK_TESTS_KEY = "network_tests";
     static final String LOW_LATENCY_DECODING_KEY = "low_latency_decoding";
     /** The Automatic bitrate switch: stores nothing itself, it shows and sets whether the bitrate is the user's. */
     static final String AUTOMATIC_BITRATE_KEY = "automatic_bitrate";
@@ -1509,6 +1511,59 @@ public class StreamSettings extends NightjarActivity {
             updateValueSummaries(getPreferenceScreen());
         }
 
+        private String networkTestsSummary() {
+            return getString(R.string.connection_test_title) + " · " + getString(R.string.pace_calibration_title);
+        }
+
+        /** The saved PCs by name: the network tests are a PC's own, on its settings screen. */
+        private List<com.limelight.nvstream.http.ComputerDetails> savedPcs() {
+            List<com.limelight.nvstream.http.ComputerDetails> pcs;
+            com.limelight.computers.ComputerDatabaseManager database =
+                    new com.limelight.computers.ComputerDatabaseManager(getActivity());
+            try {
+                pcs = new ArrayList<>(database.getAllComputers());
+            } finally {
+                database.close();
+            }
+            // The name the user gave a PC, as on Home.
+            for (com.limelight.nvstream.http.ComputerDetails pc : pcs) pc.alias = com.limelight.computers.HostNames.get(getActivity(), pc.uuid);
+            pcs.sort((a, b) -> String.CASE_INSENSITIVE_ORDER.compare(String.valueOf(a.displayName()),
+                    String.valueOf(b.displayName())));
+            return pcs;
+        }
+
+        /** With no saved PC there is nothing to test: the row says so and stays greyed. */
+        private void refreshNetworkTests() {
+            Preference row = allPreferences.get(NETWORK_TESTS_KEY);
+            if (row == null) row = findPreference(NETWORK_TESTS_KEY);
+            if (row == null || getActivity() == null) return;
+            boolean any = !savedPcs().isEmpty();
+            row.setEnabled(any);
+            row.setSummary(any ? networkTestsSummary() : getString(R.string.pin_pcs_empty));
+        }
+
+        /** One saved PC opens its tests; several ask which PC first. */
+        private void openNetworkTests() {
+            Activity activity = getActivity();
+            List<com.limelight.nvstream.http.ComputerDetails> pcs = savedPcs();
+            if (pcs.isEmpty()) {
+                refreshNetworkTests();
+                return;
+            }
+            if (pcs.size() == 1) {
+                HostStreamSettings.showTests(activity, pcs.get(0).uuid, pcs.get(0).name);
+                return;
+            }
+            String[] names = new String[pcs.size()];
+            for (int i = 0; i < names.length; i++) names[i] = pcs.get(i).displayName();
+            UiHelper.showDialog(activity, new NavigationDialogBuilder(activity)
+                    .setTitle(R.string.network_tests_title)
+                    .setItems(names, (dialog, which) ->
+                            HostStreamSettings.showTests(activity, pcs.get(which).uuid, pcs.get(which).name))
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .create());
+        }
+
         /** Records whether a setting applies; placeRows then puts it in or out of the list. */
         private void setShown(String key, boolean shown) {
             if (shown) hidden.remove(key);
@@ -1789,6 +1844,7 @@ public class StreamSettings extends NightjarActivity {
                         .getBoolean("checkbox_enable_hdr", false));
             }
             refreshState();
+            refreshNetworkTests();
             // The fragment is replaced after the window got its insets, so ask for them again
             // to keep the last settings clear of the navigation bar.
             if (getView() != null) {
@@ -2291,6 +2347,17 @@ public class StreamSettings extends NightjarActivity {
                 texture.setEnabled(!hdr.isChecked() && !(Boolean) value && !"forcepyrowave".equals(codec.getValue()));
                 return true;
             });
+            Preference fullChroma = findPreference("experimental_packed_444");
+            if (fullChroma != null) {
+                fullChroma.setOnPreferenceChangeListener((preference, value) -> {
+                    // Switching it is how to ask again a PC that refused it before, and to hear again
+                    // when a stream starts without it.
+                    com.limelight.computers.HostPackedModes.clearRefusals(getActivity());
+                    com.limelight.computers.HostNotices.resetEverywhere(getActivity(),
+                            com.limelight.computers.HostNotices.Notice.PACKED_UNAVAILABLE);
+                    return true;
+                });
+            }
             findPreference("about_app").setSummary(getString(R.string.settings_version, BuildConfig.VERSION_NAME));
             findPreference("about_app").setOnPreferenceClickListener(preference -> {
                 showAbout();
@@ -2320,6 +2387,13 @@ public class StreamSettings extends NightjarActivity {
             });
             findPreference("latency_benchmark").setOnPreferenceClickListener(preference -> {
                 startActivity(new Intent(getActivity(), com.limelight.LatencyBenchmarkActivity.class));
+                return true;
+            });
+            // Set before the search descriptions are read: the tests' names find the row.
+            Preference networkTests = findPreference(NETWORK_TESTS_KEY);
+            networkTests.setSummary(networkTestsSummary());
+            networkTests.setOnPreferenceClickListener(preference -> {
+                openNetworkTests();
                 return true;
             });
             Preference gpuDriver = findPreference("gpu_driver");

@@ -7,4 +7,5 @@
     <string name="continue_here_browser_stream">另一台设备正在浏览器中玩这款游戏，此串流无法同时运行。请先结束那个串流。</string>
     <string name="stream_recovery_exhausted">自动恢复未能在一分钟内重新连接。你的游戏未被退出。请检查连接，然后选择“重新连接”再试一次。</string>
     <string name="stream_recovery_paused">你离开串流后，自动恢复已停止。选择“重新连接”可继续。</string>
+    <string name="stream_stop_timeout">上一个连接尚未关闭。请稍后重试。</string>
 </resources>

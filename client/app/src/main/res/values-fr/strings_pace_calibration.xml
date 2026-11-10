@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="pace_calibration_title">Calibrer le rythme des images</string>
+    <string name="network_tests_title">Tests réseau</string>
     <string name="pace_calibration_summary">PyroWave : trouver la vitesse la plus élevée à laquelle l’hôte envoie des images complètes à cet appareil</string>
     <string name="pace_calibration_saved">Rythme des images PyroWave : %1$d Mbit/s. Touchez pour recalibrer.</string>
     <string name="pace_calibration_intro">L’hôte envoie des images de test à différentes vitesses et Nightjar garde la plus rapide à laquelle elles arrivent complètes. Les flux PyroWave l’utilisent ensuite. Arrêtez d’abord tout flux sur ce PC. Cela prend une à trois minutes.</string>

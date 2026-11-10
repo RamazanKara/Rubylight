@@ -363,8 +363,20 @@ public class MoonBridge {
         }
     }
 
+    // Whether the listener was told that this start failed or that its connection ended.
+    private static volatile boolean startFailureReported;
+
+    /**
+     * Whether the listener heard, since {@link #setupBridge}, that the start failed or the
+     * connection ended. A start that returns a failure without either has told nobody.
+     */
+    public static boolean startFailureReported() {
+        return startFailureReported;
+    }
+
     public static void bridgeClStageFailed(int stage, int errorCode) {
         if (connectionListener != null) {
+            startFailureReported = true;
             connectionListener.stageFailed(getStageName(stage), getPortFlagsFromStage(stage), errorCode);
         }
     }
@@ -377,6 +389,7 @@ public class MoonBridge {
 
     public static void bridgeClConnectionTerminated(int errorCode) {
         if (connectionListener != null) {
+            startFailureReported = true;
             connectionListener.connectionTerminated(errorCode);
         }
     }
@@ -540,6 +553,7 @@ public class MoonBridge {
         MoonBridge.audioRenderer = audioRenderer;
         MoonBridge.connectionListener = connectionListener;
         MoonBridge.connectionCancelled = connectionCancelled;
+        startFailureReported = false;
     }
 
     public static void cleanupBridge() {
@@ -676,6 +690,7 @@ public class MoonBridge {
     private static int refusePacked444(String message) {
         bridgeClDisplayMessage(message);
         if (connectionListener != null) {
+            startFailureReported = true;
             connectionListener.stageFailed(PackedFallback.CHECK_STAGE, 0, CLIENT_ERROR_PACKED_444_REFUSED);
         }
         return -1;

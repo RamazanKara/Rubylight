@@ -7,4 +7,5 @@
     <string name="continue_here_browser_stream">Another device is playing this game in a browser, and this stream can\'t run beside it. End that stream first.</string>
     <string name="stream_recovery_exhausted">Automatic recovery could not reconnect within one minute. Your game was not quit. Check the connection, then choose Reconnect to try again.</string>
     <string name="stream_recovery_paused">Automatic recovery stopped when you left the stream. Choose Reconnect to continue.</string>
+    <string name="stream_stop_timeout">The previous connection has not closed yet. Try again in a moment.</string>
 </resources>

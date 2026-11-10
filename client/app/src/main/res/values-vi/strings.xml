@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_packed_444">Sắc độ đầy đủ</string>
-    <string name="summary_packed_444">Cần tùy chọn sắc độ đầy đủ của Rubylight, bộ máy truyền phát mới và bộ giải mã phần cứng HEVC/AV1 tương thích. Chế độ không được hỗ trợ sẽ dừng kết nối. HDR cũng cần bề mặt hiển thị HDR 10 bit tương thích.</string>
+    <string name="summary_packed_444">Cần tùy chọn sắc độ đầy đủ của Rubylight, bộ máy truyền phát mới và bộ giải mã phần cứng HEVC/AV1 tương thích. Nếu PC hoặc thiết bị này không hỗ trợ, luồng sẽ bắt đầu mà không có tùy chọn này. HDR cũng cần bề mặt hiển thị HDR 10 bit tương thích.</string>
     <string name="title_experimental_chipset_tuning">Tinh chỉnh chipset</string>
     <string name="summary_experimental_chipset_tuning">Thiết lập độ trễ thấp bổ sung cho bộ giải mã MediaTek Dimensity và Samsung Exynos. Nếu video bị dừng hoặc giật, hãy tắt tùy chọn này.</string>
     <string name="scut_deleted_pc">Đã xóa PC</string>

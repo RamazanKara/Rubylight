@@ -41,7 +41,9 @@ public final class HostNotices {
         // HDR10+ that Render through Vulkan could not hand to the screen on this Android version.
         VULKAN_HDR10_PLUS_REFUSED,
         // Render through Vulkan presented too few of the stream's frames on this device's display.
-        VULKAN_BEHIND
+        VULKAN_BEHIND,
+        // Full chroma is on and this stream starts without it: the PC or this device cannot do it.
+        PACKED_UNAVAILABLE
     }
 
     static final String PREFERENCES = "HostNotices";
@@ -86,6 +88,16 @@ public final class HostNotices {
             } else {
                 preferences.edit().putString(hostUuid, android.text.TextUtils.join(",", shown)).apply();
             }
+        }
+    }
+
+    /** The user changed the setting the notice is about: every PC says it again when it applies. */
+    public static synchronized void resetEverywhere(Context context, Notice notice) {
+        if (context == null) {
+            return;
+        }
+        for (String hostUuid : new ArrayList<>(preferences(context).getAll().keySet())) {
+            reset(context, hostUuid, notice);
         }
     }
 

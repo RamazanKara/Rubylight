@@ -55,7 +55,11 @@ public final class UiNavigation {
                     && !(key == KeyEvent.KEYCODE_F10 && event.hasModifiers(KeyEvent.META_SHIFT_ON))) {
                 return false;
             }
-            if (grid.getSelectedItemPosition() < 0 || grid.getOnItemLongClickListener() == null) return false;
+            if (grid.getSelectedItemPosition() < 0 || grid.getOnItemLongClickListener() == null) {
+                // Nothing to open, but a pad's Y is still taken: left alone Android makes Space of it,
+                // which a grid reads as a press of the card it then selects (Nightjar #81).
+                return key == KeyEvent.KEYCODE_BUTTON_Y;
+            }
             if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) {
                 grid.getOnItemLongClickListener().onItemLongClick(grid, grid.getSelectedView(),
                         grid.getSelectedItemPosition(), grid.getSelectedItemId());

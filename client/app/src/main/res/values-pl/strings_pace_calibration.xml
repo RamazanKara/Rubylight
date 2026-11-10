@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="pace_calibration_title">Kalibruj tempo klatek</string>
+    <string name="network_tests_title">Testy sieci</string>
     <string name="pace_calibration_summary">PyroWave: znajdź najwyższą prędkość, z jaką host wysyła całe klatki do tego urządzenia</string>
     <string name="pace_calibration_saved">Tempo klatek PyroWave: %1$d Mb/s. Dotknij, aby skalibrować ponownie.</string>
     <string name="pace_calibration_intro">Host wysyła klatki testowe z różnymi prędkościami, a Nightjar zapisuje najszybszą, przy której docierają w całości. Strumienie PyroWave będą jej używać. Najpierw zatrzymaj każdy strumień na tym PC. Trwa to od jednej do trzech minut.</string>

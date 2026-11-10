@@ -160,6 +160,33 @@ public class UiNavigationTest {
         }
     }
 
+    // Nightjar #81: a pad's Y the grid leaves alone reaches it again as Space, which presses a card.
+    @Test
+    public void aGridWithNothingToOpenStillTakesThePadsY() {
+        ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup().visible();
+        try {
+            Screen screen = controller.get();
+            GridView grid = new GridView(screen);
+            grid.setAdapter(new ArrayAdapter<>(screen, android.R.layout.simple_list_item_1, new String[] {"One", "Two"}));
+            AtomicInteger clicked = new AtomicInteger();
+            grid.setOnItemClickListener((parent, view, position, id) -> clicked.incrementAndGet());
+            // No options to open on this grid: the branch that used to hand Y back to Android.
+            UiNavigation.bindGrid(grid);
+            screen.setContentView(grid);
+            grid.requestFocus();
+            layout(screen);
+            assertTrue(grid.isFocused());
+            for (int action : new int[] {KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP}) {
+                assertTrue(grid.dispatchKeyEvent(new KeyEvent(action, KeyEvent.KEYCODE_BUTTON_Y)));
+                // Menu has its own meaning on a screen without options, and stays the screen's.
+                assertFalse(grid.dispatchKeyEvent(new KeyEvent(action, KeyEvent.KEYCODE_MENU)));
+            }
+            assertEquals("Y never presses a card", 0, clicked.get());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     @Test
     public void shortcutsRunOnReleaseAndLeaveOrdinaryKeysAlone() {
         ActivityController<Screen> controller = Robolectric.buildActivity(Screen.class).setup();

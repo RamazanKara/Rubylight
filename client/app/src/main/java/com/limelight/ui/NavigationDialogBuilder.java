@@ -52,6 +52,8 @@ public final class NavigationDialogBuilder extends MaterialAlertDialogBuilder {
             if (overStream) dialog.getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             else dialog.getWindow().setDimAmount(GlassPanelDrawable.dialogBackdropDim(getContext()));
         }
+        // On a page, the page blurs behind the dialog where this device affords it; never over a stream.
+        PageBlur.behind(dialog);
         // Builds the views now: the buttons exist, and their bar can be laid out for capsules.
         dialog.create();
         styleButtons(dialog);

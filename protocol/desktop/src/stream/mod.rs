@@ -590,6 +590,8 @@ pub struct Streaming {
     #[cfg(windows)]
     touchpad: touchpad::Touchpad,
     captured: bool,
+    /// Whether the window was full screen at the last pass (`follow_fullscreen`).
+    fullscreen: bool,
     absolute: bool,
     /// Captured motion sent from the thread that reads the mouse.
     pub direct_motion: direct_motion::DirectMotion,
@@ -911,6 +913,7 @@ impl Streaming {
             #[cfg(windows)]
             touchpad: touchpad::Touchpad::default(),
             captured: false,
+            fullscreen: false,
             offset: ClockOffset::default(),
             timing_csv: open_timing_csv(),
             #[cfg(target_os = "linux")]
@@ -1279,9 +1282,29 @@ impl Streaming {
     pub fn follow_tab_chord(&mut self, window: *mut SDL_Window) {
         // SAFETY: a live window.
         let focused = unsafe { SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS != 0 };
-        let grab = system_keys::keyboard_grab(self.captured, self.settings.capture_system_keys);
+        let grab = system_keys::keyboard_grab(self.captured, self.system_keys());
         let on = system_keys::tab_guard(system_keys::tab_chord_action(), focused, grab, self.menu_visible, self.plan.mic_only);
         self.direct_motion.tab_guard(window, on);
+    }
+
+    /// "Send system keys" as it holds now: with "System keys only in full screen", only while
+    /// the window is full screen, which the Fullscreen and the Borderless window mode both are.
+    fn system_keys(&self) -> bool {
+        system_keys::sent(self.settings.capture_system_keys, self.settings.system_keys_fullscreen_only, self.fullscreen)
+    }
+
+    /// Once per pass: with "System keys only in full screen", the window going full screen or
+    /// back to a window takes the system keys with it.
+    pub fn follow_fullscreen(&mut self, window: *mut SDL_Window) {
+        // SAFETY: a live window.
+        let fullscreen = unsafe { SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN != 0 };
+        let before = self.system_keys();
+        self.fullscreen = fullscreen;
+        if self.system_keys() != before {
+            // A key held across the change would stay down on the PC.
+            self.raise_all_keys();
+            self.set_capture(window, self.captured);
+        }
     }
 
     /// Whether this stream captures the mouse and keyboard: not a view-only remote monitor, and
@@ -1313,7 +1336,7 @@ impl Streaming {
             } else {
                 SDL_SetWindowRelativeMouseMode(window, on);
             }
-            let grab = system_keys::keyboard_grab(on, self.settings.capture_system_keys);
+            let grab = system_keys::keyboard_grab(on, self.system_keys());
             let sdl_grab = self.direct_motion.keyboard_grab(window, grab);
             SDL_SetWindowKeyboardGrab(window, sdl_grab);
         }

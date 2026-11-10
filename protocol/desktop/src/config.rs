@@ -306,6 +306,9 @@ pub struct Settings {
     pub right_alt_as_meta: bool,
     /// Send Alt+Tab, the Windows key and similar to the host while the stream has focus.
     pub capture_system_keys: bool,
+    /// With `capture_system_keys`: only while the stream's window is full screen (the Fullscreen
+    /// and Borderless window modes); in a window those keys stay with this computer.
+    pub system_keys_fullscreen_only: bool,
     pub controllers: bool,
     /// Nintendo layout: swap A/B and X/Y.
     pub swap_face_buttons: bool,
@@ -812,6 +815,7 @@ impl Default for Settings {
             native_touchpad: false,
             right_alt_as_meta: false,
             capture_system_keys: true,
+            system_keys_fullscreen_only: false,
             controllers: true,
             swap_face_buttons: false,
             controller_motion: true,

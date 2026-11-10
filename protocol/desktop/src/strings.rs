@@ -705,7 +705,7 @@ pub(crate) mod tests {
         "Host", "Jitter", "Offline", "PCs", "Streaming", "App", "Relay (DERP)", "Store", "Bitrate", "Debug", "Headset", "Overlay",
         "Frame pacing", "Input-only", "Mouse", "Display ({} Hz)", "X / West", "Paddle 1", "Paddle 2", "Paddle 3", "Paddle 4", "Type",
         "Options", "Axes", "Compact", "Direct", "{} minutes", "Passphrase", "Home", "Upscaling", "Folder", "Layout", "Logs", "Link",
-        "5.1 surround", "7.1 surround", "7.1.4 surround", "Game Bar", "Collection", "Online", "Desktop", "Renderer",
+        "5.1 surround", "7.1 surround", "7.1.4 surround", "Game Bar", "Collection", "Online", "Desktop", "Renderer", "PC",
     ];
 
     #[test]

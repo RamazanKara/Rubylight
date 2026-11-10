@@ -488,6 +488,7 @@ Defaults are those of a fresh installation. Rows below a group name are listed a
 | Clipboard sync | Off | On, Off | Shares copied text both ways; see [clipboard](sharing.md#clipboard). |
 | Controller buttons and keyboard shortcuts | | Controllers, Shortcuts | Controller mappings, stick and trigger dead zones and the type each controller connects as (**Connect as**: Automatic, Xbox without motion or touchpad, PlayStation or Nintendo), and the saved keyboard shortcuts. Main settings only. |
 | *Mouse and keyboard:* Send system keys | On | On, Off | Alt+Tab, the Windows key and similar go to the PC while input is captured. |
+| System keys only in full screen | Off | On, Off | With Send system keys on. While the stream is in a window, Alt+Tab, the Windows key and similar stay with this computer; they go to the PC in full screen (the Fullscreen and Borderless window modes). |
 | Mouse speed | 100 % | 25–400 % | Speed of the captured pointer. |
 | Mouse navigation buttons | On | On, Off | Sends the mouse's Back and Forward buttons. |
 | Touchpad gestures on the PC | Off | On, Off | Windows. Sends the touchpad's fingers to a PC that takes them. |
@@ -527,8 +528,9 @@ The Controllers group can be changed while **Controllers** is on. On-screen cont
 | *Connection:* Keep streaming when the network changes | On | On, Off | Client roaming: keeps the stream when this device changes networks, with Rubylight PCs that support it. |
 | Continue on mobile data | Off | On, Off | Lets a roaming stream move onto a metered network. |
 | Wait through network dropouts | 3 seconds | 0, 3, 5, 10, 15 seconds | Keeps the session through brief network interruptions. |
-| *Network tests:* Network speed test | | Action, per PC | Receives 32 MiB from the PC to measure throughput, on paired hosts that offer the test. |
-| PyroWave frame pace | | Action, per PC | Finds and saves a frame pace for PyroWave on this network. Can take several minutes and uses substantial data. |
+| *Network tests:* PC | The first paired PC that is online | The paired PCs | Main settings only, with more than one paired PC: the PC the two tests below use. Not saved. |
+| Network speed test | | Action, per PC | Receives 32 MiB from the PC to measure throughput, on paired hosts that offer the test. In the main settings and in each PC's own. |
+| PyroWave frame pace | | Action, per PC | Finds and saves a frame pace for PyroWave on this network. Can take several minutes and uses substantial data. In the main settings and in each PC's own. |
 | *Fine-tuning:* Dual screen mode | Off | On, Off | With a second monitor and a PC that supports it, a second stream of the same game opens borderless full screen on the other monitor. Sound, controllers and the microphone stay with the first screen; it ends with the first stream and does not ask for the PIN again. |
 | Second screen resolution | Second screen's own size | Second screen's own size, 640x360, 854x480, 1280x720, 1920x1080, 2560x1440, 3840x2160 | With Dual screen mode on. The second stream's size, apart from the first's. |
 | USB forwarding | Off | On, Off | Attaches USB devices to the PC from the stream controls; see [USB devices](sharing.md#usb-devices). On Windows a device needs the WinUSB driver. |

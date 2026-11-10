@@ -150,6 +150,9 @@ def main():
         shutil.copy2(ROOT / "CONTRIBUTORS.md", notices)
         shutil.copy2(DESKTOP / "assets/Figtree-OFL.txt", notices)
         shutil.copy2(ROOT / "app/src/main/assets/pyrowave_notices.txt", notices)
+        # The upscaling pass (metal/upscale.metal) carries AMD FSR 1 and Qualcomm SGSR 1 code.
+        for notice in ("NOTICE-FSR1.txt", "NOTICE-SGSR1.txt"):
+            shutil.copy2(ROOT / "app/src/main/assets" / notice, notices)
         # ICNS stores the original PNG directly for these standard and Retina sizes.
         chunks = []
         for tag, size in (("icp4", 16), ("icp5", 32), ("icp6", 64), ("ic07", 128),

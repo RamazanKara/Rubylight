@@ -31,10 +31,11 @@ pub(super) fn pipeline_rates_line(report: &PipelineRatesReport) -> String {
 }
 
 /// The line logged when any session ends: what the decoder was given, and the frames lost
-/// before the picture (over the decoder queue, or replaced by a newer one before they were due).
-pub(super) fn video_summary(submitted: u64, queue_overflows: u64, replaced: u64) -> String {
-    format!("nightjar: video: {submitted} frames to the decoder, {queue_overflows} dropped over the decoder queue, \
-        {replaced} replaced before they were shown")
+/// before the picture (skipped because the decoder had newer ones waiting, over the decoder
+/// queue, or replaced by a newer one before they were due).
+pub(super) fn video_summary(submitted: u64, skipped: u64, queue_overflows: u64, replaced: u64) -> String {
+    format!("nightjar: video: {submitted} frames to the decoder, {skipped} skipped for a newer frame, \
+        {queue_overflows} dropped over the decoder queue, {replaced} replaced before they were shown")
 }
 
 /// The line logged when an early decode session ends: the three counters of the decoder and
@@ -159,7 +160,8 @@ impl Streaming {
         let stats = self.session.stats();
         let c = &self.shared.counters;
         let now = (
-            stats.frames_submitted,
+            // The frames that arrived for the decoder: the ones it skipped for a newer frame too.
+            stats.frames_submitted + stats.frames_skipped,
             c.decoded.load(Ordering::Relaxed),
             c.decode_us_total.load(Ordering::Relaxed),
             c.decode_errors.load(Ordering::Relaxed),
@@ -177,8 +179,8 @@ impl Streaming {
             0.0
         };
         // Loss counts the network's drops only: frames dropped over a full decode queue are this
-        // device's, shown on their own line.
-        let video = (stats.video.frames_completed, stats.video.frame_drops, stats.video.decoder_drops);
+        // device's, shown on their own line, and so are the frames a decoder that fell behind skipped.
+        let video = (stats.video.frames_completed, stats.video.frame_drops, stats.video.decoder_drops + stats.frames_skipped);
         let (completed, drops) = (video.0 - self.last_video.0, video.1 - self.last_video.1);
         let decoder_drops = video.2 - self.last_video.2;
         self.last_video = video;
@@ -534,8 +536,8 @@ mod early_tests {
         for part in ["1200 frames decoded ahead", "4 fell back", "7 chunks dropped", "8.5 ms"] {
             assert!(summary.contains(part), "{summary}");
         }
-        let video = video_summary(3600, 12, 5);
-        for part in ["3600 frames to the decoder", "12 dropped over the decoder queue", "5 replaced"] {
+        let video = video_summary(3600, 40, 12, 5);
+        for part in ["3600 frames to the decoder", "40 skipped for a newer frame", "12 dropped over the decoder queue", "5 replaced"] {
             assert!(video.contains(part), "{video}");
         }
     }

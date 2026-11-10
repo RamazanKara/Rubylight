@@ -184,6 +184,18 @@ impl Decoder {
         if self.early_done > 0 && self.first_block_us == 0 { self.first_block_us = nightjar_core::session::now_us(); }
     }
 
+    /// Passes over a frame that a newer one replaces: nothing is decoded, and the records cache
+    /// takes the frame as `coefficients` would have. What its chunks placed in the planes goes
+    /// with the next frame, which clears them either way.
+    pub fn skip(&mut self, data: &[u8]) {
+        let early = std::mem::replace(&mut self.early, Early::Off);
+        self.missed_start = false;
+        self.source = Source::Frame;
+        self.early_blocks = 0;
+        self.first_block_us = 0;
+        pass_records(&mut self.records, early == Early::Active && self.early_bytes == data.len(), data);
+    }
+
     pub fn coefficients(&mut self, data: &[u8]) -> Result<(), &'static str> {
         self.source = Source::Frame;
         let early = std::mem::replace(&mut self.early, Early::Off);
@@ -587,6 +599,18 @@ pub enum Failure {
     Device(String),
 }
 
+/// Brings the records cache up to date with a frame that is not decoded, so the frames after it
+/// recover what they lose from it and not from an older frame. `early`: every chunk since
+/// `begin_frame` was fed and they are as long as `data`, which then only needs finishing if it
+/// is the records envelope they belong to.
+fn pass_records(records: &mut Records, early: bool, data: &[u8]) {
+    let whole_early = early && data.starts_with(&[0, 0, 0, 0]);
+    if !(whole_early && records.finish_frame(|_| true)) {
+        // Begins the frame anew, and refuses what is not a records envelope.
+        records.push_frame(data, |_| true);
+    }
+}
+
 /// The PyroWave decoder of a stream, on the CPU or on the GPU (`Settings::pyrowave_decoder`).
 pub enum Pyrowave {
     Cpu(Box<Decoder>),
@@ -648,6 +672,25 @@ impl Pyrowave {
                     bands: Vec::new(), race: RaceReport::default(), race_seq: 0 })
             }
             Self::Gpu(stream) => stream.frame(data, evict),
+        }
+    }
+
+    /// Whether a frame may be passed over for a newer one ([`Pyrowave::skip`]): every frame
+    /// decodes on its own, but the slices of a beam-raced frame are with the presenter before
+    /// the frame is complete.
+    pub fn skips_frames(&self) -> bool {
+        match self {
+            Self::Cpu(_) => true,
+            Self::Gpu(stream) => stream.race.is_none(),
+        }
+    }
+
+    /// Passes over the frame `frame` would have decoded: no picture, and no decode time spent.
+    /// The records cache takes the frame all the same, for the frames after it.
+    pub fn skip(&mut self, data: &[u8]) {
+        match self {
+            Self::Cpu(decoder) => decoder.skip(data),
+            Self::Gpu(stream) => stream.skip(data),
         }
     }
 
@@ -946,6 +989,17 @@ impl GpuStream {
 
     #[cfg(not(windows))]
     fn decode_due_slice(&mut self) {}
+
+    /// Passes over a frame that a newer one replaces: nothing is decoded and no plane set is
+    /// taken, and the records cache takes the frame as `frame` would have. The records its
+    /// chunks pushed to the SDK go with the next frame, which clears them either way.
+    pub fn skip(&mut self, data: &[u8]) {
+        let early = std::mem::replace(&mut self.early, Early::Off);
+        self.missed_start = false;
+        self.source = Source::Frame;
+        self.first_block_us = 0;
+        pass_records(&mut self.records, early == Early::Active && self.early_bytes == data.len(), data);
+    }
 
     pub fn frame(&mut self, data: &[u8], evict: &mut dyn FnMut() -> bool) -> Result<Output, Failure> {
         let early = std::mem::replace(&mut self.early, Early::Off);
@@ -1721,6 +1775,62 @@ mod tests {
         early.coefficients(&data).unwrap();
         assert_eq!(early.source, Source::Early);
         assert!(early.planes == whole.planes);
+    }
+
+    #[test]
+    fn a_skipped_frame_leaves_the_records_cache_where_decoding_it_would_have() {
+        let (first, width, height, full) = fixture(0);
+        let (second, ..) = fixture(1);
+        let before = envelope(&arrived(&host_packets(&bitstream(first)), &[]));
+        let skipped = arrived(&host_packets(&bitstream(second)), &[]);
+        let skipped_data = envelope(&skipped);
+        // The frame after the skipped one lost a packet, whose records come from the cache.
+        let after = arrived(&host_packets(&bitstream(first)), &[1]);
+        let after_data = envelope(&after);
+        let started = || {
+            let mut decoder = Decoder::new(width, height, full).unwrap();
+            decoder.coefficients(&before).unwrap();
+            decoder
+        };
+        let mut decoded = started();
+        decoded.coefficients(&skipped_data).unwrap();
+        decoded.coefficients(&after_data).unwrap();
+        assert!(decoded.loss_percent > 0.0, "the loss was seen");
+        // A cache that never took the skipped frame fills the loss from the frame before it.
+        let mut stale = started();
+        stale.coefficients(&after_data).unwrap();
+        assert!(stale.planes != decoded.planes, "the fixtures tell the two caches apart");
+
+        // What the decoder had of the skipped frame's chunks: none, all, all but one the queue
+        // dropped, all but the first, and only the first two.
+        let count = skipped.len();
+        let had: [Vec<usize>; 5] = [Vec::new(), (0..count).collect(), (0..count).filter(|i| *i != 1).collect(),
+            (1..count).collect(), (0..2).collect()];
+        for chunks in &had {
+            for early_after in [false, true] {
+                let mut decoder = started();
+                for &i in chunks { decoder.chunk(i == 0, skipped[i].0, &skipped[i].1); }
+                decoder.skip(&skipped_data);
+                assert_eq!((decoder.source, decoder.early_blocks, decoder.first_block_us), (Source::Frame, 0, 0));
+                if early_after {
+                    for (i, (flags, payload)) in after.iter().enumerate() { decoder.chunk(i == 0, *flags, payload); }
+                }
+                decoder.coefficients(&after_data).unwrap();
+                let source = if early_after { Source::Early } else { Source::Frame };
+                assert_eq!(decoder.source, source, "chunks {chunks:?}");
+                assert!(decoder.planes == decoded.planes, "chunks {chunks:?}, early {early_after}");
+                assert_eq!(decoder.loss_percent, decoded.loss_percent);
+            }
+        }
+
+        // A frame that is no records envelope leaves the cache alone, and its chunks behind.
+        let mut decoder = started();
+        decoder.coefficients(&skipped_data).unwrap();
+        for (i, (flags, payload)) in skipped.iter().enumerate() { decoder.chunk(i == 0, *flags, payload); }
+        decoder.skip(&vec![0u8; rubylight_protocol::pyrowave::MAX_FRAME_BYTES + 1]);
+        decoder.coefficients(&after_data).unwrap();
+        assert_eq!(decoder.source, Source::Frame);
+        assert!(decoder.planes == decoded.planes);
     }
 
     /// `cargo test -p nightjar-desktop --release --bin nightjar -- --ignored --nocapture

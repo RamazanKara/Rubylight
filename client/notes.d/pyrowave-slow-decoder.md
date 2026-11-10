@@ -1,2 +1,0 @@
-## desktop
-- PyroWave: when the decoder is slower than the stream's frame rate, Nightjar skips to the newest frame instead of queuing frames. On a Radeon 780M laptop with a stream its decoder could not keep up with (7168x4032 at 120 fps), the delay from the PC's frame to the present call fell from 88 to 90 ms to 34 ms at the median, and the decode queue no longer overflowed. Skipped frames count as Decoder drops in the statistics overlay.

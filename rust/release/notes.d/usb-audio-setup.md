@@ -1,2 +1,0 @@
-# USB audio and haptics setup
-- **USB audio and haptics installs when Windows' PATH variable has a malformed entry.** Setup stopped at that driver with "Illegal characters in path" when one PATH entry held a stray quotation mark or another character no folder name has. The driver was then never installed, and every launch with the controller type "DualSense with waveform haptics (USB/IP)" failed. A launch whose controllers did not appear now names the missing driver instead of suggesting a reconnect.

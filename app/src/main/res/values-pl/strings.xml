@@ -177,6 +177,8 @@
     <string name="summary_trackpad_sensitivity_x">Szybkość pozioma fizycznego touchpada, np. w etui z klawiaturą, doliczana do szybkości myszy. Wartość ujemna odwraca kierunek. Tryby ekranu dotykowego używają zamiast tego szybkości touchpada.</string>
     <string name="title_trackpad_sensitivity_y">Czułość touchpada Y</string>
     <string name="summary_trackpad_sensitivity_y">Szybkość pionowa fizycznego touchpada, np. w etui z klawiaturą, doliczana do szybkości myszy. Wartość ujemna odwraca kierunek. Tryby ekranu dotykowego używają zamiast tego szybkości touchpada.</string>
+    <string name="title_trackpad_scroll_speed">Szybkość przewijania touchpada</string>
+    <string name="summary_trackpad_scroll_speed">Jak daleko przewijają dwa palce na fizycznym touchpadzie lub w trybie dotyku Touchpad (gesty jak w touchpadzie). Zmniejsz, jeśli przewijanie jest zbyt czułe.</string>
     <string name="title_trackpad_swap_axis">Zamień osie X i Y wejścia touchpada</string>
     <string name="summary_trackpad_swap_axis">Niektóre fizyczne touchpady zgłaszają obrócone osie, więc przesunięcie w górę porusza kursorem w bok. Włącz, aby zamienić X i Y przed zastosowaniem czułości touchpada. Tryby ekranu dotykowego nie są objęte.</string>
     <string name="title_checkbox_absolute_mouse_mode">Tryb myszy pulpitu</string>

@@ -99,6 +99,70 @@ public class TrackpadContextTest {
         assertTrue(Math.abs(x - unscaled[0] / 2) <= 2);
     }
 
+    @Test
+    public void scrollingIsLinearSoFastSwipesDoNotScrollFarther() {
+        int slow = scrollTotal(12, 10, 50);
+        int fast = scrollTotal(4, 30, 50);
+        assertTrue(slow != 0);
+        assertTrue("slow " + slow + " fast " + fast, Math.abs(slow - fast) <= 2);
+    }
+
+    @Test
+    public void scrollSpeedScalesScrolling() {
+        int half = scrollTotal(6, 20, 50);
+        int full = scrollTotal(6, 20, 100);
+        assertTrue("half " + half + " full " + full, Math.abs(full - half * 2) <= 2);
+    }
+
+    @Test
+    public void scrollingIsMeasuredInMillimetresNotInputUnits() {
+        int normal = scrollTotal(6, 20, 100, 10f);
+        int finer = scrollTotal(6, 20, 100, 20f);
+        assertTrue(normal != 0);
+        assertTrue("normal " + normal + " finer " + finer, Math.abs(normal - finer * 2) <= 2);
+        // 200 units at 10 units per millimetre is 20 mm, which is 24 scroll units at 100% (1.2 per mm).
+        assertTrue(Math.abs(scrollTotal(10, 20, 100, 10f) - 24) <= 2);
+    }
+
+    /** Two fingers move down {@code steps} times by {@code step} units each; returns the vertical scroll sent after the swipe starts. */
+    private static int scrollTotal(int steps, int step, int speedPercent) {
+        return scrollTotal(steps, step, speedPercent, 10f);
+    }
+
+    private static int scrollTotal(int steps, int step, int speedPercent, float unitsPerMm) {
+        Recorder connection = new Recorder();
+        TrackpadContext first = new TrackpadContext(connection, 0, false, 100, 100, 100, null);
+        TrackpadContext second = new TrackpadContext(connection, 1, false, 100, 100, 100, null);
+        first.setScrollSpeed(speedPercent);
+        second.setScrollSpeed(speedPercent);
+        first.setUnitsPerMm(unitsPerMm);
+        second.setUnitsPerMm(unitsPerMm);
+        first.setPointerCount(1);
+        first.touchDownEvent(500, 500, 1000, true);
+        first.setPointerCount(2);
+        second.setPointerCount(2);
+        second.touchDownEvent(600, 500, 1005, true);
+        int y = 500;
+        long time = 1005;
+        // The first long movement only starts the scroll.
+        y += 35;
+        time += 100;
+        first.touchMoveEvent(500, y, time);
+        second.touchMoveEvent(600, y, time);
+        connection.scrolls.clear();
+        for (int i = 0; i < steps; i++) {
+            y += step;
+            time += 100;
+            first.touchMoveEvent(500, y, time);
+            second.touchMoveEvent(600, y, time);
+        }
+        int total = 0;
+        for (short amount : connection.scrolls) {
+            total += amount;
+        }
+        return total;
+    }
+
     /** Drags one finger 40 units right and returns what the host received, summed. */
     private static int[] drag(boolean swap, int sensitivityX, int sensitivityY, int speed) {
         Recorder connection = new Recorder();

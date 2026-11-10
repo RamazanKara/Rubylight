@@ -177,6 +177,8 @@
     <string name="summary_trackpad_sensitivity_x">Tốc độ theo chiều ngang của bàn di chuột vật lý, chẳng hạn bàn di chuột của bao da bàn phím, áp dụng cùng với tốc độ chuột. Giá trị âm sẽ đảo ngược hướng. Các chế độ màn hình cảm ứng dùng tốc độ bàn di chuột.</string>
     <string name="title_trackpad_sensitivity_y">Độ nhạy bàn di chuột Y</string>
     <string name="summary_trackpad_sensitivity_y">Tốc độ theo chiều dọc của bàn di chuột vật lý, chẳng hạn bàn di chuột của bao da bàn phím, áp dụng cùng với tốc độ chuột. Giá trị âm sẽ đảo ngược hướng. Các chế độ màn hình cảm ứng dùng tốc độ bàn di chuột.</string>
+    <string name="title_trackpad_scroll_speed">Tốc độ cuộn của bàn di chuột</string>
+    <string name="summary_trackpad_scroll_speed">Mức cuộn bằng hai ngón trên bàn di chuột vật lý hoặc ở chế độ cảm ứng Bàn di chuột (cử chỉ như touchpad). Hãy giảm nếu việc cuộn quá nhạy.</string>
     <string name="title_trackpad_swap_axis">Hoán đổi trục X và Y của đầu vào bàn di chuột</string>
     <string name="summary_trackpad_swap_axis">Một số bàn di chuột vật lý báo cáo các trục bị xoay, nên vuốt lên làm con trỏ di chuyển sang ngang. Bật để hoán đổi X và Y trước khi áp dụng độ nhạy bàn di chuột. Các chế độ màn hình cảm ứng không bị ảnh hưởng.</string>
     <string name="title_checkbox_absolute_mouse_mode">Chế độ chuột desktop</string>

@@ -157,6 +157,7 @@ public class PreferenceConfiguration {
     private static final String TRACKPAD_SENSITIVITY_X_PREF_STRING = "seekbar_trackpad_sensitivity_x";
     private static final String TRACKPAD_SENSITIVITY_Y_PREF_STRING = "seekbar_trackpad_sensitivity_y";
     private static final String TRACKPAD_SWAP_AXIS_PREF_STRING = "checkbox_trackpad_swap_axis";
+    private static final String TRACKPAD_SCROLL_SPEED_PREF_STRING = "seekbar_trackpad_scroll_speed";
     private static final String LATENCY_TOAST_PREF_STRING = "checkbox_enable_post_stream_toast";
     // Off: streams use the C engine. The Rust engine is a beta and falls back per stream.
     static final String RUST_ENGINE_PREF_STRING = "checkbox_rust_engine";
@@ -267,6 +268,7 @@ public class PreferenceConfiguration {
     private static final int DEFAULT_TRACKPAD_SPEED = 100;
     private static final int DEFAULT_MOUSE_SPEED = 100;
     private static final int DEFAULT_TRACKPAD_SENSITIVITY = 100;
+    private static final int DEFAULT_TRACKPAD_SCROLL_SPEED = 50;
     private static final String DEFAULT_AUDIO_CONFIG = "2"; // Stereo
     private static final boolean DEFAULT_LATENCY_TOAST = false;
     static final String DEFAULT_FRAME_PACING = "latency";
@@ -413,6 +415,8 @@ public class PreferenceConfiguration {
     public int trackpadSensitivityX = DEFAULT_TRACKPAD_SENSITIVITY, trackpadSensitivityY = DEFAULT_TRACKPAD_SENSITIVITY;
     /** A physical touchpad that reports its axes rotated: swap X and Y before the sensitivity applies. */
     public boolean trackpadSwapAxis;
+    /** Percent for two-finger scrolling in the touchpad gestures, 10 to 300. */
+    public int trackpadScrollSpeed = DEFAULT_TRACKPAD_SCROLL_SPEED;
     public boolean trackpadAcceleration, trackpadMomentum;
     public String trackpadAccelerationCurve, trackpadMomentumGlide, trackpadArea, threeFingerTap;
     /** The on-screen PC keyboard: layout id or "auto", its share of the window height and its opacity, both in percent. */
@@ -1623,6 +1627,7 @@ public class PreferenceConfiguration {
         config.trackpadSensitivityX = Math.max(-200, Math.min(200, prefs.getInt(TRACKPAD_SENSITIVITY_X_PREF_STRING, DEFAULT_TRACKPAD_SENSITIVITY)));
         config.trackpadSensitivityY = Math.max(-200, Math.min(200, prefs.getInt(TRACKPAD_SENSITIVITY_Y_PREF_STRING, DEFAULT_TRACKPAD_SENSITIVITY)));
         config.trackpadSwapAxis = prefs.getBoolean(TRACKPAD_SWAP_AXIS_PREF_STRING, false);
+        config.trackpadScrollSpeed = Math.max(10, Math.min(300, prefs.getInt(TRACKPAD_SCROLL_SPEED_PREF_STRING, DEFAULT_TRACKPAD_SCROLL_SPEED)));
         config.enableLatencyToast = prefs.getBoolean(LATENCY_TOAST_PREF_STRING, DEFAULT_LATENCY_TOAST);
         config.rustEngine = prefs.getBoolean(RUST_ENGINE_PREF_STRING, true);
         config.experimentalPacked444 = prefs.getBoolean(PACKED_444_PREF_STRING, false);

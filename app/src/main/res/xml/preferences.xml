@@ -517,6 +517,15 @@
             seekbar:step="10"
             android:max="200"
             android:text="%" />
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_trackpad_scroll_speed"
+            android:title="@string/title_trackpad_scroll_speed"
+            android:dialogMessage="@string/summary_trackpad_scroll_speed"
+            android:defaultValue="50"
+            seekbar:min="10"
+            seekbar:step="10"
+            android:max="300"
+            android:text="%" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_trackpad_swap_axis"
             android:title="@string/title_trackpad_swap_axis"

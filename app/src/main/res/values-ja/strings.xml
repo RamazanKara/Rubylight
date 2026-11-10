@@ -177,6 +177,8 @@
     <string name="summary_trackpad_sensitivity_x">キーボードカバーなど、物理タッチパッドの横方向の速度です。マウスの速度に加えて適用されます。負の値にすると方向が反転します。タッチスクリーンのモードでは、代わりにトラックパッドの速度が使われます。</string>
     <string name="title_trackpad_sensitivity_y">トラックパッド感度 Y</string>
     <string name="summary_trackpad_sensitivity_y">キーボードカバーなど、物理タッチパッドの縦方向の速度です。マウスの速度に加えて適用されます。負の値にすると方向が反転します。タッチスクリーンのモードでは、代わりにトラックパッドの速度が使われます。</string>
+    <string name="title_trackpad_scroll_speed">トラックパッドのスクロール速度</string>
+    <string name="summary_trackpad_scroll_speed">物理タッチパッド、またはタッチモードのトラックパッド（タッチパッド操作）で、2 本指のスクロールがどれだけ進むかを設定します。スクロールが敏感すぎる場合は下げてください。</string>
     <string name="title_trackpad_swap_axis">トラックパッド入力の X 軸と Y 軸を入れ替える</string>
     <string name="summary_trackpad_swap_axis">一部の物理タッチパッドは軸が回転して報告されるため、上にスワイプするとポインタが横に動きます。オンにすると、トラックパッド感度を適用する前に X と Y を入れ替えます。タッチスクリーンのモードには影響しません。</string>
     <string name="title_checkbox_absolute_mouse_mode">デスクトップ マウスモード</string>

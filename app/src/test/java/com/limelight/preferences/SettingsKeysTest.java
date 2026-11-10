@@ -333,6 +333,7 @@ public class SettingsKeysTest {
         reads.put("seekbar_mouse_speed", new Read(100, 200, c -> c.mouseSpeed));
         reads.put("seekbar_trackpad_sensitivity_x", new Read(100, -100, c -> c.trackpadSensitivityX));
         reads.put("seekbar_trackpad_sensitivity_y", new Read(100, -100, c -> c.trackpadSensitivityY));
+        reads.put("seekbar_trackpad_scroll_speed", new Read(50, 100, c -> c.trackpadScrollSpeed));
         reads.put("checkbox_trackpad_swap_axis", new Read(false, true, c -> c.trackpadSwapAxis));
         reads.put("checkbox_mouse_nav_buttons", new Read(false, true, c -> c.mouseNavButtons));
         reads.put("checkbox_absolute_mouse_mode", new Read(false, true, c -> c.absoluteMouseMode));

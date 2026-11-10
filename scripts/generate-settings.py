@@ -76,6 +76,7 @@ ADVICE = {
     "seekbar_mouse_speed": "Adjust physical relative mouse movement; 100% is normal speed.",
     "seekbar_trackpad_sensitivity_x": "Adjust the horizontal speed of a physical touchpad, such as a keyboard cover's, on top of Mouse speed; 100% is normal speed. Use a negative value to flip the direction. Touchscreen modes use Trackpad speed.",
     "seekbar_trackpad_sensitivity_y": "Adjust the vertical speed of a physical touchpad, such as a keyboard cover's, on top of Mouse speed; 100% is normal speed. Use a negative value to flip the direction. Touchscreen modes use Trackpad speed.",
+    "seekbar_trackpad_scroll_speed": "Adjust how far two fingers scroll on a physical touchpad or in the Trackpad (touchpad gestures) touch mode; 50% is the default. Lower it if scrolling is too sensitive.",
     "checkbox_trackpad_swap_axis": "Enable if a physical touchpad moves the pointer sideways when you swipe up or down. Swaps X and Y before Trackpad Sensitivity applies. Touchscreen modes are not affected.",
     "checkbox_mouse_nav_buttons": "Enable to send mouse Back/Forward buttons. Disable if it interferes with right-click.",
     "checkbox_absolute_mouse_mode": "Enable for desktop pointer acceleration. Leave off for game mouse look. Available on Android 8+ except devices using the separate raw pointer path.",

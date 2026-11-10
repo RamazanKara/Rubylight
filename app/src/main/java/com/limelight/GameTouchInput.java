@@ -27,6 +27,7 @@ import com.limelight.ui.StreamView;
 import android.annotation.SuppressLint;
 import com.limelight.ui.NavigationDialogBuilder;
 import android.os.Build;
+import android.util.DisplayMetrics;
 import android.view.InputDevice;
 import android.view.MotionEvent;
 import android.view.View;
@@ -48,7 +49,8 @@ final class GameTouchInput {
     // Mouse emulation uses two touches; native touch forwards all pointers.
     private final TouchContext[] touchContextMap = new TouchContext[2];
     // Finger touches of a physical touchpad: tap-to-click, scroll and drag, with the Trackpad Sensitivity settings.
-    private final TouchContext[] touchpadContextMap = new TouchContext[2];
+    private final TrackpadContext[] touchpadContextMap = new TrackpadContext[2];
+    private int touchpadResolutionDevice = -2;
     private final FingerTapGesture fingerTap = new FingerTapGesture();
     private final TwoFingerTapGesture twoFingerTap = new TwoFingerTapGesture();
 
@@ -129,15 +131,18 @@ final class GameTouchInput {
         game.trackpadPointer.setLocalCursor(touchMode() == TouchMode.LOCAL_CURSOR);
         updateHostCursorShapes();
         for (int i = 0; i < touchpadContextMap.length; i++) {
-            touchpadContextMap[i] = new TrackpadContext(game.conn, i, game.prefConfig.trackpadSwapAxis,
+            TrackpadContext touchpad = new TrackpadContext(game.conn, i, game.prefConfig.trackpadSwapAxis,
                     game.prefConfig.trackpadSensitivityX, game.prefConfig.trackpadSensitivityY,
                     game.prefConfig.mouseSpeed, game.prefConfig.absoluteMouseMode ? game.streamView : null);
+            touchpad.setScrollSpeed(game.prefConfig.trackpadScrollSpeed);
+            touchpadContextMap[i] = touchpad;
         }
+        touchpadResolutionDevice = -2;
         for (int i = 0; i < touchContextMap.length; i++) {
             if (usesTrackpadGestures()) {
                 // Same gestures as a physical touchpad: tap to click, two-finger scroll and right-click,
                 // tap and touch again to drag, flick momentum.
-                touchContextMap[i] = new TrackpadContext(game.conn, i, game.prefConfig.absoluteMouseMode,
+                TrackpadContext gestures = new TrackpadContext(game.conn, i, game.prefConfig.absoluteMouseMode,
                         game.prefConfig.width, game.prefConfig.height, new TrackpadContext.MoveScale() {
                             @Override public float x() {
                                 return game.prefConfig.width / (float) Math.max(1, game.streamView.getWidth()) * game.prefConfig.trackpadSpeed / 100f;
@@ -146,6 +151,10 @@ final class GameTouchInput {
                                 return game.prefConfig.height / (float) Math.max(1, game.streamView.getHeight()) * game.prefConfig.trackpadSpeed / 100f;
                             }
                         });
+                gestures.setScrollSpeed(game.prefConfig.trackpadScrollSpeed);
+                DisplayMetrics metrics = game.streamView.getResources().getDisplayMetrics();
+                gestures.setUnitsPerMm((metrics.xdpi + metrics.ydpi) / 2f / 25.4f);
+                touchContextMap[i] = gestures;
                 continue;
             }
             touchContextMap[i] = game.prefConfig.touchscreenTrackpad ?
@@ -1220,7 +1229,29 @@ final class GameTouchInput {
         return false;
     }
 
+    /** Tells the touchpad gestures how many input units are a millimetre, so scrolling does not depend on the device. */
+    private void updateTouchpadResolution(MotionEvent event) {
+        if (event.getDeviceId() == touchpadResolutionDevice) {
+            return;
+        }
+        touchpadResolutionDevice = event.getDeviceId();
+        float unitsPerMm = 0;
+        InputDevice device = event.getDevice();
+        InputDevice.MotionRange range = device != null ? device.getMotionRange(MotionEvent.AXIS_X, event.getSource()) : null;
+        if (range != null) {
+            unitsPerMm = range.getResolution();
+            if (unitsPerMm <= 0) {
+                // Not reported: assume a pad about 100 mm wide.
+                unitsPerMm = range.getRange() / 100f;
+            }
+        }
+        for (TrackpadContext context : touchpadContextMap) {
+            context.setUnitsPerMm(unitsPerMm);
+        }
+    }
+
     private boolean handleTouchpadTouch(MotionEvent event) {
+        updateTouchpadResolution(event);
         int actionIndex = event.getActionIndex();
         int pointerCount = event.getPointerCount();
         TouchContext context = actionIndex < touchpadContextMap.length ? touchpadContextMap[actionIndex] : null;

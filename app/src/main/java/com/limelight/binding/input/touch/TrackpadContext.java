@@ -34,6 +34,13 @@ public class TrackpadContext implements TouchContext {
     private boolean isFlicking;
     private double velocityX = 0.0;
     private double velocityY = 0.0;
+    // Scrolling is linear in the finger movement, so it has its own velocity and no acceleration.
+    private double scrollVelocityX = 0.0;
+    private double scrollVelocityY = 0.0;
+    private double scrollRemainderX, scrollRemainderY;
+    private float scrollSpeed = 0.5f;
+    // Input units per millimetre of finger travel, so scrolling feels the same on any touchpad or screen.
+    private float unitsPerMm = 10f;
     private long lastMoveTime;
     private boolean isScrollTransitioning = false;
 
@@ -53,8 +60,12 @@ public class TrackpadContext implements TouchContext {
     private static final int TAP_MOVEMENT_THRESHOLD = 30;
     private static final int TAP_TIME_THRESHOLD = 230;
     private static final int CLICK_RELEASE_DELAY = TAP_TIME_THRESHOLD;
-    private static final int SCROLL_SPEED_FACTOR_X = 2;
-    private static final int SCROLL_SPEED_FACTOR_Y = 3;
+    // Unit: millimetres/ms.
+    private static final double SCROLL_FLICK_THRESHOLD = 0.1;
+    // High-resolution scroll units (120 is one notch) per millimetre of finger travel at 100%;
+    // the default setting is 50%.
+    private static final double SCROLL_UNITS_PER_MM = 1.2;
+    private static final double HORIZONTAL_SCROLL_RATIO = 2.0 / 3.0;
     private static final double ACCELERATION_THRESHOLD = 8.0;
     private static final double FLICK_FRICTION = 0.93;
     // Unit: pixels/ms.
@@ -101,6 +112,45 @@ public class TrackpadContext implements TouchContext {
         this.moveScale = moveScale;
         this.referenceWidth = absolute ? referenceWidth : 0;
         this.referenceHeight = absolute ? referenceHeight : 0;
+    }
+
+    /** Resolution of the input in units per millimetre; ignored when not positive. */
+    public void setUnitsPerMm(float unitsPerMm) {
+        if (unitsPerMm > 0) {
+            this.unitsPerMm = unitsPerMm;
+        }
+    }
+
+    private double scrollGainY() {
+        return SCROLL_UNITS_PER_MM * scrollSpeed / unitsPerMm;
+    }
+
+    private double scrollGainX() {
+        return scrollGainY() * HORIZONTAL_SCROLL_RATIO;
+    }
+
+    /** @param percent how far two-finger scrolling goes per finger movement, from Trackpad Scroll Speed */
+    public void setScrollSpeed(int percent) {
+        this.scrollSpeed = percent / 100f;
+    }
+
+    /**
+     * Sends scrolling in high-resolution units, keeping the fractions for the next call. An axis
+     * that is not sent drops its fraction.
+     */
+    private void sendScroll(double unitsX, double unitsY, boolean horizontal, boolean vertical) {
+        scrollRemainderX = horizontal ? scrollRemainderX + unitsX : 0;
+        scrollRemainderY = vertical ? scrollRemainderY + unitsY : 0;
+        short x = (short) scrollRemainderX;
+        short y = (short) scrollRemainderY;
+        scrollRemainderX -= x;
+        scrollRemainderY -= y;
+        if (x != 0) {
+            conn.sendMouseHighResHScroll(x);
+        }
+        if (y != 0) {
+            conn.sendMouseHighResScroll(y);
+        }
     }
 
     private void sendMove(short deltaX, short deltaY) {
@@ -173,25 +223,21 @@ public class TrackpadContext implements TouchContext {
                 return;
             }
 
-            double frameVelocityX = velocityX * MOMENTUM_FRAME_INTERVAL_MS;
-            double frameVelocityY = velocityY * MOMENTUM_FRAME_INTERVAL_MS;
+            double frameX = scrollVelocityX * MOMENTUM_FRAME_INTERVAL_MS;
+            double frameY = scrollVelocityY * MOMENTUM_FRAME_INTERVAL_MS;
+            double unitsX = -frameX * scrollGainX();
+            double unitsY = frameY * scrollGainY();
 
-            if (Math.abs(frameVelocityX) > Math.abs(frameVelocityY)) {
-                conn.sendMouseHighResHScroll((short)(-frameVelocityX * SCROLL_SPEED_FACTOR_X));
-                if (Math.abs(frameVelocityY) * 1.05 > Math.abs(frameVelocityX)) {
-                    conn.sendMouseHighResScroll((short)(frameVelocityY * SCROLL_SPEED_FACTOR_Y));
-                }
+            if (Math.abs(frameX) > Math.abs(frameY)) {
+                sendScroll(unitsX, unitsY, true, Math.abs(frameY) * 1.05 > Math.abs(frameX));
             } else {
-                conn.sendMouseHighResScroll((short)(frameVelocityY * SCROLL_SPEED_FACTOR_Y));
-                if (Math.abs(frameVelocityX) * 1.05 >= Math.abs(frameVelocityY)) {
-                    conn.sendMouseHighResHScroll((short)(-frameVelocityX * SCROLL_SPEED_FACTOR_X));
-                }
+                sendScroll(unitsX, unitsY, Math.abs(frameX) * 1.05 >= Math.abs(frameY), true);
             }
 
-            velocityX *= FLICK_FRICTION;
-            velocityY *= FLICK_FRICTION;
+            scrollVelocityX *= FLICK_FRICTION;
+            scrollVelocityY *= FLICK_FRICTION;
 
-            if (Math.sqrt(velocityX * velocityX + velocityY * velocityY) * MOMENTUM_FRAME_INTERVAL_MS < 0.5) {
+            if (Math.hypot(unitsX, unitsY) < 0.5) {
                 isFlicking = false;
             }
 
@@ -265,6 +311,10 @@ public class TrackpadContext implements TouchContext {
             distanceMoved = 0;
             velocityX = 0;
             velocityY = 0;
+            scrollVelocityX = 0;
+            scrollVelocityY = 0;
+            scrollRemainderX = 0;
+            scrollRemainderY = 0;
             lastMoveTime = eventTime;
             if (isClickPending) {
                 isClickPending = false;
@@ -310,6 +360,8 @@ public class TrackpadContext implements TouchContext {
             double decay = Math.max(0.0, 1.0 - (double)timeSinceLastMove / FLICK_VELOCITY_DECAY_TIMEOUT_MS);
             velocityX *= decay;
             velocityY *= decay;
+            scrollVelocityX *= decay;
+            scrollVelocityY *= decay;
         }
 
         byte buttonIndex = getMouseButtonIndex();
@@ -350,15 +402,16 @@ public class TrackpadContext implements TouchContext {
         else if (confirmedMove) {
             // This was a move/scroll that wasn't a drag or tap. Let's see if we should flick.
             double speed = Math.sqrt(velocityX * velocityX + velocityY * velocityY);
-            if (speed > FLICK_THRESHOLD) {
-                isFlicking = true;
-                if (confirmedScroll) {
+            if (confirmedScroll) {
+                if (Math.hypot(scrollVelocityX, scrollVelocityY) / unitsPerMm > SCROLL_FLICK_THRESHOLD) {
+                    isFlicking = true;
                     handler.post(scrollMomentumRunnable);
-                } else {
-                    // A 1-finger move can flick. A >1 finger move that wasn't a scroll shouldn't cause a mouse move flick.
-                    if (maxPointerCountInGesture == 1) {
-                        handler.post(momentumRunnable);
-                    }
+                }
+            } else if (speed > FLICK_THRESHOLD) {
+                // A 1-finger move can flick. A >1 finger move that wasn't a scroll shouldn't cause a mouse move flick.
+                if (maxPointerCountInGesture == 1) {
+                    isFlicking = true;
+                    handler.post(momentumRunnable);
                 }
             }
         }
@@ -402,6 +455,11 @@ public class TrackpadContext implements TouchContext {
                 absDeltaY = Math.abs(rawDeltaY);
             }
 
+            // Scrolling follows the finger linearly: no acceleration, but the axis swap, direction
+            // and sensitivity of the touchpad still apply.
+            float scrollDeltaX = deltaX * sensitivityX;
+            float scrollDeltaY = deltaY * sensitivityY;
+
             deltaX *= precisionMultiplier;
             deltaY *= precisionMultiplier;
 
@@ -421,6 +479,16 @@ public class TrackpadContext implements TouchContext {
                     // Simple EMA for smoothing
                     velocityX = velocityX * 0.8 + currentVelocityX * 0.2;
                     velocityY = velocityY * 0.8 + currentVelocityY * 0.2;
+                }
+
+                double currentScrollX = scrollDeltaX / deltaTime;
+                double currentScrollY = scrollDeltaY / deltaTime;
+                if (scrollVelocityX == 0 && scrollVelocityY == 0) {
+                    scrollVelocityX = currentScrollX;
+                    scrollVelocityY = currentScrollY;
+                } else {
+                    scrollVelocityX = scrollVelocityX * 0.8 + currentScrollX * 0.2;
+                    scrollVelocityY = scrollVelocityY * 0.8 + currentScrollY * 0.2;
                 }
             }
 
@@ -451,16 +519,12 @@ public class TrackpadContext implements TouchContext {
                     } else if (pointerCount == 2) {
                         checkForConfirmedScroll();
                         if (confirmedScroll) {
+                            double unitsX = -scrollDeltaX * scrollGainX();
+                            double unitsY = scrollDeltaY * scrollGainY();
                             if (absDeltaX > absDeltaY) {
-                                conn.sendMouseHighResHScroll((short)(-sendDeltaX * SCROLL_SPEED_FACTOR_X));
-                                if (absDeltaY * 1.05 > absDeltaX) {
-                                    conn.sendMouseHighResScroll((short)(sendDeltaY * SCROLL_SPEED_FACTOR_Y));
-                                }
+                                sendScroll(unitsX, unitsY, true, absDeltaY * 1.05 > absDeltaX);
                             } else {
-                                conn.sendMouseHighResScroll((short)(sendDeltaY * SCROLL_SPEED_FACTOR_Y));
-                                if (absDeltaX * 1.05 >= absDeltaY) {
-                                    conn.sendMouseHighResHScroll((short)(-sendDeltaX * SCROLL_SPEED_FACTOR_X));
-                                }
+                                sendScroll(unitsX, unitsY, absDeltaX * 1.05 >= absDeltaY, true);
                             }
                         }
                     }

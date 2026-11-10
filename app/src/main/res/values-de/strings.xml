@@ -177,6 +177,8 @@
     <string name="summary_trackpad_sensitivity_x">Horizontale Geschwindigkeit eines physischen Touchpads, etwa an einer Tastaturhülle, zusätzlich zum Maustempo. Ein negativer Wert kehrt die Richtung um. Die Touchscreen-Modi nutzen stattdessen das Trackpad-Tempo.</string>
     <string name="title_trackpad_sensitivity_y">Trackpad-Empfindlichkeit Y</string>
     <string name="summary_trackpad_sensitivity_y">Vertikale Geschwindigkeit eines physischen Touchpads, etwa an einer Tastaturhülle, zusätzlich zum Maustempo. Ein negativer Wert kehrt die Richtung um. Die Touchscreen-Modi nutzen stattdessen das Trackpad-Tempo.</string>
+    <string name="title_trackpad_scroll_speed">Trackpad-Scrollgeschwindigkeit</string>
+    <string name="summary_trackpad_scroll_speed">Wie weit zwei Finger auf einem physischen Touchpad oder im Touch-Modus Trackpad (Touchpad-Gesten) scrollen. Verringere den Wert, wenn das Scrollen zu empfindlich ist.</string>
     <string name="title_trackpad_swap_axis">X- und Y-Achse der Trackpad-Eingabe vertauschen</string>
     <string name="summary_trackpad_swap_axis">Manche physischen Touchpads melden ihre Achsen gedreht, sodass das Wischen nach oben den Zeiger seitwärts bewegt. Aktiviere dies, um X und Y vor der Trackpad-Empfindlichkeit zu vertauschen. Die Touchscreen-Modi sind nicht betroffen.</string>
     <string name="title_checkbox_absolute_mouse_mode">Desktop-Mausmodus</string>

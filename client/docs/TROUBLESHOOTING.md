@@ -2,7 +2,7 @@
 
 [Documentation](index.md)
 
-Find the symptom, make one change and try again. For performance problems, first open **stream menu → Display → Overlay and diagnostics**, choose **Debug** and use **Copy stats**, so you can compare the numbers before and after the change. The first three tables describe the Android app; [Nightjar for Windows and Linux](#nightjar-for-windows-and-linux) has its own table.
+Find the symptom, make one change and try again. For performance problems, first open the stream menu's **Diagnostics** tile, choose **Debug** and use **Copy stats**, so you can compare the numbers before and after the change. The first three tables describe the Android app; [Nightjar for Windows and Linux](#nightjar-for-windows-and-linux) has its own table.
 
 ## Add and pair a host
 
@@ -69,28 +69,29 @@ Nightjar uses the ports the host advertises, including custom port offsets; chec
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
 | PCs are not found | Windows Firewall blocks Nightjar, or discovery cannot cross the network. | Allow Nightjar on private networks when Windows asks. Add the PC by address with **Add PC**. |
-| The stream reports a fallback to software decoding | No hardware decoder supports this codec, resolution or format. | Try HEVC or H.264, lower the resolution, or turn off **10-bit color (SDR)** and **Full chroma**. On Linux, install the VA-API driver for your GPU. |
+| The stream reports a fallback to software decoding | No hardware decoder supports this codec, resolution or format. | Try HEVC or H.264, lower the resolution, or turn off **Less color banding (10-bit SDR)** and **Full chroma**. On Linux, the stream's start names what to install (a VA-API driver with H.264 and HEVC, the Flatpak's NVIDIA driver extension, or an NVIDIA driver with Vulkan video). |
 | **Frame pacing** and **V-Sync** are unavailable | **Variable refresh rate** is on, so the display paces frames. | Turn **Variable refresh rate** off to choose **Frame pacing** and **V-Sync** yourself. |
-| A stream that needs the GPU renderer is refused on Linux | **Renderer** (Debug) is set to OpenGL, or the GPU renderer could not be made; the dialog says which. HDR, upscaling, PyroWave, **Prefer YUV 4:4:4**, **10-bit color (SDR)** and **Full chroma** need the GPU renderer. | Set **Renderer** to Automatic or GPU (Vulkan). If it could not be made, check the Vulkan driver and attach `nightjar.log` to a bug report. |
+| A stream that needs the GPU renderer is refused on Linux | **Renderer** (Debug) is set to OpenGL, or the GPU renderer could not be made; the dialog says which. HDR, upscaling, PyroWave, **Sharper colored text (YUV 4:4:4)**, **Less color banding (10-bit SDR)** and **Full chroma** need the GPU renderer. | Set **Renderer** to Automatic or GPU (Vulkan). If it could not be made, check the Vulkan driver and attach `nightjar.log` to a bug report. |
 | Loss in bursts on Linux, with a receive buffer note in **Why did my stream stutter?** | The system limits the video socket's receive buffer. | Run the `sysctl` command given in the note, then start a new stream. |
 | No echo cancellation on Linux | The PipeWire or PulseAudio echo-cancel module is not loaded. | Load the module for your sound server, or use a headset. |
 | A USB device shows another driver on Windows | Nightjar forwards USB devices through WinUSB only. | Install WinUSB for the device, for example with Zadig, to forward it. |
+| HDR streams on Linux look brighter or dimmer than the PC's picture | **HDR brightness follows the desktop** is on, or the compositor rescales HDR. | Turn **HDR brightness follows the desktop** off (the default) to show HDR at the brightness the PC sends. |
 | Anything else | | Open **Settings → App → Logs → Open logs folder** and attach `nightjar.log`, and `nightjar.prev.log` if the problem occurred before a restart, to a [bug report](https://github.com/RamazanKara/nightjar/issues/new/choose). |
 
 ## Connection test
 
-Long-press a PC and choose **PC settings… → Connection test**. The test makes ten timed server-info requests. Ping is their average round trip; jitter is the average change between consecutive successful requests; loss is the share of failed requests, not video packet loss.
+Open **Settings → Streaming → Network tests** (with several PCs it asks which one), or long-press a PC and choose **PC settings… → Connection test**. The test makes ten timed server-info requests. Ping is their average round trip; jitter is the average change between consecutive successful requests; loss is the share of failed requests, not video packet loss.
 
 With a paired host that supports it (Rubylight, or Vibepollo with PyroWave available), an optional 32 MiB HTTPS download measures throughput and shows the link speed the host's network adapter reports. Other hosts get the delay test only, and the test's first screen says which applies. The test uses network data and briefly competes with other traffic; cancel or leave it to stop. It never changes stream settings.
 
-On Windows and Linux, **Play away from home → Remote access → Test this PC** in the PC's details verifies the paired PC with five small HTTPS requests.
+On Windows and Linux, **Network speed test** under **Settings → Streaming → Network tests**, or in a PC's own settings, runs the same 32 MiB download, and **Play away from home → Remote access → Test this PC** in the PC's details verifies the paired PC with five small HTTPS requests.
 
 ## Export a problem report
 
 1. Reproduce the problem and note the app version, the device and its Android version, the host's version and the time.
 2. Open **Settings → App → Report a problem**, select **Share** and choose an app in Android's share sheet. On a TV, or anywhere the share sheet has no app for files, select **Send to PC** instead: the report goes into the file transfer folder of the PC you pick (the host needs file transfer on and Upload files for this device).
-3. Where relevant, add **stream menu → Display → Overlay and diagnostics → Copy stats** and **Settings → Advanced → Export latency CSV**. Copy stats includes every Debug value.
+3. Where relevant, add **stream menu → Diagnostics → Copy stats** and **Settings → Advanced → Export latency CSV**. Copy stats includes every Debug value.
 4. For pairing and host problems, long-press the PC, open **PC settings… → View details → Copy debug info**, and add the host's log.
 5. Describe what you did, what you expected and what happened in a [Nightjar issue](https://github.com/RamazanKara/nightjar/issues).
 
-The report is a text file, `nightjar-problem.txt`. It contains up to 200 redacted events from the running app, the last decoder configuration and the last saved crash record. Addresses, names given to PCs and devices, PINs, credentials and free-text diagnostic details are removed. Nothing is uploaded: the report leaves the device only through the app or the PC you choose. Review host details and logs you copy separately before sharing them.
+The report is a text file, `nightjar-problem.txt`. It names the device and contains up to 400 redacted events from the running app, with UTC times, the last decoder configuration and the last saved crash record. Addresses, names given to PCs and devices, PINs, credentials and free-text diagnostic details are removed. Nothing is uploaded: the report leaves the device only through the app or the PC you choose. Review host details and logs you copy separately before sharing them.

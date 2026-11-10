@@ -2,7 +2,7 @@
 
 Nightjar is moving its streaming engine from moonlight-common-c (C, plus Nightjar's patches and
 `android_*.c` replacements) to Rust, so one implementation serves the Android app and the desktop
-clients for Windows and Linux. This file is the plan and the status; update the status as work
+clients for Windows, Linux and macOS. This file is the plan and the status; update the status as work
 lands.
 
 ## Layout
@@ -17,7 +17,8 @@ The Rust workspace is `protocol/`:
 | `rubylight-protocol-ffi` | `protocol/ffi` | C ABI for the Android app. Grows a Limelight-compatible API over `nightjar-core` for the switch-over. |
 | `nightjar-android` | `protocol/android` | `libnightjar_core.so` (`publish = false`): the JNI side of the app's `RustBridge`, built by Gradle's `buildRustEngine` for the four ABIs and not committed. See "Android switch-over" below. |
 | `nightjar-cli` | `protocol/cli` | Headless test client (`publish = false`): stream, decode every frame, report. Drop-in for Rubylight's `rust/tests/moonlight_client.c` (same arguments, environment, output lines and exit codes) so Rubylight's `interop.py`/`e2e.py` drive it unchanged; pairing and launch stay in `interop.py`. Decoding needs the `ffmpeg` feature (libavcodec and libopus, as the C client). |
-| `nightjar-desktop` | `protocol/desktop` | Windows and Linux client (`publish = false`, not a default member): SDL3 window and renderer, egui launcher, FFmpeg D3D11VA/VAAPI decoding, PresentClock pacing, SDL3 audio and gamepads. See `protocol/desktop/README.md`. |
+| `nightjar-policy` | `protocol/policy` | Stream policies both clients share, with no I/O and no clock (bitrate, quality, health, recovery, launch, collections, open-play, stream menu and more). Android calls some through `libnightjar_core.so` and keeps the rest trace-equal (`PolicyTraceTest`). |
+| `nightjar-desktop` | `protocol/desktop` | Windows, Linux and macOS client (`publish = false`, not a default member): SDL3 window, egui launcher, FFmpeg decoding (D3D11VA; VA-API, Vulkan video, V4L2 M2M and NVDEC; VideoToolbox), SDL renderers (D3D11; OpenGL or Vulkan; Metal), PresentClock pacing, SDL3 audio and gamepads. See `protocol/desktop/README.md`. |
 
 ## Module boundaries in `nightjar-core`
 
@@ -60,9 +61,9 @@ order; terminations after it are not reported.
   `send_clock_sync_probe`, `send_microphone`, `hdr`, `stats` (RTT, video/audio counters,
   decode and queue counts, connection status), `outcome` (the negotiated stream).
 
-Not ported: the pull renderer (`CAPABILITY_PULL_RENDERER`, LiWaitForNextVideoFrame), STUN
-(LiFindExternalAddressIP4), socket QoS (SO_PRIORITY / SO_NET_SERVICE_TYPE), GFE generations
-before 3.22.
+Not ported: the pull renderer (`CAPABILITY_PULL_RENDERER`, LiWaitForNextVideoFrame) and GFE
+generations before 3.22. STUN is `stun.rs` and socket QoS and thread priorities are
+`priority.rs`.
 
 ## nightjar-cli
 
@@ -85,7 +86,7 @@ The C client on the same package: h264 710/710 and recovery 3/3 (5.2 ms mean), e
 
 ## Android switch-over
 
-The setting Settings > Advanced > Diagnostics > "New streaming engine"
+The setting Settings > Advanced > "New streaming engine"
 (`checkbox_rust_engine`, on by default since 2026-10-23; off selects the classic C engine) picks
 the engine per stream:
 
@@ -181,4 +182,5 @@ microphone passthrough, STUN, the RTSP and SDP extensions, the bughunt fixes.
   checklist and `docs/PARITY-MATRIX.md` for the remaining gaps)
 - [x] Rust engine as the Android default (C engine kept as the opt-out)
 - [ ] Removal of the C engine
-- [x] Desktop client milestone 1 (Windows, Linux): pairing, library, launch/resume/quit, hardware decoding, VRR pacing, audio, input, overlay. Streamed against an isolated Rubylight host on Windows (HEVC D3D11VA up to 5120x1440@240). Next: decode-only FFmpeg for packaging, HDR output, VAAPI dmabuf import, a dedicated D3D11 renderer with a waitable swap chain, per-PC settings, Wake-on-LAN, OTP pairing.
+- [x] Desktop client milestone 1 (Windows, Linux): pairing, library, launch/resume/quit, hardware decoding, VRR pacing, audio, input, overlay. Streamed against an isolated Rubylight host on Windows (HEVC D3D11VA up to 5120x1440@240).
+- [x] Desktop client releases for Windows and Linux (x86_64 and aarch64), then macOS: packaged FFmpeg, HDR output, VA-API DMA-BUF import, per-PC settings, Wake-on-LAN, one-time PIN pairing. Current state: `protocol/desktop/README.md` and `docs/CLIENT-PARITY.md`.

@@ -2,7 +2,7 @@
 
 [Documentation](index.md)
 
-Nightjar ships in 15 languages on Android, Windows and Linux. English (`values`) is the source text. Lint treats a missing translation as an error.
+Nightjar ships in 15 languages on Android, Windows, Linux and macOS. English (`values`) is the source text. Lint treats a missing translation as an error.
 
 ## Languages
 
@@ -24,7 +24,7 @@ Nightjar ships in 15 languages on Android, Windows and Linux. English (`values`)
 | Ukrainian (Українська) | `values-uk` | 23 strings reused unchanged from the Moonlight/Artemis community translation, 56 more adapted from it; the rest machine-assisted | Community review wanted |
 | Vietnamese (Tiếng Việt) | `values-vi` | 61 strings reused unchanged from the Moonlight/Artemis community translation, 18 more adapted from it; the rest machine-assisted | Community review wanted |
 
-The app has 2,139 translatable strings, counting each plural and string array as one, and every language translates all of them. `python scripts/translation-status.py` prints the current counts and the missing keys. "Machine-assisted" means the text was drafted by translation tooling, checked against the rules below and reviewed for terminology, but not yet read by a native speaker. Corrections from native speakers are the most useful contribution for these languages.
+The app has 2,288 translatable strings, counting each plural and string array as one. Every language translates all of them except the six Dual screen strings in `values/dual_screen.xml`, which show in English for now (that file is exempt from the missing-translation check). `python scripts/translation-status.py` prints the current counts and the missing keys. "Machine-assisted" means the text was drafted by translation tooling, checked against the rules below and reviewed for terminology, but not yet read by a native speaker. Corrections from native speakers are the most useful contribution for these languages.
 
 The reused sentences come from the community translations of [Moonlight Android](https://github.com/moonlight-stream/moonlight-android) and [Artemis Android](https://github.com/ClassicOldSong/moonlight-android) (both GPL-3.0, like Nightjar). A sentence was reused only where its English source was identical to Nightjar's, with the app name replaced; those projects' translations also set the terminology for each language.
 
@@ -37,7 +37,7 @@ You don't need to build the app to translate it.
 - **Fix a string:** find the key in `app/src/main/res/values/` (English) and the same key in `app/src/main/res/values-<language>/`, edit it and open a pull request. Say which screen you looked at if you could.
 - **Review a language:** use Nightjar in that language and report wording that is wrong, unnatural or cut off in an issue titled `Translation (<language>): …`, with a screenshot.
 - **Add a language:** open an issue first. A new language needs all strings translated (see [Adding a language](#adding-a-language)).
-- **Weblate:** a hosted Weblate project is planned; until then, use pull requests.
+- **Weblate:** there is no hosted Weblate project yet; use pull requests. [Weblate setup](#weblate-setup) records how it would be connected.
 
 Run `python scripts/translation-status.py` to list missing or stale keys per language.
 
@@ -52,17 +52,17 @@ Run `python scripts/translation-status.py` to list missing or stale keys per lan
 
 ## Desktop
 
-Nightjar for Windows and Linux has the same 15 languages. Its text lives in `protocol/desktop/src/strings/<language>.rs`, one table per language keyed by the English literal, worded like the Android strings of the same sentence. It follows the system language, or the Language setting under Settings → App. A test in `strings.rs` requires an entry for every English text in every table, with the same placeholders, and another checks that zh-CN and zh-Hans pick Simplified Chinese, zh-TW, zh-Hant and zh-HK Traditional, and pt-BR Portuguese (Brazil).
+The desktop client (Windows, Linux and macOS) has the same 15 languages. Its text lives in `protocol/desktop/src/strings/<language>.rs`, one table per language keyed by the English literal, worded like the Android strings of the same sentence. It follows the system language, or the Language setting under Settings → App. A test in `strings.rs` requires an entry for every English text in every table, with the same placeholders, and another checks that zh-CN and zh-Hans pick Simplified Chinese, zh-TW, zh-Hant and zh-HK Traditional, and pt-BR Portuguese (Brazil).
 
 The desktop's own font, Figtree, has Latin-1 letters only. For the other languages Nightjar loads a system font when the language is chosen, and logs a line naming the font to install when there is none:
 
-| Languages | Windows | Linux (through fontconfig) |
-| --- | --- | --- |
-| Japanese | Yu Gothic UI, else Meiryo | Noto Sans CJK JP, else Source Han Sans JP |
-| Korean | Malgun Gothic | Noto Sans CJK KR, else Source Han Sans KR |
-| Chinese, Simplified | Microsoft YaHei UI | Noto Sans CJK SC, else Source Han Sans SC |
-| Chinese, Traditional | Microsoft JhengHei UI | Noto Sans CJK TC, else Source Han Sans TC |
-| Polish, Russian, Turkish, Ukrainian, Vietnamese | Segoe UI | Noto Sans, else DejaVu Sans |
+| Languages | Windows | Linux (through fontconfig) | macOS |
+| --- | --- | --- | --- |
+| Japanese | Yu Gothic UI, else Meiryo | Noto Sans CJK JP, else Source Han Sans JP | Hiragino Sans |
+| Korean | Malgun Gothic | Noto Sans CJK KR, else Source Han Sans KR | Apple SD Gothic Neo |
+| Chinese, Simplified | Microsoft YaHei UI | Noto Sans CJK SC, else Source Han Sans SC | PingFang SC, else STHeiti |
+| Chinese, Traditional | Microsoft JhengHei UI | Noto Sans CJK TC, else Source Han Sans TC | PingFang TC, else STHeiti |
+| Polish, Russian, Turkish, Ukrainian, Vietnamese | Segoe UI | Noto Sans, else DejaVu Sans | Helvetica Neue, else Arial |
 
 For the last row the system font draws the whole interface, so no word mixes two typefaces. The fonts load on a background thread when a language is chosen (the interface shows in Figtree until then, usually a fraction of a second), and Linux gives `fc-match` two seconds per font. The current language's font files stay in memory, because egui keeps the whole file: about 1 to 2 MB for Segoe UI or Noto Sans, and 24 to 38 MB for a CJK language's regular and bold files. Choosing another language frees them. `theme.rs` tests that every text of every table has its glyphs in the loaded fonts; a language whose font is not installed on the test machine is skipped there.
 

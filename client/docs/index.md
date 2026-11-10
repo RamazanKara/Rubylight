@@ -1,6 +1,6 @@
 # Nightjar documentation
 
-These pages describe Nightjar 4.0 for Android, Android TV, Fire TV, Windows and Linux. Nightjar works with any Moonlight-compatible host, such as Sunshine, Apollo, Vibepollo, Rubylight and NVIDIA GameStream, and enables each host extension from the capabilities the host reports.
+These pages describe the current Nightjar 4 release for Android, Android TV, Fire TV, Windows, Linux and macOS. Nightjar works with any Moonlight-compatible host, such as Sunshine, Apollo, Vibepollo, Rubylight and NVIDIA GameStream, and enables each host extension from the capabilities the host reports.
 
 Conventions used throughout:
 
@@ -17,7 +17,7 @@ New to Nightjar? Read the [quick start](quick-start.md), then return here when y
 | [Quick start](quick-start.md) | Installing a host, adding a PC and starting the first stream |
 | [Pairing and permissions](pairing.md) | PIN, one-time PIN and QR pairing; the per-device permissions a host can set |
 | [Play away from home](remote-setup.md) | Streaming over Tailscale or a forwarded connection, and testing the path |
-| [Home and the session menu](console.md) | Home, game pages, Join co-op, the Session and graphics menu, TV and accessibility |
+| [Home and the session menu](console.md) | Home and its views, game pages, Continue here, PC options and power, Microphone only, Join co-op, the Session and graphics page, TV and accessibility |
 | [Controls](controls.md) | Controllers, touch, mouse, keyboard, pen, on-screen controls and the microphone |
 | [Gamepad navigation](gamepad-navigation.md) | Using the menus and the PC keyboard with a controller |
 | [DualSense USB audio and haptics](dualsense-haptics.md) | Waveform haptics and controller audio over USB |
@@ -26,6 +26,7 @@ New to Nightjar? Read the [quick start](quick-start.md), then return here when y
 | [Clipboard, files, folders and USB devices](sharing.md) | Sharing with a PC whose host supports it |
 | [Launcher integrations](FRONTENDS.md) | Starting games from Beacon, ES-DE, Daijisho, Pegasus and Android TV's home screen |
 | [Nightjar for macOS, Windows and Linux](../protocol/desktop/README.md) | Installing, running and building the desktop client |
+| [Steam Deck and Linux handhelds](steam-deck.md) | The Flatpak, Game Mode controls and HDR under gamescope |
 | [Features](features.md) | Every feature, with a link to its guide |
 
 ## Reference
@@ -61,7 +62,7 @@ Design notes, measurements and audits for contributors. They describe internals 
 
 | Note | Subject |
 | --- | --- |
-| [Beam racing](beam-racing.md), [early decode](early-decode.md) | Desktop presentation timing |
+| [Beam racing](beam-racing.md), [early decode](early-decode.md), [mouse pace](mouse-pace.md) | Desktop presentation timing, and input sent at the mouse's pace |
 | [PyroWave GPU decoding](pyrowave-decode.md), [PyroWave decode stages](pyrowave-decode-stages.md) | The desktop PyroWave decoder and its measured stages |
 | [Refresh rate switching](expected-refresh-switch.md), [HDR on Android displays](expected-hdr10.md) | How the Android app requests refresh rates and HDR, and reports refusals |
 | [Client roaming](protocol/client-roaming.md), [host cursor shapes](protocol/cursor-shape.md) | Protocol extensions proposed for Moonlight-compatible hosts |

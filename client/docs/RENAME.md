@@ -50,7 +50,8 @@ reconfiguration and others) when a host advertises them. See the [host feature m
 | Intent extras `rubylight.outputDisplay`, `rubylight.outputResumeOnly`, `rubylight.microphoneMuted` | Runtime-only and internal. Left alone during the rename to avoid clashing with parallel work in `Game.java`; safe to rename together with `GameRecoveryTest` and `GameDisplayLifecycleTest`. |
 | Debug task affinity `com.butterpollo.client.demohome` | Follows the application ID. |
 | Test fixtures `app/src/test/resources/protocol/butterpollo-*.xml` | Recorded Rubylight host responses from commits made while the host was called Butterpollo. |
-| `internal/BUTTERPOLLO_PARITY.md`, store changelogs | Historical records, kept as written. |
+| `internal/BUTTERPOLLO_PARITY.md` | Only the filename, which code and tests cite; its text says Rubylight, and its full history is in git. |
+| Store changelogs | Historical records, kept as written. |
 
 Protocol identities that were never product names stay as well: the client certificate CN
 `NVIDIA GameStream Client`, the key alias `Limelight-RSA`, the mDNS service `_nvstream._tcp`, the

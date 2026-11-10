@@ -19,12 +19,12 @@ Everything on this page applies to Android and to Nightjar for Windows and Linux
 
 ### Text and images from the stream menu
 
-The stream menu's **Host** section moves the clipboard by hand, when the PC allows it:
+The stream menu moves the clipboard by hand, when the PC allows it: text with the **Send clipboard** and **Get clipboard** tiles, images under **More**.
 
 | Entry | What it does |
 | --- | --- |
-| Send clipboard to host | Puts the text on this device's clipboard on the PC's. |
-| Copy host clipboard | Copies the PC's text here. |
+| Send clipboard | Puts the text on this device's clipboard on the PC's. |
+| Get clipboard | Copies the PC's text here. |
 | Send clipboard image to host | Sends a copied image to the PC (desktop: **Send image to PC**). |
 | Copy host clipboard image | Copies the image on the PC's clipboard here (desktop: **Copy PC image here**). |
 
@@ -34,7 +34,7 @@ Images travel as PNG and use the same clipboard permissions as text. An image to
 
 **Files** sends files to the PC and downloads files from its file-transfer folder.
 
-- **Android:** open it from a PC's options (long-press the PC, or its three dots), from Home, or from the stream menu's **Host** section. From the stream menu it opens its own screen; the game keeps running on the PC. You can also share files to **Send to PC** from another app.
+- **Android:** open it from a PC's options (long-press the PC, or its three dots), from Home, or from the stream menu's **More**. From the stream menu it opens its own screen; the game keeps running on the PC. You can also share files to **Send to PC** from another app.
 - **Windows and Linux:** **Files** is on the PC's options. Downloads land in your Downloads folder.
 
 The page shows the PC's folder with its free space and a list of transfers. Each transfer shows its progress and can be cancelled or retried; cancelling ends it at once, even when the PC has stopped answering. **Clear finished** removes completed transfers from the list.
@@ -59,8 +59,8 @@ A PC that shares no folders, or a host without shared folders, says so and point
 
 USB forwarding hands a USB device plugged into this device, such as a drawing tablet or a security key, to the PC until you detach or unplug it or the stream ends.
 
-- **Android:** turn on **Settings → Controls → Forward USB devices** (off by default, under the USB controllers group). It needs the New streaming engine. During a stream, the menu's **Host** section then shows **USB devices**.
-- **Windows and Linux:** **USB devices** is in the stream controls when the PC offers it. On Windows, Nightjar reaches a device only through the WinUSB driver, so the list names the driver of any device that uses another one instead of offering it; install WinUSB for that device (for example with Zadig) to forward it.
+- **Android:** turn on **Settings → Controls → Forward USB devices** (off by default, under the USB controllers group). It needs the New streaming engine. During a stream, the menu's **More** then shows **USB devices**.
+- **Windows and Linux:** turn on **Settings → Streaming → USB forwarding** (off by default); **USB devices** is then in the stream controls when the PC offers it. On Linux, webcams and USB audio devices go through your distribution's usbip tools, which the Flatpak cannot reach; see [Steam Deck](steam-deck.md#what-the-flatpak-cant-do). On Windows, Nightjar reaches a device only through the WinUSB driver, so the list names the driver of any device that uses another one instead of offering it; install WinUSB for that device (for example with Zadig) to forward it.
 
 The entry appears only when the PC offers USB forwarding and allows it for this device; otherwise the stream controls say why. Hubs, and controllers that Nightjar's own USB drivers already use, are not listed. A device that can't be attached names the reason: no permission, USB forwarding off on the PC, the PC's limit of attached devices, its USB driver, a timeout or a device that stopped answering.
 

@@ -220,7 +220,7 @@ Tier: Main rows show when a section opens; More rows fold behind the section's l
 | Language<br>`list_languages` | Main | System default | System default; English; Deutsch; Español; Français; Italiano; Polski; Português (Brasil); Tiếng Việt; Türkçe; Русский; Українська; 日本語; 한국어; 简体中文; 繁體中文 | Choose the interface language. Android 13+ uses the system per-app language setting. |
 | Use small box art<br>`checkbox_small_icon_mode` | More | On below 500 dp smallest screen width; Off on TVs and larger screens | On; Off | Enable to fit more games in the library grid. |
 | Quick resume<br>`checkbox_quick_resume` | Main | Off | On; Off | Enable to go straight back into the running game when you tap its PC, skipping the library. Use the PC's menu for the library while a game runs. Off keeps the tap opening the library. |
-| Open on Home<br>`checkbox_console_home` | Main | On | On; Off | Enable to open on Home: the games to continue, your library across hosts and the hosts. Off opens the list of PCs. Home appears only once a host with the native API has shown its games. |
+| Open on Home<br>`checkbox_console_home` | Main | On | On; Off | Enable to open on Home: the games to continue, your library across hosts and the hosts. Off opens the list of PCs. Home appears once a paired PC has supplied its app list; store shelves and the richer game pages need a host with the native library API. |
 | When Nightjar opens<br>`list_open_on_start` | More | Show my PCs | Show my PCs; Continue my last game; A chosen game | Choose what a cold start from the launcher or at sign-in does: show your PCs, or count down 3 seconds into your last game or the game chosen from its menu. Cancel, B, Back and Esc stop the countdown; an offline PC is woken. If the last automatic start failed or its stream died within 10 seconds, the next one is skipped and says so. A running game is never replaced without asking; a game playing on another device stops the start, and so does a network still away after a minute. |
 | PIN lock<br>`pin_lock` | Main | No stored default | Action | Off until a PIN is set. Asks for a PIN to open Nightjar or to start a stream. A forgotten PIN can only be reset by clearing Nightjar's app data in Android's settings, which also removes paired PCs. |
 | Help<br>`help` | Main | No stored default | Action | Open the bundled help: connecting a PC, pairing, controls and the stream menu, common fixes and problem reports. Works offline; each topic links to these documents for detail. |
@@ -327,25 +327,29 @@ Profiles (`stream_profiles`), under the presets on the Settings overview: Open t
 
 ## Per-PC stream profiles
 
-Long-press a PC and choose **PC settings…**; the screen is titled with the PC name. Every value under **Stream** starts as **Same as all PCs**, which follows the main stream settings and the [named profile](#named-profiles-and-game-settings) in use, including later changes. A value that comes from a profile says so, for example *from profile Hotel*. Pick a value to give this PC its own; pick **Same as all PCs** again to follow the main settings. **Same as all PCs for everything** clears every value of this PC. Choose **Save** to keep the changes; leaving without saving discards them.
+Long-press a PC and choose **PC settings…**; the screen is titled with the PC name. Every value under **Video** starts as **Same as all PCs**, which follows the main stream settings and the [named profile](#named-profiles-and-game-settings) in use, including later changes. A value that comes from a profile says so, for example *from profile Hotel*. Pick a value to give this PC its own; pick **Same as all PCs** again to follow the main settings. **Same as all PCs for everything** clears every value of this PC. Choose **Save** to keep the changes; leaving with unsaved changes asks whether to save or discard them.
 
 Implementation: [HostStreamSettings.java](../app/src/main/java/com/limelight/preferences/HostStreamSettings.java), validated by [HostStreamProfile.java](../app/src/main/java/com/limelight/preferences/HostStreamProfile.java).
 
 | Setting | Values | When to change |
 | --- | --- | --- |
-| Video resolution | Same as all PCs, Native (follows this device's screen), or width and height of 64–16384 pixels | Match a host display or choose a lower decode workload. **Use this screen** fills in the device's landscape dimensions. |
-| Video frame rate | Same as all PCs, or 1–1000 Hz with up to two decimal places | Request fractional rates such as 59.94 or 119.88 Hz. **Use this screen** fills in maximum display refresh; VRR uses the panel maximum. |
+| Stream resolution | Same as all PCs, Screen size (follows this screen), or width and height of 64–16384 pixels | Match a host display or choose a lower decode workload. **Use this screen** fills in the device's landscape dimensions. |
+| Video frame rate | Same as all PCs, or 1–1000 FPS with up to two decimal places | Request fractional rates such as 59.94 or 119.88 Hz. **Use this screen** fills in maximum display refresh; VRR uses the panel maximum. |
 | Video bitrate | Same as all PCs, or 0.5–2000 Mbps with up to three decimal places | Set this PC's bandwidth budget. The host applies its own ceiling; Nightjar follows the bitrate it reports. |
-| Video codec | Same as all PCs, Automatic, Prefer AV1, Prefer HEVC, H.264, PyroWave | Compare codecs on this PC and device. |
-| Upscaling / sharpening | Same as all PCs, or a mode with 0–100% sharpness | Choose a scaler for this PC's lower-resolution SDR stream. |
+| Video codec | Same as all PCs, Automatic, Prefer AV1, Prefer HEVC, H.264, PyroWave | Compare codecs on this PC and device. PyroWave is listed only for PCs that can stream it, and says why when this device can't decode it. |
+| Client-side upscaling | Same as all PCs, Off, Smooth, Sharp (FSR), Sharp, Snapdragon (SGSR) | Choose a scaler for this PC's lower-resolution SDR stream. |
+| Upscaling sharpness | Same as all PCs, or 0–100% | Sharpening strength for the sharp scalers. |
 | HDR / Adaptive refresh (ARR / VRR) | Same as all PCs, On, Off | Enable for a compatible host and screen. |
-| Frame pacing | Same as all PCs, Lowest latency, Balanced, Balanced with FPS limit, Smoothest video | Pick this PC's trade-off between latency and smoothness. Adaptive refresh replaces it with Lowest latency. |
-| Host virtual display | Same as all PCs, On, Off | On asks the PC for a display matching this stream. Off leaves it to the PC's display settings. |
+| Frame pacing | Same as all PCs, Lowest latency, Balanced, Balanced with FPS limit, Smoothest video (more delay) | Pick this PC's trade-off between latency and smoothness. Adaptive refresh replaces it with Lowest latency. |
+| Prefer YUV 4:4:4 | Same as all PCs, On, Off | Request supported chroma behavior for this PC. |
+| Same as all PCs for everything | Action | Clears every stream value of this PC after a confirmation; **Save** applies it. |
+| PC display mode (under **Display on the PC**) | See [Display on the PC](#display-on-the-pc) | Shown for PCs whose host supports display modes. Saved on its own, when you confirm it. |
+| Host virtual display | Same as all PCs, On, Off | On asks the PC for a display matching this stream. Off leaves it to the PC's display settings. Shown for PCs whose host has a virtual display. |
 | PC render resolution | Same as all PCs, or 50–200% | Change the PC's render resolution relative to the stream. Used with the virtual-display request. |
 | PC display scaling | Same as all PCs, PC’s own, or 100–500% in Windows' steps | Larger text and interface on this PC's virtual display; the resolution does not change. Shown only for PCs whose host reads it; on an older host version it is disabled with the reason. |
-| Prefer YUV 4:4:4 | Same as all PCs, On, Off | Request supported chroma behavior for this PC. |
 | Force full-range video (under **Debug**, last, after the Connection and Host groups) | Same as all PCs, On, Off | Request full-range color for this PC. |
-| Save | Action | Stores this PC's own values. Takes effect next stream. |
+
+Between **Display on the PC** and **Debug**, the PC's screen also holds its **Connection** group (**Connection test**, **Calibrate frame pacing** for PCs that offer it, **Play away from home**, **Wake-on-LAN**) and its **Host** group (**Open host web UI**, **View details**, **Add games to a launcher**, **Add to home screen**, **Rename**, **Unpair**, **Remove PC**). These are actions, not stored values.
 
 A PC keeps only the values that differ from the main settings. The host's device and app policy may override a request. The performance overlay and the log show the PC's own values and the display choice for each stream.
 
@@ -370,10 +374,10 @@ Every value screen says where a value it doesn't set comes from: *from the main 
 
 | Control | What it does |
 | --- | --- |
-| New profile | Asks for a name (1–32 characters, unique) and opens the new, empty profile. Set only the values it should change. |
-| A profile → Edit values | The same rows as a PC's stream values: resolution, frame rate, bitrate, codec, upscaling and sharpness, HDR, adaptive refresh, frame pacing, YUV 4:4:4 and, under **Debug** at the end, full-range video. Unset values say **Not set** and follow the main settings. A profile leaves host display choices to each PC. |
+| New profile | Asks for a name (1–32 characters, unique) and opens the new, empty profile. Set only the values it should change. Up to 50 profiles. |
+| A profile → Edit values | The same rows as a PC's stream values: resolution, frame rate, bitrate, codec, upscaling and sharpness, HDR, adaptive refresh, frame pacing, YUV 4:4:4 and, under **Debug** at the end, full-range video. Unset values say **Not set** and follow the main settings; **Clear every value** unsets them all. A profile leaves host display choices to each PC. |
 | A profile → Rename / Duplicate / Delete | Duplicate copies the values under a new name. Delete also clears the profile from **Profile in use** and every network choice; streams use the main settings instead. |
-| Profile in use | The profile every stream uses when no network choice applies. **None** uses the main settings. |
+| Profile in use | The profile every stream uses when no network choice applies. **None (main settings)** uses the main settings. |
 | Choose by network | Off by default. On, the network a stream starts on picks the profile below; Ethernet and networks without a choice use the profile in use. |
 | Mobile data | Mobile data, and Wi-Fi that Android marks as metered, such as a phone's hotspot. |
 | Home Wi-Fi | The Wi-Fi networks listed under **Home Wi-Fi**. |
@@ -389,7 +393,7 @@ Nothing falls back silently. When the profile picked no longer exists or has a v
 
 ### Game settings
 
-Open a game's menu and choose **Stream settings for this game**. The note under it says how many values the game sets. The screen has the same stream rows as a PC, plus the PC's virtual display rows where the host has them; values not set come from this PC, the profile and the main settings, in that order. Removing a PC removes its game values too.
+Open a game's menu and choose **Stream settings for this game**. The note under it says how many values the game sets. The screen has the same stream rows as a PC, plus the PC's virtual display rows (**Host virtual display**, **PC render resolution**, **PC display scaling**) where the host has them; the PC display mode stays per PC. Values not set come from this PC, the profile and the main settings, in that order. Removing a PC removes its game values too.
 
 A game's screen starts with a **Preset** row. Each preset sets only the values it names and leaves every other value of the game as it was, including the other two of frame pacing, adaptive refresh and bitrate. Nothing new is stored: the row names the one preset whose values the game holds, and says Custom when none matches, when two presets' values are both present (Smoothness with Quality, for example), and for a game with no values of its own. Resolution, refresh rate, codec and HDR are never touched.
 
@@ -404,20 +408,20 @@ Presets never change Radeon settings such as Anti-Lag and Chill; set those for a
 
 ### Bitrate on mobile data
 
-**Settings → Video → Bitrate on mobile data** (Off, 3–50 Mbps) caps the bitrate of a stream that starts on mobile data or metered Wi-Fi. It is separate from the profiles, so it protects a data plan whatever profile, PC or game value applies. The cap is decided at stream start; switching networks during a stream doesn't change it.
+**Settings → Video → Bitrate on mobile data** (Off, 3, 5, 10, 15, 20, 30 or 50 Mbps) caps the bitrate of a stream that starts on mobile data or metered Wi-Fi. It is separate from the profiles, so it protects a data plan whatever profile, PC or game value applies. The cap is decided at stream start; switching networks during a stream doesn't change it.
 
 ## Display on the PC
 
-Open a PC's menu, choose **PC settings…**, then **PC display mode** under **Display on the PC**. Select a mode and confirm **Save display mode** to apply it from the next stream. **Cancel** leaves the saved mode unchanged. The display choice is saved separately from the stream profile. Implementation: [HostDisplaySettings.java](../app/src/main/java/com/limelight/preferences/HostDisplaySettings.java), stored by [HostDisplayChoice.java](../app/src/main/java/com/limelight/preferences/HostDisplayChoice.java).
+Long-press a PC, choose **PC settings…**, then **PC display mode** under **Display on the PC**. The dialog is titled **Display on** and the PC's name. Select a mode and confirm **Save display mode** to apply it from the next stream. **Cancel** leaves the saved mode unchanged, and **Help** explains the modes. The display choice is saved separately from the stream profile, so it stays when you discard the PC's other changes. Implementation: [HostDisplaySettings.java](../app/src/main/java/com/limelight/preferences/HostDisplaySettings.java), stored by [HostDisplayChoice.java](../app/src/main/java/com/limelight/preferences/HostDisplayChoice.java).
 
 | Choice | Sent to the PC | What the PC does |
 | --- | --- | --- |
-| The PC's own setting (initial) | Nothing, or `virtualDisplay=1` when **Host virtual display** is on | Follows **Host virtual display** and the PC's display settings. |
-| Virtual display only (exclusive) | `hostDisplay=exclusive`, `virtualDisplay=1` | Adds a virtual display and switches the PC's monitors off during the stream. |
-| Extend — keep PC display primary | `hostDisplay=extended`, `virtualDisplay=1` | Adds a virtual display beside the monitors; the PC keeps its primary display. |
+| The PC’s own setting (initial) | Nothing, or `virtualDisplay=1` when **Host virtual display** is on | Follows **Host virtual display** and the PC's display settings. |
+| Exclusive — virtual display only (PC monitors off) | `hostDisplay=exclusive`, `virtualDisplay=1` | Adds a virtual display and switches the PC's monitors off during the stream. |
 | Extend — make virtual display primary | `hostDisplay=extended_primary`, `virtualDisplay=1` | Adds a virtual display beside the monitors and makes it primary, where games and new windows usually open. |
-| Additional virtual display, separated from PC displays | `hostDisplay=extended_isolated`, `virtualDisplay=1` | Keeps the PC primary and places the virtual display away from the other displays. |
-| Additional virtual display, main and separated | `hostDisplay=extended_primary_isolated`, `virtualDisplay=1` | Makes the virtual display primary and places the PC's other displays away from it. |
+| Extend — keep PC display primary | `hostDisplay=extended`, `virtualDisplay=1` | Adds a virtual display beside the monitors; the PC keeps its primary display. |
+| Extended and separated — PC stays primary | `hostDisplay=extended_isolated`, `virtualDisplay=1` | Keeps the PC primary and places the virtual display away from the other displays. |
+| Extended and separated — virtual display primary | `hostDisplay=extended_primary_isolated`, `virtualDisplay=1` | Makes the virtual display primary and places the PC's other displays away from it. |
 | Physical display (no virtual display) | `hostDisplay=physical` | Streams the PC's monitor, even when the PC or **Host virtual display** would add a virtual display. |
 
 The PC puts its displays back when the stream ends. Separated displays still share the same Windows session; they are not separate user sessions. Only PCs whose host supports display modes (Rubylight 2.2.1 or later) offer the choice, and only those hosts are sent `hostDisplay`. Other PCs follow **Host virtual display**, which their stream settings show as a switch when the host has a virtual display. Remote Monitor and Remote Input keep the PC's settings.
@@ -426,32 +430,50 @@ The PC puts its displays back when the stream ends. Separated displays still sha
 
 | Control | Default / persistence | Use |
 | --- | --- | --- |
-| Touch mode | Trackpad initially; saved globally | Switch Trackpad, Direct mouse or Multi-touch immediately. |
+| Touch mode | Trackpad initially; saved globally | Switch Trackpad, Direct mouse, Multi-touch, Local cursor or Touch off immediately. |
 | Show on-screen controls / Edit controller layout | Hidden initially; saved control preference/layout | Show the virtual gamepad, move/resize it and save. |
 | Overlay visibility / mode / position | Off / Compact / top left initially; saved globally | Show or hide from the menu's top row; choose Off, Compact, Statistics or Debug, pick a corner, or copy detailed stats under Display → Overlay and diagnostics. |
 | Set bitrate | Starts from the effective stream configuration; session adjustment | Request 0.5–2000 Mbps, subject to host limits. A manual selection turns off Device controls bitrate. |
-| Device controls bitrate | Off initially; saved per PC, separately for PyroWave and conventional codecs | Lower bitrate under congestion and recover gradually within the selected and host cap. Needs a host that reports its encoder bitrate (Rubylight); a Sunshine-based PC with its own automatic bitrate runs that instead. |
+| Turn on / Turn off Device controls bitrate | Follows the **Device controls bitrate** setting (off by default); the menu's choice is saved per PC, separately for PyroWave and conventional codecs | Lower bitrate under congestion and recover gradually within the selected and host cap. Needs a host that reports its encoder bitrate (Rubylight); a Sunshine-based PC with its own automatic bitrate runs that instead. Changing the setting in Settings drops every PC's own choice. |
 | Keyboard, clipboard and host actions | Actions, not factory preferences | Open the keyboard, transfer text explicitly, view host status, open the host web UI, reconnect, disconnect or quit the game. Host permissions apply. |
 
 ## Reset scope
 
-**Settings → App → Reset all settings** restores the global preferences and touch-mode flags. It keeps paired PCs, per-PC stream profiles and display choices, named profiles and their network choices, game stream settings, controller button mappings, the on-screen layout and the selected app language. Reset a PC profile in its own screen, a controller in **Controller buttons**, and the layout with **Reset controls layout**.
+**Settings → App → Reset all settings** asks first, then restores every preference on the Settings screens, together with the values their pickers and the stream menu store (touch mode, video scaling, overlay mode and the frame-rate and theme choices). It keeps paired PCs, per-PC stream profiles and display choices, named profiles and their network choices, game stream settings, controller button mappings, the on-screen layout and the selected app language. Reset a PC profile with **Same as all PCs for everything** in its own screen, a profile or game with **Clear every value**, a controller in **Controller buttons**, and the layout with **Reset controls layout**.
 
 ## Nightjar for Windows and Linux
 
-The desktop client's **Settings** has the same eight sections in the same order, Debug last. A wide window lists them on the left, with the open section's rows on the right; a narrow one shows them as chips above the rows. Each section shows the same main rows as Android first, then the rarer rows in labelled groups after them (**Fine-tuning**, for example), never folded away; Advanced, which has none of Android's main rows, lists its rows directly. **Search settings** at the top (Ctrl+F) finds rows in every section by name, description, section or group; Escape leaves the field, then clears the search. A row changed from its default has **Reset** beside it, and **App → Reset all settings** puts every row back to its default after a confirmation, keeping the language, paired PCs, game and PC settings and profiles.
+This section covers the desktop client on Windows, Linux and macOS. Rows that exist on only some of them say so; every other row is on all three. On macOS, Command takes the place of Ctrl in the settings shortcuts below (Command+F, Command+=), and the stream's key combinations use Control and Option in place of Ctrl and Alt.
 
-A PC's, game's or profile's settings show the same rows (no App section, Debug last). Each row has a box, **For this PC**, **For this game** or **In this profile**: ticked, the row keeps its own value and says what it would otherwise be; unticked, it says where its value comes from (**From main settings**, **From profile …**, **Set for this PC**). Choosing another value ticks the box; opening a menu and backing out changes nothing. The section list counts the rows set there, and **Clear all** at the top unticks every row after a confirmation. **Streaming → Profiles → Manage profiles** selects the active profile by hand or, with **Choose automatically**, by network (mobile data, home Wi-Fi, other Wi-Fi); while one is in use, the main settings say so at the top. **Mobile data bitrate limit** caps the bitrate on metered networks after all overrides. Settings are stored in `settings.json` in `%APPDATA%\Nightjar\config` on Windows, `~/.config/nightjar` on Linux or `~/Library/Application Support/Nightjar` on macOS; `NIGHTJAR_CONFIG_DIR` overrides the folder.
+The desktop client's **Settings** has the same eight sections in the same order, Debug last. A wide window lists them on the left, with the open section's rows on the right; a narrow one shows them as chips above the rows. Each section shows the same main rows as Android first, then the rarer rows in labelled groups after them (**Fine-tuning**, for example), never folded away; Advanced, which has none of Android's main rows, lists its rows directly. A row that depends on another (Minimum resolution on Automatic quality, for example) is disabled with the reason, or hidden where it has no meaning. **Search settings** at the top (Ctrl+F) finds rows in every section by name, description, section or group; Escape leaves the field, then clears the search. A row changed from its default has **Reset** beside it, and **App → Reset all settings** puts every row back to its default after a confirmation.
 
-Defaults are those of a fresh installation. Rows below a group name are listed after the section's main rows.
+### PC, game and profile settings
+
+A PC's, game's or profile's settings show the same rows, except the App section, the Renderer and the rows that open other pages (Controller buttons, Shortcuts, Stream hotkeys, Profiles); Debug stays last. Each row has a box, **For this PC**, **For this game** or **In this profile**: ticked, the row keeps its own value and says what it would otherwise be; unticked, it says where its value comes from (**From main settings**, **From profile …**, **Set for this PC**). Choosing another value ticks the box; opening a menu and backing out changes nothing. The section list counts the rows set there, and **Clear all for this PC** (or game, or profile) at the top unticks every row after a confirmation. A PC's own settings also hold its Network tests. The layers combine as on Android; see [which value a stream uses](#which-value-a-stream-uses).
+
+**Streaming → Profiles → Manage profiles** opens the profiles page:
+
+| Control | What it does |
+| --- | --- |
+| Active profile | The profile streams use, or **Main settings**. While a profile is active, the main settings say so at the top. |
+| New profile | Asks for a name and opens the new, empty profile's settings. |
+| Choose automatically | Picks a profile when a stream starts, by network: **Mobile or metered**, **Home Wi-Fi** and **Other Wi-Fi**. A network left at **Active profile** follows the active profile. |
+| Home Wi-Fi names | **Add** a typed name, or **Add current Wi-Fi**; **Remove** takes one off. Up to 50 names of up to 32 characters; names are case-sensitive and stay on this device. |
+| Mobile data bitrate limit | 0–500000 kbps; 0 means no limit. Caps the bitrate on mobile data and on metered Wi-Fi or Ethernet, after all profile, PC and game values. |
+| Saved profiles → Edit / More | Edit opens the profile's settings; More holds Rename, Duplicate and Delete. |
+
+Settings are stored in `settings.json` in `%APPDATA%\Nightjar\config` on Windows, `~/.config/nightjar` on Linux or `~/Library/Application Support/Nightjar` on macOS; `NIGHTJAR_CONFIG_DIR` overrides the folder.
+
+Defaults are those of a fresh installation. Rows below a group name (in italics) are listed after the section's main rows, in the order shown.
 
 ### Video
 
 | Setting | Default | Choices | Notes |
 | --- | --- | --- | --- |
-| Resolution | Native (this display) | Native, common sizes, Custom (width and height in pixels) | The picture size the PC sends. |
-| Frame rate | Display (the monitor's refresh rate) | Display, common rates, Custom | Fractional refresh rates are followed. |
-| Automatic bitrate, Bitrate | Automatic: recommended for the resolution and frame rate | 0.5–2000 Mbps | With PyroWave, a bitrate below PyroWave's minimum is flagged. |
+| Resolution | Native (this display) | Native, 640x360 to 5120x1440 in 16:9, 16:10 and ultrawide sizes, Custom… | The picture size the PC sends. Custom adds a **Custom resolution** row: width 320–7680 and height 240–4320 pixels. |
+| Frame rate | Display (the monitor's refresh rate) | Display, 30, 60, 90, 120, 144, 165, 240 fps, Custom… | Custom adds a **Custom frame rate** row: 10–500 fps. Fractional refresh rates are followed. |
+| Automatic bitrate | On | On, Off | On: the recommended bitrate for the resolution and frame rate, shown in the description. Off adds a **Bitrate** row. |
+| Bitrate | The recommended bitrate | 0.5–2000 Mbps | With Automatic bitrate off. With PyroWave, a bitrate below PyroWave's minimum is flagged. |
 | Lower bitrate when the network is busy | Off | On, Off | Lowers the bitrate under sustained congestion and recovers gradually. Needs a compatible host, as on Android. |
 | Codec | Automatic (HEVC, then H.264) | Automatic, H.264, HEVC, AV1, PyroWave 4:2:0, PyroWave 4:4:4 | PyroWave is listed when this computer can render it on the GPU, and streams only from hosts that offer it. |
 | HDR | Off | On, Off | 10-bit HDR to an HDR-enabled display; turn HDR on in the operating system first. HDR10 on Windows, plus HLG and Dolby Vision from a Rubylight 3.0 PC. |
@@ -459,12 +481,12 @@ Defaults are those of a fresh installation. Rows below a group name are listed a
 | Automatic quality | Off | Off, Prefer motion, Prefer detail, Save power | Adjusts resolution and frame rate under sustained load; needs a host that supports live stream changes. |
 | Minimum resolution | 720 px | 256–2160 px (shortest edge) | Shown with Automatic quality. Never raises the selected size. |
 | Minimum frame rate | 30 fps | 15–240 fps | Shown with Automatic quality. |
-| Upscaling | Bilinear | Bilinear, FSR 1, SGSR 1, AI enhancement | For smaller SDR streams; HDR uses bilinear. AI enhancement uses the GPU's video upscaling for SDR and HDR. |
+| Upscaling | Bilinear | Bilinear, FSR 1, SGSR 1, AI enhancement | For smaller SDR streams; HDR uses bilinear. AI enhancement is Windows only and listed when the GPU has video super resolution: it uses the GPU's video upscaling for SDR and HDR, and on NVIDIA with an HDR display also turns SDR streams into HDR. |
 | Sharpness | 50 % | 0–100 % | Shown for FSR 1 and SGSR 1. |
 | Sharper colored text (YUV 4:4:4) | Off | On, Off | When the PC and this device support it; HDR takes priority. Not used with PyroWave or Full chroma. |
-| Less color banding (10-bit SDR) | Off | On, Off | SDR in 10-bit HEVC or AV1. Needs a Main10 decoder; the PC's display must be in SDR. |
-| PyroWave decoder | GPU (CPU on macOS) | CPU, GPU | GPU decodes with the PyroWave SDK (Windows and Linux) and never falls back to the CPU; the row says why GPU decoding is unavailable. |
-| Decode PyroWave on a compute queue | Off | On, Off | Only for PyroWave's GPU decoder: it decodes on a separate compute queue where the GPU has one, so a decode can overlap the previous frame's drawing; on a GPU without one (the NUC's Iris Plus 655, for example) it changes nothing and the decodes stay on the graphics queue. Off: on the 780M laptop (Windows) an ABBA showed no clear gain, and the client it comes from removed it because it delayed presentation on Wayland. On Linux the GPU renderer's device gets the queue when it is made, so the change applies from the next start there. Each stream's log says which queue PyroWave decodes on and why. See [PyroWave decoding](pyrowave-decode.md#decoding-on-an-async-compute-queue-a-video-setting-off-by-default). |
+| Less color banding (10-bit SDR) | Off | On, Off | SDR in 10-bit HEVC or AV1. Needs a Main10 decoder; the PC's display must be in SDR. Not used with PyroWave or Full chroma. |
+| PyroWave decoder | GPU on Windows and Linux, CPU on macOS | CPU, GPU | Only for PyroWave. GPU decodes with the PyroWave library on the graphics card and never falls back to the CPU; when it can't, PyroWave is not offered and the row says why. CPU decodes on the processor and finishes on the graphics card. |
+| Decode PyroWave on a compute queue | Off | On, Off | Only for PyroWave's GPU decoder: it decodes on a separate compute queue where the GPU has one, so a decode can overlap the previous frame's drawing; on a GPU without one (the NUC's Iris Plus 655, for example) it changes nothing. Off: on the 780M laptop (Windows) an ABBA showed no clear gain, and the client it comes from removed it because it delayed presentation on Wayland. On Linux the change applies from the next start. Each stream's log says which queue PyroWave decodes on and why. See [PyroWave decoding](pyrowave-decode.md#decoding-on-an-async-compute-queue-a-video-setting-off-by-default). |
 
 ### Display & image
 
@@ -472,52 +494,56 @@ Defaults are those of a fresh installation. Rows below a group name are listed a
 | --- | --- | --- | --- |
 | Window | Borderless | Fullscreen, Borderless, Windowed | Borderless covers the display without changing its mode. |
 | Video size | Fit | Fit, Fill (crop), Stretch, Native pixels (1:1) | |
-| Variable refresh rate | On | On, Off | Uses G-Sync, FreeSync or HDMI VRR when the display has it on. On Windows it needs a system that can present with tearing. |
+| Variable refresh rate | On | On, Off | Uses G-Sync, FreeSync or HDMI VRR when the display has it on. On Windows it needs a system that can present with tearing; the row says when it can't. |
 | *On the PC:* Virtual display | Off | On, Off | Asks hosts that support it for a separate display matching the stream. |
-| Display arrangement | The PC's own setting | The display modes listed under [Display on the PC](#display-on-the-pc) | Applied to normal streams on hosts that support display modes. |
+| Display arrangement | Host default | Host default, Virtual display only, Extend as primary, Extend, Extend, isolated, Extend as primary, isolated, Physical display | The modes of [Display on the PC](#display-on-the-pc), in the same order. Applied to normal streams on hosts that support display modes. |
 | PC render resolution | 100 % | 50–200 % in 5 % steps | The PC renders at this size; the transmitted video keeps its size. |
-| PC display scaling | The PC's own | PC's own, 100–500 % | Shown for hosts that read it, as on Android. |
-| *Fine-tuning:* Align video to top | Off | On, Off | Moves Fit and Native pixels video to the top of the window. Not in the stream controls. |
-| Show frames at the PC's frame times | Off | On, Off | With VRR: each frame appears at the moment the game made it, plus a steady delay. |
-| Frame pacing | Lowest latency | Lowest latency, Balanced, Balanced with FPS limit, Smoothest video (more delay) | Without VRR. Every choice except Lowest latency waits for the display's refresh. |
-| V-Sync | On | On, Off | Without VRR: waits for the display's refresh, so there is no tearing. Off accepts tearing: on a Linux Wayland desktop a VRR stream then also shows each picture at once instead of queueing it. |
+| PC display scaling | PC’s own | PC’s own, 100–500 % in Windows' steps | Text and interface size on the PC's virtual display. In a PC's own settings it is disabled with the reason when the host can't apply it, and hidden for hosts that never read it. |
+| *Fine-tuning:* Align video to top | Off | On, Off | Moves Fit and Native pixels video to the top of the window. The stream menu's Video size keeps it; it has no row there. |
+| Show frames at the PC's frame times | Off | On, Off | With VRR: each frame appears in step with the game, after a short steady delay. |
+| Frame pacing | Lowest latency | Lowest latency, Balanced, Balanced with FPS limit, Smoothest video (more delay) | Used only with Variable refresh rate off. Every choice except Lowest latency waits for the display's refresh. |
+| V-Sync | On | On, Off | With Variable refresh rate off and Lowest latency pacing (the other pacings keep it on): waits for the display's refresh, so there is no tearing. Off accepts tearing: on a Linux Wayland desktop a VRR stream then also shows each picture at once instead of queueing it. |
 
 ### Controls
 
 | Setting | Default | Choices | Notes |
 | --- | --- | --- | --- |
-| Mouse | Captured | Captured, Desktop pointer | Captured suits games, Desktop pointer suits remote work. Ctrl+Alt+Shift+M switches during a stream. |
+| Mouse | Captured | Captured, Desktop pointer | Captured suits games, Desktop pointer suits remote work. Ctrl+Alt+Shift+M switches during a stream by default. |
 | Controllers | On | On, Off | Every connected controller becomes a controller on the PC. |
 | Nintendo button layout | Off | On, Off | Swaps A with B and X with Y. |
 | Clipboard sync | Off | On, Off | Shares copied text both ways; see [clipboard](sharing.md#clipboard). |
-| Controller buttons and keyboard shortcuts | | Controllers, Shortcuts | Controller mappings, stick and trigger dead zones and the type each controller connects as (**Connect as**: Automatic, Xbox without motion or touchpad, PlayStation or Nintendo), and the saved keyboard shortcuts. Main settings only. |
-| *Mouse and keyboard:* Send system keys | On | On, Off | Alt+Tab, the Windows key and similar go to the PC while input is captured. |
+| Controller buttons | | Controllers | Main settings only. Opens each controller's button mapping, **Connect as** (Automatic, Xbox, PlayStation, Nintendo; Xbox sends no motion or touchpad), stick and trigger dead zones and axes. |
+| *Stream menu:* Hold Guide to open the stream menu | 1 s | Off, 0.5, 1, 1.5, 2 s | A short press still goes to the PC. |
+| Back opens stream controls | Off | On, Off | The controller's Back or Select button opens the stream menu. |
+| Shortcuts | | Shortcuts | Main settings only. Key combinations shown as tiles in the stream menu. |
+| *Mouse and keyboard:* Stream hotkeys | | Change | Main settings only. Nightjar's own key combinations during a stream, such as the ones for the mouse mode and the overlay. |
+| Send system keys | On | On, Off | Alt+Tab, the Windows key and similar go to the PC while input is captured. |
 | System keys only in full screen | Off | On, Off | With Send system keys on. While the stream is in a window, Alt+Tab, the Windows key and similar stay with this computer; they go to the PC in full screen (the Fullscreen and Borderless window modes). |
 | Mouse speed | 100 % | 25–400 % | Speed of the captured pointer. |
 | Mouse navigation buttons | On | On, Off | Sends the mouse's Back and Forward buttons. |
-| Touchpad gestures on the PC | Off | On, Off | Windows. Sends the touchpad's fingers to a PC that takes them. |
+| Touchpad gestures on the PC | Off | On, Off | Windows only. Sends the touchpad's fingers to a PC that takes them; other PCs get a normal pointer. |
 | Right Alt as Windows key | Off | On, Off | |
-| *Controllers:* Back opens stream controls | Off | On, Off | The controller's Back or Select button opens the stream menu. |
-| Buttons to leave the stream | Start + Select + LB + RB | Six button combinations | Hold the buttons together to leave the stream. |
-| Controller mouse mode | On | On, Off | Hold Start for 750 ms, then release, to drive the PC's pointer with the controller. |
-| Stick for scrolling | Right | Off, Left, Right | In controller mouse mode; the other stick moves the pointer. |
-| Precise controller mouse | Off | On, Off | Hold X for fixed pixel steps; Y doubles the step, from 1 to 128 pixels. |
+| *Controllers:* Buttons to leave the stream | Start+Select+LB+RB | Start+Select+LB+RB, Select+LB+RB+Y, Start+LB+RB+A, Start+LB+RB+B, LB+RB+X+Y, LB+RB+A+B | Hold the buttons together to leave the stream. The names follow the connected controller (Options+Share+L1+R1 on a PlayStation controller, for example). |
+| Y / X / LB / RB in the stream menu | Default | Default, Off, Mouse, Overlay, Shortcuts, Microphone, Quality, Send clipboard, Get clipboard, PC commands, Session and graphics, Disconnect, End session, Quit game | What each button runs while the stream menu is open. Default keeps the tile the button marks in the menu. |
+| Controller mouse mode | On | On, Off | Hold Start for 750 ms, then release, to drive the PC's pointer with the controller. A and B click, the D-pad scrolls. |
+| Stick for scrolling | Right | Off, Left, Right | Shown with Controller mouse mode on; the other stick moves the pointer, and Off lets both move it. |
+| Precise controller mouse | Off | On, Off | Shown with Controller mouse mode on. Hold X for fixed pixel steps; Y doubles the step, from 1 to 128 pixels. |
 | Controller touchpad as mouse | Off | On, Off | One finger moves, two scroll; press for a left click, with two fingers for a right click. |
 | Turn off vibration | Off | On, Off | Turns off rumble, trigger rumble and waveform haptics. |
 | Motion controls | On | On, Off | Sends gyro and accelerometer data when a game asks for it. |
 | DualSense USB audio | Off | On, Off | Waveform haptics, speaker, headset and microphone; see [DualSense USB audio and haptics](dualsense-haptics.md). |
 | Input in the background | Off | On, Off | Keeps controllers working while Nightjar is not focused. |
 
-The Controllers group can be changed while **Controllers** is on. On-screen controls are part of the Android app only; the desktop client has none.
+Nintendo button layout, the Stream menu group's controller rows and the Controllers group can be changed while **Controllers** is on. On-screen controls are part of the Android app only; the desktop client has none.
 
 ### Audio
 
 | Setting | Default | Choices | Notes |
 | --- | --- | --- | --- |
-| Channels | Stereo | Stereo, 5.1 surround, 7.1 surround, 7.1.4 surround | 7.1.4 is offered for a 12-channel output and needs a Rubylight 3.0 PC. |
+| Channels | Stereo | Stereo, 5.1 surround, 7.1 surround, 7.1.4 surround | 7.1.4 is Windows only, offered for a 12-channel output, and needs a Rubylight 3.0 PC. |
 | Play audio on the PC too | Off | On, Off | |
 | Microphone | Off | On, Off | Sends the default microphone to a host that accepts one. |
-| *Fine-tuning:* Echo cancellation | Automatic | Automatic, On, Off | With Microphone on. Automatic turns it off on Windows when sound plays through headphones or a headset. On Linux it needs PipeWire's or PulseAudio's echo-cancel module. |
+| *Fine-tuning:* Echo cancellation | Automatic | Automatic, On, Off | With Microphone on. Windows uses its own echo canceller; Automatic turns it off when sound plays through headphones or a headset. Linux and macOS record from an echo-cancel input when there is one (on Linux, PipeWire's or PulseAudio's echo-cancel module); without one the microphone is sent without echo cancellation and the stream says so. |
 | Mute audio | Off | On, Off | Plays no sound from the stream on this computer; the audio is still received. Play audio on the PC too and Microphone are unaffected, and Uncompressed audio is not asked for. |
 | Uncompressed audio | Off | On, Off | Asks a Rubylight PC for uncompressed PCM instead of Opus: about 1.5 Mbps for stereo, up to 6 Mbps for 7.1. Other PCs keep Opus. The desktop client does not pass through Dolby. |
 
@@ -525,42 +551,46 @@ The Controllers group can be changed while **Controllers** is on. On-screen cont
 
 | Setting | Default | Choices | Notes |
 | --- | --- | --- | --- |
-| Performance overlay | Off (Compact when shown) | Off, Compact, Statistics, Debug | Ctrl+Alt+Shift+S and the stream menu change it too. |
+| Performance overlay | Off (Compact when shown) | Off, Compact, Statistics, Debug | Ctrl+Alt+Shift+S (by default) and the stream menu change it too. |
 | Overlay position | Top left | Top left, Top right, Bottom left, Bottom right | With the overlay on. |
 | Recover interrupted streams | On | On, Off | Resumes the same running app up to five times within one minute. |
-| Profiles | Main settings | Manage profiles | Main settings only; see [Named profiles](#named-profiles-and-game-settings). |
-| *Connection:* Keep streaming when the network changes | On | On, Off | Client roaming: keeps the stream when this device changes networks, with Rubylight PCs that support it. |
-| Continue on mobile data | Off | On, Off | Lets a roaming stream move onto a metered network. |
-| Wait through network dropouts | 3 seconds | 0, 3, 5, 10, 15 seconds | Keeps the session through brief network interruptions. |
+| Profiles | Main settings | Manage profiles | Main settings only; see [PC, game and profile settings](#pc-game-and-profile-settings). |
 | *Network tests:* PC | The first paired PC that is online | The paired PCs | Main settings only, with more than one paired PC: the PC the two tests below use. Not saved. |
-| Network speed test | | Action, per PC | Receives 32 MiB from the PC to measure throughput, on paired hosts that offer the test. In the main settings and in each PC's own. |
-| PyroWave frame pace | | Action, per PC | Finds and saves a frame pace for PyroWave on this network. Can take several minutes and uses substantial data. In the main settings and in each PC's own. |
+| Network speed test | | Test speed | Receives 32 MiB from the PC to measure throughput, on paired hosts that offer the test. In the main settings and in each PC's own. |
+| PyroWave frame pace | | Calibrate, Clear | Finds and saves a frame pace for PyroWave on this network; Clear forgets a saved one. Can take several minutes and uses substantial data. In the main settings and in each PC's own. |
+| *Connection:* Keep streaming when the network changes | On | On, Off | Client roaming: keeps the stream when this device changes networks, with Rubylight PCs that support it. |
+| Continue on mobile data | Off | On, Off | Shown with Keep streaming when the network changes on. Lets a roaming stream move onto a metered network. |
+| Wait through network dropouts | 3 seconds | 0, 3, 5, 10, 15 seconds | Keeps the session through brief network interruptions. |
 | *Fine-tuning:* Dual screen mode | Off | On, Off | With a second monitor and a PC that supports it, a second stream of the same game opens borderless full screen on the other monitor. Sound, controllers and the microphone stay with the first screen; it ends with the first stream and does not ask for the PIN again. |
 | Second screen resolution | Second screen's own size | Second screen's own size, 640x360, 854x480, 1280x720, 1920x1080, 2560x1440, 3840x2160 | With Dual screen mode on. The second stream's size, apart from the first's. |
 | USB forwarding | Off | On, Off | Attaches USB devices to the PC from the stream controls; see [USB devices](sharing.md#usb-devices). On Windows a device needs the WinUSB driver. |
 
 ### App
 
+The App section is in the main settings only.
+
 | Setting | Default | Choices | Notes |
 | --- | --- | --- | --- |
 | Open on Home | On | On, Off | Off starts on the list of PCs. |
 | Quick resume | Off | On, Off | Selecting a PC that runs a game returns straight to the game. |
 | PIN lock | Off | Set up, Change PIN lock | Asks for a PIN to open Nightjar or to start a stream. |
-| Language | System default | System default, English, Deutsch | The launcher and the stream menu. |
+| Language | System default | System default, English, Deutsch, Español, Français, Italiano, 日本語, 한국어, Polski, Português (Brasil), Русский, Türkçe, Українська, Tiếng Việt, 简体中文, 繁體中文 | The launcher and the stream menu. System default uses the operating system's language when Nightjar has it, else English. Each language is listed by its own name, or by its English name where the fonts in use can't draw it. |
+| *Starting up:* When Nightjar opens | Show my PCs | Show my PCs, Continue my last game, A chosen game | The two game choices open with a 3-second countdown into the game. Choose the game with **Open this when Nightjar starts** in its menu; the row then shows its title. |
+| Start Nightjar when I sign in | Off | On, Off | Windows and Linux (including the Flatpak). Opens Nightjar after you sign in to this computer. |
 | *Accessibility:* Text and button size | 100 % | 85, 100, 115, 130, 150 % | UI zoom. Ctrl+= and Ctrl+- change it, Ctrl+0 resets it. |
 | High contrast | Off | On, Off | Black surfaces, white text, thicker outlines and focus rings. |
 | Reduce motion | Follow system | Follow system, Reduce, Full motion | Follow system uses the Windows animation setting or macOS's Reduce motion; on Linux motion stays on. |
 | *Fine-tuning:* Input-only on any PC | Off | On, Off | Adds Input-only to a game's menu on hosts without an Input-only mode; the PC still sends video and audio at the smallest size, under 1 Mbit/s. |
-| Check for updates | On | On, Off | Windows and AppImage only. Once per launch, asks GitHub whether a newer release is out; nothing is downloaded until you choose Update now. A portable Windows copy only links to the release page. |
+| Check for updates | On | On, Off | The Windows setup and portable copies and the Linux AppImage only. Once per launch, asks GitHub whether a newer release is out; nothing is downloaded until you choose Update now. A portable Windows copy only links to the release page. |
 | Logs | | Open logs folder | Attach `nightjar.log`, and `nightjar.prev.log` for a problem before a restart, to a bug report. |
-| Reset all settings | | Reset all… | Asks first. Every row of the main settings goes back to its default; the language stays. |
+| Reset all settings | | Reset all… | Asks first. Every row of the main settings goes back to its default. The language, PCs, games, profiles, PIN lock, controller buttons, shortcuts and settings without a row stay as they are. |
 
 ### Advanced
 
 | Setting | Default | Choices | Notes |
 | --- | --- | --- | --- |
-| Full chroma | Off | On, Off | Requires the host's Full chroma option and HEVC or AV1. Not used with PyroWave. |
-| Test the link before starting | Off | On, Off | A new stream at the automatic bitrate tests the link to a Rubylight PC first. |
+| Full chroma | Off | On, Off | Requires the host's Full chroma option and HEVC or AV1. Not used with PyroWave. Switching it asks a PC that refused it before again. |
+| Test the link before starting | Off | On, Off | A new stream at the automatic bitrate tests the link to a Rubylight PC first and starts no higher than it holds. |
 
 ### Debug
 
@@ -572,14 +602,14 @@ Rarely needed settings, last in the section list. The search finds them like any
 | Lower bitrate when frames are lost | Off | On, Off | Loss-based bitrate: lowers the bitrate when frames are lost and raises it after clean seconds, on Rubylight PCs that take bitrate changes during a stream. Replaces Lower bitrate when the network is busy there. |
 | Tell the PC when on Wi-Fi | On | On, Off | A Rubylight PC paces the stream for Wi-Fi from the start. |
 | Tell the PC the link speed | On | On, Off | Lets the PC limit its sending rate to this device's wired port speed. |
-| Prioritize stream traffic | On | On, Off | Linux and Windows. Gives stream traffic priority on this device: socket and thread priority on Linux, thread priority on Windows. |
+| Prioritize stream traffic | On | On, Off | Windows and Linux only. Gives stream traffic priority on this device: socket and thread priority on Linux, thread priority on Windows. |
 | Instant mouse and pen input | On | On, Off | Sends mouse and pen motion immediately instead of batching it. |
 | Full color range | Off | On, Off | Requests the full RGB range from the host. |
 | *Fine-tuning:* Video decoding | Automatic | Automatic, Software | Automatic uses hardware decoding: D3D11VA on Windows, VA-API, Vulkan video, V4L2 M2M or NVDEC on Linux, VideoToolbox on macOS. A fallback to software decoding is announced. Not used with PyroWave. |
-| *Fine-tuning:* Slices for software decoding | Off | On, Off | Software decoding asks the PC for `min(4, cores)` slices per frame, which its threads decode in parallel. Off: it measured worse. `NIGHTJAR_DESKTOP_SLICES=1` or `0` overrides it. Not used with PyroWave. |
-| *Fine-tuning:* Vulkan video first | Off | On, Off | Linux. On the GPU renderer, tries Vulkan video before VA-API. Off: VA-API pictures are mapped into the renderer's Vulkan device without a copy too, and VA-API keeps reference frame invalidation. `NIGHTJAR_VULKAN_VIDEO_GPU_FIRST=1` or `0` overrides it. Not used with PyroWave. |
-| *Fine-tuning:* Vulkan video recovery | Off | On, Off | Linux. Vulkan video decoding asks for reference frame invalidation, so a lost frame recovers without a key frame. Off: not measured yet. `NIGHTJAR_VULKAN_RFI=1` or `0` overrides it. Not used with PyroWave. |
-| *Fine-tuning:* Renderer | Automatic | Automatic, OpenGL, GPU (Vulkan) | Linux only, for the whole app. Automatic starts on OpenGL, where 8-bit VA-API pictures arrive without copies, unless a saved setting needs the GPU renderer, and switches to the GPU renderer when a stream needs it (HDR, upscaling, PyroWave, 4:4:4, 10-bit SDR, full chroma). OpenGL never switches, so such streams are refused; GPU (Vulkan) draws with the GPU renderer from the start. A change applies at once, never during a stream. |
-| *Fine-tuning:* Local cursor | On | On, Off | In Desktop pointer mode, draws the PC's cursor shape locally, without video delay, on hosts that send cursor shapes. |
+| Slices for software decoding | Off | On, Off | Software decoding asks the PC for `min(4, cores)` slices per frame, which its threads decode in parallel. Off: it measured worse. `NIGHTJAR_DESKTOP_SLICES=1` or `0` overrides it. Not used with PyroWave. |
+| Vulkan video first | Off | On, Off | Linux only. On the GPU renderer, tries Vulkan video before VA-API. Off: VA-API pictures are mapped into the renderer's Vulkan device without a copy too, and VA-API keeps reference frame invalidation. `NIGHTJAR_VULKAN_VIDEO_GPU_FIRST=1` or `0` overrides it. Not used with PyroWave. |
+| Vulkan video recovery | Off | On, Off | Linux only. Vulkan video decoding asks for reference frame invalidation, so a lost frame recovers without a key frame. Off: not measured yet. `NIGHTJAR_VULKAN_RFI=1` or `0` overrides it. Not used with PyroWave. |
+| Renderer | Automatic | Automatic, OpenGL, GPU (Vulkan) | Linux only, main settings only, for the whole app. Automatic starts on OpenGL, where 8-bit VA-API pictures arrive without copies, unless a saved setting needs the GPU renderer, and switches to the GPU renderer when a stream needs it (HDR, upscaling, PyroWave, 4:4:4, 10-bit SDR, full chroma). OpenGL never switches, so such streams are refused; GPU (Vulkan) draws with the GPU renderer from the start. A change applies at once, never during a stream. |
+| Local cursor | On | On, Off | In Desktop pointer mode, draws the PC's cursor shape locally, without video delay, on hosts that send cursor shapes. |
 
 Beam racing and early decode for PyroWave have no row on the Settings page. Both are off by default and are set with the `beam_race` and `early_decode` keys in `settings.json`, or the `NIGHTJAR_BEAM_RACE` and `NIGHTJAR_EARLY_DECODE` environment variables; see [beam racing](beam-racing.md) and [early decode](early-decode.md).

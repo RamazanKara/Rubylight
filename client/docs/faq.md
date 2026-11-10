@@ -4,7 +4,7 @@
 
 ## What do I need?
 
-A device with Android 5.0 or newer, Windows 10 or 11, or x86-64 Linux with glibc 2.35 or newer; a PC running a Moonlight-compatible host such as Sunshine, Apollo, Vibepollo or Rubylight; and a network between them. Start with the [quick start](quick-start.md). Some features, such as PyroWave, the HDR formats and audio passthrough, have further device or host requirements, listed with each feature.
+A device with Android 5.0 or newer, Windows 10 or 11, x86-64 Linux with glibc 2.35 or newer, Linux on ARM64, or macOS 13 or newer; a PC running a Moonlight-compatible host such as Sunshine, Apollo, Vibepollo or Rubylight; and a network between them. Start with the [quick start](quick-start.md). Some features, such as PyroWave, the HDR formats and audio passthrough, have further device or host requirements, listed with each feature.
 
 ## Does Nightjar run the game on this device?
 
@@ -52,7 +52,7 @@ Start with the automatic codec and the default upscaling. Change them only after
 
 ## Is the overlay latency the delay I feel?
 
-Not entirely. **Statistics** shows network round trip, host processing, decode time and display wait separately, and **Debug** adds detailed stage timings. None of them covers the full path from input sampling to display scan-out; that needs an external measurement. Choose the view under **stream menu → Display → Overlay and diagnostics**.
+Not entirely. **Statistics** shows network round trip, host processing, decode time and display wait separately, and **Debug** adds detailed stage timings. None of them covers the full path from input sampling to display scan-out; that needs an external measurement. Choose the view on the stream menu's **Diagnostics** tile.
 
 ## Can I use my launcher?
 
@@ -64,4 +64,4 @@ Yes, for an update signed with the same key. Uninstalling, clearing app storage 
 
 ## Does Nightjar upload diagnostics automatically?
 
-No. On Android, a problem report stays on the device until you choose an app in the share sheet. The desktop client writes a redacted local log that you attach yourself. See [exporting a problem report](TROUBLESHOOTING.md#export-a-problem-report), and [privacy](PRIVACY.md) for network checks, storage and backups.
+No. On Android, a problem report stays on the device until you choose an app in the share sheet or send it to one of your PCs with **Send to PC**. The desktop client writes a redacted local log that you attach yourself. See [exporting a problem report](TROUBLESHOOTING.md#export-a-problem-report), and [privacy](PRIVACY.md) for network checks, storage and backups.

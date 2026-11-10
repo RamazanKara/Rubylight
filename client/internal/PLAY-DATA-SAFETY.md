@@ -1,7 +1,7 @@
 # Play Data safety and content rating — draft
 
-For Nightjar, drafted for 0.4.0 (`versionCode` 316) when the app was still called
-Rubylight Android. These are proposed answers
+For Nightjar, drafted for 0.4.0 (`versionCode` 316) and rechecked against 4.12.4
+(`versionCode` 381) on 2026-11-10 for the flows below. These are proposed answers
 from a source review, not a submitted declaration. Review the final release
 and the live questionnaire before submission.
 
@@ -10,8 +10,11 @@ and the live questionnaire before submission.
 The current build cannot support an unconditional “no data leaves the device
 except to your PC” answer. `ComputerManagerService.populateExternalAddress()`
 uses public STUN. `Game` and `AddComputerManually` call the public connectivity
-test server. Android backup is enabled. The server operators' logging and
-retention policies are not known from this code.
+test server. Android backup is enabled. With a Rubylight PC, `HostUpdateChecker`
+asks GitHub's API for the latest Rubylight release at most every 12 hours; store builds
+(`-PgithubUpdates=false`) hide the update switch but keep this check. Builds from
+GitHub also ask GitHub for the latest Nightjar release; store builds do not. The
+server operators' logging and retention policies are not known from this code.
 
 Google distinguishes local processing, off-device collection and sharing.
 Transient off-device processing still belongs in the form. User-requested
@@ -32,12 +35,13 @@ from collection. See [Google's Data safety guidance](https://support.google.com/
 | --- | --- |
 | Device or other IDs | The generated client identity goes to the paired PC. Public network checks expose an IP address. Review whether network operators retain or link that address. Conservative draft: collected for app functionality; public checks are not opt-in. Confirm third-party sharing and retention with the operators. |
 | App interactions / other actions | Control input and host commands go to the user's PC for app functionality. Required when using remote controls. Review the host protocol's encryption before claiming an end-to-end encryption exception. |
-| Other user-generated content | Clipboard text goes to the user's PC only when requested. Optional; app functionality. Review the encrypted transport and receiver before finalizing the collection answer. |
+| Other user-generated content | Clipboard text, and clipboard images from the stream menu, go to the user's PC only when requested. Optional; app functionality. Review the encrypted transport and receiver before finalizing the collection answer. |
 | Crash logs / diagnostics | Local by default. Users may share a redacted report through an app they select. Draft: optional collection for diagnostics if reports reach the publisher; user-requested sharing exception where applicable. No automatic upload. Do not claim ephemeral processing for retained reports. |
-| Location | No device location permission or location inference in the app. Confirm whether public network operators infer location from IP addresses. |
+| Location | The app asks for location access only when the user adds a home Wi-Fi to a profile, because Android shows the Wi-Fi name only to apps with it; it reads no location. Disclose the permission's purpose. Confirm whether public network operators infer location from IP addresses. |
 | Other personal info, financial info, health, contacts, calendar, browsing history | No collection implemented by Nightjar itself. Streamed desktop content and user-requested clipboard text are handled by the user's chosen host. |
-| Photos, videos, audio, files, installed apps | Host media, app lists and artwork are received for local display. No upload of the Android device's media library or installed-app inventory. Optional exported logs are user-controlled files. |
+| Photos, videos, audio, files, installed apps | Host media, app lists and artwork are received for local display. Files the user picks are sent to the user's PC (file transfer, shared folders) and files from the PC are saved where the user chooses; nothing is uploaded without a pick. No upload of the Android device's media library or installed-app inventory. Optional exported logs are user-controlled files. |
 | Audio: voice or sound recordings | Optional, off by default: with **Send microphone to the PC** on and `RECORD_AUDIO` granted, microphone audio is encrypted (AES-128-CBC under the per-launch key) and sent only to the user's PC during a stream; nothing is stored or sent elsewhere. Draft: optional collection for app functionality, transferred to the user's own host, not shared with the publisher. Confirm the answer before submitting. |
+| USB devices | With USB forwarding, a USB device plugged into this device is handed to the user's PC for one stream, at the user's request; its traffic goes only to that PC. |
 | Android backup / transfer | Saved hosts and eligible files may leave the device through Android. Preferences and client pairing credentials are excluded. Confirm the platform-backup treatment in the final form. |
 
 No advertising, marketing, sale of data or automatic analytics SDK was found

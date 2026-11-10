@@ -2,22 +2,32 @@
 
 [Documentation](index.md)
 
-Home, game pages and the in-stream **Session and graphics** menu use a host's native library and session API, which [Rubylight](https://github.com/RamazanKara/Rubylight) 3.0 provides. With other Moonlight-compatible hosts, including earlier Rubylight versions, Nightjar shows the classic PC list and app grid. This page applies to Android and to Nightjar for Windows and Linux unless a section names one of them.
+Home, store shelves, game pages and the in-stream **Session and graphics** page use a host's native library and session API, which [Rubylight](https://github.com/RamazanKara/Rubylight) 3.0 provides. On Android, Home also shows the app lists of paired PCs without that API (Sunshine, Apollo, Vibepollo and other hosts), once they have sent one; those PCs still open on the PC list and their classic app grid. This page applies to Android and to Nightjar for Windows and Linux unless a section names one of them.
 
 ## Home
 
 Nightjar opens on Home when a paired PC supports the native API. Home has four parts:
 
-- **Favourites.** Games you starred, at the top. Long-press a game card (with a D-pad or controller, hold Select) and choose **Add to favourites**, or use the star on the game's page. Favourites belong to one PC, so the same title on two PCs is two entries. A favourite whose PC is offline stays on Home with its saved cover.
+- **Favourites.** Games you starred, at the top. Open a game card's options (long-press it, or press **Y** or **X** on a controller, **F** or **Menu** on a keyboard) and choose **Add to favourites**, or use the star on the game's page. Favourites belong to one PC, so the same title on two PCs is two entries. A favourite whose PC is offline stays on Home with its saved cover.
 - **Continue playing.** Games that are running or suspended, marked **Running** or **Suspended**.
 - **Library.** The games of every paired PC, with cover art. A game installed on several PCs appears once, marked with the number of PCs.
-- **PCs.** Each PC with its number of games. An offline PC keeps the games it last reported and says it is offline. The three dots on a card open the PC's options.
+- **PCs.** Each PC with its number of games. An offline PC keeps the games it last reported, says it is offline and offers **Wake**; a PC that does not answer within 10 seconds counts as offline. The three dots on a card open the PC's options.
 
-To start on the PC list instead, turn off **Open on Home**. The bar under the top bar switches between **Home**, **PCs** and **Settings** at any time; Home appears in it as soon as a PC has a library. A PC paired from the PC list that supports the native API opens on Home; other PCs open their app grid.
+**Settings → App → Open on Home** (on by default) starts on Home; off, Nightjar starts on the PC list. **When Nightjar opens** can instead continue your last game or start a chosen game after a 3-second countdown; see the [settings reference](settings.md#app). The bar under the top bar switches between **Home**, **PCs** and **Settings** at any time, and **L1** and **R1** on a controller step through them; Home appears in it as soon as a PC has a library. A PC paired from the PC list that supports the native API opens on Home; other PCs open their app grid.
 
-**Collections.** When a PC names collections (Steam collections, Playnite categories), **View**, **Group by** offers **Collection**: a row per collection by name, a game in several in each, then **No collection**. All games has a chip for each. Nothing needs setting up on the PC, and with no collections the option does not appear.
+### View
 
-**Hiding a game.** Long-press a game card (on Windows and Linux, right-click it or press **F2**) and choose **Hide game**. It leaves Home, All games and the PC's list on this device only; the PC and your other devices keep it. A running game stays under Continue playing. All games has a **Hidden** chip once a game is hidden, where the same menu has **Show game**.
+**View** on Home sets how the library is laid out, on Android and on Windows and Linux:
+
+- **Layout.** **Grid**, **Rows**, or **List**: a line per game with a small cover, its store and, from a Rubylight PC that sends it, when you last played it.
+- **Group by.** **Store** (a row per store), **Type** (games apart from other apps such as launchers and the desktop), **Collection** (below) or **None** (one library).
+- **Card size.** Small, medium or large.
+
+Phones, tablets and TVs keep their usual look until you change it.
+
+**Collections.** When a PC names collections (Steam collections, Playnite categories; Rubylight 3.7 or newer), **Group by** offers **Collection**: a row per collection by name, a game in several in each, then **No collection**. All games has a chip for each. Nothing needs setting up on the PC, and with no collections the option does not appear.
+
+**Hiding a game.** Open a game card's options (on Windows and Linux, right-click it or press **F2**) and choose **Hide game**. It leaves Home, All games and the PC's list on this device only; the PC and your other devices keep it. A running game stays under Continue playing. All games has a **Hidden** chip once a game is hidden, where the same menu has **Show game**.
 
 ## A game's page
 
@@ -105,20 +115,48 @@ You can change a setting when the host marks it configurable, the device has **H
 
 ### PC options on Android
 
-The three dots at the end of a PC card open its options, as do a long press, a right-click, **Menu**, **Shift+F10** and a controller's **X**. In a PC's library, **X** opens the selected game's options. With a D-pad, press Right on a card to reach its three dots, then Center.
+The three dots at the end of a PC card open its options, as do a long press, a right-click, **Menu**, **Shift+F10** and a controller's **X** or **Y**. On a game card, **X**, **Y** or **F** on a keyboard open the game's options instead of starting it. With a D-pad, press Right on a card to reach its three dots, then Center.
 
-The options depend on the PC's state: **Open library** or **Pair**, **Resume** and **Quit** (a game is running), **Pair with one-time PIN** (hosts that offer it), **Wake PC** (offline, with a known MAC address), **Join co-op**, **Shared folders** and **Files** (hosts that offer them; see [sharing](sharing.md)), **PC settings**, **Rename**, **Unpair** (paired and online) or **Pairing help** (not paired), and **Remove PC**.
+The options depend on the PC's state and what its host offers this device:
+
+| Option | When it appears |
+| --- | --- |
+| **Open library**, **Resume**, **Quit** | Paired and online; Resume and Quit while a game runs |
+| **Join co-op** | The host runs [co-op sessions](#join-co-op) |
+| **Microphone only** | [Below](#microphone-only); the host lets this device start apps |
+| **Shared folders**, **Files** | The host offers them; see [sharing](sharing.md) |
+| **Pair**, **Pair with one-time PIN** | Not paired; one-time PIN on hosts that offer it |
+| **Wake PC** | Offline, with a MAC address learned while paired |
+| **Sleep PC**, **Restart PC**, **Shut down PC** | [Below](#the-pcs-power-and-host-updates); dimmed with the reason where the host does not allow it for this device |
+| **Update the PC's host** | The host has an update and lets this device install it |
+| **Pair another device** | Hosts with [approval from a paired device](pairing.md#approve-from-a-paired-device); dimmed without the permission |
+| **PC settings**, **Rename**, **Connection address** | Always; Connection address when the PC has more than one address or a pinned one |
+| **Unpair** or **Pairing help** | Paired and online, or not paired |
+| **Remove PC** | Always, last and apart |
 
 - **Rename** sets a name on this device only, used in the library, during streams, in shortcuts and in the TV channel. An empty field restores the PC's own name. Names are limited to 40 characters.
+- **Connection address** pins the PC to one address: a pinned address stays when the PC is found again on the network, and **Automatic** brings back the usual choice.
 - **Unpair** asks the PC to forget this device and clears the library saved from it; the PC stays in the list as not paired.
 - **Remove PC** deletes the PC, its settings, saved library, covers, hidden games and name from this device. The PC still lists this device until you unpair it.
 - A failed pairing, unpair or wake explains why, and offers **Try again** where a retry can help.
 
 The same **Rename**, **Unpair** and **Remove PC** actions are in the PC's settings page.
 
+### The PC's power and host updates
+
+On a host that offers them and allows them for this device, the PC's options can put the PC to sleep, restart it or shut it down, on Android and on Windows and Linux. Each asks first; before a shutdown Nightjar warns when the PC may not wake from off, and when Windows refuses it shows Windows' reason.
+
+**Update the PC's host** installs the host's update and waits until the PC is back on the new version. It says when the update waits for another device's stream to end, and shows the PC's reason when it fails. While an automatic update on the PC waits for the PC to be idle, the entry stays in the menu.
+
+### Microphone only
+
+**Microphone only** sends this device's microphone to the PC with no picture, for voice chat while the game plays elsewhere. On Android it keeps running with the screen off or another app open, with a notification and its **Stop**, and a phone call pauses it until the call ends. On Windows and Linux it runs in a small window with **Mute** and **Stop** and leaves the mouse and keyboard to you. It needs a host that offers it (Rubylight 3.4 or newer) and permission to start apps on the PC.
+
 ### PC and game menus on Windows and Linux
 
-The header lists **Home**, **PCs** and **Settings**; **Home** appears when a PC has a library. Back from PCs or Settings returns to Home, or to PCs when Home is off. **Start** on a controller, or **Settings** in the header, opens Settings over a library, game or PC page, and Back returns to that page. **Home** and **PCs** leave the page; while a file transfer runs there they ask first, as leaving cancels it. Settings has the sections **Video**, **Display & image**, **Controls**, **Audio**, **Streaming**, **App** and **Advanced**, with a chip for each at the top.
+The header lists **Home**, **PCs**, **Settings** and **Help**; **Home** appears when a PC has a library. Back from PCs or Settings returns to Home, or to PCs when Home is off. **Start** on a controller, or **Settings** in the header, opens Settings over a library, game or PC page, and Back returns to that page. **Home** and **PCs** leave the page; while a file transfer runs there they ask first, as leaving cancels it. Settings has the sections **Video**, **Display & image**, **Controls**, **Audio**, **Streaming**, **App**, **Advanced** and **Debug**, listed on the left (chips on a narrow window); see the [settings reference](settings.md#nightjar-for-windows-and-linux).
+
+With two or more paired PCs, the PC button at the top opens a list of them; with one it opens that PC's options. **B** on Home offers to close Nightjar, with **Cancel** selected, and to shut down, restart or put to sleep the computer Nightjar runs on, whichever it supports (no Sleep on a Modern Standby PC), each after a confirmation.
 
 PCs and games have a menu that opens by the card, never covering the window or dimming the page:
 
@@ -128,15 +166,16 @@ PCs and games have a menu that opens by the card, never covering the window or d
 
 The menu stays inside the window, flipping above or to the left where it would not fit. The item that selecting the card does is marked **Enter**. **Escape** (the controller's **B**) closes it and gives focus back to the card, and a click outside closes it too.
 
-A PC's menu: **Open library** or **Pair**, **Resume** and **Quit running app**, **Pair with one-time PIN**, **Wake up**, **PC settings**, **Rename**, **Unpair** or **Pairing help**, **Check again** and **Remove PC**. **Unpair** and **Remove PC** come last, under a divider, in red. **Ctrl+N** on the PCs page adds a PC by address. Rename, Unpair and Remove behave as on Android; Unpair needs the PC online, and this device keeps its pairing until the PC confirms.
+A PC's menu: **Open library** or **Pair**, **Resume** and **Quit running app**, **Pair with one-time PIN**, **Wake up**, **Sleep PC**, **Restart PC**, **Shut down PC**, **Update the PC's host**, **Pair another device**, **Files**, **Microphone only**, **PC settings**, **Rename**, **View details**, **Pairing help**, **Check again**, then **Unpair** and **Remove PC** last, under a divider, in red. Each appears under the same conditions as on Android. **Join co-op** and **Shared folders** are on the PC's details page. **Ctrl+N** on the PCs page adds a PC by address. Rename, Unpair and Remove behave as on Android; Unpair needs the PC online, and this device keeps its pairing until the PC confirms.
 
-A game's menu on Home and All games: **Game details**, **Add to favourites** or **Remove from favourites** (**Delete** on a favourite), **Game settings** and **Open library**. **Game settings** needs the PC's app list, so it appears once that list has loaded. A favourite whose PC is away with no saved library still has its menu. On a PC's library page: **Play** or **Resume**, and **Game settings**.
+A game's menu on Home and All games: **Game details**, **Add to favourites** or **Remove from favourites** (**Delete** on a favourite), **Hide game** or **Show game**, **Game settings** and **Open library**. **Game settings** needs the PC's app list, so it appears once that list has loaded. A favourite whose PC is away with no saved library still has its menu. On a PC's library page: **Play** or **Resume**, and **Game settings**.
 
 ## Accessibility on Android
 
-Three settings under **Settings → App → Accessibility** apply to every screen of the app. They are global, and never scale or recolor the stream itself.
+**Settings → App → Theme** picks **System**, **Dark** or **OLED black**. The settings under **Settings → App → Accessibility** apply to every screen of the app. They are global, and never scale or recolor the stream itself.
 
 - **Interface size.** 85, 100, 115, 130 or 150 percent. The app's screens scale while touch targets stay at least 48 dp; the system font size applies on top.
+- **Interface layout.** **Automatic**, **TV** or **Handheld**: TV gives a handheld docked to a TV the TV layouts; Handheld gives a TV the touch layouts.
 - **High contrast.** Black surfaces, outlines on cards, and a thick amber focus ring on every control. Body and secondary text reach a contrast ratio of at least 7:1, focus rings at least 3:1.
 - **Reduce motion.** **Follow system**, **Reduce** or **Full**. Follow system reduces motion when Android's animation scale is 0. Reduce replaces the TV focus zoom with a still ring and removes sliding transitions.
 
@@ -146,9 +185,9 @@ Every focusable element shows a visible ring when focused with a D-pad or contro
 
 Four settings under **Settings → App** change how Nightjar looks. They are global.
 
-- **Language.** **System default**, **English** or **Deutsch**. System default uses the operating system's first language that Nightjar supports, otherwise English. Brand names, error text from the host or network, the upscaler names, the performance overlay and log lines stay in English.
+- **Language.** **System default** or one of the 15 languages Nightjar ships, the same as on Android ([translations](TRANSLATIONS.md)). System default uses the operating system's first language that Nightjar supports, otherwise English. Japanese, Korean, Chinese, Cyrillic, Polish, Turkish and Vietnamese text uses the system's own font. Brand names, error text from the host or network, the upscaler names, the performance overlay and log lines stay in English.
 - **UI zoom.** 85, 100, 115, 130 or 150 percent for the launcher, the stream menu and the overlay. **Ctrl+=** and **Ctrl+-** change it; **Ctrl+0** resets it to 100. At 150 percent a 1280×720 window still shows every control.
 - **High contrast.** Black surfaces, white text, outlines on every control and a thicker focus ring. Body text reaches at least 7:1 and the focus ring at least 3:1; the normal theme meets WCAG AA (4.5:1) for text.
-- **Reduce motion.** **Follow system**, **Reduce** or **Full motion**. Follow system reads Windows' **Show animations in Windows** setting; Linux has no equivalent, so there it leaves motion on.
+- **Reduce motion.** **Follow system**, **Reduce** or **Full motion**. Follow system reads Windows' **Show animations in Windows** setting or macOS's **Reduce motion**; Linux has no equivalent, so there it leaves motion on.
 
 Screen readers read the interface through UI Automation on Windows and AT-SPI on Linux.

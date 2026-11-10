@@ -2,8 +2,8 @@
 
 [Documentation](index.md)
 
-This policy covers Nightjar 4.0 for Android, Android TV and Fire TV, and
-Nightjar for Windows and Linux. The sections up to
+This policy covers Nightjar for Android, Android TV and Fire TV, and
+Nightjar for Windows, Linux and macOS. The sections up to
 [Backups and deletion](#backups-and-deletion) describe the Android app;
 [Nightjar for Windows and Linux](#nightjar-for-windows-and-linux) covers the
 desktop client.
@@ -28,8 +28,7 @@ on, after explaining why. Nightjar reads no location with it, reads the Wi-Fi
 name only on the Profiles screen and when a stream starts while a home Wi-Fi is
 listed, and never sends, logs or includes Wi-Fi names in reports. Without the
 access, every Wi-Fi counts as other Wi-Fi. Turn it off in Android's app
-settings at any time, and remove listed names under **Settings → Video →
-Profiles**.
+settings at any time, and remove listed names under **Settings → Profiles**.
 
 A short, redacted event log is kept in memory. A redacted record of the latest
 crash or abnormal exit is saved locally. Frame-timing measurements are saved in
@@ -98,7 +97,8 @@ site and your browser apply their own privacy practices.
 
 Nightjar does not automatically send problem or crash reports. A report is
 shared only after you choose Share and select a receiving app in Android's
-share sheet. Canceling the sheet does not share the report. The report omits
+share sheet, or choose **Send to PC**, which copies it into the file-transfer
+folder of the paired PC you pick. Canceling either does not share the report. The report omits
 addresses, user-assigned host names, PINs, credentials and free-text diagnostic
 details. The receiving app controls what happens to the report afterward.
 
@@ -143,7 +143,9 @@ the contact details on the Nightjar store listing.
 The desktop client stores its settings, paired PCs (names, addresses,
 identifiers and host certificates), its client certificate and private key,
 controller layouts, cached app lists and cover art, and its logs in
-`%APPDATA%\Nightjar\config` on Windows or `~/.config/nightjar` on Linux.
+`%APPDATA%\Nightjar\config` on Windows, `~/.config/nightjar` on Linux
+(`~/.var/app/io.github.ramazankara.nightjar/config/nightjar` in the Flatpak)
+or `~/Library/Application Support/Nightjar` on macOS.
 Screenshots you take with F12 and statistics you export are saved there too.
 The log keeps the last two runs and stays on the computer until you attach it
 to a report yourself. If you list a home Wi-Fi for named profiles, its name is
@@ -166,5 +168,6 @@ Both receive your public IP address. To remove the desktop client's data on
 Windows, choose "Remove them too" in the uninstaller: it deletes everything in
 `%APPDATA%\Nightjar\config` except the `screenshots` and `statistics`
 folders, which hold your own files; delete those yourself. On Linux, delete
-`~/.config/nightjar`. Revoke pairing on the PC to remove this computer's access
-there.
+`~/.config/nightjar` (or the Flatpak's folder above); on macOS, delete
+`~/Library/Application Support/Nightjar`. Revoke pairing on the PC to remove
+this computer's access there.

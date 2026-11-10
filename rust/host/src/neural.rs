@@ -1298,6 +1298,9 @@ fn fail_job(h: &Shared, uuid: &str, error: String, choose_exe: bool) {
     });
 }
 
+/// What a second install for a game that has it is told.
+const ALREADY_ON: &str = "Neural Rendering is already on for this game; turn it off first";
+
 /// Turn the switch on: download the release unless it is cached, then place
 /// it beside the game's .exe (`exe`, the user's pick, or found). Runs on.
 pub fn enable(h: &Shared, uuid: &str, exe: Option<PathBuf>) -> Result<(), Refusal> {
@@ -1306,6 +1309,11 @@ pub fn enable(h: &Shared, uuid: &str, exe: Option<PathBuf>) -> Result<(), Refusa
     }
     capability(h).map_err(Refusal::Unavailable)?;
     let app = app(h, uuid).ok_or(Refusal::NotFound)?;
+    // A console that still shows the switch off may name another program: the files
+    // beside the first would stay in the game's folder with no record left of them.
+    if placed_exe(&app).is_some() {
+        return Err(Refusal::Unavailable(ALREADY_ON.into()));
+    }
     if crate::updater::streaming(h) {
         return Err(Refusal::Streaming);
     }

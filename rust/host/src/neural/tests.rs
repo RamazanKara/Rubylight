@@ -1887,6 +1887,14 @@ async fn a_first_install_cut_short_is_taken_out_by_the_pending_removals() {
     let job = ended(h, "game").await;
     assert_eq!(job.phase, "done", "{job:?}");
     assert!(pending(h).is_empty());
+    // A second install, as a console that still shows the switch off asks for, would
+    // leave the first one's files without a record: it is refused.
+    let other = temp.path().join("other").join("Other.exe");
+    assert!(matches!(
+        enable(h, "game", Some(other)),
+        Err(Refusal::Unavailable(reason)) if reason == ALREADY_ON
+    ));
+    assert_eq!(h.neural.lock().jobs["game"].phase, "done");
     assert_eq!(remove(&exe), Response::Removed { kept: vec![] });
     set_key(h, "game", None).unwrap();
 

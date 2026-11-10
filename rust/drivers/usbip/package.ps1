@@ -16,6 +16,28 @@ function Assert-UsbIpInstaller([string]$Path) {
     }
 }
 
+# The folders of a search path such as PATH, split as Windows and the host
+# split it: a semicolon inside quotes belongs to the folder's name.
+function Split-UsbIpSearchPath([string]$Path) {
+    foreach ($entry in [regex]::Matches($Path, '(?:[^;"]|"[^"]*"?)+')) { $entry.Value }
+}
+
+# The first usbip.exe in these folders, or nothing. The folders come from PATH
+# and the registry as an installer or the user wrote them: in quotes, with a
+# stray quote (setx "...\" leaves one), with a character no file name has, or
+# on a drive SYSTEM does not see. Join-Path and Test-Path end the script on
+# those in Windows PowerShell 5.1 ("Illegal characters in path", "Cannot find
+# drive"), and one such PATH entry kept the driver from being set up (#80).
+# File.Exists answers false instead. Quotes are never part of a folder's name.
+function Find-UsbIpClient([string[]]$Folders) {
+    foreach ($entry in $Folders) {
+        $folder = ([string]$entry).Replace('"', '').Trim()
+        if (!$folder) { continue }
+        $client = $folder.TrimEnd('\', '/') + '\usbip.exe'
+        if ([IO.File]::Exists($client)) { return $client }
+    }
+}
+
 # Only query state here. An existing shared installation must never be
 # downgraded, uninstalled or repaired by running the nested installer over it.
 function Get-UsbIpState {
@@ -28,9 +50,7 @@ function Get-UsbIpState {
             if ($entry.InstallLocation) { $folders += $entry.InstallLocation }
         }
     }
-    $folders += $env:PATH -split ';' | Where-Object { $_ }
-    $client = $folders | ForEach-Object { Join-Path $_ 'usbip.exe' } |
-        Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+    $client = Find-UsbIpClient ($folders + @(Split-UsbIpSearchPath $env:PATH))
     $ude = Test-Path -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Services\usbip2_ude'
     $filter = Test-Path -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Services\usbip2_filter'
     [pscustomobject]@{ Existing = ($registered -or $ude -or $filter -or !!$client); Ready = ($ude -and !!$client) }

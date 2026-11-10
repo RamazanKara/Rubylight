@@ -2075,16 +2075,19 @@ mod tests {
     #[test]
     fn driver_task_scripts_preserve_unicode_paths_and_literal_arguments() -> Result<()> {
         let root = tempfile::tempdir()?;
-        let folder = root.path().join("Çağrı Müller & literal%TEMP%");
+        // A user folder with a space, an apostrophe and brackets, as a
+        // Windows account name can have them (#80): the script reports the
+        // folder it was started from, so the path is proven both ways.
+        let expected = "Çağrı Müller's (x86) & literal%TEMP%";
+        let folder = root.path().join(expected);
         std::fs::create_dir(&folder)?;
         let driver = folder.join("fake.ps1");
         std::fs::write(
             &driver,
-            "param([string]$Text)\r\nWrite-Output $Text\r\nexit 3010\r\n",
+            "param([string]$Text)\r\nWrite-Output $Text\r\nWrite-Output \"ROOT=$PSScriptRoot=\"\r\nexit 3010\r\n",
         )?;
         let log = folder.join("result.log");
         let script = root.path().join("task.cmd");
-        let expected = "Çağrı Müller & literal%TEMP%";
         std::fs::write(
             &script,
             task_script(
@@ -2107,7 +2110,11 @@ mod tests {
             Duration::from_secs(30),
         )?;
         let output = std::fs::read_to_string(log)?;
-        assert!(output.contains(expected), "{output}");
+        assert!(output.lines().any(|line| line == expected), "{output}");
+        assert!(
+            output.contains(&format!("ROOT={}=", folder.display())),
+            "{output}"
+        );
         assert!(output.contains("BUTTERPOLLO-EXIT=3010"), "{output}");
         Ok(())
     }

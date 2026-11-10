@@ -5,6 +5,7 @@ use butterpollo_core::{
     config::Config,
     input::Input,
     input_policy::{Policy, gamepad_profile},
+    session::Warning,
 };
 use butterpollo_windows::input::GamepadThread;
 use std::{
@@ -239,9 +240,28 @@ pub fn prepare(h: &Shared, launch: &Launch, value: &str) -> Result<()> {
     let ready = pads.wait_ready(mask, Duration::from_secs(12));
     pads.park();
     if !ready {
-        bail!("Controller setup has not finished. Reconnect to retry before launching the game.");
+        bail!("{}", not_ready(&launch.warnings.snapshot()));
     }
     Ok(())
+}
+/// What a launch says when its controllers did not appear in time. A missing
+/// driver or USB/IP client has raised its own warning by then, and that
+/// warning says what to install: a reconnect alone would only fail the same
+/// way again (#80). The driver that could not be opened comes first, then the
+/// DualSense that needs USB/IP, then whatever else refused the controller.
+fn not_ready(warnings: &[Warning]) -> String {
+    let reason = [
+        "input_gamepad",
+        "input_dualsense",
+        "input_gamepad_injection",
+    ]
+    .iter()
+    .find_map(|code| warnings.iter().find(|warning| warning.code == *code));
+    match reason {
+        Some(warning) => format!("Controller setup has not finished: {}", warning.message),
+        None => "Controller setup has not finished. Reconnect to retry before launching the game."
+            .into(),
+    }
 }
 
 #[cfg(test)]
@@ -329,6 +349,36 @@ mod tests {
         assert!(keys(&pool).is_empty());
     }
 
+    #[test]
+    fn a_launch_without_controllers_names_the_missing_driver_instead_of_a_reconnect() {
+        use butterpollo_core::session::{EVENT_PERIOD, Warnings};
+        let warnings = Warnings::default();
+        assert_eq!(
+            not_ready(&warnings.snapshot()),
+            "Controller setup has not finished. Reconnect to retry before launching the game."
+        );
+        // A warning about something else is no reason controllers are missing.
+        warnings.set("input_steam_deck", "the Deck arrives as a virtual pad");
+        assert!(not_ready(&warnings.snapshot()).contains("Reconnect to retry"));
+        // The forced DualSense without usbip-win2 raises both of these.
+        warnings.event("input_gamepad_injection", "input failed", EVENT_PERIOD);
+        warnings.set("input_dualsense", "Install usbip-win2 on the host");
+        assert_eq!(
+            not_ready(&warnings.snapshot()),
+            "Controller setup has not finished: Install usbip-win2 on the host"
+        );
+        warnings.set("input_gamepad", "run setup again");
+        assert_eq!(
+            not_ready(&warnings.snapshot()),
+            "Controller setup has not finished: run setup again"
+        );
+        warnings.clear("input_gamepad");
+        warnings.clear("input_dualsense");
+        assert_eq!(
+            not_ready(&warnings.snapshot()),
+            "Controller setup has not finished: input failed"
+        );
+    }
     #[test]
     fn preparation_accepts_only_bounded_unique_neutral_arrivals() {
         assert_eq!(arrivals("0:2:33023:65535,1:4:256:1").unwrap().len(), 2);

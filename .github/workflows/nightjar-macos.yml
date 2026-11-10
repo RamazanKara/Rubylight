@@ -1,0 +1,70 @@
+name: Nightjar macOS
+
+# Nightjar's macos.yml for client/ in this repo: main's CI gates the Mac build before the
+# nightjar mirror runs its own copy (client/.github/workflows/macos.yml). No Mac is available on
+# the development machine, so this job is the Mac check.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'client/protocol/**'
+      - 'client/app/build.gradle'
+      - 'client/app/src/main/assets/**'
+      - 'client/app/src/main/res/**'
+      - '.github/workflows/nightjar-macos.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    name: Desktop on ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
+      # The root rust-toolchain.toml pins the host's compiler; Nightjar builds with stable.
+      RUSTUP_TOOLCHAIN: stable
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    defaults:
+      run:
+        working-directory: client/protocol
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      # The media libraries macos-deps.sh builds (SDL, Opus, dav1d, FFmpeg), per architecture.
+      # Its prefix is named after the script's own hash and is reused once complete.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: client/protocol/target/macos-native/*/prefix
+          key: macos-media-${{ runner.arch }}-${{ hashFiles('client/protocol/desktop/macos-deps.sh') }}
+      - name: Install build tools
+        run: |
+          brew install cmake meson ninja pkg-config nasm
+          rustup toolchain install stable --profile minimal --component clippy --no-self-update
+      - name: Build the application and verify a relocated copy
+        run: |
+          python3 desktop/package-macos.py --debug
+          python3 desktop/tests/verify_macos_bundle.py target/debug/Nightjar.app
+      - name: Test and lint against the bundled media libraries
+        run: |
+          native_prefix=$(desktop/macos-deps.sh "$PWD/target/macos-native")
+          export NIGHTJAR_FFMPEG_DIR="$native_prefix" PKG_CONFIG_PATH="$native_prefix/lib/pkgconfig"
+          cargo clippy --locked -p nightjar-desktop -p nightjar-core -p nightjar-policy --all-targets --features demo-library -- -D warnings
+          cargo test --locked -p nightjar-desktop -p nightjar-core -p nightjar-policy
+          cargo test --locked --manifest-path core/Cargo.toml
+      - name: Cross-package and inspect the Intel archive on Apple Silicon
+        if: runner.arch == 'ARM64'
+        run: |
+          rustup target add x86_64-apple-darwin
+          python3 desktop/package-macos.py --debug --arch x86_64 --zip
+          ditto -x -k target/x86_64-apple-darwin/debug/Nightjar-*-macos-x86_64.zip "$RUNNER_TEMP/intel-archive"
+          python3 desktop/tests/verify_macos_bundle.py --arch x86_64 --inspect-only "$RUNNER_TEMP/intel-archive/Nightjar.app"

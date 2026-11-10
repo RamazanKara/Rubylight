@@ -50,7 +50,7 @@ Rubylight is the Windows Rust host; Nightjar is the host-neutral client in `clie
 
 ### CI and releases
 
-- Use `gh -R RamazanKara/Rubylight ...`. Host CI is `rust-windows.yml`, client CI `nightjar-android.yml`; docs-only changes can skip host CI.
+- Use `gh -R RamazanKara/Rubylight ...`. Host CI is `rust-windows.yml`, client CI `nightjar-android.yml` and `nightjar-macos.yml` (the Mac build; no Mac is available here); docs-only changes can skip host CI.
 - Release work follows `rust/release/README.md`; notes go in `rust/release/notes.d` or `client/notes.d`, in English. Tag/publish only when requested, from the exact SHA whose main CI passed. Never move a published tag or delete a release without explicit authorization.
 - Nightjar's public home stays `RamazanKara/nightjar`. After main CI passes, mirror client changes with `tools\mirror-nightjar.ps1 -DryRun`, then without `-DryRun` (fast-forward-only incremental subtree split; never a full split or force-push). Pull mirror-side changes first with `git subtree pull --prefix client https://github.com/RamazanKara/nightjar main`.
 

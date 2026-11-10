@@ -1,0 +1,17 @@
+--- a/src/render/SDL_render.c
++++ b/src/render/SDL_render.c
+@@ -870,6 +870,14 @@
+     if (renderer->output_colorspace == SDL_COLORSPACE_SRGB_LINEAR) {
+         renderer->SDR_white_point = SDL_GetFloatProperty(window_props, SDL_PROP_WINDOW_SDR_WHITE_LEVEL_FLOAT, 1.0f);
+         renderer->HDR_headroom = SDL_GetFloatProperty(window_props, SDL_PROP_WINDOW_HDR_HEADROOM_FLOAT, 1.0f);
++        {
++            /* Nightjar: the app's SDR white for this window's linear output, in place of the
++               video driver's (vendor/sdl3-src/README.md, renderer-sdr-white.patch). */
++            const float app_white = SDL_GetFloatProperty(window_props, "SDL.window.renderer.sdr_white_level", 0.0f);
++            if (app_white > 0.0f) {
++                renderer->SDR_white_point = app_white;
++            }
++        }
+     } else {
+         renderer->SDR_white_point = 1.0f;
+         renderer->HDR_headroom = 1.0f;

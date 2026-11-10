@@ -4,6 +4,9 @@
 
 Which Nightjar features each client provides: Android (phones, handhelds, tablets, Android TV and Fire TV) and [Nightjar for Windows and Linux](../protocol/desktop/README.md). Both clients run the same Rust streaming engine and share much of their behavior through the `nightjar-policy` crate. Host requirements are identical for both and are listed in [host feature support](PARITY-MATRIX.md).
 
+The macOS port shares the desktop library, protocol and controls. The Mac guide records its
+VideoToolbox and Metal paths and their hardware test coverage. [macOS feature and validation notes](../protocol/desktop/README.md#macos)
+
 | Status | Meaning |
 | --- | --- |
 | **Yes** | Provided by this client. |

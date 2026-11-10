@@ -137,8 +137,8 @@ fn modifiers_of(m: SDL_Keymod) -> Modifiers {
         alt: has(SDL_KMOD_ALT),
         ctrl,
         shift: has(SDL_KMOD_SHIFT),
-        mac_cmd: false,
-        command: ctrl,
+        mac_cmd: cfg!(target_os = "macos") && has(SDL_KMOD_GUI),
+        command: if cfg!(target_os = "macos") { has(SDL_KMOD_GUI) } else { ctrl },
     }
 }
 

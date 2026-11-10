@@ -12,6 +12,8 @@
 //! its reuse signal; or else CPU buffers the decoder reads the planes back into, which the
 //! presenter uploads while it holds the `Lease`, and dropping the lease frees the set.
 
+#![cfg_attr(target_os = "macos", allow(dead_code, reason = "the Vulkan PyroWave SDK uses these leases on Linux"))]
+
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(windows)]

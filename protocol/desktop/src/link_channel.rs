@@ -100,7 +100,7 @@ fn serve(conn: &mut (impl Read + Write), inbox: &Inbox, wake: &Waker) {
 
 /// `$XDG_RUNTIME_DIR/nightjar-link`. A Flatpak's own one is new for every start: it shares only
 /// `app/<id>` in there between them.
-#[cfg(any(unix, test))]
+#[cfg(any(target_os = "linux", test))]
 fn socket_path(runtime_dir: Option<std::ffi::OsString>, flatpak_id: Option<std::ffi::OsString>) -> Option<std::path::PathBuf> {
     let mut path = std::path::PathBuf::from(runtime_dir.filter(|dir| !dir.is_empty())?);
     if let Some(id) = flatpak_id.filter(|id| !id.is_empty()) {
@@ -126,11 +126,25 @@ mod os {
     /// A sender that does not finish its one line in this time is dropped.
     const PATIENCE: Duration = Duration::from_secs(2);
 
+    #[cfg(target_os = "macos")]
+    pub fn address() -> Option<PathBuf> {
+        Some(std::env::temp_dir().join(format!("nightjar-link-{}", unsafe { libc::geteuid() })))
+    }
+
+    #[cfg(target_os = "linux")]
     pub fn address() -> Option<PathBuf> {
         socket_path(std::env::var_os("XDG_RUNTIME_DIR"), std::env::var_os("FLATPAK_ID"))
     }
 
     /// The user at the other end, as the kernel knows it.
+    #[cfg(target_os = "macos")]
+    fn peer_user(conn: &UnixStream) -> Option<u32> {
+        let (mut uid, mut gid) = (0, 0);
+        // getpeereid returns the effective credentials of the connected local peer.
+        (unsafe { libc::getpeereid(conn.as_raw_fd(), &mut uid, &mut gid) } == 0).then_some(uid)
+    }
+
+    #[cfg(target_os = "linux")]
     fn peer_user(conn: &UnixStream) -> Option<u32> {
         // SAFETY: a zeroed ucred is a valid one, and the call writes at most its size.
         unsafe {

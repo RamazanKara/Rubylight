@@ -1163,7 +1163,7 @@ impl VideoTexture {
         space: SDL_Colorspace,
         white_level: f32,
     ) -> bool {
-        self.ensure_with(renderer, format, width, height, space, white_level, None)
+        self.ensure_with(renderer, format, width, height, space, white_level, None, std::ptr::null_mut())
     }
 
     /// `ensure` for a texture with an HDR headroom of its own (an HLG picture's), which SDL tone
@@ -1178,8 +1178,15 @@ impl VideoTexture {
         space: SDL_Colorspace,
         white_level: f32,
         texture_headroom: Option<f32>,
+        pixel_buffer: *mut c_void,
     ) -> bool {
-        if !self.texture.is_null()
+        // Each VideoToolbox picture has its own backing. A later CPU upload must also
+        // replace an imported texture before writing to it.
+        #[cfg(target_os = "macos")]
+        let reusable = pixel_buffer.is_null() && self.held.is_none();
+        #[cfg(not(target_os = "macos"))]
+        let reusable = pixel_buffer.is_null();
+        if reusable && !self.texture.is_null()
             && self.format == format
             && self.width == width
             && self.height == height
@@ -1230,6 +1237,9 @@ impl VideoTexture {
             }
             if let Some(headroom) = texture_headroom.or(hdr.headroom) {
                 SDL_SetFloatProperty(props, SDL_PROP_TEXTURE_CREATE_HDR_HEADROOM_FLOAT, headroom);
+            }
+            if !pixel_buffer.is_null() {
+                SDL_SetPointerProperty(props, SDL_PROP_TEXTURE_CREATE_METAL_PIXELBUFFER_POINTER, pixel_buffer);
             }
             self.texture = SDL_CreateTextureWithProperties(renderer, props);
             SDL_DestroyProperties(props);
@@ -1521,6 +1531,25 @@ impl VideoTexture {
                         );
                     }
                     copied
+                }
+                #[cfg(target_os = "macos")]
+                media::FRAME_VIDEOTOOLBOX => {
+                    if crate::sdl::renderer_name(renderer) == "metal" {
+                        let format = if info.ten_bit == 0 { SDL_PIXELFORMAT_NV12 } else { SDL_PIXELFORMAT_P010 };
+                        // FFmpeg keeps the CVPixelBufferRef in AVFrame.data[3]. Keep the
+                        // frame (and thus its pool slot) alive for the displayed texture.
+                        let buffer: *mut c_void = frame.raw.as_ref().data[3].cast();
+                        if !buffer.is_null() {
+                            if let Some(held) = frame.reference() {
+                                if self.ensure_with(renderer, format, w, h, space, white_level, None, buffer) {
+                                    self.held = Some(held);
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    // An SDL renderer without IOSurface import can still display the frame.
+                    frame.map_to_memory().is_some_and(|mapped| self.upload_nv(renderer, &mapped.info(), space, white_level))
                 }
                 media::FRAME_NV12 | media::FRAME_P010 => self.upload_nv(renderer, &info, space, white_level),
                 #[cfg(unix)]
@@ -2068,7 +2097,7 @@ impl VideoTexture {
         if self.pyrowave_format.is_some_and(|previous| previous != parameters) { self.destroy(); }
         // The HLG picture's own peak over its white, which SDL tone maps down to an output with less.
         let texture_headroom = hlg.map(|display| display.peak / display.white);
-        self.ensure_with(renderer, SDL_PIXELFORMAT_RGBA64_FLOAT, info.width, info.height, SDL_COLORSPACE_SRGB_LINEAR, white_level, texture_headroom).then_some(parameters)
+        self.ensure_with(renderer, SDL_PIXELFORMAT_RGBA64_FLOAT, info.width, info.height, SDL_COLORSPACE_SRGB_LINEAR, white_level, texture_headroom, std::ptr::null_mut()).then_some(parameters)
     }
 
     /// Draws a Vulkan video picture (`crate::vulkan_video`) as a planar picture of its depth and
@@ -2254,6 +2283,10 @@ pub fn viewport(picture: (i32, i32), area: (i32, i32), scaling: crate::config::V
         h,
     }
 }
+
+#[cfg(all(target_os = "macos", feature = "demo-library"))]
+#[path = "macos_video_check.rs"]
+pub(super) mod macos_video_check;
 
 #[cfg(test)]
 pub(crate) mod tests {

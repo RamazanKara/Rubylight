@@ -58,7 +58,7 @@ fn verify(
     // its pictures mapped into Vulkan, or Vulkan video, is drawn from the planes; the rest from memory.
     let pictures = media::Pictures { ten_bit, chroma444: false, packed: true, waiting: 0, vaapi_node: media::vaapi_node(hardware) };
     let mut decoder = media::VideoDecoder::open_first(codec, pictures, hardware, true, |_, _| {})?;
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     if let media::Hardware::Auto(gpu, _) = hardware {
         if !gpu.is_null() {
             decoder.map_to_vulkan(gpu);
@@ -73,6 +73,10 @@ fn verify(
         media::Received::None => return Err("decoder produced no fixture frame".into()),
         media::Received::Error => return Err("fixture decoding failed".into()),
     };
+    #[cfg(target_os = "macos")]
+    let frame = if frame.info().kind == media::FRAME_VIDEOTOOLBOX {
+        frame.map_to_memory().ok_or("VideoToolbox could not map the packed picture")?
+    } else { frame };
     let info = frame.info();
     if info.width != 128 || info.height != 128 || (info.ten_bit != 0) != ten_bit {
         return Err(format!(
@@ -320,20 +324,7 @@ impl Reconstruction {
             if result.device.is_null() {
                 return None;
             }
-            let code = include_bytes!("../packed444.spv");
-            result.shader = SDL_CreateGPUShader(
-                result.device,
-                &SDL_GPUShaderCreateInfo {
-                    code: code.as_ptr(),
-                    code_size: code.len(),
-                    entrypoint: c"fragment".as_ptr(),
-                    format: SDL_GPU_SHADERFORMAT_SPIRV,
-                    stage: SDL_GPU_SHADERSTAGE_FRAGMENT,
-                    num_storage_buffers: 1,
-                    num_uniform_buffers: 1,
-                    ..Default::default()
-                },
-            );
+            result.shader = SDL_CreateGPUShader(result.device, &super::shader::Shader::Packed.info());
             result.bytes =
                 parameters[2] * parameters[3] * 3 * if parameters[4] != 0 { 2 } else { 1 };
             result.buffer = SDL_CreateGPUBuffer(
@@ -511,6 +502,14 @@ impl Reconstruction {
         frame: &media::Frame,
         parameters: &[u32; 12],
     ) -> bool {
+        #[cfg(target_os = "macos")]
+        let mapped = (frame.info().kind == media::FRAME_VIDEOTOOLBOX).then(|| frame.map_to_memory());
+        #[cfg(target_os = "macos")]
+        let frame = match &mapped {
+            Some(Some(frame)) => frame,
+            Some(None) => return false,
+            None => frame,
+        };
         let info = frame.info();
         // SAFETY: The frame owns initialized raw planes. The validated coded dimensions
         // bound each row copy; SDL owns every mapped buffer and GPU object below.

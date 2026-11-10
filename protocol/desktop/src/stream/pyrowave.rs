@@ -10,7 +10,9 @@ use rubylight_protocol::pyrowave::{push_container, Records};
 
 use crate::media::Picture;
 use super::stage_times::Stages;
-use super::pyrowave_sdk::{GpuConfig, GpuDecoder};
+use super::pyrowave_sdk::GpuDecoder;
+#[cfg(not(target_os = "macos"))]
+use super::pyrowave_sdk::GpuConfig;
 
 struct Band {
     component: usize,
@@ -588,6 +590,7 @@ pub enum Failure {
 /// The PyroWave decoder of a stream, on the CPU or on the GPU (`Settings::pyrowave_decoder`).
 pub enum Pyrowave {
     Cpu(Box<Decoder>),
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     Gpu(Box<GpuStream>),
 }
 
@@ -797,12 +800,13 @@ impl GpuStream {
     /// Creates the SDK decoder with `slots` plane sets, on the Vulkan device of the renderer whose
     /// SDL GPU device is `device` where it can be shared, else on the driver's default device
     /// (`GpuDecoder::for_renderer`).
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     pub fn new(device: *mut std::ffi::c_void, width: usize, height: usize, chroma444: bool, ten_bit: bool, slots: usize) -> Result<Self, String> {
         let config = GpuConfig { width: width as u32, height: height as u32, chroma444, ten_bit, slots };
         GpuDecoder::for_renderer(device, config).map(Self::with_decoder)
     }
 
+    #[cfg(not(target_os = "macos"))]
     pub fn with_decoder(gpu: GpuDecoder) -> Self {
         let config = gpu.config();
         Self {
@@ -839,7 +843,7 @@ impl GpuStream {
         });
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(target_os = "macos")))]
     pub fn planes(&self) -> &std::sync::Arc<super::gpu_planes::Planes> {
         &self.planes
     }
@@ -1066,7 +1070,7 @@ impl GpuStream {
 #[cfg(all(test, windows))]
 mod gpu_tests;
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, target_os = "linux"))]
 mod gpu_tests_unix;
 
 #[cfg(test)]

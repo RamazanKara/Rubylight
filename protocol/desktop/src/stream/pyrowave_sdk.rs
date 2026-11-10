@@ -61,7 +61,9 @@ pub(crate) mod tests;
 
 #[cfg(windows)]
 pub const DLL_NAME: &str = "libpyrowave-shared-1.dll";
-#[cfg(unix)]
+#[cfg(target_os = "macos")]
+pub const DLL_NAME: &str = "libpyrowave-shared.dylib";
+#[cfg(target_os = "linux")]
 pub const DLL_NAME: &str = "libpyrowave-shared.so";
 /// The SDK's API major version this client is written against.
 pub const ABI_MAJOR: u32 = 1;

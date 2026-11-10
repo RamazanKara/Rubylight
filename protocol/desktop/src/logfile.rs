@@ -48,7 +48,11 @@ pub fn logs_dir() -> io::Result<PathBuf> {
 pub fn open_folder() -> Result<(), String> {
     let dir = logs_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let opener = if cfg!(windows) { "explorer" } else { "xdg-open" };
+    let opener = match std::env::consts::OS {
+        "windows" => "explorer",
+        "macos" => "/usr/bin/open",
+        _ => "xdg-open",
+    };
     // Explorer exits with 1 even when it worked, so the child is not waited for. It must not
     // inherit our stderr, which is the log pipe: its output would land in the log and the pipe
     // would stay open after we leave.

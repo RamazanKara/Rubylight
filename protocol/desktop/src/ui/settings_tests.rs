@@ -315,7 +315,7 @@ fn the_section_key_table_is_what_the_page_draws() {
         "native_touchpad" => cfg!(windows),
         "check_updates" => crate::self_update::current().checks(),
         "network_priority" => cfg!(any(target_os = "linux", windows)),
-        "renderer" | "vulkan_video_first" | "vulkan_rfi" => cfg!(unix),
+        "renderer" | "vulkan_video_first" | "vulkan_rfi" => cfg!(target_os = "linux"),
         _ => true,
     };
     for (at, section) in SETTINGS_SECTIONS.iter().enumerate() {
@@ -343,8 +343,8 @@ fn the_rarely_needed_settings_are_in_the_debug_section_only() {
     let wanted = |screen: Screen| -> Vec<&str> {
         DEBUG.into_iter()
             .filter(|k| *k != "network_priority" || cfg!(any(target_os = "linux", windows)))
-            .filter(|k| !matches!(*k, "vulkan_video_first" | "vulkan_rfi") || cfg!(unix))
-            .filter(|k| *k != "renderer" || (cfg!(unix) && screen == Screen::Settings))
+            .filter(|k| !matches!(*k, "vulkan_video_first" | "vulkan_rfi") || cfg!(target_os = "linux"))
+            .filter(|k| *k != "renderer" || (cfg!(target_os = "linux") && screen == Screen::Settings))
             .collect()
     };
     let mut f = settings_with(Settings::default());

@@ -3,6 +3,7 @@ use std::ptr;
 use sdl3_sys::everything::*;
 
 use crate::config::Upscaling;
+use super::shader::Shader;
 
 pub(super) struct Pass {
     #[cfg(windows)]
@@ -13,7 +14,7 @@ pub(super) struct Pass {
 }
 
 impl Pass {
-    pub(super) unsafe fn new(renderer: *mut SDL_Renderer, _input: *mut SDL_Texture, _output: *mut SDL_Texture, _hlsl: &[u8], spirv: &[u8]) -> Option<Self> {
+    pub(super) unsafe fn new(renderer: *mut SDL_Renderer, _input: *mut SDL_Texture, _output: *mut SDL_Texture, shader: Shader) -> Option<Self> {
         let mut pass = Self {
             #[cfg(windows)]
             native: None,
@@ -24,16 +25,13 @@ impl Pass {
             let input = SDL_GetPointerProperty(SDL_GetTextureProperties(_input), SDL_PROP_TEXTURE_D3D11_TEXTURE_POINTER, ptr::null_mut());
             let output = SDL_GetPointerProperty(SDL_GetTextureProperties(_output), SDL_PROP_TEXTURE_D3D11_TEXTURE_POINTER, ptr::null_mut());
             if !input.is_null() && !output.is_null() {
-                pass.native = super::d3d11::Filter::new(input, output, _hlsl).map_err(|e| eprintln!("nightjar: GPU filter: {e}")).ok();
+                pass.native = super::d3d11::Filter::new(input, output, shader.filter_hlsl()).map_err(|e| eprintln!("nightjar: GPU filter: {e}")).ok();
                 return pass.native.is_some().then_some(pass);
             }
         }
         pass.device = crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_GPU_DEVICE_POINTER).cast();
         if pass.device.is_null() { return None; }
-        let code = spirv;
-        pass.shader = SDL_CreateGPUShader(pass.device, &SDL_GPUShaderCreateInfo { code: code.as_ptr(), code_size: code.len(),
-            entrypoint: c"fragment".as_ptr(), format: SDL_GPU_SHADERFORMAT_SPIRV, stage: SDL_GPU_SHADERSTAGE_FRAGMENT,
-            num_samplers: 1, num_uniform_buffers: 1, ..Default::default() });
+        pass.shader = SDL_CreateGPUShader(pass.device, &shader.info());
         if pass.shader.is_null() { return None; }
         pass.state = SDL_CreateGPURenderState(renderer, &SDL_GPURenderStateCreateInfo { fragment_shader: pass.shader, ..Default::default() });
         (!pass.state.is_null()).then_some(pass)
@@ -84,8 +82,8 @@ impl Upscaler {
                 SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_NONE);
                 SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_LINEAR);
             }
-            result.passes.push(Pass::new(renderer, result.textures[0], result.textures[1], include_bytes!("../upscale.hlsl"), include_bytes!("../upscale.spv"))?);
-            if mode == Upscaling::Fsr1 { result.passes.push(Pass::new(renderer, result.textures[1], result.textures[2], include_bytes!("../upscale.hlsl"), include_bytes!("../upscale.spv"))?); }
+            result.passes.push(Pass::new(renderer, result.textures[0], result.textures[1], Shader::Upscale)?);
+            if mode == Upscaling::Fsr1 { result.passes.push(Pass::new(renderer, result.textures[1], result.textures[2], Shader::Upscale)?); }
         }
         Some(result)
     }
@@ -134,6 +132,56 @@ impl Drop for Upscaler {
     }
 }
 
+// Cocoa windows must be created on the process main thread. The Mac integration
+// test runs this same readback in a child process with its own main thread.
+#[cfg(any(test, all(target_os = "macos", feature = "demo-library")))]
+pub(super) fn check_scalers() {
+    unsafe {
+        assert!(SDL_Init(SDL_INIT_VIDEO), "{}", crate::sdl::error());
+        #[cfg(windows)]
+        {
+            SDL_SetHint(SDL_HINT_RENDER_DRIVER, c"direct3d11".as_ptr());
+            SDL_SetHint(SDL_HINT_RENDER_DIRECT3D_THREADSAFE, c"1".as_ptr());
+        }
+        let window = SDL_CreateWindow(c"Upscaling test".as_ptr(), 128, 128, SDL_WINDOW_HIDDEN);
+        let renderer = crate::sdl::create_renderer_with(window, true, false);
+        assert!(!renderer.is_null(), "{}", crate::sdl::error());
+        let input = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, 32, 32);
+        assert!(!input.is_null(), "{}", crate::sdl::error());
+        for color in [Some(0u8), Some(64), Some(128), Some(255), None] {
+            let quadrant = |x, y| match (x, y) { (false, false) => [255, 0, 0, 255],
+                (true, false) => [0, 255, 0, 255], (false, true) => [0, 0, 255, 255], (true, true) => [255; 4] };
+            let pixels: Vec<_> = (0..32 * 32).flat_map(|i| color.map_or_else(|| quadrant(i % 32 >= 16, i / 32 >= 16), |c| [c, c, c, 255])).collect();
+            assert!(SDL_UpdateTexture(input, ptr::null(), pixels.as_ptr().cast(), 32 * 4));
+            for mode in [Upscaling::Fsr1, Upscaling::Sgsr1] {
+                let upscaler = Upscaler::new(renderer, (32, 32), (128, 128), mode).expect("GPU scaler");
+                let output = upscaler.draw(renderer, input, 50).expect("GPU draw");
+                assert!(SDL_GetRenderTarget(renderer).is_null());
+                assert!(SDL_SetRenderTarget(renderer, output));
+                let surface = SDL_RenderReadPixels(renderer, ptr::null());
+                assert!(!surface.is_null(), "{}", crate::sdl::error());
+                let rgba = SDL_ConvertSurface(surface, SDL_PIXELFORMAT_RGBA32);
+                SDL_DestroySurface(surface);
+                assert!(!rgba.is_null());
+                for y in 0..128 {
+                    let row = std::slice::from_raw_parts(((*rgba).pixels as *const u8).add(y * (*rgba).pitch as usize), 128 * 4);
+                    for (x, pixel) in row.chunks_exact(4).enumerate() {
+                        if color.is_none() && (x.abs_diff(64) < 8 || y.abs_diff(64) < 8) { continue; }
+                        let expected = color.map_or_else(|| quadrant(x >= 64, y >= 64), |c| [c, c, c, 255]);
+                        assert!(pixel[..3].iter().zip(&expected).all(|(c, e)| c.abs_diff(*e) <= 2), "{mode:?} at ({x},{y}): {expected:?} -> {pixel:?}");
+                    }
+                }
+                SDL_DestroySurface(rgba);
+                SDL_SetRenderTarget(renderer, ptr::null_mut());
+            }
+        }
+        SDL_DestroyTexture(input);
+        SDL_DestroyRenderer(renderer);
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,53 +193,10 @@ mod tests {
         assert_eq!((rect.x, rect.y, rect.w, rect.h), (0.0, 0.0, 2184.0, 1968.0));
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     #[ignore = "requires a D3D11 or Vulkan display"]
     fn gpu_scalers_preserve_flat_colors_and_release_targets() {
-        if crate::sdl::skip_without_display() { return; }
-        unsafe {
-            assert!(SDL_Init(SDL_INIT_VIDEO), "{}", crate::sdl::error());
-            #[cfg(windows)]
-            {
-                SDL_SetHint(SDL_HINT_RENDER_DRIVER, c"direct3d11".as_ptr());
-                SDL_SetHint(SDL_HINT_RENDER_DIRECT3D_THREADSAFE, c"1".as_ptr());
-            }
-            let window = SDL_CreateWindow(c"Upscaling test".as_ptr(), 128, 128, SDL_WINDOW_HIDDEN);
-            let renderer = crate::sdl::create_renderer(window, true);
-            assert!(!renderer.is_null(), "{}", crate::sdl::error());
-            let input = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, 32, 32);
-            assert!(!input.is_null(), "{}", crate::sdl::error());
-            for color in [Some(0u8), Some(64), Some(128), Some(255), None] {
-                let quadrant = |x, y| match (x, y) { (false, false) => [255, 0, 0, 255],
-                    (true, false) => [0, 255, 0, 255], (false, true) => [0, 0, 255, 255], (true, true) => [255; 4] };
-                let pixels: Vec<_> = (0..32 * 32).flat_map(|i| color.map_or_else(|| quadrant(i % 32 >= 16, i / 32 >= 16), |c| [c, c, c, 255])).collect();
-                assert!(SDL_UpdateTexture(input, ptr::null(), pixels.as_ptr().cast(), 32 * 4));
-                for mode in [Upscaling::Fsr1, Upscaling::Sgsr1] {
-                    let upscaler = Upscaler::new(renderer, (32, 32), (128, 128), mode).expect("GPU scaler");
-                    let output = upscaler.draw(renderer, input, 50).expect("GPU draw");
-                    assert!(SDL_GetRenderTarget(renderer).is_null());
-                    assert!(SDL_SetRenderTarget(renderer, output));
-                    let surface = SDL_RenderReadPixels(renderer, ptr::null());
-                    assert!(!surface.is_null(), "{}", crate::sdl::error());
-                    let rgba = SDL_ConvertSurface(surface, SDL_PIXELFORMAT_RGBA32);
-                    SDL_DestroySurface(surface);
-                    assert!(!rgba.is_null());
-                    for y in 0..128 {
-                        let row = std::slice::from_raw_parts(((*rgba).pixels as *const u8).add(y * (*rgba).pitch as usize), 128 * 4);
-                        for (x, pixel) in row.chunks_exact(4).enumerate() {
-                            if color.is_none() && (x.abs_diff(64) < 8 || y.abs_diff(64) < 8) { continue; }
-                            let expected = color.map_or_else(|| quadrant(x >= 64, y >= 64), |c| [c, c, c, 255]);
-                            assert!(pixel[..3].iter().zip(&expected).all(|(c, e)| c.abs_diff(*e) <= 2), "{mode:?} at ({x},{y}): {expected:?} -> {pixel:?}");
-                        }
-                    }
-                    SDL_DestroySurface(rgba);
-                    SDL_SetRenderTarget(renderer, ptr::null_mut());
-                }
-            }
-            SDL_DestroyTexture(input);
-            SDL_DestroyRenderer(renderer);
-            SDL_DestroyWindow(window);
-            SDL_Quit();
-        }
+        if !crate::sdl::skip_without_display() { super::check_scalers(); }
     }
 }

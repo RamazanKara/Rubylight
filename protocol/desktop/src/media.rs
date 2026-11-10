@@ -35,6 +35,8 @@ pub struct FrameInfo {
 pub const FRAME_NV12: c_int = 0;
 pub const FRAME_P010: c_int = 1;
 pub const FRAME_YUV420P: c_int = 2;
+/// A VideoToolbox CVPixelBuffer whose NV12 or P010 planes SDL Metal can import.
+pub const FRAME_VIDEOTOOLBOX: c_int = 13;
 pub const FRAME_D3D11: c_int = 3;
 pub const FRAME_WAVELET: c_int = 5;
 /// Software-decoded planar pictures: 8-bit 4:4:4, and 10-bit 4:2:0 and 4:4:4 with the samples in
@@ -170,7 +172,7 @@ pub struct Pictures {
 
 /// The device VAAPI opens on (`Pictures::vaapi_node`, [`vaapi_node`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub enum VaapiNode {
     /// FFmpeg's default device, the first render node.
     #[default]
@@ -187,7 +189,7 @@ pub enum VaapiNode {
 
 impl VaapiNode {
     /// The render node's minor; none for the default device.
-    #[cfg_attr(not(unix), allow(dead_code))] // VAAPI is Unix's; Windows reads it in tests only.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))] // VAAPI is Unix's; Windows reads it in tests only.
     pub fn minor(self) -> Option<u32> {
         match self {
             Self::Default => None,
@@ -206,12 +208,15 @@ pub enum Hardware {
     /// device), and on Windows without a Direct3D 11 renderer.
     Auto(*mut c_void, Option<u32>),
     Vaapi,
+    #[cfg(target_os = "macos")]
+    VideoToolbox,
     /// FFmpeg's Vulkan video on the GPU renderer's own Vulkan device, this SDL GPU device (or
     /// null, which does not open), its pictures drawn without a copy to memory. Linux only.
-    #[cfg_attr(not(unix), allow(dead_code))]
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     Vulkan(*mut c_void),
     /// NVDEC, with CUDA frames copied into the GPU renderer's Vulkan images (`map_to_vulkan`), else
     /// to memory for the presenter.
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     Cuda,
     /// The V4L2 memory-to-memory decoders of ARM handhelds and boards (H.264 and HEVC).
     V4l2m2m,
@@ -233,7 +238,7 @@ pub fn use_vulkan_video_settings(first: bool, rfi: bool) {
     VULKAN_RFI.store(rfi, std::sync::atomic::Ordering::Relaxed);
 }
 
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn vulkan_video_first_setting() -> bool {
     VULKAN_VIDEO_FIRST.load(std::sync::atomic::Ordering::Relaxed)
 }
@@ -288,7 +293,9 @@ impl Hardware {
                 order
             }
             // Vulkan video is Linux's; the rest of the order is tried as before it.
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(target_os = "macos")]
+            Self::Auto(..) => vec![Self::VideoToolbox],
+            #[cfg(not(any(target_os = "linux", target_os = "macos")))]
             Self::Auto(..) => vec![Self::Vaapi, Self::V4l2m2m, Self::Cuda],
             other => vec![other],
         }
@@ -332,6 +339,8 @@ impl Hardware {
             Self::D3d11(_) => "D3D11VA",
             Self::Auto(..) => "hardware",
             Self::Vaapi => "VAAPI",
+            #[cfg(target_os = "macos")]
+            Self::VideoToolbox => "VideoToolbox",
             Self::Vulkan(_) => "Vulkan",
             Self::Cuda => "NVDEC",
             Self::V4l2m2m => "V4L2 M2M",
@@ -417,7 +426,7 @@ pub fn pool_extra(waiting: usize) -> i32 {
 /// device. The probes and the stream ask the same, so they decode on one GPU; why not the
 /// renderer's goes to the log.
 pub fn vaapi_node(hardware: Hardware) -> VaapiNode {
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     if let Hardware::Auto(gpu, display) = hardware {
         if !gpu.is_null() {
             let switched_on = crate::vulkan_video::map_switched_on(std::env::var_os(crate::vulkan_video::MAP_ENVIRONMENT).as_deref());
@@ -544,7 +553,7 @@ pub struct VideoDecoder {
     _format: Box<Format>,
     pub name: String,
     /// The backend this decoder opened with.
-    #[cfg_attr(not(unix), allow(dead_code))]
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub hardware: Hardware,
     /// HEVC access units go to FFmpeg without the last shard's zero padding (`access_unit`).
     trims_padding: bool,
@@ -649,7 +658,19 @@ pub fn v4l2_pts_round_trip(pts: i64, timebase: Option<(i32, i32)>) -> i64 {
 
 /// `avcodec_send_packet` and `avcodec_receive_frame`'s AVERROR(EAGAIN): output must be read
 /// before more input goes in, or no output is there yet.
+#[cfg(unix)]
+pub const AGAIN: i32 = -libc::EAGAIN;
+#[cfg(windows)]
 pub const AGAIN: i32 = -11;
+
+/// Let FFmpeg select the device when this backend does not share one with the renderer.
+fn open_default_device(context: &mut AVCodecContext, kind: AVHWDeviceType) -> Result<(), String> {
+    // FFmpeg owns the returned reference through the codec context.
+    let status = unsafe {
+        av_hwdevice_ctx_create(&mut context.hw_device_ctx, kind, ptr::null(), ptr::null_mut(), 0)
+    };
+    if status < 0 { Err(format!("no device: {}", error(status))) } else { Ok(()) }
+}
 
 impl VideoDecoder {
     /// Opens the first backend of `hardware.order()` that opens, logging each that does not
@@ -762,6 +783,8 @@ impl VideoDecoder {
             let device_type = match hardware {
                 Hardware::D3d11(_) => Some(AV_HWDEVICE_TYPE_D3D11VA),
                 Hardware::Vaapi => Some(AV_HWDEVICE_TYPE_VAAPI),
+                #[cfg(target_os = "macos")]
+                Hardware::VideoToolbox => Some(AV_HWDEVICE_TYPE_VIDEOTOOLBOX),
                 Hardware::Vulkan(_) => Some(AV_HWDEVICE_TYPE_VULKAN),
                 Hardware::Cuda => Some(AV_HWDEVICE_TYPE_CUDA),
                 Hardware::Auto(..) => return Err("the hardware order is not a backend of its own".into()),
@@ -827,26 +850,14 @@ impl VideoDecoder {
                             let renderer = if matches!(pictures.vaapi_node, VaapiNode::Mapped(_)) { "GPU" } else { "OpenGL" };
                             eprintln!("nightjar: {why}; it opens on the default device, and its pictures may go through memory to the {renderer} renderer");
                             video.vaapi_on_renderer = Err(why);
-                            let status = av_hwdevice_ctx_create(&mut context.hw_device_ctx, kind, ptr::null(), ptr::null_mut(), 0);
-                            if status < 0 {
-                                return Err(format!("no device: {}", error(status)));
-                            }
+                            open_default_device(context, kind)?;
                         } else {
                             video.vaapi_on_renderer = Ok(());
                         }
                     }
-                    Hardware::Vaapi | Hardware::Cuda => {
-                        let status = av_hwdevice_ctx_create(
-                            &mut context.hw_device_ctx,
-                            kind,
-                            ptr::null(),
-                            ptr::null_mut(),
-                            0,
-                        );
-                        if status < 0 {
-                            return Err(format!("no device: {}", error(status)));
-                        }
-                    }
+                    Hardware::Vaapi | Hardware::Cuda => open_default_device(context, kind)?,
+                    #[cfg(target_os = "macos")]
+                    Hardware::VideoToolbox => open_default_device(context, kind)?,
                     Hardware::Vulkan(gpu) => {
                         #[cfg(unix)]
                         {
@@ -886,6 +897,8 @@ impl VideoDecoder {
             video.name.push_str(match hardware {
                 Hardware::D3d11(_) => " d3d11va",
                 Hardware::Vaapi => " vaapi",
+                #[cfg(target_os = "macos")]
+                Hardware::VideoToolbox => " videotoolbox",
                 Hardware::Vulkan(_) => " vulkan",
                 Hardware::Cuda => " nvdec",
                 Hardware::None | Hardware::V4l2m2m | Hardware::Auto(..) => "",
@@ -974,7 +987,7 @@ impl VideoDecoder {
     /// An NVDEC decoder's pictures are copied by CUDA into Vulkan images of that device instead
     /// (`vulkan_video::CudaMap`), where its device was made with the interop extensions.
     /// Only a VAAPI or NVDEC decoder on Linux.
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", test))]
     pub fn map_to_vulkan(&mut self, gpu: *mut c_void) -> bool {
         if self.hardware == Hardware::Cuda {
             // SAFETY: As below; the codec context's device is the CUDA one this decoder opened.
@@ -1263,6 +1276,11 @@ fn frame_kind(format: AVPixelFormat, sw_format: Option<AVPixelFormat>, dmabuf: b
         AV_PIX_FMT_YUV444P10LE => (FRAME_YUV444P10, 1),
         // Only NV12 and P010 surfaces copy into the presenter's textures; a 4:4:4 surface (AYUV,
         // Y410) is a picture nothing here can show. Without a frames context, NV12.
+        AV_PIX_FMT_VIDEOTOOLBOX => match sw_format {
+            Some(AV_PIX_FMT_NV12) => (FRAME_VIDEOTOOLBOX, 0),
+            Some(AV_PIX_FMT_P010LE) => (FRAME_VIDEOTOOLBOX, 1),
+            _ => (4, 0),
+        },
         AV_PIX_FMT_D3D11 => match sw_format.unwrap_or(AV_PIX_FMT_NV12) {
             AV_PIX_FMT_NV12 => (FRAME_D3D11, 0),
             AV_PIX_FMT_P010LE => (FRAME_D3D11, 1),
@@ -1813,9 +1831,9 @@ mod tests {
     /// for the probes and the stream alike; without one it opens on the default device, as before.
     #[test]
     fn vaapi_opens_on_the_opengl_renderers_node_when_it_names_one() {
-        let expected = if cfg!(unix) { VaapiNode::Display(129) } else { VaapiNode::Default };
+        let expected = if cfg!(target_os = "linux") { VaapiNode::Display(129) } else { VaapiNode::Default };
         assert_eq!(vaapi_node(Hardware::Auto(ptr::null_mut(), Some(129))), expected);
-        assert_eq!(expected.minor(), cfg!(unix).then_some(129));
+        assert_eq!(expected.minor(), cfg!(target_os = "linux").then_some(129));
         assert_eq!(vaapi_node(Hardware::Auto(ptr::null_mut(), None)), VaapiNode::Default);
         assert_eq!(vaapi_node(Hardware::Vaapi), VaapiNode::Default);
         assert_eq!(VaapiNode::Default.minor(), None);
@@ -2102,7 +2120,7 @@ mod tests {
     #[test]
     fn vulkan_video_without_the_renderers_device_names_the_reason_and_packed_chroma_is_none() {
         let error = VideoDecoder::open_for(Codec::Hevc, Pictures::default(), Hardware::Vulkan(ptr::null_mut()), 1, false).err().unwrap();
-        if cfg!(unix) {
+        if cfg!(target_os = "linux") {
             assert!(error.contains("does not draw with SDL's GPU API") || error.contains("libavutil"), "{error}");
             let packed = Pictures { packed: true, ..Pictures::default() };
             let error = VideoDecoder::open_for(Codec::Hevc, packed, Hardware::Vulkan(ptr::null_mut()), 1, false).err().unwrap();

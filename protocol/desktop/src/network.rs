@@ -186,7 +186,7 @@ fn medium_of_if_type(if_type: u32, hardware: bool) -> Medium {
 /// Linux: a `wireless` directory or a wlan/wwan `DEVTYPE` in sysfs is wireless, an Ethernet-type
 /// (ARPHRD_ETHER, 1) interface without them is wired. Interfaces without a `device` link (tap,
 /// zerotier, dummy) are virtual, with a made-up speed, and say nothing.
-#[cfg_attr(windows, allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn medium_of_sysfs(has_device: bool, has_wireless_dir: bool, devtype: Option<&str>, arphrd: Option<u32>) -> Medium {
     if !has_device {
         Medium::Other
@@ -223,7 +223,7 @@ fn vpn_of_if_row(if_type: u32, mtu: u32, mac: &[u8], alias: &str) -> bool {
 /// (PPP) or a tunnel type (768 IPIP, 769 IP6 tunnel, 776 SIT, 778 GRE); IFF_POINTOPOINT (0x10)
 /// in `flags`, which catches OpenVPN; `mac` as sysfs writes it (`00:ff:...`). The MTU rule skips
 /// ARPHRD_ETHER (1), which is Ethernet and Wi-Fi.
-#[cfg_attr(windows, allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn vpn_of_sysfs(arphrd: Option<u32>, mtu: Option<u32>, flags: Option<u32>, mac: Option<&str>, name: &str) -> bool {
     matches!(arphrd, Some(512 | 768 | 769 | 776 | 778 | 65534))
         || (arphrd != Some(1) && mtu.is_some_and(|mtu| mtu != 0 && mtu < 1500))
@@ -233,7 +233,7 @@ fn vpn_of_sysfs(arphrd: Option<u32>, mtu: Option<u32>, flags: Option<u32>, mac: 
 }
 
 /// The interface name from one line of `ip -o route get`: `... dev eth0 src ...`.
-#[cfg_attr(windows, allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn parse_route_dev(output: &str) -> Option<&str> {
     let mut words = output.split_whitespace();
     words.find(|word| *word == "dev")?;
@@ -283,7 +283,7 @@ fn interface_toward(ip: IpAddr) -> Option<Interface> {
 
 /// The interface among `(name, address)` pairs that holds `local`. An IPv4 address and its
 /// v4-mapped IPv6 form (`::ffff:a.b.c.d`) are the same address either way round.
-#[cfg_attr(windows, allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn interface_of_address<'a>(local: IpAddr, addresses: impl IntoIterator<Item = (&'a str, IpAddr)>) -> Option<&'a str> {
     let canonical = |ip: IpAddr| match ip {
         IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, IpAddr::V4),
@@ -340,7 +340,7 @@ fn interface_name_toward(ip: IpAddr) -> Result<String, String> {
 }
 
 /// The interface toward `ip` from `ip -o route get`, for when the in-process lookup failed.
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
 fn route_dev_from_ip_command(ip: IpAddr) -> Result<String, String> {
     let output = std::process::Command::new("ip")
         .args(["-o", "route", "get", &ip.to_string()])
@@ -353,7 +353,7 @@ fn route_dev_from_ip_command(ip: IpAddr) -> Result<String, String> {
     parse_route_dev(&text).map(str::to_owned).ok_or_else(|| format!("`ip route get` named no interface: {}", text.trim()))
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
 fn interface_toward(ip: IpAddr) -> Option<Interface> {
     let name = match interface_name_toward(ip) {
         Ok(name) => {
@@ -375,7 +375,7 @@ fn interface_toward(ip: IpAddr) -> Option<Interface> {
 }
 
 /// The interface `name` as sysfs describes it.
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
 fn interface_of_sysfs(name: &str) -> Interface {
     let base = format!("/sys/class/net/{name}");
     let read = |file: &str| std::fs::read_to_string(format!("{base}/{file}")).ok();
@@ -581,7 +581,7 @@ fn read() -> Result<Network, String> {
     result.map_err(|e| e.to_string())
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
 fn read() -> Result<Network, String> {
     use zbus::{blocking::{connection::Builder, Proxy}, zvariant::OwnedObjectPath};
     let read = || -> zbus::Result<Network> {
@@ -613,6 +613,36 @@ fn read() -> Result<Network, String> {
         Ok(network)
     };
     read().map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn mac_interface(name: &str) -> (Interface, bool) {
+    use system_configuration::network_configuration::{get_interfaces, SCNetworkInterfaceType as Type};
+    let kind = get_interfaces().iter().find_map(|interface| {
+        (interface.bsd_name()? == name).then(|| interface.interface_type()).flatten()
+    });
+    let cellular = matches!(kind, Some(Type::WWAN));
+    let medium = match kind {
+        Some(Type::IEEE80211 | Type::WWAN) => Medium::Wireless,
+        Some(Type::Ethernet) => Medium::Wired,
+        _ => Medium::Other,
+    };
+    let vpn = name.starts_with("utun") || matches!(kind, Some(Type::IPSec | Type::L2TP | Type::PPP));
+    (Interface { medium, link_mbps: 0, vpn }, cellular)
+}
+
+#[cfg(target_os = "macos")]
+fn interface_toward(ip: IpAddr) -> Option<Interface> {
+    Some(mac_interface(&interface_name_toward(ip).ok()?).0)
+}
+
+#[cfg(target_os = "macos")]
+fn read() -> Result<Network, String> {
+    // Connecting a UDP socket selects the current route without sending traffic.
+    let name = interface_name_toward(Ipv4Addr::new(192, 0, 2, 1).into())
+        .or_else(|_| interface_name_toward("2001:db8::1".parse().unwrap()))?;
+    let (interface, cellular) = mac_interface(&name);
+    Ok(Network { wifi: interface.medium == Medium::Wireless && !cellular, cellular, ..Default::default() })
 }
 
 #[cfg(test)]

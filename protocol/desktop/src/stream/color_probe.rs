@@ -295,6 +295,7 @@ fn drawable(
                 || matches!(
                     info.kind,
                     media::FRAME_P010
+                        | media::FRAME_VIDEOTOOLBOX
                         | media::FRAME_D3D11
                         | media::FRAME_YUV420P10
                         | media::FRAME_YUV444P10

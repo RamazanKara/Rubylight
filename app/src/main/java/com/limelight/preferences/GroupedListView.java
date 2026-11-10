@@ -36,6 +36,15 @@ public final class GroupedListView extends ListView {
         rim.setStrokeWidth(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 1, getResources().getDisplayMetrics()));
         rim.setColor(MaterialColors.getColor(this, R.attr.glassGroupRim));
         hairline.setColor(NightSkyView.separator(context));
+        // Scrolled, the rows fade out at the top as they do into the page's foot, not cut off under the title (#61).
+        setVerticalFadingEdgeEnabled(true);
+        setFadingEdgeLength(getResources().getDimensionPixelSize(R.dimen.settings_top_fade));
+    }
+
+    /** The bottom is the page's: its foot fade on a phone, the screen's edge elsewhere. */
+    @Override
+    protected float getBottomFadingEdgeStrength() {
+        return 0f;
     }
 
     /** The group draws its own hairlines; PreferenceFragment sets the theme's full-width divider after onCreateView. */

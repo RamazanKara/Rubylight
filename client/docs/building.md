@@ -46,7 +46,7 @@ On Linux/macOS:
 bash gradlew --no-daemon --max-workers=2 :app:assembleNonRootDebug :app:lintNonRootDebug :app:testNonRootDebugUnitTest
 ```
 
-`--no-daemon` avoids retaining a build daemon and `--max-workers=2` limits Gradle workers. Native make and unit-test forks are also capped at two in the app build. Add `--offline` only when the wrapper distribution and dependencies are cached; it does not supply missing artifacts. For a smaller arm64-only APK, add `-PabiFilters=arm64-v8a`; comma-separated ABI values are also accepted.
+`--no-daemon` avoids retaining a build daemon and `--max-workers=2` limits Gradle workers. Native make and unit-test forks are also capped at two in the app build (`-PunitTestForks=4` raises the forks, as CI does; each fork takes up to 2 GB). The root flavor adds only its evdev classes, so `testRootDebugUnitTest` runs only `src/testRoot`'s tests; the shared suite runs in `testNonRootDebugUnitTest`. Add `--offline` only when the wrapper distribution and dependencies are cached; it does not supply missing artifacts. For a smaller arm64-only APK, add `-PabiFilters=arm64-v8a`; comma-separated ABI values are also accepted.
 
 With the local build cache on (`org.gradle.caching=true` in `~/.gradle/gradle.properties`), another checkout or a clean build takes compiled classes and the Rust engine from the cache. A cold arm64 debug build and unit-test run in a second checkout dropped from 139 to 58 s.
 
@@ -145,10 +145,11 @@ Releases are built and signed by [`release.yml`](../.github/workflows/release.ym
 
 ### Releasing from CI
 
-Pushing a tag such as `v4.0.1` first checks that the tag equals `v` plus `versionName` in `app/build.gradle`, then runs three jobs:
+Pushing a tag such as `v4.0.1` first checks that the tag equals `v` plus `versionName` in `app/build.gradle`, then runs four jobs:
 
 - **`desktop-windows` and `desktop-linux`** build the desktop client with `protocol/desktop/package-windows.ps1` and `package-linux.sh`, including the PyroWave SDK (`scripts/build-pyrowave-sdk.*`, pinned by `protocol/desktop/pyrowave-sdk.pin`; patch 0002 and the Windows build script come from the public Rubylight repository at the `RUBYLIGHT_SHA` in `release.yml`), and check that each unpacked package loads it. The Linux job installs and starts the `.deb`, `.rpm` and AppImage in clean distributions.
-- **`release`** waits for both desktop jobs, so a failed desktop build publishes nothing. It builds the non-root APK, the root APK and the non-root bundle with the release key, and checks that all three are signed with the Nightjar certificate (SHA-256 `312ed322c7c29d1aec4fae4a3979ebcb557af44d821d7f4746c0968548eb630b`) and that the APKs' IDs are `com.butterpollo.client` and `com.butterpollo.client.root`.
+- **`android`**, beside the desktop jobs, builds the non-root APK, the root APK and the non-root bundle with the release key, and checks that all three are signed with the Nightjar certificate (SHA-256 `312ed322c7c29d1aec4fae4a3979ebcb557af44d821d7f4746c0968548eb630b`) and that the APKs' IDs are `com.butterpollo.client` and `com.butterpollo.client.root`. It hands them to `release` as an artifact kept for one day.
+- **`release`** waits for the other three, so a failed build publishes nothing, and publishes their files.
 
 The release then receives these assets:
 

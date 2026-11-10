@@ -332,8 +332,9 @@ fn pyrowave_encoding_returns_keyed_capture_slots() -> Result<()> {
         let image = claim_image(&gpu, &ring, &mut consumer, Some(&lender))?;
         assert!(image.cursor.is_none());
         encoder.restart_interval();
+        // Waited for, so its capture slot goes back before the next push.
         assert_eq!(
-            encoder.encode_gpu(&image, true, config.bitrate_kbps)?.len(),
+            encoder.encode_now(&image, true, config.bitrate_kbps)?.len(),
             1
         );
         assert!(warnings.snapshot().is_empty());

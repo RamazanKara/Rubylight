@@ -3,7 +3,7 @@ use crate::{
     maintenance,
     state::{AppStop, Shared},
 };
-use butterpollo_core::session::Role;
+use butterpollo_core::{native_api::session::State, session::Role};
 use butterpollo_windows::{process::StopSignal, tray::Action};
 use std::{
     sync::{
@@ -13,6 +13,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
+use tokio::sync::Notify;
 
 /// Whether a client streams the running app.
 fn streaming(h: &Shared) -> bool {
@@ -260,8 +261,11 @@ impl RestoreHotkey {
             return;
         };
         let (pressed, presses) = std::sync::mpsc::channel();
+        // A press wakes an idle loop.
+        let wake = h.maintain_wake().clone();
         match butterpollo_windows::hotkey::Hotkey::register(key, modifiers, move || {
             let _ = pressed.send(());
+            wake.notify_one();
         }) {
             Ok(hotkey) => {
                 tracing::debug!(key, modifiers, "registered the display restore hotkey");
@@ -298,6 +302,61 @@ fn spawn_library_tick(h: &Shared, running: &Arc<AtomicBool>) -> bool {
 /// How long a library tick may run before it is told: while one hangs the Steam, Playnite and
 /// launcher checks all wait for it.
 const LIBRARY_TICK_TOO_LONG: Duration = Duration::from_secs(5 * 60);
+/// The loop's tick while the host has work: it follows sessions, the running app, kept displays
+/// and a queued update this often.
+const BUSY_TICK: Duration = Duration::from_millis(100);
+/// The longest an idle host sleeps: the update check, due by the wall clock, looks every second.
+const IDLE_TICK: Duration = Duration::from_secs(1);
+/// Whether nothing the loop follows every [`BUSY_TICK`] goes on: no launch, stream, teardown or
+/// remote monitor, no app, app audio or kept display, a session machine that rests idle, and no
+/// update queued. Then only the loop's timers and `Host::wake_maintenance` have work for it. A
+/// session machine still settling, or locked by an action, is followed every tick as before.
+fn idle(h: &Shared) -> bool {
+    !h.sessions.lock().unwrap().owns_capture()
+        && h.current_app.lock().unwrap().is_none()
+        && h.app_audio.lock().unwrap().is_none()
+        && h.app_display.lock().unwrap().is_empty()
+        && h.monitors.lock().unwrap().is_empty()
+        && !matches!(
+            h.updates.lock().unwrap()["phase"].as_str(),
+            Some("waiting" | "downloading" | "ready" | "installing")
+        )
+        && h.try_session_state() == Some(State::Idle)
+}
+/// When an idle loop runs next, unless woken: at its first timer, no later than [`IDLE_TICK`] and
+/// no sooner than [`BUSY_TICK`] from `now`.
+fn idle_until(now: Instant, timers: impl IntoIterator<Item = Instant>) -> Instant {
+    timers
+        .into_iter()
+        .fold(now + IDLE_TICK, Instant::min)
+        .max(now + BUSY_TICK)
+}
+/// Hands each tray action on, and wakes the idle loop for it, from a thread that ends with the
+/// tray.
+fn forward_actions(actions: Receiver<Action>, wake: Arc<Notify>) -> Receiver<Action> {
+    let (forward, forwarded) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for action in actions {
+            if forward.send(action).is_err() {
+                return;
+            }
+            wake.notify_one();
+        }
+    });
+    forwarded
+}
+/// Wakes the idle loop when the service asks the host to stop. The thread waits as long as the
+/// host runs.
+fn wake_on_stop(stop_signal: &Arc<StopSignal>, wake: Arc<Notify>) {
+    if !stop_signal.supervised() {
+        return;
+    }
+    let stop_signal = stop_signal.clone();
+    std::thread::spawn(move || {
+        stop_signal.wait();
+        wake.notify_one();
+    });
+}
 /// Since when a library tick has been in flight, for one warning about a hung one.
 #[derive(Default)]
 struct LibraryTickWatch {
@@ -358,6 +417,13 @@ pub async fn maintain(
     let mut tray = butterpollo_core::tray::Tracker::default();
     let mut housekeeping: Option<tokio::task::JoinHandle<()>> = None;
     let ticking = Arc::new(AtomicBool::new(false));
+    // An idle loop sleeps until its next timer. A launch or stream (`Sessions::with_waker`), an
+    // app started from the console, a queued update, a quit or restart, a tray action, the
+    // restore hotkey and the service's stop wake it sooner.
+    let wake = h.maintain_wake().clone();
+    let stop_signal = Arc::new(stop_signal);
+    wake_on_stop(&stop_signal, wake.clone());
+    let actions = actions.map(|actions| forward_actions(actions, wake.clone()));
     while !h.stop.load(Ordering::Acquire) {
         if stop_signal.requested() {
             tracing::info!("service requested host shutdown");
@@ -431,7 +497,27 @@ pub async fn maintain(
                 user_action(&h, action, web_port);
             }
         }
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        if h.stop.load(Ordering::Acquire) {
+            break;
+        }
+        if housekeeping
+            .as_ref()
+            .is_some_and(|task| !task.is_finished())
+            || !idle(&h)
+        {
+            tokio::time::sleep(BUSY_TICK).await;
+            continue;
+        }
+        let notices = actions
+            .is_some()
+            .then(butterpollo_windows::tray::notices_due)
+            .flatten();
+        let timers = [update_at, launcher_at, wake_at, steam_at];
+        let at = idle_until(Instant::now(), timers.into_iter().chain(notices));
+        tokio::select! {
+            () = tokio::time::sleep_until(at.into()) => {}
+            () = wake.notified() => {}
+        }
     }
 }
 
@@ -499,6 +585,85 @@ mod tests {
             running.load(Ordering::Acquire),
             "the one in flight still holds it"
         );
+    }
+
+    #[test]
+    fn an_idle_loop_sleeps_until_its_first_timer_within_its_bounds() {
+        let now = Instant::now();
+        assert_eq!(idle_until(now, std::iter::empty()), now + IDLE_TICK);
+        let soon = now + Duration::from_millis(400);
+        let later = now + Duration::from_secs(30);
+        assert_eq!(idle_until(now, [later, soon]), soon);
+        assert_eq!(idle_until(now, [later]), now + IDLE_TICK);
+        // A timer already due runs no more often than a busy host ticks.
+        assert_eq!(idle_until(now, [now, soon]), now + BUSY_TICK);
+    }
+
+    #[test]
+    fn the_host_is_idle_only_with_nothing_the_tick_follows() {
+        let f = Fixture::new();
+        assert!(idle(&f.host), "a host that has just started");
+        // A launch waiting for its client.
+        let launch = f.launch(f.client(u32::MAX), Role::Stream);
+        let canceled = f.host.sessions.lock().unwrap().queue(launch).unwrap();
+        drop(canceled);
+        assert!(!idle(&f.host));
+        let canceled = f.host.sessions.lock().unwrap().request_stop(None);
+        drop(canceled);
+        assert!(idle(&f.host));
+        // A running app.
+        *f.host.current_app.lock().unwrap() = Some(steam_app());
+        assert!(!idle(&f.host));
+        let app = f.host.current_app.lock().unwrap().take();
+        drop(app);
+        assert!(idle(&f.host));
+        // An update waiting to install.
+        f.host.updates.lock().unwrap()["phase"] = serde_json::json!("waiting");
+        assert!(!idle(&f.host));
+        f.host.updates.lock().unwrap()["phase"] = serde_json::json!("idle");
+        assert!(idle(&f.host));
+        // The session machine, held by an action.
+        let held = f.host.session.lock().unwrap();
+        assert!(!idle(&f.host));
+        drop(held);
+        assert!(idle(&f.host));
+    }
+
+    /// Whether `wake` was told, or is told within `wait`.
+    async fn woken(wake: &Notify, wait: Duration) -> bool {
+        tokio::time::timeout(wait, wake.notified()).await.is_ok()
+    }
+
+    #[tokio::test]
+    async fn a_launch_a_wake_and_a_tray_action_wake_the_idle_loop() {
+        let f = Fixture::new();
+        let wake = f.host.maintain_wake().clone();
+        let none = Duration::from_millis(50);
+        assert!(
+            !woken(&wake, none).await,
+            "nothing woke a host that has just started"
+        );
+        let launch = f.launch(f.client(u32::MAX), Role::Stream);
+        let canceled = f.host.sessions.lock().unwrap().queue(launch).unwrap();
+        drop(canceled);
+        assert!(woken(&wake, none).await, "a launch wakes it");
+        let canceled = f.host.sessions.lock().unwrap().request_stop(None);
+        drop(canceled);
+        assert!(!woken(&wake, none).await, "a launch that went does not");
+        f.host.wake_maintenance();
+        assert!(woken(&wake, none).await);
+        // A tray click is handed on, then wakes it.
+        let (tray, clicks) = std::sync::mpsc::channel();
+        let actions = forward_actions(clicks, wake.clone());
+        tray.send(Action::Open).unwrap();
+        assert!(woken(&wake, Duration::from_secs(5)).await);
+        assert!(matches!(actions.try_recv(), Ok(Action::Open)));
+        // The thread ends with the tray.
+        drop(tray);
+        assert!(matches!(
+            actions.recv_timeout(Duration::from_secs(5)),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected)
+        ));
     }
 
     fn steam_app() -> crate::process::RunningApp {

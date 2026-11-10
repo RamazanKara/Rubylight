@@ -1733,6 +1733,34 @@ fn client_luminance_changes_never_relabel_hdr_content() {
     }
 }
 #[test]
+fn a_queued_launch_and_a_started_stream_wake_the_waker_and_nothing_else_does() {
+    let woken = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut sessions = Sessions::default().with_waker({
+        let woken = woken.clone();
+        move || {
+            woken.fetch_add(1, Ordering::AcqRel);
+        }
+    });
+    let count = || woken.load(Ordering::Acquire);
+    drop(sessions.expire());
+    assert_eq!(count(), 0);
+    let fresh = launch("woken", Role::Stream);
+    drop(sessions.queue(fresh.clone()).unwrap());
+    assert_eq!(count(), 1, "a queued launch");
+    let refused = launch("refused", Role::Stream);
+    assert!(sessions.start(refused, Negotiated::default()).is_err());
+    assert_eq!(count(), 1, "a start that fails changes nothing");
+    let s = sessions.start(fresh, Negotiated::default()).unwrap();
+    assert_eq!(count(), 2, "a started stream");
+    sessions.begin_teardown(&s);
+    drop(sessions.request_stop(None));
+    assert_eq!(count(), 2);
+    // Without one, nothing is told.
+    let mut plain = Sessions::default();
+    drop(plain.queue(launch("plain", Role::Stream)).unwrap());
+    assert_eq!(count(), 2);
+}
+#[test]
 fn a_launch_still_being_prepared_does_not_expire() {
     let mut sessions = Sessions::default();
     let mut slow = launch("slow", Role::Stream);

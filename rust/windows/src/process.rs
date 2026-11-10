@@ -1372,6 +1372,18 @@ impl StopSignal {
             // SAFETY: `event` is an owned handle borrowed from `self`, open for the wait.
             .is_some_and(|event| unsafe { WaitForSingleObject(raw(event), 0) == WAIT_OBJECT_0 })
     }
+    /// Whether a supervisor can ask for the stop.
+    pub fn supervised(&self) -> bool {
+        self.0.is_some()
+    }
+    /// Block until the supervisor asks for the stop, or the wait fails. Without a supervisor
+    /// nothing can ask, so this returns at once.
+    pub fn wait(&self) {
+        if let Some(event) = &self.0 {
+            // SAFETY: `event` is an owned handle borrowed from `self`, open for the wait.
+            unsafe { WaitForSingleObject(raw(event), INFINITE) };
+        }
+    }
 }
 
 /// The program a command line starts: its first argument, without quotes.

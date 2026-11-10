@@ -4,6 +4,7 @@
 use anyhow::{Context, Result, bail};
 
 use crate::crypto;
+use crate::pyrowave::Payload;
 
 /// Datagram storage for one video FEC block.
 pub type PacketBlock = Vec<Vec<u8>>;
@@ -244,7 +245,7 @@ impl VideoPacketizer {
         latency_us: u64,
     ) -> Result<Vec<Vec<u8>>> {
         self.encode_frame(
-            payload,
+            payload.into(),
             idr,
             after_invalidation,
             timestamp,
@@ -252,21 +253,31 @@ impl VideoPacketizer {
             None,
         )
     }
-    pub fn encode_pyrowave(
+    /// `payload` is the framed picture: contiguous bytes, or the pieces of the
+    /// encoder's bitstream it was framed from ([`crate::pyrowave::Framing`]),
+    /// which are copied straight into the packets.
+    pub fn encode_pyrowave<'a>(
         &mut self,
-        payload: &[u8],
+        payload: impl Into<Payload<'a>>,
         timestamp: u32,
         latency_us: u64,
         fec: PyrowaveFec,
     ) -> Result<Vec<Vec<u8>>> {
-        self.encode_frame(payload, true, false, timestamp, latency_us, Some(fec))
+        self.encode_frame(
+            payload.into(),
+            true,
+            false,
+            timestamp,
+            latency_us,
+            Some(fec),
+        )
     }
     /// Prepare each FEC block only when the sender needs it. Earlier blocks
     /// can leave while later blocks still need framing, parity and encryption.
     /// Dropping the iterator discards the unsent remainder of this frame.
     pub fn pyrowave_blocks<'a>(
         &'a mut self,
-        payload: &'a [u8],
+        payload: impl Into<Payload<'a>>,
         timestamp: u32,
         latency_us: u64,
         fec: PyrowaveFec,
@@ -277,14 +288,20 @@ impl VideoPacketizer {
     /// when there is one, so a sent block's packets are filled again.
     pub fn pyrowave_blocks_in<'a>(
         &'a mut self,
-        payload: &'a [u8],
+        payload: impl Into<Payload<'a>>,
         timestamp: u32,
         latency_us: u64,
         fec: PyrowaveFec,
         pool: Option<&'a BlockPool>,
     ) -> Result<(usize, bool, impl Iterator<Item = Result<PacketBlock>> + 'a)> {
-        let (count, limited, mut next) =
-            self.frame_blocks(payload, true, false, timestamp, latency_us, Some(fec))?;
+        let (count, limited, mut next) = self.frame_blocks(
+            payload.into(),
+            true,
+            false,
+            timestamp,
+            latency_us,
+            Some(fec),
+        )?;
         let blocks = std::iter::from_fn(move || {
             let mut packets = pool.map(BlockPool::take).unwrap_or_default();
             match next(&mut packets) {
@@ -316,7 +333,7 @@ impl VideoPacketizer {
         latency_us: u64,
     ) -> Result<(usize, impl FnMut(&mut PacketBlock) -> Result<usize> + 'a)> {
         let (count, _, next) = self.frame_blocks(
-            payload,
+            payload.into(),
             idr,
             after_invalidation,
             timestamp,
@@ -327,7 +344,7 @@ impl VideoPacketizer {
     }
     fn encode_frame(
         &mut self,
-        payload: &[u8],
+        payload: Payload,
         idr: bool,
         after_invalidation: bool,
         timestamp: u32,
@@ -354,7 +371,7 @@ impl VideoPacketizer {
     }
     fn frame_blocks<'a>(
         &'a mut self,
-        payload: &'a [u8],
+        payload: Payload<'a>,
         idr: bool,
         after_invalidation: bool,
         timestamp: u32,
@@ -560,7 +577,7 @@ impl VideoPacketizer {
             }
             let begin = offset.saturating_sub(header.len());
             let n = (slice - h).min(payload.len() - begin);
-            s[32 + h..32 + h + n].copy_from_slice(&payload[begin..begin + n]);
+            payload.copy_to(begin, &mut s[32 + h..32 + h + n]);
             s[32 + h + n..].fill(0);
             s[16..20].copy_from_slice(&(self.sequence.wrapping_add(i as u32) << 8).to_le_bytes());
             s[20..24].copy_from_slice(&frame.to_le_bytes());
@@ -960,7 +977,7 @@ impl StreamedFrame {
                 percentage,
                 minimum: self.minimum,
                 header: &self.header,
-                payload: &self.payload,
+                payload: Payload::Bytes(&self.payload),
                 layout: None,
                 sealer: self.sealer.as_ref(),
                 timestamp: self.timestamp,
@@ -1015,7 +1032,7 @@ struct BlockFill<'a> {
     minimum: usize,
     header: &'a [u8; 8],
     /// The frame after `header`, at least up to this block's last shard.
-    payload: &'a [u8],
+    payload: Payload<'a>,
     layout: Option<&'a crate::pyrowave::Layout>,
     sealer: Option<&'a crypto::PacketSealer>,
     timestamp: u32,
@@ -1049,42 +1066,94 @@ pub fn encrypted_control(
     payload: &[u8],
     v2: bool,
 ) -> Result<Vec<u8>> {
-    if payload.len() > u16::MAX as usize - 24 {
-        bail!("control packet too large");
-    }
-    let (iv, iv_len) = control_iv(seq, v2, b'H');
-    let mut p = Vec::with_capacity(28 + payload.len());
-    p.extend_from_slice(&1u16.to_le_bytes());
-    p.extend_from_slice(&((24 + payload.len()) as u16).to_le_bytes());
-    p.extend_from_slice(&seq.to_le_bytes());
-    p.extend_from_slice(&[0; 16]);
-    p.extend_from_slice(&kind.to_le_bytes());
-    p.extend_from_slice(&(payload.len() as u16).to_le_bytes());
-    p.extend_from_slice(payload);
-    let tag = crypto::gcm_seal_in_place(key, &iv[..iv_len], &mut p[24..])?;
-    p[8..24].copy_from_slice(&tag);
-    Ok(p)
+    ControlCipher::new(key, v2).seal(seq, kind, payload)
 }
 pub fn decrypt_control(key: &[u8; 16], packet: &[u8], v2: bool) -> Result<(u32, u16, Vec<u8>)> {
-    if packet.len() < 28 || u16::from_le_bytes(packet[..2].try_into().unwrap()) != 1 {
-        bail!("short encrypted control packet");
+    ControlCipher::new(key, v2).open(packet)
+}
+/// A control stream's AES-GCM key, expanded once rather than for every message
+/// ([`encrypted_control`] and [`decrypt_control`] make one per call).
+pub struct ControlCipher {
+    key: [u8; 16],
+    v2: bool,
+    gcm: crypto::GcmKey,
+}
+impl ControlCipher {
+    pub fn new(key: &[u8; 16], v2: bool) -> Self {
+        Self {
+            key: *key,
+            v2,
+            // Version 1's IV is 16 bytes, version 2's 12 ([`control_iv`]).
+            gcm: crypto::GcmKey::sized(key, !v2),
+        }
     }
-    let len = u16::from_le_bytes(packet[2..4].try_into().unwrap()) as usize;
-    if len + 4 != packet.len() {
-        bail!("control length mismatch");
+    /// Whether this is the cipher for `key` and protocol version `v2`.
+    pub fn is_for(&self, key: &[u8; 16], v2: bool) -> bool {
+        self.v2 == v2 && crypto::equal(&self.key, key)
     }
-    let seq = u32::from_le_bytes(packet[4..8].try_into().unwrap());
-    let (iv, iv_len) = control_iv(seq, v2, b'C');
-    let mut b = crypto::gcm_open(key, &iv[..iv_len], &packet[8..24], &packet[24..])?;
-    if b.len() < 4 {
-        bail!("short decrypted control header");
+    /// Message `seq` from the host, of `kind`, as the client receives it.
+    pub fn seal(&self, seq: u32, kind: u16, payload: &[u8]) -> Result<Vec<u8>> {
+        if payload.len() > u16::MAX as usize - 24 {
+            bail!("control packet too large");
+        }
+        let (iv, iv_len) = control_iv(seq, self.v2, b'H');
+        let mut p = Vec::with_capacity(28 + payload.len());
+        p.extend_from_slice(&1u16.to_le_bytes());
+        p.extend_from_slice(&((24 + payload.len()) as u16).to_le_bytes());
+        p.extend_from_slice(&seq.to_le_bytes());
+        p.extend_from_slice(&[0; 16]);
+        p.extend_from_slice(&kind.to_le_bytes());
+        p.extend_from_slice(&(payload.len() as u16).to_le_bytes());
+        p.extend_from_slice(payload);
+        let tag = self.gcm.seal_in_place(&iv[..iv_len], &mut p[24..])?;
+        p[8..24].copy_from_slice(&tag);
+        Ok(p)
     }
-    let kind = u16::from_le_bytes(b[..2].try_into().unwrap());
-    if u16::from_le_bytes(b[2..4].try_into().unwrap()) as usize != b.len() - 4 {
-        bail!("decrypted control length mismatch");
+    /// A client's encrypted control `packet`: its sequence, kind and payload.
+    pub fn open(&self, packet: &[u8]) -> Result<(u32, u16, Vec<u8>)> {
+        if packet.len() < 28 || u16::from_le_bytes(packet[..2].try_into().unwrap()) != 1 {
+            bail!("short encrypted control packet");
+        }
+        let len = u16::from_le_bytes(packet[2..4].try_into().unwrap()) as usize;
+        if len + 4 != packet.len() {
+            bail!("control length mismatch");
+        }
+        let seq = u32::from_le_bytes(packet[4..8].try_into().unwrap());
+        let (iv, iv_len) = control_iv(seq, self.v2, b'C');
+        let (tag, sealed) = (&packet[8..24], &packet[24..]);
+        let mut b = self.gcm.open(&iv[..iv_len], tag, sealed)?;
+        if b.len() < 4 {
+            bail!("short decrypted control header");
+        }
+        let kind = u16::from_le_bytes(b[..2].try_into().unwrap());
+        if u16::from_le_bytes(b[2..4].try_into().unwrap()) as usize != b.len() - 4 {
+            bail!("decrypted control length mismatch");
+        }
+        b.drain(..4);
+        Ok((seq, kind, b))
     }
-    b.drain(..4);
-    Ok((seq, kind, b))
+}
+/// A peer's [`ControlCipher`], made again only when its session's key or
+/// protocol version is another than the one it was made for.
+#[derive(Default)]
+pub struct ControlCiphers {
+    cipher: Option<ControlCipher>,
+    /// How often a cipher was made, for the tests.
+    #[cfg(test)]
+    made: usize,
+}
+impl ControlCiphers {
+    pub fn get(&mut self, key: &[u8; 16], v2: bool) -> &ControlCipher {
+        let cipher = &mut self.cipher;
+        if cipher.as_ref().is_some_and(|c| !c.is_for(key, v2)) {
+            *cipher = None;
+        }
+        #[cfg(test)]
+        if cipher.is_none() {
+            self.made += 1;
+        }
+        cipher.get_or_insert_with(|| ControlCipher::new(key, v2))
+    }
 }
 const fn gf_mul(mut a: u8, mut b: u8) -> u8 {
     let mut p = 0;
@@ -1580,6 +1649,8 @@ fn cauchy_encode_with<const OFFSET: usize>(
     }
     Ok(())
 }
+#[cfg(test)]
+mod control_cipher_tests;
 #[cfg(test)]
 mod streamed_tests;
 #[cfg(test)]

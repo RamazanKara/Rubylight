@@ -18,6 +18,7 @@ struct MockEncoder {
 }
 fn frame(idr: bool) -> Encoded {
     Encoded {
+        framing: None,
         bytes: vec![0, 0, 0, 1, 0x26, 1, 0x80],
         unit: butterpollo_windows::encoder::Unit::Whole,
         idr,

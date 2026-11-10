@@ -3,10 +3,10 @@ use anyhow::{Context, Result, bail, ensure};
 use prost::Message;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[serde(rename_all = "lowercase")]
 pub enum Source {
     Steam,
@@ -523,6 +523,10 @@ pub fn reconcile(
         return change;
     }
     if settings.remove_uninstalled {
+        let installed: HashSet<(Source, &str)> = games
+            .iter()
+            .map(|game| (game.source, game.id.as_str()))
+            .collect();
         let before = apps.len();
         apps.retain(|app| {
             let Some(source) = app["launcher-source"]
@@ -535,24 +539,28 @@ pub fn reconcile(
                 || source == Source::Steam
                 || !read.contains(&source)
                 || !settings.enabled(source)
-                || games.iter().any(|game| {
-                    game.source == source && app["launcher-id"].as_str() == Some(&game.id)
-                })
+                || app["launcher-id"]
+                    .as_str()
+                    .is_some_and(|id| installed.contains(&(source, id)))
         });
         change.removed = before - apps.len();
     }
+    let dismissed: HashSet<&str> = dismissed.iter().map(String::as_str).collect();
+    let mut index = AppIndex::new(apps);
     for game in games {
         if game.source == Source::Steam
             || !settings.enabled(game.source)
             || game.unavailable_reason.is_some()
-            || dismissed.contains(&dismissed_key(game.source, &game.id))
-            || apps.iter().any(|app| game.matches(app))
+            || dismissed.contains(dismissed_key(game.source, &game.id).as_str())
+            || index.matches(apps, game)
         {
             continue;
         }
         if let Ok(mut app) = game.app() {
             app[MANAGED] = json!("auto");
             app[SYNCED_BY] = json!("launcher");
+            // A later game finds the app just added, as it found the others.
+            index.add(apps.len(), &app);
             apps.push(app);
             change.added += 1;
         }
@@ -882,6 +890,96 @@ struct BattleInstall {
     #[prost(message, optional, tag = "3")]
     settings: Option<BattleSettings>,
 }
+/// A key [`Game::matches`] can find an app by.
+#[derive(Debug, PartialEq, Eq, Hash)]
+enum AppKey {
+    /// `launcher-source` and `launcher-id`.
+    Launcher(String, String),
+    Uuid(String),
+    /// The Steam app ID it starts ([`crate::steam::game_of`]).
+    Steam(String),
+    /// Its name, in [`name_key`] form.
+    Name(String),
+    /// A folder (in [`folder_key`] form) its working, install or program path is in.
+    Folder(String),
+}
+/// The apps by every key [`Game::matches`] can find one by, so each game looks up its
+/// few candidates instead of trying every app.
+#[derive(Default)]
+pub struct AppIndex(HashMap<AppKey, Vec<usize>>);
+impl AppIndex {
+    pub fn new(apps: &[Value]) -> Self {
+        let mut index = Self::default();
+        for (at, app) in apps.iter().enumerate() {
+            index.add(at, app);
+        }
+        index
+    }
+    /// Notes `app`, found at `at` in the apps.
+    pub fn add(&mut self, at: usize, app: &Value) {
+        let text = |key: &str| app[key].as_str();
+        let mut keys = Vec::new();
+        if let (Some(source), Some(id)) = (text("launcher-source"), text("launcher-id")) {
+            keys.push(AppKey::Launcher(source.into(), id.into()));
+        }
+        if let Some(uuid) = text("uuid") {
+            keys.push(AppKey::Uuid(uuid.into()));
+        }
+        if let Some(id) = crate::steam::game_of(app) {
+            keys.push(AppKey::Steam(id.to_string()));
+        }
+        let name = name_key(text("name").unwrap_or(""));
+        if !name.is_empty() {
+            keys.push(AppKey::Name(name));
+        }
+        let paths = ["working-dir", "launcher-install-dir", "steam-install-dir"]
+            .map(|key| text(key).unwrap_or(""));
+        for path in paths
+            .into_iter()
+            .chain([command_program(text("cmd").unwrap_or(""))])
+        {
+            // The path itself and every folder above it: what `within` finds it in.
+            let path = folder_key(path);
+            let above = path.match_indices('\\').map(|(end, _)| &path[..end]);
+            for folder in above.chain([path.as_str()]) {
+                if !folder.is_empty() {
+                    keys.push(AppKey::Folder(folder.into()));
+                }
+            }
+        }
+        for key in keys {
+            let found = self.0.entry(key).or_default();
+            if found.last() != Some(&at) {
+                found.push(at);
+            }
+        }
+    }
+    /// Whether any of `apps`, the apps this index was made from, is `game`: what
+    /// `apps.iter().any(|app| game.matches(app))` says.
+    pub fn matches(&self, apps: &[Value], game: &Game) -> bool {
+        let mut keys = vec![
+            AppKey::Launcher(game.source.key().into(), game.id.clone()),
+            AppKey::Uuid(game.uuid()),
+        ];
+        if game.source == Source::Steam {
+            keys.push(AppKey::Steam(game.id.clone()));
+        }
+        let name = name_key(&game.name);
+        if !name.is_empty() {
+            keys.push(AppKey::Name(name));
+        }
+        let folder = folder_key(&game.install_dir);
+        if !folder.is_empty() {
+            keys.push(AppKey::Folder(folder));
+        }
+        // Each app that can match has one of these keys; `matches` decides.
+        keys.iter()
+            .filter_map(|key| self.0.get(key))
+            .flatten()
+            .any(|&at| game.matches(&apps[at]))
+    }
+}
+
 #[derive(Clone, PartialEq, Message)]
 struct BattleSettings {
     #[prost(string, tag = "1")]

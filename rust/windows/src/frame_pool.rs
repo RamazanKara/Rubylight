@@ -27,11 +27,33 @@ pub fn take(len: usize) -> Vec<u8> {
     if len < POOLED {
         return Vec::with_capacity(len);
     }
-    let reused = POOL
-        .lock()
+    let mut buffer = shared(len).unwrap_or_else(|| Vec::with_capacity(len));
+    buffer.clear();
+    buffer
+}
+
+/// A buffer of `len` bytes for a writer that overwrites them all, such as
+/// PyroWave's packetizer: a reused one keeps its last frame's bytes, so only
+/// what it never held is zeroed, where [`take`] and a resize zeroed it all.
+pub fn take_filled(len: usize) -> Vec<u8> {
+    filled(if len < POOLED { None } else { shared(len) }, len)
+}
+
+fn shared(len: usize) -> Option<Vec<u8>> {
+    POOL.lock()
         .unwrap_or_else(PoisonError::into_inner)
-        .take(len);
-    reused.unwrap_or_else(|| Vec::with_capacity(len))
+        .take(len)
+}
+
+/// `reused`, or a new buffer, holding `len` bytes.
+fn filled(reused: Option<Vec<u8>>, len: usize) -> Vec<u8> {
+    let mut buffer = reused.unwrap_or_else(|| Vec::with_capacity(len));
+    if buffer.len() >= len {
+        buffer.truncate(len);
+    } else {
+        buffer.resize(len, 0);
+    }
+    buffer
 }
 
 /// `bytes` in a buffer from [`take`].
@@ -74,11 +96,11 @@ impl Pool {
             .map(|(index, _)| index)?;
         Some(self.0.swap_remove(index))
     }
-    /// Keeps `buffer`, emptied; returns the buffer that does not fit, if any.
+    /// Keeps `buffer` with the bytes it holds ([`take_filled`] reuses them;
+    /// [`take`] empties it); returns the buffer that does not fit, if any.
     /// A full pool keeps its larger buffers: a smaller frame fits in them,
     /// not the reverse.
     fn give(&mut self, mut buffer: Vec<u8>) -> Option<Vec<u8>> {
-        buffer.clear();
         if self.0.len() < KEPT {
             self.0.push(buffer);
             return None;
@@ -108,7 +130,9 @@ mod tests {
         assert!(pool.give(frame).is_none());
         assert!(pool.take(POOLED + 20_000_000).is_none());
         let again = pool.take(POOLED + 5).unwrap();
-        assert!(again.is_empty() && again.capacity() >= POOLED + 5);
+        // Kept with its bytes, for `take_filled`; `take` empties it.
+        assert_eq!(again, vec![1; POOLED + 10]);
+        assert!(again.capacity() >= POOLED + 5);
         assert_eq!(again.as_ptr(), address);
         assert!(pool.take(1).is_none());
     }
@@ -134,6 +158,7 @@ mod tests {
         // Larger than any other test's frame, so only this one fits it.
         let size = LARGEST - 4096;
         let frame = crate::encoder::Encoded {
+            framing: None,
             bytes: Vec::with_capacity(size),
             unit: crate::encoder::Unit::Whole,
             idr: false,
@@ -157,6 +182,32 @@ mod tests {
                 .iter()
                 .all(|kept| kept.capacity() < size)
         );
+    }
+
+    #[test]
+    fn a_filled_buffer_keeps_the_last_frames_bytes_and_zeroes_only_new_ones() {
+        let mut pool = Pool(Vec::new());
+        let size = POOLED * 3;
+        let mut first = filled(pool.take(size), size);
+        assert_eq!(first.len(), size);
+        assert!(first.iter().all(|&byte| byte == 0));
+        first.fill(7);
+        let address = first.as_ptr();
+        assert!(pool.give(first).is_none());
+        // Shorter: the same memory, its bytes as written.
+        let shorter = filled(pool.take(size - 100), size - 100);
+        assert_eq!(shorter.as_ptr(), address);
+        assert_eq!(shorter.len(), size - 100);
+        assert!(shorter.iter().all(|&byte| byte == 7));
+        assert!(pool.give(shorter).is_none());
+        // Longer than it held: only the new tail is zeroed.
+        let longer = filled(pool.take(size - 50), size - 50);
+        assert_eq!(longer.as_ptr(), address);
+        assert!(longer[..size - 100].iter().all(|&byte| byte == 7));
+        assert!(longer[size - 100..].iter().all(|&byte| byte == 0));
+        assert!(pool.give(longer).is_none());
+        // Small ones come from the heap, zeroed.
+        assert_eq!(take_filled(16), [0; 16]);
     }
 
     #[test]

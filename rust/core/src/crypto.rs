@@ -76,17 +76,61 @@ pub fn gcm_seal(key: &[u8; 16], nonce: &[u8], data: &[u8]) -> Result<([u8; 16], 
 }
 /// [`gcm_seal`] without the plaintext copy: `data` is encrypted in place.
 pub(crate) fn gcm_seal_in_place(key: &[u8; 16], nonce: &[u8], data: &mut [u8]) -> Result<[u8; 16]> {
-    let tag = match nonce.len() {
-        12 => Aes128Gcm::new_from_slice(key)
-            .unwrap()
-            .encrypt_in_place_detached(Nonce::from_slice(nonce), &[], data),
-        16 => AesGcm::<Aes128, U16>::new_from_slice(key)
-            .unwrap()
-            .encrypt_in_place_detached(Nonce::<U16>::from_slice(nonce), &[], data),
-        _ => bail!("unsupported AES-GCM nonce size"),
+    GcmKey::new(key, nonce.len())?.seal_in_place(nonce, data)
+}
+/// An AES-128-GCM key for one nonce size, expanded once for every message
+/// sealed or opened with it.
+pub(crate) enum GcmKey {
+    Nonce12(Aes128Gcm),
+    Nonce16(AesGcm<Aes128, U16>),
+}
+impl GcmKey {
+    pub(crate) fn new(key: &[u8; 16], nonce_len: usize) -> Result<Self> {
+        Ok(match nonce_len {
+            12 => Self::sized(key, false),
+            16 => Self::sized(key, true),
+            _ => bail!("unsupported AES-GCM nonce size"),
+        })
     }
-    .map_err(|_| anyhow::anyhow!("AES-GCM encryption failed"))?;
-    Ok(tag.into())
+    /// For 16-byte nonces when `long`, else for 12-byte ones.
+    pub(crate) fn sized(key: &[u8; 16], long: bool) -> Self {
+        if long {
+            Self::Nonce16(AesGcm::new(key.into()))
+        } else {
+            Self::Nonce12(Aes128Gcm::new(key.into()))
+        }
+    }
+    pub(crate) fn seal_in_place(&self, nonce: &[u8], data: &mut [u8]) -> Result<[u8; 16]> {
+        let tag = match (self, nonce.len()) {
+            (Self::Nonce12(gcm), 12) => {
+                gcm.encrypt_in_place_detached(Nonce::from_slice(nonce), &[], data)
+            }
+            (Self::Nonce16(gcm), 16) => {
+                gcm.encrypt_in_place_detached(Nonce::<U16>::from_slice(nonce), &[], data)
+            }
+            _ => bail!("unsupported AES-GCM nonce size"),
+        }
+        .map_err(|_| anyhow::anyhow!("AES-GCM encryption failed"))?;
+        Ok(tag.into())
+    }
+    pub(crate) fn open(&self, nonce: &[u8], tag: &[u8], data: &[u8]) -> Result<Vec<u8>> {
+        if tag.len() != 16 {
+            bail!("invalid authentication tag");
+        }
+        let mut b = data.to_vec();
+        let tag = aes_gcm::Tag::from_slice(tag);
+        match (self, nonce.len()) {
+            (Self::Nonce12(gcm), 12) => {
+                gcm.decrypt_in_place_detached(Nonce::from_slice(nonce), &[], &mut b, tag)
+            }
+            (Self::Nonce16(gcm), 16) => {
+                gcm.decrypt_in_place_detached(Nonce::<U16>::from_slice(nonce), &[], &mut b, tag)
+            }
+            _ => bail!("unsupported AES-GCM nonce size"),
+        }
+        .map_err(|_| anyhow::anyhow!("authentication failed"))?;
+        Ok(b)
+    }
 }
 /// Video packets share a key but always have independent 96-bit nonces.
 pub(crate) struct PacketSealer(ring::aead::LessSafeKey);
@@ -113,19 +157,7 @@ pub fn gcm_open(key: &[u8; 16], nonce: &[u8], tag: &[u8], data: &[u8]) -> Result
     if tag.len() != 16 {
         bail!("invalid authentication tag");
     }
-    let mut b = data.to_vec();
-    let tag = aes_gcm::Tag::from_slice(tag);
-    match nonce.len() {
-        12 => Aes128Gcm::new_from_slice(key)
-            .unwrap()
-            .decrypt_in_place_detached(Nonce::from_slice(nonce), &[], &mut b, tag),
-        16 => AesGcm::<Aes128, U16>::new_from_slice(key)
-            .unwrap()
-            .decrypt_in_place_detached(Nonce::<U16>::from_slice(nonce), &[], &mut b, tag),
-        _ => bail!("unsupported AES-GCM nonce size"),
-    }
-    .map_err(|_| anyhow::anyhow!("authentication failed"))?;
-    Ok(b)
+    GcmKey::new(key, nonce.len())?.open(nonce, tag, data)
 }
 pub fn cbc_seal(key: &[u8; 16], iv: &[u8; 16], data: &[u8]) -> Vec<u8> {
     use aes::cipher::{BlockEncryptMut, KeyIvInit, block_padding::Pkcs7};

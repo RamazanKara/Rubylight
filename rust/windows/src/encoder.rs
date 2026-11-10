@@ -22,6 +22,11 @@ pub enum Unit {
 
 pub struct Encoded {
     pub bytes: Vec<u8>,
+    /// How `bytes` go on the wire. `None` sends them as they are. PyroWave
+    /// sets its record framing or older clients' container here, as pieces of
+    /// `bytes`, which the packetizer copies straight into packets
+    /// ([`Self::payload`]): `bytes` then holds the codec's own output.
+    pub framing: Option<butterpollo_core::pyrowave::Framing>,
     pub unit: Unit,
     pub idr: bool,
     pub after_invalidation: bool,
@@ -37,6 +42,21 @@ pub struct Encoded {
     /// Submission through completed codec output, including asynchronous work.
     pub latency: Option<std::time::Duration>,
     pub presentation: Option<std::time::Instant>,
+}
+impl Encoded {
+    /// The picture as the packetizer reads it: `bytes`, or `bytes` framed.
+    pub fn payload(&self) -> Result<butterpollo_core::pyrowave::Payload<'_>> {
+        Ok(match &self.framing {
+            None => butterpollo_core::pyrowave::Payload::Bytes(&self.bytes),
+            Some(framing) => framing.view(&self.bytes)?.into(),
+        })
+    }
+    /// Bytes the picture takes on the wire, before packet headers.
+    pub fn wire_len(&self) -> usize {
+        self.framing
+            .as_ref()
+            .map_or(self.bytes.len(), butterpollo_core::pyrowave::Framing::len)
+    }
 }
 /// A large frame's buffer goes back to the encoders' pool
 /// ([`crate::frame_pool`]) when the sender is done with it.
@@ -403,7 +423,7 @@ impl Encoder {
         match self {
             Self::Amf(e) => e.pending(),
             Self::Nvenc(e) => e.pending(),
-            Self::Pyrowave(_) => false,
+            Self::Pyrowave(e) => e.pending(),
         }
     }
     /// An event that ends a wait for output as soon as the oldest frame is
@@ -413,7 +433,7 @@ impl Encoder {
         match self {
             Self::Amf(e) => e.output_event(),
             Self::Nvenc(e) => e.output_event(),
-            Self::Pyrowave(_) => None,
+            Self::Pyrowave(e) => e.output_event(),
         }
     }
     /// A poll can wait in the driver: AMF's QueryOutput blocks for its
@@ -433,12 +453,12 @@ impl Encoder {
         }
     }
     /// When the encoder accepted the input of the last encode call, after
-    /// its colour conversion. Only AMF reports it.
+    /// its colour conversion.
     pub fn last_submitted(&self) -> Option<std::time::Instant> {
         match self {
             Self::Amf(e) => e.last_submitted(),
             Self::Nvenc(e) => e.last_submitted(),
-            Self::Pyrowave(_) => None,
+            Self::Pyrowave(e) => e.last_submitted(),
         }
     }
     /// Frames the GPU encoder has accepted and not yet finished.
@@ -446,12 +466,14 @@ impl Encoder {
         match self {
             Self::Amf(e) => e.backlog(),
             Self::Nvenc(e) => e.backlog(),
-            Self::Pyrowave(_) => 0,
+            Self::Pyrowave(e) => e.backlog(),
         }
     }
     pub fn backlog_limit(&self) -> usize {
         match self {
             Self::Amf(e) => e.backlog_limit(),
+            // PyroWave holds at most two frames in flight, the default limit:
+            // with `pyrowave_encode_overlap` off its backlog stays empty.
             Self::Nvenc(_) | Self::Pyrowave(_) => butterpollo_core::encoder_backlog::DEFAULT_LIMIT,
         }
     }
@@ -526,7 +548,17 @@ impl Encoder {
         match self {
             Self::Amf(e) => e.poll(),
             Self::Nvenc(e) => e.poll(),
-            Self::Pyrowave(_) => Ok(vec![]),
+            Self::Pyrowave(e) => e.poll(),
+        }
+    }
+    /// Waits for every frame still in flight and returns them, for a caller
+    /// that wants each picture before it goes on, such as a fixture or a
+    /// benchmark. PyroWave only: AMF and NVENC keep their output for
+    /// [`Self::poll`].
+    pub fn finish(&mut self) -> Result<Vec<Encoded>> {
+        match self {
+            Self::Amf(_) | Self::Nvenc(_) => Ok(vec![]),
+            Self::Pyrowave(e) => e.finish(),
         }
     }
     /// Blocks a P-frame is sent in as its slices leave the encoder; 0 when

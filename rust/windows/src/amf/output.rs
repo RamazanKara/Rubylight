@@ -352,6 +352,7 @@ impl Encoder {
                     self.frame_completed(timing, !bytes.is_empty());
                 }
                 output.push(Encoded {
+                    framing: None,
                     bytes,
                     unit,
                     idr: whole && pushed.meta.idr,
@@ -389,6 +390,7 @@ impl Encoder {
             (v.Release.unwrap())(buffer);
             self.frame_completed(timing, !bytes.is_empty());
             output.push(Encoded {
+                framing: None,
                 bytes,
                 unit: Unit::Whole,
                 idr,

@@ -12,7 +12,8 @@ use butterpollo_core::{
     rtsp::Negotiated,
 };
 use std::{
-    collections::HashSet,
+    cell::Cell,
+    collections::{HashSet, VecDeque},
     ffi::c_void,
     ptr,
     sync::{Arc, Mutex, OnceLock},
@@ -33,9 +34,13 @@ use windows::{
 };
 #[cfg(test)]
 mod decode_tests;
+/// `pyrowave_encoder_set_frame_context`: which of the SDK's readbacks the
+/// next encode writes and the next readout reads, for two frames in flight.
+type SetFrameContext =
+    unsafe extern "C" fn(p::pyrowave_encoder, std::ffi::c_int) -> p::pyrowave_result;
 macro_rules! api {
     ($($name:ident:$ty:ty),* $(,)?) => {
-        struct Api { $($name:$ty,)* _dll:libloading::Library }
+        struct Api { $($name:$ty,)* set_frame_context: Option<SetFrameContext>, _dll:libloading::Library }
         impl Api {
             fn load() -> Result<Arc<Self>> {
                 let path=std::env::current_exe()?.parent().context("executable directory unavailable")?.join("libpyrowave-shared-1.dll");
@@ -44,7 +49,9 @@ macro_rules! api {
                 unsafe {
                     let dll=libloading::Library::new(&path).with_context(||format!("loading {}",path.display()))?;
                     $(let $name=*dll.get::<$ty>(concat!("pyrowave_",stringify!($name),"\0").as_bytes())?;)*
-                    let api=Self { $($name,)* _dll:dll };
+                    // Optional: without it, one frame is in flight at a time.
+                    let set_frame_context=dll.get::<SetFrameContext>(b"pyrowave_encoder_set_frame_context\0").ok().map(|symbol| *symbol);
+                    let api=Self { $($name,)* set_frame_context, _dll:dll };
                     let (mut major,mut minor,mut patch)=(0,0,0);
                     (api.get_api_version)(&mut major,&mut minor,&mut patch);
                     if major!=1 { bail!("unsupported PyroWave ABI {major}.{minor}.{patch}; expected 1.x"); }
@@ -123,7 +130,8 @@ impl CompletionWait {
             })
         }
     }
-    fn wait(&self, semaphore: p::VkSemaphore, value: u64) -> Result<()> {
+    /// Whether Vulkan has signalled `value`, waiting at most `timeout`.
+    fn reached(&self, semaphore: p::VkSemaphore, value: u64, timeout: Duration) -> Result<bool> {
         let info = p::VkSemaphoreWaitInfo {
             sType: p::VkStructureType_VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
             pNext: ptr::null(),
@@ -132,10 +140,11 @@ impl CompletionWait {
             pSemaphores: &semaphore,
             pValues: &value,
         };
+        let timeout = u64::try_from(timeout.as_nanos()).unwrap_or(u64::MAX);
         // SAFETY: The imported semaphore belongs to this device; its owner and
         // the two borrowed locals remain alive for this bounded CPU wait.
-        let result = unsafe { self.wait.unwrap()(self.device, &info, 2_000_000_000) };
-        completion_result(result)
+        let result = unsafe { self.wait.unwrap()(self.device, &info, timeout) };
+        reached(result)
     }
 }
 fn completion_result(result: p::VkResult) -> Result<()> {
@@ -149,10 +158,13 @@ fn completion_result(result: p::VkResult) -> Result<()> {
         code => bail!("PyroWave GPU completion failed with Vulkan result {code}"),
     }
 }
-fn finish_submission<T>(pending: &mut Option<T>, completed: Result<()>) -> Result<()> {
-    completed?;
-    *pending = None;
-    Ok(())
+/// [`completion_result`] of a wait that may end before the value: `false`
+/// when it timed out.
+fn reached(result: p::VkResult) -> Result<bool> {
+    if result == p::VkResult_VK_TIMEOUT {
+        return Ok(false);
+    }
+    completion_result(result).map(|()| true)
 }
 /// Unconfirmed submissions can still access their resources. Do not run their
 /// destructors on timeout: retaining them until process exit is safer than a
@@ -421,24 +433,212 @@ fn frame_size_message(limit: usize) -> String {
         "PyroWave frames were dropped: over the transport limit of {limit} bytes. Lower bitrate or resolution."
     )
 }
+/// Frames in flight at most: the SDK keeps a bitstream readback for each of
+/// its frame contexts (`PYROWAVE_MAX_FRAME_CONTEXTS` in pyrowave.h).
+const MAX_DEPTH: usize = 2;
+/// How long a frame's GPU work may take before it counts as unconfirmed.
+const COMPLETION_TIMEOUT: Duration = Duration::from_secs(2);
+/// Whether a frame submitted at `submitted` is done, as `reached` reports it
+/// waiting at most the given time: at once unless `block`, otherwise for what
+/// is left of [`COMPLETION_TIMEOUT`]. A frame not done in that time is an
+/// error, as is any failure of the wait.
+fn settle(
+    reached: impl FnOnce(Duration) -> Result<bool>,
+    submitted: Instant,
+    now: Instant,
+    block: bool,
+) -> Result<bool> {
+    let left = COMPLETION_TIMEOUT.saturating_sub(now.saturating_duration_since(submitted));
+    if reached(if block { left } else { Duration::ZERO })? {
+        return Ok(true);
+    }
+    if block || left.is_zero() {
+        bail!("PyroWave GPU completion timed out after 2 seconds");
+    }
+    Ok(false)
+}
+/// What a frame's readout needs from its submission.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Plan {
+    /// The bitstream budget the encode was given.
+    budget: usize,
+    kbps: u32,
+    interval: Duration,
+}
+/// A frame on the GPU.
+struct Flight<L> {
+    /// Pins the capture and its conversion inputs until Vulkan confirms the
+    /// frame complete.
+    lease: L,
+    /// The planes, fence and SDK frame context it uses.
+    slot: usize,
+    /// The slot fence value its encode signals when done.
+    release: u64,
+    /// The encode call's start, before the colour conversion.
+    begin: Instant,
+    submitted: Instant,
+    captured: Instant,
+    plan: Plan,
+}
+/// A frame Vulkan confirmed complete, its lease returned.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Completed {
+    slot: usize,
+    begin: Instant,
+    captured: Instant,
+    plan: Plan,
+}
+/// Frames on the GPU, oldest first. Only the oldest completes, so frames
+/// leave in the order they were submitted.
+struct Flights<L> {
+    queue: VecDeque<Flight<L>>,
+    /// A completion could not be confirmed: every lease and resource stays.
+    unconfirmed: bool,
+}
+impl<L> Default for Flights<L> {
+    fn default() -> Self {
+        Self {
+            queue: VecDeque::with_capacity(MAX_DEPTH),
+            unconfirmed: false,
+        }
+    }
+}
+impl<L> Flights<L> {
+    fn len(&self) -> usize {
+        self.queue.len()
+    }
+    fn is_empty(&self) -> bool {
+        self.queue.is_empty()
+    }
+    fn front(&self) -> Option<&Flight<L>> {
+        self.queue.front()
+    }
+    /// The lowest of `depth` slots no frame in flight uses.
+    fn free_slot(&self, depth: usize) -> Option<usize> {
+        (0..depth).find(|slot| self.queue.iter().all(|flight| flight.slot != *slot))
+    }
+    fn push(&mut self, flight: Flight<L>) {
+        self.queue.push_back(flight);
+    }
+    /// The oldest frame, once `done` confirms it complete; its lease goes
+    /// back then. A frame `done` fails stays in flight, unconfirmed.
+    fn complete(
+        &mut self,
+        done: impl FnOnce(&Flight<L>) -> Result<bool>,
+    ) -> Result<Option<Completed>> {
+        let Some(oldest) = self.queue.front() else {
+            return Ok(None);
+        };
+        match done(oldest) {
+            Ok(true) => {}
+            Ok(false) => return Ok(None),
+            Err(error) => {
+                self.unconfirmed = true;
+                return Err(error);
+            }
+        }
+        let flight = self.queue.pop_front().expect("the oldest frame");
+        let completed = Completed {
+            slot: flight.slot,
+            begin: flight.begin,
+            captured: flight.captured,
+            plan: flight.plan,
+        };
+        drop(flight.lease);
+        Ok(Some(completed))
+    }
+    /// Every frame in order, each confirmed by `done`, which waits for it.
+    fn settle_all(&mut self, mut done: impl FnMut(&Flight<L>) -> Result<bool>) -> Result<()> {
+        while !self.is_empty() {
+            if self.complete(&mut done)?.is_none() {
+                self.unconfirmed = true;
+                bail!("PyroWave GPU completion was not confirmed");
+            }
+        }
+        Ok(())
+    }
+    /// The device that converted the frames is lost: its queued work is dead
+    /// and the leases are free. Vulkan reads only the slots' own planes.
+    fn abandon(&mut self) {
+        self.queue.clear();
+    }
+    /// Keeps every lease alive until the process exits.
+    fn retain(&mut self) {
+        for flight in self.queue.drain(..) {
+            std::mem::forget(flight);
+        }
+    }
+}
+/// One frame's conversion target: its colour planes, their Vulkan images and
+/// the fence between the conversion and the encode. Each frame in flight has
+/// its own; fields drop in this order.
+struct Slot {
+    compute: Option<ComputePlanes>,
+    /// The planes as Vulkan images; the first one's fence orders the frame.
+    interop: Vec<Interop>,
+    converter: PlanarConverter,
+}
+impl Slot {
+    fn new(
+        api: &Arc<Api>,
+        d3d: &Device,
+        device: p::pyrowave_device,
+        config: &Negotiated,
+        source: (u32, u32, Pixel),
+        use_compute: bool,
+        warnings: &butterpollo_core::session::Warnings,
+    ) -> Result<Self> {
+        let converter = PlanarConverter::new(d3d, config, source)?;
+        let mut interop = Vec::with_capacity(converter.textures.len());
+        for texture in &converter.textures {
+            interop.push(Interop::new(api.clone(), d3d, device, texture.clone())?);
+        }
+        let mut compute = None;
+        if use_compute {
+            match ComputePlanes::new(d3d, config, &converter.textures, &interop[0].fence) {
+                Ok(planes) => compute = Some(planes),
+                Err(error) => {
+                    warnings.set("pyrowave_conversion", format!("PyroWave compute conversion unavailable ({error:#}); converting on the graphics queue. Game rendering may delay frames; update the AMD driver or lower GPU load."))
+                }
+            }
+        }
+        Ok(Self {
+            compute,
+            interop,
+            converter,
+        })
+    }
+    fn semaphore(&self) -> p::VkSemaphore {
+        let i = &self.interop[0];
+        // SAFETY: `sync` is the live sync object `Interop::new` imported on this device.
+        unsafe { (i.api.sync_object_get_semaphore)(i.sync) }
+    }
+}
 pub struct Encoder {
     warnings: Arc<butterpollo_core::session::Warnings>,
     api: Arc<Api>,
     device: p::pyrowave_device,
     encoder: p::pyrowave_encoder,
     completion: Option<CompletionWait>,
-    /// Pins the capture lease and conversion inputs until Vulkan releases them.
-    /// It remains set on every failed conversion, submission or completion.
-    pending: Option<GpuImage>,
+    /// The capture lease of the frame being submitted, from before its
+    /// conversion until it is in flight. It remains set on every failed
+    /// conversion or submission.
+    submitting: Option<GpuImage>,
+    /// Frames on the GPU, oldest first, each pinning its capture lease until
+    /// Vulkan confirms it complete.
+    flights: Flights<GpuImage>,
+    /// Frames in flight at most: two with `pyrowave_encode_overlap`, the next
+    /// one's conversion overlapping the last one's encode; one without, which
+    /// waits for each frame in its encode call.
+    depth: usize,
     lost: Option<crate::device_loss::DeviceLost>,
     adapter: [u8; 8],
     d3d: Device,
-    converter: Option<PlanarConverter>,
     /// Whether to convert on the compute queue (AMD, `gpu_compute_conversion`).
     use_compute: bool,
-    compute: Option<ComputePlanes>,
     source: Option<(u32, u32, Pixel)>,
-    interop: Vec<Interop>,
+    /// One conversion target per frame in flight, made when first needed.
+    slots: Vec<Slot>,
     config: Negotiated,
     critical_fec: bool,
     /// Parity for each frame's critical block, as a percentage; 0 without.
@@ -449,8 +649,13 @@ pub struct Encoder {
     pub(crate) luminance: [f32; 2],
     /// The couch menu's panel, drawn by the conversion while set.
     pub(crate) overlay: Option<crate::overlay::Overlay>,
-    bitstream: Vec<u8>,
     packets: Vec<p::pyrowave_packet>,
+    /// When the last frame was submitted, after its conversion.
+    submitted: Option<Instant>,
+    /// Set once the oldest frame in flight is done, with two in flight.
+    output_event: Option<crate::timing::Signal>,
+    /// The slot and fence value the event was last armed for.
+    armed: Cell<Option<(usize, u64)>>,
     row_order_notice: Notice,
     size_notice: Notice,
     #[cfg(test)]
@@ -493,21 +698,33 @@ impl Encoder {
             .integer("pyrowave_critical_fec_percentage", 20)
             .clamp(0, 255) as u32;
         let critical_fec = config.pyrowave_records && critical_fec_percentage > 0;
+        let overlap = tuning.pyrowave_encode_overlap();
+        if overlap && api.set_frame_context.is_none() {
+            tracing::warn!(
+                "the PyroWave runtime has no frame contexts; encoding one frame at a time"
+            );
+        }
+        let depth = if overlap && api.set_frame_context.is_some() {
+            MAX_DEPTH
+        } else {
+            1
+        };
+        tracing::info!(frames_in_flight = depth, "PyroWave encode overlap");
         let mut s = Self {
             warnings,
             api,
             device: ptr::null_mut(),
             encoder: ptr::null_mut(),
             completion: None,
-            pending: None,
+            submitting: None,
+            flights: Flights::default(),
+            depth,
             lost: None,
             adapter: luid.luid,
             use_compute: crate::compute::enabled(tuning),
             d3d,
-            converter: None,
-            compute: None,
             source: None,
-            interop: vec![],
+            slots: Vec::with_capacity(depth),
             config: config.clone(),
             critical_fec,
             critical_fec_percentage,
@@ -515,8 +732,14 @@ impl Encoder {
             repeat: false,
             luminance: [100., 1.],
             overlay: None,
-            bitstream: vec![],
             packets: vec![],
+            submitted: None,
+            output_event: if depth > 1 {
+                crate::timing::Signal::new().ok()
+            } else {
+                None
+            },
+            armed: Cell::new(None),
             row_order_notice: Notice::default(),
             size_notice: Notice::default(),
             #[cfg(test)]
@@ -589,18 +812,28 @@ impl Encoder {
     }
     /// The D3D12 device that converts on the compute queue, when it is lost.
     fn compute_device_removed(&self) -> Option<crate::device_loss::DeviceLost> {
-        let compute = self.compute.as_ref()?.converter.compute();
+        let compute = self.slots.first()?.compute.as_ref()?.converter.compute();
         crate::device_loss::DeviceLost::d3d12(&compute.device)
     }
+    /// A D3D device is lost: its queued work is dead, so the capture leases
+    /// are free and the adapter is not quarantined; the host rebuilds the
+    /// encoder on a new device. Vulkan reads only the slots' own planes, which
+    /// stay until Drop has idled it. A frame whose completion was already
+    /// unconfirmed keeps everything for the quarantine.
+    fn device_lost(&mut self, loss: crate::device_loss::DeviceLost) {
+        self.lost = Some(loss);
+        if !self.flights.unconfirmed {
+            self.submitting = None;
+            self.flights.abandon();
+        }
+    }
     /// A conversion failed before anything reached Vulkan. When the device it
-    /// ran on is lost its queued work is dead, so the capture lease is free and
-    /// the adapter is not quarantined: the host rebuilds the encoder on a new
-    /// device. Any other failure keeps the lease and quarantines.
+    /// ran on is lost, see [`Self::device_lost`]. Any other failure keeps the
+    /// lease and quarantines.
     fn conversion_failed(&mut self, error: anyhow::Error) -> anyhow::Error {
         match self.device_removed() {
             Some(loss) => {
-                self.lost = Some(loss);
-                self.pending = None;
+                self.device_lost(loss);
                 error.context(loss)
             }
             None => error,
@@ -611,70 +844,191 @@ impl Encoder {
     pub(crate) fn restart_interval(&mut self) {
         self.interval = interval(&self.config);
     }
+    /// A CPU image, such as the codec probe's: its frame comes back from this
+    /// call, with any frame still in flight.
     pub fn encode(&mut self, image: &Image, idr: bool, kbps: u32) -> Result<Vec<Encoded>> {
         anyhow::ensure!(
             self.overlay.is_none(),
             "couch menu: needs wgc_direct_encoder_input"
         );
-        self.encode_gpu(&GpuImage::upload(&self.d3d, image)?, idr, kbps)
+        let mut frames = self.encode_gpu(&GpuImage::upload(&self.d3d, image)?, idr, kbps)?;
+        frames.extend(self.finish()?);
+        Ok(frames)
     }
+    /// Submits `image` and returns the frames done by now, oldest first. With
+    /// one frame in flight that is this one; with two, usually the one before
+    /// it, and this one comes from [`Self::poll`].
     pub fn encode_gpu(&mut self, image: &GpuImage, _idr: bool, kbps: u32) -> Result<Vec<Encoded>> {
         let result = self.encode_gpu_inner(image, kbps);
-        if result.is_err() && self.pending.is_some() {
+        self.settled(result)
+    }
+    /// The frames done by now, oldest first.
+    pub fn poll(&mut self) -> Result<Vec<Encoded>> {
+        let result = self.collect(false);
+        self.settled(result)
+    }
+    /// Waits for every frame in flight and returns them, oldest first.
+    pub fn finish(&mut self) -> Result<Vec<Encoded>> {
+        let result = self.collect(true);
+        self.settled(result)
+    }
+    pub fn pending(&self) -> bool {
+        !self.flights.is_empty()
+    }
+    /// Frames submitted and not yet returned.
+    pub fn backlog(&self) -> usize {
+        self.flights.len()
+    }
+    pub fn last_submitted(&self) -> Option<Instant> {
+        self.submitted
+    }
+    /// An event set once the oldest frame in flight is done, armed by this
+    /// call; `None` when nothing is in flight or there is no event, and the
+    /// caller keeps its output poll, which stays the bound of any wait.
+    pub fn output_event(&self) -> Option<&crate::timing::Signal> {
+        let event = self.output_event.as_ref()?;
+        match self.arm_output(event) {
+            Ok(armed) => armed.then_some(event),
+            Err(error) => {
+                self.warnings.event(
+                    "pyrowave_output_event",
+                    format!("PyroWave could not arm its output event ({error:#}); polling for output instead. Report this with the host log."),
+                    butterpollo_core::session::EVENT_PERIOD,
+                );
+                None
+            }
+        }
+    }
+    fn arm_output(&self, event: &crate::timing::Signal) -> Result<bool> {
+        let Some(oldest) = self.flights.front() else {
+            return Ok(false);
+        };
+        let fence = &self.slots[oldest.slot].interop[0].fence;
+        let wanted = (oldest.slot, oldest.release);
+        // SAFETY: The fence is the slot's live shared fence, which outlives the
+        // frames in flight; `event` is an open event this encoder keeps until
+        // Drop or until it arms it again.
+        unsafe {
+            if fence.GetCompletedValue() >= oldest.release {
+                event.set()?;
+            } else if self.armed.get() != Some(wanted) {
+                event.reset()?;
+                fence.SetEventOnCompletion(oldest.release, event.raw())?;
+                self.armed.set(Some(wanted));
+            } else if event.is_set() {
+                event.reset()?;
+                // Done meanwhile: its notification may have come before the reset.
+                if fence.GetCompletedValue() >= oldest.release {
+                    event.set()?;
+                }
+            }
+        }
+        Ok(true)
+    }
+    /// A submission whose completion is not confirmed, or a frame whose
+    /// conversion or submission failed, still holds its resources.
+    fn unsettled(&self) -> bool {
+        self.submitting.is_some() || self.flights.unconfirmed
+    }
+    /// Quarantines the adapter when `result` failed with GPU work unconfirmed.
+    fn settled<T>(&self, result: Result<T>) -> Result<T> {
+        if result.is_err() && self.unsettled() {
             self.quarantine();
         }
         result
     }
     fn quarantine(&self) {
         quarantined_adapters().block(self.adapter);
-        if let Some(compute) = &self.compute {
+        for compute in self.slots.iter().filter_map(|slot| slot.compute.as_ref()) {
             compute.converter.compute().retire();
         }
         self.warnings.set("pyrowave_gpu_quarantine", "PyroWave stopped after GPU work could not be confirmed complete. Its resources are retained to protect capture; restart Rubylight before using PyroWave on this adapter again, or use HEVC/AV1.");
     }
+    /// The frames done by now, oldest first; with `block`, every frame in
+    /// flight, waiting for each.
+    fn collect(&mut self, block: bool) -> Result<Vec<Encoded>> {
+        let mut frames = Vec::new();
+        while let Some(frame) = self.complete(block)? {
+            frames.extend(frame);
+        }
+        Ok(frames)
+    }
+    /// The oldest frame in flight, read out once Vulkan confirms it complete:
+    /// `None` while it is not (or nothing is in flight), `Some(None)` when it
+    /// is dropped over the transport limit.
+    fn complete(&mut self, block: bool) -> Result<Option<Option<Encoded>>> {
+        let completion = self
+            .completion
+            .as_ref()
+            .context("PyroWave completion wait")?;
+        let slots = &self.slots;
+        let completed = self.flights.complete(|flight| {
+            settle(
+                |timeout| {
+                    completion.reached(slots[flight.slot].semaphore(), flight.release, timeout)
+                },
+                flight.submitted,
+                Instant::now(),
+                block,
+            )
+        });
+        let completed = match completed {
+            Ok(Some(completed)) => completed,
+            Ok(None) => return Ok(None),
+            Err(error) => {
+                // A Vulkan loss (VK_ERROR_DEVICE_LOST) keeps the lease and
+                // quarantines: nothing proves the driver stopped reading the
+                // imported capture texture, unlike a D3D loss below.
+                if let Some(loss) = crate::device_loss::DeviceLost::from_error(&error) {
+                    self.lost = Some(loss);
+                }
+                return Err(error);
+            }
+        };
+        // The lease is free whatever the wait proved: Vulkan never reads the
+        // capture texture, only the encoder-owned planes of the slot. Ask now
+        // whether a device died under the frame: a lost compute device
+        // signals its fences to the maximum, which can satisfy that wait
+        // before Vulkan has run the encode (Drop idles Vulkan before it
+        // destroys anything). The output is garbage, and the host rebuilds on
+        // a new device; the adapter is not quarantined. On the graphics path
+        // (compute planes present, frame not shareable) the D3D11 conversion
+        // may still be reading the capture when the lease is returned;
+        // capture can then tear a buffer that is discarded anyway. This is
+        // the second GetDeviceRemovedReason pair per frame (the first is the
+        // entry check). Both stay: the entry check keeps a dead device from
+        // being handed new work, this one is the only check that sees a loss
+        // during the frame. Each is a runtime flag read on two devices, not a
+        // GPU round trip; not measured.
+        if let Some(loss) = self.device_removed() {
+            self.device_lost(loss);
+            return Err(loss.into());
+        }
+        self.read_out(completed).map(Some)
+    }
     fn encode_gpu_inner(&mut self, image: &GpuImage, kbps: u32) -> Result<Vec<Encoded>> {
         // Refuse a device already known or found lost before it gets new work.
         if let Some(loss) = self.device_removed() {
+            self.device_lost(loss);
             return Err(loss.into());
         }
         quarantined_adapters().check(self.adapter)?;
         anyhow::ensure!(
-            self.pending.is_none(),
+            !self.unsettled(),
             "PyroWave encoder has an unconfirmed GPU submission; rebuild it before encoding again"
         );
         if !self.accepts_gpu_device(image) {
             bail!("capture device changed");
         }
         let begin = Instant::now();
+        let mut frames = Vec::new();
         let source = (image.width, image.height, image.pixel);
         if self.source != Some(source) {
-            self.compute = None;
-            self.interop.clear();
-            self.converter = None;
-            let converter = PlanarConverter::new(&self.d3d, &self.config, source)?;
-            for texture in &converter.textures {
-                self.interop.push(Interop::new(
-                    self.api.clone(),
-                    &self.d3d,
-                    self.device,
-                    texture.clone(),
-                )?);
-            }
+            // The frames in flight still read the planes about to go.
+            frames.extend(self.collect(true)?);
+            self.slots.clear();
+            self.armed.set(None);
             self.warnings.clear("pyrowave_conversion");
-            if self.use_compute {
-                match ComputePlanes::new(
-                    &self.d3d,
-                    &self.config,
-                    &converter.textures,
-                    &self.interop[0].fence,
-                ) {
-                    Ok(planes) => self.compute = Some(planes),
-                    Err(error) => {
-                        self.warnings.set("pyrowave_conversion", format!("PyroWave compute conversion unavailable ({error:#}); converting on the graphics queue. Game rendering may delay frames; update the AMD driver or lower GPU load."))
-                    }
-                }
-            }
-            self.converter = Some(converter);
             self.source = Some(source);
         }
         let interval = self.interval.next(begin, std::mem::take(&mut self.repeat));
@@ -687,78 +1041,143 @@ impl Encoder {
             self.config.min_fec,
         );
         if budget < 16 {
-            return Ok(vec![]);
+            frames.extend(self.collect(false)?);
+            return Ok(frames);
         }
-        self.pending = Some(image.clone());
-        // SAFETY: `interop` holds the three images and views made on `self.device`; `images`
-        // outlives the synchronous encode and the output buffers are sized as passed.
+        // A caller past the backlog waits for the oldest frame here.
+        while self.flights.len() >= self.depth {
+            match self.complete(true)? {
+                Some(frame) => frames.extend(frame),
+                None => break,
+            }
+        }
+        let slot = self
+            .flights
+            .free_slot(self.depth)
+            .context("no free PyroWave frame slot")?;
+        if slot == self.slots.len() {
+            self.slots.push(Slot::new(
+                &self.api,
+                &self.d3d,
+                self.device,
+                &self.config,
+                source,
+                self.use_compute,
+                &self.warnings,
+            )?);
+        }
+        self.submitting = Some(image.clone());
+        let release = self.submit(slot, image, budget)?;
+        let submitted = Instant::now();
+        self.submitted = Some(submitted);
+        // SDK 502a3b52 submits the metadata/bitstream host copies and their
+        // COPY→HOST barrier before this same-queue release signal. Granite
+        // signals it at ALL_COMMANDS, so this covers the output writes as
+        // well as the input reads; the getters of the readout submit no GPU
+        // work.
+        #[cfg(test)]
+        if let Some(fault) = self.hooks.after_submit.take() {
+            fault();
+        }
+        let lease = self.submitting.take().context("PyroWave capture lease")?;
+        self.flights.push(Flight {
+            lease,
+            slot,
+            release,
+            begin,
+            submitted,
+            captured: image.captured,
+            plan: Plan {
+                budget,
+                kbps,
+                interval,
+            },
+        });
+        // One frame in flight waits for it here, as the encode always did.
+        frames.extend(self.collect(self.depth == 1)?);
+        Ok(frames)
+    }
+    /// Converts `image` into `slot`'s planes and submits their encode;
+    /// returns the fence value the encode signals when done.
+    fn submit(&mut self, slot: usize, image: &GpuImage, budget: usize) -> Result<u64> {
+        #[cfg(test)]
+        if let Some(fault) = self.hooks.before_conversion.take() {
+            fault();
+        }
+        let Slot {
+            compute,
+            interop,
+            converter,
+        } = &mut self.slots[slot];
+        let images: [p::pyrowave_gpu_external_reference; 3] =
+            std::array::from_fn(|plane| p::pyrowave_gpu_external_reference {
+                image: interop[plane].image,
+                queue_family_index: 0xfffffffe,
+            });
+        let views = [interop[0].view, interop[1].view, interop[2].view];
+        let i = &mut interop[0];
+        let after = i.counter;
+        i.counter = i
+            .counter
+            .checked_add(1)
+            .context("PyroWave fence exhausted")?;
+        let compute = compute
+            .as_mut()
+            .filter(|_| crate::compute::shareable(&image.texture));
+        let converted = if let Some(compute) = compute {
+            compute.converter.set_overlay(self.overlay.as_ref());
+            compute.convert(image, &self.config, self.luminance, after, i.counter)
+        } else {
+            converter.set_overlay(self.overlay.as_ref());
+            let converted = converter.convert(image, self.luminance);
+            // SAFETY: `i.context` and `i.fence` belong to the live D3D11 device
+            // the conversion recorded on; Signal and Flush only queue work.
+            converted.and_then(|()| unsafe {
+                i.context.Signal(&i.fence, i.counter)?;
+                // Submit the conversion and the signal now, not whenever
+                // D3D11 next flushes: the encode below waits for that signal.
+                i.context.Flush();
+                Ok(())
+            })
+        };
+        if let Err(error) = converted {
+            return Err(self.conversion_failed(error));
+        }
+        let Slot { interop, .. } = &mut self.slots[slot];
+        let i = &mut interop[0];
+        // SAFETY: `i.sync` is the slot's live sync object on `self.device`.
+        let semaphore = unsafe { (self.api.sync_object_get_semaphore)(i.sync) };
+        let acquire = p::pyrowave_gpu_sync_operation {
+            images: images.as_ptr(),
+            num_images: 3,
+            sync: p::pyrowave_sync_point {
+                semaphore,
+                value: i.counter,
+            },
+        };
+        i.counter = i
+            .counter
+            .checked_add(1)
+            .context("PyroWave fence exhausted")?;
+        let release = p::pyrowave_gpu_sync_operation {
+            sync: p::pyrowave_sync_point {
+                value: i.counter,
+                ..acquire.sync
+            },
+            ..acquire
+        };
+        let buffers = p::pyrowave_gpu_buffers { planes: views };
+        // SAFETY: `images`, `acquire`, `release` and `buffers` are live locals
+        // naming the slot's images and views made on `self.device`; the call
+        // records and submits before it returns.
         unsafe {
-            let images: Vec<_> = self
-                .interop
-                .iter()
-                .map(|i| p::pyrowave_gpu_external_reference {
-                    image: i.image,
-                    queue_family_index: 0xfffffffe,
-                })
-                .collect();
-            #[cfg(test)]
-            if let Some(fault) = self.hooks.before_conversion.take() {
-                fault();
+            if self.depth > 1 {
+                let set = self
+                    .api
+                    .set_frame_context
+                    .context("PyroWave frame contexts unavailable")?;
+                check(set(self.encoder, slot as std::ffi::c_int))?;
             }
-            let i = &mut self.interop[0];
-            let after = i.counter;
-            i.counter = i
-                .counter
-                .checked_add(1)
-                .context("PyroWave fence exhausted")?;
-            let compute = self
-                .compute
-                .as_mut()
-                .filter(|_| crate::compute::shareable(&image.texture));
-            let converted = if let Some(compute) = compute {
-                compute.converter.set_overlay(self.overlay.as_ref());
-                compute.convert(image, &self.config, self.luminance, after, i.counter)
-            } else {
-                let converter = self.converter.as_mut().unwrap();
-                converter.set_overlay(self.overlay.as_ref());
-                converter
-                    .convert(image, self.luminance)
-                    .and_then(|()| Ok(i.context.Signal(&i.fence, i.counter)?))
-                    .inspect(|()| {
-                        // Submit the conversion and the signal now, not whenever
-                        // D3D11 next flushes: the encode below waits for that signal.
-                        i.context.Flush();
-                    })
-            };
-            if let Err(error) = converted {
-                return Err(self.conversion_failed(error));
-            }
-            let acquire = p::pyrowave_gpu_sync_operation {
-                images: images.as_ptr(),
-                num_images: 3,
-                sync: p::pyrowave_sync_point {
-                    semaphore: (self.api.sync_object_get_semaphore)(i.sync),
-                    value: i.counter,
-                },
-            };
-            i.counter = i
-                .counter
-                .checked_add(1)
-                .context("PyroWave fence exhausted")?;
-            let release = p::pyrowave_gpu_sync_operation {
-                sync: p::pyrowave_sync_point {
-                    value: i.counter,
-                    ..acquire.sync
-                },
-                ..acquire
-            };
-            let buffers = p::pyrowave_gpu_buffers {
-                planes: [
-                    self.interop[0].view,
-                    self.interop[1].view,
-                    self.interop[2].view,
-                ],
-            };
             check((self.api.encoder_encode_gpu)(
                 self.encoder,
                 &acquire,
@@ -768,44 +1187,26 @@ impl Encoder {
                     maximum_bitstream_size: budget,
                 },
             ))?;
-            // SDK 502a3b52 submits the metadata/bitstream host copies and their
-            // COPY→HOST barrier before this same-queue release signal. Granite
-            // signals it at ALL_COMMANDS, so this covers the output writes as
-            // well as the input reads; the getters below submit no GPU work.
-            #[cfg(test)]
-            if let Some(fault) = self.hooks.after_submit.take() {
-                fault();
-            }
-            let completed = self
-                .completion
-                .as_ref()
-                .unwrap()
-                .wait(release.sync.semaphore, release.sync.value);
-            if let Err(error) = &completed {
-                // A Vulkan loss (VK_ERROR_DEVICE_LOST) keeps the lease and
-                // quarantines: nothing proves the driver stopped reading the
-                // imported capture texture, unlike the D3D12 case below.
-                self.lost = crate::device_loss::DeviceLost::from_error(error);
-            }
-            finish_submission(&mut self.pending, completed)?;
-            // The lease is free whatever the wait proved: Vulkan never reads the
-            // capture texture, only the encoder-owned planes in `interop`. Ask
-            // now whether a device died under the frame: a lost compute device
-            // signals its fences to the maximum, which can satisfy that wait
-            // before Vulkan has run the encode (Drop idles Vulkan before it
-            // destroys anything). The output is garbage, and the host rebuilds
-            // on a new device; the adapter is not quarantined. On the graphics
-            // path (compute planes present, frame not shareable) the D3D11
-            // conversion may still be reading the capture when the lease is
-            // returned; capture can then tear a buffer that is discarded anyway.
-            // This is the second GetDeviceRemovedReason pair per frame (the
-            // first is the entry check). Both stay: the entry check keeps a
-            // dead device from being handed new work, this one is the only
-            // check that sees a loss during the frame. Each is a runtime flag
-            // read on two devices, not a GPU round trip; not measured.
-            if let Some(loss) = self.device_removed() {
-                self.lost = Some(loss);
-                return Err(loss.into());
+        }
+        Ok(release.sync.value)
+    }
+    /// A completed frame's bitstream, framed for the client.
+    fn read_out(&mut self, frame: Completed) -> Result<Option<Encoded>> {
+        let Plan {
+            budget,
+            kbps,
+            interval,
+        } = frame.plan;
+        // SAFETY: The getters read the frame context's host-visible readback
+        // of an encode Vulkan confirmed complete; `bytes` and `self.packets`
+        // are sized as passed.
+        let (mut bytes, written) = unsafe {
+            if self.depth > 1 {
+                let set = self
+                    .api
+                    .set_frame_context
+                    .context("PyroWave frame contexts unavailable")?;
+                check(set(self.encoder, frame.slot as std::ffi::c_int))?;
             }
             let (mut raw, mut meta) = (ptr::null(), ptr::null());
             let (mut size, mut meta_size) = (0, 0);
@@ -834,7 +1235,9 @@ impl Encoder {
             if count == 0 || count > 65535 {
                 bail!("invalid PyroWave packet count");
             }
-            self.bitstream.resize(size + 8, 0);
+            // The codec writes every byte the packets cover; framing below
+            // refers to these bytes instead of copying them again.
+            let mut bytes = crate::frame_pool::take_filled(size + 8);
             self.packets
                 .resize_with(count, || p::pyrowave_packet { offset: 0, size: 0 });
             let mut written = 0;
@@ -844,142 +1247,194 @@ impl Encoder {
                 boundary,
                 0,
                 &mut written,
-                self.bitstream.as_mut_ptr().cast(),
-                self.bitstream.len(),
+                bytes.as_mut_ptr().cast(),
+                bytes.len(),
             ))?;
             if written == 0 || written > count {
                 bail!("invalid PyroWave packetization");
             }
-            let limit = pyrowave::max_frame_bytes(self.config.packet_size, self.critical_fec);
-            let bytes = if self.config.pyrowave_records {
-                if written != 1 {
-                    bail!("record frame must be one codec packet");
-                }
-                let packet = &self.packets[0];
-                let end = packet
-                    .offset
-                    .checked_add(packet.size)
-                    .context("packet overflow")?;
-                let raw = self
-                    .bitstream
-                    .get(packet.offset..end)
-                    .context("invalid codec record range")?;
-                let framed = pyrowave::record_frame_into(
-                    raw,
-                    pyrowave::aligned_payload(self.config.packet_size),
-                    limit,
-                    self.config.pyrowave_row_order,
-                    crate::frame_pool::take(raw.len()),
-                )?;
-                if framed.len() <= budget {
-                    framed
-                } else {
-                    let layout = pyrowave::layout(
-                        &framed,
-                        pyrowave::aligned_payload(self.config.packet_size),
-                    )?;
-                    let minimum = self.config.min_fec.max(pyrowave::MIN_PARITY_SHARDS);
-                    let packets = (framed.len() + 8).div_ceil(self.config.packet_size - 16)
-                        + pyrowave::critical_parity_bound(
-                            layout.critical_shards,
-                            self.critical_fec_percentage as usize,
-                            minimum,
-                        );
-                    let allowance = (f64::from(kbps) * 125. * interval.as_secs_f64()) as usize;
-                    if packets * (self.config.packet_size + pyrowave::WIRE_OVERHEAD) <= allowance {
-                        framed
-                    } else {
-                        if self.config.pyrowave_row_order {
-                            self.warnings.event(
-                                "pyrowave_row_order",
-                                row_order_dropped_message(self.config.packet_size),
-                                butterpollo_core::session::EVENT_PERIOD,
-                            );
-                            if self
-                                .row_order_notice
-                                .due(Instant::now(), butterpollo_core::session::EVENT_PERIOD)
-                            {
-                                tracing::warn!(
-                                    "PyroWave row order dropped: {} bytes framed ({} unframed) against a budget of {budget} bytes and a wire allowance of {allowance} bytes",
-                                    framed.len(),
-                                    raw.len()
-                                );
-                            }
-                        }
-                        crate::frame_pool::give(framed);
-                        crate::frame_pool::copy(raw)
-                    }
-                }
-            } else {
-                pyrowave::container(
-                    &self.bitstream,
-                    &self.packets[..written]
-                        .iter()
-                        .map(|p| (p.offset, p.size))
-                        .collect::<Vec<_>>(),
-                )?
-            };
-            if bytes.len() > limit {
-                self.warnings.event(
-                    "pyrowave_frame_size",
-                    frame_size_message(limit),
-                    butterpollo_core::session::EVENT_PERIOD,
-                );
-                if self
-                    .size_notice
-                    .due(Instant::now(), butterpollo_core::session::EVENT_PERIOD)
-                {
-                    tracing::warn!(
-                        "PyroWave frame of {} bytes dropped over the transport limit of {limit}",
-                        bytes.len()
-                    );
-                }
-                crate::frame_pool::give(bytes);
-                return Ok(vec![]);
+            (bytes, written)
+        };
+        let limit = pyrowave::max_frame_bytes(self.config.packet_size, self.critical_fec);
+        let framing = if self.config.pyrowave_records {
+            if written != 1 {
+                bail!("record frame must be one codec packet");
             }
-            Ok(vec![Encoded {
-                bytes,
-                unit: crate::encoder::Unit::Whole,
-                idr: true,
-                after_invalidation: false,
-                frame_cap_bytes: None,
-                reencoded: false,
-                frame_cap_target: None,
-                latency: Some(begin.elapsed()),
-                presentation: Some(image.captured),
-            }])
+            let (offset, size) = (self.packets[0].offset, self.packets[0].size);
+            let end = offset.checked_add(size).context("packet overflow")?;
+            anyhow::ensure!(end <= bytes.len(), "invalid codec record range");
+            // The record frame is the codec packet itself.
+            if offset > 0 {
+                bytes.copy_within(offset..end, 0);
+            }
+            bytes.truncate(size);
+            let payload = pyrowave::aligned_payload(self.config.packet_size);
+            let framing =
+                pyrowave::Framing::records(&bytes, payload, limit, self.config.pyrowave_row_order)?;
+            let chosen = if framing.len() <= budget {
+                Some(framing)
+            } else {
+                let layout = pyrowave::layout(framing.view(&bytes)?, payload)?;
+                let minimum = self.config.min_fec.max(pyrowave::MIN_PARITY_SHARDS);
+                let packets = (framing.len() + 8).div_ceil(self.config.packet_size - 16)
+                    + pyrowave::critical_parity_bound(
+                        layout.critical_shards,
+                        self.critical_fec_percentage as usize,
+                        minimum,
+                    );
+                let allowance = (f64::from(kbps) * 125. * interval.as_secs_f64()) as usize;
+                if packets * (self.config.packet_size + pyrowave::WIRE_OVERHEAD) <= allowance {
+                    Some(framing)
+                } else {
+                    if self.config.pyrowave_row_order {
+                        self.warnings.event(
+                            "pyrowave_row_order",
+                            row_order_dropped_message(self.config.packet_size),
+                            butterpollo_core::session::EVENT_PERIOD,
+                        );
+                        if self
+                            .row_order_notice
+                            .due(Instant::now(), butterpollo_core::session::EVENT_PERIOD)
+                        {
+                            tracing::warn!(
+                                "PyroWave row order dropped: {} bytes framed ({} unframed) against a budget of {budget} bytes and a wire allowance of {allowance} bytes",
+                                framing.len(),
+                                bytes.len()
+                            );
+                        }
+                    }
+                    // The codec's packet as it is.
+                    None
+                }
+            };
+            // Framing that leaves the packet whole sends it as it is.
+            chosen.filter(|framing| !framing.is_whole(&bytes))
+        } else {
+            Some(pyrowave::Framing::container(
+                &bytes,
+                self.packets[..written].iter().map(|p| (p.offset, p.size)),
+            )?)
+        };
+        let encoded = Encoded {
+            bytes,
+            framing,
+            unit: crate::encoder::Unit::Whole,
+            idr: true,
+            after_invalidation: false,
+            frame_cap_bytes: None,
+            reencoded: false,
+            frame_cap_target: None,
+            latency: Some(frame.begin.elapsed()),
+            presentation: Some(frame.captured),
+        };
+        if encoded.wire_len() > limit {
+            self.warnings.event(
+                "pyrowave_frame_size",
+                frame_size_message(limit),
+                butterpollo_core::session::EVENT_PERIOD,
+            );
+            if self
+                .size_notice
+                .due(Instant::now(), butterpollo_core::session::EVENT_PERIOD)
+            {
+                tracing::warn!(
+                    "PyroWave frame of {} bytes dropped over the transport limit of {limit}",
+                    encoded.wire_len()
+                );
+            }
+            // Its buffer goes back to the pool as it drops.
+            return Ok(None);
         }
+        Ok(Some(encoded))
+    }
+    /// Encodes `image` and waits for it, for tests that check each frame.
+    #[cfg(test)]
+    pub(crate) fn encode_now(
+        &mut self,
+        image: &GpuImage,
+        idr: bool,
+        kbps: u32,
+    ) -> Result<Vec<Encoded>> {
+        let mut frames = self.encode_gpu(image, idr, kbps)?;
+        frames.extend(self.finish()?);
+        Ok(frames)
+    }
+    /// Whether the first slot converts on the compute queue.
+    #[cfg(test)]
+    pub(crate) fn converts_on_compute(&self) -> bool {
+        self.slots
+            .first()
+            .is_some_and(|slot| slot.compute.is_some())
+    }
+    /// The compute converter of the first slot.
+    #[cfg(test)]
+    pub(crate) fn compute(&self) -> Option<&Arc<crate::compute::Compute>> {
+        Some(self.slots.first()?.compute.as_ref()?.converter.compute())
+    }
+    /// The Vulkan images of the first slot's planes.
+    #[cfg(test)]
+    pub(crate) fn plane_images(&self) -> Vec<usize> {
+        self.slots.first().map_or_else(Vec::new, |slot| {
+            slot.interop.iter().map(|i| i.view.image as usize).collect()
+        })
+    }
+    /// Capture leases the encoder holds.
+    #[cfg(test)]
+    pub(crate) fn leases(&self) -> usize {
+        self.flights.len() + usize::from(self.submitting.is_some())
     }
 }
 impl Drop for Encoder {
     fn drop(&mut self) {
-        if self.pending.is_some() {
+        // The frames still in flight, each within its own completion bound,
+        // as at the end of a stream or a rebuild.
+        let confirmed = !self.unsettled()
+            && match &self.completion {
+                Some(completion) => {
+                    let slots = &self.slots;
+                    self.flights
+                        .settle_all(|flight| {
+                            settle(
+                                |timeout| {
+                                    completion.reached(
+                                        slots[flight.slot].semaphore(),
+                                        flight.release,
+                                        timeout,
+                                    )
+                                },
+                                flight.submitted,
+                                Instant::now(),
+                                true,
+                            )
+                        })
+                        .is_ok()
+                }
+                None => self.flights.is_empty(),
+            };
+        if !confirmed {
             // Keep both APIs, all imported images/fences, conversion commands,
-            // and the capture lease alive. No queued wait is added to capture.
+            // and the capture leases alive. No queued wait is added to capture.
             self.quarantine();
             tracing::warn!("retaining PyroWave resources after an unconfirmed GPU submission");
-            retain_pending(&mut self.pending);
+            retain_pending(&mut self.submitting);
+            self.flights.retain();
             retain_pending(&mut self.completion);
-            retain_pending(&mut self.compute);
-            retain_pending(&mut self.converter);
-            std::mem::forget(std::mem::take(&mut self.interop));
+            std::mem::forget(std::mem::take(&mut self.slots));
             std::mem::forget(self.api.clone());
             std::mem::forget(self.d3d.clone());
             return;
         }
-        // SAFETY: `encoder` and `device` were created in `new_device_reported`; the interop images
-        // go before the device. After a device loss `pending` is already clear while Vulkan may
-        // still be running or queued, because the lost fence satisfies the completion wait early.
-        // `pyrowave_encoder_destroy` goes first: pyrowave.h (SDK 502a3b52, "Implementation
-        // ensures GPU is idle before destroying objects") idles the GPU there, before the
-        // images and the device are destroyed.
+        // SAFETY: `encoder` and `device` were created in `new_device_reported`; the slots' images
+        // go before the device. After a device loss the frames in flight are already gone while
+        // Vulkan may still be running or queued, because the lost fence satisfies the completion
+        // wait early. `pyrowave_encoder_destroy` goes first: pyrowave.h (SDK 502a3b52,
+        // "Implementation ensures GPU is idle before destroying objects") idles the GPU there,
+        // before the images and the device are destroyed.
         unsafe {
             if !self.encoder.is_null() {
                 (self.api.encoder_destroy)(self.encoder);
             }
-            self.compute = None;
-            self.interop.clear();
-            self.converter = None;
+            self.slots.clear();
             if !self.device.is_null() {
                 (self.api.device_destroy)(self.device);
             }
@@ -1030,6 +1485,22 @@ mod tests {
         assert_ne!(frame_size_message(limit), frame_size_message(limit * 2));
     }
 
+    fn flight(dropped: &Rc<Cell<usize>>, slot: usize, at: Instant) -> Flight<Resource> {
+        Flight {
+            lease: Resource(dropped.clone()),
+            slot,
+            release: 2,
+            begin: at,
+            submitted: at,
+            captured: at,
+            plan: Plan {
+                budget: 100_000,
+                kbps: 500_000,
+                interval: Duration::from_millis(8),
+            },
+        }
+    }
+
     #[test]
     fn only_confirmed_vulkan_completion_releases_the_capture_lease() {
         for code in [
@@ -1039,22 +1510,181 @@ mod tests {
             p::VkResult_VK_ERROR_OUT_OF_DEVICE_MEMORY,
         ] {
             let dropped = Rc::new(Cell::new(0));
-            let mut pending = Some(Resource(dropped.clone()));
-            let result = finish_submission(&mut pending, completion_result(code));
+            let mut flights = Flights::default();
+            let now = Instant::now();
+            flights.push(flight(&dropped, 0, now));
+            // A waiting completion, as with one frame in flight and in Drop.
+            let result = flights.complete(|f| settle(|_| reached(code), f.submitted, now, true));
             if code == p::VkResult_VK_SUCCESS {
-                assert!(result.is_ok());
-                assert!(pending.is_none());
+                assert_eq!(result.unwrap().unwrap().slot, 0);
+                assert!(flights.is_empty());
+                assert!(!flights.unconfirmed);
                 assert_eq!(dropped.get(), 1);
             } else {
                 assert!(result.is_err());
-                assert!(pending.is_some());
+                assert_eq!(flights.len(), 1);
+                assert!(flights.unconfirmed);
                 assert_eq!(dropped.get(), 0);
                 // Quarantining must not run the capture lease's destructor.
-                retain_pending(&mut pending);
-                assert!(pending.is_none());
+                flights.retain();
+                assert!(flights.is_empty());
+                drop(flights);
                 assert_eq!(dropped.get(), 0);
             }
         }
+    }
+
+    #[test]
+    fn a_poll_waits_for_nothing_and_gives_up_only_past_the_completion_bound() {
+        let submitted = Instant::now();
+        let mut asked = None;
+        let polled = settle(
+            |timeout| {
+                asked = Some(timeout);
+                Ok(false)
+            },
+            submitted,
+            submitted + Duration::from_millis(1),
+            false,
+        );
+        assert!(!polled.unwrap());
+        assert_eq!(asked, Some(Duration::ZERO));
+        // A waiting completion takes what is left of the bound.
+        let waited = settle(
+            |timeout| {
+                asked = Some(timeout);
+                Ok(true)
+            },
+            submitted,
+            submitted + Duration::from_millis(500),
+            true,
+        );
+        assert!(waited.unwrap());
+        assert_eq!(asked, Some(COMPLETION_TIMEOUT - Duration::from_millis(500)));
+        // Not done within it is an error, for a poll as for a wait.
+        let late = submitted + COMPLETION_TIMEOUT;
+        assert!(settle(|_| Ok(false), submitted, late, false).is_err());
+        assert!(settle(|_| Ok(false), submitted, submitted, true).is_err());
+        // Done is done, however late it is seen.
+        assert!(settle(|_| Ok(true), submitted, late, false).unwrap());
+        // A failed wait stays a device loss for the recovery classifier.
+        let error = settle(
+            |_| reached(p::VkResult_VK_ERROR_DEVICE_LOST),
+            submitted,
+            submitted,
+            false,
+        )
+        .unwrap_err();
+        assert!(crate::device_loss::DeviceLost::from_error(&error).is_some());
+        assert!(!reached(p::VkResult_VK_TIMEOUT).unwrap());
+        assert!(reached(p::VkResult_VK_SUCCESS).unwrap());
+    }
+
+    #[test]
+    fn frames_leave_in_submission_order_through_alternating_slots() {
+        let dropped = Rc::new(Cell::new(0));
+        let mut flights = Flights::default();
+        let start = Instant::now();
+        let at = |frame: u64| start + Duration::from_millis(frame * 8);
+        let (mut slots, mut order) = (vec![], vec![]);
+        for frame in 0..10 {
+            // The host polls before it submits past the backlog.
+            if flights.len() == MAX_DEPTH {
+                let completed = flights.complete(|_| Ok(true)).unwrap().unwrap();
+                order.push(completed.begin);
+            }
+            let slot = flights.free_slot(MAX_DEPTH).unwrap();
+            slots.push(slot);
+            flights.push(flight(&dropped, slot, at(frame)));
+            assert_eq!(
+                flights.free_slot(MAX_DEPTH),
+                (flights.len() < MAX_DEPTH).then_some(1 - slot)
+            );
+        }
+        // The newer frame done first does not overtake the older one.
+        let newer = flights.queue[1].slot;
+        assert_eq!(flights.complete(|f| Ok(f.slot == newer)).unwrap(), None);
+        flights
+            .settle_all(|f| {
+                order.push(f.begin);
+                Ok(true)
+            })
+            .unwrap();
+        assert_eq!(order, (0..10).map(at).collect::<Vec<_>>());
+        assert_eq!(slots, [0, 1, 0, 1, 0, 1, 0, 1, 0, 1]);
+        assert_eq!(dropped.get(), 10);
+        // One frame in flight always takes the first slot.
+        let mut single = Flights::default();
+        for frame in 0..3 {
+            assert_eq!(single.free_slot(1), Some(0));
+            single.push(flight(&dropped, 0, at(frame)));
+            assert_eq!(single.free_slot(1), None);
+            assert_eq!(
+                single.complete(|_| Ok(true)).unwrap().unwrap().begin,
+                at(frame)
+            );
+        }
+        assert_eq!(dropped.get(), 13);
+    }
+
+    #[test]
+    fn every_path_returns_each_lease_once_or_keeps_it_for_good() {
+        let start = Instant::now();
+        // Stream end, rebuild, reconfigure and resolution change wait for every
+        // frame in order; each lease goes back as its frame is confirmed.
+        let dropped = Rc::new(Cell::new(0));
+        let mut flights = Flights::default();
+        flights.push(flight(&dropped, 0, start));
+        flights.push(flight(&dropped, 1, start));
+        let mut seen = vec![];
+        flights
+            .settle_all(|f| {
+                seen.push((f.slot, dropped.get()));
+                Ok(true)
+            })
+            .unwrap();
+        assert_eq!(seen, [(0, 0), (1, 1)]);
+        assert_eq!(dropped.get(), 2);
+        assert!(!flights.unconfirmed);
+        // A device lost under the conversion: every lease is free at once.
+        let dropped = Rc::new(Cell::new(0));
+        let mut flights = Flights::default();
+        flights.push(flight(&dropped, 0, start));
+        flights.push(flight(&dropped, 1, start));
+        flights.abandon();
+        assert!(flights.is_empty());
+        assert_eq!(dropped.get(), 2);
+        // An unconfirmed frame stops the wait: the frames before it went back,
+        // it and those after stay until the quarantine keeps them.
+        let dropped = Rc::new(Cell::new(0));
+        let mut flights = Flights::default();
+        flights.push(flight(&dropped, 0, start));
+        flights.push(flight(&dropped, 1, start));
+        let result = flights.settle_all(|f| {
+            if f.slot == 0 {
+                Ok(true)
+            } else {
+                bail!("PyroWave GPU completion timed out after 2 seconds")
+            }
+        });
+        assert!(result.is_err());
+        assert!(flights.unconfirmed);
+        assert_eq!((dropped.get(), flights.len()), (1, 1));
+        flights.retain();
+        drop(flights);
+        assert_eq!(dropped.get(), 1);
+        // A wait that cannot finish is unconfirmed too.
+        let dropped = Rc::new(Cell::new(0));
+        let mut flights = Flights::default();
+        flights.push(flight(&dropped, 0, start));
+        assert!(flights.settle_all(|_| Ok(false)).is_err());
+        assert!(flights.unconfirmed);
+        assert_eq!(dropped.get(), 0);
+        flights.retain();
+        // Nothing in flight: nothing to wait for.
+        let mut empty = Flights::<Resource>::default();
+        assert_eq!(empty.complete(|_| unreachable!()).unwrap(), None);
+        assert!(empty.settle_all(|_| unreachable!()).is_ok());
     }
 
     #[test]

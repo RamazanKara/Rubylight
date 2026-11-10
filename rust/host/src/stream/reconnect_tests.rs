@@ -341,6 +341,7 @@ impl Fixture {
                 sender.submit(
                     s,
                     vec![butterpollo_windows::encoder::Encoded {
+                        framing: None,
                         bytes: frame,
                         unit: butterpollo_windows::encoder::Unit::Whole,
                         idr,

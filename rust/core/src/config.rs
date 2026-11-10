@@ -540,6 +540,12 @@ impl Config {
     pub fn nvenc_output_event(&self) -> bool {
         self.boolean("nvenc_output_event", true)
     }
+    /// Whether PyroWave converts the next picture while the GPU still encodes the last one: two
+    /// frames in flight, each with its own colour planes and fence (`pyrowave_encode_overlap`).
+    /// Off encodes one frame at a time and waits for it, as before.
+    pub fn pyrowave_encode_overlap(&self) -> bool {
+        self.boolean("pyrowave_encode_overlap", true)
+    }
     /// Video datagrams the WebRTC media thread drops per thousand (`webrtc_loss_permille`, 0 to
     /// 1000), as a lossy link does. A measurement switch, 0 by default.
     pub fn webrtc_loss_permille(&self) -> u32 {

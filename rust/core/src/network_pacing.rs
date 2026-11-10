@@ -351,6 +351,32 @@ pub fn two_frames(bitrate_kbps: u32, period: Duration) -> u64 {
     (f64::from(bitrate_kbps) * 125. * period.as_secs_f64() * 2.).ceil() as u64
 }
 
+/// The send buffer every video socket starts with (Vibepollo's 1 MiB), and
+/// the least [`paced_send_buffer`] gives.
+pub const SEND_BUFFER_FLOOR: usize = 1 << 20;
+/// The most [`paced_send_buffer`] gives: a stalled adapter holds at most this
+/// much stale video in the socket.
+pub const SEND_BUFFER_CEILING: usize = 8 << 20;
+/// Wire time at the pace that the paced sender's socket buffer holds.
+pub const SEND_BUFFER_SPAN: Duration = Duration::from_millis(10);
+
+/// The paced sender's socket buffer (`SO_SNDBUF`) at `pace_bps`: the bytes
+/// [`SEND_BUFFER_SPAN`] carries at that pace, rounded up to whole MiB and held
+/// to [`SEND_BUFFER_FLOOR`]..=[`SEND_BUFFER_CEILING`].
+///
+/// Winsock refuses a non-blocking UDP send (WSAEWOULDBLOCK) once the bytes
+/// the adapter has not yet completed pass the buffer. At 1.4 Gbps PyroWave
+/// paces at 1.75 Gbps, where 1 MiB is under 5 ms: a late transmit completion
+/// on the host (an adapter or a busy core) refused whole batches. Below
+/// about 840 Mbps this stays at 1 MiB, so H.26x rates keep today's buffer.
+pub fn paced_send_buffer(pace_bps: u64) -> usize {
+    let bytes = (pace_bps / 8).saturating_mul(SEND_BUFFER_SPAN.as_micros() as u64) / 1_000_000;
+    let bytes = usize::try_from(bytes).unwrap_or(usize::MAX);
+    bytes
+        .clamp(SEND_BUFFER_FLOOR, SEND_BUFFER_CEILING)
+        .next_multiple_of(1 << 20)
+}
+
 /// Time spent in the send call or waking late that still counts toward the
 /// batch's interval. It covers a typical 64 KB send (about 0.2 ms) plus timer
 /// lateness; a longer stall or idle gap earns no more than this.

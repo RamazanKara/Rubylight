@@ -309,6 +309,8 @@ pub struct Host {
     pub aliases_path: PathBuf,
     pub aliases: Mutex<Value>,
     pub config: RwLock<Config>,
+    /// What [`Host::config_snapshot`] last handed out.
+    config_snapshot: Mutex<Option<Arc<Config>>>,
     pub config_version: std::sync::atomic::AtomicU64,
     pub config_save: Mutex<()>,
     pub port_override: Option<u16>,
@@ -343,6 +345,9 @@ pub struct Host {
     pub web_sessions: Mutex<HashMap<String, WebSession>>,
     pub stop: std::sync::atomic::AtomicBool,
     pub restart: std::sync::atomic::AtomicBool,
+    /// Wakes the maintenance loop (`runtime::maintain`) from an idle wait:
+    /// [`Host::wake_maintenance`].
+    maintain_wake: Arc<tokio::sync::Notify>,
     pub codecs: std::sync::atomic::AtomicU32,
     /// Why the last encoder check found no codec, while it finds none: a launch
     /// it refuses says this, not only that no encoder is ready.
@@ -485,6 +490,32 @@ pub struct LastFailure {
 }
 
 impl Host {
+    /// The configuration as it is now, shared: the same `Arc` while it is unchanged, so
+    /// a `/serverinfo` request, which every client polls and which keeps it across
+    /// awaits, compares the settings rather than copying them.
+    pub fn config_snapshot(&self) -> Arc<Config> {
+        let config = self.config.read().unwrap();
+        let mut snapshot = self.config_snapshot.lock().unwrap();
+        if let Some(kept) = snapshot
+            .as_ref()
+            .filter(|kept| kept.values == config.values)
+        {
+            return kept.clone();
+        }
+        let fresh = Arc::new(config.clone());
+        *snapshot = Some(fresh.clone());
+        fresh
+    }
+    /// Ends the maintenance loop's idle wait, for work that cannot wait for its next
+    /// timer: the host stops, an update is queued, an app starts. A launch or a stream
+    /// that starts wakes it by itself ([`Sessions::with_waker`]).
+    pub fn wake_maintenance(&self) {
+        self.maintain_wake.notify_one();
+    }
+    /// What [`Host::wake_maintenance`] notifies.
+    pub(crate) fn maintain_wake(&self) -> &Arc<tokio::sync::Notify> {
+        &self.maintain_wake
+    }
     /// Keeps a failed session's reason for its device's `/serverinfo`, unless
     /// the device launched again after that session started: an old stream's
     /// late teardown does not describe the new one.
@@ -774,6 +805,12 @@ impl Host {
                 .unwrap_or(""),
         );
         let session = crate::session_control::Control::new(&directory);
+        let maintain_wake = Arc::new(tokio::sync::Notify::new());
+        // A launch or a stream that starts ends the maintenance loop's idle wait.
+        let sessions = Sessions::default().with_waker({
+            let wake = maintain_wake.clone();
+            move || wake.notify_one()
+        });
         Ok(Arc::new(Self {
             #[cfg(test)]
             reconnect_fixture: None,
@@ -785,6 +822,7 @@ impl Host {
             aliases_path,
             aliases: Mutex::new(aliases),
             config: RwLock::new(config),
+            config_snapshot: Mutex::new(None),
             config_version: std::sync::atomic::AtomicU64::new(0),
             config_save: Mutex::new(()),
             port_override: port,
@@ -797,7 +835,7 @@ impl Host {
             credentials_stamp: Mutex::new(credentials_stamp),
             app_document: RwLock::new(app_document),
             apps: RwLock::new(apps),
-            sessions: Mutex::new(Sessions::default()),
+            sessions: Mutex::new(sessions),
             controller_sessions: Default::default(),
             hardware_metrics: Mutex::new(None),
             pairings: Mutex::new(Pairings::default()),
@@ -810,6 +848,7 @@ impl Host {
             web_sessions: Mutex::new(web_sessions),
             stop: std::sync::atomic::AtomicBool::new(false),
             restart: std::sync::atomic::AtomicBool::new(false),
+            maintain_wake,
             codecs: std::sync::atomic::AtomicU32::new(0),
             encoder_probe_error: Mutex::new(None),
             encoder_mb_rates: Default::default(),
@@ -1962,6 +2001,29 @@ fn load_library(path: &std::path::Path, default: Value) -> Result<Value> {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_config_snapshot_is_shared_while_unchanged_and_follows_every_change() {
+        use std::sync::Arc;
+        let f = super::test_support::Fixture::new();
+        let first = f.host.config_snapshot();
+        let name = first.get("sunshine_name", "").to_owned();
+        assert!(Arc::ptr_eq(&first, &f.host.config_snapshot()));
+        assert_eq!(first.values, f.host.config.read().unwrap().values);
+        // Any change, also one written straight into the lock, shows at once.
+        f.host
+            .config
+            .write()
+            .unwrap()
+            .values
+            .insert("sunshine_name".into(), "Den".into());
+        let changed = f.host.config_snapshot();
+        assert!(!Arc::ptr_eq(&first, &changed));
+        assert_eq!(crate::network::host_name(&changed), "Den");
+        assert_eq!(changed.values, f.host.config.read().unwrap().values);
+        assert!(Arc::ptr_eq(&changed, &f.host.config_snapshot()));
+        // What a request still holds stays as it was.
+        assert_eq!(first.get("sunshine_name", ""), name);
+    }
     #[test]
     fn a_focus_check_error_marks_only_that_codec_unsupported() {
         use butterpollo_core::encoder_focus::{Reason, Support};

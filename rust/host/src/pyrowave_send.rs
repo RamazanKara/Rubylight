@@ -302,18 +302,24 @@ impl Sender {
                 } else { bitrate };
                 let now = Instant::now();
                 let Some((detail_percentage, wire_budget)) = (if current.config.pyrowave_records && critical_percentage > 0 {
-                    dropped.prepared(controller.observe(&frame.bytes, now, kbps), frame.bytes.len(), now, &current.launch.warnings)
+                    // The codec's own records: framing only orders and pads them.
+                    dropped.prepared(controller.observe(&frame.bytes, now, kbps), frame.wire_len(), now, &current.launch.warnings)
                 } else { Some((0, 0)) }) else { continue };
                 let wire_frame = packetizer.frame;
                 // Same boundary as the conventional packetizer. Neither the
                 // prepared frame's queue nor packet pacing can change it.
                 let packetized = Instant::now();
                 let processing = micros(packetized.saturating_duration_since(processing_started));
-                let prepared = packetizer.pyrowave_blocks_in(&frame.bytes, timestamp, processing, PyrowaveFec {
-                    records: current.config.pyrowave_records, critical_percentage, detail_percentage,
-                    wire_budget, ipv6: peer.ip().to_canonical().is_ipv6(),
-                }, Some(&shared.pool));
-                let Some((packets, limited, blocks)) = dropped.prepared(prepared, frame.bytes.len(), now, &current.launch.warnings) else { continue };
+                // The framed picture is copied from the codec's output straight into the packets.
+                let prepared = match frame.payload() {
+                    Ok(payload) => packetizer.pyrowave_blocks_in(payload, timestamp, processing, PyrowaveFec {
+                        records: current.config.pyrowave_records, critical_percentage, detail_percentage,
+                        wire_budget, ipv6: peer.ip().to_canonical().is_ipv6(),
+                    }, Some(&shared.pool)),
+                    Err(error) => Err(error),
+                };
+                let wire_len = frame.wire_len();
+                let Some((packets, limited, blocks)) = dropped.prepared(prepared, wire_len, now, &current.launch.warnings) else { continue };
                 if limited && fec_reported.is_none_or(|at| at.elapsed() >= Duration::from_secs(1)) {
                     fec_reported = Some(Instant::now());
                     current.launch.warnings.event("pyrowave_fec_frame", "PyroWave error correction was reduced or omitted because the frame and its parity cannot fit the supported wire blocks. Recovery protection is reduced; lower bitrate/resolution or use HEVC/AV1 on a lossy link.", butterpollo_core::session::EVENT_PERIOD);
@@ -326,13 +332,13 @@ impl Sender {
                 // 4K frame leaves after 0.2 ms instead of 1.8). A busy one gets the whole frame,
                 // which a newer one can still replace.
                 if early_blocks && shared.ready.lock().unwrap().idle() {
-                    let blocks = blocks.map(|block| dropped.prepared(block, frame.bytes.len(), Instant::now(), &current.launch.warnings));
+                    let blocks = blocks.map(|block| dropped.prepared(block, wire_len, Instant::now(), &current.launch.warnings));
                     shared.hand_over(blocks, |block| details(vec![block], true));
                     continue;
                 }
                 let mut ready = Vec::new();
                 for block in blocks {
-                    let Some(block) = dropped.prepared(block, frame.bytes.len(), Instant::now(), &current.launch.warnings) else {
+                    let Some(block) = dropped.prepared(block, wire_len, Instant::now(), &current.launch.warnings) else {
                         for block in ready { shared.pool.give(block); }
                         continue 'frames
                     };
@@ -382,7 +388,9 @@ impl Sender {
                     peer,
                     claimed,
                     latency,
-                    processing_started,
+                    // A frame the encoder finished after a later call (two
+                    // frames in flight) was claimed before that call's start.
+                    processing_started: processing_started.min(claimed),
                     polled,
                     claim,
                 })
@@ -448,6 +456,7 @@ mod tests {
         )?;
         sender.submit(
             vec![Encoded {
+                framing: None,
                 bytes: vec![42; 3000],
                 unit: butterpollo_windows::encoder::Unit::Whole,
                 idr: true,
@@ -529,6 +538,7 @@ mod tests {
             submitted: ago(2),
         });
         let picture = Encoded {
+            framing: None,
             bytes: vec![42; 3000],
             unit: butterpollo_windows::encoder::Unit::Whole,
             idr: true,
@@ -623,6 +633,7 @@ mod tests {
         sender
             .submit(
                 vec![Encoded {
+                    framing: None,
                     bytes: vec![42; 3000],
                     unit: butterpollo_windows::encoder::Unit::Whole,
                     idr: true,
@@ -714,6 +725,7 @@ mod tests {
                 result.unwrap()
             };
             let frame = || Encoded {
+                framing: None,
                 bytes: vec![42; 3000],
                 unit: butterpollo_windows::encoder::Unit::Whole,
                 idr: true,
@@ -819,6 +831,7 @@ mod tests {
                 sender
                     .submit(
                         vec![Encoded {
+                            framing: None,
                             bytes: vec![42; 400_000],
                             unit: butterpollo_windows::encoder::Unit::Whole,
                             idr: true,
@@ -988,6 +1001,7 @@ mod tests {
         sender
             .submit(
                 vec![Encoded {
+                    framing: None,
                     bytes: vec![42; 400_000],
                     unit: butterpollo_windows::encoder::Unit::Whole,
                     idr: true,
@@ -1019,7 +1033,7 @@ mod tests {
     #[test]
     fn failed_block_abandons_the_frame_and_the_next_frame_keeps_its_counters() {
         for fail_at in [0, 1] {
-            let payload = vec![7; 400_000];
+            let payload = vec![7u8; 400_000];
             let mut packetizer = VideoPacketizer {
                 sequence: u32::MAX - 10,
                 iv_counter: 100,

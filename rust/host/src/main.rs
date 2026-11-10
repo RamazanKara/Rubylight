@@ -594,6 +594,10 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
         _=runtime::maintain(h.clone(), stop_signal, actions, ports.web)=>Ok(())
     };
     h.stop.store(true, Ordering::Release);
+    // UPnP mappings and IPv6 pinholes come down while the rest shuts down.
+    if let Some(port_forward) = &port_forward {
+        port_forward.stop();
+    }
     // Nothing waits on a monitor's wake on the way out; the next start puts back what is left.
     butterpollo_windows::display_arrangement::close_wake_watch();
     let canceled = h.sessions.lock().unwrap().request_stop(None);
@@ -632,12 +636,8 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
     }
     remote_display::disconnect(&h, None);
     drop(discovery);
-    if let Some(mut task) = port_forward
-        && tokio::time::timeout(Duration::from_secs(10), &mut task)
-            .await
-            .is_err()
-    {
-        task.abort();
+    if let Some(port_forward) = port_forward {
+        port_forward.finish(Duration::from_secs(10)).await;
     }
     drop(tray);
     if h.restart.load(Ordering::Acquire) {
@@ -697,15 +697,21 @@ fn smoke(args: &Args) -> Result<()> {
         let mut encoder = butterpollo_windows::encoder::Encoder::new(&cfg, "")?;
         let mut packets = 0;
         let mut bytes = 0;
-        for i in 0..30 {
-            for frame in encoder.encode(&image, i == 0, cfg.bitrate_kbps)? {
+        for i in 0..31 {
+            // The last pass collects what is still in flight.
+            let frames = if i < 30 {
+                encoder.encode(&image, i == 0, cfg.bitrate_kbps)?
+            } else {
+                encoder.finish()?
+            };
+            for frame in frames {
                 if packets == 0
                     && let Some(path) = &args.encoder_output
                 {
-                    std::fs::write(path, &frame.bytes)?;
+                    std::fs::write(path, frame.payload()?.to_vec())?;
                 }
                 packets += 1;
-                bytes += frame.bytes.len();
+                bytes += frame.wire_len();
             }
             std::thread::sleep(Duration::from_millis(2));
         }

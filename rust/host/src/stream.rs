@@ -32,8 +32,8 @@ pub(crate) use config::{device_config, effective_config, launch_app};
 use control::{
     CONTROL_EVENT_LIMIT, ControlPeer, ControlSocket, FEEDBACK_CHANNEL, INPUT_OVERFLOW, INPUT_QUEUE,
     MOTION_EVENT_REQUEST, PadSends, PeerConfig, RUMBLE_MARKER, RumbleForwarded,
-    SWALLOWED_PER_RECEIVE, ScaleLookup, control_wait_timeout, drop_uninjectable_input,
-    end_unattended_sessions, expects_enet_control, expire_controllers,
+    SWALLOWED_PER_RECEIVE, ScaleLookup, UNATTENDED_SWEEP, UnattendedSweep, control_wait_timeout,
+    drop_uninjectable_input, end_unattended_sessions, expects_enet_control, expire_controllers,
     first_steam_attributes_refusal, haptics_negotiated, motion_requests, pad_reports, queue_input,
     server_command,
 };
@@ -282,10 +282,100 @@ impl Peers {
             .zip(pair)
             .filter_map(|(audio, peer)| Some((audio, peer?)))
     }
+    /// Whether any session's video or audio comes from `peer`.
+    fn contains(&self, peer: SocketAddr) -> bool {
+        self.0.values().flatten().any(|known| *known == Some(peer))
+    }
     #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+}
+/// The active session a media ping from `peer` is for, and how often it had roamed
+/// then: its own ping payload, or a bare "PING" when only one session plays to that
+/// IP and, once it roamed, from the address that session already uses.
+fn ping_session(
+    sessions: &crate::state::Sessions,
+    peers: &Mutex<Peers>,
+    ping: &[u8],
+    peer: SocketAddr,
+    is_audio: bool,
+) -> Option<(Arc<Session>, u32)> {
+    let ip = peer.ip().to_canonical();
+    let from_ip = |s: &&Arc<Session>| s.client_ip() == ip;
+    let only_one = sessions.active.values().filter(from_ip).count() == 1;
+    let s = sessions.active.values().filter(from_ip).find(|s| {
+        if ping.len() >= 16 && crypto::equal(&ping[..16], s.launch.ping.as_bytes()) {
+            return true;
+        }
+        // After a roam only the session's own ping proves a new address: behind a
+        // CGNAT anyone may share the client's IP.
+        ping == b"PING"
+            && only_one
+            && (s.roams() == 0 || peers.lock().unwrap().get(&s.launch.id, is_audio) == Some(peer))
+    })?;
+    Some((s.clone(), s.roams()))
+}
+/// Whether `s`, found by [`ping_session`] when it had roamed `roams` times, is still
+/// active and has not roamed since.
+fn still_current(sessions: &crate::state::Sessions, s: &Arc<Session>, roams: u32) -> bool {
+    sessions
+        .active
+        .get(&s.launch.id)
+        .is_some_and(|active| Arc::ptr_eq(active, s))
+        && s.roams() == roams
+}
+/// Takes a media ping from `peer`, which reached this host on `local`: its session
+/// learns the address, and replies to it leave from `local` (`answer_from`). That can
+/// look up a route, so it runs with the sessions lock released, which launches, the
+/// control worker and roams take. A teardown or roam in between is decided again
+/// under the lock, as if the ping came after it. Returns the session whose video
+/// now takes a new path.
+fn take_media_ping(
+    h: &Shared,
+    m: &Media,
+    socket: &ReplySocket,
+    is_audio: bool,
+    ping: &[u8],
+    peer: SocketAddr,
+    local: Option<IpAddr>,
+) -> Option<Arc<Session>> {
+    let found = ping_session(&h.sessions.lock().unwrap(), &m.peers, ping, peer, is_audio);
+    let (found, roams) = found?;
+    // Answer from the address the client reached: Windows may route a reply out of a
+    // VPN address.
+    socket.answer_from(peer, local);
+    let sessions = h.sessions.lock().unwrap();
+    let s = if still_current(&sessions, &found, roams) {
+        found
+    } else if let Some((s, _)) = ping_session(&sessions, &m.peers, ping, peer, is_audio) {
+        socket.answer_from(peer, local);
+        s
+    } else {
+        // What the answer pinned no longer belongs to anyone.
+        if !m.peers.lock().unwrap().contains(peer) {
+            socket.forget(peer);
+        }
+        return None;
+    };
+    let previous = {
+        let mut peers = m.peers.lock().unwrap();
+        peers.insert(&s.launch.id, is_audio, peer)
+    };
+    if previous == Some(peer) {
+        return None;
+    }
+    if let Some(previous) = previous {
+        socket.forget(previous);
+    }
+    tracing::info!(
+        client = %s.launch.client.name,
+        %peer,
+        local = %describe_local(local),
+        stream = if is_audio { "audio" } else { "video" },
+        "stream peer"
+    );
+    (!is_audio && s.take_new_path()).then_some(s)
 }
 pub struct Media {
     video: Arc<ReplySocket>,
@@ -489,61 +579,15 @@ impl Media {
                         }
                         match socket.receive(&mut b) {
                             Ok((n, peer, local)) => {
-                                let sessions = h.sessions.lock().unwrap();
-                                let mut roamed = None;
-                                for s in sessions.active.values() {
-                                    if s.client_ip() != peer.ip().to_canonical() {
-                                        continue;
-                                    }
-                                    let valid = (n >= 16
-                                        && crypto::equal(&b[..16], s.launch.ping.as_bytes()))
-                                        || (n == 4
-                                            && &b[..4] == b"PING"
-                                            && sessions
-                                                .active
-                                                .values()
-                                                .filter(|s| {
-                                                    s.client_ip() == peer.ip().to_canonical()
-                                                })
-                                                .count()
-                                                == 1
-                                            // After a roam only the session's own ping
-                                            // proves a new address: behind a CGNAT
-                                            // anyone may share the client's IP.
-                                            && (s.roams() == 0
-                                                || m.peers
-                                                    .lock()
-                                                    .unwrap()
-                                                    .get(&s.launch.id, is_audio)
-                                                    == Some(peer)));
-                                    if valid {
-                                        // Answer from the address the client reached:
-                                        // Windows may route a reply out of a VPN address.
-                                        socket.answer_from(peer, local);
-                                        let previous = m.peers.lock().unwrap().insert(
-                                            &s.launch.id,
-                                            is_audio,
-                                            peer,
-                                        );
-                                        if previous != Some(peer) {
-                                            if let Some(previous) = previous {
-                                                socket.forget(previous);
-                                            }
-                                            tracing::info!(
-                                                client = %s.launch.client.name,
-                                                %peer,
-                                                local = %describe_local(local),
-                                                stream = if is_audio { "audio" } else { "video" },
-                                                "stream peer"
-                                            );
-                                            if !is_audio && s.take_new_path() {
-                                                roamed = Some(s.clone());
-                                            }
-                                        }
-                                        break;
-                                    }
-                                }
-                                drop(sessions);
+                                let roamed = take_media_ping(
+                                    &h,
+                                    &m,
+                                    &socket,
+                                    is_audio,
+                                    &b[..n],
+                                    peer,
+                                    local,
+                                );
                                 if let Some(s) = roamed {
                                     restart_on_new_path(&s, &h.config.read().unwrap());
                                 }

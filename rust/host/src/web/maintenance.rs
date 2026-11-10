@@ -25,10 +25,12 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str) -> anyhow::Result<Val
         ("POST", "/api/restart") => {
             h.restart.store(true, std::sync::atomic::Ordering::Release);
             h.stop.store(true, std::sync::atomic::Ordering::Release);
+            h.wake_maintenance();
             json!({"status":true})
         }
         ("POST", "/api/quit") => {
             h.stop.store(true, std::sync::atomic::Ordering::Release);
+            h.wake_maintenance();
             json!({"status":true})
         }
         _ => return Err(anyhow::anyhow!("unknown API endpoint")),

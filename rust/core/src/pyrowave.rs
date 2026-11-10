@@ -5,11 +5,42 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
+mod framing;
+pub use framing::{Framed, Framing, Payload};
 pub const BITSTREAM_ID: &str = "186f0393";
 pub const PACKET_BOUNDARY: usize = 1024;
 const PADDING: u32 = u32::MAX;
 fn word(bytes: &[u8], at: usize) -> u32 {
     u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap())
+}
+/// Where record framing writes: the framed bytes themselves
+/// ([`record_frame_into`]), or the pieces of the bitstream they come from
+/// ([`Framing::records`]). One framing runs for both.
+trait Sink {
+    fn written(&self) -> usize;
+    fn clear(&mut self);
+    fn reserve(&mut self, bytes: usize);
+    /// `len` bytes of `bitstream` from `offset`.
+    fn copy(&mut self, bitstream: &[u8], offset: usize, len: usize);
+    /// A padding record of `bytes`, at least eight and a multiple of four.
+    fn pad(&mut self, bytes: usize);
+}
+impl Sink for Vec<u8> {
+    fn written(&self) -> usize {
+        Vec::len(self)
+    }
+    fn clear(&mut self) {
+        Vec::clear(self);
+    }
+    fn reserve(&mut self, bytes: usize) {
+        Vec::reserve(self, bytes);
+    }
+    fn copy(&mut self, bitstream: &[u8], offset: usize, len: usize) {
+        self.extend_from_slice(&bitstream[offset..offset + len]);
+    }
+    fn pad(&mut self, bytes: usize) {
+        padding(self, bytes);
+    }
 }
 pub fn aligned_payload(packet_size: usize) -> usize {
     let size = packet_size.saturating_sub(16);
@@ -253,32 +284,37 @@ struct Record {
     index: u32,
 }
 fn records(frame: &[u8]) -> Result<Vec<Record>> {
-    if frame.len() < 8
-        || !frame.len().is_multiple_of(4)
-        || word(frame, 0) & 0x80000000 == 0
-        || word(frame, 0) == PADDING
-        || (word(frame, 4) >> 24) & 3 != 0
+    records_in(&mut Payload::Bytes(frame).reader())
+}
+/// [`records`] of a contiguous or a framed picture.
+fn records_in(frame: &mut framing::Reader) -> Result<Vec<Record>> {
+    let len = frame.len();
+    if len < 8
+        || !len.is_multiple_of(4)
+        || frame.word(0) & 0x80000000 == 0
+        || frame.word(0) == PADDING
+        || (frame.word(4) >> 24) & 3 != 0
     {
         bail!("invalid PyroWave sequence header");
     }
-    let sequence = (word(frame, 0) >> 28) & 7;
+    let sequence = (frame.word(0) >> 28) & 7;
     let mut records = Vec::new();
     let mut offset = 8;
-    while offset < frame.len() {
-        if frame.len() - offset < 8 {
+    while offset < len {
+        if len - offset < 8 {
             bail!("short PyroWave record");
         }
-        let header = word(frame, offset);
+        let header = frame.word(offset);
         let padding = header == PADDING;
         let size = if padding {
             8usize
-                .checked_add(word(frame, offset + 4) as usize * 4)
+                .checked_add(frame.word(offset + 4) as usize * 4)
                 .context("padding overflow")?
         } else {
             (((header >> 16) & 0xfff) as usize) * 4
         };
         if size < 8
-            || size > frame.len() - offset
+            || size > len - offset
             || (!padding && (header & 0x80000000 != 0 || (header >> 28) & 7 != sequence))
         {
             bail!("invalid PyroWave block record");
@@ -287,19 +323,19 @@ fn records(frame: &[u8]) -> Result<Vec<Record>> {
             records.push(Record {
                 offset,
                 size,
-                index: word(frame, offset + 4) >> 8,
+                index: frame.word(offset + 4) >> 8,
             });
         }
         offset += size;
     }
-    if records.len() != (word(frame, 4) & 0xffffff) as usize {
+    if records.len() != (frame.word(4) & 0xffffff) as usize {
         bail!("PyroWave record count mismatch");
     }
     Ok(records)
 }
-fn coarse_count(frame: &[u8]) -> u32 {
+/// The coarse records of a picture whose sequence header is `header`.
+fn coarse_count(header: u32) -> u32 {
     let extent = |n: u32| n.div_ceil(32).max(4).div_ceil(32);
-    let header = word(frame, 0);
     extent((header & 0x3fff) + 1) * extent(((header >> 14) & 0x3fff) + 1) * 12
 }
 fn padding(out: &mut Vec<u8>, bytes: usize) {
@@ -461,19 +497,30 @@ pub fn record_frame_into(
     rows: bool,
     mut out: Vec<u8>,
 ) -> Result<Vec<u8>> {
+    frame_into(&mut out, bitstream, payload, limit, rows)?;
+    Ok(out)
+}
+/// The record framing of `bitstream` into `out`, as bytes or as pieces.
+fn frame_into<S: Sink>(
+    out: &mut S,
+    bitstream: &[u8],
+    payload: usize,
+    limit: usize,
+    rows: bool,
+) -> Result<()> {
     let all = records(bitstream)?;
     if bitstream.len() > limit {
         bail!("PyroWave frame exceeds transport capacity");
     }
     out.clear();
     if payload == 0 {
-        out.extend_from_slice(bitstream);
-        return Ok(out);
+        out.copy(bitstream, 0, bitstream.len());
+        return Ok(());
     }
-    let coarse = coarse_count(bitstream);
+    let coarse = coarse_count(word(bitstream, 0));
     let steps = rows.then(|| cached_row_steps(bitstream));
     out.reserve(bitstream.len());
-    out.extend_from_slice(&bitstream[..8]);
+    out.copy(bitstream, 0, 8);
     for required in [true, false] {
         if let Some(steps) = steps.as_ref().filter(|_| !required) {
             let mut class: Vec<Record> =
@@ -498,36 +545,36 @@ pub fn record_frame_into(
                     ordinary.push(r);
                 }
             }
-            first_fit(&mut out, bitstream, &ordinary, &bigs, payload);
+            first_fit(out, bitstream, &ordinary, &bigs, payload);
             continue;
         }
         let mut ordinary = Vec::new();
         for r in all.iter().filter(|r| (r.index < coarse) == required) {
             if r.size > payload - 8 {
-                big(&mut out, bitstream, r, payload);
+                big(out, bitstream, r, payload);
             } else {
                 ordinary.push(*r);
             }
         }
-        first_fit(&mut out, bitstream, &ordinary, &[], payload);
+        first_fit(out, bitstream, &ordinary, &[], payload);
     }
-    if out.len() > limit {
+    if out.written() > limit {
         out.clear();
-        out.extend_from_slice(bitstream);
+        out.copy(bitstream, 0, bitstream.len());
     }
-    Ok(out)
+    Ok(())
 }
-fn big(out: &mut Vec<u8>, bitstream: &[u8], r: &Record, payload: usize) {
-    let room = payload - (out.len() + 8) % payload;
+fn big(out: &mut impl Sink, bitstream: &[u8], r: &Record, payload: usize) {
+    let room = payload - (out.written() + 8) % payload;
     if r.size % payload == room - 4 {
-        padding(out, 8);
+        out.pad(8);
     }
-    out.extend_from_slice(&bitstream[r.offset..r.offset + r.size]);
+    out.copy(bitstream, r.offset, r.size);
 }
 /// Packs `ordinary` first-fit. Each of `bigs` (with how many ordinary records are ranked before
 /// it) goes out as soon as those are all placed.
 fn first_fit(
-    out: &mut Vec<u8>,
+    out: &mut impl Sink,
     bitstream: &[u8],
     ordinary: &[Record],
     bigs: &[(usize, Record)],
@@ -552,7 +599,7 @@ fn first_fit(
             }
         }
         loop {
-            let room = payload - (out.len() + 8) % payload;
+            let room = payload - (out.written() + 8) % payload;
             let mut chosen = fits.fitting(room / 4);
             if chosen != usize::MAX && room - ordinary[chosen].size == 4 {
                 chosen = fits.exact(room / 4).min(if room >= 16 {
@@ -562,7 +609,7 @@ fn first_fit(
                 });
             }
             if chosen == usize::MAX {
-                padding(out, room);
+                out.pad(room);
                 continue;
             }
             let r = ordinary[chosen];
@@ -570,7 +617,7 @@ fn first_fit(
             if !placed.is_empty() {
                 placed[chosen] = true;
             }
-            out.extend_from_slice(&bitstream[r.offset..r.offset + r.size]);
+            out.copy(bitstream, r.offset, r.size);
             break;
         }
     }
@@ -582,16 +629,21 @@ pub struct Layout {
     pub critical_shards: usize,
     pub starts: Vec<bool>,
 }
-pub fn layout(frame: &[u8], payload: usize) -> Result<Layout> {
-    let all = records(frame)?;
+/// Where `frame`'s records start packets, and how many packets its coarse
+/// records fill; `frame` is the framed picture, contiguous or in pieces.
+pub fn layout<'a>(frame: impl Into<Payload<'a>>, payload: usize) -> Result<Layout> {
+    let frame = frame.into();
+    let all = records_in(&mut frame.reader())?;
+    let len = frame.len();
     let mut layout = Layout {
         critical_shards: 0,
-        starts: vec![false; (frame.len() + 8).div_ceil(payload.max(1))],
+        starts: vec![false; (len + 8).div_ceil(payload.max(1))],
     };
     if payload == 0 {
         return Ok(layout);
     }
-    let coarse = coarse_count(frame);
+    let mut words = frame.reader();
+    let coarse = coarse_count(words.word(0));
     let mut fine_seen = false;
     let mut critical = 8;
     for r in &all {
@@ -609,13 +661,13 @@ pub fn layout(frame: &[u8], payload: usize) -> Result<Layout> {
     }
     layout.critical_shards = (critical + 8).div_ceil(payload);
     let mut offset = 0;
-    while offset < frame.len() {
+    while offset < len {
         if offset == 0 || (offset + 8).is_multiple_of(payload) {
             layout.starts[(offset + 8) / payload] = true;
         }
-        let header = word(frame, offset);
+        let header = words.word(offset);
         offset += if header == PADDING {
-            8 + word(frame, offset + 4) as usize * 4
+            8 + words.word(offset + 4) as usize * 4
         } else if header & 0x80000000 != 0 {
             8
         } else {
@@ -1342,3 +1394,6 @@ mod tests {
 
 #[cfg(test)]
 mod rows_tests;
+
+#[cfg(test)]
+mod framing_tests;

@@ -206,6 +206,75 @@ fn steam_controller_feedback_goes_out_as_it_came() {
     assert!(feedback_packets(3, 0x5504, &haptic[..14]).is_empty());
 }
 #[test]
+fn a_media_ping_finds_its_session_and_sees_a_teardown_or_roam_that_came_meanwhile() {
+    let f = crate::state::test_support::Fixture::new();
+    let client = f.client(u32::MAX);
+    let mut launch = f.launch(client.clone(), Role::Stream);
+    launch.ping = "0123456789abcdef".into();
+    let s = Session::new(launch, Default::default());
+    let sessions = &f.host.sessions;
+    sessions
+        .lock()
+        .unwrap()
+        .active
+        .insert(s.launch.id.clone(), s.clone());
+    let peers = Mutex::new(Peers::default());
+    let peer: SocketAddr = "127.0.0.1:50000".parse().unwrap();
+    let find = |ping: &[u8], peer: SocketAddr| {
+        super::ping_session(&sessions.lock().unwrap(), &peers, ping, peer, false)
+    };
+    // Its own ping payload, from its client's IP.
+    let (found, roams) = find(b"0123456789abcdef", peer).unwrap();
+    assert!(Arc::ptr_eq(&found, &s));
+    assert_eq!(roams, 0);
+    assert!(find(b"0123456789abcdeX", peer).is_none());
+    let elsewhere: SocketAddr = "127.0.0.2:50000".parse().unwrap();
+    assert!(find(b"0123456789abcdef", elsewhere).is_none());
+    // A bare PING only while one session plays to that IP.
+    assert!(find(b"PING", peer).is_some());
+    let other = f.session(client, Role::Stream);
+    assert!(find(b"PING", peer).is_none());
+    assert!(find(b"0123456789abcdef", peer).is_some());
+    sessions.lock().unwrap().active.remove(&other.launch.id);
+    let current = |roams: u32| super::still_current(&sessions.lock().unwrap(), &found, roams);
+    assert!(current(roams));
+    // A roam while the ping was answered: decided again. Once roamed, a bare PING
+    // counts only from the address the session already uses.
+    s.roamed(peer.ip(), Instant::now());
+    assert!(!current(roams));
+    assert!(find(b"PING", peer).is_none());
+    peers.lock().unwrap().insert(&s.launch.id, false, peer);
+    assert_eq!(find(b"PING", peer).map(|(_, roams)| roams), Some(1));
+    assert!(current(1));
+    let other_port: SocketAddr = "127.0.0.1:50001".parse().unwrap();
+    assert!(peers.lock().unwrap().contains(peer));
+    assert!(!peers.lock().unwrap().contains(other_port));
+    // A teardown meanwhile: the ping is for no session now.
+    sessions.lock().unwrap().begin_teardown(&s);
+    assert!(!current(1));
+    assert!(find(b"0123456789abcdef", peer).is_none());
+}
+#[test]
+fn the_unattended_sweep_runs_when_a_peer_comes_or_goes_and_on_its_timer() {
+    let start = Instant::now();
+    let mut sweep = super::UnattendedSweep::new(start);
+    assert!(sweep.due(start, false), "the first pass sweeps");
+    assert_eq!(sweep.next(), start + super::UNATTENDED_SWEEP);
+    // Input passes in between leave it alone.
+    for ms in [1, 8, 100, 249] {
+        assert!(!sweep.due(start + Duration::from_millis(ms), false));
+    }
+    assert_eq!(sweep.next(), start + super::UNATTENDED_SWEEP);
+    // A peer that comes or goes sweeps at once, and the timer starts over.
+    let changed = start + Duration::from_millis(120);
+    assert!(sweep.due(changed, true));
+    assert_eq!(sweep.next(), changed + super::UNATTENDED_SWEEP);
+    assert!(!sweep.due(start + super::UNATTENDED_SWEEP, false));
+    assert!(sweep.due(changed + super::UNATTENDED_SWEEP, false));
+    // Still well inside the shortest ping timeout the watchdog enforces.
+    assert!(super::UNATTENDED_SWEEP * 4 <= Duration::from_secs(1));
+}
+#[test]
 fn control_backlog_is_serviced_without_the_feedback_delay() {
     for queued in [600, 1100] {
         let mut remaining = queued;

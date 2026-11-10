@@ -34,7 +34,13 @@ fn bands(width: u32, height: u32, chroma444: bool) -> Vec<(u32, u32, u32)> {
 
 /// A frame holding every block of the picture, sizes from a fixed pseudo-random sequence:
 /// mostly a few hundred bytes, one in `big_every` over a packet.
-fn synthetic(width: u32, height: u32, chroma444: bool, seed: u64, big_every: u64) -> Vec<u8> {
+pub(super) fn synthetic(
+    width: u32,
+    height: u32,
+    chroma444: bool,
+    seed: u64,
+    big_every: u64,
+) -> Vec<u8> {
     let small = if width > 2560 { 30 } else { 150 };
     let count: u32 = bands(width, height, chroma444)
         .iter()
@@ -64,7 +70,7 @@ fn synthetic(width: u32, height: u32, chroma444: bool, seed: u64, big_every: u64
 }
 
 /// (width, height, 4:4:4, seed, one big record in) for the fixtures below.
-const FIXTURES: [(u32, u32, bool, u64, u64); 6] = [
+pub(super) const FIXTURES: [(u32, u32, bool, u64, u64); 6] = [
     (1920, 1080, false, 1, 0),
     (1920, 1080, false, 2, 40),
     (1920, 1080, true, 3, 60),
@@ -179,7 +185,7 @@ fn the_block_table_matches_the_coarse_count_and_the_independent_one() {
         );
         assert_eq!(
             table.iter().filter(|b| b.level == 4).count() as u32,
-            coarse_count(&frame)
+            coarse_count(word(&frame, 0))
         );
         assert_eq!(table.len(), records(&frame).unwrap().len());
         let steps = row_steps(w, h, c);
@@ -228,7 +234,7 @@ fn row_order_is_a_permutation_with_the_coarse_records_first() {
         a.sort();
         b.sort();
         assert!(a == b, "{w}x{h}: the same records and bytes");
-        let coarse = coarse_count(&frame);
+        let coarse = coarse_count(word(&frame, 0));
         assert!(
             order[..coarse as usize].iter().all(|&i| i < coarse),
             "{w}x{h}: level 4 first"
@@ -268,7 +274,7 @@ fn a_band_is_complete_no_later_than_one_packet_after_a_plain_sequential_packing(
     for &(w, h, c, seed, big) in &FIXTURES {
         let frame = synthetic(w, h, c, seed, big);
         let steps = row_steps(w, h, c);
-        let coarse = coarse_count(&frame);
+        let coarse = coarse_count(word(&frame, 0));
         let out = framed(&frame, true);
         let coarse_end = records(&out)
             .unwrap()

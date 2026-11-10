@@ -380,8 +380,9 @@ fn sync_games(
             .iter()
             .map(serde_json::to_value)
             .collect::<Result<_, _>>()?;
+        let index = library::AppIndex::new(&apps);
         for game in &mut games {
-            if !apps.iter().any(|app| game.matches(app)) {
+            if !index.matches(&apps, game) {
                 launcher_cover(h, game);
             }
         }

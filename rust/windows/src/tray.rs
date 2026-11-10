@@ -522,6 +522,10 @@ pub fn release_overdue_notices() {
     let held = NOTICES.lock().unwrap().tick(Instant::now());
     show_held(held);
 }
+/// When [`release_overdue_notices`] next has something to release.
+pub fn notices_due() -> Option<Instant> {
+    NOTICES.lock().unwrap().due()
+}
 /// Show a notification from the tray icon, or say why it could not be shown.
 pub fn try_notify(title: &str, text: &str) -> Result<()> {
     post_notice(&notice(title, text, None))

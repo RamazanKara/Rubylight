@@ -9,6 +9,7 @@ fn peer() -> SocketAddr {
 }
 fn frame(index: u8) -> Encoded {
     Encoded {
+        framing: None,
         bytes: vec![index; if index == 1 { 300_000 } else { 3000 }],
         unit: butterpollo_windows::encoder::Unit::Whole,
         idr: index == 1,
@@ -127,6 +128,7 @@ fn sender_handoff_benchmark() -> Result<()> {
         let mut digest = 0u64;
         for index in 0..WARMUP + fps * SECONDS {
             let mut encoded = Encoded {
+                framing: None,
                 bytes: vec![index as u8; (BITRATE / 8 / fps).max(8)],
                 unit: butterpollo_windows::encoder::Unit::Whole,
                 idr: index == 0,
@@ -1365,6 +1367,7 @@ fn reconnect_keeps_packet_order_fec_recovery_and_iv_ownership_identical_to_inlin
 /// One unit of a streamed frame.
 fn unit(unit: butterpollo_windows::encoder::Unit, shards: usize, fill: u8) -> Encoded {
     Encoded {
+        framing: None,
         bytes: vec![fill; shards * 1008],
         unit,
         idr: false,

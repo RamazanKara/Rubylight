@@ -9,6 +9,8 @@ pub struct Sessions<P = (), A = ()> {
     pub pending: BTreeMap<String, Launch<P, A>>,
     pub active: BTreeMap<String, Arc<Session<P, A>>>,
     pub teardown: BTreeMap<String, Instant>,
+    /// Told when a launch is queued or a stream starts ([`Sessions::with_waker`]).
+    waker: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 impl<P, A> Default for Sessions<P, A> {
     fn default() -> Self {
@@ -16,10 +18,22 @@ impl<P, A> Default for Sessions<P, A> {
             pending: BTreeMap::new(),
             active: BTreeMap::new(),
             teardown: BTreeMap::new(),
+            waker: None,
         }
     }
 }
 impl<P, A> Sessions<P, A> {
+    /// `waker` is called, with the sessions locked, whenever a launch is queued or a
+    /// stream starts: a loop that idles while the host has no sessions wakes for them.
+    pub fn with_waker(mut self, waker: impl Fn() + Send + Sync + 'static) -> Self {
+        self.waker = Some(Arc::new(waker));
+        self
+    }
+    fn wake(&self) {
+        if let Some(waker) = &self.waker {
+            waker();
+        }
+    }
     /// Remove the launches whose clients never started their streams, each
     /// with a warning: the device got a launch reply and then gave up.
     #[must_use = "drop expired launches after releasing the sessions lock"]
@@ -97,6 +111,7 @@ impl<P, A> Sessions<P, A> {
         }
         let mut canceled = self.supersede(&launch.client.uuid, launch.role);
         canceled.extend(self.pending.insert(launch.id.clone(), launch));
+        self.wake();
         Ok(canceled)
     }
     pub fn pending_for_peer(&self, peer: IpAddr) -> Result<Launch<P, A>> {
@@ -142,6 +157,7 @@ impl<P, A> Sessions<P, A> {
         let launch = self.pending.remove(&launch.id).unwrap();
         let s = Session::new(launch, config);
         self.active.insert(s.launch.id.clone(), s.clone());
+        self.wake();
         Ok(s)
     }
     pub fn begin_teardown(&mut self, session: &Session<P, A>) {

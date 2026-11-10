@@ -1744,6 +1744,34 @@ fn gpu_hdr_preserves_absolute_luminance_gamut_and_linear_resize() -> Result<()> 
 }
 #[test]
 #[ignore = "requires a D3D11 GPU with native P010 render views"]
+fn converters_take_their_contexts_lock_once_and_hold_it_per_conversion() -> Result<()> {
+    use windows::core::{IUnknown, Interface};
+    let _com = ComGuard::new()?;
+    let gpu = Device::new("")?;
+    let context = gpu.context.cast::<IUnknown>()?;
+    let config = butterpollo_core::rtsp::Negotiated {
+        width: 64,
+        height: 64,
+        codec: 1,
+        hdr: true,
+        ..Default::default()
+    };
+    let image = GpuImage::upload(&gpu, &make_image(&[[1.; 3]], 64, 64))?;
+    let mut convert = Converter::new(&gpu, &config, (64, 64, Pixel::RgbaF16))?;
+    assert_eq!(convert.lock.cast::<IUnknown>()?.as_raw(), context.as_raw());
+    let mut planar = PlanarConverter::new(&gpu, &config, (64, 64, Pixel::RgbaF16))?;
+    let planar_lock = planar.base.lock.cast::<IUnknown>()?;
+    assert_eq!(planar_lock.as_raw(), context.as_raw());
+    // Every conversion enters and leaves it, and converts the same frame alike each time.
+    let first = readback(&gpu, convert.convert(&image)?.as_ref())?;
+    for _ in 0..3 {
+        planar.convert(&image, [100., 1.])?;
+        assert_eq!(readback(&gpu, convert.convert(&image)?.as_ref())?, first);
+    }
+    Ok(())
+}
+#[test]
+#[ignore = "requires a D3D11 GPU with native P010 render views"]
 fn gpu_pool_does_not_overwrite_frames_held_by_the_codec() -> Result<()> {
     let _com = ComGuard::new()?;
     let gpu = Device::new("")?;

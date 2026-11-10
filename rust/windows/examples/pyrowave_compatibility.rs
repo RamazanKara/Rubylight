@@ -55,8 +55,11 @@ fn main() -> Result<()> {
                     ..Default::default()
                 };
                 let mut encoder = Encoder::new_gpu(&config, &image)?;
-                let frames = encoder.encode_gpu(&image, true, config.bitrate_kbps)?;
+                let mut frames = encoder.encode_gpu(&image, true, config.bitrate_kbps)?;
+                frames.extend(encoder.finish()?);
                 anyhow::ensure!(frames.len() == 1, "codec did not produce a fixture");
+                // The picture as it goes on the wire, framed for the client.
+                let payload = frames[0].payload()?;
                 let name = format!(
                     "{}-{}-{}",
                     if records { "records" } else { "lengths" },
@@ -69,7 +72,7 @@ fn main() -> Result<()> {
                     },
                     if yuv444 { "444" } else { "420" }
                 );
-                std::fs::write(output.join(format!("{name}.bin")), &frames[0].bytes)?;
+                std::fs::write(output.join(format!("{name}.bin")), payload.to_vec())?;
                 // Transport fixture includes the actual NV headers and parity shards.
                 let mut wire = butterpollo_core::packet::VideoPacketizer {
                     sequence: 0,
@@ -81,7 +84,7 @@ fn main() -> Result<()> {
                     key: None,
                 };
                 let packets = wire.encode_pyrowave(
-                    &frames[0].bytes,
+                    payload,
                     9000,
                     500,
                     butterpollo_core::packet::PyrowaveFec {
@@ -102,7 +105,7 @@ fn main() -> Result<()> {
                 wire.frame = 1;
                 wire.key = Some(std::array::from_fn(|i| i as u8));
                 let packets = wire.encode_pyrowave(
-                    &frames[0].bytes,
+                    payload,
                     9000,
                     500,
                     butterpollo_core::packet::PyrowaveFec {

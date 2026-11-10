@@ -296,6 +296,11 @@ impl Notices {
         self.action = None;
         self.release()
     }
+    /// When [`Notices::tick`] next has something to do: the hold of a launch error ends.
+    pub fn due(&self) -> Option<Instant> {
+        let posted = self.posted?;
+        (self.action == Some(NoticeAction::QuitApp)).then(|| posted + QUIT_HOLDS_FOR)
+    }
 }
 
 #[cfg(test)]
@@ -571,6 +576,23 @@ mod tests {
         // A host loop that hasn't ticked yet changes nothing.
         notices.post(&launch_error(), start);
         assert_eq!(notices.clicked(start + QUIT_HOLDS_FOR), (None, Vec::new()));
+    }
+
+    #[test]
+    fn notices_are_due_a_tick_only_when_a_launch_errors_hold_ends() {
+        let start = Instant::now();
+        let mut notices = Notices::new();
+        assert_eq!(notices.due(), None);
+        notices.post(&request("TV"), start);
+        assert_eq!(notices.due(), None, "a request waits for nothing");
+        notices.post(&launch_error(), start);
+        notices.post(&request("Phone"), start + Duration::from_secs(1));
+        let due = notices.due().expect("the launch error holds the slot");
+        assert_eq!(due, start + QUIT_HOLDS_FOR);
+        // Before then a tick does nothing; at it the held request goes up.
+        assert_eq!(notices.tick(due - Duration::from_millis(1)), Vec::new());
+        assert_eq!(texts(&notices.tick(due)), ["TV", "Phone"]);
+        assert_eq!(notices.due(), None);
     }
 
     fn status(app: Option<&str>, streaming: bool) -> Status {

@@ -18,6 +18,7 @@ pub(super) fn run(
     let mut batch = Batch::default();
     let mut pacer = Pacer::new(Instant::now());
     let mut route_check = RouteCheck::new(Instant::now());
+    let mut send_buffer = SendBuffer::default();
     // The route lookup runs on its own thread, not between frames here.
     let link_watch = crate::video_send::link_watch::LinkWatch::default();
     while !shared.stop.load(Ordering::Acquire)
@@ -42,6 +43,7 @@ pub(super) fn run(
         let route = link_watch.get(frame.peer);
         let client = client_path(&current);
         let bps = pace(&current, &config, frame.kbps, frame.wire_frame, route);
+        send_buffer.fit(&socket, bps);
         if report {
             network_pacing::report_rate(
                 &current.launch.warnings,
@@ -186,6 +188,56 @@ pub(super) fn next_block(shared: &Slot) -> Option<PacketBlock> {
     }
 }
 
+/// The video socket's send buffer, sized to the pace
+/// ([`network_pacing::paced_send_buffer`]). Set again only when the size
+/// changes, which the whole-MiB steps keep rare.
+struct SendBuffer {
+    /// The size last asked for; the socket starts at the floor.
+    size: usize,
+    /// The first resize is logged at info, a refused size once at warn.
+    logged: bool,
+    refused: bool,
+}
+
+impl Default for SendBuffer {
+    fn default() -> Self {
+        Self {
+            size: network_pacing::SEND_BUFFER_FLOOR,
+            logged: false,
+            refused: false,
+        }
+    }
+}
+
+impl SendBuffer {
+    /// The size the socket needs at `bps`, if it differs from the last one.
+    fn wanted(&self, bps: u64) -> Option<usize> {
+        let size = network_pacing::paced_send_buffer(bps);
+        (size != self.size).then_some(size)
+    }
+
+    fn fit(&mut self, socket: &std::net::UdpSocket, bps: u64) {
+        let Some(size) = self.wanted(bps) else {
+            return;
+        };
+        self.size = size;
+        match socket2::SockRef::from(socket).set_send_buffer_size(size) {
+            Ok(()) if !self.logged => {
+                self.logged = true;
+                tracing::info!(bytes = size, pacing_bps = bps, "video send buffer sized");
+            }
+            Ok(()) => {
+                tracing::debug!(bytes = size, pacing_bps = bps, "video send buffer sized");
+            }
+            Err(error) if !self.refused => {
+                self.refused = true;
+                tracing::warn!(bytes = size, %error, "video send buffer not resized");
+            }
+            Err(_) => {}
+        }
+    }
+}
+
 /// How often the sender routes its client's address again.
 const ROUTE_INTERVAL: Duration = Duration::from_secs(2);
 
@@ -288,6 +340,25 @@ mod tests {
         assert!(check.due(now + Duration::from_millis(20), new), "a roam");
         assert!(!check.due(now + Duration::from_millis(30), new));
         assert!(check.due(now + Duration::from_millis(20) + ROUTE_INTERVAL, new));
+    }
+
+    /// The video socket's buffer follows the pace in whole MiB steps, and is
+    /// set only when the step changes; a socket keeps a size it was given.
+    #[test]
+    fn the_send_buffer_follows_the_pace_and_is_set_only_on_a_change() {
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let mut buffer = SendBuffer::default();
+        assert_eq!(buffer.wanted(400_000_000), None, "H.26x rates: the floor");
+        assert_eq!(buffer.wanted(1_750_000_000), Some(3 << 20));
+        buffer.fit(&socket, 1_750_000_000);
+        assert_eq!(buffer.size, 3 << 20);
+        let kernel = socket2::SockRef::from(&socket).send_buffer_size().unwrap();
+        assert!(kernel >= 3 << 20, "{kernel}");
+        assert_eq!(buffer.wanted(1_800_000_000), None, "the same step");
+        assert_eq!(buffer.wanted(2_600_000_000), Some(4 << 20));
+        // The pace falls back (a send loss): the buffer does too.
+        buffer.fit(&socket, 500_000_000);
+        assert_eq!(buffer.size, network_pacing::SEND_BUFFER_FLOOR);
     }
 
     /// A client's link and pace hints pace a PyroWave stream until the client roams:

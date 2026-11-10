@@ -243,7 +243,17 @@ pub fn host_name(config: &Config) -> String {
     if !configured.is_empty() {
         return configured.to_owned();
     }
-    butterpollo_windows::net::host_name().unwrap_or_else(|| "Rubylight".into())
+    pc_name().unwrap_or_else(|| "Rubylight".into())
+}
+/// The PC's DNS host name, read from Windows once: a new name takes a restart of
+/// Windows. Every `/serverinfo` asked for it. A failed read is tried again.
+fn pc_name() -> Option<String> {
+    static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    if let Some(name) = NAME.get() {
+        return Some(name.clone());
+    }
+    let name = butterpollo_windows::net::host_name()?;
+    Some(NAME.get_or_init(|| name).clone())
 }
 pub fn bind_address(config: &Config, override_address: Option<IpAddr>) -> Result<IpAddr> {
     if let Some(address) = override_address {
@@ -599,11 +609,40 @@ async fn remove<P: Provider>(
     }
     Ok(())
 }
-pub fn port_forward(h: Shared, bind: IpAddr) -> Option<tokio::task::JoinHandle<()>> {
+/// The UPnP and IPv6 pinhole task, which sleeps until its next renewal or until
+/// it is told that the host stops.
+pub struct PortForward {
+    task: tokio::task::JoinHandle<()>,
+    stop: std::sync::Arc<tokio::sync::Notify>,
+}
+impl PortForward {
+    /// The host stops: after `h.stop` is set, this wakes the task, which takes its
+    /// mappings down and ends.
+    pub fn stop(&self) {
+        self.stop.notify_one();
+    }
+    /// Waits up to `wait` for the task to take its mappings down, then ends it.
+    pub async fn finish(mut self, wait: Duration) {
+        if tokio::time::timeout(wait, &mut self.task).await.is_err() {
+            self.task.abort();
+        }
+    }
+}
+/// Waits until `renewal` or until `stop` is notified, whichever comes first.
+async fn until_renewal_or_stop(stop: &tokio::sync::Notify, renewal: Instant) {
+    let wait = renewal.saturating_duration_since(Instant::now());
+    tokio::select! {
+        () = stop.notified() => {}
+        () = tokio::time::sleep(wait) => {}
+    }
+}
+pub fn port_forward(h: Shared, bind: IpAddr) -> Option<PortForward> {
     if !h.config.read().unwrap().boolean("upnp", false) || bind.is_loopback() {
         return None;
     }
-    Some(tokio::spawn(async move {
+    let stop = std::sync::Arc::new(tokio::sync::Notify::new());
+    let stopped = stop.clone();
+    let task = tokio::spawn(async move {
         let config = h.config.read().unwrap().clone();
         let wanted = mappings(&config, config.ports().unwrap());
         let description = format!("Butterpollo Rust {}", h.paired.read().unwrap().unique_id);
@@ -659,7 +698,7 @@ pub fn port_forward(h: Shared, bind: IpAddr) -> Option<tokio::task::JoinHandle<(
                     }
                 }
             }
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            until_renewal_or_stop(&stopped, next_search).await;
         }
         if let Some(mut firewall) = firewall
             && let Err(error) = firewall.close().await
@@ -671,11 +710,39 @@ pub fn port_forward(h: Shared, bind: IpAddr) -> Option<tokio::task::JoinHandle<(
         {
             tracing::warn!(%error, "UPnP cleanup failed; permanent mappings remain reclaimable by this host");
         }
-    }))
+    });
+    Some(PortForward { task, stop })
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn port_forwarding_sleeps_until_its_renewal_or_the_hosts_stop() {
+        let stop = tokio::sync::Notify::new();
+        // Without a stop it sleeps until the renewal, not in short polls.
+        let start = Instant::now();
+        until_renewal_or_stop(&stop, start + Duration::from_millis(150)).await;
+        assert!(start.elapsed() >= Duration::from_millis(150));
+        // A stop wakes it at once, also one told while it was renewing.
+        let start = Instant::now();
+        stop.notify_one();
+        until_renewal_or_stop(&stop, start + Duration::from_secs(60)).await;
+        assert!(start.elapsed() < Duration::from_secs(30));
+        let stopping = async {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            stop.notify_one();
+        };
+        let start = Instant::now();
+        tokio::join!(
+            until_renewal_or_stop(&stop, start + Duration::from_secs(60)),
+            stopping
+        );
+        assert!(start.elapsed() < Duration::from_secs(30));
+        // A renewal that is due already does not wait.
+        let start = Instant::now();
+        until_renewal_or_stop(&stop, start).await;
+        assert!(start.elapsed() < Duration::from_secs(30));
+    }
     #[test]
     fn peers_are_classified_like_vibepollo() {
         for (address, expected) in [

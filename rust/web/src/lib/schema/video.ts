@@ -277,6 +277,21 @@ const video: Setting[] = [
     restart: true,
   },
   {
+    key: 'pyrowave_encode_overlap',
+    label: 'Overlap PyroWave frames',
+    description:
+      'Prepares the next PyroWave frame while the GPU still encodes the current one.',
+    details:
+      'Two frames are on the GPU at once, each with its own copy of the picture. Turn it off to encode one frame at a time, as earlier versions did, if PyroWave streams stutter or stop on this GPU. Applies to the next stream.',
+    category: 'video',
+    group: 'Codecs',
+    control: { kind: 'toggle' },
+    default: true,
+    advanced: true,
+    inactiveHint: 'Turn on PyroWave to use this setting.',
+    visibleWhen: (values) => flag(values, 'pyrowave', true),
+  },
+  {
     key: 'prefer_sdr_10bit',
     label: 'Prefer 10-bit SDR',
     description:

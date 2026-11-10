@@ -364,7 +364,7 @@ fn conventional_blocks_match_pre_pipeline_fingerprints() {
 
 #[test]
 fn abandoning_pyrowave_blocks_keeps_frame_and_nonce_progress() {
-    let payload = vec![7; 400_000];
+    let payload = vec![7u8; 400_000];
     let mut p = VideoPacketizer {
         sequence: 0,
         iv_counter: 0,
@@ -521,7 +521,7 @@ fn legacy_pyrowave_rejects_frames_past_the_legacy_shard_cap() {
         assert!(
             packetizer
                 .pyrowave_blocks(
-                    &vec![0; 4000 * 240],
+                    &vec![0u8; 4000 * 240],
                     0,
                     0,
                     PyrowaveFec {

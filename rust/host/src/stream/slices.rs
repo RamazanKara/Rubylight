@@ -217,6 +217,7 @@ impl Route {
             Mode::Join => {
                 self.joined.extend_from_slice(&frame.bytes);
                 last.then(|| Encoded {
+                    framing: None,
                     bytes: std::mem::take(&mut self.joined),
                     unit: Unit::Whole,
                     ..frame
@@ -320,6 +321,7 @@ mod tests {
 
     fn unit(unit: Unit, bytes: &[u8]) -> Encoded {
         Encoded {
+            framing: None,
             bytes: bytes.to_vec(),
             unit,
             idr: false,

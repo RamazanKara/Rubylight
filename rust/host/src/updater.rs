@@ -360,6 +360,9 @@ pub fn queue(h: &Shared, automatic: bool, immediately: bool, by: Option<&str>) -
     state["now_by"] = json!(by.filter(|_| now));
     state["idle_since"] = json!(0);
     state["error"] = Value::Null;
+    drop(state);
+    // The maintenance loop takes a queued update on from here.
+    h.wake_maintenance();
     Ok(true)
 }
 

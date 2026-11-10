@@ -374,7 +374,7 @@ async fn serverinfo(
 ) -> Response {
     h.request_codec_probe();
     h.wait_for_startup_codecs(STARTUP_CODEC_WAIT).await;
-    let config = h.config.read().unwrap().clone();
+    let config = h.config_snapshot();
     let client = authenticated(&h, &connection, 0).ok();
     if let Some(client) = &client {
         note_client_agent(

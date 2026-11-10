@@ -897,6 +897,27 @@ fn supervisor_event_is_wait_only_and_outlives_the_source_handle() -> Result<()> 
     Ok(())
 }
 #[test]
+fn a_stop_signal_wait_returns_when_the_supervisor_asks_and_at_once_without_one() -> Result<()> {
+    let unsupervised = StopSignal::new(None)?;
+    assert!(!unsupervised.supervised());
+    unsupervised.wait();
+    let source = HostStop::new()?;
+    let (pid, handle) = parse_stop_source(&source.source())?;
+    let signal = std::sync::Arc::new(StopSignal(Some(duplicate_stop_event(pid, handle)?)));
+    assert!(signal.supervised());
+    let (done, waited) = std::sync::mpsc::channel();
+    let waiter = signal.clone();
+    std::thread::spawn(move || {
+        waiter.wait();
+        let _ = done.send(());
+    });
+    assert!(waited.recv_timeout(Duration::from_millis(200)).is_err());
+    source.request()?;
+    waited.recv_timeout(Duration::from_secs(5))?;
+    assert!(signal.requested());
+    Ok(())
+}
+#[test]
 fn shutdown_source_rejects_invalid_handles_and_foreign_parents() -> Result<()> {
     for source in [
         "",

@@ -62,6 +62,36 @@ pub(super) fn expects_enet_control(session: &Session) -> bool {
     session.launch.transport != butterpollo_core::session::Transport::WebRtc
 }
 
+/// How often the control worker looks for sessions without a control peer when no peer
+/// came or went. The ping timeout it enforces is at least a second, and a worker
+/// without peers already woke this often.
+pub(super) const UNATTENDED_SWEEP: Duration = Duration::from_millis(250);
+
+/// When the control worker looks for sessions without a control peer: when a peer
+/// came or went, and otherwise every [`UNATTENDED_SWEEP`], not on every input pass.
+pub(super) struct UnattendedSweep {
+    at: Instant,
+}
+impl UnattendedSweep {
+    /// The first pass sweeps.
+    pub(super) fn new(now: Instant) -> Self {
+        Self { at: now }
+    }
+    /// Whether to sweep in the pass at `now`; when it does, the next timed sweep is
+    /// [`UNATTENDED_SWEEP`] after it.
+    pub(super) fn due(&mut self, now: Instant, peers_changed: bool) -> bool {
+        if !peers_changed && now < self.at {
+            return false;
+        }
+        self.at = now + UNATTENDED_SWEEP;
+        true
+    }
+    /// When the worker must wake for the next timed sweep.
+    pub(super) fn next(&self) -> Instant {
+        self.at
+    }
+}
+
 /// Ends the sessions that expect an ENet control peer, have had none for longer than
 /// `ping_timeout`, and are not attended now (`attended` says by session id). Drains `sessions`.
 /// The log names what `control` received from the client, if anything.
@@ -288,6 +318,7 @@ impl Media {
         let input_timer = butterpollo_windows::timing::Timer::new()?;
         let mut feedback_at = Instant::now();
         let mut controller_cleanup = Instant::now();
+        let mut unattended_sweep = UnattendedSweep::new(Instant::now());
         while !h.stop.load(Ordering::Acquire) {
             while self.control_wake_receiver.recv(&mut [0]).is_ok() {}
             expire_controllers(&h, &mut controller_cleanup);
@@ -298,6 +329,8 @@ impl Media {
             host.socket_mut().roaming.set_enabled(client_roaming);
             // Whether a peer went, so roaming forgets its addresses.
             let mut peers_went = false;
+            // Whether a peer came, so the unattended sweep runs at once.
+            let mut peers_came = false;
             #[cfg(test)]
             if let Some(fixture) = &h.reconnect_fixture {
                 fixture.hold_control();
@@ -370,6 +403,7 @@ impl Media {
                                     coop_tried: false,
                                     sequence: 0,
                                     received: Default::default(),
+                                    ciphers: Default::default(),
                                     hdr_metadata: None,
                                     legacy: butterpollo_core::packet::LegacyInput::new(l.key_id),
                                     seen: Instant::now(),
@@ -399,6 +433,7 @@ impl Media {
                                     cursor_scale: Default::default(),
                                 },
                             );
+                            peers_came = true;
                         } else {
                             tracing::warn!(
                                 %address,
@@ -480,17 +515,15 @@ impl Media {
                             continue;
                         }
                         let parsed = if encrypted {
-                            butterpollo_core::packet::decrypt_control(
-                                &s.launch.key,
-                                b,
-                                s.config.encryption & 1 != 0,
-                            )
-                            .and_then(|(seq, kind, payload)| {
-                                if !p.received.accept(seq) {
-                                    anyhow::bail!("replayed control message");
-                                }
-                                Ok((kind, payload))
-                            })
+                            p.ciphers
+                                .get(&s.launch.key, s.config.encryption & 1 != 0)
+                                .open(b)
+                                .and_then(|(seq, kind, payload)| {
+                                    if !p.received.accept(seq) {
+                                        anyhow::bail!("replayed control message");
+                                    }
+                                    Ok((kind, payload))
+                                })
                         } else {
                             butterpollo_core::packet::control_header(b)
                                 .map(|(kind, payload)| (kind, payload.to_vec()))
@@ -1565,15 +1598,18 @@ impl Media {
             // A session whose client never connected control, or whose peer
             // this worker lost when it restarted, would otherwise hold the
             // encoder, capture and display forever (Sunshine times it out).
-            active_sessions.extend(h.sessions.lock().unwrap().active.values().cloned());
-            unattended.retain(|id, _| active_sessions.iter().any(|s| &s.launch.id == id));
-            end_unattended_sessions(
-                &mut active_sessions,
-                |id| peers.values().any(|p| p.id == id),
-                &mut unattended,
-                ping_timeout,
-                &socket,
-            );
+            // Its timeout is seconds long: input passes leave it to the timer.
+            if unattended_sweep.due(Instant::now(), peers_came || peers_went) {
+                active_sessions.extend(h.sessions.lock().unwrap().active.values().cloned());
+                unattended.retain(|id, _| active_sessions.iter().any(|s| &s.launch.id == id));
+                end_unattended_sessions(
+                    &mut active_sessions,
+                    |id| peers.values().any(|p| p.id == id),
+                    &mut unattended,
+                    ping_timeout,
+                    &socket,
+                );
+            }
             host.flush();
             if peers.is_empty() {
                 priority = None;
@@ -1597,6 +1633,8 @@ impl Media {
                     .flatten()
                     .fold(feedback_at, Instant::min)
             };
+            // And for the unattended sweep's timer.
+            let due = due.min(unattended_sweep.next());
             let timeout = control_wait_timeout(due.saturating_duration_since(now), serviced);
             if butterpollo_windows::net::wait_readable_or_wake(raw_socket, raw_wake, timeout)
                 .is_err()
@@ -1745,6 +1783,8 @@ pub(super) struct ControlPeer {
     coop_tried: bool,
     sequence: u32,
     received: butterpollo_core::packet::ReplayWindow,
+    /// The session key's control cipher, expanded once rather than per message.
+    ciphers: butterpollo_core::packet::ControlCiphers,
     hdr_metadata: Option<[u8; 27]>,
     legacy: butterpollo_core::packet::LegacyInput,
     seen: Instant,
@@ -1870,13 +1910,9 @@ impl ControlPeer {
     fn encrypt(&mut self, s: &Session, kind: u16, payload: &[u8]) -> Result<Vec<u8>> {
         let seq = self.sequence;
         self.sequence = seq.checked_add(1).context("control nonce exhausted")?;
-        butterpollo_core::packet::encrypted_control(
-            &s.launch.key,
-            seq,
-            kind,
-            payload,
-            s.config.encryption & 1 != 0,
-        )
+        self.ciphers
+            .get(&s.launch.key, s.config.encryption & 1 != 0)
+            .seal(seq, kind, payload)
     }
 }
 

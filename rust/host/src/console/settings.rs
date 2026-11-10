@@ -110,6 +110,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "fec_percentage", "Forward error correction (%)", Number;
         "adaptive_fec", "Adapt error correction to reported packet loss", Bool;
         "pyrowave", "Enable PyroWave for compatible devices", Bool;
+        "pyrowave_encode_overlap", "Prepare the next PyroWave frame while the current one encodes", Bool;
         "pyrowave_critical_fec_percentage", "PyroWave protection for required image data (%)", Number;
         "video_max_batch_size_kb", "Video send batch limit (KiB)", Number;
         "pacing_max_bitrate_kbps", "Network pacing limit (kbps; 0 uses the route policy: up to 800 Mbps wired, twice the bitrate with FEC headroom on Wi-Fi; positive values set a fixed limit)", Number;

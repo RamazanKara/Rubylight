@@ -127,6 +127,8 @@ impl Layout {
 }
 pub(crate) struct Converter {
     gpu: Device,
+    /// The context's multithread lock, held across each conversion.
+    lock: ID3D11Multithread,
     vertex: ID3D11VertexShader,
     luma: ID3D11PixelShader,
     chroma: ID3D11PixelShader,
@@ -303,6 +305,7 @@ impl Converter {
             )?;
             Ok(Self {
                 gpu: gpu.clone(),
+                lock: windows::core::Interface::cast(&gpu.context)?,
                 vertex: vertex.unwrap(),
                 luma: luma.unwrap(),
                 chroma: chroma.unwrap(),
@@ -487,7 +490,7 @@ impl Converter {
             let context = &self.gpu.context;
             // Capture and the codec share this device. Keep the complete draw
             // together rather than merely protecting individual context calls.
-            let lock: ID3D11Multithread = windows::core::Interface::cast(context)?;
+            let lock = &self.lock;
             lock.Enter();
             if self.dirty {
                 context.UpdateSubresource(
@@ -702,7 +705,7 @@ impl PlanarConverter {
         // objects are on this device, and `values` is the buffer's 80 bytes.
         unsafe {
             let context = &self.base.gpu.context;
-            let lock: ID3D11Multithread = windows::core::Interface::cast(context)?;
+            let lock = &self.base.lock;
             lock.Enter();
             if self.base.dirty {
                 context.UpdateSubresource(

@@ -921,3 +921,29 @@ fn following_the_client_link_lifts_the_wired_ceiling_to_the_slower_link() {
         rate(10_000, 2_500, true, false)
     );
 }
+
+/// The skip-ab legs of 2026-11-10 (PyroWave 1.4 Gbps, paced at 1.75 Gbps):
+/// a 1 MiB buffer held under 5 ms and the socket refused whole 46-datagram
+/// batches (10035). The paced sender's buffer holds 10 ms at its pace.
+#[test]
+fn the_paced_send_buffer_holds_ten_milliseconds_at_the_pace() {
+    const MIB: usize = 1 << 20;
+    // H.26x rates keep the buffer every video socket starts with.
+    for bps in [0, 1, 150_000_000, 800_000_000, 838_000_000] {
+        assert_eq!(paced_send_buffer(bps), SEND_BUFFER_FLOOR, "{bps}");
+    }
+    assert_eq!(paced_send_buffer(840_000_000), 2 * MIB);
+    // 1.4 Gbps PyroWave's 1.25x pace, and a 2.5 GbE route's 95% ceiling.
+    assert_eq!(paced_send_buffer(1_750_000_000), 3 * MIB);
+    assert_eq!(paced_send_buffer(2_375_000_000), 3 * MIB);
+    for bps in [840_000_000, 1_750_000_000, 2_375_000_000, 6_000_000_000] {
+        let held = paced_send_buffer(bps) as f64 * 8. / bps as f64;
+        assert!(held >= SEND_BUFFER_SPAN.as_secs_f64(), "{bps}: {held} s");
+    }
+    // A 10 GbE pace stops at the ceiling.
+    assert_eq!(paced_send_buffer(9_500_000_000), SEND_BUFFER_CEILING);
+    assert_eq!(paced_send_buffer(u64::MAX), SEND_BUFFER_CEILING);
+    for bps in (0..40).map(|i| i * 250_000_000) {
+        assert_eq!(paced_send_buffer(bps) % MIB, 0, "{bps}");
+    }
+}

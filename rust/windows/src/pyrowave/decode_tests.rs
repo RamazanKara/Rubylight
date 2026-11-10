@@ -348,6 +348,18 @@ fn word(bytes: &[u8], offset: usize) -> u32 {
 
 // A lossless client receive: order data shards, remove the short frame header,
 // and trim the final shard. This deliberately does not use the host's layout parser.
+/// One picture encoded and waited for: with two frames in flight it would
+/// otherwise come back from a later call.
+fn encode_now(
+    encoder: &mut Encoder,
+    image: &GpuImage,
+    kbps: u32,
+) -> Result<Vec<crate::encoder::Encoded>> {
+    let mut frames = encoder.encode_gpu(image, true, kbps)?;
+    frames.extend(encoder.finish()?);
+    Ok(frames)
+}
+
 fn receive(packets: &[Vec<u8>]) -> Result<Vec<u8>> {
     let mut data = BTreeMap::new();
     let mut counts = BTreeMap::new();
@@ -917,13 +929,13 @@ fn pyrowave_decoded_end_to_end() -> Result<()> {
                                         unreachable!()
                                     };
                                     native.restart_interval();
-                                    let frames = encoder.encode_gpu(source, true, kbps)?;
+                                    let frames = encode_now(encoder, source, kbps)?;
                                     ensure!(frames.len() == 1, "encoder dropped the frame");
                                     let Encoder::Pyrowave(native) = encoder else {
                                         unreachable!()
                                     };
                                     ensure!(
-                                        (native.compute.is_some()
+                                        (native.converts_on_compute()
                                             && crate::compute::shareable(&source.texture))
                                             == compute,
                                         "requested conversion path was not used"
@@ -937,8 +949,9 @@ fn pyrowave_decoded_end_to_end() -> Result<()> {
                                         min_fec: 2,
                                         key: None,
                                     };
+                                    let framed = frames[0].payload()?;
                                     let packets = wire.encode_pyrowave(
-                                        &frames[0].bytes,
+                                        framed,
                                         9000,
                                         500,
                                         PyrowaveFec {
@@ -951,7 +964,7 @@ fn pyrowave_decoded_end_to_end() -> Result<()> {
                                     )?;
                                     let frame = receive(&packets)?;
                                     ensure!(
-                                        frame == frames[0].bytes,
+                                        frame == framed.to_vec(),
                                         "wire reconstruction changed the frame"
                                     );
                                     let decoded =
@@ -1060,16 +1073,12 @@ fn pyrowave_encoder_follows_rebuilt_planes() -> Result<()> {
             unreachable!()
         };
         native.restart_interval();
-        let frames = encoder.encode_gpu(source, true, config.bitrate_kbps)?;
+        let frames = encode_now(&mut encoder, source, config.bitrate_kbps)?;
         ensure!(frames.len() == 1, "encoder dropped frame {frame}");
         let Encoder::Pyrowave(native) = &encoder else {
             unreachable!()
         };
-        let current: Vec<usize> = native
-            .interop
-            .iter()
-            .map(|i| i.view.image as usize)
-            .collect();
+        let current: Vec<usize> = native.plane_images();
         // A new source format destroys the planes before it creates new ones.
         if previous.is_some_and(|previous| previous != phase) {
             destroyed.append(&mut planes);
@@ -1091,7 +1100,7 @@ fn pyrowave_encoder_follows_rebuilt_planes() -> Result<()> {
             key: None,
         };
         let packets = wire.encode_pyrowave(
-            &frames[0].bytes,
+            frames[0].payload()?,
             9000,
             500,
             PyrowaveFec {
@@ -1153,12 +1162,13 @@ fn record_framing_keeps_the_wire_budget_and_decoded_pixels() -> Result<()> {
         let source = GpuImage::upload(&gpu, &source)?;
         for kbps in [30_000, 80_000, 100_000, 200_000, 300_000, 400_000] {
             encoder.restart_interval();
-            let frames = encoder.encode_gpu(&source, true, kbps)?;
+            let frames = encoder.encode_now(&source, true, kbps)?;
             assert_eq!(frames.len(), 1);
-            assert!(encoder.compute.is_some());
+            assert!(encoder.converts_on_compute());
             let budget = pyrowave::budget(kbps, period, config.packet_size, true, 20);
-            let packet = &encoder.packets[0];
-            let raw = &encoder.bitstream[packet.offset..packet.offset + packet.size];
+            // The codec's record frame, and the frame as it goes on the wire.
+            let raw = &frames[0].bytes[..];
+            let framed = frames[0].payload()?.to_vec();
             let mut packetizer = VideoPacketizer {
                 sequence: 0,
                 iv_counter: 0,
@@ -1183,8 +1193,7 @@ fn record_framing_keeps_the_wire_budget_and_decoded_pixels() -> Result<()> {
             )?;
             let mut aligned_wire = 0;
             for percentage in 0..=20 {
-                let packets =
-                    packetizer.encode_pyrowave(&frames[0].bytes, 0, 0, fec(percentage))?;
+                let packets = packetizer.encode_pyrowave(&framed, 0, 0, fec(percentage))?;
                 let wire: usize = packets
                     .iter()
                     .map(|packet| packet.len() + butterpollo_core::network_pacing::overhead(true))
@@ -1204,15 +1213,15 @@ fn record_framing_keeps_the_wire_budget_and_decoded_pixels() -> Result<()> {
             println!(
                 "scene={scene:?} kbps={kbps} budget={budget} raw={} framed={} aligned_wire={aligned_wire} allowance={allowance}",
                 raw.len(),
-                frames[0].bytes.len()
+                framed.len()
             );
             if aligned_wire <= allowance {
-                assert_eq!(frames[0].bytes, aligned);
+                assert_eq!(framed, aligned);
             } else {
-                assert_eq!(frames[0].bytes, raw);
+                assert_eq!(framed, raw);
             }
             let expected = decoder.decode(&gpu, &codec_packets(raw, true)?)?;
-            let decoded = decoder.decode(&gpu, &codec_packets(&frames[0].bytes, true)?)?;
+            let decoded = decoder.decode(&gpu, &codec_packets(&framed, true)?)?;
             assert_eq!(decoded, expected);
         }
     }
@@ -1282,13 +1291,13 @@ fn quality_sweep(width: u32, height: u32, critical_fec: usize) -> Result<()> {
                                     unreachable!()
                                 };
                                 native.restart_interval();
-                                let frames = encoder.encode_gpu(source, true, kbps)?;
+                                let frames = encode_now(&mut encoder, source, kbps)?;
                                 ensure!(frames.len() == 1, "encoder dropped the frame");
                                 let Encoder::Pyrowave(native) = &encoder else {
                                     unreachable!()
                                 };
                                 ensure!(
-                                    native.compute.is_some()
+                                    native.converts_on_compute()
                                         && crate::compute::shareable(&source.texture),
                                     "compute conversion was not used"
                                 );
@@ -1302,7 +1311,7 @@ fn quality_sweep(width: u32, height: u32, critical_fec: usize) -> Result<()> {
                                     key: None,
                                 };
                                 let packets = wire.encode_pyrowave(
-                                    &frames[0].bytes,
+                                    frames[0].payload()?,
                                     9000,
                                     500,
                                     PyrowaveFec {
@@ -1383,7 +1392,7 @@ fn encode_and_decode(
         unreachable!()
     };
     native.restart_interval();
-    let frames = encoder.encode_gpu(image, true, config.bitrate_kbps)?;
+    let frames = encode_now(encoder, image, config.bitrate_kbps)?;
     ensure!(frames.len() == 1, "encoder dropped the frame");
     let mut wire = VideoPacketizer {
         sequence: 0,
@@ -1395,7 +1404,7 @@ fn encode_and_decode(
         key: None,
     };
     let packets = wire.encode_pyrowave(
-        &frames[0].bytes,
+        frames[0].payload()?,
         9000,
         500,
         PyrowaveFec {
@@ -1479,11 +1488,8 @@ fn lose_the_d3d12_device(loss: Loss) -> Result<std::time::Duration> {
         unreachable!()
     };
     let compute = native
-        .compute
-        .as_ref()
-        .context("the compute queue did not convert the frame")?
-        .converter
         .compute()
+        .context("the compute queue did not convert the frame")?
         .clone();
     ensure!(native.device_removed().is_none(), "lost before the removal");
     if matches!(loss, Loss::Never) {
@@ -1519,8 +1525,9 @@ fn lose_the_d3d12_device(loss: Loss) -> Result<std::time::Duration> {
             unreachable!()
         };
         native.restart_interval();
-        let error = encoder
-            .encode_gpu(&image, true, config.bitrate_kbps)
+        // With two frames in flight a mid-frame loss surfaces when the frame
+        // is waited for, not always in its own encode call.
+        let error = encode_now(&mut encoder, &image, config.bitrate_kbps)
             .err()
             .with_context(|| format!("frame {attempt} encoded on a removed device"))?;
         ensure!(
@@ -1537,7 +1544,7 @@ fn lose_the_d3d12_device(loss: Loss) -> Result<std::time::Duration> {
         // A lost D3D12 device holds no work, so the lease is free and the
         // adapter stays usable: the next life builds on a new device.
         ensure!(
-            native.pending.is_none(),
+            native.leases() == 0,
             "{loss:?}: frame {attempt} left the capture lease pinned: {error:#}"
         );
         super::quarantined_adapters()
@@ -1643,7 +1650,7 @@ fn encoder_life(config: &Negotiated, stage: u32, compute: bool) -> Result<()> {
         unreachable!()
     };
     native.restart_interval();
-    let frames = encoder.encode_gpu(&image, true, config.bitrate_kbps)?;
+    let frames = encode_now(&mut encoder, &image, config.bitrate_kbps)?;
     ensure!(frames.len() == 1, "encoder dropped the frame");
     Ok(())
 }

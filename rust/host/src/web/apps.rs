@@ -145,6 +145,8 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             let started = running.started_event();
             *current = Some(running);
             drop(current);
+            // The maintenance loop follows a running app every tick.
+            h.wake_maintenance();
             h.app_started_webhook(started);
             json!({"status":true})
         }

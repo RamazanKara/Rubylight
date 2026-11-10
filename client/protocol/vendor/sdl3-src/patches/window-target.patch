@@ -1,6 +1,6 @@
 --- a/src/render/gpu/SDL_render_gpu.c
 +++ b/src/render/gpu/SDL_render_gpu.c
-@@ -132,6 +132,25 @@
+@@ -132,6 +132,30 @@
          SDL_GPUShader *fragment;
          SDL_GPUGraphicsPipeline *pipeline;
      } pq;
@@ -8,55 +8,108 @@
 +    /* Nightjar patch (window target): a frame draws straight into its swapchain image instead of
 +     * the back buffer when nothing needs the back buffer (no PQ pass, no read-back asked for with
 +     * SDL.renderer.gpu.read_back). The image is acquired on the frame's first draw into the
-+     * window's target, not before: a clear before it waits, folded into that draw's pass. */
++     * window's target, not before: a clear before it waits, folded into that draw's pass.
++     * With the PQ present, a frame the app marks video only (SDL.renderer.gpu.video_only) draws PQ
++     * itself and takes its HDR10 swapchain image the same way, without the back buffer's PQ pass. */
 +    SDL_Window *window;
 +    struct
 +    {
 +        bool decided;       // eligible was settled on the frame's first use of the window's target
 +        bool eligible;      // the frame may draw into its swapchain image
++        bool video_only;    // the frame's window target takes PQ from the app's draws (PQ present only)
 +        bool tried;         // the swapchain image was asked for
 +        bool direct;        // the frame draws into it (else into the back buffer, and the blit)
 +        bool clear;         // a clear of the window's target waits for the frame's first draw
 +        SDL_FColor clear_color;
 +        SDL_GPUTexture *texture;
++        SDL_GPUTextureFormat format; // the swapchain image's, when direct
 +        Uint32 width;
 +        Uint32 height;
 +    } frame;
 +    Sint64 window_target_frames;
++    Sint64 video_only_dropped_draws;
  } GPU_RenderData;
  
  typedef struct GPU_PaletteData
-@@ -731,12 +750,52 @@
+@@ -731,12 +755,100 @@
      data->state.scissor_enabled = false;
  }
  
 +/* Nightjar patch (window target): whether this frame may draw into its swapchain image, settled on
-+ * its first use of the window's target. */
++ * its first use of the window's target.
++ *
++ * Video only (PQ present only): the app sets the boolean renderer property SDL.renderer.gpu.video_only
++ * before it queues anything on the window's target for a frame (between SDL_RenderPresent and the
++ * frame's first clear or draw there) and leaves it alone until that frame's present. It is read here,
++ * once a frame, on the frame's first run of commands on the window's target; set later, it counts
++ * from the next frame. True on a renderer with the PQ present means the app promises that every draw
++ * of this frame on the window's target is its own SDL_GPURenderState writing BT.2020 PQ (the PQ
++ * pass's encode of scRGB, 1.0 = 80 nits, in pq_present.hlsl): the output colorspace, HDR headroom
++ * and SDR white point properties stay what they are (SRGB_LINEAR), and the app's shader works in
++ * them before its PQ encode, so the frame looks the same as through the back buffer. Such a frame
++ * takes its HDR10 swapchain image as the window's target as SDR and scRGB frames do, and skips the
++ * back buffer and the PQ pass; when it cannot (a resize, read_back, no image) it draws into the back
++ * buffer, which then holds PQ and is blitted as it is. A clear of the window's target is PQ-encoded
++ * by SDL. SDL's own draws (no render state) on the window's target would write linear light into PQ,
++ * so they are dropped with an error, counted in SDL.renderer.gpu.video_only_dropped_draws: the app
++ * draws the overlay, menus or anything else only in frames with video_only false. The value settled
++ * for the latest frame is in SDL.renderer.gpu.video_only_frame (false without the PQ present). */
 +static bool GPU_FrameEligible(SDL_Renderer *renderer, GPU_RenderData *data)
 +{
 +    if (!data->frame.decided) {
++        SDL_PropertiesID props = SDL_GetRendererProperties(renderer);
 +        data->frame.decided = true;
-+        data->frame.eligible = data->window && !data->pq.pipeline &&
-+                               !SDL_GetBooleanProperty(SDL_GetRendererProperties(renderer), "SDL.renderer.gpu.read_back", false);
++        data->frame.video_only = data->pq.pipeline && SDL_GetBooleanProperty(props, "SDL.renderer.gpu.video_only", false);
++        data->frame.eligible = data->window && (!data->pq.pipeline || data->frame.video_only) &&
++                               !SDL_GetBooleanProperty(props, "SDL.renderer.gpu.read_back", false);
++        if (data->pq.pipeline) {
++            SDL_SetBooleanProperty(props, "SDL.renderer.gpu.video_only_frame", data->frame.video_only);
++        }
 +    }
 +    return data->frame.eligible;
 +}
 +
++/* Nightjar patch (window target): ST 2084 of a linear scRGB colour, as the PQ pass encodes it
++ * (pq_present.hlsl: BT.709 to BT.2020, 1.0 = 80 nits), for a clear in a video-only frame. */
++static float GPU_PQ(float nits)
++{
++    const float m1 = 2610.0f / 16384.0f;
++    const float m2 = 2523.0f / 4096.0f * 128.0f;
++    const float c1 = 3424.0f / 4096.0f;
++    const float c2 = 2413.0f / 4096.0f * 32.0f;
++    const float c3 = 2392.0f / 4096.0f * 32.0f;
++    const float y = SDL_powf(SDL_clamp(nits / 10000.0f, 0.0f, 1.0f), m1);
++    return SDL_powf((c1 + c2 * y) / (1.0f + c3 * y), m2);
++}
++
++static void GPU_EncodePQ(SDL_FColor *color)
++{
++    const float r = 0.6274040f * color->r + 0.3292820f * color->g + 0.0433136f * color->b;
++    const float g = 0.0690970f * color->r + 0.9195400f * color->g + 0.0113612f * color->b;
++    const float b = 0.0163916f * color->r + 0.0880132f * color->g + 0.8955950f * color->b;
++    color->r = GPU_PQ(SDL_max(r, 0.0f) * 80.0f);
++    color->g = GPU_PQ(SDL_max(g, 0.0f) * 80.0f);
++    color->b = GPU_PQ(SDL_max(b, 0.0f) * 80.0f);
++}
++
 +/* Nightjar patch (window target): acquires the frame's swapchain image, outside any pass. The frame
-+ * draws into it when it matches the back buffer's size and format; otherwise (a resize, or no image)
-+ * it draws into the back buffer and the present blits as before. */
++ * draws into it when it matches the back buffer's size and format (RGB10A2, the PQ pass's target, for
++ * a video-only frame); otherwise (a resize, or no image) it draws into the back buffer and the present
++ * blits as before. */
 +static SDL_GPUTexture *GPU_AcquireFrameTarget(GPU_RenderData *data)
 +{
 +    /* Latency: V-Sync's (FIFO's) wait moves from the present to this acquire, so no flush of the
 +     * window's target may come before a frame's late CPU work (its newest picture or input). */
++    const SDL_GPUTextureFormat format = data->frame.video_only ? SDL_GPU_TEXTUREFORMAT_R10G10B10A2_UNORM : data->backbuffer.format;
 +    data->frame.tried = true;
 +    if (!SDL_WaitAndAcquireGPUSwapchainTexture(data->state.command_buffer, data->window, &data->frame.texture, &data->frame.width, &data->frame.height)) {
 +        SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Failed to acquire swapchain texture: %s", SDL_GetError());
 +        data->frame.texture = NULL;
 +    }
++    data->frame.format = SDL_GetGPUSwapchainTextureFormat(data->device, data->window);
 +    data->frame.direct = data->frame.texture != NULL &&
 +                         data->frame.width == data->backbuffer.width && data->frame.height == data->backbuffer.height &&
-+                         SDL_GetGPUSwapchainTextureFormat(data->device, data->window) == data->backbuffer.format;
++                         data->frame.format == format;
 +    return data->frame.direct ? data->frame.texture : data->backbuffer.texture;
 +}
 +
@@ -79,7 +132,17 @@
      data->state.render_pass = SDL_BeginGPURenderPass(
          data->state.command_buffer, &data->state.color_attachment, 1, NULL);
  
-@@ -1177,6 +1236,7 @@
+@@ -1003,6 +1115,9 @@
+ 
+     if (data->state.render_target) {
+         pipe_params.attachment_format = ((GPU_TextureData *)data->state.render_target->internal)->format;
++    } else if (data->frame.direct) {
++        // Nightjar patch (window target): a video-only PQ frame's swapchain image is not RGBA16F.
++        pipe_params.attachment_format = data->frame.format;
+     } else {
+         pipe_params.attachment_format = data->backbuffer.format;
+     }
+@@ -1177,6 +1292,7 @@
  static bool GPU_RunCommandQueue(SDL_Renderer *renderer, SDL_RenderCommand *cmd, void *vertices, size_t vertsize)
  {
      GPU_RenderData *data = (GPU_RenderData *)renderer->internal;
@@ -87,7 +150,7 @@
  
      if (!UploadVertices(data, vertices, vertsize)) {
          return false;
-@@ -1187,11 +1247,26 @@
+@@ -1187,15 +1303,43 @@
      if (renderer->target) {
          GPU_TextureData *tdata = renderer->target->internal;
          data->state.color_attachment.texture = tdata->texture;
@@ -115,11 +178,45 @@
          return SDL_SetError("Render target texture is NULL");
      }
  
-@@ -1348,7 +1423,11 @@
++    // Nightjar patch (window target): a video-only frame's window target takes PQ (GPU_FrameEligible).
++    const bool video_only = !renderer->target && data->frame.video_only;
++    Sint64 dropped = 0;
++
+     while (cmd) {
++        if (video_only &&
++            (cmd->command == SDL_RENDERCMD_DRAW_POINTS || cmd->command == SDL_RENDERCMD_DRAW_LINES || cmd->command == SDL_RENDERCMD_GEOMETRY) &&
++            !cmd->data.draw.gpu_render_state) {
++            // Nightjar patch (window target): SDL's own shaders write linear light, not PQ.
++            dropped++;
++            cmd = cmd->next;
++            continue;
++        }
++
+         switch (cmd->command) {
+         case SDL_RENDERCMD_SETDRAWCOLOR:
+         {
+@@ -1233,6 +1377,9 @@
+             color.r *= cmd->data.color.color_scale;
+             color.g *= cmd->data.color.color_scale;
+             color.b *= cmd->data.color.color_scale;
++            if (video_only) {
++                GPU_EncodePQ(&color); // Nightjar patch (window target)
++            }
+             data->state.color_attachment.clear_color = color;
+             data->state.color_attachment.load_op = SDL_GPU_LOADOP_CLEAR;
+             break;
+@@ -1348,7 +1495,18 @@
          cmd = cmd->next;
      }
  
 -    if (data->state.color_attachment.load_op == SDL_GPU_LOADOP_CLEAR) {
++    if (dropped) {
++        // Nightjar patch (window target).
++        data->video_only_dropped_draws += dropped;
++        SDL_SetNumberProperty(SDL_GetRendererProperties(renderer), "SDL.renderer.gpu.video_only_dropped_draws", data->video_only_dropped_draws);
++        SDL_LogError(SDL_LOG_CATEGORY_RENDER, "%d draws of SDL's own in a video-only frame (SDL.renderer.gpu.video_only) were dropped", (int)dropped);
++    }
++
 +    if (data->state.color_attachment.load_op == SDL_GPU_LOADOP_CLEAR && !data->state.color_attachment.texture) {
 +        // Nightjar patch (window target): a clear without a draw waits for the frame's first draw.
 +        data->frame.clear = true;
@@ -128,7 +225,7 @@
          RestartRenderPass(data);
      }
  
-@@ -1366,6 +1445,13 @@
+@@ -1366,6 +1524,13 @@
      SDL_GPUTexture *gpu_tex;
      SDL_PixelFormat pixfmt;
  
@@ -142,13 +239,13 @@
      if (data->state.render_target) {
          SDL_Texture *texture = data->state.render_target;
          GPU_TextureData *texdata = texture->internal;
-@@ -1541,13 +1627,40 @@
+@@ -1541,13 +1706,41 @@
      if (renderer->window) {
          SDL_GPUTexture *swapchain;
          Uint32 swapchain_texture_width, swapchain_texture_height;
 -        bool result = SDL_WaitAndAcquireGPUSwapchainTexture(data->state.command_buffer, renderer->window, &swapchain, &swapchain_texture_width, &swapchain_texture_height);
 +        bool result = true;
-+        bool direct;
++        bool direct, video_only;
 +
 +        /* Nightjar patch (window target): a frame that only cleared the window's target takes its
 +         * image now for the clear; one that drew took it on its first draw. */
@@ -169,6 +266,7 @@
 +            result = SDL_WaitAndAcquireGPUSwapchainTexture(data->state.command_buffer, renderer->window, &swapchain, &swapchain_texture_width, &swapchain_texture_height);
 +        }
 +        direct = data->frame.direct;
++        video_only = data->frame.video_only;
 +        SDL_zero(data->frame);
  
          if (!result) {
@@ -185,7 +283,31 @@
              // Nightjar patch (PQ present): the back buffer through the PQ pass, scaled as the blit would.
              SDL_GPUColorTargetInfo target;
              SDL_GPUTextureSamplerBinding binding;
-@@ -1666,7 +1779,11 @@
+@@ -1559,8 +1752,21 @@
+             target.store_op = SDL_GPU_STOREOP_STORE;
+             binding.texture = data->backbuffer.texture;
+             binding.sampler = GetSampler(data, SDL_PIXELFORMAT_UNKNOWN, SDL_SCALEMODE_LINEAR, SDL_TEXTURE_ADDRESS_CLAMP, SDL_TEXTURE_ADDRESS_CLAMP);
+-            pass = SDL_BeginGPURenderPass(data->state.command_buffer, &target, 1, NULL);
+-            if (pass) {
++            if (video_only) {
++                /* Nightjar patch (window target): a video-only frame that could not take its image
++                 * (a resize, read_back) drew PQ into the back buffer, which is copied as it is. */
++                SDL_GPUBlitInfo blit_info;
++                SDL_zero(blit_info);
++                blit_info.source.texture = data->backbuffer.texture;
++                blit_info.source.w = data->backbuffer.width;
++                blit_info.source.h = data->backbuffer.height;
++                blit_info.destination.texture = swapchain;
++                blit_info.destination.w = swapchain_texture_width;
++                blit_info.destination.h = swapchain_texture_height;
++                blit_info.load_op = SDL_GPU_LOADOP_DONT_CARE;
++                blit_info.filter = SDL_GPU_FILTER_LINEAR;
++                SDL_BlitGPUTexture(data->state.command_buffer, &blit_info);
++            } else if ((pass = SDL_BeginGPURenderPass(data->state.command_buffer, &target, 1, NULL)) != NULL) {
+                 SDL_BindGPUGraphicsPipeline(pass, data->pq.pipeline);
+                 SDL_BindGPUFragmentSamplers(pass, 0, &binding, 1);
+                 SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+@@ -1666,7 +1872,11 @@
          return;
      }
  
@@ -198,7 +320,7 @@
          SDL_CancelGPUCommandBuffer(data->state.command_buffer);
          data->state.command_buffer = NULL;
      }
-@@ -1758,5 +1875,13 @@
+@@ -1758,6 +1968,14 @@
          }
      }
  
@@ -212,7 +334,8 @@
 +
      /* Nightjar patch (tearing present): the app asks for IMMEDIATE first with this renderer
       * property, and reads the present mode in use back from the other one. */
-@@ -1896,6 +2021,7 @@
+     SDL_PropertiesID props = SDL_GetRendererProperties(renderer);
+@@ -1896,6 +2114,7 @@
          if (!SDL_ClaimWindowForGPUDevice(data->device, window)) {
              return false;
          }

@@ -275,6 +275,7 @@
     <string name="title_yuv444">優先使用 YUV 4:4:4</string>
     <string name="summary_yuv444">在電腦和這部裝置都支援時，彩色文字會更清晰。HDR 優先。</string>
     <string name="yuv444_fallback">無法使用 YUV 4:4:4；改用 4:2:0。</string>
+    <string name="yuv444_fallback_hdr">無法使用 YUV 4:4:4；改用 4:2:0。HDR 優先。</string>
     <string name="title_virtual_display">主機虛擬顯示器</string>
     <string name="summary_virtual_display">要求電腦提供與串流相符的顯示器。關閉：由電腦本身的顯示設定決定。</string>
     <string name="title_vrr">自動調整更新率 (ARR / VRR)</string>

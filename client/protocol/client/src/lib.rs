@@ -6,6 +6,7 @@ pub mod color;
 pub mod control;
 pub mod crypto;
 pub mod fec;
+pub mod full_chroma;
 pub mod host_loss;
 pub mod http;
 pub mod input;

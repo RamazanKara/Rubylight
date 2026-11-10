@@ -2073,6 +2073,8 @@ fn menu_shell(ctx: &egui::Context, name: &str, anchor: Anchor, add: impl FnOnce(
         .fixed_pos(screen.min)
         .show(ctx, |ui| {
             if anchor == Anchor::Center {
+                // A sheet in the middle blurs the page as a dialog does.
+                glass::page_behind(ui.ctx(), ui.opacity());
                 ui.painter().rect_filled(screen, 0.0, Color32::from_black_alpha(150));
             }
             let catch = ui.allocate_rect(screen, Sense::click());

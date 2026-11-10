@@ -270,15 +270,19 @@ pub(crate) fn danger_button(ui: &mut Ui, text: &str) -> Response {
 pub(crate) const DIALOG_MARGIN: f32 = 28.0;
 
 /// What the page under a dialog is dimmed by.
-const DIALOG_SCRIM: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 150);
+pub(crate) const DIALOG_SCRIM: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 150);
 
 /// A dialog: centred on a dimmed page, on the panel's glass. Everything that interrupts the page
-/// comes through here, so they are one surface.
+/// comes through here, so they are one surface. On the live tier the page under the bar and the
+/// dim is blurred too (`glass::page_behind`); elsewhere, and over a stream, the dim is all there is.
 pub(crate) fn modal(ctx: &egui::Context, name: &str, add: impl FnOnce(&mut Ui)) {
     egui::Modal::new(egui::Id::unique(name))
         .frame(egui::Frame::new().inner_margin(egui::Margin::same(DIALOG_MARGIN as i8)))
         .backdrop_color(DIALOG_SCRIM)
-        .show(ctx, |ui| glass_behind(ui, glass::Material::Panel, design_tokens::RADIUS_PANEL, DIALOG_MARGIN, add));
+        .show(ctx, |ui| {
+            glass::page_behind(ui.ctx(), ui.opacity());
+            glass_behind(ui, glass::Material::Panel, design_tokens::RADIUS_PANEL, DIALOG_MARGIN, add)
+        });
 }
 
 /// Draws `add` with a glass `material` under it, sized to what it drew, `margin` around that.

@@ -35,11 +35,14 @@ enum Pattern {
 enum Arm {
     /// `net::receive` and the receiver's lock per datagram (the receive thread before batches).
     PerDatagram,
-    /// [`BatchReceiver`] and the lock per batch.
+    /// [`BatchReceiver`] without batches (the kernel refused `recvmmsg`, or Windows refused
+    /// coalescing; Windows before coalescing) and the lock per batch.
+    Unbatched,
+    /// [`BatchReceiver`] and the lock per batch: `recvmmsg`, or coalesced reads on Windows.
     Batched,
 }
 
-const ARMS: &[Arm] = &[Arm::PerDatagram, Arm::Batched];
+const ARMS: &[Arm] = &[Arm::PerDatagram, Arm::Unbatched, Arm::Batched];
 
 #[derive(Default)]
 struct Outcome {
@@ -152,6 +155,7 @@ fn arm_socket(arm: Arm) -> (UdpSocket, usize, Box<dyn Take>) {
     .unwrap();
     let take: Box<dyn Take> = match arm {
         Arm::PerDatagram => Box::new(PerDatagram(vec![0; 65536])),
+        Arm::Unbatched => Box::new(BatchReceiver::unbatched(&socket, DATAGRAM)),
         Arm::Batched => Box::new(BatchReceiver::new(&socket, DATAGRAM)),
     };
     (socket, buffer.unwrap().granted, take)
@@ -271,6 +275,14 @@ fn receive_bench() {
         std::env::consts::OS,
         ARM.as_secs()
     );
+    {
+        let (socket, _, _) = arm_socket(Arm::Unbatched);
+        let mut batch = BatchReceiver::new(&socket, DATAGRAM);
+        match batch.take_fallback() {
+            Some(e) => println!("Batched takes one datagram per call here: {e}"),
+            None => println!("Batched takes batches: {}", batch.batched()),
+        }
+    }
     // Windows measures its counter's rate first, not while a sender runs.
     cpu::thread_time();
     for pattern in patterns {

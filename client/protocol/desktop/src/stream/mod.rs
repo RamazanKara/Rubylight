@@ -52,6 +52,9 @@ pub mod drm_vrr;
 // The timing CSV names its flags everywhere; the feedback itself is Wayland's.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub mod wl_presentation;
+// Direct scanout on Wayland; its decisions and log text are tested everywhere.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub mod wl_scanout;
 pub(crate) mod pyrowave;
 pub mod pyrowave_gpu;
 pub mod pyrowave_mode;
@@ -666,6 +669,18 @@ fn hdr_output_change(was: bool, now: bool) -> Option<bool> {
 fn window_target_line(direct: i64, presents: u64) -> String {
     let direct = u64::try_from(direct).unwrap_or(0).min(presents);
     format!("window target: {direct} of {presents} presents drawn straight into the swapchain, {} through the back buffer", presents - direct)
+}
+
+/// [`window_target_line`] for the stream's last renderer, `renderer` (SDL's name). Only the GPU
+/// renderer counts its frames; any other one (OpenGL, Linux's default) has no such path, and its
+/// "0 of N" would read as a copy that never happened.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn window_target_report(renderer: &str, direct: i64, presents: u64) -> String {
+    if renderer == "gpu" {
+        window_target_line(direct, presents)
+    } else {
+        format!("window target: not counted on the {renderer} renderer, which draws through its own back buffer ({presents} presents)")
+    }
 }
 
 /// The stream's presents and how many of them the GPU renderer drew straight into the swapchain,
@@ -2006,11 +2021,11 @@ impl Streaming {
         #[cfg(target_os = "linux")]
         {
             self.glass.poll(session::now_us());
-            if let Some(line) = self.glass.line() { eprintln!("nightjar: {line}"); }
+            for line in self.glass.lines() { eprintln!("nightjar: {line}"); }
             // SAFETY: a live window; its renderer, if any, too.
             let renderer = unsafe { SDL_GetRenderer(window) };
             if self.window_target.presents > 0 && !renderer.is_null() {
-                eprintln!("nightjar: {}", window_target_line(self.window_target.direct(), self.window_target.presents));
+                eprintln!("nightjar: {}", window_target_report(&crate::sdl::renderer_name(renderer), self.window_target.direct(), self.window_target.presents));
             }
             // The window outlives the stream: the next one (or the launcher) must not inherit this
             // stream's mastering metadata.
@@ -2120,6 +2135,14 @@ mod tests {
         assert_eq!(window_target_line(0, 5), "window target: 0 of 5 presents drawn straight into the swapchain, 5 through the back buffer", "PQ output");
         assert_eq!(window_target_line(-3, 5), "window target: 0 of 5 presents drawn straight into the swapchain, 5 through the back buffer", "another renderer");
         assert_eq!(window_target_line(9, 5), "window target: 5 of 5 presents drawn straight into the swapchain, 0 through the back buffer", "launcher frames between the counts");
+    }
+
+    #[test]
+    fn the_window_target_line_counts_only_on_the_gpu_renderer() {
+        assert_eq!(window_target_report("gpu", 98, 100), window_target_line(98, 100));
+        assert_eq!(window_target_report("gpu", 0, 5), window_target_line(0, 5), "PQ output on the GPU renderer is a real back-buffer pass");
+        assert_eq!(window_target_report("opengl", 0, 5), "window target: not counted on the opengl renderer, which draws through its own back buffer (5 presents)",
+            "OpenGL has no swapchain image to draw into: no 0 of 5");
     }
 
     #[test]
@@ -2669,7 +2692,22 @@ mod tests {
         | SCM_H264_HIGH8_444 | SCM_HEVC_REXT8_444 | SCM_AV1_HIGH8_444;
 
     fn decodes_all() -> (u32, String) {
-        (color::YUV444_FORMATS | color::SDR10_FORMATS, String::new())
+        (color::YUV444_FORMATS | color::SDR10_FORMATS | color::YUV444_10_FORMATS, String::new())
+    }
+
+    /// A PC that encodes HEVC RExt 4:4:4 10-bit (NVENC) streams both settings at once to a device
+    /// that decodes and draws it, and says both; without it 4:4:4 wins as before.
+    #[test]
+    fn both_settings_stream_10_bit_4_4_4_where_the_pc_and_the_device_have_it() {
+        let both = Settings { codec: CodecPreference::Hevc, prefer_yuv444: true, sdr_10bit: true, ..Default::default() };
+        let scm = COLOR_SCM | SCM_HEVC_REXT10_444;
+        let offer = offered_formats(&both, scm, &decodes_all());
+        assert_eq!(offer.formats, VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_REXT10_444);
+        assert!(launches_ten_bit_sdr(&both, &offer), "an SDR launch of a 10-bit format says hdrMode=0");
+        assert_eq!(color_notice(&offer, VIDEO_FORMAT_H265_REXT10_444).as_deref(), Some("Streaming in YUV 4:4:4.\nStreaming 10-bit color (SDR)."));
+        let without = (color::YUV444_FORMATS | color::SDR10_FORMATS, String::new());
+        let offer = offered_formats(&both, scm, &without);
+        assert_eq!(offer.formats, VIDEO_FORMAT_H264 | VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_REXT8_444);
     }
 
     #[test]
@@ -2866,7 +2904,10 @@ mod tests {
         assert_eq!(with(CodecPreference::Hevc, false, false), 0);
         assert_eq!(with(CodecPreference::Hevc, false, true), VIDEO_FORMAT_H265_MAIN10);
         assert_eq!(with(CodecPreference::Hevc, true, false), VIDEO_FORMAT_H264_HIGH8_444 | VIDEO_FORMAT_H265_REXT8_444);
-        assert_eq!(with(CodecPreference::Av1, true, true), color::YUV444_FORMATS | color::SDR10_FORMATS);
+        assert_eq!(with(CodecPreference::Av1, true, true), color::YUV444_FORMATS | color::SDR10_FORMATS | color::YUV444_10_FORMATS);
+        assert_eq!(with(CodecPreference::Hevc, true, true) & color::YUV444_10_FORMATS, VIDEO_FORMAT_H265_REXT10_444, "both on ask for 10-bit 4:4:4");
+        assert_eq!(with(CodecPreference::Hevc, true, false) & color::YUV444_10_FORMATS, 0);
+        assert_eq!(with(CodecPreference::Hevc, false, true) & color::YUV444_10_FORMATS, 0);
         assert_eq!(with(CodecPreference::H264, true, true), VIDEO_FORMAT_H264_HIGH8_444);
         assert_eq!(color_probe_formats(&Settings { hdr: true, sdr_10bit: true, ..Default::default() }), 0, "HDR takes the stream");
         // Whatever the settings, the offer adds no 4:4:4 or 10-bit format the probe skipped.

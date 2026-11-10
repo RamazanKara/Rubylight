@@ -17,6 +17,8 @@ cbuffer Picture : register(b0) {
     // both 0 for none) and its colour scale. The other draws leave these out.
     float4 destination; float4 picture;
     float outputScale; float tonemap1; float tonemap2; float unused;
+    // Flag 8192 (with 4096): the gamma 2.2 range, minNits to the peak (invRange = 1 / (peak - minNits)).
+    float minNits; float invRange; float2 unusedEncoding;
 #endif
 };
 float4 vertex(uint id : SV_VertexID) : SV_Position {
@@ -142,10 +144,45 @@ static const float3x3 bt2020to709 = { 1.660496, -0.587656, -0.072840, -0.124547,
 float3 srgbFromLinear(float3 v) {
     return lerp(pow(abs(v), 1.0 / 2.4) * 1.055 - 0.055, v * 12.92, float3(v <= 0.0031308));
 }
+// The PQ present pass's encode (pq_present.hlsl, its matrix and curve exactly): scRGB (BT.709,
+// 1.0 = 80 nits) to BT.2020 PQ (SMPTE ST 2084).
+float3 pqFromScrgb(float3 linear709) {
+    const float3x3 to2020 = float3x3(
+        0.6274040, 0.3292820, 0.0433136,
+        0.0690970, 0.9195400, 0.0113612,
+        0.0163916, 0.0880132, 0.8955950);
+    float3 nits = max(mul(to2020, linear709), 0.0) * 80.0;
+    const float m1 = 2610.0 / 16384.0;
+    const float m2 = 2523.0 / 4096.0 * 128.0;
+    const float c1 = 3424.0 / 4096.0;
+    const float c2 = 2413.0 / 4096.0 * 32.0;
+    const float c3 = 2392.0 / 4096.0 * 32.0;
+    float3 y = pow(saturate(nits / 10000.0), m1);
+    return pow((c1 + c2 * y) / (1.0 + c3 * y), m2);
+}
+// A 4x4 ordered dither in (0, 1), the same as scanout_present.hlsl's.
+static const float bayer[16] = { 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5 };
+float orderedDither(float2 position) {
+    uint2 p = uint2(position) & 3;
+    return (bayer[p.y * 4 + p.x] + 0.5) / 16.0;
+}
+// Flag 8192: the scanout present pass's gamma 2.2 encode (scanout_present.hlsl, exactly): scRGB
+// to BT.2020 nits, then gamma 2.2 over minNits..peak with half a 10-bit step of ordered dither.
+float3 gamma22FromScrgb(float3 linear709, float2 position) {
+    const float3x3 to2020 = float3x3(
+        0.6274040, 0.3292820, 0.0433136,
+        0.0690970, 0.9195400, 0.0113612,
+        0.0163916, 0.0880132, 0.8955950);
+    float3 nits = max(mul(to2020, linear709), 0.0) * 80.0;
+    float3 encoded = pow(saturate((nits - minNits) * invRange), 1.0 / 2.2);
+    return saturate(encoded + (orderedDither(position) - 0.5) / 1023.0);
+}
 // Flag 512: the planes scaled straight into the target rectangle (bilinear, as SDL scales the
 // picture texture), then SDL's tone map (TONEMAP_CHROME of its texture_advanced shader), colour
 // scale and, with flag 1024 (an sRGB target, not scRGB), its sRGB encoding and clamp, so the
-// result is what drawing the converted texture with SDL gives, in one pass.
+// result is what drawing the converted texture with SDL gives, in one pass. With flag 4096 instead
+// of 1024 (an HDR10 swapchain image taken in a video-only frame, window-target.patch), the scRGB
+// result is PQ-encoded as the PQ present pass would encode the back buffer.
 float4 planesDirect(float2 position) {
     float2 visible = picture.xy;
     float2 at = clamp((position - destination.xy) * visible / destination.zw, 0.5, visible - 0.5);
@@ -172,6 +209,8 @@ float4 planesDirect(float2 position) {
         rgb = mul(bt2020to709, v);
     }
     rgb *= outputScale;
+    if ((flags & 8192) != 0) return float4(gamma22FromScrgb(rgb, position), 1);
+    if ((flags & 4096) != 0) return float4(pqFromScrgb(rgb), 1);
     if ((flags & 1024) != 0) rgb = saturate(srgbFromLinear(rgb));
     return float4(rgb, 1);
 }

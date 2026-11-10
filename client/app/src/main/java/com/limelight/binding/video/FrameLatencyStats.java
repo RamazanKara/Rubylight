@@ -457,7 +457,8 @@ class FrameLatencyStats {
         // The unsigned wire value is in 100 us units; zero means unavailable.
         frame.hostProcessingNs = hostProcessingLatency * 100000L;
         pending.put(frame);
-        frame.hostTiming = earlyReports.remove(frameNumber);
+        // Most frames have no early report: skip the Integer the lookup would box for each.
+        frame.hostTiming = earlyReports.isEmpty() ? null : earlyReports.remove(frameNumber);
         // Stage 4 is only ever the header's value. Never feed a host timing report into it:
         // present to last packet sent includes the network send and reads several times higher.
         if (frame.hostProcessingNs != 0) {
@@ -731,6 +732,13 @@ class FrameLatencyStats {
         rendered(ptsUs, queuedNs > 0 ? queuedNs : scanoutNs, callbackReceivedNs, Math.max(0, scanoutNs));
     }
 
+    // Lowest latency and Balanced: watches the display's queue through the waits of handed-off frames.
+    private DisplayQueueWatch displayQueueWatch;
+
+    synchronized void setDisplayQueueWatch(DisplayQueueWatch watch) {
+        displayQueueWatch = watch;
+    }
+
     // screenNs: when the frame reached the screen, 0 when unknown.
     private void rendered(long ptsUs, long renderNs, long callbackReceivedNs, long screenNs) {
         Frame frame = pending.get(ptsUs);
@@ -749,6 +757,12 @@ class FrameLatencyStats {
             }
             latencyProbe.onFrameRendered(frame.receiveNs, renderNs);
             presentJitter.record(renderNs);
+            DisplayQueueWatch watch = displayQueueWatch;
+            if (watch != null && frame.handoffNs != 0 && renderNs >= frame.handoffNs) {
+                watch.onRendered(renderNs - frame.handoffNs, renderNs);
+                String event = watch.takeEvent();
+                if (event != null) com.limelight.LimeLog.info(event);
+            }
         }
         if (screenNs > 0 && frame.outputNs > 0 && screenNs >= frame.outputNs) {
             long ns = screenNs - frame.outputNs;

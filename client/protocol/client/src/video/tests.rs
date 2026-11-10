@@ -543,6 +543,88 @@ fn a_frame_lost_after_a_decode_queue_overflow_is_network_loss() {
     assert!(stats.frame_drops > P_FRAMES, "the lost frame and the wait after it are loss");
 }
 
+/// Takes the one frame `packets` complete.
+fn one_frame(rx: &mut VideoReceiver, packets: Vec<Vec<u8>>) -> Frame {
+    let mut events = Vec::new();
+    for packet in packets {
+        rx.receive(&packet, 1, &mut events);
+    }
+    let mut frames = events.into_iter().filter_map(|e| match e {
+        VideoEvent::Frame(f) => Some(f),
+        _ => None,
+    });
+    let frame = frames.next().expect("a frame");
+    assert!(frames.next().is_none());
+    frame
+}
+
+/// Every completed frame carries FFmpeg's padding of zero bytes after its data, inside the same
+/// allocation, so a decoder can take the bytes by reference without copying them out.
+#[test]
+fn completed_frames_carry_zeroed_padding_after_their_data() {
+    let mut host = Host::new();
+    let mut rx = VideoReceiver::new(config(0x1));
+    let idr = h264_idr();
+    let frame = one_frame(&mut rx, host.frame(&idr, 2));
+    let shared = frame.shared_data();
+    assert_eq!(shared.as_slice(), frame.data());
+    let padded = shared.padded();
+    assert_eq!(padded.len(), frame.data().len() + FRAME_PADDING);
+    assert_eq!(&padded[..frame.data().len()], frame.data());
+    assert!(padded[frame.data().len()..].iter().all(|&b| b == 0));
+    assert_eq!(padded.as_ptr(), frame.data().as_ptr(), "the same bytes, not a copy");
+    // A recycled storage written with a longer frame and then a shorter one is padded again:
+    // the shorter frame's padding overwrites the longer frame's bytes.
+    drop(shared);
+    rx.recycle(frame);
+    let long = one_frame(&mut rx, host.frame(&h264_p(5000), 1));
+    rx.recycle(long);
+    let short = one_frame(&mut rx, host.frame(&h264_p(10), 1));
+    let shared = short.shared_data();
+    assert!(shared.padded()[short.data().len()..].iter().all(|&b| b == 0));
+    assert!(Frame::default().shared_data().padded().iter().all(|&b| b == 0), "an empty frame too");
+}
+
+/// A frame's bytes a decoder still holds when the frame is recycled stay intact for it, and are
+/// not handed to the next frame; storage nobody holds is reused.
+#[test]
+fn bytes_held_past_recycling_are_never_reused() {
+    let mut host = Host::new();
+    let mut rx = VideoReceiver::new(config(0x1));
+    let idr = h264_idr();
+    let frame = one_frame(&mut rx, host.frame(&idr, 2));
+    let held = frame.shared_data();
+    assert!(!held.unshared());
+    let address = held.as_slice().as_ptr();
+    rx.recycle(frame);
+    assert!(held.unshared(), "the receiver let go of its reference");
+    for _ in 0..3 {
+        let next = one_frame(&mut rx, host.frame(&h264_p(3000), 1));
+        assert_ne!(next.data().as_ptr(), address, "held bytes are not reused");
+        rx.recycle(next);
+    }
+    assert_eq!(&held.as_slice()[..idr.len()], &idr[..], "and stay as they were");
+
+    // Through a raw reference, as an FFmpeg free callback holds it.
+    let frame = one_frame(&mut rx, host.frame(&h264_p(2000), 1));
+    let raw = frame.shared_data().into_raw();
+    rx.recycle(frame);
+    // SAFETY: from into_raw above, given back once.
+    let back = unsafe { FrameBytes::from_raw(raw) };
+    assert!(back.unshared());
+    drop(back);
+
+    // Storage nobody holds goes back to the pool and is reused.
+    let frame = one_frame(&mut rx, host.frame(&h264_p(2000), 1));
+    let address = frame.data().as_ptr();
+    rx.recycle(frame);
+    let next = one_frame(&mut rx, host.frame(&h264_p(2000), 1));
+    let reused = next.data().as_ptr() == address;
+    rx.recycle(next);
+    let after = one_frame(&mut rx, host.frame(&h264_p(2000), 1));
+    assert!(reused || after.data().as_ptr() == address, "unheld storage comes back");
+}
+
 mod dolby_vision;
 pub(crate) mod early_chunks;
 mod multi_block;

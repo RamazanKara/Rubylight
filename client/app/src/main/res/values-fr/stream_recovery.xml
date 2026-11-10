@@ -8,4 +8,5 @@
     <string name="stream_recovery_exhausted">La récupération automatique n’a pas pu se reconnecter en une minute. Votre jeu n’a pas été quitté. Vérifiez la connexion, puis choisissez Reconnecter pour réessayer.</string>
     <string name="stream_recovery_paused">La récupération automatique s’est arrêtée quand vous avez quitté le stream. Choisissez Reconnecter pour continuer.</string>
     <string name="stream_stop_timeout">La connexion précédente n’est pas encore fermée. Réessayez dans un instant.</string>
+    <string name="startup_launch_timeout">Le PC n’a pas répondu au démarrage en %1$d secondes. Réessayez ou vérifiez ce que fait le PC.</string>
 </resources>

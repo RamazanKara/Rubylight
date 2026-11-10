@@ -275,6 +275,7 @@
     <string name="title_yuv444">Віддавати перевагу YUV 4:4:4</string>
     <string name="summary_yuv444">Чіткіший кольоровий текст, якщо ПК і цей пристрій це підтримують. HDR має пріоритет.</string>
     <string name="yuv444_fallback">YUV 4:4:4 недоступний; використовується 4:2:0.</string>
+    <string name="yuv444_fallback_hdr">YUV 4:4:4 недоступний; використовується 4:2:0. HDR має пріоритет.</string>
     <string name="title_virtual_display">Віртуальний дисплей хоста</string>
     <string name="summary_virtual_display">Запитувати в ПК дисплей, що відповідає трансляції. Вимкнено: вирішують власні налаштування дисплея ПК.</string>
     <string name="title_vrr">Адаптивна частота (ARR / VRR)</string>

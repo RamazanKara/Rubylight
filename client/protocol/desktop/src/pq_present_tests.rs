@@ -80,6 +80,42 @@ fn the_spirv_is_the_hlsl_compiled() {
     let _ = std::fs::remove_dir_all(&out);
 }
 
+/// The scanout present pass's module (`scanout_present.hlsl`, glslang 16.3.0) is the shader as it
+/// is: a shader change without the module regenerated fails here, as does a module replaced
+/// without its stamp.
+#[test]
+fn the_scanout_module_was_built_from_the_shader_as_it_is() {
+    use sha2::Digest;
+    let sha256 = |bytes: &[u8]| -> String { sha2::Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect() };
+    let stamp = include_str!("scanout_present_fragment.spv.sha256");
+    let recorded = |name: &str| {
+        stamp.lines().filter(|line| !line.starts_with('#')).find_map(|line| line.strip_prefix(name)?.strip_prefix(' ')).map(str::trim).unwrap_or_else(|| panic!("the stamp names no {name}"))
+    };
+    let shader = include_str!("scanout_present.hlsl").replace("\r\n", "\n");
+    assert_eq!(sha256(shader.as_bytes()), recorded("scanout_present.hlsl"),
+        "scanout_present.hlsl changed: regenerate scanout_present_fragment.spv with the command in its header and update scanout_present_fragment.spv.sha256");
+    assert_eq!(sha256(SCANOUT_FRAGMENT_SPIRV), recorded("scanout_present_fragment.spv"),
+        "scanout_present_fragment.spv changed without its stamp: put its SHA-256 in scanout_present_fragment.spv.sha256");
+}
+
+/// The scanout pass's gamma 2.2 encode and pyrowave.hlsl's flag 8192 are the same code, so a
+/// video-only frame and a frame through the back buffer look the same.
+#[test]
+fn the_two_gamma22_encodes_are_one() {
+    let body = |hlsl: &str, from: &str| -> String {
+        let start = hlsl.find(from).unwrap_or_else(|| panic!("no {from}"));
+        let end = start + hlsl[start..].find("\n}\n").expect("the function ends");
+        hlsl[start..end].lines().filter(|line| line.contains("pow(") || line.contains("saturate(encoded") || line.contains("bayer")).map(str::trim).collect::<Vec<_>>().join("\n")
+    };
+    let pass = &include_str!("scanout_present.hlsl").replace("\r\n", "\n");
+    let planes = &include_str!("pyrowave.hlsl").replace("\r\n", "\n");
+    assert_eq!(body(pass, "float3 gamma22("), body(planes, "float3 gamma22FromScrgb("));
+    assert_eq!(body(pass, "float orderedDither("), body(planes, "float orderedDither("));
+    let table = |hlsl: &str| hlsl.lines().find(|line| line.starts_with("static const float bayer[16]")).map(str::to_owned);
+    assert_eq!(table(pass), table(planes));
+    assert!(table(pass).is_some());
+}
+
 /// ST 2084's encode of `nits`, written apart from the shader's.
 #[cfg(unix)]
 fn pq(nits: f64) -> f64 {
@@ -89,28 +125,80 @@ fn pq(nits: f64) -> f64 {
     ((c1 + c2 * y) / (1.0 + c3 * y)).powf(m2)
 }
 
+/// Four scRGB pixels: 2.5 (200 nits) white, BT.709 red at 80 nits, black, and 125 (10000 nits).
+/// RGBA16F: 2.5 = 0x4100, 1.0 = 0x3C00, 125.0 = 0x57D0.
+#[cfg(unix)]
+const SOURCE: [[u16; 4]; 4] = [[0x4100, 0x4100, 0x4100, 0x3C00], [0x3C00, 0, 0, 0x3C00], [0, 0, 0, 0x3C00], [0x57D0, 0x57D0, 0x57D0, 0x3C00]];
+#[cfg(unix)]
+const SCRGB: [[f64; 3]; 4] = [[2.5, 2.5, 2.5], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [125.0, 125.0, 125.0]];
+#[cfg(unix)]
+const TO_2020: [[f64; 3]; 3] = [[0.6274040, 0.3292820, 0.0433136], [0.0690970, 0.9195400, 0.0113612], [0.0163916, 0.0880132, 0.8955950]];
+
 /// The pass on a Vulkan device (so ignored: `cargo test -p nightjar-desktop -- --ignored
-/// pq_present`): four scRGB pixels in RGBA16F, drawn into an RGB10A2 target as the patched SDL
-/// does onto an HDR10 swapchain, read back. 2.5 (200 nits) white, BT.709 red at 80 nits, black,
-/// and 125 (10000 nits) come out as BT.2020 PQ to the 10-bit code.
+/// pq_present`): [`SOURCE`] in RGBA16F, drawn into an RGB10A2 target as the patched SDL does
+/// onto an HDR10 swapchain, read back. The PQ pass's shaders come out as BT.2020 PQ to the
+/// 10-bit code.
 #[cfg(unix)]
 #[test]
 #[ignore = "needs a Vulkan device"]
 fn the_pq_pass_writes_scrgb_as_bt2020_pq() {
-    // RGBA16F: 2.5 = 0x4100, 1.0 = 0x3C00, 125.0 = 0x57D0.
-    let source: [[u16; 4]; 4] = [[0x4100, 0x4100, 0x4100, 0x3C00], [0x3C00, 0, 0, 0x3C00], [0, 0, 0, 0x3C00], [0x57D0, 0x57D0, 0x57D0, 0x3C00]];
-    let scrgb = [[2.5, 2.5, 2.5], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [125.0, 125.0, 125.0]];
-    let to2020 = [[0.6274040, 0.3292820, 0.0433136], [0.0690970, 0.9195400, 0.0113612], [0.0163916, 0.0880132, 0.8955950]];
+    expect_pq(&draw_pass(PQ_FRAGMENT_SPIRV, None));
+}
+
+/// The scanout pass (`scanout_present.hlsl`) with the PQ encoding pushed writes what the PQ pass
+/// writes; with the gamma 2.2 one, KWin's blending space on a 700-nit output (0.005 nits to 700),
+/// each channel within its half code of dither and a code.
+#[cfg(unix)]
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn the_scanout_pass_writes_pq_or_the_blending_space() {
+    expect_pq(&draw_pass(SCANOUT_FRAGMENT_SPIRV, Some(crate::stream::wl_scanout::Encoding::constants(0, 0.0, 0.0))));
+    let (min_nits, max_nits) = (0.005f32, 700.0f32);
+    let packed = draw_pass(SCANOUT_FRAGMENT_SPIRV, Some(crate::stream::wl_scanout::Encoding::constants(1, min_nits, max_nits)));
+    for (pixel, (packed, linear)) in packed.iter().zip(SCRGB).enumerate() {
+        let got = [packed & 0x3ff, packed >> 10 & 0x3ff, packed >> 20 & 0x3ff];
+        let want = TO_2020.map(|row| {
+            let nits = 80.0 * row.iter().zip(linear).map(|(m, c)| m * c).sum::<f64>();
+            f64::from(crate::stream::wl_scanout::Encoding::gamma22_code(nits as f32, min_nits, max_nits)) * 1023.0
+        });
+        eprintln!("pixel {pixel}: {linear:?} scRGB -> {got:?}, gamma 2.2 BT.2020 {want:?}");
+        for (g, w) in got.iter().zip(want) {
+            assert!((f64::from(*g) - w).abs() <= 1.5, "pixel {pixel}: {got:?}, not gamma 2.2 BT.2020 {want:?}");
+        }
+        assert_eq!(packed >> 30, 3, "opaque");
+    }
+}
+
+/// The PQ codes of [`SCRGB`], to the 10-bit code.
+#[cfg(unix)]
+fn expect_pq(packed: &[u32]) {
+    for (pixel, (packed, linear)) in packed.iter().zip(SCRGB).enumerate() {
+        // A2B10G10R10: red in the low bits.
+        let got = [packed & 0x3ff, packed >> 10 & 0x3ff, packed >> 20 & 0x3ff];
+        let want = TO_2020.map(|row: [f64; 3]| (pq(80.0 * row.iter().zip(linear).map(|(m, c)| m * c).sum::<f64>()) * 1023.0).round() as u32);
+        eprintln!("pixel {pixel}: {linear:?} scRGB -> {got:?}, BT.2020 PQ {want:?}");
+        for (g, w) in got.iter().zip(want) {
+            assert!(g.abs_diff(w) <= 1, "pixel {pixel}: {got:?}, not BT.2020 PQ {want:?}");
+        }
+        assert_eq!(packed >> 30, 3, "opaque");
+    }
+}
+
+/// [`SOURCE`] through the present vertex shader and `fragment` (with `constants` pushed as its
+/// one constant buffer, as the patched SDL pushes them) into RGB10A2, read back.
+#[cfg(unix)]
+fn draw_pass(fragment_spirv: &[u8], constants: Option<[f32; 4]>) -> Vec<u32> {
+    let source = SOURCE;
     let width = source.len() as u32;
     // SAFETY: plain SDL GPU calls on objects made here, on one thread; the mapped buffers are
     // as large as written and read.
-    let packed: Vec<u32> = unsafe {
+    unsafe {
         let _sdl = TEST_LOCK.lock().unwrap();
         SDL_SetHint(SDL_HINT_VIDEO_DRIVER, c"offscreen".as_ptr());
         assert!(SDL_Init(SDL_INIT_VIDEO), "{}", error());
         let device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV, false, c"vulkan".as_ptr());
         assert!(!device.is_null(), "{}", error());
-        let shader = |code: &[u8], entry: &CStr, stage, samplers| {
+        let shader = |code: &[u8], entry: &CStr, stage, samplers, uniforms| {
             let mut info: SDL_GPUShaderCreateInfo = std::mem::zeroed();
             info.code_size = code.len();
             info.code = code.as_ptr();
@@ -118,12 +206,13 @@ fn the_pq_pass_writes_scrgb_as_bt2020_pq() {
             info.format = SDL_GPU_SHADERFORMAT_SPIRV;
             info.stage = stage;
             info.num_samplers = samplers;
+            info.num_uniform_buffers = uniforms;
             let shader = SDL_CreateGPUShader(device, &info);
             assert!(!shader.is_null(), "{}", error());
             shader
         };
-        let vertex = shader(PQ_VERTEX_SPIRV, c"vertex", SDL_GPU_SHADERSTAGE_VERTEX, 0);
-        let fragment = shader(PQ_FRAGMENT_SPIRV, c"fragment", SDL_GPU_SHADERSTAGE_FRAGMENT, 1);
+        let vertex = shader(PQ_VERTEX_SPIRV, c"vertex", SDL_GPU_SHADERSTAGE_VERTEX, 0, 0);
+        let fragment = shader(fragment_spirv, c"fragment", SDL_GPU_SHADERSTAGE_FRAGMENT, 1, u32::from(constants.is_some()));
         let mut target_description: SDL_GPUColorTargetDescription = std::mem::zeroed();
         target_description.format = SDL_GPU_TEXTUREFORMAT_R10G10B10A2_UNORM;
         let mut pipeline_info: SDL_GPUGraphicsPipelineCreateInfo = std::mem::zeroed();
@@ -193,6 +282,9 @@ fn the_pq_pass_writes_scrgb_as_bt2020_pq() {
         color.texture = target;
         color.load_op = SDL_GPU_LOADOP_CLEAR;
         color.store_op = SDL_GPU_STOREOP_STORE;
+        if let Some(constants) = constants {
+            SDL_PushGPUFragmentUniformData(commands, 0, constants.as_ptr().cast(), std::mem::size_of_val(&constants) as u32);
+        }
         let pass = SDL_BeginGPURenderPass(commands, &color, 1, std::ptr::null());
         SDL_BindGPUGraphicsPipeline(pass, pipeline);
         let binding = SDL_GPUTextureSamplerBinding { texture: frame, sampler };
@@ -221,15 +313,5 @@ fn the_pq_pass_writes_scrgb_as_bt2020_pq() {
         SDL_DestroyGPUDevice(device);
         SDL_Quit();
         packed
-    };
-    for (pixel, (packed, linear)) in packed.iter().zip(scrgb).enumerate() {
-        // A2B10G10R10: red in the low bits.
-        let got = [packed & 0x3ff, packed >> 10 & 0x3ff, packed >> 20 & 0x3ff];
-        let want = to2020.map(|row: [f64; 3]| (pq(80.0 * row.iter().zip(linear).map(|(m, c)| m * c).sum::<f64>()) * 1023.0).round() as u32);
-        eprintln!("pixel {pixel}: {linear:?} scRGB -> {got:?}, BT.2020 PQ {want:?}");
-        for (g, w) in got.iter().zip(want) {
-            assert!(g.abs_diff(w) <= 1, "pixel {pixel}: {got:?}, not BT.2020 PQ {want:?}");
-        }
-        assert_eq!(packed >> 30, 3, "opaque");
     }
 }

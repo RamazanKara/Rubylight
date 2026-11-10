@@ -749,7 +749,6 @@ pub(crate) const GPU_DECODE_TIMEOUT: std::time::Duration = std::time::Duration::
 const GPU_STAGE_NAMES: [&str; 5] = ["clear", "push", "submit", "gpu", "slices"];
 const GPU_CLEAR: usize = 0;
 const GPU_PUSH: usize = 1;
-#[cfg(windows)]
 const GPU_SUBMIT: usize = 2;
 const GPU_WAIT: usize = 3;
 /// The slice decodes made while the frame arrives (beam race), submit and wait together.
@@ -771,6 +770,46 @@ fn push_checked(gpu: &mut GpuDecoder, packet: &[u8]) -> bool {
     gpu.push_packet(packet).is_ok()
 }
 
+/// The block indices of the records a frame gave the SDK early, as a bitmap. A 4K 4:4:4 frame
+/// has about 24,000 records, each inserted as it arrives and looked up again when the frame
+/// completes; a `HashSet` hashed each of them (SipHash) on the decoder thread, inside the push.
+/// Indices are 24 bits (`word >> 8`), so the map is at most 2 MiB; `clear` zeroes only the words
+/// the frame touched.
+#[derive(Default)]
+struct BlockSet {
+    words: Vec<u64>,
+    /// One past the highest word set since `clear`.
+    used: usize,
+    len: usize,
+}
+
+impl BlockSet {
+    fn clear(&mut self) {
+        self.words[..self.used].fill(0);
+        self.used = 0;
+        self.len = 0;
+    }
+
+    /// Adds `index`; false if it was there already.
+    fn insert(&mut self, index: u32) -> bool {
+        let (word, bit) = (index as usize / 64, 1u64 << (index % 64));
+        if word >= self.words.len() { self.words.resize(word + 1, 0); }
+        self.used = self.used.max(word + 1);
+        let added = self.words[word] & bit == 0;
+        self.words[word] |= bit;
+        self.len += usize::from(added);
+        added
+    }
+
+    fn contains(&self, index: u32) -> bool {
+        self.words.get(index as usize / 64).is_some_and(|word| word & (1u64 << (index % 64)) != 0)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
 /// PyroWave frames decoded by the SDK on the GPU into shared D3D11 planes. The records go to
 /// the SDK as they complete (early decode) or when the frame does; the SDK runs the entropy
 /// decoding and the inverse wavelets, and the presenter converts the planes to RGB.
@@ -783,7 +822,7 @@ pub struct GpuStream {
     early_bytes: usize,
     first_block_us: u64,
     /// The records already given to the SDK for the frame in flight, by block index.
-    pushed: std::collections::HashSet<u32>,
+    pushed: BlockSet,
     /// Where the last frame's records came from (`Pyrowave::source`).
     source: Source,
     stages: Stages<5>,
@@ -882,7 +921,7 @@ impl GpuStream {
             missed_start: false,
             early_bytes: 0,
             first_block_us: 0,
-            pushed: std::collections::HashSet::new(),
+            pushed: BlockSet::default(),
             source: Source::Frame,
             stages: Stages::new(GPU_STAGE_NAMES),
             race: None,
@@ -1070,7 +1109,7 @@ impl GpuStream {
                 let step = Instant::now();
                 let Self { records, gpu, pushed, .. } = self;
                 finished = records.finish_frame(|packet| {
-                    if word(packet, 0) & HEADER_BIT != 0 || !pushed.contains(&(word(packet, 4) >> 8)) { push_checked(gpu, packet) } else { true }
+                    if word(packet, 0) & HEADER_BIT != 0 || !pushed.contains(word(packet, 4) >> 8) { push_checked(gpu, packet) } else { true }
                 });
                 self.stages.add(GPU_PUSH, step);
             }
@@ -1170,6 +1209,56 @@ mod gpu_tests_unix;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_block_set_holds_what_a_frame_pushed_and_forgets_it_with_the_next() {
+        let mut set = BlockSet::default();
+        assert!(set.is_empty() && !set.contains(0) && !set.contains(5));
+        assert!(set.insert(5) && set.insert(0) && set.insert(64) && set.insert(130));
+        assert!(!set.insert(64), "a record already pushed");
+        assert!(!set.is_empty());
+        assert!([0, 5, 64, 130].iter().all(|&i| set.contains(i)));
+        assert!([1, 63, 65, 129, 131, 1 << 20].iter().all(|&i| !set.contains(i)));
+        // The highest index a record can name (24 bits) fits.
+        let top = (1u32 << 24) - 1;
+        assert!(set.insert(top) && set.contains(top));
+        set.clear();
+        assert!(set.is_empty());
+        assert!([0, 5, 64, 130, top].iter().all(|&i| !set.contains(i)), "the next frame starts empty");
+        assert!(set.insert(64), "and takes the same records again");
+        let words = set.words.len();
+        set.clear();
+        assert_eq!(set.words.len(), words, "the map keeps its size across frames");
+    }
+
+    /// `cargo test -p nightjar-desktop --release -- --ignored --nocapture block_set_against_a_hash_set`:
+    /// the push's record bookkeeping for one 4K 4:4:4 frame (about 24,300 records of 32x32
+    /// coefficients), as the bitmap and as the `HashSet` it replaced.
+    #[test]
+    #[ignore = "manual CPU timing"]
+    fn block_set_against_a_hash_set() {
+        const RECORDS: u32 = 24_300;
+        let median = |mut v: Vec<f64>| { v.sort_by(f64::total_cmp); v[v.len() / 2] };
+        let mut set = BlockSet::default();
+        let bitmap: Vec<f64> = (0..500).map(|_| {
+            let start = Instant::now();
+            set.clear();
+            for i in 0..RECORDS { set.insert(i); }
+            let found = (0..RECORDS).filter(|&i| set.contains(i)).count();
+            assert_eq!(found, RECORDS as usize);
+            start.elapsed().as_secs_f64() * 1e3
+        }).collect();
+        let mut hashed = std::collections::HashSet::new();
+        let hash: Vec<f64> = (0..500).map(|_| {
+            let start = Instant::now();
+            hashed.clear();
+            for i in 0..RECORDS { hashed.insert(i); }
+            let found = (0..RECORDS).filter(|i| hashed.contains(i)).count();
+            assert_eq!(found, RECORDS as usize);
+            start.elapsed().as_secs_f64() * 1e3
+        }).collect();
+        println!("{RECORDS} records, insert and look up, ms per frame (median of 500): bitmap {:.4}, HashSet {:.4}", median(bitmap), median(hash));
+    }
 
     #[test]
     fn a_linux_decode_splits_at_the_submit_when_it_is_known() {

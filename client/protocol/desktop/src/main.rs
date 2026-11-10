@@ -25,6 +25,7 @@ mod demo_driver;
 mod console;
 mod coop_page;
 mod folders_page;
+mod full_chroma;
 mod controller_audio;
 mod controller_mouse;
 mod dmabuf;
@@ -210,8 +211,11 @@ struct App {
     pointer: handheld::Pointer,
     /// The stream being started plays in SDR although HDR was asked for (gamescope without HDR): its start says so.
     hdr_note: bool,
-    /// Full chroma was asked for but its packed picture is too large for the decoder: its start says so.
+    /// Full chroma was asked for and the stream being started runs without it: its start says so.
     packed_note: Option<String>,
+    /// The PC (by id) refused full chroma after this start's launch: the start made again for it
+    /// runs without it (`full_chroma::decide`).
+    full_chroma_off: Option<u64>,
     running: bool,
     autostream: Option<autostream::Autostream>,
     cli: Option<cli::CliLaunch>,
@@ -849,6 +853,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         pointer: handheld::Pointer::new(handheld::gamescope()),
         hdr_note: false,
         packed_note: None,
+        full_chroma_off: None,
         running: true,
         autostream: autostream::Autostream::from_env(),
         updates,
@@ -1512,6 +1517,7 @@ impl App {
                                 }
                             }
                             ConnectFailed::Moved { host, app, device } => self.show_moved(host, app, device),
+                            ConnectFailed::PackedRefused(plan) => self.restart_without_full_chroma(&plan),
                         }
                     }
                 }
@@ -1580,7 +1586,12 @@ impl App {
             sdl::blend_title_bar(self.window, self.title_bar, *theme::ON_SURFACE);
         }
         let renderer = self.renderer;
-        let must_draw = std::mem::take(&mut self.window_changed) || self.screenshot_requested;
+        // On a PQ renderer the launcher draws its white at the compositor's SDR white.
+        #[cfg(target_os = "linux")]
+        let rescaled = sdl::launcher_white(renderer, self.streaming.is_none());
+        #[cfg(not(target_os = "linux"))]
+        let rescaled = false;
+        let must_draw = std::mem::take(&mut self.window_changed) || self.screenshot_requested || rescaled;
         // A screenshot or capture reads the frame back, and so does live glass's timed chain: the
         // frame stays in the GPU renderer's back buffer.
         #[cfg(feature = "demo-library")]
@@ -1817,6 +1828,13 @@ impl App {
             Command::ClearPace(id) => {
                 if let Some(host) = self.hosts.get_mut(id) { host.record.pace = None; self.save_hosts(); }
             }
+            Command::AskFullChromaAgain => {
+                let mut changed = false;
+                for host in &mut self.hosts.list {
+                    changed |= full_chroma::ask_again(&mut host.record);
+                }
+                if changed { self.save_hosts(); }
+            }
             Command::ControllerSettings => {
                 self.command(Command::SaveSettings);
                 self.launcher.open(Screen::Controllers);
@@ -1995,6 +2013,9 @@ impl App {
     /// `gpu_failure`, which the check that refuses the stream then says.
     #[cfg(target_os = "linux")]
     fn switch_for_stream(&mut self, settings: &config::Settings) {
+        // Before a renderer made for the stream: its HDR description is made for this brightness.
+        #[cfg(target_os = "linux")]
+        stream::wl_scanout::set_brightness(stream::wl_scanout::Brightness::of_setting(settings.hdr_desktop_brightness));
         self.apply_renderer_choice();
         let gpu = sdl::renderer_name(self.renderer) == "gpu";
         let state = self.renderer_state.clone();
@@ -2347,6 +2368,8 @@ impl App {
 
     fn launch(&mut self, host_id: u64, app_id: i32, resume: bool, kind: LaunchKind, from: LaunchFrom) {
         let busy = self.connecting.is_some() || self.network_launch.is_some();
+        // A new start asks for full chroma as its settings say.
+        if !busy { self.full_chroma_off = None; }
         eprintln!("nightjar: {}{}", launch_line(from, app_id, resume, busy), kind.log_suffix());
         if busy {
             // A grant left for this start is not used by it.
@@ -2359,6 +2382,20 @@ impl App {
         }
         self.network_launch = Some((host_id, app_id, resume, kind));
         self.network_query = Some(network::query(self.waker.clone()));
+    }
+
+    /// The PC refused full chroma after `plan`'s launch, so its app runs there: the PC is
+    /// remembered as refusing it, and the same start is made once more without it, resuming that
+    /// app. That start does not ask for it, so it cannot be refused again.
+    fn restart_without_full_chroma(&mut self, plan: &LaunchPlan) {
+        if let Some(host) = self.hosts.get_mut(plan.host_id) {
+            if full_chroma::refused(&mut host.record) { self.save_hosts(); }
+        }
+        let kind = LaunchKind::of_plan(plan.join, plan.small_stream_input_only, plan.mic_only);
+        eprintln!("nightjar: the PC refused full chroma after the launch; starting again without it{}", kind.log_suffix());
+        self.full_chroma_off = Some(plan.host_id);
+        // A microphone-only start launches nothing to resume.
+        self.launch_ready(plan.host_id, plan.app.id, kind != LaunchKind::MicOnly, kind);
     }
 
     fn forget_pin_grant(&mut self) {
@@ -2473,15 +2510,22 @@ impl App {
         self.gpu_failure = None;
         // Before the renderer may be made again for this stream and before its decoder.
         stream::pyrowave_sdk::queue::use_async_compute(settings.pyrowave_async_compute);
+        // Full chroma without the GPU renderer starts without it (`full_chroma::decide`), as on a
+        // decoder without it; anything else that needs the renderer refuses the stream.
         #[cfg(unix)]
-        {
+        let packed_without_gpu = {
             self.switch_for_stream(&settings);
             // HDR and PyroWave say it in their own checks below, with what they found.
-            if let Some(advice) = settings.gpu_need().filter(|&need| handheld::refused_without_gpu(need)).and_then(|need| self.gpu_missing(need)) {
-                self.launcher.message(tr("The stream could not start"), advice);
-                return;
+            match full_chroma::gpu_check(&settings, |need| self.gpu_missing(need)) {
+                Ok(left_out) => left_out,
+                Err(advice) => {
+                    self.launcher.message(tr("The stream could not start"), advice);
+                    return;
+                }
             }
-        }
+        };
+        #[cfg(not(unix))]
+        let packed_without_gpu = false;
         self.hdr_note = false;
         let hdr_output = sdl::hdr_available(self.renderer)
             || (settings.hdr && !handheld::gamescope() && sdl::await_window_hdr(self.renderer));
@@ -2538,24 +2582,30 @@ impl App {
         }
         // Before any decoder probe: the Vulkan video Debug settings change the backend order.
         media::use_vulkan_video_settings(settings.vulkan_video_first, settings.vulkan_rfi);
-        let packed_modes = if settings.experimental_packed_444 {
-            match stream::packed444::probe(self.renderer, self.hardware(&settings)) {
-                Ok(modes) => modes,
-                Err(reason) => {
-                    self.launcher.message(tr("Full chroma unavailable"), reason);
-                    return;
-                }
+        // Before the launch: a stream that cannot have full chroma starts without it, instead of
+        // launching the game and being refused in the handshake.
+        let refused_now = self.full_chroma_off.take() == Some(host_id);
+        let (hardware, renderer, size) = (self.hardware(&settings), self.renderer, (settings.width, settings.height));
+        let Some(host) = self.hosts.get_mut(host_id) else { return };
+        // An update on either side since the PC refused full chroma: it is asked again.
+        let renewed = settings.experimental_packed_444
+            && full_chroma::renew(&mut host.record, VERSION, info.capabilities.host_version());
+        let chroma = full_chroma::decide(&mut settings, &mut host.record, info.packed444_modes, refused_now, || {
+            if packed_without_gpu {
+                eprintln!("nightjar: full chroma: no GPU renderer for its shader pass");
+                return (0, None);
             }
-        } else {
-            0
-        };
-        // The packed picture is twice the stream's height: past the decoder's largest, that mode goes.
-        #[cfg(target_os = "linux")]
-        let packed_modes = {
-            let (modes, note) = linux_diagnosis::packed_offer(self.hardware(&settings), packed_modes, settings.width, settings.height);
-            self.packed_note = note;
-            modes
-        };
+            let modes = stream::packed444::probe(renderer, hardware).unwrap_or_else(|reason| {
+                eprintln!("nightjar: full chroma: no decoder passed the check: {reason}");
+                0
+            });
+            packed_modes_that_fit(hardware, modes, size)
+        });
+        if chroma.record_changed || renewed {
+            self.save_hosts();
+        }
+        self.packed_note = chroma.note;
+        let packed_modes = chroma.modes;
         let color_decodable = if stream::probes_color(&settings) {
             let (hardware, renderer) = (self.hardware(&settings), self.renderer);
             let wanted = stream::color_probe_formats(&settings);
@@ -2637,6 +2687,15 @@ impl App {
         );
         // Without V-Sync the GPU renderer tears where it can (`prefers_immediate`); the property
         // holds for the stream, so the VRR pacing's later interval changes follow it too.
+        // V-Sync off accepts tearing, under VRR too (`wl_scanout::vrr_tearing`).
+        #[cfg(target_os = "linux")]
+        sdl::set_vrr_tearing(stream::wl_scanout::vrr_tearing(settings.vsync, stream::wl_scanout::env_on(stream::wl_scanout::VRR_TEARING_ENV)));
+        // "HDR brightness follows the desktop": an installed description follows it in place.
+        #[cfg(target_os = "linux")]
+        stream::wl_scanout::set_brightness(stream::wl_scanout::Brightness::of_setting(settings.hdr_desktop_brightness));
+        // The stream draws at 1.0: the launcher's white scale is the launcher's alone.
+        #[cfg(target_os = "linux")]
+        sdl::launcher_white(self.renderer, false);
         #[cfg(target_os = "linux")]
         sdl::prefer_immediate(self.renderer, stream::present::prefers_immediate(connecting.vrr(), sdl::video_driver() == "wayland", handheld::gamescope()));
         // SAFETY: window and renderer calls on the main thread.
@@ -2672,6 +2731,12 @@ impl App {
             SDL_SyncWindow(self.window);
         }
         self.remember_recent(&connecting);
+        // A stream with full chroma: what its PC offered is kept for the next launch there.
+        let outcome = session.outcome();
+        let (packed, describe_modes) = (outcome.config.experimental_packed_444, outcome.host_packed444_modes);
+        if let Some(host) = self.hosts.get_mut(connecting.host_id) {
+            if full_chroma::started(&mut host.record, packed, describe_modes) { self.save_hosts(); }
+        }
         let mut streaming = Streaming::new(connecting, session, facts, display);
         streaming.watch_microphone_busy(self.waker.clone());
         self.pads.prepare_audio(settings.controllers && settings.controller_audio && streaming.facts.role != nightjar_core::http::AppRole::RemoteMonitor);
@@ -3944,6 +4009,18 @@ impl LaunchFrom {
     }
 }
 
+/// The packed picture is twice the stream's height: past the decoder's largest, that mode goes,
+/// and the start says why when none is left (`linux_diagnosis::packed_offer`).
+#[cfg(target_os = "linux")]
+fn packed_modes_that_fit(hardware: Hardware, modes: u8, (width, height): (u32, u32)) -> (u8, Option<String>) {
+    linux_diagnosis::packed_offer(hardware, modes, width, height)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn packed_modes_that_fit(_hardware: Hardware, modes: u8, _size: (u32, u32)) -> (u8, Option<String>) {
+    (modes, None)
+}
+
 /// What a launch starts besides an ordinary stream.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LaunchKind {
@@ -3957,6 +4034,12 @@ enum LaunchKind {
 }
 
 impl LaunchKind {
+    /// The kind of a start a plan made: a join, input only through a small stream, microphone
+    /// only, else an ordinary stream.
+    fn of_plan(join: bool, small_stream_input_only: bool, mic_only: bool) -> Self {
+        if mic_only { LaunchKind::MicOnly } else if small_stream_input_only { LaunchKind::SmallInputOnly } else if join { LaunchKind::JoinRunning } else { LaunchKind::Stream }
+    }
+
     fn log_suffix(self) -> &'static str {
         match self {
             LaunchKind::Stream => "",
@@ -4302,6 +4385,11 @@ mod tests {
         assert!(!app.is_control_action());
         assert_eq!(super::LaunchKind::MicOnly.log_suffix(), ", microphone only");
         assert_eq!(super::LaunchKind::JoinRunning.log_suffix(), ", joining the running game");
+        // A start made again (full chroma refused after its launch) keeps its kind.
+        assert_eq!(super::LaunchKind::of_plan(false, false, false), super::LaunchKind::Stream);
+        assert_eq!(super::LaunchKind::of_plan(true, false, false), super::LaunchKind::JoinRunning);
+        assert_eq!(super::LaunchKind::of_plan(false, true, false), super::LaunchKind::SmallInputOnly);
+        assert_eq!(super::LaunchKind::of_plan(false, false, true), super::LaunchKind::MicOnly);
         assert_eq!(super::mic_only_title(false, false, false), "Microphone on");
         assert_eq!(super::mic_only_title(true, false, false), "Microphone muted");
         // A failed microphone is not called muted, also once it was muted for the failure.

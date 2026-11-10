@@ -60,7 +60,7 @@ public class SettingsKeysTest {
             com.limelight.console.HomeSettings.PREF_KEY,
             // Added later; kept here so it is never renamed either.
             "list_virtual_display_dpi", "checkbox_mute_audio", "checkbox_dual_screen", "list_resolution_screen2",
-            "automatic_bitrate", "checkbox_system_keys_fullscreen_only",
+            "automatic_bitrate", "checkbox_system_keys_fullscreen_only", "checkbox_display_queue_recovery",
     };
     // Rows that open a screen or a dialog and store nothing under their key.
     private static final Set<String> ACTIONS = new HashSet<>(Arrays.asList(
@@ -382,6 +382,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_codec_performance", new Read(true, false, c -> c.codecPerformance));
         reads.put("checkbox_gpu_max_clocks", new Read(false, true, c -> c.gpuMaxClocks));
         reads.put("checkbox_drop_late_frames", new Read(true, false, c -> c.dropLateFrames));
+        reads.put("checkbox_display_queue_recovery", new Read(true, false, c -> c.displayQueueRecovery));
         reads.put("checkbox_texture_view", new Read(false, true, c -> c.useTextureView));
         reads.put("checkbox_vulkan_render", new Read(false, true, c -> c.vulkanRender));
         reads.put("checkbox_unlock_fps", new Read(false, true, c -> c.unlockFps));

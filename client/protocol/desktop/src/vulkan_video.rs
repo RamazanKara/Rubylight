@@ -559,16 +559,27 @@ fn render_node_minor(has_render: bool, minor: i64) -> Result<u32, String> {
 }
 
 /// VAAPI pictures mapped into Vulkan images of the renderer's device, for the presenter's GPU copy
-/// (`Planes::copy`) instead of the trip through memory: FFmpeg exports each surface as DMA-BUFs and
-/// imports them (`av_hwframe_map`, VAAPI to DRM PRIME to Vulkan, after `vaSyncSurface`, so the
-/// decode is done before the copy reads it). The mapped frame holds its VAAPI surface until it is
+/// (`Planes::copy`) instead of the trip through memory. A two-plane (NV12, P010) surface's
+/// DMA-BUFs are imported once, on its first picture, and kept for the surface's later pictures
+/// while the decoder's pool lasts (`SurfaceImports`, after `vaSyncSurface`, so the decode is done
+/// before the copy reads it); `NIGHTJAR_DMABUF_CACHE=0`, a 4:4:4 surface, or an import of ours
+/// that failed once, and FFmpeg exports and imports every picture anew instead (`av_hwframe_map`,
+/// VAAPI to DRM PRIME to Vulkan). Either way the mapped frame holds its VAAPI surface until it is
 /// freed, and freeing it waits for the image's timeline semaphore, which the copy signals
-/// (hwcontext_vulkan's `vulkan_frame_free`); `Planes` keeps it until its copy is done (`Held`).
+/// (hwcontext_vulkan's `vulkan_frame_free`, or `Lent`); `Planes` keeps it until its copy is done
+/// (`Held`).
 pub struct VaapiMap {
     device: *mut AVBufferRef,
     /// The frames context the mapped frames belong to, for the VAAPI pictures of `shape`.
     frames: *mut AVBufferRef,
     shape: (c_int, c_int, AVPixelFormat),
+    /// The per-surface imports, while they work.
+    #[cfg(unix)]
+    imports: Option<SurfaceImports>,
+    /// Whether the per-surface imports were used at all, for the count at the end.
+    cached: bool,
+    /// Pictures mapped, and of them the ones whose images came from the per-surface cache.
+    pictures: (u64, u64),
 }
 
 // SAFETY: Owned FFmpeg references, used from the decoder thread only.
@@ -582,10 +593,20 @@ impl VaapiMap {
         switched_on: bool,
         same_gpu: Result<(), String>,
     ) -> Result<Self, String> {
+        let device = map_device_context(gpu, switched_on, same_gpu)?;
+        #[cfg(unix)]
+        let imports = SurfaceImports::start(gpu);
         Ok(Self {
-            device: map_device_context(gpu, switched_on, same_gpu)?,
+            device,
             frames: ptr::null_mut(),
             shape: (0, 0, AV_PIX_FMT_NONE),
+            #[cfg(unix)]
+            cached: imports.is_some(),
+            #[cfg(not(unix))]
+            cached: false,
+            #[cfg(unix)]
+            imports,
+            pictures: (0, 0),
         })
     }
 
@@ -639,21 +660,39 @@ impl VaapiMap {
             self.frames = frames;
             self.shape = shape;
         }
-        (*target).format = AV_PIX_FMT_VULKAN;
-        (*target).hw_frames_ctx = av_buffer_ref(self.frames);
-        if (*target).hw_frames_ctx.is_null() {
-            return Err("FFmpeg cannot reference the Vulkan frames context".into());
-        }
-        if interleaved.is_some() {
-            if let Err(why) = map_interleaved(target, source) {
-                av_frame_unref(target);
-                return Err(why);
+        // Whether the surface's kept import served the picture, when one of ours mapped it.
+        #[allow(unused_mut)]
+        let mut cached = None;
+        #[cfg(unix)]
+        if interleaved.is_none() {
+            if let Some(imports) = self.imports.as_mut() {
+                match imports.map(source, target, self.frames, shape.2 == AV_PIX_FMT_P010LE) {
+                    Ok(hit) => cached = Some(hit),
+                    Err(why) => {
+                        // `target` is empty again; FFmpeg maps this picture and the rest.
+                        note(&format!("VAAPI pictures are imported into Vulkan anew for every picture from now on: {why}"));
+                        self.imports = None;
+                    }
+                }
             }
-        } else {
-            let status = av_hwframe_map(target, source, AV_HWFRAME_MAP_READ as c_int);
-            if status < 0 {
-                av_frame_unref(target);
-                return Err(format!("FFmpeg cannot map the VAAPI picture into a Vulkan image (error {status}); the driver may refuse its DRM format modifier"));
+        }
+        if cached.is_none() {
+            (*target).format = AV_PIX_FMT_VULKAN;
+            (*target).hw_frames_ctx = av_buffer_ref(self.frames);
+            if (*target).hw_frames_ctx.is_null() {
+                return Err("FFmpeg cannot reference the Vulkan frames context".into());
+            }
+            if interleaved.is_some() {
+                if let Err(why) = map_interleaved(target, source) {
+                    av_frame_unref(target);
+                    return Err(why);
+                }
+            } else {
+                let status = av_hwframe_map(target, source, AV_HWFRAME_MAP_READ as c_int);
+                if status < 0 {
+                    av_frame_unref(target);
+                    return Err(format!("FFmpeg cannot map the VAAPI picture into a Vulkan image (error {status}); the driver may refuse its DRM format modifier"));
+                }
             }
         }
         let status = av_frame_copy_props(target, source);
@@ -661,17 +700,559 @@ impl VaapiMap {
             av_frame_unref(target);
             return Err(format!("the mapped picture cannot take the VAAPI picture's properties (error {status})"));
         }
+        let hit = cached == Some(true);
+        self.pictures.0 += 1;
+        self.pictures.1 += u64::from(hit);
+        #[cfg(test)]
+        {
+            use std::sync::atomic::Ordering::Relaxed;
+            MAPPED_PICTURES.0.fetch_add(1, Relaxed);
+            MAPPED_PICTURES.1.fetch_add(u64::from(hit), Relaxed);
+        }
         Ok(())
     }
 }
 
 impl Drop for VaapiMap {
     fn drop(&mut self) {
+        if self.cached && self.pictures.0 > 0 {
+            eprintln!(
+                "nightjar: VAAPI pictures mapped into Vulkan: {} of {} from the per-surface cache",
+                self.pictures.1, self.pictures.0
+            );
+        }
+        // The cache's imports go once no mapped frame uses them (`CachedImport`).
+        #[cfg(unix)]
+        drop(self.imports.take());
         // SAFETY: Our references; mapped frames hold their own.
         unsafe {
             av_buffer_unref(&mut self.frames);
             av_buffer_unref(&mut self.device);
         }
+    }
+}
+
+/// Pictures `VaapiMap` mapped in this test process, and of them the ones whose images came from
+/// the per-surface cache (`stream::vulkan_tests_unix`).
+#[cfg(test)]
+pub(crate) static MAPPED_PICTURES: (std::sync::atomic::AtomicU64, std::sync::atomic::AtomicU64) =
+    (std::sync::atomic::AtomicU64::new(0), std::sync::atomic::AtomicU64::new(0));
+
+/// `MAPPED_PICTURES` as (mapped, from the cache).
+#[cfg(test)]
+pub(crate) fn mapped_pictures() -> (u64, u64) {
+    use std::sync::atomic::Ordering::Relaxed;
+    (MAPPED_PICTURES.0.load(Relaxed), MAPPED_PICTURES.1.load(Relaxed))
+}
+
+/// DRM fourccs of the layers a two-plane VAAPI surface exports as (`VA_EXPORT_SURFACE_SEPARATE_LAYERS`):
+/// NV12 as R8 and GR88, P010 as R16 and GR1616 (red the low half: Cb, green Cr).
+const DRM_FORMAT_R16: u32 = fourcc(b"R16 ");
+const DRM_FORMAT_GR1616: u32 = fourcc(b"GR32");
+/// `DRM_FORMAT_MOD_INVALID`: the driver named no layout.
+const DRM_FORMAT_MOD_INVALID: u64 = 0x00ff_ffff_ffff_ffff;
+
+/// The Vulkan format a one-plane DMA-BUF layer of `drm_format` imports as, if it is one of a
+/// two-plane surface's (`import_layers`); the same as hwcontext_vulkan's table.
+fn layer_format(drm_format: u32) -> Option<vk::Format> {
+    match drm_format {
+        crate::dmabuf::DRM_FORMAT_R8 => Some(vk::Format::R8_UNORM),
+        crate::dmabuf::DRM_FORMAT_GR88 => Some(vk::Format::R8G8_UNORM),
+        DRM_FORMAT_R16 => Some(vk::Format::R16_UNORM),
+        DRM_FORMAT_GR1616 => Some(vk::Format::R16G16_UNORM),
+        _ => None,
+    }
+}
+
+/// The Vulkan formats of the two layers of an exported NV12 (or `ten_bit`, P010) surface, the
+/// planes `Planes` copies, or why the export is not that: two one-plane layers, luma then chroma,
+/// each in an object the export lists.
+fn import_layers(descriptor: &crate::dmabuf::Descriptor, ten_bit: bool) -> Result<[vk::Format; 2], String> {
+    let wanted = if ten_bit {
+        [DRM_FORMAT_R16, DRM_FORMAT_GR1616]
+    } else {
+        [crate::dmabuf::DRM_FORMAT_R8, crate::dmabuf::DRM_FORMAT_GR88]
+    };
+    if descriptor.num_layers != 2 || descriptor.num_objects == 0 || descriptor.num_objects > 4 {
+        return Err(format!(
+            "the export has {} layers in {} objects, not a {}-bit surface's two planes",
+            descriptor.num_layers,
+            descriptor.num_objects,
+            if ten_bit { 10 } else { 8 }
+        ));
+    }
+    let mut formats = [vk::Format::UNDEFINED; 2];
+    for (index, (layer, wanted)) in descriptor.layers.iter().zip(wanted).enumerate() {
+        if layer.drm_format != wanted || layer.num_planes != 1 {
+            return Err(format!(
+                "layer {index} is DRM format {:#010x} with {} planes, not {wanted:#010x} with one",
+                layer.drm_format, layer.num_planes
+            ));
+        }
+        if layer.object_index[0] >= descriptor.num_objects {
+            return Err(format!("layer {index} names object {} of {}", layer.object_index[0], descriptor.num_objects));
+        }
+        formats[index] = layer_format(layer.drm_format).expect("one of the wanted formats");
+    }
+    Ok(formats)
+}
+
+/// Where layer `index` of a checked export (`import_layers`) is: its object, that object's DRM
+/// format modifier, and the plane's explicit layout for `VkImageDrmFormatModifierExplicitCreateInfoEXT`
+/// (offset and row pitch in the object; the sizes 0, as the specification asks).
+fn layer_layout(descriptor: &crate::dmabuf::Descriptor, index: usize) -> (usize, u64, vk::SubresourceLayout) {
+    let layer = &descriptor.layers[index];
+    let object = layer.object_index[0] as usize;
+    let layout = vk::SubresourceLayout {
+        offset: u64::from(layer.offset[0]),
+        size: 0,
+        row_pitch: u64::from(layer.pitch[0]),
+        array_pitch: 0,
+        depth_pitch: 0,
+    };
+    (object, descriptor.objects[object].drm_format_modifier, layout)
+}
+
+/// The size of layer `index` of a 4:2:0 picture of `width` x `height`: chroma at half size,
+/// rounded up, as FFmpeg sizes its planes and `Planes` its chroma image.
+fn layer_extent(index: usize, width: u32, height: u32) -> (u32, u32) {
+    if index == 0 {
+        (width, height)
+    } else {
+        (width.div_ceil(2), height.div_ceil(2))
+    }
+}
+
+/// The memory type an imported DMA-BUF is allocated in: one the file descriptor can be imported as
+/// (`vkGetMemoryFdPropertiesKHR`) and the image can be bound to, device-local first; none when no
+/// type is both.
+fn import_memory_type(fd_types: u32, image_types: u32, types: &[vk::MemoryPropertyFlags]) -> Option<u32> {
+    let usable = fd_types & image_types;
+    let candidates = || (0..types.len().min(32)).filter(move |&index| usable & (1 << index) != 0);
+    candidates()
+        .find(|&index| types[index].contains(vk::MemoryPropertyFlags::DEVICE_LOCAL))
+        .or_else(|| candidates().next())
+        .map(|index| index as u32)
+}
+
+/// Readies a kept import's frame for its surface's next picture: owned by VA-API again
+/// (`VK_QUEUE_FAMILY_EXTERNAL`, in GENERAL, nothing to make available), as the copy's release left
+/// it (`after_copy`), whatever an earlier picture of it did not get to. The semaphores keep their
+/// values: the copy waits for the last one and signals one more.
+fn ready_for_reuse(frame: &mut VkFrame) {
+    for index in 0..frame.img.len() {
+        if frame.img[index] != vk::Image::null() {
+            frame.layout[index] = vk::ImageLayout::GENERAL;
+            frame.queue_family[index] = vk::QUEUE_FAMILY_EXTERNAL;
+            frame.access[index] = vk::AccessFlags::empty();
+        }
+    }
+}
+
+#[cfg(unix)]
+use imports::SurfaceImports;
+
+/// `VaapiMap`'s imports of a decoder's surfaces, one per surface, kept while the pool lasts.
+#[cfg(unix)]
+mod imports {
+    use super::*;
+    use crate::dmabuf::{self, Descriptor, FramesRef, SurfaceCache, CACHE_LIMIT};
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+
+    unsafe extern "C" {
+        /// libavutil/hwcontext_vulkan.h: an AVVkFrame with its internal part (the lock FFmpeg's
+        /// default `lock_frame` takes), freed with `av_free`.
+        fn av_vk_frame_alloc() -> *mut VkFrame;
+        fn av_free(pointer: *mut c_void);
+        fn av_buffer_ref(reference: *const AVBufferRef) -> *mut AVBufferRef;
+        /// libavutil/buffer.h (the size a `size_t` since FFmpeg 5); not in the bindings.
+        fn av_buffer_create(
+            data: *mut u8,
+            size: usize,
+            free: Option<unsafe extern "C" fn(*mut c_void, *mut u8)>,
+            opaque: *mut c_void,
+            flags: c_int,
+        ) -> *mut AVBufferRef;
+    }
+
+    /// The renderer's device as the imports use it: its own functions, as `Planes` loads them.
+    struct ImportDevice {
+        instance: ash::Instance,
+        physical_device: vk::PhysicalDevice,
+        device: ash::Device,
+        memory_fd: ash::khr::external_memory_fd::Device,
+        /// The property flags of each of the device's memory types.
+        memory_types: Vec<vk::MemoryPropertyFlags>,
+    }
+
+    impl ImportDevice {
+        /// # Safety
+        /// `gpu` is the renderer's live SDL GPU device, made with `MAP_EXTENSIONS`
+        /// (`map_device_context` checked them).
+        unsafe fn of(gpu: *mut SDL_GPUDevice) -> Result<Self, String> {
+            let sdl = SdlVulkan::of_device(gpu)?;
+            let instance = ash::Instance::load(
+                &ash::StaticFn {
+                    get_instance_proc_addr: zero_copy::get_instance_proc_addr()?,
+                },
+                sdl.instance,
+            );
+            let device = ash::Device::load(instance.fp_v1_0(), sdl.device);
+            let memory_fd = ash::khr::external_memory_fd::Device::new(&instance, &device);
+            let memory = instance.get_physical_device_memory_properties(sdl.physical_device);
+            let memory_types = memory.memory_types[..memory.memory_type_count as usize]
+                .iter()
+                .map(|kind| kind.property_flags)
+                .collect();
+            Ok(Self { instance, physical_device: sdl.physical_device, device, memory_fd, memory_types })
+        }
+
+        /// Whether the driver imports a DMA-BUF of `modifier` as a `format` image the copy reads,
+        /// as hwcontext_vulkan asks before its own import; creating one it does not would be
+        /// undefined.
+        unsafe fn check_importable(&self, format: vk::Format, modifier: u64) -> Result<(), String> {
+            let mut drm = vk::PhysicalDeviceImageDrmFormatModifierInfoEXT::default()
+                .drm_format_modifier(modifier)
+                .sharing_mode(vk::SharingMode::EXCLUSIVE);
+            let mut external = vk::PhysicalDeviceExternalImageFormatInfo::default()
+                .handle_type(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
+            let info = vk::PhysicalDeviceImageFormatInfo2::default()
+                .format(format)
+                .ty(vk::ImageType::TYPE_2D)
+                .tiling(vk::ImageTiling::DRM_FORMAT_MODIFIER_EXT)
+                .usage(vk::ImageUsageFlags::TRANSFER_SRC)
+                .push_next(&mut external)
+                .push_next(&mut drm);
+            let mut external_properties = vk::ExternalImageFormatProperties::default();
+            let mut properties = vk::ImageFormatProperties2::default().push_next(&mut external_properties);
+            self.instance
+                .get_physical_device_image_format_properties2(self.physical_device, &info, &mut properties)
+                .map_err(|e| format!("the driver does not import Vulkan format {} DMA-BUFs of modifier {modifier:#x} ({e})", format.as_raw()))?;
+            if !external_properties
+                .external_memory_properties
+                .external_memory_features
+                .contains(vk::ExternalMemoryFeatureFlags::IMPORTABLE)
+            {
+                return Err(format!("the driver cannot import Vulkan format {} DMA-BUFs of modifier {modifier:#x}", format.as_raw()));
+            }
+            Ok(())
+        }
+
+        /// Waits up to `COPY_WAIT` for each of `frame`'s semaphores to reach its value, the last
+        /// copy's signal: then the GPU no longer reads its images.
+        unsafe fn wait(&self, frame: &VkFrame) -> bool {
+            let (semaphores, values): (Vec<vk::Semaphore>, Vec<u64>) = (0..frame.sem.len())
+                .filter(|&index| frame.sem[index] != vk::Semaphore::null())
+                .map(|index| (frame.sem[index], frame.sem_value[index]))
+                .unzip();
+            semaphores.is_empty()
+                || self
+                    .device
+                    .wait_semaphores(
+                        &vk::SemaphoreWaitInfo::default().semaphores(&semaphores).values(&values),
+                        COPY_WAIT.as_nanos() as u64,
+                    )
+                    .is_ok()
+        }
+    }
+
+    /// One surface's import: an image per layer, each with its imported memory (a `dup` of the
+    /// layer's DMA-BUF) and a timeline semaphore, in an AVVkFrame FFmpeg's frame lock works on.
+    /// Mapped frames of the surface share it (`Lent`); it goes when the cache and the last of them
+    /// let go, which is when no copy reads it (`Drop`).
+    struct CachedImport {
+        vulkan: Arc<ImportDevice>,
+        frame: *mut VkFrame,
+    }
+
+    // SAFETY: The frame is used by one picture at a time: a surface comes back from the decoder,
+    // and its import is handed out again, only once every frame mapped from it was freed (each one
+    // holds the surface, `Lent`); FFmpeg's reference counts order those uses across threads.
+    unsafe impl Send for CachedImport {}
+    unsafe impl Sync for CachedImport {}
+
+    impl CachedImport {
+        /// Imports `descriptor`, an exported two-plane surface (`import_layers`) of a `width` x
+        /// `height` picture, as hwcontext_vulkan's `vulkan_map_from_drm_frame_desc` does: one image
+        /// per layer, in the object's DRM format modifier with the layer's offset and pitch, its
+        /// memory imported from a `dup` of the object's descriptor (once per image, also where both
+        /// layers share one object), dedicated where the driver prefers it, bound at 0 (the offset is
+        /// in the layout).
+        ///
+        /// # Safety
+        /// `descriptor`'s descriptors are open.
+        unsafe fn new(vulkan: &Arc<ImportDevice>, descriptor: &Descriptor, width: u32, height: u32, ten_bit: bool) -> Result<Self, String> {
+            let formats = import_layers(descriptor, ten_bit)?;
+            let frame = av_vk_frame_alloc();
+            if frame.is_null() {
+                return Err("FFmpeg cannot allocate a Vulkan frame".into());
+            }
+            // From here on, `Drop` destroys what was made if a later step fails.
+            let import = Self { vulkan: vulkan.clone(), frame };
+            let device = &vulkan.device;
+            let vkf = &mut *frame;
+            vkf.tiling = vk::ImageTiling::DRM_FORMAT_MODIFIER_EXT;
+            for (index, &format) in formats.iter().enumerate() {
+                let (object, modifier, layout) = layer_layout(descriptor, index);
+                if modifier == DRM_FORMAT_MOD_INVALID {
+                    return Err(format!("the driver named no DRM format modifier for layer {index}"));
+                }
+                vulkan.check_importable(format, modifier)?;
+                let (w, h) = layer_extent(index, width, height);
+                let layouts = [layout];
+                let mut explicit = vk::ImageDrmFormatModifierExplicitCreateInfoEXT::default()
+                    .drm_format_modifier(modifier)
+                    .plane_layouts(&layouts);
+                let mut external = vk::ExternalMemoryImageCreateInfo::default()
+                    .handle_types(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
+                let info = vk::ImageCreateInfo::default()
+                    .image_type(vk::ImageType::TYPE_2D)
+                    .format(format)
+                    .extent(vk::Extent3D { width: w, height: h, depth: 1 })
+                    .mip_levels(1)
+                    .array_layers(1)
+                    .samples(vk::SampleCountFlags::TYPE_1)
+                    .tiling(vk::ImageTiling::DRM_FORMAT_MODIFIER_EXT)
+                    .usage(vk::ImageUsageFlags::TRANSFER_SRC)
+                    .sharing_mode(vk::SharingMode::EXCLUSIVE)
+                    .initial_layout(vk::ImageLayout::UNDEFINED)
+                    .push_next(&mut external)
+                    .push_next(&mut explicit);
+                let image = device
+                    .create_image(&info, None)
+                    .map_err(|e| format!("layer {index} (Vulkan format {}, modifier {modifier:#x}) cannot be imported as an image ({e})", format.as_raw()))?;
+                vkf.img[index] = image;
+
+                let fd = libc::dup(descriptor.objects[object].fd);
+                if fd < 0 {
+                    return Err(format!("layer {index}'s DMA-BUF cannot be duplicated ({})", std::io::Error::last_os_error()));
+                }
+                let mut fd_properties = vk::MemoryFdPropertiesKHR::default();
+                if let Err(e) = vulkan.memory_fd.get_memory_fd_properties(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT, fd, &mut fd_properties) {
+                    libc::close(fd);
+                    return Err(format!("the driver does not import layer {index}'s DMA-BUF ({e})"));
+                }
+                let mut dedicated = vk::MemoryDedicatedRequirements::default();
+                let mut needs = vk::MemoryRequirements2::default().push_next(&mut dedicated);
+                device.get_image_memory_requirements2(&vk::ImageMemoryRequirementsInfo2::default().image(image), &mut needs);
+                let requirements = needs.memory_requirements;
+                let Some(kind) = import_memory_type(fd_properties.memory_type_bits, requirements.memory_type_bits, &vulkan.memory_types) else {
+                    libc::close(fd);
+                    return Err(format!(
+                        "no memory type takes layer {index}'s DMA-BUF (types {:#x}) and its image (types {:#x})",
+                        fd_properties.memory_type_bits, requirements.memory_type_bits
+                    ));
+                };
+                let mut fd_import = vk::ImportMemoryFdInfoKHR::default()
+                    .handle_type(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT)
+                    .fd(fd);
+                let mut dedicated_to = vk::MemoryDedicatedAllocateInfo::default().image(image);
+                let allocate = vk::MemoryAllocateInfo::default()
+                    .allocation_size(requirements.size)
+                    .memory_type_index(kind)
+                    .push_next(&mut fd_import);
+                let allocate = if dedicated.prefers_dedicated_allocation != vk::FALSE || dedicated.requires_dedicated_allocation != vk::FALSE {
+                    allocate.push_next(&mut dedicated_to)
+                } else {
+                    allocate
+                };
+                // A successful import owns the descriptor; a failed one leaves it ours.
+                let memory = device.allocate_memory(&allocate, None).map_err(|e| {
+                    libc::close(fd);
+                    format!("layer {index}'s DMA-BUF cannot be imported ({} bytes, memory type {kind}: {e})", requirements.size)
+                })?;
+                vkf.mem[index] = memory;
+                vkf.size[index] = requirements.size as usize;
+                vkf.flags |= vulkan.memory_types[kind as usize];
+                device
+                    .bind_image_memory(image, memory, 0)
+                    .map_err(|e| format!("layer {index}'s imported memory cannot be bound ({e})"))?;
+
+                let mut timeline = vk::SemaphoreTypeCreateInfo::default()
+                    .semaphore_type(vk::SemaphoreType::TIMELINE)
+                    .initial_value(0);
+                vkf.sem[index] = device
+                    .create_semaphore(&vk::SemaphoreCreateInfo::default().push_next(&mut timeline), None)
+                    .map_err(|e| format!("a timeline semaphore cannot be created ({e})"))?;
+                vkf.sem_value[index] = 0;
+                // Owned by VA-API, its contents those of the surface: the copy acquires it.
+                vkf.layout[index] = vk::ImageLayout::UNDEFINED;
+                vkf.access[index] = vk::AccessFlags::empty();
+                vkf.queue_family[index] = vk::QUEUE_FAMILY_EXTERNAL;
+            }
+            Ok(import)
+        }
+    }
+
+    impl Drop for CachedImport {
+        fn drop(&mut self) {
+            // SAFETY: Objects this import made on the renderer's device, which outlives the decoder
+            // and the presenter's pictures; the frame is no picture's any more.
+            unsafe {
+                let frame = &*self.frame;
+                if !self.vulkan.wait(frame) {
+                    note("a kept VAAPI import's last copy did not finish; its Vulkan images stay allocated");
+                    return;
+                }
+                let device = &self.vulkan.device;
+                for index in 0..frame.img.len() {
+                    if frame.img[index] != vk::Image::null() {
+                        device.destroy_image(frame.img[index], None);
+                    }
+                    if frame.mem[index] != vk::DeviceMemory::null() {
+                        device.free_memory(frame.mem[index], None);
+                    }
+                    if frame.sem[index] != vk::Semaphore::null() {
+                        device.destroy_semaphore(frame.sem[index], None);
+                    }
+                }
+                free_frame(self.frame);
+            }
+        }
+    }
+
+    /// Frees an AVVkFrame of `av_vk_frame_alloc` as hwcontext_vulkan's `vulkan_free_internal`
+    /// does: its internal part begins with the `pthread_mutex_t` the default frame lock takes
+    /// (libavutil 59 and 60; the CUDA fields after it are never set on these frames), which is
+    /// destroyed, then both are freed.
+    ///
+    /// # Safety
+    /// `frame` is an unused frame of `av_vk_frame_alloc`.
+    unsafe fn free_frame(frame: *mut VkFrame) {
+        let internal = (*frame).internal;
+        if !internal.is_null() {
+            libc::pthread_mutex_destroy(internal.cast());
+            av_free(internal);
+        }
+        av_free(frame.cast());
+    }
+
+    /// What a mapped frame of a kept import holds (its `buf[0]`'s opaque): its VAAPI picture, so the
+    /// surface is the presenter's until the frame is freed, and the import.
+    struct Lent {
+        source: *mut AVFrame,
+        import: Arc<CachedImport>,
+    }
+
+    impl Drop for Lent {
+        fn drop(&mut self) {
+            // SAFETY: The import's frame and our own reference to the picture.
+            unsafe {
+                // `Planes` keeps a picture until its copy is done, so this does not wait; a picture
+                // freed earlier (its reference could not be kept) waits for the copy, as FFmpeg's
+                // own unmap does, before VA-API may decode into the surface again.
+                if !self.import.vulkan.wait(&*self.import.frame) {
+                    note("a mapped VAAPI picture's copy did not finish; its surface goes back to the decoder anyway");
+                }
+                av_frame_free(&mut self.source);
+            }
+        }
+    }
+
+    unsafe extern "C" fn give_back(opaque: *mut c_void, _data: *mut u8) {
+        drop(Box::from_raw(opaque.cast::<Lent>()));
+    }
+
+    /// The imports of the surfaces of the pool pictures come from now (`SurfaceCache`), and the
+    /// renderer's device they are made on.
+    pub struct SurfaceImports {
+        vulkan: Arc<ImportDevice>,
+        cache: SurfaceCache<Arc<CachedImport>>,
+        /// The frames context whose surfaces the cache holds imports of, kept alive with it so
+        /// no other pool takes its address (the cache's key).
+        _pool: FramesRef,
+        /// `dmabuf::export`'s, which only the OpenGL import sets.
+        decline: Arc<AtomicBool>,
+    }
+
+    impl SurfaceImports {
+        /// The imports for VAAPI pictures on the renderer `gpu`, unless `NIGHTJAR_DMABUF_CACHE=0`
+        /// or its device cannot be loaded; which path the pictures take goes to the log.
+        ///
+        /// # Safety
+        /// As `ImportDevice::of`.
+        pub(super) unsafe fn start(gpu: *mut SDL_GPUDevice) -> Option<Self> {
+            if !dmabuf::caching() {
+                note(&format!("VAAPI pictures are imported into Vulkan anew for every picture: {}=0", dmabuf::CACHE_ENVIRONMENT));
+                return None;
+            }
+            match ImportDevice::of(gpu) {
+                Ok(vulkan) => {
+                    note("VAAPI 4:2:0 pictures are imported into Vulkan once per decoder surface, kept while the pool lasts");
+                    Some(Self { vulkan: Arc::new(vulkan), cache: SurfaceCache::new(CACHE_LIMIT), _pool: FramesRef::none(), decline: Arc::new(AtomicBool::new(false)) })
+                }
+                Err(why) => {
+                    note(&format!("VAAPI pictures are imported into Vulkan anew for every picture: {why}"));
+                    None
+                }
+            }
+        }
+
+        /// Maps the two-plane VAAPI picture `source` (`ten_bit`: P010, else NV12) into `target`, an
+        /// empty frame, as a frame of `frames` (`VaapiMap`'s, marked `MAPPED`) whose images are the
+        /// surface's kept import, made now if the surface has none. True when it was kept. On an
+        /// error `target` is empty again.
+        ///
+        /// # Safety
+        /// `source` is a live VAAPI frame, `target` an empty one, `frames` a live Vulkan frames
+        /// context on the renderer's device.
+        pub(super) unsafe fn map(&mut self, source: *const AVFrame, target: *mut AVFrame, frames: *mut AVBufferRef, ten_bit: bool) -> Result<bool, String> {
+            // Syncs the surface: the decode is done before any copy reads it.
+            let export = dmabuf::export(source, &self.decline)?;
+            let generation = export.generation();
+            // Another pool or size: its surfaces are other buffers. The old imports go once no
+            // mapped frame uses them.
+            let (changed, gone) = self.cache.retarget(generation);
+            drop(gone);
+            if changed {
+                self._pool = FramesRef::of(export.frames());
+            }
+            let (import, cached) = match self.cache.get(export.surface()) {
+                Some(import) => (import.clone(), true),
+                None => {
+                    let import = Arc::new(CachedImport::new(&self.vulkan, export.descriptor()?, generation.width, generation.height, ten_bit)?);
+                    drop(self.cache.insert(export.surface(), import.clone()));
+                    (import, false)
+                }
+            };
+            // The exported descriptors close here; the imports hold their own.
+            drop(export);
+            // SAFETY: No other picture uses the import (`CachedImport`'s Send).
+            ready_for_reuse(&mut *import.frame);
+            lend(target, source, frames, import)?;
+            Ok(cached)
+        }
+    }
+
+    /// Makes `target` a Vulkan frame of `frames` showing `import`'s images, holding `source` and
+    /// the import until it is freed (`Lent`).
+    ///
+    /// # Safety
+    /// As `SurfaceImports::map`.
+    unsafe fn lend(target: *mut AVFrame, source: *const AVFrame, frames: *mut AVBufferRef, import: Arc<CachedImport>) -> Result<(), String> {
+        let held = av_frame_clone(source);
+        if held.is_null() {
+            return Err("the VAAPI picture cannot be referenced (out of memory)".into());
+        }
+        let vkf = import.frame;
+        let opaque = Box::into_raw(Box::new(Lent { source: held, import }));
+        let buffer = av_buffer_create(vkf.cast(), std::mem::size_of::<VkFrame>(), Some(give_back), opaque.cast(), 0);
+        if buffer.is_null() {
+            drop(Box::from_raw(opaque));
+            return Err("FFmpeg cannot allocate the mapped picture's buffer".into());
+        }
+        (*target).buf[0] = buffer;
+        (*target).data[0] = vkf.cast();
+        (*target).format = AV_PIX_FMT_VULKAN;
+        (*target).width = (*source).width;
+        (*target).height = (*source).height;
+        (*target).hw_frames_ctx = av_buffer_ref(frames);
+        if (*target).hw_frames_ctx.is_null() {
+            av_frame_unref(target);
+            return Err("FFmpeg cannot reference the Vulkan frames context".into());
+        }
+        Ok(())
     }
 }
 
@@ -1088,9 +1669,10 @@ impl Drop for HeldFrame {
 }
 
 /// The old layout and the queue families of a picture image's barrier before the copy: an
-/// imported image (`VK_QUEUE_FAMILY_EXTERNAL`, FFmpeg's DMA-BUF import) is acquired from outside
-/// Vulkan by the renderer's `family`, from GENERAL when FFmpeg left it UNDEFINED (whose contents
-/// a transition may drop); FFmpeg's own images are shared and need no transfer.
+/// imported image (`VK_QUEUE_FAMILY_EXTERNAL`, FFmpeg's DMA-BUF import or a kept one of
+/// `VaapiMap`) is acquired from outside Vulkan by the renderer's `family`, from GENERAL when it
+/// was left UNDEFINED (whose contents a transition may drop), and released back after the copy
+/// (`release`); FFmpeg's own images are shared and need no transfer.
 fn acquire(owner: u32, layout: vk::ImageLayout, family: u32) -> (vk::ImageLayout, u32, u32) {
     if owner == vk::QUEUE_FAMILY_EXTERNAL {
         let layout = if layout == vk::ImageLayout::UNDEFINED {
@@ -1101,6 +1683,42 @@ fn acquire(owner: u32, layout: vk::ImageLayout, family: u32) -> (vk::ImageLayout
         (layout, vk::QUEUE_FAMILY_EXTERNAL, family)
     } else {
         (layout, vk::QUEUE_FAMILY_IGNORED, vk::QUEUE_FAMILY_IGNORED)
+    }
+}
+
+/// The barrier after the copy that gives an acquired imported `image` back to VA-API: from the
+/// renderer's `family` to `VK_QUEUE_FAMILY_EXTERNAL`, from the copy's TRANSFER_SRC_OPTIMAL to
+/// GENERAL, after the copy's reads (a release's destination scope is the external owner's).
+/// Every use of an image shared with another API sits between such an acquire and release; a
+/// kept import is acquired again for its surface's next picture.
+fn release(image: vk::Image, family: u32) -> vk::ImageMemoryBarrier2<'static> {
+    vk::ImageMemoryBarrier2::default()
+        .src_stage_mask(vk::PipelineStageFlags2::COPY)
+        .src_access_mask(vk::AccessFlags2::TRANSFER_READ)
+        .dst_stage_mask(vk::PipelineStageFlags2::NONE)
+        .dst_access_mask(vk::AccessFlags2::NONE)
+        .old_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
+        .new_layout(vk::ImageLayout::GENERAL)
+        .src_queue_family_index(family)
+        .dst_queue_family_index(vk::QUEUE_FAMILY_EXTERNAL)
+        .image(image)
+        .subresource_range(vk::ImageSubresourceRange {
+            aspect_mask: vk::ImageAspectFlags::COLOR,
+            base_mip_level: 0,
+            level_count: 1,
+            base_array_layer: 0,
+            layer_count: 1,
+        })
+}
+
+/// The layout and owner a picture image of `owner` is left with after its copy, for the frame:
+/// an imported one released to VA-API (`release`) in GENERAL; any other in TRANSFER_SRC_OPTIMAL,
+/// its owner kept.
+fn after_copy(owner: u32) -> (vk::ImageLayout, u32) {
+    if owner == vk::QUEUE_FAMILY_EXTERNAL {
+        (vk::ImageLayout::GENERAL, vk::QUEUE_FAMILY_EXTERNAL)
+    } else {
+        (vk::ImageLayout::TRANSFER_SRC_OPTIMAL, owner)
     }
 }
 
@@ -1682,7 +2300,8 @@ impl Planes {
     /// picture is the decoder's again once the copy is done, which its semaphore tells FFmpeg.
     /// FFmpeg's images are shared by every queue family it was given (or made in SDL's alone), so
     /// no ownership moves; an imported one (a mapped VAAPI picture, `VaapiMap`) is acquired from
-    /// outside Vulkan and kept until its copy is done; an image owned by another family is refused.
+    /// outside Vulkan, released back to it after the copy (`release`), and kept until its copy is
+    /// done; an image owned by another family is refused.
     ///
     /// # Safety
     /// `frame` must be a live Vulkan AVFrame made with `device_context` on this device, and
@@ -1811,6 +2430,10 @@ impl Planes {
             )
             .map_err(|e| format!("the copy cannot be recorded ({e})"))?;
         let family = self.family;
+        // Imported images (VA-API's surfaces) go back to VA-API after the copy.
+        let external: Vec<bool> = (0..sources)
+            .map(|index| source.queue_family[index] == vk::QUEUE_FAMILY_EXTERNAL)
+            .collect();
         let mut before: Vec<vk::ImageMemoryBarrier2> = (0..sources)
             .map(|index| {
                 let (old_layout, from, to) =
@@ -1887,7 +2510,7 @@ impl Planes {
                 &[region],
             );
         }
-        let after: Vec<vk::ImageMemoryBarrier2> = self
+        let mut after: Vec<vk::ImageMemoryBarrier2> = self
             .images
             .iter()
             .map(|&(image, _)| {
@@ -1904,6 +2527,11 @@ impl Planes {
                     .subresource_range(range(vk::ImageAspectFlags::COLOR))
             })
             .collect();
+        after.extend(
+            (0..sources)
+                .filter(|&index| external[index])
+                .map(|index| release(source.img[index], family)),
+        );
         device.cmd_pipeline_barrier2(
             commands,
             &vk::DependencyInfo::default().image_memory_barriers(&after),
@@ -1949,11 +2577,10 @@ impl Planes {
         }
         for index in 0..sources {
             source.sem_value[index] += 1;
-            source.layout[index] = vk::ImageLayout::TRANSFER_SRC_OPTIMAL;
+            let (layout, owner) = after_copy(source.queue_family[index]);
+            source.layout[index] = layout;
+            source.queue_family[index] = owner;
             source.access[index] = vk::AccessFlags::empty();
-            if source.queue_family[index] == vk::QUEUE_FAMILY_EXTERNAL {
-                source.queue_family[index] = family;
-            }
         }
         Ok(())
     }
@@ -2257,6 +2884,134 @@ mod tests {
         assert_eq!(acquire(2, vk::ImageLayout::GENERAL, 2).1, vk::QUEUE_FAMILY_IGNORED);
     }
 
+    /// An imported image went on to belong to the renderer's family after its copy; a kept import is
+    /// read again for its surface's next picture, so each copy gives it back to VA-API, in the
+    /// layout the next acquire starts from.
+    #[test]
+    fn an_imported_picture_is_released_back_to_vaapi_after_its_copy() {
+        let image = vk::Image::from_raw(0x51);
+        let barrier = release(image, 3);
+        assert_eq!((barrier.src_queue_family_index, barrier.dst_queue_family_index), (3, vk::QUEUE_FAMILY_EXTERNAL));
+        assert!((barrier.old_layout, barrier.new_layout) == (vk::ImageLayout::TRANSFER_SRC_OPTIMAL, vk::ImageLayout::GENERAL));
+        assert!((barrier.src_stage_mask, barrier.src_access_mask) == (vk::PipelineStageFlags2::COPY, vk::AccessFlags2::TRANSFER_READ), "after the copy's reads");
+        assert_eq!(barrier.image.as_raw(), image.as_raw());
+        assert!((barrier.subresource_range.aspect_mask, barrier.subresource_range.level_count, barrier.subresource_range.layer_count) == (vk::ImageAspectFlags::COLOR, 1, 1));
+        // The frame says so afterwards: the next copy acquires it from where the release left it.
+        assert!(after_copy(vk::QUEUE_FAMILY_EXTERNAL) == (vk::ImageLayout::GENERAL, vk::QUEUE_FAMILY_EXTERNAL));
+        let (layout, from, to) = acquire(after_copy(vk::QUEUE_FAMILY_EXTERNAL).1, after_copy(vk::QUEUE_FAMILY_EXTERNAL).0, 3);
+        assert!((layout, from, to) == (barrier.new_layout, barrier.dst_queue_family_index, barrier.src_queue_family_index));
+        // FFmpeg's own images stay where the copy left them, with their owner.
+        assert!(after_copy(vk::QUEUE_FAMILY_IGNORED) == (vk::ImageLayout::TRANSFER_SRC_OPTIMAL, vk::QUEUE_FAMILY_IGNORED));
+        assert!(after_copy(3) == (vk::ImageLayout::TRANSFER_SRC_OPTIMAL, 3));
+    }
+
+    /// Intel's iHD exports an NV12 surface as one Y-tiled object, chroma after luma in it.
+    fn exported(ten_bit: bool) -> crate::dmabuf::Descriptor {
+        use crate::dmabuf::{Descriptor, Layer, Object};
+        let (luma, chroma) = if ten_bit { (DRM_FORMAT_R16, DRM_FORMAT_GR1616) } else { (crate::dmabuf::DRM_FORMAT_R8, crate::dmabuf::DRM_FORMAT_GR88) };
+        let pitch = if ten_bit { 4096 } else { 2048 };
+        let mut descriptor = Descriptor { fourcc: fourcc(if ten_bit { b"P010" } else { b"NV12" }), width: 1920, height: 1088, num_objects: 1, num_layers: 2, ..Default::default() };
+        descriptor.objects[0] = Object { fd: 7, size: 6_291_456, drm_format_modifier: 0x0100_0000_0000_0002 };
+        descriptor.layers[0] = Layer { drm_format: luma, num_planes: 1, pitch: [pitch, 0, 0, 0], ..Default::default() };
+        descriptor.layers[1] = Layer { drm_format: chroma, num_planes: 1, offset: [pitch * 1088, 0, 0, 0], pitch: [pitch, 0, 0, 0], ..Default::default() };
+        descriptor
+    }
+
+    /// A kept import is made of the two layers `Planes` copies, in the formats its plane images
+    /// are in; anything else stays with FFmpeg's own mapping.
+    #[test]
+    fn only_two_one_plane_layers_of_the_pictures_depth_are_imported() {
+        assert!(layer_format(crate::dmabuf::DRM_FORMAT_R8) == Some(vk::Format::R8_UNORM));
+        assert!(layer_format(crate::dmabuf::DRM_FORMAT_GR88) == Some(vk::Format::R8G8_UNORM));
+        assert!(layer_format(DRM_FORMAT_R16) == Some(vk::Format::R16_UNORM));
+        assert!(layer_format(DRM_FORMAT_GR1616) == Some(vk::Format::R16G16_UNORM));
+        assert_eq!((DRM_FORMAT_R16, DRM_FORMAT_GR1616), (0x2036_3152, 0x3233_5247), "drm_fourcc.h");
+        for other in [fourcc(b"NV12"), fourcc(b"P010"), fourcc(b"RG88"), fourcc(b"XYUV")] {
+            assert!(layer_format(other).is_none(), "{other:#x}");
+        }
+        for ten_bit in [false, true] {
+            let formats = import_layers(&exported(ten_bit), ten_bit).unwrap();
+            assert!([plane_format(0, ten_bit, false).0, plane_format(1, ten_bit, false).0] == formats, "the plane images' formats, so the copy is bit for bit");
+            let why = import_layers(&exported(ten_bit), !ten_bit).err().expect("another depth is refused");
+            assert!(why.starts_with("layer 0 is DRM format"), "another depth than the frames context's: {why}");
+        }
+        let mut composed = exported(false);
+        composed.num_layers = 1;
+        assert!(import_layers(&composed, false).err().is_some_and(|why| why.contains("1 layers in 1 objects")));
+        let mut two_planes = exported(false);
+        two_planes.layers[1].num_planes = 2;
+        assert!(import_layers(&two_planes, false).err().is_some_and(|why| why.contains("with 2 planes")));
+        let mut stray = exported(false);
+        stray.layers[1].object_index[0] = 1;
+        assert_eq!(import_layers(&stray, false).err().as_deref(), Some("layer 1 names object 1 of 1"));
+        let mut none = exported(false);
+        none.num_objects = 0;
+        assert!(import_layers(&none, false).is_err());
+    }
+
+    /// Each layer's image is laid out in its object as the export says, chroma half size rounded up.
+    #[test]
+    fn a_layer_is_imported_at_its_offset_and_pitch_in_its_object() {
+        let mut descriptor = exported(true);
+        let (object, modifier, layout) = layer_layout(&descriptor, 1);
+        assert_eq!((object, modifier), (0, 0x0100_0000_0000_0002));
+        assert_eq!((layout.offset, layout.row_pitch), (4096 * 1088, 4096));
+        assert_eq!((layout.size, layout.array_pitch, layout.depth_pitch), (0, 0, 0), "the specification asks for 0");
+        // AMD's radeonsi may export each plane as an object of its own.
+        descriptor.num_objects = 2;
+        descriptor.objects[1] = crate::dmabuf::Object { fd: 8, size: 2_000_000, drm_format_modifier: 0x0200_0000_0000_0001 };
+        descriptor.layers[1].object_index[0] = 1;
+        descriptor.layers[1].offset[0] = 0;
+        let (object, modifier, layout) = layer_layout(&descriptor, 1);
+        assert_eq!((object, modifier, layout.offset), (1, 0x0200_0000_0000_0001, 0));
+        assert_eq!(layer_layout(&descriptor, 0).0, 0);
+        assert_eq!(layer_extent(0, 1919, 1081), (1919, 1081));
+        assert_eq!(layer_extent(1, 1919, 1081), (960, 541));
+    }
+
+    /// The import's memory is of a type both the DMA-BUF and the image allow, device-local first;
+    /// none when they share none (FFmpeg's own mapping is used then).
+    #[test]
+    fn imported_memory_is_of_a_type_the_dmabuf_and_the_image_both_take() {
+        let types = [
+            vk::MemoryPropertyFlags::HOST_VISIBLE,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL | vk::MemoryPropertyFlags::HOST_VISIBLE,
+        ];
+        assert_eq!(import_memory_type(0b1111, 0b1111, &types), Some(1), "device-local first");
+        assert_eq!(import_memory_type(0b1101, 0b1111, &types), Some(3));
+        assert_eq!(import_memory_type(0b0101, 0b0111, &types), Some(0), "else the lowest both take");
+        assert_eq!(import_memory_type(0b0010, 0b1101, &types), None);
+        assert_eq!(import_memory_type(0b1_0000, 0b1_0000, &types), None, "a type the device does not have");
+    }
+
+    /// A kept import is handed to the copy as VA-API's again, whatever an earlier picture left in
+    /// its frame, with the semaphore values the last copy signalled.
+    #[test]
+    fn a_kept_import_is_handed_out_owned_by_vaapi_with_its_semaphore_values() {
+        // SAFETY: A plain C struct, all-zero is valid.
+        let mut frame: VkFrame = unsafe { std::mem::zeroed() };
+        for index in 0..2 {
+            frame.img[index] = vk::Image::from_raw(0x10 + index as u64);
+            frame.sem[index] = vk::Semaphore::from_raw(0x20 + index as u64);
+            frame.sem_value[index] = 41;
+            frame.layout[index] = vk::ImageLayout::TRANSFER_SRC_OPTIMAL;
+            frame.queue_family[index] = 3;
+            frame.access[index] = vk::AccessFlags::TRANSFER_READ;
+        }
+        frame.layout[0] = vk::ImageLayout::UNDEFINED;
+        ready_for_reuse(&mut frame);
+        for index in 0..2 {
+            assert!(frame.layout[index] == vk::ImageLayout::GENERAL, "layer {index}");
+            assert_eq!(frame.queue_family[index], vk::QUEUE_FAMILY_EXTERNAL, "layer {index}");
+            assert!(frame.access[index] == vk::AccessFlags::empty(), "layer {index}");
+            assert_eq!(frame.sem_value[index], 41, "the copy waits for the last signal");
+            assert!(acquire(frame.queue_family[index], frame.layout[index], 3) == (vk::ImageLayout::GENERAL, vk::QUEUE_FAMILY_EXTERNAL, 3));
+        }
+        assert!((frame.layout[2], frame.queue_family[2]) == (vk::ImageLayout::UNDEFINED, 0), "no image, nothing set");
+    }
+
     #[test]
     fn only_libavutil_59_34_to_60_has_the_structs_declared_here() {
         let version = |major: u32, minor: u32, micro: u32| major << 16 | minor << 8 | micro;
@@ -2379,6 +3134,13 @@ mod tests {
                 136,
                 136,
             ),
+            // The fields a kept VAAPI import fills (`imports::CachedImport`).
+            ("AVVkFrame.img", offset_of!(VkFrame, img), 0, 0),
+            ("AVVkFrame.tiling", offset_of!(VkFrame, tiling), 64, 64),
+            ("AVVkFrame.mem", offset_of!(VkFrame, mem), 72, 72),
+            ("AVVkFrame.size", offset_of!(VkFrame, size), 136, 136),
+            ("AVVkFrame.flags", offset_of!(VkFrame, flags), 200, 200),
+            ("AVVkFrame.internal", offset_of!(VkFrame, internal), 400, 400),
             ("AVVkFrame.access", offset_of!(VkFrame, access), 204, 204),
             ("AVVkFrame.layout", offset_of!(VkFrame, layout), 236, 236),
             ("AVVkFrame.sem", offset_of!(VkFrame, sem), 272, 272),

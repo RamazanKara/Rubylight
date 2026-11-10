@@ -223,3 +223,62 @@ fn the_pq_renderer_never_draws_into_the_swapchain() {
         offscreen_end(window, renderer);
     }
 }
+
+/// A video-only frame (`SDL.renderer.gpu.video_only`, as `stream::render`'s `clear_window` asks
+/// for one) on the PQ renderer: SDL settles it on the flush of the frame's clear, takes the HDR10
+/// swapchain image without the PQ pass, and drops and counts its own draws; the next frame, not
+/// asked, goes through the PQ pass again.
+#[test]
+#[ignore = "needs a Vulkan device and SDL's offscreen video driver"]
+fn a_video_only_frame_on_the_pq_renderer_skips_the_pq_pass_and_drops_sdls_draws() {
+    let _sdl = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // SAFETY: Plain SDL calls on objects made here, on one thread; the properties are freed here.
+    unsafe {
+        let (window, renderer) = offscreen_gpu();
+        let hdr10 = hdr10_offered(renderer);
+        SDL_DestroyRenderer(renderer);
+        if !hdr10 {
+            eprintln!("this Vulkan device offers the window no HDR10 swapchain: video-only frames are not tested");
+            SDL_DestroyWindow(window);
+            SDL_Quit();
+            return;
+        }
+        let props = SDL_CreateProperties();
+        SDL_SetPointerProperty(props, SDL_PROP_RENDERER_CREATE_WINDOW_POINTER, window.cast());
+        SDL_SetStringProperty(props, SDL_PROP_RENDERER_CREATE_NAME_STRING, c"gpu".as_ptr());
+        SDL_SetBooleanProperty(props, SDL_PROP_RENDERER_CREATE_GPU_SHADERS_SPIRV_BOOLEAN, true);
+        SDL_SetNumberProperty(props, SDL_PROP_RENDERER_CREATE_OUTPUT_COLORSPACE_NUMBER, i64::from(SDL_COLORSPACE_SRGB_LINEAR.0));
+        set_pq_present(props, true);
+        let renderer = SDL_CreateRendererWithProperties(props);
+        set_pq_present(props, false);
+        SDL_DestroyProperties(props);
+        assert!(!renderer.is_null(), "{}", error());
+        let renderer_props = SDL_GetRendererProperties(renderer);
+        let flag = |name: &std::ffi::CStr| SDL_GetBooleanProperty(renderer_props, name.as_ptr(), false);
+        let dropped = || SDL_GetNumberProperty(renderer_props, c"SDL.renderer.gpu.video_only_dropped_draws".as_ptr(), 0);
+        let square = SDL_FRect { x: 0.0, y: 0.0, w: 8.0, h: 8.0 };
+        for _ in 0..3 {
+            frame(renderer);
+        }
+        let before = window_target_frames(renderer);
+
+        SDL_SetBooleanProperty(renderer_props, c"SDL.renderer.gpu.video_only_frame".as_ptr(), false);
+        SDL_SetBooleanProperty(renderer_props, c"SDL.renderer.gpu.video_only".as_ptr(), true);
+        assert!(SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255) && SDL_RenderClear(renderer) && SDL_FlushRenderer(renderer), "{}", error());
+        SDL_SetBooleanProperty(renderer_props, c"SDL.renderer.gpu.video_only".as_ptr(), false);
+        assert!(flag(c"SDL.renderer.gpu.video_only_frame"), "settled on the flush of the clear, before the reset");
+        assert!(SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255) && SDL_RenderFillRect(renderer, &square), "{}", error());
+        assert!(SDL_RenderPresent(renderer), "{}", error());
+        assert_eq!(dropped(), 1, "SDL's own fill writes linear light: dropped");
+        assert_eq!(window_target_frames(renderer), before + 1, "straight into the HDR10 swapchain image");
+
+        // Not asked: the PQ pass again, nothing dropped.
+        assert!(SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255) && SDL_RenderClear(renderer) && SDL_FlushRenderer(renderer), "{}", error());
+        assert!(!flag(c"SDL.renderer.gpu.video_only_frame"));
+        assert!(SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255) && SDL_RenderFillRect(renderer, &square), "{}", error());
+        assert!(SDL_RenderPresent(renderer), "{}", error());
+        assert_eq!(dropped(), 1);
+        assert_eq!(window_target_frames(renderer), before + 1, "through the back buffer and the PQ pass");
+        offscreen_end(window, renderer);
+    }
+}

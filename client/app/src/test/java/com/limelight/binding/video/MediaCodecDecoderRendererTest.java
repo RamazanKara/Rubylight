@@ -161,6 +161,48 @@ public class MediaCodecDecoderRendererTest {
                 new int[] {CodecProfileLevel.HEVCProfileMain444}, false, false));
     }
 
+    /**
+     * No profile Android lists claims 10-bit 4:4:4: the API has HEVC Main 4:4:4 (8-bit) only, so
+     * 10-bit 4:4:4 is never asked of a PC that encodes it (NVENC's HEVC RExt 4:4:4 10-bit).
+     */
+    @Test
+    public void noListedProfileClaimsTenBit444() {
+        int[] hevc = {CodecProfileLevel.HEVCProfileMain, CodecProfileLevel.HEVCProfileMain10,
+                CodecProfileLevel.HEVCProfileMain10HDR10, CodecProfileLevel.HEVCProfileMain10HDR10Plus,
+                CodecProfileLevel.HEVCProfileMain444};
+        int[] av1 = {CodecProfileLevel.AV1ProfileMain8, CodecProfileLevel.AV1ProfileMain10,
+                CodecProfileLevel.AV1ProfileMain10HDR10, CodecProfileLevel.AV1ProfileMain10HDR10Plus};
+        int tenBit444 = VIDEO_FORMAT_H265_REXT10_444 | VIDEO_FORMAT_AV1_HIGH10_444;
+        for (boolean hdr : new boolean[] {false, true}) {
+            for (boolean sdr10 : new boolean[] {false, true}) {
+                int formats = DecoderSelection.videoFormatsForProfiles("video/hevc", hevc, hdr, sdr10, true) |
+                        DecoderSelection.videoFormatsForProfiles("video/av01", av1, hdr, sdr10, true);
+                assertEquals(0, formats & tenBit444);
+            }
+        }
+        // The 8-bit 4:4:4 profile still gives 8-bit 4:4:4, next to Main10.
+        assertEquals(VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10 | VIDEO_FORMAT_H265_REXT8_444,
+                DecoderSelection.videoFormatsForProfiles("video/hevc", hevc, true, true, true));
+    }
+
+    /**
+     * The 4:2:0 fallback toast says why when HDR took the stream (a 10-bit stream that is not
+     * 10-bit SDR); otherwise it keeps the plain wording.
+     */
+    @Test
+    public void the444FallbackToastNamesHdrWhenHdrTookTheStream() {
+        assertEquals(com.limelight.R.string.yuv444_fallback_hdr,
+                MediaCodecDecoderRenderer.yuv444FallbackMessage(VIDEO_FORMAT_H265_MAIN10, false));
+        assertEquals(com.limelight.R.string.yuv444_fallback_hdr,
+                MediaCodecDecoderRenderer.yuv444FallbackMessage(VIDEO_FORMAT_AV1_MAIN10, false));
+        assertEquals(com.limelight.R.string.yuv444_fallback,
+                MediaCodecDecoderRenderer.yuv444FallbackMessage(VIDEO_FORMAT_H265_MAIN10, true));
+        assertEquals(com.limelight.R.string.yuv444_fallback,
+                MediaCodecDecoderRenderer.yuv444FallbackMessage(VIDEO_FORMAT_H265, false));
+        assertEquals(com.limelight.R.string.yuv444_fallback,
+                MediaCodecDecoderRenderer.yuv444FallbackMessage(VIDEO_FORMAT_H264, false));
+    }
+
     @Test
     public void av1MainAndHevcMain10CannotClaimHdr444() {
         int formats = DecoderSelection.videoFormatsForProfiles("video/av01",

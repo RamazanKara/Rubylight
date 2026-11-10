@@ -142,6 +142,12 @@ pub struct Glass {
     stats: Stats,
     /// When the last picture was reported on the glass with a time (session clock, µs).
     last_timed_us: Option<u64>,
+    /// What the compositor says about direct scanout, opened with the feedback; None while
+    /// switched off (`NIGHTJAR_WAYLAND_SCANOUT_PROBE=0`) or before the first picture.
+    scanout: Option<Result<super::wl_scanout::Probe, String>>,
+    /// The swapchain as of the last pictures.
+    facts: super::wl_scanout::SwapFacts,
+    pictures: u64,
 }
 
 #[cfg(target_os = "linux")]
@@ -166,10 +172,23 @@ impl Glass {
         if let Ok(feedback) = feedback {
             feedback.request(frame, ready_us, now_us);
         }
+        use super::wl_scanout::{env_on, Probe, SCANOUT_PROBE_ENV};
+        if self.pictures == 0 && env_on(SCANOUT_PROBE_ENV) {
+            self.scanout = Some(Probe::open(window));
+        }
+        // The swapchain's format and mode, now and then (a few property reads).
+        if self.pictures % 256 == 0 {
+            self.facts = crate::sdl::swap_facts(window);
+        }
+        self.pictures += 1;
     }
 
     /// The pictures answered since the last call, tallied for the end of the stream.
     pub fn poll(&mut self, now_us: u64) -> Vec<Shown> {
+        if let Some(Ok(probe)) = &mut self.scanout {
+            probe.poll();
+        }
+        super::wl_scanout::pump_installed();
         let Some(Ok(feedback)) = &mut self.feedback else { return Vec::new() };
         let shown = feedback.poll(now_us);
         for answer in &shown {
@@ -192,10 +211,26 @@ impl Glass {
             Err(why) => Some(format!("presentation: not offered ({why})")),
         }
     }
+
+    /// The end-of-stream lines: presentation, then what stood for or against direct scanout;
+    /// none when no picture was presented.
+    pub fn lines(&mut self) -> Vec<String> {
+        let Some(presentation) = self.line() else { return Vec::new() };
+        let scanout = match &mut self.scanout {
+            None => format!("scanout: not looked at ({} is 0)", super::wl_scanout::SCANOUT_PROBE_ENV),
+            Some(Err(why)) => format!("scanout: not looked at ({why})"),
+            Some(Ok(probe)) => {
+                let label = super::wl_scanout::label();
+                let kde = std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|desktop| desktop.split(':').any(|name| name.eq_ignore_ascii_case("KDE")));
+                super::wl_scanout::Report { seen: probe.seen(), label: label.as_ref(), facts: self.facts, zero_copy_seen: self.stats.zero_copy > 0, kde }.line()
+            }
+        };
+        vec![presentation, scanout]
+    }
 }
 
 #[cfg(target_os = "linux")]
-mod wayland {
+pub(crate) mod wayland {
     use std::collections::VecDeque;
     use std::ffi::{c_char, c_int, c_void, CStr};
     use std::ptr::{null, null_mut};
@@ -205,25 +240,25 @@ mod wayland {
     use super::{timestamp_ns, to_glass_ns, Outcome, Shown, MAX_PENDING, TIMEOUT_NS};
 
     #[repr(C)]
-    struct Message {
-        name: *const c_char,
-        signature: *const c_char,
-        types: *const *const Interface,
+    pub(crate) struct Message {
+        pub(crate) name: *const c_char,
+        pub(crate) signature: *const c_char,
+        pub(crate) types: *const *const Interface,
     }
 
     #[repr(C)]
-    struct Interface {
-        name: *const c_char,
-        version: c_int,
-        method_count: c_int,
-        methods: *const Message,
-        event_count: c_int,
-        events: *const Message,
+    pub(crate) struct Interface {
+        pub(crate) name: *const c_char,
+        pub(crate) version: c_int,
+        pub(crate) method_count: c_int,
+        pub(crate) methods: *const Message,
+        pub(crate) event_count: c_int,
+        pub(crate) events: *const Message,
     }
 
     /// The protocol tables are immutable data shared with libwayland.
     #[repr(transparent)]
-    struct Shared<T>(T);
+    pub(crate) struct Shared<T>(pub(crate) T);
     // SAFETY: never written after initialisation; libwayland only reads them.
     unsafe impl<T> Sync for Shared<T> {}
 
@@ -257,40 +292,41 @@ mod wayland {
         events: FEEDBACK_EVENTS.0.as_ptr(),
     });
 
-    const DISPLAY_GET_REGISTRY: u32 = 1;
-    const REGISTRY_BIND: u32 = 0;
+    pub(crate) const DISPLAY_GET_REGISTRY: u32 = 1;
+    pub(crate) const REGISTRY_BIND: u32 = 0;
     const PRESENTATION_DESTROY: u32 = 0;
     const PRESENTATION_FEEDBACK: u32 = 1;
-    const MARSHAL_FLAG_DESTROY: u32 = 1;
+    pub(crate) const MARSHAL_FLAG_DESTROY: u32 = 1;
 
-    type Proxy = c_void;
-    type Queue = c_void;
-    type MarshalFlags = unsafe extern "C" fn(*mut Proxy, u32, *const Interface, u32, u32, ...) -> *mut Proxy;
+    pub(crate) type Proxy = c_void;
+    pub(crate) type Queue = c_void;
+    pub(crate) type MarshalFlags = unsafe extern "C" fn(*mut Proxy, u32, *const Interface, u32, u32, ...) -> *mut Proxy;
 
-    /// libwayland-client's calls, from the library SDL's Wayland driver already loaded.
-    struct Api {
-        marshal_flags: MarshalFlags,
-        add_listener: unsafe extern "C" fn(*mut Proxy, *const c_void, *mut c_void) -> c_int,
-        destroy: unsafe extern "C" fn(*mut Proxy),
-        get_version: unsafe extern "C" fn(*mut Proxy) -> u32,
-        create_wrapper: unsafe extern "C" fn(*mut c_void) -> *mut c_void,
-        wrapper_destroy: unsafe extern "C" fn(*mut c_void),
-        set_queue: unsafe extern "C" fn(*mut Proxy, *mut Queue),
-        create_queue: unsafe extern "C" fn(*mut c_void) -> *mut Queue,
-        queue_destroy: unsafe extern "C" fn(*mut Queue),
-        roundtrip_queue: unsafe extern "C" fn(*mut c_void, *mut Queue) -> c_int,
-        dispatch_queue_pending: unsafe extern "C" fn(*mut c_void, *mut Queue) -> c_int,
-        prepare_read_queue: unsafe extern "C" fn(*mut c_void, *mut Queue) -> c_int,
-        read_events: unsafe extern "C" fn(*mut c_void) -> c_int,
-        cancel_read: unsafe extern "C" fn(*mut c_void),
-        flush: unsafe extern "C" fn(*mut c_void) -> c_int,
-        get_fd: unsafe extern "C" fn(*mut c_void) -> c_int,
-        registry_interface: *const Interface,
-        _library: libloading::Library,
+    /// libwayland-client's calls, from the library SDL's Wayland driver already loaded (also
+    /// `wl_scanout`'s).
+    pub(crate) struct Api {
+        pub(crate) marshal_flags: MarshalFlags,
+        pub(crate) add_listener: unsafe extern "C" fn(*mut Proxy, *const c_void, *mut c_void) -> c_int,
+        pub(crate) destroy: unsafe extern "C" fn(*mut Proxy),
+        pub(crate) get_version: unsafe extern "C" fn(*mut Proxy) -> u32,
+        pub(crate) create_wrapper: unsafe extern "C" fn(*mut c_void) -> *mut c_void,
+        pub(crate) wrapper_destroy: unsafe extern "C" fn(*mut c_void),
+        pub(crate) set_queue: unsafe extern "C" fn(*mut Proxy, *mut Queue),
+        pub(crate) create_queue: unsafe extern "C" fn(*mut c_void) -> *mut Queue,
+        pub(crate) queue_destroy: unsafe extern "C" fn(*mut Queue),
+        pub(crate) roundtrip_queue: unsafe extern "C" fn(*mut c_void, *mut Queue) -> c_int,
+        pub(crate) dispatch_queue_pending: unsafe extern "C" fn(*mut c_void, *mut Queue) -> c_int,
+        pub(crate) prepare_read_queue: unsafe extern "C" fn(*mut c_void, *mut Queue) -> c_int,
+        pub(crate) read_events: unsafe extern "C" fn(*mut c_void) -> c_int,
+        pub(crate) cancel_read: unsafe extern "C" fn(*mut c_void),
+        pub(crate) flush: unsafe extern "C" fn(*mut c_void) -> c_int,
+        pub(crate) get_fd: unsafe extern "C" fn(*mut c_void) -> c_int,
+        pub(crate) registry_interface: *const Interface,
+        pub(crate) _library: libloading::Library,
     }
 
     impl Api {
-        fn load() -> Result<Self, String> {
+        pub(crate) fn load() -> Result<Self, String> {
             // SAFETY: libwayland-client's exported functions with their wayland-client-core.h
             // signatures, and its wl_registry_interface table.
             unsafe {

@@ -37,6 +37,10 @@ const CHUNK_QUEUE_BOUND: usize = 16384;
 /// Chunk buffers the decoder thread collects before it hands them back to the queue.
 const RETURN_BATCH: usize = 32;
 
+/// Spare chunk buffers a [`StagedChunks`] keeps from the queue's for the next receive call: a
+/// call's worth of datagrams twice over, so a call never waits on the queue for a buffer.
+const STAGED_SPARES: usize = 2 * net::RECEIVE_BATCH;
+
 /// One packet of a records frame in flight, see [`VideoSink::chunk`].
 pub struct Chunk {
     pub first: bool,
@@ -70,14 +74,79 @@ impl QueueState {
     }
 }
 
+/// Keeps `data` for a later chunk while `spare` holds fewer than [`STAGED_SPARES`].
+fn keep_spare(spare: &mut Vec<Vec<u8>>, data: Vec<u8>) {
+    if spare.len() < STAGED_SPARES {
+        spare.push(data);
+    }
+}
+
+/// The early chunks of one receive call on their way to the [`FrameQueue`]. They reach it
+/// together, under one lock and with at most one wakeup of the decoder thread: with the frame
+/// they end ([`FrameQueue::offer_behind`]), or at the end of the call
+/// ([`FrameQueue::offer_staged`]). Queued one at a time, nearly every chunk of a decoder that
+/// keeps up found it asleep on an empty queue and woke it, about 125,000 times a second at 4K
+/// PyroWave. Only the receive thread stages chunks; the queue applies each chunk's bound when
+/// the chunks arrive there, in their order, as [`FrameQueue::offer_chunk`] does.
+#[derive(Default)]
+pub struct StagedChunks {
+    chunks: Vec<Chunk>,
+    /// Buffers taken from the queue's spares for the next chunks.
+    spare: Vec<Vec<u8>>,
+    /// The queue's flush count when the chunks were last checked against it: a flush drops the
+    /// chunks staged before it, as it drops the queued ones.
+    flushes: u64,
+}
+
+impl StagedChunks {
+    /// Stages a chunk behind the ones staged so far, after dropping those a flush has dropped
+    /// since. The flush count is read without the queue's lock: the receive thread stages under
+    /// the receiver's lock, which every flush also runs under, so it has seen every flush before
+    /// this one.
+    fn stage(&mut self, queue: &FrameQueue, first: bool, flags: u32, payload: &[u8]) {
+        let flushes = queue.flushes.load(Ordering::Relaxed);
+        if flushes != self.flushes {
+            self.discard();
+            self.flushes = flushes;
+        }
+        let mut data = self.spare.pop().unwrap_or_default();
+        data.clear();
+        data.extend_from_slice(payload);
+        self.chunks.push(Chunk { first, flags, data });
+    }
+
+    /// Drops the staged chunks, keeping their buffers.
+    fn discard(&mut self) {
+        for chunk in self.chunks.drain(..) {
+            keep_spare(&mut self.spare, chunk.data);
+        }
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.chunks.len()
+    }
+}
+
 /// The bounded decode-unit queue between the receive and decoder threads.
 #[derive(Default)]
 pub struct FrameQueue {
     state: Mutex<QueueState>,
     ready: Condvar,
+    /// Flushes so far, which [`StagedChunks`] reads without the lock. Changed under the lock.
+    flushes: AtomicU64,
+    /// Wakeups of the decoder thread.
+    #[cfg(test)]
+    wakes: AtomicU64,
 }
 
 impl FrameQueue {
+    fn wake(&self) {
+        #[cfg(test)]
+        self.wakes.fetch_add(1, Ordering::Relaxed);
+        self.ready.notify_one();
+    }
+
     /// Queues a frame, or hands it back when the queue holds [`DECODE_UNIT_QUEUE_BOUND`].
     pub fn offer(&self, frame: Frame) -> Result<(), Frame> {
         let mut state = lock(&self.state);
@@ -86,8 +155,86 @@ impl FrameQueue {
         }
         state.items.push_back(Item::Frame(frame));
         state.frames += 1;
-        self.ready.notify_one();
+        self.wake();
         Ok(())
+    }
+
+    /// [`offer`](Self::offer) behind the staged chunks, which are queued first as
+    /// [`offer_staged`](Self::offer_staged) queues them, under the same lock and with one
+    /// wakeup: the chunks dropped over [`CHUNK_QUEUE_BOUND`], and the frame's outcome.
+    pub fn offer_behind(
+        &self,
+        staged: &mut StagedChunks,
+        frame: Frame,
+    ) -> (usize, Result<(), Frame>) {
+        let mut state = lock(&self.state);
+        let empty = state.items.is_empty();
+        let dropped = self.take_staged(&mut state, staged);
+        let result = if state.shutdown || state.frames >= DECODE_UNIT_QUEUE_BOUND {
+            Err(frame)
+        } else {
+            state.items.push_back(Item::Frame(frame));
+            state.frames += 1;
+            Ok(())
+        };
+        // A refused frame still leaves the chunks before it queued.
+        let wake = result.is_ok() || (empty && !state.items.is_empty());
+        drop(state);
+        if wake {
+            self.wake();
+        }
+        (dropped, result)
+    }
+
+    /// Queues the staged chunks behind everything queued so far, in their order, under one
+    /// lock, waking the decoder thread at most once. Each is queued or dropped as
+    /// [`offer_chunk`](Self::offer_chunk) would have: returns how many went over
+    /// [`CHUNK_QUEUE_BOUND`], which the caller counts.
+    pub fn offer_staged(&self, staged: &mut StagedChunks) -> usize {
+        if staged.chunks.is_empty() {
+            return 0;
+        }
+        let mut state = lock(&self.state);
+        // The decoder thread only sleeps on an empty queue.
+        let empty = state.items.is_empty();
+        let dropped = self.take_staged(&mut state, staged);
+        let wake = empty && !state.items.is_empty();
+        drop(state);
+        if wake {
+            self.wake();
+        }
+        dropped
+    }
+
+    /// Moves the staged chunks into the queue under its lock (see
+    /// [`offer_staged`](Self::offer_staged)), and refills the stage's spare buffers from the
+    /// queue's. The chunks staged before a flush that has run since are dropped with it,
+    /// uncounted as a flush's are.
+    fn take_staged(&self, state: &mut QueueState, staged: &mut StagedChunks) -> usize {
+        let flushes = self.flushes.load(Ordering::Relaxed);
+        if flushes != staged.flushes {
+            staged.discard();
+            staged.flushes = flushes;
+        }
+        let mut dropped = 0;
+        let StagedChunks { chunks, spare, .. } = staged;
+        for chunk in chunks.drain(..) {
+            if state.shutdown {
+                keep_spare(spare, chunk.data);
+            } else if state.chunks >= CHUNK_QUEUE_BOUND {
+                dropped += 1;
+                keep_spare(spare, chunk.data);
+            } else {
+                state.items.push_back(Item::Chunk(chunk));
+                state.chunks += 1;
+            }
+        }
+        let refill = STAGED_SPARES
+            .saturating_sub(spare.len())
+            .min(state.spare.len());
+        let from = state.spare.len() - refill;
+        spare.extend(state.spare.drain(from..));
+        dropped
     }
 
     /// Queues an early chunk behind everything queued so far. Returns false when it was
@@ -109,15 +256,27 @@ impl FrameQueue {
         state.chunks += 1;
         drop(state);
         if wake {
-            self.ready.notify_one();
+            self.wake();
         }
         true
     }
 
     /// Drops every queued frame and chunk, returning the frames. The queue keeps its
     /// capacity, and the chunk buffers go back to the spares.
+    #[cfg(test)]
     pub fn flush(&self) -> Vec<Frame> {
+        self.flush_staged(None)
+    }
+
+    /// [`flush`](Self::flush) that drops the chunks `staged` holds too: the flush comes after
+    /// them in the receiver's order.
+    pub fn flush_staged(&self, staged: Option<&mut StagedChunks>) -> Vec<Frame> {
         let mut state = lock(&self.state);
+        let flushes = self.flushes.fetch_add(1, Ordering::Relaxed) + 1;
+        if let Some(staged) = staged {
+            staged.discard();
+            staged.flushes = flushes;
+        }
         state.frames = 0;
         state.chunks = 0;
         let QueueState { items, spare, .. } = &mut *state;
@@ -245,6 +404,15 @@ pub struct VideoCounters {
     pub decoder_drops: AtomicU64,
 }
 
+impl VideoCounters {
+    fn count_chunks_dropped(&self, dropped: usize) {
+        if dropped > 0 {
+            self.chunks_dropped
+                .fetch_add(dropped as u64, Ordering::Relaxed);
+        }
+    }
+}
+
 /// State the receive thread, the decoder thread and the control thread share.
 pub struct VideoShared {
     pub receiver: Mutex<VideoReceiver>,
@@ -327,6 +495,7 @@ impl Direct {
             let mut sink = Sink {
                 shared,
                 direct: None,
+                staged: None,
                 signals,
             };
             receiver.request_decoder_refresh(&mut sink);
@@ -340,6 +509,9 @@ impl Direct {
 struct Sink<'a> {
     shared: &'a VideoShared,
     direct: Option<&'a mut Direct>,
+    /// Where the receive thread's early chunks wait for their frame or the end of the receive
+    /// call ([`receive_batch`]). Without, each chunk is queued at once.
+    staged: Option<&'a mut StagedChunks>,
     signals: &'a mut Vec<VideoSignal>,
 }
 
@@ -353,7 +525,14 @@ impl VideoSink for Sink<'_> {
             direct.ready.push(frame);
             return Ok(());
         }
-        let result = self.shared.queue.offer(frame);
+        let result = match self.staged.as_deref_mut() {
+            Some(staged) => {
+                let (dropped, result) = self.shared.queue.offer_behind(staged, frame);
+                self.shared.counters.count_chunks_dropped(dropped);
+                result
+            }
+            None => self.shared.queue.offer(frame),
+        };
         if result.is_err() {
             self.shared
                 .counters
@@ -364,7 +543,10 @@ impl VideoSink for Sink<'_> {
     }
 
     fn flush_frames(&mut self) -> usize {
-        self.shared.queue.flush().len()
+        self.shared
+            .queue
+            .flush_staged(self.staged.as_deref_mut())
+            .len()
     }
 
     fn signal(&mut self, signal: VideoSignal) {
@@ -373,8 +555,16 @@ impl VideoSink for Sink<'_> {
 
     fn chunk(&mut self, first: bool, flags: u32, payload: &[u8]) {
         // PyroWave never submits directly, so a direct decoder has asked for no chunks.
-        if self.direct.is_none() && !self.shared.queue.offer_chunk(first, flags, payload) {
-            self.shared.counters.chunks_dropped.fetch_add(1, Ordering::Relaxed);
+        if self.direct.is_some() {
+            return;
+        }
+        match self.staged.as_deref_mut() {
+            Some(staged) => staged.stage(&self.shared.queue, first, flags, payload),
+            None => {
+                if !self.shared.queue.offer_chunk(first, flags, payload) {
+                    self.shared.counters.count_chunks_dropped(1);
+                }
+            }
         }
     }
 }
@@ -555,12 +745,17 @@ fn receive_thread(
     let mut batch = net::BatchReceiver::new(&socket, max_datagram);
     match batch.take_fallback() {
         Some(e) => session.log(&format!("Video receive takes one datagram per call: {e}")),
+        None if batch.batched() && cfg!(windows) => session.log(&format!(
+            "Video receive coalescing is on: up to {} datagrams per call",
+            net::RECEIVE_BATCH
+        )),
         None if batch.batched() => session.log(&format!(
             "Video receive takes up to {} queued datagrams per call",
             net::RECEIVE_BATCH
         )),
         None => {}
     }
+    let mut staged = StagedChunks::default();
     let mut trace = PacketTrace::from_env(Stream::Video { encrypted });
     while !stop.load(Ordering::Acquire) {
         if let Some(trace) = trace.as_mut() {
@@ -626,6 +821,7 @@ fn receive_thread(
             count,
             |i| batch.datagram(i),
             &mut trace,
+            &mut staged,
             |signals| route(&control, signals),
         );
     }
@@ -642,6 +838,14 @@ fn receive_thread(
 /// then the signals (the control thread takes the receiver's lock too). The submissions'
 /// feedback reaches the receiver at the start of the next lock section, before the next
 /// datagram, and its signals are routed with the datagram's.
+///
+/// The batch's early chunks wait in `staged`: each frame takes the ones before it into the
+/// queue when it completes, and the rest go at the end of the batch, so the decoder thread
+/// wakes once for a batch of chunks rather than for each, and never later than the end of the
+/// batch. The datagrams of a lock section share one receive time, read at its first: all of
+/// them were queued when the batch was received, and a completed frame (whose signal ends
+/// the section) or a submission starts a new section with a new reading.
+#[allow(clippy::too_many_arguments)]
 fn receive_batch<'b>(
     shared: &VideoShared,
     mut direct: Option<&mut Direct>,
@@ -649,6 +853,7 @@ fn receive_batch<'b>(
     count: usize,
     datagram_at: impl Fn(usize) -> &'b [u8],
     trace: &mut Option<PacketTrace>,
+    staged: &mut StagedChunks,
     mut route_signals: impl FnMut(&mut Vec<VideoSignal>),
 ) {
     let mut next = 0;
@@ -658,16 +863,18 @@ fn receive_batch<'b>(
             if let Some(d) = direct.as_deref_mut() {
                 d.settle(&mut receiver, shared, signals);
             }
+            let mut section_us = None;
             while signals.is_empty() && next < count {
                 let datagram = datagram_at(next);
                 next += 1;
-                let now = now_us();
+                let now = *section_us.get_or_insert_with(now_us);
                 if let Some(trace) = trace.as_mut() {
                     trace.push(now, datagram);
                 }
                 let mut sink = Sink {
                     shared,
                     direct: direct.as_deref_mut(),
+                    staged: Some(&mut *staged),
                     signals: &mut *signals,
                 };
                 receiver.receive(datagram, now, &mut sink);
@@ -690,6 +897,12 @@ fn receive_batch<'b>(
         if let Some(d) = direct.as_deref_mut().filter(|d| !d.ready.is_empty()) {
             d.submit(shared);
             continue;
+        }
+        if next >= count {
+            // The chunks behind the batch's last frame, ahead of the signals so the decoder
+            // starts on them first.
+            let dropped = shared.queue.offer_staged(staged);
+            shared.counters.count_chunks_dropped(dropped);
         }
         route_signals(signals);
         if next >= count {
@@ -751,6 +964,7 @@ fn decode_loop(
                     let mut sink = Sink {
                         shared,
                         direct: None,
+                        staged: None,
                         signals: &mut signals,
                     };
                     receiver.request_decoder_refresh(&mut sink);
@@ -1062,6 +1276,7 @@ mod tests {
         }
     }
 
+    /// The datagrams one at a time, each chunk queued as the receiver gives it.
     fn feed(shared: &VideoShared, packets: &[Vec<u8>]) {
         let mut signals = Vec::new();
         for packet in packets {
@@ -1069,9 +1284,32 @@ mod tests {
             let mut sink = Sink {
                 shared,
                 direct: None,
+                staged: None,
                 signals: &mut signals,
             };
             receiver.receive(packet, 7, &mut sink);
+        }
+    }
+
+    /// The datagrams as the receive thread takes them, in receive calls of `call` datagrams.
+    fn feed_calls(
+        shared: &VideoShared,
+        staged: &mut StagedChunks,
+        packets: &[Vec<u8>],
+        call: usize,
+    ) {
+        let mut signals = Vec::new();
+        for batch in packets.chunks(call) {
+            receive_batch(
+                shared,
+                None,
+                &mut signals,
+                batch.len(),
+                |i| batch[i].as_slice(),
+                &mut None,
+                staged,
+                |signals| signals.clear(),
+            );
         }
     }
 
@@ -1080,6 +1318,7 @@ mod tests {
         let mut sink = Sink {
             shared,
             direct: None,
+            staged: None,
             signals: &mut signals,
         };
         lock(&shared.receiver).request_decoder_refresh(&mut sink);
@@ -1296,12 +1535,12 @@ mod tests {
     fn a_decoder_slower_than_the_stream_never_fills_the_queue() {
         // Without the skip the frames pile up until one finds the queue full, which flushes
         // it and asks for a key frame.
-        let (shared, full, _, seen) = slower_than_the_stream(false);
+        let (shared, full, _, seen) = slower_than_the_stream(false, false);
         assert!(full.is_some(), "the backlog never reached the bound");
         assert!(skipped_numbers(&seen).is_empty());
         assert_eq!(shared.counters.frames_skipped.load(Ordering::Relaxed), 0);
 
-        let (shared, full, deepest, seen) = slower_than_the_stream(true);
+        let (shared, full, deepest, seen) = slower_than_the_stream(true, false);
         assert_eq!(full, None, "a frame found the queue full");
         assert!(deepest <= SKIP_BACKLOG + 1, "the queue held {deepest}");
         let (decoded, skipped) = (decoded_numbers(&seen), skipped_numbers(&seen));
@@ -1314,6 +1553,29 @@ mod tests {
         assert_eq!(counters.submitted.load(Ordering::Relaxed), decoded.len() as u64);
         assert_eq!(counters.frames_skipped.load(Ordering::Relaxed), skipped.len() as u64);
         assert_eq!(counters.need_idr.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn a_decoder_slower_than_the_stream_skips_alike_with_chunks_staged_per_receive_call() {
+        // The same stream as PyroWave datagrams in receive calls: the chunks reach the queue
+        // with their frame or at the end of the call, and the skips stay as they were.
+        let (shared, full, deepest, seen) = slower_than_the_stream(true, true);
+        assert_eq!(full, None, "a frame found the queue full");
+        assert!(deepest <= SKIP_BACKLOG + 1, "the queue held {deepest}");
+        let (decoded, skipped) = (decoded_numbers(&seen), skipped_numbers(&seen));
+        assert_eq!(decoded.len() + skipped.len(), SLOW_FRAMES as usize);
+        assert!(decoded.windows(2).all(|pair| pair[0] < pair[1]), "{decoded:?}");
+        assert_eq!(decoded.last(), Some(&SLOW_FRAMES), "the newest frame is decoded");
+        assert!(skipped.len() >= 15 && skipped.len() <= 20, "{skipped:?}");
+        // A decoded frame had every chunk of its own, first one first.
+        assert!(frames_seen(&seen).iter().all(|(_, whole)| *whole), "{seen:?}");
+        assert!(chunks_seen(&seen) > 0);
+        let counters = &shared.counters;
+        assert_eq!(counters.submitted.load(Ordering::Relaxed), decoded.len() as u64);
+        assert_eq!(counters.frames_skipped.load(Ordering::Relaxed), skipped.len() as u64);
+        assert!(counters.chunks_skipped.load(Ordering::Relaxed) > 0);
+        assert_eq!(counters.chunks_dropped.load(Ordering::Relaxed), 0);
+        assert_eq!(counters.queue_overflows.load(Ordering::Relaxed), 0);
     }
 
     /// The frames [`slower_than_the_stream`] sends: six for every five decodes.
@@ -1336,6 +1598,10 @@ mod tests {
             self.recorder.intra_only
         }
 
+        fn chunk(&mut self, first: bool, flags: u32, payload: &[u8]) {
+            self.recorder.chunk(first, flags, payload);
+        }
+
         fn skip(&mut self, frame: &Frame) {
             self.recorder.skip(frame);
         }
@@ -1349,10 +1615,12 @@ mod tests {
     }
 
     /// A stream a fifth faster than its decoder: one frame arrives during each decode and
-    /// two during every fifth. Returns the first frame that found the queue full, if one
-    /// did, the most frames the queue held, and what the decoder saw.
+    /// two during every fifth, queued whole or, with `datagrams`, as PyroWave datagrams in
+    /// receive calls of [`net::RECEIVE_BATCH`]. Returns the first frame that found the queue
+    /// full, if one did, the most frames the queue held, and what the decoder saw.
     fn slower_than_the_stream(
         intra_only: bool,
+        datagrams: bool,
     ) -> (Arc<VideoShared>, Option<u32>, usize, Vec<Seen>) {
         let shared = Arc::new(VideoShared::new(records(true)));
         let (tx, rx) = mpsc::channel();
@@ -1373,14 +1641,26 @@ mod tests {
                 .recv_timeout(HANG_GUARD)
                 .expect("the decoder never took the next frame")
         };
-        assert!(shared.queue.offer(numbered(1, FrameType::P)).is_ok());
+        let mut host = Blocks::new();
+        let mut staged = StagedChunks::default();
+        // Whether frame `number` found room in the queue.
+        let mut arrive = |number: u32| {
+            if !datagrams {
+                return shared.queue.offer(numbered(number, FrameType::P)).is_ok();
+            }
+            // The test host numbers its frames from 1 as this does.
+            let packets = flat(host.frame(&[8, 6], number as u8));
+            feed_calls(&shared, &mut staged, &packets, net::RECEIVE_BATCH);
+            shared.counters.queue_overflows.load(Ordering::Relaxed) == 0
+        };
+        assert!(arrive(1));
         decoding();
         let (mut number, mut full, mut deepest) = (1, None, 0);
         'stream: for decode in 1..=100 {
             let arriving = if decode % 5 == 0 { 2 } else { 1 };
             for _ in 0..arriving {
                 number += 1;
-                if shared.queue.offer(numbered(number, FrameType::P)).is_err() {
+                if !arrive(number) {
                     full = Some(number);
                     break 'stream;
                 }
@@ -1419,6 +1699,268 @@ mod tests {
             .count();
         assert_eq!(chunks, 6 * 26);
         assert_eq!(shared.counters.chunks_dropped.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn the_decoder_thread_gets_every_chunk_ahead_of_its_frame_from_receive_calls() {
+        let shared = Arc::new(VideoShared::new(records(true)));
+        let (tx, rx) = mpsc::channel();
+        let running = Running::start(&shared, Recorder::new(tx), rx);
+        let mut host = Blocks::new();
+        let packets: Vec<Vec<u8>> = (0..6u8)
+            .flat_map(|n| flat(host.frame(&[12, 9, 5], n)))
+            .collect();
+        let mut staged = StagedChunks::default();
+        // Calls of 7 end inside frames and among their parity.
+        feed_calls(&shared, &mut staged, &packets, 7);
+        let seen = running.finish();
+        let frames = frames_seen(&seen);
+        assert_eq!(frames.len(), 6, "{seen:?}");
+        assert!(frames.iter().all(|(_, whole)| *whole), "{seen:?}");
+        assert_eq!(chunks_seen(&seen), 6 * 26);
+        assert_eq!(shared.counters.chunks_dropped.load(Ordering::Relaxed), 0);
+    }
+
+    /// A queued item as a value.
+    #[derive(Debug, PartialEq)]
+    enum Queued {
+        Chunk { first: bool, flags: u32, data: Vec<u8> },
+        Frame { number: u32 },
+    }
+
+    /// Takes everything queued, in order.
+    fn drain(queue: &FrameQueue) -> Vec<Queued> {
+        let mut out = Vec::new();
+        while !lock(&queue.state).items.is_empty() {
+            out.push(match next_item(queue) {
+                Item::Chunk(Chunk { first, flags, data }) => Queued::Chunk { first, flags, data },
+                Item::Frame(frame) => Queued::Frame {
+                    number: frame.number,
+                },
+            });
+        }
+        out
+    }
+
+    fn wakes(queue: &FrameQueue) -> u64 {
+        queue.wakes.load(Ordering::Relaxed)
+    }
+
+    #[test]
+    fn a_receive_call_wakes_a_decoder_that_keeps_up_once_for_its_chunks() {
+        // A block of 40 data packets: a call of 32 is all chunks of the frame in progress.
+        let packets = flat(Blocks::new().frame(&[40], 1));
+        let call = &packets[..net::RECEIVE_BATCH];
+        // A decoder that keeps up has taken everything queued before each datagram arrives.
+        let take_all = |queue: &FrameQueue| {
+            while !lock(&queue.state).items.is_empty() {
+                next_item(queue);
+            }
+        };
+
+        // Queued one at a time, each chunk finds the queue empty and wakes the decoder.
+        let shared = VideoShared::new(records(true));
+        for packet in call {
+            take_all(&shared.queue);
+            feed(&shared, std::slice::from_ref(packet));
+        }
+        assert_eq!(wakes(&shared.queue), net::RECEIVE_BATCH as u64);
+
+        // Staged for the call, they wake it once, all queued by the end of the call.
+        let shared = VideoShared::new(records(true));
+        let mut staged = StagedChunks::default();
+        let mut signals = Vec::new();
+        receive_batch(
+            &shared,
+            None,
+            &mut signals,
+            call.len(),
+            |i| {
+                take_all(&shared.queue);
+                call[i].as_slice()
+            },
+            &mut None,
+            &mut staged,
+            |signals| signals.clear(),
+        );
+        assert_eq!(wakes(&shared.queue), 1);
+        assert_eq!(staged.len(), 0, "nothing waits past the call");
+        let queued = drain(&shared.queue);
+        assert_eq!(queued.len(), net::RECEIVE_BATCH, "{queued:?}");
+        assert!(matches!(queued[0], Queued::Chunk { first: true, .. }));
+        assert!(queued[1..]
+            .iter()
+            .all(|q| matches!(q, Queued::Chunk { first: false, .. })));
+    }
+
+    #[test]
+    fn a_frame_completed_mid_call_is_queued_and_wakes_the_decoder_with_its_datagram() {
+        let shared = VideoShared::new(records(true));
+        let mut host = Blocks::new();
+        // Blocks of 8 and 6 data packets with 2 parity each.
+        let one = flat(host.frame(&[8, 6], 1));
+        let two = flat(host.frame(&[8, 6], 2));
+        let mut staged = StagedChunks::default();
+        // The first call ends inside frame one; the second completes it with its sixth
+        // datagram (the last data packet), then carries the parity and frame two's first block.
+        feed_calls(&shared, &mut staged, &one[..10], 10);
+        assert_eq!(wakes(&shared.queue), 1);
+        let second: Vec<Vec<u8>> = one[10..].iter().chain(&two[..10]).cloned().collect();
+        let mut signals = Vec::new();
+        let mut completed = None;
+        receive_batch(
+            &shared,
+            None,
+            &mut signals,
+            second.len(),
+            |i| second[i].as_slice(),
+            &mut None,
+            &mut staged,
+            |signals| {
+                for signal in signals.drain(..) {
+                    if let VideoSignal::FrameReceived { frame, .. } = signal {
+                        // Routed after the completing datagram, before the rest of the call.
+                        let state = lock(&shared.queue.state);
+                        completed = Some((frame, state.frames, state.chunks));
+                    }
+                }
+            },
+        );
+        assert_eq!(completed, Some((1, 1, 14)), "the frame and its 14 chunks were queued");
+        // The frame woke the decoder; the chunks behind it found the queue busy.
+        assert_eq!(wakes(&shared.queue), 2);
+        let queued = drain(&shared.queue);
+        assert_eq!(queued.len(), 14 + 1 + 8, "{queued:?}");
+        assert!(matches!(queued[0], Queued::Chunk { first: true, .. }));
+        assert_eq!(queued[14], Queued::Frame { number: 1 });
+        assert!(matches!(queued[15], Queued::Chunk { first: true, .. }));
+    }
+
+    #[test]
+    fn receive_calls_queue_the_same_chunks_and_frames_in_the_same_order() {
+        let mut host = Blocks::new();
+        let mut packets = Vec::new();
+        for n in 0..6u8 {
+            let mut frame = flat(host.frame(&[12, 9, 5], n));
+            if n == 3 {
+                // A lost data packet, recovered from parity later in the block.
+                frame.remove(4);
+            }
+            packets.extend(frame);
+        }
+        let one_at_a_time = VideoShared::new(records(true));
+        feed(&one_at_a_time, &packets);
+        let want = drain(&one_at_a_time.queue);
+        let frames: Vec<&Queued> = want
+            .iter()
+            .filter(|q| matches!(q, Queued::Frame { .. }))
+            .collect();
+        assert_eq!(frames.len(), 6, "{want:?}");
+        // Calls that end anywhere: inside a frame, on its last data packet, among its parity,
+        // and one call for the whole stream.
+        for call in [1, 2, 7, 16, net::RECEIVE_BATCH, packets.len()] {
+            let shared = VideoShared::new(records(true));
+            let mut staged = StagedChunks::default();
+            feed_calls(&shared, &mut staged, &packets, call);
+            assert_eq!(drain(&shared.queue), want, "calls of {call}");
+            assert_eq!(staged.len(), 0);
+            assert_eq!(shared.counters.chunks_dropped.load(Ordering::Relaxed), 0);
+        }
+    }
+
+    #[test]
+    fn a_flush_mid_call_drops_the_chunks_staged_before_it_as_queued_ones() {
+        let packets = flat(Blocks::new().frame(&[12, 9], 1));
+        let flush_at = 5;
+        // One at a time, the flush (a decode error's refresh) finds five chunks queued.
+        let one_at_a_time = VideoShared::new(records(true));
+        feed(&one_at_a_time, &packets[..flush_at]);
+        one_at_a_time.queue.flush();
+        feed(&one_at_a_time, &packets[flush_at..]);
+        let want = drain(&one_at_a_time.queue);
+        assert!(
+            matches!(want[0], Queued::Chunk { first: false, .. }),
+            "{want:?}"
+        );
+        // In one call, the same flush between the same two datagrams.
+        let shared = VideoShared::new(records(true));
+        let mut staged = StagedChunks::default();
+        let mut signals = Vec::new();
+        receive_batch(
+            &shared,
+            None,
+            &mut signals,
+            packets.len(),
+            |i| {
+                if i == flush_at {
+                    shared.queue.flush();
+                }
+                packets[i].as_slice()
+            },
+            &mut None,
+            &mut staged,
+            |signals| signals.clear(),
+        );
+        assert_eq!(drain(&shared.queue), want);
+        assert_eq!(shared.counters.chunks_dropped.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn staged_chunks_keep_the_bound_shutdown_and_flushes_of_queued_ones() {
+        let queue = FrameQueue::default();
+        let mut staged = StagedChunks::default();
+        // A flush after staging, before the chunks reach the queue, drops them uncounted.
+        staged.stage(&queue, true, 0, &[1]);
+        staged.stage(&queue, false, 0, &[2]);
+        queue.flush();
+        assert_eq!(queue.offer_staged(&mut staged), 0);
+        assert_eq!(staged.len(), 0);
+        assert!(lock(&queue.state).items.is_empty());
+        assert_eq!(wakes(&queue), 0, "nothing to wake for");
+        // Staged after it, they are queued.
+        staged.stage(&queue, true, 0, &[3]);
+        assert_eq!(queue.offer_staged(&mut staged), 0);
+        assert_eq!(drain(&queue).len(), 1);
+        // The bound: the chunks over it are dropped and counted, in their order.
+        for i in 0..CHUNK_QUEUE_BOUND - 1 {
+            assert!(queue.offer_chunk(i == 0, 0, &[4]));
+        }
+        for i in 0..3u8 {
+            staged.stage(&queue, false, 0, &[5 + i]);
+        }
+        assert_eq!(queue.offer_staged(&mut staged), 2);
+        let state = lock(&queue.state);
+        assert_eq!(state.chunks, CHUNK_QUEUE_BOUND);
+        assert!(matches!(state.items.back(), Some(Item::Chunk(c)) if c.data == [5]));
+        drop(state);
+        // A frame behind staged chunks over the bound is still queued.
+        staged.stage(&queue, false, 0, &[9]);
+        let (dropped, result) = queue.offer_behind(&mut staged, Frame::default());
+        assert_eq!((dropped, result.is_ok()), (1, true));
+        // After shutdown nothing counts as dropped.
+        queue.shutdown();
+        staged.stage(&queue, false, 0, &[10]);
+        assert_eq!(queue.offer_staged(&mut staged), 0);
+    }
+
+    #[test]
+    fn staged_chunks_reuse_the_queues_returned_buffers() {
+        let queue = FrameQueue::default();
+        let mut staged = StagedChunks::default();
+        staged.stage(&queue, true, 0, &[1]);
+        queue.offer_staged(&mut staged);
+        let mut back: Vec<Vec<u8>> = (0..RETURN_BATCH)
+            .map(|_| Vec::with_capacity(2048))
+            .collect();
+        queue.wait(&mut back);
+        assert_eq!(lock(&queue.state).spare.len(), RETURN_BATCH);
+        // The next chunks to reach the queue bring the returned buffers to the stage.
+        staged.stage(&queue, true, 0, &[2]);
+        queue.offer_staged(&mut staged);
+        assert_eq!(staged.spare.len(), RETURN_BATCH);
+        assert!(lock(&queue.state).spare.is_empty());
+        staged.stage(&queue, false, 0, &[3]);
+        assert!(staged.chunks[0].data.capacity() >= 2048, "a staged chunk reuses a buffer");
     }
 
     #[test]
@@ -1546,6 +2088,7 @@ mod tests {
                 packets[i].as_slice()
             },
             &mut None,
+            &mut StagedChunks::default(),
             |signals| {
                 for signal in signals.drain(..) {
                     if matches!(signal, VideoSignal::RequestIdr) {

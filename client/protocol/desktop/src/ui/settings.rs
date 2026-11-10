@@ -14,7 +14,7 @@ pub(super) const SETTINGS_SECTIONS: [&str; 8] = [en("Video"), en("Display & imag
 /// mouse's options) share their keys or are listed where they show. A test keeps this equal to
 /// what the page draws.
 pub(super) const SECTION_KEYS: [&[&[&str]]; 8] = [
-    &[&["width", "height"], &["fps"], &["bitrate_kbps"], &["adaptive_bitrate"], &["codec"], &["hdr"],
+    &[&["width", "height"], &["fps"], &["bitrate_kbps"], &["adaptive_bitrate"], &["codec"], &["hdr"], &["hdr_desktop_brightness"],
         &["adaptive_quality"], &["quality_min_short_edge"], &["quality_min_fps"], &["upscaling"], &["upscale_sharpness"],
         &["prefer_yuv444"], &["sdr_10bit"], &["pyrowave_decoder"], &["pyrowave_async_compute"]],
     &[&["window_mode"], &["video_scaling"], &["vrr"],
@@ -648,6 +648,13 @@ impl Launcher {
                 |ui, s| toggle(ui, &mut s.hdr),
             );
             rows.group(en("Fine-tuning"));
+            // Only a Wayland desktop's HDR description has the choice; Windows maps HDR itself.
+            if cfg!(target_os = "linux") {
+                setting_row(ui, s, &mut rows, &["hdr_desktop_brightness"], "HDR brightness follows the desktop",
+                    "HDR streams get brighter or dimmer with the desktop's brightness. When off, they show at the brightness the PC sends.",
+                    |ui, s| toggle(ui, &mut s.hdr_desktop_brightness),
+                );
+            }
             setting_row(ui, s, &mut rows, &["adaptive_quality"], "Automatic quality", "Lowers the resolution or frame rate while the PC or network can't keep up, and raises them again later. Works with PCs that can change a stream while it runs.", |ui, s| {
                 Combo::from_id_salt("quality").selected_text(tr(s.adaptive_quality.label())).show_ui(ui, |ui| {
                     for mode in [crate::config::QualityMode::Off, crate::config::QualityMode::Motion, crate::config::QualityMode::Detail, crate::config::QualityMode::Battery] {
@@ -993,6 +1000,13 @@ impl Launcher {
                     manage
                 });
             }
+            // A PC's own page tests that PC; the main settings test a paired one. One of the main
+            // rows, so it comes before the rarer groups.
+            match screen {
+                Screen::HostSettings(_) => network_test_rows(ui, s, &mut rows, test_host, None, commands),
+                Screen::Settings => network_test_rows(ui, s, &mut rows, network_test_pc(view.hosts, *test_pc), Some((view.hosts, test_pc)), commands),
+                _ => {}
+            }
             rows.group(en("Connection"));
             setting_row(ui, s, &mut rows, &["client_roaming"], "Keep streaming when the network changes", "The stream carries on when this device switches networks, such as from Wi-Fi to Ethernet. Works with PCs that support it.", |ui, s| {
                 toggle(ui, &mut s.client_roaming)
@@ -1011,12 +1025,6 @@ impl Launcher {
                         }
                     }).response
             });
-            // A PC's own page tests that PC; the main settings test a paired one.
-            match screen {
-                Screen::HostSettings(_) => network_test_rows(ui, s, &mut rows, test_host, None, commands),
-                Screen::Settings => network_test_rows(ui, s, &mut rows, network_test_pc(view.hosts, *test_pc), Some((view.hosts, test_pc)), commands),
-                _ => {}
-            }
             rows.group(en("Fine-tuning"));
             setting_row(ui, s, &mut rows, &["dual_screen"], "Dual screen mode", "With a second monitor, a second stream of the same game opens full screen on it. Sound, controllers and the microphone stay with the first screen. Works with PCs that support it.", |ui, s| {
                 toggle(ui, &mut s.dual_screen)
@@ -1250,6 +1258,10 @@ impl Launcher {
         if *s != before {
             self.settings_dirty = true;
         }
+        // Switching it is how to ask a PC again that refused it before.
+        if s.experimental_packed_444 != before.experimental_packed_444 {
+            commands.push(Command::AskFullChromaAgain);
+        }
         if searching && rows.found != self.settings_view.found {
             ui.ctx().request_repaint();
         }
@@ -1480,15 +1492,17 @@ pub(super) const MAIN_KEYS: [(&str, &[&str]); 8] = [
     ("display", &["checkbox_stretch_video", "stream_orientation"]),
     ("input", &["checkbox_multi_controller", "controller_button_mapping", "controller_test", "checkbox_flip_face_buttons", "checkbox_touchscreen_trackpad", "checkbox_show_onscreen_controls", "checkbox_keyboard_follows_text_fields", "checkbox_clipboard_sync"]),
     ("audio", &["list_audio_config", "checkbox_host_audio", "checkbox_enable_mic", "checkbox_mic_button"]),
-    ("streaming", &["checkbox_enable_perf_overlay", "checkbox_auto_reconnect"]),
+    ("streaming", &["checkbox_enable_perf_overlay", "checkbox_auto_reconnect", "network_tests"]),
     ("app", &["checkbox_always_dark", "list_languages", "checkbox_console_home", "checkbox_quick_resume", "pin_lock", "help", "report_problem", "check_updates_now"]),
     ("advanced", &["checkbox_rust_engine", "low_latency_decoding", "low_latency_customize", "gpu_driver", "checkbox_gpu_max_clocks", "checkbox_texture_view", "checkbox_vulkan_render"]),
     ("debug", &["list_fec_choice", "checkbox_rate_change_bitrate", "checkbox_tell_host_wireless", "checkbox_tell_host_link_speed", "checkbox_network_priority", "checkbox_unbatched_input", "checkbox_full_range"]),
 ];
 
 /// Desktop rows and the Android preference each one matches. A row is main when its match is.
+/// Network tests is a group of action rows, not a setting: it stands for Android's main row by
+/// coming first after the section's main rows, before the rarer groups.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(super) const ANDROID_KEYS: [(&str, &str); 41] = [
+pub(super) const ANDROID_KEYS: [(&str, &str); 42] = [
     ("open_on_start", "list_open_on_start"),
     ("width", "list_resolution"), ("fps", "list_fps"), ("bitrate_kbps", "seekbar_bitrate_kbps"),
     ("adaptive_bitrate", "checkbox_auto_bitrate"), ("codec", "video_format"), ("hdr", "checkbox_enable_hdr"),
@@ -1507,6 +1521,7 @@ pub(super) const ANDROID_KEYS: [(&str, &str); 41] = [
     ("input_only_any_host", "checkbox_input_only_any_host"),
     ("gamepad_quit_combo", "list_gamepad_quit_combo"), ("guide_hold_ms", "list_guide_menu_hold"), ("check_updates", "checkbox_check_updates"),
     ("frame_pacing", "frame_pacing"), ("mic_echo_cancel", "list_mic_echo_cancel"),
+    ("network_tests", "network_tests"),
     ("pin_lock", "pin_lock"),
     ("dual_screen", "checkbox_dual_screen"), ("second_screen_width", "list_resolution_screen2"),
 ];

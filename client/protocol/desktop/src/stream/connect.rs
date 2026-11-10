@@ -51,6 +51,9 @@ pub enum ConnectFailed {
     ConfirmReplace(Box<LaunchPlan>),
     /// A recovery found that the stream moved to `device`; it stops there.
     Moved { host: u64, app: i32, device: String },
+    /// The PC refused full chroma after the launch: the plan that asked for it, whose app now runs
+    /// on the PC, starts once more without it.
+    PackedRefused(Box<LaunchPlan>),
 }
 
 /// A launch and session start running on a worker thread.
@@ -209,6 +212,8 @@ impl Connecting {
                 ConnectFailed::Message("Automatic recovery stopped after one minute.".into())
             } else if e.asks_replace {
                 ConnectFailed::ConfirmReplace(Box::new(self.plan.clone()))
+            } else if e.packed_refused {
+                ConnectFailed::PackedRefused(Box::new(self.plan.clone()))
             } else {
                 ConnectFailed::Message(e.message)
             }),
@@ -232,6 +237,8 @@ pub(super) struct ConnectError {
     pub(super) asks_replace: bool,
     /// The stream moved to this device; a reconnect must not take it back.
     pub(super) moved_to: Option<String>,
+    /// The PC refused full chroma in the handshake (`full_chroma::restarts_without`).
+    pub(super) packed_refused: bool,
 }
 
 /// The device a recovery's stream moved to, read before it launches: two devices must not fight
@@ -246,7 +253,7 @@ fn resume_moved_to(paired: bool, running: bool, offered: bool, read: impl FnOnce
         Ok(read) => Ok(read.moved_to.map(|moved| moved.device)),
         Err(error) => {
             eprintln!("nightjar: recovery: could not ask the PC whether the stream moved: {error}");
-            Err(ConnectError { message: format!("Checking the running app failed: {error}"), retryable: true, asks_replace: false, moved_to: None })
+            Err(ConnectError { message: format!("Checking the running app failed: {error}"), retryable: true, asks_replace: false, moved_to: None, packed_refused: false })
         }
     }
 }
@@ -256,7 +263,7 @@ fn resume_moved_to(paired: bool, running: bool, offered: bool, read: impl FnOnce
 fn check_resume(join: bool, paired: bool, running: bool, offered: bool, read: impl FnOnce() -> Result<nightjar_core::http::StreamMove, nightjar_core::http::Error>) -> Result<(), ConnectError> {
     if !join {
         if let Some(device) = resume_moved_to(paired, running, offered, read)? {
-            return Err(ConnectError { message: String::new(), retryable: false, asks_replace: false, moved_to: Some(device) });
+            return Err(ConnectError { message: String::new(), retryable: false, asks_replace: false, moved_to: Some(device), packed_refused: false });
         }
     }
     if !paired || !(running || join) {
@@ -278,7 +285,7 @@ fn resume_refused(join: bool, code: i32, message: &str) -> Option<String> {
 }
 
 impl From<String> for ConnectError {
-    fn from(message: String) -> Self { Self { message, retryable: false, asks_replace: false, moved_to: None } }
+    fn from(message: String) -> Self { Self { message, retryable: false, asks_replace: false, moved_to: None, packed_refused: false } }
 }
 
 impl From<&str> for ConnectError {
@@ -855,7 +862,7 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
     }
     if plan.resume {
         plan.info = client.server_info_https().map_err(|e| ConnectError {
-            retryable: recovery::transient_http(&e), message: format!("Checking the running app failed: {e}"), asks_replace: false, moved_to: None,
+            retryable: recovery::transient_http(&e), message: format!("Checking the running app failed: {e}"), asks_replace: false, moved_to: None, packed_refused: false,
         })?;
         crate::hosts::merge_native(&mut plan.info, plan.native.as_ref());
         let running = plan.app.matches_running_app(plan.info.current_game, plan.info.current_game_uuid.as_deref());
@@ -930,7 +937,7 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
     let launched = match launched {
         // The answer goes out with a new launch that says it confirms.
         Err(e) if asks_replace(plan, role, &e) => {
-            return Err(ConnectError { message: e.to_string(), retryable: false, asks_replace: true, moved_to: None })
+            return Err(ConnectError { message: e.to_string(), retryable: false, asks_replace: true, moved_to: None, packed_refused: false })
         }
         Ok(Some(launched)) => launched,
         Ok(None) => return Err(refused("The PC declined to start the app.".into())),
@@ -940,7 +947,7 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
             }
             return Err(refused(format!("The PC could not start the app ({code}: {message}).")))
         }
-        Err(e) => return Err(ConnectError { retryable: recovery::transient_http(&e), message: format!("Starting the app failed: {e}"), asks_replace: false, moved_to: None }),
+        Err(e) => return Err(ConnectError { retryable: recovery::transient_http(&e), message: format!("Starting the app failed: {e}"), asks_replace: false, moved_to: None, packed_refused: false }),
     };
     if interrupt.is_interrupted() {
         return Err("Cancelled.".into());
@@ -1026,7 +1033,11 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
         Arc::new(pipeline::Events::new(shared)),
         interrupt,
     )
-    .map_err(|e| ConnectError { retryable: recovery::transient_start(e.stage, e.code), message: format!("Could not start the stream: {e}"), asks_replace: false, moved_to: None })?;
+    .map_err(|e| ConnectError {
+        retryable: recovery::transient_start(e.stage, e.code), message: format!("Could not start the stream: {e}"), asks_replace: false, moved_to: None,
+        // The PC refused full chroma in the handshake, after the launch: the start is made again without it.
+        packed_refused: nightjar_core::full_chroma::restarts_without(settings.experimental_packed_444, e.code),
+    })?;
     let outcome = session.outcome();
     keep_roam_watch(&roam_shared, watch);
     session.watch_host(plan.info.https_port, gateway::toward);
@@ -1517,7 +1528,7 @@ mod replace_tests {
         for asks_replace in [true, false] {
             let (sender, result) = channel();
             let mut connecting = connecting(result, None);
-            sender.send(Err(ConnectError { message: "refused".into(), retryable: false, asks_replace, moved_to: None })).unwrap();
+            sender.send(Err(ConnectError { message: "refused".into(), retryable: false, asks_replace, moved_to: None, packed_refused: false })).unwrap();
             match connecting.poll() {
                 Err(ConnectFailed::ConfirmReplace(plan)) => {
                     assert!(asks_replace);
@@ -1527,7 +1538,7 @@ mod replace_tests {
                     assert!(!asks_replace);
                     assert_eq!(message, "refused");
                 }
-                Err(ConnectFailed::Moved { .. }) | Ok(_) => panic!("the launch failed"),
+                Err(ConnectFailed::Moved { .. } | ConnectFailed::PackedRefused(_)) | Ok(_) => panic!("the launch failed"),
             }
         }
     }
@@ -1551,7 +1562,7 @@ mod replace_tests {
         assert_eq!(device(resume_moved_to(false, false, true, || panic!("not asked"))), None);
 
         // The refusal is final: not retried, and it wins over the end of the recovery window.
-        let refusal = ConnectError { message: String::new(), retryable: false, asks_replace: false, moved_to: Some("TV".into()) };
+        let refusal = ConnectError { message: String::new(), retryable: false, asks_replace: false, moved_to: Some("TV".into()), packed_refused: false };
         assert!(!refusal.retryable);
         let (sender, result) = channel();
         let mut connecting = connecting(result, None);
@@ -1559,6 +1570,30 @@ mod replace_tests {
         match connecting.poll() {
             Err(ConnectFailed::Moved { app, device, .. }) => assert_eq!((app, device.as_str()), (9, "TV")),
             _ => panic!("the recovery must stop on the move"),
+        }
+    }
+
+    /// The PC refused full chroma in the handshake (-106), after its launch: the plan comes back
+    /// to start once more without it, not as a failure. Any other failure stays one.
+    #[test]
+    fn a_full_chroma_refusal_after_the_launch_hands_back_the_plan_to_start_again() {
+        use nightjar_core::full_chroma::restarts_without;
+        use nightjar_core::session::error::PACKED_444_REFUSED;
+        for (asked, code) in [(true, PACKED_444_REFUSED), (false, PACKED_444_REFUSED), (true, -100)] {
+            let (sender, result) = channel();
+            let mut connecting = connecting(result, None);
+            let packed_refused = restarts_without(asked, code);
+            sender.send(Err(ConnectError { message: "Could not start the stream".into(), retryable: false, asks_replace: false, moved_to: None, packed_refused })).unwrap();
+            match connecting.poll() {
+                Err(ConnectFailed::PackedRefused(plan)) => {
+                    assert!(asked && code == PACKED_444_REFUSED);
+                    assert_eq!(plan.app.id, 9);
+                }
+                Err(ConnectFailed::Message(message)) => {
+                    assert!(!(asked && code == PACKED_444_REFUSED), "{message}");
+                }
+                _ => panic!("the launch failed"),
+            }
         }
     }
 }

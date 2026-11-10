@@ -5,7 +5,8 @@
 //!
 //! 10-bit SDR has no protocol flag of its own: the client offers Main10 formats without asking
 //! for HDR in the launch, and the PC encodes 10-bit BT.709. 4:4:4 is the High 4:4:4 (H.264),
-//! RExt (HEVC) and High (AV1) 8-bit formats. HDR takes priority over both.
+//! RExt (HEVC) and High (AV1) 8-bit formats; with both settings on, HEVC RExt 4:4:4 10-bit
+//! grants both where the device and the PC have it. HDR takes priority over both.
 
 use crate::sdp::*;
 
@@ -14,6 +15,9 @@ pub const YUV444_FORMATS: u32 =
     VIDEO_FORMAT_H264_HIGH8_444 | VIDEO_FORMAT_H265_REXT8_444 | VIDEO_FORMAT_AV1_HIGH8_444;
 /// The 10-bit 4:2:0 formats 10-bit SDR can add.
 pub const SDR10_FORMATS: u32 = VIDEO_FORMAT_H265_MAIN10 | VIDEO_FORMAT_AV1_MAIN10;
+/// The 10-bit 4:4:4 formats "Prefer YUV 4:4:4" and "10-bit color (SDR)" add together. H.264 has
+/// none; AV1's (High 4:4:4 10-bit) is not offered, as the decoder check has no fixture for it.
+pub const YUV444_10_FORMATS: u32 = VIDEO_FORMAT_H265_REXT10_444;
 
 /// The settings that decide the offer.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -45,8 +49,8 @@ pub enum Refusal {
     Decoder(String),
     /// The PC encodes none of them for the codec that will be streamed.
     Host,
-    /// 10-bit SDR only: 4:4:4 is on and the PC takes it, and the PC streams 4:4:4 or 10-bit,
-    /// not both.
+    /// 10-bit SDR only: 4:4:4 is on and the PC takes it, and without 10-bit 4:4:4 on this
+    /// device and PC the stream is 4:4:4 or 10-bit, not both.
     Yuv444,
 }
 
@@ -86,6 +90,7 @@ fn encoded(formats: u32, host_scm: u32) -> u32 {
         (VIDEO_FORMAT_H264_HIGH8_444, SCM_H264_HIGH8_444),
         (VIDEO_FORMAT_H265_REXT8_444, SCM_HEVC_REXT8_444),
         (VIDEO_FORMAT_AV1_HIGH8_444, SCM_AV1_HIGH8_444),
+        (VIDEO_FORMAT_H265_REXT10_444, SCM_HEVC_REXT10_444),
         (VIDEO_FORMAT_H265_MAIN10, SCM_HEVC_MAIN10),
         (VIDEO_FORMAT_AV1_MAIN10, SCM_AV1_MAIN10),
     ]
@@ -134,11 +139,19 @@ pub fn av1_given_up(base: u32, wants: Wants, decodable: u32, host_scm: u32) -> u
 }
 
 /// The offer for `wants`. `base` is what the codec choice offers without these settings;
-/// `decodable` the formats of [`YUV444_FORMATS`] and [`SDR10_FORMATS`] this device decodes and
-/// draws, and `decoder_reason` why the others are not; `host_scm` the PC's codec support.
+/// `decodable` the formats of [`YUV444_FORMATS`], [`SDR10_FORMATS`] and [`YUV444_10_FORMATS`]
+/// this device decodes and draws, and `decoder_reason` why the others are not; `host_scm` the
+/// PC's codec support. With both settings on, the streamed family's 10-bit 4:4:4 format grants
+/// both where this device and the PC have it (the handshake ranks it first); otherwise 4:4:4
+/// wins and 10-bit SDR says why.
 pub fn offer(base: u32, wants: Wants, decodable: u32, decoder_reason: &str, host_scm: u32) -> Offer {
     let family = streamed_family(base, host_scm);
     let decoder = || Refusal::Decoder(decoder_reason.to_owned());
+    let yuv444_10 = if wants.yuv444 && wants.sdr10 && !wants.hdr && !wants.packed444 && !wants.pyrowave {
+        encoded(of_families(base, YUV444_10_FORMATS) & decodable, host_scm) & family
+    } else {
+        0
+    };
     let yuv444 = (|| {
         if !wants.yuv444 {
             return Err(Refusal::Off);
@@ -151,6 +164,9 @@ pub fn offer(base: u32, wants: Wants, decodable: u32, decoder_reason: &str, host
         }
         if wants.pyrowave {
             return Err(Refusal::PyroWave);
+        }
+        if yuv444_10 != 0 {
+            return Ok(yuv444_10);
         }
         let wanted = of_families(base, YUV444_FORMATS);
         if wanted & decodable == 0 {
@@ -172,6 +188,9 @@ pub fn offer(base: u32, wants: Wants, decodable: u32, decoder_reason: &str, host
         }
         if wants.packed444 {
             return Err(Refusal::Packed444);
+        }
+        if yuv444_10 != 0 {
+            return Ok(yuv444_10);
         }
         let wanted = of_families(base, SDR10_FORMATS);
         if wanted & decodable == 0 {
@@ -285,6 +304,37 @@ mod tests {
         assert_eq!(offer.formats, HEVC | VIDEO_FORMAT_H265_MAIN10);
         assert_eq!((offer.yuv444.clone(), offer.sdr10.clone()), (Err(Refusal::Host), Ok(())));
         assert_eq!(notices(&offer, VIDEO_FORMAT_H265_MAIN10), [Notice::Yuv444Unavailable(Refusal::Host)]);
+    }
+
+    /// The PC encodes HEVC RExt 4:4:4 10-bit (NVENC): both settings on ask for it, and the
+    /// handshake picks it over Main10 and 8-bit 4:4:4, so the stream is both.
+    #[test]
+    fn both_settings_ask_for_10_bit_4_4_4_where_the_device_and_the_pc_have_it() {
+        assert_eq!(YUV444_10_FORMATS, VIDEO_FORMAT_H265_REXT10_444);
+        assert_eq!(YUV444_10_FORMATS & (YUV444_FORMATS | SDR10_FORMATS), 0);
+        assert_eq!(YUV444_10_FORMATS & VIDEO_FORMAT_MASK_10BIT & VIDEO_FORMAT_MASK_YUV444, YUV444_10_FORMATS);
+        let scm = ALL_SCM | SCM_HEVC_REXT10_444;
+        let decodes = DECODES_ALL | YUV444_10_FORMATS;
+        let offer = offer(HEVC, wants(true, true), decodes, "", scm);
+        assert_eq!(offer.formats, HEVC | VIDEO_FORMAT_H265_REXT10_444);
+        assert_eq!((offer.yuv444.clone(), offer.sdr10.clone()), (Ok(()), Ok(())));
+        let picked = describe().select_video_format(offer.formats, scm);
+        assert_eq!(picked, VIDEO_FORMAT_H265_REXT10_444);
+        assert!(notices(&offer, picked).is_empty());
+        // One setting alone never asks for it.
+        assert_eq!(super::offer(HEVC, wants(true, false), decodes, "", scm).formats, HEVC | VIDEO_FORMAT_H265_REXT8_444);
+        assert_eq!(super::offer(HEVC, wants(false, true), decodes, "", scm).formats, HEVC | VIDEO_FORMAT_H265_MAIN10);
+        // A device without it, or a PC without it, keeps 4:4:4 and says why 10-bit isn't used.
+        for (decodes, scm) in [(DECODES_ALL, scm), (decodes, ALL_SCM)] {
+            let offer = super::offer(HEVC, wants(true, true), decodes, "", scm);
+            assert_eq!(offer.formats, HEVC | VIDEO_FORMAT_H265_REXT8_444);
+            assert_eq!(offer.sdr10, Err(Refusal::Yuv444));
+        }
+        // H.264 has no 10-bit 4:4:4, an AV1 stream can't pick HEVC's, and HDR takes the stream.
+        assert_eq!(super::offer(VIDEO_FORMAT_H264, wants(true, true), decodes, "", scm).formats, VIDEO_FORMAT_H264 | VIDEO_FORMAT_H264_HIGH8_444);
+        assert_eq!(super::offer(AV1, wants(true, true), decodes, "", scm).formats, AV1 | VIDEO_FORMAT_AV1_HIGH8_444);
+        let hdr = super::offer(HEVC | VIDEO_FORMAT_H265_MAIN10, Wants { hdr: true, ..wants(true, true) }, decodes, "", scm);
+        assert_eq!(hdr.formats, HEVC | VIDEO_FORMAT_H265_MAIN10);
     }
 
     #[test]

@@ -82,6 +82,63 @@ public class NavigationDialogBuilderTest {
         } finally { parent.dismiss(); activity.destroy(); }
     }
 
+    // Nightjar #81: a dialog has no Y hint. Y must count as taken, or Android sends it again as Space on the focused button.
+    @Test public void aPadsYNeverPressesTheFocusedButton() {
+        ActivityController<UiNavigationTest.Screen> activity = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup();
+        AtomicInteger accepted = new AtomicInteger(), custom = new AtomicInteger();
+        AlertDialog dialog = new NavigationDialogBuilder(activity.get()).setTitle("Confirm")
+                .setPositiveButton(android.R.string.ok, (target, which) -> accepted.incrementAndGet()).show();
+        AlertDialog own = new NavigationDialogBuilder(activity.get()).setTitle("Capture")
+                .setOnKeyListener((target, key, event) -> {
+                    if (key != KeyEvent.KEYCODE_BUTTON_Y) return false;
+                    if (event.getAction() == KeyEvent.ACTION_UP) custom.incrementAndGet();
+                    return true;
+                }).show();
+        try {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).requestFocus();
+            for (int action : new int[] {KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP}) {
+                assertTrue(dialog.dispatchKeyEvent(new KeyEvent(action, KeyEvent.KEYCODE_BUTTON_Y)));
+            }
+            Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            assertTrue(dialog.isShowing());
+            assertEquals(0, accepted.get());
+            // A dialog that reads Y itself still gets it first.
+            press(own, KeyEvent.KEYCODE_BUTTON_Y);
+            assertEquals(1, custom.get());
+            assertTrue(own.isShowing());
+        } finally { dialog.dismiss(); own.dismiss(); activity.destroy(); }
+    }
+
+    // A dialog's key listener runs before its views: with a text field focused, Y must reach the field, whose
+    // Space types a space, while the buttons beside it stay unpressed.
+    @Test public void aPadsYInADialogsTextFieldReachesTheField() {
+        ActivityController<UiNavigationTest.Screen> activity = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup();
+        AtomicInteger accepted = new AtomicInteger(), typed = new AtomicInteger();
+        android.widget.EditText field = new android.widget.EditText(activity.get());
+        field.setOnKeyListener((view, key, event) -> {
+            if (key != KeyEvent.KEYCODE_BUTTON_Y) return false;
+            if (event.getAction() == KeyEvent.ACTION_UP) typed.incrementAndGet();
+            return true;
+        });
+        AlertDialog dialog = new NavigationDialogBuilder(activity.get()).setTitle("Name").setView(field)
+                .setPositiveButton(android.R.string.ok, (target, which) -> accepted.incrementAndGet()).show();
+        try {
+            // Laid out, so keys travel down to the focused view.
+            Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            assertTrue(field.requestFocus());
+            assertSame(field, dialog.getCurrentFocus());
+            press(dialog, KeyEvent.KEYCODE_BUTTON_Y);
+            assertEquals("the field got Y", 1, typed.get());
+            // On the button Y is taken again and presses nothing.
+            assertTrue(dialog.getButton(AlertDialog.BUTTON_POSITIVE).requestFocus());
+            press(dialog, KeyEvent.KEYCODE_BUTTON_Y);
+            Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+            assertEquals(1, typed.get());
+            assertEquals(0, accepted.get());
+            assertTrue(dialog.isShowing());
+        } finally { dialog.dismiss(); activity.destroy(); }
+    }
+
     @Test public void cancelledKeysCustomHandlersAndNoncancelableDialogsRetainTheirBehavior() {
         ActivityController<UiNavigationTest.Screen> activity = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup();
         AlertDialog locked = new NavigationDialogBuilder(activity.get()).setCancelable(false).show();

@@ -232,7 +232,8 @@ impl GpuDecoder {
         };
         let decoder = match shared {
             Ok(decoder) => {
-                zero_copy::note("PyroWave GPU decoding shares the renderer's Vulkan device, without a plane readback");
+                let handoff = decoder.images().map_or(zero_copy::PlaneHandoff::Copy, |images| images.handoff());
+                zero_copy::note(&format!("PyroWave GPU decoding shares the renderer's Vulkan device, without a plane readback; {}", handoff.line()));
                 decoder
             }
             Err(reason) => {
@@ -250,11 +251,18 @@ impl GpuDecoder {
     }
 
     /// The decoder on the renderer's Vulkan device (`device`, its SDL GPU device), with
-    /// `config.slots` plane sets there, the decodes on the compute queue SDL made beside its own
+    /// `config.slots` plane sets there (one more while the presenter samples them in place,
+    /// `zero_copy::PlaneHandoff`), the decodes on the compute queue SDL made beside its own
     /// with `async_compute` (`queue::shared_device_queue`). Errors say why the device cannot be
     /// shared.
     pub fn share(api: Arc<Api>, device: *mut c_void, config: GpuConfig, async_compute: bool) -> Result<Self, String> {
+        Self::share_with(api, device, config, async_compute, zero_copy::PlaneHandoff::from_environment())
+    }
+
+    /// `share` for a presenter that reads the planes as `handoff` says, whatever the environment.
+    pub fn share_with(api: Arc<Api>, device: *mut c_void, config: GpuConfig, async_compute: bool, handoff: zero_copy::PlaneHandoff) -> Result<Self, String> {
         check_config(config)?;
+        let config = GpuConfig { slots: handoff.sets(config.slots), ..config };
         // SAFETY: `device` is the renderer's live GPU device, which outlives the stream; `s` owns
         // every handle made, so Drop releases them on any early return, the SDK device before the
         // structs it points into.
@@ -269,7 +277,7 @@ impl GpuDecoder {
             };
             // On another family the planes are shared by both (CONCURRENT), so the presenter's
             // copy on SDL's queue reads what the decode wrote without an ownership transfer.
-            let images = SharedImages::new(&sdl, get_instance_proc_addr, config, compute.map(|(_, slot)| slot.family))?;
+            let images = SharedImages::with_handoff(&sdl, get_instance_proc_addr, config, compute.map(|(_, slot)| slot.family), handoff)?;
             let info = ShareInfo::new(&sdl, get_instance_proc_addr, compute);
             let watchdog = Watchdog::new()?;
             let mut s = Self { api, config, device: ptr::null_mut(), decoder: ptr::null_mut(), watchdog, timeout: crate::stream::pyrowave::GPU_DECODE_TIMEOUT, shared: None, decode_value: 0, queue: queue::DecodeQueue::Graphics(queue::SETTING_OFF.into()), submitted: Arc::default() };

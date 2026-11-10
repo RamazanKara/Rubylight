@@ -334,8 +334,9 @@ pub(crate) mod tests {
     // ---- The table against the sources. ----
 
     /// The UI sources, up to their test modules.
-    const SOURCES: [(&str, &str); 36] = [
+    const SOURCES: [(&str, &str); 37] = [
         ("open_play.rs", include_str!("open_play.rs")),
+        ("full_chroma.rs", include_str!("full_chroma.rs")),
         ("autostart.rs", include_str!("autostart.rs")),
         ("ui.rs", include_str!("ui.rs")),
         ("ui/files.rs", include_str!("ui/files.rs")),

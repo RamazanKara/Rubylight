@@ -41,6 +41,7 @@ import org.xmlpull.v1.XmlPullParserException;
 
 import com.limelight.ContinueHerePolicy;
 import com.limelight.LimeLog;
+import com.limelight.BuildConfig;
 import com.limelight.R;
 import com.limelight.binding.audio.AudioPassthrough;
 import com.limelight.binding.audio.MicrophoneCapture;
@@ -99,6 +100,12 @@ public class NvConnection {
     private volatile boolean nativeImageClipboard;
     private volatile boolean nativeNightMode, nativeHeadphoneSurround;
     private static Semaphore connectionAllowed = new Semaphore(1);
+    /**
+     * How long a start waits for the previous connection to let go of the native one. Beyond the
+     * stream's own 10 s stop limit: a stop that takes longer has hung, and the start says so
+     * instead of waiting behind it for good. Not final, so tests can shorten it.
+     */
+    static long connectionWaitMs = 15_000;
     private final boolean isMonkey;
     private final Context appContext;
     private volatile ComputerDetails hostDetails = new ComputerDetails();
@@ -958,6 +965,9 @@ public class NvConnection {
                 // Before the launch: afterwards the only way out is to tear the half-started stream
                 // down and resume the game that was just launched for nothing.
                 final int packedFormats = context.negotiatedVideoFormats;
+                // An update of this app or the PC since it refused: it is asked again.
+                HostPackedModes.renew(appContext, details.uuid,
+                        HostPackedModes.stamp(BuildConfig.VERSION_NAME, details.caps.hostVersion()));
                 packedUnavailable = PackedFallback.beforeLaunch(
                         PreferenceConfiguration.readPreferences(appContext).rustEngine, hostPacked,
                         HostPackedModes.refused(appContext, details.uuid),
@@ -1361,7 +1371,17 @@ public class NvConnection {
                     }
                     context.videoCapabilities = videoDecoderRenderer.getCapabilities();
                     context.connListener.stageStarting(appName);
-                    connectionAllowed.acquire();
+                    // Bounded: a previous connection whose stop hangs must not hold this start
+                    // without a word. Cancel interrupts the wait (stop()).
+                    if (!connectionAllowed.tryAcquire(connectionWaitMs, TimeUnit.MILLISECONDS)) {
+                        if (!stopRequested) {
+                            LimeLog.warning("The previous connection did not end within " + connectionWaitMs +
+                                    " ms; not starting over it");
+                            context.connListener.displayMessage(appContext.getString(R.string.stream_stop_timeout));
+                            context.connListener.stageFailed(appName, 0, 0);
+                        }
+                        return;
+                    }
                     acquired = true;
                     if (!startApp(videoDecoderRenderer)) {
                         PackedFallback.Unavailable packed = packedUnavailable;
@@ -1502,6 +1522,13 @@ public class NvConnection {
                 } catch (SessionEndedException e) {
                     if (!stopRequested) {
                         context.connListener.connectionTerminated(MoonBridge.ML_ERROR_GRACEFUL_TERMINATION);
+                    }
+                } catch (NvHTTP.LaunchTimeoutException e) {
+                    // The PC took the request and never answered it: not a blocked port, no port test.
+                    if (!stopRequested) {
+                        LimeLog.warning("The PC did not answer the start within " + e.seconds + " s");
+                        context.connListener.displayMessage(appContext.getString(R.string.startup_launch_timeout, e.seconds));
+                        context.connListener.stageFailed(appName, 0, 0);
                     }
                 } catch (HostHttpResponseException e) {
                     if (!stopRequested) {

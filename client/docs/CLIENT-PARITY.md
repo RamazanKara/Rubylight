@@ -59,6 +59,7 @@ VideoToolbox and Metal paths and their hardware test coverage. [macOS feature an
 | --- | --- | --- | --- | --- |
 | H.264, HEVC and AV1 hardware decoding | Yes | Yes | Partial | Windows: D3D11VA, without CPU copies. Linux: VA-API, then Vulkan video, then V4L2 M2M, then NVDEC; 8-bit 4:2:0 VA-API pictures reach the OpenGL renderer without copies, while 10-bit pictures and those drawn by the GPU renderer (HDR, upscaling, 4:4:4) are copied through memory. Vulkan video, for GPUs without a VA-API driver such as NVIDIA's, decodes on the GPU renderer's own device without CPU copies; its pictures match software decoding on Intel's Mesa driver (the NUC), and on NVIDIA it is Experimental. A fallback to software decoding is announced. |
 | HDR10 | Yes | Yes | Yes | Linux requests an HDR surface from the compositor; under gamescope it asks the swapchain, presenting scRGB or, where only HDR10 is offered, PQ. |
+| HDR brightness follows the desktop (setting) | N/A | N/A | Yes | Off by default: the stream keeps the PC's absolute HDR brightness. Android hands HDR to the system and Windows maps it itself, so only a Wayland desktop has the choice. |
 | HDR10+ | Yes | No | No | |
 | HLG | Yes | Yes | Yes | The desktop draws HLG through the BT.2100 inverse OETF and OOTF for the display's peak; on Linux for hardware-decoded pictures. |
 | Dolby Vision | Yes | Yes | No | Profiles 8.1 (HEVC) and 10.1 (AV1). Windows draws them on the HDR10 base layer, with the tone map's peak from the Dolby Vision metadata. |
@@ -71,13 +72,14 @@ VideoToolbox and Metal paths and their hardware test coverage. [macOS feature an
 | Resolution, fractional refresh, virtual display, PC display mode | Yes | Yes | Yes | |
 | Adaptive refresh and VRR | Yes | Yes | Yes | See [Adaptive refresh and VRR](#adaptive-refresh-and-vrr). |
 | Frame pacing modes | Yes | Yes | Yes | Lowest latency, Balanced, Balanced with FPS limit, Smoothest video. |
+| Take back display queue delay | Yes | N/A | N/A | Lowest latency and Balanced. Desktop has no compositor display queue to watch. |
 | Phase-lock frame timing | Yes | Yes | Partial | Linux: X11 with the OpenGL renderer only. |
 | Beam racing and early decode (PyroWave, wired) | N/A | Yes | Yes | Both off by default; see [beam racing](beam-racing.md). |
 | Rotation, picture-in-picture, external displays | Yes | N/A | N/A | |
 
 ### YUV 4:4:4
 
-Android supports packed 4:4:4 on the Rust engine and PyroWave's chroma modes. The desktop offers two settings: **Full chroma** packs 4:4:4 into a stream that any HEVC or AV1 hardware decoder handles, and **Prefer YUV 4:4:4** sends true 4:4:4, which needs a 4:4:4 decoder; the software decoder has one, few hardware decoders do. At stream start the desktop checks each codec against this device's decoder and offers only those whose pictures come out as 4:4:4; otherwise the stream uses 4:2:0 and states the reason. Hardware decoders that return packed 4:4:4 surfaces (AYUV, Y410) are treated as unsupported. The PC provides either 4:4:4 or 10-bit SDR, not both at once.
+Android supports packed 4:4:4 on the Rust engine and PyroWave's chroma modes. The desktop offers two settings: **Full chroma** packs 4:4:4 into a stream that any HEVC or AV1 hardware decoder handles, and **Prefer YUV 4:4:4** sends true 4:4:4, which needs a 4:4:4 decoder; the software decoder has one, few hardware decoders do. At stream start the desktop checks each codec against this device's decoder and offers only those whose pictures come out as 4:4:4; otherwise the stream uses 4:2:0 and states the reason. On Windows, the 4:4:4 surfaces of NVIDIA and Intel D3D11VA decoders (AYUV, Y410, Y416) are drawn by the plane shader; AMD decoders have no 4:4:4. With both settings on, a PC that encodes HEVC 4:4:4 10-bit streams both at once where the decoder check passes it; otherwise the PC provides either 4:4:4 or 10-bit SDR, not both. Android asks only for 8-bit 4:4:4: its media API lists no 10-bit 4:4:4 profile.
 
 ### Adaptive refresh and VRR
 

@@ -193,6 +193,8 @@ public class PreferenceConfiguration {
     // Opt-in: holding the GPU at full speed costs battery. Installs that stored a value keep it.
     static final boolean DEFAULT_GPU_MAX_CLOCKS = false;
     private static final String DROP_LATE_FRAMES_PREF_STRING = "checkbox_drop_late_frames";
+    // Lowest latency and Balanced: drop one frame when the display keeps one waiting too many (DisplayQueueWatch).
+    static final String DISPLAY_QUEUE_RECOVERY_PREF_STRING = "checkbox_display_queue_recovery";
     private static final String TEXTURE_VIEW_PREF_STRING = "checkbox_texture_view";
     private static final String UNBATCHED_INPUT_PREF_STRING = "checkbox_unbatched_input";
     private static final String NETWORK_PRIORITY_PREF_STRING = "checkbox_network_priority";
@@ -444,6 +446,7 @@ public class PreferenceConfiguration {
     public boolean phonePerformanceHints;
     public boolean gpuMaxClocks;
     public boolean dropLateFrames, useTextureView, unbatchedInput, networkPriority;
+    public boolean displayQueueRecovery;
     public boolean submitHint, coveringDecoderSize, pyroWavePreacquire, codecDirect, receiveDecodePriority;
     public boolean clientRoaming, roamingMetered;
     public boolean virtualDisplay, enableYuv444, vrr;
@@ -1646,6 +1649,7 @@ public class PreferenceConfiguration {
             prefs.edit().remove("checkbox_pyrowave_front_buffer").apply();
         }
         config.dropLateFrames = prefs.getBoolean(DROP_LATE_FRAMES_PREF_STRING, true);
+        config.displayQueueRecovery = prefs.getBoolean(DISPLAY_QUEUE_RECOVERY_PREF_STRING, true);
         // SurfaceView preserves HDR metadata (and 10-bit output: a SurfaceTexture takes 8-bit) and avoids TextureView's extra composition step.
         config.useTextureView = prefs.getBoolean(TEXTURE_VIEW_PREF_STRING, false) && !config.enableHdr && !config.enableSdr10Bit &&
                 config.videoFormat != FormatOption.FORCE_PYROWAVE;

@@ -319,6 +319,7 @@
     <string name="title_yuv444">Prefer YUV 4:4:4</string>
     <string name="summary_yuv444">Sharper colored text when the PC and this device support it. HDR takes priority.</string>
     <string name="yuv444_fallback">YUV 4:4:4 unavailable; using 4:2:0.</string>
+    <string name="yuv444_fallback_hdr">YUV 4:4:4 unavailable; using 4:2:0. HDR takes priority.</string>
     <string name="title_virtual_display">Host virtual display</string>
     <string name="summary_virtual_display">Ask the PC for a display that matches the stream. Off: the PC’s own display settings decide.</string>
     <string name="title_vrr">Adaptive refresh (ARR / VRR)</string>

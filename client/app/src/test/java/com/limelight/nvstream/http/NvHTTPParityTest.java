@@ -86,6 +86,23 @@ public class NvHTTPParityTest {
         }
     }
 
+    // Nightjar #88: a launch waited for the PC's answer without any limit.
+    @Test
+    public void aLaunchThePcNeverAnswersTimesOutAsItsOwnFailure() {
+        assertTrue(NvHTTP.LAUNCH_READ_TIMEOUT_SECONDS * 1000L > NvHTTP.READ_TIMEOUT);
+        java.io.IOException read = NvHTTP.launchReadFailure(new java.net.SocketTimeoutException("timeout"), 120_000);
+        assertTrue(read instanceof NvHTTP.LaunchTimeoutException);
+        assertEquals(120, ((NvHTTP.LaunchTimeoutException) read).seconds);
+        assertTrue(NvHTTP.launchReadFailure(new java.net.SocketTimeoutException("Read timed out"), 500)
+                instanceof NvHTTP.LaunchTimeoutException);
+        // A connect that times out stays the usual connection failure.
+        java.net.SocketTimeoutException connect = new java.net.SocketTimeoutException("connect timed out");
+        assertSame(connect, NvHTTP.launchReadFailure(connect, 120_000));
+        java.net.SocketTimeoutException failed = new java.net.SocketTimeoutException(
+                "failed to connect to /192.0.2.1 (port 47984) after 5000ms");
+        assertSame(failed, NvHTTP.launchReadFailure(failed, 120_000));
+    }
+
     @Test
     public void latencyProbeHasABoundedDeadlineAndRejectsInvalidHostResponses() throws Exception {
         NvHTTP http = http();

@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.Intent;
 import android.view.KeyEvent;
 import android.view.View;
+import android.widget.EditText;
 import android.widget.GridView;
 import android.widget.ListView;
 
@@ -20,8 +21,25 @@ public final class UiNavigation {
         ViewCompat.addOnUnhandledKeyEventListener(root, (view, event) -> handleKey(activity, event));
     }
 
+    /**
+     * A pad's Y that nothing on the page took. Left alone, Android sends it again as Space, and Space presses whatever
+     * has focus: an "All" tile, a Settings row, a dialog's button (Nightjar #81). Y means options where a card shows
+     * that hint, and those cards take it first; everywhere else it does nothing. In a text field the Space types a
+     * space and presses nothing, so there it is left alone, as it always was.
+     */
+    public static boolean swallowsPadY(int key, View focused) {
+        return key == KeyEvent.KEYCODE_BUTTON_Y && !takesText(focused);
+    }
+
+    /** A text field, or any view that opens the keyboard for text. */
+    static boolean takesText(View focused) {
+        return focused != null && (focused instanceof EditText || focused.onCheckIsTextEditor());
+    }
+
     static boolean handleKey(Activity activity, KeyEvent event) {
         int key = event.getKeyCode();
+        // This runs after the page's views, before the activity's own key methods; no screen of ours reads Y there.
+        if (swallowsPadY(key, activity.getCurrentFocus())) return true;
         boolean control = event.hasModifiers(KeyEvent.META_CTRL_ON);
         boolean back = event.hasNoModifiers() && (key == KeyEvent.KEYCODE_ESCAPE || key == KeyEvent.KEYCODE_BUTTON_B);
         boolean help = event.hasNoModifiers() && key == KeyEvent.KEYCODE_F1;
@@ -58,7 +76,7 @@ public final class UiNavigation {
             if (grid.getSelectedItemPosition() < 0 || grid.getOnItemLongClickListener() == null) {
                 // Nothing to open, but a pad's Y is still taken: left alone Android makes Space of it,
                 // which a grid reads as a press of the card it then selects (Nightjar #81).
-                return key == KeyEvent.KEYCODE_BUTTON_Y;
+                return swallowsPadY(key, view);
             }
             if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) {
                 grid.getOnItemLongClickListener().onItemLongClick(grid, grid.getSelectedView(),

@@ -1110,6 +1110,9 @@ impl Decoder {
         let fps_millihz = self.shared.fps_millihz.load(Ordering::Relaxed).max(1);
         let (shared, in_flight, pool_waiting) = (&self.shared, &mut self.in_flight, self.pool_waiting);
         let sent_at = std::time::Instant::now();
+        // FFmpeg takes the frame's bytes by reference, not copied; ours goes back after the frame,
+        // so they return to the receiver's pool once FFmpeg lets go too.
+        decoder.lend(Some(frame.shared_data()));
         let fed = feed(decoder, frame.data(), pts, async_wait_us(fps_millihz),
             || sent_at.elapsed().as_micros() as u64,
             || std::thread::sleep(std::time::Duration::from_micros(ASYNC_POLL_US)),
@@ -1148,6 +1151,7 @@ impl Decoder {
                 };
                 if pooled { shared.queue_pooled(decoded, pool_waiting) } else { shared.queue(decoded) }
             });
+        decoder.lend(None);
         say_cuda_fallback(&self.shared, decoder);
         if let Some((width, height)) = packed_map_dropped(&setup, self.packed_mapped, decoder.vulkan_mapped()) {
             eprintln!("nightjar: full chroma (packed 4:4:4): the Vulkan map failed, so each {width}x{height} picture is copied through memory from now on");

@@ -218,6 +218,8 @@ final class DecoderSelection {
                 if (yuv444 && profile == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain444) {
                     formats |= MoonBridge.VIDEO_FORMAT_H265_REXT8_444;
                 }
+                // VIDEO_FORMAT_H265_REXT10_444 is never offered: MediaCodecInfo (API 37) has no
+                // HEVC Main 4:4:4 10 profile a decoder could list, so no device says it decodes it.
             } else if ((hdr || sdr10) && (profile == MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10HDR10 ||
                     profile == MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10HDR10Plus) ||
                     sdr10 && profile == MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10) {

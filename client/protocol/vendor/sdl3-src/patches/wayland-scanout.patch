@@ -1,0 +1,66 @@
+--- a/src/gpu/vulkan/SDL_gpu_vulkan.c
++++ b/src/gpu/vulkan/SDL_gpu_vulkan.c
+@@ -4652,6 +4652,38 @@
+     windowData->colorSpace = SwapchainCompositionToColorSpace[windowData->swapchainComposition];
+     windowData->swapchainSwizzle = SwapchainCompositionSwizzle[windowData->swapchainComposition];
+     windowData->usingFallbackFormat = false;
+
++    /* Nightjar patch (Wayland scanout): with the window property
++     * SDL.window.gpu.vulkan.hdr10_pass_through, an HDR10 swapchain of Mesa's driver takes
++     * VK_COLOR_SPACE_PASS_THROUGH_EXT in place of HDR10_ST2084: Mesa's Wayland WSI then attaches
++     * no colour description to the surface, and the app attaches its own (a surface takes one
++     * wp_color_management_surface_v1, so two would end the connection). Where pass-through is
++     * not offered the swapchain is not made, never made with HDR10_ST2084 instead. The window
++     * property SDL.window.gpu.vulkan.hdr10_pass_through_active says what the last one took. */
++    {
++        SDL_PropertiesID windowProps = SDL_GetWindowProperties(windowData->window);
++        bool passThrough = false;
++        if (windowData->swapchainComposition == SDL_GPU_SWAPCHAINCOMPOSITION_HDR10_ST2084 &&
++            SDL_GetBooleanProperty(windowProps, "SDL.window.gpu.vulkan.hdr10_pass_through", false)) {
++            const bool mesa = renderer->supports.KHR_driver_properties &&
++                              SDL_strstr(renderer->physicalDeviceDriverProperties.driverInfo, "Mesa") != NULL;
++            if (!mesa || !renderer->supportsColorspace ||
++                !VULKAN_INTERNAL_VerifySwapSurfaceFormat(windowData->format, VK_COLOR_SPACE_PASS_THROUGH_EXT, swapchainSupportDetails.formats, swapchainSupportDetails.formatsLength)) {
++                SDL_SetBooleanProperty(windowProps, "SDL.window.gpu.vulkan.hdr10_pass_through_active", false);
++                if (swapchainSupportDetails.formatsLength > 0) {
++                    SDL_free(swapchainSupportDetails.formats);
++                }
++                if (swapchainSupportDetails.presentModesLength > 0) {
++                    SDL_free(swapchainSupportDetails.presentModes);
++                }
++                SET_STRING_ERROR_AND_RETURN("HDR10 pass-through is not offered (it needs Mesa's Vulkan driver with VK_EXT_swapchain_colorspace)", false);
++            }
++            windowData->colorSpace = VK_COLOR_SPACE_PASS_THROUGH_EXT;
++            passThrough = true;
++        }
++        SDL_SetBooleanProperty(windowProps, "SDL.window.gpu.vulkan.hdr10_pass_through_active", passThrough);
++    }
++
+     hasValidSwapchainComposition = VULKAN_INTERNAL_VerifySwapSurfaceFormat(
+         windowData->format,
+         windowData->colorSpace,
+@@ -10213,4 +10245,26 @@
+         if (acquireResult == VK_SUCCESS || acquireResult == VK_SUBOPTIMAL_KHR) {
++            /* Nightjar patch (Wayland scanout): SUBOPTIMAL from Mesa's Wayland WSI says the
++             * compositor's dmabuf feedback now prefers other modifiers for the format, as a
++             * scanout tranche does. SDL 3.4.20 keeps the swapchain; with the window property
++             * SDL.window.gpu.vulkan.recreate_on_suboptimal it is made again before the next image
++             * (this one is still drawn and presented): at most every 2 s, and while the count in
++             * SDL.window.gpu.vulkan.suboptimal_recreates (the app resets it) is under 10, so a
++             * compositor that changes its mind each frame costs no more than that. */
++            if (acquireResult == VK_SUBOPTIMAL_KHR) {
++                SDL_PropertiesID windowProps = SDL_GetWindowProperties(windowData->window);
++                if (SDL_GetBooleanProperty(windowProps, "SDL.window.gpu.vulkan.recreate_on_suboptimal", false)) {
++                    const Sint64 count = SDL_GetNumberProperty(windowProps, "SDL.window.gpu.vulkan.suboptimal_recreates", 0);
++                    const Sint64 last = SDL_GetNumberProperty(windowProps, "SDL.window.gpu.vulkan.suboptimal_recreate_ticks", -2000);
++                    const Sint64 now = (Sint64)SDL_GetTicks();
++                    if (count < 10 && now - last >= 2000) {
++                        windowData->needsSwapchainRecreate = true;
++                        SDL_SetNumberProperty(windowProps, "SDL.window.gpu.vulkan.suboptimal_recreates", count + 1);
++                        SDL_SetNumberProperty(windowProps, "SDL.window.gpu.vulkan.suboptimal_recreate_ticks", now);
++                    }
++                }
++            }
+             break;  // we got the next image!
+         }
+

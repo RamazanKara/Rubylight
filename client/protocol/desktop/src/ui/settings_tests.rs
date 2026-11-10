@@ -315,6 +315,7 @@ fn the_section_key_table_is_what_the_page_draws() {
         "native_touchpad" => cfg!(windows),
         "check_updates" => crate::self_update::current().checks(),
         "network_priority" => cfg!(any(target_os = "linux", windows)),
+        "hdr_desktop_brightness" => cfg!(target_os = "linux"),
         "renderer" | "vulkan_video_first" | "vulkan_rfi" => cfg!(target_os = "linux"),
         _ => true,
     };

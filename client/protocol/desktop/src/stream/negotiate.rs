@@ -159,9 +159,10 @@ pub fn probes_color(settings: &Settings) -> bool {
     (wants.yuv444 || wants.sdr10) && !wants.hdr && !wants.packed444 && !wants.pyrowave
 }
 
-/// The formats of `color::YUV444_FORMATS` and `color::SDR10_FORMATS` a launch with these settings
-/// can offer, which `color_probe::probe` checks: 4:4:4 only with "Prefer YUV 4:4:4", 10-bit only
-/// with "10-bit color (SDR)", each of the codecs the codec choice offers. None without the probe.
+/// The formats of `color::YUV444_FORMATS`, `color::SDR10_FORMATS` and `color::YUV444_10_FORMATS`
+/// a launch with these settings can offer, which `color_probe::probe` checks: 4:4:4 only with
+/// "Prefer YUV 4:4:4", 10-bit only with "10-bit color (SDR)", 10-bit 4:4:4 only with both, each of
+/// the codecs the codec choice offers. None without the probe.
 pub fn color_probe_formats(settings: &Settings) -> u32 {
     if !probes_color(settings) {
         return 0;
@@ -180,6 +181,9 @@ pub fn color_probe_formats(settings: &Settings) -> u32 {
     }
     if settings.sdr_10bit {
         wanted |= color::SDR10_FORMATS;
+    }
+    if settings.prefer_yuv444 && settings.sdr_10bit {
+        wanted |= color::YUV444_10_FORMATS;
     }
     wanted & families
 }

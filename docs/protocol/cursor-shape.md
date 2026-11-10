@@ -92,7 +92,7 @@ Ids are opaque to the client. A host may derive them from a hash of the image or
 
 ## Client behavior (Nightjar)
 
-- Requests shapes only in Local cursor touch mode, only when the host advertises both the serverinfo field and `0x5540` for the stream, and sends `enabled = 0` when the user switches to another touch mode.
+- Requests shapes only when the host advertises both the serverinfo field and `0x5540` for the stream, and only while the pointer is drawn locally: on Android in Local cursor touch mode, on the desktop in desktop-pointer mouse mode with the Debug setting **Local cursor** on (the default). It sends `enabled = 0` when the user leaves that mode.
 - Accepts `0x5541` only between its own enable and disable requests; anything else is dropped in the native layer.
 - Checks size bounds on the control stream's receive thread and does everything else on a background thread: full validation, conversion, scaling and caching by id. Video, audio and input paths are not touched.
 - On a message it cannot use, logs the reason, draws its own arrow and tells the user once per session that the PC's cursor shape could not be drawn.

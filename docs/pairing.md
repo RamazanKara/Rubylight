@@ -104,7 +104,7 @@ For normal play, grant list, view, launch and the input permissions you use. A d
 
 Hosts that list these roles also offer two restricted ones: **Remote Monitor** watches only, and **Input-only** sends controls without starting the video and audio decoders. Rubylight and Vibepollo list both; Apollo lists a Remote Input entry when its input-only mode is on. On other hosts, [Input-only on any PC](controls.md#input-only-on-any-pc) provides the same through a small stream and needs view and input permissions.
 
-During a stream, **stream menu → Host → Permissions and frame limits** shows the host's status and this device's permissions. The host's per-app restrictions can limit an action further.
+During a stream, **stream menu → More → Permissions and frame limits** shows the host's status and this device's permissions. The host's per-app restrictions can limit an action further.
 
 ## Identity, updates and removal
 

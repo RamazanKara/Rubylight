@@ -35,7 +35,7 @@ The overlay's colour word (HDR, 10-bit, SDR) was already there.
 - Non-tunneled content shown on a panel that cannot display it may be "flattened into an SDR color volume". Nightjar therefore never asks for HDR on a screen without HDR10. Same page.
 - A video `SurfaceView` does not need `Window.setColorMode(COLOR_MODE_HDR)`; that is for HDR UI content drawn by the app. Nightjar does not call it.
 - Per-mode HDR types, `Display.Mode.getSupportedHdrTypes()`, exist from Android 14 (API 34). The keys `KEY_HDR_STATIC_INFO`, `KEY_COLOR_STANDARD` and `KEY_COLOR_TRANSFER` exist from Android 7 (API 24).
-- Samsung HDR10+ phones: if the host sends only static metadata, a decoder that exposes the `HDR10Plus` profile may be picked. Nightjar's decoder choice already prefers a Main10 HDR10 profile and falls back to `HDR10Plus`; whether the phone then applies its own dynamic tone mapping is unverified.
+- Samsung HDR10+ phones: if the host sends only static metadata, a decoder that exposes the `HDR10Plus` profile may be picked. Nightjar's decoder choice already prefers a Main10 HDR10 profile and falls back to `HDR10Plus`; whether the phone then applies its own dynamic tone mapping has not been checked.
 - Sources on the host side: Sunshine's HDR metadata message is 26 bytes (12 for the primaries, 4 for the white point, then maximum and minimum luminance, MaxCLL, MaxFALL and the full-frame luminance). This is from reading the existing Nightjar code and protocol notes, not from the Sunshine source in this pass.
 
 ## Checking it on an HDR phone

@@ -6,7 +6,7 @@ How Nightjar for Android asks the screen for the stream's frame rate and explain
 
 ## What the app does
 
-- The stream votes its frame rate on the video surface with `Surface.setFrameRate()`: the base vote at connection (`CHANGE_FRAME_RATE_ALWAYS` on Android 12 and newer), and, with **Match content frame rate** on a Rubylight host, a content-rate vote (`CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS`, withdrawn when the game stops holding a rate). Android 11 has only the two-argument call, which switches seamlessly only.
+- The stream votes its frame rate on the video surface with `Surface.setFrameRate()`: the base vote at connection (`CHANGE_FRAME_RATE_ALWAYS` on Android 12 and newer), and, with **Match the screen to the game's frame rate** on a Rubylight host, a content-rate vote (`CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS`, withdrawn when the game stops holding a rate). Android 11 has only the two-argument call, which switches seamlessly only.
 - `RefreshSwitchMonitor` checks once a second whether the screen follows the last vote. A screen follows when it runs at the vote or a whole multiple of it (30 on 60 or 120, 59.94 against 60). When it has not followed for 3 seconds, the Statistics and debug overlays show **why**, and the log gets one `Refresh switch:` line with the numbers (vote, active Hz, the modes of this screen size, the user limit if known).
 - The cause is inferred, because Android reports no reason when it ignores a vote. In order:
 
@@ -22,7 +22,7 @@ How Nightjar for Android asks the screen for the stream's frame rate and explain
 
 Before Android 12 no mode lists alternatives, so a blanking switch cannot be told from a seamless one: that case is never blamed and falls to "No reason given".
 
-- A Variable refresh (VRR) request that cannot use Android 16's adaptive refresh rate (ARR) used to be logged only. It now also adds a line to the status: "needs Android 16" or "this screen has no adaptive refresh rate". The stream runs at the panel's top rate. With a Rubylight host's frame times (MediaCodec on a SurfaceView, not PyroWave), once the game holds a rate that would judder at the top rate (the top rate is not a whole multiple of it), the vote is the highest whole multiple of the game's rate below the top rate, seamless switches only, and only when the current mode lists that rate as itself or a seamless alternative, voted as that mode's rate; otherwise the top rate. This overrides Allow lower refresh rate, which VRR turns off, only where the top rate would judder: even frame timing for a little more wait for the next refresh (about 1.4 ms on average at 90 Hz instead of 120, not measured). A 60, 30 or 24 fps game on a 120 Hz panel stays at 120 Hz, a 90 or 45 fps game on a 90/120 Hz panel gets 90 Hz, 50 fps without a 100 Hz mode stays at 120 Hz, and a fixed panel keeps its one rate, so the switch check above never sees a vote it cannot follow. A content vote equal to the vote in force is not made again, so the status line keeps the reason it gave for the start-of-stream vote. Were a lower refresh rate allowed, the vote would be the game's rate as without VRR. Android 11 lists no alternatives, so there the vote stays at the top rate.
+- Variable refresh (VRR) can be turned on only on Android 16 with a screen that supports adaptive refresh rate (ARR). Elsewhere the setting is greyed out, also in PC, game and profile settings, and a saved choice reads as off (and is kept for a screen that gains ARR), so a stream without ARR runs with the selected frame pacing and the votes above.
 - Under ARR the stream votes its own rate (`FRAME_RATE_COMPATIBILITY_FIXED_SOURCE`, `CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS`) instead of 0. A 0 vote clears the app's request, and Android 15 and newer hold games without one at 60 Hz (below). ARR has no mode to compare against, so the refresh switch check stays off there. Instead it compares the frames the compositor presented with those the decoder rendered: about half (40-60 %, 40 fps rendered or more) for 3 seconds while the display reports about half the stream rate or less flags it (with either rate unknown nothing is judged), so the log gets one `VRR: ARR shows` warning and the Statistics and debug overlays a status line until it recovers. A device that reports no presented frames is not judged, and a display at the full rate is not blamed: frames that arrive over Wi-Fi in pairs also leave about half presented there. Unit-tested only: no ARR device.
 
 ## Researched behaviour
@@ -39,11 +39,11 @@ Before Android 12 no mode lists alternatives, so a blanking switch cannot be tol
 
 ## Other displays
 
-Looked at, with no code change because nothing can be decided without the hardware: Android TV and Shield boxes (HDMI mode switches are never seamless and take seconds, so a vote may blank the TV), foldables (the mode list changes with the fold state, which the monitor re-reads every second), and tablets with a single 60 Hz mode (the monitor reports "No mode" for any other vote). Android 16 ARR support is the one exception: its fallback reason is now shown, and its vote changed (see above).
+Looked at, with no code change because nothing can be decided without the hardware: Android TV and Shield boxes (HDMI mode switches are never seamless and take seconds, so a vote may blank the TV), foldables (the mode list changes with the fold state, which the monitor re-reads every second), and tablets with a single 60 Hz mode (the monitor reports "No mode" for any other vote). Android 16 ARR is the one exception: VRR is offered only where a screen has it, and its vote changed (see above).
 
 ## Checking it on a multi-rate phone
 
-On a 60/90/120 phone with Adaptive or Smooth display on, stream a 120 fps host with **Match content frame rate** on a Rubylight host and a game that holds 60:
+On a 60/90/120 phone with Adaptive or Smooth display on, stream a 120 fps host with **Match the screen to the game's frame rate** on, from a Rubylight host, and a game that holds 60:
 
 1. The Display line shows the screen moving to 60 (or staying at 120) without a black flash.
 2. With the system setting on Standard or battery saver on, the overlay names it after about 3 seconds.

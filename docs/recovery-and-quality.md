@@ -19,7 +19,7 @@ Recovery only resumes the game that was running. It never sends a launch or quit
 
 Continue here doesn't change this: a game only moves when someone presses **Continue here**, never through recovery. A stream that moved to another device doesn't reconnect and doesn't recover. A lost connection doesn't wait for the host first: the recovery asks once the host answers and no longer reports the game as this device's, then shows **Now playing on** that device, with **Continue here** and **OK**. A stream that ends without a recovery, including a stream kept for resuming, asks at once, and so does one whose recovery was expected but refused. A failed read isn't taken for "the game is gone": the recovery tries again. If the move then fails, the open prompt says the game came back and offers to resume it. That Resume asks who plays if another device arrived meanwhile, and it never starts a game that ended. A device that only streamed beside the game reads that the game did not move, with Stream here too. Two devices can't take the stream back and forth by themselves.
 
-A normal end of the stream by the host, protected content, host frame-conversion errors, decoder startup failures and unknown errors do not trigger recovery. When the host ends the stream because the game exited, Nightjar returns to the library without an error. After recovery stops, the error dialog offers **Reconnect**, which starts a new connection with normal launch behavior, and **Disconnect**.
+A normal end of the stream by the host, protected content, host frame-conversion errors, decoder startup failures and unknown errors do not trigger recovery. When the host ends the stream because the game exited, Nightjar returns to the library without an error. A start that waits for a previous connection to close, or for a PC that never answers the launch, ends with an error instead of waiting forever; the launch waits up to 2 minutes. After recovery stops, the error dialog offers **Reconnect**, which starts a new connection with normal launch behavior, and **Disconnect**.
 
 ### When the network changes
 
@@ -29,7 +29,7 @@ When a network returns, the stream continues in place where it can: after a [cli
 
 Immediate reconnects do not happen on mobile data without **Continue on mobile data**, or when **Ride out network drops** is set above the 10-second timeout, since the tolerance then decides. Every attempt first waits while the PC has no route, checking every half second, instead of failing and backing off. If the minute ends without a route, the reconnect dialog says so.
 
-Nightjar for Windows and Linux follows the same rules, checking the route to the PC once a second. With its default 3-second interruption grace, it also reconnects immediately, while its window is not minimized.
+Nightjar for Windows and Linux follows the same rules, checking the route to the PC once a second. With **Wait through network dropouts** at its default of 3 seconds, it also reconnects immediately, while its window is not minimized.
 
 ### Leaving and returning
 
@@ -44,7 +44,7 @@ The microphone's mute state carries over automatic recovery, screen-lock resume,
 
 ## Choosing automatic quality
 
-**Settings → Video → Lower resolution or frame rate when needed** is off by default. When it is on, choose a mode and the minimum short edge and frame rate. The stream's resolution and frame rate are the upper bounds; a minimum above them is clamped. Aspect ratio and decoder alignment are preserved, and a stream that follows the native display follows fold, window and panel changes.
+**Settings → Video → Lower resolution or frame rate when needed** is off by default (**Automatic quality** on Windows and Linux). When it is on, choose a mode and the minimum short edge and frame rate. The stream's resolution and frame rate are the upper bounds; a minimum above them is clamped. Aspect ratio and decoder alignment are preserved, and a stream that follows the native display follows fold, window and panel changes.
 
 | Mode | Behavior |
 | --- | --- |
@@ -52,7 +52,7 @@ The microphone's mute state carries over automatic recovery, screen-lock resume,
 | Preserve detail | Lowers frame rate before resolution. |
 | Extend battery life | Reduces work even on a healthy connection, toward at most 60 fps and a 1080-pixel short edge, within the minimums. Further pressure lowers it more. |
 
-During a stream, **stream menu → Quality → Automatic stream quality** overrides the mode for that PC; **Use app settings** removes the override. The minimums come from the app settings and apply from the next stream.
+During a stream, **stream menu → More → Automatic stream quality** overrides the mode for that PC; **Use app settings** removes the override. The minimums come from the app settings and apply from the next stream.
 
 ### Requirements
 

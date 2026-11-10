@@ -6,7 +6,7 @@ Nightjar for Linux runs on the Steam Deck and other Linux handhelds as a Flatpak
 
 ## Install
 
-Every Nightjar release carries `nightjar-desktop-X-x86_64.flatpak` (X is the version) on the [releases page](https://github.com/RamazanKara/nightjar/releases), listed in its `SHA256SUMS` file.
+Every Nightjar release carries `nightjar-desktop-X-x86_64.flatpak` (X is the version), and `nightjar-desktop-X-aarch64.flatpak` for ARM handhelds, on the [releases page](https://github.com/RamazanKara/nightjar/releases), listed in its `SHA256SUMS` file.
 
 1. Switch to Desktop Mode (Steam button → Power → Switch to Desktop).
 2. Download the `.flatpak` file, open Konsole in the download folder and run:

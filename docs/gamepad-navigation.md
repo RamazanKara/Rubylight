@@ -11,14 +11,14 @@ Nightjar's menus and its on-screen PC keyboard work with a controller alone. Thi
 | D-pad, hat or left stick | Move the focus | Move between keys; holding repeats the move (after 350 ms, then every 100 ms) |
 | A | Activate | Press the focused key; holding repeats it |
 | B, or the controller's Back | Go back or cancel | Close the keyboard |
-| X | Options for the selected PC or game | Backspace |
+| X | Options for the selected PC or game (Y does the same) | Backspace |
 | Y | | Space |
 | Start or Menu | | Enter |
 | LB / RB | | Shift / Ctrl |
 
 Other buttons (Select, Guide, stick clicks, digital trigger keys, C and Z) do nothing in the keyboard and send nothing to the PC. **Flip face buttons** and the controller's button mapping apply here as they do in games. The button that closes the keyboard does not reach the PC, including its repeats and release.
 
-To open the PC keyboard with only a controller, press **Start+Back+LB+RB** to open the stream menu and select **PC keyboard** in its top row. (**Ctrl+Alt+Shift+K** needs a physical keyboard, and the finger-tap gestures need a touch screen.)
+To open the PC keyboard with only a controller, open the stream menu (**Start+Back+LB+RB**, or hold **Guide** for a second) and select the **PC keyboard** tile. (**Ctrl+Alt+Shift+K** needs a physical keyboard, and the finger-tap gestures need a touch screen.)
 
 Only one controller steers the keyboard at a time: a push on another controller takes over, and a second controller resting at center does not cancel a direction held on the first. Unplugging a controller, closing the keyboard or losing input stops any held direction.
 

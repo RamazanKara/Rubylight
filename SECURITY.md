@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Security fixes go into the latest Nightjar release (currently 4.0.x) on Android and desktop. Older releases don't get them, so please update before reporting.
+Security fixes go into the latest Nightjar release on Android and desktop. Older releases don't get them, so please update before reporting.
 
 ## Reporting a vulnerability
 

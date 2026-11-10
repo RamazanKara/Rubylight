@@ -2,10 +2,11 @@
 
 [Documentation](index.md) · [Everything Nightjar does](features.md) · [Host feature support](PARITY-MATRIX.md)
 
-Which Nightjar features each client provides: Android (phones, handhelds, tablets, Android TV and Fire TV) and [Nightjar for Windows and Linux](../protocol/desktop/README.md). Both clients run the same Rust streaming engine and share much of their behavior through the `nightjar-policy` crate. Host requirements are identical for both and are listed in [host feature support](PARITY-MATRIX.md).
+Which Nightjar features each client provides: Android (phones, handhelds, tablets, Android TV and Fire TV) and the [desktop client](../protocol/desktop/README.md) for Windows, Linux and macOS. Both clients run the same Rust streaming engine and share much of their behavior through the `nightjar-policy` crate. Host requirements are identical for both and are listed in [host feature support](PARITY-MATRIX.md).
 
-The macOS port shares the desktop library, protocol and controls. The Mac guide records its
-VideoToolbox and Metal paths and their hardware test coverage. [macOS feature and validation notes](../protocol/desktop/README.md#macos)
+Downloads: an APK for Android; an installer and a zip for Windows (x86_64); `.deb`, `.rpm`, AppImage, Flatpak and `tar.gz` for Linux on x86_64 and aarch64; a zip with `Nightjar.app` for macOS 13 or later on Apple Silicon and Intel ([installing](../protocol/desktop/README.md#installing)).
+
+The tables below have no macOS column. The Mac client shares the desktop library, protocol and controls, and decodes with VideoToolbox and draws with Metal; its differences and hardware checks are in the [macOS section](../protocol/desktop/README.md#macos) of the desktop guide.
 
 | Status | Meaning |
 | --- | --- |
@@ -28,7 +29,7 @@ VideoToolbox and Metal paths and their hardware test coverage. [macOS feature an
 | Approve a new device from a paired one | Yes | Yes | Yes | On a Rubylight host, for a device with Approve new devices or Host control. Home shows who waits; Pair another device is always in the PC's options, dimmed with the reason without the permission. |
 | QR pairing | Yes | Yes | Yes | Android scans the code; the desktop pastes the host's pairing link. |
 | Open a pairing link from a browser, a QR reader or the host console | Yes | Yes | Yes | Asks with the PC and its address first. On the desktop a link goes to the open window; the Windows installer and the Linux packages register the `rubylight:` scheme. |
-| Home, library, artwork and game pages | Yes | Yes | Yes | Needs a host with the native library (Rubylight 3.0). |
+| Home, library, artwork and game pages | Yes | Yes | Yes | Android shows Home once any paired PC has supplied its app list; the desktop client needs a host with the native library (Rubylight 3.0). Store shelves and the richer game pages need the native library on both. |
 | Group Home by collection | Yes | Yes | Yes | Needs a host that sends `collections` (Rubylight 3.7). Shared grouping in `nightjar-policy`. |
 | Hide a game on this device | Yes | Yes | Yes | Per device; a **Hidden** chip in All games shows them again. |
 | Store shelves, All games and the TV layout | Yes | Partial | Partial | The desktop Home has a row per store with an **All N** tile, and All games filters by All, Installed, each store and Other apps, as on Android. It has no **Not added** chip and no per-PC last-played row, because the desktop API does not provide that data, and no separate TV layout. |
@@ -36,6 +37,8 @@ VideoToolbox and Metal paths and their hardware test coverage. [macOS feature an
 | Confirmation before a running game closes | Yes | Yes | Yes | |
 | Continue here: move the running game's stream between devices | Yes | Yes | Yes | Hosts with `session.continue_here`, for a device with View and Launch |
 | Join co-op (Nucleus Co-op) | Yes | Yes | Yes | |
+| Microphone only | Yes | Yes | Yes | A session that sends only this device's microphone, on hosts that offer it, for a device with Launch. |
+| Restart, shut down or sleep the PC; update its host | Yes | Yes | Yes | In the PC's options, where the host offers it and allows it for this device. See [the PC's power and host updates](console.md#the-pcs-power-and-host-updates). |
 | Quick resume and quit on leave, per game | Yes | Yes | Yes | Off by default (**Settings → App**). |
 | Remote Monitor and Input-only entries | Yes | Yes | Yes | Remote Monitor sends no input, microphone, clipboard or commands. |
 | Input-only on any PC | Yes | Yes | Yes | Off by default. A 640×360, 30 fps, 500 kbps stream that is neither shown nor played. |
@@ -57,19 +60,23 @@ VideoToolbox and Metal paths and their hardware test coverage. [macOS feature an
 
 | Feature | Android | Windows | Linux | Notes |
 | --- | --- | --- | --- | --- |
-| H.264, HEVC and AV1 hardware decoding | Yes | Yes | Partial | Windows: D3D11VA, without CPU copies. Linux: VA-API, then Vulkan video, then V4L2 M2M, then NVDEC; 8-bit 4:2:0 VA-API pictures reach the OpenGL renderer without copies, while 10-bit pictures and those drawn by the GPU renderer (HDR, upscaling, 4:4:4) are copied through memory. Vulkan video, for GPUs without a VA-API driver such as NVIDIA's, decodes on the GPU renderer's own device without CPU copies; its pictures match software decoding on Intel's Mesa driver (the NUC), and on NVIDIA it is Experimental. A fallback to software decoding is announced. |
-| HDR10 | Yes | Yes | Yes | Linux requests an HDR surface from the compositor; under gamescope it asks the swapchain, presenting scRGB or, where only HDR10 is offered, PQ. |
+| H.264, HEVC and AV1 hardware decoding | Yes | Yes | Yes | Before a stream, the desktop decodes a test picture of each format and offers the PC only what the hardware decodes. Windows: D3D11VA, without CPU copies. Linux: VA-API, then Vulkan video, then V4L2 M2M (ARM handhelds and boards), then NVDEC; NVIDIA with nvidia-vaapi-driver decodes with Vulkan video, then NVDEC. VA-API and Vulkan video pictures stay on the GPU on both renderers, and NVDEC's are copied into the GPU renderer by CUDA; where a mapping cannot be made, the log says why and the pictures go through memory. A decoder that gives up mid-stream hands over to the next one, with a notice. |
+| HDR10 | Yes | Yes | Yes | Linux presents HDR10 PQ (BT.2020) where the compositor offers it, with the host's mastering metadata, else scRGB; under gamescope it asks the swapchain. |
 | HDR brightness follows the desktop (setting) | N/A | N/A | Yes | Off by default: the stream keeps the PC's absolute HDR brightness. Android hands HDR to the system and Windows maps it itself, so only a Wayland desktop has the choice. |
 | HDR10+ | Yes | No | No | |
 | HLG | Yes | Yes | Yes | The desktop draws HLG through the BT.2100 inverse OETF and OOTF for the display's peak; on Linux for hardware-decoded pictures. |
 | Dolby Vision | Yes | Yes | No | Profiles 8.1 (HEVC) and 10.1 (AV1). Windows draws them on the HDR10 base layer, with the tone map's peak from the Dolby Vision metadata. |
 | 10-bit SDR | Yes | Yes | Yes | Offered only when this device's decoder outputs 10-bit pictures. |
 | YUV 4:4:4 | Yes | Yes | Yes | See [YUV 4:4:4](#yuv-444). |
-| PyroWave | Yes | Partial | Partial | The desktop has decoding, the bandwidth test and pace calibration, but no PyroWave automatic bitrate. |
+| PyroWave | Yes | Yes | Yes | Decoding, the bandwidth test, pace calibration and PyroWave's own automatic bitrate (`nightjar-policy`). When the decoder falls behind, the desktop skips to the newest frame. |
+| Decode PyroWave on a compute queue (setting) | N/A | Yes | Yes | Off by default. Android's renderer has no separate compute queue ([PyroWave decoding](pyrowave-decode.md)). |
 | Upscaling (FSR 1, SGSR 1) | Yes | Yes | Yes | Windows also offers the GPU's video upscaler (**AI enhancement**). |
 | Render through Vulkan | Yes | N/A | N/A | |
+| Renderer choice (Debug) | N/A | N/A | Yes | Automatic starts on OpenGL and switches to the GPU (Vulkan) renderer when a stream needs it; OpenGL and GPU force one. |
 | Snapdragon GPU drivers | Yes | N/A | N/A | |
 | Resolution, fractional refresh, virtual display, PC display mode | Yes | Yes | Yes | |
+| Dual screen mode | Yes | Yes | Yes | Off by default. A second stream of the same game on a second screen (the desktop: full screen on another monitor), with sound, controllers and the microphone on the first. Needs a host with `SecondScreenVersion` (Rubylight 3.11). |
+| Ready the decoder for folding | Yes | N/A | N/A | Foldables: a fold or turn needs no decoder restart. Off by default. |
 | Adaptive refresh and VRR | Yes | Yes | Yes | See [Adaptive refresh and VRR](#adaptive-refresh-and-vrr). |
 | Frame pacing modes | Yes | Yes | Yes | Lowest latency, Balanced, Balanced with FPS limit, Smoothest video. |
 | Take back display queue delay | Yes | N/A | N/A | Lowest latency and Balanced. Desktop has no compositor display queue to watch. |
@@ -79,21 +86,26 @@ VideoToolbox and Metal paths and their hardware test coverage. [macOS feature an
 
 ### YUV 4:4:4
 
-Android supports packed 4:4:4 on the Rust engine and PyroWave's chroma modes. The desktop offers two settings: **Full chroma** packs 4:4:4 into a stream that any HEVC or AV1 hardware decoder handles, and **Prefer YUV 4:4:4** sends true 4:4:4, which needs a 4:4:4 decoder; the software decoder has one, few hardware decoders do. At stream start the desktop checks each codec against this device's decoder and offers only those whose pictures come out as 4:4:4; otherwise the stream uses 4:2:0 and states the reason. On Windows, the 4:4:4 surfaces of NVIDIA and Intel D3D11VA decoders (AYUV, Y410, Y416) are drawn by the plane shader; AMD decoders have no 4:4:4. With both settings on, a PC that encodes HEVC 4:4:4 10-bit streams both at once where the decoder check passes it; otherwise the PC provides either 4:4:4 or 10-bit SDR, not both. Android asks only for 8-bit 4:4:4: its media API lists no 10-bit 4:4:4 profile.
+Android supports packed 4:4:4 on the Rust engine and PyroWave's chroma modes. The desktop offers two settings: **Full chroma** packs 4:4:4 into a stream that any HEVC or AV1 hardware decoder handles, and **Prefer YUV 4:4:4** sends true 4:4:4, which needs a 4:4:4 decoder; the software decoder has one, few hardware decoders do. Before a stream starts, the desktop checks the PC's modes and each codec against this device's decoder and offers only those whose pictures come out as 4:4:4; otherwise the stream starts in 4:2:0 and states the reason, and a PC that refuses full chroma after the launch gets the stream again without it.
+
+- **Windows.** GPUs whose decoder supports HEVC 4:4:4 (8- and 10-bit; NVIDIA and Intel, as AYUV, Y410 and Y416 surfaces) decode it in hardware, drawn by the plane shader. AMD decoders have no 4:4:4.
+- **Linux.** Packed full chroma from VA-API and Vulkan video is rebuilt on the GPU. On the GPU renderer, Intel's VA-API decodes true 4:4:4 in hardware, and NVDEC's 10-bit 4:4:4 is drawn by the plane shader.
+- **Both settings on.** A PC that encodes HEVC 4:4:4 10-bit streams both at once where the decoder check passes it; otherwise the PC provides either 4:4:4 or 10-bit SDR, not both. When HDR takes priority over YUV 4:4:4, the notice says so.
+- **Android** asks only for 8-bit 4:4:4: its media API lists no 10-bit 4:4:4 profile.
 
 ### Adaptive refresh and VRR
 
-- **Desktop.** Frames are presented on decode with tearing for VRR, with host-time pacing, or with V-Sync. In Windows fullscreen on a display that keeps its own refresh rate, the stream switches to V-Sync when it runs below about 70% of that rate; a faster stream there still tears.
-- **Android with adaptive refresh (ARR, Android 16).** The stream votes for its own frame rate instead of 0, which would leave a game at Android's 60 Hz default. The overlay flags a screen that presents only half the rendered frames for 3 seconds.
-- **Android without ARR.** VRR runs at the panel's top rate. With a host that reports the game's frame rate (Rubylight 3.0), a rate that would judder there gets the highest whole multiple the current mode reaches seamlessly: 90 Hz for a 90 fps game on a 90/120 Hz panel, while a 60 fps game on 120 Hz stays at 120 Hz.
+- **Desktop.** Frames are presented on decode with tearing for VRR, with host-time pacing, or with V-Sync. On a display that keeps its own refresh rate, the stream waits for each refresh: on Windows in fullscreen when it runs below about 70% of that rate (a faster stream there still tears), on Linux when the graphics driver reports that the display is not running VRR.
+- **Android.** Adaptive refresh can be turned on only on Android 16 with a screen that supports adaptive refresh (ARR); elsewhere the setting is greyed out, also in PC and game settings, and a saved choice is kept for later. The stream votes for its own frame rate instead of 0, which would leave a game at Android's 60 Hz default. The overlay flags a screen that presents only half the rendered frames for 3 seconds.
 
-Android needs no scan-line check: SurfaceFlinger never flips mid-scan, and a panel without ARR reports only its fixed modes.
+Android needs no scan-line check: SurfaceFlinger never flips mid-scan.
 
 ## Stream quality and the network
 
 | Feature | Android | Windows | Linux | Notes |
 | --- | --- | --- | --- | --- |
-| Device controls bitrate | Yes | Partial | Partial | The desktop runs an earlier version of the Android controller. |
+| Automatic bitrate (follows resolution, frame rate and codec) | Yes | Yes | Yes | On until the bitrate is set by hand. |
+| Device controls bitrate | Yes | Yes | Yes | The same controllers, PyroWave's included: Rust `nightjar-policy` on the desktop, the Java originals it is kept equal to on Android. |
 | Automatic resolution and frame rate | Yes | Yes | Yes | |
 | Change bitrate / frame rate during a stream | Yes | Yes | Yes | |
 | Loss-based bitrate | Yes | Yes | Yes | Off by default. |
@@ -103,9 +115,10 @@ Android needs no scan-line check: SurfaceFlinger never flips mid-scan, and a pan
 | Ride out network drops | Yes | Yes | Yes | |
 | Wi-Fi and link speed reported to the PC | Yes | Yes | Yes | |
 | Stream health report and bitrate trial | Yes | Yes | Yes | |
+| Network speed test and PyroWave frame pace calibration | Yes | Yes | Yes | In **Settings → Streaming** and in each PC's settings; with several paired PCs you choose the PC. |
 | Connection test | Yes | Partial | Partial | The desktop's **Remote access** check verifies the paired PC over HTTPS; it has no network path or delay test. |
 | Play away from home | Yes | Partial | Partial | Android has the Tailscale setup guide; the desktop has the **Remote access** check only. |
-| Stream traffic priority | Yes | N/A | Yes | The engine sets socket and thread priorities on Android and Linux, and thread priorities on Windows. |
+| Stream traffic priority | Yes | Yes | Yes | The engine sets socket and thread priorities on Android and Linux, and thread priorities on Windows. |
 
 ## Sound
 
@@ -117,6 +130,7 @@ Android needs no scan-line check: SurfaceFlinger never flips mid-scan, and a pan
 | Microphone | Yes | Yes | Yes | |
 | Echo cancellation | Yes | Yes | Yes | **Automatic**, **On** or **Off**. Automatic turns it off with headphones. Linux needs the PipeWire or PulseAudio echo-cancel module. |
 | Noise suppression, gain, mute button | Yes | No | No | |
+| The PC's night mode and headphone surround | Yes | Yes | Yes | In the stream menu, on hosts that offer them. |
 
 ## Controls
 
@@ -131,6 +145,7 @@ Android needs no scan-line check: SurfaceFlinger never flips mid-scan, and a pan
 | Touch modes (trackpad, direct, multi-touch, local cursor) | Yes | Partial | Partial | The desktop sends native touch only. |
 | Host cursor shapes | Yes | Yes | Yes | |
 | Keyboard, mouse and pen | Yes | Yes | Yes | The desktop also sends pen rotation. |
+| System keys only in full screen | Yes | Yes | Yes | With **Send system keys** on, Alt+Tab, the Windows key and similar stay with this device while the stream is in a window (Android: split screen or a window). |
 | On-screen PC keyboard | Yes | N/A | N/A | |
 | Keyboard follows text fields | Yes | Yes | Yes | The desktop opens a keyboard only where the system provides an on-screen one. |
 | Keyboard layout reported to the PC | Yes | Yes | Yes | |
@@ -159,7 +174,7 @@ Each sharing feature appears only when the host reports it and allows it for thi
 
 ## Verification on our hardware
 
-Our test devices are a Retroid Pocket 6 (Snapdragon, Android 13), a TCL C6K TV (MediaTek, Android 14), a Windows laptop with a Radeon 780M, a Windows PC with a Radeon RX 7900 XT, and a NUC that runs the engine's command-line client on Linux. CI builds and tests the Linux desktop client. Everything above is covered by automated tests; these runs add measurements on real hardware.
+Our test devices are a Retroid Pocket 6 (Snapdragon, Android 13), a Galaxy Z Fold7, a TCL C6K TV (MediaTek, Android 14), a Windows laptop with a Radeon 780M, a Windows PC with a Radeon RX 7900 XT, and an Intel NUC that runs Nightjar for Linux. CI builds and tests the desktop client on Windows, Linux and macOS. Everything above is covered by automated tests; these runs add measurements on real hardware. The release notes record later device runs.
 
 | Feature | Device and date | Result |
 | --- | --- | --- |

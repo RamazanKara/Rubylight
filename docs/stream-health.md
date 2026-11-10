@@ -2,7 +2,7 @@
 
 [Documentation](index.md)
 
-**Why did my stream stutter?** explains stutter from measurements Nightjar already collects. Open the stream menu, then **Display → Overlay and diagnostics → Why did my stream stutter?**
+**Why did my stream stutter?** explains stutter from measurements Nightjar already collects. Open the stream menu, then **Diagnostics → Why did my stream stutter?** (on Windows and Linux, the stream controls' **Why did my stream stutter?**).
 
 The report uses up to 30 seconds of stream measurements, the start times of network stalls from the last 20 minutes, and the current Wi-Fi reading. It does not move the mouse, record video, contact any service, or write a history to disk. Copying the report puts only the displayed evidence and advice on the clipboard.
 

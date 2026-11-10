@@ -4,8 +4,7 @@
 
 ## Install a published or development build
 
-On a Mac, build the native Rust client or package a relocatable, ad-hoc-signed `Nightjar.app`.
-The desktop guide lists the toolchain, test commands and display requirements. [Mac build and verification](../protocol/desktop/README.md#macos)
+This page covers the Android app and the release workflow. The desktop client for Windows, Linux and macOS has its own [install](../protocol/desktop/README.md#installing) and [build](../protocol/desktop/README.md#building) steps, with the Mac's [build and verification](../protocol/desktop/README.md#macos) in the same guide.
 
 Get published APKs from [Nightjar releases](https://github.com/RamazanKara/nightjar/releases), or build one yourself as described below. Open the APK on Android 5.0 or newer and allow installation from the app opening it; no root is needed. With USB debugging enabled, `adb install -r app-nonRoot-debug.apk` also installs it.
 
@@ -58,7 +57,7 @@ CI rebuilds the Rust protocol libraries from source and runs all native regressi
 bash scripts/test-native.sh
 ```
 
-This requires a C/C++ compiler, OpenSSL development headers and Rust. Gradle and the native runner apply the checked-in native fixes before compiling and fail if the patches do not apply. [The Android workflow](../.github/workflows/android.yml) also builds both release flavors, runs both flavors' unit tests and uploads the non-root debug APK as the `nightjar-debug` artifact. The optional [emulator smoke script](../scripts/emulator-smoke.py) requires an already configured Android SDK, Python and its expected AVD.
+This requires a C/C++ compiler, OpenSSL development headers and Rust. Gradle and the native runner apply the checked-in native fixes before compiling and fail if the patches do not apply. [The Android workflow](../.github/workflows/android.yml) runs in parallel jobs: the documentation checks below; the desktop client's tests and Clippy on Linux; a build of the debug APK and both release flavors, uploading the non-root debug APK as the `nightjar-debug` artifact; lint of both flavors; both flavors' unit tests; and `scripts/test-native.sh`. Run by hand with a `prerelease_tag`, it also runs the emulator smoke test below and publishes a debug-signed arm64 APK as that prerelease. [The macOS workflow](../.github/workflows/macos.yml) builds, tests and packages the desktop client on Apple Silicon and Intel. The optional [emulator smoke script](../scripts/emulator-smoke.py) requires an already configured Android SDK, Python and its expected AVD.
 
 ### UI smoke captures
 
@@ -147,7 +146,7 @@ Releases are built and signed by [`release.yml`](../.github/workflows/release.ym
 
 Pushing a tag such as `v4.0.1` first checks that the tag equals `v` plus `versionName` in `app/build.gradle`, then runs five jobs:
 
-- **`desktop-windows` and `desktop-linux`** build the desktop client with `protocol/desktop/package-windows.ps1` and `package-linux.sh`, including the PyroWave SDK (`scripts/build-pyrowave-sdk.*`, pinned by `protocol/desktop/pyrowave-sdk.pin`; patch 0002 and the Windows build script come from the public Rubylight repository at the `RUBYLIGHT_SHA` in `release.yml`), and check that each unpacked package loads it. The Linux job installs and starts the `.deb`, `.rpm` and AppImage in clean distributions.
+- **`desktop-windows` and `desktop-linux`** build the desktop client with `protocol/desktop/package-windows.ps1` and `package-linux.sh`, including the PyroWave SDK (`scripts/build-pyrowave-sdk.*`, pinned by `protocol/desktop/pyrowave-sdk.pin`; patch 0002 and the Windows build script come from the public Rubylight repository at the `RUBYLIGHT_SHA` in `release.yml`), and check that each unpacked package loads it. The Linux job runs for x86_64 and aarch64 and installs and starts the packages in clean distributions; a failed aarch64 leg leaves a warning and the release ships without it.
 - **`desktop-macos`** builds the release `Nightjar.app` with `protocol/desktop/package-macos.py --zip` on an Apple Silicon and an Intel runner, and checks and launches the unpacked zip on each. The app carries an ad-hoc signature and is not notarized. A failed Mac leg, like a failed Linux aarch64 leg, leaves a warning and the release ships without it.
 - **`android`**, beside the desktop jobs, builds the non-root APK, the root APK and the non-root bundle with the release key, and checks that all three are signed with the Nightjar certificate (SHA-256 `312ed322c7c29d1aec4fae4a3979ebcb557af44d821d7f4746c0968548eb630b`) and that the APKs' IDs are `com.butterpollo.client` and `com.butterpollo.client.root`. It hands them to `release` as an artifact kept for one day.
 - **`release`** waits for the other four, so a failed build publishes nothing, and publishes their files.
@@ -197,6 +196,7 @@ Use Python 3.10+ and Node.js 18+; these scripts use only standard libraries and 
 ```sh
 python scripts/generate-settings.py
 git diff --exit-code -- docs/settings.md
+python scripts/test_gen_design_tokens.py
 node --test scripts/check-doc-links.test.mjs scripts/build-release.test.mjs scripts/add-device-results.test.mjs scripts/device-docs.test.mjs scripts/device-results-issue.test.mjs
 node scripts/check-doc-links.mjs
 node scripts/device-docs.mjs --check

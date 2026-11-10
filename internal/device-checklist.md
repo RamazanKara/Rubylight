@@ -14,11 +14,17 @@ Record the app build, host version, phone/tablet/TV model, SoC, Android build, c
 - [ ] Confirm Disconnect preserves the app and reconnect resumes it. Test Quit app, replacement and Terminate with Cancel, Back, Home, rotation, expiry and explicit confirmation.
 - [ ] With two paired clients, test ownership changes, Remote Monitor and Input-only. Monitor must not send input; Input-only must not time out for absent video or enter PiP. End only the intended remote role.
 - [ ] Transfer empty, Unicode and oversized clipboard text with send/read grants varied independently. Exercise missing/reordered commands and host app restrictions; sending is not an execution acknowledgement.
+- [ ] From **Pair another device**, approve a new device; check that only devices with the permission see it.
+- [ ] Test Sleep PC, Restart PC, Shut down PC and **Update the PC's host** with each allowed and refused by the host, including Cancel and a PC that does not come back.
+- [ ] Start a game on one device, then use **Continue here** and **Stream here too** from another; the first device must leave or stay as chosen.
 - [ ] Pair while awake, then test Wake-on-LAN from sleep with Ethernet, Wi-Fi, VPN, multiple subnets and a broken route. Record actual wake, not merely packet submission.
 
 ## Video, pacing and diagnostics
 
 - [ ] Compare H.264, HEVC and AV1 at 720p, 1080p and native resolution; 60/120 FPS and higher where supported. Record decoder name, profile, accepted low-latency keys and all stage timings.
+- [ ] On a foldable, stream with **Ready the decoder for folding** on and off and fold/unfold mid-stream; record decoder reconfiguration, black frames and stalls.
+- [ ] With Lowest latency or Balanced pacing, compare **Take back display queue delay** on and off on a device that reports present times; record queue delay and skipped frames.
+- [ ] Test **Dual screen mode** on a device with a second screen and a host that supports it: second stream start, touch mode on both screens, loss of either screen, and Disconnect.
 - [ ] Compare all four pacing modes at matched and mixed panel rates, including 60→90, 60→120, 90→120 and fractional rates. Check first-frame output, bounded queues, starvation, static-to-motion transitions and recovery.
 - [ ] Compare received, rendered (submitted) and on-screen (callback-observed) FPS. Check delayed/missing render callbacks, estimated drops after five seconds and unavailable fields. Use a trace/camera to measure physical presentation separately.
 - [ ] Enable VRR on Android 15, Android 16 with and without confirmed adaptive refresh, and an older fixed-rate device. Vary cadence through 30/59.94/60/90/119.88/120 FPS, idle, resume and surface recreation.
@@ -43,7 +49,7 @@ Record the app build, host version, phone/tablet/TV model, SoC, Android build, c
 - [ ] On supported 64-bit Vulkan devices, start PyroWave at 720p/60 on a fast wired link, then compare Wi-Fi and higher geometry/rates. Record readiness, present mode, host bitstream compatibility and actual throughput.
 - [ ] On a compatible record-framed host, confirm surviving regions update, lost regions recover and reconnect clears old imagery. Lose first/middle/last datagrams and a burst spanning recovery blocks; a datagram can affect several records.
 - [ ] Check ordinary framing for unknown host versions and conventional-codec fallback for unsupported Vulkan features, surfaces or incompatible bitstreams. Test 8/10-bit and 4:2:0/4:4:4 combinations.
-- [ ] Verify PyroWave completed decode, last GPU decode, queue delay and missing-record metrics separately. Test bitrate reduction under load, slow recovery after a healthy period, and the 500 Mbps runtime cap.
+- [ ] Verify PyroWave completed decode, last GPU decode, queue delay and missing-record metrics separately. Test bitrate reduction under load, slow recovery after a healthy period, and the 2000 Mbps runtime cap.
 
 ## Controllers, touch and keyboard
 
@@ -68,8 +74,8 @@ Record the app build, host version, phone/tablet/TV model, SoC, Android build, c
 
 ## Interface, packaging and launchers
 
-- [ ] Check 360 × 800 dp and 393 × 851 dp, portrait/landscape, font scales 1.0/1.3/2.0, gesture/three-button navigation, English/German and long host/app names.
-- [ ] Visit library/roles, all five settings sections, search/empty results, profiles, help and every stream subdialog. Check wrapping, scrolling, IME insets, Back behavior and reachable Save/Cancel controls.
+- [ ] Check 360 × 800 dp and 393 × 851 dp, portrait/landscape, font scales 1.0/1.3/2.0, gesture/three-button navigation, the 15 languages (long German strings, CJK fonts) and long host/app names.
+- [ ] Visit library/roles, all eight settings sections, search/empty results, profiles, help and every stream subdialog. Check wrapping, scrolling, IME insets, Back behavior and reachable Save/Cancel controls.
 - [ ] With TalkBack and keyboard/D-pad, check labels, headings, focus return and touch targets. Search titles/categories/accents/punctuation and verify original dependencies after opening a result.
 - [ ] Export ES-DE configuration and covers; launch from ES-DE, Daijisho and Pegasus. Test renamed games with stable IDs/UUIDs, interrupted writes and retry, custom-cover preservation, unreadable/malformed files, missing PCs/apps, URI grants and return to the frontend.
 - [ ] Test debug and R8 release artifacts and the production signing identity. Retain GPL and bundled shader/native notices.

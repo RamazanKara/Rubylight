@@ -185,7 +185,10 @@ struct App {
     shortcut_file: Option<(bool, sdl::FileChoice)>,
     /// A folder to download into, or a file to upload, being chosen for the shared folder browser.
     folder_pick: Option<(FolderPick, sdl::FileChoice)>,
+    /// The network read for a start, which waits for it.
     network_query: Option<Receiver<network::Network>>,
+    /// The network as the launcher shows and uses it between starts.
+    network_watch: network::Watch,
     /// What this PC's power allows, being asked once at start.
     power_probe: Option<Receiver<Vec<power::Offer>>>,
     /// A shut down, restart or sleep under way, and the system's answer to it.
@@ -193,7 +196,6 @@ struct App {
     network_test: Option<network_test::Test>,
     /// Host, app, resume, and Input-only through a small stream.
     network_launch: Option<(u64, i32, bool, LaunchKind)>,
-    next_network_check: Instant,
     /// A pairing link from the system, until the launcher can ask about it.
     links: Arc<link_channel::Inbox>,
     #[cfg(feature = "demo-library")]
@@ -829,12 +831,12 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         identity: None,
         shortcut_file: None,
         folder_pick: None,
-        network_query: Some(network::query(waker.clone())),
+        network_query: None,
+        network_watch: network::Watch::start(waker.clone()),
         power_probe: Some(power::probe(waker.clone())),
         power_request: None,
         network_test: None,
         network_launch: None,
-        next_network_check: Instant::now(),
         links,
         #[cfg(feature = "demo-library")]
         demo: demo_driver::start(waker.clone()),
@@ -890,6 +892,9 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     while app.running {
         app.updates.hold(app.streaming.is_some() || app.connecting.is_some() || app.network_launch.is_some());
         if app.streaming.is_some() {
+            // The stream watches the network itself (`RoamWatch`), and the launcher's pages are
+            // not on screen to show it.
+            app.network_watch.pace(network::Pace::Paused);
             app.stream_frame();
         } else {
             app.launcher_frame();
@@ -1271,15 +1276,17 @@ impl App {
                 }
             }
         }
+        // Before a start's own read, which is the newer of the two when both are in.
+        self.network_watch.pace(self.launcher.screen.network_pace());
+        if let Some(network) = self.network_watch.latest() {
+            self.launcher.network = network;
+        }
         if let Some(receiver) = &self.network_query {
             if let Ok(network) = receiver.try_recv() {
                 self.launcher.network = network;
                 self.network_query = None;
-                self.next_network_check = Instant::now() + Duration::from_secs(5);
                 if let Some((host, app, resume, kind)) = self.network_launch.take() { self.launch_ready(host, app, resume, kind); }
             }
-        } else if Instant::now() >= self.next_network_check {
-            self.network_query = Some(network::query(self.waker.clone()));
         }
         if let Some((export, receiver)) = &self.shortcut_file {
             if let Ok(result) = receiver.try_recv() {
@@ -1565,6 +1572,8 @@ impl App {
                 },
             );
         });
+        // Before the frame's commands, so a cover it asks for is sized for this window.
+        self.hosts.covers_shown(&self.gui.ctx, &self.store);
         self.gui.platform(self.window, &output.platform_output);
         if self.title_bar != *theme::NIGHT {
             self.title_bar = *theme::NIGHT;

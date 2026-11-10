@@ -77,7 +77,7 @@ impl Launcher {
                 let shown: Vec<&nightjar_core::http::App> = apps.iter().filter(|app| self.show_hidden_apps || !hides(app)).collect();
                 // The running game lights the page from its cover, on screen or not (`page_backdrop`).
                 if let Some(app) = running_app_id(host) {
-                    request_cover_unseen(view, id, app as u32, commands);
+                    request_cover_unseen(ui, view, id, app as u32, commands);
                 }
                 for (row, chunk) in shown.chunks(columns).enumerate() {
                     ui.horizontal(|ui| {
@@ -242,8 +242,9 @@ impl Launcher {
     /// Every game of every PC under its filter chips: All, Installed, each store, Other apps.
     pub(super) fn all_games(&mut self, ui: &mut Ui, view: &View<'_>, commands: &mut Vec<Command>) {
         let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
-        let (entries, hidden) = console::split_hidden(console::merge_library(&sources), &sources, &self.hidden_games);
-        let mut chips = console::library_filters(&entries);
+        let library = self.library.get(&sources, &self.hidden_games);
+        let (entries, hidden) = (library.shown(), library.hidden());
+        let mut chips = console::library_filters(entries);
         if !hidden.is_empty() {
             chips.push(console::FilterChip { filter: console::LibraryFilter::Hidden, store_name: None, count: hidden.len() });
         }
@@ -263,7 +264,7 @@ impl Launcher {
             return;
         }
         // The chips stay as they are while words narrow them, only their counts follow.
-        count_chips(&mut chips, &entries, &hidden, &words);
+        count_chips(&mut chips, entries, hidden, &words);
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(space::S, space::S);
             for chip in &chips {
@@ -292,7 +293,7 @@ impl Launcher {
         });
         // The room a raised cover's ring needs at the top of the scroll comes out of the gap.
         ui.add_space(space::L - LIFT);
-        let pool = if self.library_filter == console::LibraryFilter::Hidden { &hidden } else { &entries };
+        let pool = if self.library_filter == console::LibraryFilter::Hidden { hidden } else { entries };
         let shown = matching(pool, &self.library_filter, &words);
         // Installed is offered while anything is not, so with nothing installed it holds no game.
         if shown.is_empty() {

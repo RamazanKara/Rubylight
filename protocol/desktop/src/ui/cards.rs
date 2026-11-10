@@ -258,8 +258,10 @@ pub(super) fn cover_shapes(ui: &Ui, out: &mut Vec<Shape>, rect: Rect, text_w: f3
             }
             let tint = Color32::WHITE.gamma_multiply(reveal);
             glass::image(out, ctx, rect, r, texture.id(), cover_uv(texture.size_vec2(), rect.size()), tint);
+            crate::hosts::cover_used(ctx, texture);
         }
-        Some(Art::Loading) => {
+        // One given up for room shows as one on its way: it is, from its file.
+        Some(Art::Loading | Art::Dropped) => {
             ctx.animate_bool_with_time(Id::unique(("cover-in", title)), false, 0.0);
             glass::solid(out, ctx, rect, r, t::COVER_PLACEHOLDER);
         }
@@ -400,7 +402,7 @@ fn cover_slot(ui: &mut Ui, name: &str, art: Option<&Art>, badge: Badge, width: f
     let boost = if feel.hovered || feel.focused { t::HOVER_RIM_BOOST } else { 1.0 };
     let mut shapes = Vec::new();
     cover_shapes(ui, &mut shapes, shown, width, t::RADIUS_COVER, name, art, boost);
-    if !captioned && matches!(art, Some(Art::Loading)) {
+    if !captioned && matches!(art, Some(Art::Loading | Art::Dropped)) {
         placeholder_title(ui, &mut shapes, shown, name);
     }
     match badge {
@@ -540,7 +542,7 @@ pub(super) fn list_row(ui: &mut Ui, name: &str, line: &str, art: Option<&Art>, b
 /// Whether a cover names its game underneath: art and its placeholder say nothing of it, a tile
 /// holds the full title already.
 pub(super) fn poster_caption(art: Option<&Art>) -> bool {
-    matches!(art, Some(Art::Ready(_) | Art::Loading))
+    matches!(art, Some(Art::Ready(_) | Art::Loading | Art::Dropped))
 }
 
 /// Asks for a cover when it is on screen and the PC can send it.
@@ -553,16 +555,25 @@ pub(super) fn request_cover(
     commands: &mut Vec<Command>,
 ) {
     if ui.is_rect_visible(response.rect) {
-        request_cover_unseen(view, host, app, commands);
+        request_cover_unseen(ui, view, host, app, commands);
     }
 }
 
 /// Asks for a cover the page needs wherever its card is, when the PC can send it. Every page asks
 /// for an app's cover at the one version its PC gives it ([`Host::cover_version`]).
-pub(super) fn request_cover_unseen(view: &View<'_>, host: u64, app: u32, commands: &mut Vec<Command>) {
-    let Some(pc) = view.hosts.get(host).filter(|h| h.reach == Reach::Online) else {
+///
+/// A cover that is here is noted as in use, so it is not given up for room while a page needs
+/// it; one that was given up is asked for whether its PC is up or not, as it loads from its file.
+pub(super) fn request_cover_unseen(ui: &Ui, view: &View<'_>, host: u64, app: u32, commands: &mut Vec<Command>) {
+    let Some(pc) = view.hosts.get(host) else {
         return;
     };
+    if let Some(Art::Ready(texture)) = pc.art.get(&(app as i32)) {
+        crate::hosts::cover_used(ui.ctx(), texture);
+    }
+    if pc.reach != Reach::Online && !pc.art_dropped(app as i32) {
+        return;
+    }
     let version = pc.cover_version(app as i32);
     if pc.art_wanted(app as i32, version) {
         commands.push(Command::RequestArt { host, app: app as i32, version: version.to_owned() });

@@ -18,6 +18,7 @@
         <item>Multi-touch</item>
         <item>Local cursor</item>
         <item>Touch off</item>
+        <item>Trackpad (touchpad gestures)</item>
     </string-array>
     <string-array name="stream_control_layout_actions">
         <item>Move controls</item>

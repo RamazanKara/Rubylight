@@ -736,6 +736,28 @@ public class GameTouchInputTest {
         assertEquals(afterFlick, connection.moves.size());
     }
 
+    @Test
+    public void touchpadModeHoldsTheButtonWhenATouchFollowsATapQuickly() {
+        RecordingConnection connection = new RecordingConnection();
+        Game game = game(connection);
+        touchConfig(game, TouchMode.TOUCHPAD);
+        View background = layout(game, 0, 0);
+        ReflectionHelpers.callInstanceMethod(game.touchInput, "initializeTouchContexts");
+        long start = android.os.SystemClock.uptimeMillis();
+        touchAt(game, background, MotionEvent.ACTION_DOWN, 100, 250, start);
+        touchAt(game, background, MotionEvent.ACTION_UP, 100, 250, start + 40);
+        assertEquals(Collections.singletonList("down 1"), connection.buttons);
+
+        touchAt(game, background, MotionEvent.ACTION_DOWN, 100, 250, start + 150);
+        for (int i = 1; i <= 3; i++) {
+            touchAt(game, background, MotionEvent.ACTION_MOVE, 100 + i * 12, 250, start + 150 + i * 100);
+        }
+        assertFalse(connection.moves.isEmpty());
+        assertEquals(Collections.singletonList("down 1"), connection.buttons);
+        touchAt(game, background, MotionEvent.ACTION_UP, 136, 250, start + 500);
+        assertEquals(java.util.Arrays.asList("down 1", "up 1"), connection.buttons);
+    }
+
     private static void flick(Game game, View view) {
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS);
         long start = android.os.SystemClock.uptimeMillis();

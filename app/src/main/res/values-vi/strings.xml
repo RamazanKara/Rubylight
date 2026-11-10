@@ -173,6 +173,12 @@
     <string name="category_input_settings">Cảm ứng &amp; chuột</string>
     <string name="title_trackpad_speed">Tốc độ bàn di chuột</string>
     <string name="title_mouse_speed">Tốc độ chuột</string>
+    <string name="title_trackpad_sensitivity_x">Độ nhạy bàn di chuột X</string>
+    <string name="summary_trackpad_sensitivity_x">Tốc độ theo chiều ngang của bàn di chuột vật lý, chẳng hạn bàn di chuột của bao da bàn phím, áp dụng cùng với tốc độ chuột. Giá trị âm sẽ đảo ngược hướng. Các chế độ màn hình cảm ứng dùng tốc độ bàn di chuột.</string>
+    <string name="title_trackpad_sensitivity_y">Độ nhạy bàn di chuột Y</string>
+    <string name="summary_trackpad_sensitivity_y">Tốc độ theo chiều dọc của bàn di chuột vật lý, chẳng hạn bàn di chuột của bao da bàn phím, áp dụng cùng với tốc độ chuột. Giá trị âm sẽ đảo ngược hướng. Các chế độ màn hình cảm ứng dùng tốc độ bàn di chuột.</string>
+    <string name="title_trackpad_swap_axis">Hoán đổi trục X và Y của đầu vào bàn di chuột</string>
+    <string name="summary_trackpad_swap_axis">Một số bàn di chuột vật lý báo cáo các trục bị xoay, nên vuốt lên làm con trỏ di chuyển sang ngang. Bật để hoán đổi X và Y trước khi áp dụng độ nhạy bàn di chuột. Các chế độ màn hình cảm ứng không bị ảnh hưởng.</string>
     <string name="title_checkbox_absolute_mouse_mode">Chế độ chuột desktop</string>
     <string name="summary_checkbox_absolute_mouse_mode">Di chuyển con trỏ của PC như chuột desktop, có gia tốc. Trò chơi điều khiển camera bằng chuột có thể không hoạt động.</string>
     <string name="title_checkbox_mouse_nav_buttons">Nút lùi/tiến của chuột</string>

@@ -499,6 +499,29 @@
             seekbar:min="25"
             android:max="400"
             android:text="%" />
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_trackpad_sensitivity_x"
+            android:title="@string/title_trackpad_sensitivity_x"
+            android:dialogMessage="@string/summary_trackpad_sensitivity_x"
+            android:defaultValue="100"
+            seekbar:min="-200"
+            seekbar:step="10"
+            android:max="200"
+            android:text="%" />
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_trackpad_sensitivity_y"
+            android:title="@string/title_trackpad_sensitivity_y"
+            android:dialogMessage="@string/summary_trackpad_sensitivity_y"
+            android:defaultValue="100"
+            seekbar:min="-200"
+            seekbar:step="10"
+            android:max="200"
+            android:text="%" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_trackpad_swap_axis"
+            android:title="@string/title_trackpad_swap_axis"
+            android:dialogMessage="@string/summary_trackpad_swap_axis"
+            android:defaultValue="false" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_mouse_nav_buttons"
             android:title="@string/title_checkbox_mouse_nav_buttons"

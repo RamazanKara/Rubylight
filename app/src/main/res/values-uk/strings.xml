@@ -173,6 +173,12 @@
     <string name="category_input_settings">Сенсор і миша</string>
     <string name="title_trackpad_speed">Швидкість трекпада</string>
     <string name="title_mouse_speed">Швидкість миші</string>
+    <string name="title_trackpad_sensitivity_x">Чутливість трекпада X</string>
+    <string name="summary_trackpad_sensitivity_x">Горизонтальна швидкість фізичного тачпада, наприклад у чохлі з клавіатурою, додатково до швидкості миші. Від’ємне значення змінює напрямок на протилежний. Режими сенсорного екрана натомість використовують швидкість трекпада.</string>
+    <string name="title_trackpad_sensitivity_y">Чутливість трекпада Y</string>
+    <string name="summary_trackpad_sensitivity_y">Вертикальна швидкість фізичного тачпада, наприклад у чохлі з клавіатурою, додатково до швидкості миші. Від’ємне значення змінює напрямок на протилежний. Режими сенсорного екрана натомість використовують швидкість трекпада.</string>
+    <string name="title_trackpad_swap_axis">Поміняти місцями осі X та Y введення трекпада</string>
+    <string name="summary_trackpad_swap_axis">Деякі фізичні тачпади передають осі повернутими, і рух угору зсуває курсор убік. Увімкніть, щоб поміняти X та Y місцями до застосування чутливості трекпада. Режими сенсорного екрана не зачіпаються.</string>
     <string name="title_checkbox_absolute_mouse_mode">Режим настільної миші</string>
     <string name="summary_checkbox_absolute_mouse_mode">Рухає вказівник ПК як звичайна миша, з прискоренням. Ігри, де камера керується мишею, можуть не працювати.</string>
     <string name="title_checkbox_mouse_nav_buttons">Кнопки миші «назад»/«вперед»</string>

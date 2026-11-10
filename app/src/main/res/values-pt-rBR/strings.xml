@@ -173,6 +173,12 @@
     <string name="category_input_settings">Toque e mouse</string>
     <string name="title_trackpad_speed">Velocidade do trackpad</string>
     <string name="title_mouse_speed">Velocidade do mouse</string>
+    <string name="title_trackpad_sensitivity_x">Sensibilidade do trackpad X</string>
+    <string name="summary_trackpad_sensitivity_x">Velocidade horizontal de um touchpad físico, como o de uma capa com teclado, somada à velocidade do mouse. Um valor negativo inverte a direção. Os modos de tela de toque usam a velocidade do trackpad.</string>
+    <string name="title_trackpad_sensitivity_y">Sensibilidade do trackpad Y</string>
+    <string name="summary_trackpad_sensitivity_y">Velocidade vertical de um touchpad físico, como o de uma capa com teclado, somada à velocidade do mouse. Um valor negativo inverte a direção. Os modos de tela de toque usam a velocidade do trackpad.</string>
+    <string name="title_trackpad_swap_axis">Trocar os eixos X e Y da entrada do trackpad</string>
+    <string name="summary_trackpad_swap_axis">Alguns touchpads físicos informam os eixos girados, então deslizar para cima move o ponteiro para o lado. Ative para trocar X e Y antes de aplicar a sensibilidade do trackpad. Os modos de tela de toque não são afetados.</string>
     <string name="title_checkbox_absolute_mouse_mode">Modo mouse de desktop</string>
     <string name="summary_checkbox_absolute_mouse_mode">Move o ponteiro do PC como um mouse de desktop, com aceleração. Jogos que controlam a câmera com o mouse podem não funcionar.</string>
     <string name="title_checkbox_mouse_nav_buttons">Botões voltar/avançar do mouse</string>

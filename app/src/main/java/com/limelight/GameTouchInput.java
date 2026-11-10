@@ -10,6 +10,7 @@ import com.limelight.binding.input.touch.TwoFingerTapGesture;
 import com.limelight.binding.input.touch.TouchMode;
 import com.limelight.binding.input.touch.TouchMomentum;
 import com.limelight.binding.input.touch.TrackpadArea;
+import com.limelight.binding.input.touch.TrackpadContext;
 import com.limelight.binding.input.touch.TrackpadPointer;
 import com.limelight.binding.input.evdev.EvdevListener;
 import com.limelight.binding.input.touch.TouchContext;
@@ -46,6 +47,8 @@ final class GameTouchInput {
 
     // Mouse emulation uses two touches; native touch forwards all pointers.
     private final TouchContext[] touchContextMap = new TouchContext[2];
+    // Finger touches of a physical touchpad: tap-to-click, scroll and drag, with the Trackpad Sensitivity settings.
+    private final TouchContext[] touchpadContextMap = new TouchContext[2];
     private final FingerTapGesture fingerTap = new FingerTapGesture();
     private final TwoFingerTapGesture twoFingerTap = new TwoFingerTapGesture();
 
@@ -125,7 +128,26 @@ final class GameTouchInput {
         game.trackpadPointer.setReferenceSize(game.prefConfig.width, game.prefConfig.height);
         game.trackpadPointer.setLocalCursor(touchMode() == TouchMode.LOCAL_CURSOR);
         updateHostCursorShapes();
+        for (int i = 0; i < touchpadContextMap.length; i++) {
+            touchpadContextMap[i] = new TrackpadContext(game.conn, i, game.prefConfig.trackpadSwapAxis,
+                    game.prefConfig.trackpadSensitivityX, game.prefConfig.trackpadSensitivityY,
+                    game.prefConfig.mouseSpeed, game.prefConfig.absoluteMouseMode ? game.streamView : null);
+        }
         for (int i = 0; i < touchContextMap.length; i++) {
+            if (usesTrackpadGestures()) {
+                // Same gestures as a physical touchpad: tap to click, two-finger scroll and right-click,
+                // tap and touch again to drag, flick momentum.
+                touchContextMap[i] = new TrackpadContext(game.conn, i, game.prefConfig.absoluteMouseMode,
+                        game.prefConfig.width, game.prefConfig.height, new TrackpadContext.MoveScale() {
+                            @Override public float x() {
+                                return game.prefConfig.width / (float) Math.max(1, game.streamView.getWidth()) * game.prefConfig.trackpadSpeed / 100f;
+                            }
+                            @Override public float y() {
+                                return game.prefConfig.height / (float) Math.max(1, game.streamView.getHeight()) * game.prefConfig.trackpadSpeed / 100f;
+                            }
+                        });
+                continue;
+            }
             touchContextMap[i] = game.prefConfig.touchscreenTrackpad ?
                     new RelativeTouchContext(game.conn, i, game.prefConfig.width, game.prefConfig.height, game.streamView, game.prefConfig,
                             game.trackpadPointer) :
@@ -175,8 +197,8 @@ final class GameTouchInput {
         if (!game.prefConfig.touchscreenTrackpad) {
             return game.nativeTouchEnabled ? TouchMode.MULTI_TOUCH : TouchMode.DIRECT;
         }
-        return game.prefConfig.touchMode == TouchMode.LOCAL_CURSOR || game.prefConfig.touchMode == TouchMode.OFF ?
-                game.prefConfig.touchMode : TouchMode.TRACKPAD;
+        return game.prefConfig.touchMode == TouchMode.LOCAL_CURSOR || game.prefConfig.touchMode == TouchMode.OFF ||
+                game.prefConfig.touchMode == TouchMode.TOUCHPAD ? game.prefConfig.touchMode : TouchMode.TRACKPAD;
     }
 
     private boolean isInTrackpadArea(View view, MotionEvent event) {
@@ -437,6 +459,11 @@ final class GameTouchInput {
         if (game.controllerHandler != null) {
             game.controllerHandler.setInputEnabled(grab && game.hasWindowFocus());
         }
+    }
+
+    /** The alternative finger trackpad with the physical touchpad's gestures; Trackpad and Local cursor keep their own. */
+    private boolean usesTrackpadGestures() {
+        return game.prefConfig.touchscreenTrackpad && touchMode() == TouchMode.TOUCHPAD;
     }
 
     private TouchContext getTouchContext(int actionIndex)
@@ -834,9 +861,13 @@ final class GameTouchInput {
                  (eventSource & InputDevice.SOURCE_CLASS_POSITION) != 0 ||
                  eventSource == InputDevice.SOURCE_MOUSE_RELATIVE)
         {
+            // A touchpad's finger touches carry no action button; only its clicks do. Clicks are handled
+            // below like a mouse, and the touches go to the trackpad gesture handling.
+            boolean hasActionButton = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || event.getActionButton() != 0;
+
             // This case is for mice and non-finger touch devices
             if (eventSource == InputDevice.SOURCE_MOUSE ||
-                    (eventSource & InputDevice.SOURCE_CLASS_POSITION) != 0 || // SOURCE_TOUCHPAD
+                    ((eventSource & InputDevice.SOURCE_CLASS_POSITION) != 0 && hasActionButton) || // SOURCE_TOUCHPAD
                     eventSource == InputDevice.SOURCE_MOUSE_RELATIVE ||
                     (event.getPointerCount() >= 1 &&
                             (event.getToolType(0) == MotionEvent.TOOL_TYPE_MOUSE ||
@@ -1024,6 +1055,12 @@ final class GameTouchInput {
             // This case is for fingers
             else
             {
+                if (eventSource == InputDevice.SOURCE_TOUCHPAD) {
+                    // Like the mouse case, ignore the touchpad while we aren't capturing it; returning
+                    // true keeps Android from turning the touches into d-pad events.
+                    return !game.inputCaptureProvider.isCapturingActive() || handleTouchpadTouch(event);
+                }
+
                 if ((game.virtualController != null &&
                         (game.virtualController.getControllerMode() == VirtualController.ControllerMode.MoveButtons ||
                          game.virtualController.getControllerMode() == VirtualController.ControllerMode.ResizeButtons)) ||
@@ -1080,7 +1117,8 @@ final class GameTouchInput {
                     game.overlays.hostNotice(HostNotices.Notice.NATIVE_TOUCH_UNAVAILABLE, R.string.stream_native_touch_fallback);
                 }
 
-                boolean rightTap = game.prefConfig.touchscreenTrackpad &&
+                // The touchpad gestures right-click on a two-finger tap themselves.
+                boolean rightTap = game.prefConfig.touchscreenTrackpad && !usesTrackpadGestures() &&
                         twoFingerTap.onTouch(event, game.getResources().getDisplayMetrics().density);
                 if (handleFingerTapGesture(event)) return true;
 
@@ -1180,6 +1218,67 @@ final class GameTouchInput {
 
         // Unknown class
         return false;
+    }
+
+    private boolean handleTouchpadTouch(MotionEvent event) {
+        int actionIndex = event.getActionIndex();
+        int pointerCount = event.getPointerCount();
+        TouchContext context = actionIndex < touchpadContextMap.length ? touchpadContextMap[actionIndex] : null;
+        if (context == null) {
+            return false;
+        }
+
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_POINTER_DOWN:
+            case MotionEvent.ACTION_DOWN:
+                for (TouchContext touchContext : touchpadContextMap) {
+                    touchContext.setPointerCount(pointerCount);
+                }
+                context.touchDownEvent((int) event.getX(actionIndex), (int) event.getY(actionIndex), event.getEventTime(), true);
+                break;
+            case MotionEvent.ACTION_POINTER_UP:
+            case MotionEvent.ACTION_UP:
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && (event.getFlags() & MotionEvent.FLAG_CANCELED) != 0) {
+                    context.cancelTouch();
+                }
+                else {
+                    context.touchUpEvent((int) event.getX(actionIndex), (int) event.getY(actionIndex), event.getEventTime());
+                }
+                for (TouchContext touchContext : touchpadContextMap) {
+                    touchContext.setPointerCount(pointerCount - 1);
+                }
+                if (actionIndex == 0 && pointerCount > 1 && !context.isCancelled()) {
+                    // The original secondary touch now becomes primary
+                    context.touchDownEvent((int) event.getX(1), (int) event.getY(1), event.getEventTime(), false);
+                }
+                break;
+            case MotionEvent.ACTION_MOVE:
+                // ACTION_MOVE always has actionIndex 0, so call the move handler of every finger
+                for (int i = 0; i < event.getHistorySize(); i++) {
+                    for (TouchContext touchContext : touchpadContextMap) {
+                        if (touchContext.getActionIndex() < pointerCount) {
+                            touchContext.touchMoveEvent((int) event.getHistoricalX(touchContext.getActionIndex(), i),
+                                    (int) event.getHistoricalY(touchContext.getActionIndex(), i), event.getHistoricalEventTime(i));
+                        }
+                    }
+                }
+                for (TouchContext touchContext : touchpadContextMap) {
+                    if (touchContext.getActionIndex() < pointerCount) {
+                        touchContext.touchMoveEvent((int) event.getX(touchContext.getActionIndex()),
+                                (int) event.getY(touchContext.getActionIndex()), event.getEventTime());
+                    }
+                }
+                break;
+            case MotionEvent.ACTION_CANCEL:
+                for (TouchContext touchContext : touchpadContextMap) {
+                    touchContext.cancelTouch();
+                    touchContext.setPointerCount(0);
+                }
+                break;
+            default:
+                return false;
+        }
+        return true;
     }
 
     private void updateMousePosition(View touchedView, MotionEvent event) {

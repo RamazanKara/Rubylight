@@ -173,6 +173,12 @@
     <string name="category_input_settings">触控和鼠标</string>
     <string name="title_trackpad_speed">触控板速度</string>
     <string name="title_mouse_speed">鼠标速度</string>
+    <string name="title_trackpad_sensitivity_x">触控板灵敏度 X</string>
+    <string name="summary_trackpad_sensitivity_x">实体触控板（例如键盘保护套上的触控板）的水平速度，会叠加在鼠标速度之上。负值会反转方向。触屏模式改用“触控板速度”。</string>
+    <string name="title_trackpad_sensitivity_y">触控板灵敏度 Y</string>
+    <string name="summary_trackpad_sensitivity_y">实体触控板（例如键盘保护套上的触控板）的垂直速度，会叠加在鼠标速度之上。负值会反转方向。触屏模式改用“触控板速度”。</string>
+    <string name="title_trackpad_swap_axis">交换触控板输入的 X 轴和 Y 轴</string>
+    <string name="summary_trackpad_swap_axis">部分实体触控板上报的坐标轴是旋转的，向上滑动时指针会横向移动。开启后会在应用触控板灵敏度之前交换 X 和 Y。触屏模式不受影响。</string>
     <string name="title_checkbox_absolute_mouse_mode">桌面鼠标模式</string>
     <string name="summary_checkbox_absolute_mouse_mode">像桌面鼠标一样移动电脑的指针，带有加速。用鼠标控制视角的游戏可能无法正常使用。</string>
     <string name="title_checkbox_mouse_nav_buttons">鼠标后退/前进按钮</string>

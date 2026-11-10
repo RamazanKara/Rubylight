@@ -72,6 +72,23 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | PyroWave HDR 4:4:4 | [Transport and decoding](#vibepollo-20-pyrowave-transport) · [SDK patches from Punktfunk](#october-15-pyrowave-sdk-patches-from-punktfunk) |
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
+| PyroWave encode overlap, send buffer, Nightjar receive path | [November 10, PyroWave at 1.4 Gbps](#november-10-pyrowave-at-14-gbps-to-a-780m-laptop) |
+
+## November 10: PyroWave at 1.4 Gbps to a 780M laptop
+
+What two frames in flight on the host's PyroWave encoder (`pyrowave_encode_overlap`), the paced send buffer (up to 8 MB above about 840 Mbps; it sized itself to 3 MB here) and this tree's Nightjar receive and decode changes buy. Frames lost: frame numbers the CSV spans minus frames shown. Host: RX 7900 XT, isolated test host over the LAN (WGC, primary monitor, the desktop with no game), release build of this tree against the Rubylight 3.11.7 package; client: Nightjar desktop on the Radeon 780M laptop (Windows), PyroWave GPU decoder, 3840x2160 at 120 fps, 1.4 Gbps, SDR 8-bit, Nightjar's timing CSV, 40 s per run with the first 5 s dropped. Times in ms, median / p95 / p99; decode is input to output, host processing the video header's value. No encoder hang in any run.
+
+| Comparison | Arm | Runs | End to end | Decode | Host processing | Frames lost |
+| --- | --- | --- | --- | --- | --- | ---: |
+| Encode overlap | on | 2 | 15.43 / 30.43 / 61.78 · 15.43 / 33.98 / 75.80 | 2.69 · 2.68 | 2.50 · 2.50 | 0 · 0 |
+| | off | 2 | 17.69 / 22.95 / 95.25 · 15.23 / 20.50 / 41.10 | 2.69 · 2.71 | 2.40 · 2.50 | 3 · 0 |
+| Host | 3.11.7 | 2 | 15.26 / 20.44 / 26.88 · 15.47 / 45.16 / 73.39 | 2.69 · 2.67 | 2.50 · 2.50 | 0 · 0 |
+| | this tree, overlap on | 2 | 16.13 / 24.49 / 30.93 · 14.99 / 19.98 / 24.37 | 2.71 · 2.69 | 2.50 · 2.50 | 0 · 0 |
+| Nightjar | 4.12.3 | 2 | 15.50 / 48.99 / 135.40 · 15.28 / 20.05 / 28.41 | 2.70 · 2.68 | 2.50 · 2.50 | 267 · 0 |
+| | this tree | 2 | 15.54 / 22.15 / 49.37 · 15.27 / 20.00 / 25.51 | 2.67 · 2.70 | 2.50 · 2.50 | 0 · 0 |
+| YUV 4:4:4 | this tree | 1 | 16.94 / 27.16 / 64.55 | 3.73 | 2.80 | 0 |
+
+**Overlap off by default.** At 4K120 the encode never held the next frame up (host processing 2.4 to 2.5 ms either way), so a second frame in flight bought nothing, and the tails spread as widely within each arm as between them. It stays a setting for encodes that take longer than a frame. **Send buffer kept.** Neither host lost a frame at 1.4 Gbps on this link, so the larger buffer showed no gain here; it costs nothing at lower rates, which keep 1 MB. **Nightjar unchanged in latency.** The medians match; 4.12.3's 267 lost frames came from one stall in one run (112 fps, 164 ms max) that the second run didn't repeat. 4:4:4 decodes in 3.7 ms against 2.7 ms for 4:2:0 (4.0 to 4.1 ms against 2.7 ms in earlier runs the same day).
 
 ## November 8: sending, FEC and AMF output after 3.9.0
 

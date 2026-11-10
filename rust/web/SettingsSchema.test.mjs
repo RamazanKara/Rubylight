@@ -846,9 +846,9 @@ test('a dismissed caution stays dismissed when another listed one is fixed, and 
   assert.deepEqual(dismissCautions(['amd_usage=transcoding'], dismissed), [...pairs, 'amd_usage=transcoding']);
 });
 
-test('PyroWave encode overlap is a Codecs switch, on by default, shown with PyroWave', () => {
+test('PyroWave encode overlap is a Codecs switch, off by default, shown with PyroWave', () => {
   const overlap = settings.get('pyrowave_encode_overlap');
-  assert.deepEqual([overlap.category, overlap.group, overlap.control.kind, overlap.default], ['video', 'Codecs', 'toggle', true]);
+  assert.deepEqual([overlap.category, overlap.group, overlap.control.kind, overlap.default], ['video', 'Codecs', 'toggle', false]);
   assert.equal(overlap.visibleWhen({}), true);
   assert.equal(overlap.visibleWhen({ pyrowave: 'true' }), true);
   assert.equal(overlap.visibleWhen({ pyrowave: 'false' }), false);

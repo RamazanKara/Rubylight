@@ -542,9 +542,10 @@ impl Config {
     }
     /// Whether PyroWave converts the next picture while the GPU still encodes the last one: two
     /// frames in flight, each with its own colour planes and fence (`pyrowave_encode_overlap`).
-    /// Off encodes one frame at a time and waits for it, as before.
+    /// Off, the default, encodes one frame at a time and waits for it: at 4K120 on a Radeon
+    /// 780M client the overlap measured no gain in end-to-end latency or host processing.
     pub fn pyrowave_encode_overlap(&self) -> bool {
-        self.boolean("pyrowave_encode_overlap", true)
+        self.boolean("pyrowave_encode_overlap", false)
     }
     /// Video datagrams the WebRTC media thread drops per thousand (`webrtc_loss_permille`, 0 to
     /// 1000), as a lossy link does. A measurement switch, 0 by default.

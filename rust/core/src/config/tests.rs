@@ -142,15 +142,15 @@ fn encoder_output_switches_keep_the_measured_paths_until_set() {
 }
 
 #[test]
-fn pyrowave_encode_overlap_is_on_until_turned_off() {
+fn pyrowave_encode_overlap_is_off_until_turned_on() {
     let mut config = super::Config::default();
-    assert!(config.pyrowave_encode_overlap());
-    let saved = serde_json::json!({ "pyrowave_encode_overlap": "false" });
-    config.update(saved.as_object().unwrap()).unwrap();
     assert!(!config.pyrowave_encode_overlap());
     let saved = serde_json::json!({ "pyrowave_encode_overlap": "true" });
     config.update(saved.as_object().unwrap()).unwrap();
     assert!(config.pyrowave_encode_overlap());
+    let saved = serde_json::json!({ "pyrowave_encode_overlap": "false" });
+    config.update(saved.as_object().unwrap()).unwrap();
+    assert!(!config.pyrowave_encode_overlap());
 }
 
 #[test]

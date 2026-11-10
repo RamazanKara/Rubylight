@@ -64,8 +64,9 @@ jobs:
         run: |
           cd protocol
           cargo test -p nightjar-desktop --locked -- pq_present --include-ignored
+  # The APKs and lint, the JVM unit tests and the native sanitizer runs are three jobs that run
+  # side by side; together they took 26-32 minutes as one job.
   build:
-    needs: docs
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -80,6 +81,10 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: gradle
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          workspaces: 'protocol -> target'
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Test and rebuild the shipped Rust protocol
         run: |
           rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
@@ -95,15 +100,11 @@ jobs:
           echo 'BP_KEYSTORE_PASSWORD=validation' >> "$GITHUB_ENV"
           echo 'BP_KEY_ALIAS=validation' >> "$GITHUB_ENV"
           echo 'BP_KEY_PASSWORD=validation' >> "$GITHUB_ENV"
-      - name: Build both flavors, lint and run unit tests
+      - name: Build both flavors and lint
         run: >-
-          bash gradlew --no-daemon --max-workers=2
+          bash gradlew --no-daemon --max-workers=4
           :app:assembleNonRootDebug :app:assembleNonRootRelease :app:assembleRootRelease
           :app:lintNonRootDebug :app:lintNonRootRelease :app:lintRootRelease
-          :app:testNonRootDebugUnitTest :app:testRootDebugUnitTest
-      - name: Check all native regressions with sanitizers
-        run: |
-          bash scripts/test-native.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: nightjar-debug
@@ -157,3 +158,33 @@ jobs:
             docs/screenshots/
             app/build/emulator-smoke/
           if-no-files-found: warn
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      # The shared suite runs in the nonRoot flavor; the root flavor's task runs src/testRoot's
+      # tests (app/build.gradle). Four test JVMs of 2 GB fit the runner's 16 GB.
+      - name: Run the unit tests
+        run: >-
+          bash gradlew --no-daemon --max-workers=4 -PunitTestForks=4
+          :app:testNonRootDebugUnitTest :app:testRootDebugUnitTest
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Check all native regressions with sanitizers
+        run: |
+          bash scripts/test-native.sh

@@ -43,16 +43,23 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+      - name: Install build tools
+        run: |
+          brew install cmake meson ninja pkg-config nasm
+          rustup toolchain install stable --profile minimal --component clippy --no-self-update
+      # Compiled dependencies, after the toolchain (the key names its rustc). Before the media
+      # cache below: post steps run in reverse, so the media prefix is saved before rust-cache's
+      # cleanup prunes target/ to Cargo's own files.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          workspaces: 'protocol -> target'
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # The media libraries macos-deps.sh builds (SDL, Opus, dav1d, FFmpeg), per architecture.
       # Its prefix is named after the script's own hash and is reused once complete.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: protocol/target/macos-native/*/prefix
           key: macos-media-${{ runner.arch }}-${{ hashFiles('protocol/desktop/macos-deps.sh') }}
-      - name: Install build tools
-        run: |
-          brew install cmake meson ninja pkg-config nasm
-          rustup toolchain install stable --profile minimal --component clippy --no-self-update
       - name: Build the application and verify a relocated copy
         run: |
           python3 desktop/package-macos.py --debug

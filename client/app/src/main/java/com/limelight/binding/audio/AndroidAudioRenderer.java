@@ -77,6 +77,9 @@ public class AndroidAudioRenderer implements AudioRenderer {
     // Clock drift: packets trimmed, and the last one's start, which the next written packet fades in from.
     private final AudioBufferPolicy.DriftTrim driftTrim = new AudioBufferPolicy.DriftTrim();
     private long driftTrimmed;
+    // A stall or a drifting clock drops or trims packet after packet; each kind logs one line a second.
+    private final AudioDiagnostics.Paced trimLog = new AudioDiagnostics.Paced();
+    private final AudioDiagnostics.Paced lateLog = new AudioDiagnostics.Paced();
     private short[] trimHead = new short[0];
     private int trimHeadSamples;
     // AAudio reopens after a disconnect: when the last one was, and how many came right after the one before.
@@ -431,8 +434,12 @@ public class AndroidAudioRenderer implements AudioRenderer {
                     reserveFrames, length / channels, sampleRate)) {
                 keepTrimHead(audioData, length);
                 driftTrimmed++;
-                LimeLog.info("Audio clock drift: trimmed a packet, pending " + pendingMs + " ms, output " +
-                        framesToMs(queuedFrames) + " of " + framesToMs(reserveFrames) + " ms (" + driftTrimmed + " trimmed)");
+                int trims = trimLog.count(uptimeMillis());
+                if (trims > 0) {
+                    LimeLog.info("Audio clock drift: trimmed a packet, pending " + pendingMs + " ms, output " +
+                            framesToMs(queuedFrames) + " of " + framesToMs(reserveFrames) + " ms (" + driftTrimmed +
+                            " trimmed, " + trims + " since the last line)");
+                }
                 return;
             }
             if (trimHeadSamples > 0) {
@@ -480,8 +487,12 @@ public class AndroidAudioRenderer implements AudioRenderer {
         }
         else {
             lateDropped++;
-            LimeLog.info("Too much pending audio data: " + pendingMs + " ms, output " +
-                    framesToMs(queuedFrames) + " of " + framesToMs(reserveFrames) + " ms");
+            int drops = lateLog.count(uptimeMillis());
+            if (drops > 0) {
+                LimeLog.info("Too much pending audio data: " + pendingMs + " ms, output " +
+                        framesToMs(queuedFrames) + " of " + framesToMs(reserveFrames) + " ms (" + drops +
+                        " dropped since the last line)");
+            }
             reportDrops();
         }
     }

@@ -82,6 +82,8 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
     private String filter = HomeModel.FILTER_ALL;
     private String filterSignature;
     private String refreshedSignature;
+    /** What the last reload drew the PCs from; a poll that brings nothing else does not reload. */
+    private final HostsDrawn drawn = new HostsDrawn();
     private int generation;
     private boolean shown;
     private boolean loaded;
@@ -360,7 +362,8 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
 
     @Override
     public void onHostsChanged() {
-        scheduleReload();
+        // Every poll reports its PC, changed or not; only news is worth reading the library and binding the grid for.
+        if (drawn.changed(feed.hosts(), false)) scheduleReload();
     }
 
     private void scheduleReload() {
@@ -379,6 +382,7 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
         }
         final ConsoleRepository repo = repository;
         final List<ComputerDetails> hosts = feed.hosts();
+        drawn.set(hosts, false);
         final String signature = ConsoleHomeActivity.signature(hosts);
         final boolean refresh = !signature.equals(refreshedSignature);
         refreshedSignature = signature;
@@ -391,13 +395,22 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
                 if (refresh) {
                     ConsoleSnapshot fresh = repo.refresh(hosts);
                     show(mine, HomeModel.of(fresh, online, HomeModel.launchDenied(hosts)), true);
+                    redrawAtNextPoll(mine);
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             } catch (RuntimeException e) {
                 com.limelight.LimeLog.warning("All games could not load: " + e);
                 show(mine, HomeModel.empty(), true);
+                redrawAtNextPoll(mine);
             }
+        });
+    }
+
+    /** A read of the PCs changed what is saved, and a failed load drew nothing: the next poll draws again, once. */
+    private void redrawAtNextPoll(int mine) {
+        runOnUiThread(() -> {
+            if (mine == generation) drawn.forget();
         });
     }
 

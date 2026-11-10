@@ -94,6 +94,8 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     private volatile ConsoleRepository repository;
     private int generation;
     private String refreshedSignature;
+    /** What the last reload drew the PCs from; a poll that brings nothing else does not reload. */
+    private final HostsDrawn drawn = new HostsDrawn();
     private boolean settled;
     private boolean shown;
     private boolean focusPending = true;
@@ -631,7 +633,11 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
 
     @Override
     public void onHostsChanged() {
-        scheduleReload();
+        // Every poll reports its PC, changed or not; only news is worth reading the library and binding the cards for.
+        if (drawn.changed(feed.hosts(), feed.waiting())) {
+            scheduleReload();
+        }
+        // The watch has no timer of its own: it counts on every report.
         if (shown) {
             pairingWatch.poll(feed.hosts());
         }
@@ -689,6 +695,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         }
         final ConsoleRepository repo = repository;
         final List<ComputerDetails> hosts = feed.hosts();
+        drawn.set(hosts, feed.waiting());
         final String signature = signature(hosts);
         final boolean refresh = !signature.equals(refreshedSignature);
         refreshedSignature = signature;
@@ -705,12 +712,23 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
                 if (refresh) {
                     ConsoleSnapshot fresh = repo.refresh(hosts);
                     show(mine, fresh, HomeModel.of(fresh, online, denied), hosts.isEmpty(), true);
+                    redrawAtNextPoll(mine);
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             } catch (RuntimeException e) {
                 com.limelight.LimeLog.warning("Home could not load: " + e);
                 show(mine, ConsoleSnapshot.empty(), HomeModel.empty(), hosts.isEmpty(), true);
+                redrawAtNextPoll(mine);
+            }
+        });
+    }
+
+    /** A read of the PCs changed what is saved, and a failed load drew nothing: the next poll draws again, once. */
+    private void redrawAtNextPoll(int mine) {
+        runOnUiThread(() -> {
+            if (mine == generation) {
+                drawn.forget();
             }
         });
     }

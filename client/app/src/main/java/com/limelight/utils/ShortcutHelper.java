@@ -17,6 +17,8 @@ import java.util.Collections;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class ShortcutHelper {
     private static final String CONTINUE_SUFFIX = ":continue";
@@ -24,6 +26,12 @@ public class ShortcutHelper {
     private final ShortcutManager sm;
     private final Activity context;
     private final TvChannelHelper tvChannelHelper;
+    /**
+     * The name each PC's shortcut was last published under by {@link #createAppViewShortcutForOnlineHost}, by UUID.
+     * The shortcut is built from the UUID and that name alone, so a poll that changed neither asks the system's
+     * shortcut service nothing. Polls come from several threads.
+     */
+    private final Map<String, String> published = new ConcurrentHashMap<>();
 
     public ShortcutHelper(Activity context) {
         this.context = context;
@@ -38,6 +46,8 @@ public class ShortcutHelper {
 
     @TargetApi(Build.VERSION_CODES.N_MR1)
     private void reapShortcutsForDynamicAdd() {
+        // Any PC's shortcut may be the one that goes.
+        published.clear();
         List<ShortcutInfo> dynamicShortcuts = new ArrayList<>(sm.getDynamicShortcuts());
         while (!dynamicShortcuts.isEmpty() && dynamicShortcuts.size() >= sm.getMaxShortcutCountPerActivity()) {
             ShortcutInfo maxRankShortcut = dynamicShortcuts.get(0);
@@ -176,7 +186,25 @@ public class ShortcutHelper {
     }
 
     public void createAppViewShortcutForOnlineHost(ComputerDetails details) {
+        String uuid = details.uuid;
+        String name = details.displayName();
+        if (uuid == null || name == null) {
+            createAppViewShortcut(details, false, false);
+            return;
+        }
+        if (name.equals(published.get(uuid))) {
+            return;
+        }
         createAppViewShortcut(details, false, false);
+        // Remembered only once it is among the dynamic shortcuts: with no room for it yet, the next poll tries again.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1 || isExistingDynamicShortcut(uuid)) {
+            published.put(uuid, name);
+        }
+    }
+
+    /** The next poll of each PC publishes its shortcut again; shortcuts may have changed behind this helper's back. */
+    public void forgetPublished() {
+        published.clear();
     }
 
     /** Asks the launcher to pin a shortcut that opens this PC's library. */
@@ -222,6 +250,9 @@ public class ShortcutHelper {
     }
 
     public void disableComputerShortcut(ComputerDetails computer, CharSequence reason) {
+        if (computer.uuid != null) {
+            published.remove(computer.uuid);
+        }
         tvChannelHelper.deleteChannel(computer);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
             // Delete the computer shortcut itself

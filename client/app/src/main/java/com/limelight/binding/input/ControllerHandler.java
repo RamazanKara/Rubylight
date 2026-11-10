@@ -145,6 +145,10 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     // Vibrator calls are Binder calls, which can stall, and the main thread takes this handler's lock
     // (quitting, key events, device changes), so rumble keeps to a lock of its own (nightjar#73).
     private final Object rumbleLock = new Object();
+    // An Xbox pad's rumble is a USB write that can take 100 ms, and every controller packet takes this handler's
+    // lock for the active controllers. So a rumble only picks its USB pads under that lock and writes under this
+    // one, which stop() takes too: no write follows the stop the pads get there.
+    private final Object usbRumbleLock = new Object();
     private final VibratorManager deviceVibratorManager;
     private final SensorManager deviceSensorManager;
     private final SceManager sceManager;
@@ -350,9 +354,12 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             deviceContext.destroy();
         }
 
-        for (UsbDeviceContext deviceContext : usbDeviceContexts.values()) {
-            deviceContext.device.stop();
-            deviceContext.destroy();
+        // Waits for a USB rumble write under way; one that comes after sees the handler stopped.
+        synchronized (usbRumbleLock) {
+            for (UsbDeviceContext deviceContext : usbDeviceContexts.values()) {
+                deviceContext.device.stop();
+                deviceContext.destroy();
+            }
         }
 
         usbDeviceContexts.clear();
@@ -2912,15 +2919,18 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             }
         }
 
-        synchronized (this) {
-            if (stopped) {
-                return;
-            }
-            for (UsbDeviceContext deviceContext : usbDeviceContexts.values()) {
-
-                if (deviceContext.assignedControllerNumber && deviceContext.controllerNumber == controllerNumber) {
-                    foundMatchingDevice = vibrated = true;
-                    deviceContext.device.rumble(lowFreqMotor, highFreqMotor);
+        List<AbstractController> usbPads = usbPadsOf(controllerNumber);
+        if (usbPads == null) {
+            return;
+        }
+        if (!usbPads.isEmpty()) {
+            foundMatchingDevice = vibrated = true;
+            synchronized (usbRumbleLock) {
+                if (stopped) {
+                    return;
+                }
+                for (AbstractController pad : usbPads) {
+                    pad.rumble(lowFreqMotor, highFreqMotor);
                 }
             }
         }
@@ -2975,17 +2985,35 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             }
         }
 
-        synchronized (this) {
+        List<AbstractController> usbPads = usbPadsOf(controllerNumber);
+        if (usbPads == null || usbPads.isEmpty()) {
+            return;
+        }
+        synchronized (usbRumbleLock) {
             if (stopped) {
                 return;
             }
-            for (UsbDeviceContext deviceContext : usbDeviceContexts.values()) {
-
-                if (deviceContext.assignedControllerNumber && deviceContext.controllerNumber == controllerNumber) {
-                    deviceContext.device.rumbleTriggers(leftTrigger, rightTrigger);
-                }
+            for (AbstractController pad : usbPads) {
+                pad.rumbleTriggers(leftTrigger, rightTrigger);
             }
         }
+    }
+
+    /** The USB pads that play as this controller, or null once the handler has stopped. */
+    private synchronized List<AbstractController> usbPadsOf(short controllerNumber) {
+        if (stopped) {
+            return null;
+        }
+        List<AbstractController> pads = java.util.Collections.emptyList();
+        for (UsbDeviceContext deviceContext : usbDeviceContexts.values()) {
+            if (deviceContext.assignedControllerNumber && deviceContext.controllerNumber == controllerNumber) {
+                if (pads.isEmpty()) {
+                    pads = new ArrayList<>(1);
+                }
+                pads.add(deviceContext.device);
+            }
+        }
+        return pads;
     }
 
     // Called only on the connection worker. Give the USB service time to finish its

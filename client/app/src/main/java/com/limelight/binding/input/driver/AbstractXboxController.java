@@ -56,9 +56,11 @@ public abstract class AbstractXboxController extends AbstractController {
                 // Report that we're added _before_ reporting input
                 notifyDeviceAdded();
 
-                while (!isInterrupted() && !stopped) {
-                    byte[] buffer = new byte[64];
+                // One buffer for every report: handleRead() takes what it needs out of it and keeps no reference.
+                byte[] buffer = new byte[64];
+                ByteBuffer report = ByteBuffer.wrap(buffer).order(ByteOrder.LITTLE_ENDIAN);
 
+                while (!isInterrupted() && !stopped) {
                     int res;
 
                     //
@@ -89,7 +91,9 @@ public abstract class AbstractXboxController extends AbstractController {
                         break;
                     }
 
-                    if (handleRead(ByteBuffer.wrap(buffer, 0, res).order(ByteOrder.LITTLE_ENDIAN))) {
+                    report.clear();
+                    report.limit(res);
+                    if (handleRead(report)) {
                         // Report input if handleRead() returns true
                         reportInput();
                     }

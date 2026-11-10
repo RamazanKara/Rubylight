@@ -691,6 +691,76 @@ public class AndroidAudioRendererTest {
         assertEquals(0, renderer.writtenData.get(398)[0]);
     }
 
+    /** What the renderer logs while {@code packets} runs, lines starting with {@code prefix} only. */
+    private static List<String> logged(String prefix, Runnable packets) {
+        List<String> lines = new ArrayList<>();
+        java.util.logging.Logger logger = java.util.logging.Logger.getLogger(com.limelight.LimeLog.class.getName());
+        java.util.logging.Handler handler = new java.util.logging.Handler() {
+            @Override public void publish(java.util.logging.LogRecord record) {
+                if (record.getMessage().startsWith(prefix)) lines.add(record.getMessage());
+            }
+            @Override public void flush() { }
+            @Override public void close() { }
+        };
+        logger.addHandler(handler);
+        try {
+            packets.run();
+        } finally {
+            logger.removeHandler(handler);
+        }
+        return lines;
+    }
+
+    @Test public void aRunOfLatePacketsIsDroppedOneByOneAndLoggedOnceASecond() {
+        // Audio beyond the reserve and 40 ms, as after a long stall: every packet of the burst is late.
+        ScriptedRenderer renderer = afterAStall();
+        renderer.pendingMs = 175;
+        List<String> lines = logged("Too much pending audio data", () -> {
+            for (int i = 0; i < 50; i++) renderer.play();
+            renderer.now += 999;
+            renderer.play();
+            renderer.now += 1;
+            renderer.play();
+            renderer.play();
+        });
+        // Each packet is still dropped and counted; only the lines are fewer.
+        assertEquals(0, renderer.nextResult);
+        assertEquals(Long.valueOf(53), ReflectionHelpers.<Long>getField(renderer, "lateDropped"));
+        assertEquals(List.of(
+                "Too much pending audio data: 175 ms, output 30 of 162 ms (1 dropped since the last line)",
+                "Too much pending audio data: 175 ms, output 30 of 162 ms (51 dropped since the last line)"), lines);
+    }
+
+    @Test public void aRunOfDriftTrimsIsLoggedOnceASecondWithItsCount() {
+        int[] results = new int[2400];
+        java.util.Arrays.fill(results, 480);
+        ScriptedRenderer renderer = new ScriptedRenderer(results);
+        ReflectionHelpers.setField(renderer, "sampleRate", 48000);
+        ReflectionHelpers.setField(renderer, "channels", 2);
+        ReflectionHelpers.setField(renderer, "reserveFrames", 672);
+        renderer.queuedFrames = 672;
+        renderer.pendingMs = 15;
+        // 5 ms packets above the line for 8 s, all inside one second of the renderer's clock.
+        List<String> lines = logged("Audio clock drift: trimmed", () -> {
+            for (int i = 0; i < 1600; i++) renderer.playDecodedAudio(new short[480], 480);
+        });
+        long trimmed = ReflectionHelpers.<Long>getField(renderer, "driftTrimmed");
+        assertTrue("several packets go in 8 s: " + trimmed, trimmed > 1);
+        assertEquals(1600 - trimmed, renderer.writtenData.size());
+        assertEquals(List.of(
+                "Audio clock drift: trimmed a packet, pending 15 ms, output 14 of 14 ms (1 trimmed, 1 since the last line)"),
+                lines);
+
+        renderer.now += 1000;
+        lines = logged("Audio clock drift: trimmed", () -> {
+            for (int i = 0; i < 800; i++) renderer.playDecodedAudio(new short[480], 480);
+        });
+        long later = ReflectionHelpers.<Long>getField(renderer, "driftTrimmed");
+        assertTrue(later > trimmed);
+        assertEquals(List.of("Audio clock drift: trimmed a packet, pending 15 ms, output 14 of 14 ms (" + (trimmed + 1)
+                + " trimmed, " + trimmed + " since the last line)"), lines);
+    }
+
     @Test public void aSteadyOutputIsNeverTrimmed() {
         int[] results = new int[2000];
         java.util.Arrays.fill(results, 480);

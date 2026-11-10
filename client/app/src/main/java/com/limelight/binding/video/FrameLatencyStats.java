@@ -142,7 +142,7 @@ class FrameLatencyStats {
         this.vrr = vrr;
     }
 
-    private static class Frame {
+    static class Frame {
         int number;
         int outputIndex = -1;
         long ptsUs;
@@ -1100,72 +1100,129 @@ class FrameLatencyStats {
         // Disk I/O and formatting must never hold the lock used by the decoder threads.
         String frameRates = String.format(Locale.ROOT, "%.2f,%.2f,", rates[0], rates[1]) +
                 (rates[2] < 0 ? "" : String.format(Locale.ROOT, "%.2f", rates[2]));
+        // One buffer for all the rows of a flush: put together from pieces, a row made some fifty short strings.
+        StringBuilder row = new StringBuilder(512);
         for (Frame frame : frames) {
-            String decodeToPresent = "rendered".equals(frame.status) ? duration(frame.outputNs, frame.renderNs) : "";
-            String receiveToPresent = "rendered".equals(frame.status) ? duration(frame.receiveNs, frame.renderNs) : "";
-            writer.write(frame.number + "," + frame.ptsUs + "," + timestamp(frame.receiveNs) + "," +
-                    timestamp(frame.inputNs) + "," + timestamp(frame.outputNs) + "," + timestamp(frame.renderNs) + "," +
-                    timestamp(frame.releaseNs) + "," + frame.status + "," +
-                    duration(frame.receiveNs, frame.inputNs) + "," + duration(frame.inputNs, frame.outputNs) + "," +
-                    decodeToPresent + "," + receiveToPresent + "," + lost + "," +
-                    (frame.hostProcessingNs == 0 ? "" : milliseconds(frame.hostProcessingNs)) + "," +
-                    decodeToPresent + "," + receiveToPresent + "," +
-                    (vrr ? duration(frame.outputNs, frame.releaseNs) : "") + "," +
-                    duration(frame.previousOutputNs, frame.outputNs) + "," +
-                    duration(frame.previousReleaseNs, frame.releaseNs) + "," + sampleNs + "," +
-                    frameRates + "," + dropped + "," +
-                    timestamp(frame.enqueueNs) + "," + duration(frame.enqueueNs, frame.inputNs) +
-                    hostTimingColumns(frame.hostTiming) + "," + timestamp(frame.callbackReceivedNs) + "," +
-                    duration(frame.renderNs, frame.callbackReceivedNs) +
-                    "," + (frame.hostRtpUs < 0 ? "" : Long.toString(frame.hostRtpUs)) +
-                    hostStampColumns(frame.hostTiming) + "," + clockColumns + schedulerColumns(frame) + "\n");
+            row.setLength(0);
+            appendRow(row, frame, vrr, lost, dropped, sampleNs, frameRates, clockColumns);
+            writer.write(row.toString());
         }
         synchronized (this) {
             for (Frame frame : frames) recycle(frame);
         }
     }
 
-    private static String schedulerColumns(Frame frame) {
-        return "," + timestamp(frame.schedVsyncNs) +
-                "," + (frame.schedHoldNs < 0 ? "" : milliseconds(frame.schedHoldNs)) +
-                "," + (frame.schedHoldNs < 0 ? "" : frame.schedLate ? "1" : "0") +
-                "," + (frame.queueDepth < 0 ? "" : Integer.toString(frame.queueDepth)) +
-                "," + (frame.residencyExcessNs < 0 ? "" : milliseconds(frame.residencyExcessNs)) +
-                "," + (frame.inFlight < 0 ? "" : Integer.toString(frame.inFlight)) +
-                "," + (frame.dropReason == null ? "" : frame.dropReason);
+    /** One frame's row with its line end. FrameLatencyCsvRowTest holds every character to what was written before. */
+    static void appendRow(StringBuilder row, Frame frame, boolean vrr, long lost, long dropped, long sampleNs,
+                          String frameRates, String clockColumns) {
+        boolean rendered = "rendered".equals(frame.status);
+        row.append(frame.number).append(',').append(frame.ptsUs).append(',');
+        timestamp(row, frame.receiveNs).append(',');
+        timestamp(row, frame.inputNs).append(',');
+        timestamp(row, frame.outputNs).append(',');
+        timestamp(row, frame.renderNs).append(',');
+        timestamp(row, frame.releaseNs).append(',');
+        row.append(frame.status).append(',');
+        duration(row, frame.receiveNs, frame.inputNs).append(',');
+        duration(row, frame.inputNs, frame.outputNs).append(',');
+        if (rendered) duration(row, frame.outputNs, frame.renderNs);
+        row.append(',');
+        if (rendered) duration(row, frame.receiveNs, frame.renderNs);
+        row.append(',').append(lost).append(',');
+        if (frame.hostProcessingNs != 0) milliseconds(row, frame.hostProcessingNs);
+        row.append(',');
+        // decode_to_present_ms and receive_to_present_ms repeat the two columns before csv_rows_lost.
+        if (rendered) duration(row, frame.outputNs, frame.renderNs);
+        row.append(',');
+        if (rendered) duration(row, frame.receiveNs, frame.renderNs);
+        row.append(',');
+        if (vrr) duration(row, frame.outputNs, frame.releaseNs);
+        row.append(',');
+        duration(row, frame.previousOutputNs, frame.outputNs).append(',');
+        duration(row, frame.previousReleaseNs, frame.releaseNs).append(',');
+        row.append(sampleNs).append(',').append(frameRates).append(',').append(dropped).append(',');
+        timestamp(row, frame.enqueueNs).append(',');
+        duration(row, frame.enqueueNs, frame.inputNs);
+        hostTimingColumns(row, frame.hostTiming);
+        row.append(',');
+        timestamp(row, frame.callbackReceivedNs).append(',');
+        duration(row, frame.renderNs, frame.callbackReceivedNs).append(',');
+        if (frame.hostRtpUs >= 0) row.append(frame.hostRtpUs);
+        hostStampColumns(row, frame.hostTiming);
+        row.append(',').append(clockColumns);
+        schedulerColumns(row, frame);
+        row.append('\n');
     }
 
-    private static String hostTimingColumns(HostTimingReport.Record record) {
-        return record == null ? ",,,," : "," + milliseconds(record.hostUs * 1000L) +
-                "," + milliseconds(record.queueUs * 1000L) + "," + milliseconds(record.encodeUs * 1000L) +
-                "," + milliseconds(record.sendUs * 1000L);
+    private static void schedulerColumns(StringBuilder row, Frame frame) {
+        row.append(',');
+        timestamp(row, frame.schedVsyncNs).append(',');
+        if (frame.schedHoldNs >= 0) milliseconds(row, frame.schedHoldNs);
+        row.append(',');
+        if (frame.schedHoldNs >= 0) row.append(frame.schedLate ? '1' : '0');
+        row.append(',');
+        if (frame.queueDepth >= 0) row.append(frame.queueDepth);
+        row.append(',');
+        if (frame.residencyExcessNs >= 0) milliseconds(row, frame.residencyExcessNs);
+        row.append(',');
+        if (frame.inFlight >= 0) row.append(frame.inFlight);
+        row.append(',');
+        if (frame.dropReason != null) row.append(frame.dropReason);
+    }
+
+    private static void hostTimingColumns(StringBuilder row, HostTimingReport.Record record) {
+        if (record == null) {
+            row.append(",,,,");
+            return;
+        }
+        milliseconds(row.append(','), record.hostUs * 1000L);
+        milliseconds(row.append(','), record.queueUs * 1000L);
+        milliseconds(row.append(','), record.encodeUs * 1000L);
+        milliseconds(row.append(','), record.sendUs * 1000L);
     }
 
     // Host present, acquired, submitted, encoded, first and last packet sent, on the host's video
     // clock (microseconds), each with its leading comma; empty without an extended report.
-    private static String hostStampColumns(HostTimingReport.Record record) {
-        if (record == null || !record.hasExtra) return ",,,,,,";
+    private static void hostStampColumns(StringBuilder row, HostTimingReport.Record record) {
+        if (record == null || !record.hasExtra) {
+            row.append(",,,,,,");
+            return;
+        }
         long present = record.presentedAtUs;
         long submitted = present + record.queueUs;
         long lastSent = present + record.hostUs;
-        return "," + Long.toUnsignedString(present) +
-                "," + Long.toUnsignedString(present + record.captureUs) +
-                "," + Long.toUnsignedString(submitted) +
-                "," + Long.toUnsignedString(submitted + record.encodeUs) +
-                "," + Long.toUnsignedString(lastSent - record.sendUs) +
-                "," + Long.toUnsignedString(lastSent);
+        unsigned(row.append(','), present);
+        unsigned(row.append(','), present + record.captureUs);
+        unsigned(row.append(','), submitted);
+        unsigned(row.append(','), submitted + record.encodeUs);
+        unsigned(row.append(','), lastSent - record.sendUs);
+        unsigned(row.append(','), lastSent);
     }
 
-    private static String timestamp(long timeNs) {
-        return timeNs == 0 ? "" : Long.toString(timeNs);
+    /** The host's clock is a u64 carried in a long. */
+    private static void unsigned(StringBuilder row, long value) {
+        if (value >= 0) {
+            row.append(value);
+        } else {
+            row.append(Long.toUnsignedString(value));
+        }
     }
 
-    private static String duration(long startNs, long endNs) {
-        return startNs == 0 || endNs == 0 || endNs < startNs ? "" :
-                milliseconds(endNs - startNs);
+    private static StringBuilder timestamp(StringBuilder row, long timeNs) {
+        if (timeNs != 0) row.append(timeNs);
+        return row;
     }
 
-    private static String milliseconds(long durationNs) {
-        return durationNs / 1000000 + "." + Long.toString(1000000 + durationNs % 1000000).substring(1);
+    private static StringBuilder duration(StringBuilder row, long startNs, long endNs) {
+        if (startNs != 0 && endNs != 0 && endNs >= startNs) milliseconds(row, endNs - startNs);
+        return row;
+    }
+
+    // Milliseconds with all six decimals, from whole numbers so no locale can touch them: the nanoseconds below a
+    // millisecond are written behind a leading 1, which is then taken out again.
+    private static void milliseconds(StringBuilder row, long durationNs) {
+        row.append(durationNs / 1000000).append('.');
+        int lead = row.length();
+        row.append(1000000 + durationNs % 1000000).deleteCharAt(lead);
     }
 }

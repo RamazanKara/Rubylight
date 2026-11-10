@@ -21,7 +21,7 @@ pub(super) const SECTION_KEYS: [&[&[&str]]; 8] = [
         &["virtual_display"], &["host_display"], &["virtual_display_scale"], &["virtual_display_dpi"],
         &["align_video_top"], &["present_at_host_times"], &["frame_pacing"], &["vsync"]],
     &[&["mouse_mode"], &["controllers"], &["swap_face_buttons"], &["clipboard_sync"], &["guide_hold_ms"], &["back_opens_menu"],
-        &["capture_system_keys"], &["mouse_speed"], &["mouse_nav_buttons"], &["native_touchpad"], &["right_alt_as_meta"],
+        &["capture_system_keys"], &["system_keys_fullscreen_only"], &["mouse_speed"], &["mouse_nav_buttons"], &["native_touchpad"], &["right_alt_as_meta"],
         &["gamepad_quit_combo"], &["stream_menu_buttons"], &["controller_mouse"], &["analog_scrolling"], &["mouse_fixed_step"],
         &["gamepad_touchpad_as_mouse"], &["disable_rumble"], &["controller_motion"], &["controller_audio"], &["background_controllers"]],
     &[&["audio"], &["play_audio_on_host"], &["microphone"], &["mic_echo_cancel"], &["mute_audio"], &["audio_passthrough"]],
@@ -87,6 +87,8 @@ pub(super) struct SettingsView {
     /// The setting rows the last frame drew, by first key, each with whether a group heading
     /// came before it in its section.
     pub(super) drawn: Vec<(&'static str, bool)>,
+    /// The PC chosen for the main settings' network tests, until Nightjar closes.
+    pub(super) test_pc: Option<u64>,
 }
 
 impl SettingsView {
@@ -477,6 +479,7 @@ impl Launcher {
         let screen = self.screen;
         let (custom_size_on, custom_fps_on) = (&mut self.custom_size, &mut self.custom_fps);
         let confirm_reset = &mut self.settings_view.confirm_reset;
+        let test_pc = &mut self.settings_view.test_pc;
         let s = if layered { &mut self.edit_settings } else { &mut self.settings };
         let before = s.clone();
         let (mut reset_all, mut clear_search) = (false, false);
@@ -864,6 +867,12 @@ impl Launcher {
                 "Alt+Tab, the Windows key and similar go to the PC while input is captured.",
                 |ui, s| toggle(ui, &mut s.capture_system_keys),
             );
+            rows.when(s.capture_system_keys, "");
+            setting_row(ui, s, &mut rows, &["system_keys_fullscreen_only"], "System keys only in full screen",
+                "In a window, Alt+Tab, the Windows key and similar stay with this computer.",
+                |ui, s| toggle(ui, &mut s.system_keys_fullscreen_only),
+            );
+            rows.always();
             setting_row(ui, s, &mut rows, &["mouse_speed"], "Mouse speed", "How fast the captured pointer moves.", |ui, s| slider(ui, &mut s.mouse_speed, 25..=400, 5.0, percent, |rail| rail, |field| field.suffix("%")));
             setting_row(ui, s, &mut rows, &["mouse_nav_buttons"], "Mouse navigation buttons", "Sends the mouse's Back and Forward buttons to the PC.", |ui, s| toggle(ui, &mut s.mouse_nav_buttons));
             if cfg!(windows) {
@@ -1002,26 +1011,11 @@ impl Launcher {
                         }
                     }).response
             });
-            if let Some(host) = test_host {
-                rows.group(en("Network tests"));
-                let online = host.paired() && host.reach == Reach::Online;
-                setting_row(ui, s, &mut rows, &[], "Network speed test", "Downloads 32 MiB from this PC to measure the connection. Uses network data, and needs a paired PC that supports it.", |ui, _| {
-                    let enabled = online && host.bandwidth_test();
-                    let button = ui.add_enabled(enabled, egui::Button::new(tr("Test speed")));
-                    if button.clicked() { commands.push(Command::NetworkTest { host: host.id, calibrate: false }); }
-                    button
-                });
-                let note = host.record.pace.as_ref().map_or_else(|| tr("Finds a frame pace for PyroWave on this network. Can take several minutes and uses a lot of network data; stop other streams first.").to_owned(),
-                    |p| trf("Saved {} Mbps · {}. Calibrate again after changing the network or the bitrate.", &[&p.pace_mbps, &if p.qualified { tr("confirmed") } else { tr("best available") }]));
-                setting_row(ui, s, &mut rows, &[], "PyroWave frame pace", &note, |ui, _| {
-                    ui.horizontal(|ui| {
-                        let enabled = online && host.info.as_ref().is_some_and(|i| i.pyrowave_burst_probe);
-                        let button = ui.add_enabled(enabled, egui::Button::new(tr("Calibrate")));
-                        if button.clicked() { commands.push(Command::NetworkTest { host: host.id, calibrate: true }); }
-                        if host.record.pace.is_some() && text_button(ui, "Clear").clicked() { commands.push(Command::ClearPace(host.id)); }
-                        button
-                    }).inner
-                });
+            // A PC's own page tests that PC; the main settings test a paired one.
+            match screen {
+                Screen::HostSettings(_) => network_test_rows(ui, s, &mut rows, test_host, None, commands),
+                Screen::Settings => network_test_rows(ui, s, &mut rows, network_test_pc(view.hosts, *test_pc), Some((view.hosts, test_pc)), commands),
+                _ => {}
             }
             rows.group(en("Fine-tuning"));
             setting_row(ui, s, &mut rows, &["dual_screen"], "Dual screen mode", "With a second monitor, a second stream of the same game opens full screen on it. Sound, controllers and the microphone stay with the first screen. Works with PCs that support it.", |ui, s| {
@@ -1691,6 +1685,59 @@ fn stream_menu_button(ui: &mut Ui, s: &mut Settings, key: Hotkey) -> Response {
         None => { s.stream_menu_buttons.remove(&key); }
     }
     response
+}
+
+/// The PC the main settings' network tests run on: the one chosen there while it is still
+/// paired, else the first paired PC that is online, else the first paired one.
+pub(super) fn network_test_pc(hosts: &Hosts, chosen: Option<u64>) -> Option<&Host> {
+    let paired = || hosts.list.iter().filter(|h| h.paired());
+    chosen.and_then(|id| paired().find(|h| h.id == id)).or_else(|| paired().find(|h| h.reach == Reach::Online)).or_else(|| paired().next())
+}
+
+/// The Network tests group, for `host`: a PC's own settings pass theirs, the main settings a
+/// paired one with `choice`, the PCs and the place the one chosen is kept, which adds a row to
+/// choose it when several are paired. Without a PC the rows are there and turned off.
+fn network_test_rows(ui: &mut Ui, s: &mut Settings, rows: &mut Rows<'_>, host: Option<&Host>, choice: Option<(&Hosts, &mut Option<u64>)>, commands: &mut Vec<Command>) {
+    rows.group(en("Network tests"));
+    let several = choice.filter(|(hosts, _)| hosts.list.iter().filter(|h| h.paired()).count() > 1);
+    if let (Some(host), Some((hosts, chosen))) = (host, several) {
+        setting_row(ui, s, rows, &[], "PC", "The paired PC these tests use.", |ui, _| {
+            let mut pick = host.id;
+            let response = Combo::from_id_salt("network-test-pc").selected_text(host.display_name()).show_ui(ui, |ui| {
+                for pc in hosts.list.iter().filter(|h| h.paired()) {
+                    ui.selectable_value(&mut pick, pc.id, pc.display_name());
+                }
+            }).response;
+            if pick != host.id {
+                *chosen = Some(pick);
+            }
+            response
+        });
+    }
+    rows.when(host.is_some(), "");
+    let online = host.is_some_and(|h| h.paired() && h.reach == Reach::Online);
+    setting_row(ui, s, rows, &[], "Network speed test", "Downloads 32 MiB from this PC to measure the connection. Uses network data, and needs a paired PC that supports it.", |ui, _| {
+        let button = ui.add_enabled(online && host.is_some_and(Host::bandwidth_test), egui::Button::new(tr("Test speed")));
+        if let Some(host) = host.filter(|_| button.clicked()) {
+            commands.push(Command::NetworkTest { host: host.id, calibrate: false });
+        }
+        button
+    });
+    let pace = host.and_then(|h| h.record.pace.as_ref());
+    let note = pace.map_or_else(|| tr("Finds a frame pace for PyroWave on this network. Can take several minutes and uses a lot of network data; stop other streams first.").to_owned(),
+        |p| trf("Saved {} Mbps · {}. Calibrate again after changing the network or the bitrate.", &[&p.pace_mbps, &if p.qualified { tr("confirmed") } else { tr("best available") }]));
+    setting_row(ui, s, rows, &[], "PyroWave frame pace", &note, |ui, _| {
+        ui.horizontal(|ui| {
+            let enabled = online && host.and_then(|h| h.info.as_ref()).is_some_and(|i| i.pyrowave_burst_probe);
+            let button = ui.add_enabled(enabled, egui::Button::new(tr("Calibrate")));
+            if let Some(host) = host {
+                if button.clicked() { commands.push(Command::NetworkTest { host: host.id, calibrate: true }); }
+                if pace.is_some() && text_button(ui, "Clear").clicked() { commands.push(Command::ClearPace(host.id)); }
+            }
+            button
+        }).inner
+    });
+    rows.always();
 }
 
 pub(super) fn setting_row(

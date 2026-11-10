@@ -1959,7 +1959,7 @@ impl Session {
                     let written = unsafe {
                         std::slice::from_raw_parts(lock.bitstreamBufferPtr.cast::<u8>(), ready)
                     };
-                    Ok(Some(written[sent..].to_vec()))
+                    Ok(Some(crate::frame_pool::copy(&written[sent..])))
                 })();
                 self.check(
                     // SAFETY: `output` was locked by the successful nvEncLockBitstream above.

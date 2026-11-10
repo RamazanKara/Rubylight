@@ -418,14 +418,12 @@ fn steam_moved(directory: &Path, stamp: u64) -> bool {
         .is_some_and(|last| last != stamp)
 }
 #[cfg(not(test))]
-fn steam_stamp() -> u64 {
-    butterpollo_windows::library::in_background(|| {
-        butterpollo_core::steam::library_stamp(&butterpollo_windows::steam::roots())
-    })
+fn steam_stamp(roots: &crate::steam::Roots) -> u64 {
+    butterpollo_windows::library::in_background(|| butterpollo_core::steam::library_stamp(roots))
 }
 /// Tests never read the registry and the launchers' folders.
 #[cfg(test)]
-fn steam_stamp() -> u64 {
+fn steam_stamp(_: &crate::steam::Roots) -> u64 {
     0
 }
 
@@ -433,8 +431,8 @@ fn steam_stamp() -> u64 {
 /// settings change or Steam's library does, else every five minutes like the cached scan. A game
 /// installed or removed in Steam, or a collection edited, reaches the next library request after
 /// one tick, whether or not the sync is on.
-pub fn watch(h: &Shared) {
-    watch_stamp(h, steam_stamp());
+pub fn watch(h: &Shared, steam: &crate::steam::Roots) {
+    watch_stamp(h, steam_stamp(steam));
 }
 fn watch_stamp(h: &Shared, stamp: u64) {
     let moved = steam_moved(&h.directory, stamp);

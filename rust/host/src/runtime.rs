@@ -287,9 +287,12 @@ fn spawn_session_tick(h: &Shared, ticking: &Arc<AtomicBool>) -> bool {
 fn spawn_library_tick(h: &Shared, running: &Arc<AtomicBool>) -> bool {
     let h = h.clone();
     spawn_exclusive(running, move || {
-        crate::steam::watch(&h);
+        // Where Steam is takes registry reads and the signed-in user's environment: both checks
+        // ask, so the answer is looked up once per tick, and only when one of them needs it.
+        let steam = crate::steam::Roots::new(butterpollo_windows::steam::roots);
+        crate::steam::watch(&h, &steam);
         crate::playnite::watch(&h);
-        crate::library::watch(&h);
+        crate::library::watch(&h, &steam);
     })
 }
 /// How long a library tick may run before it is told: while one hangs the Steam, Playnite and

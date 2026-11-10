@@ -21,6 +21,7 @@ use windows::{
     },
     core::{BOOL, PCWSTR, PWSTR},
 };
+mod listing;
 mod security;
 mod session;
 pub use security::*;
@@ -1509,8 +1510,31 @@ pub fn usage(pid: u32) -> Option<Usage> {
         })
     }
 }
-/// Every running process with its parent, creation time and program name.
+/// Every running process with its parent, creation time and program name. The creation time is 0
+/// for a process this one may not open.
 pub fn processes() -> Result<Vec<butterpollo_core::steam::Process>> {
+    static LISTING: std::sync::LazyLock<std::sync::Mutex<listing::Listing>> =
+        std::sync::LazyLock::new(Default::default);
+    static SNAPSHOT: std::sync::Once = std::sync::Once::new();
+    let listed = LISTING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .processes(creation_time);
+    match listed {
+        Some(list) => Ok(list),
+        None => {
+            SNAPSHOT.call_once(|| {
+                tracing::warn!(
+                    "Windows gave no process list in one call; every process is opened for each list instead"
+                );
+            });
+            snapshot_processes()
+        }
+    }
+}
+/// [`processes`] from a Toolhelp snapshot, opening every process for its creation time: the way
+/// that works where the kernel's list cannot be read.
+fn snapshot_processes() -> Result<Vec<butterpollo_core::steam::Process>> {
     use windows::Win32::System::Diagnostics::ToolHelp::*;
     let mut list = vec![];
     // SAFETY: `entry` has dwSize set to its size and the owned snapshot handle stays open for the

@@ -326,9 +326,11 @@ static WATCH: Mutex<Watch> = Mutex::new(Watch {
     synced: None,
 });
 static RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Steam's install folders for one housekeeping tick, looked up when the first check asks.
+pub type Roots = std::cell::LazyCell<Vec<PathBuf>>;
 /// The auto-sync check: sync when the Steam files or settings changed, and
 /// at least every five minutes to retry artwork.
-pub fn watch(h: &Shared) {
+pub fn watch(h: &Shared, roots: &Roots) {
     let settings = Settings::from_config(&h.config.read().unwrap());
     if !settings.enabled || !settings.auto_sync {
         return;
@@ -336,8 +338,7 @@ pub fn watch(h: &Shared) {
     if RUNNING.swap(true, std::sync::atomic::Ordering::AcqRel) {
         return;
     }
-    let roots = butterpollo_windows::steam::roots();
-    let current = butterpollo_windows::library::in_background(|| fingerprint(&settings, &roots));
+    let current = butterpollo_windows::library::in_background(|| fingerprint(&settings, roots));
     let due = {
         let watch = WATCH.lock().unwrap();
         watch.fingerprint != current

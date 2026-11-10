@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="pace_calibration_title">Calibrar o ritmo de quadros</string>
+    <string name="network_tests_title">Testes de rede</string>
     <string name="pace_calibration_summary">PyroWave: encontre a maior velocidade em que o host envia quadros inteiros a este dispositivo</string>
     <string name="pace_calibration_saved">Ritmo de quadros PyroWave: %1$d Mbps. Toque para calibrar de novo.</string>
     <string name="pace_calibration_intro">O host envia quadros de teste em velocidades diferentes, e o Nightjar guarda a mais rápida em que eles chegam inteiros. Os streams PyroWave passam a usá-la. Pare antes qualquer stream neste PC. Leva de um a três minutos.</string>

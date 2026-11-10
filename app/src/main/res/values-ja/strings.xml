@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_packed_444">フルクロマ</string>
-    <string name="summary_packed_444">Rubylight のフルクロマ設定、新しいストリーミングエンジン、対応する HEVC/AV1 ハードウェアデコーダーが必要です。未対応のモードでは接続を停止します。HDR には対応する 10 ビット HDR 表示サーフェスも必要です。</string>
+    <string name="summary_packed_444">Rubylight のフルクロマ設定、新しいストリーミングエンジン、対応する HEVC/AV1 ハードウェアデコーダーが必要です。PC またはこのデバイスが対応していない場合、ストリームはフルクロマなしで開始します。HDR には対応する 10 ビット HDR 表示サーフェスも必要です。</string>
     <string name="title_experimental_chipset_tuning">チップセット調整</string>
     <string name="summary_experimental_chipset_tuning">MediaTek Dimensity と Samsung Exynos のデコーダー向けの追加の低遅延設定です。映像が止まったりカクついたりする場合はオフにしてください。</string>
     <string name="scut_deleted_pc">PC は削除されています</string>

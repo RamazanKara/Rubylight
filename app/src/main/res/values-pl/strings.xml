@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_packed_444">Pełna chrominancja</string>
-    <string name="summary_packed_444">Wymaga opcji pełnej chrominancji w Rubylight, nowego silnika streamingu i zgodnego sprzętowego dekodera HEVC/AV1. Nieobsługiwane tryby przerywają połączenie. HDR wymaga też zgodnej 10-bitowej powierzchni wyświetlania HDR.</string>
+    <string name="summary_packed_444">Wymaga opcji pełnej chrominancji w Rubylight, nowego silnika streamingu i zgodnego sprzętowego dekodera HEVC/AV1. Jeśli komputer lub to urządzenie jej nie obsługuje, strumień startuje bez niej. HDR wymaga też zgodnej 10-bitowej powierzchni wyświetlania HDR.</string>
     <string name="title_experimental_chipset_tuning">Dostrajanie chipsetu</string>
     <string name="summary_experimental_chipset_tuning">Dodatkowe ustawienia niskich opóźnień dla dekoderów MediaTek Dimensity i Samsung Exynos. Jeśli obraz się zatrzymuje lub zacina, wyłącz tę opcję.</string>
     <string name="scut_deleted_pc">Komputer usunięty</string>

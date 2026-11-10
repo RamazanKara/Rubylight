@@ -7,4 +7,5 @@
     <string name="continue_here_browser_stream">다른 기기가 브라우저에서 이 게임을 플레이 중이라 이 스트림을 함께 실행할 수 없습니다. 먼저 해당 스트림을 종료하세요.</string>
     <string name="stream_recovery_exhausted">자동 복구가 1분 안에 다시 연결하지 못했습니다. 게임은 종료되지 않았습니다. 연결을 확인한 후 다시 연결을 선택해 재시도하세요.</string>
     <string name="stream_recovery_paused">스트림을 떠나서 자동 복구가 중지되었습니다. 계속하려면 다시 연결을 선택하세요.</string>
+    <string name="stream_stop_timeout">이전 연결이 아직 종료되지 않았습니다. 잠시 후 다시 시도하세요.</string>
 </resources>

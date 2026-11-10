@@ -315,11 +315,12 @@ public class HomeViewScreenTest {
         layout(list, 1920, 1080);
         View line = list.findViewHolderForAdapterPosition(adapter.firstCard()).itemView;
         line.requestFocus();
-        for (int key : new int[] {KeyEvent.KEYCODE_BUTTON_X, KeyEvent.KEYCODE_MENU}) {
+        // Y is the key the hint names (Nightjar #81: left to Android it is Space, which starts the game).
+        for (int key : new int[] {KeyEvent.KEYCODE_BUTTON_X, KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_BUTTON_Y, KeyEvent.KEYCODE_F}) {
             assertTrue(line.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, key)));
             assertTrue(line.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, key)));
         }
-        assertEquals("X and Menu open the game's menu", 2, menus.size());
+        assertEquals("X, Menu, Y and F open the game's menu", 4, menus.size());
         // A tap moves one line; a held D-pad is fast travel, as on the shelves.
         line.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN));
         assertFalse(adapter.isFastTravel());

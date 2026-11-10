@@ -128,6 +128,7 @@ public class PreferenceConfiguration {
     private static final String GUIDE_MENU_HOLD_PREF_STRING = "list_guide_menu_hold";
     public static final int DEFAULT_GUIDE_MENU_HOLD_MS = 1000;
     private static final String CAPTURE_SYSTEM_KEYS_PREF_STRING = "checkbox_capture_system_keys";
+    static final String SYSTEM_KEYS_FULLSCREEN_ONLY_PREF_STRING = "checkbox_system_keys_fullscreen_only";
     private static final String RIGHT_ALT_AS_META_PREF_STRING = "checkbox_right_alt_as_meta";
     private static final String KEYBOARD_FOLLOWS_TEXT_FIELDS_PREF_STRING = "checkbox_keyboard_follows_text_fields";
     static final String CLIPBOARD_SYNC_PREF_STRING = "checkbox_clipboard_sync";
@@ -387,6 +388,14 @@ public class PreferenceConfiguration {
     public int guideMenuHoldMs = DEFAULT_GUIDE_MENU_HOLD_MS;
     // Alt+Tab, the Windows key and a keyboard's Back (as Esc) go to the PC where Android allows it.
     public boolean captureSystemKeys = true;
+    // With the above on, only while the stream fills the screen: in split screen or a freeform window they stay with Android.
+    public boolean systemKeysFullscreenOnly;
+
+    /** Whether system keys go to the PC now: {@code inWindow} is split screen, a freeform window or picture-in-picture. */
+    public boolean sendsSystemKeys(boolean inWindow) {
+        return captureSystemKeys && !(systemKeysFullscreenOnly && inWindow);
+    }
+
     public boolean rightAltAsMeta;
     public boolean keyboardFollowsTextFields;
     // Clipboard sync (0x5508) with a Rubylight PC that offers it.
@@ -1576,6 +1585,7 @@ public class PreferenceConfiguration {
         config.backAsGuide = prefs.getBoolean(BACK_AS_GUIDE_PREF_STRING, false);
         config.guideMenuHoldMs = guideMenuHoldMs(prefs.getString(GUIDE_MENU_HOLD_PREF_STRING, null));
         config.captureSystemKeys = prefs.getBoolean(CAPTURE_SYSTEM_KEYS_PREF_STRING, true);
+        config.systemKeysFullscreenOnly = prefs.getBoolean(SYSTEM_KEYS_FULLSCREEN_ONLY_PREF_STRING, false);
         config.rightAltAsMeta = prefs.getBoolean(RIGHT_ALT_AS_META_PREF_STRING, false);
         config.keyboardFollowsTextFields = prefs.getBoolean(KEYBOARD_FOLLOWS_TEXT_FIELDS_PREF_STRING, true);
         config.clipboardSync = prefs.getBoolean(CLIPBOARD_SYNC_PREF_STRING, false);

@@ -8,6 +8,8 @@
     <string name="stream_mouse_step">Крок миші: %1$d пкс</string>
     <string name="title_checkbox_capture_system_keys">Надсилати системні клавіші</string>
     <string name="summary_checkbox_capture_system_keys">Esc, Alt+Tab, клавіша Windows та подібні йдуть на ПК, поки ввід захоплено, як і клавіша «Назад», що на багатьох клавіатурах для Android стоїть замість Esc. Alt+Tab і клавішу Windows Android віддає застосунку лише починаючи з Android 16 QPR2 (грудень 2025) і на багатьох пристроях Samsung; в інших випадках залишає собі. «Додому», живлення й гучність завжди лишаються за Android. Меню потоку відкривається своєю гарячою клавішею або жестом чи кнопкою «Назад» Android. З наступного потоку.</string>
+    <string name="title_checkbox_system_keys_fullscreen_only">Системні клавіші лише на повному екрані</string>
+    <string name="summary_checkbox_system_keys_fullscreen_only">У вікні Alt+Tab, клавіша Windows і подібні залишаються на цьому пристрої.</string>
     <string name="title_checkbox_back_as_meta">«Назад» на клавіатурі як клавіша Windows</string>
     <string name="summary_checkbox_back_as_meta">Клавіша «Назад» на фізичній клавіатурі надсилає клавішу Windows (Command на Mac). Меню трансляції відкривається своєю гарячою клавішею, жестом або кнопкою «Назад» Android чи комбінацією кнопок контролера.</string>
     <string name="title_checkbox_right_alt_as_meta">Правий Alt як Command</string>

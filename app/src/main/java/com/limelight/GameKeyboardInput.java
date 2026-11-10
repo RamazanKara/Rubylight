@@ -471,7 +471,7 @@ final class GameKeyboardInput {
         if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER && ControllerHandler.isRemoteControlEvent(event)) {
             return KeyEvent.KEYCODE_ENTER;
         }
-        boolean backAsEscape = game.prefConfig.captureSystemKeys && !game.prefConfig.backOpensMenu;
+        boolean backAsEscape = game.prefConfig.sendsSystemKeys(game.inWindow()) && !game.prefConfig.backOpensMenu;
         boolean keyboardBack = false;
         if (keyCode == KeyEvent.KEYCODE_BACK && (game.prefConfig.backAsMeta || backAsEscape)) {
             InputDevice device = event.getDevice();

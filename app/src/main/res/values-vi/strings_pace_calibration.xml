@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="pace_calibration_title">Hiệu chỉnh nhịp khung hình</string>
+    <string name="network_tests_title">Kiểm tra mạng</string>
     <string name="pace_calibration_summary">PyroWave: tìm tốc độ cao nhất mà máy chủ gửi trọn khung hình đến thiết bị này</string>
     <string name="pace_calibration_saved">Nhịp khung hình PyroWave: %1$d Mbps. Chạm để hiệu chỉnh lại.</string>
     <string name="pace_calibration_intro">Máy chủ gửi khung hình thử ở nhiều tốc độ khác nhau, và Nightjar giữ tốc độ nhanh nhất mà khung hình đến trọn vẹn. Các luồng PyroWave sau đó sẽ dùng tốc độ này. Hãy dừng mọi luồng trên PC này trước. Mất từ một đến ba phút.</string>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_packed_444">Croma completo</string>
-    <string name="summary_packed_444">Requer a opção de croma completo do Rubylight, o novo mecanismo de transmissão e um decodificador HEVC/AV1 por hardware compatível. Modos não compatíveis encerram a conexão. HDR também requer uma superfície de exibição HDR de 10 bits compatível.</string>
+    <string name="summary_packed_444">Requer a opção de croma completo do Rubylight, o novo mecanismo de transmissão e um decodificador HEVC/AV1 por hardware compatível. Se o PC ou este dispositivo não for compatível, a transmissão começa sem ele. HDR também requer uma superfície de exibição HDR de 10 bits compatível.</string>
     <string name="title_experimental_chipset_tuning">Ajuste do chipset</string>
     <string name="summary_experimental_chipset_tuning">Configurações extras de baixa latência para decodificadores MediaTek Dimensity e Samsung Exynos. Se o vídeo parar ou travar, desative esta opção.</string>
     <string name="scut_deleted_pc">PC excluído</string>

@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="pace_calibration_title">校准帧节奏</string>
+    <string name="network_tests_title">网络测试</string>
     <string name="pace_calibration_summary">PyroWave：找出主机向此设备完整发送帧的最高速度</string>
     <string name="pace_calibration_saved">PyroWave 帧节奏：%1$d Mbps。点按可重新校准。</string>
     <string name="pace_calibration_intro">主机会以不同速度发送测试帧，Nightjar 会保存帧能完整到达的最快速度。之后的 PyroWave 串流会使用它。请先停止这台电脑上的串流。需要一到三分钟。</string>

@@ -33,7 +33,7 @@ final class MenuBlurWindow {
         return api >= Build.VERSION_CODES.S && (tier == GlassTier.LENS || tier == GlassTier.LIVE) && systemSwitch;
     }
 
-    private static boolean systemSwitch(Activity owner) {
+    static boolean systemSwitch(Activity owner) {
         if (enabledForTest != null) return enabledForTest;
         return Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && owner.getWindowManager().isCrossWindowBlurEnabled();
     }

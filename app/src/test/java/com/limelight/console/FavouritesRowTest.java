@@ -123,6 +123,7 @@ public class FavouritesRowTest {
     private ConsoleHomeAdapter.Listener recorder(List<RecordedMenu> menus) {
         return new ConsoleHomeAdapter.Listener() {
             @Override public void onGame(HomeModel.GameCard card) {
+                started.add(card.title);
             }
 
             @Override public void onGameMenu(HomeModel.GameCard card) {
@@ -134,6 +135,7 @@ public class FavouritesRowTest {
             }
 
             @Override public void onHost(HomeModel.HostCard card) {
+                started.add(card.uuid);
             }
 
             @Override public void onHostOptions(HomeModel.HostCard card) {
@@ -142,6 +144,7 @@ public class FavouritesRowTest {
         };
     }
 
+    private final List<String> started = new ArrayList<>();
     private final List<String> toggles = new ArrayList<>();
     private final List<String> hostOptions = new ArrayList<>();
 
@@ -179,6 +182,48 @@ public class FavouritesRowTest {
         host.itemView.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_UP,
                 android.view.KeyEvent.KEYCODE_MENU));
         assertEquals(1, toggles.size());
+    }
+
+    // Nightjar #81: a pad's Y left to Android becomes Space, which presses the focused card and starts its game.
+    @Test
+    public void theMoreKeysOpenACardsOptionsAndNeverStartIt() throws Exception {
+        List<RecordedMenu> menus = new ArrayList<>();
+        ConsoleHomeListAdapter adapter = new ConsoleHomeListAdapter(context, null, uuid -> null, recorder(menus));
+        adapter.submit(model());
+        FrameLayout parent = new FrameLayout(context);
+        RecyclerView.ViewHolder card = adapter.onCreateViewHolder(parent, ConsoleHomeListAdapter.COVER_GAME);
+        adapter.onBindViewHolder(card, 1);
+        focus(parent, card.itemView);
+        int[] more = {android.view.KeyEvent.KEYCODE_BUTTON_Y, android.view.KeyEvent.KEYCODE_F,
+                android.view.KeyEvent.KEYCODE_BUTTON_X};
+        for (int i = 0; i < more.length; i++) {
+            // Both halves are taken, so Android makes no Space of them.
+            assertTrue("down " + more[i], card.itemView.dispatchKeyEvent(
+                    new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, more[i])));
+            assertEquals("opens on release", i, menus.size());
+            assertTrue("up " + more[i], card.itemView.dispatchKeyEvent(
+                    new android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, more[i])));
+            assertEquals(i + 1, menus.size());
+        }
+        // A release Android cancelled (the press went elsewhere) opens nothing.
+        card.itemView.dispatchKeyEvent(new android.view.KeyEvent(0, 0, android.view.KeyEvent.ACTION_UP,
+                android.view.KeyEvent.KEYCODE_BUTTON_Y, 0, 0, 0, 0, android.view.KeyEvent.FLAG_CANCELED));
+        assertEquals(more.length, menus.size());
+        assertTrue(toggles.isEmpty());
+
+        RecyclerView.ViewHolder host = adapter.onCreateViewHolder(parent, ConsoleHomeListAdapter.HOST);
+        adapter.onBindViewHolder(host, adapter.getItemCount() - 1);
+        parent.removeAllViews();
+        focus(parent, host.itemView);
+        for (int key : new int[] {android.view.KeyEvent.KEYCODE_BUTTON_Y, android.view.KeyEvent.KEYCODE_F}) {
+            assertTrue(host.itemView.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, key)));
+            assertTrue(host.itemView.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, key)));
+        }
+        assertEquals(2, hostOptions.size());
+        assertTrue("nothing was started or opened", started.isEmpty());
+        // What the keys stand in for still presses the card.
+        assertTrue(card.itemView.performClick());
+        assertEquals(1, started.size());
     }
 
     @Test

@@ -88,8 +88,8 @@ jobs:
         run: |
           cd protocol
           cargo test -p nightjar-desktop --locked -- pq_present --include-ignored
-  # The APKs and lint, the JVM unit tests and the native sanitizer runs are three jobs that run
-  # side by side; together they took 26-32 minutes as one job.
+  # The APKs, lint, the JVM unit tests and the native sanitizer runs are four jobs that run side
+  # by side; together they took 26-32 minutes as one job.
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -125,16 +125,17 @@ jobs:
           bash protocol/build-android.sh
       - name: Configure a disposable signing key for minified build validation
         run: |
-          keytool -genkeypair -keystore "$RUNNER_TEMP/validation.p12" -storetype PKCS12             -alias validation -keyalg RSA -keysize 3072 -validity 2             -dname 'CN=Nightjar CI validation' -storepass validation -keypass validation
+          keytool -genkeypair -keystore "$RUNNER_TEMP/validation.p12" -storetype PKCS12 \
+            -alias validation -keyalg RSA -keysize 3072 -validity 2 \
+            -dname 'CN=Nightjar CI validation' -storepass validation -keypass validation
           echo "BP_KEYSTORE=$RUNNER_TEMP/validation.p12" >> "$GITHUB_ENV"
           echo 'BP_KEYSTORE_PASSWORD=validation' >> "$GITHUB_ENV"
           echo 'BP_KEY_ALIAS=validation' >> "$GITHUB_ENV"
           echo 'BP_KEY_PASSWORD=validation' >> "$GITHUB_ENV"
-      - name: Build both flavors and lint
+      - name: Build both flavors
         run: >-
           bash gradlew --no-daemon --max-workers=4
           :app:assembleNonRootDebug :app:assembleNonRootRelease :app:assembleRootRelease
-          :app:lintNonRootDebug :app:lintNonRootRelease :app:lintRootRelease
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: github.ref == 'refs/heads/main' && steps.gradle-cache.outputs.cache-hit != 'true'
         with:
@@ -147,6 +148,39 @@ jobs:
           name: nightjar-debug
           path: client/app/build/outputs/apk/nonRoot/debug/app-nonRoot-debug.apk
           if-no-files-found: error
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('client/gradle/wrapper/gradle-wrapper.properties') }}-${{ hashFiles('client/**/*.gradle', 'client/gradle.properties') }}
+          restore-keys: gradle-${{ hashFiles('client/gradle/wrapper/gradle-wrapper.properties') }}-
+      - name: Configure a disposable signing key for the release variants
+        run: |
+          keytool -genkeypair -keystore "$RUNNER_TEMP/validation.p12" -storetype PKCS12 \
+            -alias validation -keyalg RSA -keysize 3072 -validity 2 \
+            -dname 'CN=Nightjar CI validation' -storepass validation -keypass validation
+          echo "BP_KEYSTORE=$RUNNER_TEMP/validation.p12" >> "$GITHUB_ENV"
+          echo 'BP_KEYSTORE_PASSWORD=validation' >> "$GITHUB_ENV"
+          echo 'BP_KEY_ALIAS=validation' >> "$GITHUB_ENV"
+          echo 'BP_KEY_PASSWORD=validation' >> "$GITHUB_ENV"
+      # The release variants lint as the release scripts build them; nonRoot debug is the dev build.
+      - name: Lint both flavors
+        run: >-
+          bash gradlew --no-daemon --max-workers=4
+          :app:lintNonRootDebug :app:lintNonRootRelease :app:lintRootRelease
   unit-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -167,10 +201,10 @@ jobs:
           key: gradle-${{ hashFiles('client/gradle/wrapper/gradle-wrapper.properties') }}-${{ hashFiles('client/**/*.gradle', 'client/gradle.properties') }}
           restore-keys: gradle-${{ hashFiles('client/gradle/wrapper/gradle-wrapper.properties') }}-
       # The shared suite runs in the nonRoot flavor; the root flavor's task runs src/testRoot's
-      # tests (app/build.gradle). Four test JVMs of 2 GB fit the runner's 16 GB.
+      # tests (app/build.gradle). Two test JVMs: four took 490 s on the runner's four cores, two 376 s.
       - name: Run the unit tests
         run: >-
-          bash gradlew --no-daemon --max-workers=4 -PunitTestForks=4
+          bash gradlew --no-daemon --max-workers=4
           :app:testNonRootDebugUnitTest :app:testRootDebugUnitTest
   native:
     runs-on: ubuntu-latest

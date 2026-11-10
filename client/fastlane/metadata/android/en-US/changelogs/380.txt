@@ -1,0 +1,6 @@
+• A stream this device can't show in full chroma starts without it instead of hanging while connecting.
+• An automatic bitrate follows the resolution a PC's or game's settings choose.
+• A PC or game setting that turns VRR off gets its frame pacing back.
+• Reset all settings also resets touch mode and video scaling.
+• Home redraws only when a PC changed, and going back to it no longer loads its covers again.
+• An Xbox controller on USB no longer delays other input while it rumbles.

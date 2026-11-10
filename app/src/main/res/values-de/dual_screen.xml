@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_dual_screen">Dual-Screen-Modus</string>
+    <string name="summary_checkbox_dual_screen">Auf einem Gerät mit zweitem Bildschirm startet darauf ein zweiter Stream desselben Spiels, in der eigenen Auflösung dieses Bildschirms. Der zweite Stream ist dasselbe Gerät wie der erste, daher wird der PC nur einmal gekoppelt. Der erste Bildschirm behält Ton, Controller und Mikrofon, und ein Wechsel des Touch-Modus auf einem der Bildschirme gilt für beide. Der PC muss ein Rubylight-Host sein, der das unterstützt, und entscheidet, welchen seiner Bildschirme jeder zeigt. Gilt ab dem nächsten Stream.</string>
+    <string name="title_resolution_screen2">Auflösung des zweiten Bildschirms</string>
+    <string name="summary_resolution_screen2">Die Auflösung des Streams auf dem zweiten Bildschirm, unabhängig von der des ersten. Mit der eigenen Größe streamt er in der vollen Auflösung dieses Bildschirms.</string>
+    <string name="resolution_screen2_native">Eigene Größe des zweiten Bildschirms</string>
+    <string name="dual_screen_unavailable">Der zweite Bildschirm konnte nicht geöffnet werden.</string>
+</resources>

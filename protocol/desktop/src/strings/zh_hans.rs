@@ -1323,7 +1323,7 @@ sudo sysctl -w net.core.rmem_max={}", "接收缓冲区：系统只分配了所�
     ("Text and button size", "文字和按钮大小"),
     ("Makes everything in Nightjar bigger or smaller. Ctrl+= and Ctrl+- change it, Ctrl+0 resets it.", "让 Nightjar 中的一切变大或变小。Ctrl+= 和 Ctrl+- 更改大小，Ctrl+0 重置。"),
     ("Black surfaces, white text, and thicker outlines and focus rings.", "黑色背景、白色文字，以及更粗的轮廓和焦点框。"),
-    ("Stops fades, slides and the spinning wheel. Follow system uses the Windows animation setting; other systems don't report one, so motion stays on.", "停止淡入淡出、滑动和旋转加载圈。“跟随系统”使用 Windows 的动画设置；其他系统不报告此设置，因此动效保持开启。"),
+    ("Stops fades, slides and the spinning wheel. Follow system uses the animation setting of Windows or the Reduce motion setting of macOS; Linux doesn't report one, so motion stays on there.", "停止淡入淡出、滑动和旋转加载圈。“跟随系统”使用 Windows 的动画设置或 macOS 的“减弱动态效果”设置；Linux 不报告此设置，因此在 Linux 上动效保持开启。"),
     ("Adds Input-only to a game’s menu on PCs without an Input-only mode of their own. The PC still sends video and audio at the smallest size, under 1 Mbit/s, which Nightjar doesn’t show or play.", "在自身没有“仅输入”模式的电脑上，为游戏菜单添加“仅输入”。电脑仍会以最小尺寸（低于 1 Mbit/s）发送视频和音频，Nightjar 不会显示或播放。"),
     ("Asks the PC for the full range of brightness levels. Turn on only if dark scenes look washed out or crushed.", "向电脑请求完整的亮度范围。只有在暗场景看起来发灰或死黑时才开启。"),
     ("Lower bitrate when frames are lost", "丢帧时降低码率"),

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_checkbox_dual_screen">듀얼 스크린 모드</string>
+    <string name="summary_checkbox_dual_screen">두 번째 화면이 있는 기기에서 같은 게임의 두 번째 스트림을 그 화면에 해당 화면의 원래 해상도로 시작합니다. 두 번째 스트림은 첫 번째와 같은 기기이므로 PC와 한 번만 페어링합니다. 소리, 컨트롤러, 마이크는 첫 번째 화면에 남고, 어느 화면에서든 터치 모드를 바꾸면 두 화면 모두에 적용됩니다. PC는 이를 지원하는 Rubylight 호스트여야 하며, 각 화면에 PC의 어느 화면을 표시할지는 PC가 정합니다. 다음 스트림부터 적용됩니다.</string>
+    <string name="title_resolution_screen2">두 번째 화면 해상도</string>
+    <string name="summary_resolution_screen2">두 번째 화면 스트림의 해상도로, 첫 번째 화면과 별개입니다. 원래 크기를 선택하면 그 화면의 전체 해상도로 스트리밍합니다.</string>
+    <string name="resolution_screen2_native">두 번째 화면의 원래 크기</string>
+    <string name="dual_screen_unavailable">두 번째 화면을 열 수 없습니다.</string>
+</resources>

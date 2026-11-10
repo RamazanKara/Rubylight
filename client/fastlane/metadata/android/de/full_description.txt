@@ -18,7 +18,7 @@ Koppeln per QR-Code. Teile die Zwischenablage, sende und lade Dateien, durchsuch
 Sieh, was passiert
 Die Leistungsanzeige zeigt Bildrate, Umlaufzeit und Bildverlust in einer Zeile oder ausführlich in den Ansichten Statistik und Debug. Der Stream-Zustand nennt die wahrscheinliche Ursache eines Rucklers und kann eine umkehrbare Änderung testen. Dazu ein Verbindungstest, eine Messung der Eingabelatenz und Fehlerberichte, die auf deinem Gerät bleiben, bis du sie teilst.
 
-Gemacht für Fernbedienung und Controller genauso wie für Touch, in 15 Sprachen, mit hohem Kontrast, weniger Bewegung und einer Hilfe, die offline funktioniert. Nightjar läuft auch unter Windows und Linux; du bekommst es in den Releases des Projekts.
+Gemacht für Fernbedienung und Controller genauso wie für Touch, in 15 Sprachen, mit hohem Kontrast, weniger Bewegung und einer Hilfe, die offline funktioniert. Nightjar läuft auch unter Windows, Linux und macOS; du bekommst es in den Releases des Projekts.
 
 Nightjar ist kostenlos und quelloffen. Ohne Werbung, ohne Konto und ohne In-App-Käufe.
 

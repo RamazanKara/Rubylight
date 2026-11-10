@@ -305,7 +305,7 @@ A game that Nucleus Co-op supports gets a "(Co-op)" entry. Each device that star
 
 ### Nightjar, the client built alongside it
 
-[Nightjar](https://github.com/RamazanKara/nightjar) runs on Android phones and handhelds, Android TV, Fire TV, Windows and Linux. It streams from any Moonlight host, and with Rubylight it adds QR pairing, the whole library with covers, PyroWave and packed 4:4:4, Dolby Vision, HDR10+ and HLG, Radeon controls during the stream, clipboard, files, USB forwarding and co-op.
+[Nightjar](https://github.com/RamazanKara/nightjar) runs on Android phones and handhelds, Android TV, Fire TV, Windows, Linux and macOS. It streams from any Moonlight host, and with Rubylight it adds QR pairing, the whole library with covers, PyroWave and packed 4:4:4, Dolby Vision, HDR10+ and HLG, Radeon controls during the stream, clipboard, files, USB forwarding and co-op.
 
 <table>
   <tr>
@@ -333,7 +333,7 @@ Rubylight implements the Moonlight protocol as Sunshine does and keeps its proto
 | --- | --- | --- |
 | [Moonlight](https://moonlight-stream.org) | Windows, macOS, Linux, Android, iOS, Apple TV, and community ports such as Xbox | The reference client: H.264, HEVC and AV1, SDR and HDR, as the device decodes them |
 | [Artemis](https://github.com/ClassicOldSong/moonlight-android) | Android | Apollo's Android client; virtual displays matched to the device |
-| [Nightjar](https://github.com/RamazanKara/nightjar) | Android, Android TV, Fire TV, Windows, Linux | Rubylight's own client: PyroWave and packed 4:4:4, QR pairing, the game library, Radeon controls, device-chosen error correction and pacing |
+| [Nightjar](https://github.com/RamazanKara/nightjar) | Android, Android TV, Fire TV, Windows, Linux, macOS | Rubylight's own client: PyroWave and packed 4:4:4, QR pairing, the game library, Radeon controls, device-chosen error correction and pacing |
 | [Nonary's Moonlight](https://github.com/Nonary/moonlight-qt) | Desktop (a Moonlight-Qt fork) | PyroWave |
 | Browsers and Samsung Tizen TVs | WebRTC | H.264, HEVC and AV1 with HDR, surround sound and gamepads, paired with a PIN ([WebRTC](docs/webrtc.md)) |
 
@@ -415,7 +415,7 @@ The [build guide](docs/building.md) lists the prerequisites, options and outputs
 
 - **Rubylight 3** is the current release line, developed on `main`, and supports AMD Radeon GPUs with AMF and NVIDIA GPUs with NVENC. Patch releases fix bugs; minor releases add features. Changes are listed in the [release notes](rust/RELEASE_NOTES.md).
 - **Rubylight 2.6.x** remains available for PCs with Intel graphics. It does not receive 3.x features.
-- **Nightjar**, the companion client for Android, Android TV, Fire TV, Windows and Linux, is developed in this repository under `client/` and released from [RamazanKara/nightjar](https://github.com/RamazanKara/nightjar) with its own version numbers.
+- **Nightjar**, the companion client for Android, Android TV, Fire TV, Windows, Linux and macOS, is developed in this repository under `client/` and released from [RamazanKara/nightjar](https://github.com/RamazanKara/nightjar) with its own version numbers.
 - Rubylight was called **Butterpollo** until October 2026. The executable (`butterpollo.exe`), the profile folder (`%ProgramData%\Butterpollo`) and the `BUTTERPOLLO_*` environment variables keep that name, so existing installations and scripts continue to work.
 
 ## Support

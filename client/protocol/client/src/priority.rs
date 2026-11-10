@@ -643,6 +643,18 @@ fn raise_nice_with(
     }
 }
 
+/// The services a process asks, in order. Inside a Flatpak sandbox only the portal: it maps the
+/// sandbox's thread id to the host's, while RealtimeKit would take that id for one of the host's
+/// own, which is another process's thread or none.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn services_asked(sandboxed: bool) -> &'static [RaisedBy] {
+    if sandboxed {
+        &[RaisedBy::Portal]
+    } else {
+        &[RaisedBy::Portal, RaisedBy::RealtimeKit]
+    }
+}
+
 /// A service as [`ask_services`] takes it: what it is, its process-wide "gone" flag, and the
 /// service or why it could not be opened.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -790,16 +802,22 @@ mod realtime {
             .map_err(|e| vec![e.clone()])
     }
 
-    /// The portal, then RealtimeKit, each with its process-wide "gone" flag; opened lazily.
+    /// The portal, then RealtimeKit outside a Flatpak sandbox ([`super::services_asked`]), each
+    /// with its process-wide "gone" flag; opened lazily.
     pub(super) fn services() -> impl Iterator<Item = ServiceEntry<'static>> {
         static PORTAL_GONE: AtomicBool = AtomicBool::new(false);
         static REALTIME_KIT_GONE: AtomicBool = AtomicBool::new(false);
-        [
-            (RaisedBy::Portal, &PORTAL_GONE),
-            (RaisedBy::RealtimeKit, &REALTIME_KIT_GONE),
-        ]
-        .into_iter()
-        .map(|(by, gone)| (by, gone, service(by)))
+        static SANDBOXED: OnceLock<bool> = OnceLock::new();
+        // Flatpak puts this file at the root of every sandbox.
+        let sandboxed =
+            *SANDBOXED.get_or_init(|| std::path::Path::new("/.flatpak-info").exists());
+        super::services_asked(sandboxed).iter().map(|&by| {
+            let gone: &'static AtomicBool = match by {
+                RaisedBy::RealtimeKit => &REALTIME_KIT_GONE,
+                _ => &PORTAL_GONE,
+            };
+            (by, gone, service(by))
+        })
     }
 
     struct Service {
@@ -1282,6 +1300,17 @@ pub(crate) mod tests {
         // The label says "priority" where the value is a Windows thread priority.
         let kind = if cfg!(windows) { "priority" } else { "nice" };
         assert_eq!(raised.to_string(), format!("{kind} -8 by RealtimeKit"));
+    }
+
+    /// Nightjar issue 86: inside a Flatpak sandbox RealtimeKit was handed the sandbox's thread
+    /// id, which on the host names another thread or none.
+    #[test]
+    fn a_sandboxed_process_asks_only_the_portal() {
+        assert_eq!(services_asked(true), [RaisedBy::Portal]);
+        assert_eq!(
+            services_asked(false),
+            [RaisedBy::Portal, RaisedBy::RealtimeKit]
+        );
     }
 
     #[test]

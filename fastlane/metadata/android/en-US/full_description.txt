@@ -18,7 +18,7 @@ Pair by scanning a QR code. Share the clipboard, send and download files, browse
 See what's happening
 The performance overlay shows frame rate, round-trip time and frame loss in one line, or detailed Statistics and Debug views. Stream health names the likely cause of a stutter and can try a reversible fix. A connection test, an input latency measurement and problem reports that stay on your device until you share them.
 
-Made for a TV remote and a controller as much as touch, in 15 languages, with high contrast, reduced motion and help that works offline. Nightjar also runs on Windows and Linux; get it from the project's releases.
+Made for a TV remote and a controller as much as touch, in 15 languages, with high contrast, reduced motion and help that works offline. Nightjar also runs on Windows, Linux and macOS; get it from the project's releases.
 
 Nightjar is free and open source. No ads, no account and no in-app purchases.
 

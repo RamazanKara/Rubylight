@@ -1,0 +1,1 @@
+• Nightjar from Google Play updates through Play: its build has no in-app updater and does not ask for permission to install apps. The download from GitHub keeps its own updater.

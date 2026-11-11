@@ -346,6 +346,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("full chroma is on and has its own 4:4:4 and 10-bit handling.", "pełna chrominancja jest włączona i sama obsługuje 4:4:4 i 10 bitów."),
     ("PyroWave is chosen, and it has its own 4:4:4 and 10-bit modes.", "wybrano PyroWave, który ma własne tryby 4:4:4 i 10-bitowe."),
     ("this device can’t decode or draw it ({}).", "to urządzenie nie może tego zdekodować ani narysować ({})."),
+    ("Nightjar draws on {}, which can’t; {} can: set Nightjar to High performance in Windows Settings › System › Display › Graphics, then restart Nightjar", "Nightjar rysuje na {0}, który tego nie potrafi; {1} potrafi: ustaw Nightjar na Wysoka wydajność w Ustawieniach Windows › System › Ekran › Grafika, a potem uruchom Nightjar ponownie"),
     ("the PC doesn’t encode it for this codec.", "komputer nie koduje tego dla tego kodeka."),
     ("4:4:4 is on, and the PC takes 4:4:4 or 10-bit, not both.", "4:4:4 jest włączone, a PC daje 4:4:4 albo 10-bit, nie oba naraz."),
     ("Full color range", "Pełny zakres kolorów"),

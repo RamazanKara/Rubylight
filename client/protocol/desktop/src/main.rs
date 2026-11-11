@@ -31,6 +31,8 @@ mod controller_mouse;
 mod dmabuf;
 mod gamepad;
 mod glyphs;
+#[cfg(windows)]
+mod gpu_adapters;
 mod gui;
 mod handheld;
 mod host_page;
@@ -744,6 +746,10 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         display.refresh_hz,
         if cfg!(windows) { format!(", tearing {}", launcher.tearing_supported) } else { String::new() }
     );
+    #[cfg(windows)]
+    if let Some(gpu) = gpu_adapters::renderer_gpu(sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_D3D11_DEVICE_POINTER)) {
+        eprintln!("nightjar: the renderer draws and D3D11VA decodes on {gpu}");
+    }
 
     let opened_by_link = link.is_some();
     let links = Arc::new(link_channel::Inbox::default());

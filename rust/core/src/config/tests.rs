@@ -1205,7 +1205,8 @@ fn removed_encoders_and_nvidia_limiters_migrate_with_one_report() {
     let (config, retired) = Config::parse_retiring(REMOVED_FEATURES).unwrap();
     assert_eq!(config.get("encoder", ""), "auto");
     assert_eq!(config.get("frame_limiter_provider", ""), "auto");
-    assert_eq!(config.get("rtss_frame_limit_type", ""), "async");
+    // RTSS's Reflex mode came back with NVENC, so it stays.
+    assert_eq!(config.get("rtss_frame_limit_type", ""), "nvidia-reflex");
     assert_eq!(config.port().unwrap(), 48123);
     // The removed encoders' and the NVIDIA driver's own settings go quietly.
     assert_eq!(config.values.len(), 4, "{:?}", config.values);
@@ -1217,7 +1218,6 @@ fn removed_encoders_and_nvidia_limiters_migrate_with_one_report() {
         [
             ("encoder", "quicksync", "auto"),
             ("frame_limiter_provider", "nvidia-control-panel", "auto"),
-            ("rtss_frame_limit_type", "nvidia-reflex", "async"),
         ]
     );
     let warning = retired_warning(&retired).unwrap();
@@ -1262,8 +1262,6 @@ fn every_encoder_the_host_no_longer_has_selects_automatically() {
     for (key, old, current) in [
         ("frame_limiter_provider", "nvcp", "auto"),
         ("frame_limiter_provider", "NVIDIA", "auto"),
-        ("rtss_frame_limit_type", "reflex", "async"),
-        ("rtss_frame_limit_type", "nvidia reflex", "async"),
     ] {
         let config = Config::parse(&format!("{key} = {old}\n")).unwrap();
         assert_eq!(config.get(key, ""), current, "{key} {old}");
@@ -1272,6 +1270,8 @@ fn every_encoder_the_host_no_longer_has_selects_automatically() {
         ("frame_limiter_provider", "rtss"),
         ("frame_limiter_provider", "none"),
         ("rtss_frame_limit_type", "back-edge-sync"),
+        ("rtss_frame_limit_type", "nvidia-reflex"),
+        ("rtss_frame_limit_type", "reflex"),
     ] {
         let config = Config::parse(&format!("{key} = {kept}\n")).unwrap();
         assert_eq!(config.get(key, ""), kept);

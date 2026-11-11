@@ -85,7 +85,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "frame_limiter_fps_limit", "Frame limit (0 uses the device rate)", Number;
         "frame_limiter_auto_virtual_framegen", "Virtual display frame generation", Choice(&["legacy","enabled","fixed-1000hz","disabled"]);
         "rtss_install_path", "RTSS installation directory", Text;
-        "rtss_frame_limit_type", "RTSS limiter mode", Choice(&["async","front-edge-sync","back-edge-sync"]);
+        "rtss_frame_limit_type", "RTSS limiter mode", Choice(&["async","front-edge-sync","back-edge-sync","nvidia-reflex"]);
         "rtss_allow_virtual_display_override", "Allow virtual display limiter overrides", Bool;
     ]
     "Video and capture" => [
@@ -362,6 +362,7 @@ pub fn render(prefix: &str, schema: &[Setting], values: &Value) -> String {
                             "async" => "Asynchronous",
                             "front-edge-sync" => "Front edge sync",
                             "back-edge-sync" => "Back edge sync",
+                            "nvidia-reflex" => "NVIDIA Reflex",
                             "transcoding" => "Transcoding (convert video formats)",
                             "ultralowlatency" => "Ultra low latency",
                             "lowlatency" => "Low latency",

@@ -466,9 +466,9 @@ export const settings: Setting[] = [
   {
     key: 'rtss_frame_limit_type',
     label: 'RTSS limit mode',
-    description: 'How RTSS paces frames. Some streams use front edge sync instead.',
+    description: 'How RTSS paces frames. Some streams choose their own mode instead.',
     details:
-      'Virtual-display streams, unless Virtual display refresh is off, and frame-generation games on a monitor use front edge sync instead.',
+      'Virtual-display streams, unless Virtual display refresh is off, and frame-generation games on a monitor use NVIDIA Reflex when the host streams with an NVIDIA GPU, and front edge sync otherwise. NVIDIA Reflex needs an NVIDIA GPU; on other GPUs it limits with front edge sync.',
     category: 'frame-limiting',
     group: 'RTSS',
     control: {
@@ -477,6 +477,7 @@ export const settings: Setting[] = [
         { value: 'async', label: 'Asynchronous' },
         { value: 'front edge sync', label: 'Front edge sync' },
         { value: 'back edge sync', label: 'Back edge sync' },
+        { value: 'nvidia reflex', label: 'NVIDIA Reflex' },
       ],
     },
     // framegen.rs reads letters and digits only, so the fallback console's front-edge-sync is front edge sync.

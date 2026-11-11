@@ -129,6 +129,7 @@ test('spellings the host reads as an option show as that option', () => {
     ['frame_limiter_auto_virtual_framegen', false, 'disabled'],
     ['rtss_frame_limit_type', 'front-edge-sync', 'front edge sync'],
     ['rtss_frame_limit_type', 'back_edge_sync', 'back edge sync'],
+    ['rtss_frame_limit_type', 'nvidia-reflex', 'nvidia reflex'],
     ['frame_limiter_provider', 'disabled', 'none'],
     // config.rs log_level; the fallback console writes numbers.
     ['min_log_level', 0, 'verbose'],
@@ -296,7 +297,7 @@ test('the encoders offered are Automatic, AMD AMF, NVIDIA NVENC and PyroWave', (
   assert.deepEqual(settings.get('encoder').control.options.map(option => option.value), ['auto', 'amf', 'nvenc', 'pyrowave']);
   assert.deepEqual(Object.keys(settings.get('encoder').aliases.spellings).sort(), ['amdvce', 'amdvce_experimental', 'amdvce_ffmpeg', 'amdvce_legacy', 'nvenc_experimental', 'nvenc_legacy']);
   assert.deepEqual(settings.get('frame_limiter_provider').control.options.map(option => option.value), ['auto', 'rtss', 'none']);
-  assert.deepEqual(settings.get('rtss_frame_limit_type').control.options.map(option => option.value), ['async', 'front edge sync', 'back edge sync']);
+  assert.deepEqual(settings.get('rtss_frame_limit_type').control.options.map(option => option.value), ['async', 'front edge sync', 'back edge sync', 'nvidia reflex']);
   for (const setting of schema.settings) assert.doesNotMatch(setting.key, /^(qsv_|sw_)|^(min_threads|frame_limiter_disable_vsync|dd_wa_dummy_plug_hdr10)$/, setting.key);
 });
 

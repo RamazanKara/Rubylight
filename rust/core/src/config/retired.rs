@@ -35,12 +35,6 @@ pub const RETIRED_SETTINGS: &[RetiredSetting] = &[
         reason: "RTSS is the only frame limiter",
     },
     RetiredSetting {
-        key: "rtss_frame_limit_type",
-        retired: crate::framegen::retired_limit_type,
-        current: "async",
-        reason: "RTSS's Reflex mode needs an NVIDIA GPU",
-    },
-    RetiredSetting {
         key: "frame-generation-mode",
         retired: crate::framegen::retired_generation,
         current: "none",

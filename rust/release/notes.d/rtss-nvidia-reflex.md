@@ -1,0 +1,2 @@
+# NVIDIA Reflex frame limiting
+- **NVIDIA Reflex is back as an RTSS limit mode.** Settings › Frame limiting › RTSS limit mode offers NVIDIA Reflex again, and a host that streams with an NVIDIA GPU uses it on its own for virtual-display streams and frame-generation games, as before 3.0. On other GPUs a chosen Reflex mode limits with front edge sync and says so in the log. A setting saved as Reflex is no longer changed to Asynchronous at startup.

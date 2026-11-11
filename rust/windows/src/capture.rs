@@ -304,6 +304,17 @@ pub fn stream_gpu(display: &str, adapter_name: &str, pnp_id: &str) -> Result<(St
         (desc.AdapterLuid.LowPart, desc.AdapterLuid.HighPart),
     ))
 }
+/// The PCI vendor of [`stream_gpu`]'s GPU, None when it can't be found.
+pub fn stream_gpu_vendor(display: &str, adapter_name: &str, pnp_id: &str) -> Option<u32> {
+    let (_, luid) = stream_gpu(display, adapter_name, pnp_id)
+        .inspect_err(|error| tracing::debug!(%error, "the stream's GPU is unknown"))
+        .ok()?;
+    gpus()
+        .ok()?
+        .into_iter()
+        .find(|gpu| gpu.luid == luid)
+        .map(|gpu| gpu.vendor)
+}
 /// The GPU a stream encodes on while no display is connected, as on a
 /// headless host or one whose monitor is off: the GPU
 /// [`encoder_gpu::pinned`] chooses, else the only AMD or NVIDIA GPU. With

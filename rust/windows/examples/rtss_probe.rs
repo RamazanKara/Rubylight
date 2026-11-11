@@ -101,6 +101,7 @@ fn main() -> Result<()> {
             enabled: true,
             provider: Provider::Rtss,
             sync_limiter: 2,
+            automatic_sync: false,
             capture: "wgc".into(),
         };
         let lease = limiter::Lease::acquire(&directory, &config, &policy)?;

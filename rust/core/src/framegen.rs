@@ -89,8 +89,12 @@ pub fn retired_provider(value: &str) -> bool {
         "nvidia" | "nvidiacontrolpanel" | "nvcp"
     )
 }
+/// RTSS's limiter modes (`SyncLimiter` in its profiles): asynchronous, front edge sync, back
+/// edge sync, and NVIDIA Reflex, which only an NVIDIA GPU runs.
+pub const SYNC_FRONT_EDGE: u32 = 1;
+pub const SYNC_REFLEX: u32 = 3;
 /// An `rtss_frame_limit_type` naming RTSS's NVIDIA Reflex mode.
-pub fn retired_limit_type(value: &str) -> bool {
+pub fn is_reflex(value: &str) -> bool {
     matches!(normalize(value).as_str(), "nvidiareflex" | "reflex")
 }
 /// An app's frame generation naming the NVIDIA driver's Smooth Motion.
@@ -171,6 +175,9 @@ pub struct Policy {
     pub enabled: bool,
     pub provider: Provider,
     pub sync_limiter: u32,
+    /// Whether the stream chose `sync_limiter` itself (virtual displays and frame generation)
+    /// rather than the RTSS limiter mode setting: [`Policy::for_gpu`] makes it Reflex on NVIDIA.
+    pub automatic_sync: bool,
     pub capture: String,
 }
 impl Policy {
@@ -191,12 +198,14 @@ impl Policy {
         let rate = if overridden.0 > 0 { overridden } else { stream };
         let allow_sync_override = config.boolean("rtss_allow_virtual_display_override", false);
         let auto_sync = automatic && (!allow_sync_override || generation == "game-provided");
-        let sync = if !runtime_sync && (auto_sync || (!virtual_display && framegen)) {
-            1
+        let automatic_sync = !runtime_sync && (auto_sync || (!virtual_display && framegen));
+        let sync = if automatic_sync {
+            SYNC_FRONT_EDGE
         } else {
             match normalize(config.get("rtss_frame_limit_type", "async")).as_str() {
-                "frontedgesync" => 1,
+                "frontedgesync" => SYNC_FRONT_EDGE,
                 "backedgesync" => 2,
+                "nvidiareflex" | "reflex" => SYNC_REFLEX,
                 _ => 0,
             }
         };
@@ -233,8 +242,24 @@ impl Policy {
                 || (!virtual_display && framegen),
             provider,
             sync_limiter: sync,
+            automatic_sync,
             capture,
         })
+    }
+    /// The RTSS mode for the GPU the stream renders and encodes on (`nvidia`: an NVIDIA GPU).
+    /// There the streams that sync the limiter themselves use NVIDIA Reflex, as they did before
+    /// 3.0; elsewhere Reflex, which RTSS runs only on NVIDIA, becomes front edge sync, with a
+    /// warning.
+    pub fn for_gpu(mut self, nvidia: bool) -> Self {
+        if nvidia && self.automatic_sync {
+            self.sync_limiter = SYNC_REFLEX;
+        } else if !nvidia && self.sync_limiter == SYNC_REFLEX {
+            tracing::warn!(
+                "RTSS limit mode NVIDIA Reflex needs an NVIDIA GPU, and this stream's is not one; front edge sync limits it instead"
+            );
+            self.sync_limiter = SYNC_FRONT_EDGE;
+        }
+        self
     }
     pub fn with_vrr(mut self, config: &Config, virtual_display: bool, requested: bool) -> Self {
         if virtual_display && requested && virtual_refresh(config) != VirtualRefresh::Disabled {
@@ -458,6 +483,32 @@ mod tests {
                 .display_rate,
             Rate(239760)
         );
+    }
+    /// Reflex came back with NVENC: an NVIDIA stream that syncs RTSS itself uses Reflex, and a
+    /// chosen Reflex mode holds on NVIDIA and becomes front edge sync elsewhere.
+    #[test]
+    fn rtss_reflex_follows_the_streams_gpu() {
+        let auto = Config::default();
+        let p = Policy::resolve(&auto, Rate(60_000), true, "none", false, false).unwrap();
+        assert!(p.automatic_sync);
+        assert_eq!(p.clone().for_gpu(true).sync_limiter, SYNC_REFLEX);
+        assert_eq!(p.for_gpu(false).sync_limiter, SYNC_FRONT_EDGE);
+        // A monitor stream without frame generation keeps the configured mode.
+        let p = Policy::resolve(&auto, Rate(60_000), false, "none", false, false).unwrap();
+        assert!(!p.automatic_sync);
+        assert_eq!(p.for_gpu(true).sync_limiter, 0);
+        for spelling in ["nvidia-reflex", "nvidia reflex", "Reflex"] {
+            assert!(is_reflex(spelling));
+            let c = Config::parse(&format!("rtss_frame_limit_type={spelling}")).unwrap();
+            let p = Policy::resolve(&c, Rate(60_000), false, "none", false, false).unwrap();
+            assert_eq!(p.sync_limiter, SYNC_REFLEX);
+            assert_eq!(p.clone().for_gpu(true).sync_limiter, SYNC_REFLEX);
+            assert_eq!(p.for_gpu(false).sync_limiter, SYNC_FRONT_EDGE);
+        }
+        // A per-device or per-app mode (runtime sync) is kept on virtual displays too.
+        let c = Config::parse("rtss_frame_limit_type=back-edge-sync").unwrap();
+        let p = Policy::resolve(&c, Rate(60_000), true, "none", false, true).unwrap();
+        assert_eq!(p.for_gpu(true).sync_limiter, 2);
     }
     #[test]
     fn virtual_refresh_reads_vibepollo_spellings() {

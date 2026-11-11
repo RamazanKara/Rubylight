@@ -7,6 +7,7 @@
   import { api, type RadeonPanel } from '../../lib/api';
   import type { AppDraft } from './draft.svelte';
   import {
+    NVIDIA_CHOICES,
     PROFILE_KEY,
     addRow,
     changeControls,
@@ -15,6 +16,8 @@
     currentOf,
     effectiveSettings,
     formatValue,
+    nvidiaOf,
+    nvidiaOptions,
     offered,
     pickProfile,
     profileOf,
@@ -52,22 +55,26 @@
 
   const support = $derived(supportOf(panel));
   const shown = $derived(offered(support));
+  // The host's panel controls the driver of the GPU it streams from.
+  const nvidia = $derived(nvidiaOf(support) === true);
+  const driverApp = $derived(nvidia ? 'the NVIDIA Control Panel' : 'AMD Software');
+  const capId = $derived(nvidia ? 'nvidia_frame_rate_limit.fps' : 'frame_rate_target.fps');
   const stored = $derived(draft.text(KEY));
   const chosen = $derived(profileOf(stored));
   const custom = $derived(chosen === 'custom');
   const info = $derived(profiles.find((profile) => profile.id === chosen));
   // A profile this console does not know is kept as written and the host says what it thinks.
   const unknown = $derived(stored !== '' && !info);
-  const controls = $derived(controlsOf(effectiveSettings(stored, draft.radeon), support).controls);
+  const controls = $derived(controlsOf(effectiveSettings(stored, draft.radeon, support), support).controls);
   const raw = $derived(rawRows(stored, draft.radeon, support));
   const reason = $derived(
     loading
       ? ''
       : readError
-        ? `The Radeon settings could not be read: ${readError}`
+        ? `The driver settings could not be read: ${readError}`
         : shown.size
           ? ''
-          : (panel?.message ?? "AMD's driver reports none of these controls as changeable on this GPU."),
+          : (panel?.message ?? 'The graphics driver reports none of these controls as changeable on this GPU.'),
   );
 
   const setting = (id: string) => support.get(id);
@@ -79,6 +86,12 @@
   }
   function change(patch: Partial<Controls>) {
     apply(changeControls(stored, draft.radeon, support, { ...controls, ...patch }));
+  }
+  function choose(id: string, value: string) {
+    const next = { ...controls.nvidia };
+    if (value) next[id] = value;
+    else delete next[id];
+    change({ nvidia: next });
   }
   function remove(row: (typeof draft.radeon)[number]) {
     const index = draft.radeon.indexOf(row);
@@ -113,16 +126,16 @@
 
 <div class="radeon">
   <Field
-    label="Radeon preset"
+    label="Driver preset"
     id="{uid}-profile"
     hint={info?.description ??
-      'Off leaves the Radeon driver as it is. A preset changes this game’s Radeon settings while it streams and puts them back when the session ends.'}
+      'Off leaves the graphics driver as it is. A preset changes the driver settings while this game streams and puts them back when the session ends.'}
     error={draft.radeonError || undefined}
   >
     <select
       id="{uid}-profile"
       class="select"
-      bind:value={() => stored, (value) => apply(pickProfile(stored, draft.radeon, value))}
+      bind:value={() => stored, (value) => apply(pickProfile(stored, draft.radeon, value, support))}
     >
       <option value="">Off</option>
       {#if unknown}
@@ -135,15 +148,15 @@
   </Field>
 
   {#if loading}
-    <p class="hint">Reading what this PC’s Radeon GPU supports…</p>
+    <p class="hint">Reading what this PC’s GPU supports…</p>
   {:else if reason}
     <p class="note" role="status">{reason} The presets and raw settings still work.</p>
   {:else}
     <fieldset class="controls" aria-describedby="{uid}-controls-hint">
       <legend>Adjust</legend>
       <p class="hint" id="{uid}-controls-hint">
-        Changing anything here makes the preset Custom. Only what is turned on is changed; everything else stays as AMD
-        Software has it for this game.
+        Changing anything here makes the preset Custom. Only what is set here is changed; everything else stays as
+        {driverApp} has it.
       </p>
       {#if shown.has('antiLag')}
         <Toggle
@@ -164,7 +177,7 @@
                 const frameCap = event.currentTarget.value as FrameCap;
                 change({
                   frameCap,
-                  fps: frameCap === 'fps' ? (controls.fps ?? currentOf(setting('frame_rate_target.fps'))) : controls.fps,
+                  fps: frameCap === 'fps' ? (controls.fps ?? currentOf(setting(capId))) : controls.fps,
                 });
               }}
             >
@@ -173,10 +186,27 @@
               <option value="fps">A number</option>
             </select>
             {#if controls.frameCap === 'fps'}
-              {@render number('frame_rate_target.fps', controls.fps, 'Frame rate cap', (fps) => change({ fps }))}
+              {@render number(capId, controls.fps, 'Frame rate cap', (fps) => change({ fps }))}
             {/if}
           </div>
         </Field>
+      {/if}
+      {#if shown.has('nvidia')}
+        {#each NVIDIA_CHOICES.filter((item) => setting(item.id)) as item (item.id)}
+          <Field label={item.label} id="{uid}-{item.id}" hint={item.hint || undefined}>
+            <select
+              id="{uid}-{item.id}"
+              class="select"
+              value={controls.nvidia[item.id] ?? ''}
+              onchange={(event) => choose(item.id, event.currentTarget.value)}
+            >
+              <option value="">As the NVIDIA Control Panel has it</option>
+              {#each nvidiaOptions(setting(item.id)) as option (option.value)}
+                <option value={option.value}>{option.label}</option>
+              {/each}
+            </select>
+          </Field>
+        {/each}
       {/if}
       {#if shown.has('chill')}
         <div class="feature">
@@ -304,11 +334,11 @@
   {/if}
 
   <details class="raw" bind:open={rawOpen}>
-    <summary>Advanced: raw Radeon settings{raw.length ? ` (${raw.length})` : ''}</summary>
+    <summary>Advanced: raw driver settings{raw.length ? ` (${raw.length})` : ''}</summary>
     <div class="list" aria-describedby="{uid}-list-hint">
       <p class="hint" id="{uid}-list-hint">
-        Radeon setting ids the host can write, such as <code>vsync.mode</code> or <code>afmf.enabled</code>. Use true or
-        false for switches. A feature's <code>.enabled</code> switch is written before its other settings.
+        Driver setting ids the host can write, such as <code>vsync.mode</code> or <code>afmf.enabled</code> on Radeon and
+        <code>nvidia_vsync.mode</code> on NVIDIA. Use true or false for switches. A feature's <code>.enabled</code> switch is written before its other settings.
         {#if !custom && raw.length}These come with the preset; add a setting or change a control to edit them as Custom.{/if}
       </p>
       {#each raw as row, index (row.key)}
@@ -349,7 +379,7 @@
         </div>
       {/each}
       <div>
-        <Button size="sm" icon="plus" onclick={() => apply(addRow(stored, draft.radeon))}>Add setting</Button>
+        <Button size="sm" icon="plus" onclick={() => apply(addRow(stored, draft.radeon, support))}>Add setting</Button>
       </div>
     </div>
   </details>

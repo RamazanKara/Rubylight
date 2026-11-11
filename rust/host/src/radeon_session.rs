@@ -22,7 +22,7 @@
 //! lock.
 use butterpollo_core::native_api::radeon::{ControlState, Gpu};
 use butterpollo_windows::radeon::{
-    BackendError, Change, Entry, ErrorKind, RestoreReport, Setting, WriteError,
+    BackendError, Change, Driver, Entry, ErrorKind, RestoreReport, Setting, WriteError,
     control::RestoreResult,
     worker::{RestoreTicket, Worker},
 };
@@ -95,6 +95,8 @@ pub fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 #[derive(Default)]
 pub struct Inner {
     worker: OnceLock<WorkerRef>,
+    /// Whose driver the worker controls; Radeon until the host's worker starts.
+    driver: OnceLock<Driver>,
     /// Devices that may have settings changed in this run. A device leaves when its restore is
     /// handed on.
     written: Mutex<BTreeSet<String>>,
@@ -160,6 +162,10 @@ impl Radeon {
 impl Inner {
     pub fn worker(&self) -> Option<&Worker> {
         self.worker.get().map(Deref::deref)
+    }
+    /// Whose driver settings the panel shows: "Radeon" or "NVIDIA" in its texts.
+    pub fn driver(&self) -> Driver {
+        self.driver.get().copied().unwrap_or_default()
     }
     #[cfg(test)]
     pub fn status(&self) -> Option<butterpollo_windows::radeon::worker::Status> {
@@ -494,8 +500,13 @@ fn restorer(inner: &Inner, worker: &Worker, messages: &mpsc::Receiver<Message>) 
 }
 
 /// Start the host's worker, with the helper-process backend, and attach it.
-pub fn start(radeon: &Radeon, directory: &std::path::Path) -> Result<(), BackendError> {
-    let worker = butterpollo_windows::radeon::worker::start_host(directory)?;
+pub fn start(
+    radeon: &Radeon,
+    directory: &std::path::Path,
+    driver: Driver,
+) -> Result<(), BackendError> {
+    let worker = butterpollo_windows::radeon::worker::start_host(directory, driver)?;
+    let _ = radeon.driver.set(driver);
     radeon.attach(WorkerRef::Host(worker));
     Ok(())
 }

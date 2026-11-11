@@ -157,7 +157,7 @@ pub fn show(ui: &mut egui::Ui, page: &mut Page, lines: &[(&'static str, String)]
 }
 
 fn radeon_panel(ui: &mut egui::Ui, page: &Page, state: &State) {
-    menu_style::caption(ui, tr("Radeon graphics"));
+    menu_style::caption(ui, tr("Graphics settings"));
     let Some(panel) = &state.radeon.panel else {
         let text = match &state.radeon.load_failure {
             Some(failure) => failure.text(),

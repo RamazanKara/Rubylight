@@ -38,8 +38,8 @@ impl Notice {
             Notice::ReadOnly => en("These settings can be seen but not changed."),
             Notice::Unsupported => en("These settings are not supported on this GPU or driver."),
             Notice::Unavailable => en("The settings are not available right now. Trying again."),
-            Notice::AdlxUnavailable => en("The host could not load the AMD driver interface."),
-            Notice::NeedsExternalSetup => en("Some settings need a one-time setup in AMD Software on the host."),
+            Notice::AdlxUnavailable => en("The host could not load the graphics driver interface."),
+            Notice::NeedsExternalSetup => en("Some settings need a one-time setup in the graphics driver’s control panel on the host."),
             Notice::NeedsHostControl => en("Turn on Host control for this device on the host to change these settings."),
             Notice::NeedsSession => en("You can change these settings while this device owns the session."),
         })
@@ -79,18 +79,21 @@ impl Row {
         let Some(group) = group_title(&self.group) else {
             let group = words(&self.group);
             let field = words(&self.field);
-            return if field.is_empty() || field == "Enabled" {
+            return if plain_field(&field) {
                 tr(&group).to_owned()
             } else {
                 format!("{}: {}", tr(&group), tr(&field))
             };
         };
         let group = tr(group);
+        if sole_setting(&self.group) {
+            return group.to_owned();
+        }
         if let Some(field) = field_title(&self.field) {
             return format!("{group}: {}", tr(field));
         }
         let field = words(&self.field);
-        if field.is_empty() || field == "Enabled" || field == "Mode" { group.to_owned() } else { format!("{group}: {}", tr(&field)) }
+        if plain_field(&field) { group.to_owned() } else { format!("{group}: {}", tr(&field)) }
     }
 
     /// The value as shown: On/Off, an option's label, or the number with its unit.
@@ -124,7 +127,7 @@ impl Row {
         let fallback = match self.mode {
             Mode::Unsupported => tr("Not supported on this GPU or driver"),
             Mode::Unavailable => tr("Not available right now"),
-            Mode::ExternalSetup => tr("Needs a one-time setup in AMD Software"),
+            Mode::ExternalSetup => tr("Needs a one-time setup in the driver’s control panel"),
             Mode::Edit | Mode::Value => return None,
         };
         Some(self.message.clone().filter(|m| !m.is_empty()).unwrap_or_else(|| fallback.to_owned()))
@@ -175,8 +178,35 @@ pub fn group_title(group: &str) -> Option<&'static str> {
         "afmf" => en("AMD Fluid Motion Frames"),
         "rsr" => en("Radeon Super Resolution"),
         "vsync" => en("Vertical sync"),
+        "nvidia_low_latency" => en("Low Latency Mode"),
+        "nvidia_frame_rate_limit" => en("Max frame rate"),
+        "nvidia_vsync" => en("Vertical sync"),
+        "nvidia_power" => en("Power management mode"),
+        "nvidia_texture_filtering" => en("Texture filtering quality"),
+        "nvidia_anisotropic_filtering" => en("Anisotropic filtering"),
+        "nvidia_smooth_motion" => en("Smooth Motion"),
         _ => return None,
     })
+}
+
+/// A group with one setting, whose row is named by the group alone ("Max frame rate", not
+/// "Max frame rate: Frame rate").
+fn sole_setting(group: &str) -> bool {
+    matches!(
+        group,
+        "nvidia_low_latency"
+            | "nvidia_frame_rate_limit"
+            | "nvidia_vsync"
+            | "nvidia_power"
+            | "nvidia_texture_filtering"
+            | "nvidia_anisotropic_filtering"
+            | "nvidia_smooth_motion"
+    )
+}
+
+/// A field that only switches or picks the group's behaviour: "Enabled", "Mode" or none.
+fn plain_field(words: &str) -> bool {
+    words.is_empty() || words == "Enabled" || words == "Mode"
 }
 
 fn field_title(field: &str) -> Option<&'static str> {
@@ -386,7 +416,7 @@ impl Failure {
         match self.kind {
             FailureKind::InvalidValue => tr("The host does not accept that value.").into(),
             FailureKind::NotWritable => tr("This setting cannot be changed.").into(),
-            FailureKind::DriverRejected => tr("The AMD driver rejected this change.").into(),
+            FailureKind::DriverRejected => tr("The graphics driver rejected this change.").into(),
             FailureKind::HostControl => tr("Turn on Host control for this device on the host.").into(),
             FailureKind::NoSession => tr("Start or resume a session to change settings.").into(),
             FailureKind::Busy => tr("The host is busy. Try again in a moment.").into(),
@@ -534,6 +564,40 @@ mod tests {
     }
 
     #[test]
+    fn nvidia_settings_are_named_by_their_group_alone() {
+        let setting = |id: &str, kind: &str, value: &str| {
+            let group = id.split('.').next().unwrap();
+            format!(r#"{{ "id": "{id}", "group": "{group}", "kind": "{kind}", "state": "configurable", "value": {value} }}"#)
+        };
+        let settings = [
+            ("nvidia_low_latency.mode", "choice", r#""ultra""#, "Low Latency Mode"),
+            ("nvidia_frame_rate_limit.fps", "integer", "0", "Max frame rate"),
+            ("nvidia_vsync.mode", "choice", r#""fast""#, "Vertical sync"),
+            ("nvidia_power.mode", "choice", r#""adaptive""#, "Power management mode"),
+            ("nvidia_texture_filtering.quality", "choice", r#""quality""#, "Texture filtering quality"),
+            ("nvidia_anisotropic_filtering.mode", "choice", r#""16x""#, "Anisotropic filtering"),
+            ("nvidia_smooth_motion.enabled", "toggle", "true", "Smooth Motion"),
+        ];
+        let rows: Vec<String> = settings.iter().map(|(id, kind, value, _)| setting(id, kind, value)).collect();
+        let data = radeon(&format!(
+            r#"{{ "revision": 1, "state": "configurable", "host_control": true, "writable_now": true,
+                 "gpus": [{{ "id": 1, "name": "NVIDIA GeForce RTX 4080", "driver": "581.57", "settings": [{}] }}] }}"#,
+            rows.join(",")
+        ));
+        let panel = Panel::of(&data);
+        for (id, _, _, title) in settings {
+            assert_eq!(panel.find(id).unwrap().title(), title, "{id}");
+        }
+    }
+
+    #[test]
+    fn a_mode_field_of_an_unknown_group_leaves_the_name_alone() {
+        let mut data = fixture(true, true);
+        data.gpus[0].settings[7].id = "future_thing.mode".into();
+        assert_eq!(Panel::of(&data).find("future_thing.mode").unwrap().title(), "Future thing");
+    }
+
+    #[test]
     fn names_follow_the_language() {
         let panel = Panel::of(&fixture(true, true));
         crate::strings::set(crate::strings::Lang::De);
@@ -628,7 +692,7 @@ mod tests {
         assert_eq!(failure.text(), "The host does not accept that value.");
         let failure = Failure::of(&api_error(409, ErrorCode::DriverRejected, None), Some("chill.max_fps"));
         assert_eq!(failure.setting.as_deref(), Some("chill.max_fps"), "else the one that was written");
-        assert_eq!(failure.text(), "The AMD driver rejected this change.");
+        assert_eq!(failure.text(), "The graphics driver rejected this change.");
         assert_eq!(Failure::of(&api_error(403, ErrorCode::HostControlRequired, None), None).kind, FailureKind::HostControl);
         assert_eq!(Failure::of(&api_error(409, ErrorCode::NotSessionOwner, None), None).kind, FailureKind::NoSession);
         assert_eq!(Failure::of(&api_error(409, ErrorCode::SessionBusy, None), None).kind, FailureKind::Busy);

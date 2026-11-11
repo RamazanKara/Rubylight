@@ -28,7 +28,7 @@ use butterpollo_core::{
     state::Client,
 };
 use butterpollo_windows::radeon::{
-    Entry, ErrorKind, GpuInfo, WriteError,
+    Driver, Entry, ErrorKind, GpuInfo, WriteError,
     model::{self, Value},
     worker::{Panel, Phase, Status},
 };
@@ -133,7 +133,7 @@ fn write_settings(h: &Shared, connection: &Connection, body: &[u8]) -> Reply {
     let request: WriteBody = serde_json::from_slice(body).map_err(|error| {
         Failure::new(
             ErrorCode::InvalidRequest,
-            format!("The body is not a valid Radeon write: {error}."),
+            format!("The body is not a valid driver settings write: {error}."),
         )
     })?;
     if request.changes.is_empty() {
@@ -157,7 +157,7 @@ fn write_settings(h: &Shared, connection: &Connection, body: &[u8]) -> Reply {
     for change in request.changes {
         if !gpu.settings.iter().any(|setting| setting.id == change.id) {
             return Err(
-                Failure::new(ErrorCode::NotFound, "This GPU has no such Radeon setting.")
+                Failure::new(ErrorCode::NotFound, "This GPU has no such driver setting.")
                     .for_setting(&change.id),
             );
         }
@@ -210,7 +210,7 @@ fn write_settings(h: &Shared, connection: &Connection, body: &[u8]) -> Reply {
             };
             let status = worker.status();
             let failed = h.radeon.failed(&panel.pending);
-            store(h, panel_view(&panel, &status, &failed))
+            store(h, panel_view(&panel, &status, &failed, h.radeon.driver()))
         }
         Err(_) => current_view(h),
     };
@@ -224,11 +224,11 @@ fn write_failure(error: &WriteError) -> Failure {
         ErrorKind::DriverRejected => Failure::new(ErrorCode::DriverRejected, &error.message),
         ErrorKind::Unavailable => unavailable(Some(error.message.clone())),
         ErrorKind::Journal => {
-            tracing::error!(error = %error, "native API: the Radeon journal could not be written; nothing was changed");
+            tracing::error!(error = %error, "native API: the driver settings journal could not be written; nothing was changed");
             Failure::new(
                 ErrorCode::Internal,
                 format!(
-                    "The host could not write its Radeon journal, so nothing was changed: {}",
+                    "The host could not write its driver settings journal, so nothing was changed: {}",
                     error.message
                 ),
             )
@@ -242,14 +242,18 @@ fn write_failure(error: &WriteError) -> Failure {
 
 /// The host has no Radeon controls at all: the feature is absent, like an unknown path.
 fn no_radeon() -> Failure {
-    Failure::new(ErrorCode::NotFound, "This host has no Radeon controls.")
+    Failure::new(
+        ErrorCode::NotFound,
+        "This host has no driver settings controls.",
+    )
 }
 
 fn unavailable(message: Option<String>) -> Failure {
     Failure::new(
         ErrorCode::TemporarilyUnavailable,
-        message
-            .unwrap_or_else(|| "The Radeon driver is not available. Try again in a moment.".into()),
+        message.unwrap_or_else(|| {
+            "The graphics driver is not available. Try again in a moment.".into()
+        }),
     )
     .retry_after(UNAVAILABLE_RETRY_MS)
 }
@@ -359,7 +363,7 @@ fn read_view(h: &Host) -> View {
         return empty(
             ControlState::Unsupported,
             "no_radeon",
-            "This host has no Radeon controls.",
+            "This host has no driver settings controls.",
         );
     };
     let status = worker.status();
@@ -367,7 +371,10 @@ fn read_view(h: &Host) -> View {
         return empty(
             ControlState::TemporarilyUnavailable,
             "recovering",
-            "The host is putting back Radeon settings from an earlier run. Try again in a moment.",
+            format!(
+                "The host is putting back {} settings from an earlier run. Try again in a moment.",
+                h.radeon.driver().name()
+            ),
         );
     }
     let adapter = h
@@ -377,18 +384,35 @@ fn read_view(h: &Host) -> View {
         .get("adapter_name", "")
         .to_owned();
     match worker.panel(Some(&adapter), READ_WAIT) {
-        Ok(Some(panel)) => panel_view(&panel, &status, &h.radeon.failed(&panel.pending)),
-        Ok(None) => empty(
-            ControlState::Unsupported,
-            "no_amd_gpu",
-            "AMD's driver lists no Radeon GPU on this PC.",
+        Ok(Some(panel)) => panel_view(
+            &panel,
+            &status,
+            &h.radeon.failed(&panel.pending),
+            h.radeon.driver(),
         ),
+        Ok(None) => match h.radeon.driver() {
+            Driver::Radeon => empty(
+                ControlState::Unsupported,
+                "no_amd_gpu",
+                "AMD's driver lists no Radeon GPU on this PC.",
+            ),
+            Driver::Nvidia => empty(
+                ControlState::Unsupported,
+                "no_nvidia_gpu",
+                "This PC has no NVIDIA GPU.",
+            ),
+        },
         Err(error) => {
-            tracing::warn!(%error, "native API: the Radeon settings could not be read");
+            let driver = h.radeon.driver();
+            tracing::warn!(%error, driver = driver.name(), "native API: the driver settings could not be read");
+            let reason = match driver {
+                Driver::Radeon => "adlx_unavailable",
+                Driver::Nvidia => "nvapi_unavailable",
+            };
             empty(
                 ControlState::TemporarilyUnavailable,
-                "adlx_unavailable",
-                format!("The Radeon driver could not be read: {error}"),
+                reason,
+                format!("The {} driver could not be read: {error}", driver.name()),
             )
         }
     }
@@ -407,16 +431,26 @@ fn panel_state(settings: &[api::Setting]) -> ControlState {
     .unwrap_or(ControlState::Unsupported)
 }
 
-fn panel_view(panel: &Panel, status: &Status, failed: &BTreeMap<String, String>) -> View {
+fn panel_view(
+    panel: &Panel,
+    status: &Status,
+    failed: &BTreeMap<String, String>,
+    driver: Driver,
+) -> View {
     let gpu = panel.gpu.id;
     let settings: Vec<api::Setting> = panel
         .settings
         .iter()
-        .filter_map(|setting| setting_of(setting, gpu, &panel.pending, failed))
+        .filter_map(|setting| setting_of(setting, gpu, &panel.pending, failed, driver))
         .collect();
     let message = failed
         .get("*")
-        .map(|why| format!("Radeon settings could not be put back: {why}. The host tries again."))
+        .map(|why| {
+            format!(
+                "{} settings could not be put back: {why}. The host tries again.",
+                driver.name()
+            )
+        })
         .or_else(|| {
             (status.phase == Phase::Degraded)
                 .then(|| status.error.clone())
@@ -426,8 +460,9 @@ fn panel_view(panel: &Panel, status: &Status, failed: &BTreeMap<String, String>)
             (status.phase == Phase::Degraded && status.unrestored > 0 && !panel.pending.is_empty())
                 .then(|| {
                     format!(
-                        "{} Radeon settings from an earlier session could not be put back. The host tries again.",
-                        status.unrestored
+                        "{} {} settings from an earlier session could not be put back. The host tries again.",
+                        status.unrestored,
+                        driver.name()
                     )
                 })
         });
@@ -467,6 +502,7 @@ fn setting_of(
     gpu: i32,
     pending: &[Entry],
     failed: &BTreeMap<String, String>,
+    driver: Driver,
 ) -> Option<api::Setting> {
     let kind = match setting.kind {
         model::Kind::Toggle => api::Kind::Toggle,
@@ -492,10 +528,13 @@ fn setting_of(
     let (reason, mut message) = match state {
         ControlState::NeedsExternalSetup => (
             Some("external_setup"),
-            Some(format!(
-                "{} needs a one-time setup in AMD Software: Adrenalin Edition.",
-                setting.label
-            )),
+            Some(match driver {
+                Driver::Radeon => format!(
+                    "{} needs a one-time setup in AMD Software: Adrenalin Edition.",
+                    setting.label
+                ),
+                Driver::Nvidia => format!("{} needs a newer NVIDIA driver.", setting.label),
+            }),
         ),
         ControlState::TemporarilyUnavailable => (
             Some("driver_busy"),

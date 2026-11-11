@@ -62,7 +62,7 @@ test('settings are dropped from the record unless the profile is custom', () => 
 test('a bad row names the problem and blocks saving', () => {
   const draft = new AppDraft(app({ 'radeon-profile': 'custom', 'radeon-settings': { 'a.b': 1 } }));
   draft.radeon.push(radeon.settingRow('Anti Lag', 'true'));
-  assert.match(radeon.rowError(draft.radeon[1], draft.radeon), /Radeon setting id/);
+  assert.match(radeon.rowError(draft.radeon[1], draft.radeon), /driver setting id/);
   assert.notEqual(draft.radeonError, '');
   assert.equal(draft.invalid, true);
   draft.radeon[1].id = 'a.b';

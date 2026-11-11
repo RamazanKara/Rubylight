@@ -25,8 +25,74 @@ pub use model::{Kind, Setting, State, Writable};
 
 use serde::Serialize;
 
+/// Whose driver settings the panel controls: the maker of the GPU the host streams from. The
+/// controller, journal and worker are the same for both; only the backend differs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Driver {
+    #[default]
+    Radeon,
+    Nvidia,
+}
+
+impl Driver {
+    /// The stream's GPU decides. Unknown (no display, several GPUs and none chosen), a Radeon
+    /// present keeps the Radeon panel, else an NVIDIA GPU gets the NVIDIA one.
+    pub fn for_stream(stream: Option<u32>, vendors: &[u32]) -> Self {
+        use butterpollo_core::encoder_gpu::{is_amd, is_nvidia};
+        match stream {
+            Some(vendor) if is_nvidia(vendor) => Self::Nvidia,
+            Some(vendor) if is_amd(vendor) => Self::Radeon,
+            _ if !vendors.iter().any(|v| is_amd(*v)) && vendors.iter().any(|v| is_nvidia(*v)) => {
+                Self::Nvidia
+            }
+            _ => Self::Radeon,
+        }
+    }
+
+    /// The name the panel's texts give the driver.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Radeon => "Radeon",
+            Self::Nvidia => "NVIDIA",
+        }
+    }
+
+    /// The journal file in the host's directory.
+    pub fn journal_file(self) -> &'static str {
+        match self {
+            Self::Radeon => control::JOURNAL_FILE,
+            Self::Nvidia => crate::nvidia_settings::JOURNAL_FILE,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_panel_controls_the_driver_of_the_gpu_the_host_streams_from() {
+        use super::Driver;
+        const AMD: u32 = 0x1002;
+        const NVIDIA: u32 = 0x10DE;
+        const INTEL: u32 = 0x8086;
+        assert_eq!(
+            Driver::for_stream(Some(NVIDIA), &[AMD, NVIDIA]),
+            Driver::Nvidia
+        );
+        assert_eq!(
+            Driver::for_stream(Some(AMD), &[AMD, NVIDIA]),
+            Driver::Radeon
+        );
+        // Unknown: a Radeon keeps the Radeon panel, else an NVIDIA GPU gets its own.
+        assert_eq!(Driver::for_stream(None, &[AMD, NVIDIA]), Driver::Radeon);
+        assert_eq!(Driver::for_stream(None, &[INTEL, NVIDIA]), Driver::Nvidia);
+        assert_eq!(
+            Driver::for_stream(Some(INTEL), &[INTEL, NVIDIA]),
+            Driver::Nvidia
+        );
+        assert_eq!(Driver::for_stream(None, &[]), Driver::Radeon);
+        assert_ne!(Driver::Radeon.journal_file(), Driver::Nvidia.journal_file());
+    }
+
     #[test]
     fn startup_recovery_with_no_journal_does_nothing_and_needs_no_adlx() {
         use super::{control::JOURNAL_FILE, worker::*};

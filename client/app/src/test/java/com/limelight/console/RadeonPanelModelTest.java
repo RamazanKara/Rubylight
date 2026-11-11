@@ -19,6 +19,7 @@ import com.limelight.nativeapi.NativeApiException;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
+import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 
 @RunWith(RobolectricTestRunner.class)
@@ -130,6 +131,42 @@ public class RadeonPanelModelTest {
         RadeonPanelModel.Row known = row(model, "chill.max_fps");
         assertEquals(R.string.native_group_chill, known.groupTitleRes());
         assertEquals(R.string.native_field_max_fps, known.fieldTitleRes());
+    }
+
+    @Test
+    public void nvidiaSettingsAreNamedByTheirGroupAlone() {
+        String[][] settings = {
+                {"nvidia_low_latency.mode", "choice", "\"ultra\"", "Low Latency Mode"},
+                {"nvidia_frame_rate_limit.fps", "integer", "0", "Max frame rate"},
+                {"nvidia_vsync.mode", "choice", "\"fast\"", "Vertical sync"},
+                {"nvidia_power.mode", "choice", "\"adaptive\"", "Power management mode"},
+                {"nvidia_texture_filtering.quality", "choice", "\"quality\"", "Texture filtering quality"},
+                {"nvidia_anisotropic_filtering.mode", "choice", "\"16x\"", "Anisotropic filtering"},
+                {"nvidia_smooth_motion.enabled", "toggle", "true", "Smooth Motion"},
+        };
+        String[] json = new String[settings.length];
+        for (int i = 0; i < settings.length; i++) {
+            String id = settings[i][0];
+            json[i] = "{\"id\":\"" + id + "\",\"group\":\"" + id.substring(0, id.indexOf('.')) + "\",\"kind\":\""
+                    + settings[i][1] + "\",\"state\":\"configurable\",\"value\":" + settings[i][2] + "}";
+        }
+        RadeonPanelModel model = model(panel("configurable", true, true, null, json));
+        android.content.res.Resources resources = RuntimeEnvironment.getApplication().getResources();
+        for (String[] setting : settings) {
+            RadeonPanelModel.Row nvidia = row(model, setting[0]);
+            assertEquals(setting[0], 0, nvidia.fieldTitleRes());
+            assertEquals(setting[0], setting[3], nvidia.title(resources));
+        }
+    }
+
+    @Test
+    public void aModeFieldOfAnUnknownGroupLeavesTheNameAlone() {
+        RadeonPanelModel model = model(panel("configurable", true, true, null,
+                "{\"id\":\"future_thing.mode\",\"group\":\"future_thing\",\"kind\":\"choice\","
+                        + "\"state\":\"configurable\",\"value\":\"a\",\"options\":[{\"value\":\"a\",\"label\":\"A\"}]}"));
+        RadeonPanelModel.Row unknown = row(model, "future_thing.mode");
+        assertEquals("Future thing", unknown.genericTitle());
+        assertEquals("Future thing", unknown.title(RuntimeEnvironment.getApplication().getResources()));
     }
 
     @Test

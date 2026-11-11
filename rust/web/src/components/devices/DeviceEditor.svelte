@@ -294,7 +294,7 @@
             <!-- Not a permission bit: the host keeps it as its own setting for this device. -->
             <label class="check">
               <input type="checkbox" bind:checked={draft.host_control} />
-              Host control: change Radeon settings and close games from this device
+              Host control: change graphics driver settings and close games from this device
             </label>
             <label class="check">
               <input type="checkbox" bind:checked={draft.pairing_approve} />

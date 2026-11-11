@@ -35,17 +35,39 @@ const full = radeon.supportOf(panel(everything));
 const rows = settings => radeon.rowsOf(settings);
 const settingsOf = choice => radeon.settingsOf(choice.rows);
 
-test('every preset round-trips with radeon_profiles.json', () => {
-  for (const preset of table.profiles.filter(profile => profile.id !== 'custom')) {
-    const settings = Object.fromEntries(preset.settings.map(({ id, value }) => [id, value]));
-    assert.deepEqual(radeon.presetSettings(preset.id), settings, preset.id);
-    const { controls, used } = radeon.controlsOf(settings, full);
-    assert.deepEqual([...used].sort(), Object.keys(settings).sort(), `${preset.id}: the controls show all of it`);
-    assert.deepEqual(radeon.settingsOfControls(controls, full), settings, preset.id);
-    assert.equal(radeon.profileFor(settings), preset.id);
-    // Picking it shows its values in the controls and nothing raw.
-    assert.deepEqual(radeon.rawRows(preset.id, [], full), [], preset.id);
+/** An NVIDIA GPU, as the host's NVIDIA backend reports it. */
+const nvidiaSettings = [
+  choice('nvidia_low_latency.mode', ['off', 'on', 'ultra']),
+  integer('nvidia_frame_rate_limit.fps', 0, 0, 1023),
+  choice('nvidia_vsync.mode', ['application', 'off', 'on', 'fast']),
+  choice('nvidia_power.mode', ['optimal_power', 'adaptive', 'prefer_maximum_performance']),
+  choice('nvidia_texture_filtering.quality', ['quality', 'high_quality', 'performance', 'high_performance']),
+  choice('nvidia_anisotropic_filtering.mode', ['application', '2x', '4x', '8x', '16x']),
+  setting('nvidia_smooth_motion.enabled'),
+];
+const nvidia = radeon.supportOf(panel(nvidiaSettings));
+
+test('every preset round-trips with radeon_profiles.json, on either driver', () => {
+  for (const [support, isNvidia] of [
+    [full, false],
+    [nvidia, true],
+  ]) {
+    for (const preset of table.profiles.filter(profile => profile.id !== 'custom')) {
+      const own = preset.settings.filter(({ id }) => radeon.isNvidiaSetting(id) === isNvidia);
+      assert.ok(own.length, `${preset.id} does something on ${isNvidia ? 'NVIDIA' : 'Radeon'}`);
+      const settings = Object.fromEntries(own.map(({ id, value }) => [id, value]));
+      assert.deepEqual(radeon.presetSettings(preset.id, support), settings, preset.id);
+      const { controls, used } = radeon.controlsOf(settings, support);
+      assert.deepEqual([...used].sort(), Object.keys(settings).sort(), `${preset.id}: the controls show all of it`);
+      assert.deepEqual(radeon.settingsOfControls(controls, support), settings, preset.id);
+      assert.equal(radeon.profileFor(settings, support), preset.id);
+      // Picking it shows its values in the controls and nothing raw.
+      assert.deepEqual(radeon.rawRows(preset.id, [], support), [], preset.id);
+    }
   }
+  // Without a reading a preset is everything it lists.
+  const listed = table.profiles.find(profile => profile.id === 'competitive').settings.length;
+  assert.equal(Object.keys(radeon.presetSettings('competitive')).length, listed);
   assert.equal(radeon.profileFor({}), '');
   assert.equal(radeon.controlsOf(radeon.presetSettings('smoothness'), full).controls.frameCap, 'stream');
   assert.equal(radeon.controlsOf(radeon.presetSettings('quality'), full).controls.antiAliasing, 'enhance');
@@ -85,6 +107,7 @@ test('every control on is the full list, at most MAX_SETTINGS, and the host take
     aaMethod: 'supersampling',
     boost: true,
     boostResolution: 70,
+    nvidia: {},
   };
   const next = radeon.changeControls('quality', [], full, all);
   assert.equal(next.profile, 'custom');
@@ -125,7 +148,10 @@ test('unsupported settings are hidden and never written by a control', () => {
   const none = radeon.supportOf(null);
   assert.equal(radeon.offered(none).size, 0);
   assert.equal(radeon.offered(radeon.supportOf({ status: true, state: 'unsupported', gpus: [] })).size, 0);
-  assert.deepEqual(radeon.rawRows('competitive', [], none).map(row => [row.id, row.value]), [['anti_lag.enabled', 'true']]);
+  assert.deepEqual(radeon.rawRows('competitive', [], none).map(row => [row.id, row.value]), [
+    ['anti_lag.enabled', 'true'],
+    ['nvidia_low_latency.mode', 'ultra'],
+  ]);
 });
 
 test('unknown raw ids are kept through control changes', () => {
@@ -176,7 +202,7 @@ test('picking Custom after a preset starts from its settings, and Add setting do
   // Rows typed earlier are not replaced.
   const typed = rows({ 'a.b': 1 });
   assert.equal(radeon.pickProfile('quality', typed, 'custom').rows, typed);
-  const added = radeon.addRow('competitive', []);
+  const added = radeon.addRow('competitive', [], full);
   assert.equal(added.profile, 'custom');
   assert.deepEqual(added.rows.map(row => row.id), ['anti_lag.enabled', '']);
 });
@@ -190,4 +216,42 @@ test('typed numbers are whole and within the reported range', () => {
   assert.equal(radeon.clampTo(fps, 'x'), null);
   assert.equal(radeon.currentOf(fps), 144);
   assert.equal(radeon.currentOf(setting('chill.enabled')), null);
+});
+
+test('NVIDIA settings get their own controls and a frame cap', () => {
+  assert.deepEqual([...radeon.offered(nvidia)].sort(), ['frameCap', 'nvidia']);
+  const next = radeon.changeControls('', [], nvidia, {
+    ...radeon.NO_CONTROLS,
+    frameCap: 'fps',
+    fps: 141,
+    nvidia: {
+      'nvidia_low_latency.mode': 'on',
+      'nvidia_power.mode': 'prefer_maximum_performance',
+      'nvidia_smooth_motion.enabled': 'true',
+      // Not an option of the setting: never written.
+      'nvidia_vsync.mode': 'half',
+    },
+  });
+  assert.equal(next.profile, 'custom');
+  assert.deepEqual(settingsOf(next), {
+    'nvidia_frame_rate_limit.fps': 141,
+    'nvidia_low_latency.mode': 'on',
+    'nvidia_power.mode': 'prefer_maximum_performance',
+    'nvidia_smooth_motion.enabled': true,
+  });
+  // No Radeon id is written on NVIDIA, even with Radeon controls set.
+  const mixed = radeon.changeControls('', [], nvidia, { ...radeon.NO_CONTROLS, antiLag: true, anisotropic: true });
+  assert.deepEqual(settingsOf(mixed), {});
+  // It reads back as the same controls; a limit of 0 is off and stays raw.
+  const { controls } = radeon.controlsOf(settingsOf(next), nvidia);
+  assert.equal(controls.frameCap, 'fps');
+  assert.equal(controls.fps, 141);
+  assert.equal(controls.nvidia['nvidia_smooth_motion.enabled'], 'true');
+  assert.equal(radeon.controlsOf({ 'nvidia_frame_rate_limit.fps': 0 }, nvidia).controls.frameCap, 'off');
+  // Ultra Low Latency plus nothing else is the Competitive preset.
+  const competitive = radeon.changeControls('', [], nvidia, {
+    ...radeon.NO_CONTROLS,
+    nvidia: { 'nvidia_low_latency.mode': 'ultra' },
+  });
+  assert.equal(competitive.profile, 'competitive');
 });

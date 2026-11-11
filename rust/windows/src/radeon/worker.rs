@@ -5,9 +5,11 @@
 //! order, and runs the recovery first: a write or a session restore queued behind it waits until
 //! the recovery has finished (or hit its time limit). Settings that could not be put back stay in
 //! the journal; the worker logs that loudly and retries while no session of this run is live.
+#[cfg(test)]
+use super::control::JOURNAL_FILE;
 use super::{
     BackendError, Change, Controller, Entry, GpuInfo, RadeonBackend, RestoreReport, Scope, Setting,
-    WriteError, control::JOURNAL_FILE, helper::HelperBackend,
+    WriteError, helper::HelperBackend,
 };
 use std::{
     collections::HashSet,
@@ -554,14 +556,36 @@ fn panel<B: RadeonBackend>(
 
 static HOST: OnceLock<Worker> = OnceLock::new();
 
-/// Start the host's worker once, behind the helper-process backend, and begin the startup
-/// recovery of `directory`'s journal. Returns at once; the recovery runs on the worker.
-pub fn start_host(directory: &Path) -> Result<&'static Worker, BackendError> {
+/// Start the host's worker once, behind the helper-process backend for Radeon or NVAPI for
+/// NVIDIA, and begin the startup recovery of `directory`'s journal of that driver. Returns at
+/// once; the recovery runs on the worker.
+pub fn start_host(
+    directory: &Path,
+    driver: super::Driver,
+) -> Result<&'static Worker, BackendError> {
     if let Some(worker) = HOST.get() {
         return Ok(worker);
     }
-    let backend = HelperBackend::host()?;
-    let worker = Worker::start(backend, directory.join(JOURNAL_FILE), Timing::default());
+    let other = match driver {
+        super::Driver::Radeon => super::Driver::Nvidia,
+        super::Driver::Nvidia => super::Driver::Radeon,
+    };
+    if directory.join(other.journal_file()).exists() {
+        tracing::warn!(
+            journal = other.journal_file(),
+            "{} settings an earlier run changed stay changed: the host now streams from a GPU of another maker and puts them back once it streams from that one again",
+            other.name()
+        );
+    }
+    let journal = directory.join(driver.journal_file());
+    let worker = match driver {
+        super::Driver::Radeon => Worker::start(HelperBackend::host()?, journal, Timing::default()),
+        super::Driver::Nvidia => Worker::start(
+            crate::nvidia_settings::NvidiaBackend,
+            journal,
+            Timing::default(),
+        ),
+    };
     Ok(HOST.get_or_init(|| worker))
 }
 

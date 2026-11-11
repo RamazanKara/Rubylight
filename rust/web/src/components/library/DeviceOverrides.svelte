@@ -108,7 +108,7 @@
             <span class="unit muted">fps</span>
           </span>
         </Field>
-        <Field label="Radeon preset" id="{uid}-{device}-radeon">
+        <Field label="Driver preset" id="{uid}-{device}-radeon">
           <select
             id="{uid}-{device}-radeon"
             class="select"

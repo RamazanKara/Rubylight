@@ -137,6 +137,9 @@ pub fn launched(h: &Shared, device: &str, app: Option<&App>, fps: Option<u32>) {
             return;
         }
     };
+    // A built-in profile writes only the settings of the driver this host controls.
+    let nvidia = h.radeon.driver() == butterpollo_windows::radeon::Driver::Nvidia;
+    let selected = selected.map(|selected| selected.for_driver(nvidia));
     let Some(selected) = selected else {
         if previous.is_some() {
             h.notes.clear_profile(device);
@@ -222,7 +225,7 @@ fn apply(h: &Shared, device: &str, items: Vec<Item>) -> Result<(), String> {
     let worker = h
         .radeon
         .worker()
-        .ok_or("this host has no Radeon controls")?;
+        .ok_or("this host has no driver settings controls")?;
     let adapter = h
         .config
         .read()
@@ -231,8 +234,13 @@ fn apply(h: &Shared, device: &str, items: Vec<Item>) -> Result<(), String> {
         .to_owned();
     let gpu = worker
         .gpu(Some(&adapter), READ_WAIT)
-        .map_err(|error| format!("the Radeon driver could not be read: {error}"))?
-        .ok_or("this PC has no AMD GPU the Radeon controls can reach")?;
+        .map_err(|error| {
+            format!(
+                "the {} driver could not be read: {error}",
+                h.radeon.driver().name()
+            )
+        })?
+        .ok_or("this PC has no GPU the driver settings controls can reach")?;
     // As the panel's own write does: a setting this GPU does not list is refused before any
     // write, and named.
     let (view, _) = crate::native_api::radeon::current_view(h);
@@ -244,7 +252,8 @@ fn apply(h: &Shared, device: &str, items: Vec<Item>) -> Result<(), String> {
             .collect();
         if !missing.is_empty() {
             return Err(format!(
-                "this GPU has no Radeon setting {}",
+                "this GPU has no {} setting {}",
+                h.radeon.driver().name(),
                 missing.join(", ")
             ));
         }

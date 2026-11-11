@@ -423,20 +423,29 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
     // NVIDIA's power profile for this executable before any GPU device opens in this process: the
     // driver reads it when the process first loads there, and NVENC at idle clocks encodes slower.
     let nvidia_config = h.config.read().unwrap().clone();
-    let _ = tokio::task::spawn_blocking(move || {
-        butterpollo_windows::nvidia_profile::apply_configured(&nvidia_config)
+    // The driver panel controls the settings of the GPU the host streams from: Radeon's or
+    // NVIDIA's. It is chosen once per host start.
+    let panel_driver = tokio::task::spawn_blocking(move || {
+        butterpollo_windows::nvidia_profile::apply_configured(&nvidia_config);
+        butterpollo_windows::capture::panel_driver(&nvidia_config)
     })
-    .await;
+    .await
+    .unwrap_or_default();
     // The first launcher scan for the native library runs on its own thread, so the first request
     // finds it done and startup does not wait.
     library::installed(&h);
     // Radeon settings a crashed run left changed are put back by the Radeon worker thread, which
     // owns every later Radeon write too and queues them behind the recovery. Startup does not
     // wait for it, and with no journal it never touches ADLX. The worker logs failures and retries.
-    if let Err(error) = radeon_session::start(&h.radeon, &h.directory) {
+    tracing::info!(
+        driver = panel_driver.name(),
+        "the driver settings panel controls this GPU maker's driver"
+    );
+    if let Err(error) = radeon_session::start(&h.radeon, &h.directory, panel_driver) {
         tracing::error!(
             error = %error,
-            "the Radeon worker could not start; settings from an interrupted session stay in the journal"
+            driver = panel_driver.name(),
+            "the driver settings worker could not start; settings from an interrupted session stay in the journal"
         );
     }
     // The restore thread for keys in games' settings files starts, and puts back those a crashed

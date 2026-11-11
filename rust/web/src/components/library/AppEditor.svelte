@@ -360,7 +360,7 @@
       <VideoSettings {draft} />
     </Panel>
 
-    <Panel collapsible title="Radeon" description="Driver settings for this game, applied when it starts and put back when the session ends.">
+    <Panel collapsible title="Graphics driver" description="Driver settings for this game, applied when it starts and put back when the session ends.">
       <RadeonSettings {draft} />
     </Panel>
 
@@ -372,7 +372,7 @@
       <GameSettingsFiles {draft} id="{uid}-settings-files" />
     </Panel>
 
-    <Panel collapsible title="Per device" description="This game’s settings on one device: stream preset, frame limit, Radeon preset and game files.">
+    <Panel collapsible title="Per device" description="This game’s settings on one device: stream preset, frame limit, driver preset and game files.">
       <DeviceOverrides {draft} />
     </Panel>
 

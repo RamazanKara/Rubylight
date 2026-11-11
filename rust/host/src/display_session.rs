@@ -1295,9 +1295,7 @@ fn frame_policy(
 /// Whether the GPU this host streams with is NVIDIA's, for RTSS's Reflex mode.
 #[cfg(not(test))]
 fn streams_on_nvidia(config: &Config) -> bool {
-    let [display, adapter_name, pnp_id] =
-        ["output_name", "adapter_name", "adapter_pnp_id"].map(|key| config.get(key, ""));
-    butterpollo_windows::capture::stream_gpu_vendor(display, adapter_name, pnp_id)
+    butterpollo_windows::capture::stream_gpu_vendor(config)
         .is_some_and(butterpollo_core::encoder_gpu::is_nvidia)
 }
 /// Tests stream on no NVIDIA GPU.

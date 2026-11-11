@@ -57,6 +57,7 @@ pub mod net_adapter;
 pub mod nucleus;
 pub mod nvenc;
 pub mod nvidia_profile;
+pub mod nvidia_settings;
 pub mod overlay;
 pub mod playnite;
 pub mod power;

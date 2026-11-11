@@ -60,7 +60,7 @@ export function rowError(row: SettingRow, rows: SettingRow[]): string {
   const id = row.id.trim();
   if (!id && !row.value.trim()) return '';
   if (!id) return 'Name the setting.';
-  if (id.length > 64 || !ID.test(id)) return 'Use a Radeon setting id such as frame_rate_target.fps.';
+  if (id.length > 64 || !ID.test(id)) return 'Use a driver setting id such as frame_rate_target.fps or nvidia_vsync.mode.';
   if (rows.some((other) => other !== row && other.id.trim() === id)) return 'Listed twice.';
   const value = row.value.trim();
   if (!value) return 'Give the setting a value.';
@@ -100,20 +100,36 @@ export const STREAM_FPS = table.stream_fps;
 
 type Settings = Record<string, SettingValue>;
 
-/** What a preset writes, or null for Off, Custom and profiles this console does not know. */
-export function presetSettings(profile: unknown): Settings | null {
+/** NVIDIA's driver settings all start with `nvidia_`; the others are Radeon's. */
+export const isNvidiaSetting = (id: string): boolean => id.startsWith('nvidia_');
+
+/** Whether the host's panel controls NVIDIA's driver; null without a reading. */
+export function nvidiaOf(support: Support | undefined): boolean | null {
+  if (!support?.size) return null;
+  return [...support.keys()].some(isNvidiaSetting);
+}
+
+/**
+ * What a preset writes, or null for Off, Custom and profiles this console does not know. A preset
+ * lists both drivers' settings and the host writes only its own driver's: with a reading, so does
+ * this.
+ */
+export function presetSettings(profile: unknown, support?: Support): Settings | null {
   const name = profileOf(profile);
   if (name === 'custom') return null;
   const found = table.profiles.find((profile) => profile.id === name);
   if (!found) return null;
+  const nvidia = nvidiaOf(support);
   const settings: Settings = {};
-  for (const { id, value } of found.settings as { id: string; value: SettingValue }[]) settings[id] = value;
+  for (const { id, value } of found.settings as { id: string; value: SettingValue }[]) {
+    if (nvidia === null || isNvidiaSetting(id) === nvidia) settings[id] = value;
+  }
   return settings;
 }
 
 /** The settings a profile choice writes: a preset's own, Custom's rows, none for Off. */
-export function effectiveSettings(profile: unknown, rows: SettingRow[]): Settings {
-  return profileOf(profile) === 'custom' ? settingsOf(rows) : (presetSettings(profile) ?? {});
+export function effectiveSettings(profile: unknown, rows: SettingRow[], support?: Support): Settings {
+  return profileOf(profile) === 'custom' ? settingsOf(rows) : (presetSettings(profile, support) ?? {});
 }
 
 function sameSettings(a: Settings, b: Settings): boolean {
@@ -122,10 +138,10 @@ function sameSettings(a: Settings, b: Settings): boolean {
 }
 
 /** The profile a list of settings is: Off when empty, a preset when equal to one, else Custom. */
-export function profileFor(settings: Settings): string {
+export function profileFor(settings: Settings, support?: Support): string {
   if (!Object.keys(settings).length) return '';
   const preset = table.profiles.find(
-    ({ id }) => id !== 'custom' && sameSettings(settings, presetSettings(id) ?? {}),
+    ({ id }) => id !== 'custom' && sameSettings(settings, presetSettings(id, support) ?? {}),
   );
   return preset?.id ?? 'custom';
 }
@@ -133,7 +149,7 @@ export function profileFor(settings: Settings): string {
 /** The settings the controls may write: supported and writable on this PC's GPU, by id. */
 export type Support = Map<string, RadeonSetting>;
 
-/** The first GPU's configurable settings; empty without a Radeon GPU or a reading. */
+/** The first GPU's configurable settings; empty without a GPU the panel controls or a reading. */
 export function supportOf(panel: RadeonPanel | null | undefined): Support {
   const support: Support = new Map();
   for (const setting of panel?.gpus?.[0]?.settings ?? []) {
@@ -160,6 +176,9 @@ export interface Controls {
   aaMethod: string | null;
   boost: boolean;
   boostResolution: number | null;
+  /** NVIDIA's choices and switches by setting id, as the driver names the value ('true' and
+   * 'false' for a switch); a setting not here stays as the NVIDIA Control Panel has it. */
+  nvidia: Record<string, string>;
 }
 export const NO_CONTROLS: Controls = {
   antiLag: false,
@@ -176,7 +195,44 @@ export const NO_CONTROLS: Controls = {
   aaMethod: null,
   boost: false,
   boostResolution: null,
+  nvidia: {},
 };
+
+/** The NVIDIA settings shown as a choice, in the panel's order, with what they do. */
+export const NVIDIA_CHOICES: { id: string; label: string; hint: string }[] = [
+  {
+    id: 'nvidia_low_latency.mode',
+    label: 'Low Latency Mode',
+    hint: 'How many frames the CPU may prepare ahead. Ultra cuts input latency most.',
+  },
+  { id: 'nvidia_vsync.mode', label: 'Vertical sync', hint: 'The driver’s V-Sync over the game’s own.' },
+  {
+    id: 'nvidia_power.mode',
+    label: 'Power management mode',
+    hint: 'Prefer maximum performance keeps the GPU clocked up while the game runs.',
+  },
+  { id: 'nvidia_texture_filtering.quality', label: 'Texture filtering quality', hint: '' },
+  {
+    id: 'nvidia_anisotropic_filtering.mode',
+    label: 'Anisotropic filtering',
+    hint: 'Sharper textures on surfaces seen at an angle.',
+  },
+  { id: 'nvidia_smooth_motion.enabled', label: 'Smooth Motion', hint: 'The driver generates frames between the game’s.' },
+];
+/** NVIDIA's frame rate limit; 0 is off. */
+const NVIDIA_FPS = 'nvidia_frame_rate_limit.fps';
+
+/** The values a choice control offers: a switch's on and off, or the setting's options. */
+export function nvidiaOptions(setting: RadeonSetting | undefined): { value: string; label: string }[] {
+  if (!setting) return [];
+  if (setting.kind === 'toggle')
+    return [
+      { value: 'true', label: 'On' },
+      { value: 'false', label: 'Off' },
+    ];
+  return (setting.options ?? []).filter((option) => option.value !== 'custom');
+}
+
 
 /** Each control and the setting the GPU must support for it to be shown. */
 const FEATURES = {
@@ -190,11 +246,14 @@ const FEATURES = {
 } as const;
 export type Feature = keyof typeof FEATURES;
 
-/** The controls this GPU supports; none without support data. */
-export function offered(support: Support): Set<Feature> {
-  return new Set(
+/** The controls this GPU supports; none without support data. NVIDIA's choices are `nvidia`. */
+export function offered(support: Support): Set<Feature | 'nvidia'> {
+  const shown = new Set<Feature | 'nvidia'>(
     (Object.keys(FEATURES) as Feature[]).filter((feature) => FEATURES[feature].every((id) => support.has(id))),
   );
+  if (support.has(NVIDIA_FPS)) shown.add('frameCap');
+  if (NVIDIA_CHOICES.some(({ id }) => support.has(id))) shown.add('nvidia');
+  return shown;
 }
 
 const whole = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value);
@@ -217,6 +276,21 @@ export function controlsOf(settings: Settings, support: Support): { controls: Co
     });
   };
   if (feature('antiLag', 'anti_lag.enabled', [])) controls.antiLag = true;
+  const limit = settings[NVIDIA_FPS];
+  if (support.has(NVIDIA_FPS) && (limit === STREAM_FPS || (whole(limit) && limit > 0))) {
+    used.add(NVIDIA_FPS);
+    controls.frameCap = limit === STREAM_FPS ? 'stream' : 'fps';
+    controls.fps = whole(limit) ? limit : null;
+  }
+  controls.nvidia = {};
+  for (const { id } of NVIDIA_CHOICES) {
+    const value = settings[id];
+    const text = typeof value === 'boolean' ? String(value) : value;
+    if (typeof text === 'string' && nvidiaOptions(support.get(id)).some((option) => option.value === text)) {
+      used.add(id);
+      controls.nvidia[id] = text;
+    }
+  }
   const fps = settings['frame_rate_target.fps'];
   if (shown.has('frameCap') && settings['frame_rate_target.enabled'] === true && (fps === STREAM_FPS || whole(fps) || fps === undefined)) {
     used.add('frame_rate_target.enabled');
@@ -260,8 +334,17 @@ export function settingsOfControls(controls: Controls, support: Support): Settin
   };
   if (shown.has('antiLag') && controls.antiLag) put('anti_lag.enabled', true);
   if (shown.has('frameCap') && controls.frameCap !== 'off') {
-    put('frame_rate_target.enabled', true);
-    put('frame_rate_target.fps', controls.frameCap === 'stream' ? STREAM_FPS : controls.fps);
+    const fps = controls.frameCap === 'stream' ? STREAM_FPS : controls.fps;
+    if (support.has(NVIDIA_FPS)) put(NVIDIA_FPS, fps);
+    else {
+      put('frame_rate_target.enabled', true);
+      put('frame_rate_target.fps', fps);
+    }
+  }
+  for (const { id } of NVIDIA_CHOICES) {
+    const value = controls.nvidia[id];
+    if (value === undefined || !nvidiaOptions(support.get(id)).some((option) => option.value === value)) continue;
+    put(id, support.get(id)?.kind === 'toggle' ? value === 'true' : value);
   }
   if (shown.has('chill') && controls.chill) {
     put('chill.enabled', true);
@@ -298,35 +381,35 @@ export interface RadeonChoice {
  */
 export function changeControls(profile: unknown, rows: SettingRow[], support: Support, next: Controls): RadeonChoice {
   const custom = profileOf(profile) === 'custom';
-  const base = effectiveSettings(profile, rows);
+  const base = effectiveSettings(profile, rows, support);
   const { used } = controlsOf(base, support);
   const written = settingsOfControls(next, support);
   const raw = (custom ? rows : rowsOf(base)).filter((row) => !used.has(row.id.trim()) && !(row.id.trim() in written));
   const settings = { ...written, ...settingsOf(raw) };
-  return { profile: profileFor(settings), rows: [...rowsOf(written), ...raw] };
+  return { profile: profileFor(settings, support), rows: [...rowsOf(written), ...raw] };
 }
 
 /** The rows the controls do not show. A preset's are shown too, but only Custom's are edited. */
 export function rawRows(profile: unknown, rows: SettingRow[], support: Support): SettingRow[] {
   const custom = profileOf(profile) === 'custom';
-  const listed = custom ? rows : rowsOf(effectiveSettings(profile, rows));
+  const listed = custom ? rows : rowsOf(effectiveSettings(profile, rows, support));
   const { used } = controlsOf(settingsOf(listed), support);
   // A row with a problem stays in sight, even when a control shows its setting.
   return listed.filter((row) => !used.has(row.id.trim()) || (custom && rowError(row, rows) !== ''));
 }
 
 /** Picking a profile. Custom picked after a preset starts from the preset's settings. */
-export function pickProfile(profile: unknown, rows: SettingRow[], next: string): RadeonChoice {
+export function pickProfile(profile: unknown, rows: SettingRow[], next: string, support?: Support): RadeonChoice {
   const blank = rows.every((row) => !row.id.trim() && !row.value.trim());
   if (profileOf(next) === 'custom' && profileOf(profile) !== 'custom' && blank) {
-    return { profile: next, rows: rowsOf(effectiveSettings(profile, rows)) };
+    return { profile: next, rows: rowsOf(effectiveSettings(profile, rows, support)) };
   }
   return { profile: next, rows };
 }
 
 /** A new raw row, as Custom: a preset's settings are listed first. */
-export function addRow(profile: unknown, rows: SettingRow[]): RadeonChoice {
-  const listed = profileOf(profile) === 'custom' ? rows : rowsOf(effectiveSettings(profile, rows));
+export function addRow(profile: unknown, rows: SettingRow[], support?: Support): RadeonChoice {
+  const listed = profileOf(profile) === 'custom' ? rows : rowsOf(effectiveSettings(profile, rows, support));
   return { profile: 'custom', rows: [...listed, settingRow()] };
 }
 

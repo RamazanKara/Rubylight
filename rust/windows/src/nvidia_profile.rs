@@ -209,7 +209,7 @@ fn zeroed<T>() -> Box<T> {
     unsafe { Box::new(std::mem::zeroed()) }
 }
 
-type Handle = *mut c_void;
+pub(crate) type Handle = *mut c_void;
 type QueryInterface = unsafe extern "C" fn(u32) -> *mut c_void;
 type Status0 = unsafe extern "C" fn() -> i32;
 type ErrorMessage = unsafe extern "C" fn(i32, *mut u8) -> i32;
@@ -222,9 +222,11 @@ type CreateApplication = unsafe extern "C" fn(Handle, Handle, *mut Application1)
 type GetSetting = unsafe extern "C" fn(Handle, Handle, u32, *mut Setting1) -> i32;
 type SetSetting = unsafe extern "C" fn(Handle, Handle, *mut Setting1) -> i32;
 type DeleteSetting = unsafe extern "C" fn(Handle, Handle, u32) -> i32;
+type GlobalProfile = unsafe extern "C" fn(Handle, *mut Handle) -> i32;
+type DriverVersion = unsafe extern "C" fn(*mut u32, *mut [u8; 64]) -> i32;
 
 /// NVAPI's DRS entry points, from `nvapi64.dll`'s query interface.
-struct NvApi {
+pub(crate) struct NvApi {
     _library: libloading::Library,
     unload: Status0,
     error_message: Option<ErrorMessage>,
@@ -237,13 +239,15 @@ struct NvApi {
     get_setting: GetSetting,
     set_setting: SetSetting,
     delete_setting: DeleteSetting,
+    global_profile: Option<GlobalProfile>,
+    driver_version: Option<DriverVersion>,
     session: Handle,
 }
 
 impl NvApi {
     /// Loads NVAPI and the driver settings. `None` when the PC has no NVIDIA
     /// driver or GPU.
-    fn open() -> Result<Option<Self>> {
+    pub(crate) fn open() -> Result<Option<Self>> {
         let Ok(library) = crate::nvenc::system_library("nvapi64.dll") else {
             return Ok(None);
         };
@@ -279,6 +283,12 @@ impl NvApi {
             let get_setting = resolve(query, 0x73BF_8338, "NvAPI_DRS_GetSetting")?;
             let set_setting = resolve(query, 0x577D_D202, "NvAPI_DRS_SetSetting")?;
             let delete_setting = resolve(query, 0xE4A2_6362, "NvAPI_DRS_DeleteProfileSetting")?;
+            // Only the driver settings panel needs these two, so a driver without
+            // them still gets the per-game profile.
+            let global_profile: Option<GlobalProfile> =
+                resolve(query, 0x617B_FF9F, "NvAPI_DRS_GetCurrentGlobalProfile").ok();
+            let driver_version: Option<DriverVersion> =
+                resolve(query, 0x2926_AAAD, "NvAPI_SYS_GetDriverAndBranchVersion").ok();
             let create: CreateSession = resolve(query, 0x0694_D52E, "NvAPI_DRS_CreateSession")?;
             let load: SessionCall = resolve(query, 0x375D_BD6B, "NvAPI_DRS_LoadSettings")?;
             match initialize() {
@@ -298,6 +308,8 @@ impl NvApi {
                 get_setting,
                 set_setting,
                 delete_setting,
+                global_profile,
+                driver_version,
                 session: std::ptr::null_mut(),
                 _library: library,
             };
@@ -323,6 +335,28 @@ impl NvApi {
             .map(|text| text.to_string_lossy().into_owned())
             .unwrap_or_default();
         bail!("{operation} failed with status {status} {message}")
+    }
+
+    /// The profile the NVIDIA Control Panel's Global Settings tab edits.
+    pub(crate) fn global_profile(&self) -> Result<Handle> {
+        let get = self
+            .global_profile
+            .ok_or_else(|| anyhow!("the NVIDIA driver has no global profile entry point"))?;
+        let mut profile = std::ptr::null_mut();
+        // SAFETY: `session` is this loaded NVAPI's open DRS session and `profile` a live
+        // out-parameter.
+        let status = unsafe { get(self.session, &mut profile) };
+        self.check(status, "NvAPI_DRS_GetCurrentGlobalProfile")?;
+        Ok(profile)
+    }
+
+    /// The driver version as NVIDIA numbers it, 571.86 as 57186.
+    pub(crate) fn driver_version(&self) -> Option<u32> {
+        let get = self.driver_version?;
+        let mut version = 0u32;
+        let mut branch = [0u8; 64];
+        // SAFETY: Both are live out-parameters; `branch` is NVAPI's 64-byte short string.
+        (unsafe { get(&mut version, &mut branch) } == OK).then_some(version)
     }
 }
 

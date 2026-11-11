@@ -154,7 +154,24 @@ pub fn selected(extra: &BTreeMap<String, Value>, fps: Option<u32>) -> Result<Opt
     Ok(Some(Selected { profile, changes }))
 }
 
+/// Whether `id` is one of the NVIDIA driver's settings, which all start with `nvidia_`; the
+/// others are Radeon's.
+pub fn is_nvidia_setting(id: &str) -> bool {
+    id.starts_with("nvidia_")
+}
+
 impl Selected {
+    /// A built-in profile lists both drivers' settings: keep those of the driver the host
+    /// controls. A Custom profile keeps what it lists, so a setting of the other driver is
+    /// refused by name, as any other setting the GPU lacks.
+    pub fn for_driver(mut self, nvidia: bool) -> Self {
+        if self.profile.id != "custom" {
+            self.changes
+                .retain(|item| is_nvidia_setting(&item.id) == nvidia);
+        }
+        self
+    }
+
     /// The first setting whose value still stands for the stream's frame rate, which a launch
     /// without one cannot supply. Such a profile is refused before anything is written.
     pub fn without_stream_fps(&self) -> Option<&str> {
@@ -209,7 +226,8 @@ mod tests {
     fn a_named_profile_gives_its_settings_with_the_stream_rate_filled_in() {
         let smooth = selected(&extra(json!({"radeon-profile": " Smoothness "})), Some(120))
             .unwrap()
-            .unwrap();
+            .unwrap()
+            .for_driver(false);
         assert_eq!(smooth.profile.id, "smoothness");
         assert_eq!(
             smooth.changes,
@@ -226,13 +244,65 @@ mod tests {
         );
         let competitive = selected(&extra(json!({"radeon-profile": "competitive"})), None)
             .unwrap()
-            .unwrap();
+            .unwrap()
+            .for_driver(false);
         assert_eq!(ids(&competitive), ["anti_lag.enabled"]);
         // The rate is kept inside what the driver takes.
         let slow = selected(&extra(json!({"radeon-profile": "smoothness"})), Some(5))
             .unwrap()
-            .unwrap();
+            .unwrap()
+            .for_driver(false);
         assert_eq!(slow.changes[1].value, json!(15));
+    }
+
+    #[test]
+    fn built_in_profiles_keep_the_hosts_drivers_settings_and_custom_keeps_all() {
+        let pick = |profile: &str, nvidia: bool| {
+            let chosen = selected(&extra(json!({"radeon-profile": profile})), Some(144))
+                .unwrap()
+                .unwrap()
+                .for_driver(nvidia);
+            chosen
+                .changes
+                .iter()
+                .map(|item| (item.id.clone(), item.value.clone()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            pick("competitive", true),
+            [("nvidia_low_latency.mode".into(), json!("ultra"))]
+        );
+        assert_eq!(
+            pick("smoothness", true),
+            [("nvidia_frame_rate_limit.fps".into(), json!(144))]
+        );
+        assert_eq!(
+            pick("quality", true),
+            [
+                ("nvidia_anisotropic_filtering.mode".into(), json!("16x")),
+                (
+                    "nvidia_texture_filtering.quality".into(),
+                    json!("high_quality")
+                ),
+            ]
+        );
+        // Every built-in profile does something on either driver.
+        for profile in ["competitive", "smoothness", "quality"] {
+            for nvidia in [false, true] {
+                let ids = pick(profile, nvidia);
+                assert!(!ids.is_empty(), "{profile} {nvidia}");
+                assert!(ids.iter().all(|(id, _)| is_nvidia_setting(id) == nvidia));
+            }
+        }
+        let custom = selected(
+            &extra(json!({"radeon-profile": "custom",
+                "radeon-settings": {"anti_lag.enabled": true, "nvidia_low_latency.mode": "on"}})),
+            None,
+        )
+        .unwrap()
+        .unwrap()
+        .for_driver(true);
+        assert_eq!(custom.changes.len(), 2);
     }
 
     #[test]

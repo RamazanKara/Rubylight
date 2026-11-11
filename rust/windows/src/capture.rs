@@ -304,8 +304,11 @@ pub fn stream_gpu(display: &str, adapter_name: &str, pnp_id: &str) -> Result<(St
         (desc.AdapterLuid.LowPart, desc.AdapterLuid.HighPart),
     ))
 }
-/// The PCI vendor of [`stream_gpu`]'s GPU, None when it can't be found.
-pub fn stream_gpu_vendor(display: &str, adapter_name: &str, pnp_id: &str) -> Option<u32> {
+/// The PCI vendor of [`stream_gpu`]'s GPU for the configured display and adapter, None when it
+/// can't be found.
+pub fn stream_gpu_vendor(config: &butterpollo_core::config::Config) -> Option<u32> {
+    let [display, adapter_name, pnp_id] =
+        ["output_name", "adapter_name", "adapter_pnp_id"].map(|key| config.get(key, ""));
     let (_, luid) = stream_gpu(display, adapter_name, pnp_id)
         .inspect_err(|error| tracing::debug!(%error, "the stream's GPU is unknown"))
         .ok()?;
@@ -314,6 +317,14 @@ pub fn stream_gpu_vendor(display: &str, adapter_name: &str, pnp_id: &str) -> Opt
         .into_iter()
         .find(|gpu| gpu.luid == luid)
         .map(|gpu| gpu.vendor)
+}
+
+/// Whose driver settings the panel controls, for the configured stream GPU.
+pub fn panel_driver(config: &butterpollo_core::config::Config) -> crate::radeon::Driver {
+    let vendors: Vec<u32> = gpus()
+        .map(|gpus| gpus.iter().map(|gpu| gpu.vendor).collect())
+        .unwrap_or_default();
+    crate::radeon::Driver::for_stream(stream_gpu_vendor(config), &vendors)
 }
 /// The GPU a stream encodes on while no display is connected, as on a
 /// headless host or one whose monitor is off: the GPU

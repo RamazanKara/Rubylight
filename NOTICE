@@ -160,6 +160,12 @@ split trackpads, haptic and settings forwarding, firmware attributes) follows
 Nonary/Vibepollo 2.0.6's docs/steam_controller.md (GPL-3.0). The wire format is the one
 rubylight_protocol::steam_controller already credits.
 
+NVIDIA driver settings
+
+The driver settings keys of NVIDIA's Low Latency Mode and Smooth Motion in
+rust/windows/src/nvidia_settings.rs, which NVIDIA's NvApiDriverSettings.h does not list,
+are the ones Nonary/Vibepollo (GPL-3.0) writes for them.
+
 usbip-win2
 
 Windows packages bundle the original usbip-win2 0.9.8.1 installer for optional

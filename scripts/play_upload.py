@@ -50,14 +50,18 @@ def track_release(version_code, name, status, notes):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument('--bundle', required=True, type=Path)
+    parser.add_argument('--check', action='store_true',
+                        help='only check access: open an edit, list the tracks and discard it')
+    parser.add_argument('--bundle', type=Path)
     parser.add_argument('--mapping', type=Path)
     parser.add_argument('--native-symbols', type=Path)
-    parser.add_argument('--metadata', required=True, type=Path, help='fastlane/metadata/android')
+    parser.add_argument('--metadata', type=Path, help='fastlane/metadata/android')
     parser.add_argument('--track', default='alpha', help='internal, alpha (closed testing), beta (open testing) or production')
     parser.add_argument('--status', default='completed', choices=['completed', 'draft'])
-    parser.add_argument('--name', required=True, help='release name shown in Play Console, such as 4.12.9')
+    parser.add_argument('--name', help='release name shown in Play Console, such as 4.12.9')
     args = parser.parse_args(argv)
+    if not args.check and not (args.bundle and args.metadata and args.name):
+        parser.error('--bundle, --metadata and --name are required unless --check is given')
 
     key = os.environ.get('PLAY_SERVICE_ACCOUNT_JSON', '')
     if not key.strip():
@@ -74,6 +78,14 @@ def main(argv=None):
     edits = build('androidpublisher', 'v3', credentials=credentials, cache_discovery=False).edits()
 
     edit_id = edits.insert(packageName=PACKAGE, body={}).execute()['id']
+    if args.check:
+        tracks = edits.tracks().list(packageName=PACKAGE, editId=edit_id).execute().get('tracks', [])
+        edits.delete(packageName=PACKAGE, editId=edit_id).execute()
+        for track in tracks:
+            codes = sorted({code for release in track.get('releases', []) for code in release.get('versionCodes', [])})
+            print(f"{track['track']}: {', '.join(codes) or 'no releases'}")
+        print(f'access to {PACKAGE} works; nothing was changed')
+        return
     bundle = edits.bundles().upload(
         packageName=PACKAGE, editId=edit_id,
         media_body=MediaFileUpload(str(args.bundle), mimetype='application/octet-stream', resumable=True),

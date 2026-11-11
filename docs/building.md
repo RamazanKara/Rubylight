@@ -189,6 +189,16 @@ The workflow passes them to Gradle as the `BP_*` variables above, so local build
 
 **Defender scan before the tag.** Download the dry run's `desktop-windows` artifact as one zip (`gh api repos/RamazanKara/nightjar/actions/artifacts/<artifact id>/zip > desktop-windows.zip` from cmd; `gh run download` unpacks it and writes the setup exe to disk) and run `scripts\defender-scan.ps1 <zip>` on a Windows PC with Microsoft Defender. It scans report-only and exits 2 on a threat; don't tag until it is clean. It sees the PC's signatures and already-flagged files, not the cloud's verdict on a first launch (Nightjar 4.4.0's first build passed it and was flagged when started), so start the unpacked build once on that PC as well. That verdict belonged to the one file: a rebuild of the same commit and the same exe with a new PE timestamp both started clean, so a build flagged on first launch is rebuilt and checked again, and goes to Microsoft as a false positive if it stays flagged.
 
+### Google Play
+
+Publishing a GitHub release (making the draft public; prereleases are skipped) runs `.github/workflows/play.yml`. It downloads that release's `nightjar-<version>.aab`, mapping and native symbols and runs `scripts/play_upload.py`, which uploads them to Google Play and sets the release on one track with the notes from `fastlane/metadata/android/<locale>/changelogs/<versionCode>.txt` (`de` becomes `de-DE`; Play allows 500 characters per language). The track is the `PLAY_TRACK` repository variable: `alpha` (the closed test) when unset, `production` once the app is live. Until the app's first review is approved, Play accepts only draft releases; the script then uploads a draft and says so, and the release is rolled out in Play Console. To upload a release again or to another track, run the workflow by hand with the tag and track.
+
+It needs the `PLAY_SERVICE_ACCOUNT_JSON` secret: the JSON key of a Google Cloud service account with the Google Play Android Developer API enabled in its project, invited in Play Console (Users and permissions) with release rights for Nightjar. Without it the run only leaves a notice. Set it from the key file and delete the file afterwards:
+
+```powershell
+Get-Content -Raw C:\path\to\key.json | gh secret set PLAY_SERVICE_ACCOUNT_JSON -R RamazanKara/nightjar
+```
+
 ## Documentation checks
 
 Use Python 3.10+ and Node.js 18+; these scripts use only standard libraries and do not install packages or contact the network.
@@ -197,6 +207,7 @@ Use Python 3.10+ and Node.js 18+; these scripts use only standard libraries and 
 python scripts/generate-settings.py
 git diff --exit-code -- docs/settings.md
 python scripts/test_gen_design_tokens.py
+python scripts/test_play_upload.py
 node --test scripts/check-doc-links.test.mjs scripts/build-release.test.mjs scripts/add-device-results.test.mjs scripts/device-docs.test.mjs scripts/device-results-issue.test.mjs
 node scripts/check-doc-links.mjs
 node scripts/device-docs.mjs --check

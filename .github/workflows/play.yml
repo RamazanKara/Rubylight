@@ -1,0 +1,75 @@
+name: Google Play
+
+# Publishing a GitHub release (a draft made public, see release.yml) uploads its
+# bundle, R8 mapping and native symbols to Google Play with the release notes from
+# fastlane/metadata/android/*/changelogs/<versionCode>.txt. Prereleases are skipped.
+# The track is the PLAY_TRACK repository variable (default alpha, the closed test;
+# production once the app is live). It needs the PLAY_SERVICE_ACCOUNT_JSON secret,
+# see "Google Play" in docs/building.md; without it the run only leaves a notice.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to upload, such as v4.12.9
+        required: true
+      track:
+        description: Track (empty uses the PLAY_TRACK variable or alpha)
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: play
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    if: ${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      TRACK: ${{ inputs.track || vars.PLAY_TRACK || 'alpha' }}
+      PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+    steps:
+      - name: Check the service account
+        id: key
+        run: |
+          if [ -z "$PLAY_SERVICE_ACCOUNT_JSON" ]; then
+            echo "::notice::PLAY_SERVICE_ACCOUNT_JSON is not set; $TAG was not uploaded to Google Play"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: steps.key.outputs.ok == 'true'
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+      - name: Fetch the release files
+        if: steps.key.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/play"
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -D "$RUNNER_TEMP/play" \
+            -p "nightjar-$version.aab" -p "nightjar-$version-mapping.txt" -p "nightjar-$version-native-debug-symbols.zip"
+          ls -l "$RUNNER_TEMP/play"
+      - name: Upload to Google Play
+        if: steps.key.outputs.ok == 'true'
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --disable-pip-version-check google-api-python-client==2.169.0 google-auth==2.40.1
+          python3 scripts/test_play_upload.py
+          python3 scripts/play_upload.py \
+            --bundle "$RUNNER_TEMP/play/nightjar-$VERSION.aab" \
+            --mapping "$RUNNER_TEMP/play/nightjar-$VERSION-mapping.txt" \
+            --native-symbols "$RUNNER_TEMP/play/nightjar-$VERSION-native-debug-symbols.zip" \
+            --metadata fastlane/metadata/android --track "$TRACK" --name "$VERSION"

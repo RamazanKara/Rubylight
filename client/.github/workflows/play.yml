@@ -69,7 +69,11 @@ jobs:
           echo "VERSION=$version" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/play"
           gh release download "$TAG" -R "$GITHUB_REPOSITORY" -D "$RUNNER_TEMP/play" \
-            -p "nightjar-$version.aab" -p "nightjar-$version-mapping.txt" -p "nightjar-$version-native-debug-symbols.zip"
+            -p "nightjar-$version.aab" -p "nightjar-$version*-mapping.txt" -p "nightjar-$version-native-debug-symbols.zip"
+          # The bundle's own R8 map; releases before 4.12.9 built the bundle like the APK and have one map.
+          mapping="$RUNNER_TEMP/play/nightjar-$version-play-mapping.txt"
+          [ -f "$mapping" ] || mapping="$RUNNER_TEMP/play/nightjar-$version-mapping.txt"
+          echo "MAPPING=$mapping" >> "$GITHUB_ENV"
           ls -l "$RUNNER_TEMP/play"
       - name: Upload to Google Play
         if: steps.key.outputs.ok == 'true' && !inputs.check_only
@@ -79,6 +83,6 @@ jobs:
           python3 scripts/test_play_upload.py
           python3 scripts/play_upload.py \
             --bundle "$RUNNER_TEMP/play/nightjar-$VERSION.aab" \
-            --mapping "$RUNNER_TEMP/play/nightjar-$VERSION-mapping.txt" \
+            --mapping "$MAPPING" \
             --native-symbols "$RUNNER_TEMP/play/nightjar-$VERSION-native-debug-symbols.zip" \
             --metadata fastlane/metadata/android --track "$TRACK" --name "$VERSION"

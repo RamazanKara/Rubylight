@@ -653,7 +653,16 @@ jobs:
           BP_KEYSTORE_PASSWORD: ${{ secrets.NIGHTJAR_KEYSTORE_PASSWORD }}
           BP_KEY_ALIAS: ${{ secrets.NIGHTJAR_KEY_ALIAS }}
           BP_KEY_PASSWORD: ${{ secrets.NIGHTJAR_KEY_PASSWORD }}
-        run: bash gradlew --no-daemon --max-workers=4 :app:assembleNonRootRelease :app:assembleRootRelease :app:bundleNonRootRelease
+        run: |
+          set -euo pipefail
+          bash gradlew --no-daemon --max-workers=4 :app:assembleNonRootRelease :app:assembleRootRelease
+          # The APK's R8 map, before the bundle's build below replaces it.
+          mkdir -p "$RUNNER_TEMP/apk-mapping"
+          cp app/build/outputs/mapping/nonRootRelease/mapping.txt "$RUNNER_TEMP/apk-mapping/mapping.txt"
+          # The bundle is for Google Play, which updates the app itself and rejects
+          # REQUEST_INSTALL_PACKAGES for self-updates: no in-app updater and no install
+          # permission (verifyNonRootReleaseInstallPermission checks the merged manifest).
+          bash gradlew --no-daemon --max-workers=4 -PgithubUpdates=false :app:bundleNonRootRelease
       - name: Verify the signature and the app IDs
         run: |
           apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)
@@ -701,8 +710,10 @@ jobs:
           cp app/build/outputs/apk/nonRoot/release/app-nonRoot-release.apk android/nightjar.apk
           cp app/build/outputs/apk/root/release/app-root-release.apk "android/nightjar-$VERSION-root.apk"
           cp app/build/outputs/bundle/nonRootRelease/app-nonRoot-release.aab "android/nightjar-$VERSION.aab"
-          # R8 map and native symbols of the non-root build, for reading this release's crash traces.
-          cp app/build/outputs/mapping/nonRootRelease/mapping.txt "android/nightjar-$VERSION-mapping.txt"
+          # R8 maps (the APK's and the Play bundle's, which differ) and native symbols of the
+          # non-root build, for reading this release's crash traces.
+          cp "$RUNNER_TEMP/apk-mapping/mapping.txt" "android/nightjar-$VERSION-mapping.txt"
+          cp app/build/outputs/mapping/nonRootRelease/mapping.txt "android/nightjar-$VERSION-play-mapping.txt"
           cp app/build/outputs/native-debug-symbols/nonRootRelease/native-debug-symbols.zip "android/nightjar-$VERSION-native-debug-symbols.zip"
       # For the release job only: the shortest retention, so a dry run's signed build does not linger.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

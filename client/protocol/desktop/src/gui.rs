@@ -361,6 +361,10 @@ impl Gui {
                 SDL_EVENT_MOUSE_WHEEL => {
                     let w = event.wheel;
                     let flip = if w.direction == SDL_MOUSEWHEEL_FLIPPED { -1.0 } else { 1.0 };
+                    // egui scrolls what is under the pointer it last heard of: a turn with no
+                    // motion before it (the window just opened, a stream just ended, a touchpad's
+                    // two fingers that move no pointer) scrolled nothing until the pointer moved.
+                    self.events.push(Event::PointerMoved(point(w.mouse_x, w.mouse_y)));
                     self.events.push(Event::MouseWheel {
                         unit: egui::MouseWheelUnit::Line,
                         delta: Vec2::new(w.x * flip, w.y * flip),
@@ -845,6 +849,57 @@ mod tests {
         // A new zoom takes effect at the start of the next pass.
         ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
         ctx.zoom_factor()
+    }
+
+    /// How far a tall page scrolls after `gui`'s events (nightjar#94).
+    fn page_offset(gui: &mut Gui) -> f32 {
+        let mut offset = 0.0;
+        for n in 0..3 {
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0))),
+                time: Some(f64::from(n)),
+                events: std::mem::take(&mut gui.events),
+                ..Default::default()
+            };
+            gui.ctx
+                .run_ui(input, |ui| {
+                    offset = egui::ScrollArea::vertical()
+                        .auto_shrink(false)
+                        .show(ui, |ui| ui.allocate_space(Vec2::new(300.0, 3000.0)))
+                        .state
+                        .clamped_offset()
+                        .y;
+                })
+                .textures_delta
+                .clear();
+        }
+        offset
+    }
+
+    /// A wheel turn scrolls the page under it with no pointer motion before it: the window just
+    /// opened, or a touchpad's two fingers moved no pointer.
+    #[test]
+    fn a_wheel_turn_scrolls_without_a_motion_first() {
+        let scale = Scale { pixels_per_point: 1.0, density: 1.0 };
+        // SAFETY: an all-zero SDL_Event is a valid value of the C union.
+        let mut event: SDL_Event = unsafe { std::mem::zeroed() };
+        event.r#type = SDL_EVENT_MOUSE_WHEEL.0;
+        event.wheel.y = -3.0;
+        event.wheel.mouse_x = 200.0;
+        event.wheel.mouse_y = 150.0;
+        // egui alone ignores the turn: it knows no pointer position.
+        let mut bare = Gui::new();
+        bare.push(Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: Vec2::new(0.0, -3.0),
+            phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
+            modifiers: Modifiers::NONE,
+        });
+        assert_eq!(page_offset(&mut bare), 0.0);
+        let mut gui = Gui::new();
+        gui.handle(&event, scale);
+        assert!(page_offset(&mut gui) > 0.0, "the turn scrolls the page under the pointer");
     }
 
     #[test]

@@ -74,14 +74,17 @@ public final class RadeonPanelModel {
 
         /** The field's string resource when it is not the plain on/off of the group, else 0. */
         public int fieldTitleRes() {
-            return fieldRes(field);
+            return soleSetting(group) ? 0 : fieldRes(field);
         }
 
-        /** Title for an id the app has no name for: its words, capitalised ("chill.max_fps" is "Chill: Max fps"). */
+        /**
+         * Title for an id the app has no name for: its words, capitalised ("chill.max_fps" is "Chill: Max fps").
+         * A plain "enabled" or "mode" field leaves the group's name alone.
+         */
         public String genericTitle() {
             String groupText = words(group);
             String fieldText = words(field);
-            return fieldText.isEmpty() || "Enabled".equals(fieldText) ? groupText : groupText + ": " + fieldText;
+            return plainField(fieldText) ? groupText : groupText + ": " + fieldText;
         }
 
         /** The setting's name: the app's own for a known group and field, else made from the id's words. */
@@ -96,7 +99,7 @@ public final class RadeonPanelModel {
                 return resources.getString(R.string.native_title_field, groupText, resources.getString(fieldRes));
             }
             String fieldText = words(field);
-            boolean plain = fieldText.isEmpty() || "Enabled".equals(fieldText) || "Mode".equals(fieldText);
+            boolean plain = soleSetting(group) || plainField(fieldText);
             return plain ? groupText : resources.getString(R.string.native_title_field, groupText, fieldText);
         }
 
@@ -395,8 +398,36 @@ public final class RadeonPanelModel {
             case "afmf": return R.string.native_group_afmf;
             case "rsr": return R.string.native_group_rsr;
             case "vsync": return R.string.native_group_vsync;
+            case "nvidia_low_latency": return R.string.native_group_nvidia_low_latency;
+            case "nvidia_frame_rate_limit": return R.string.native_group_nvidia_frame_rate_limit;
+            case "nvidia_vsync": return R.string.native_group_vsync;
+            case "nvidia_power": return R.string.native_group_nvidia_power;
+            case "nvidia_texture_filtering": return R.string.native_group_nvidia_texture_filtering;
+            case "nvidia_anisotropic_filtering": return R.string.native_group_nvidia_anisotropic_filtering;
+            case "nvidia_smooth_motion": return R.string.native_group_nvidia_smooth_motion;
             default: return 0;
         }
+    }
+
+    /** A group with one setting, whose row is named by the group alone ("Max frame rate", not "...: Frame rate"). */
+    static boolean soleSetting(String group) {
+        switch (group) {
+            case "nvidia_low_latency":
+            case "nvidia_frame_rate_limit":
+            case "nvidia_vsync":
+            case "nvidia_power":
+            case "nvidia_texture_filtering":
+            case "nvidia_anisotropic_filtering":
+            case "nvidia_smooth_motion":
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /** A field that only switches or picks the group's behaviour: "Enabled", "Mode" or none. */
+    private static boolean plainField(String fieldText) {
+        return fieldText.isEmpty() || "Enabled".equals(fieldText) || "Mode".equals(fieldText);
     }
 
     static int fieldRes(String field) {

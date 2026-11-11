@@ -893,7 +893,7 @@ mod tests {
         until("the failure", || page.state().radeon.write_failure.is_some());
         let failure = page.state().radeon.write_failure.unwrap();
         assert_eq!(failure.setting.as_deref(), Some("chill.max_fps"));
-        assert_eq!(failure.text(), "The AMD driver rejected this change.");
+        assert_eq!(failure.text(), "The graphics driver rejected this change.");
         assert!(page.state().radeon.pending.is_none());
         // The 10 s interval would not read again by itself: the failure asks for it.
         until("a read back", || counters.reads.load(Ordering::SeqCst) > before);

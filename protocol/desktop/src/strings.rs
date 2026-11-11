@@ -708,6 +708,7 @@ pub(crate) mod tests {
         "Frame pacing", "Input-only", "Mouse", "Display ({} Hz)", "X / West", "Paddle 1", "Paddle 2", "Paddle 3", "Paddle 4", "Type",
         "Options", "Axes", "Compact", "Direct", "{} minutes", "Passphrase", "Home", "Upscaling", "Folder", "Layout", "Logs", "Link",
         "5.1 surround", "7.1 surround", "7.1.4 surround", "Game Bar", "Collection", "Online", "Desktop", "Renderer", "PC",
+        "Low Latency Mode", "Smooth Motion",
     ];
 
     #[test]

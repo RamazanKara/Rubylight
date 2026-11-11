@@ -24,7 +24,7 @@ illustrative values. Regenerate the stills with `scripts/demo/capture-stills.ps1
 
 ## Owner steps in the Play Console
 
-1. Create the Play developer account and the app entry (free, no ads, no in-app purchases).
+1. Create the Play developer account and the app entry (paid, no ads, no in-app purchases; trader status in the EU).
 2. Create the upload key once and keep it safe (see [release signing](../docs/building.md#release-signing)),
    then build with `keystore.properties` or the `BP_KEYSTORE*` variables. Enroll in Play App Signing.
 3. Upload `app-nonRoot-release.aab` with `mapping.txt` and native debug symbols from the same build.

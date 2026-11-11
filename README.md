@@ -199,6 +199,17 @@
 
 </details>
 
+## Testers wanted: help bring Nightjar to Google Play
+
+Nightjar is getting ready for Google Play, and Google asks for one thing first: at least 12 testers who keep the app for 14 days. If you stream to an Android phone, tablet, handheld or TV, you can be one of them, see each new build before anyone else and help put Nightjar in the store.
+
+- **What you need:** an Android device with the Play Store and a PC running a Moonlight-compatible host.
+- **What you do:** keep Nightjar installed for 14 days, play the way you always do, and tell us what breaks in [issues](https://github.com/RamazanKara/nightjar/issues).
+- **What it costs:** nothing. Nightjar will be a paid app on Google Play, but testers get a free code for it. If Google Play charges you anyway, you get the full amount back.
+- **How to join:** email [ramazan.kara.fo@gmail.com](mailto:ramazan.kara.fo@gmail.com?subject=Nightjar%20tester) with the subject "Nightjar tester" and the Google account you use on Google Play. You get the invite link and your code by email.
+
+The download here on GitHub stays free and gets the same updates.
+
 ## Recently added
 
 - **Sharper colour where the hardware allows it.** Nightjar for Windows decodes HEVC 4:4:4 in hardware, in 8-bit and 10-bit, on GPUs whose decoder supports it. Before a stream starts, Nightjar checks whether the PC and this device can do full chroma, and a stream that can't starts without it and says why. [HDR and color](docs/video-and-latency.md#hdr-and-color)

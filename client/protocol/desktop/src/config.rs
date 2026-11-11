@@ -144,6 +144,26 @@ impl Renderer {
     }
 }
 
+/// Which GPU draws and decodes on a Windows PC with two (`gpu_adapters`), for the whole app:
+/// Automatic is Windows' choice, unless YUV 4:4:4 is asked for and only the high-performance GPU
+/// decodes it; the others are Windows' per-app preference, set for Nightjar.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GraphicsCard {
+    #[default]
+    Automatic,
+    PowerSaving,
+    HighPerformance,
+}
+
+impl GraphicsCard {
+    #[cfg_attr(not(windows), allow(dead_code))] // the menu is drawn only on Windows
+    pub const ALL: [Self; 3] = [Self::Automatic, Self::PowerSaving, Self::HighPerformance];
+
+    pub fn label(self) -> &'static str {
+        match self { Self::Automatic => en("Automatic"), Self::PowerSaving => en("Power saving"), Self::HighPerformance => en("High performance") }
+    }
+}
+
 /// Frame pacing without VRR, Android's `frame_pacing` (`FramePacingPolicy`): how decoded pictures
 /// wait for the display. `stream::present` applies it; with VRR it does not apply, as on Android.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -356,6 +376,8 @@ pub struct Settings {
     pub pyrowave_decoder: PyroWaveDecoder,
     /// What draws the window on Linux ([`Renderer`]); for the whole app, not a PC's or a profile's.
     pub renderer: Renderer,
+    /// The GPU on a Windows PC with two ([`GraphicsCard`]); for the whole app.
+    pub graphics_card: GraphicsCard,
     pub microphone: bool,
     /// Echo cancellation on the microphone (`stream::microphone`), automatic by default.
     pub mic_echo_cancel: MicEcho,
@@ -844,6 +866,7 @@ impl Default for Settings {
             beam_race_margin_ms: 0,
             pyrowave_decoder: PyroWaveDecoder::default(),
             renderer: Renderer::Auto,
+            graphics_card: GraphicsCard::Automatic,
             microphone: false,
             mic_echo_cancel: MicEcho::Auto,
             cursor_shapes: true,

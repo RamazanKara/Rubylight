@@ -52,10 +52,11 @@ fn say(text: &str) {
 }
 
 /// Start logging to the file. Call once, before anything writes to stderr that matters.
-pub fn start() {
+/// `continuing`: go on in the current file instead of starting a new one ([`LogFile::open_with`]).
+pub fn start(continuing: bool) {
     // First: with fd 2 closed (a service, a launcher) the pipe or the file would take its number.
     sys::prepare();
-    let log = match logfile::logs_dir().and_then(|dir| LogFile::open(&dir, logfile::CAP)) {
+    let log = match logfile::logs_dir().and_then(|dir| LogFile::open_with(&dir, logfile::CAP, continuing)) {
         Ok(log) => log,
         Err(e) => return say(&format!("no log file: {e}")),
     };

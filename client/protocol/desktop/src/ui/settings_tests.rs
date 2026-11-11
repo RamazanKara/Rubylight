@@ -317,6 +317,7 @@ fn the_section_key_table_is_what_the_page_draws() {
         "network_priority" => cfg!(any(target_os = "linux", windows)),
         "hdr_desktop_brightness" => cfg!(target_os = "linux"),
         "renderer" | "vulkan_video_first" | "vulkan_rfi" => cfg!(target_os = "linux"),
+        "graphics_card" => graphics_card_here(),
         _ => true,
     };
     for (at, section) in SETTINGS_SECTIONS.iter().enumerate() {
@@ -875,4 +876,16 @@ fn a_switch_and_a_list_choice_have_the_designed_size() {
     });
     assert_eq!(switch.size(), vec2(design_tokens::SIZE_SWITCH_W, design_tokens::SIZE_SWITCH_H));
     assert_eq!(choice.height(), 40.0);
+}
+
+/// The Graphics card row is drawn only on a Windows PC with two GPUs.
+fn graphics_card_here() -> bool {
+    #[cfg(windows)]
+    {
+        crate::gpu_adapters::gpus().is_some()
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
 }

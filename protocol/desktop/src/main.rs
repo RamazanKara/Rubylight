@@ -235,6 +235,9 @@ struct App {
     renderer_state: RendererState,
     /// Why this stream's switch to the GPU renderer failed, for the check that refuses it.
     gpu_failure: Option<String>,
+    /// The Graphics card setting last applied: a change is applied once, with nothing streaming.
+    #[cfg(windows)]
+    graphics_card: config::GraphicsCard,
     /// The stream start that waits for the PIN screen.
     pin_pending: Option<PinPending>,
     /// Selecting a game waits for the PC to say who plays it.
@@ -391,7 +394,13 @@ fn main() {
         std::process::exit(stream::pyrowave_mode::package_check(std::path::Path::new(&report)));
     }
     // Frontends start a stream directly (see `cli`); a release build has no console to print to.
-    let (args, after_setup) = self_update::split_after_setup(std::env::args_os().skip(1).collect());
+    let raw: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    // A start Nightjar made itself to move to another GPU goes on in the same log.
+    #[cfg(windows)]
+    let (raw, graphics_restarted) = gpu_adapters::split_restarted(raw);
+    #[cfg(not(windows))]
+    let graphics_restarted = false;
+    let (args, after_setup) = self_update::split_after_setup(raw.clone());
     if self_update::install_running(after_setup) {
         // Its progress window is up, and it starts Nightjar when it ends.
         eprintln!("nightjar: the update is installing");
@@ -457,7 +466,7 @@ fn main() {
         }
     }
     // After the package check, which must not write to the user's log.
-    logpipe::start();
+    logpipe::start(graphics_restarted);
     let _log = logpipe::Guard;
     #[cfg(windows)]
     match logfile::logs_dir() {
@@ -473,6 +482,24 @@ fn main() {
         logpipe::shutdown();
         std::process::exit(1);
     }
+    // The Graphics card setting moved Nightjar to another GPU, which Windows applies at a start.
+    #[cfg(windows)]
+    if let Some(replay) = gpu_adapters::restart_requested() {
+        logpipe::shutdown();
+        if let Err(e) = gpu_adapters::restart(if replay { &raw } else { &[] }) {
+            message_box(SDL_MESSAGEBOX_ERROR, &format!("Nightjar could not start again: {e}"));
+        }
+    }
+}
+
+/// Whether any layer (the global settings, a PC, a game or a profile) asks for YUV 4:4:4.
+#[cfg(windows)]
+fn any_yuv444_asked(store: &config::Store, settings: &config::Settings) -> bool {
+    let (hosts, profiles) = (store.hosts(), store.profiles());
+    settings.prefer_yuv444
+        || hosts.iter().flat_map(|host| host.settings.iter().chain(host.app_settings.values()))
+            .chain(profiles.entries.iter().map(|profile| &profile.settings))
+            .any(|own| own.apply(settings).prefer_yuv444)
 }
 
 fn message_box(flags: SDL_MessageBoxFlags, text: &str) {
@@ -640,6 +667,14 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     #[cfg(not(target_os = "linux"))]
     let vulkan_video = false;
 
+    // The GPU before the renderer: Windows applies Nightjar's graphics preference at a start, so
+    // a preference that changed now ends this start for a new one (once).
+    #[cfg(windows)]
+    if !second_screen::this_process()
+        && gpu_adapters::choose_at_start(settings.graphics_card, any_yuv444_asked(&store, &settings), store.dir())
+    {
+        return Ok(());
+    }
     let hdr_asked = any_hdr_asked(&settings, hosts.iter()
         .flat_map(|host| host.settings.iter().chain(host.app_settings.values()))
         .chain(profiles.entries.iter().map(|profile| &profile.settings)));
@@ -876,6 +911,8 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
                 .then(|| sdl::gpu_renderer_failure().unwrap_or_else(|| format!("SDL made {:?} instead", sdl::renderer_name(renderer)))),
         ),
         gpu_failure: None,
+        #[cfg(windows)]
+        graphics_card: settings.graphics_card,
         pin_pending: None,
         select_read: false,
         move_watch: Default::default(),
@@ -1237,6 +1274,8 @@ impl App {
     fn launcher_frame(&mut self) {
         #[cfg(target_os = "linux")]
         self.apply_renderer_choice();
+        #[cfg(windows)]
+        self.apply_graphics_card();
         // Wait for input or a worker; animate the spinner while something runs.
         let busy = self.connecting.is_some() || self.waking.host().is_some() || self.network_launch.is_some() || self.network_test.is_some()
             || self.launcher.remote.running() || self.launcher.files.busy()
@@ -2075,6 +2114,24 @@ impl App {
             || sdl::swapchain_takes_hdr(self.renderer) != settings.hdr
         {
             self.gpu_failure = self.rebuild_renderer(shaders, settings.hdr, true, false, "the stream format").err();
+        }
+    }
+
+    /// A changed Graphics card setting, applied once with nothing streaming: Nightjar closes and
+    /// starts again when it draws on the other GPU (`gpu_adapters::choose_now`).
+    #[cfg(windows)]
+    fn apply_graphics_card(&mut self) {
+        let choice = self.launcher.settings.graphics_card;
+        if choice == self.graphics_card || self.streaming.is_some() || self.connecting.is_some() || self.pending_replace.is_some() {
+            return;
+        }
+        self.graphics_card = choice;
+        if gpu_adapters::choose_now(choice, any_yuv444_asked(&self.store, &self.launcher.settings), self.store.dir()) {
+            // The new start reads the choice back, whatever order this frame's commands run in.
+            if let Err(e) = self.store.save_settings(&self.launcher.settings) {
+                eprintln!("nightjar: saving settings failed: {e}");
+            }
+            self.running = false;
         }
     }
 

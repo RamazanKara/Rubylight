@@ -1,0 +1,2 @@
+## desktop
+- On a Windows PC with two GPUs (a laptop with integrated and dedicated graphics), Settings › Video › Graphics card chooses the GPU Nightjar draws and decodes on: Automatic, Power saving or High performance, each named. Automatic follows Windows, except that it moves to the high-performance GPU when YUV 4:4:4 is on and only that GPU decodes it. Nightjar starts again on its own to switch.

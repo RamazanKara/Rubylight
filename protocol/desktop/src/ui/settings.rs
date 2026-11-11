@@ -16,7 +16,7 @@ pub(super) const SETTINGS_SECTIONS: [&str; 8] = [en("Video"), en("Display & imag
 pub(super) const SECTION_KEYS: [&[&[&str]]; 8] = [
     &[&["width", "height"], &["fps"], &["bitrate_kbps"], &["adaptive_bitrate"], &["codec"], &["hdr"], &["hdr_desktop_brightness"],
         &["adaptive_quality"], &["quality_min_short_edge"], &["quality_min_fps"], &["upscaling"], &["upscale_sharpness"],
-        &["prefer_yuv444"], &["sdr_10bit"], &["pyrowave_decoder"], &["pyrowave_async_compute"]],
+        &["prefer_yuv444"], &["sdr_10bit"], &["pyrowave_decoder"], &["pyrowave_async_compute"], &["graphics_card"]],
     &[&["window_mode"], &["video_scaling"], &["vrr"],
         &["virtual_display"], &["host_display"], &["virtual_display_scale"], &["virtual_display_dpi"],
         &["align_video_top"], &["present_at_host_times"], &["frame_pacing"], &["vsync"]],
@@ -719,6 +719,27 @@ impl Launcher {
             setting_row(ui, s, &mut rows, &["pyrowave_async_compute"], "Decode PyroWave on a compute queue", "PyroWave decodes on a separate compute queue where the GPU has one; without one this changes nothing. Measured no clear gain, and it can delay presentation on Wayland.", |ui, s| {
                 toggle(ui, &mut s.pyrowave_async_compute)
             });
+            // Windows PCs with two GPUs, for the whole app, not a PC or a profile.
+            #[cfg(windows)]
+            if let Some(gpus) = crate::gpu_adapters::gpus().filter(|_| !layered) {
+                rows.always();
+                setting_row(ui, s, &mut rows, &["graphics_card"], "Graphics card", "The GPU that draws and decodes the stream. Automatic is Windows' choice, or the GPU that decodes YUV 4:4:4 when that is on. Nightjar starts again to switch.", |ui, s| {
+                    use crate::config::GraphicsCard;
+                    let name = |choice: GraphicsCard| match choice {
+                        GraphicsCard::Automatic => tr(choice.label()).to_owned(),
+                        GraphicsCard::PowerSaving => format!("{} ({})", tr(choice.label()), gpus.power_saving.name),
+                        GraphicsCard::HighPerformance => format!("{} ({})", tr(choice.label()), gpus.high_performance.name),
+                    };
+                    Combo::from_id_salt("graphics_card")
+                        .selected_text(name(s.graphics_card))
+                        .show_ui(ui, |ui| {
+                            for choice in GraphicsCard::ALL {
+                                ui.selectable_value(&mut s.graphics_card, choice, name(choice));
+                            }
+                        })
+                        .response
+                });
+            }
 
             rows.section(en("Display & image"));
             setting_row(ui, s, &mut rows, &["window_mode"], "Window", "Borderless covers the screen without changing the display's mode, so switching to other apps stays quick.", |ui, s| {
@@ -1448,6 +1469,7 @@ pub(super) fn value_text(key: &str, s: &Settings, display: &Display, style: crat
         "upscale_sharpness" => format!("{}%", s.upscale_sharpness),
         "decoder" => decoder_name(s.decoder).to_owned(),
         "renderer" => tr(s.renderer.label()).to_owned(),
+        "graphics_card" => tr(s.graphics_card.label()).to_owned(),
         "pyrowave_decoder" => tr(s.pyrowave_decoder.label()).to_owned(),
         "window_mode" => window_name(s.window_mode).to_owned(),
         "video_scaling" => tr(s.video_scaling.label()).to_owned(),

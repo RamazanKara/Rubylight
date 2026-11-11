@@ -341,14 +341,27 @@ pub struct LogFile {
 
 impl LogFile {
     /// Rotate the files in `dir` and open the new current one.
+    #[cfg(test)]
     pub fn open(dir: &Path, cap: u64) -> io::Result<Self> {
-        let rotation = rotate(dir)?;
+        Self::open_with(dir, cap, false)
+    }
+
+    /// [`LogFile::open`], or with `continuing` the current file appended to: a start the run before
+    /// made itself (a restart on another GPU) keeps that run's lines, and the run before it in prev.
+    pub fn open_with(dir: &Path, cap: u64, continuing: bool) -> io::Result<Self> {
+        let rotation = if continuing {
+            std::fs::create_dir_all(dir)?;
+            Rotation { file: std::fs::OpenOptions::new().append(true).create(true).open(dir.join(CURRENT))?, warning: None }
+        } else {
+            rotate(dir)?
+        };
+        let written = if continuing { rotation.file.metadata().map_or(0, |meta| meta.len()) } else { 0 };
         Ok(Self {
             dir: dir.to_path_buf(),
             cap,
             limit: cap,
             file: BufWriter::new(rotation.file),
-            written: 0,
+            written,
             stamper: Stamper::default(),
             redactor: Redactor::default(),
             scratch: Vec::new(),

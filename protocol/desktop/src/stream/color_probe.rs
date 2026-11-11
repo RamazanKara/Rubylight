@@ -196,7 +196,28 @@ pub fn probe(
             }
         }
     }
+    #[cfg(windows)]
+    if let Some(hint) = other_gpu_hint(hardware, wanted & !decodable) {
+        failures.push(hint);
+    }
     (decodable, failures.join("; "))
+}
+
+/// When HEVC 4:4:4 (of `failed`) does not decode on the renderer's GPU, D3D11VA's, but does on
+/// another GPU of this PC (a laptop drawing on its integrated GPU): how to move Nightjar there.
+#[cfg(windows)]
+fn other_gpu_hint(hardware: media::Hardware, failed: u32) -> Option<String> {
+    let media::Hardware::D3d11(device) = hardware else { return None };
+    let ten_bit = if failed & VIDEO_FORMAT_H265_REXT8_444 != 0 {
+        false
+    } else if failed & VIDEO_FORMAT_H265_REXT10_444 != 0 {
+        true
+    } else {
+        return None;
+    };
+    let (renderer, others) = crate::gpu_adapters::others_decoding_hevc444(device, ten_bit)?;
+    eprintln!("nightjar: decoder probe ran on {renderer}; other GPUs that decode HEVC 4:4:4{}: {others:?}", if ten_bit { " 10-bit" } else { "" });
+    others.first().map(|other| crate::gpu_adapters::hint(&renderer, other))
 }
 
 fn decode(

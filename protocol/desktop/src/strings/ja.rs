@@ -346,6 +346,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("full chroma is on and has its own 4:4:4 and 10-bit handling.", "フルクロマが有効で、独自に4:4:4と10ビットを処理します。"),
     ("PyroWave is chosen, and it has its own 4:4:4 and 10-bit modes.", "PyroWaveが選択されており、独自の4:4:4と10ビットのモードがあります。"),
     ("this device can’t decode or draw it ({}).", "このデバイスではデコードまたは描画できません（{}）。"),
+    ("Nightjar draws on {}, which can’t; {} can: set Nightjar to High performance in Windows Settings › System › Display › Graphics, then restart Nightjar", "Nightjar は {0} で描画していますが、これはできません。{1} はできます：Windows の設定 › システム › ディスプレイ › グラフィックで Nightjar を高パフォーマンスにして、Nightjar を再起動してください"),
     ("the PC doesn’t encode it for this codec.", "PCはこのコーデックでエンコードしません。"),
     ("4:4:4 is on, and the PC takes 4:4:4 or 10-bit, not both.", "4:4:4 が有効で、PC は 4:4:4 か 10 ビットのどちらか一方のみ使えます。"),
     ("Full color range", "フルカラーレンジ"),

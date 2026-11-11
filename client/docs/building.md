@@ -199,6 +199,12 @@ It needs the `PLAY_SERVICE_ACCOUNT_JSON` secret: the JSON key of a Google Cloud 
 Get-Content -Raw C:\path\to\key.json | gh secret set PLAY_SERVICE_ACCOUNT_JSON -R RamazanKara/nightjar
 ```
 
+To check the key and its Play Console access without uploading anything, run the workflow by hand with `check_only`: it opens an edit, lists the tracks and discards it.
+
+```sh
+gh workflow run play.yml -R RamazanKara/nightjar -f check_only=true
+```
+
 ## Documentation checks
 
 Use Python 3.10+ and Node.js 18+; these scripts use only standard libraries and do not install packages or contact the network.

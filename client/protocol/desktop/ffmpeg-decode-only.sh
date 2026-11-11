@@ -55,14 +55,15 @@ else
   )
 fi
 
-# Nightjar's changes to FFmpeg (Linux only, they touch the V4L2 decoders); a second run on the same
-# source finds them applied.
+# Nightjar's changes to FFmpeg: ffmpeg-patches/ on Linux (the V4L2 decoders), ffmpeg-patches/windows/
+# on Windows (D3D11VA and DXVA2 HEVC 4:4:4, Moonlight's, which FFmpeg 8 lacks: without it HEVC
+# 4:4:4 has no hardware path on Windows, Rubylight issue 84). A second run on the same source finds
+# them applied.
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-if [[ -n $linux ]]; then
-  for change in "$here"/ffmpeg-patches/*.patch; do
-    patch -d "$source_dir" -p1 -R --dry-run -f <"$change" >/dev/null 2>&1 || patch -d "$source_dir" -p1 -f <"$change"
-  done
-fi
+if [[ -n $linux ]]; then patches=("$here"/ffmpeg-patches/*.patch); else patches=("$here"/ffmpeg-patches/windows/*.patch); fi
+for change in "${patches[@]}"; do
+  patch -d "$source_dir" -p1 -R --dry-run -f <"$change" >/dev/null 2>&1 || patch -d "$source_dir" -p1 -f <"$change"
+done
 
 build=$(mktemp -d)
 cd "$build"
@@ -77,6 +78,14 @@ cd "$build"
   --enable-decoder=h264,hevc,av1 --enable-parser=h264,hevc,av1 \
   --enable-libdav1d --enable-decoder=libdav1d \
   "${platform[@]}"
+if [[ -z $linux ]]; then
+  # The patched HEVC hwaccels need DXVA_PicParams_HEVC_RangeExt (MinGW-w64 13 headers or newer);
+  # without it configure drops them, and with them every HEVC picture, silently to software.
+  for hwaccel in HEVC_D3D11VA HEVC_D3D11VA2 HEVC_DXVA2; do
+    grep -q "^#define CONFIG_${hwaccel}_HWACCEL 1" config_components.h ||
+      { echo "configure left out the ${hwaccel,,} hwaccel: these MinGW headers lack DXVA_PicParams_HEVC_RangeExt (update mingw-w64-ucrt-x86_64-headers)" >&2; exit 1; }
+  done
+fi
 make -j"$jobs"
 make install
 
@@ -85,8 +94,8 @@ make install
 mkdir -p "$prefix/licenses-ffmpeg" "$prefix/licenses-dav1d"
 cp "$source_dir/COPYING.LGPLv2.1" "$source_dir/LICENSE.md" "$prefix/licenses-ffmpeg/"
 ffmpeg_release=$(cat "$source_dir/RELEASE")
-built=unmodified
-[[ -z $linux ]] || built="with the .patch files in this folder applied"
+built="with the .patch files in this folder applied"
+cp "${patches[@]}" "$prefix/licenses-ffmpeg/"
 cat >"$prefix/licenses-ffmpeg/SOURCE.txt" <<EOF
 FFmpeg $ffmpeg_release, LGPL v2.1 or later, linked dynamically (libavcodec and libavutil).
 Source: https://ffmpeg.org/releases/ffmpeg-$ffmpeg_release.tar.xz
@@ -99,7 +108,6 @@ if [[ -n $linux ]]; then
   # The VAAPI to Vulkan mapping needs libavutil built with libdrm; under --disable-autodetect
   # nothing else would notice a configure line that lost --enable-libdrm.
   readelf -d "$prefix/lib/libavutil.so" | grep -q 'NEEDED.*\[libdrm\.so' || { echo "libavutil.so does not link libdrm (apt install libdrm-dev)" >&2; exit 1; }
-  cp "$here"/ffmpeg-patches/*.patch "$prefix/licenses-ffmpeg/"
   for lib in "$prefix"/lib/lib*.so.*.*; do
     readelf -d "$lib" | grep -Eq '(RPATH|RUNPATH).*\[\$ORIGIN\]' || { echo "${lib##*/} has no run path \$ORIGIN" >&2; exit 1; }
   done

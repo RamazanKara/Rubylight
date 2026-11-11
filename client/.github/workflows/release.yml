@@ -405,7 +405,7 @@ jobs:
         # the first run can stop after updating pacman itself, so it runs twice.
         run: |
           /c/msys64/usr/bin/pacman.exe -Syu --noconfirm
-          /c/msys64/usr/bin/pacman.exe -Syu --noconfirm --needed make git \
+          /c/msys64/usr/bin/pacman.exe -Syu --noconfirm --needed make git patch \
             mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-cmake \
             mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-nasm mingw-w64-ucrt-x86_64-pkgconf \
             mingw-w64-ucrt-x86_64-sdl3 mingw-w64-ucrt-x86_64-opus mingw-w64-ucrt-x86_64-dav1d \
@@ -420,7 +420,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ffprefix
-          key: ffmpeg-decode-only-${{ env.FFMPEG_VERSION }}-${{ env.FFMPEG_SHA256 }}-${{ hashFiles('protocol/desktop/ffmpeg-decode-only.sh') }}
+          key: ffmpeg-decode-only-${{ env.FFMPEG_VERSION }}-${{ env.FFMPEG_SHA256 }}-${{ hashFiles('protocol/desktop/ffmpeg-decode-only.sh', 'protocol/desktop/ffmpeg-patches/windows/*.patch') }}
       - name: Build the decode-only FFmpeg
         if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
         run: |

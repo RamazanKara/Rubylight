@@ -242,6 +242,12 @@ Its Vulkan video decoding on Linux is ported from moonlight-qt's plvk.cpp
 contributors) as Moonlight V+ ships it: FFmpeg's Vulkan device context filled from the
 renderer's own Vulkan device, its queue locks and the frame locks around the presenter's
 copy (client/protocol/desktop/src/vulkan_video.rs).
+The FFmpeg that Nightjar desktop ships on Windows carries Moonlight's FFmpeg patch for
+D3D11VA, D3D12VA and DXVA2 decoding of HEVC Range Extension profiles (HEVC 4:4:4), by
+Cameron Gutman, from https://github.com/moonlight-stream/moonlight-qt-deps
+(patches/ffmpeg_dxva_hevc_rext.patch), adapted to FFmpeg 8.1
+(client/protocol/desktop/ffmpeg-patches/windows/). It is part of FFmpeg (LGPL-2.1 or
+later) and ships with FFmpeg's licence and source note.
 
 sonora and WebRTC audio processing
 

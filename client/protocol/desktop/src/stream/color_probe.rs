@@ -215,9 +215,18 @@ fn other_gpu_hint(hardware: media::Hardware, failed: u32) -> Option<String> {
     } else {
         return None;
     };
-    let (renderer, others) = crate::gpu_adapters::others_decoding_hevc444(device, ten_bit)?;
-    eprintln!("nightjar: decoder probe ran on {renderer}; other GPUs that decode HEVC 4:4:4{}: {others:?}", if ten_bit { " 10-bit" } else { "" });
-    others.first().map(|other| crate::gpu_adapters::hint(&renderer, other))
+    let depth = if ten_bit { " 10-bit" } else { "" };
+    match crate::gpu_adapters::others_decoding_hevc444(device, ten_bit)? {
+        (renderer, crate::gpu_adapters::Hevc444Gpus::Renderer) => {
+            // Moving to another GPU would not help: the decoder itself lacks the profile.
+            eprintln!("nightjar: decoder probe ran on {renderer}, whose DXVA lists HEVC 4:4:4{depth}, so this build's decoder failed, not the GPU choice");
+            None
+        }
+        (renderer, crate::gpu_adapters::Hevc444Gpus::Others(others)) => {
+            eprintln!("nightjar: decoder probe ran on {renderer}; other GPUs that decode HEVC 4:4:4{depth}: {others:?}");
+            others.first().map(|other| crate::gpu_adapters::hint(&renderer, other))
+        }
+    }
 }
 
 fn decode(
@@ -520,6 +529,41 @@ mod tests {
         assert!(keeps_depth(&info(media::FRAME_YUV444P, 0), true).is_err());
         assert!(keeps_depth(&info(media::FRAME_D3D11_444, 1), true).is_ok());
         assert!(keeps_depth(&info(media::FRAME_D3D11_444, 0), false).is_ok());
+    }
+
+    /// The fixtures through D3D11VA on this PC's GPU: plain HEVC and Main10 decode wherever the GPU
+    /// has HEVC, and HEVC 4:4:4 decodes exactly where the GPU's DXVA lists the Range Extension
+    /// profile. Rubylight issue 84: FFmpeg 8 has no DXVA HEVC 4:4:4, so an RTX 5060 that lists the
+    /// profile refused every 4:4:4 stream until the FFmpeg patch (`ffmpeg-patches/windows`).
+    #[cfg(windows)]
+    #[test]
+    fn d3d11va_decodes_hevc_4_4_4_where_the_gpu_lists_it() {
+        use windows::core::Interface;
+        use windows::Win32::Foundation::HMODULE;
+        use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
+        use windows::Win32::Graphics::Direct3D11::*;
+        let mut device = None;
+        // SAFETY: A device of the test's own, kept alive past every use of its pointer.
+        let made = unsafe {
+            D3D11CreateDevice(None, D3D_DRIVER_TYPE_HARDWARE, HMODULE::default(), D3D11_CREATE_DEVICE_VIDEO_SUPPORT, None,
+                D3D11_SDK_VERSION, Some(&mut device), None, None)
+        };
+        let Some(device) = device.filter(|_| made.is_ok()) else {
+            eprintln!("no hardware Direct3D 11 device here");
+            return;
+        };
+        let hardware = media::Hardware::D3d11(device.as_raw());
+        let base = probe_base(hardware, VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10);
+        assert_eq!(base.decodable, VIDEO_FORMAT_H265 | VIDEO_FORMAT_H265_MAIN10, "{}", base.reason);
+        for (format, ten_bit) in [(VIDEO_FORMAT_H265_REXT8_444, false), (VIDEO_FORMAT_H265_REXT10_444, true)] {
+            let lists = matches!(
+                crate::gpu_adapters::others_decoding_hevc444(device.as_raw(), ten_bit),
+                Some((_, crate::gpu_adapters::Hevc444Gpus::Renderer))
+            );
+            let (decodable, reason) = probe(hardware, format, |_| Ok(()));
+            eprintln!("HEVC 4:4:4 (10-bit {ten_bit}): DXVA lists it {lists}, decodes {}: {reason}", decodable != 0);
+            assert_eq!(decodable != 0, lists, "{reason}");
+        }
     }
 
     /// Both settings on ask for HEVC RExt 4:4:4 10-bit: the software decoder makes 10-bit 4:4:4

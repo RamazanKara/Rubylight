@@ -755,6 +755,11 @@ fn receive_thread(
         )),
         None => {}
     }
+    if let Some(e) = batch.take_gro_refusal() {
+        session.log(&format!("Video receive UDP_GRO is off: {e}"));
+    } else if batch.gro() {
+        session.log("Video receive UDP_GRO is on: coalesced reads are split per datagram");
+    }
     let mut staged = StagedChunks::default();
     let mut trace = PacketTrace::from_env(Stream::Video { encrypted });
     while !stop.load(Ordering::Acquire) {

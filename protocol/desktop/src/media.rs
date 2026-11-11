@@ -467,7 +467,7 @@ pub fn vaapi_node(hardware: Hardware) -> VaapiNode {
 fn mapped_extra(hardware: Hardware, pictures: Pictures) -> i32 {
     #[cfg(unix)]
     if hardware == Hardware::Vaapi && matches!(pictures.vaapi_node, VaapiNode::Mapped(_)) {
-        return crate::vulkan_video::MAPPED_HELD;
+        return crate::vulkan_video::mapped_held();
     }
     let _ = (hardware, pictures);
     0
@@ -1971,7 +1971,7 @@ mod tests {
     #[test]
     fn a_vaapi_pool_that_maps_keeps_surfaces_for_the_presenters_copies() {
         let mapped = Pictures { vaapi_node: VaapiNode::Mapped(129), ..Pictures::default() };
-        assert_eq!(mapped_extra(Hardware::Vaapi, mapped), if cfg!(unix) { crate::vulkan_video::MAPPED_HELD } else { 0 });
+        assert_eq!(mapped_extra(Hardware::Vaapi, mapped), if cfg!(unix) { crate::vulkan_video::mapped_held() } else { 0 });
         assert_eq!(mapped_extra(Hardware::Vaapi, Pictures::default()), 0);
         assert_eq!(mapped_extra(Hardware::Cuda, mapped), 0);
         // The OpenGL renderer imports DMA-BUFs: no copies to wait for.

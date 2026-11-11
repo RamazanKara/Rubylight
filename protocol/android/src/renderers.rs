@@ -54,6 +54,10 @@ impl Video {
         if self.chunks.bytes.is_empty() {
             return;
         }
+        if self.direct {
+            self.flush_chunks_in_place();
+            return;
+        }
         let b = self.bridge;
         let needed = self.chunks.bytes.len();
         let (chunks, buffer, capacity) = (&self.chunks, &mut self.buffer, &mut self.capacity);
@@ -72,6 +76,30 @@ impl Video {
                 jni::objects::JValue::Bool(chunks.first.into()).as_jni(),
             ];
             b.void(env, b.m.dr_chunks, &args);
+            Ok(())
+        });
+        self.chunks.clear();
+    }
+
+    /// The same batch as [`flush_chunks`](Self::flush_chunks), as a direct buffer over the batch's
+    /// own memory (`debug.nightjar.pyro_direct`, as for frames): Java's renderer reads it during
+    /// the call, and `self.chunks` is not touched until the call returns, so the bytes stay put.
+    fn flush_chunks_in_place(&mut self) {
+        let b = self.bridge;
+        let (bytes, first) = (&self.chunks.bytes, self.chunks.first);
+        let length = bytes.len();
+        b.with_env(|env| {
+            // SAFETY: Java only reads the buffer, and only until the call returns (the contract
+            // of bridgeDrSubmitChunksDirect); `bytes` is borrowed from `self.chunks`, which is
+            // neither moved nor cleared until after the call, and the local reference goes with
+            // with_env's frame.
+            let direct = unsafe { env.new_direct_byte_buffer(bytes.as_ptr().cast_mut(), length)? };
+            let args = [
+                bridge::object(&direct),
+                bridge::int(length as i32),
+                jni::objects::JValue::Bool(first.into()).as_jni(),
+            ];
+            b.void(env, b.m.dr_chunks_direct, &args);
             Ok(())
         });
         self.chunks.clear();

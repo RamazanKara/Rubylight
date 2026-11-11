@@ -547,6 +547,11 @@ impl VideoReceiver {
         if datagram.len() < 12 + header {
             return;
         }
+        // A datagram the queue would reject (its frame or block is finished) is dropped before a
+        // packet buffer is taken for it. Encrypted ones are checked after decryption, as before.
+        if self.decryptor.is_none() && self.queue.rejects_datagram(datagram) {
+            return;
+        }
         let mut buf = self.pools.packet();
         let len = if let Some(decryptor) = &self.decryptor {
             // Drop shards of frames already reassembled before spending time on decryption.

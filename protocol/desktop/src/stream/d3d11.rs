@@ -2,7 +2,7 @@ use std::ffi::c_void;
 
 use windows::core::{s, Interface, PCSTR};
 use windows::Win32::Graphics::Direct3D::{
-    Fxc::*, ID3DBlob, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST, D3D_SRV_DIMENSION_TEXTURE2D,
+    Fxc::*, ID3DBlob, D3D11_SRV_DIMENSION_TEXTURE2DARRAY, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST, D3D_SRV_DIMENSION_TEXTURE2D,
 };
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
@@ -102,11 +102,106 @@ pub struct PlanesPass {
     /// made with the first one.
     surface: Option<SurfaceCopy>,
     surface_fragment: Option<ID3D11PixelShader>,
+    /// The shaders and constants of `draw_direct`, made with the first one.
+    direct: Option<DirectShaders>,
+    /// SDL's back buffer as a render target, for `draw_direct`.
+    back_buffer: BackBuffer,
+    /// The 4:4:4 surface `bind_surface` left, for `draw_direct` and `draw_bound_surface`.
+    bound: Option<BoundSurface>,
+    /// Views of the decoder's readable textures' slices, for the one texture they are of.
+    surface_views: Option<(usize, SliceViews)>,
+}
+
+/// A decoder texture's slice views by slice and format.
+type SliceViews = std::collections::HashMap<(u32, i32), ID3D11ShaderResourceView>;
+
+/// The pixel shaders of the direct draw (planes_direct.hlsl) and its constants (b1).
+struct DirectShaders {
+    planes: ID3D11PixelShader,
+    surface: ID3D11PixelShader,
+    surface_array: ID3D11PixelShader,
+    /// `surfaceArray444`: an in-place surface converted into the RGBA64F texture.
+    surface_array_target: ID3D11PixelShader,
+    constants: ID3D11Buffer,
+}
+
+/// A 4:4:4 surface ready to be drawn: read in place through `view` (a slice of the decoder's
+/// texture array), or copied into the pass's `SurfaceCopy`. `parameters` are the surface
+/// entries' (`surface_parameters`).
+struct BoundSurface {
+    view: Option<ID3D11ShaderResourceView>,
+    parameters: [u32; 8],
+}
+
+/// SDL's back buffer as a render target, made for the swap chain and output size it was made at.
+/// It is let go before SDL resizes the buffers (a size change, or a frame that is not drawn
+/// here): ResizeBuffers fails while a buffer is still referenced.
+#[derive(Default)]
+pub struct BackBuffer {
+    view: Option<(usize, (i32, i32), ID3D11RenderTargetView)>,
+}
+
+impl BackBuffer {
+    /// Lets go of the view when it is not for `swap_chain` at `size`. Call it before SDL runs its
+    /// queue (`SDL_FlushRenderer`), which is where SDL resizes.
+    pub fn keep_if(&mut self, swap_chain: usize, size: (i32, i32)) {
+        if !self.view.as_ref().is_some_and(|(chain, at, _)| *chain == swap_chain && *at == size) {
+            self.view = None;
+        }
+    }
+
+    /// Lets go of the view, for a frame that does not draw with it.
+    pub fn release(&mut self) {
+        self.view = None;
+    }
+
+    /// The view of buffer 0 of `swap_chain` (made if there is none for it), for the `size` the
+    /// output has.
+    ///
+    /// # Safety
+    /// `swap_chain` is the live `IDXGISwapChain` of the renderer.
+    pub unsafe fn view(&mut self, swap_chain: *mut c_void, size: (i32, i32)) -> Result<ID3D11RenderTargetView, String> {
+        if self.view.is_none() {
+            let chain = IDXGISwapChain::from_raw_borrowed(&swap_chain).ok_or("the renderer has no swap chain")?;
+            let buffer = chain.GetBuffer::<ID3D11Texture2D>(0).map_err(|e| format!("the back buffer: {e}"))?;
+            let device = buffer.GetDevice().map_err(|e| format!("the back buffer's device: {e}"))?;
+            let mut target = None;
+            device.CreateRenderTargetView(&buffer, None, Some(&mut target)).map_err(|e| format!("the back buffer's view: {e}"))?;
+            self.view = Some((swap_chain as usize, size, target.ok_or("no back buffer view")?));
+        }
+        Ok(self.view.as_ref().expect("made above").2.clone())
+    }
+
+    #[cfg(test)]
+    pub fn is_held(&self) -> bool {
+        self.view.is_some()
+    }
+
+    #[cfg(test)]
+    pub fn hold(&mut self, swap_chain: usize, size: (i32, i32), view: ID3D11RenderTargetView) {
+        self.view = Some((swap_chain, size, view));
+    }
+}
+
+/// What `PlanesPass::draw_direct` reads.
+pub enum DirectSource<'a> {
+    /// A GPU-decoded picture's plane set, once `fence_value` is signalled on the decode fence.
+    Lease { lease: &'a Lease, fence_value: u64, deadline: std::time::Duration },
+    /// The software-decoded planes `upload_frame` put into the pass's textures.
+    Frame,
+    /// The 4:4:4 surface `bind_surface` bound.
+    Surface,
 }
 
 /// The source of the plane pass with the 4:4:4 surface entry (`surface444.hlsl`) appended.
 fn surface_source() -> Vec<u8> {
     [include_bytes!("../pyrowave.hlsl").as_slice(), b"\n", include_bytes!("../surface444.hlsl")].concat()
+}
+
+/// The source of the direct draw: the plane shader with the surface entry and the direct entries
+/// (`planes_direct.hlsl`) appended.
+fn direct_source() -> Vec<u8> {
+    [surface_source().as_slice(), b"\n", include_bytes!("../planes_direct.hlsl")].concat()
 }
 
 /// How the surface entry reads a 4:4:4 D3D11VA surface of `format` (`media::FRAME_D3D11_444`):
@@ -174,7 +269,7 @@ impl PlanesPass {
         Ok(Self { context, queue, deferred: deferred.unwrap(), device, target: [target_view],
             vertex: vertex.unwrap(), fragment: fragment.unwrap(), constants: [constants], sampler: [sampler],
             raster: raster.unwrap(), size: (desc.Width, desc.Height), views: Default::default(), owner: None, frame: None,
-            surface: None, surface_fragment: None })
+            surface: None, surface_fragment: None, direct: None, back_buffer: BackBuffer::default(), bound: None, surface_views: None })
     }
 
     /// Compiles the plane shader for a probe: whether the pass can be built at all.
@@ -185,8 +280,58 @@ impl PlanesPass {
             compile(source, s!("vertex"), s!("vs_5_0")).map_err(|e| format!("the PyroWave plane shader does not compile: {e}"))?;
             compile(source, s!("planes"), s!("ps_5_0")).map_err(|e| format!("the PyroWave plane shader does not compile: {e}"))?;
             compile(&surface_source(), s!("surface444"), s!("ps_5_0")).map_err(|e| format!("the 4:4:4 picture shader does not compile: {e}"))?;
+            for entry in [s!("planesDirect"), s!("surfaceDirect"), s!("surfaceArrayDirect"), s!("surfaceArray444")] {
+                compile(&direct_source(), entry, s!("ps_5_0")).map_err(|e| format!("the direct plane shader does not compile: {e}"))?;
+            }
         }
         Ok(())
+    }
+
+    /// The direct draw's shaders and constants, made on the first use.
+    fn direct_shaders(&mut self) -> Result<&DirectShaders, String> {
+        if self.direct.is_none() {
+            let source = direct_source();
+            let pixel = |entry: PCSTR| -> Result<ID3D11PixelShader, String> {
+                // SAFETY: A compiler call on static source and a shader made on the pass's device.
+                unsafe {
+                    let code = compile(&source, entry, s!("ps_5_0")).map_err(|e| format!("the direct plane shader does not compile: {e}"))?;
+                    let mut shader = None;
+                    self.device.CreatePixelShader(std::slice::from_raw_parts(code.GetBufferPointer().cast(), code.GetBufferSize()), None, Some(&mut shader))
+                        .map_err(|e| format!("the direct plane shader cannot be made: {e}"))?;
+                    shader.ok_or_else(|| "no direct plane shader".to_string())
+                }
+            };
+            let (planes, surface, surface_array, surface_array_target) =
+                (pixel(s!("planesDirect"))?, pixel(s!("surfaceDirect"))?, pixel(s!("surfaceArrayDirect"))?, pixel(s!("surfaceArray444"))?);
+            let mut constants = None;
+            // SAFETY: A buffer on the pass's device.
+            unsafe {
+                self.device.CreateBuffer(&D3D11_BUFFER_DESC { ByteWidth: std::mem::size_of::<super::direct_planes::Constants>() as u32, Usage: D3D11_USAGE_DEFAULT,
+                    BindFlags: D3D11_BIND_CONSTANT_BUFFER.0 as u32, ..Default::default() }, None, Some(&mut constants))
+                    .map_err(|e| format!("the direct plane constants cannot be made: {e}"))?;
+            }
+            self.direct = Some(DirectShaders { planes, surface, surface_array, surface_array_target, constants: constants.ok_or("no direct plane constants")? });
+        }
+        Ok(self.direct.as_ref().expect("made above"))
+    }
+
+    /// Lets go of SDL's back buffer, for a frame the pass does not draw into it (SDL may resize then).
+    pub fn release_back_buffer(&mut self) {
+        self.back_buffer.release();
+    }
+
+    /// The view of SDL's back buffer to draw into, once SDL's queue has run (the caller flushed
+    /// the renderer); see `BackBuffer`.
+    ///
+    /// # Safety
+    /// `swap_chain` is the live swap chain of the renderer this pass's device belongs to.
+    pub unsafe fn back_buffer(&mut self, swap_chain: *mut c_void, size: (i32, i32)) -> Result<ID3D11RenderTargetView, String> {
+        self.back_buffer.view(swap_chain, size)
+    }
+
+    /// Call before SDL runs its queue: a view for another swap chain or size goes.
+    pub fn keep_back_buffer_if(&mut self, swap_chain: usize, size: (i32, i32)) {
+        self.back_buffer.keep_if(swap_chain, size);
     }
 
     /// Draws a 4:4:4 D3D11VA picture (`media::FRAME_D3D11_444`: AYUV, Y410 or Y416) into the
@@ -205,13 +350,49 @@ impl PlanesPass {
     /// `lock` runs the copy under the lock of the device's other user (FFmpeg's decoder).
     fn draw_texture(&mut self, source: &ID3D11Texture2D, slice: u32, size: (u32, u32), parameters: &[u32; 8],
         lock: &mut dyn FnMut(&mut dyn FnMut())) -> Result<(), String> {
+        let parameters = self.copy_texture(source, slice, size, parameters, lock)?;
+        self.draw_copied_surface(&parameters)
+    }
+
+    /// Draws the surface `copy_texture` copied last into the target.
+    fn draw_copied_surface(&mut self, parameters: &[u32; 8]) -> Result<(), String> {
+        let fragment = self.surface_fragment()?;
+        let view = self.surface.as_ref().ok_or("no 4:4:4 picture was copied")?.view.clone();
+        self.record_pass(&fragment, 4, &view, parameters, None).map_err(|e| format!("cannot record the 4:4:4 picture pass: {e}"))
+    }
+
+    /// Checks slice `slice` of `source` (its `size` top-left pixels are the picture) against what
+    /// the pass reads and copies it into the pass's texture; the constants for its entries.
+    fn copy_texture(&mut self, source: &ID3D11Texture2D, slice: u32, size: (u32, u32), parameters: &[u32; 8],
+        lock: &mut dyn FnMut(&mut dyn FnMut())) -> Result<[u32; 8], String> {
+        let (desc, parameters) = self.check_surface(source, slice, size, parameters)?;
+        let (view_format, _) = surface_view(desc.Format).expect("a format check_surface accepted");
+        if self.surface.as_ref().is_none_or(|copy| copy.format != desc.Format || copy.size != size) {
+            self.surface = None;
+            // SAFETY: A texture and view on the pass's own device.
+            self.surface = Some(unsafe { SurfaceCopy::new(&self.device, desc.Format, view_format, size) }
+                .map_err(|e| format!("cannot make the {}x{} copy of the decoder's 4:4:4 pictures: {e}", size.0, size.1))?);
+        }
+        let copy = self.surface.as_ref().unwrap();
+        let region = D3D11_BOX { left: 0, top: 0, front: 0, right: size.0, bottom: size.1, back: 1 };
+        // Subresource `slice` is the picture: the decoder's textures have one mip level.
+        let subresource = slice * desc.MipLevels.max(1);
+        // SAFETY: Both textures are live on this device, the region is inside both, and the
+        // immediate context is used under the lock FFmpeg holds while it decodes.
+        lock(&mut || unsafe { self.context.CopySubresourceRegion(&copy.texture, 0, 0, 0, 0, source, subresource, Some(&region)) });
+        Ok(parameters)
+    }
+
+    /// What `draw_texture` checks before it reads slice `slice` of `source`: a format this pass
+    /// reads, a picture that fits, the pass's own device. The texture's description and the
+    /// constants of the surface entries.
+    fn check_surface(&self, source: &ID3D11Texture2D, slice: u32, size: (u32, u32), parameters: &[u32; 8]) -> Result<(D3D11_TEXTURE2D_DESC, [u32; 8]), String> {
         let mut desc = D3D11_TEXTURE2D_DESC::default();
         // SAFETY: A live texture.
         unsafe { source.GetDesc(&mut desc) };
-        let Some((view_format, _)) = surface_view(desc.Format) else {
+        let Some(parameters) = surface_parameters(*parameters, desc.Format) else {
             return Err(format!("the decoder's pictures are DXGI format {}, not a 4:4:4 format this pass reads", desc.Format.0));
         };
-        let parameters = surface_parameters(*parameters, desc.Format).expect("a format surface_view reads");
         if size.0 == 0 || size.1 == 0 || size.0 > desc.Width || size.1 > desc.Height || slice >= desc.ArraySize {
             return Err(format!("a {}x{} picture in slice {slice} does not fit the decoder's {}x{}x{} textures", size.0, size.1, desc.Width, desc.Height, desc.ArraySize));
         }
@@ -220,22 +401,68 @@ impl PlanesPass {
         if device.as_raw() != self.device.as_raw() {
             return Err("the decoder's pictures are on another Direct3D 11 device than the renderer's".into());
         }
-        if self.surface.as_ref().is_none_or(|copy| copy.format != desc.Format || copy.size != size) {
-            self.surface = None;
-            // SAFETY: A texture and view on the pass's own device.
-            self.surface = Some(unsafe { SurfaceCopy::new(&self.device, desc.Format, view_format, size) }
-                .map_err(|e| format!("cannot make the {}x{} copy of the decoder's 4:4:4 pictures: {e}", size.0, size.1))?);
+        Ok((desc, parameters))
+    }
+
+    /// Readies a 4:4:4 D3D11VA picture for `draw_direct` (`DirectSource::Surface`) and
+    /// `draw_bound_surface`. A readable decoder texture is read in place (the caller holds the
+    /// frame and draws under its lock): true. Otherwise, or when no view of it can be made, its
+    /// slice is copied now into the pass's texture (under the decoder's lock): false.
+    pub fn bind_surface(&mut self, frame: &media::Frame, info: &media::FrameInfo, parameters: &[u32; 8], in_place: bool) -> Result<bool, String> {
+        let surface = frame.d3d11_surface().ok_or("the picture is not a Direct3D 11 decoder surface")?;
+        let raw = surface.texture;
+        // SAFETY: The live frame's texture array, borrowed while the frame is.
+        let source = unsafe { ID3D11Texture2D::from_raw_borrowed(&raw) }.ok_or("the picture has no texture")?;
+        let size = (info.width.max(0) as u32, info.height.max(0) as u32);
+        if in_place && surface.readable {
+            let (desc, parameters) = self.check_surface(source, surface.slice, size, parameters)?;
+            match self.slice_view(source, raw as usize, surface.slice, desc.Format) {
+                Ok(view) => {
+                    self.bound = Some(BoundSurface { view: Some(view), parameters });
+                    return Ok(true);
+                }
+                Err(error) => eprintln!("nightjar: the decoder's 4:4:4 pictures cannot be read in place ({error}); they are copied"),
+            }
         }
-        let fragment = self.surface_fragment()?;
-        let copy = self.surface.as_ref().unwrap();
-        let region = D3D11_BOX { left: 0, top: 0, front: 0, right: size.0, bottom: size.1, back: 1 };
-        // Subresource `slice` is the picture: the decoder's textures have one mip level.
-        let subresource = slice * desc.MipLevels.max(1);
-        // SAFETY: Both textures are live on this device, the region is inside both, and the
-        // immediate context is used under the lock FFmpeg holds while it decodes.
-        lock(&mut || unsafe { self.context.CopySubresourceRegion(&copy.texture, 0, 0, 0, 0, source, subresource, Some(&region)) });
-        let view = copy.view.clone();
-        self.record_pass(&fragment, 4, &view, &parameters, None).map_err(|e| format!("cannot record the 4:4:4 picture pass: {e}"))
+        let parameters = self.copy_texture(source, surface.slice, size, parameters, &mut |copy: &mut dyn FnMut()| frame.with_decoder_lock(copy))?;
+        self.bound = Some(BoundSurface { view: None, parameters });
+        Ok(false)
+    }
+
+    /// A view of slice `slice` of the decoder's texture `source` as the surface entries read it.
+    fn slice_view(&mut self, source: &ID3D11Texture2D, key: usize, slice: u32, format: DXGI_FORMAT) -> Result<ID3D11ShaderResourceView, String> {
+        let (view_format, _) = surface_view(format).ok_or("not a 4:4:4 format")?;
+        if !self.surface_views.as_ref().is_some_and(|(texture, _)| *texture == key) {
+            self.surface_views = Some((key, Default::default()));
+        }
+        let (_, views) = self.surface_views.as_mut().unwrap();
+        if let Some(view) = views.get(&(slice, format.0)) {
+            return Ok(view.clone());
+        }
+        let mut view = None;
+        // SAFETY: A view of a live texture made with the shader resource bind flag.
+        unsafe {
+            self.device.CreateShaderResourceView(source, Some(&D3D11_SHADER_RESOURCE_VIEW_DESC { Format: view_format, ViewDimension: D3D11_SRV_DIMENSION_TEXTURE2DARRAY,
+                Anonymous: D3D11_SHADER_RESOURCE_VIEW_DESC_0 { Texture2DArray: D3D11_TEX2D_ARRAY_SRV { MostDetailedMip: 0, MipLevels: 1, FirstArraySlice: slice, ArraySize: 1 } } }), Some(&mut view))
+                .map_err(|e| format!("a view of slice {slice}: {e}"))?;
+        }
+        let view = view.ok_or("no view")?;
+        views.insert((slice, format.0), view.clone());
+        Ok(view)
+    }
+
+    /// Draws the bound surface into the target (the RGBA64F texture), for what reads the texture.
+    /// `lock` runs the submission under the decoder's lock for a surface read in place.
+    pub fn draw_bound_surface(&mut self, lock: &mut dyn FnMut(&mut dyn FnMut())) -> Result<(), String> {
+        let bound = self.bound.as_ref().ok_or("no 4:4:4 picture is bound")?;
+        let (view, parameters) = (bound.view.clone(), bound.parameters);
+        match view {
+            None => self.draw_copied_surface(&parameters),
+            Some(view) => {
+                let fragment = self.direct_shaders()?.surface_array_target.clone();
+                self.record_pass_locked(&fragment, 5, &[Some(view)], &parameters, None, lock).map_err(|e| format!("cannot record the 4:4:4 picture pass: {e}"))
+            }
+        }
     }
 
     /// The surface entry's pixel shader, compiled with the first 4:4:4 picture.
@@ -325,16 +552,7 @@ impl PlanesPass {
     /// Draws a software-decoded planar picture (FFmpeg's yuv444p, yuv420p10 or yuv444p10) into
     /// the target: its planes go into textures of the pass and are converted like the decoder's.
     pub fn draw_frame(&mut self, info: &media::FrameInfo, parameters: &[u32; 8]) -> Result<(), String> {
-        let layout = media::PlanarLayout::of(info).ok_or_else(|| format!("frame kind {} has no planes to draw", info.kind))?;
-        // Checked before anything is recorded, so a refused picture leaves no upload behind.
-        if let Some(plane) = (0..3).find(|&plane| info.data[plane].is_null() || info.linesize[plane] <= 0) {
-            return Err(format!("plane {plane} of the picture is missing"));
-        }
-        if self.frame.as_ref().is_none_or(|frame| frame.layout != layout) {
-            self.frame = None;
-            // SAFETY: Textures and views on the pass's own device.
-            self.frame = Some(unsafe { FramePlanes::new(&self.device, layout) }.map_err(|e| format!("cannot make the {}x{} picture planes: {e}", layout.width, layout.height))?);
-        }
+        self.make_frame(info)?;
         let frame = self.frame.as_ref().unwrap();
         for (plane, texture) in frame.textures.iter().enumerate() {
             // SAFETY: The plane pointer and pitch come from the live AVFrame, whose plane holds
@@ -354,6 +572,13 @@ impl PlanesPass {
     /// Records and runs `fragment` over `views` (bound from t`slot` on): the plane entry, or the
     /// surface entry over one 4:4:4 picture (t4).
     fn record_pass(&self, fragment: &ID3D11PixelShader, slot: u32, views: &[Option<ID3D11ShaderResourceView>], parameters: &[u32; 8], rows: Option<(u32, u32)>) -> windows::core::Result<()> {
+        self.record_pass_locked(fragment, slot, views, parameters, rows, &mut |submit| submit())
+    }
+
+    /// `record_pass`, the submission run by `lock` (under the decoder's lock for a decoder
+    /// texture read in place).
+    fn record_pass_locked(&self, fragment: &ID3D11PixelShader, slot: u32, views: &[Option<ID3D11ShaderResourceView>], parameters: &[u32; 8], rows: Option<(u32, u32)>,
+        lock: &mut dyn FnMut(&mut dyn FnMut())) -> windows::core::Result<()> {
         // SAFETY: The immediate context belongs to this (the presenting) thread; the deferred
         // context records the draw so SDL's cached immediate-context state is restored.
         unsafe {
@@ -379,7 +604,120 @@ impl PlanesPass {
             c.Draw(3, 0);
             let mut commands = None;
             c.FinishCommandList(false, Some(&mut commands))?;
-            self.context.ExecuteCommandList(commands.as_ref().unwrap(), true);
+            let commands = commands.unwrap();
+            lock(&mut || self.context.ExecuteCommandList(&commands, true));
+        }
+        Ok(())
+    }
+
+    /// Draws the picture `source` names straight into `target` (SDL's back buffer, a view of it
+    /// from `back_buffer`) at `viewport` (x, y, width, height in pixels), converted and scaled in
+    /// the one draw (`planes_direct.hlsl`). `parameters` are the plane pass's constants for the
+    /// picture and `constants` what SDL's draw of the texture would have applied. A plane set
+    /// stays with its lease, which the caller holds and gives back with `give_back` after the
+    /// last draw. `lock` runs the submission (under the decoder's lock for a surface read in place).
+    pub fn draw_direct(&mut self, target: &ID3D11RenderTargetView, viewport: [f32; 4], source: &DirectSource, parameters: &[u32; 8],
+        constants: &super::direct_planes::Constants, lock: &mut dyn FnMut(&mut dyn FnMut())) -> Result<(), String> {
+        let (planes_entry, surface_entry, array_entry, buffer) = {
+            let shaders = self.direct_shaders()?;
+            (shaders.planes.clone(), shaders.surface.clone(), shaders.surface_array.clone(), shaders.constants.clone())
+        };
+        let (fragment, slot, views, parameters): (ID3D11PixelShader, u32, Vec<Option<ID3D11ShaderResourceView>>, [u32; 8]) = match source {
+            DirectSource::Lease { lease, fence_value, deadline } => {
+                let planes = lease.planes().clone();
+                self.retarget(&planes);
+                fence_ready_within(planes.decode_fence(), *fence_value, *deadline)?;
+                let views = self.views(&planes, lease.set()).map_err(|e| format!("cannot read the PyroWave planes: {e}"))?;
+                // SAFETY: The immediate context belongs to this (the presenting) thread.
+                unsafe { self.queue.Wait(planes.decode_fence(), *fence_value) }.map_err(|e| format!("cannot order the picture after the PyroWave decode: {e}"))?;
+                (planes_entry, 1, views.to_vec(), *parameters)
+            }
+            DirectSource::Frame => {
+                let frame = self.frame.as_ref().ok_or("no planar picture was uploaded")?;
+                (planes_entry, 1, frame.views.to_vec(), *parameters)
+            }
+            DirectSource::Surface => {
+                let bound = self.bound.as_ref().ok_or("no 4:4:4 picture is bound")?;
+                match &bound.view {
+                    Some(view) => (array_entry, 5, vec![Some(view.clone())], bound.parameters),
+                    None => (surface_entry, 4, self.surface.as_ref().ok_or("no 4:4:4 picture was copied")?.view.to_vec(), bound.parameters),
+                }
+            }
+        };
+        // SAFETY: The immediate context belongs to this (the presenting) thread; the deferred
+        // context records the draw so SDL's cached immediate-context state is restored.
+        unsafe {
+            let c = &self.deferred;
+            c.ClearState();
+            c.UpdateSubresource(self.constants[0].as_ref().unwrap(), 0, None, parameters.as_ptr().cast(), 0, 0);
+            c.UpdateSubresource(&buffer, 0, None, std::ptr::from_ref(constants).cast(), 0, 0);
+            c.OMSetRenderTargets(Some(&[Some(target.clone())]), None);
+            c.RSSetViewports(Some(&[D3D11_VIEWPORT { TopLeftX: viewport[0], TopLeftY: viewport[1], Width: viewport[2], Height: viewport[3], MinDepth: 0.0, MaxDepth: 1.0 }]));
+            c.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            c.VSSetShader(&self.vertex, None);
+            c.PSSetShader(&fragment, None);
+            c.PSSetShaderResources(slot, Some(&views));
+            c.PSSetSamplers(0, Some(&self.sampler));
+            c.PSSetConstantBuffers(0, Some(&[self.constants[0].clone(), Some(buffer.clone())]));
+            c.Draw(3, 0);
+            let mut commands = None;
+            c.FinishCommandList(false, Some(&mut commands)).map_err(|e| format!("cannot record the direct plane pass: {e}"))?;
+            let commands = commands.ok_or("no command list")?;
+            lock(&mut || self.context.ExecuteCommandList(&commands, true));
+        }
+        Ok(())
+    }
+
+    /// Draws a plane set a presenter holds into the target texture, as `draw` does but leaving
+    /// the set with its lease (`give_back`).
+    pub fn draw_held(&mut self, lease: &Lease, fence_value: u64, parameters: &[u32; 8], deadline: std::time::Duration) -> Result<(), String> {
+        let planes = lease.planes().clone();
+        self.record(&planes, lease.set(), fence_value, parameters, deadline, None)
+    }
+
+    /// Gives a plane set a presenter held back to the decoder, behind every draw of it queued so far.
+    pub fn give_back(&self, lease: &Lease) -> Result<(), String> {
+        let value = lease.planes().next_reuse_value();
+        let planes = lease.planes().clone();
+        hand_back(lease, value, || self.signal(&planes, value))
+    }
+
+    /// Puts a software-decoded planar picture's planes into the pass's textures, for
+    /// `DirectSource::Frame` and `draw_uploaded_frame`.
+    pub fn upload_frame(&mut self, info: &media::FrameInfo) -> Result<(), String> {
+        self.make_frame(info)?;
+        let frame = self.frame.as_ref().unwrap();
+        for (plane, texture) in frame.textures.iter().enumerate() {
+            // SAFETY: The plane pointer and pitch come from the live AVFrame, whose plane holds
+            // the texture's rows; the deferred context copies the data when it records.
+            unsafe { self.deferred.UpdateSubresource(texture, 0, None, info.data[plane].cast_const().cast(), info.linesize[plane] as u32, 0) };
+        }
+        // SAFETY: The deferred context records the uploads; the immediate one runs them.
+        unsafe {
+            let mut commands = None;
+            self.deferred.FinishCommandList(false, Some(&mut commands)).map_err(|e| format!("cannot record the picture's plane upload: {e}"))?;
+            self.context.ExecuteCommandList(commands.as_ref().ok_or("no command list")?, true);
+        }
+        Ok(())
+    }
+
+    /// Draws the planes `upload_frame` put in last into the target texture.
+    pub fn draw_uploaded_frame(&mut self, parameters: &[u32; 8]) -> Result<(), String> {
+        let views = self.frame.as_ref().ok_or("no planar picture was uploaded")?.views.clone();
+        self.record_views(&views, parameters, None).map_err(|e| format!("cannot record the picture's plane pass: {e}"))
+    }
+
+    /// The textures for pictures of `info`'s shape, after checking that its planes are there.
+    fn make_frame(&mut self, info: &media::FrameInfo) -> Result<(), String> {
+        let layout = media::PlanarLayout::of(info).ok_or_else(|| format!("frame kind {} has no planes to draw", info.kind))?;
+        // Checked before anything is recorded, so a refused picture leaves no upload behind.
+        if let Some(plane) = (0..3).find(|&plane| info.data[plane].is_null() || info.linesize[plane] <= 0) {
+            return Err(format!("plane {plane} of the picture is missing"));
+        }
+        if self.frame.as_ref().is_none_or(|frame| frame.layout != layout) {
+            self.frame = None;
+            // SAFETY: Textures and views on the pass's own device.
+            self.frame = Some(unsafe { FramePlanes::new(&self.device, layout) }.map_err(|e| format!("cannot make the {}x{} picture planes: {e}", layout.width, layout.height))?);
         }
         Ok(())
     }
@@ -453,6 +791,8 @@ pub struct Packed {
     presentation: [Option<ID3D11Buffer>; 1],
     width: i32,
     height: i32,
+    /// SDL's back buffer as a render target, kept across frames (see `BackBuffer`).
+    back_buffer: std::cell::RefCell<BackBuffer>,
 }
 
 pub(crate) unsafe fn compile(source: &[u8], entry: PCSTR, profile: PCSTR) -> windows::core::Result<ID3DBlob> {
@@ -601,7 +941,18 @@ impl Packed {
             presentation: [presentation],
             width,
             height,
+            back_buffer: Default::default(),
         })
+    }
+
+    /// Call before SDL runs its queue: a back buffer view for another swap chain or output size goes.
+    pub fn keep_back_buffer_if(&self, swap_chain: usize, size: (i32, i32)) {
+        self.back_buffer.borrow_mut().keep_if(swap_chain, size);
+    }
+
+    /// Lets go of the back buffer view, for a frame that does not present with it (SDL may resize).
+    pub fn release_back_buffer(&self) {
+        self.back_buffer.borrow_mut().release();
     }
 
     pub fn draw(&self, frame: &media::Frame, parameters: &[u32; 12]) -> bool {
@@ -613,21 +964,17 @@ impl Packed {
         frame.copy_to_d3d11(self.input.as_raw(), self.width, self.height)
     }
 
-    pub unsafe fn present(&self, swapchain: *mut c_void, parameters: &[u32; 12], destination: &[f32; 4], linear: bool, scale: f32) -> bool {
-        let swapchain = IDXGISwapChain::from_raw_borrowed(&swapchain).unwrap();
-        let Ok(buffer) = swapchain.GetBuffer::<ID3D11Texture2D>(0) else { return false; };
-        let Ok(device) = buffer.GetDevice() else { return false; };
-        let mut target = None;
-        if device.CreateRenderTargetView(&buffer, None, Some(&mut target)).is_err() { return false; }
+    /// Draws into the back buffer of `swapchain`, `output` pixels large. The view of it is kept
+    /// between frames; the caller calls `keep_back_buffer_if` before SDL's queue runs and
+    /// `release_back_buffer` for a frame that does not present here, so SDL can resize.
+    pub unsafe fn present(&self, swapchain: *mut c_void, output: (i32, i32), parameters: &[u32; 12], destination: &[f32; 4], linear: bool, scale: f32) -> bool {
+        let Ok(target) = self.back_buffer.borrow_mut().view(swapchain, output) else { return false; };
         let presentation = [destination[0], destination[1], destination[2], destination[3], u32::from(linear) as f32, scale, 0.0, 0.0];
-        let mut desc = D3D11_TEXTURE2D_DESC::default();
-        buffer.GetDesc(&mut desc);
         let x = destination[0].max(0.0);
         let y = destination[1].max(0.0);
-        let clipped = [x, y, (destination[0] + destination[2]).min(desc.Width as f32) - x,
-            (destination[1] + destination[3]).min(desc.Height as f32) - y];
-        // Release the swapchain buffer and view before SDL next resizes the window.
-        self.render(&[target], parameters, &clipped, Some(&presentation))
+        let clipped = [x, y, (destination[0] + destination[2]).min(output.0 as f32) - x,
+            (destination[1] + destination[3]).min(output.1 as f32) - y];
+        self.render(&[Some(target)], parameters, &clipped, Some(&presentation))
     }
 
     fn render(&self, target: &[Option<ID3D11RenderTargetView>; 1], parameters: &[u32; 12], destination: &[f32; 4], presentation: Option<&[f32; 8]>) -> bool {
@@ -1067,5 +1414,290 @@ mod tests {
             let mut pass = PlanesPass::new(target.unwrap().as_raw()).unwrap();
             pass.draw_frame(info, &[4, 2, 4, 2, 0, 3, 1 << 5, 1.0f32.to_bits()]).unwrap_err()
         }
+    }
+
+    // ---- The direct draw (planes_direct.hlsl) against the texture draw plus SDL's own draw. ----
+
+    use super::super::direct_planes::{constants, Constants, Look};
+    use sdl3_sys::everything::SDL_FRect;
+
+    fn warp() -> (ID3D11Device, ID3D11DeviceContext) {
+        // SAFETY: Plain D3D11 calls on a device made and used on this thread.
+        unsafe {
+            let (mut device, mut context) = (None, None);
+            D3D11CreateDevice(None, D3D_DRIVER_TYPE_WARP, HMODULE::default(), D3D11_CREATE_DEVICE_FLAG(0), Some(&[D3D_FEATURE_LEVEL_11_0]),
+                D3D11_SDK_VERSION, Some(&mut device), None, Some(&mut context)).unwrap();
+            (device.unwrap(), context.unwrap())
+        }
+    }
+
+    /// A render target standing for SDL's back buffer, cleared to magenta.
+    fn back_buffer(device: &ID3D11Device, context: &ID3D11DeviceContext, size: (u32, u32), format: DXGI_FORMAT) -> (ID3D11Texture2D, ID3D11RenderTargetView) {
+        let mut texture = None;
+        let mut view = None;
+        // SAFETY: A plain texture and its view on a live device.
+        unsafe {
+            device.CreateTexture2D(&D3D11_TEXTURE2D_DESC { Width: size.0, Height: size.1, MipLevels: 1, ArraySize: 1, Format: format,
+                SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 }, Usage: D3D11_USAGE_DEFAULT,
+                BindFlags: D3D11_BIND_RENDER_TARGET.0 as u32, ..Default::default() }, None, Some(&mut texture)).unwrap();
+            device.CreateRenderTargetView(texture.as_ref().unwrap(), None, Some(&mut view)).unwrap();
+            context.ClearRenderTargetView(view.as_ref().unwrap(), &[1.0, 0.0, 1.0, 1.0]);
+        }
+        (texture.unwrap(), view.unwrap())
+    }
+
+    /// The colours of an 8-bit or half-float back buffer, row by row, in 0..1.
+    fn read_colors(device: &ID3D11Device, context: &ID3D11DeviceContext, target: &ID3D11Texture2D) -> Vec<[f32; 3]> {
+        let mut desc = D3D11_TEXTURE2D_DESC::default();
+        // SAFETY: A live texture.
+        unsafe { target.GetDesc(&mut desc) };
+        if desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT {
+            return read_back(device, context, target);
+        }
+        // SAFETY: Plain D3D11 calls on a device made and used on this thread.
+        unsafe {
+            let mut staging = None;
+            device.CreateTexture2D(&D3D11_TEXTURE2D_DESC { Usage: D3D11_USAGE_STAGING, BindFlags: 0, CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32, ..desc },
+                None, Some(&mut staging)).unwrap();
+            let staging = staging.unwrap();
+            context.CopyResource(&staging, target);
+            let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+            context.Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped)).unwrap();
+            let mut pixels = Vec::new();
+            for y in 0..desc.Height as usize {
+                let row = std::slice::from_raw_parts(mapped.pData.cast::<u8>().add(y * mapped.RowPitch as usize), desc.Width as usize * 4);
+                pixels.extend(row.chunks(4).map(|p| [f32::from(p[0]) / 255.0, f32::from(p[1]) / 255.0, f32::from(p[2]) / 255.0]));
+            }
+            context.Unmap(&staging, 0);
+            pixels
+        }
+    }
+
+    fn srgb_from_linear(v: f32) -> f32 {
+        if v <= 0.0031308 { v * 12.92 } else { v.powf(1.0 / 2.4) * 1.055 - 0.055 }
+    }
+
+    /// What SDL's draw of the linear texture does to a texel under `look` (`Look`'s doc): the tone
+    /// map, the colour scale, and on an sRGB output the encoding and clamp.
+    fn sdl_look(linear: [f32; 3], look: Look) -> [f32; 3] {
+        const TO_2020: [[f32; 3]; 3] = [[0.627404, 0.329283, 0.043313], [0.069097, 0.919541, 0.011362], [0.016391, 0.088013, 0.895595]];
+        const TO_709: [[f32; 3]; 3] = [[1.660496, -0.587656, -0.072840], [-0.124547, 1.132895, -0.008348], [-0.018154, -0.100597, 1.118751]];
+        let mul = |m: [[f32; 3]; 3], v: [f32; 3]| m.map(|row| row[0] * v[0] + row[1] * v[1] + row[2] * v[2]);
+        let mut rgb = linear;
+        if let Some((t1, t2)) = look.tonemap() {
+            let mut v = mul(TO_2020, rgb);
+            let max = v[0].max(v[1]).max(v[2]);
+            if max > 0.0 { v = v.map(|c| c * (1.0 + t1 * max) / (1.0 + t2 * max)); }
+            rgb = mul(TO_709, v);
+        }
+        let rgb = rgb.map(|c| c * look.sdr_white * look.color_scale);
+        if look.linear_output { rgb } else { rgb.map(|c| srgb_from_linear(c).clamp(0.0, 1.0)) }
+    }
+
+    /// Where the direct draw may differ from the texture draw: one 8-bit code, or two half-float steps.
+    fn assert_within_a_step(got: [f32; 3], expected: [f32; 3], linear: bool, what: &str) {
+        for (g, e) in got.iter().zip(expected) {
+            let tolerance = if linear { 2.5e-3 * e.abs().max(0.01) } else { 1.0 / 255.0 + 1e-4 };
+            assert!((g - e).abs() <= tolerance, "{what}: got {got:?}, expected {expected:?}");
+        }
+    }
+
+    /// Draws `info` as the pass draws a planar picture directly into a `back_size` buffer of
+    /// `format`, in `viewport` with `constants`, and reads the buffer back.
+    fn direct_on_warp(info: &media::FrameInfo, parameters: &[u32; 8], format: DXGI_FORMAT, back_size: (u32, u32), viewport: [f32; 4], constants: &Constants) -> Vec<[f32; 3]> {
+        let (device, context) = warp();
+        let target = linear_target(&device, info.width as u32, info.height as u32);
+        // SAFETY: A pass on the target's device, used on this thread.
+        let mut pass = unsafe { PlanesPass::new(target.as_raw()) }.unwrap();
+        let (back, view) = back_buffer(&device, &context, back_size, format);
+        pass.upload_frame(info).unwrap();
+        pass.draw_direct(&view, viewport, &DirectSource::Frame, parameters, constants, &mut |submit| submit()).unwrap();
+        read_colors(&device, &context, &back)
+    }
+
+    fn pictures() -> Vec<(i32, u32, u32)> {
+        // 8-bit 4:4:4, 10-bit 4:4:4 and 10-bit 4:2:0 with odd sizes, whose chroma is sampled between sites.
+        vec![(media::FRAME_YUV444P, 8, 4), (media::FRAME_YUV444P10, 8, 4), (media::FRAME_YUV420P10, 7, 3)]
+    }
+
+    fn spread(kind: i32) -> impl Fn(usize, u32, u32) -> u16 {
+        move |plane, x, y| {
+            let ten_bit = 64 + ((x * 97 + y * 211 + plane as u32 * 53) % 877) as u16;
+            if kind == media::FRAME_YUV444P { ten_bit / 4 } else { ten_bit }
+        }
+    }
+
+    #[test]
+    fn the_direct_draw_matches_the_texture_draw_and_sdls_encoding_on_an_srgb_output() {
+        for (kind, width, height) in pictures() {
+            let (_planes, info) = picture(kind, width, height, spread(kind));
+            let layout = media::PlanarLayout::of(&info).unwrap();
+            let parameters = crate::stream::present::planar_parameters(&info, layout, false, 1.0, 1.0);
+            let texture = draw_on_warp(&info, &parameters);
+            let look = Look { texture_headroom: 0.0, output_headroom: 1.0, sdr_white: 1.0, color_scale: 1.0, linear_output: false };
+            let rect = SDL_FRect { x: 0.0, y: 0.0, w: width as f32, h: height as f32 };
+            let direct = direct_on_warp(&info, &parameters, DXGI_FORMAT_R8G8B8A8_UNORM, (width, height), [0.0, 0.0, width as f32, height as f32],
+                &constants(&rect, (width as i32, height as i32), look));
+            for (at, (got, linear)) in direct.iter().zip(&texture).enumerate() {
+                assert_within_a_step(*got, sdl_look(*linear, look), false, &format!("kind {kind} pixel {at}"));
+            }
+        }
+    }
+
+    #[test]
+    fn the_direct_draw_matches_the_texture_draw_on_a_scrgb_output_with_and_without_the_tone_map() {
+        let (_planes, mut info) = picture(media::FRAME_YUV420P10, 8, 4, spread(media::FRAME_YUV420P10));
+        // HDR10: BT.2020 and PQ.
+        info.color_space = 9;
+        info.color_trc = 16;
+        let layout = media::PlanarLayout::of(&info).unwrap();
+        let parameters = crate::stream::present::planar_parameters(&info, layout, true, 2.5, 5.0);
+        let texture = draw_on_warp(&info, &parameters);
+        let rect = SDL_FRect { x: 0.0, y: 0.0, w: 8.0, h: 4.0 };
+        for (what, look) in [
+            ("scRGB", Look { texture_headroom: 0.0, output_headroom: 5.0, sdr_white: 2.5, color_scale: 1.0, linear_output: true }),
+            ("scRGB with SDL's tone map", Look { texture_headroom: 12.0, output_headroom: 4.0, sdr_white: 2.5, color_scale: 0.5, linear_output: true }),
+        ] {
+            let direct = direct_on_warp(&info, &parameters, DXGI_FORMAT_R16G16B16A16_FLOAT, (8, 4), [0.0, 0.0, 8.0, 4.0], &constants(&rect, (8, 4), look));
+            for (at, (got, linear)) in direct.iter().zip(&texture).enumerate() {
+                assert_within_a_step(*got, sdl_look(*linear, look), true, &format!("{what} pixel {at}"));
+            }
+        }
+    }
+
+    #[test]
+    fn the_direct_draw_fills_only_its_rectangle_and_maps_the_picture_onto_it() {
+        let (_planes, info) = picture(media::FRAME_YUV444P, 8, 4, spread(media::FRAME_YUV444P));
+        let layout = media::PlanarLayout::of(&info).unwrap();
+        let parameters = crate::stream::present::planar_parameters(&info, layout, false, 1.0, 1.0);
+        let texture = draw_on_warp(&info, &parameters);
+        let look = Look { texture_headroom: 0.0, output_headroom: 1.0, sdr_white: 1.0, color_scale: 1.0, linear_output: false };
+        // The picture's 8 x 4 pixels at (3, 2) of a 16 x 10 back buffer.
+        let rect = SDL_FRect { x: 3.0, y: 2.0, w: 8.0, h: 4.0 };
+        let direct = direct_on_warp(&info, &parameters, DXGI_FORMAT_R8G8B8A8_UNORM, (16, 10), [3.0, 2.0, 8.0, 4.0], &constants(&rect, (8, 4), look));
+        for y in 0..10u32 {
+            for x in 0..16u32 {
+                let got = direct[(y * 16 + x) as usize];
+                if (3..11).contains(&x) && (2..6).contains(&y) {
+                    assert_within_a_step(got, sdl_look(texture[((y - 2) * 8 + x - 3) as usize], look), false, &format!("pixel ({x}, {y})"));
+                } else {
+                    assert_eq!(got, [1.0, 0.0, 1.0], "pixel ({x}, {y}) is outside the rectangle and keeps what SDL cleared");
+                }
+            }
+        }
+    }
+
+    /// A 4:4:4 surface as AYUV bytes (Cr, Cb, Y, A) in slice 1 of an R8G8B8A8 array on WARP (which
+    /// makes no AYUV textures), read in place (`BoundSurface::view`) or from the pass's copy of it.
+    fn surface_direct_on_warp(in_place: bool, width: u32, height: u32, code: impl Fn(u32, u32) -> [u16; 3]) -> Vec<[f32; 3]> {
+        let mut bytes = Vec::new();
+        for y in 0..height {
+            for x in 0..width {
+                bytes.extend(texel(DXGI_FORMAT_AYUV, code(x, y)));
+            }
+        }
+        let info = media::FrameInfo { width: width as i32, height: height as i32, kind: media::FRAME_D3D11_444, ten_bit: 0, pts: 0,
+            data: [std::ptr::null_mut(); 3], linesize: [0; 3], color_space: 1, color_range: 1, color_trc: 1 };
+        let layout = media::PlanarLayout::of_d3d11(&info).unwrap();
+        let parameters = surface_parameters(crate::stream::present::planar_parameters(&info, layout, false, 1.0, 1.0), DXGI_FORMAT_AYUV).unwrap();
+        let (device, context) = warp();
+        let target = linear_target(&device, width, height);
+        // SAFETY: Plain D3D11 calls on a device made and used on this thread.
+        unsafe {
+            let mut pass = PlanesPass::new(target.as_raw()).unwrap();
+            let blank = vec![0u8; bytes.len()];
+            let data = [blank.as_ptr(), bytes.as_ptr()].map(|bytes| D3D11_SUBRESOURCE_DATA { pSysMem: bytes.cast(), SysMemPitch: width * 4, SysMemSlicePitch: 0 });
+            let mut array = None;
+            device.CreateTexture2D(&D3D11_TEXTURE2D_DESC { Width: width, Height: height, MipLevels: 1, ArraySize: 2, Format: DXGI_FORMAT_R8G8B8A8_UNORM,
+                SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 }, Usage: D3D11_USAGE_DEFAULT,
+                BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32, ..Default::default() }, Some(data.as_ptr()), Some(&mut array)).unwrap();
+            let array = array.unwrap();
+            if in_place {
+                let view = pass.slice_view(&array, 1, 1, DXGI_FORMAT_AYUV).unwrap();
+                pass.bound = Some(BoundSurface { view: Some(view), parameters });
+            } else {
+                let copy = SurfaceCopy::new(&pass.device, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM, (width, height)).unwrap();
+                context.CopySubresourceRegion(&copy.texture, 0, 0, 0, 0, &array, 1, None);
+                pass.surface = Some(copy);
+                pass.bound = Some(BoundSurface { view: None, parameters });
+            }
+            let (back, view) = back_buffer(&device, &context, (width, height), DXGI_FORMAT_R8G8B8A8_UNORM);
+            let look = Look { texture_headroom: 0.0, output_headroom: 1.0, sdr_white: 1.0, color_scale: 1.0, linear_output: false };
+            let rect = SDL_FRect { x: 0.0, y: 0.0, w: width as f32, h: height as f32 };
+            pass.draw_direct(&view, [0.0, 0.0, width as f32, height as f32], &DirectSource::Surface, &parameters,
+                &constants(&rect, (width as i32, height as i32), look), &mut |submit| submit()).unwrap();
+            read_colors(&device, &context, &back)
+        }
+    }
+
+    #[test]
+    fn a_4x4_surface_is_drawn_directly_from_the_decoders_texture_or_from_its_copy_as_the_texture_draw_would() {
+        let (width, height) = (8, 4);
+        let code = |x: u32, y: u32| -> [u16; 3] { [64 + ((x * 23 + y * 41) % 170) as u16 + 20, 128 + (x * 9) as u16, 110 + (y * 17) as u16] };
+        // The texture draw of the same surface, converted into the linear texture (limited range).
+        let expected = draw_surface_on_warp(DXGI_FORMAT_AYUV, width, height, 1, code);
+        let look = Look { texture_headroom: 0.0, output_headroom: 1.0, sdr_white: 1.0, color_scale: 1.0, linear_output: false };
+        for in_place in [true, false] {
+            let direct = surface_direct_on_warp(in_place, width, height, code);
+            for (at, (got, linear)) in direct.iter().zip(&expected).enumerate() {
+                assert_within_a_step(*got, sdl_look(*linear, look), false, &format!("in place {in_place}, pixel {at}"));
+            }
+        }
+    }
+
+    #[test]
+    fn a_surface_read_in_place_is_also_drawn_into_the_texture_for_what_reads_it() {
+        let (width, height) = (8, 4);
+        let code = |x: u32, y: u32| -> [u16; 3] { [90 + ((x * 23 + y * 41) % 120) as u16, 128 + (x * 9) as u16, 100 + (y * 17) as u16] };
+        let expected = draw_surface_on_warp(DXGI_FORMAT_AYUV, width, height, 1, code);
+        let mut bytes = Vec::new();
+        for y in 0..height {
+            for x in 0..width {
+                bytes.extend(texel(DXGI_FORMAT_AYUV, code(x, y)));
+            }
+        }
+        let info = media::FrameInfo { width: width as i32, height: height as i32, kind: media::FRAME_D3D11_444, ten_bit: 0, pts: 0,
+            data: [std::ptr::null_mut(); 3], linesize: [0; 3], color_space: 1, color_range: 1, color_trc: 1 };
+        let layout = media::PlanarLayout::of_d3d11(&info).unwrap();
+        let parameters = surface_parameters(crate::stream::present::planar_parameters(&info, layout, false, 1.0, 1.0), DXGI_FORMAT_AYUV).unwrap();
+        let (device, context) = warp();
+        let target = linear_target(&device, width, height);
+        // SAFETY: Plain D3D11 calls on a device made and used on this thread.
+        let pixels = unsafe {
+            let mut pass = PlanesPass::new(target.as_raw()).unwrap();
+            let data = [D3D11_SUBRESOURCE_DATA { pSysMem: bytes.as_ptr().cast(), SysMemPitch: width * 4, SysMemSlicePitch: 0 }; 2];
+            let mut array = None;
+            device.CreateTexture2D(&D3D11_TEXTURE2D_DESC { Width: width, Height: height, MipLevels: 1, ArraySize: 2, Format: DXGI_FORMAT_R8G8B8A8_UNORM,
+                SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 }, Usage: D3D11_USAGE_DEFAULT,
+                BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32, ..Default::default() }, Some(data.as_ptr()), Some(&mut array)).unwrap();
+            let view = pass.slice_view(array.as_ref().unwrap(), 7, 1, DXGI_FORMAT_AYUV).unwrap();
+            pass.bound = Some(BoundSurface { view: Some(view), parameters });
+            let mut locked = 0;
+            pass.draw_bound_surface(&mut |submit| { locked += 1; submit() }).unwrap();
+            assert_eq!(locked, 1, "the submission of a surface read in place runs under the decoder's lock");
+            read_back(&device, &context, &target)
+        };
+        for (at, (got, want)) in pixels.iter().zip(&expected).enumerate() {
+            assert_close(*got, *want, &format!("pixel {at}"));
+        }
+    }
+
+    #[test]
+    fn the_back_buffer_view_is_kept_for_its_swap_chain_and_size_and_let_go_otherwise() {
+        let (device, context) = warp();
+        let (_back, view) = back_buffer(&device, &context, (4, 4), DXGI_FORMAT_R8G8B8A8_UNORM);
+        let mut held = BackBuffer::default();
+        held.hold(7, (1920, 1080), view);
+        held.keep_if(7, (1920, 1080));
+        assert!(held.is_held(), "the same swap chain at the same size keeps the view between frames");
+        held.keep_if(7, (1280, 720));
+        assert!(!held.is_held(), "SDL resizes the buffers at its next flush: the view goes first");
+        let (_back, view) = back_buffer(&device, &context, (4, 4), DXGI_FORMAT_R8G8B8A8_UNORM);
+        held.hold(7, (1920, 1080), view.clone());
+        held.keep_if(8, (1920, 1080));
+        assert!(!held.is_held(), "another swap chain");
+        held.hold(7, (1920, 1080), view);
+        held.release();
+        assert!(!held.is_held(), "a frame that does not draw with it lets it go");
     }
 }

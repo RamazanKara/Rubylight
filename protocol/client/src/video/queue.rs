@@ -5,8 +5,8 @@
 
 use super::depacketizer::Depacketizer;
 use super::{
-    is_before16, is_before32, le32, FecBlock, FecStatus, Io, Packet, VideoConfig, VideoSignal,
-    VideoSink, FLAG_CONTAINS_PIC_DATA, FLAG_EOF, FLAG_SOF, MAX_RTP_HEADER_SIZE,
+    is_before16, is_before32, le32, rtp_data_offset, FecBlock, FecStatus, Io, Packet, VideoConfig,
+    VideoSignal, VideoSink, FLAG_CONTAINS_PIC_DATA, FLAG_EOF, FLAG_SOF, MAX_RTP_HEADER_SIZE,
     NV_VIDEO_PACKET_SIZE,
 };
 use crate::fec::ReedSolomon;
@@ -507,6 +507,32 @@ impl RtpQueue {
             depacketizer.finish_pyrowave_frame(io);
         }
         result
+    }
+
+    /// Whether `add_packet` would reject this unencrypted datagram before reading anything else,
+    /// so the caller can drop it without taking a packet buffer. Mirrors the rejections that
+    /// `add_ordinary` makes first, with the same effective block (0 for a legacy host), and
+    /// counts nothing. A PyroWave record stream is never rejected here.
+    pub(super) fn rejects_datagram(&self, datagram: &[u8]) -> bool {
+        if self.records {
+            return false;
+        }
+        let seq = u16::from_be_bytes([datagram[2], datagram[3]]);
+        if is_before16(seq.into(), self.next_contiguous_seq.into()) {
+            return true;
+        }
+        let offset = rtp_data_offset(datagram[0]);
+        if datagram.len() < offset + NV_VIDEO_PACKET_SIZE {
+            return true;
+        }
+        let frame = le32(datagram, offset + 4);
+        let block = if self.multi_fec_capable {
+            (datagram[offset + 11] >> 4) & 3
+        } else {
+            0
+        };
+        is_before16(frame, self.current_frame)
+            || (frame == self.current_frame && block < self.current_block)
     }
 
     fn add_ordinary<S: VideoSink>(

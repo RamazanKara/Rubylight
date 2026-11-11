@@ -861,7 +861,13 @@ impl VideoDecoder for Decoder {
             let (width, height) = (setup.width as usize, setup.height as usize);
             let chroma444 = setup.format & VIDEO_FORMAT_MASK_YUV444 != 0;
             let created = match self.gpu {
-                Some(device) => gpu_pyrowave(device, setup, self.shared.queue_limit + 2)
+                Some(device) => gpu_pyrowave(device, setup, {
+                    // The presenter holds the shown picture's plane set while it draws the planes into the back buffer.
+                    #[cfg(windows)]
+                    { super::direct_planes::plane_sets(self.shared.queue_limit) }
+                    #[cfg(not(windows))]
+                    { self.shared.queue_limit + 2 }
+                })
                     .map(|decoder| (decoder, "PyroWave (GPU decode, SDK)"))
                     .map_err(|error| Notice::DecoderFailed(format!("PyroWave GPU decoding is unavailable: {error}"))),
                 None => super::pyrowave::Pyrowave::cpu(width, height, chroma444)

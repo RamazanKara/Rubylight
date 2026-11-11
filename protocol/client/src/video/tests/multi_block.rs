@@ -361,3 +361,50 @@ fn losses_reordering_and_recovery_changes_never_differ() {
         assert_eq!(ahead_stats, plain_stats, "round {round}");
     }
 }
+
+/// Late parity of a finished frame is dropped before a packet buffer is taken: the output and
+/// statistics match the stream without it, bar the datagrams counted as received, and the pool
+/// is left as it was.
+#[test]
+fn late_parity_of_a_finished_frame_takes_no_pool_buffer() {
+    let mut host = Blocks::new();
+    let key = idr(9000);
+    let p = h264_p(4000);
+    let first = host.frame(&key, 2, 2);
+    let second = host.frame(&p, 1, 2);
+    // Each block's last datagram is its parity.
+    let late: Vec<Vec<u8>> = first
+        .iter()
+        .map(|block| block.last().unwrap().clone())
+        .collect();
+
+    let feed = |with_late: bool| {
+        let mut rx = VideoReceiver::new(config(0x1));
+        let mut events = Vec::new();
+        for datagram in first.iter().flatten() {
+            rx.receive(datagram, 9, &mut events);
+        }
+        rx.frame_decoded(FrameType::Idr);
+        for datagram in second.iter().flatten() {
+            rx.receive(datagram, 9, &mut events);
+        }
+        let pool_before = rx.pools.packets.clone();
+        if with_late {
+            for datagram in &late {
+                rx.receive(datagram, 9, &mut events);
+            }
+        }
+        (events, rx.stats(), pool_before, rx.pools.packets.clone())
+    };
+
+    let (plain, plain_stats, _, _) = feed(false);
+    let (with_late, mut late_stats, pool_before, pool_after) = feed(true);
+    assert!(
+        !pool_before.is_empty(),
+        "the pool needs buffers for this check to mean anything"
+    );
+    assert_eq!(pool_after, pool_before, "late parity touched a pool buffer");
+    assert_eq!(format!("{with_late:?}"), format!("{plain:?}"));
+    late_stats.packets_received -= late.len() as u64;
+    assert_eq!(late_stats, plain_stats);
+}

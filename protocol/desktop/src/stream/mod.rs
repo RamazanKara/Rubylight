@@ -66,6 +66,8 @@ pub(crate) mod gpu_clocks;
 #[cfg(windows)]
 mod d3d11;
 #[cfg(windows)]
+pub(crate) mod direct_planes;
+#[cfg(windows)]
 mod wasapi;
 #[cfg(windows)]
 mod wlan;
@@ -1096,6 +1098,8 @@ impl Streaming {
     }
 
     pub fn display_changed(&mut self, renderer: *mut SDL_Renderer) {
+        // The swapchain's HDR answer may have changed with the display: ask SDL again.
+        crate::sdl::forget_swapchain_answers();
         self.phase.reset();
         self.display_change = Some(Instant::now());
         if self.facts.display_caps && self.facts.role != AppRole::InputOnly {

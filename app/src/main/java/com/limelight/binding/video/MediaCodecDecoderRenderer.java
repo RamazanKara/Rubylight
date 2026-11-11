@@ -367,6 +367,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
     };
     private BufferedWriter latencyCsv;
+    // Characters written to latencyCsv so far (the CSV is ASCII); replaces a File.length() per flush.
+    private long latencyCsvBytes;
     private volatile String latencyOverlay = "";
     private volatile double[][] latencySummary = new double[10][5];
     private volatile String decoderDiagnostics = "";
@@ -2884,18 +2886,19 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         latencyCsv = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(
                 new File(context.getFilesDir(), LATENCY_CSV_NAME + ".tmp")), StandardCharsets.UTF_8));
         latencyCsv.write(FrameLatencyStats.CSV_HEADER);
+        // The stream truncates the file, so its length starts at 0; the header is its first content.
+        latencyCsvBytes = FrameLatencyStats.CSV_HEADER.length();
     }
 
     private void flushLatencyCsv() {
         if (latencyCsv != null) {
             try {
                 // Keep the most recent segment without growing the capture for the entire session.
-                if (frameLatencyStats.hasCompletedFrames() &&
-                        new File(context.getFilesDir(), LATENCY_CSV_NAME + ".tmp").length() >= MAX_LATENCY_CSV_BYTES) {
+                if (frameLatencyStats.hasCompletedFrames() && latencyCsvBytes >= MAX_LATENCY_CSV_BYTES) {
                     closeLatencyCsv();
                     openLatencyCsv();
                 }
-                frameLatencyStats.writeCsv(latencyCsv, hostFrameClock::clockOffset);
+                latencyCsvBytes += frameLatencyStats.writeCsv(latencyCsv, hostFrameClock::clockOffset);
                 latencyCsv.flush();
             } catch (IOException e) {
                 LimeLog.warning("Unable to write latency CSV: " + e);
@@ -5159,6 +5162,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     public void submitChunks(byte[] data, int length, boolean first) {
         if (!stopping && (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
             pyroWaveRenderer.submitChunks(data, length, first);
+        }
+    }
+
+    @Override
+    public void submitChunksDirect(ByteBuffer data, int length, boolean first) {
+        if (!stopping && (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
+            pyroWaveRenderer.submitChunksDirect(data, length, first);
         }
     }
 

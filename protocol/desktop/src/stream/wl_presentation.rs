@@ -573,16 +573,17 @@ pub(crate) mod wayland {
                 }
                 (self.api.dispatch_queue_pending)(self.display, self.queue);
             }
-            let mut waiting = VecDeque::with_capacity(self.pending.len());
-            for pending in std::mem::take(&mut self.pending) {
+            // One pass over the queue in place: each request leaves from the front and the
+            // waiting ones go back to the back, in order, without a queue of its own.
+            for _ in 0..self.pending.len() {
+                let Some(pending) = self.pending.pop_front() else { break };
                 let expired = now_us.saturating_sub(pending.requested_us) * 1000 > TIMEOUT_NS;
                 match (pending.answer, expired) {
                     (Some(_), _) => self.finish(&pending, None),
                     (None, true) => self.finish(&pending, Some(Outcome::Unanswered)),
-                    (None, false) => waiting.push_back(pending),
+                    (None, false) => self.pending.push_back(pending),
                 }
             }
-            self.pending = waiting;
         }
 
         /// Destroys the request's proxy (its box may go after this) and keeps its answer.

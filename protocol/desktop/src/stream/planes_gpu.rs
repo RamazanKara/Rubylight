@@ -55,6 +55,12 @@ pub struct PlanesPass {
     wrapped: Option<Wrapped>,
     /// The set the shown picture is sampled from, in place (`PlaneHandoff::Sample`).
     handover: Handover<Lease>,
+    /// The render states drawing the wrapped images of VA-API pictures sampled in place
+    /// (`vulkan_video::Planes::sample`), by their luma texture, made on first use. The textures
+    /// belong to the presenter's planes, which outlive the pass.
+    sampled_states: std::collections::HashMap<usize, *mut SDL_GPURenderState>,
+    /// The state of the picture sampled last, which the next draw uses; null: the planes' copies.
+    sampled_active: *mut SDL_GPURenderState,
 }
 
 /// The decoder's plane images as SDL textures of the pass's device.
@@ -164,6 +170,31 @@ impl PlanesPass {
         self.convert(renderer, target, parameters, None)
     }
 
+    /// The next draws read the planes `vulkan_video::Planes::copy` copied into (what `for_vulkan` bound).
+    pub fn use_copy(&mut self) {
+        self.sampled_active = ptr::null_mut();
+    }
+
+    /// The next draws read `textures`, the wrapped images of the VA-API picture sampled last
+    /// (`vulkan_video::Planes::sample`), and draws them over all of `target` as `draw_bound` does
+    /// (null: `draw_direct` or a later `draw_bound` draws them).
+    ///
+    /// # Safety
+    /// As `draw_bound`, and `textures` live textures of the renderer's device that outlive the pass.
+    pub unsafe fn draw_sampled_textures(&mut self, renderer: *mut SDL_Renderer, target: *mut SDL_Texture, textures: [*mut SDL_GPUTexture; 2], parameters: &[u32; 8]) -> Result<(), String> {
+        let key = textures[0] as usize;
+        let state = match self.sampled_states.get(&key) {
+            Some(&state) => state,
+            None => {
+                let state = self.make_state(renderer, [textures[0], textures[1], textures[1]])?;
+                self.sampled_states.insert(key, state);
+                state
+            }
+        };
+        self.sampled_active = state;
+        self.convert(renderer, target, parameters, None)
+    }
+
     unsafe fn with_planes(renderer: *mut SDL_Renderer, sizes: [(u32, u32); 3], ten_bit: bool) -> Result<Self, String> {
         let mut pass = Self::shader_only(renderer, sizes, if ten_bit { 2 } else { 1 })?;
         let device = pass.device;
@@ -195,6 +226,7 @@ impl PlanesPass {
         let mut pass = Self {
             renderer, device, shader: ptr::null_mut(), sampler: ptr::null_mut(), textures: [ptr::null_mut(); 3],
             transfer: ptr::null_mut(), state: ptr::null_mut(), sizes, sample_bytes, wrapped: None, handover: Handover::default(),
+            sampled_states: Default::default(), sampled_active: ptr::null_mut(),
         };
         pass.shader = create_shader(device);
         if pass.shader.is_null() {
@@ -229,6 +261,9 @@ impl PlanesPass {
     /// The render state the next draw uses: the held set's when the pass samples the decoder's
     /// images in place, else the one of its own textures (null before the first picture).
     fn active_state(&self) -> *mut SDL_GPURenderState {
+        if !self.sampled_active.is_null() {
+            return self.sampled_active;
+        }
         match (&self.wrapped, self.handover.held()) {
             (Some(wrapped), Some(set)) if set < wrapped.states.len() => wrapped.states[set],
             _ => self.state,
@@ -688,6 +723,11 @@ impl Drop for PlanesPass {
         // renderer outlives it too, so the held set is given back behind its last draw.
         unsafe {
             self.unwrap();
+            if !self.sampled_states.is_empty() {
+                // The held picture's draws may still read the images the states are of.
+                SDL_WaitForGPUIdle(self.device);
+                for (_, state) in self.sampled_states.drain() { SDL_DestroyGPURenderState(state); }
+            }
             if !self.state.is_null() { SDL_DestroyGPURenderState(self.state); }
             if !self.transfer.is_null() { SDL_ReleaseGPUTransferBuffer(self.device, self.transfer); }
             for texture in self.textures { if !texture.is_null() { SDL_ReleaseGPUTexture(self.device, texture); } }

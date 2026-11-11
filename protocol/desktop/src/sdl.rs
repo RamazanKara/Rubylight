@@ -187,6 +187,16 @@ pub fn renderer_name(renderer: *mut SDL_Renderer) -> String {
     }
 }
 
+/// Whether the renderer's backend is `name`, without `renderer_name`'s String.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn renderer_is(renderer: *mut SDL_Renderer, name: &str) -> bool {
+    // SAFETY: a live renderer; the name is a static string.
+    unsafe {
+        let backend = SDL_GetRendererName(renderer);
+        !backend.is_null() && CStr::from_ptr(backend).to_bytes() == name.as_bytes()
+    }
+}
+
 pub fn renderer_pointer(renderer: *mut SDL_Renderer, name: *const c_char) -> *mut std::ffi::c_void {
     // SAFETY: a live renderer and a property name constant.
     unsafe { SDL_GetPointerProperty(SDL_GetRendererProperties(renderer), name, std::ptr::null_mut()) }
@@ -346,7 +356,7 @@ unsafe fn pq_renderer(window: *mut SDL_Window, props: SDL_PropertiesID) -> *mut 
                 }
                 let why = if renderer.is_null() { error() } else { "the swapchain is not HDR10".to_owned() };
                 if !renderer.is_null() {
-                    SDL_DestroyRenderer(renderer);
+                    crate::sdl::destroy_renderer(renderer);
                 }
                 SDL_ClearProperty(window_props, PASS_THROUGH_PROPERTY.as_ptr());
                 why
@@ -416,19 +426,103 @@ pub fn present_mode_name(mode: Option<i64>) -> &'static str {
     }
 }
 
+/// Destroys `renderer` and forgets the cached swapchain answers, so a renderer made later at the
+/// same address asks its swapchain again.
+///
+/// # Safety
+/// `renderer` is live and not used after this.
+pub unsafe fn destroy_renderer(renderer: *mut SDL_Renderer) {
+    forget_swapchain_answers();
+    // SAFETY: the caller's.
+    unsafe { SDL_DestroyRenderer(renderer) }
+}
+
 pub fn hdr_available(renderer: *mut SDL_Renderer) -> bool {
     // SAFETY: The renderer is live.
     let enabled = unsafe { SDL_GetBooleanProperty(SDL_GetRendererProperties(renderer), SDL_PROP_RENDERER_HDR_ENABLED_BOOLEAN, false) };
     enabled && swapchain_takes_hdr(renderer)
 }
 
-/// The renderer's swapchain is an HDR one, whatever the window's HDR state is right now.
+/// What a GPU renderer's swapchain answer depends on, read with cheap property queries: the device,
+/// the window's display and its HDR, the window's HDR request and its size in pixels. A change of
+/// any of them can change the answer, so the cache keeps an answer only for the state it was asked in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)] // Compared as a whole (PartialEq); no field is read on its own.
+pub struct SwapchainState {
+    device: usize,
+    display: u32,
+    display_hdr: bool,
+    window_hdr: bool,
+    width: i32,
+    height: i32,
+}
+
+/// The most renderers whose swapchain answers are kept; the oldest goes first.
+const SWAPCHAIN_ANSWERS_KEPT: usize = 8;
+
+/// The swapchain answers of GPU renderers, one per renderer, each kept for the state it was asked
+/// in. `forget_all` drops them all (a display changed); an answer computed across a `forget_all`
+/// is not stored, by the generation it was started in.
+#[derive(Debug, Default)]
+pub struct SwapchainAnswers {
+    generation: u64,
+    entries: Vec<(usize, SwapchainState, bool)>,
+}
+
+impl SwapchainAnswers {
+    pub const fn new() -> Self {
+        Self { generation: 0, entries: Vec::new() }
+    }
+
+    /// The generation to hand `store` with the answer computed for it.
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// The answer kept for `renderer` in exactly `state`.
+    pub fn get(&self, renderer: usize, state: SwapchainState) -> Option<bool> {
+        self.entries
+            .iter()
+            .find(|(kept, _, _)| *kept == renderer)
+            .and_then(|&(_, kept, answer)| (kept == state).then_some(answer))
+    }
+
+    /// Keeps `answer` for `renderer` in `state`, unless `forget_all` came since `generation`.
+    pub fn store(&mut self, generation: u64, renderer: usize, state: SwapchainState, answer: bool) {
+        if generation != self.generation {
+            return;
+        }
+        self.entries.retain(|(kept, _, _)| *kept != renderer);
+        if self.entries.len() >= SWAPCHAIN_ANSWERS_KEPT {
+            self.entries.remove(0);
+        }
+        self.entries.push((renderer, state, answer));
+    }
+
+    pub fn forget_all(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+        self.entries.clear();
+    }
+}
+
+static SWAPCHAIN_ANSWERS: std::sync::Mutex<SwapchainAnswers> = std::sync::Mutex::new(SwapchainAnswers::new());
+
+/// Drops the cached swapchain answers: a display's HDR or mode changed, or a window moved to
+/// another display (`SDL_EVENT_WINDOW_HDR_STATE_CHANGED`, `SDL_EVENT_WINDOW_DISPLAY_CHANGED`,
+/// `SDL_EVENT_DISPLAY_CURRENT_MODE_CHANGED`). The next `swapchain_takes_hdr` asks SDL again.
+pub fn forget_swapchain_answers() {
+    SWAPCHAIN_ANSWERS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).forget_all();
+}
+
+/// The renderer's swapchain is an HDR one, whatever the window's HDR state is right now. The
+/// answer is cached per renderer and state (`SwapchainState`): SDL's composition and format
+/// queries each make Vulkan surface queries, and a picture asks several times.
 pub fn swapchain_takes_hdr(renderer: *mut SDL_Renderer) -> bool {
     // SAFETY: The renderer and its associated window/device are live.
     unsafe {
         let props = SDL_GetRendererProperties(renderer);
         #[cfg(target_os = "macos")]
-        if renderer_name(renderer) == "metal" {
+        if renderer_is(renderer, "metal") {
             return SDL_GetNumberProperty(props, SDL_PROP_RENDERER_OUTPUT_COLORSPACE_NUMBER, 0)
                 == i64::from(SDL_COLORSPACE_SRGB_LINEAR.0);
         }
@@ -442,13 +536,42 @@ pub fn swapchain_takes_hdr(renderer: *mut SDL_Renderer) -> bool {
             return crate::handheld::renderer_takes_hdr(cfg!(windows), false, false);
         }
         let window = SDL_GetRenderWindow(renderer);
+        let state = swapchain_state(device, window);
+        let (generation, cached) = {
+            let answers = SWAPCHAIN_ANSWERS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            (answers.generation(), answers.get(renderer as usize, state))
+        };
+        if let Some(answer) = cached {
+            return answer;
+        }
         let format = SDL_GetGPUSwapchainTextureFormat(device, window);
         // scRGB, or HDR10 through the patched SDL's PQ present (vendor/sdl3-src/patches/pq-present.patch):
         // only that swapchain is RGB10A2.
-        (SDL_WindowSupportsGPUSwapchainComposition(device, window, SDL_GPU_SWAPCHAINCOMPOSITION_HDR_EXTENDED_LINEAR)
+        let answer = (SDL_WindowSupportsGPUSwapchainComposition(device, window, SDL_GPU_SWAPCHAINCOMPOSITION_HDR_EXTENDED_LINEAR)
             && format == SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT)
             || (SDL_WindowSupportsGPUSwapchainComposition(device, window, SDL_GPU_SWAPCHAINCOMPOSITION_HDR10_ST2084)
-                && format == SDL_GPU_TEXTUREFORMAT_R10G10B10A2_UNORM)
+                && format == SDL_GPU_TEXTUREFORMAT_R10G10B10A2_UNORM);
+        SWAPCHAIN_ANSWERS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).store(generation, renderer as usize, state, answer);
+        answer
+    }
+}
+
+/// What the swapchain answer of `window`, drawn by `device`, is asked in (see `SwapchainState`).
+/// `device` and `window` are the live GPU device and window of a renderer (`swapchain_takes_hdr`).
+fn swapchain_state(device: *mut SDL_GPUDevice, window: *mut SDL_Window) -> SwapchainState {
+    // SAFETY: a live window and its display; SDL's property names are constants.
+    unsafe {
+        let display = SDL_GetDisplayForWindow(window);
+        let (mut width, mut height) = (0, 0);
+        SDL_GetWindowSizeInPixels(window, &mut width, &mut height);
+        SwapchainState {
+            device: device as usize,
+            display: display.0,
+            display_hdr: SDL_GetBooleanProperty(SDL_GetDisplayProperties(display), SDL_PROP_DISPLAY_HDR_ENABLED_BOOLEAN, false),
+            window_hdr: SDL_GetBooleanProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_HDR_ENABLED_BOOLEAN, false),
+            width,
+            height,
+        }
     }
 }
 
@@ -852,7 +975,7 @@ unsafe fn hdr_output(window: *mut SDL_Window, props: SDL_PropertiesID, renderer:
         }
         // SDL reads the window's HDR state when it makes the renderer.
         if plan.rebuild {
-            SDL_DestroyRenderer(renderer);
+            crate::sdl::destroy_renderer(renderer);
             set_renderer_sdr_white(window, handheld::renderer_sdr_white(gamescope, output == Output::Pq));
             if output == Output::Pq {
                 set_pq_present(props, true);
@@ -871,7 +994,7 @@ unsafe fn hdr_output(window: *mut SDL_Window, props: SDL_PropertiesID, renderer:
         }
         // A desktop's PQ that could not be made: scRGB where it is offered, not SDR.
         if let (Err(_), Some(next)) = (decision, handheld::fallback(output, offered)) {
-            if !renderer.is_null() { SDL_DestroyRenderer(renderer); }
+            if !renderer.is_null() { crate::sdl::destroy_renderer(renderer); }
             #[cfg(target_os = "linux")]
             forget_pass_through(window);
             set_renderer_sdr_white(window, handheld::renderer_sdr_white(gamescope, next == Output::Pq));
@@ -881,7 +1004,7 @@ unsafe fn hdr_output(window: *mut SDL_Window, props: SDL_PropertiesID, renderer:
         }
     }
     if decision.is_err() {
-        if !renderer.is_null() { SDL_DestroyRenderer(renderer); }
+        if !renderer.is_null() { crate::sdl::destroy_renderer(renderer); }
         #[cfg(target_os = "linux")]
         forget_pass_through(window);
         renderer = std::ptr::null_mut();
@@ -1091,7 +1214,7 @@ pub fn create_renderer_for(window: *mut SDL_Window, gpu: bool, pyrowave: bool, v
                 }
                 let why = if renderer.is_null() { error() } else { format!("it draws with {:?}", renderer_name(renderer)) };
                 // SAFETY: Made above, unused.
-                if !renderer.is_null() { unsafe { SDL_DestroyRenderer(renderer) }; }
+                if !renderer.is_null() { unsafe { crate::sdl::destroy_renderer(renderer) }; }
                 let extensions: Vec<_> = video.names().iter().map(|name| name.to_string_lossy()).collect();
                 zero_copy::note(&format!("the GPU renderer cannot be made with the Vulkan features {:?} and the video extensions {extensions:?} ({why}), so PyroWave GPU decoding will read its planes back and Vulkan video is not used", request.features().names()));
             }
@@ -1376,5 +1499,72 @@ mod luminance_tests {
         assert_eq!(luminance.query_parameters(), "&minBrightness=0.005&maxBrightness=1000.0&maxAverageBrightness=400.0");
         // No output description: nothing is sent and the host picks its own.
         assert_eq!(luminance_of(&DisplayCaps::default()), None);
+    }
+}
+
+#[cfg(test)]
+mod swapchain_answer_tests {
+    use super::*;
+
+    fn state(width: i32) -> SwapchainState {
+        SwapchainState { device: 0x1000, display: 1, display_hdr: true, window_hdr: true, width, height: 1080 }
+    }
+
+    #[test]
+    fn an_answer_is_kept_for_the_state_it_was_asked_in() {
+        let mut answers = SwapchainAnswers::new();
+        let generation = answers.generation();
+        assert_eq!(answers.get(7, state(1920)), None);
+        answers.store(generation, 7, state(1920), true);
+        assert_eq!(answers.get(7, state(1920)), Some(true));
+        // A resize, a display change or a renderer of another device asks SDL again.
+        assert_eq!(answers.get(7, state(2560)), None);
+        assert_eq!(answers.get(8, state(1920)), None);
+        let other_display = SwapchainState { display: 2, ..state(1920) };
+        assert_eq!(answers.get(7, other_display), None);
+        let other_device = SwapchainState { device: 0x2000, ..state(1920) };
+        assert_eq!(answers.get(7, other_device), None);
+    }
+
+    #[test]
+    fn a_new_answer_for_a_renderer_replaces_its_old_one() {
+        let mut answers = SwapchainAnswers::new();
+        let generation = answers.generation();
+        answers.store(generation, 7, state(1920), true);
+        answers.store(generation, 7, state(2560), false);
+        assert_eq!(answers.get(7, state(1920)), None);
+        assert_eq!(answers.get(7, state(2560)), Some(false));
+        assert_eq!(answers.entries.len(), 1);
+    }
+
+    #[test]
+    fn forgetting_drops_every_answer_and_a_stale_one_is_not_stored() {
+        let mut answers = SwapchainAnswers::new();
+        let before = answers.generation();
+        answers.store(before, 7, state(1920), true);
+        answers.store(before, 8, state(1920), false);
+        answers.forget_all();
+        assert_eq!(answers.get(7, state(1920)), None);
+        assert_eq!(answers.get(8, state(1920)), None);
+        // An answer computed before the forget (while SDL was still asked) is dropped, not kept.
+        answers.store(before, 7, state(1920), true);
+        assert_eq!(answers.get(7, state(1920)), None);
+        // One computed after it is kept.
+        let after = answers.generation();
+        assert_ne!(before, after);
+        answers.store(after, 7, state(1920), false);
+        assert_eq!(answers.get(7, state(1920)), Some(false));
+    }
+
+    #[test]
+    fn the_oldest_renderer_goes_when_too_many_are_kept() {
+        let mut answers = SwapchainAnswers::new();
+        let generation = answers.generation();
+        for renderer in 0..=SWAPCHAIN_ANSWERS_KEPT {
+            answers.store(generation, renderer, state(1920), true);
+        }
+        assert_eq!(answers.entries.len(), SWAPCHAIN_ANSWERS_KEPT);
+        assert_eq!(answers.get(0, state(1920)), None);
+        assert_eq!(answers.get(SWAPCHAIN_ANSWERS_KEPT, state(1920)), Some(true));
     }
 }

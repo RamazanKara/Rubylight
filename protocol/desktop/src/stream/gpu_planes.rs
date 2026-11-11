@@ -225,6 +225,13 @@ impl Lease {
     pub fn release_after(&self, value: u64) {
         if !self.freed.swap(true, Ordering::AcqRel) { self.planes.pool().release(self.set, Some(value)); }
     }
+
+    /// Moves the set into a lease of the caller's, for a presenter that draws it at present time
+    /// and for as long as the picture stays on screen: this lease no longer frees it. None if it
+    /// was given back already.
+    pub fn hand_over(&self) -> Option<Lease> {
+        (!self.freed.swap(true, Ordering::AcqRel)).then(|| Lease { planes: self.planes.clone(), set: self.set, freed: AtomicBool::new(false) })
+    }
 }
 
 #[cfg(windows)]

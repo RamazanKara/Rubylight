@@ -180,6 +180,33 @@ public class FrameLatencyCsvRowTest {
         }
     }
 
+    @Test
+    public void consecutiveFlushesReuseTheirBufferAndReportTheCharactersWritten() throws Exception {
+        FrameLatencyStats stats = new FrameLatencyStats();
+        StringBuilder expected = new StringBuilder();
+        for (int flush = 0; flush < 3; flush++) {
+            for (int i = 1; i <= 25; i++) {
+                int number = flush * 100 + i;
+                stats.onDecoderInput(number, 100 * i, 1000000L * i, 1000001L * i, 1000011L * i, (char) 1);
+                stats.onDecoderOutput(number, 100 * i, 1234567890L + i);
+                stats.onOutputReleased(number, 1234567891L + i, false, false);
+            }
+            StringWriter csv = new StringWriter();
+            long written = stats.writeCsv(csv);
+            assertEquals(csv.toString().length(), written);
+            expected.append(csv);
+        }
+        // Each flush wrote whole rows, and the three flushes together hold 75 rows in order.
+        String text = expected.toString();
+        assertTrue(text.endsWith("\n"));
+        String[] rows = text.split("\n");
+        assertEquals(75, rows.length);
+        for (int i = 0; i < rows.length; i++) {
+            int number = (i / 25) * 100 + (i % 25) + 1;
+            assertTrue(rows[i], rows[i].startsWith(number + ","));
+        }
+    }
+
     // What follows is the code the rows were written with before, word for word but for the names.
 
     private static String oldRow(FrameLatencyStats.Frame frame, boolean vrr, long lost, long dropped, long sampleNs,

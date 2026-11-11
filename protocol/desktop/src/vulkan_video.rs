@@ -908,10 +908,10 @@ mod imports {
             Ok(Self { instance, physical_device: sdl.physical_device, device, memory_fd, memory_types })
         }
 
-        /// Whether the driver imports a DMA-BUF of `modifier` as a `format` image the copy reads,
-        /// as hwcontext_vulkan asks before its own import; creating one it does not would be
-        /// undefined.
-        unsafe fn check_importable(&self, format: vk::Format, modifier: u64) -> Result<(), String> {
+        /// Whether the driver imports a DMA-BUF of `modifier` as a `format` image with `usage` (the
+        /// copy reads it as TRANSFER_SRC; sampling needs SAMPLED), as hwcontext_vulkan asks before
+        /// its own import; creating one it does not would be undefined.
+        unsafe fn check_importable(&self, format: vk::Format, modifier: u64, usage: vk::ImageUsageFlags) -> Result<(), String> {
             let mut drm = vk::PhysicalDeviceImageDrmFormatModifierInfoEXT::default()
                 .drm_format_modifier(modifier)
                 .sharing_mode(vk::SharingMode::EXCLUSIVE);
@@ -921,7 +921,7 @@ mod imports {
                 .format(format)
                 .ty(vk::ImageType::TYPE_2D)
                 .tiling(vk::ImageTiling::DRM_FORMAT_MODIFIER_EXT)
-                .usage(vk::ImageUsageFlags::TRANSFER_SRC)
+                .usage(usage)
                 .push_next(&mut external)
                 .push_next(&mut drm);
             let mut external_properties = vk::ExternalImageFormatProperties::default();
@@ -964,6 +964,11 @@ mod imports {
     struct CachedImport {
         vulkan: Arc<ImportDevice>,
         frame: *mut VkFrame,
+        /// The images were made to be sampled too (`SAMPLED`), as the driver takes the layers'
+        /// formats and modifiers with that usage; else they are only copied from.
+        sampled: bool,
+        /// The picture's size, for the layers' extents.
+        size: (u32, u32),
     }
 
     // SAFETY: The frame is used by one picture at a time: a surface comes back from the decoder,
@@ -982,14 +987,22 @@ mod imports {
         ///
         /// # Safety
         /// `descriptor`'s descriptors are open.
-        unsafe fn new(vulkan: &Arc<ImportDevice>, descriptor: &Descriptor, width: u32, height: u32, ten_bit: bool) -> Result<Self, String> {
+        unsafe fn new(vulkan: &Arc<ImportDevice>, descriptor: &Descriptor, width: u32, height: u32, ten_bit: bool, sample: bool) -> Result<Self, String> {
             let formats = import_layers(descriptor, ten_bit)?;
+            // Sampled in place only when the driver takes every layer with that usage: a surface it
+            // does not is copied from, as before (per surface).
+            let sampled = sample && formats.iter().enumerate().all(|(index, &format)| {
+                let (_, modifier, _) = layer_layout(descriptor, index);
+                modifier != DRM_FORMAT_MOD_INVALID
+                    && vulkan.check_importable(format, modifier, vk::ImageUsageFlags::TRANSFER_SRC | vk::ImageUsageFlags::SAMPLED).is_ok()
+            });
+            let usage = if sampled { vk::ImageUsageFlags::TRANSFER_SRC | vk::ImageUsageFlags::SAMPLED } else { vk::ImageUsageFlags::TRANSFER_SRC };
             let frame = av_vk_frame_alloc();
             if frame.is_null() {
                 return Err("FFmpeg cannot allocate a Vulkan frame".into());
             }
             // From here on, `Drop` destroys what was made if a later step fails.
-            let import = Self { vulkan: vulkan.clone(), frame };
+            let import = Self { vulkan: vulkan.clone(), frame, sampled, size: (width, height) };
             let device = &vulkan.device;
             let vkf = &mut *frame;
             vkf.tiling = vk::ImageTiling::DRM_FORMAT_MODIFIER_EXT;
@@ -998,7 +1011,7 @@ mod imports {
                 if modifier == DRM_FORMAT_MOD_INVALID {
                     return Err(format!("the driver named no DRM format modifier for layer {index}"));
                 }
-                vulkan.check_importable(format, modifier)?;
+                vulkan.check_importable(format, modifier, vk::ImageUsageFlags::TRANSFER_SRC)?;
                 let (w, h) = layer_extent(index, width, height);
                 let layouts = [layout];
                 let mut explicit = vk::ImageDrmFormatModifierExplicitCreateInfoEXT::default()
@@ -1014,7 +1027,7 @@ mod imports {
                     .array_layers(1)
                     .samples(vk::SampleCountFlags::TYPE_1)
                     .tiling(vk::ImageTiling::DRM_FORMAT_MODIFIER_EXT)
-                    .usage(vk::ImageUsageFlags::TRANSFER_SRC)
+                    .usage(usage)
                     .sharing_mode(vk::SharingMode::EXCLUSIVE)
                     .initial_layout(vk::ImageLayout::UNDEFINED)
                     .push_next(&mut external)
@@ -1087,6 +1100,7 @@ mod imports {
 
     impl Drop for CachedImport {
         fn drop(&mut self) {
+            registry().lock().unwrap_or_else(|e| e.into_inner()).remove(&(self.frame as usize));
             // SAFETY: Objects this import made on the renderer's device, which outlives the decoder
             // and the presenter's pictures; the frame is no picture's any more.
             unsafe {
@@ -1128,6 +1142,53 @@ mod imports {
         av_free(frame.cast());
     }
 
+    /// The kept imports by their AVVkFrame's address (`AVFrame::data[0]` of a frame mapped from one),
+    /// weakly: a mapped frame holds its import (`Lent`), so a frame that is in use finds it here.
+    fn registry() -> &'static std::sync::Mutex<std::collections::HashMap<usize, std::sync::Weak<CachedImport>>> {
+        static REGISTRY: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<usize, std::sync::Weak<CachedImport>>>> = std::sync::OnceLock::new();
+        REGISTRY.get_or_init(Default::default)
+    }
+
+    /// A kept import the presenter holds on to while it has textures wrapping its images: they go
+    /// (on the decoder's thread, when the last holder lets go) only after the presenter let go.
+    #[derive(Clone)]
+    pub struct ImportRef(Arc<CachedImport>);
+
+    // SAFETY: As `CachedImport`.
+    unsafe impl Send for ImportRef {}
+
+    impl ImportRef {
+        /// The images are SAMPLED too.
+        pub fn sampled(&self) -> bool {
+            self.0.sampled
+        }
+
+        /// The luma and chroma images.
+        pub fn images(&self) -> [vk::Image; 2] {
+            // SAFETY: The frame lives as long as the import.
+            unsafe { [(*self.0.frame).img[0], (*self.0.frame).img[1]] }
+        }
+
+        /// The picture's size.
+        pub fn size(&self) -> (u32, u32) {
+            self.0.size
+        }
+
+        /// What names the import: its frame's address.
+        pub fn key(&self) -> usize {
+            self.0.frame as usize
+        }
+    }
+
+    /// The kept import `frame`, a Vulkan frame mapped from VAAPI, shows (none for any other frame).
+    ///
+    /// # Safety
+    /// `frame` is a live AVFrame.
+    pub unsafe fn import_of(frame: *const AVFrame) -> Option<ImportRef> {
+        let key = (*frame).data[0] as usize;
+        registry().lock().unwrap_or_else(|e| e.into_inner()).get(&key)?.upgrade().map(ImportRef)
+    }
+
     /// What a mapped frame of a kept import holds (its `buf[0]`'s opaque): its VAAPI picture, so the
     /// surface is the presenter's until the frame is freed, and the import.
     struct Lent {
@@ -1164,6 +1225,8 @@ mod imports {
         _pool: FramesRef,
         /// `dmabuf::export`'s, which only the OpenGL import sets.
         decline: Arc<AtomicBool>,
+        /// New imports are made to be sampled where the driver takes them so (`SAMPLE_ENVIRONMENT`).
+        sample: bool,
     }
 
     impl SurfaceImports {
@@ -1180,7 +1243,8 @@ mod imports {
             match ImportDevice::of(gpu) {
                 Ok(vulkan) => {
                     note("VAAPI 4:2:0 pictures are imported into Vulkan once per decoder surface, kept while the pool lasts");
-                    Some(Self { vulkan: Arc::new(vulkan), cache: SurfaceCache::new(CACHE_LIMIT), _pool: FramesRef::none(), decline: Arc::new(AtomicBool::new(false)) })
+                    Some(Self { vulkan: Arc::new(vulkan), cache: SurfaceCache::new(CACHE_LIMIT), _pool: FramesRef::none(), decline: Arc::new(AtomicBool::new(false)),
+                        sample: sample_switched_on(std::env::var_os(SAMPLE_ENVIRONMENT).as_deref()) })
                 }
                 Err(why) => {
                     note(&format!("VAAPI pictures are imported into Vulkan anew for every picture: {why}"));
@@ -1211,7 +1275,8 @@ mod imports {
             let (import, cached) = match self.cache.get(export.surface()) {
                 Some(import) => (import.clone(), true),
                 None => {
-                    let import = Arc::new(CachedImport::new(&self.vulkan, export.descriptor()?, generation.width, generation.height, ten_bit)?);
+                    let import = Arc::new(CachedImport::new(&self.vulkan, export.descriptor()?, generation.width, generation.height, ten_bit, self.sample)?);
+                    registry().lock().unwrap_or_else(|e| e.into_inner()).insert(import.frame as usize, Arc::downgrade(&import));
                     drop(self.cache.insert(export.surface(), import.clone()));
                     (import, false)
                 }
@@ -2070,6 +2135,15 @@ pub struct Planes {
     /// The CPU time of each `copy`, waits for an earlier copy's slot included, summed up in the
     /// log when the planes go after a stream's worth of pictures.
     stages: Stages<1>,
+    /// The barriers and submit infos of a copy, kept between copies: cleared and refilled, so a
+    /// copy allocates none once they have grown.
+    before: Vec<vk::ImageMemoryBarrier2<'static>>,
+    after: Vec<vk::ImageMemoryBarrier2<'static>>,
+    waits: Vec<vk::SemaphoreSubmitInfo<'static>>,
+    signals: Vec<vk::SemaphoreSubmitInfo<'static>>,
+    /// VA-API pictures sampled in place instead of copied (`Planes::sample`).
+    #[cfg(target_os = "linux")]
+    sampling: Option<sample::Sampling>,
 }
 
 impl Planes {
@@ -2138,6 +2212,12 @@ impl Planes {
             held: Held::new(),
             next: 0,
             stages: Stages::new(["copy"]),
+            before: Vec::new(),
+            after: Vec::new(),
+            waits: Vec::new(),
+            signals: Vec::new(),
+            #[cfg(target_os = "linux")]
+            sampling: None,
         };
         planes.pool = planes
             .device
@@ -2333,6 +2413,11 @@ impl Planes {
         if frames_ref.is_null() || source.is_null() {
             return Err("the picture has no Vulkan frame".into());
         }
+        // A copy overwrites the planes: the sampled picture's draws are done and it is given back first.
+        #[cfg(target_os = "linux")]
+        if !self.end_sampling() {
+            return Err("the sampled VA-API pictures could not be given back".into());
+        }
         let wanted = if self.interleaved {
             interleaved_sw_format(self.ten_bit)
         } else {
@@ -2431,10 +2516,12 @@ impl Planes {
             .map_err(|e| format!("the copy cannot be recorded ({e})"))?;
         let family = self.family;
         // Imported images (VA-API's surfaces) go back to VA-API after the copy.
-        let external: Vec<bool> = (0..sources)
-            .map(|index| source.queue_family[index] == vk::QUEUE_FAMILY_EXTERNAL)
-            .collect();
-        let mut before: Vec<vk::ImageMemoryBarrier2> = (0..sources)
+        let mut external = [false; 2];
+        for (index, flag) in external.iter_mut().enumerate().take(sources) {
+            *flag = source.queue_family[index] == vk::QUEUE_FAMILY_EXTERNAL;
+        }
+        self.before.clear();
+        self.before.extend((0..sources)
             .map(|index| {
                 let (old_layout, from, to) =
                     acquire(source.queue_family[index], source.layout[index], family);
@@ -2451,10 +2538,9 @@ impl Planes {
                     .dst_queue_family_index(to)
                     .image(source.img[index])
                     .subresource_range(range(vk::ImageAspectFlags::COLOR))
-            })
-            .collect();
+            }));
         // The planes' old contents go; the copy waits for SDL's reads of them before it.
-        before.extend(self.images.iter().map(|&(image, _)| {
+        self.before.extend(self.images.iter().map(|&(image, _)| {
             vk::ImageMemoryBarrier2::default()
                 .src_stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
                 .dst_stage_mask(vk::PipelineStageFlags2::COPY)
@@ -2468,7 +2554,7 @@ impl Planes {
         }));
         device.cmd_pipeline_barrier2(
             commands,
-            &vk::DependencyInfo::default().image_memory_barriers(&before),
+            &vk::DependencyInfo::default().image_memory_barriers(&self.before),
         );
         for plane in 0..self.plane_count() {
             let (width, height) = self.plane_size(plane);
@@ -2510,7 +2596,8 @@ impl Planes {
                 &[region],
             );
         }
-        let mut after: Vec<vk::ImageMemoryBarrier2> = self
+        self.after.clear();
+        self.after.extend(self
             .images
             .iter()
             .map(|&(image, _)| {
@@ -2525,42 +2612,39 @@ impl Planes {
                     .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
                     .image(image)
                     .subresource_range(range(vk::ImageAspectFlags::COLOR))
-            })
-            .collect();
-        after.extend(
+            }));
+        self.after.extend(
             (0..sources)
                 .filter(|&index| external[index])
                 .map(|index| release(source.img[index], family)),
         );
         device.cmd_pipeline_barrier2(
             commands,
-            &vk::DependencyInfo::default().image_memory_barriers(&after),
+            &vk::DependencyInfo::default().image_memory_barriers(&self.after),
         );
         device
             .end_command_buffer(commands)
             .map_err(|e| format!("the copy cannot be recorded ({e})"))?;
 
-        let waits: Vec<vk::SemaphoreSubmitInfo> = (0..sources)
-            .map(|index| {
-                vk::SemaphoreSubmitInfo::default()
-                    .semaphore(source.sem[index])
-                    .value(source.sem_value[index])
-                    .stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
-            })
-            .collect();
-        let signals: Vec<vk::SemaphoreSubmitInfo> = (0..sources)
-            .map(|index| {
-                vk::SemaphoreSubmitInfo::default()
-                    .semaphore(source.sem[index])
-                    .value(source.sem_value[index] + 1)
-                    .stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
-            })
-            .collect();
+        self.waits.clear();
+        self.waits.extend((0..sources).map(|index| {
+            vk::SemaphoreSubmitInfo::default()
+                .semaphore(source.sem[index])
+                .value(source.sem_value[index])
+                .stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
+        }));
+        self.signals.clear();
+        self.signals.extend((0..sources).map(|index| {
+            vk::SemaphoreSubmitInfo::default()
+                .semaphore(source.sem[index])
+                .value(source.sem_value[index] + 1)
+                .stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
+        }));
         let buffers = [vk::CommandBufferSubmitInfo::default().command_buffer(commands)];
         let submit = vk::SubmitInfo2::default()
-            .wait_semaphore_infos(&waits)
+            .wait_semaphore_infos(&self.waits)
             .command_buffer_infos(&buffers)
-            .signal_semaphore_infos(&signals);
+            .signal_semaphore_infos(&self.signals);
         device
             .reset_fences(&[fence])
             .map_err(|e| format!("the copy's fence cannot be reset ({e})"))?;
@@ -2595,6 +2679,8 @@ impl Drop for Planes {
         }
         // SAFETY: Handles made in `new`; nothing is freed while the GPU may still use it.
         unsafe {
+            #[cfg(target_os = "linux")]
+            self.release_wrapped();
             for texture in self
                 .textures
                 .into_iter()
@@ -2611,6 +2697,8 @@ impl Drop for Planes {
                     .device
                     .wait_for_fences(&fences, true, COPY_WAIT.as_nanos() as u64)
                     .is_ok();
+            #[cfg(target_os = "linux")]
+            self.drop_wrapped(idle && copied);
             if !idle || !copied {
                 eprintln!(
                     "nightjar: the GPU did not finish with the Vulkan video planes ({}), so their images stay allocated",
@@ -2643,6 +2731,324 @@ pub fn note(line: &str) {
     if noted.as_deref() != Some(line) {
         eprintln!("nightjar: {line}");
         *noted = Some(line.to_owned());
+    }
+}
+
+#[cfg(target_os = "linux")]
+mod sample;
+
+/// Set to 0, decoded VA-API and Vulkan video pictures are copied into the presenter's planes
+/// (`Planes::copy`) as before, instead of being sampled where the decoder wrote them.
+pub const SAMPLE_ENVIRONMENT: &str = "NIGHTJAR_VIDEO_SAMPLE_PICTURES";
+
+/// What `SAMPLE_ENVIRONMENT`'s value asks for: sampling, unless it is 0.
+pub fn sample_switched_on(value: Option<&std::ffi::OsStr>) -> bool {
+    value.is_none_or(|value| value != "0")
+}
+
+/// How a decoded Linux video picture reaches the renderer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Route {
+    /// Sampled where the decoder wrote it, held until the draws that read it are fenced (`Sampled`).
+    Sample,
+    /// Copied into the presenter's planes (`Planes::copy`); the reason is logged once.
+    Copy(&'static str),
+}
+
+/// What the route depends on, per stream.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Eligibility {
+    /// `SAMPLE_ENVIRONMENT` does not turn sampling off.
+    pub switched_on: bool,
+    /// The driver samples the picture's format with its DRM modifier: `ImportDevice::check_importable`
+    /// with SAMPLED usage passes.
+    pub sampleable: bool,
+    /// The VA-API pool has a surface beyond the ones the presenter holds (`SAMPLED_HELD`).
+    pub spare_surface: bool,
+    /// The consumer needs a copy that outlives the picture (the packed 4:4:4 rebuild reads its planes
+    /// after the copy and keeps no picture).
+    pub stable_copy: bool,
+}
+
+/// The first reason that rules sampling out, in the order they are checked; `Sample` when none does.
+pub fn route(eligibility: Eligibility) -> Route {
+    if !eligibility.switched_on {
+        Route::Copy("NIGHTJAR_VIDEO_SAMPLE_PICTURES=0")
+    } else if eligibility.stable_copy {
+        Route::Copy("the consumer needs a copy that outlives the picture")
+    } else if !eligibility.sampleable {
+        Route::Copy("the driver does not sample this DMA-BUF format and modifier")
+    } else if !eligibility.spare_surface {
+        Route::Copy("the VA-API pool has no surface beyond the ones the presenter holds")
+    } else {
+        Route::Sample
+    }
+}
+
+/// Surfaces a VA-API pool keeps beyond the decoder's when pictures are sampled: the shown picture
+/// and the ones whose release is not fenced yet (at most `SLOTS` of them), so one more than
+/// `MAPPED_HELD`.
+pub const SAMPLED_HELD: i32 = MAPPED_HELD + 1;
+
+/// The surfaces a VAAPI pool that maps keeps beyond the decoder's: `SAMPLED_HELD` when pictures are
+/// sampled in place (`SAMPLE_ENVIRONMENT`), else `MAPPED_HELD`.
+pub fn mapped_held() -> i32 {
+    if sample_switched_on(std::env::var_os(SAMPLE_ENVIRONMENT).as_deref()) { SAMPLED_HELD } else { MAPPED_HELD }
+}
+
+/// How the log says the route.
+pub fn describe_route(route: Route) -> String {
+    match route {
+        Route::Sample => "VA-API and Vulkan video pictures are sampled in place".into(),
+        Route::Copy(why) => format!("VA-API and Vulkan video pictures are copied into the presenter's planes: {why}"),
+    }
+}
+
+/// The GPU work a sampled picture takes, in the order it is queued on the renderer's queue.
+pub trait SampleGpu {
+    /// Submits what the renderer recorded (`SDL_FlushRenderer`), so every draw so far is ahead of
+    /// what is queued after it.
+    fn flush(&mut self) -> Result<(), String>;
+    /// Blocks until the work last queued on `slot` has finished.
+    fn wait(&mut self, slot: usize) -> Result<(), String>;
+    /// Whether the work last queued on `slot` has finished.
+    fn finished(&self, slot: usize) -> bool;
+    /// Queues the barrier that hands the picture of `slot` to the renderer for sampling, after its decode.
+    fn acquire(&mut self, slot: usize) -> Result<(), String>;
+    /// Queues the barrier that gives the picture of `slot` back to the decoder behind the draws the
+    /// last flush submitted, and signals `slot`'s fence once it is done.
+    fn release(&mut self, slot: usize) -> Result<(), String>;
+}
+
+/// The pictures the presenter samples in place. The shown one is held until the next picture is
+/// shown; then its release is queued after the draws that read it (behind the flush), and the
+/// picture is handed back to the decoder only once that release's fence has finished. Each slot
+/// is waited for before its next use, so at most `slots` pictures are held at once.
+pub struct Sampled<P> {
+    slots: usize,
+    next: usize,
+    /// The picture shown, and its slot.
+    shown: Option<(P, usize)>,
+    /// Released pictures whose fence has not been seen finished yet, and their slots.
+    returning: Vec<(P, usize)>,
+}
+
+impl<P> Sampled<P> {
+    pub fn new(slots: usize) -> Self {
+        Self { slots, next: 0, shown: None, returning: Vec::new() }
+    }
+
+    /// Pictures held: the shown one and those not yet given back.
+    pub fn held(&self) -> usize {
+        self.returning.len() + usize::from(self.shown.is_some())
+    }
+
+    /// Shows `picture`: flushes the draws of the picture shown so far, samples `picture` on the next
+    /// slot and queues the release of the one it replaces. Returns the pictures whose release has
+    /// finished, which the decoder may take again. If `picture` cannot be sampled it comes back
+    /// unshown with the error; a failed release leaves the replaced picture unreturned (the device
+    /// is lost) and the caller stops sampling.
+    pub fn show(&mut self, gpu: &mut impl SampleGpu, picture: P) -> Result<Vec<P>, (P, String)> {
+        if let Err(error) = gpu.flush() {
+            return Err((picture, error));
+        }
+        let slot = self.next;
+        if let Err(error) = gpu.wait(slot) {
+            return Err((picture, error));
+        }
+        if let Err(error) = gpu.acquire(slot) {
+            return Err((picture, error));
+        }
+        if let Some((old, old_slot)) = self.shown.take() {
+            let released = gpu.release(old_slot);
+            self.returning.push((old, old_slot));
+            if let Err(error) = released {
+                return Err((picture, error));
+            }
+        }
+        self.shown = Some((picture, slot));
+        self.next = (slot + 1) % self.slots;
+        Ok(self.collect(&*gpu))
+    }
+
+    /// Ends the stream: releases the shown picture behind the last draws, then waits for every
+    /// picture to come back.
+    pub fn finish(&mut self, gpu: &mut impl SampleGpu) -> Result<Vec<P>, String> {
+        if let Some((old, old_slot)) = self.shown.take() {
+            let released = gpu.flush().and_then(|()| gpu.release(old_slot));
+            self.returning.push((old, old_slot));
+            released?;
+        }
+        let slots: Vec<usize> = self.returning.iter().map(|(_, slot)| *slot).collect();
+        for slot in slots {
+            gpu.wait(slot)?;
+        }
+        Ok(self.returning.drain(..).map(|(picture, _)| picture).collect())
+    }
+
+    /// Takes the released pictures whose fence has finished.
+    fn collect(&mut self, gpu: &impl SampleGpu) -> Vec<P> {
+        let mut done = Vec::new();
+        let mut index = 0;
+        while index < self.returning.len() {
+            if gpu.finished(self.returning[index].1) {
+                done.push(self.returning.remove(index).0);
+            } else {
+                index += 1;
+            }
+        }
+        done
+    }
+}
+
+#[cfg(test)]
+mod sample_tests {
+    use super::*;
+
+    /// Records the queue's calls; work is pending on a slot from its release until `complete`.
+    #[derive(Default)]
+    struct Mock {
+        log: Vec<String>,
+        pending: Vec<usize>,
+        refuse_release: bool,
+    }
+
+    impl Mock {
+        fn complete(&mut self, slot: usize) {
+            self.pending.retain(|&pending| pending != slot);
+        }
+    }
+
+    impl SampleGpu for Mock {
+        fn flush(&mut self) -> Result<(), String> {
+            self.log.push("flush".into());
+            Ok(())
+        }
+        fn wait(&mut self, slot: usize) -> Result<(), String> {
+            self.log.push(format!("wait {slot}"));
+            self.complete(slot);
+            Ok(())
+        }
+        fn finished(&self, slot: usize) -> bool {
+            !self.pending.contains(&slot)
+        }
+        fn acquire(&mut self, slot: usize) -> Result<(), String> {
+            self.log.push(format!("acquire {slot}"));
+            Ok(())
+        }
+        fn release(&mut self, slot: usize) -> Result<(), String> {
+            if self.refuse_release {
+                return Err("the device is lost".into());
+            }
+            self.log.push(format!("release {slot}"));
+            self.pending.push(slot);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_picture_is_released_only_after_the_next_draw_is_flushed() {
+        let mut gpu = Mock::default();
+        let mut sampled = Sampled::new(3);
+        assert_eq!(sampled.show(&mut gpu, 0u32).unwrap(), Vec::<u32>::new());
+        assert_eq!(gpu.log, ["flush", "wait 0", "acquire 0"], "nothing is released with one picture");
+        assert_eq!(sampled.show(&mut gpu, 1).unwrap(), Vec::<u32>::new());
+        assert_eq!(gpu.log[3..], ["flush", "wait 1", "acquire 1", "release 0"], "picture 0's release follows the flush that submits its draws");
+        assert_eq!(sampled.held(), 2);
+    }
+
+    #[test]
+    fn a_released_picture_waits_for_its_fence_before_the_decoder_gets_it_back() {
+        let mut gpu = Mock::default();
+        let mut sampled = Sampled::new(3);
+        sampled.show(&mut gpu, 0u32).unwrap();
+        sampled.show(&mut gpu, 1).unwrap();
+        // The GPU has not finished picture 0's release: it is not handed back.
+        assert_eq!(sampled.show(&mut gpu, 2).unwrap(), Vec::<u32>::new());
+        assert_eq!(sampled.held(), 3, "shown picture plus two not yet returned");
+        gpu.complete(0);
+        // Slot 0's next use waits for it, and then picture 0 is returned.
+        assert_eq!(sampled.show(&mut gpu, 3).unwrap(), vec![0]);
+        assert_eq!(sampled.held(), 3);
+    }
+
+    #[test]
+    fn held_pictures_stay_within_the_slots() {
+        let mut gpu = Mock::default();
+        let mut sampled = Sampled::new(3);
+        for picture in 0..10u32 {
+            sampled.show(&mut gpu, picture).unwrap();
+            assert!(sampled.held() <= 3, "held {} after picture {picture}", sampled.held());
+        }
+    }
+
+    #[test]
+    fn a_picture_that_cannot_be_released_comes_back_with_the_error() {
+        let mut gpu = Mock::default();
+        let mut sampled = Sampled::new(3);
+        sampled.show(&mut gpu, 0u32).unwrap();
+        gpu.refuse_release = true;
+        let (picture, error) = sampled.show(&mut gpu, 1).unwrap_err();
+        assert_eq!(picture, 1, "the new picture is handed back unshown");
+        assert!(error.contains("lost"));
+    }
+
+    #[test]
+    fn a_flush_failure_hands_the_picture_back_unshown() {
+        struct Refusing;
+        impl SampleGpu for Refusing {
+            fn flush(&mut self) -> Result<(), String> { Err("no flush".into()) }
+            fn wait(&mut self, _: usize) -> Result<(), String> { Ok(()) }
+            fn finished(&self, _: usize) -> bool { true }
+            fn acquire(&mut self, _: usize) -> Result<(), String> { Ok(()) }
+            fn release(&mut self, _: usize) -> Result<(), String> { Ok(()) }
+        }
+        let mut sampled = Sampled::new(3);
+        let (picture, error) = sampled.show(&mut Refusing, 7u32).unwrap_err();
+        assert_eq!((picture, error.as_str()), (7, "no flush"));
+        assert_eq!(sampled.held(), 0);
+    }
+
+    #[test]
+    fn finishing_gives_every_picture_back_after_its_release() {
+        let mut gpu = Mock::default();
+        let mut sampled = Sampled::new(3);
+        sampled.show(&mut gpu, 0u32).unwrap();
+        sampled.show(&mut gpu, 1).unwrap();
+        assert_eq!(sampled.finish(&mut gpu).unwrap(), vec![0, 1]);
+        assert_eq!(gpu.log.last().map(String::as_str), Some("wait 1"));
+        assert_eq!(sampled.held(), 0);
+        assert!(gpu.log.contains(&"release 1".to_string()), "the shown picture is released, not dropped");
+    }
+
+    #[test]
+    fn sampling_is_on_unless_the_environment_says_0() {
+        assert!(sample_switched_on(None));
+        assert!(sample_switched_on(Some("1".as_ref())));
+        assert!(!sample_switched_on(Some("0".as_ref())));
+        assert_eq!(SAMPLED_HELD, MAPPED_HELD + 1);
+    }
+
+    #[test]
+    fn the_first_reason_against_sampling_is_the_one_given() {
+        let all = Eligibility { switched_on: true, sampleable: true, spare_surface: true, stable_copy: false };
+        assert_eq!(route(all), Route::Sample);
+        assert_eq!(route(Eligibility { switched_on: false, ..all }), Route::Copy("NIGHTJAR_VIDEO_SAMPLE_PICTURES=0"));
+        assert!(matches!(route(Eligibility { stable_copy: true, sampleable: false, ..all }), Route::Copy(why) if why.contains("copy that outlives")));
+        assert!(matches!(route(Eligibility { sampleable: false, spare_surface: false, ..all }), Route::Copy(why) if why.contains("DMA-BUF")));
+        assert!(matches!(route(Eligibility { spare_surface: false, ..all }), Route::Copy(why) if why.contains("no surface")));
+    }
+
+    #[test]
+    fn a_pool_that_maps_keeps_a_surface_more_when_pictures_are_sampled() {
+        let held = mapped_held();
+        assert_eq!(held, if sample_switched_on(std::env::var_os(SAMPLE_ENVIRONMENT).as_deref()) { SAMPLED_HELD } else { MAPPED_HELD });
+    }
+
+    #[test]
+    fn the_log_says_which_path_is_taken() {
+        assert!(describe_route(Route::Sample).contains("sampled in place"));
+        assert!(describe_route(Route::Copy("why")).ends_with("why"));
     }
 }
 

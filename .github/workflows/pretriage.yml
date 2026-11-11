@@ -89,9 +89,9 @@ jobs:
             default: deepseek-v4.1-flash
           fallback_providers:
             - provider: opencode-go
-              model: gpt-6-luna
+              model: glm-5.3
             - provider: opencode-go
-              model: kimi-k3.1-pro
+              model: glm-5.3-flash
           approvals:
             mode: manual
           tools:

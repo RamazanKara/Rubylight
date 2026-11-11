@@ -28,7 +28,8 @@ use crate::config::GraphicsCard;
 use crate::strings::trf;
 
 /// DXVA's HEVC Range Extension profiles FFmpeg decodes HEVC 4:4:4 with (`ff_DXVA2_ModeHEVC_VLD_Main_444`
-/// and `_Main10_444` in its dxva2.c; FFmpeg 8.1's avcodec carries both).
+/// and `_Main10_444` in its dxva2.c). FFmpeg 8.1 and 9.0 have neither: Moonlight's patch in
+/// `ffmpeg-patches/windows` adds them to the FFmpeg the package ships.
 const HEVC_MAIN_444: GUID = GUID::from_values(0x4008_018f, 0xf537, 0x4b36, [0x98, 0xcf, 0x61, 0xaf, 0x8a, 0x2c, 0x1a, 0x33]);
 const HEVC_MAIN10_444: GUID = GUID::from_values(0x0dab_effa, 0x4458, 0x4602, [0xbc, 0x03, 0x07, 0x95, 0x65, 0x9d, 0x61, 0x7c]);
 
@@ -42,20 +43,42 @@ fn name_of(description: &[u16]) -> String {
     String::from_utf16_lossy(&description[..end]).trim().to_owned()
 }
 
-/// The renderer's GPU: its name and LUID. `device` is the renderer's `ID3D11Device`.
-fn renderer_adapter(device: *mut c_void) -> Option<(String, LUID)> {
+/// A GPU as DXGI describes it: its name, LUID and PCI vendor and device IDs (its model).
+#[derive(Clone, Debug, PartialEq)]
+struct Adapter {
+    name: String,
+    luid: (u32, i32),
+    model: (u32, u32),
+}
+
+impl Adapter {
+    fn of(name: &[u16], luid: LUID, vendor: u32, device: u32) -> Self {
+        Self { name: name_of(name), luid: (luid.LowPart, luid.HighPart), model: (vendor, device) }
+    }
+
+    /// Whether `other` is this GPU: the same LUID, or the same model. A hybrid laptop can list its
+    /// dedicated GPU under LUIDs other than the one the renderer's device reports (an RTX 5060
+    /// laptop listed itself twice so, Rubylight issue 84), and the hint then named the renderer's
+    /// own GPU as the other one.
+    fn is(&self, other: &Adapter) -> bool {
+        self.luid == other.luid || self.model == other.model
+    }
+}
+
+/// The renderer's GPU. `device` is the renderer's `ID3D11Device`.
+fn renderer_adapter(device: *mut c_void) -> Option<Adapter> {
     // SAFETY: A live device pointer from the renderer, only borrowed here.
     let device = unsafe { ID3D11Device::from_raw_borrowed(&device) }?;
     // SAFETY: Plain DXGI queries on the borrowed device.
     unsafe {
         let desc = device.cast::<IDXGIDevice>().ok()?.GetAdapter().ok()?.GetDesc().ok()?;
-        Some((name_of(&desc.Description), desc.AdapterLuid))
+        Some(Adapter::of(&desc.Description, desc.AdapterLuid, desc.VendorId, desc.DeviceId))
     }
 }
 
 /// The name of the GPU the renderer draws and D3D11VA decodes on, for the log.
 pub fn renderer_gpu(device: *mut c_void) -> Option<String> {
-    renderer_adapter(device).map(|(name, _)| name)
+    renderer_adapter(device).map(|adapter| adapter.name)
 }
 
 /// Whether `adapter`'s video decoder has `profile` and decodes it into `format`.
@@ -72,27 +95,51 @@ unsafe fn decodes(adapter: &IDXGIAdapter1, (profile, format): (GUID, DXGI_FORMAT
     })
 }
 
-/// The GPUs other than the renderer's, by name, that decode HEVC 4:4:4 (`ten_bit`: Main10 4:4:4),
-/// with the renderer's: None when the renderer's device is unknown.
-pub fn others_decoding_hevc444(device: *mut c_void, ten_bit: bool) -> Option<(String, Vec<String>)> {
-    let (renderer, luid) = renderer_adapter(device)?;
-    let mut others = Vec::new();
+/// Where HEVC 4:4:4 decodes, by the GPUs' DXVA profiles.
+#[derive(Debug, PartialEq)]
+pub enum Hevc444Gpus {
+    /// The renderer's own GPU has the profile: a failed decode is not the GPU's choice.
+    Renderer,
+    /// The other GPUs, by name, that have it (none: no GPU here does).
+    Others(Vec<String>),
+}
+
+/// Of the `listed` GPUs, each with whether it decodes, where HEVC 4:4:4 decodes beside `renderer`.
+fn hevc444_gpus(renderer: &Adapter, listed: impl IntoIterator<Item = (Adapter, bool)>) -> Hevc444Gpus {
+    let mut others: Vec<String> = Vec::new();
+    for (adapter, decodes) in listed {
+        if !decodes {
+            continue;
+        }
+        if renderer.is(&adapter) {
+            return Hevc444Gpus::Renderer;
+        }
+        if !others.contains(&adapter.name) {
+            others.push(adapter.name);
+        }
+    }
+    Hevc444Gpus::Others(others)
+}
+
+/// The renderer's GPU by name, and where HEVC 4:4:4 (`ten_bit`: Main10 4:4:4) decodes: None when
+/// the renderer's device is unknown.
+pub fn others_decoding_hevc444(device: *mut c_void, ten_bit: bool) -> Option<(String, Hevc444Gpus)> {
+    let renderer = renderer_adapter(device)?;
+    let mut listed = Vec::new();
     // SAFETY: Plain DXGI and D3D11 calls; every device made here is its own and dropped here.
     unsafe {
         let factory: IDXGIFactory1 = CreateDXGIFactory1().ok()?;
         for index in 0.. {
             let Ok(adapter) = factory.EnumAdapters1(index) else { break };
             let Ok(desc) = adapter.GetDesc1() else { continue };
-            let same = desc.AdapterLuid.LowPart == luid.LowPart && desc.AdapterLuid.HighPart == luid.HighPart;
-            if same || desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32 != 0 {
+            if desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32 != 0 {
                 continue;
             }
-            if decodes(&adapter, hevc444_profile(ten_bit)) {
-                others.push(name_of(&desc.Description));
-            }
+            let found = Adapter::of(&desc.Description, desc.AdapterLuid, desc.VendorId, desc.DeviceId);
+            listed.push((found, decodes(&adapter, hevc444_profile(ten_bit))));
         }
     }
-    Some((renderer, others))
+    Some((renderer.name.clone(), hevc444_gpus(&renderer, listed)))
 }
 
 /// What to tell the player when the renderer's GPU (`renderer`) can't decode 4:4:4 and `other`
@@ -388,10 +435,31 @@ mod tests {
         let name = super::renderer_gpu(raw).expect("the device's GPU");
         assert!(!name.is_empty());
         for ten_bit in [false, true] {
-            let (renderer, others) = super::others_decoding_hevc444(raw, ten_bit).expect("the renderer's GPU");
+            let (renderer, gpus) = super::others_decoding_hevc444(raw, ten_bit).expect("the renderer's GPU");
             assert_eq!(renderer, name);
-            eprintln!("renderer {renderer}; others decoding HEVC 4:4:4 (10-bit {ten_bit}): {others:?}");
+            if let super::Hevc444Gpus::Others(others) = &gpus {
+                assert!(!others.contains(&renderer), "{others:?}");
+            }
+            eprintln!("renderer {renderer}; HEVC 4:4:4 (10-bit {ten_bit}): {gpus:?}");
         }
+    }
+
+    /// Rubylight issue 84: an RTX 5060 laptop listed its GPU under two LUIDs other than the
+    /// renderer's, and the hint said the RTX 5060 can't decode 4:4:4 but the RTX 5060 can.
+    #[test]
+    fn the_renderers_own_gpu_under_another_luid_is_not_another_gpu() {
+        use super::{hevc444_gpus, Adapter, Hevc444Gpus};
+        let gpu = |name: &str, luid: u32, model: (u32, u32)| Adapter { name: name.into(), luid: (luid, 0), model };
+        let rtx = (0x10de, 0x2d59);
+        let radeon = (0x1002, 0x150e);
+        let renderer = gpu("RTX 5060", 1, rtx);
+        let listed = [(gpu("RTX 5060", 2, rtx), true), (gpu("RTX 5060", 3, rtx), true), (gpu("Radeon", 4, radeon), false)];
+        assert_eq!(hevc444_gpus(&renderer, listed.clone()), Hevc444Gpus::Renderer);
+        assert_eq!(hevc444_gpus(&renderer, [(gpu("RTX 5060", 1, rtx), true)]), Hevc444Gpus::Renderer);
+        // The integrated GPU draws: the RTX is the other one, named once.
+        let integrated = gpu("Radeon", 4, radeon);
+        assert_eq!(hevc444_gpus(&integrated, listed), Hevc444Gpus::Others(vec!["RTX 5060".into()]));
+        assert_eq!(hevc444_gpus(&integrated, [(gpu("RTX 5060", 2, rtx), false)]), Hevc444Gpus::Others(vec![]));
     }
 
     #[test]

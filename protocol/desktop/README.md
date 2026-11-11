@@ -183,7 +183,7 @@ Everything below works on Windows and Linux unless a platform is named; the [mac
 
 **Picture**
 
-- H.264, HEVC and AV1 with hardware decoding: D3D11VA on Windows; on Linux VA-API, then Vulkan video, then V4L2 M2M (ARM handhelds and boards; 10-bit HEVC where the driver offers P010, through `ffmpeg-patches/`, tested with a fake decoder by `test-v4l2-p010.sh`), then NVDEC. Before a stream, each format is decoded once on the hardware decoder, and only what decodes is offered to the PC; a decoder that gives up mid-stream hands over to the next, with a notice.
+- H.264, HEVC and AV1 with hardware decoding: D3D11VA on Windows (HEVC 4:4:4 too, through Moonlight's FFmpeg patch in `ffmpeg-patches/windows/`, which FFmpeg 8 lacks); on Linux VA-API, then Vulkan video, then V4L2 M2M (ARM handhelds and boards; 10-bit HEVC where the driver offers P010, through `ffmpeg-patches/`, tested with a fake decoder by `test-v4l2-p010.sh`), then NVDEC. Before a stream, each format is decoded once on the hardware decoder, and only what decodes is offered to the PC; a decoder that gives up mid-stream hands over to the next, with a notice.
 - PyroWave decodes on the GPU or the CPU, with a bandwidth test and a frame-pace calibration per network, and skips to the newest frame when the decoder falls behind.
 - HDR: HDR10 and HLG, plus Dolby Vision profiles 8.1 and 10.1 on Windows from hosts that send them. On Linux, HDR streams present as HDR10 PQ where the compositor offers it, else scRGB. 10-bit SDR, YUV 4:4:4 and full chroma where the host and decoder support them; Windows decodes HEVC 4:4:4 in hardware on GPUs whose decoder has it.
 - Upscaling with bilinear, FSR 1, SGSR 1 or AI enhancement (the GPU vendor's video super resolution).

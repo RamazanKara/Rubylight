@@ -1,0 +1,6 @@
+- PyroWave, gamepad input and the GPU upscaler do less work per frame; the connection wakes only when needed, saving battery.
+- Video arrives in fewer, larger reads.
+- HDR on the Vulkan renderer keeps its colours after returning from the home screen.
+- The PC list shows a Rubylight update from the PC itself.
+- Dialogs blur the page behind them on more phones; Settings rows fade under the title.
+- Dual screen settings are translated.

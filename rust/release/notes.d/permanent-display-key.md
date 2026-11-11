@@ -1,1 +1,0 @@
-- **Leftover setting removed.** The permanent virtual display count (`dd_virtual_display_permanent_count`, earlier `dd_vdd_static_monitor_count`), which nothing has read since permanent virtual displays were removed, is dropped from saved settings and can no longer be set per app or device.

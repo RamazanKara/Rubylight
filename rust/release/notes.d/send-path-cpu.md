@@ -1,5 +1,0 @@
-# Less work per frame on the send path
-- **Keyframes leave sooner.** H.264 keyframes no longer have the whole picture scanned one byte at a time to adjust their header: on the RX 7900 XT at 2560x1440 and 120 fps with 16 recovery keyframes per run, a keyframe's first packet left 0.04 ms sooner at the median and 0.06 ms sooner at p95 (0.45 to 0.41 ms, 0.51 to 0.45 ms).
-- HEVC pictures whose header Rubylight rewrites, and H.264 keyframes, now reuse the host's pooled frame buffers instead of a fresh one each, and the video sender reuses its packet buffers block by block instead of freeing hundreds of them when a large frame follows a small one. HEVC at 3840x2160 and 60 fps, 500 Mbps: the first packet left 0.01-0.02 ms sooner, the rest unchanged.
-- Error correction finishes the last bytes of each packet 16 and 8 bytes at a time instead of one by one: 10-16 % faster at Moonlight's default packet size on the Ryzen 7 5800X3D.
-- On NVIDIA, a recovery frame after packet loss no longer waits in 1 ms steps for the frames already in the encoder: it waits on the encoder's own completion signal.

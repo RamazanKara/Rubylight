@@ -21,7 +21,7 @@
 
 <div align="center">
 
-**[Download 3.11.8](https://github.com/RamazanKara/Rubylight/releases/tag/v3.11.8)** · [Getting started](docs/getting-started.md) · [Documentation](docs/README.md) · [Release notes](rust/RELEASE_NOTES.md) · [Website](https://ramazankara.github.io/Rubylight/)
+**[Download 3.11.9](https://github.com/RamazanKara/Rubylight/releases/tag/v3.11.9)** · [Getting started](docs/getting-started.md) · [Documentation](docs/README.md) · [Release notes](rust/RELEASE_NOTES.md) · [Website](https://ramazankara.github.io/Rubylight/)
 
 </div>
 
@@ -343,7 +343,7 @@ The installer brings an existing Apollo or Vibepollo installation's settings, pa
 
 ## Get started
 
-1. Download and run `rubylight-setup-3.11.8.exe` from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v3.11.8). It sets up the Windows service, the virtual display driver and controller support. To try Rubylight without installing, extract `rubylight-3.11.8-windows-x64.zip` and run **Start Rubylight.exe**.
+1. Download and run `rubylight-setup-3.11.9.exe` from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v3.11.9). It sets up the Windows service, the virtual display driver and controller support. To try Rubylight without installing, extract `rubylight-3.11.9-windows-x64.zip` and run **Start Rubylight.exe**.
 2. Open **https://localhost:47990** on the PC and create the console account.
 3. Pair a device: Nightjar scans the QR code on **Home**; for Moonlight, enter the PIN it shows on the console's **Devices** page.
 4. Start **Desktop** at 1080p60, then raise the resolution, frame rate and bitrate and turn on HDR.

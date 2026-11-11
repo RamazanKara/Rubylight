@@ -119,6 +119,14 @@ InputPlumber (https://github.com/ShadowBlip/InputPlumber, GPLv3), and the input
 report layout and button bits from SDL's SDL_hidapi_steamdeck.c and
 controller_structs.h (https://github.com/libsdl-org/SDL, zlib license).
 
+Artemis
+
+Nightjar's touchpad gestures for a physical touchpad and the Trackpad (touchpad
+gestures) touch mode (client/app/src/main/java/com/limelight/binding/input/touch/
+TrackpadContext.java): tap to click, two-finger scroll, tap-and-drag and flick
+momentum are ported from Artemis (https://github.com/ClassicOldSong/moonlight-android)
+by ClassicOldSong, GPL-3.0, by Umberto Marotta (nightjar#91).
+
 Moonlight V+
 
 Nightjar's soft keyboard for the host's text fields

@@ -11,6 +11,7 @@
 //! each conversion's fence on the GPU (API 12.0, driver 522.25 and newer).
 
 mod cuda;
+mod drain;
 
 use crate::{
     capture::{Device, GpuImage, Image, Pixel},
@@ -35,7 +36,7 @@ use std::{
 };
 use windows::{
     Win32::{
-        Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT},
+        Foundation::{CloseHandle, HANDLE, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT},
         Graphics::{
             Direct3D11::ID3D11Texture2D,
             Direct3D12::{
@@ -594,6 +595,11 @@ struct Session {
     /// The output fence value the encoder's output event was last armed
     /// for ([`Session::arm_output`]); 0 before any.
     armed: std::cell::Cell<u64>,
+    /// The event a D3D12 drain waits on for the oldest frame
+    /// ([`Session::wait_oldest`]), created on first use.
+    drain_event: Option<crate::timing::Signal>,
+    /// The output fence value `drain_event` was last armed for; 0 before any.
+    drain_armed: u64,
     /// Blocks a P-frame is sent in when slice delivery is on, else 0.
     slice_blocks: u8,
     /// NVENC writes each slice as it finishes (`enableSubFrameWrite`), and
@@ -742,6 +748,8 @@ impl Session {
             oversize_warned: None,
             reencode_failure: None,
             armed: std::cell::Cell::new(0),
+            drain_event: None,
+            drain_armed: 0,
             slice_blocks: 0,
             subframe: false,
             subframe_slices: 0,
@@ -2154,18 +2162,60 @@ impl Session {
         Ok(())
     }
     fn drain(&mut self) -> Result<()> {
-        let deadline = Instant::now() + DRAIN_TIMEOUT;
-        while !self.pending.is_empty() {
-            self.collect()?;
-            if self.pending.is_empty() {
-                break;
+        let mut waiter = SessionDrain {
+            session: self,
+            started: Instant::now(),
+        };
+        drain::drain_pending(&mut waiter, DRAIN_TIMEOUT)
+    }
+    /// Blocks at most `timeout` on the oldest frame in flight: on its D3D12
+    /// output fence, through `drain_event` set when the fence reaches the
+    /// frame's value, or on the completion event the driver signals for its
+    /// slot. A slot whose event an earlier wait consumed has no handle left.
+    fn wait_oldest(&mut self, timeout: Duration) -> Result<drain::DrainWait> {
+        let Some(pending) = self.pending.front() else {
+            return Ok(drain::DrainWait::Unavailable);
+        };
+        let (index, signal) = (pending.slot, pending.signal);
+        let millis = timeout.as_millis().clamp(1, u32::MAX as u128) as u32;
+        if let (Some(d3d12), Some(signal)) = (&self.d3d12, signal) {
+            // A removed device fails the read; the next collect reports it.
+            let Ok(completed) = d3d12.fence.completed() else {
+                return Ok(drain::DrainWait::Unavailable);
+            };
+            if completed >= signal {
+                return Ok(drain::DrainWait::Ready);
             }
-            if Instant::now() >= deadline {
-                bail!("NVENC drain timed out");
+            if self.drain_event.is_none() {
+                self.drain_event = Some(crate::timing::Signal::new()?);
             }
-            std::thread::sleep(Duration::from_millis(1));
+            let Some(event) = self.drain_event.as_ref() else {
+                return Ok(drain::DrainWait::Unavailable);
+            };
+            // The fence is asked once per frame; a set event from an earlier
+            // frame is reset first, so it never ends this wait early.
+            if self.drain_armed != signal {
+                event.reset()?;
+                d3d12.fence.notify(signal, event.raw())?;
+                self.drain_armed = signal;
+            }
+            // SAFETY: `event` is a live event owned by this session.
+            if unsafe { WaitForSingleObject(event.raw(), millis) } == WAIT_FAILED {
+                bail!("NVENC drain wait failed");
+            }
+            return Ok(drain::DrainWait::Waited);
         }
-        Ok(())
+        let slot = &mut self.slots[index];
+        if slot.event.is_invalid() || slot.signaled {
+            return Ok(drain::DrainWait::Unavailable);
+        }
+        // SAFETY: `slot.event` is a valid handle owned by the slot.
+        match unsafe { WaitForSingleObject(slot.event, millis) } {
+            WAIT_OBJECT_0 => slot.signaled = true,
+            WAIT_TIMEOUT => {}
+            _ => bail!("NVENC completion event failed"),
+        }
+        Ok(drain::DrainWait::Waited)
     }
     fn clear_inputs(&mut self) -> Result<()> {
         self.drain()?;
@@ -2362,6 +2412,30 @@ fn cleanup_slot(
         }
     }
     Ok(())
+}
+/// A drain's view of a session: its frames in flight and the time it has
+/// taken so far.
+struct SessionDrain<'a> {
+    session: &'a mut Session,
+    started: Instant,
+}
+impl drain::DrainWaiter for SessionDrain<'_> {
+    fn collect_pending(&mut self) -> Result<usize> {
+        if self.session.pending.is_empty() {
+            return Ok(0);
+        }
+        self.session.collect()?;
+        Ok(self.session.pending.len())
+    }
+    fn wait_oldest(&mut self, timeout: Duration) -> Result<drain::DrainWait> {
+        self.session.wait_oldest(timeout)
+    }
+    fn elapsed(&self) -> Duration {
+        self.started.elapsed()
+    }
+    fn pause(&mut self) {
+        std::thread::sleep(Duration::from_millis(1));
+    }
 }
 impl Drop for Session {
     fn drop(&mut self) {

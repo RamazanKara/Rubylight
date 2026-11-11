@@ -107,7 +107,18 @@ mod benchmark {
             .context("pass the pinned C++ nanors reference DLL path")?;
         let reference = Reference::load(Path::new(&path))?;
         let mut cases = Vec::new();
-        for (data, parity, bytes) in [(32, 7, 1416), (96, 20, 1416), (192, 39, 1416), (4, 2, 144)] {
+        // 1040 and 1408 are the 1024- and 1392-byte Moonlight packet shards: 16 bytes
+        // left after the 32-byte chunks, and none.
+        for (data, parity, bytes) in [
+            (32, 7, 1416),
+            (96, 20, 1416),
+            (192, 39, 1416),
+            (32, 7, 1040),
+            (32, 7, 1408),
+            (96, 20, 1040),
+            (96, 20, 1408),
+            (4, 2, 144),
+        ] {
             let mut rust: Vec<Vec<u8>> = (0..data + parity)
                 .map(|i| {
                     (0..bytes)

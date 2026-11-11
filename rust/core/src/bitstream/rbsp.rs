@@ -210,8 +210,20 @@ pub fn splice(
 
 /// `bytes` with the NAL units at `edits` replaced, copied once.
 pub fn assemble(bytes: &[u8], edits: Vec<((usize, usize), Replacement)>) -> Vec<u8> {
+    let mut output = Vec::new();
+    assemble_into(bytes, edits, &mut output);
+    output
+}
+
+/// [`assemble`] into `output`, which is cleared first and keeps its capacity.
+pub fn assemble_into(
+    bytes: &[u8],
+    edits: Vec<((usize, usize), Replacement)>,
+    output: &mut Vec<u8>,
+) {
     let extra: usize = edits.iter().map(|(_, (head, _))| head.len()).sum();
-    let mut output = Vec::with_capacity(bytes.len() + extra);
+    output.clear();
+    output.reserve(bytes.len() + extra);
     let mut cursor = 0;
     for ((start, end), (head, rest)) in edits {
         output.extend_from_slice(&bytes[cursor..start]);
@@ -220,7 +232,6 @@ pub fn assemble(bytes: &[u8], edits: Vec<((usize, usize), Replacement)>) -> Vec<
         cursor = end;
     }
     output.extend_from_slice(&bytes[cursor..]);
-    output
 }
 
 pub fn ceil_log2(value: u32) -> u32 {

@@ -100,6 +100,12 @@ struct Part {
     first: bool,
     last: bool,
 }
+/// Blocks kept for reuse. A frame's layout takes at most four blocks, and
+/// up to four frames hold blocks at once: the one being packetized, the
+/// ready one, and the two the paced sender is sending or has in flight. Four
+/// times four is 16; blocks past that are freed outside the lock.
+const RECYCLED_BLOCKS: usize = 16;
+
 struct State {
     pending: Option<Frame>,
     sending: bool,
@@ -112,7 +118,10 @@ struct State {
     /// The stream thread's last recovery lead: send progress wakes it only
     /// when the remaining time crosses it.
     recovery_lead: Option<Duration>,
-    recycled: Vec<Vec<PacketBlock>>,
+    /// Blocks the packetizer fills again instead of allocating their shard
+    /// buffers. Kept per block, so a whole frame and a block-by-block frame
+    /// draw on the same pool.
+    recycled: Vec<PacketBlock>,
     /// A streamed frame is open on the packetizer thread: some of its blocks
     /// may be out and the encoder still produces the rest. It counts toward
     /// the claim backlog only, so a new picture is not claimed (and aged)
@@ -132,7 +141,9 @@ impl State {
     /// A streamed frame's units and blocks are not skipped: the frame is
     /// already half on the wire, and dropping a piece of it would leave a
     /// frame the client cannot finish and an index nobody consumed.
-    fn skip_pending(&mut self) -> bool {
+    /// Blocks past the pool's cap go to `spill`, which the caller drops after
+    /// releasing the state lock.
+    fn skip_pending(&mut self, spill: &mut Vec<PacketBlock>) -> bool {
         let raw = self
             .pending
             .as_ref()
@@ -148,14 +159,27 @@ impl State {
         if prepared {
             // Packetization has already spent this frame's numbers and IVs.
             let frame = self.ready.take().unwrap();
-            self.recycle(frame.blocks);
+            self.recycle(frame.blocks, spill);
         }
         raw || prepared
     }
-    fn recycle(&mut self, blocks: Vec<PacketBlock>) {
-        // Two whole frames, or the four blocks of one sent block by block.
-        if self.recycled.len() < 4 {
-            self.recycled.push(blocks);
+    /// Takes a block from the pool, or an empty one that allocates on use.
+    fn take_block(&mut self) -> PacketBlock {
+        self.recycled.pop().unwrap_or_default()
+    }
+    /// Returns blocks to the pool up to [`RECYCLED_BLOCKS`]; the rest go to
+    /// `spill`, so that nothing is freed while the state lock is held.
+    fn recycle(
+        &mut self,
+        blocks: impl IntoIterator<Item = PacketBlock>,
+        spill: &mut Vec<PacketBlock>,
+    ) {
+        for block in blocks {
+            if self.recycled.len() < RECYCLED_BLOCKS {
+                self.recycled.push(block);
+            } else {
+                spill.push(block);
+            }
         }
     }
     fn backlog(&self) -> Result<usize> {
@@ -489,7 +513,10 @@ impl Sender {
                         "packetized picture block by block");
                     return Ok(packetizer.frame);
                 }
-                let mut blocks = shared.state.lock().unwrap().recycled.pop().unwrap_or_default();
+                let mut blocks: Vec<PacketBlock> = {
+                    let mut state = shared.state.lock().unwrap();
+                    (0..layout.len()).map(|_| state.take_block()).collect()
+                };
                 let mut counts = Vec::with_capacity(layout.len());
                 let prepared = (|| -> Result<()> {
                     let (_, mut next) = packetizer.conventional_blocks(
@@ -505,10 +532,19 @@ impl Sender {
                     }
                     Ok(())
                 })();
+                // The block that only ended the loop (and any the layout over-counted) goes back
+                // to the pool: left at the end of the frame it would be the next frame's block 0,
+                // empty, every time.
+                if prepared.is_ok() && blocks.len() > counts.len() {
+                    let unused = blocks.split_off(counts.len());
+                    let mut spill = Vec::new();
+                    shared.state.lock().unwrap().recycle(unused, &mut spill);
+                }
                 if let Err(error) = prepared {
                     s.launch.warnings.event("network_frame", format!("Encoded video frame dropped ({error:#}); requesting a recovery frame. Lower bitrate or resolution to stay within Moonlight's packet limit."), butterpollo_core::session::EVENT_PERIOD);
                     s.request_host_keyframe();
-                    shared.state.lock().unwrap().recycle(blocks);
+                    let mut spill = Vec::new();
+                    shared.state.lock().unwrap().recycle(blocks, &mut spill);
                     return Ok(packetizer.frame);
                 }
                 if !frame.idr && fec_limited
@@ -599,6 +635,8 @@ impl Sender {
         processing_started: Instant,
     ) -> Result<()> {
         let polled = Instant::now();
+        // Declared before the guard, so it drops after the lock is released.
+        let mut spill = Vec::new();
         let mut state = self.slot.state.lock().unwrap();
         state.backlog()?;
         for encoded in frames {
@@ -613,7 +651,7 @@ impl Sender {
             // Stamp every output from this poll before any capacity wait.
             let claimed = polled.checked_sub(latency).unwrap_or(polled);
             // A keyframe goes out next, not after the frame waiting before it.
-            if encoded.idr && state.skip_pending() {
+            if encoded.idr && state.skip_pending(&mut spill) {
                 tracing::debug!(stream_id=%self.slot.stream_id, "video frame queued before a keyframe skipped");
                 self.slot.skipped();
             }
@@ -675,9 +713,11 @@ impl Sender {
     /// client would discard, so the keyframe is claimed without waiting for
     /// it. Returns the backlog left.
     pub fn skip_pending(&self) -> Result<usize> {
+        // Declared before the guard, so it drops after the lock is released.
+        let mut spill = Vec::new();
         let mut state = self.slot.state.lock().unwrap();
         state.backlog()?;
-        if state.skip_pending() {
+        if state.skip_pending(&mut spill) {
             tracing::debug!(stream_id=%self.slot.stream_id, "video frame queued before a keyframe request skipped");
             self.slot.skipped();
         }

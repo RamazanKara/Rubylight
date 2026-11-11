@@ -1364,6 +1364,41 @@ unsafe fn parity_avx2<const ROWS: usize, const OFFSET: usize>(
                 }
                 position += 32;
             }
+            // Leftover 16 and 8 bytes, with the 128-bit halves of the tables.
+            if position + 16 <= size {
+                let value = _mm_loadu_si128(input.as_ptr().add(position).cast());
+                let lo = _mm_and_si128(value, _mm256_castsi256_si128(mask));
+                let hi = _mm_and_si128(_mm_srli_epi16::<4>(value), _mm256_castsi256_si128(mask));
+                for row in 0..ROWS {
+                    let product = _mm_xor_si128(
+                        _mm_shuffle_epi8(_mm256_castsi256_si128(low[row]), lo),
+                        _mm_shuffle_epi8(_mm256_castsi256_si128(high[row]), hi),
+                    );
+                    let output = _mm_loadu_si128(pointers[row].add(position).cast());
+                    _mm_storeu_si128(
+                        pointers[row].add(position).cast(),
+                        _mm_xor_si128(output, product),
+                    );
+                }
+                position += 16;
+            }
+            if position + 8 <= size {
+                let value = _mm_loadl_epi64(input.as_ptr().add(position).cast());
+                let lo = _mm_and_si128(value, _mm256_castsi256_si128(mask));
+                let hi = _mm_and_si128(_mm_srli_epi16::<4>(value), _mm256_castsi256_si128(mask));
+                for row in 0..ROWS {
+                    let product = _mm_xor_si128(
+                        _mm_shuffle_epi8(_mm256_castsi256_si128(low[row]), lo),
+                        _mm_shuffle_epi8(_mm256_castsi256_si128(high[row]), hi),
+                    );
+                    let output = _mm_loadl_epi64(pointers[row].add(position).cast());
+                    _mm_storel_epi64(
+                        pointers[row].add(position).cast(),
+                        _mm_xor_si128(output, product),
+                    );
+                }
+                position += 8;
+            }
             for (position, value) in input.iter().enumerate().skip(position) {
                 for row in 0..ROWS {
                     let table = &NIBBLES[coefficients[row] as usize];
@@ -1412,6 +1447,33 @@ unsafe fn parity_gfni<const ROWS: usize, const OFFSET: usize>(
                     );
                 }
                 position += 32;
+            }
+            // Leftover 16 and 8 bytes, with the 128-bit half of each matrix.
+            if position + 16 <= size {
+                let value = _mm_loadu_si128(input.as_ptr().add(position).cast());
+                for row in 0..ROWS {
+                    let matrix = _mm256_castsi256_si128(matrices[row]);
+                    let product = _mm_gf2p8affine_epi64_epi8::<0>(value, matrix);
+                    let output = _mm_loadu_si128(pointers[row].add(position).cast());
+                    _mm_storeu_si128(
+                        pointers[row].add(position).cast(),
+                        _mm_xor_si128(output, product),
+                    );
+                }
+                position += 16;
+            }
+            if position + 8 <= size {
+                let value = _mm_loadl_epi64(input.as_ptr().add(position).cast());
+                for row in 0..ROWS {
+                    let matrix = _mm256_castsi256_si128(matrices[row]);
+                    let product = _mm_gf2p8affine_epi64_epi8::<0>(value, matrix);
+                    let output = _mm_loadl_epi64(pointers[row].add(position).cast());
+                    _mm_storel_epi64(
+                        pointers[row].add(position).cast(),
+                        _mm_xor_si128(output, product),
+                    );
+                }
+                position += 8;
             }
             for (position, value) in input.iter().enumerate().skip(position) {
                 for row in 0..ROWS {

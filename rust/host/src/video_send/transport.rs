@@ -62,6 +62,8 @@ impl Slot {
                 continue;
             };
             holding = send(Some(&frame))?;
+            // Declared before the guard, so it drops after the lock is released.
+            let mut spill = Vec::new();
             let mut state = self.state.lock().unwrap();
             state.transmitting = false;
             // More blocks of the whole frame follow: it stays in flight.
@@ -72,7 +74,7 @@ impl Slot {
                 state.transmitting_keyframe = false;
                 state.transmitting_remaining = None;
             }
-            state.recycle(frame.blocks);
+            state.recycle(frame.blocks, &mut spill);
             self.changed.notify_all();
         }
     }

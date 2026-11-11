@@ -344,7 +344,13 @@ impl Encoder {
                 // A joined or frame-mode keyframe is recovered as a whole.
                 let bytes =
                     if whole && self.codec == 0 && pushed.meta.idr && self.references.enabled() {
-                        butterpollo_core::bitstream::h264_reference_recovery(&bytes)
+                        let mut recovered = crate::frame_pool::take(bytes.len());
+                        butterpollo_core::bitstream::h264_reference_recovery_into(
+                            &bytes,
+                            &mut recovered,
+                        );
+                        crate::frame_pool::give(bytes);
+                        recovered
                     } else {
                         bytes
                     };
@@ -369,10 +375,9 @@ impl Encoder {
             // bytes before Release makes its native storage available for reuse.
             // H.264 carries no dynamic metadata (`dynamic::wanted`).
             let (bytes, frame_cap_bytes) = if self.codec == 0 && idr && self.references.enabled() {
-                (
-                    butterpollo_core::bitstream::h264_reference_recovery(bytes),
-                    frame_cap_bytes,
-                )
+                let mut recovered = crate::frame_pool::take(bytes.len());
+                butterpollo_core::bitstream::h264_reference_recovery_into(bytes, &mut recovered);
+                (recovered, frame_cap_bytes)
             } else {
                 let (spliced, cap) = dynamic::output(
                     self.dynamic.as_deref_mut(),
@@ -477,7 +482,26 @@ impl Encoder {
             }
             self.repair_dropping = false;
         }
-        match butterpollo_core::bitstream::repaired(self.repair_headers.as_mut(), bytes, skipped) {
+        let result = match self.repair_headers.as_mut() {
+            // HEVC's rewrite of every P-frame goes into a pooled buffer,
+            // returned to the pool when nothing in the frame changed.
+            Some(butterpollo_core::bitstream::RepairHeaders::Hevc(order)) => {
+                let mut pooled = crate::frame_pool::take(bytes.len());
+                match order.rewrite_into(bytes, &mut pooled) {
+                    Ok(true) => Ok(std::borrow::Cow::Owned(pooled)),
+                    Ok(false) => {
+                        crate::frame_pool::give(pooled);
+                        Ok(std::borrow::Cow::Borrowed(bytes))
+                    }
+                    Err(error) => {
+                        crate::frame_pool::give(pooled);
+                        Err(error)
+                    }
+                }
+            }
+            headers => butterpollo_core::bitstream::repaired(headers, bytes, skipped),
+        };
+        match result {
             Ok(bytes) => Some(bytes),
             Err(error) => {
                 tracing::error!(%error, codec = self.codec, "AMF output has headers the long-term reference repair cannot rewrite; dropping frames until a keyframe, then recovering with keyframes for the rest of the session. Report this with the host log.");

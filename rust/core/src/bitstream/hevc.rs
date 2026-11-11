@@ -10,7 +10,7 @@
 //! references to match, which leaves the pictures as they were and lets a
 //! repair reach a decoder up to [`ORDER_WINDOW`] frames after its last one.
 use super::rbsp::{
-    Reader, Replacement, Result, TRUNCATED, Unsupported, Writer, assemble, ceil_log2, splice,
+    Reader, Replacement, Result, TRUNCATED, Unsupported, Writer, assemble_into, ceil_log2, splice,
     unescape, units,
 };
 
@@ -90,13 +90,26 @@ impl PictureOrder {
     /// The buffer with its POC widened, `None` when nothing in it changes.
     /// An error leaves the stream unrewritable: what came before already was.
     pub fn rewrite(&mut self, bytes: &[u8]) -> Result<Option<Vec<u8>>> {
+        let mut output = Vec::new();
+        Ok(self.rewrite_into(bytes, &mut output)?.then_some(output))
+    }
+
+    /// [`rewrite`](Self::rewrite) into `output`, which is cleared first and
+    /// keeps its capacity, so a pooled buffer takes a frame without a new
+    /// allocation. `false` when nothing changes, with `output` left empty.
+    pub fn rewrite_into(&mut self, bytes: &[u8], output: &mut Vec<u8>) -> Result<bool> {
+        output.clear();
         let mut edits = Vec::new();
         for (start, end) in units(bytes) {
             if let Some(nal) = self.unit(&bytes[start..end])? {
                 edits.push(((start, end), nal));
             }
         }
-        Ok((!edits.is_empty()).then(|| assemble(bytes, edits)))
+        if edits.is_empty() {
+            return Ok(false);
+        }
+        assemble_into(bytes, edits, output);
+        Ok(true)
     }
 
     fn unit(&mut self, nal: &[u8]) -> Result<Option<Replacement>> {
@@ -1086,5 +1099,55 @@ mod tests {
             }
         }
         assert!(rewrites > 100, "{rewrites}");
+    }
+
+    /// `rewrite` as it stood before `rewrite_into`: the same units, with the
+    /// edits assembled here rather than by `assemble_into`.
+    fn rewritten_by_hand(order: &mut PictureOrder, bytes: &[u8]) -> Result<Option<Vec<u8>>> {
+        let mut output = Vec::new();
+        let mut cursor = 0;
+        let mut changed = false;
+        for (start, end) in units(bytes) {
+            if let Some((head, rest)) = order.unit(&bytes[start..end])? {
+                output.extend_from_slice(&bytes[cursor..start]);
+                output.extend_from_slice(&head);
+                output.extend_from_slice(&bytes[start + rest..end]);
+                cursor = end;
+                changed = true;
+            }
+        }
+        output.extend_from_slice(&bytes[cursor..]);
+        Ok(changed.then_some(output))
+    }
+
+    #[test]
+    fn rewrite_into_matches_the_hand_assembled_rewrite_and_keeps_its_buffer() {
+        let expected = rewritten_by_hand(&mut PictureOrder::default(), STREAM)
+            .unwrap()
+            .unwrap();
+        let mut output = Vec::with_capacity(STREAM.len() * 2);
+        let (pointer, capacity) = (output.as_ptr(), output.capacity());
+        // Stale bytes must not survive into the result.
+        output.extend_from_slice(&[0xee; 64]);
+        assert_eq!(
+            PictureOrder::default().rewrite_into(STREAM, &mut output),
+            Ok(true)
+        );
+        assert_eq!(output, expected);
+        assert_eq!(output.as_ptr(), pointer);
+        assert_eq!(output.capacity(), capacity);
+        assert_eq!(
+            PictureOrder::default().rewrite(STREAM).unwrap().unwrap(),
+            expected
+        );
+        // A rewritten stream has nothing left to change: `false`, and the
+        // buffer comes back empty for the caller to give back.
+        let mut again = Vec::with_capacity(STREAM.len() * 2);
+        assert_eq!(
+            PictureOrder::default().rewrite_into(&expected, &mut again),
+            Ok(false)
+        );
+        assert!(again.is_empty());
+        assert_eq!(again.capacity(), STREAM.len() * 2);
     }
 }

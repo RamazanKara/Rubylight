@@ -173,17 +173,7 @@ impl Streams {
                 |packets, block| {
                     // The shard buffers change hands; the ones that come back are
                     // refilled by the next block.
-                    let mut parts = shared
-                        .state
-                        .lock()
-                        .unwrap()
-                        .recycled
-                        .pop()
-                        .unwrap_or_default();
-                    parts.truncate(1);
-                    if parts.is_empty() {
-                        parts.push(Vec::new());
-                    }
+                    let mut parts = vec![shared.state.lock().unwrap().take_block()];
                     let out = &mut parts[0];
                     out.resize_with(packets.len(), Vec::new);
                     for (to, from) in out.iter_mut().zip(packets.iter_mut()) {

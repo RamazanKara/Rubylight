@@ -39,21 +39,12 @@ pub(super) fn send(
         Err(error) => return Ok(Some(error)),
     };
     for (index, &block) in layout.iter().enumerate() {
-        let mut parts = shared
-            .state
-            .lock()
-            .unwrap()
-            .recycled
-            .pop()
-            .unwrap_or_default();
-        parts.truncate(1);
-        if parts.is_empty() {
-            parts.push(Vec::new());
-        }
+        let mut parts = vec![shared.state.lock().unwrap().take_block()];
         let count = match next(&mut parts[0]) {
             Ok(count) if count == block.0 + block.1 => count,
             built => {
-                shared.state.lock().unwrap().recycle(parts);
+                let mut spill = Vec::new();
+                shared.state.lock().unwrap().recycle(parts, &mut spill);
                 return Ok(Some(built.err().unwrap_or_else(|| {
                     anyhow::anyhow!("FEC block {index} does not match the frame's block layout")
                 })));

@@ -2373,3 +2373,98 @@ fn a_whole_frame_given_up_part_way_queues_no_more_blocks() {
     assert_eq!(state.transmitting_remaining, None);
     assert_eq!(state.recycled.len(), 1, "block 1's buffers");
 }
+
+/// A state with nothing in flight, for the block pool alone.
+fn empty_state() -> State {
+    State {
+        pending: None,
+        sending: false,
+        sending_keyframe: false,
+        ready: None,
+        transmitting: false,
+        transmitting_keyframe: false,
+        transmitting_remaining: None,
+        recovery_lead: None,
+        recycled: Vec::new(),
+        streaming: false,
+        whole_open: false,
+        next_wire_frame: 1,
+        skipped: 0,
+        error: None,
+    }
+}
+
+/// Takes a block from the pool and fills it as the packetizer does. A take the
+/// pool cannot serve is a miss: the block is empty and allocates its shards.
+fn build_block(state: &mut State, misses: &mut usize) -> butterpollo_core::packet::PacketBlock {
+    const SHARDS: usize = 8;
+    const SHARD_BYTES: usize = 1_400;
+    let mut block = state.take_block();
+    if block.capacity() == 0 {
+        *misses += 1;
+    } else {
+        assert!(
+            block.iter().all(|shard| shard.capacity() >= SHARD_BYTES),
+            "a pooled block must keep its shard buffers"
+        );
+    }
+    block.truncate(SHARDS);
+    block.resize_with(SHARDS, Vec::new);
+    for shard in &mut block {
+        shard.clear();
+        shard.resize(SHARD_BYTES, 0);
+    }
+    block
+}
+
+/// Whole frames and blocks sent one at a time draw on one pool: after warm-up,
+/// alternating cycles allocate no block and the pool stays within its cap.
+#[test]
+fn block_pool_serves_whole_and_block_by_block_frames_without_allocating() {
+    let mut state = empty_state();
+    let mut misses = 0;
+    // A whole frame of four blocks stays in flight for two more frames; a
+    // block-by-block frame is one block, recycled as soon as it is sent.
+    let mut in_flight = std::collections::VecDeque::new();
+    let mut warmed_up = None;
+    for round in 0..24 {
+        if round % 2 == 0 {
+            let frame: Vec<_> = (0..4)
+                .map(|_| build_block(&mut state, &mut misses))
+                .collect();
+            in_flight.push_back(frame);
+            if in_flight.len() > 2 {
+                let mut spill = Vec::new();
+                state.recycle(in_flight.pop_front().unwrap(), &mut spill);
+                assert!(spill.is_empty());
+            }
+        } else {
+            let block = build_block(&mut state, &mut misses);
+            let mut spill = Vec::new();
+            state.recycle(vec![block], &mut spill);
+            assert!(spill.is_empty());
+        }
+        assert!(state.recycled.len() <= RECYCLED_BLOCKS);
+        if round == 6 {
+            warmed_up = Some(misses);
+        }
+    }
+    assert!(misses > 0, "the first cycles must allocate");
+    assert_eq!(warmed_up, Some(misses), "blocks allocated after warm-up");
+    assert!(!state.recycled.is_empty());
+}
+
+/// Blocks past the cap are handed back for the caller to free outside the lock,
+/// and the pool keeps exactly its cap.
+#[test]
+fn block_pool_hands_blocks_past_its_cap_to_the_caller() {
+    let mut state = empty_state();
+    let mut misses = 0;
+    let blocks: Vec<_> = (0..RECYCLED_BLOCKS + 4)
+        .map(|_| build_block(&mut state, &mut misses))
+        .collect();
+    let mut spill = Vec::new();
+    state.recycle(blocks, &mut spill);
+    assert_eq!(state.recycled.len(), RECYCLED_BLOCKS);
+    assert_eq!(spill.len(), 4);
+}

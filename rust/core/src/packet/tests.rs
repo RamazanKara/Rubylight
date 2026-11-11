@@ -1181,3 +1181,110 @@ fn parity_from_the_gfni_matrices_matches_the_shipped_parity() {
         assert_eq!(matrices, shipped, "{data}+{parity} x {size}, offset 32");
     }
 }
+
+/// Parity by plain field products, one per byte, with the coefficient the
+/// encoder uses for each (source, row) pair: the reference for the kernels.
+#[cfg(target_arch = "x86_64")]
+fn scalar_reference<const OFFSET: usize>(
+    shards: &mut [Vec<u8>],
+    data: usize,
+    parity: usize,
+    products: &[[u8; 256]],
+) {
+    let (source, dest) = shards.split_at_mut(data);
+    for (row, out) in dest.iter_mut().enumerate() {
+        out[OFFSET..].fill(0);
+        for (column, input) in source.iter().enumerate() {
+            let coefficient = INVERSES[(parity + column) ^ row] as usize;
+            for (out, &value) in out[OFFSET..].iter_mut().zip(&input[OFFSET..]) {
+                *out ^= products[coefficient][value as usize];
+            }
+        }
+    }
+}
+
+/// The AVX2 and GFNI kernels, with and without GFNI requested, against
+/// [`scalar_reference`] for each shard length in `lengths`.
+#[cfg(target_arch = "x86_64")]
+fn assert_parity_matches_the_scalar_reference<const OFFSET: usize>(
+    lengths: impl IntoIterator<Item = usize>,
+    data: usize,
+    parity: usize,
+    random: &mut impl FnMut() -> u8,
+) {
+    let products: Vec<[u8; 256]> = (0..=255u8)
+        .map(|coefficient| std::array::from_fn(|value| gf_mul(coefficient, value as u8)))
+        .collect();
+    for size in lengths {
+        let shards: Vec<Vec<u8>> = (0..data + parity)
+            .map(|_| (0..size).map(|_| random()).collect())
+            .collect();
+        let mut expected = shards.clone();
+        scalar_reference::<OFFSET>(&mut expected, data, parity, &products);
+        for gfni in [false, true] {
+            let mut actual = shards.clone();
+            cauchy_encode_with::<OFFSET>(&mut actual, data, parity, gfni).unwrap();
+            assert!(
+                actual == expected,
+                "{data}+{parity} x {size}, offset {OFFSET}, gfni {gfni}"
+            );
+        }
+    }
+}
+
+/// Every row group size (4, and 1 to 3 for the rest), every tail (32-byte
+/// chunks, then 16, 8 and single bytes), at both offsets, for every shard
+/// length from 1 to 1500 (from 32 with the offset, which every shard holds).
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn parity_is_byte_identical_to_the_scalar_reference_for_every_length() {
+    let mut state = 0x6a09_e667_f3bc_c908u64;
+    let mut random = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state as u8
+    };
+    for (data, parity) in [
+        (1, 1),
+        (3, 2),
+        (5, 1),
+        (5, 2),
+        (5, 3),
+        (5, 4),
+        (5, 5),
+        (4, 7),
+    ] {
+        assert_parity_matches_the_scalar_reference::<0>(1..=1500, data, parity, &mut random);
+        assert_parity_matches_the_scalar_reference::<32>(32..=1500, data, parity, &mut random);
+    }
+}
+
+/// The Moonlight wire sizes: 1040-byte shards (default 1024-byte packets, 16
+/// left over after the 32-byte chunks) and 1408 (1392-byte packets, none left),
+/// with and without the 32-byte offset, and a large frame's block.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn parity_matches_the_scalar_reference_at_the_wire_sizes() {
+    let mut state = 0x243f_6a88_85a3_08d3u64;
+    let mut random = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state as u8
+    };
+    for (data, parity) in [(32, 7), (96, 20), (200, 55)] {
+        assert_parity_matches_the_scalar_reference::<0>(
+            [1039, 1040, 1041, 1407, 1408, 1409],
+            data,
+            parity,
+            &mut random,
+        );
+        assert_parity_matches_the_scalar_reference::<32>(
+            [1071, 1072, 1073, 1439, 1440, 1441],
+            data,
+            parity,
+            &mut random,
+        );
+    }
+}

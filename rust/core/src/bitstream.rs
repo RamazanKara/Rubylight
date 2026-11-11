@@ -178,33 +178,58 @@ fn allow_gaps(sps: &[u8]) -> Option<Vec<u8>> {
 /// Hardware LTR references remain usable when a decoder inserts placeholders
 /// for packets deliberately discarded during Moonlight's recovery window.
 pub fn h264_reference_recovery(bytes: &[u8]) -> Vec<u8> {
-    let mut output = Vec::with_capacity(bytes.len());
+    let mut output = Vec::new();
+    h264_reference_recovery_into(bytes, &mut output);
+    output
+}
+
+/// [`h264_reference_recovery`] into `output`, which is cleared first and
+/// keeps its capacity, so a pooled buffer takes a keyframe without a new
+/// allocation.
+pub fn h264_reference_recovery_into(bytes: &[u8], output: &mut Vec<u8>) {
+    output.clear();
+    output.reserve(bytes.len());
     let mut at = 0;
-    while at < bytes.len() {
-        let prefix = if bytes[at..].starts_with(&[0, 0, 0, 1]) {
+    while let Some(code) = start_code(bytes, at) {
+        output.extend_from_slice(&bytes[at..code]);
+        let prefix = if bytes[code..].starts_with(&[0, 0, 0, 1]) {
             4
-        } else if bytes[at..].starts_with(&[0, 0, 1]) {
+        } else {
             3
-        } else {
-            output.push(bytes[at]);
-            at += 1;
-            continue;
         };
-        output.extend_from_slice(&bytes[at..at + prefix]);
-        let start = at + prefix;
-        let end = (start..bytes.len())
-            .find(|&index| {
-                bytes[index..].starts_with(&[0, 0, 1]) || bytes[index..].starts_with(&[0, 0, 0, 1])
-            })
-            .unwrap_or(bytes.len());
-        if let Some(sps) = allow_gaps(&bytes[start..end]) {
-            output.extend(sps);
-        } else {
-            output.extend_from_slice(&bytes[start..end]);
+        let start = code + prefix;
+        output.extend_from_slice(&bytes[code..start]);
+        let end = start_code(bytes, start).unwrap_or(bytes.len());
+        match allow_gaps(&bytes[start..end]) {
+            Some(sps) => output.extend_from_slice(&sps),
+            None => output.extend_from_slice(&bytes[start..end]),
         }
         at = end;
     }
-    output
+    output.extend_from_slice(&bytes[at..]);
+}
+
+/// The first start code at or after `from`, where the byte scan would find
+/// it: `00 00 01`, or the zero before it when that zero opens a four-byte
+/// `00 00 00 01`.
+fn start_code(bytes: &[u8], from: usize) -> Option<usize> {
+    let mut at = from;
+    while at + 3 <= bytes.len() {
+        let third = bytes[at + 2];
+        if third > 1 {
+            // No start code begins at `at`, `at + 1` or `at + 2`.
+            at += 3;
+        } else if third == 1 && bytes[at] == 0 && bytes[at + 1] == 0 {
+            return Some(if at > from && bytes[at - 1] == 0 {
+                at - 1
+            } else {
+                at
+            });
+        } else {
+            at += 1;
+        }
+    }
+    None
 }
 #[cfg(test)]
 mod tests {
@@ -244,6 +269,121 @@ mod tests {
         let stream: &[u8] = include_bytes!("bitstream/fixtures/amf-h264-ltr.bin");
         let sent = repaired(h264.as_mut(), stream, 0).unwrap();
         assert!(matches!(sent, Cow::Borrowed(bytes) if std::ptr::eq(bytes, stream)));
+    }
+    /// The byte-by-byte recovery as it stood before the start-code scan: the
+    /// reference the new functions must match exactly.
+    fn reference_recovery(bytes: &[u8]) -> Vec<u8> {
+        let mut output = Vec::with_capacity(bytes.len());
+        let mut at = 0;
+        while at < bytes.len() {
+            let prefix = if bytes[at..].starts_with(&[0, 0, 0, 1]) {
+                4
+            } else if bytes[at..].starts_with(&[0, 0, 1]) {
+                3
+            } else {
+                output.push(bytes[at]);
+                at += 1;
+                continue;
+            };
+            output.extend_from_slice(&bytes[at..at + prefix]);
+            let start = at + prefix;
+            let end = (start..bytes.len())
+                .find(|&index| {
+                    bytes[index..].starts_with(&[0, 0, 1])
+                        || bytes[index..].starts_with(&[0, 0, 0, 1])
+                })
+                .unwrap_or(bytes.len());
+            if let Some(sps) = allow_gaps(&bytes[start..end]) {
+                output.extend(sps);
+            } else {
+                output.extend_from_slice(&bytes[start..end]);
+            }
+            at = end;
+        }
+        output
+    }
+    fn xorshift(state: &mut u64) -> u64 {
+        *state ^= *state << 13;
+        *state ^= *state >> 7;
+        *state ^= *state << 17;
+        *state
+    }
+    /// Both forms against the reference, the second into a buffer holding
+    /// stale bytes.
+    fn assert_matches_reference(bytes: &[u8]) {
+        let expected = reference_recovery(bytes);
+        assert_eq!(
+            h264_reference_recovery(bytes),
+            expected,
+            "input {bytes:02x?}"
+        );
+        let mut output = vec![0xee; 7];
+        h264_reference_recovery_into(bytes, &mut output);
+        assert_eq!(output, expected, "input {bytes:02x?}");
+    }
+    const SPS: [u8; 11] = [0, 0, 0, 1, 0x67, 0x42, 0, 0x1f, 0xe5, 0x88, 0x68];
+    #[test]
+    fn start_code_scan_matches_the_reference_on_fixtures() {
+        let h264: &[u8] = include_bytes!("bitstream/fixtures/amf-h264-ltr.bin");
+        let hevc: &[u8] = include_bytes!("bitstream/fixtures/amf-hevc-ltr.bin");
+        assert_matches_reference(h264);
+        assert_matches_reference(hevc);
+        // Cut mid-NAL and mid-start-code, at every length of the head.
+        for end in 0..h264.len().min(1024) {
+            assert_matches_reference(&h264[..end]);
+        }
+    }
+    #[test]
+    fn start_code_scan_matches_the_reference_on_synthetic_streams() {
+        let slice: &[u8] = &[0x65, 0x88, 0x84, 0, 0, 3, 1];
+        let streams: [Vec<u8>; 9] = [
+            // Four- and three-byte start codes, SPS and slice.
+            SPS.to_vec(),
+            [&SPS[1..], slice].concat(),
+            [&SPS[..], slice].concat(),
+            [&SPS[..], &SPS[..]].concat(),
+            // Leading garbage, zeros included, before either start code.
+            [&[7, 0][..], &SPS[..]].concat(),
+            [&[0, 0, 0, 0, 1][..], &SPS[4..]].concat(),
+            [&[0, 0, 0][..], &SPS[1..]].concat(),
+            // Trailing zeros, after a slice and after an SPS.
+            [&SPS[..], &[0, 0, 0][..]].concat(),
+            [slice, &[0, 0][..]].concat(),
+        ];
+        for stream in &streams {
+            for end in 0..=stream.len() {
+                assert_matches_reference(&stream[..end]);
+            }
+        }
+        // An empty NAL between start codes.
+        assert_matches_reference(&[0, 0, 0, 1, 0, 0, 0, 1, 0x67, 0x42, 0, 0x1f]);
+    }
+    #[test]
+    fn start_code_scan_matches_the_reference_on_random_buffers() {
+        let mut state = 0x9e37_79b9_7f4a_7c15u64;
+        for _ in 0..3000 {
+            let mut bytes = Vec::new();
+            // Some start from an SPS with a few bytes changed, so the SPS
+            // rewrite runs as well as the scan.
+            if xorshift(&mut state).is_multiple_of(3) {
+                bytes.extend_from_slice(&SPS);
+                for _ in 0..xorshift(&mut state) % 3 {
+                    let at = xorshift(&mut state) as usize % bytes.len();
+                    bytes[at] ^= xorshift(&mut state) as u8;
+                }
+            }
+            let length = (xorshift(&mut state) % 120) as usize;
+            for _ in 0..length {
+                bytes.push(match xorshift(&mut state) % 8 {
+                    0..=2 => 0,
+                    3 => 1,
+                    4 => 3,
+                    5 => 0x67,
+                    _ => xorshift(&mut state) as u8,
+                });
+            }
+            assert_matches_reference(&bytes);
+        }
     }
     /// Rewrites whole AMF streams frame by frame and prints the time each
     /// frame took, and what copying it alone takes. `BUTTERPOLLO_TEST_REWRITE`

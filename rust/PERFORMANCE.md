@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| Optimizations left after a full review: H.264 keyframe header scan, pooled rewrite buffers, a per-block send pool, FEC 16/8-byte tails (kernel restructure slower, dropped), a short first FEC block (no gain, dropped), Nightjar desktop drawing Windows planes straight to the back buffer and sampling Linux VA-API pictures in place, D3D11 bind on AMD (no gain), Linux V-Sync queueing (none), and what was dropped unbuilt | [November 11, what a full optimization review left](#november-11-what-a-full-optimization-review-left) |
 | Sending a large frame block by block (`video_send_early_blocks`) on PyroWave, HEVC and AV1 at 1080p and 4K, AMF output prediction and output thread under GPU load (both kept off), fixed-rate pacing without a blocking output query, GFNI parity (`fec_gfni`) on the 8845HS against a no-GFNI control, and the whole build against 3.9.0 | [November 8, sending, FEC and AMF output after 3.9.0](#november-8-sending-fec-and-amf-output-after-390) |
 | Rumble forwarding on ViGEm and VHF pads at 500 changes a second, idle and under HIGHEST CPU load, fast feedback poll (kept off), touch pinch frames per pass, keyboard and mouse behind a controller state, the new input fields of the stream timings line, the VHF feedback stall under load (also in the old build) | [November 8, gamepad feedback, touch and input under load](#november-8-gamepad-feedback-touch-and-input-under-load) |
 | Fixed-rate pacing after review: frames noticed late, a stale phase, waits that bought nothing, frames just early of their phase; model against main and the final hardware A/B (other window, 1080p120, quiet desktop) | [November 1, fixed-rate pacing after review (final build)](#november-1-fixed-rate-pacing-after-review-final-build) |
@@ -73,6 +74,63 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | CPU error correction | [C++ FEC comparison](#controlled-comparison-with-the-original-c-fec) |
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
 | PyroWave encode overlap, send buffer, Nightjar receive path | [November 10, PyroWave at 1.4 Gbps](#november-10-pyrowave-at-14-gbps-to-a-780m-laptop) |
+
+## November 11: what a full optimization review left
+
+Five read-only reviews (host capture and encode; host send, audio and input; Nightjar's protocol crate; Nightjar desktop; Nightjar Android) listed what remained after the November 10 work, each checked against this file first. Everything was built, measured where our hardware reaches, and kept only if it measured no worse. Host fixtures: B = this batch's package, A = the Rubylight 3.11.8 package; RX 7900 XT and Ryzen 7 5800X3D, isolated test host on loopback, the independent receiver with D3D11VA, `e2e.py --record --skip-first 5`, 45 s per run, ABBA. Times in ms, median / p95 / p99. Device runs used the 780M laptop (Nightjar desktop on Windows) and the NUC (Iris 655, Nightjar desktop under headless sway), both against an isolated host on the PC.
+
+**Host send path.**
+
+| Fixture | Arm | Encoded to first packet | Present to last packet |
+| --- | --- | --- | --- |
+| H.264 2560x1440x120, 16 recovery keyframes, keyframes only | A | 0.447 / 0.507 / 0.587 | |
+| | B | **0.411 / 0.446 / 0.513** | |
+| HEVC 3840x2160x60, 500 Mbps, all frames | A | 0.423 / 0.485 / 0.520 | 18.14 / 18.80 / 19.33 |
+| | B | 0.409 / 0.488 / 0.641 | 18.75 / 25.03 / 26.81 |
+
+The H.264 keyframe header rewrite (`h264_reference_recovery`) no longer scans the whole picture byte by byte: keyframes reach the first packet 0.04 ms sooner at p50 and 0.06 ms at p95. HEVC's POC rewrite and the H.264 rewrite fill pooled frame buffers, and the video sender pools single FEC blocks (16) instead of whole frames, so a block-by-block frame beside a whole one no longer frees and reallocates its shard buffers. At 4K HEVC the first packet is 0.01-0.02 ms sooner per run. Present to last packet is bimodal at this size in both arms (an earlier round had A at 18.20 / 25.60 and B at 18.21 / 25.85), so the p95 difference above is run to run, not the change. A review found that the first build left the loop's unused last block out of the pool; fixed before these runs.
+
+**FEC parity** (`butterpollo-protocol-performance`, Rust median in µs, 3 ABBA rounds on the 5800X3D, every byte checked against the nanors reference). A kernel restructured like ISA-L's `gf_Nvect_dot_prod` (several rows' sums kept in registers across sources) measured 17-26 % slower and was dropped: 192 + 39 at 1416 bytes went from 172 to 217, 96 + 20 from 44 to 52, 32 + 7 from 5.2 to 6.2. Kept: the original kernel with 16- and 8-byte steps before the per-byte tail (AVX2 and GFNI).
+
+| Data + parity, 1416-byte shards | A | B |
+| --- | --- | --- |
+| 32 + 7 | 5.74 | **4.83** |
+| 96 + 20 | 52.85 | **47.64** |
+| 192 + 39 | 209.2 | **187.3** |
+
+These ran while device builds loaded the CPU, so the larger cases' ranges overlap; the direction held in every round. The probe gained 1040- and 1408-byte cases.
+
+**Short first FEC block (not kept).** Making a spare block into a 32-shard block 0 for whole frames: HEVC 4K60 500 Mbps encoded to first packet 0.417 / 0.505 off against 0.414 / 0.507 on. Frames that large already go block by block (`video_send_early_blocks`), so the option was removed.
+
+**NVENC reference invalidation.** The drain before an invalidation waits on the oldest frame's output fence or completion event instead of 1 ms sleeps; a written frame whose lock stays busy still pauses rather than spins. No NVIDIA hardware here: unit tests only.
+
+**Nightjar desktop on Windows** (780M laptop, timing CSV after 5 s, ABBA). PyroWave, D3D11 4:4:4 and planar pictures are drawn straight into the back buffer instead of through a full-size RGBA64 float texture that SDL then copies. `NIGHTJAR_DIRECT_PLANES=0` is the A side.
+
+| Fixture | Arm | Decode to present (two runs) | Presenter CPU |
+| --- | --- | --- | --- |
+| PyroWave 2880x1800x120 | A | 0.46 / 0.72, 0.44 / 0.55 | 0.18-0.19 |
+| | B | **0.39 / 0.50, 0.39 / 0.49** | **0.06-0.07** |
+| PyroWave 4:4:4 1920x1080x120 | A | 0.45 / 0.59, 0.48 / 0.72 | 0.19 |
+| | B | **0.40 / 0.49, 0.40 / 0.50** | **0.07** |
+| HEVC 1080p120, `NIGHTJAR_D3D11_BIND=1` | bind | 0.30 / 0.43, 0.29 / 0.38 | |
+| | copy | 0.32 / 0.42 | |
+
+Binding the D3D11VA picture directly on AMD measures the same as the copy, so the Intel-only default stays. The laptop's D3D11VA refuses HEVC 4:4:4, so the D3D11 4:4:4 surface path was not measured there.
+
+**Nightjar desktop on Linux** (NUC, HEVC Main10 3840x2160x60, GPU renderer, V-Sync pacing, ABBA). VA-API pictures are sampled where they were decoded instead of copied into the presenter's planes. `NIGHTJAR_VIDEO_SAMPLE_PICTURES=0` is the A side; NVDEC and Vulkan video still copy.
+
+| Arm | Decode to present | Present to glass | Receive to present |
+| --- | --- | --- | --- |
+| A (copied) | 1.95 / 2.50, 1.98 / 2.60 | 1.67 / 2.96, 1.66 / 3.64 | 10.89 / 12.34, 10.93 / 12.42 |
+| B (sampled) | **1.63 / 1.95, 1.60 / 1.94** | **1.09 / 1.55, 1.08 / 1.93** | 10.44 / 13.34, 10.36 / 13.13 |
+
+Screenshots of both arms are clean. B's receive-to-present p95 sat 1 ms higher in both runs while its medians and present stages are lower. Every run logged `UDP_GRO is on` (video receive coalescing on Linux and Android, from the same batch). The NUC's Arch container ships libavutil 61, which this build doesn't support, so VA-API there falls back to pictures through memory.
+
+**Linux V-Sync queueing (not built).** On Windows, V-Sync that stopped queueing gained 30 ms at the median (November 6). On the NUC (1080p60 HEVC, OpenGL renderer, V-Sync on) decode to present was 2.59 / 5.87 and 2.92 / 13.16 against 0.79 / 1.02 with V-Sync off: about 2 ms at the median, not a queued refresh. So neither a non-blocking Linux present nor the input-during-present change that depends on it was built.
+
+**Built without a device measurement.** Android: PyroWave early chunks reach the decoder through a direct buffer instead of two copies through a Java array (the Retroid wasn't reachable over adb); controller input without a lambda per report; the latency CSV written through a reused buffer; the gyro's screen rotation cached by a display listener; the on-screen stick's base redrawn only when its look changes; the GPU upscaler waiting on its fence (at most 4 ms) instead of polling every millisecond. Protocol crate: the control thread sleeps until ENet's next service (at most 10 ms, as moonlight-common-c does) instead of waking every 5 ms, and late parity for a finished block is dropped before its copy. Desktop: the HDR swapchain answer cached per renderer, the overlay laid out again only when it changes, per-frame allocations removed.
+
+**Dropped unbuilt.** Converting Desktop Duplication frames straight from the duplicated surface would hold DWM's surface through the conversion (the rejected hold experiment's mechanism), and pointer-only frames reuse the copy. HDR statistics every other frame would delay the metadata a frame to save little. WGC helper frame notices through shared memory: the helper's whole path costs 0.06 ms. macOS packed 4:4:4 without the readback: no Mac to check the picture. The upscaler's last pass into the back buffer needs new shader variants for one opt-in path.
 
 ## November 10: PyroWave at 1.4 Gbps to a 780M laptop
 

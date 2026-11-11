@@ -7,8 +7,9 @@ release on one track with the release notes from
 fastlane/metadata/android/<locale>/changelogs/<versionCode>.txt, and commits.
 
 The service account key (JSON) comes from the PLAY_SERVICE_ACCOUNT_JSON
-environment variable. Play accepts only draft releases until the app's first
-review is approved; the script then retries as a draft and says so, and the
+environment variable. Committing the edit sends it, with any other pending Play
+Console changes, for review straight away (managed publishing is off). When Play
+accepts only a draft release, the script retries as a draft and says so, and the
 release is rolled out from Play Console.
 """
 

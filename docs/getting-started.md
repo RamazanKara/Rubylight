@@ -19,12 +19,12 @@ Upgrading an existing host: see [Upgrading](#upgrading). Moving a portable Apoll
 
 ## Install or run portable
 
-Download a package from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v3.11.9):
+Download a package from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v3.11.10):
 
 | Package | How to start | Use |
 | --- | --- | --- |
-| `rubylight-setup-3.11.9.exe` | Run the installer, then open **Rubylight** from the Start menu. | Normal use: the Windows service, start with Windows, virtual displays and virtual controllers. |
-| `rubylight-3.11.9-windows-x64.zip` | Extract the whole archive and open **Start Rubylight.exe**. | Trying the host on a physical display without installing anything. |
+| `rubylight-setup-3.11.10.exe` | Run the installer, then open **Rubylight** from the Start menu. | Normal use: the Windows service, start with Windows, virtual displays and virtual controllers. |
+| `rubylight-3.11.10-windows-x64.zip` | Extract the whole archive and open **Start Rubylight.exe**. | Trying the host on a physical display without installing anything. |
 
 The installer sets up the host, the Windows service, Rubylight's virtual display driver and, unless you clear its box, the virtual gamepad driver for controllers. Two optional pages follow: **Install USB audio and haptics support** adds DualSense and Steam Deck USB audio and haptics through usbip-win2 (it can reconnect USB devices and may need a restart; see [DualSense USB audio and haptics](dualsense-haptics.md)), and **Turn on Wake-on-LAN** sets up the wired network adapters so a client can wake the PC. Both are off by default and keep their choice for updates. If setup finds Vibepollo, Apollo or Sunshine, it asks: **replace** it, which imports its settings and paired devices and uninstalls it (the default), or [**keep it and install alongside**](#keep-another-host-and-install-alongside).
 

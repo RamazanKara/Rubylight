@@ -1091,7 +1091,7 @@ impl Session {
         rc.maxBitRate = rate_control.max_bitrate(rc.averageBitRate);
         match rate_control {
             RateControl::Cbr => rc.rateControlMode = _NV_ENC_PARAMS_RC_MODE_NV_ENC_PARAMS_RC_CBR,
-            RateControl::Vbr { target_quality } => {
+            RateControl::Vbr { target_quality, .. } => {
                 rc.rateControlMode = _NV_ENC_PARAMS_RC_MODE_NV_ENC_PARAMS_RC_VBR;
                 rc.targetQuality = target_quality;
             }

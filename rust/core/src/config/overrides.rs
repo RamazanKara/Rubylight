@@ -120,6 +120,7 @@ pub fn override_allowed(key: &str) -> bool {
         "nvenc_twopass",
         "nvenc_rate_control",
         "nvenc_target_quality",
+        "nvenc_peak_bitrate_ratio",
         "nvenc_spatial_aq",
         "nvenc_temporal_aq",
         "nvenc_vbv_increase",

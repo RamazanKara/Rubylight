@@ -138,6 +138,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "nvenc_preset", "NVENC preset (1 fastest to 7 slowest)", Number;
         "nvenc_rate_control", "NVENC rate control", Choice(&["cbr","vbr"]);
         "nvenc_target_quality", "Variable bitrate target quality (0 lets the driver choose)", Number;
+        "nvenc_peak_bitrate_ratio", "Variable bitrate peak (times the stream bitrate)", Choice(&["1","1.25","1.5","2","3"]);
         "nvenc_twopass", "Multi-pass encoding", Choice(&["disabled","quarter_res","full_res"]);
         "nvenc_spatial_aq", "Spatial adaptive quantization", Bool;
         "nvenc_temporal_aq", "Temporal adaptive quantization", Bool;

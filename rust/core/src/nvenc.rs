@@ -228,21 +228,37 @@ pub fn focus_deltas(
     Ok(())
 }
 
-/// How NVENC spends bits: a constant bitrate, or a variable one up to 1.5
-/// times the stream's rate that aims at `target_quality` (0: the driver
-/// picks). The VBR choice and its bounds follow Foundation Sunshine
+/// How NVENC spends bits: a constant bitrate, or a variable one up to
+/// `peak_percent` of the stream's rate (150 unless `nvenc_peak_bitrate_ratio`
+/// says otherwise) that aims at `target_quality` (0: the driver picks). The VBR
+/// choice and its 1.5 times default follow Foundation Sunshine
 /// (AlkaidLab/foundation-sunshine, GPL-3.0, src/nvenc/nvenc_base.cpp).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RateControl {
     Cbr,
-    Vbr { target_quality: u8 },
+    Vbr {
+        target_quality: u8,
+        peak_percent: u16,
+    },
 }
+/// The VBR peak over the stream's bitrate when `nvenc_peak_bitrate_ratio` is unset.
+pub const VBR_PEAK_PERCENT: u16 = 150;
+/// The peaks `nvenc_peak_bitrate_ratio` offers, as multiples of the stream's bitrate.
+pub const VBR_PEAKS: [(&str, u16); 5] = [
+    ("1", 100),
+    ("1.25", 125),
+    ("1.5", 150),
+    ("2", 200),
+    ("3", 300),
+];
 impl RateControl {
     /// The peak a VBR stream may reach over its average, in bits per second.
     pub fn max_bitrate(self, average: u32) -> u32 {
         match self {
             Self::Cbr => average,
-            Self::Vbr { .. } => (u64::from(average) * 3 / 2).min(u64::from(u32::MAX)) as u32,
+            Self::Vbr { peak_percent, .. } => {
+                (u64::from(average) * u64::from(peak_percent) / 100).min(u64::from(u32::MAX)) as u32
+            }
         }
     }
 }
@@ -308,6 +324,16 @@ impl Tuning {
                     .integer("nvenc_target_quality", 0)
                     .clamp(0, if stream.codec == 2 { 63 } else { 51 })
                     as u8,
+                peak_percent: {
+                    let value = config.get("nvenc_peak_bitrate_ratio", "1.5").trim();
+                    match VBR_PEAKS.iter().find(|(name, _)| *name == value) {
+                        Some((_, percent)) => *percent,
+                        None => {
+                            crate::config::fallback("nvenc_peak_bitrate_ratio", value, "1.5");
+                            VBR_PEAK_PERCENT
+                        }
+                    }
+                },
             },
             other => {
                 crate::config::fallback("nvenc_rate_control", other, "cbr");
@@ -627,31 +653,46 @@ mod tests {
             );
         }
         let vbr = "nvenc_rate_control = vbr\nnvenc_target_quality = 70\n";
-        assert_eq!(
-            tuning(vbr, 1).rate_control,
-            RateControl::Vbr { target_quality: 51 }
-        );
-        assert_eq!(
-            tuning(vbr, 2).rate_control,
-            RateControl::Vbr { target_quality: 63 }
-        );
+        let vbr_at = |target_quality, peak_percent| RateControl::Vbr {
+            target_quality,
+            peak_percent,
+        };
+        assert_eq!(tuning(vbr, 1).rate_control, vbr_at(51, 150));
+        assert_eq!(tuning(vbr, 2).rate_control, vbr_at(63, 150));
         assert_eq!(
             tuning("nvenc_rate_control = vbr\n", 0).rate_control,
-            RateControl::Vbr { target_quality: 0 }
+            vbr_at(0, 150)
         );
+        for (value, percent) in [
+            ("1", 100),
+            ("1.25", 125),
+            ("2", 200),
+            ("3", 300),
+            ("4", 150),
+        ] {
+            assert_eq!(
+                tuning(
+                    &format!("nvenc_rate_control = vbr\nnvenc_peak_bitrate_ratio = {value}\n"),
+                    1
+                )
+                .rate_control,
+                vbr_at(0, percent),
+                "{value}"
+            );
+        }
+        // CBR has no peak of its own.
+        assert_eq!(
+            tuning("nvenc_peak_bitrate_ratio = 3\n", 1).rate_control,
+            RateControl::Cbr
+        );
+        assert_eq!(vbr_at(0, 200).max_bitrate(20_000_000), 40_000_000);
         assert_eq!(
             tuning("nvenc_rate_control = cq\n", 0).rate_control,
             RateControl::Cbr
         );
         assert_eq!(RateControl::Cbr.max_bitrate(20_000_000), 20_000_000);
-        assert_eq!(
-            RateControl::Vbr { target_quality: 0 }.max_bitrate(20_000_000),
-            30_000_000
-        );
-        assert_eq!(
-            RateControl::Vbr { target_quality: 0 }.max_bitrate(u32::MAX),
-            u32::MAX
-        );
+        assert_eq!(vbr_at(0, 150).max_bitrate(20_000_000), 30_000_000);
+        assert_eq!(vbr_at(0, 150).max_bitrate(u32::MAX), u32::MAX);
         assert_eq!(tuning("nvenc_preset = 9\n", 1).preset, 7);
         assert_eq!(tuning("nvenc_twopass = full_res\n", 1).multipass, 2);
         assert_eq!(tuning("nvenc_twopass = disabled\n", 1).multipass, 0);

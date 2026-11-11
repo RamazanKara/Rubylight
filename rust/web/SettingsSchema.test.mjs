@@ -230,7 +230,7 @@ test('a saved alias is written back only when the edit means something else', ()
 test('each encoder group shows for its encoder, and Automatic shows the one for this PC\'s GPUs', () => {
   const { NATIVE_ENCODERS } = types;
   const groups = { amf: 'AMD AMF', nvenc: 'NVIDIA NVENC' };
-  const conditional = ['amd_qvbr_quality_level', 'nvenc_target_quality', 'nvenc_min_qp_h264', 'nvenc_min_qp_hevc', 'nvenc_min_qp_av1'];
+  const conditional = ['amd_qvbr_quality_level', 'nvenc_target_quality', 'nvenc_peak_bitrate_ratio', 'nvenc_min_qp_h264', 'nvenc_min_qp_hevc', 'nvenc_min_qp_av1'];
   for (const [backend, group] of Object.entries(groups)) {
     const members = schema.settings.filter(setting => setting.group === group);
     assert(members.length > 10, group);
@@ -312,7 +312,7 @@ test('the NVENC group holds exactly the settings the NVENC encoder reads, with i
   assert(shown.every(setting => setting.group === 'NVIDIA NVENC' && setting.category === 'encoders'));
   // nvenc.rs Tuning::new defaults.
   for (const [key, value] of [
-    ['nvenc_preset', '1'], ['nvenc_twopass', 'quarter_res'], ['nvenc_rate_control', 'cbr'], ['nvenc_target_quality', 0],
+    ['nvenc_preset', '1'], ['nvenc_twopass', 'quarter_res'], ['nvenc_rate_control', 'cbr'], ['nvenc_target_quality', 0], ['nvenc_peak_bitrate_ratio', '1.5'],
     ['nvenc_spatial_aq', true], ['nvenc_temporal_aq', false], ['nvenc_split_encode', 'auto'], ['nvenc_frame_budget_guard', true],
     ['nvenc_realtime_hags', true], ['nvenc_latency_over_power', true],
     ['nvenc_vbv_increase', 0], ['nvenc_weighted_prediction', false], ['nvenc_h264_cavlc', false], ['nvenc_insert_filler_data', false],

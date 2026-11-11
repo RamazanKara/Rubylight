@@ -1074,8 +1074,9 @@ Every setting in the console, by the console's own groups, with its key and the 
 | AMD AMF: AV1 screen content tools | `amd_av1_screen_content` | `auto` (Driver default) | AV1 coding tools for desktop content, which can make text and interface edges clearer. AV1 only. |
 | AMD AMF: AV1 tiles | `amd_av1_tiles` | `0` (Automatic) | Tiles per AV1 frame. Automatic follows the device's slice request, up to 4. |
 | NVIDIA NVENC: Preset | `nvenc_preset` | `1` (P1 (fastest)) | Higher presets compress better at the same bitrate but take longer to encode each frame. |
-| NVIDIA NVENC: Rate control | `nvenc_rate_control` | `cbr` (Constant bitrate) | Constant bitrate holds every frame to the stream bitrate. Variable bitrate spends less on simple scenes and lets busy ones peak at 1.5× the stream bitrate. |
+| NVIDIA NVENC: Rate control | `nvenc_rate_control` | `cbr` (Constant bitrate) | Constant bitrate holds every frame to the stream bitrate. Variable bitrate spends less on simple scenes and lets busy ones peak above it, up to Peak bitrate. |
 | NVIDIA NVENC: Target quality | `nvenc_target_quality` | `0` | The quality variable bitrate aims for. Lower values look better and use more bits; 0 lets the driver choose. |
+| NVIDIA NVENC: Peak bitrate | `nvenc_peak_bitrate_ratio` | `1.5` (1.5× stream bitrate) | How far above the stream bitrate variable bitrate may go on busy scenes. |
 | NVIDIA NVENC: Multi-pass encoding | `nvenc_twopass` | `quarter_res` (Quarter resolution) | A first pass over each frame spreads bits better and keeps frames within the bitrate. Off can cause bitrate spikes and packet loss. |
 | NVIDIA NVENC: Spatial adaptive quantization | `nvenc_spatial_aq` | `true` | Gives flat areas, where blocking shows most, more bits and detailed areas fewer. Adds no latency. |
 | NVIDIA NVENC: Temporal adaptive quantization | `nvenc_temporal_aq` | `false` | Spends more bits on parts of the picture that stay the same across frames. GPUs without it encode without it and log a warning. |

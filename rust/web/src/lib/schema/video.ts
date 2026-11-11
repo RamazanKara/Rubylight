@@ -1096,7 +1096,7 @@ const nvidia: Setting[] = [
     key: 'nvenc_rate_control',
     label: 'Rate control',
     description:
-      'Constant bitrate holds every frame to the stream bitrate. Variable bitrate spends less on simple scenes and lets busy ones peak at 1.5× the stream bitrate.',
+      'Constant bitrate holds every frame to the stream bitrate. Variable bitrate spends less on simple scenes and lets busy ones peak above it, up to Peak bitrate.',
     category: 'encoders',
     group: 'NVIDIA NVENC',
     control: {
@@ -1120,6 +1120,27 @@ const nvidia: Setting[] = [
     group: 'NVIDIA NVENC',
     control: { kind: 'number', min: 0, max: 63, step: 1 },
     default: 0,
+    inactiveHint: 'Applies to NVIDIA NVENC with Rate control set to Variable bitrate.',
+    visibleWhen: (values) => nvenc(values) && read(values, 'nvenc_rate_control', 'cbr') === 'vbr',
+  },
+  {
+    key: 'nvenc_peak_bitrate_ratio',
+    label: 'Peak bitrate',
+    description: 'How far above the stream bitrate variable bitrate may go on busy scenes.',
+    details: 'Higher peaks keep busy scenes sharper but send bigger bursts, which a slow or lossy network can drop.',
+    category: 'encoders',
+    group: 'NVIDIA NVENC',
+    control: {
+      kind: 'select',
+      options: [
+        { value: '1', label: '1× stream bitrate' },
+        { value: '1.25', label: '1.25× stream bitrate' },
+        { value: '1.5', label: '1.5× stream bitrate' },
+        { value: '2', label: '2× stream bitrate' },
+        { value: '3', label: '3× stream bitrate' },
+      ],
+    },
+    default: '1.5',
     inactiveHint: 'Applies to NVIDIA NVENC with Rate control set to Variable bitrate.',
     visibleWhen: (values) => nvenc(values) && read(values, 'nvenc_rate_control', 'cbr') === 'vbr',
   },

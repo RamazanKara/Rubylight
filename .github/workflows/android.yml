@@ -89,8 +89,14 @@ jobs:
       - name: Test and rebuild the shipped Rust protocol
         run: |
           rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
-          sudo apt-get update -qq
-          sudo apt-get install -y llvm libssl-dev
+          # The NDK's llvm-ar and llvm-strip, so the step needs no apt mirror.
+          ndk_llvm="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          if [ -x "$ndk_llvm/llvm-ar" ]; then
+            export LLVM_AR="$ndk_llvm/llvm-ar" LLVM_STRIP="$ndk_llvm/llvm-strip"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y llvm
+          fi
           bash protocol/build-android.sh
       - name: Configure a disposable signing key for minified build validation
         run: |

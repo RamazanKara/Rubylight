@@ -20,6 +20,6 @@ Die Leistungsanzeige zeigt Bildrate, Umlaufzeit und Bildverlust in einer Zeile o
 
 Gemacht für Fernbedienung und Controller genauso wie für Touch, in 15 Sprachen, mit hohem Kontrast, weniger Bewegung und einer Hilfe, die offline funktioniert. Nightjar läuft auch unter Windows, Linux und macOS; du bekommst es in den Releases des Projekts.
 
-Nightjar ist kostenlos und quelloffen. Ohne Werbung, ohne Konto und ohne In-App-Käufe.
+Nightjar ist quelloffen. Ohne Werbung, ohne Konto und ohne In-App-Käufe.
 
 Lizenziert unter GPL-3.0. Basiert auf Moonlight, mit Dank an alle Mitwirkenden.

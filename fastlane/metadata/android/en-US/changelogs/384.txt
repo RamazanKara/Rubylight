@@ -1,0 +1,1 @@
+• This update adds a graphics card choice to the desktop app. Nothing changes on Android.

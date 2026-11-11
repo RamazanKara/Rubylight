@@ -1093,8 +1093,9 @@ class FrameLatencyStats {
         return writeCsv(writer, null);
     }
 
-    // Rows are written from a char buffer reused across flushes; only the latency thread flushes.
-    private char[] csvChars = new char[512];
+    // A flush's rows are put together in one buffer reused across flushes and written in one go;
+    // only the latency thread flushes.
+    private final StringBuilder csvRows = new StringBuilder(16 * 1024);
 
     // The clock offset is read once per flush, before the lock: it calls into native code that
     // takes its own lock, and one value is plenty for the few hundred ms a flush covers.
@@ -1119,17 +1120,13 @@ class FrameLatencyStats {
         String frameRates = String.format(Locale.ROOT, "%.2f,%.2f,", rates[0], rates[1]) +
                 (rates[2] < 0 ? "" : String.format(Locale.ROOT, "%.2f", rates[2]));
         // One buffer for all the rows of a flush: put together from pieces, a row made some fifty short strings.
-        StringBuilder row = new StringBuilder(512);
-        long written = 0;
+        StringBuilder rows = csvRows;
+        rows.setLength(0);
         for (Frame frame : frames) {
-            row.setLength(0);
-            appendRow(row, frame, vrr, lost, dropped, sampleNs, frameRates, clockColumns);
-            int length = row.length();
-            if (length > csvChars.length) csvChars = new char[Math.max(length, csvChars.length * 2)];
-            row.getChars(0, length, csvChars, 0);
-            writer.write(csvChars, 0, length);
-            written += length;
+            appendRow(rows, frame, vrr, lost, dropped, sampleNs, frameRates, clockColumns);
         }
+        long written = rows.length();
+        if (written > 0) writer.append(rows);
         synchronized (this) {
             for (Frame frame : frames) recycle(frame);
         }

@@ -156,8 +156,8 @@ The release then receives these assets:
 | Asset | Contents |
 | --- | --- |
 | `nightjar.apk`, `nightjar-<version>.apk` | The non-root APK, also under a fixed name so `releases/latest/download/nightjar.apk` always serves the latest release |
-| `nightjar-<version>-root.apk`, `nightjar-<version>.aab` | The root APK and the non-root bundle |
-| `nightjar-<version>-mapping.txt`, `nightjar-<version>-native-debug-symbols.zip` | R8 mapping and native symbols of the non-root build, for reading crash traces |
+| `nightjar-<version>-root.apk`, `nightjar-<version>.aab` | The root APK and the non-root bundle for Google Play (built with `-PgithubUpdates=false`: no in-app updater, no install permission) |
+| `nightjar-<version>-mapping.txt`, `nightjar-<version>-play-mapping.txt`, `nightjar-<version>-native-debug-symbols.zip` | R8 mappings of the non-root APK and of the bundle, and their native symbols, for reading crash traces |
 | `nightjar-desktop-<version>-windows-x86_64-setup.exe`, `…-windows-x86_64.zip` | The Windows installer and portable archive |
 | `nightjar-desktop-<version>-linux-<x86_64 or aarch64>.deb`, `.rpm`, `.tar.gz`, `nightjar-desktop-<version>-<x86_64 or aarch64>.AppImage`, `.flatpak` | The Linux packages |
 | `nightjar-desktop-<version>-macos-arm64.zip`, `…-macos-x86_64.zip` | `Nightjar.app` for Apple Silicon and Intel Macs |
@@ -191,7 +191,7 @@ The workflow passes them to Gradle as the `BP_*` variables above, so local build
 
 ### Google Play
 
-Publishing a GitHub release (making the draft public; prereleases are skipped) runs `.github/workflows/play.yml`. It downloads that release's `nightjar-<version>.aab`, mapping and native symbols and runs `scripts/play_upload.py`, which uploads them to Google Play and sets the release on one track with the notes from `fastlane/metadata/android/<locale>/changelogs/<versionCode>.txt` (`de` becomes `de-DE`; Play allows 500 characters per language). The track is the `PLAY_TRACK` repository variable: `alpha` (the closed test) when unset, `production` once the app is live. Until the app's first review is approved, Play accepts only draft releases; the script then uploads a draft and says so, and the release is rolled out in Play Console. To upload a release again or to another track, run the workflow by hand with the tag and track.
+Publishing a GitHub release (making the draft public; prereleases are skipped) runs `.github/workflows/play.yml`. It downloads that release's `nightjar-<version>.aab`, the bundle's mapping and the native symbols and runs `scripts/play_upload.py`, which uploads them to Google Play and sets the release on one track with the notes from `fastlane/metadata/android/<locale>/changelogs/<versionCode>.txt` (`de` becomes `de-DE`; Play allows 500 characters per language). The track is the `PLAY_TRACK` repository variable: `alpha` (the closed test) when unset, `production` once the app is live. Until the app's first review is approved, Play accepts only draft releases; the script then uploads a draft and says so, and the release is rolled out in Play Console. To upload a release again or to another track, run the workflow by hand with the tag and track.
 
 It needs the `PLAY_SERVICE_ACCOUNT_JSON` secret: the JSON key of a Google Cloud service account with the Google Play Android Developer API enabled in its project, invited in Play Console (Users and permissions) with release rights for Nightjar. Without it the run only leaves a notice. Set it from the key file and delete the file afterwards:
 

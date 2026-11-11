@@ -29,6 +29,7 @@ jobs:
           python3 scripts/generate-settings.py
           git diff --exit-code -- docs/settings.md
           python3 scripts/test_gen_design_tokens.py
+          python3 scripts/test_play_upload.py
           node --test scripts/check-doc-links.test.mjs scripts/build-release.test.mjs scripts/add-device-results.test.mjs scripts/device-docs.test.mjs scripts/device-results-issue.test.mjs
           node scripts/check-doc-links.mjs
           node scripts/device-docs.mjs --check

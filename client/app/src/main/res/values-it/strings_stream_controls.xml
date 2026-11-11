@@ -18,6 +18,7 @@
         <item>Multi-touch</item>
         <item>Cursore locale</item>
         <item>Touch disattivato</item>
+        <item>Trackpad (gesti touchpad)</item>
     </string-array>
     <string-array name="stream_control_layout_actions">
         <item>Sposta controlli</item>

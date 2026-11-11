@@ -18,6 +18,7 @@
         <item>Multitouch</item>
         <item>Lokaler Mauszeiger</item>
         <item>Touch aus</item>
+        <item>Trackpad (Touchpad-Gesten)</item>
     </string-array>
     <string-array name="stream_control_layout_actions">
         <item>Tasten verschieben</item>

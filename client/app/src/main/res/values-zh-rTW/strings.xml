@@ -173,6 +173,14 @@
     <string name="category_input_settings">觸控與滑鼠</string>
     <string name="title_trackpad_speed">觸控板速度</string>
     <string name="title_mouse_speed">滑鼠速度</string>
+    <string name="title_trackpad_sensitivity_x">觸控板靈敏度 X</string>
+    <string name="summary_trackpad_sensitivity_x">實體觸控板（例如鍵盤保護殼上的觸控板）的水平速度，會疊加在滑鼠速度之上。負值會反轉方向。觸控螢幕模式則改用「觸控板速度」。</string>
+    <string name="title_trackpad_sensitivity_y">觸控板靈敏度 Y</string>
+    <string name="summary_trackpad_sensitivity_y">實體觸控板（例如鍵盤保護殼上的觸控板）的垂直速度，會疊加在滑鼠速度之上。負值會反轉方向。觸控螢幕模式則改用「觸控板速度」。</string>
+    <string name="title_trackpad_scroll_speed">觸控板捲動速度</string>
+    <string name="summary_trackpad_scroll_speed">在實體觸控板或「觸控板（觸控板手勢）」觸控模式下，雙指捲動的幅度。若捲動過於靈敏，請調低。</string>
+    <string name="title_trackpad_swap_axis">交換觸控板輸入的 X 軸和 Y 軸</string>
+    <string name="summary_trackpad_swap_axis">部分實體觸控板回報的座標軸是旋轉的，向上滑動時指標會橫向移動。開啟後會在套用觸控板靈敏度之前交換 X 和 Y。觸控螢幕模式不受影響。</string>
     <string name="title_checkbox_absolute_mouse_mode">桌面滑鼠模式</string>
     <string name="summary_checkbox_absolute_mouse_mode">像桌上型電腦滑鼠一樣移動電腦的游標，並帶有加速功能。以滑鼠控制視角的遊戲可能無法正常運作。</string>
     <string name="title_checkbox_mouse_nav_buttons">滑鼠上一頁/下一頁按鈕</string>

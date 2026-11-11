@@ -18,6 +18,7 @@
         <item>Cảm ứng đa điểm</item>
         <item>Con trỏ cục bộ</item>
         <item>Tắt cảm ứng</item>
+        <item>Bàn di chuột (cử chỉ như touchpad)</item>
     </string-array>
     <string-array name="stream_control_layout_actions">
         <item>Di chuyển nút điều khiển</item>

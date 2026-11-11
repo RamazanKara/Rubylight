@@ -333,6 +333,10 @@ public class SettingsKeysTest {
         reads.put("seekbar_pc_keyboard_size", new Read(50, 60, c -> c.pcKeyboardSize));
         reads.put("seekbar_pc_keyboard_opacity", new Read(90, 60, c -> c.pcKeyboardOpacity));
         reads.put("seekbar_mouse_speed", new Read(100, 200, c -> c.mouseSpeed));
+        reads.put("seekbar_trackpad_sensitivity_x", new Read(100, -100, c -> c.trackpadSensitivityX));
+        reads.put("seekbar_trackpad_sensitivity_y", new Read(100, -100, c -> c.trackpadSensitivityY));
+        reads.put("seekbar_trackpad_scroll_speed", new Read(50, 100, c -> c.trackpadScrollSpeed));
+        reads.put("checkbox_trackpad_swap_axis", new Read(false, true, c -> c.trackpadSwapAxis));
         reads.put("checkbox_mouse_nav_buttons", new Read(false, true, c -> c.mouseNavButtons));
         reads.put("checkbox_absolute_mouse_mode", new Read(false, true, c -> c.absoluteMouseMode));
         reads.put("checkbox_input_only_any_host", new Read(false, true, c -> c.inputOnlyAnyHost));
@@ -477,6 +481,24 @@ public class SettingsKeysTest {
     }
 
     @Test
+    public void trackpadSensitivityDefaultsToNormalKeepsItsSignAndStaysInRange() {
+        Application app = RuntimeEnvironment.getApplication();
+        PreferenceConfiguration config = PreferenceConfiguration.readPreferences(app);
+        assertEquals(100, config.trackpadSensitivityX);
+        assertEquals(100, config.trackpadSensitivityY);
+
+        prefs().edit().putInt("seekbar_trackpad_sensitivity_x", -100).putInt("seekbar_trackpad_sensitivity_y", 150).commit();
+        config = PreferenceConfiguration.readPreferences(app);
+        assertEquals(-100, config.trackpadSensitivityX);
+        assertEquals(150, config.trackpadSensitivityY);
+
+        prefs().edit().putInt("seekbar_trackpad_sensitivity_x", -900).putInt("seekbar_trackpad_sensitivity_y", 900).commit();
+        config = PreferenceConfiguration.readPreferences(app);
+        assertEquals(-200, config.trackpadSensitivityX);
+        assertEquals(200, config.trackpadSensitivityY);
+    }
+
+    @Test
     public void touchModeKeepsTheOlderSwitchesAndAddsTheNewerModes() {
         Application app = RuntimeEnvironment.getApplication();
         PreferenceConfiguration config = PreferenceConfiguration.readPreferences(app);
@@ -488,7 +510,8 @@ public class SettingsKeysTest {
                 PreferenceConfiguration.readPreferences(app).touchMode);
 
         for (int mode : new int[] {com.limelight.binding.input.touch.TouchMode.LOCAL_CURSOR,
-                com.limelight.binding.input.touch.TouchMode.OFF, com.limelight.binding.input.touch.TouchMode.DIRECT}) {
+                com.limelight.binding.input.touch.TouchMode.OFF, com.limelight.binding.input.touch.TouchMode.TOUCHPAD,
+                com.limelight.binding.input.touch.TouchMode.DIRECT}) {
             SharedPreferences.Editor editor = prefs().edit();
             com.limelight.binding.input.touch.TouchMode.save(editor, mode);
             editor.commit();

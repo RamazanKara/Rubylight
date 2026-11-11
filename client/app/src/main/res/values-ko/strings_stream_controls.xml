@@ -18,6 +18,7 @@
         <item>멀티 터치</item>
         <item>로컬 커서</item>
         <item>터치 끄기</item>
+        <item>트랙패드(터치패드 제스처)</item>
     </string-array>
     <string-array name="stream_control_layout_actions">
         <item>컨트롤 이동</item>

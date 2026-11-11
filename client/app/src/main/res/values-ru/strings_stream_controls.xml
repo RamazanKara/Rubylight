@@ -18,6 +18,7 @@
         <item>Мультитач</item>
         <item>Локальный курсор</item>
         <item>Сенсор выключен</item>
+        <item>Трекпад (жесты тачпада)</item>
     </string-array>
     <string-array name="stream_control_layout_actions">
         <item>Переместить кнопки</item>

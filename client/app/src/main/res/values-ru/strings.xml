@@ -173,6 +173,14 @@
     <string name="category_input_settings">Сенсор и мышь</string>
     <string name="title_trackpad_speed">Скорость трекпада</string>
     <string name="title_mouse_speed">Скорость мыши</string>
+    <string name="title_trackpad_sensitivity_x">Чувствительность трекпада X</string>
+    <string name="summary_trackpad_sensitivity_x">Горизонтальная скорость физического тачпада, например в чехле-клавиатуре, дополнительно к скорости мыши. Отрицательное значение меняет направление. Режимы сенсорного экрана используют скорость трекпада.</string>
+    <string name="title_trackpad_sensitivity_y">Чувствительность трекпада Y</string>
+    <string name="summary_trackpad_sensitivity_y">Вертикальная скорость физического тачпада, например в чехле-клавиатуре, дополнительно к скорости мыши. Отрицательное значение меняет направление. Режимы сенсорного экрана используют скорость трекпада.</string>
+    <string name="title_trackpad_scroll_speed">Скорость прокрутки трекпада</string>
+    <string name="summary_trackpad_scroll_speed">Насколько далеко прокручивают два пальца на физическом тачпаде или в сенсорном режиме Трекпад (жесты тачпада). Уменьшите, если прокрутка слишком чувствительная.</string>
+    <string name="title_trackpad_swap_axis">Поменять местами оси X и Y ввода трекпада</string>
+    <string name="summary_trackpad_swap_axis">Некоторые физические тачпады передают оси повёрнутыми, и движение вверх сдвигает курсор вбок. Включите, чтобы поменять X и Y местами до применения чувствительности трекпада. Режимы сенсорного экрана не затрагиваются.</string>
     <string name="title_checkbox_absolute_mouse_mode">Режим настольной мыши</string>
     <string name="summary_checkbox_absolute_mouse_mode">Двигает указатель ПК как обычная мышь, с ускорением. Игры, где камера управляется мышью, могут работать некорректно.</string>
     <string name="title_checkbox_mouse_nav_buttons">Кнопки мыши «назад» и «вперёд»</string>

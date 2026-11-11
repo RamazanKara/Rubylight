@@ -17,7 +17,7 @@ public class TouchModeTest {
 
     @Test
     public void everyModeSurvivesARoundTrip() {
-        for (int mode = TouchMode.TRACKPAD; mode <= TouchMode.OFF; mode++) {
+        for (int mode = TouchMode.TRACKPAD; mode <= TouchMode.TOUCHPAD; mode++) {
             assertEquals(mode, TouchMode.resolve(TouchMode.value(mode), TouchMode.legacyTrackpad(mode),
                     TouchMode.legacyNativeTouch(mode)));
         }
@@ -27,6 +27,8 @@ public class TouchModeTest {
     public void newerModesLookLikeTrackpadToOlderVersions() {
         assertTrue(TouchMode.legacyTrackpad(TouchMode.LOCAL_CURSOR));
         assertTrue(TouchMode.legacyTrackpad(TouchMode.OFF));
+        assertTrue(TouchMode.legacyTrackpad(TouchMode.TOUCHPAD));
+        assertFalse(TouchMode.legacyNativeTouch(TouchMode.TOUCHPAD));
         assertFalse(TouchMode.legacyNativeTouch(TouchMode.LOCAL_CURSOR));
         assertFalse(TouchMode.legacyNativeTouch(TouchMode.OFF));
     }
@@ -47,6 +49,7 @@ public class TouchModeTest {
     public void onlyTrackpadAndLocalCursorAreRelative() {
         assertTrue(TouchMode.isRelative(TouchMode.TRACKPAD));
         assertTrue(TouchMode.isRelative(TouchMode.LOCAL_CURSOR));
+        assertTrue(TouchMode.isRelative(TouchMode.TOUCHPAD));
         assertFalse(TouchMode.isRelative(TouchMode.DIRECT));
         assertFalse(TouchMode.isRelative(TouchMode.MULTI_TOUCH));
         assertFalse(TouchMode.isRelative(TouchMode.OFF));

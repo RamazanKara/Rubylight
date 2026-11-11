@@ -211,7 +211,9 @@ final class GameVideoOutput {
                 presentation.show();
                 game.prefConfig.touchscreenTrackpad = true;
                 // The phone is the touchpad; a pointer drawn on it would not match the external screen.
-                if (game.prefConfig.touchMode != TouchMode.OFF) game.prefConfig.touchMode = TouchMode.TRACKPAD;
+                if (game.prefConfig.touchMode != TouchMode.OFF && game.prefConfig.touchMode != TouchMode.TOUCHPAD) {
+                    game.prefConfig.touchMode = TouchMode.TRACKPAD;
+                }
                 game.nativeTouchEnabled = false;
                 TextView hint = game.findViewById(R.id.inputOnlyStatus);
                 hint.setText(R.string.desktop_touchpad_help); hint.setVisibility(View.VISIBLE);

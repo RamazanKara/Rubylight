@@ -18,6 +18,7 @@
         <item>Multitoque</item>
         <item>Cursor local</item>
         <item>Toque desativado</item>
+        <item>Trackpad (gestos de touchpad)</item>
     </string-array>
     <string-array name="stream_control_layout_actions">
         <item>Mover controles</item>

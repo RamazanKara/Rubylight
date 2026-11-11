@@ -173,6 +173,14 @@
     <string name="category_input_settings">Táctil y ratón</string>
     <string name="title_trackpad_speed">Velocidad del trackpad</string>
     <string name="title_mouse_speed">Velocidad del ratón</string>
+    <string name="title_trackpad_sensitivity_x">Sensibilidad del trackpad X</string>
+    <string name="summary_trackpad_sensitivity_x">Velocidad horizontal de un panel táctil físico, como el de una funda con teclado, además de la velocidad del ratón. Un valor negativo invierte la dirección. Los modos de pantalla táctil usan la velocidad del trackpad.</string>
+    <string name="title_trackpad_sensitivity_y">Sensibilidad del trackpad Y</string>
+    <string name="summary_trackpad_sensitivity_y">Velocidad vertical de un panel táctil físico, como el de una funda con teclado, además de la velocidad del ratón. Un valor negativo invierte la dirección. Los modos de pantalla táctil usan la velocidad del trackpad.</string>
+    <string name="title_trackpad_scroll_speed">Velocidad de desplazamiento del trackpad</string>
+    <string name="summary_trackpad_scroll_speed">Cuánto se desplaza con dos dedos en un panel táctil físico o en el modo táctil Trackpad (gestos de panel táctil). Redúcela si el desplazamiento es demasiado sensible.</string>
+    <string name="title_trackpad_swap_axis">Intercambiar los ejes X e Y de la entrada del trackpad</string>
+    <string name="summary_trackpad_swap_axis">Algunos paneles táctiles físicos informan de sus ejes girados, así que deslizar hacia arriba mueve el puntero de lado. Actívalo para intercambiar X e Y antes de aplicar la sensibilidad del trackpad. Los modos de pantalla táctil no se ven afectados.</string>
     <string name="title_checkbox_absolute_mouse_mode">Modo ratón de escritorio</string>
     <string name="summary_checkbox_absolute_mouse_mode">Mueve el puntero del PC como un ratón de escritorio, con aceleración. Puede que no funcione en juegos que controlan la cámara con el ratón.</string>
     <string name="title_checkbox_mouse_nav_buttons">Botones atrás/adelante del ratón</string>

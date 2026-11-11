@@ -18,6 +18,7 @@
         <item>Çoklu dokunma</item>
         <item>Yerel imleç</item>
         <item>Dokunma kapalı</item>
+        <item>Trackpad (dokunmatik yüzey hareketleri)</item>
     </string-array>
     <string-array name="stream_control_layout_actions">
         <item>Kontrolleri taşı</item>

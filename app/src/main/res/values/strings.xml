@@ -199,6 +199,14 @@
     <string name="category_input_settings">Touch &amp; mouse</string>
     <string name="title_trackpad_speed">Trackpad speed</string>
     <string name="title_mouse_speed">Mouse speed</string>
+    <string name="title_trackpad_sensitivity_x">Trackpad Sensitivity X</string>
+    <string name="summary_trackpad_sensitivity_x">Horizontal speed of a physical touchpad, such as a keyboard cover’s, applied on top of Mouse speed. Use a negative value to flip the direction. Touchscreen modes use Trackpad speed instead.</string>
+    <string name="title_trackpad_sensitivity_y">Trackpad Sensitivity Y</string>
+    <string name="summary_trackpad_sensitivity_y">Vertical speed of a physical touchpad, such as a keyboard cover’s, applied on top of Mouse speed. Use a negative value to flip the direction. Touchscreen modes use Trackpad speed instead.</string>
+    <string name="title_trackpad_scroll_speed">Trackpad Scroll Speed</string>
+    <string name="summary_trackpad_scroll_speed">How far two fingers scroll on a physical touchpad or in the Trackpad (touchpad gestures) touch mode. Lower it if scrolling is too sensitive.</string>
+    <string name="title_trackpad_swap_axis">Swap X and Y axis of the trackpad input</string>
+    <string name="summary_trackpad_swap_axis">Some physical touchpads report their axes rotated, so swiping up moves the pointer sideways. Turn this on to swap X and Y before Trackpad Sensitivity applies. Touchscreen modes are not affected.</string>
     <string name="title_checkbox_absolute_mouse_mode">Desktop mouse mode</string>
     <string name="summary_checkbox_absolute_mouse_mode">Moves the PC’s pointer like a desktop mouse, with acceleration. Games that steer the camera with the mouse may not work.</string>
     <string name="title_checkbox_mouse_nav_buttons">Mouse back/forward buttons</string>

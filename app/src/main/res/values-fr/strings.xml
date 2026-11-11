@@ -173,6 +173,14 @@
     <string name="category_input_settings">Tactile et souris</string>
     <string name="title_trackpad_speed">Vitesse du pavé tactile</string>
     <string name="title_mouse_speed">Vitesse de la souris</string>
+    <string name="title_trackpad_sensitivity_x">Sensibilité du pavé tactile X</string>
+    <string name="summary_trackpad_sensitivity_x">Vitesse horizontale d’un pavé tactile physique, par exemple celui d’un clavier-étui, en plus de la vitesse de la souris. Une valeur négative inverse le sens. Les modes de l’écran tactile utilisent la vitesse du pavé tactile.</string>
+    <string name="title_trackpad_sensitivity_y">Sensibilité du pavé tactile Y</string>
+    <string name="summary_trackpad_sensitivity_y">Vitesse verticale d’un pavé tactile physique, par exemple celui d’un clavier-étui, en plus de la vitesse de la souris. Une valeur négative inverse le sens. Les modes de l’écran tactile utilisent la vitesse du pavé tactile.</string>
+    <string name="title_trackpad_scroll_speed">Vitesse de défilement du pavé tactile</string>
+    <string name="summary_trackpad_scroll_speed">Distance de défilement à deux doigts sur un pavé tactile physique ou dans le mode tactile Pavé tactile (gestes de touchpad). Réduisez-la si le défilement est trop sensible.</string>
+    <string name="title_trackpad_swap_axis">Échanger les axes X et Y de l’entrée du pavé tactile</string>
+    <string name="summary_trackpad_swap_axis">Certains pavés tactiles physiques signalent leurs axes pivotés, si bien qu’un balayage vers le haut déplace le pointeur latéralement. Activez cette option pour échanger X et Y avant la sensibilité du pavé tactile. Les modes de l’écran tactile ne sont pas concernés.</string>
     <string name="title_checkbox_absolute_mouse_mode">Mode souris de bureau</string>
     <string name="summary_checkbox_absolute_mouse_mode">Déplace le pointeur du PC comme une souris de bureau, avec accélération. Les jeux qui orientent la caméra à la souris risquent de ne pas fonctionner.</string>
     <string name="title_checkbox_mouse_nav_buttons">Boutons précédent/suivant de la souris</string>

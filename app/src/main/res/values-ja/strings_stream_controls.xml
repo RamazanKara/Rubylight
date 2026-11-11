@@ -18,6 +18,7 @@
         <item>マルチタッチ</item>
         <item>ローカルカーソル</item>
         <item>タッチオフ</item>
+        <item>トラックパッド（タッチパッド操作）</item>
     </string-array>
     <string-array name="stream_control_layout_actions">
         <item>コントロールを移動</item>

@@ -18,6 +18,7 @@
         <item>Multitouch</item>
         <item>Curseur local</item>
         <item>Tactile désactivé</item>
+        <item>Pavé tactile (gestes de touchpad)</item>
     </string-array>
     <string-array name="stream_control_layout_actions">
         <item>Déplacer les commandes</item>

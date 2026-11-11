@@ -173,6 +173,14 @@
     <string name="category_input_settings">Dokunma ve fare</string>
     <string name="title_trackpad_speed">Trackpad hızı</string>
     <string name="title_mouse_speed">Fare hızı</string>
+    <string name="title_trackpad_sensitivity_x">Trackpad Hassasiyeti X</string>
+    <string name="summary_trackpad_sensitivity_x">Klavyeli kılıf gibi fiziksel bir dokunmatik yüzeyin yatay hızı; fare hızına ek olarak uygulanır. Negatif değer yönü ters çevirir. Dokunmatik ekran modları bunun yerine Trackpad hızını kullanır.</string>
+    <string name="title_trackpad_sensitivity_y">Trackpad Hassasiyeti Y</string>
+    <string name="summary_trackpad_sensitivity_y">Klavyeli kılıf gibi fiziksel bir dokunmatik yüzeyin dikey hızı; fare hızına ek olarak uygulanır. Negatif değer yönü ters çevirir. Dokunmatik ekran modları bunun yerine Trackpad hızını kullanır.</string>
+    <string name="title_trackpad_scroll_speed">Trackpad Kaydırma Hızı</string>
+    <string name="summary_trackpad_scroll_speed">İki parmakla kaydırmanın fiziksel bir dokunmatik yüzeyde veya Trackpad (dokunmatik yüzey hareketleri) dokunma modunda ne kadar ilerlediği. Kaydırma çok hassassa düşürün.</string>
+    <string name="title_trackpad_swap_axis">Trackpad girişinin X ve Y eksenlerini değiştir</string>
+    <string name="summary_trackpad_swap_axis">Bazı fiziksel dokunmatik yüzeyler eksenlerini döndürülmüş bildirir; yukarı kaydırmak imleci yana hareket ettirir. Trackpad hassasiyeti uygulanmadan önce X ve Y’yi değiştirmek için açın. Dokunmatik ekran modları etkilenmez.</string>
     <string name="title_checkbox_absolute_mouse_mode">Masaüstü fare modu</string>
     <string name="summary_checkbox_absolute_mouse_mode">Bilgisayarın imlecini ivmelenmeyle, masaüstü faresi gibi hareket ettirir. Kamerayı fareyle yönlendiren oyunlar çalışmayabilir.</string>
     <string name="title_checkbox_mouse_nav_buttons">Fare geri/ileri düğmeleri</string>

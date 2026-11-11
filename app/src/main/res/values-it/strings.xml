@@ -173,6 +173,14 @@
     <string name="category_input_settings">Touch e mouse</string>
     <string name="title_trackpad_speed">Velocità trackpad</string>
     <string name="title_mouse_speed">Velocità mouse</string>
+    <string name="title_trackpad_sensitivity_x">Sensibilità trackpad X</string>
+    <string name="summary_trackpad_sensitivity_x">Velocità orizzontale di un trackpad fisico, per esempio quello di una cover con tastiera, oltre alla velocità del mouse. Un valore negativo inverte la direzione. Le modalità touchscreen usano invece la velocità trackpad.</string>
+    <string name="title_trackpad_sensitivity_y">Sensibilità trackpad Y</string>
+    <string name="summary_trackpad_sensitivity_y">Velocità verticale di un trackpad fisico, per esempio quello di una cover con tastiera, oltre alla velocità del mouse. Un valore negativo inverte la direzione. Le modalità touchscreen usano invece la velocità trackpad.</string>
+    <string name="title_trackpad_scroll_speed">Velocità di scorrimento trackpad</string>
+    <string name="summary_trackpad_scroll_speed">Quanto scorrono due dita su un trackpad fisico o nella modalità touch Trackpad (gesti touchpad). Riducila se lo scorrimento è troppo sensibile.</string>
+    <string name="title_trackpad_swap_axis">Scambia gli assi X e Y dell’input del trackpad</string>
+    <string name="summary_trackpad_swap_axis">Alcuni trackpad fisici riportano gli assi ruotati, quindi scorrere verso l’alto sposta il puntatore di lato. Attivalo per scambiare X e Y prima della sensibilità trackpad. Le modalità touchscreen non sono interessate.</string>
     <string name="title_checkbox_absolute_mouse_mode">Modalità mouse desktop</string>
     <string name="summary_checkbox_absolute_mouse_mode">Muove il puntatore del PC come un mouse da desktop, con accelerazione. I giochi che controllano la visuale con il mouse potrebbero non funzionare.</string>
     <string name="title_checkbox_mouse_nav_buttons">Pulsanti indietro/avanti del mouse</string>

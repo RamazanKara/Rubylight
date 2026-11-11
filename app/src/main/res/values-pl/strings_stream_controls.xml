@@ -18,6 +18,7 @@
         <item>Wielodotyk</item>
         <item>Kursor lokalny</item>
         <item>Dotyk wyłączony</item>
+        <item>Touchpad (gesty jak w touchpadzie)</item>
     </string-array>
     <string-array name="stream_control_layout_actions">
         <item>Przesuń elementy</item>

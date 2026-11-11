@@ -173,6 +173,14 @@
     <string name="category_input_settings">터치 및 마우스</string>
     <string name="title_trackpad_speed">트랙패드 속도</string>
     <string name="title_mouse_speed">마우스 속도</string>
+    <string name="title_trackpad_sensitivity_x">트랙패드 감도 X</string>
+    <string name="summary_trackpad_sensitivity_x">키보드 커버 등 실제 터치패드의 가로 방향 속도이며 마우스 속도에 추가로 적용됩니다. 음수 값을 쓰면 방향이 반전됩니다. 터치스크린 모드는 대신 트랙패드 속도를 사용합니다.</string>
+    <string name="title_trackpad_sensitivity_y">트랙패드 감도 Y</string>
+    <string name="summary_trackpad_sensitivity_y">키보드 커버 등 실제 터치패드의 세로 방향 속도이며 마우스 속도에 추가로 적용됩니다. 음수 값을 쓰면 방향이 반전됩니다. 터치스크린 모드는 대신 트랙패드 속도를 사용합니다.</string>
+    <string name="title_trackpad_scroll_speed">트랙패드 스크롤 속도</string>
+    <string name="summary_trackpad_scroll_speed">실제 터치패드 또는 트랙패드(터치패드 제스처) 터치 모드에서 두 손가락 스크롤이 이동하는 정도입니다. 스크롤이 너무 민감하면 값을 낮추세요.</string>
+    <string name="title_trackpad_swap_axis">트랙패드 입력의 X축과 Y축 바꾸기</string>
+    <string name="summary_trackpad_swap_axis">일부 실제 터치패드는 축이 회전된 상태로 보고되어 위로 스와이프하면 포인터가 옆으로 움직입니다. 켜면 트랙패드 감도를 적용하기 전에 X와 Y를 바꿉니다. 터치스크린 모드에는 영향이 없습니다.</string>
     <string name="title_checkbox_absolute_mouse_mode">데스크톱 마우스 모드</string>
     <string name="summary_checkbox_absolute_mouse_mode">가속을 적용해 데스크톱 마우스처럼 PC 포인터를 움직입니다. 마우스로 카메라를 조작하는 게임에서는 작동하지 않을 수 있습니다.</string>
     <string name="title_checkbox_mouse_nav_buttons">마우스 뒤로/앞으로 버튼</string>

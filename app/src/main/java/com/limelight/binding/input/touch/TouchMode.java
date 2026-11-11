@@ -18,8 +18,10 @@ public final class TouchMode {
     public static final int MULTI_TOUCH = 2;
     public static final int LOCAL_CURSOR = 3;
     public static final int OFF = 4;
+    /** Trackpad with a physical touchpad's gestures: tap-and-a-half drag, two-finger scroll, flick momentum. */
+    public static final int TOUCHPAD = 5;
 
-    private static final String[] VALUES = {"trackpad", "direct", "multi_touch", "local_cursor", "off"};
+    private static final String[] VALUES = {"trackpad", "direct", "multi_touch", "local_cursor", "off", "touchpad"};
 
     private TouchMode() { }
 
@@ -45,7 +47,7 @@ public final class TouchMode {
 
     /** What an older version reads: the newer modes fall back to Trackpad there. */
     public static boolean legacyTrackpad(int mode) {
-        return mode == TRACKPAD || mode == LOCAL_CURSOR || mode == OFF;
+        return mode == TRACKPAD || mode == LOCAL_CURSOR || mode == OFF || mode == TOUCHPAD;
     }
 
     public static boolean legacyNativeTouch(int mode) {
@@ -54,7 +56,7 @@ public final class TouchMode {
 
     /** Finger movement is relative to where the finger lands. */
     public static boolean isRelative(int mode) {
-        return mode == TRACKPAD || mode == LOCAL_CURSOR;
+        return mode == TRACKPAD || mode == LOCAL_CURSOR || mode == TOUCHPAD;
     }
 
     private static int indexOf(String stored) {

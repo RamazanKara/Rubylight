@@ -697,6 +697,29 @@ impl Pacer {
     }
 }
 
+/// What holds the planes of the picture that waits for the back buffer.
+#[cfg(windows)]
+enum PlanesHold {
+    /// A GPU decoder's plane set, once the decode fence reaches `fence_value`.
+    Lease { lease: super::gpu_planes::Lease, fence_value: u64 },
+    /// The planes the pass uploaded into its own textures (`PlanesPass::upload_frame`).
+    Frame,
+    /// A 4:4:4 decoder surface bound in the pass (`PlanesPass::bind_surface`): `held` is the
+    /// decoder's frame while it is read in place, None for the pass's copy.
+    Surface { held: Option<media::Frame> },
+}
+
+/// The current picture's planes, waiting for the back buffer or the video texture.
+#[cfg(windows)]
+struct DirectPlanes {
+    source: PlanesHold,
+    parameters: [u32; 8],
+    /// The video texture holds the picture too (something read it).
+    in_texture: bool,
+    /// A PyroWave picture's draw was added to the stage times.
+    timed: bool,
+}
+
 /// The renderer's texture holding the current picture.
 pub struct VideoTexture {
     #[cfg(windows)]
@@ -782,6 +805,17 @@ pub struct VideoTexture {
     /// The video texture holds the current picture.
     #[cfg(windows)]
     copied: bool,
+    /// The current picture's planes, not drawn into the video texture: `draw_direct` draws them into
+    /// the back buffer, `materialize_planes` into the texture when something reads it.
+    #[cfg(windows)]
+    direct_planes: Option<DirectPlanes>,
+    /// Drawing the planes into the back buffer failed: they go through the texture for the rest
+    /// of the stream.
+    #[cfg(windows)]
+    direct_planes_failed: bool,
+    /// Which way the stream's planes are drawn was logged.
+    #[cfg(windows)]
+    direct_planes_said: bool,
     /// The current picture came from D3D11VA, and its HDR10+ peak in nits.
     #[cfg(windows)]
     d3d11_picture: bool,
@@ -862,6 +896,12 @@ impl Default for VideoTexture {
             held: None,
             #[cfg(windows)]
             copied: false,
+            #[cfg(windows)]
+            direct_planes: None,
+            #[cfg(windows)]
+            direct_planes_failed: false,
+            #[cfg(windows)]
+            direct_planes_said: false,
             #[cfg(windows)]
             d3d11_picture: false,
             #[cfg(windows)]
@@ -1546,7 +1586,7 @@ impl VideoTexture {
                 }
                 #[cfg(target_os = "macos")]
                 media::FRAME_VIDEOTOOLBOX => {
-                    if crate::sdl::renderer_name(renderer) == "metal" {
+                    if crate::sdl::renderer_is(renderer, "metal") {
                         let format = if info.ten_bit == 0 { SDL_PIXELFORMAT_NV12 } else { SDL_PIXELFORMAT_P010 };
                         // FFmpeg keeps the CVPixelBufferRef in AVFrame.data[3]. Keep the
                         // frame (and thus its pool slot) alive for the displayed texture.
@@ -1684,6 +1724,7 @@ impl VideoTexture {
     /// `sdl_texture`). Nothing to do when the picture was copied.
     #[cfg(windows)]
     pub fn copy_held(&mut self) {
+        self.materialize_planes();
         let Some(frame) = &self.held else { return };
         if self.copied || self.d3d11.is_null() { return; }
         self.copied = frame.copy_to_d3d11(self.d3d11, self.width, self.height);
@@ -1704,6 +1745,7 @@ impl VideoTexture {
     /// conversion by the pass.
     #[cfg(windows)]
     pub fn sdl_texture(&mut self, renderer: *mut SDL_Renderer) -> *mut SDL_Texture {
+        self.materialize_planes();
         if self.texture.is_null() || !self.d3d11_picture || !sdl_needs_rgb(self.format, self.transfer()) {
             self.copy_held();
             return self.texture;
@@ -1815,6 +1857,134 @@ impl VideoTexture {
         }
     }
 
+    /// Whether the picture being uploaded waits for the back buffer (`direct_planes::goes_direct`).
+    #[cfg(windows)]
+    fn goes_direct(&self, renderer: *mut SDL_Renderer, partial: bool) -> bool {
+        super::direct_planes::goes_direct(super::direct_planes::Conditions {
+            switch: super::direct_planes::enabled(),
+            failed: self.direct_planes_failed,
+            swap_chain: !self.d3d11.is_null() && !crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_D3D11_SWAPCHAIN_POINTER).is_null(),
+            partial,
+        })
+    }
+
+    /// Says once which way the stream's `what` pictures are drawn.
+    #[cfg(windows)]
+    fn say_planes_path(&mut self, direct: bool, what: &str) {
+        if std::mem::replace(&mut self.direct_planes_said, true) { return; }
+        if direct {
+            eprintln!("nightjar: {what} pictures are converted and scaled straight into the back buffer in one pass ({}=0 draws them through the video texture)", super::direct_planes::SWITCH);
+        } else if !super::direct_planes::enabled() {
+            eprintln!("nightjar: {what} pictures are drawn through the video texture ({}=0)", super::direct_planes::SWITCH);
+        } else {
+            eprintln!("nightjar: {what} pictures are drawn through the video texture");
+        }
+    }
+
+    /// Makes `picture` the current one, waiting for the back buffer; the one it replaces goes back.
+    #[cfg(windows)]
+    fn hold_direct(&mut self, picture: DirectPlanes, what: &str) {
+        self.finish_direct();
+        self.say_planes_path(true, what);
+        self.direct_planes = Some(picture);
+    }
+
+    /// Lets go of the current picture's planes: a GPU decoder's plane set goes back to the decoder
+    /// behind the last draw of it.
+    #[cfg(windows)]
+    fn finish_direct(&mut self) {
+        let Some(DirectPlanes { source: PlanesHold::Lease { lease, .. }, .. }) = self.direct_planes.take() else { return };
+        if let Some(pass) = &self.planes {
+            if let Err(error) = pass.give_back(&lease) {
+                eprintln!("nightjar: {error}");
+            }
+        }
+    }
+
+    /// Draws the current picture's waiting planes into the video texture, once, for what reads
+    /// the texture (an upscaler, AI enhancement, or SDL after a failed direct draw).
+    #[cfg(windows)]
+    fn materialize_planes(&mut self) {
+        let Some(mut picture) = self.direct_planes.take() else { return };
+        if !picture.in_texture {
+            let parameters = picture.parameters;
+            let drawn = match (&picture.source, self.planes.as_mut()) {
+                (_, None) => Err("the plane pass is gone".to_string()),
+                (PlanesHold::Lease { lease, fence_value }, Some(pass)) => pass.draw_held(lease, *fence_value, &parameters, PLANES_DECODE_DEADLINE),
+                (PlanesHold::Frame, Some(pass)) => pass.draw_uploaded_frame(&parameters),
+                (PlanesHold::Surface { held, .. }, Some(pass)) => pass.draw_bound_surface(&mut |submit| match held {
+                    Some(frame) => frame.with_decoder_lock(submit),
+                    None => submit(),
+                }),
+            };
+            match drawn {
+                Ok(()) => picture.in_texture = true,
+                Err(error) => self.fail(format!("drawing the picture's planes into the video texture failed: {error}"), error),
+            }
+        }
+        self.direct_planes = Some(picture);
+    }
+
+    /// Draws the current picture's planes into `destination` of the back buffer, converted and
+    /// scaled in one pass, and returns true; false for SDL to draw `texture` (an upscaler's output,
+    /// or after a failure, which is logged once and keeps the texture for the stream).
+    #[cfg(windows)]
+    fn draw_planes_direct(&mut self, renderer: *mut SDL_Renderer, destination: &SDL_FRect, texture: *mut SDL_Texture) -> bool {
+        if texture.is_null() || texture != self.texture { return false; }
+        let step = std::time::Instant::now();
+        let swap_chain = crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_D3D11_SWAPCHAIN_POINTER);
+        if swap_chain.is_null() { return false; }
+        let mut output = (0, 0);
+        // SAFETY: The live renderer and texture of the presenting thread.
+        let (look, flushed) = unsafe {
+            SDL_GetCurrentRenderOutputSize(renderer, &mut output.0, &mut output.1);
+            let look = super::direct_planes::Look::of(renderer, texture);
+            // A new output size is resized by SDL's next run of its queue, this flush: let go first.
+            if let Some(pass) = &mut self.planes { pass.keep_back_buffer_if(swap_chain as usize, output); }
+            (look, SDL_FlushRenderer(renderer))
+        };
+        let visible = self.size();
+        let constants = super::direct_planes::constants(destination, visible, look);
+        let viewport = {
+            let x = destination.x.max(0.0);
+            let y = destination.y.max(0.0);
+            [x, y, (destination.x + destination.w).min(output.0 as f32) - x, (destination.y + destination.h).min(output.1 as f32) - y]
+        };
+        let (Some(pass), Some(picture)) = (self.planes.as_mut(), self.direct_planes.as_ref()) else { return false };
+        let drawn = if !flushed {
+            Err(format!("SDL_FlushRenderer: {}", crate::sdl::error()))
+        } else {
+            // SAFETY: The renderer's swap chain, on the device the pass was made on.
+            unsafe { pass.back_buffer(swap_chain, output) }.and_then(|target| match &picture.source {
+                PlanesHold::Lease { lease, fence_value } => {
+                    let source = super::d3d11::DirectSource::Lease { lease, fence_value: *fence_value, deadline: PLANES_DECODE_DEADLINE };
+                    pass.draw_direct(&target, viewport, &source, &picture.parameters, &constants, &mut |submit| submit())
+                }
+                PlanesHold::Frame => pass.draw_direct(&target, viewport, &super::d3d11::DirectSource::Frame, &picture.parameters, &constants, &mut |submit| submit()),
+                PlanesHold::Surface { held, .. } => pass.draw_direct(&target, viewport, &super::d3d11::DirectSource::Surface, &picture.parameters, &constants, &mut |submit| match held {
+                    Some(frame) => frame.with_decoder_lock(submit),
+                    None => submit(),
+                }),
+            })
+        };
+        match drawn {
+            Ok(()) => {
+                if let Some(picture) = self.direct_planes.as_mut() {
+                    if matches!(picture.source, PlanesHold::Lease { .. }) && !std::mem::replace(&mut picture.timed, true) {
+                        self.pyrowave_stages.add(super::pyrowave_gpu::PASSES, step);
+                        self.pyrowave_stages.commit();
+                    }
+                }
+                true
+            }
+            Err(error) => {
+                eprintln!("nightjar: drawing the picture's planes into the back buffer failed: {error}; they go through the video texture from now on");
+                self.direct_planes_failed = true;
+                false
+            }
+        }
+    }
+
     #[cfg(windows)]
     fn convert(&mut self, renderer: *mut SDL_Renderer) -> Result<(), String> {
         use windows::core::Interface;
@@ -1890,8 +2060,26 @@ impl VideoTexture {
     /// false for SDL to draw it. `texture` is the video texture or AI enhancement's output; the
     /// pass draws the D3D11VA picture of either, and nothing else. A failing pass is logged
     /// once and SDL draws from then on.
+    /// Lets go of the direct passes' back-buffer views, for a frame whose upscaler or AI
+    /// enhancement runs SDL's queue before `draw_direct`: SDL resizes there, and a held view
+    /// would make its `ResizeBuffers` fail.
+    #[cfg(windows)]
+    pub fn release_back_buffers(&mut self) {
+        if let Some(pass) = &mut self.planes { pass.release_back_buffer(); }
+        if let Some((_, pass)) = &mut self.direct { pass.release_back_buffer(); }
+    }
+
     #[cfg(windows)]
     pub fn draw_direct(&mut self, renderer: *mut SDL_Renderer, destination: &SDL_FRect, texture: *mut SDL_Texture) -> bool {
+        if self.direct_planes.is_some() {
+            let drawn = self.draw_planes_direct(renderer, destination, texture);
+            if !drawn {
+                // SDL may resize the back buffer before the pass draws again.
+                if let Some(pass) = &mut self.planes { pass.release_back_buffer(); }
+            }
+            return drawn;
+        }
+        if let Some(pass) = &mut self.planes { pass.release_back_buffer(); }
         let drawn = self.try_draw_direct(renderer, destination, texture);
         if !drawn {
             // SDL may resize the back buffer before the pass draws again.
@@ -1998,6 +2186,16 @@ impl VideoTexture {
     #[cfg(windows)]
     fn upload_planes(&mut self, renderer: *mut SDL_Renderer, decoded: &Decoded, lease: &super::gpu_planes::Lease, fence_value: u64, rows: Option<(u32, u32)>) -> bool {
         let Some(parameters) = self.prepare_planes(renderer, decoded.setup) else { return false };
+        // The picture's set stays with the presenter while the planes wait for the back buffer.
+        if self.goes_direct(renderer, rows.is_some()) {
+            if let Some(held) = lease.hand_over() {
+                self.pyrowave_stages.reset();
+                self.hold_direct(DirectPlanes { source: PlanesHold::Lease { lease: held, fence_value }, parameters, in_texture: false, timed: false }, "PyroWave");
+                return true;
+            }
+        }
+        self.finish_direct();
+        self.say_planes_path(false, "PyroWave");
         let step = std::time::Instant::now();
         let drawn = self.planes.as_mut().is_some_and(|pass| match pass.draw(lease, fence_value, &parameters, PLANES_DECODE_DEADLINE, rows) {
             Ok(()) => true,
@@ -2016,6 +2214,8 @@ impl VideoTexture {
     #[cfg(windows)]
     pub fn upload_slice(&mut self, renderer: *mut SDL_Renderer, setup: nightjar_core::session::VideoSetup, pin: &super::gpu_planes::Pin, fence_value: u64, rows: (u32, u32)) -> bool {
         let Some(parameters) = self.prepare_planes(renderer, setup) else { return false };
+        // The rows of a frame being received go through the texture, which the frame's picture then is.
+        self.finish_direct();
         let step = std::time::Instant::now();
         let drawn = self.planes.as_mut().is_some_and(|pass| match pass.draw_slice(pin, fence_value, &parameters, PLANES_DECODE_DEADLINE, rows) {
             Ok(()) => true,
@@ -2092,6 +2292,27 @@ impl VideoTexture {
                 Err(error) => { self.fail(format!("the plane shader pass cannot be made: {error}"), format!("the plane shader pass cannot be made: {error}")); return false; }
             }
         }
+        if self.goes_direct(renderer, false) {
+            // A readable decoder texture is read in place, its frame held until the next picture.
+            let bound = self.planes.as_mut().unwrap().bind_surface(frame, info, &parameters, true);
+            match bound {
+                Ok(in_place) => {
+                    let held = if in_place { frame.reference() } else { None };
+                    let held = if in_place && held.is_none() {
+                        // No second reference to the frame: the slice is copied instead.
+                        match self.planes.as_mut().unwrap().bind_surface(frame, info, &parameters, false) {
+                            Ok(_) => None,
+                            Err(error) => { self.fail(format!("binding a {}x{} 4:4:4 decoder picture failed: {error}", layout.width, layout.height), error); return false; }
+                        }
+                    } else { held };
+                    self.hold_direct(DirectPlanes { source: PlanesHold::Surface { held }, parameters, in_texture: false, timed: false }, "4:4:4");
+                    return true;
+                }
+                Err(error) => { self.fail(format!("binding a {}x{} 4:4:4 decoder picture failed: {error}", layout.width, layout.height), error); return false; }
+            }
+        }
+        self.finish_direct();
+        self.say_planes_path(false, "4:4:4");
         match self.planes.as_mut().unwrap().draw_surface(frame, info, &parameters) {
             Ok(()) => true,
             Err(error) => { self.fail(format!("drawing a {}x{} 4:4:4 decoder picture failed: {error}", layout.width, layout.height), error); false }
@@ -2115,7 +2336,19 @@ impl VideoTexture {
                     Err(error) => { self.fail(format!("the plane shader pass cannot be made: {error}"), format!("the plane shader pass cannot be made: {error}")); return false; }
                 }
             }
-            self.planes.as_mut().unwrap().draw_frame(info, &parameters)
+            if self.goes_direct(renderer, false) {
+                match self.planes.as_mut().unwrap().upload_frame(info) {
+                    Ok(()) => {
+                        self.hold_direct(DirectPlanes { source: PlanesHold::Frame, parameters, in_texture: false, timed: false }, "planar");
+                        return true;
+                    }
+                    Err(error) => Err(error),
+                }
+            } else {
+                self.finish_direct();
+                self.say_planes_path(false, "planar");
+                self.planes.as_mut().unwrap().draw_frame(info, &parameters)
+            }
         };
         #[cfg(unix)]
         let drawn = {
@@ -2172,7 +2405,7 @@ impl VideoTexture {
     #[cfg(unix)]
     fn upload_vulkan(&mut self, renderer: *mut SDL_Renderer, frame: &media::Frame, info: &FrameInfo, layout: media::PlanarLayout, white_level: f32) -> bool {
         let Some(parameters) = self.planar_target(renderer, info, layout, white_level, true) else { return false };
-        let what = format!("{}x{} {}-bit Vulkan video picture", layout.width, layout.height, if layout.ten_bit { 10 } else { 8 });
+        let what = || format!("{}x{} {}-bit Vulkan video picture", layout.width, layout.height, if layout.ten_bit { 10 } else { 8 });
         if self.vulkan.is_none() {
             let device = crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_GPU_DEVICE_POINTER);
             // SAFETY: The renderer's live GPU device, which outlives the texture.
@@ -2183,7 +2416,7 @@ impl VideoTexture {
             };
             match made {
                 Ok(planes) => self.vulkan = Some(planes),
-                Err(error) => { self.fail(format!("the planes of a {what} cannot be made: {error}"), error); return false; }
+                Err(error) => { self.fail(format!("the planes of a {} cannot be made: {error}", what()), error); return false; }
             }
         }
         if self.planes.is_none() {
@@ -2200,10 +2433,25 @@ impl VideoTexture {
         // SAFETY: A live Vulkan frame of the decoder on this renderer's device (`device_context`);
         // planes and pass made on this renderer for pictures shaped like it (a change of shape
         // changes the parameters, which destroys them).
-        let drawn = unsafe { planes.copy(renderer, frame.raw.as_ptr()).and_then(|()| pass.draw_bound(renderer, texture, &parameters)) };
+        let drawn = unsafe {
+            // A VA-API picture is sampled where VA-API wrote it when it can be (the route is logged
+            // once); any other, or a surface the driver does not sample, is copied.
+            #[cfg(target_os = "linux")]
+            let sampled = planes.sample(renderer, frame.raw.as_ptr());
+            #[cfg(not(target_os = "linux"))]
+            let sampled: Result<Option<[*mut SDL_GPUTexture; 2]>, String> = Ok(None);
+            match sampled {
+                Ok(Some(textures)) => pass.draw_sampled_textures(renderer, texture, textures, &parameters),
+                Ok(None) => {
+                    pass.use_copy();
+                    planes.copy(renderer, frame.raw.as_ptr()).and_then(|()| pass.draw_bound(renderer, texture, &parameters))
+                }
+                Err(error) => Err(error),
+            }
+        };
         match drawn {
             Ok(()) => { self.planes_drawn(texture, parameters); true }
-            Err(error) => { self.fail(format!("drawing a {what} failed: {error}"), error); false }
+            Err(error) => { self.fail(format!("drawing a {} failed: {error}", what()), error); false }
         }
     }
 
@@ -2212,13 +2460,13 @@ impl VideoTexture {
     /// target; nothing goes through memory (#80).
     #[cfg(unix)]
     fn draw_packed_planes(&mut self, renderer: *mut SDL_Renderer, frame: &media::Frame, coded: media::PlanarLayout, parameters: &[u32; 12]) -> bool {
-        let what = format!("{}x{} {}-bit packed full chroma Vulkan picture", coded.width, coded.height, if coded.ten_bit { 10 } else { 8 });
+        let what = || format!("{}x{} {}-bit packed full chroma Vulkan picture", coded.width, coded.height, if coded.ten_bit { 10 } else { 8 });
         if self.vulkan.is_none() {
             let device = crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_GPU_DEVICE_POINTER);
             // SAFETY: The renderer's live GPU device, which outlives the planes.
             match unsafe { crate::vulkan_video::Planes::new(device.cast(), coded.width, coded.height, coded.ten_bit, coded.chroma444) } {
                 Ok(planes) => self.vulkan = Some(planes),
-                Err(error) => { self.fail(format!("the planes of a {what} cannot be made: {error}"), error); return false; }
+                Err(error) => { self.fail(format!("the planes of a {} cannot be made: {error}", what()), error); return false; }
             }
         }
         if self.packed.is_none() {
@@ -2239,7 +2487,7 @@ impl VideoTexture {
         });
         match drawn {
             Ok(()) => true,
-            Err(error) => { self.fail(format!("drawing a {what} failed: {error}"), error); false }
+            Err(error) => { self.fail(format!("drawing a {} failed: {error}", what()), error); false }
         }
     }
 
@@ -2250,6 +2498,9 @@ impl VideoTexture {
     }
 
     pub fn destroy(&mut self) {
+        // While the pass that reads it is still there: the set goes back behind its last draw.
+        #[cfg(windows)]
+        self.finish_direct();
         #[cfg(any(windows, unix))]
         { self.planes = None; }
         self.pyrowave = None;
@@ -2293,6 +2544,10 @@ impl VideoTexture {
             direct: self.direct.take().map(|(device, mut pass)| { pass.reset(); (device, pass) }),
             #[cfg(windows)]
             direct_failed: self.direct_failed,
+            #[cfg(windows)]
+            direct_planes_failed: self.direct_planes_failed,
+            #[cfg(windows)]
+            direct_planes_said: self.direct_planes_said,
             ..Self::default()
         };
     }

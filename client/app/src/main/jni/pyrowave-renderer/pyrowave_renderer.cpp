@@ -3069,6 +3069,24 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeSubmitChunks(JNIE
     renderer->pushChunks(chunks.data(), chunks.size(), first == JNI_TRUE);
 }
 
+// The Rust engine's early chunks in place (debug.nightjar.pyro_direct, as for frames): a direct buffer
+// over its batch, valid for this call. pushChunks copies the records it keeps into the SDK before
+// it returns, so the batch is read once, with no copy here.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeSubmitChunksDirect(JNIEnv *env, jclass, jlong handle,
+                                                                                  jobject data, jint length,
+                                                                                  jboolean first) {
+    auto *renderer = reinterpret_cast<Renderer *>(handle);
+    if (renderer == nullptr || data == nullptr || length <= 0) return;
+    SubmissionDiagnostics::Chunks timing(renderer->submissionDiagnostics);
+    const auto *bytes = static_cast<const uint8_t *>(env->GetDirectBufferAddress(data));
+    if (bytes == nullptr || jlong(length) > env->GetDirectBufferCapacity(data)) {
+        LOGE("PyroWave chunks handed over in place without a direct buffer of %d bytes", length);
+        return;
+    }
+    renderer->pushChunks(bytes, size_t(length), first == JNI_TRUE);
+}
+
 // Early record push is on: on the Retroid Pocket 6 at 1080p60 400 Mbps it took 0.5 to 0.8 ms off
 // the median from a frame's last packet to its completed decode and 2.5 ms off p95.
 // debug.nightjar.pyro_early set to 0 turns it off for the next stream, for A/B runs against the

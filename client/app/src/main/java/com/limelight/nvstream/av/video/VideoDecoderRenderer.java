@@ -83,6 +83,9 @@ public abstract class VideoDecoderRenderer {
     // Packets of the next PyroWave records frame while it arrives, as [length][flags][payload]
     // each; first marks the frame's first packet. Only with early record push requested.
     public void submitChunks(byte[] data, int length, boolean first) {}
+
+    // The same packets as submitChunks, in a direct buffer that is only valid during the call.
+    public void submitChunksDirect(ByteBuffer data, int length, boolean first) {}
     
     public abstract void cleanup();
 

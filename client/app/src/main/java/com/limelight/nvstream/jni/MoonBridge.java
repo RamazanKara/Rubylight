@@ -269,6 +269,13 @@ public class MoonBridge {
         }
     }
 
+    // The Rust engine's chunk batch in place; see VideoDecoderRenderer.submitChunksDirect.
+    public static void bridgeDrSubmitChunksDirect(ByteBuffer data, int length, boolean first) {
+        if (videoRenderer != null) {
+            videoRenderer.submitChunksDirect(data, length, first);
+        }
+    }
+
     public static int bridgeDrSubmitDecodeUnit(byte[] decodeUnitData, int decodeUnitLength, int decodeUnitType,
                                                int frameNumber, int frameType, char frameHostProcessingLatency,
                                                long receiveTimeUs, long enqueueTimeUs, long receiveTimeNs,

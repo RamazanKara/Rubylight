@@ -9,6 +9,7 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.hardware.display.DisplayManager;
 import android.hardware.input.InputManager;
 import android.hardware.lights.Light;
 import android.hardware.lights.LightState;
@@ -27,6 +28,7 @@ import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.os.VibratorManager;
 import android.view.InputDevice;
+import android.view.Display;
 import android.view.InputEvent;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -158,6 +160,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     // Motion sensors report a few hundred times a second, so their events arrive on a thread of
     // their own instead of the main thread, where they would compete with input and drawing.
     private final MotionSensorThread motionSensorThread = new MotionSensorThread();
+    // The activity display's rotation for device-orientation motion, read per sample without a Display lookup.
+    private final DeviceRotation displayRotation = new DeviceRotation();
     // A sensor event sends its report under this lock, and so does the stationary gyroscope report
     // that ends a pad's motion. That report is sent after whatever ended the motion was set, so no
     // sample already on the sensor thread can reach the host behind it and leave the camera turning.
@@ -404,6 +408,72 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         // unregistering alone does not hold back one that was delivered just before.
         listener.closed = true;
         sensors.unregisterListener(listener);
+        displayRotation.release(listener);
+    }
+
+    /** Registers a motion listener; one that maps device orientation keeps the rotation current while it is registered. */
+    private boolean registerMotionListener(SensorManager sensors, Sensor sensor, MotionListener listener,
+                                           int samplingPeriodUs) {
+        // Acquired before registering, so the first sample already finds the rotation read.
+        if (listener.needsDeviceOrientationCorrection) displayRotation.acquire(listener);
+        boolean registered = motionSensorThread.register(sensors, sensor, listener, samplingPeriodUs);
+        if (!registered) displayRotation.release(listener);
+        return registered;
+    }
+
+    /**
+     * The activity display's rotation. Held by the motion listeners that map device orientation:
+     * read when the first one registers, kept current by a display listener that lives only while
+     * one is registered. Display callbacks run on the main thread; the cached value is volatile.
+     */
+    private final class DeviceRotation implements DisplayManager.DisplayListener {
+        private volatile int rotation;
+        private volatile int displayId;
+        private int holders; // guarded by this
+
+        synchronized void acquire(MotionListener listener) {
+            if (listener.holdsRotation) return;
+            listener.holdsRotation = true;
+            if (holders++ == 0) {
+                Display display = activityContext.getWindowManager().getDefaultDisplay();
+                displayId = display.getDisplayId();
+                rotation = display.getRotation();
+                displayManager().registerDisplayListener(this, mainThreadHandler);
+            }
+        }
+
+        synchronized void release(MotionListener listener) {
+            if (!listener.holdsRotation) return;
+            listener.holdsRotation = false;
+            if (--holders == 0) displayManager().unregisterDisplayListener(this);
+        }
+
+        int rotation() {
+            return rotation;
+        }
+
+        private DisplayManager displayManager() {
+            return (DisplayManager) activityContext.getSystemService(Context.DISPLAY_SERVICE);
+        }
+
+        @Override
+        public void onDisplayAdded(int addedDisplayId) {
+        }
+
+        @Override
+        public void onDisplayRemoved(int removedDisplayId) {
+        }
+
+        @Override
+        public void onDisplayChanged(int changedDisplayId) {
+            // Read the activity's display again, not only the one cached: the window may have
+            // moved to another display (Dual screen, a foldable's cover screen).
+            Display display = activityContext.getWindowManager().getDefaultDisplay();
+            if (changedDisplayId == displayId || display.getDisplayId() != displayId) {
+                displayId = display.getDisplayId();
+                rotation = display.getRotation();
+            }
+        }
     }
 
     /** A controller the USB driver owns: Android lists no input device for it. */
@@ -3271,6 +3341,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         private final GyroLivenessTracker liveness;
         // Set by closeMotionListener() on the thread that unregisters this listener.
         volatile boolean closed;
+        // Whether this listener holds the display rotation; guarded by the DeviceRotation monitor.
+        boolean holdsRotation;
 
         MotionListener(short controllerNumber, byte motionType, boolean needsDeviceOrientationCorrection,
                        InputDeviceContext livenessContext) {
@@ -3313,7 +3385,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             int zFactor = 1;
 
             if (needsDeviceOrientationCorrection) {
-                int deviceRotation = activityContext.getWindowManager().getDefaultDisplay().getRotation();
+                int deviceRotation = displayRotation.rotation();
                 switch (deviceRotation) {
                     case Surface.ROTATION_0:
                     case Surface.ROTATION_180:
@@ -3435,7 +3507,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                         Sensor accelSensor = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
                         if (sensorsEnabled && reportRateHz != 0 && accelSensor != null) {
                             deviceContext.accelListener = createSensorListener(controllerNumber, motionType, sm == deviceSensorManager, null);
-                            motionSensorThread.register(sm, accelSensor, deviceContext.accelListener, 1000000 / reportRateHz);
+                            registerMotionListener(sm, accelSensor, deviceContext.accelListener, 1000000 / reportRateHz);
                         }
                         break;
                     case MoonBridge.LI_MOTION_TYPE_GYRO:
@@ -3449,7 +3521,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                         if (sensorsEnabled && reportRateHz != 0 && gyroSensor != null) {
                             deviceContext.gyroListener = createSensorListener(controllerNumber, motionType, sm == deviceSensorManager,
                                     checksGyroLiveness(controllerNumber, sm) ? deviceContext : null);
-                            motionSensorThread.register(sm, gyroSensor, deviceContext.gyroListener, 1000000 / reportRateHz);
+                            registerMotionListener(sm, gyroSensor, deviceContext.gyroListener, 1000000 / reportRateHz);
                         }
                         break;
                 }
@@ -5160,7 +5232,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             Sensor sensor = deviceSensors.getDefaultSensor(gyro ? Sensor.TYPE_GYROSCOPE : Sensor.TYPE_ACCELEROMETER);
             if (!stopped && sensorsEnabled && rate != 0 && sensor != null) {
                 listener = createSensorListener(controllerNumber, motionType, true, null);
-                motionSensorThread.register(deviceSensors, sensor, listener, 1000000 / rate);
+                registerMotionListener(deviceSensors, sensor, listener, 1000000 / rate);
             }
             if (gyro) gyroListener = listener;
             else accelListener = listener;

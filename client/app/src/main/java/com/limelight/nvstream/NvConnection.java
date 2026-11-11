@@ -2199,13 +2199,15 @@ public class NvConnection {
             final short rightStickX, final short rightStickY)
     {
         if (canSendControllerInput()) {
-            Runnable send = () -> {
-                if (canSendControllerInput()) MoonBridge.sendMultiControllerInput(controllerNumber, activeGamepadMask, buttonFlags,
-                        leftTrigger, rightTrigger, leftStickX, leftStickY, rightStickX, rightStickY);
-            };
-            if (inputPoller != null) inputBatcher.controller(controllerNumber, activeGamepadMask, buttonFlags,
-                    leftTrigger, rightTrigger, send);
-            else send.run();
+            // Unbatched reports go straight out, without a lambda per report.
+            if (inputPoller != null) {
+                inputBatcher.controller(controllerNumber, activeGamepadMask, buttonFlags, leftTrigger, rightTrigger, () -> {
+                    if (canSendControllerInput()) MoonBridge.sendMultiControllerInput(controllerNumber, activeGamepadMask, buttonFlags,
+                            leftTrigger, rightTrigger, leftStickX, leftStickY, rightStickX, rightStickY);
+                });
+            }
+            else MoonBridge.sendMultiControllerInput(controllerNumber, activeGamepadMask, buttonFlags,
+                    leftTrigger, rightTrigger, leftStickX, leftStickY, rightStickX, rightStickY);
         }
     }
 

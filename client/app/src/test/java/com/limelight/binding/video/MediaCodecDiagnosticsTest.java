@@ -72,6 +72,8 @@ public class MediaCodecDiagnosticsTest {
                 try (RandomAccessFile file = new RandomAccessFile(capture, "rw")) {
                     file.setLength(8 * 1024 * 1024);
                 }
+                // The renderer counts what it writes rather than asking the file system.
+                ReflectionHelpers.setField(renderer, "latencyCsvBytes", 8L * 1024 * 1024);
                 ReflectionHelpers.callInstanceMethod(renderer, "flushLatencyCsv");
                 assertEquals(8 * 1024 * 1024, capture.length());
 

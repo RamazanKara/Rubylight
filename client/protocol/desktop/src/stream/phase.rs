@@ -153,14 +153,22 @@ pub fn present_stats(_: *mut SDL_Renderer) -> crate::timing_csv::Flip { Default:
 pub fn timing(renderer: *mut SDL_Renderer, _: f32) -> Option<(i64, i64)> {
     type Sync = unsafe extern "C" fn(*mut std::ffi::c_void, libc::c_ulong, *mut i64, *mut i64, *mut i64) -> i32;
     type Rate = unsafe extern "C" fn(*mut std::ffi::c_void, libc::c_ulong, *mut i32, *mut i32) -> i32;
+    // Looked up once, when a context has them; a missing one is looked up again next time.
+    static PROCS: std::sync::OnceLock<(Sync, Rate)> = std::sync::OnceLock::new();
     unsafe {
         if SDL_GL_GetCurrentContext().is_null() { return None; }
         let props = SDL_GetWindowProperties(SDL_GetRenderWindow(renderer));
         let display = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_X11_DISPLAY_POINTER, std::ptr::null_mut());
         let drawable = SDL_GetNumberProperty(props, SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0) as libc::c_ulong;
         if display.is_null() || drawable == 0 { return None; }
-        let sync: Sync = std::mem::transmute(SDL_GL_GetProcAddress(c"glXGetSyncValuesOML".as_ptr())?);
-        let rate: Rate = std::mem::transmute(SDL_GL_GetProcAddress(c"glXGetMscRateOML".as_ptr())?);
+        let (sync, rate) = match PROCS.get() {
+            Some(&procs) => procs,
+            None => {
+                let sync: Sync = std::mem::transmute(SDL_GL_GetProcAddress(c"glXGetSyncValuesOML".as_ptr())?);
+                let rate: Rate = std::mem::transmute(SDL_GL_GetProcAddress(c"glXGetMscRateOML".as_ptr())?);
+                *PROCS.get_or_init(|| (sync, rate))
+            }
+        };
         let (mut ust, mut msc, mut sbc, mut numerator, mut denominator) = (0, 0, 0, 0, 0);
         if sync(display, drawable, &mut ust, &mut msc, &mut sbc) == 0
             || rate(display, drawable, &mut numerator, &mut denominator) == 0 || numerator <= 0 || denominator <= 0 { return None; }

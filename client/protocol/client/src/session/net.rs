@@ -319,11 +319,28 @@ pub struct BatchReceiver {
     slot: usize,
     buffer: Vec<u8>,
     /// The length of each datagram of the last receive on the wire, which may exceed `slot`.
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     lengths: [usize; RECEIVE_BATCH],
     /// Where the last receive's first datagram starts in `buffer`, and the distance from each
     /// datagram to the next: the slot, or a coalesced read's datagram size.
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     base: usize,
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     stride: usize,
+    /// Linux and Android: the datagrams of the last receive, each a span of `buffer` (see
+    /// [`push_segments`]). A message of UDP_GRO segments is several of them.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    spans: Vec<Span>,
+    /// Linux and Android: the most bytes kept of each datagram, the reader's maximum with
+    /// UDP_GRO and the slot otherwise.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    cut: usize,
+    /// Linux and Android: whether UDP_GRO is on for the socket.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    gro: bool,
+    /// Linux and Android: why UDP_GRO was refused, until the caller takes it.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    gro_refused: Option<io::Error>,
     #[cfg(any(target_os = "linux", target_os = "android"))]
     batch: Option<mmsg::Batch>,
     #[cfg(windows)]
@@ -352,21 +369,39 @@ impl BatchReceiver {
     fn with_batches(socket: &UdpSocket, max_datagram: usize, batches: bool) -> Self {
         #[cfg(any(target_os = "linux", target_os = "android"))]
         {
-            let slot = max_datagram.max(1).next_multiple_of(64);
+            let (probed, fallback) = match mmsg::probe(socket) {
+                Ok(()) => (true, None),
+                Err(e) => (false, Some(e)),
+            };
+            // A coalesced message is split only by batches, so UDP_GRO is asked for with them.
+            let (coalescing, refused) = if probed && batches {
+                match gro::set(socket, true) {
+                    Ok(()) => (true, None),
+                    Err(e) => (false, Some(e)),
+                }
+            } else {
+                (false, None)
+            };
+            let slot = if coalescing {
+                gro::SLOT
+            } else {
+                max_datagram.max(1).next_multiple_of(64)
+            };
             let mut buffer = vec![0u8; slot * RECEIVE_BATCH];
             // Points into `buffer`'s allocation, which is never resized and outlives it here.
             let batch = mmsg::Batch::new(&mut buffer, slot);
-            let (batch, fallback) = match mmsg::probe(socket) {
-                Ok(()) => (batches.then_some(batch), None),
-                Err(e) => (None, Some(e)),
-            };
             Self {
                 slot,
                 buffer,
-                lengths: [0; RECEIVE_BATCH],
-                base: 0,
-                stride: slot,
-                batch,
+                spans: Vec::with_capacity(RECEIVE_BATCH),
+                cut: if coalescing {
+                    max_datagram.max(1)
+                } else {
+                    slot
+                },
+                gro: coalescing,
+                gro_refused: refused,
+                batch: (probed && batches).then_some(batch),
                 fallback,
             }
         }
@@ -431,20 +466,39 @@ impl BatchReceiver {
                 return Ok(count);
             }
         }
-        self.base = 0;
-        self.stride = self.slot;
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        {
+            self.base = 0;
+            self.stride = self.slot;
+        }
         #[cfg(any(target_os = "linux", target_os = "android"))]
         while let Some(batch) = self.batch.as_mut() {
             match batch.receive(socket) {
                 Ok(count) => {
-                    for (i, length) in self.lengths[..count].iter_mut().enumerate() {
-                        *length = batch.length(i);
+                    self.spans.clear();
+                    for i in 0..count {
+                        let segment = batch.gro(i);
+                        let total = batch.length(i);
+                        push_segments(
+                            &mut self.spans,
+                            i * self.slot,
+                            self.slot,
+                            self.cut,
+                            total,
+                            segment,
+                        );
                     }
-                    return Ok(count);
+                    return Ok(self.spans.len());
                 }
                 Err(e) if mmsg::unsupported(&e) => {
                     self.batch = None;
                     self.fallback = Some(e);
+                    if self.gro {
+                        // One-datagram reads cannot split a coalesced read, so UDP_GRO goes off.
+                        let _ = gro::set(socket, false);
+                        self.gro = false;
+                        self.cut = self.slot;
+                    }
                 }
                 Err(e) => match failure(e) {
                     Failure::Timeout => return Ok(0),
@@ -456,8 +510,17 @@ impl BatchReceiver {
         loop {
             match self.receive_one(socket).map_err(failure) {
                 Ok(length) => {
-                    self.lengths[0] = length;
-                    return Ok(1);
+                    #[cfg(any(target_os = "linux", target_os = "android"))]
+                    {
+                        self.spans.clear();
+                        push_segments(&mut self.spans, 0, self.slot, self.cut, length, None);
+                        return Ok(self.spans.len());
+                    }
+                    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+                    {
+                        self.lengths[0] = length;
+                        return Ok(1);
+                    }
                 }
                 Err(Failure::Timeout) => return Ok(0),
                 Err(Failure::Retry) => {}
@@ -508,13 +571,41 @@ impl BatchReceiver {
 
     /// Datagram `index` of the last receive, cut to the slot.
     pub fn datagram(&self, index: usize) -> &[u8] {
-        let start = self.base + index * self.stride;
-        &self.buffer[start..start + self.lengths[index].min(self.stride)]
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        return {
+            let span = self.spans[index];
+            &self.buffer[span.start..span.start + span.kept]
+        };
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        {
+            let start = self.base + index * self.stride;
+            &self.buffer[start..start + self.lengths[index].min(self.stride)]
+        }
     }
 
     /// The length on the wire of datagram `index` of the last receive.
     pub fn length(&self, index: usize) -> usize {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        return self.spans[index].wire;
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
         self.lengths[index]
+    }
+
+    /// Whether receives take UDP_GRO coalesced reads: Linux and Android, with batches.
+    pub fn gro(&self) -> bool {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        return self.gro;
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        false
+    }
+
+    /// Why UDP_GRO was refused for the socket, once: receives then take one datagram per read
+    /// as before.
+    pub fn take_gro_refusal(&mut self) -> Option<io::Error> {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        return self.gro_refused.take();
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        None
     }
 }
 
@@ -526,10 +617,16 @@ mod mmsg {
 
     use super::RECEIVE_BATCH;
 
-    /// `recvmmsg` headers, one per slot of a buffer they point into.
+    /// Control bytes per header: room for a UDP_GRO message (a `cmsghdr` and an int, 24 bytes on
+    /// 64-bit Linux).
+    const CONTROL: usize = 64;
+
+    /// `recvmmsg` headers, one per slot of a buffer they point into, each with its control
+    /// messages.
     pub struct Batch {
         headers: Box<[libc::mmsghdr]>,
         _iovecs: Box<[libc::iovec]>,
+        controls: Box<[u8]>,
     }
 
     #[cfg(test)]
@@ -558,19 +655,25 @@ mod mmsg {
                     iov_len: slot.len(),
                 })
                 .collect();
+            let mut controls = vec![0u8; CONTROL * iovecs.len()].into_boxed_slice();
+            let control_base = controls.as_mut_ptr();
             let headers = iovecs
                 .iter_mut()
-                .map(|iovec| {
+                .enumerate()
+                .map(|(index, iovec)| {
                     // SAFETY: mmsghdr is plain data; all zero is an empty header.
                     let mut header: libc::mmsghdr = unsafe { std::mem::zeroed() };
                     header.msg_hdr.msg_iov = iovec;
                     header.msg_hdr.msg_iovlen = 1;
+                    header.msg_hdr.msg_control = control_base.wrapping_add(index * CONTROL).cast();
+                    header.msg_hdr.msg_controllen = CONTROL as _;
                     header
                 })
                 .collect();
             Self {
                 headers,
                 _iovecs: iovecs,
+                controls,
             }
         }
 
@@ -579,7 +682,12 @@ mod mmsg {
         pub fn receive(&mut self, socket: &UdpSocket) -> io::Result<usize> {
             #[cfg(test)]
             refused()?;
-            // SAFETY: the headers point at live iovecs and slots of their lengths.
+            for header in self.headers.iter_mut() {
+                // The kernel leaves the length of the control messages it wrote; each call
+                // needs the whole control buffer again.
+                header.msg_hdr.msg_controllen = CONTROL as _;
+            }
+            // SAFETY: the headers point at live iovecs, slots and control buffers of their lengths.
             let count = unsafe {
                 libc::recvmmsg(
                     socket.as_raw_fd(),
@@ -597,6 +705,20 @@ mod mmsg {
 
         pub fn length(&self, index: usize) -> usize {
             self.headers[index].msg_len as usize
+        }
+
+        /// The segment size of datagram `index` when UDP_GRO coalesced it, from its control
+        /// messages.
+        pub fn gro(&self, index: usize) -> Option<usize> {
+            // `msg_controllen` is `usize` on glibc and Android but `socklen_t` elsewhere.
+            #[allow(clippy::unnecessary_cast)]
+            let used = (self.headers[index].msg_hdr.msg_controllen as usize).min(CONTROL);
+            let start = index * CONTROL;
+            super::cmsg_int(
+                &self.controls[start..start + used],
+                super::gro::SOL_UDP,
+                super::gro::UDP_GRO,
+            )
         }
     }
 
@@ -651,10 +773,44 @@ mod mmsg {
     }
 }
 
+/// UDP_GRO, which has the kernel coalesce consecutive datagrams of one sender into one read, with
+/// their segment size in a control message, so one batch takes more datagrams per call.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+mod gro {
+    use std::io;
+    use std::net::UdpSocket;
+    use std::os::fd::AsRawFd;
+
+    /// `SOL_UDP` and `UDP_GRO`, as the kernel defines them.
+    pub const SOL_UDP: libc::c_int = 17;
+    pub const UDP_GRO: libc::c_int = 104;
+    /// Bytes per slot while UDP_GRO is on: the largest read a coalesced message can be.
+    pub const SLOT: usize = 65536;
+
+    /// Turns UDP_GRO on or off for `socket`.
+    pub fn set(socket: &UdpSocket, on: bool) -> io::Result<()> {
+        let value = libc::c_int::from(on);
+        // SAFETY: the option is one int, read for its size.
+        let result = unsafe {
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                SOL_UDP,
+                UDP_GRO,
+                (&value as *const libc::c_int).cast(),
+                std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+            )
+        };
+        if result < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
+}
+
 /// The datagrams of one coalesced read still to take: `left` datagrams of `segment` bytes back
 /// to back from `next`, the last one of what remains up to `end` when the read did not divide
 /// evenly.
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", target_os = "android", test))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct Segments {
     next: usize,
@@ -663,7 +819,7 @@ struct Segments {
     left: usize,
 }
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "linux", target_os = "android", test))]
 impl Segments {
     /// A read of `total` bytes from the start of the buffer, with the datagram size its
     /// `UDP_COALESCED_INFO` gave (None without one). Without one, or with a size that does not
@@ -686,6 +842,8 @@ impl Segments {
         self.left
     }
 
+    // Windows' coalesced reads and the tests use it; Linux reads the GRO size per datagram.
+    #[cfg_attr(not(windows), allow(dead_code))]
     fn segment(&self) -> usize {
         self.segment
     }
@@ -704,37 +862,78 @@ impl Segments {
     }
 }
 
-/// The datagram size of a coalesced read: the `UDP_COALESCED_INFO` message among the
-/// `WSARecvMsg` control messages in `control` (a `WSACMSGHDR` of `cmsg_len`, `cmsg_level` and
-/// `cmsg_type`, then the data at the next natural alignment). None without one, or when the
-/// messages run past the buffer.
-#[cfg(any(windows, test))]
-fn coalesced_segment(control: &[u8]) -> Option<usize> {
+/// The first int of the control message at `level` and `kind` among the control messages in
+/// `control`: a `cmsghdr` (`WSACMSGHDR` on Windows, the same layout) of `cmsg_len`, `cmsg_level`
+/// and `cmsg_type`, then the data at the next natural alignment, then padding to the header
+/// alignment. None without one, or when the messages run past the buffer.
+#[cfg(any(windows, target_os = "linux", target_os = "android", test))]
+fn cmsg_int(control: &[u8], level: i32, kind: i32) -> Option<usize> {
     const WORD: usize = std::mem::size_of::<usize>();
-    // WSACMSGHDR, and WSA_CMSGDATA_ALIGN of it.
+    // The header, and the data's alignment after it.
     const HEADER: usize = WORD + 8;
     const DATA: usize = HEADER.next_multiple_of(WORD);
-    const IPPROTO_UDP: i32 = 17;
-    const UDP_COALESCED_INFO: i32 = 3;
     let word = |at: usize| usize::from_ne_bytes(control[at..at + WORD].try_into().unwrap());
     let int = |at: usize| i32::from_ne_bytes(control[at..at + 4].try_into().unwrap());
     let mut at = 0;
     while at + HEADER <= control.len() {
         let length = word(at);
-        if length < HEADER || at + length > control.len() {
+        if length < HEADER || length > control.len() - at {
             return None;
         }
-        if int(at + WORD) == IPPROTO_UDP
-            && int(at + WORD + 4) == UDP_COALESCED_INFO
-            && length >= DATA + 4
-        {
-            let size = &control[at + DATA..at + DATA + 4];
-            return Some(u32::from_ne_bytes(size.try_into().unwrap()) as usize);
+        if int(at + WORD) == level && int(at + WORD + 4) == kind && length >= DATA + 4 {
+            let value = &control[at + DATA..at + DATA + 4];
+            return Some(u32::from_ne_bytes(value.try_into().unwrap()) as usize);
         }
-        // WSA_CMSG_NXTHDR: the next header at the header alignment.
+        // The next header, at the header alignment.
         at += length.next_multiple_of(WORD);
     }
     None
+}
+
+/// The datagram size of a coalesced read: the `UDP_COALESCED_INFO` message among the `WSARecvMsg`
+/// control messages in `control` (see [`cmsg_int`]).
+#[cfg(any(windows, test))]
+fn coalesced_segment(control: &[u8]) -> Option<usize> {
+    const IPPROTO_UDP: i32 = 17;
+    const UDP_COALESCED_INFO: i32 = 3;
+    cmsg_int(control, IPPROTO_UDP, UDP_COALESCED_INFO)
+}
+
+/// One datagram of a Linux or Android receive: where it starts in the buffer, its length on the
+/// wire, and the bytes of it kept there.
+#[cfg(any(target_os = "linux", target_os = "android", test))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Span {
+    start: usize,
+    wire: usize,
+    kept: usize,
+}
+
+/// Appends the datagrams of one received message to `spans`. The message starts at `slot_start`
+/// in a slot of `slot` bytes, is `total` bytes on the wire, and UDP_GRO coalesced it into
+/// `segment`-byte datagrams (the last may be shorter) when that is Some; otherwise it is one
+/// datagram. Each keeps up to `cut` bytes, and no bytes past the slot.
+#[cfg(any(target_os = "linux", target_os = "android", test))]
+fn push_segments(
+    spans: &mut Vec<Span>,
+    slot_start: usize,
+    slot: usize,
+    cut: usize,
+    total: usize,
+    segment: Option<usize>,
+) {
+    let slot_end = slot_start + slot;
+    let mut segments = Segments::new(total, segment);
+    let mut lengths = [0; 64];
+    while segments.left() > 0 {
+        let (base, count) = segments.take(&mut lengths);
+        let mut start = slot_start + base;
+        for &wire in &lengths[..count] {
+            let kept = wire.min(cut).min(slot_end.saturating_sub(start));
+            spans.push(Span { start, wire, kept });
+            start += wire;
+        }
+    }
 }
 
 /// UDP receive coalescing on Windows.
@@ -1444,7 +1643,10 @@ mod tests {
         let sent = send_numbered(&socket, RECEIVE_BATCH as u16 * 2 + 5, 1392, 77);
         let (received, counts) = receive_all(&mut batch, &socket, sent.len());
         assert_eq!(received, sent);
-        assert!(counts.iter().all(|&count| count <= RECEIVE_BATCH), "{counts:?}");
+        // With UDP_GRO a call's count is its datagrams, which can exceed the batch.
+        if !batch.gro() {
+            assert!(counts.iter().all(|&count| count <= RECEIVE_BATCH), "{counts:?}");
+        }
         if cfg!(any(target_os = "linux", target_os = "android")) {
             assert!(batch.batched());
             // Not necessarily all in the first call: under load the kernel may queue them late.
@@ -1553,10 +1755,15 @@ mod tests {
             assert_ne!(count, 0);
             seen.extend((0..count).map(|i| (batch.length(i), batch.datagram(i).len())));
         }
-        // recvmmsg batches cut it to the reader's maximum (rounded up to the slot); elsewhere,
-        // coalesced reads included, it is read whole.
-        let mmsg = cfg!(any(target_os = "linux", target_os = "android"));
-        let cut = if mmsg && batch.batched() { 128 } else { 1000 };
+        // recvmmsg batches cut it to the reader's maximum (the slot's rounding without UDP_GRO,
+        // the maximum itself with it); elsewhere, coalesced reads included, it is read whole.
+        let cut = if !cfg!(any(target_os = "linux", target_os = "android")) || !batch.batched() {
+            1000
+        } else if batch.gro() {
+            100
+        } else {
+            128
+        };
         assert_eq!(seen, [(1000, cut), (50, 50)]);
         let mut fallback = BatchReceiver::unbatched(&socket, 100);
         send_numbered(&socket, 1, 1000, 1000);
@@ -1666,6 +1873,58 @@ mod tests {
         let zero = control_message(17, 3, &0u32.to_ne_bytes());
         assert_eq!(coalesced_segment(&zero), Some(0));
         assert_eq!(Segments::new(2816, coalesced_segment(&zero)).left(), 1);
+    }
+
+    #[test]
+    fn a_gro_size_is_read_from_its_control_message_among_others() {
+        let gro = control_message(17, 104, &1400u32.to_ne_bytes());
+        assert_eq!(cmsg_int(&gro, 17, 104), Some(1400));
+        // Behind another message, with the level and kind checked.
+        let mut both = control_message(0, 19, &[1; 20]);
+        both.extend_from_slice(&gro);
+        assert_eq!(cmsg_int(&both, 17, 104), Some(1400));
+        assert_eq!(cmsg_int(&both, 17, 3), None);
+        // None without it, or when it runs past the buffer.
+        assert_eq!(cmsg_int(&[], 17, 104), None);
+        assert_eq!(cmsg_int(&control_message(0, 19, &[1; 20]), 17, 104), None);
+        assert_eq!(cmsg_int(&gro[..gro.len() - 8], 17, 104), None);
+    }
+
+    #[test]
+    fn a_gro_message_splits_into_its_segments() {
+        let mut spans = Vec::new();
+        push_segments(&mut spans, 0, 65536, 1500, 3000, Some(1400));
+        assert_eq!(
+            spans,
+            [
+                Span { start: 0, wire: 1400, kept: 1400 },
+                Span { start: 1400, wire: 1400, kept: 1400 },
+                Span { start: 2800, wire: 200, kept: 200 },
+            ]
+        );
+        // Each keeps at most the cut.
+        spans.clear();
+        push_segments(&mut spans, 0, 65536, 100, 3000, Some(1400));
+        assert_eq!(spans.iter().map(|s| s.kept).collect::<Vec<_>>(), [100, 100, 100]);
+        assert_eq!(spans.iter().map(|s| s.wire).collect::<Vec<_>>(), [1400, 1400, 200]);
+        // No bytes past the slot: the message starts in its own slot.
+        spans.clear();
+        push_segments(&mut spans, 65536, 65536, 65536, 3000, Some(1400));
+        assert_eq!(spans[0].start, 65536);
+        assert!(spans.iter().all(|s| s.start + s.kept <= 2 * 65536));
+        spans.clear();
+        push_segments(&mut spans, 0, 1000, 1500, 3000, Some(1400));
+        assert_eq!(spans.iter().map(|s| s.kept).collect::<Vec<_>>(), [1000, 0, 0]);
+        // More segments than one take: all 71 of them, in order, the last one short.
+        spans.clear();
+        push_segments(&mut spans, 0, 65536, 100, 70 * 100 + 30, Some(100));
+        assert_eq!(spans.len(), 71);
+        assert!(spans.windows(2).all(|w| w[1].start == w[0].start + w[0].wire));
+        assert_eq!(spans[70], Span { start: 7000, wire: 30, kept: 30 });
+        // Without a size, one datagram of the whole message.
+        spans.clear();
+        push_segments(&mut spans, 65536, 65536, 65536, 1392, None);
+        assert_eq!(spans, [Span { start: 65536, wire: 1392, kept: 1392 }]);
     }
 
     #[cfg(windows)]

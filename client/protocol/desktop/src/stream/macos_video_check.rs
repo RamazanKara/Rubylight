@@ -159,7 +159,7 @@ pub(crate) fn run() {
         assert!(!native.is_null(), "{}", crate::sdl::error());
         assert_eq!(crate::sdl::renderer_name(native), "metal");
         check_surfaces(native);
-        SDL_DestroyRenderer(native);
+        crate::sdl::destroy_renderer(native);
 
         let renderer = crate::sdl::create_renderer_with(window, true, false);
         assert!(!renderer.is_null(), "{}", crate::sdl::error());
@@ -171,7 +171,7 @@ pub(crate) fn run() {
             .expect("packed 4:4:4 pixel comparison");
         assert_ne!(modes, 0, "no packed format passed");
         println!("Metal readback passed for NV12/P010 imports and uploads, both scalers, PyroWave and packed modes {modes:#x}");
-        SDL_DestroyRenderer(renderer);
+        crate::sdl::destroy_renderer(renderer);
         SDL_DestroyWindow(window);
         SDL_Quit();
     }

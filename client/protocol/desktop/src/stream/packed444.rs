@@ -462,16 +462,21 @@ impl Reconstruction {
     ) -> bool {
         // SAFETY: All renderer calls and the native draw run on the presenting thread.
         unsafe {
-            if !SDL_FlushRenderer(renderer) {
-                return false;
-            }
             let properties = SDL_GetRendererProperties(renderer);
             let swapchain = SDL_GetPointerProperty(
                 properties,
                 SDL_PROP_RENDERER_D3D11_SWAPCHAIN_POINTER,
                 ptr::null_mut(),
             );
-            if swapchain.is_null() {
+            let (mut width, mut height) = (0, 0);
+            if swapchain.is_null() || !SDL_GetCurrentRenderOutputSize(renderer, &mut width, &mut height) {
+                if let Some(native) = &self.native { native.release_back_buffer(); }
+                return false;
+            }
+            // The kept view of the back buffer goes first if SDL is about to resize it at the flush.
+            if let Some(native) = &self.native { native.keep_back_buffer_if(swapchain as usize, (width, height)); }
+            if !SDL_FlushRenderer(renderer) {
+                if let Some(native) = &self.native { native.release_back_buffer(); }
                 return false;
             }
             let output = SDL_GetNumberProperty(
@@ -487,6 +492,7 @@ impl Reconstruction {
             let destination = [destination.x, destination.y, destination.w, destination.h];
             self.native.as_ref().is_some_and(|native| native.present(
                 swapchain,
+                (width, height),
                 parameters,
                 &destination,
                 output == i64::from(SDL_COLORSPACE_SRGB_LINEAR.0),
@@ -514,6 +520,9 @@ impl Reconstruction {
         // SAFETY: The frame owns initialized raw planes. The validated coded dimensions
         // bound each row copy; SDL owns every mapped buffer and GPU object below.
         unsafe {
+            // SDL may resize its buffers at the flush: the presenting draw's view is let go first.
+            #[cfg(windows)]
+            if let Some(native) = &self.native { native.release_back_buffer(); }
             if !SDL_FlushRenderer(renderer) {
                 return false;
             }

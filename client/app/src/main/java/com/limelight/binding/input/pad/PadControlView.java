@@ -311,6 +311,7 @@ final class PadControlView extends View {
     }
 
     private void updateStick() {
+        boolean arcWasDrawn = state.stickX != 0 || state.stickY != 0;
         state.stickX = stick.x;
         state.stickY = stick.y;
         if (wasd != null) {
@@ -328,9 +329,26 @@ final class PadControlView extends View {
         gamepad.setStick(slot(), side, stick.x, stick.y);
         int flags = stickClick ? PadInput.buttonFlag(control) : 0;
         if (flags != state.flags && flags != 0) feedback(HapticFeedbackConstants.LONG_PRESS);
+        boolean flagsChanged = flags != state.flags;
         state.flags = flags;
         gamepad.setButtons(slot(), flags);
-        changed();
+        stickMoved(flagsChanged, arcWasDrawn);
+    }
+
+    /**
+     * A stick moved. The knob redraws on every move. The base also draws the amber arc from the stick
+     * position, so it redraws only when that arc was or is drawn, or when the buttons it shows changed.
+     */
+    private void stickMoved(boolean flagsChanged, boolean arcWasDrawn) {
+        applyAlpha();
+        if (baseNeedsRedraw(flagsChanged, arcWasDrawn, state.stickX != 0 || state.stickY != 0)) invalidate();
+        if (knobLayer != null) knobLayer.invalidate();
+        changed.run();
+    }
+
+    /** Whether the base view must redraw: its glass and rim follow the state, its arc follows the stick push. */
+    static boolean baseNeedsRedraw(boolean flagsChanged, boolean arcWasDrawn, boolean arcDrawn) {
+        return flagsChanged || arcWasDrawn || arcDrawn;
     }
 
     private void updateMulti() {

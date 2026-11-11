@@ -11,8 +11,8 @@ use crate::{
     enet_host_check_events, enet_host_compress, enet_host_connect, enet_host_create,
     enet_host_destroy, enet_host_flush, enet_host_service,
     error::{BadParameter, HostNewError, NoAvailablePeers},
-    time_since_epoch, Compressor, ENetEvent, ENetHost, ENetPeer, Event, Packet, Peer, PeerID,
-    PeerState, Socket, ENET_EVENT_TYPE_CONNECT, ENET_EVENT_TYPE_DISCONNECT,
+    enet_time_get, time_since_epoch, Compressor, ENetEvent, ENetHost, ENetPeer, Event, Packet,
+    Peer, PeerID, PeerState, Socket, ENET_EVENT_TYPE_CONNECT, ENET_EVENT_TYPE_DISCONNECT,
     ENET_EVENT_TYPE_RECEIVE,
 };
 
@@ -160,6 +160,21 @@ impl<S: Socket> Host<S> {
                 Err(NoAvailablePeers)
             }
         }
+    }
+
+    /// How long until `peer` next needs a [`Host::service`] call: its oldest resend or its next
+    /// ping (see `Peer::next_service_time`). Never zero, so a caller that sleeps for it does not
+    /// spin when ENet has work it cannot yet do (a throttled send). `None` when nothing is pending
+    /// or the peer is unknown.
+    #[must_use]
+    pub fn next_service_in(&self, peer: PeerID) -> Option<Duration> {
+        let deadline = self.get_peer(peer)?.next_service_time()?;
+        // SAFETY: the host is live for as long as `self` is.
+        let now = unsafe { enet_time_get(self.host) };
+        let remaining = deadline.wrapping_sub(now);
+        // ENet's own convention: a difference of a day or more is a time already past.
+        let remaining = if remaining >= 86_400_000 { 0 } else { remaining };
+        Some(Duration::from_millis(u64::from(remaining.max(1))))
     }
 
     /// Checks for any queued events on the host and dispatches one if available.

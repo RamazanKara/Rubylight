@@ -6,7 +6,7 @@ use crate::{
     enet_peer_ping_interval, enet_peer_reset, enet_peer_send, enet_peer_throttle_configure,
     enet_peer_timeout,
     error::{BadParameter, PeerSendError},
-    ENetPeer, Packet, Socket, ENET_PEER_STATE_ACKNOWLEDGING_CONNECT,
+    ENetOutgoingCommand, ENetPeer, Packet, Socket, ENET_PEER_STATE_ACKNOWLEDGING_CONNECT,
     ENET_PEER_STATE_ACKNOWLEDGING_DISCONNECT, ENET_PEER_STATE_CONNECTED,
     ENET_PEER_STATE_CONNECTING, ENET_PEER_STATE_CONNECTION_PENDING,
     ENET_PEER_STATE_CONNECTION_SUCCEEDED, ENET_PEER_STATE_DISCONNECTED,
@@ -226,6 +226,35 @@ impl<S: Socket> Peer<S> {
     #[must_use]
     pub fn connected(&self) -> bool {
         self.state() == PeerState::Connected
+    }
+
+    /// The ENet clock (milliseconds, wrapping; see `enet_time_get`) at which this peer next needs
+    /// a service call: the resend of its oldest unacknowledged reliable command, or, while
+    /// connected with nothing unacknowledged, its next ping. `None` when neither is pending.
+    ///
+    /// This mirrors when ENet itself acts (`enet_protocol_check_timeouts` and the ping test in
+    /// `enet_protocol_send_outgoing_commands`), so a caller that sleeps until then serves ENet on
+    /// time without polling.
+    #[must_use]
+    pub(crate) fn next_service_time(&self) -> Option<u32> {
+        unsafe {
+            let peer = self.0;
+            let sentinel = core::ptr::addr_of_mut!((*peer).sent_reliable_commands.sentinel);
+            let oldest = (*peer).sent_reliable_commands.sentinel.next;
+            if oldest != sentinel {
+                // The list is in send order, so its first command is the first to time out.
+                let command = oldest.cast::<ENetOutgoingCommand>();
+                return Some(
+                    (*command)
+                        .sent_time
+                        .wrapping_add((*command).round_trip_timeout),
+                );
+            }
+            if (*peer).state == ENET_PEER_STATE_CONNECTED {
+                return Some((*peer).last_receive_time.wrapping_add((*peer).ping_interval));
+            }
+            None
+        }
     }
 
     /// Number of channels allocated for communication with peer.

@@ -5,7 +5,7 @@ use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use rubylight_protocol::control::ClockSyncRequest;
-use rubylight_protocol::fec_report::{FecSummaryTally, FecTally};
+use rubylight_protocol::fec_report::{FecSummaryTally, FecTally, MIN_INTERVAL_MS};
 
 use super::events::{self, ConnectionStatus, ControlEvent, HdrMetadata};
 use super::messages::{ClientMessage, FrameFecStatus};
@@ -76,6 +76,11 @@ enum ReferenceFrameControl {
 struct FecReports {
     tally: FecTally,
     epoch: Option<Instant>,
+    /// The tally's interval start, mirrored because the tally keeps it private: set by its first
+    /// block and restarted by each report, which is when the tally's own start restarts.
+    since: Option<Instant>,
+    /// Whether the tally counts a block that could not be recovered since its last report.
+    lost: bool,
 }
 
 impl FecReports {
@@ -402,6 +407,8 @@ impl ControlSession {
         }
         let now_ms = self.fec_reports.ms(now);
         self.fec_reports.tally.block(block, now_ms);
+        self.fec_reports.since.get_or_insert(now);
+        self.fec_reports.lost |= block.unrecovered;
     }
 
     /// Queues the FEC report once its interval is a quarter second old if it counts a block
@@ -418,8 +425,22 @@ impl ControlSession {
             report => report,
         };
         if let Some(report) = report {
+            self.fec_reports.since = Some(now);
+            self.fec_reports.lost = false;
             self.queue(&ClientMessage::FecReport(report));
         }
+    }
+
+    /// When the lost-block report falls due early (see [`FecTally::take_lost`]), if it is still
+    /// ahead of `now`. Only the wake-up time is computed here; the report itself is still taken
+    /// by `flush_fec_report`.
+    fn lost_report_due(&self, now: Instant) -> Option<Instant> {
+        let reports = &self.fec_reports;
+        if !reports.lost {
+            return None;
+        }
+        let due = reports.since? + Duration::from_millis(u64::from(MIN_INTERVAL_MS));
+        (due > now).then_some(due)
     }
 
     /// Queues the 0x5510 summary once a second (see [`FecSummaryTally::take`]).
@@ -501,7 +522,10 @@ impl ControlSession {
         } else {
             self.flush_fec_report(now, false);
         }
-        self.next_ping
+        match (self.next_ping, self.lost_report_due(now)) {
+            (Some(ping), Some(report)) => Some(ping.min(report)),
+            (ping, report) => ping.or(report),
+        }
     }
 
     /// The next datagram to send.
@@ -832,6 +856,27 @@ mod tests {
         assert!(reports(&mut s).is_empty());
         s.poll(ms(2600));
         assert_eq!(reports(&mut s)[0].1.interval_ms, 1095);
+    }
+
+    #[test]
+    fn a_lost_block_asks_the_control_thread_to_wake_for_its_early_report() {
+        let mut s = fec_reporting();
+        let t0 = Instant::now();
+        s.start(t0);
+        host_reads(&mut s);
+        let ms = |ms: u64| t0 + Duration::from_millis(ms);
+        s.poll(t0);
+        s.fec_block(block(1, false), t0);
+        s.fec_block(block(4, true), ms(50));
+        s.poll(ms(100));
+        // The ping at 200 ms is sooner than the quarter second the lost block waits for, so
+        // the ping's tick and then the report's deadline are the wake-ups.
+        assert_eq!(s.poll(ms(200)), Some(ms(250)));
+        assert!(reports(&mut s).is_empty());
+        assert_eq!(s.poll(ms(250)), Some(ms(300)));
+        let lost = reports(&mut s);
+        assert_eq!(lost.len(), 1);
+        assert_eq!(lost[0].1.unrecovered_blocks, 1);
     }
 
     #[test]

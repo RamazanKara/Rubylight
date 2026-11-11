@@ -474,6 +474,8 @@ impl Streaming {
             // pass or SDL, not through an upscaler or AI enhancement.
             let unscaled = !self.texture.texture.is_null() && !use_upscaler && self.settings.upscaling != config::Upscaling::Ai;
             self.clear_window(renderer, unscaled);
+            #[cfg(windows)]
+            if !unscaled { self.texture.release_back_buffers(); }
             if !self.texture.texture.is_null() {
                 let mut texture = self.texture.texture;
                 if self.settings.upscaling == config::Upscaling::Ai {

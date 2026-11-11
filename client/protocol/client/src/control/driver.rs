@@ -50,8 +50,24 @@ const DISCONNECT_PROCESS_WAIT: Duration = Duration::from_secs(1);
 /// A host silent this long at the stop gets no linger: it will not acknowledge the disconnect. A
 /// short blip toward a live host stays below it, so a clean stop still reaches it.
 const SILENT_STOP_AFTER: Duration = Duration::from_secs(2);
-/// Longest sleep between ENet services, for its resend and ping timers.
-const MAX_SERVICE_INTERVAL: Duration = Duration::from_millis(5);
+/// Longest sleep between control-thread services. A datagram ends the wait at once and ENet's own
+/// resend and ping deadlines end it when sooner; this cap only bounds what neither reports, such
+/// as the lost-block report's early deadline or a timer that moved after the wait began.
+const MAX_IDLE_WAIT: Duration = Duration::from_millis(10);
+
+/// How long the control thread may sleep before its next service: the earliest of ENet's next
+/// resend or ping (`enet`) and the session and roaming timers, capped at `MAX_IDLE_WAIT`. A timer
+/// already due gives zero, so a due timer is served at once.
+fn service_wait(now: Instant, enet: Option<Duration>, timers: [Option<Instant>; 2]) -> Duration {
+    let mut wait = MAX_IDLE_WAIT;
+    if let Some(enet) = enet {
+        wait = wait.min(enet);
+    }
+    for timer in timers.into_iter().flatten() {
+        wait = wait.min(timer.saturating_duration_since(now));
+    }
+    wait
+}
 /// Roaming datagrams set aside between services at most; the host sends one per PROBE.
 const MAX_ROAM_INBOX: usize = 8;
 /// After a failed roaming attempt, the next silence starts another this long later at the
@@ -277,7 +293,7 @@ impl ControlHandle {
     }
 
     /// Runs `f` on the session without waking the control thread, for state that waits for
-    /// its next service (at most 5 ms), such as per-frame connection quality.
+    /// its next service (at most `MAX_IDLE_WAIT`), such as per-frame connection quality.
     pub fn with_session_quiet<R>(&self, f: impl FnOnce(&mut ControlSession) -> R) -> R {
         f(&mut lock(&self.shared.session))
     }
@@ -906,8 +922,8 @@ pub fn connect(
                     }
                     return Err(ConnectError::TimedOut);
                 }
-                host.socket()
-                    .wait((deadline - now).min(MAX_SERVICE_INTERVAL));
+                let wait = service_wait(now, host.next_service_in(peer), [Some(deadline), None]);
+                host.socket().wait(wait);
             }
         }
     }
@@ -1165,13 +1181,11 @@ impl ControlClient {
             if self.shared.wake_pending.swap(false, Ordering::AcqRel) {
                 continue;
             }
-            let mut wait = MAX_SERVICE_INTERVAL;
-            for timer in [timer, roam_timer].into_iter().flatten() {
-                wait = wait.min(timer.saturating_duration_since(now));
-            }
-            if self.disconnect_held_since.is_some() {
-                wait = wait.min(DISCONNECT_RECEIVE_WAIT);
-            }
+            let wait = service_wait(
+                now,
+                self.host.next_service_in(self.peer),
+                [timer, roam_timer],
+            );
             self.host.socket().wait(wait);
         }
     }
@@ -1207,9 +1221,12 @@ impl ControlClient {
                     self.host.peer_mut(self.peer).reset();
                     break;
                 }
-                self.host
-                    .socket()
-                    .wait((deadline - now).min(MAX_SERVICE_INTERVAL));
+                let wait = service_wait(
+                    now,
+                    self.host.next_service_in(self.peer),
+                    [Some(deadline), None],
+                );
+                self.host.socket().wait(wait);
             }
         }
         *lock(&self.shared.rtt) = None;
@@ -1802,6 +1819,64 @@ mod tests {
         assert_eq!(
             enet_disconnect(&[0x00, 0x00, 0x44, 0xff, 0, 0, 0, 0, 0]),
             None
+        );
+    }
+
+    #[test]
+    fn an_idle_control_thread_waits_the_cap() {
+        let now = Instant::now();
+        assert_eq!(service_wait(now, None, [None, None]), MAX_IDLE_WAIT);
+        assert_eq!(
+            service_wait(now, Some(Duration::from_millis(250)), [None, None]),
+            MAX_IDLE_WAIT
+        );
+    }
+
+    #[test]
+    fn enet_sooner_than_the_cap_ends_the_wait() {
+        let now = Instant::now();
+        assert_eq!(
+            service_wait(now, Some(Duration::from_millis(3)), [None, None]),
+            Duration::from_millis(3)
+        );
+        assert_eq!(
+            service_wait(now, Some(Duration::from_millis(1)), [None, None]),
+            Duration::from_millis(1)
+        );
+    }
+
+    #[test]
+    fn session_and_roam_timers_end_the_wait_and_a_due_one_gives_zero() {
+        let now = Instant::now();
+        let soon = now + Duration::from_millis(4);
+        assert_eq!(
+            service_wait(now, None, [Some(soon), None]),
+            Duration::from_millis(4)
+        );
+        assert_eq!(
+            service_wait(now, None, [None, Some(soon)]),
+            Duration::from_millis(4)
+        );
+        assert_eq!(service_wait(now, None, [Some(now), None]), Duration::ZERO);
+        let later = now + Duration::from_millis(7);
+        assert_eq!(service_wait(later, None, [Some(now), None]), Duration::ZERO);
+    }
+
+    #[test]
+    fn the_earliest_of_every_deadline_wins() {
+        let now = Instant::now();
+        let timer = now + Duration::from_millis(6);
+        assert_eq!(
+            service_wait(
+                now,
+                Some(Duration::from_millis(2)),
+                [Some(timer), Some(now + Duration::from_millis(8))]
+            ),
+            Duration::from_millis(2)
+        );
+        assert_eq!(
+            service_wait(now, Some(Duration::from_millis(9)), [Some(timer), None]),
+            Duration::from_millis(6)
         );
     }
 }

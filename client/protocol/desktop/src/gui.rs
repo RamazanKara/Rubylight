@@ -37,6 +37,23 @@ pub struct Gui {
     no_output_said: bool,
     /// The print of what the window shows; None after a frame that was not the launcher's.
     on_screen: Option<u64>,
+    /// The stream overlay's last pass (see [`Self::overlay_paint`]).
+    overlay: OverlayShown,
+}
+
+/// What a stream overlay pass drew: the digest of its inputs, and the shapes themselves.
+#[derive(Default)]
+struct OverlayShown {
+    digest: Option<u64>,
+    primitives: Vec<egui::epaint::ClippedPrimitive>,
+    ppp: f32,
+}
+
+/// Whether an overlay pass runs egui, or repaints the shapes the last pass drew. Egui runs when a
+/// screen that takes input is up (`live`), when input reached egui, when egui asked for another
+/// pass, or when what the pass draws (`digest`, against `shown`) differs from the last one's.
+pub fn overlay_must_run(shown: Option<u64>, digest: u64, live: bool, input: bool, animating: bool) -> bool {
+    live || input || animating || shown != Some(digest)
 }
 
 /// The system clipboard's text, or None when it holds none.
@@ -228,6 +245,7 @@ impl Gui {
             tier_set: None,
             no_output_said: false,
             on_screen: None,
+            overlay: OverlayShown::default(),
         }
     }
 
@@ -236,6 +254,7 @@ impl Gui {
     #[cfg_attr(windows, allow(dead_code))]
     pub fn release_renderer(&mut self) {
         self.chain.release();
+        self.overlay.digest = None;
         for (_, texture) in self.textures.drain() {
             // SAFETY: textures we created, on the renderer still alive.
             unsafe { SDL_DestroyTexture(texture) };
@@ -246,6 +265,7 @@ impl Gui {
     /// the next frame is drawn whole, glass tried and measured again on it, as at start.
     #[cfg_attr(windows, allow(dead_code))]
     pub fn renderer_changed(&mut self) {
+        self.overlay.digest = None;
         resend_fonts(&self.ctx);
         self.glass.renderer_changed();
         self.on_screen = None;
@@ -503,15 +523,6 @@ impl Gui {
         }
     }
 
-    /// Uploads texture changes, draws the shapes and frees textures egui dropped. Glass decides
-    /// the order: see [`Glass::paint`].
-    pub fn paint(&mut self, renderer: *mut SDL_Renderer, mut output: egui::FullOutput) {
-        self.on_screen = None;
-        let ppp = output.pixels_per_point;
-        let primitives = self.ctx.tessellate(std::mem::take(&mut output.shapes), ppp);
-        self.paint_tessellated(renderer, output, &primitives);
-    }
-
     /// The launcher's frame: drawn only when it differs from what the window shows, or `must_draw`
     /// (the window itself changed). `clear` runs just before drawing. False when nothing was
     /// drawn: the caller presents nothing, so a launcher at rest uses no GPU however often it wakes.
@@ -519,6 +530,50 @@ impl Gui {
     #[cfg(feature = "demo-library")]
     pub fn redo_glass(&mut self) {
         self.glass.invalidate();
+    }
+
+    /// The window's size in pixels and egui's points per pixel: what an overlay pass depends on
+    /// besides its content.
+    pub fn surface(&self, window: *mut SDL_Window, renderer: *mut SDL_Renderer) -> ((i32, i32), f32) {
+        let (mut w, mut h) = (0, 0);
+        // SAFETY: a live renderer and two live integers.
+        unsafe { SDL_GetCurrentRenderOutputSize(renderer, &mut w, &mut h) };
+        ((w, h), Scale::of(window).pixels_per_point * self.ctx.zoom_factor())
+    }
+
+    /// The digest of the overlay pass that drew last, if any.
+    pub fn overlay_shown(&self) -> Option<u64> {
+        self.overlay.digest
+    }
+
+    /// Whether input reached egui since its last pass.
+    pub fn input_pending(&self) -> bool {
+        !self.events.is_empty()
+    }
+
+    /// Whether egui asked for another pass after its last one (an animation, a settling layout).
+    pub fn animating(&self) -> bool {
+        self.repaint_delay != Duration::MAX
+    }
+
+    /// Repaints the shapes the last overlay pass drew, without running egui. Only valid while
+    /// [`Self::overlay_shown`] is the digest of the frame being drawn.
+    pub fn overlay_repaint(&mut self, renderer: *mut SDL_Renderer) {
+        self.on_screen = None;
+        let output = egui::FullOutput { pixels_per_point: self.overlay.ppp, ..Default::default() };
+        let primitives = std::mem::take(&mut self.overlay.primitives);
+        self.paint_tessellated(renderer, output, &primitives);
+        self.overlay.primitives = primitives;
+    }
+
+    /// Draws a stream overlay pass that ran egui for `digest`, and keeps its shapes for
+    /// [`Self::overlay_repaint`].
+    pub fn overlay_paint(&mut self, renderer: *mut SDL_Renderer, mut output: egui::FullOutput, digest: u64) {
+        self.on_screen = None;
+        let ppp = output.pixels_per_point;
+        let primitives = self.ctx.tessellate(std::mem::take(&mut output.shapes), ppp);
+        self.overlay = OverlayShown { digest: Some(digest), primitives: primitives.clone(), ppp };
+        self.paint_tessellated(renderer, output, &primitives);
     }
 
     pub fn paint_if_changed(&mut self, renderer: *mut SDL_Renderer, mut output: egui::FullOutput, must_draw: bool, clear: impl FnOnce()) -> bool {
@@ -619,6 +674,7 @@ impl Gui {
         // The subclassing adapter comes off the window before the window goes.
         self.a11y = None;
         self.chain.release();
+        self.overlay.digest = None;
         for (_, texture) in self.textures.drain() {
             // SAFETY: textures we created.
             unsafe { SDL_DestroyTexture(texture) };
@@ -994,5 +1050,36 @@ mod tests {
         let mut offset = 0.0;
         for n in 4..8 { offset = frame(n, false); }
         assert_eq!(offset, 300.0, "the rows stay scrolled");
+    }
+}
+
+#[cfg(test)]
+mod overlay_rerun_tests {
+    use super::overlay_must_run;
+
+    #[test]
+    fn an_unchanged_overlay_repaints_its_shapes_without_egui() {
+        assert!(!overlay_must_run(Some(7), 7, false, false, false));
+    }
+
+    #[test]
+    fn a_first_or_changed_overlay_runs_egui() {
+        assert!(overlay_must_run(None, 7, false, false, false));
+        assert!(overlay_must_run(Some(6), 7, false, false, false));
+    }
+
+    #[test]
+    fn a_live_screen_runs_egui_every_pass() {
+        assert!(overlay_must_run(Some(7), 7, true, false, false), "the stream menu, mic-only and Remote Input");
+    }
+
+    #[test]
+    fn input_for_egui_runs_it_even_when_nothing_changed() {
+        assert!(overlay_must_run(Some(7), 7, false, true, false));
+    }
+
+    #[test]
+    fn a_pass_egui_asked_to_repeat_runs_again() {
+        assert!(overlay_must_run(Some(7), 7, false, false, true));
     }
 }

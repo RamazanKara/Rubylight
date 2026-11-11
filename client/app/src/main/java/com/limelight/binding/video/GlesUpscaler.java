@@ -15,6 +15,7 @@ import android.os.HandlerThread;
 import android.os.Process;
 import android.view.Surface;
 
+import com.limelight.BuildConfig;
 import com.limelight.LimeLog;
 
 import java.io.IOException;
@@ -59,6 +60,10 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
     private long gpuStartNs;
     private int pendingDrops;
     private boolean frameAvailable;
+    // glGetError synchronises with the driver, so release builds check it on every 120th draw only.
+    private static final int ERROR_CHECK_INTERVAL = 120;
+    private static final long FENCE_WAIT_NS = 4_000_000L;
+    private int drawnFrames;
     private volatile boolean closed;
     private volatile String failureDetail;
 
@@ -345,6 +350,8 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
         try {
             handler.removeCallbacks(pollCompletion);
             pollCompletion();
+            // A frame behind a pending draw waits for it here, up to 4 ms, rather than for the next 1 ms poll.
+            awaitFence();
             if (fence != 0 || !frameAvailable || policy.getReason() != UpscalingPolicy.Reason.NONE) return;
             drawFrame();
         } catch (RuntimeException e) {
@@ -390,7 +397,9 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
             GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT);
             GLES30.glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
             GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3);
-            require(GLES30.glGetError() == GLES30.GL_NO_ERROR, "Upscaling draw");
+            if (BuildConfig.DEBUG || ++drawnFrames % ERROR_CHECK_INTERVAL == 0) {
+                require(GLES30.glGetError() == GLES30.GL_NO_ERROR, "Upscaling draw");
+            }
             fence = GLES30.glFenceSync(GLES30.GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
             require(fence != 0, "GPU completion fence");
             require(EGLExt.eglPresentationTimeANDROID(display, window, frame[1]), "EGL presentation time");
@@ -405,13 +414,22 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
 
     private void pollCompletion() {
         if (closed || fence == 0 || policy.getReason() != UpscalingPolicy.Reason.NONE) return;
-        int status = GLES30.glClientWaitSync(fence, 0, 0);
+        checkFence(GLES30.glClientWaitSync(fence, 0, 0));
+    }
+
+    /** Waits up to {@link #FENCE_WAIT_NS} on this thread for the pending draw, then completes it as the poll would. */
+    private void awaitFence() {
+        if (closed || fence == 0 || policy.getReason() != UpscalingPolicy.Reason.NONE) return;
+        checkFence(GLES30.glClientWaitSync(fence, GLES30.GL_SYNC_FLUSH_COMMANDS_BIT, FENCE_WAIT_NS));
+    }
+
+    private void checkFence(int status) {
         long elapsed = System.nanoTime() - workStartNs;
         if (status == GLES30.GL_ALREADY_SIGNALED || status == GLES30.GL_CONDITION_SATISFIED) {
             GLES30.glDeleteSync(fence);
             fence = 0;
             workStartNs = 0;
-            // From the latch to the fence: the draw, swap blocking and up to one polling interval,
+            // From the latch to the fence: the draw, swap blocking and up to one wait or polling interval,
             // but not the wait for the render thread before the latch. A conservative estimate of
             // the reconstruction, not a scanout timestamp; the policy only acts on a sustained trend.
             policy.recordFrame(System.nanoTime() - gpuStartNs, pendingDrops);

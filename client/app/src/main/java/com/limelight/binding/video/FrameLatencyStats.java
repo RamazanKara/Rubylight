@@ -1089,13 +1089,17 @@ class FrameLatencyStats {
         return !completed.isEmpty();
     }
 
-    void writeCsv(Writer writer) throws IOException {
-        writeCsv(writer, null);
+    long writeCsv(Writer writer) throws IOException {
+        return writeCsv(writer, null);
     }
+
+    // Rows are written from a char buffer reused across flushes; only the latency thread flushes.
+    private char[] csvChars = new char[512];
 
     // The clock offset is read once per flush, before the lock: it calls into native code that
     // takes its own lock, and one value is plenty for the few hundred ms a flush covers.
-    void writeCsv(Writer writer, ClockOffsetSource clockOffset) throws IOException {
+    // Returns the number of characters written; the CSV is ASCII, so that is also its byte count.
+    long writeCsv(Writer writer, ClockOffsetSource clockOffset) throws IOException {
         long[] clock = new long[2];
         String clockColumns = clockOffset != null && clockOffset.read(clock) ?
                 clock[0] + "," + clock[1] : ",";
@@ -1116,14 +1120,20 @@ class FrameLatencyStats {
                 (rates[2] < 0 ? "" : String.format(Locale.ROOT, "%.2f", rates[2]));
         // One buffer for all the rows of a flush: put together from pieces, a row made some fifty short strings.
         StringBuilder row = new StringBuilder(512);
+        long written = 0;
         for (Frame frame : frames) {
             row.setLength(0);
             appendRow(row, frame, vrr, lost, dropped, sampleNs, frameRates, clockColumns);
-            writer.write(row.toString());
+            int length = row.length();
+            if (length > csvChars.length) csvChars = new char[Math.max(length, csvChars.length * 2)];
+            row.getChars(0, length, csvChars, 0);
+            writer.write(csvChars, 0, length);
+            written += length;
         }
         synchronized (this) {
             for (Frame frame : frames) recycle(frame);
         }
+        return written;
     }
 
     /** One frame's row with its line end. FrameLatencyCsvRowTest holds every character to what was written before. */

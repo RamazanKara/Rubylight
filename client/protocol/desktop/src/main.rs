@@ -972,7 +972,7 @@ impl App {
         let (renderer, window) = (self.renderer, self.window);
         // SAFETY: tearing down what run() created, with nothing else using it any more.
         stream::end_before(self.connecting.take(), stream::LEAVE_WAIT, || unsafe {
-            SDL_DestroyRenderer(renderer);
+            crate::sdl::destroy_renderer(renderer);
             SDL_DestroyWindow(window);
             SDL_Quit();
         });
@@ -2107,7 +2107,7 @@ impl App {
         stream::pyrowave_mode::settings_probe_reset();
         self.gui.release_renderer();
         // SAFETY: the renderer run() made, its textures freed, with no stream or launch using it.
-        unsafe { SDL_DestroyRenderer(self.renderer) };
+        unsafe { crate::sdl::destroy_renderer(self.renderer) };
         if hdr {
             sdl::set_hdr_asked(true);
         }
@@ -2130,7 +2130,7 @@ impl App {
             // SDL's own fallback is OpenGL: from the GPU renderer, the GPU renderer once more, plainly.
             if !made.is_null() {
                 // SAFETY: the renderer just made, nothing on it yet.
-                unsafe { SDL_DestroyRenderer(made) };
+                unsafe { crate::sdl::destroy_renderer(made) };
             }
             made = sdl::create_renderer_with(self.window, true, false);
             if !made.is_null() && sdl::renderer_name(made) == "gpu" {
@@ -3349,13 +3349,19 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
         return false;
     }
     let mode = s.overlay_mode;
-    let lines = s.overlay.lines(mode).to_vec();
-    let compact = (mode == config::OverlayMode::Compact).then(|| (s.overlay.compact.clone(), s.overlay.notice.clone()));
     let (anchor, offset) = overlay_anchor(s.overlay_corner);
     let visible = s.overlay_visible;
     let title = format!("{} · {}", s.facts.app_name, s.facts.host_name);
     // Screen readers get the menu and the Remote Input screen, not every frame of the overlay.
     gui.set_readable(s.menu_visible || input_only);
+    // The menu and the screens that take input always run egui. The overlay repaints the shapes it
+    // drew while what it shows is unchanged: its lines change once a second, not every present.
+    let live = s.menu_visible || mic_only || input_only;
+    let digest = overlay_digest(s, mode, live, &title, toast.as_deref(), gui.surface(window, renderer));
+    if !gui::overlay_must_run(gui.overlay_shown(), digest, live, gui.input_pending(), gui.animating()) {
+        gui.overlay_repaint(renderer);
+        return false;
+    }
     let output = gui.run(window, renderer, |ui| {
         let ctx = ui.ctx().clone();
         if mic_only {
@@ -3765,6 +3771,8 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
             s.settle_bitrate_slider(&ctx);
         }
         if visible {
+            let lines = s.overlay.lines(mode);
+            let compact = (mode == config::OverlayMode::Compact).then_some((&s.overlay.compact, s.overlay.notice.as_ref()));
             egui::Area::new(egui::Id::unique("overlay"))
                 .anchor(anchor, offset)
                 .show(&ctx, |ui| {
@@ -3773,7 +3781,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                     let frame = egui::Frame::new()
                         .inner_margin(egui::Margin::symmetric(14, 10))
                         .show(ui, |ui| {
-                            if let Some((line, notice)) = &compact {
+                            if let Some((line, notice)) = compact {
                                 ui.horizontal(|ui| {
                                     let [r, g, b] = stream::overlay::health_rgb(line.health);
                                     ui.label(egui::RichText::new(line.health.glyph()).font(theme::semibold(theme::text::LABEL)).color(egui::Color32::from_rgb(r, g, b)));
@@ -3793,7 +3801,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                     ui.label(egui::RichText::new(tr("Measuring…")).color(theme::ON_SURFACE_VARIANT));
                                     ui.end_row();
                                 }
-                                for (k, v) in &lines {
+                                for (k, v) in lines {
                                     ui.label(egui::RichText::new(k).font(theme::regular(theme::text::CAPTION)).color(theme::OUTLINE));
                                     ui.label(egui::RichText::new(v).font(theme::regular(theme::text::CAPTION)).color(theme::ON_SURFACE));
                                     ui.end_row();
@@ -3824,8 +3832,33 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
     if s.menu_visible {
         gui.platform(window, &output.platform_output);
     }
-    gui.paint(renderer, output);
+    gui.overlay_paint(renderer, output, digest);
     shortcuts_changed
+}
+
+/// Digests what the overlay pass draws: the stream's overlay state, the title and toast, the
+/// language, the size and scale it draws at (`surface`) and whether a live screen is up. Equal
+/// digests draw the same shapes, so `gui::overlay_must_run` can repaint them.
+fn overlay_digest(s: &Streaming, mode: config::OverlayMode, live: bool, title: &str, toast: Option<&str>, surface: ((i32, i32), f32)) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    live.hash(&mut hasher);
+    std::mem::discriminant(&mode).hash(&mut hasher);
+    std::mem::discriminant(&s.overlay_corner).hash(&mut hasher);
+    s.overlay_visible.hash(&mut hasher);
+    strings::current().hash(&mut hasher);
+    surface.0.hash(&mut hasher);
+    surface.1.to_bits().hash(&mut hasher);
+    title.hash(&mut hasher);
+    toast.hash(&mut hasher);
+    for (key, value) in s.overlay.lines(mode) {
+        key.hash(&mut hasher);
+        value.hash(&mut hasher);
+    }
+    s.overlay.compact.text.hash(&mut hasher);
+    std::mem::discriminant(&s.overlay.compact.health).hash(&mut hasher);
+    s.overlay.notice.hash(&mut hasher);
+    hasher.finish()
 }
 
 /// Input-only on a PC without its own mode: the smallest stream every host takes, as on Android.

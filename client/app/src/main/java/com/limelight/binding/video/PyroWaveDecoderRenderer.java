@@ -327,6 +327,17 @@ public final class PyroWaveDecoderRenderer {
         }
     }
 
+    // The Rust engine's chunk batch in place: data is a direct buffer, read only during the call.
+    synchronized void submitChunksDirect(ByteBuffer data, int length, boolean first) {
+        if (handle == 0) return;
+        long workStartNs = Debug.threadCpuTimeNanos();
+        try {
+            nativeSubmitChunksDirect(handle, data, length, first);
+        } finally {
+            earlyWork.add(Debug.threadCpuTimeNanos() - workStartNs);
+        }
+    }
+
     /**
      * Thread CPU time of the early record pushes since the last frame's submit. They are that
      * frame's parse work, done while it arrived, so the next performance-hint report includes
@@ -448,6 +459,7 @@ public final class PyroWaveDecoderRenderer {
     private static native String nativeGetPresentMode(long handle);
     private static native float nativeGetLastRecordLossPercent(long handle);
     private static native void nativeSubmitChunks(long handle, byte[] data, int length, boolean first);
+    private static native void nativeSubmitChunksDirect(long handle, ByteBuffer data, int length, boolean first);
     private static native boolean nativeEarlyRecordsAllowed();
     private static native float[] nativeGetEarlyRecords(long handle);
     private static native void nativeSetHdrMode(long handle, boolean enabled, byte[] metadata);

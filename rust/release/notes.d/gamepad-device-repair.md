@@ -1,0 +1,2 @@
+# Controllers after uninstalling Vibepollo
+- **Controllers work again where Vibepollo was uninstalled.** Uninstalling Vibepollo removes the virtual gamepad device but leaves its driver in Windows, and setup then kept that driver without setting the device up again: every stream with a controller failed with "Virtual gamepad driver unavailable". Setup, an update or a repair now sets the device up when it is missing.

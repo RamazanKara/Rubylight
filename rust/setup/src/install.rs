@@ -1579,12 +1579,18 @@ fn run_drivers(
         match gamepad_step(detect::side_by_side(), crate::libvirtualdisplay::present_devices) {
             GamepadStep::Install => {
                 progress.set("Installing the virtual gamepad driver…");
-                restart_needed |= run_driver_script(
+                let before = notes.len();
+                let restart = run_driver_script(
                     &install.join("drivers\\gamepad\\install.ps1"),
                     &["-InstallerBestEffort", "-AllowLocalTestCertificate:0"],
                     notes,
                     "virtual gamepad",
                 );
+                restart_needed |= restart;
+                // A restart to come or a refused package is reported already.
+                if !restart && notes.len() == before {
+                    restart_needed |= ensure_gamepad_device(install, progress, notes);
+                }
             }
             GamepadStep::Reuse => line(
                 "the virtual gamepad driver is already here, and another host may use it: using it as it is",
@@ -1636,6 +1642,75 @@ fn gamepad_step(side_by_side: bool, devices: impl FnOnce() -> Result<Vec<String>
         Ok(_) => GamepadStep::Install,
         Err(error) => GamepadStep::Unknown(error),
     }
+}
+
+/// libvirtualgamepad's own tool for its source device, and the package it
+/// binds to that device.
+const GAMEPAD_DEVICE_TOOL: &str = "drivers\\gamepad\\tools\\VibeshineVhfGamepadDeviceSetup.exe";
+const GAMEPAD_INF: &str = "drivers\\gamepad\\driver\\VibeshineVhfGamepad.inf";
+/// Whether the device tool's `status` says the source device answers: its
+/// JSON line's `source_interface_ready`, or `None` when there is no such line.
+fn gamepad_device_ready(status: &str) -> Option<bool> {
+    status.lines().find_map(|line| {
+        serde_json::from_str::<serde_json::Value>(line.trim())
+            .ok()?
+            .get("source_interface_ready")?
+            .as_bool()
+    })
+}
+/// The gamepad driver's script skips when Windows' Driver Store already holds
+/// the same or a newer package, without looking for the device that runs it.
+/// Uninstalling another host that shared the driver (Vibepollo) takes that
+/// device away and leaves the package, so no controller can be opened (#86):
+/// the driver's own tool then creates the device. Returns whether Windows
+/// must restart.
+fn ensure_gamepad_device(install: &Path, progress: &Progress, notes: &mut Vec<String>) -> bool {
+    let (tool, inf) = (install.join(GAMEPAD_DEVICE_TOOL), install.join(GAMEPAD_INF));
+    if !tool.is_file() || !inf.is_file() {
+        return false;
+    }
+    let tool = tool.display().to_string();
+    let ready = || {
+        system::run_as_system(&tool, &["status"], Duration::from_secs(60))
+            .map(|(_, output)| gamepad_device_ready(&output))
+    };
+    match ready() {
+        Ok(Some(false)) => {}
+        Ok(Some(true)) => return false,
+        Ok(None) => {
+            line("the virtual gamepad device tool gave no status; leaving the device as it is");
+            return false;
+        }
+        Err(error) => {
+            line(format!(
+                "warning: the virtual gamepad device status: {error:#}"
+            ));
+            return false;
+        }
+    }
+    line("the virtual gamepad driver is installed, but no device runs it: setting the device up");
+    progress.set("Setting up the virtual gamepad device…");
+    let inf = inf.display().to_string();
+    let code =
+        match system::run_as_system(&tool, &["install", "--inf", &inf], Duration::from_secs(600)) {
+            Ok((code, _)) => code,
+            Err(error) => {
+                line(format!("warning: {error:#}"));
+                notes.push(driver_error_note(&error, "virtual gamepad"));
+                return false;
+            }
+        };
+    if code == 3010 {
+        return true;
+    }
+    // A newer package another host left runs the device instead of this one,
+    // which the tool reports as a failure although the device answers.
+    if code != 0 && !matches!(ready(), Ok(Some(true))) {
+        notes.push(
+            "The virtual gamepad device could not be set up, and controllers need it. Restart Windows and run setup again; the setup log has the details.".into(),
+        );
+    }
+    false
 }
 
 /// Rubylight's display driver, then the removal of libvirtualdisplay it
@@ -2669,6 +2744,19 @@ mod tests {
         assert!(alone.contains("Rubylight runs as the"), "{alone}");
     }
     /// The script reloads the device, and Vibepollo's family shares it.
+    #[test]
+    fn the_gamepad_device_tool_says_whether_its_device_answers() {
+        let answered = r#"{"root_device_count":1,"phantom_root_devices":0,"source_interface_ready":true,"source_interface_state":"answered","instance_id":"ROOT\\VIBESHINEVIRTUALGAMEPAD\\0000","device_status":25174027,"problem_code":0}"#;
+        assert_eq!(gamepad_device_ready(answered), Some(true));
+        // #86: the package stayed in the Driver Store, its device went with Vibepollo.
+        let missing = "note on stderr\r\n{\"root_device_count\":0,\"phantom_root_devices\":0,\"source_interface_ready\":false,\"source_interface_state\":\"absent\"}\r\n";
+        assert_eq!(gamepad_device_ready(missing), Some(false));
+        assert_eq!(
+            gamepad_device_ready("Usage:\n  VibeshineVhfGamepadDeviceSetup.exe status"),
+            None
+        );
+    }
+
     #[test]
     fn a_side_by_side_host_reuses_the_shared_gamepad_device_or_installs_one() {
         let device = |text: &str| {

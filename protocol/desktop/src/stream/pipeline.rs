@@ -662,8 +662,9 @@ impl Decoder {
     }
 
     /// A frame failed with no picture since the last one: after [`FAILING_FOR_US`] of that the
-    /// FFmpeg decoder is opened again once, and when it still fails, or PyroWave does, the
-    /// stream ends saying why instead of freezing.
+    /// FFmpeg decoder is opened again once. When it still fails, a hardware decoder that made no
+    /// picture since gives way to the next decoder; otherwise, or when PyroWave fails, the stream
+    /// ends saying why instead of freezing.
     fn frame_failed(&mut self, now_us: u64) {
         let frames = self.failing.frames + 1;
         let for_ms = self.failing.since_us.map_or(0, |since| now_us.saturating_sub(since) / 1000);
@@ -678,11 +679,26 @@ impl Decoder {
                     self.shared.notify(Notice::DecoderFailed("The video decoder stopped working and could not be opened again.".into()));
                 }
             }
+            Escalation::GiveUp if self.never_pictured_hardware().is_some() => {
+                // A hardware decoder that made no picture since it was opened again (V4L2 M2M on
+                // an Odin 2 Portal that cannot set up its capture buffers, issue 77): the next
+                // decoder, software after the last, takes over instead of the stream ending.
+                let backend = self.never_pictured_hardware().expect("checked above");
+                eprintln!("nightjar: {} failed {frames} frames in a row over {for_ms} ms after it was opened again, without a picture; trying the next decoder", backend.label());
+                self.replace_refused(backend);
+                // The next decoder gets its own second and its own reopen.
+                self.failing = Failing::default();
+            }
             Escalation::GiveUp => {
                 eprintln!("nightjar: the video decoder failed {frames} frames in a row over {for_ms} ms with no picture; ending the stream");
                 self.shared.notify(Notice::DecoderFailed(format!("The video decoder stopped working: no picture for {} s.", for_ms.div_ceil(1000))));
             }
         }
+    }
+
+    /// The stream's hardware decoder when it has made no picture since it was opened.
+    fn never_pictured_hardware(&self) -> Option<Hardware> {
+        self.decoder.as_ref().map(|decoder| decoder.hardware).filter(|&backend| backend != Hardware::None && !self.pictured)
     }
 
     /// Counts a submitted frame towards [`Failing`]: a picture starts over, and a frame that failed
@@ -899,7 +915,16 @@ impl VideoDecoder for Decoder {
             }
             hardware => {
                 // Backends FFmpeg took to software for this stream before are not tried again.
-                let order = hardware.order().into_iter().filter(|&backend| !self.refused.contains(&(backend, setup.format))).collect();
+                let all = hardware.order();
+                let any = !all.is_empty();
+                let order: Vec<_> = all.into_iter().filter(|&backend| !self.refused.contains(&(backend, setup.format))).collect();
+                if any && order.is_empty() && setup.chroma_packing == 0 {
+                    // Every hardware decoder gave way to software this stream, which was said then.
+                    return match media::VideoDecoder::open(codec, Hardware::None, self.software_threads, false) {
+                        Ok(decoder) => { self.install(decoder, setup); Ok(()) }
+                        Err(e) => { self.shared.notify(Notice::DecoderFallback(format!("No decoder: {e}"))); Err(-1) }
+                    };
+                }
                 media::VideoDecoder::open_any(codec, self.pictures(setup), order, setup.chroma_packing != 0, log_unavailable).or_else(|e| {
                     if setup.chroma_packing != 0 {
                         return Err(e);
@@ -1836,6 +1861,51 @@ mod tests {
         assert!(text.contains("stopped working"), "{text}");
         decoder.frame_failed(3_000_000);
         assert!(notices(&shared).is_empty(), "said once");
+    }
+
+    /// Nightjar issue 77: V4L2 M2M on an Odin 2 Portal sometimes never made a picture, opened
+    /// again or not, and the stream ended. The decoder is still opened again once (that worked in
+    /// one of the two runs); a hardware decoder that then makes no picture either gives way to the
+    /// next decoder, software after the last, which gets its own second and reopen.
+    #[test]
+    fn a_hardware_decoder_that_never_made_a_picture_gives_way_to_the_next_decoder() {
+        let setup = VideoSetup { format: nightjar_core::sdp::VIDEO_FORMAT_H264, width: 128, height: 128, fps: 60, chroma_packing: 0, logical_width: 128, logical_height: 128, color_space: 1, color_range: 0 };
+        // Stands in for an opened V4L2 M2M decoder, the last of its order.
+        let as_v4l2 = |decoder: &mut Decoder| {
+            decoder.hardware = Hardware::V4l2m2m;
+            decoder.decoder.as_mut().expect("a decoder").hardware = Hardware::V4l2m2m;
+        };
+        for pictured_before in [false, true] {
+            let (mut decoder, shared) = decoder();
+            decoder.setup(&setup).unwrap();
+            as_v4l2(&mut decoder);
+            decoder.pictured = pictured_before;
+            for at in [0, 500_000, 1_000_000] {
+                decoder.frame_failed(at);
+            }
+            assert!(decoder.failing.reopened, "opened again first");
+            assert!(decoder.refused.is_empty());
+            // The reopened decoder (V4L2 again on the device) makes no picture either.
+            as_v4l2(&mut decoder);
+            let _ = notices(&shared);
+            for at in [1_100_000, 1_600_000, 2_100_000] {
+                decoder.frame_failed(at);
+            }
+            let now = decoder.decoder.as_ref().expect("the next decoder");
+            assert_eq!(now.hardware, Hardware::None, "software after the last hardware decoder");
+            assert_eq!(decoder.refused, [(Hardware::V4l2m2m, setup.format)]);
+            assert!(matches!(notices(&shared).as_slice(), [Notice::DecoderFallback(_)]), "the switch is said, the stream goes on");
+            assert_eq!(decoder.failing, Failing::default(), "the next decoder gets its own second");
+            // A software decoder that fails too is opened again once, then the stream ends.
+            for at in [2_200_000, 2_700_000, 3_200_000] {
+                decoder.frame_failed(at);
+            }
+            assert!(decoder.failing.reopened && notices(&shared).is_empty());
+            for at in [3_300_000, 3_800_000, 4_300_000] {
+                decoder.frame_failed(at);
+            }
+            assert!(matches!(notices(&shared).as_slice(), [Notice::DecoderFailed(_)]));
+        }
     }
 
     #[test]

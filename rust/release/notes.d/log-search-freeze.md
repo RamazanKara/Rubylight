@@ -1,1 +1,0 @@
-- **Searching the log no longer freezes the page.** A short search marked every match in all 5000 lines at once, tens of thousands of them, on every typed character. The console now marks the matches around the lines in view; the count and Next/Previous still cover the whole log. Measured in Chrome with 5000 lines: one typed character held the page for 1.5 s before and 0.2 s now.

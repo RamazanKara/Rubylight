@@ -1242,3 +1242,28 @@ fn a_host_started_from_a_shell_can_still_hand_on_its_environment() {
         BTreeMap::from([("PATH".to_string(), r"C:\a=b".to_string())])
     );
 }
+
+#[test]
+fn an_exited_process_another_program_still_holds_open_is_not_running() {
+    // A launcher or Steam holding the game's handle keeps an exited game openable: its
+    // settings files and Playnite's end check must not wait for it (issue 82).
+    let ping = std::path::PathBuf::from(std::env::var_os("WINDIR").unwrap())
+        .join("System32")
+        .join("ping.exe");
+    let mut child = std::process::Command::new(&ping)
+        .args(["-n", "30", "127.0.0.1"])
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = child.id();
+    assert_ne!(
+        super::creation_time(pid),
+        0,
+        "a running process has its creation time"
+    );
+    child.kill().unwrap();
+    child.wait().unwrap();
+    // `child` still holds its handle: the process can be opened, yet it has exited.
+    assert_eq!(super::creation_time(pid), 0);
+    drop(child);
+}

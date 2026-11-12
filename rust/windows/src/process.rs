@@ -1462,7 +1462,10 @@ pub fn creation_time(pid: u32) -> u64 {
     }
 }
 /// The creation time (100 ns since 1601) of the process behind `process`, a handle opened with
-/// `PROCESS_QUERY_LIMITED_INFORMATION`; 0 when it cannot be read.
+/// `PROCESS_QUERY_LIMITED_INFORMATION`; 0 when it cannot be read or the process has exited.
+///
+/// An exited process can still be opened while any other program (a launcher, Steam, an
+/// audio session) holds a handle to it, so being able to open it does not mean it runs.
 fn created_at(process: windows::Win32::Foundation::HANDLE) -> u64 {
     let mut created = FILETIME::default();
     let (mut exited, mut kernel, mut user) = (created, created, created);
@@ -1470,6 +1473,12 @@ fn created_at(process: windows::Win32::Foundation::HANDLE) -> u64 {
     let read =
         unsafe { GetProcessTimes(process, &mut created, &mut exited, &mut kernel, &mut user) };
     if read.is_err() {
+        return 0;
+    }
+    let mut code = 0;
+    // SAFETY: the caller's handle is open for the call, and `code` is a local u32. An exit code
+    // that cannot be read, or one that is STILL_ACTIVE, keeps the process counted as running.
+    if unsafe { GetExitCodeProcess(process, &mut code) }.is_ok() && code != STILL_ACTIVE.0 as u32 {
         return 0;
     }
     u64::from(created.dwHighDateTime) << 32 | u64::from(created.dwLowDateTime)

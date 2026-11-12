@@ -125,6 +125,7 @@ final class RustBridge {
     static native void frameWarpNoteFrame(long ptsUs, int frame);
     static native int frameWarpForPts(long ptsUs, float[] out);
     static native int frameWarpPeekForPts(long ptsUs, float[] out);
+    static native long frameWarpInputState();
     static native int frameWarpMask(int known, int[] size, byte[] cells);
     static native void frameWarpDecline();
     static native int frameWarpStatus(float[] out);

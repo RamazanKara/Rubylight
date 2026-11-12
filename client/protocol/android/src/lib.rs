@@ -734,6 +734,17 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_frameWarpPeekF
     code
 }
 
+/// What the GLES presenter checks each refresh before asking for a shift
+/// (`frame_warp::input_state`): the count of inputs noted in the low 32 bits, bit 32 while the
+/// tracked right stick is deflected.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_frameWarpInputState(
+    _: JNIEnv,
+    _: JClass,
+) -> jlong {
+    frame_warp::input_state()
+}
+
 /// The HUD mask when its generation is not `known` (-1 for none): `size` gets width and height,
 /// and `cells`, when it has room, one byte per cell (0 or 255, rows from the top). Returns the
 /// generation, -1 unchanged, -2 cleared, or -3 when `cells` is too small.

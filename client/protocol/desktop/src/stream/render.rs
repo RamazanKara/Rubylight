@@ -525,7 +525,7 @@ impl Streaming {
                     // Frame Warp shifts the picture on its way into the upscaler, in the picture's own
                     // pixels; the upscaled picture is drawn as it is.
                     let warp = std::mem::take(&mut self.texture.warp);
-                    match self.upscaler.as_ref().and_then(|u| u.draw_warped(renderer, texture, self.settings.upscale_sharpness, &warp)) {
+                    match self.upscaler.as_ref().and_then(|u| u.draw_warped(renderer, texture, self.settings.upscale_sharpness, &warp, &mut self.texture.warp_mesh)) {
                         Some(upscaled) => texture = upscaled,
                         None => {
                             self.texture.warp = warp;
@@ -539,7 +539,7 @@ impl Streaming {
                     if texture == self.texture.texture { texture = self.texture.sdl_texture(renderer); }
                     // The video texture's alignment padding stays out of the picture.
                     let source = self.texture.source_rect(texture);
-                    frame_warp::render_texture(renderer, texture, source.as_ref(), &dst, &self.texture.warp);
+                    frame_warp::render_texture(renderer, texture, source.as_ref(), &dst, &self.texture.warp, &mut self.texture.warp_mesh);
                 }
             } else if !self.texture.draw(renderer, &dst) {
                 self.exit = Some(Exit::Ended(Some("Packed full-chroma presentation failed.".into())));

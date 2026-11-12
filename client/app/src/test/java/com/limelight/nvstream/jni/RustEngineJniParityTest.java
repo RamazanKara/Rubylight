@@ -376,7 +376,8 @@ public class RustEngineJniParityTest {
         Matcher cField = Pattern.compile("\\n\\s*(?:uint32_t (\\w+);|[\\w ]+\\(\\*(\\w+)\\)\\()").matcher(cBody);
         while (cField.find()) cFields.add(cField.group(1) != null ? cField.group(1) : cField.group(2));
 
-        assertEquals(Arrays.asList("version", "frame_for_pts", "warp", "mask", "peek"), rustFields);
+        assertEquals(Arrays.asList("version", "frame_for_pts", "warp", "mask", "peek", "input_seq", "stick_deflected"),
+                rustFields);
         assertEquals(rustFields, cFields);
     }
 

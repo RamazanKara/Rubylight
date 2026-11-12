@@ -862,6 +862,8 @@ pub struct VideoTexture {
     /// Frame Warp's shift for the next draw of the picture into the window (identity without it);
     /// the presenter sets it before each present.
     pub warp: super::frame_warp::WarpDraw,
+    /// The triangles of a shifted draw through SDL's renderer, kept across presents.
+    pub warp_mesh: super::frame_warp::Mesh,
 }
 
 impl Default for VideoTexture {
@@ -943,6 +945,7 @@ impl Default for VideoTexture {
             #[cfg(windows)]
             converted_current: false,
             warp: super::frame_warp::WarpDraw::default(),
+            warp_mesh: super::frame_warp::Mesh::default(),
         }
     }
 }
@@ -2174,7 +2177,7 @@ impl VideoTexture {
         if !self.texture.is_null() {
             let source = self.source_rect(self.texture);
             // SAFETY: The renderer and its video texture are live on this thread.
-            unsafe { super::frame_warp::render_texture(renderer, self.texture, source.as_ref(), destination, &self.warp) };
+            unsafe { super::frame_warp::render_texture(renderer, self.texture, source.as_ref(), destination, &self.warp, &mut self.warp_mesh) };
         }
         true
     }

@@ -15,7 +15,8 @@ layout(push_constant) uniform Color { int ten_bit; int hdr; int full_range; int 
 void main() {
     vec2 uv = pyroSourceUv(v_uv, color.rotationQuarterTurns);
 #ifdef FRAME_WARP
-    uv = frameWarpUv(uv);
+    float warpFade;
+    uv = frameWarpUv(uv, warpFade);
 #endif
     vec2 cuv = uv;
     // The Rubylight host averages each 2x2 chroma block, so its sampling is centred.
@@ -36,5 +37,8 @@ void main() {
     } else {
         rgb = vec3(y + 1.5748 * c.y, y - 0.187324 * c.x - 0.468124 * c.y, y + 1.8556 * c.x);
     }
+#ifdef FRAME_WARP
+    rgb *= warpFade;
+#endif
     frag = vec4(clamp(rgb, 0.0, 1.0), 1.0);
 }

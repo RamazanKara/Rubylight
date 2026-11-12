@@ -81,8 +81,20 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
     // The decoder time of the picture on screen (-1 before one), and the shift it was last drawn with, picture px.
     private long shownPtsUs = -1;
     private float drawnShiftX, drawnShiftY;
+    // Whether that draw's shift was active (the host's model locked, or fading out after it unlocked), and the input
+    // count it reflected (MoonBridge.frameWarpInputState(), read before the shift): frame_warp_mask.h's FrameWarpDrawn.
+    private boolean drawnActive;
+    private int drawnInputSeq;
+    // When the last draw asked to reach the screen: its presentation time, or when it was drawn for as soon as possible.
+    private long lastTargetNs;
     private Choreographer choreographer;
     private final Choreographer.FrameCallback warpRefresh = this::onRefresh;
+    // The refresh callback is asked for only while redraws can show something (onRefresh()); the gaps between the
+    // last few that followed each other give the refresh period.
+    private boolean refreshPosted;
+    private long refreshFollowsNs;
+    private final long[] refreshGapsNs = new long[4];
+    private int refreshGapIndex;
     // A redraw between pictures moves the shift by at least this much, picture px.
     static final float REDRAW_SHIFT_PX = 0.25f;
 
@@ -278,9 +290,9 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
         GLES30.glClearColor(0f, 0f, 0f, 1f);
         require(GLES30.glGetError() == GLES30.GL_NO_ERROR, "GLES setup");
         if (frameWarp) {
-            // This thread's looper: the redraws between pictures run here, with the draws.
+            // This thread's looper: the redraws between pictures run here, with the draws. The first picture drawn with
+            // a locked model asks for the first refresh (applyWarp()).
             choreographer = Choreographer.getInstance();
-            choreographer.postFrameCallback(warpRefresh);
         }
     }
 
@@ -330,13 +342,26 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
 
     /** Sets the shift for the picture with decoder time ptsUs, drawn now; the program is in use. */
     private void applyWarp(long ptsUs) {
-        refreshMask();
+        // Read before the shift, so input sent while it is worked out shows as new at the next refresh
+        int inputSeq = (int) MoonBridge.frameWarpInputState();
         int code = MoonBridge.frameWarpForPts(ptsUs, warpOut);
         boolean active = code != MoonBridge.FRAME_WARP_INACTIVE;
+        // The mask only when this shift keeps one in place that the texture does not hold yet
+        if (code >= 0 && code != maskGeneration) refreshMask();
         drawnShiftX = active ? warpOut[2] : 0f;
         drawnShiftY = active ? warpOut[3] : 0f;
+        drawnActive = active;
+        drawnInputSeq = inputSeq;
         GLES30.glUniform3f(warpUniform, active ? warpOut[0] : 0f, active ? warpOut[1] : 0f,
                 active && code >= 0 && code == maskGeneration ? 1f : 0f);
+        // Redraws between pictures follow a locked model only: one refresh is looked at after each such draw
+        if (active) postRefresh();
+    }
+
+    private void postRefresh() {
+        if (refreshPosted || choreographer == null) return;
+        choreographer.postFrameCallback(warpRefresh);
+        refreshPosted = true;
     }
 
     /** Whether a shift that moved from the one on screen to (x, y), picture px, needs drawing again. */
@@ -345,13 +370,48 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
     }
 
     /**
-     * Each refresh between pictures: draws the picture on screen again when its shift moved, so a turn shows on every
-     * refresh and not only on the host's frames. Never while a draw is pending or a new picture is on its way.
+     * Whether the shift of the picture on screen may have moved since it was drawn with {@code drawnX, drawnY}
+     * (picture px, {@code active} its code was) and input count {@code drawnSeq}, given {@code inputState} now
+     * (MoonBridge.frameWarpInputState()): only with a locked model, and then while the shift on screen is not zero, input
+     * was sent since, or the stick is deflected. As frame_warp_mask.h's FrameWarpDrawn::mayMove().
+     */
+    static boolean mayMove(boolean active, float drawnX, float drawnY, int drawnSeq, long inputState) {
+        if (!active) return false;
+        if (drawnX != 0f || drawnY != 0f) return true;
+        return (int) inputState != drawnSeq || (inputState & MoonBridge.FRAME_WARP_STICK_DEFLECTED) != 0;
+    }
+
+    /** The refresh period from the gaps between refresh callbacks that followed each other, 0 before one. */
+    private long refreshPeriodNs() {
+        long period = 0;
+        for (long gap : refreshGapsNs) {
+            if (gap > 0 && (period == 0 || gap < period)) period = gap;
+        }
+        return period;
+    }
+
+    /**
+     * Refreshes between pictures: draws the picture on screen again when its shift moved, so a turn shows on every
+     * refresh and not only on the host's frames. Asked for after each picture drawn with a locked model, and again
+     * only while the view turns (mayMove()), so a still view, an unlocked model or a stream without input costs no
+     * refresh callbacks. Never while a draw is pending, a new picture is on its way, or before the refresh the last
+     * draw asked for.
      */
     private void onRefresh(long frameTimeNanos) {
+        refreshPosted = false;
         if (closed || policy.getReason() != UpscalingPolicy.Reason.NONE) return;
-        choreographer.postFrameCallback(warpRefresh);
-        if (shownPtsUs < 0 || fence != 0 || frameAvailable || frames.oldestReleaseNs() != 0) return;
+        if (refreshFollowsNs != 0) {
+            refreshGapsNs[refreshGapIndex] = frameTimeNanos - refreshFollowsNs;
+            refreshGapIndex = (refreshGapIndex + 1) % refreshGapsNs.length;
+        }
+        refreshFollowsNs = 0;
+        if (shownPtsUs < 0 || !mayMove(drawnActive, drawnShiftX, drawnShiftY, drawnInputSeq,
+                MoonBridge.frameWarpInputState())) return;
+        postRefresh();
+        refreshFollowsNs = frameTimeNanos;
+        // A redraw stamped now would queue behind a picture asked for a later refresh
+        if (fence != 0 || frameAvailable || frameTimeNanos < lastTargetNs + refreshPeriodNs() / 2 ||
+                frames.oldestReleaseNs() != 0) return;
         try {
             // Peeked, so a refresh that draws nothing is not counted; the redraw takes its own shift (applyWarp)
             int code = MoonBridge.frameWarpPeekForPts(shownPtsUs, warpOut);
@@ -513,8 +573,15 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
             // A picture without padding samples SurfaceTexture's transform untouched.
             float[] crop = pictureCrop;
             if (crop[0] != 1f || crop[1] != 1f) UpscalingPolicy.applyCrop(transform, crop);
-            if (frameWarp) shownPtsUs = frame[3];
-            render(frame[3], frame[1]);
+            long presentNs = frame[1];
+            if (frameWarp) {
+                shownPtsUs = frame[3];
+                // With the host's model locked, shown at the next refresh rather than at a later one the pacing asked
+                // for: the shift is taken as it is drawn, and would miss the turn until then, a step at every picture
+                // (as VulkanRenderer::presentsAhead()). A draw that finds the model newly locked is shown as asked.
+                if (drawnActive) presentNs = Math.min(presentNs, System.nanoTime());
+            }
+            render(frame[3], presentNs);
         } catch (RuntimeException e) {
             LimeLog.warning("Upscaling frame failed: " + e);
             failGpu(e);
@@ -545,6 +612,7 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
         fence = GLES30.glFenceSync(GLES30.GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
         require(fence != 0, "GPU completion fence");
         require(EGLExt.eglPresentationTimeANDROID(display, window, presentNs), "EGL presentation time");
+        if (frameWarp) lastTargetNs = presentNs > 0 ? presentNs : System.nanoTime();
         require(EGL14.eglSwapBuffers(display, window), "EGL swap");
         GLES30.glFlush();
         pollCompletion();

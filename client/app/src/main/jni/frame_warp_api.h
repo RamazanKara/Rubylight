@@ -11,7 +11,7 @@
 extern "C" {
 #endif
 
-#define FRAME_WARP_API_VERSION 1
+#define FRAME_WARP_API_VERSION 2
 
 // warp(): besides a HUD mask generation (0 to 65535)
 #define FRAME_WARP_NO_MASK (-1)
@@ -40,6 +40,11 @@ typedef struct FrameWarpApi {
     // As warp(), without counting it in the statistics: for deciding whether to draw the picture
     // on screen again. A redraw then calls warp() for what it draws.
     int32_t (*peek)(int64_t frame, float* out);
+    // The count of mouse and controller inputs noted (wrapping), 0 without a stream. Read before a
+    // draw's warp(): a redraw between pictures knows without a peek() that no input was sent since.
+    uint32_t (*input_seq)(void);
+    // 1 while the tracked right stick is deflected (its turn grows without new input), else 0.
+    int32_t (*stick_deflected)(void);
 } FrameWarpApi;
 
 // The table at `address` when it is one this build understands, else null.

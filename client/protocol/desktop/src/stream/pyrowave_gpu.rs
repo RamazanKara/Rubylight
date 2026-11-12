@@ -116,22 +116,24 @@ mod tests {
         sha2::Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
     }
 
-    /// The Linux presenter's `pyrowave-planes.spv` is built from `pyrowave.hlsl` by hand
-    /// (docs/pyrowave-decode.md): a shader change without the module regenerated fails here, as
-    /// does a module replaced without its stamp. The stamp holds both hashes.
+    /// The Linux presenter's `pyrowave-planes.spv` is built by hand from `pyrowave.hlsl` and the
+    /// `frame_warp.hlsl` it includes (docs/pyrowave-decode.md): a shader change without the
+    /// module regenerated fails here, as does a module replaced without its stamp. The stamp
+    /// holds the three hashes.
     #[test]
     fn the_planes_module_was_built_from_the_shader_as_it_is() {
         let stamp = include_str!("../pyrowave-planes.spv.sha256");
         let recorded = |name: &str| {
             stamp.lines().filter(|line| !line.starts_with('#')).find_map(|line| line.strip_prefix(name)?.strip_prefix(' ')).map(str::trim).unwrap_or_else(|| panic!("the stamp names no {name}"))
         };
-        // LF line endings, whatever the checkout did to them.
-        let shader = include_str!("../pyrowave.hlsl").replace("\r\n", "\n");
-        assert_eq!(
-            sha256(shader.as_bytes()),
-            recorded("pyrowave.hlsl"),
-            "pyrowave.hlsl changed: regenerate pyrowave-planes.spv with the glslangValidator command in docs/pyrowave-decode.md and update pyrowave-planes.spv.sha256"
-        );
+        for (name, shader) in [("pyrowave.hlsl", include_str!("../pyrowave.hlsl")), ("frame_warp.hlsl", include_str!("../frame_warp.hlsl"))] {
+            // LF line endings, whatever the checkout did to them.
+            assert_eq!(
+                sha256(shader.replace("\r\n", "\n").as_bytes()),
+                recorded(name),
+                "{name} changed: regenerate pyrowave-planes.spv with the glslangValidator command in docs/pyrowave-decode.md and update pyrowave-planes.spv.sha256"
+            );
+        }
         assert_eq!(
             sha256(include_bytes!("../pyrowave-planes.spv")),
             recorded("pyrowave-planes.spv"),

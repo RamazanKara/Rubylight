@@ -2108,7 +2108,7 @@ namespace {
                 {
                     std::unique_lock<std::mutex> lock(slotMutex);
                     const auto woken = [this] { return stopPresenter || failed || schedule.ready() >= 0; };
-                    if (schedule.held() >= 0 && warpRedraws()) {
+                    if (schedule.held() >= 0 && warpRedraws() && warpWantsVsync()) {
                         // Frame Warp: until a new picture, the one on screen may be drawn again at
                         // the next vsync (redrawSlot())
                         redrawVsyncNs = waitForPictureOrVsync(lock, woken);
@@ -2203,7 +2203,9 @@ namespace {
             }
             // Frame Warp: the shift as of now, after the wait, for the draw just recorded
             float warpOut[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-            if (warp != nullptr) setWarpShift(index, warp, warpMask, warpOut);
+            int32_t warpCode = FRAME_WARP_INACTIVE;
+            uint32_t warpSeq = 0;
+            if (warp != nullptr) warpCode = setWarpShift(index, warp, warpMask, warpOut, &warpSeq);
 
             VkTimelineSemaphoreSubmitInfo timelineInfo = {VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
             timelineInfo.waitSemaphoreValueCount = 1;
@@ -2252,7 +2254,7 @@ namespace {
             const bool shown = presented == VK_SUCCESS || presented == VK_SUBOPTIMAL_KHR;
             if (warp != nullptr) {
                 warpSlots[index].generation = warpSlots[index].writing;
-                if (shown) warpShown(index, warpOut, timing.paced ? timing.targetNs : 0);
+                if (shown) warpShown(index, warpOut, warpCode, warpSeq, timing.paced ? timing.targetNs : 0, true);
             }
             const int64_t releasedNs = int64_t(released.tv_sec) * 1000000000LL + released.tv_nsec;
             pushRelease(ptsUs, shown ? releasedNs : 0, shown);
@@ -2367,6 +2369,16 @@ namespace {
             return displayTimingSupported || presentMode == VK_PRESENT_MODE_MAILBOX_KHR;
         }
 
+        // Frame Warp, present thread: whether to wake at the next vsync for a redraw rather than sleep
+        // until a new picture. Only with a locked model (the picture on screen was drawn with an active
+        // shift): the vsync after each new picture, and after that only while the view turns
+        // (FrameWarpDrawn::mayMove()). A still view, an unlocked model or a stream without input wakes
+        // the thread for pictures only.
+        bool warpWantsVsync() const {
+            const FrameWarpApi *warp = warpApi.load(std::memory_order_acquire);
+            return warp != nullptr && warpDrawn.active && (warpLookAfterPicture || warpDrawn.mayMove(warp));
+        }
+
         // The first vsync after `now` as the present timing knows the display (from an earlier
         // vsync and the refresh period), or a refresh period on when it knows no vsync yet.
         int64_t nextWarpVsync(int64_t now) const {
@@ -2404,23 +2416,27 @@ namespace {
         // Frame Warp: the shift for slot `index`'s picture as of now, counted as drawn, into `out`
         // (frame_warp_api.h) and the uniform its recorded draw reads (the slot's draw fence has
         // signalled, so the GPU is not reading it). The HUD stays in place only where the host's mask
-        // for this shift is the one the draw reads (`mask`).
-        void setWarpShift(int index, const FrameWarpApi *warp, int32_t mask, float *out) {
+        // for this shift is the one the draw reads (`mask`). Returns warp()'s code; `seq` gets the
+        // input count read before it, so input sent meanwhile shows as new at the next vsync.
+        int32_t setWarpShift(int index, const FrameWarpApi *warp, int32_t mask, float *out, uint32_t *seq) {
             WarpSlot &slot = warpSlots[index];
+            *seq = warp->input_seq();
             const int32_t code = warp->warp(slot.frameNumber, out);
             if (code == FRAME_WARP_INACTIVE) out[0] = out[1] = out[2] = out[3] = 0.0f;
             slot.shiftMapped[0] = out[0];
             slot.shiftMapped[1] = out[1];
             slot.shiftMapped[2] = code >= 0 && code == mask ? 1.0f : 0.0f;
             slot.shiftMapped[3] = 0.0f;
+            return code;
         }
 
-        // Frame Warp: slot `index` reached the screen with shift `out`. Where redraws can be
+        // Frame Warp: slot `index` reached the screen with shift `out`, from warp() code `code` with
+        // input count `seq` (setWarpShift()); `newPicture` unless it was a redraw. Where redraws can be
         // replaced, it is kept to draw again until a newer picture is ready (PyroWaveSchedule::hold).
         // `dueNs` is the vsync a paced present asked for, else 0.
-        void warpShown(int index, const float *out, int64_t dueNs) {
-            warpDrawnPx[0] = out[2];
-            warpDrawnPx[1] = out[3];
+        void warpShown(int index, const float *out, int32_t code, uint32_t seq, int64_t dueNs, bool newPicture) {
+            warpDrawn.note(code, out, seq);
+            if (newPicture) warpLookAfterPicture = true;
             warpLastPresentNs = nowNs();
             warpDueNs = dueNs;
             if (!warpRedraws()) return;
@@ -2441,6 +2457,10 @@ namespace {
             if (warp == nullptr || warpLastPresentNs >= vsyncNs || warpDueNs > vsyncNs + presentTiming.periodNs() / 4) {
                 return true;
             }
+            // The vsync after the new picture is looked at now; from here on, only while the view turns
+            warpLookAfterPicture = false;
+            // Without the stream's lock first: nothing can have moved unless the view turns
+            if (!warpDrawn.mayMove(warp)) return true;
             Slot &slot = slots[index];
             // Never wait for the GPU here
             const VkResult drawn = vk.GetFenceStatus(device, slot.drawFence);
@@ -2449,7 +2469,7 @@ namespace {
             // Peeked, so a vsync that draws nothing is not counted; setWarpShift() takes what is drawn
             float peeked[4] = {0.0f, 0.0f, 0.0f, 0.0f};
             const bool active = warp->peek(warpSlots[index].frameNumber, peeked) != FRAME_WARP_INACTIVE;
-            if (!frameWarpMoved(warpDrawnPx[0], warpDrawnPx[1], active ? peeked[2] : 0.0f, active ? peeked[3] : 0.0f)) {
+            if (!frameWarpMoved(warpDrawn.px[0], warpDrawn.px[1], active ? peeked[2] : 0.0f, active ? peeked[3] : 0.0f)) {
                 return true;
             }
             if (!applyPendingHdr()) return false;
@@ -2464,7 +2484,8 @@ namespace {
             int32_t warpMask = FrameWarpCells::kEmpty;
             if (!recordDraw(index, imageIndex, warp, &warpMask)) return false;
             float warpOut[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-            setWarpShift(index, warp, warpMask, warpOut);
+            uint32_t warpSeq = 0;
+            const int32_t warpCode = setWarpShift(index, warp, warpMask, warpOut, &warpSeq);
 
             VkCommandBuffer cmd = slot.drawCommandBuffer;
             // As presentSlot(): the decode it waits for is long done
@@ -2512,7 +2533,7 @@ namespace {
             }
             warpSlots[index].generation = warpSlots[index].writing;
             const bool shown = presented == VK_SUCCESS || presented == VK_SUBOPTIMAL_KHR;
-            if (shown) warpShown(index, warpOut, 0);
+            if (shown) warpShown(index, warpOut, warpCode, warpSeq, 0, false);
             if (presented == VK_ERROR_OUT_OF_DATE_KHR) return recreateSwapchain();
             if (shown && preacquireImages) {
                 imageHold.preacquire([this](uint32_t *image) { return acquireImage(image, 0); });
@@ -3140,11 +3161,14 @@ namespace {
         VkPipeline warpPipeline = VK_NULL_HANDLE;
         VkPipeline warpUpscalePipeline = VK_NULL_HANDLE;
         // Present thread: the host's newest HUD mask; whether a mask image could not be made (the HUD
-        // then shifts with the picture); the shift on screen in picture pixels; when the last present
-        // was queued; and the vsync a paced present asked for, before which nothing is drawn again.
+        // then shifts with the picture); what the picture on screen was drawn with (frame_warp_mask.h);
+        // whether the vsync after a new picture is still to be looked at (warpWantsVsync()); when the
+        // last present was queued; and the vsync a paced present asked for, before which nothing is
+        // drawn again.
         FrameWarpCells warpCells;
         bool warpMaskFailed = false;
-        float warpDrawnPx[2] = {0.0f, 0.0f};
+        FrameWarpDrawn warpDrawn;
+        bool warpLookAfterPicture = false;
         int64_t warpLastPresentNs = 0;
         int64_t warpDueNs = 0;
         // Submitting thread (serialized by PyroWaveDecoderRenderer): the host's number for the frame

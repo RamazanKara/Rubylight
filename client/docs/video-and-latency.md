@@ -169,7 +169,7 @@ It needs a PC that offers it (Rubylight). The PC learns each game while you play
 
 What to expect:
 
-- The shift is a translation. It is right for a camera turn, approximate near the screen's edges at a wide field of view, and it does not predict moving or strafing. While turning, the edge the picture moves away from repeats its outermost pixels until the PC's frame arrives.
+- The shift is a translation. It is right for a camera turn, approximate near the screen's edges at a wide field of view, and it does not predict moving or strafing. While turning, the edge the picture moves away from shows a darkened mirror of the picture until the PC's frame arrives.
 - A HUD element that moves or fades can be shifted for a moment, and a scene that hardly changes can keep a few cells unshifted.
 - Turning the in-game sensitivity refits within a few seconds. Mouse acceleration in the game makes the fit worse and can keep it from locking.
 

@@ -20,13 +20,15 @@ cbuffer Direct : register(b1) {
 Texture2DArray<float4> surfaceArray : register(t5);
 // Frame Warp's HUD mask: byte x / 8 of row y holds cell x in bit x % 8.
 Texture2D<float> hudMask : register(t6);
+#include "frame_warp.hlsl"
 static const float3x3 directTo2020 = { 0.627404, 0.329283, 0.043313, 0.069097, 0.919541, 0.011362, 0.016391, 0.088013, 0.895595 };
 static const float3x3 directTo709 = { 1.660496, -0.587656, -0.072840, -0.124547, 1.132895, -0.008348, -0.018154, -0.100597, 1.118751 };
 // SDL's sRGBfromLinear, for an output that is not linear.
 float3 directSrgb(float3 v) {
     return lerp(pow(abs(v), 1.0 / 2.4) * 1.055 - 0.055, v * 12.92, float3(v <= 0.0031308));
 }
-float4 directFinish(float3 rgb) {
+// `fade` is Frame Warp's edge fill (`directAt`), 1 inside the picture.
+float4 directFinish(float3 rgb, float fade) {
     if (tonemap2 > 0) {
         float3 v = mul(directTo2020, rgb);
         float vmax = max(v.r, max(v.g, v.b));
@@ -35,20 +37,12 @@ float4 directFinish(float3 rgb) {
     }
     rgb *= outputScale;
     if ((directFlags & 1) != 0) rgb = saturate(directSrgb(rgb));
-    return float4(rgb, 1);
+    return float4(rgb * fade, 1);
 }
-// The picture point (pixels) `q` shows under Frame Warp: `q` less the shift, or `q` on a HUD cell.
-float2 directWarp(float2 q) {
-    if (all(warp == 0)) return q;
-    if (warp.z > 0) {
-        uint2 cell = min(uint2(max(q / picture.xy, 0) * warp.zw), uint2(warp.zw) - 1);
-        if (((uint(hudMask.Load(int3(cell.x >> 3, cell.y, 0)) * 255 + 0.5) >> (cell.x & 7)) & 1) != 0) return q;
-    }
-    return q - warp.xy * picture.xy;
-}
-// Where the target pixel is in the picture: its centre, kept inside the picture's texels.
-float2 directAt(float2 position) {
-    return clamp(directWarp((position - destination.xy) * picture.xy / destination.zw), 0.5, picture.xy - 0.5);
+// Where the target pixel is in the picture under Frame Warp (`frameWarp`, in the picture's
+// pixels): its centre, kept inside the picture's texels, and in `fade` how bright it is drawn.
+float2 directAt(float2 position, out float fade) {
+    return clamp(frameWarp((position - destination.xy) * picture.xy / destination.zw, picture.xy, fade), 0.5, picture.xy - 0.5);
 }
 float3 directSurfaceSamples(float4 texel) {
     float3 samples = (flags & 16) != 0 ? texel.grb : texel.bgr;
@@ -57,7 +51,8 @@ float3 directSurfaceSamples(float4 texel) {
 }
 float4 planesDirect(float4 position : SV_Position) : SV_Target {
     float2 visible = picture.xy;
-    float2 at = directAt(position.xy);
+    float fade;
+    float2 at = directAt(position.xy, fade);
     uint2 size;
     uint2 lumaSize;
     planeCb.GetDimensions(size.x, size.y);
@@ -68,20 +63,22 @@ float4 planesDirect(float4 position : SV_Position) : SV_Target {
     samples.y = planeCb.SampleLevel(sampleLinear, uv, 0);
     samples.z = planeCr.SampleLevel(sampleLinear, uv, 0);
     if ((flags & 64) != 0) samples *= 65535.0 / 1023.0;
-    return directFinish(linearRgb(samples - 0.5));
+    return directFinish(linearRgb(samples - 0.5), fade);
 }
 // The copy of a 4:4:4 decoder picture (surface444.hlsl's `surface`, t4).
 float4 surfaceDirect(float4 position : SV_Position) : SV_Target {
     uint2 size;
     surface.GetDimensions(size.x, size.y);
-    float4 texel = surface.SampleLevel(sampleLinear, directAt(position.xy) / float2(size), 0);
-    return directFinish(linearRgb(directSurfaceSamples(texel) - 0.5));
+    float fade;
+    float4 texel = surface.SampleLevel(sampleLinear, directAt(position.xy, fade) / float2(size), 0);
+    return directFinish(linearRgb(directSurfaceSamples(texel) - 0.5), fade);
 }
 float4 surfaceArrayDirect(float4 position : SV_Position) : SV_Target {
     uint3 size;
     surfaceArray.GetDimensions(size.x, size.y, size.z);
-    float4 texel = surfaceArray.SampleLevel(sampleLinear, float3(directAt(position.xy) / float2(size.xy), 0), 0);
-    return directFinish(linearRgb(directSurfaceSamples(texel) - 0.5));
+    float fade;
+    float4 texel = surfaceArray.SampleLevel(sampleLinear, float3(directAt(position.xy, fade) / float2(size.xy), 0), 0);
+    return directFinish(linearRgb(directSurfaceSamples(texel) - 0.5), fade);
 }
 // The in-place surface converted into the RGBA64F texture, for what reads the texture.
 float4 surfaceArray444(float4 position : SV_Position) : SV_Target {

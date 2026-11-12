@@ -58,13 +58,51 @@ public class PyroWaveFrameWarpWiringTest {
         assertTrue(java.contains("if (frameWarp) nativeNoteFrameNumber(handle, frameNumber);"));
     }
 
+    // Both passes take the shift the same way: no mask read without a shift or where the mask does not apply, the
+    // picture mirrored and faded past its edges, and a pixel whose shifted position is HUD left in place (as the
+    // Vulkan, GLES and desktop presenters)
+    @Test
+    public void bothPassesShiftMirrorAndFadeAlike() throws Exception {
+        String warp = read("src/main/jni/pyrowave-renderer/shaders/frame_warp.glsl");
+        int zero = warp.indexOf("if (frameWarp.shift.x == 0.0 && frameWarp.shift.y == 0.0) return uv;");
+        int masked = warp.indexOf("if (frameWarp.shift.z > 0.5) {\n        if (texture(u_hud, uv).r > 0.5) return uv;");
+        assertTrue(zero > 0 && masked > zero);
+        assertTrue(warp.indexOf("texture(u_hud") > masked);
+        assertTrue(warp.contains("fade = 1.0 - 0.35 * clamp(max(max(outside.x, outside.y), 0.0) / 0.08, 0.0, 1.0);"));
+        assertTrue(warp.contains("vec2 source = clamp(1.0 - abs(1.0 - abs(p)), 0.0, 1.0);"));
+        // A pixel whose shifted position lands on the HUD stays put rather than drawing a copy of the HUD
+        int ghost = warp.indexOf("if (frameWarp.shift.z > 0.5 && texture(u_hud, source).r > 0.5) return uv;");
+        assertTrue(ghost > masked && warp.indexOf("return source;") > ghost);
+        for (String pass : new String[] {"planar_csc.frag", "sgsr.frag"}) {
+            String source = read("src/main/jni/pyrowave-renderer/shaders/" + pass);
+            assertTrue(pass, source.contains("= frameWarpUv(") && source.contains(", warpFade);"));
+            assertTrue(pass, source.contains("#ifdef FRAME_WARP\n    rgb *= warpFade;\n#endif"));
+        }
+    }
+
+    // The Vulkan video path follows the same rule: the mask where the pixel is, then the shifted position mirrored,
+    // and a pixel whose shifted position lands on the HUD left in place
+    @Test
+    public void vulkanVideoWarpLeavesAPixelWhoseShiftedPositionIsHudInPlace() throws Exception {
+        String warp = read("src/main/jni/vulkan/shaders/video_warp.frag");
+        int masked = warp.indexOf("hud = texture(uHud, picture).r > 0.5;");
+        int mirrored = warp.indexOf("p = 1.0 - abs(1.0 - abs(p));");
+        int ghost = warp.indexOf("if (pc.warp.z <= 0.5 || texture(uHud, p).r <= 0.5) {");
+        assertTrue(masked > 0 && mirrored > masked && ghost > mirrored);
+        assertTrue(warp.indexOf("uv = pc.warpRect.xy + p * pc.warpRect.zw;") > ghost);
+        assertTrue(warp.contains("outColor.rgb *= fade;"));
+    }
+
     // Without Frame Warp nothing new runs: the plain pipelines, no set 1, no redraws
     @Test
     public void withoutFrameWarpThePlainPassesDraw() throws Exception {
         String cpp = read(NATIVE);
         assertTrue(cpp.contains("warp == nullptr ? upscalePipeline : warpUpscalePipeline"));
         assertTrue(cpp.contains("warp == nullptr ? pipeline : warpPipeline"));
-        assertTrue(cpp.contains("if (schedule.held() >= 0 && warpRedraws()) {"));
+        assertTrue(cpp.contains("if (schedule.held() >= 0 && warpRedraws() && warpWantsVsync()) {"));
+        // Woken at a vsync only with a locked model, and then only while the view turns
+        assertTrue(cpp.contains("return warp != nullptr && warpDrawn.active && (warpLookAfterPicture || warpDrawn.mayMove(warp));"));
+        assertTrue(cpp.contains("if (!warpDrawn.mayMove(warp)) return true;"));
         // Only Frame Warp holds a picture for redraws
         assertTrue(cpp.contains("if (!warpRedraws()) return;\n            std::lock_guard<std::mutex> lock(slotMutex);\n" +
                 "            schedule.hold(index);"));

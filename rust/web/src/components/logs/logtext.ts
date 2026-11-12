@@ -53,7 +53,12 @@ export interface Piece {
   hit: number;
 }
 
-export function pieces(line: LogLine, pattern: RegExp): Piece[] {
+/** Matches marked in one line: a line of thousands would otherwise become thousands of elements. */
+export const MAX_MARKS = 400;
+
+/** The line cut at its matches. Past MAX_MARKS matches, only those around match `around` are cut out. */
+export function pieces(line: LogLine, pattern: RegExp, around = 0): Piece[] {
+  const first = Math.max(0, around - MAX_MARKS / 2);
   const out: Piece[] = [];
   const push = (from: number, to: number, hit: number) => {
     if (from < line.time && to > line.time) {
@@ -66,10 +71,34 @@ export function pieces(line: LogLine, pattern: RegExp): Piece[] {
   let at = 0;
   let hit = 0;
   for (const match of line.text.matchAll(pattern)) {
+    const n = hit++;
+    if (n < first || n >= first + MAX_MARKS) continue;
     push(at, match.index, -1);
     at = match.index + match[0].length;
-    push(match.index, at, hit++);
+    push(match.index, at, n);
   }
   push(at, line.text.length, -1);
   return out;
+}
+
+/** Index of the line with `id`, or of the nearest line after it (the last one when none is); ids ascend. */
+export function indexOfId(lines: LogLine[], id: number): number {
+  let low = 0;
+  let high = lines.length - 1;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (lines[middle]!.id < id) low = middle + 1;
+    else high = middle;
+  }
+  return Math.max(0, low);
+}
+
+/**
+ * The ids of the first and last line whose matches are marked: `span` lines either side of line `anchor`.
+ * Marking every match of a short search in 5000 lines made tens of thousands of elements and froze the page.
+ */
+export function markedRange(lines: LogLine[], anchor: number, span: number): { from: number; to: number } {
+  if (!lines.length) return { from: 0, to: -1 };
+  const at = indexOfId(lines, anchor);
+  return { from: lines[Math.max(0, at - span)]!.id, to: lines[Math.min(lines.length - 1, at + span)]!.id };
 }

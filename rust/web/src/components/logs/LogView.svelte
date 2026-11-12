@@ -1,6 +1,6 @@
 <script lang="ts">
   import Button from '../Button.svelte';
-  import { pieces, type LogLine } from './logtext';
+  import { indexOfId, markedRange, pieces, type LogLine } from './logtext';
 
   let {
     lines,
@@ -12,7 +12,7 @@
   }: {
     lines: LogLine[];
     pattern: RegExp | null;
-    /** Ids of the lines that contain a match. */
+    /** Ids of the lines that contain a match. Their matches are marked near the view and on the current match's line. */
     matched: Set<number>;
     current: { id: number; n: number } | null;
     /** Shown instead of the lines when set. */
@@ -21,8 +21,26 @@
     follow?: boolean;
   } = $props();
 
+  /** Lines either side of the one in view whose matches are marked. */
+  const MARK_SPAN = 200;
+  /** How far the view moves before other lines are marked: more than half a tall window stays covered. */
+  const MARK_SLACK = 60;
+
   let scroller = $state<HTMLDivElement>();
   let height = $state(480);
+  /** Id of the line the marked lines are centred on. */
+  let anchor = $state(0);
+  const marked = $derived(markedRange(lines, anchor, MARK_SPAN));
+
+  // Moves the marked lines to the line in the middle of the view, once it has moved far enough.
+  function locate() {
+    if (!scroller || !pattern) return;
+    const box = scroller.getBoundingClientRect();
+    const line = document.elementFromPoint(box.left + 24, box.top + box.height / 2)?.closest<HTMLElement>('.line');
+    const id = Number(line?.dataset.id);
+    if (!id || !scroller.contains(line ?? null)) return;
+    if (Math.abs(indexOfId(lines, id) - indexOfId(lines, anchor)) > MARK_SLACK) anchor = id;
+  }
 
   // Fill the window below the toolbar; the page itself should not scroll.
   function fit() {
@@ -52,23 +70,32 @@
   $effect(() => {
     void lines;
     void height;
+    void pattern;
     if (follow && scroller) scroller.scrollTop = scroller.scrollHeight;
+    // New lines push the old ones up without a scroll event.
+    locate();
   });
 
   $effect(() => {
     if (current && scroller) scroller.querySelector('mark.current')?.scrollIntoView({ block: 'center', inline: 'nearest' });
   });
 
+  let locating = 0;
+
   function onscroll() {
     if (!scroller) return;
     const atBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 8;
     if (atBottom !== follow) follow = atBottom;
+    cancelAnimationFrame(locating);
+    locating = requestAnimationFrame(locate);
   }
+
+  $effect(() => () => cancelAnimationFrame(locating));
 </script>
 
 <svelte:window onresize={fit} />
 
-{#snippet highlighted(line: LogLine, pattern: RegExp)}{#each pieces(line, pattern) as piece}{#if piece.hit >= 0}<mark class:current={current?.id === line.id && current.n === piece.hit}>{piece.text}</mark>{:else if piece.time}<span class="time">{piece.text}</span>{:else}{piece.text}{/if}{/each}{/snippet}
+{#snippet highlighted(line: LogLine, pattern: RegExp)}{#each pieces(line, pattern, current?.id === line.id ? current.n : 0) as piece}{#if piece.hit >= 0}<mark class:current={current?.id === line.id && current.n === piece.hit}>{piece.text}</mark>{:else if piece.time}<span class="time">{piece.text}</span>{:else}{piece.text}{/if}{/each}{/snippet}
 
 <div class="frame">
   <!-- role="log" is a live region by default; announcing every line each second would drown out everything else. -->
@@ -79,7 +106,7 @@
       <div class="lines">
         <!-- Lines keep their spacing (white-space: pre), so nothing may sit between these tags. -->
         {#each lines as line (line.id)}
-          <div class="line" class:warn={line.level === 'WARN'} class:error={line.level === 'ERROR'}>{#if pattern && matched.has(line.id)}{@render highlighted(line, pattern)}{:else}<span class="time">{line.text.slice(0, line.time)}</span>{line.text.slice(line.time)}{/if}</div>
+          <div class="line" class:warn={line.level === 'WARN'} class:error={line.level === 'ERROR'} data-id={line.id}>{#if pattern && matched.has(line.id) && ((line.id >= marked.from && line.id <= marked.to) || current?.id === line.id)}{@render highlighted(line, pattern)}{:else}<span class="time">{line.text.slice(0, line.time)}</span>{line.text.slice(line.time)}{/if}</div>
         {/each}
       </div>
     {/if}

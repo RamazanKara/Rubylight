@@ -1,9 +1,0 @@
-# Console
-- **Home leads with what matters.** On a new PC it opens on a QR code and a PIN to pair your first device. Once a device is paired it shows the game that is running or was played last, and while you stream, the stream's live frame rate and bitrate.
-- **Problems come with their fix.** Home lists only what needs attention, most important first, and its button does the fix: turn on waking this PC from a device, switch between a virtual display and a monitor, or allow pairing. Everything that is fine folds into one line.
-- **Pairing in one step.** The QR code and the PIN sit side by side, the choice of what a device may do waits until your first device is paired, and with pairing off the QR code stays in place behind one Allow pairing button. When a device pairs, Home greets it by name.
-- **Settings you can find.** All settings has six tabs (This PC, Picture, Sound & controls, Games, Network, Advanced), and a section bar follows you down long pages. The Settings home keeps only the few things most people change, with waking this PC as one switch. Intervals, timeouts, sizes and resolutions are menus with a Custom option instead of raw seconds and milliseconds. Every setting keeps its key, and old links still open the right place.
-- **Help that helps.** Help holds connection help, what the log says and the support bundle. Restarting Rubylight, display recovery, the Windows session, Nucleus Co-op's status and crash reports moved to Advanced › Troubleshoot.
-- **Search everything with Ctrl+K.** Games, devices, settings and actions such as Pair a device, Sync games now or Restart Rubylight, from any page.
-- **Calmer and smoother.** One style for every fold, an (i) beside a setting for its finer points, and pages that fade into each other while a game's cover grows into its page, unless the system asks for reduced motion.
-- Turning on browser streaming is one button on the Stream page.

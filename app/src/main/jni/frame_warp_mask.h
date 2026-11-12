@@ -1,7 +1,8 @@
 // Frame Warp for the native renderers (docs/frame-warp.md): what the Vulkan video renderer and
 // the PyroWave renderer share on the CPU side. The HUD mask as the host last sent it, one byte per
-// cell, and the rule for drawing a picture again between the host's pictures. Free of Vulkan
-// types for the host tests (app/src/test/native/frame_warp_mask_test.cpp).
+// cell, the rules for drawing a picture again between the host's pictures, and where the picture
+// is in a padded decoder buffer. Free of Vulkan types for the host tests
+// (app/src/test/native/frame_warp_mask_test.cpp).
 #pragma once
 
 #include <cmath>
@@ -19,6 +20,66 @@ constexpr float kFrameWarpRedrawPx = 0.25f;
 // drawnY), to draw the picture again.
 inline bool frameWarpMoved(float drawnX, float drawnY, float x, float y) {
     return std::hypot(x - drawnX, y - drawnY) >= kFrameWarpRedrawPx;
+}
+
+// What the picture on screen was last drawn with, so that a refresh between the host's pictures
+// can tell without peek() (which takes the stream's lock) that a redraw has nothing new to show.
+// GlesUpscaler keeps the same in Java.
+struct FrameWarpDrawn {
+    // The shift on screen, picture pixels
+    float px[2] = {0.0f, 0.0f};
+    // The draw's shift was active: the host's model is locked, or fading out after it unlocked
+    bool active = false;
+    // FrameWarpApi::input_seq as the draw read it, before its warp()
+    uint32_t inputSeq = 0;
+
+    // A draw that `code` and `out` came from (warp(), frame_warp_api.h), with input_seq read
+    // before it
+    void note(int32_t code, const float *out, uint32_t seq) {
+        active = code != FRAME_WARP_INACTIVE;
+        px[0] = active ? out[2] : 0.0f;
+        px[1] = active ? out[3] : 0.0f;
+        inputSeq = seq;
+    }
+
+    // Whether the shift may have moved since the draw: only while the model is locked, and then
+    // while the shift on screen is not zero (a fade or the turn in flight still changes it), input
+    // was sent since, or the stick is deflected (its turn grows without new input)
+    bool mayMove(const FrameWarpApi *api) const {
+        if (!active) return false;
+        if (px[0] != 0.0f || px[1] != 0.0f) return true;
+        return api->input_seq() != inputSeq || api->stick_deflected() != 0;
+    }
+};
+
+// The most columns and rows an encoder's alignment adds beyond the stream's size (AMD's AV1: up
+// to a multiple of 64 columns and 16 rows), as StreamResizePolicy.PADDING_COLUMNS and PADDING_ROWS
+constexpr int32_t kFrameWarpPaddingColumns = 64;
+constexpr int32_t kFrameWarpPaddingRows = 16;
+
+struct FrameWarpRect {
+    int32_t left = 0;
+    int32_t top = 0;
+    int32_t right = 0;
+    int32_t bottom = 0;
+};
+
+// The stream's picture within a decoder's crop rect. A decoder can leave an encoder's alignment
+// padding inside its crop (AMD's AV1 at 2184x1968 decodes as 2240x1968, black at the right); the
+// stream view then enlarges the video so that the padding falls off screen
+// (StreamResizePolicy.paddedVisibleSize), and the picture is the crop's top left at the stream's
+// size. Any other crop is the picture as it is.
+inline FrameWarpRect frameWarpPicture(FrameWarpRect crop, int32_t streamWidth, int32_t streamHeight) {
+    const int32_t width = crop.right - crop.left;
+    const int32_t height = crop.bottom - crop.top;
+    const auto padded = [](int32_t extent, int32_t stream, int32_t most) {
+        return stream > 0 && extent >= stream && extent < stream + most;
+    };
+    if (padded(width, streamWidth, kFrameWarpPaddingColumns) && padded(height, streamHeight, kFrameWarpPaddingRows)) {
+        crop.right = crop.left + streamWidth;
+        crop.bottom = crop.top + streamHeight;
+    }
+    return crop;
 }
 
 // The newest HUD mask from the host: one byte per cell (255 where the HUD stays put, 0 elsewhere),

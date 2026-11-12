@@ -42,16 +42,28 @@ public class UpscalingShaderTest {
     }
 
     @Test
-    public void frameWarpReadsTheMaskWhereThePixelIsAndClampsTheShiftedPicture() throws Exception {
+    public void frameWarpReadsTheMaskWhereThePixelIsAndMirrorsTheShiftedPicture() throws Exception {
         String warp = source("warp.frag");
         assertTrue(warp.contains("uniform vec3 warp;"));
         assertTrue(warp.contains("uniform lowp sampler2D hudMask;"));
+        // No shift reads no mask; the mask only when it applies.
+        assertTrue(warp.contains("if (warp.x != 0.0 || warp.y != 0.0) {"));
+        assertTrue(warp.contains("if (warp.z > 0.5) {"));
         // The mask is in picture space with rows from the top; upscale.vert's uv has y up.
         assertTrue(warp.contains("vec2 picture = vec2(uv.x, 1.0 - uv.y);"));
         assertTrue(warp.contains("texture(hudMask, picture)"));
-        // Sampled at the position less the shift: y down in the shift, up in uv.
-        assertTrue(warp.contains("clamp(uv - vec2(warp.x, -warp.y), 0.0, 1.0)"));
+        // Sampled at the position less the shift, mirrored at the edges and faded with the distance past them
+        // (the same rule as the Vulkan, PyroWave and desktop presenters).
+        assertTrue(warp.contains("vec2 p = picture - warp.xy;"));
+        assertTrue(warp.contains("p = 1.0 - abs(1.0 - abs(p));"));
+        assertTrue(warp.contains("float edgeFade = 1.0 - 0.35 * clamp(max(max(outside.x, outside.y), 0.0) / 0.08, 0.0, 1.0);"));
+        // A pixel whose shifted position lands on the HUD stays where it is, rather than drawing a copy of the HUD.
+        int ghost = warp.indexOf("if (warp.z <= 0.5 || texture(hudMask, p).r <= 0.5) {");
+        assertTrue(ghost > 0);
+        assertTrue(warp.indexOf("fade = edgeFade;") > ghost);
+        assertTrue(warp.indexOf("at = clamp(vec2(p.x, 1.0 - p.y), 0.0, 1.0);") > ghost);
         assertTrue(warp.contains("textureTransform * vec4(at, 0.0, 1.0)"));
+        assertTrue(warp.contains(".rgb * fade, 1.0)"));
     }
 
     @Test

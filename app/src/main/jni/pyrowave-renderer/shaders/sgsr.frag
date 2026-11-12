@@ -60,7 +60,8 @@ vec2 weightY(float dx, float dy, float c, float std) {
 void main() {
     vec2 sourceUv = pyroSourceUv(v_uv, params.rotationQuarterTurns);
 #ifdef FRAME_WARP
-    sourceUv = frameWarpUv(sourceUv);
+    float warpFade;
+    sourceUv = frameWarpUv(sourceUv, warpFade);
 #endif
     vec2 uv = vec2(sourceUv.x, 1.0 - sourceUv.y);
     vec3 rgb = loadColor(uv);
@@ -105,5 +106,8 @@ void main() {
         float deltaY = clamp(finalY - center, -23.0 / 255.0, 23.0 / 255.0);
         rgb = clamp(rgb + deltaY, 0.0, 1.0);
     }
+#ifdef FRAME_WARP
+    rgb *= warpFade;
+#endif
     color = vec4(rgb, 1.0);
 }

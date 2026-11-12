@@ -32,7 +32,7 @@ pub const MASK_MAX_WIDTH: u16 = 1024;
 pub const FRAME_RING: usize = 128;
 
 /// [`FrameWarpApi::version`]; `frame_warp_api.h` checks it.
-pub const API_VERSION: u32 = 1;
+pub const API_VERSION: u32 = 2;
 /// `warp` codes besides a mask generation (0 to 65535).
 pub const WARP_NO_MASK: i32 = -1;
 pub const WARP_INACTIVE: i32 = -2;
@@ -186,6 +186,32 @@ pub fn peek_for(frame: Option<u32>) -> (i32, [f32; 4]) {
     }
 }
 
+/// The count of mouse and controller inputs noted for the running stream (wrapping), 0 without
+/// one: a renderer that kept it from its last draw knows, without asking for a shift, whether
+/// input was sent since.
+pub fn input_seq() -> u32 {
+    lock(&CURRENT).as_ref().map_or(0, |warp| warp.input_seq())
+}
+
+/// Whether the tracked right stick is deflected, whose turn grows without new input; false
+/// without a stream.
+pub fn stick_deflected() -> bool {
+    lock(&CURRENT).as_ref().is_some_and(|warp| warp.stick_deflected())
+}
+
+/// [`input_state`]'s bit set while the stick is deflected; the input count is the low 32 bits.
+pub const INPUT_STICK_DEFLECTED: i64 = 1 << 32;
+
+/// [`input_seq`] and [`stick_deflected`] in one value, for Java's redraws between pictures to
+/// read with one call: the count in the low 32 bits, [`INPUT_STICK_DEFLECTED`] while deflected.
+pub fn input_state() -> i64 {
+    pack_input_state(input_seq(), stick_deflected())
+}
+
+pub fn pack_input_state(seq: u32, stick_deflected: bool) -> i64 {
+    i64::from(seq) | (i64::from(stick_deflected) * INPUT_STICK_DEFLECTED)
+}
+
 pub fn encode_warp(warp: &Warp) -> (i32, [f32; 4]) {
     if !warp.active {
         return (WARP_INACTIVE, [0.0; 4]);
@@ -322,6 +348,11 @@ pub struct FrameWarpApi {
     /// As `warp`, without counting it in the statistics: whether the picture on screen should be
     /// drawn again. What a redraw then draws goes through `warp`.
     pub peek: unsafe extern "C" fn(frame: i64, out: *mut f32) -> i32,
+    /// [`input_seq`]: read before a draw's `warp`, so a redraw between pictures can tell, without
+    /// a `peek`, that no input was sent since.
+    pub input_seq: extern "C" fn() -> u32,
+    /// [`stick_deflected`]: 1 while the tracked right stick is deflected, else 0.
+    pub stick_deflected: extern "C" fn() -> i32,
 }
 
 pub static API: FrameWarpApi = FrameWarpApi {
@@ -330,10 +361,20 @@ pub static API: FrameWarpApi = FrameWarpApi {
     warp: api_warp,
     mask: api_mask,
     peek: api_peek,
+    input_seq: api_input_seq,
+    stick_deflected: api_stick_deflected,
 };
 
 extern "C" fn api_frame_for_pts(pts_us: i64) -> i64 {
     frame_for_pts(pts_us).map_or(-1, i64::from)
+}
+
+extern "C" fn api_input_seq() -> u32 {
+    input_seq()
+}
+
+extern "C" fn api_stick_deflected() -> i32 {
+    i32::from(stick_deflected())
 }
 
 /// # Safety
@@ -589,8 +630,39 @@ mod tests {
         let (mut w, mut h) = (0u32, 0u32);
         assert_eq!(unsafe { (API.mask)(-1, &mut w, &mut h, std::ptr::null_mut(), 0) }, MASK_UNCHANGED);
         assert_eq!(unsafe { (API.mask)(2, &mut w, &mut h, std::ptr::null_mut(), 0) }, MASK_CLEARED);
+        assert_eq!((API.input_seq)(), 0);
+        assert_eq!((API.stick_deflected)(), 0);
+        assert_eq!(input_state(), 0);
         assert_eq!(API.version, API_VERSION);
         assert_ne!(api_address(), 0);
+    }
+
+    #[test]
+    fn the_input_state_packs_the_count_below_the_stick() {
+        assert_eq!(pack_input_state(0, false), 0);
+        assert_eq!(pack_input_state(7, false), 7);
+        assert_eq!(pack_input_state(u32::MAX, false), 0xFFFF_FFFF, "the count stays positive");
+        assert_eq!(pack_input_state(7, true), INPUT_STICK_DEFLECTED | 7);
+        assert_eq!(
+            pack_input_state(u32::MAX, true) as u32,
+            u32::MAX,
+            "Java reads the count as the low int"
+        );
+    }
+
+    #[test]
+    fn the_c_table_counts_the_input_noted() {
+        let _serial = crate::engine::tests_serial();
+        let warp = FrameWarp::new(Some(CONTROLLER), MASK_MAX_WIDTH);
+        begin(Some(warp.clone()));
+        let before = (API.input_seq)();
+        warp.note_mouse(4, -2);
+        let after = (API.input_seq)();
+        assert_ne!(after, before, "a mouse move is new input");
+        assert_eq!(input_state() as u32, after);
+        assert_eq!((API.stick_deflected)(), i32::from(warp.stick_deflected()));
+        end();
+        assert_eq!((API.input_seq)(), 0, "no stream, nothing counted");
     }
 
     #[test]

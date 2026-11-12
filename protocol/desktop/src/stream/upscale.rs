@@ -96,12 +96,13 @@ impl Upscaler {
     /// its alignment padding, which stays out).
     #[cfg(any(test, all(target_os = "macos", feature = "demo-library")))]
     pub fn draw(&self, renderer: *mut SDL_Renderer, source: *mut SDL_Texture, sharpness: u32) -> Option<*mut SDL_Texture> {
-        self.draw_warped(renderer, source, sharpness, &super::frame_warp::WarpDraw::default())
+        self.draw_warped(renderer, source, sharpness, &super::frame_warp::WarpDraw::default(), &mut super::frame_warp::Mesh::default())
     }
 
     /// `draw` with Frame Warp's `warp` applied as the picture is copied in, at its own size, so
-    /// the upscaler works on the shifted picture.
-    pub fn draw_warped(&self, renderer: *mut SDL_Renderer, source: *mut SDL_Texture, sharpness: u32, warp: &super::frame_warp::WarpDraw) -> Option<*mut SDL_Texture> {
+    /// the upscaler works on the shifted picture (its triangles built in `mesh`).
+    pub fn draw_warped(&self, renderer: *mut SDL_Renderer, source: *mut SDL_Texture, sharpness: u32, warp: &super::frame_warp::WarpDraw,
+        mesh: &mut super::frame_warp::Mesh) -> Option<*mut SDL_Texture> {
         unsafe {
             let previous = SDL_GetRenderTarget(renderer);
             if !SDL_SetRenderTarget(renderer, self.textures[0]) { return None; }
@@ -109,7 +110,7 @@ impl Upscaler {
             let copied = if warp.is_identity() {
                 SDL_RenderTexture(renderer, source, &picture, ptr::null())
             } else {
-                super::frame_warp::render_texture(renderer, source, Some(&picture), &source_rect(self.input), warp)
+                super::frame_warp::render_texture(renderer, source, Some(&picture), &source_rect(self.input), warp, mesh)
             };
             let ok = copied && SDL_FlushRenderer(renderer);
             SDL_SetRenderTarget(renderer, previous);

@@ -45,7 +45,15 @@ int32_t fakeMask(int32_t known, uint32_t *width, uint32_t *height, uint8_t *cell
     return host.generation;
 }
 
-const FrameWarpApi api = {FRAME_WARP_API_VERSION, fakeFrameForPts, fakeWarp, fakeMask, fakeWarp};
+uint32_t fakeInputSeq = 0;
+int32_t fakeStick = 0;
+
+uint32_t fakeInput() { return fakeInputSeq; }
+
+int32_t fakeStickDeflected() { return fakeStick; }
+
+const FrameWarpApi api = {FRAME_WARP_API_VERSION, fakeFrameForPts, fakeWarp, fakeMask, fakeWarp,
+                          fakeInput, fakeStickDeflected};
 
 void sendMask(int32_t generation, uint32_t width, uint32_t height, uint8_t fill) {
     host.generation = generation;
@@ -126,6 +134,64 @@ void redrawsOnlyAfterAQuarterPixel() {
     assert(!frameWarpMoved(0.0f, 0.0f, 0.15f, 0.15f));
 }
 
+void looksAgainOnlyWhileLockedAndSomethingMoves() {
+    FrameWarpDrawn drawn;
+    fakeInputSeq = 10;
+    fakeStick = 0;
+    // Nothing drawn yet, or drawn as it is (unlocked): no refresh looks, whatever is sent
+    assert(!drawn.mayMove(&api));
+    const float still[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    drawn.note(FRAME_WARP_INACTIVE, still, 10);
+    fakeInputSeq = 11;
+    fakeStick = 1;
+    assert(!drawn.mayMove(&api));
+
+    // Locked, at rest: only new input or a deflected stick
+    fakeStick = 0;
+    drawn.note(FRAME_WARP_NO_MASK, still, 11);
+    assert(drawn.active);
+    assert(!drawn.mayMove(&api));
+    fakeInputSeq = 12;
+    assert(drawn.mayMove(&api));
+    fakeInputSeq = 11;
+    fakeStick = 1;
+    assert(drawn.mayMove(&api));
+    fakeStick = 0;
+
+    // A shift on screen can still move (the turn in flight, a fade out)
+    const float turning[4] = {0.01f, 0.0f, 19.2f, 0.0f};
+    drawn.note(3, turning, 11);
+    assert(drawn.px[0] == 19.2f && drawn.px[1] == 0.0f);
+    assert(drawn.mayMove(&api));
+
+    // An inactive draw keeps no shift
+    drawn.note(FRAME_WARP_INACTIVE, turning, 11);
+    assert(!drawn.active && drawn.px[0] == 0.0f);
+}
+
+void thePictureLeavesOutAnEncodersPadding() {
+    // AMD's AV1 at 2184x1968 decodes as 2240x1968: 56 black columns at the right
+    FrameWarpRect padded = frameWarpPicture({0, 0, 2240, 1968}, 2184, 1968);
+    assert(padded.left == 0 && padded.top == 0 && padded.right == 2184 && padded.bottom == 1968);
+    // 1920x1080 as 1920x1082, and a crop that does not start at the corner
+    FrameWarpRect rows = frameWarpPicture({0, 0, 1920, 1082}, 1920, 1080);
+    assert(rows.right == 1920 && rows.bottom == 1080);
+    FrameWarpRect offset = frameWarpPicture({8, 4, 2248, 1972}, 2184, 1968);
+    assert(offset.left == 8 && offset.top == 4 && offset.right == 2192 && offset.bottom == 1972);
+    // The stream's own size, and a crop already inside it, are the picture
+    FrameWarpRect exact = frameWarpPicture({0, 0, 2184, 1968}, 2184, 1968);
+    assert(exact.right == 2184 && exact.bottom == 1968);
+    FrameWarpRect smaller = frameWarpPicture({0, 0, 1280, 720}, 2184, 1968);
+    assert(smaller.right == 1280 && smaller.bottom == 720);
+    // More than alignment adds (another size altogether), or no stream size: the crop as it is
+    FrameWarpRect wider = frameWarpPicture({0, 0, 2248, 1968}, 2184, 1968);
+    assert(wider.right == 2248);
+    FrameWarpRect taller = frameWarpPicture({0, 0, 2240, 1984}, 2184, 1968);
+    assert(taller.right == 2240 && taller.bottom == 1984);
+    FrameWarpRect unknown = frameWarpPicture({0, 0, 2240, 1968}, 0, 0);
+    assert(unknown.right == 2240);
+}
+
 } // namespace
 
 int main() {
@@ -134,5 +200,7 @@ int main() {
     clearsWhenTheHostDropsTheMask();
     refusesAMaskLargerThanAnyTheHostSends();
     redrawsOnlyAfterAQuarterPixel();
+    looksAgainOnlyWhileLockedAndSomethingMoves();
+    thePictureLeavesOutAnEncodersPadding();
     return 0;
 }

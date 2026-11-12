@@ -819,7 +819,10 @@ pub struct Packed {
     mask: std::cell::RefCell<super::frame_warp::D3d11Mask>,
 }
 
+/// Compiles `source`, with Frame Warp's shared HLSL spliced in where it includes it
+/// (`frame_warp::hlsl`).
 pub(crate) unsafe fn compile(source: &[u8], entry: PCSTR, profile: PCSTR) -> windows::core::Result<ID3DBlob> {
+    let source = super::frame_warp::hlsl(source);
     let mut code = None;
     let mut errors: Option<ID3DBlob> = None;
     let result = D3DCompile(

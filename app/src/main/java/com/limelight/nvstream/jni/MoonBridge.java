@@ -707,6 +707,18 @@ public class MoonBridge {
         return rustStream ? RustBridge.frameWarpPeekForPts(ptsUs, out) : FRAME_WARP_INACTIVE;
     }
 
+    /** frameWarpInputState(): set while the tracked right stick is deflected. */
+    public static final long FRAME_WARP_STICK_DEFLECTED = 1L << 32;
+
+    /**
+     * Whether a redraw between pictures can have anything new to show, without asking for a shift: the count of
+     * mouse and controller inputs sent (the low 32 bits; read it before a draw's frameWarpForPts() and compare)
+     * and FRAME_WARP_STICK_DEFLECTED. 0 without a stream.
+     */
+    public static long frameWarpInputState() {
+        return rustStream ? RustBridge.frameWarpInputState() : 0;
+    }
+
     /**
      * The HUD mask when its generation is not {@code known} (-1 for none): {@code size} gets width and height and
      * {@code cells}, when it has room, one byte per cell (0 or 255, rows from the top). Returns the generation or a

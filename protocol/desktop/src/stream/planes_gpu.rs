@@ -47,6 +47,8 @@ pub struct PlanesPass {
     transfer: *mut SDL_GPUTransferBuffer,
     /// The render state drawing `textures` (null when the pass samples the decoder's images).
     state: *mut SDL_GPURenderState,
+    /// The plane textures `state` draws (`bind`).
+    bound: [*mut SDL_GPUTexture; 3],
     /// The width and height of each plane texture.
     sizes: [(u32, u32); 3],
     sample_bytes: usize,
@@ -56,13 +58,14 @@ pub struct PlanesPass {
     /// The set the shown picture is sampled from, in place (`PlaneHandoff::Sample`).
     handover: Handover<Lease>,
     /// The render states drawing the wrapped images of VA-API pictures sampled in place
-    /// (`vulkan_video::Planes::sample`), by their luma texture, made on first use. The textures
-    /// belong to the presenter's planes, which outlive the pass.
-    sampled_states: std::collections::HashMap<usize, *mut SDL_GPURenderState>,
+    /// (`vulkan_video::Planes::sample`), by their luma texture, made on first use, with the
+    /// textures they draw. The textures belong to the presenter's planes, which outlive the pass.
+    sampled_states: std::collections::HashMap<usize, (*mut SDL_GPURenderState, [*mut SDL_GPUTexture; 3])>,
     /// The state of the picture sampled last, which the next draw uses; null: the planes' copies.
     sampled_active: *mut SDL_GPURenderState,
     /// Frame Warp's HUD mask (`hudMask`, the fourth sampler slot), `MASK_ROW_BYTES` by
-    /// `MASK_ROWS` R8 texels; null when it could not be made, the luma plane standing in.
+    /// `MASK_ROWS` R8 texels, made with the first mask a draw shifts with (`upload_mask`);
+    /// null until then, the luma plane standing in.
     mask: *mut SDL_GPUTexture,
     /// The HUD the mask texture holds.
     mask_made: Option<Arc<super::frame_warp::Hud>>,
@@ -196,10 +199,11 @@ impl PlanesPass {
     pub unsafe fn draw_sampled_textures(&mut self, renderer: *mut SDL_Renderer, target: *mut SDL_Texture, textures: [*mut SDL_GPUTexture; 2], parameters: &[u32; 8]) -> Result<(), String> {
         let key = textures[0] as usize;
         let state = match self.sampled_states.get(&key) {
-            Some(&state) => state,
+            Some(&(state, _)) => state,
             None => {
-                let state = self.make_state(renderer, [textures[0], textures[1], textures[1]])?;
-                self.sampled_states.insert(key, state);
+                let textures = [textures[0], textures[1], textures[1]];
+                let state = self.make_state(renderer, textures)?;
+                self.sampled_states.insert(key, (state, textures));
                 state
             }
         };
@@ -237,7 +241,7 @@ impl PlanesPass {
         }
         let mut pass = Self {
             renderer, device, shader: ptr::null_mut(), sampler: ptr::null_mut(), textures: [ptr::null_mut(); 3],
-            transfer: ptr::null_mut(), state: ptr::null_mut(), sizes, sample_bytes, wrapped: None, handover: Handover::default(),
+            transfer: ptr::null_mut(), state: ptr::null_mut(), bound: [ptr::null_mut(); 3], sizes, sample_bytes, wrapped: None, handover: Handover::default(),
             sampled_states: Default::default(), sampled_active: ptr::null_mut(), mask: ptr::null_mut(), mask_made: None, mask_failed: false,
         };
         pass.shader = create_shader(device);
@@ -251,17 +255,48 @@ impl PlanesPass {
         if pass.sampler.is_null() {
             return Err(format!("the plane sampler cannot be created: {}", crate::sdl::error()));
         }
-        // The shader reads the mask only while Frame Warp shifts with one; without the texture
-        // the slot holds a plane and the HUD moves with the picture.
-        pass.mask = SDL_CreateGPUTexture(device, &SDL_GPUTextureCreateInfo {
-            r#type: SDL_GPU_TEXTURETYPE_2D, format: SDL_GPU_TEXTUREFORMAT_R8_UNORM, usage: SDL_GPU_TEXTUREUSAGE_SAMPLER,
-            width: MASK_ROW_BYTES, height: MASK_ROWS, layer_count_or_depth: 1, num_levels: 1, sample_count: SDL_GPU_SAMPLECOUNT_1, ..Default::default() });
+        // The shader reads the mask only while Frame Warp shifts with one, so its texture waits
+        // for the first (`upload_mask`): until then the slot holds a plane.
         Ok(pass)
     }
 
     /// The render state drawing `textures` in the shader's three plane slots.
     unsafe fn bind(&mut self, renderer: *mut SDL_Renderer, textures: [*mut SDL_GPUTexture; 3]) -> Result<(), String> {
         self.state = self.make_state(renderer, textures)?;
+        self.bound = textures;
+        Ok(())
+    }
+
+    /// Makes every render state again, now that the mask texture exists for their fourth slot:
+    /// those made before it hold a plane there. SDL flushes what was queued with a state before
+    /// it lets the state go.
+    unsafe fn rebind_mask(&mut self) -> Result<(), String> {
+        let renderer = self.renderer;
+        if !self.state.is_null() {
+            let state = self.make_state(renderer, self.bound)?;
+            SDL_DestroyGPURenderState(std::mem::replace(&mut self.state, state));
+        }
+        let sets = self.wrapped.as_ref().map(|wrapped| wrapped.sets.clone()).unwrap_or_default();
+        for (set, textures) in sets.into_iter().enumerate() {
+            let Some(old) = self.wrapped.as_ref().and_then(|wrapped| wrapped.states.get(set).copied()) else { break };
+            if old.is_null() {
+                continue;
+            }
+            let state = self.make_state(renderer, textures)?;
+            if let Some(wrapped) = self.wrapped.as_mut() {
+                wrapped.states[set] = state;
+            }
+            SDL_DestroyGPURenderState(old);
+        }
+        let sampled: Vec<_> = self.sampled_states.iter().map(|(&key, &made)| (key, made)).collect();
+        for (key, (old, textures)) in sampled {
+            let state = self.make_state(renderer, textures)?;
+            self.sampled_states.insert(key, (state, textures));
+            if self.sampled_active == old {
+                self.sampled_active = state;
+            }
+            SDL_DestroyGPURenderState(old);
+        }
         Ok(())
     }
 
@@ -586,15 +621,21 @@ impl PlanesPass {
     }
 
     /// Uploads `mask` (`frame_warp::mask_bytes`) into the top left of the mask texture, ahead of
-    /// the renderer's next draws.
+    /// the renderer's next draws. The first upload makes the texture and binds it.
     unsafe fn upload_mask(&mut self, renderer: *mut SDL_Renderer, mask: &nightjar_core::frame_warp::Mask) -> Result<(), String> {
-        if self.mask.is_null() {
-            return Err("its texture could not be made".into());
-        }
         let (row, bytes) = super::frame_warp::mask_bytes(mask);
         let rows = u32::from(mask.height);
         if bytes.is_empty() || row as u32 > MASK_ROW_BYTES || rows > MASK_ROWS {
             return Err(format!("a {}x{} mask is larger than its texture", mask.width, mask.height));
+        }
+        if self.mask.is_null() {
+            self.mask = SDL_CreateGPUTexture(self.device, &SDL_GPUTextureCreateInfo {
+                r#type: SDL_GPU_TEXTURETYPE_2D, format: SDL_GPU_TEXTUREFORMAT_R8_UNORM, usage: SDL_GPU_TEXTUREUSAGE_SAMPLER,
+                width: MASK_ROW_BYTES, height: MASK_ROWS, layer_count_or_depth: 1, num_levels: 1, sample_count: SDL_GPU_SAMPLECOUNT_1, ..Default::default() });
+            if self.mask.is_null() {
+                return Err(format!("its texture could not be made: {}", crate::sdl::error()));
+            }
+            self.rebind_mask().map_err(|error| format!("its texture cannot be bound: {error}"))?;
         }
         // The draws queued so far read the mask before this upload replaces it.
         if !SDL_FlushRenderer(renderer) {
@@ -828,7 +869,7 @@ impl Drop for PlanesPass {
             if !self.sampled_states.is_empty() {
                 // The held picture's draws may still read the images the states are of.
                 SDL_WaitForGPUIdle(self.device);
-                for (_, state) in self.sampled_states.drain() { SDL_DestroyGPURenderState(state); }
+                for (_, (state, _)) in self.sampled_states.drain() { SDL_DestroyGPURenderState(state); }
             }
             if !self.state.is_null() { SDL_DestroyGPURenderState(self.state); }
             if !self.transfer.is_null() { SDL_ReleaseGPUTransferBuffer(self.device, self.transfer); }

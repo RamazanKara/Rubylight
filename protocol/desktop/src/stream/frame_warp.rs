@@ -5,16 +5,22 @@
 //! the shift moves between pictures.
 //!
 //! What every path does, in fractions of the visible picture: the output point `uv` samples the
-//! picture at `uv - shift`, clamped to the picture, unless the HUD mask cell `floor(uv * (width,
-//! height))` is set, which samples at `uv`. The shader paths read the mask as bytes (byte `x / 8`
-//! of row `y`, bit `x % 8`: `Mask::words` in little-endian order) through one `warp` row of their
-//! constants, `(shift x, shift y, mask width, mask height)`; the SDL renderer path draws the same
-//! mapping as triangles (`render_texture`). An identity shift takes each path's draw as it was.
+//! picture at `uv - shift` with the edge fill where that is outside the picture (mirrored at the
+//! edge and darkened, `nightjar_core::frame_warp::edge`), unless the HUD mask cell
+//! `floor(uv * (width, height))` is set, or the cell that sample lands on is, which samples at
+//! `uv` as it is: the HUD stays in place and isn't drawn a second time beside itself, a shift
+//! away (the scene behind it isn't in the picture, so it stays unshifted there). The shader
+//! paths share `frame_warp.hlsl` (`hlsl`) and read the mask as bytes (byte `x / 8` of row `y`,
+//! bit `x % 8`: `Mask::words` in little-endian order) through one `warp` row of their constants,
+//! `(shift x, shift y, mask width, mask height)`; the SDL renderer path draws the same mapping as
+//! triangles (`Mesh`, `render_texture`). An identity shift takes each path's draw as it was.
 
+#[cfg(any(windows, test))]
+use std::borrow::Cow;
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
-use nightjar_core::frame_warp::{FrameWarp, Mask, Model, Status, Warp};
+use nightjar_core::frame_warp::{edge, edge_axis, FrameWarp, Mask, Model, Status, Warp, EDGE_RAMP};
 use sdl3_sys::everything::*;
 
 use crate::config::{HostRecord, NOTICE_FRAME_WARP_UNAVAILABLE};
@@ -26,6 +32,32 @@ pub const MASK_EDGE: u16 = rubylight_protocol::frame_warp::MAX_MASK_EDGE;
 pub const REPEAT_STEP: f32 = 0.25;
 /// The most HUD rectangles the SDL renderer path draws; a finer mask is drawn coarser.
 pub const MAX_HUD_RECTS: usize = 1024;
+/// Frame Warp's HLSL, which the HLSL shaders include as `frame_warp.hlsl` (`hlsl`).
+#[cfg(any(windows, test))]
+pub const HLSL: &str = include_str!("../frame_warp.hlsl");
+#[cfg(any(windows, test))]
+const HLSL_INCLUDE: &[u8] = b"#include \"frame_warp.hlsl\"";
+
+/// `source` with each line that includes `frame_warp.hlsl` replaced by the file, as glslang finds
+/// it beside the shader: Direct3D 11 compiles from memory, with no file to include from.
+#[cfg(any(windows, test))]
+pub fn hlsl(source: &[u8]) -> Cow<'_, [u8]> {
+    let find = |text: &[u8]| text.windows(HLSL_INCLUDE.len()).position(|window| window == HLSL_INCLUDE);
+    let Some(mut at) = find(source) else { return Cow::Borrowed(source) };
+    let mut out = Vec::with_capacity(source.len() + HLSL.len());
+    let mut rest = source;
+    loop {
+        out.extend_from_slice(&rest[..at]);
+        out.extend_from_slice(HLSL.as_bytes());
+        rest = &rest[at + HLSL_INCLUDE.len()..];
+        match find(rest) {
+            Some(next) => at = next,
+            None => break,
+        }
+    }
+    out.extend_from_slice(rest);
+    Cow::Owned(out)
+}
 
 /// A HUD mask and, made on first use, its rectangles for the SDL renderer path.
 #[derive(Debug)]
@@ -200,61 +232,173 @@ pub fn hud_areas(mask: &Mask, limit: usize) -> Vec<[f32; 4]> {
     }
 }
 
-/// A rectangle of the destination and where it samples the picture: `at` and `uv` are
-/// `[x0, y0, x1, y1]` in fractions of the destination and of the picture.
+/// A corner of the triangles the SDL renderer path draws: where it is on the destination and
+/// where it samples the picture (fractions of each), and how bright it is (the edge fill's fade).
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Quad {
-    pub at: [f32; 4],
-    pub uv: [f32; 4],
+pub struct Corner {
+    pub at: [f32; 2],
+    pub uv: [f32; 2],
+    pub fade: f32,
 }
 
-/// The quads that draw the picture shifted by `shift` (fractions of the picture) and held at its
-/// edges, where the shift uncovers the outside, then the HUD `areas` in place over it. Each
-/// quad's mapping is linear: a column or row past an edge samples that edge throughout.
-pub fn quads(shift: [f32; 2], areas: &[[f32; 4]]) -> Vec<Quad> {
-    let cuts = |s: f32| [0.0, s.clamp(0.0, 1.0), (1.0 + s).clamp(0.0, 1.0), 1.0];
-    let (xs, ys) = (cuts(shift[0]), cuts(shift[1]));
-    let mut out = Vec::with_capacity(9 + areas.len());
-    for row in 0..3 {
-        for column in 0..3 {
-            let at = [xs[column], ys[row], xs[column + 1], ys[row + 1]];
-            if at[2] <= at[0] || at[3] <= at[1] {
-                continue;
+/// Where one axis of the destination is cut for the shift `s`: its ends, and each point between
+/// where the edge fill bends (the picture's edges, a whole picture past them, and the end of the
+/// darkening), so that sampling and darkening are linear between cuts. Returns the cuts in order.
+fn edge_cuts(s: f32) -> ([f32; 8], usize) {
+    let mut cuts = [0.0f32; 8];
+    cuts[1] = 1.0;
+    let mut count = 2;
+    for bend in [-1.0, -EDGE_RAMP, 0.0, 1.0, 1.0 + EDGE_RAMP, 2.0] {
+        let at = s + bend;
+        if at > 0.0 && at < 1.0 {
+            cuts[count] = at;
+            count += 1;
+        }
+    }
+    cuts[..count].sort_by(f32::total_cmp);
+    let sorted = cuts;
+    let mut kept = 1;
+    for &at in &sorted[1..count] {
+        if at > cuts[kept - 1] {
+            cuts[kept] = at;
+            kept += 1;
+        }
+    }
+    (cuts, kept)
+}
+
+/// The stretches of one destination axis, under the shift `s` on it, whose point samples inside
+/// `a..b` of the picture with the edge fill (`edge_axis`): `a..b` itself and its mirrors past
+/// either edge, each moved by the shift and cut to the destination. A stretch that reaches an edge
+/// reaches out all the way past it, since the fill holds that edge past a whole picture.
+fn edge_sources(s: f32, a: f32, b: f32) -> [Option<(f32, f32)>; 3] {
+    let below = if b >= 1.0 { f32::NEG_INFINITY } else { -b };
+    let above = if a <= 0.0 { f32::INFINITY } else { 2.0 - a };
+    [(a, b), (below, -a), (2.0 - b, above)].map(|(lo, hi)| {
+        let (lo, hi) = ((lo + s).max(0.0), (hi + s).min(1.0));
+        (lo < hi).then_some((lo, hi))
+    })
+}
+
+/// The triangles that draw a shifted picture on the SDL renderer path, and the buffers they are
+/// made in: the presenter keeps one, so a shifted present allocates nothing once they have grown.
+#[derive(Default)]
+pub struct Mesh {
+    pub corners: Vec<Corner>,
+    /// Each triangle's three corners.
+    pub indices: Vec<i32>,
+    vertices: Vec<SDL_Vertex>,
+}
+
+impl std::fmt::Debug for Mesh {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Mesh").field("corners", &self.corners.len()).field("triangles", &(self.indices.len() / 3)).finish()
+    }
+}
+
+impl Mesh {
+    /// The picture shifted by `shift` (fractions of the picture), with the edge fill where the
+    /// shift uncovers the outside; over it the picture unshifted wherever the shifted one would
+    /// show the HUD `areas` a second time, beside themselves; then the `areas` in place. Cut where
+    /// the fill bends (`edge_cuts`), and where both axes darken along the line on which they darken
+    /// alike, each triangle samples and darkens linearly: exactly what the shaders do per pixel.
+    pub fn build(&mut self, shift: [f32; 2], areas: &[[f32; 4]]) {
+        self.corners.clear();
+        self.indices.clear();
+        let (xs, columns) = edge_cuts(shift[0]);
+        let (ys, rows) = edge_cuts(shift[1]);
+        for y in ys[..rows].windows(2) {
+            for x in xs[..columns].windows(2) {
+                self.cell(shift, [x[0], y[0], x[1], y[1]]);
             }
-            let uv = [
-                (at[0] - shift[0]).clamp(0.0, 1.0),
-                (at[1] - shift[1]).clamp(0.0, 1.0),
-                (at[2] - shift[0]).clamp(0.0, 1.0),
-                (at[3] - shift[1]).clamp(0.0, 1.0),
-            ];
-            out.push(Quad { at, uv });
+        }
+        // The shaders sample a point itself where its shifted source is on the HUD
+        // (`frameWarpShifted`): each area moved by the shift, and its mirrors in the edge fill. The
+        // edge fill acts on each axis alone, so these are exact; only a mask finer than
+        // `MAX_HUD_RECTS` covers a little more, as its areas do.
+        for area in areas {
+            let across = edge_sources(shift[0], area[0], area[2]);
+            let down = edge_sources(shift[1], area[1], area[3]);
+            for &(y0, y1) in down.iter().flatten() {
+                for &(x0, x1) in across.iter().flatten() {
+                    self.in_place([x0, y0, x1, y1]);
+                }
+            }
+        }
+        for area in areas {
+            self.in_place(*area);
         }
     }
-    out.extend(areas.iter().map(|area| Quad { at: *area, uv: *area }));
-    out
-}
 
-/// The vertices and indices of `quads` drawn into `destination` from `source` of a texture
-/// `texture` texels large, as `SDL_RenderTexture` maps a source rectangle.
-pub fn geometry(quads: &[Quad], source: SDL_FRect, texture: (f32, f32), destination: SDL_FRect) -> (Vec<SDL_Vertex>, Vec<i32>) {
-    let mut vertices = Vec::with_capacity(quads.len() * 4);
-    let mut indices = Vec::with_capacity(quads.len() * 6);
-    let white = SDL_FColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
-    for quad in quads {
-        let first = vertices.len() as i32;
-        for (x, y) in [(0, 1), (2, 1), (2, 3), (0, 3)] {
-            vertices.push(SDL_Vertex {
-                position: SDL_FPoint { x: destination.x + quad.at[x] * destination.w, y: destination.y + quad.at[y] * destination.h },
-                color: white,
-                tex_coord: SDL_FPoint {
-                    x: (source.x + quad.uv[x] * source.w) / texture.0,
-                    y: (source.y + quad.uv[y] * source.h) / texture.1,
-                },
-            });
-        }
-        indices.extend([first, first + 1, first + 2, first, first + 2, first + 3]);
+    /// The rectangle `[x0, y0, x1, y1]` of the picture where it is, at full brightness.
+    fn in_place(&mut self, [x0, y0, x1, y1]: [f32; 4]) {
+        let corner = |x: f32, y: f32| Corner { at: [x, y], uv: [x, y], fade: 1.0 };
+        self.polygon(&[corner(x0, y0), corner(x1, y0), corner(x1, y1), corner(x0, y1)]);
     }
-    (vertices, indices)
+
+    /// The cell `[x0, y0, x1, y1]` between cuts: a quad, or, where one axis alone would draw it
+    /// darker than the other in one part and lighter in another, the two parts on either side of
+    /// where they are alike, each darkened by its darker axis.
+    fn cell(&mut self, shift: [f32; 2], [x0, y0, x1, y1]: [f32; 4]) {
+        let corner = |at: [f32; 2]| {
+            let (uv, fade) = edge([at[0] - shift[0], at[1] - shift[1]]);
+            Corner { at, uv, fade }
+        };
+        // How much brighter the y axis alone draws a corner than the x axis: linear in a cell.
+        let gap = |c: &Corner| edge_axis(c.at[1] - shift[1]).1 - edge_axis(c.at[0] - shift[0]).1;
+        let quad = [corner([x0, y0]), corner([x1, y0]), corner([x1, y1]), corner([x0, y1])];
+        let gaps = quad.map(|c| gap(&c));
+        if gaps.iter().all(|&g| g >= 0.0) || gaps.iter().all(|&g| g <= 0.0) {
+            self.polygon(&quad);
+            return;
+        }
+        let (mut darker_x, mut x_count, mut darker_y, mut y_count) = ([quad[0]; 6], 0, [quad[0]; 6], 0);
+        for i in 0..4 {
+            let (a, b, ga, gb) = (quad[i], quad[(i + 1) % 4], gaps[i], gaps[(i + 1) % 4]);
+            if ga >= 0.0 {
+                darker_x[x_count] = a;
+                x_count += 1;
+            }
+            if ga <= 0.0 {
+                darker_y[y_count] = a;
+                y_count += 1;
+            }
+            if ga * gb < 0.0 {
+                let t = ga / (ga - gb);
+                let alike = corner([a.at[0] + t * (b.at[0] - a.at[0]), a.at[1] + t * (b.at[1] - a.at[1])]);
+                darker_x[x_count] = alike;
+                darker_y[y_count] = alike;
+                x_count += 1;
+                y_count += 1;
+            }
+        }
+        self.polygon(&darker_x[..x_count]);
+        self.polygon(&darker_y[..y_count]);
+    }
+
+    /// A convex polygon as a fan of triangles.
+    fn polygon(&mut self, corners: &[Corner]) {
+        if corners.len() < 3 {
+            return;
+        }
+        let first = self.corners.len() as i32;
+        self.corners.extend_from_slice(corners);
+        for i in 1..corners.len() as i32 - 1 {
+            self.indices.extend([first, first + i, first + i + 1]);
+        }
+    }
+
+    /// The vertices and indices of the built triangles drawn into `destination` from `source` of a
+    /// texture `texture` texels large, as `SDL_RenderTexture` maps a source rectangle.
+    pub fn geometry(&mut self, source: SDL_FRect, texture: (f32, f32), destination: SDL_FRect) -> (&[SDL_Vertex], &[i32]) {
+        self.vertices.clear();
+        self.vertices.extend(self.corners.iter().map(|c| SDL_Vertex {
+            position: SDL_FPoint { x: destination.x + c.at[0] * destination.w, y: destination.y + c.at[1] * destination.h },
+            color: SDL_FColor { r: c.fade, g: c.fade, b: c.fade, a: 1.0 },
+            tex_coord: SDL_FPoint { x: (source.x + c.uv[0] * source.w) / texture.0, y: (source.y + c.uv[1] * source.h) / texture.1 },
+        }));
+        (&self.vertices, &self.indices)
+    }
 }
 
 /// Says once, for the stream's life of the process, that a present path drew the picture without
@@ -267,12 +411,14 @@ pub fn unshifted(path: &str, error: &str) {
 }
 
 /// Draws `source` of `texture` (None: all of it) into `destination` as `SDL_RenderTexture` does,
-/// shifted by `warp` with its HUD in place. An identity warp is `SDL_RenderTexture` itself; a
-/// shifted draw SDL refuses is logged once (`unshifted`) and drawn unshifted.
+/// shifted by `warp` with its HUD in place and not repeated beside itself, building the triangles
+/// in `mesh`. An identity warp is `SDL_RenderTexture` itself; a shifted draw SDL refuses is logged
+/// once (`unshifted`) and drawn unshifted.
 ///
 /// # Safety
 /// `renderer` and `texture` are live, on the calling thread.
-pub unsafe fn render_texture(renderer: *mut SDL_Renderer, texture: *mut SDL_Texture, source: Option<&SDL_FRect>, destination: &SDL_FRect, warp: &WarpDraw) -> bool {
+pub unsafe fn render_texture(renderer: *mut SDL_Renderer, texture: *mut SDL_Texture, source: Option<&SDL_FRect>, destination: &SDL_FRect, warp: &WarpDraw,
+    mesh: &mut Mesh) -> bool {
     let plain = || SDL_RenderTexture(renderer, texture, source.map_or(std::ptr::null(), |rect| rect as *const _), destination);
     if warp.is_identity() {
         return plain();
@@ -280,8 +426,9 @@ pub unsafe fn render_texture(renderer: *mut SDL_Renderer, texture: *mut SDL_Text
     let (mut width, mut height) = (0.0, 0.0);
     if SDL_GetTextureSize(texture, &mut width, &mut height) && width > 0.0 && height > 0.0 {
         let source = source.copied().unwrap_or(SDL_FRect { x: 0.0, y: 0.0, w: width, h: height });
-        let areas = warp.mask().map_or(&[][..], |hud| hud.areas());
-        let (vertices, indices) = geometry(&quads(warp.shift, areas), source, (width, height), *destination);
+        mesh.build(warp.shift, warp.mask().map_or(&[][..], |hud| hud.areas()));
+        // SDL copies the vertices into its queue: the mesh is free again once this returns.
+        let (vertices, indices) = mesh.geometry(source, (width, height), *destination);
         if SDL_RenderGeometry(renderer, texture, vertices.as_ptr(), vertices.len() as i32, indices.as_ptr(), indices.len() as i32) {
             return true;
         }
@@ -365,21 +512,37 @@ pub struct Presenter {
     held: Option<Held>,
     /// The raced frame whose slices are on the screen and the shift they were drawn with,
     /// computed at its first slice.
-    raced: Option<(u64, Warp)>,
+    raced: Option<(u64, Shift)>,
     /// The shift the next present of the held picture uses (a repeat's check, or the raced
     /// frame's slices), instead of a new one.
-    pending: Option<Warp>,
+    pending: Option<Shift>,
     /// The shift of the last draw, for `presented`.
-    drawn: Warp,
+    drawn: Shift,
+    /// The input count (`FrameWarp::input_seq`) the last present's shift saw.
+    presented_seq: u32,
     hud: Option<Arc<Hud>>,
     mask_known: Option<u16>,
     repeat: Repeat,
     locked: bool,
 }
 
+/// A shift and the input count (`FrameWarp::input_seq`) read before it was computed.
+#[derive(Clone, Copy, Debug, Default)]
+struct Shift {
+    warp: Warp,
+    input_seq: u32,
+}
+
 impl Presenter {
     pub fn new(warp: Arc<FrameWarp>) -> Self {
-        Self { warp, held: None, raced: None, pending: None, drawn: Warp::default(), hud: None, mask_known: None, repeat: Repeat::default(), locked: false }
+        Self { warp, held: None, raced: None, pending: None, drawn: Shift::default(), presented_seq: 0, hud: None, mask_known: None, repeat: Repeat::default(),
+            locked: false }
+    }
+
+    /// The shift of picture `frame` drawn at `now`, counted as drawn.
+    fn shift(&self, frame: u32, now: Instant) -> Shift {
+        let input_seq = self.warp.input_seq();
+        Shift { warp: self.warp.warp_at(frame, now), input_seq }
     }
 
     /// The decoder's picture `number` goes on the screen; `race_seq` is its raced frame (0 for
@@ -387,7 +550,7 @@ impl Presenter {
     pub fn picture(&mut self, number: u32, race_seq: u64, ready_us: u64) {
         self.held = Some(Held { number, race_seq, ready_us });
         self.pending = match self.raced {
-            Some((seq, warp)) if race_seq != 0 && seq == race_seq => Some(warp),
+            Some((seq, shift)) if race_seq != 0 && seq == race_seq => Some(shift),
             _ => None,
         };
     }
@@ -417,34 +580,43 @@ impl Presenter {
 
     pub fn draw_at(&mut self, slice: Option<u64>, now: Instant) -> WarpDraw {
         self.poll_mask();
-        let warp = match slice {
+        let shift = match slice {
             Some(seq) => match self.raced {
-                Some((raced, warp)) if raced == seq => warp,
+                Some((raced, shift)) if raced == seq => shift,
                 _ => {
-                    let warp = self.warp.warp_at(self.slice_frame(seq), now);
-                    self.raced = Some((seq, warp));
-                    warp
+                    let shift = self.shift(self.slice_frame(seq), now);
+                    self.raced = Some((seq, shift));
+                    shift
                 }
             },
             None => match (self.pending.take(), self.held) {
-                (Some(warp), _) => warp,
-                (None, Some(held)) => self.warp.warp_at(held.number, now),
-                (None, None) => Warp::default(),
+                (Some(shift), _) => shift,
+                (None, Some(held)) => self.shift(held.number, now),
+                (None, None) => Shift { warp: Warp::default(), input_seq: self.warp.input_seq() },
             },
         };
-        self.drawn = warp;
-        WarpDraw::of(&warp, self.hud.as_ref())
+        self.drawn = shift;
+        WarpDraw::of(&shift.warp, self.hud.as_ref())
     }
 
     /// The present of the last draw went out at `at_us`.
     pub fn presented(&mut self, at_us: u64) {
-        self.repeat.presented(at_us, self.drawn.pixels);
+        self.repeat.presented(at_us, self.drawn.warp.pixels);
+        self.presented_seq = self.drawn.input_seq;
     }
 
-    /// When the held picture may go out again, for the loop's wait: None while nothing is held,
-    /// slices race, or nothing has locked or moved.
+    /// When the held picture may go out again, for the loop's wait: None while nothing is held
+    /// or slices race, and unless the last present was shifted, or the model is locked and input
+    /// that can move the shift was sent since that present's shift (`FrameWarp::input_seq`) or
+    /// the stick is held out of its dead zone. Otherwise the shift stays where it was drawn, so
+    /// an idle stream does not wake every refresh to find that out.
     pub fn repeat_due_us(&self, refresh_us: u64, racing: bool) -> Option<u64> {
-        if racing || self.held.is_none() || (!self.locked && self.repeat.last_pixels() == [0.0, 0.0]) {
+        if racing || self.held.is_none() {
+            return None;
+        }
+        let moved = self.repeat.last_pixels() != [0.0, 0.0];
+        let input = self.locked && (self.warp.input_seq() != self.presented_seq || self.warp.stick_deflected());
+        if !moved && !input {
             return None;
         }
         self.repeat.due_us(refresh_us)
@@ -468,7 +640,7 @@ impl Presenter {
         let peeked = self.warp.peek_at(held.number, now);
         let again = self.repeat.decide(now_us, peeked.pixels, Timing { next_picture_us, ..timing });
         if again {
-            self.pending = Some(self.warp.warp_at(held.number, now));
+            self.pending = Some(self.shift(held.number, now));
         }
         again
     }
@@ -608,22 +780,42 @@ mod tests {
         mask
     }
 
-    /// What every shader path samples for the output point `uv` (the module documentation).
-    fn sample_at(draw: &WarpDraw, uv: [f32; 2]) -> [f32; 2] {
-        if let Some(hud) = draw.mask() {
-            let cell = |v: f32, n: u16| (v * f32::from(n)).floor().clamp(0.0, f32::from(n - 1)) as u16;
-            if hud.mask.get(cell(uv[0], hud.mask.width), cell(uv[1], hud.mask.height)) {
-                return uv;
-            }
+    /// What every shader path samples for the output point `uv`, and how bright it draws it (the
+    /// module documentation).
+    fn sample_at(draw: &WarpDraw, uv: [f32; 2]) -> ([f32; 2], f32) {
+        let on_hud = |p: [f32; 2]| {
+            draw.mask().is_some_and(|hud| {
+                let cell = |v: f32, n: u16| (v * f32::from(n)).floor().clamp(0.0, f32::from(n - 1)) as u16;
+                hud.mask.get(cell(p[0], hud.mask.width), cell(p[1], hud.mask.height))
+            })
+        };
+        if on_hud(uv) {
+            return (uv, 1.0);
         }
-        [(uv[0] - draw.shift[0]).clamp(0.0, 1.0), (uv[1] - draw.shift[1]).clamp(0.0, 1.0)]
+        let (source, fade) = edge([uv[0] - draw.shift[0], uv[1] - draw.shift[1]]);
+        // The HUD's own pixels, which would draw it again beside itself: the point itself instead.
+        if on_hud(source) {
+            return (uv, 1.0);
+        }
+        (source, fade)
     }
 
-    /// Where the last quad that covers `at` samples it, as the GPU draws them in order.
-    fn quad_sample(quads: &[Quad], at: [f32; 2]) -> Option<[f32; 2]> {
-        quads.iter().rev().find(|q| at[0] >= q.at[0] && at[0] < q.at[2] && at[1] >= q.at[1] && at[1] < q.at[3]).map(|q| {
-            let t = [(at[0] - q.at[0]) / (q.at[2] - q.at[0]), (at[1] - q.at[1]) / (q.at[3] - q.at[1])];
-            [q.uv[0] + t[0] * (q.uv[2] - q.uv[0]), q.uv[1] + t[1] * (q.uv[3] - q.uv[1])]
+    /// Where the last triangle that covers `at` samples it and how bright, as the GPU draws them in
+    /// order, interpolating linearly across each.
+    fn mesh_sample(mesh: &Mesh, at: [f32; 2]) -> Option<([f32; 2], f32)> {
+        mesh.indices.as_chunks::<3>().0.iter().rev().find_map(|triangle| {
+            let [a, b, c] = triangle.map(|i| mesh.corners[i as usize]);
+            let area = (b.at[1] - c.at[1]) * (a.at[0] - c.at[0]) + (c.at[0] - b.at[0]) * (a.at[1] - c.at[1]);
+            if area.abs() < 1e-12 {
+                return None;
+            }
+            let wa = ((b.at[1] - c.at[1]) * (at[0] - c.at[0]) + (c.at[0] - b.at[0]) * (at[1] - c.at[1])) / area;
+            let wb = ((c.at[1] - a.at[1]) * (at[0] - c.at[0]) + (a.at[0] - c.at[0]) * (at[1] - c.at[1])) / area;
+            let wc = 1.0 - wa - wb;
+            (wa >= -1e-5 && wb >= -1e-5 && wc >= -1e-5).then(|| {
+                let mix = |value: fn(&Corner) -> f32| wa * value(&a) + wb * value(&b) + wc * value(&c);
+                ([mix(|c| c.uv[0]), mix(|c| c.uv[1])], mix(|c| c.fade))
+            })
         })
     }
 
@@ -708,18 +900,27 @@ mod tests {
     }
 
     #[test]
-    fn the_quads_sample_where_the_shaders_do() {
-        let hud = Arc::new(Hud::new(Arc::new(mask(10, 10, |x, y| x >= 7 && y >= 8))));
-        for shift in [[0.1, 0.0], [-0.05, 0.2], [0.3, -0.3], [-1.5, 0.0]] {
+    fn the_mesh_samples_and_darkens_where_the_shaders_do() {
+        // A HUD in a corner, one in the middle and one on the left edge, whose ghosts the shifts
+        // bring in beside them, mirrored too.
+        let hud = mask(10, 10, |x, y| (x >= 7 && y >= 8) || ((4..6).contains(&x) && (3..5).contains(&y)) || (x == 0 && (2..4).contains(&y)));
+        let hud = Arc::new(Hud::new(Arc::new(hud)));
+        let mut mesh = Mesh::default();
+        // Past one edge, past two (both darkening in a corner, alike along a slanted line), past
+        // the darkening, and past a whole picture.
+        let shifts = [[0.1, 0.0], [-0.05, 0.2], [0.3, -0.3], [-1.5, 0.0], [0.05, 0.03], [-0.06, -0.02], [0.12, -0.1], [0.02, 0.07]];
+        for shift in shifts {
             for with_hud in [false, true] {
                 let draw = WarpDraw { shift, hud: with_hud.then(|| hud.clone()) };
-                let areas = draw.mask().map_or(&[][..], |hud| hud.areas());
-                let quads = quads(draw.shift, areas);
-                for j in 0..20 {
-                    for i in 0..20 {
-                        let at = [(i as f32 + 0.5) / 20.0, (j as f32 + 0.5) / 20.0];
-                        let sampled = quad_sample(&quads, at).expect("the quads cover the destination");
-                        assert!(close(sampled, sample_at(&draw, at)), "{shift:?} hud {with_hud} at {at:?}: {sampled:?}");
+                mesh.build(draw.shift, draw.mask().map_or(&[][..], |hud| hud.areas()));
+                // Off every multiple of 0.01, where the shifted cells' edges are.
+                for j in 0..50 {
+                    for i in 0..50 {
+                        let at = [(i as f32 + 0.37) / 50.0, (j as f32 + 0.37) / 50.0];
+                        let (uv, fade) = mesh_sample(&mesh, at).expect("the triangles cover the destination");
+                        let (want_uv, want_fade) = sample_at(&draw, at);
+                        assert!(close(uv, want_uv) && (fade - want_fade).abs() < 1e-4,
+                            "{shift:?} hud {with_hud} at {at:?}: {uv:?} {fade}, not {want_uv:?} {want_fade}");
                     }
                 }
             }
@@ -727,21 +928,102 @@ mod tests {
     }
 
     #[test]
+    fn a_point_whose_shifted_source_is_hud_samples_itself() {
+        // A HUD on cell (5, 5) of 10x10; turning right by 0.2 would draw it again at x 0.7..0.8.
+        let hud = Arc::new(Hud::new(Arc::new(mask(10, 10, |x, y| x == 5 && y == 5))));
+        let draw = WarpDraw { shift: [0.2, 0.0], hud: Some(hud) };
+        assert_eq!(sample_at(&draw, [0.75, 0.55]), ([0.75, 0.55], 1.0), "the scene, not the HUD again");
+        assert_eq!(sample_at(&draw, [0.55, 0.55]), ([0.55, 0.55], 1.0), "the HUD in place");
+        let (uv, fade) = sample_at(&draw, [0.65, 0.55]);
+        assert!(close(uv, [0.45, 0.55]) && fade == 1.0, "the rest shifts: {uv:?} {fade}");
+        // On the left edge, turning right by 0.15: x 0.2 would sample the HUD at x 0.05, and x 0.12
+        // the HUD mirrored in the edge fill, at x 0.03 (and darkened).
+        let edge_hud = Arc::new(Hud::new(Arc::new(mask(10, 10, |x, y| x == 0 && y == 5))));
+        let draw = WarpDraw { shift: [0.15, 0.0], hud: Some(edge_hud) };
+        assert_eq!(sample_at(&draw, [0.2, 0.55]), ([0.2, 0.55], 1.0));
+        assert_eq!(sample_at(&draw, [0.12, 0.55]), ([0.12, 0.55], 1.0), "nor the mirrored HUD");
+        // The SDL renderer path's triangles draw the same.
+        let mut mesh = Mesh::default();
+        mesh.build(draw.shift, draw.mask().unwrap().areas());
+        for at in [[0.2, 0.55], [0.12, 0.55]] {
+            let (uv, fade) = mesh_sample(&mesh, at).unwrap();
+            assert!(close(uv, at) && (fade - 1.0).abs() < 1e-6, "{at:?}: {uv:?} {fade}");
+        }
+    }
+
+    #[test]
+    fn the_edge_fill_mirrors_and_darkens_rather_than_repeating_the_edge() {
+        // Turning right by a tenth of the picture: its left tenth shows the picture mirrored.
+        let draw = WarpDraw { shift: [0.1, 0.0], hud: None };
+        let (uv, fade) = sample_at(&draw, [0.02, 0.5]);
+        assert!(close(uv, [0.08, 0.5]) && (fade - 0.65).abs() < 1e-6, "{uv:?} {fade}");
+        let (uv, fade) = sample_at(&draw, [0.07, 0.5]);
+        assert!(close(uv, [0.03, 0.5]) && (fade - (1.0 - 0.35 * 0.375)).abs() < 1e-6, "{uv:?} {fade}");
+        assert_eq!(sample_at(&draw, [0.5, 0.5]).1, 1.0, "the picture itself as it is");
+    }
+
+    #[test]
     fn the_geometry_maps_the_source_rectangle_as_sdl_does() {
-        let quads = quads([0.0, 0.0], &[]);
-        assert_eq!(quads, [Quad { at: [0.0, 0.0, 1.0, 1.0], uv: [0.0, 0.0, 1.0, 1.0] }], "no shift is one quad");
+        let mut mesh = Mesh::default();
+        mesh.build([0.0, 0.0], &[]);
+        let whole = |x: f32, y: f32| Corner { at: [x, y], uv: [x, y], fade: 1.0 };
+        assert_eq!(mesh.corners, [whole(0.0, 0.0), whole(1.0, 0.0), whole(1.0, 1.0), whole(0.0, 1.0)], "no shift is one quad");
         // A 1920x1080 picture in a 1920x1088 texture, drawn half size at (10, 20).
         let source = SDL_FRect { x: 0.0, y: 0.0, w: 1919.5, h: 1079.5 };
         let destination = SDL_FRect { x: 10.0, y: 20.0, w: 960.0, h: 540.0 };
-        let (vertices, indices) = geometry(&quads, source, (1920.0, 1088.0), destination);
+        let (vertices, indices) = mesh.geometry(source, (1920.0, 1088.0), destination);
         assert_eq!(indices, [0, 1, 2, 0, 2, 3]);
-        let corners: Vec<_> = vertices.iter().map(|v| (v.position.x, v.position.y, v.tex_coord.x, v.tex_coord.y)).collect();
+        let corners: Vec<_> = vertices.iter().map(|v| (v.position.x, v.position.y, v.tex_coord.x, v.tex_coord.y, v.color.r)).collect();
         assert_eq!(corners, [
-            (10.0, 20.0, 0.0, 0.0),
-            (970.0, 20.0, 1919.5 / 1920.0, 0.0),
-            (970.0, 560.0, 1919.5 / 1920.0, 1079.5 / 1088.0),
-            (10.0, 560.0, 0.0, 1079.5 / 1088.0),
+            (10.0, 20.0, 0.0, 0.0, 1.0),
+            (970.0, 20.0, 1919.5 / 1920.0, 0.0, 1.0),
+            (970.0, 560.0, 1919.5 / 1920.0, 1079.5 / 1088.0, 1.0),
+            (10.0, 560.0, 0.0, 1079.5 / 1088.0, 1.0),
         ]);
+    }
+
+    #[test]
+    fn a_shifted_present_reuses_the_meshs_buffers() {
+        let areas = hud_areas(&mask(64, 36, |x, y| (x + y) % 3 == 0), MAX_HUD_RECTS);
+        let mut mesh = Mesh::default();
+        let source = SDL_FRect { x: 0.0, y: 0.0, w: 64.0, h: 36.0 };
+        // How many triangles a shift takes varies with where the HUD's ghosts fall: the buffers
+        // grow to the most once.
+        let shifts = [[0.05, -0.03], [0.04, -0.02], [-0.01, 0.0]];
+        for shift in shifts {
+            mesh.build(shift, &areas);
+            mesh.geometry(source, (64.0, 36.0), source);
+        }
+        let buffers = (mesh.corners.as_ptr(), mesh.indices.as_ptr(), mesh.vertices.as_ptr());
+        for shift in shifts {
+            mesh.build(shift, &areas);
+            mesh.geometry(source, (64.0, 36.0), source);
+            assert_eq!((mesh.corners.as_ptr(), mesh.indices.as_ptr(), mesh.vertices.as_ptr()), buffers, "{shift:?}");
+        }
+    }
+
+    #[test]
+    fn every_hlsl_presenter_includes_the_one_definition_and_direct3d_gets_it_spliced() {
+        for (name, source) in [
+            ("direct.hlsl", include_str!("../direct.hlsl")),
+            ("packed444.hlsl", include_str!("../packed444.hlsl")),
+            ("planes_direct.hlsl", include_str!("../planes_direct.hlsl")),
+            ("pyrowave.hlsl", include_str!("../pyrowave.hlsl")),
+        ] {
+            assert_eq!(source.matches("#include \"frame_warp.hlsl\"").count(), 1, "{name}");
+            assert!(!source.contains("hudMask.Load"), "{name} reads the mask itself");
+            let spliced = hlsl(source.as_bytes());
+            let spliced = std::str::from_utf8(&spliced).unwrap();
+            assert!(!spliced.contains("#include") && spliced.contains("float2 frameWarpEdge("), "{name}");
+        }
+        assert!(matches!(hlsl(b"float4 x;"), Cow::Borrowed(_)), "a shader without it is left alone");
+        let twice = hlsl(b"a\n#include \"frame_warp.hlsl\"\nb\n#include \"frame_warp.hlsl\"\nc");
+        assert_eq!(twice.as_ref(), format!("a\n{HLSL}\nb\n{HLSL}\nc").as_bytes());
+        // The shaders darken as nightjar_core's edge does.
+        let darken = format!("1 - {} * saturate(max(outside.x, outside.y) / {})", nightjar_core::frame_warp::EDGE_DARKEN, EDGE_RAMP);
+        assert!(HLSL.contains(&darken), "frame_warp.hlsl's fade is not `{darken}`");
+        // And keep a point whose shifted source is on the HUD where it is, as `sample_at` does.
+        assert!(HLSL.contains("if (frameWarpHud(source, size)) return q;"), "frame_warp.hlsl draws the HUD's ghost");
     }
 
     #[test]
@@ -842,21 +1124,53 @@ mod tests {
         presenter.model(&locked_mouse());
         presenter.picture(5, 0, 1_000);
         let start = Instant::now();
+        // The fade starts: drawn unshifted.
         presenter.draw_at(None, start);
         presenter.presented(1_000);
-        assert_eq!(presenter.repeat_due_us(10_000, false), Some(11_000), "locked: it looks a refresh later");
+        assert_eq!(presenter.repeat_due_us(10_000, false), None, "no shift drawn and no input since: no wake");
+        warp.note_mouse(2, 0);
+        assert_eq!(presenter.repeat_due_us(10_000, false), Some(11_000), "locked, with input since: it looks a refresh later");
         assert_eq!(presenter.repeat_due_us(10_000, true), None, "never while slices race");
         // A second on, the fade is in.
         let later = start + std::time::Duration::from_secs(1);
-        assert!(presenter.repeat_at(11_000, later, TIMING, 100_000), "the shift moved 20 px");
+        assert!(presenter.repeat_at(11_000, later, TIMING, 100_000), "the shift moved 21 px");
         let drawn = presenter.draw_at(None, later + std::time::Duration::from_secs(1));
-        assert!((drawn.shift[0] + 0.02).abs() < 1e-6, "the checked shift: {drawn:?}");
+        assert!((drawn.shift[0] + 0.021).abs() < 1e-6, "the checked shift: {drawn:?}");
         presenter.presented(11_500);
         assert!(!presenter.repeat_at(21_500, later, TIMING, 100_000), "nothing moved since");
         warp.note_mouse(10, 0);
         assert!(!presenter.repeat_at(31_500, later, Timing { next_picture_us: Some(33_000), ..TIMING }, 100_000),
             "a picture waiting within half a refresh takes it");
         assert!(presenter.repeat_at(38_501, later, TIMING, 100_000), "the 5 px it moved go out once no picture is that close");
+    }
+
+    #[test]
+    fn an_idle_locked_stream_wakes_only_for_input_a_held_stick_or_a_drawn_shift() {
+        // Locked on both, nothing in flight: frame 5 reflects every count and packet sent.
+        let warp = FrameWarp::new(Some(0), MASK_EDGE);
+        warp.on_model(Model { stick_locked: true, stick_gain: [-900.0, 400.0], stick_deadzone: 0.2, ..locked_mouse() });
+        warp.note_controller(0, (0, 0));
+        warp.on_tags(&Tags { model_generation: 1, tags: vec![Tag { frame: 5, controller_seq: 1, controller_held_us: 0, ..Tag::default() }] });
+        let mut presenter = Presenter::new(warp.clone());
+        presenter.model(&warp.status().model.unwrap());
+        presenter.picture(5, 0, 1_000);
+        let start = Instant::now();
+        presenter.draw_at(None, start);
+        presenter.presented(1_000);
+        assert_eq!(presenter.repeat_due_us(10_000, false), None, "idle: the loop sleeps");
+        warp.note_controller(0, (2000, 0));
+        assert_eq!(presenter.repeat_due_us(10_000, false), Some(11_000), "a packet since the present");
+        presenter.draw_at(None, start);
+        presenter.presented(2_000);
+        assert_eq!(presenter.repeat_due_us(10_000, false), None, "drawn with it, and the stick rests in its dead zone");
+        warp.note_controller(0, (20000, 0));
+        presenter.draw_at(None, start);
+        presenter.presented(3_000);
+        assert_eq!(presenter.repeat_due_us(10_000, false), Some(13_000), "a held stick turns on every refresh");
+        presenter.model(&Model::default());
+        assert_eq!(presenter.repeat_due_us(10_000, false), None, "unlocked, with nothing drawn shifted");
+        presenter.repeat.presented(3_000, [4.0, 0.0]);
+        assert_eq!(presenter.repeat_due_us(10_000, false), Some(13_000), "a drawn shift fades out");
     }
 
     #[test]
@@ -896,5 +1210,15 @@ mod tests {
         assert_eq!(frame_warp_notice(&mut pc, true, false), (None, true), "it runs there now");
         assert_eq!(frame_warp_notice(&mut pc, true, false), (None, false));
         assert_eq!(frame_warp_notice(&mut pc, false, true), (Some(text.to_owned()), true), "and is said again once it is gone");
+    }
+
+    #[test]
+    fn the_hlsl_include_is_pasted_in_place_and_other_sources_stay_borrowed() {
+        let plain = b"float4 main() : SV_Target { return 0; }";
+        assert!(matches!(hlsl(plain), Cow::Borrowed(_)));
+        let source = b"a\n#include \"frame_warp.hlsl\"\nb\n#include \"frame_warp.hlsl\"\nc";
+        let pasted = hlsl(source);
+        let expected = format!("a\n{HLSL}\nb\n{HLSL}\nc");
+        assert_eq!(&*pasted, expected.as_bytes());
     }
 }

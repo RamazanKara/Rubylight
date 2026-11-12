@@ -15,7 +15,7 @@
 //! reached the picture, and the next tag sets the difference to zero again.
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -37,11 +37,37 @@ pub const MAX_STICK_WINDOW: Duration = Duration::from_millis(400);
 const MAX_EXTRAPOLATION: u32 = 4;
 /// Tags kept, by frame number.
 const TAG_SLOTS: usize = 64;
-/// Stick history kept: two seconds, and at most this many packets.
-const STICK_HISTORY: Duration = Duration::from_secs(2);
+/// Stick history kept: the shift's window and a margin for a tag naming a packet sent before it
+/// (one the host held long, or a present computed for a moment before the newest packet), plus
+/// the newest packet before that; at most this many packets.
+const STICK_HISTORY: Duration = Duration::from_millis(MAX_STICK_WINDOW.as_millis() as u64 + 600);
 const STICK_SAMPLES: usize = 4096;
 /// A difference past this many mouse counts is a lost count, not input in flight.
 const MOUSE_SANITY: i64 = 200_000;
+/// How far past the picture's edge, in fractions of the picture, the edge fill reaches its
+/// darkest ([`edge`]).
+pub const EDGE_RAMP: f32 = 0.08;
+/// How much darker the edge fill gets at most ([`edge`]).
+pub const EDGE_DARKEN: f32 = 0.35;
+
+/// One axis of [`edge`]: where the shifted picture coordinate `v` (0 to 1 across the picture)
+/// samples, and how bright that axis alone would draw it.
+pub fn edge_axis(v: f32) -> (f32, f32) {
+    let fade = 1.0 - EDGE_DARKEN * ((-v).max(v - 1.0) / EDGE_RAMP).clamp(0.0, 1.0);
+    (v.abs().min(2.0 - v).clamp(0.0, 1.0), fade)
+}
+
+/// The edge fill: where a shifted picture point `p` (fractions of the picture, 0 to 1 inside it)
+/// samples the picture and how bright it is drawn. Inside the picture, `p` at full brightness.
+/// Past an edge the picture is mirrored at that edge (`-p` below 0, `2 - p` above 1, then held
+/// inside), so a turn uncovers a reflection rather than streaks of the edge's pixels, darkened by
+/// [`EDGE_DARKEN`] times how far past the edge it is (the farther axis) over [`EDGE_RAMP`], at most
+/// that. Every presenter's shader draws the same (`frame_warp.hlsl` on the desktop).
+pub fn edge(p: [f32; 2]) -> ([f32; 2], f32) {
+    let (x, fade_x) = edge_axis(p[0]);
+    let (y, fade_y) = edge_axis(p[1]);
+    ([x, y], fade_x.min(fade_y))
+}
 
 /// The shift for one picture.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -83,6 +109,13 @@ pub struct FrameWarp {
     mask: Mutex<Option<Arc<Mask>>>,
     /// The last request sent was a start.
     started: AtomicBool,
+    /// One more for each relative mouse move and each packet of the tracked pad that went on
+    /// the wire (wrapping), read without the predictor's lock ([`FrameWarp::input_seq`]).
+    input_seq: AtomicU32,
+    /// The tracked pad's right stick as last sent, x in the high half and y in the low.
+    stick: AtomicU32,
+    /// The stick dead zone of the host's latest model (`f32` bits; 0 before one).
+    stick_deadzone: AtomicU32,
 }
 
 impl FrameWarp {
@@ -97,6 +130,9 @@ impl FrameWarp {
             predictor: Mutex::new(Predictor::new(controller)),
             mask: Mutex::new(None),
             started: AtomicBool::new(false),
+            input_seq: AtomicU32::new(0),
+            stick: AtomicU32::new(0),
+            stick_deadzone: AtomicU32::new(0.0f32.to_bits()),
         })
     }
 
@@ -107,6 +143,7 @@ impl FrameWarp {
         if self.started.swap(enabled, Ordering::AcqRel) != enabled && enabled {
             *self.predictor() = Predictor::new(self.controller);
             *self.mask.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            self.stick_deadzone.store(0.0f32.to_bits(), Ordering::Release);
         }
         FrameWarpRequest {
             enabled,
@@ -127,16 +164,47 @@ impl FrameWarp {
     pub fn note_mouse(&self, dx: i16, dy: i16) {
         let now = self.us(Instant::now());
         self.predictor().note_mouse(dx, dy, now);
+        if dx != 0 || dy != 0 {
+            self.input_seq.fetch_add(1, Ordering::AcqRel);
+        }
     }
 
     /// A controller packet as it goes on the wire.
     pub fn note_controller(&self, number: u16, right_stick: (i16, i16)) {
         let now = self.us(Instant::now());
         self.predictor().note_controller(number, right_stick, now);
+        if self.controller.map(u16::from) == Some(number) {
+            let packed = (u32::from(right_stick.0 as u16) << 16) | u32::from(right_stick.1 as u16);
+            self.stick.store(packed, Ordering::Release);
+            self.input_seq.fetch_add(1, Ordering::AcqRel);
+        }
+    }
+
+    /// A count of the input that can move the shift: one more for every relative mouse move
+    /// and every packet of the tracked pad sent since the stream started (wrapping). Without
+    /// the predictor's lock, for a presenter deciding whether to look at the shift again: it
+    /// cannot have moved for input while this stays the same.
+    pub fn input_seq(&self) -> u32 {
+        self.input_seq.load(Ordering::Acquire)
+    }
+
+    /// Whether the tracked pad's right stick, as last sent, is outside the dead zone of the
+    /// host's latest model (any deflection before a model arrives): the stick's part of the
+    /// shift grows on every refresh while it is. False without a tracked pad. Without the
+    /// predictor's lock.
+    pub fn stick_deflected(&self) -> bool {
+        if self.controller.is_none() {
+            return false;
+        }
+        let packed = self.stick.load(Ordering::Acquire);
+        let (x, y) = ((packed >> 16) as u16 as i16, packed as u16 as i16);
+        let deadzone = f32::from_bits(self.stick_deadzone.load(Ordering::Acquire));
+        stick_curve(x, y, deadzone, 1.0) != [0.0; 2]
     }
 
     pub fn on_model(&self, model: Model) {
         self.predictor().on_model(model);
+        self.stick_deadzone.store(model.stick_deadzone.to_bits(), Ordering::Release);
     }
 
     pub fn on_tags(&self, tags: &Tags) {
@@ -281,15 +349,17 @@ impl Predictor {
         }
         self.controller_seq = self.controller_seq.wrapping_add(1);
         self.last_controller_us = Some(now_us);
+        // Sample times never go back, so the shift finds its window from the newest end.
+        let at_us = self.stick.back().map_or(now_us, |last| now_us.max(last.at_us));
         self.stick.push_back(StickSample {
-            at_us: now_us,
+            at_us,
             seq: self.controller_seq,
             stick: right_stick,
         });
         // Keep the newest sample before the window too: it says what was held at its start.
         while self.stick.len() > STICK_SAMPLES
             || self.stick.len() > 1
-                && now_us.saturating_sub(self.stick[1].at_us) > STICK_HISTORY.as_micros() as u64
+                && at_us.saturating_sub(self.stick[1].at_us) > STICK_HISTORY.as_micros() as u64
         {
             self.stick.pop_front();
         }
@@ -383,14 +453,17 @@ impl Predictor {
         let start = if tag.controller_held_us == HELD_NONE || tag.controller_seq == 0 {
             earliest
         } else {
-            match self.stick.iter().find(|s| s.seq == host_seq) {
+            match self.stick_sample(host_seq) {
                 Some(sample) => sample.at_us + u64::from(tag.controller_held_us),
                 None => earliest,
             }
         }
         .clamp(earliest, now_us);
+        // What came before the newest sample at or before `start` was no longer held by then:
+        // the sum starts there, from the newest end, and adds up in the same order as ever.
+        let first = self.stick.iter().rposition(|s| s.at_us <= start).unwrap_or(0);
         let mut sum = [0.0f32; 2];
-        for (i, sample) in self.stick.iter().enumerate() {
+        for (i, sample) in self.stick.iter().enumerate().skip(first) {
             let end = self.stick.get(i + 1).map_or(now_us, |next| next.at_us).min(now_us);
             let from = sample.at_us.max(start);
             if end <= from {
@@ -407,6 +480,14 @@ impl Predictor {
             sum[1] += curve[1] * held;
         }
         sum
+    }
+
+    /// The sample of the tracked pad's packet `seq`, if still kept. The history holds
+    /// consecutive packet numbers, newest last, so it is found by its distance from the newest.
+    fn stick_sample(&self, seq: u32) -> Option<&StickSample> {
+        let back = self.stick.back()?.seq.wrapping_sub(seq) as usize;
+        let index = self.stick.len().checked_sub(back.checked_add(1)?)?;
+        self.stick.get(index).filter(|sample| sample.seq == seq)
     }
 
     fn update_weight(&mut self, locked: bool, now_us: u64) {
@@ -755,5 +836,138 @@ mod tests {
         p.on_tags(&tags(&[Tag { frame: 8, ..Tag::default() }]), 4_000_000);
         p.on_tags(&tags(&[Tag { frame: 10, ..Tag::default() }]), 2_000_001);
         assert_eq!(p.warp(10, 4_000_001).pixels, [-25.0, 0.0]);
+    }
+
+    #[test]
+    fn input_seq_counts_the_input_that_can_move_the_shift() {
+        let warp = FrameWarp::new(Some(1), 0);
+        assert_eq!(warp.input_seq(), 0);
+        warp.note_mouse(0, 0);
+        assert_eq!(warp.input_seq(), 0, "no motion");
+        warp.note_mouse(3, -2);
+        assert_eq!(warp.input_seq(), 1);
+        warp.note_controller(0, (32767, 0));
+        assert_eq!(warp.input_seq(), 1, "another pad's packet");
+        warp.note_controller(1, (0, 0));
+        assert_eq!(warp.input_seq(), 2, "the tracked pad's, even at rest");
+        warp.request(true);
+        warp.note_mouse(1, 0);
+        assert_eq!(warp.input_seq(), 3, "a start does not go back");
+    }
+
+    #[test]
+    fn stick_deflected_follows_the_tracked_stick_and_the_models_dead_zone() {
+        let warp = FrameWarp::new(Some(0), 0);
+        assert!(!warp.stick_deflected(), "nothing sent");
+        warp.note_controller(0, (300, 0));
+        assert!(warp.stick_deflected(), "before a model any deflection counts");
+        warp.on_model(Model { stick_deadzone: 0.25, ..model(false, true) });
+        assert!(!warp.stick_deflected(), "inside the model's dead zone");
+        warp.note_controller(0, (0, -9000));
+        assert!(warp.stick_deflected(), "past it");
+        warp.note_controller(1, (0, 0));
+        assert!(warp.stick_deflected(), "another pad changes nothing");
+        warp.note_controller(0, (-8000, 0));
+        assert!(!warp.stick_deflected(), "back inside");
+        warp.note_controller(0, (i16::MIN, i16::MIN));
+        assert!(warp.stick_deflected(), "fully down left");
+        warp.note_controller(0, (-8000, 0));
+        warp.request(true);
+        assert!(warp.stick_deflected(), "a start forgets the model and its dead zone");
+        let untracked = FrameWarp::new(None, 0);
+        untracked.note_controller(0, (32767, 0));
+        assert!(!untracked.stick_deflected(), "no tracked pad");
+    }
+
+    /// The stick integral as it was: every kept sample walked from the oldest.
+    fn walked(samples: &[StickSample], seq_offset: u32, tag: &Tag, model: &Model, now_us: u64) -> [f32; 2] {
+        let earliest = now_us.saturating_sub(MAX_STICK_WINDOW.as_micros() as u64);
+        let host_seq = tag.controller_seq.wrapping_add(seq_offset);
+        let Some(newest) = samples.last() else {
+            return [0.0; 2];
+        };
+        if host_seq != newest.seq && after(host_seq, newest.seq) {
+            return [0.0; 2];
+        }
+        let start = if tag.controller_held_us == HELD_NONE || tag.controller_seq == 0 {
+            earliest
+        } else {
+            match samples.iter().find(|s| s.seq == host_seq) {
+                Some(sample) => sample.at_us + u64::from(tag.controller_held_us),
+                None => earliest,
+            }
+        }
+        .clamp(earliest, now_us);
+        let mut sum = [0.0f32; 2];
+        for (i, sample) in samples.iter().enumerate() {
+            let end = samples.get(i + 1).map_or(now_us, |next| next.at_us).min(now_us);
+            let from = sample.at_us.max(start);
+            if end <= from {
+                continue;
+            }
+            let held = (end - from) as f32 / 1_000_000.0;
+            let curve = stick_curve(sample.stick.0, sample.stick.1, model.stick_deadzone, model.stick_exponent);
+            sum[0] += curve[0] * held;
+            sum[1] += curve[1] * held;
+        }
+        sum
+    }
+
+    #[test]
+    fn the_stick_integral_from_the_newest_end_matches_walking_every_packet() {
+        let model = Model { stick_deadzone: 0.1, stick_exponent: 2.0, ..model(false, true) };
+        let mut p = Predictor::new(Some(0));
+        // Every packet ever sent, which the predictor trims to its window and margin.
+        let mut sent: Vec<StickSample> = Vec::new();
+        let mut seed = 0x9E37_79B9u32;
+        let mut next = move |n: u32| {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed % n
+        };
+        let mut now = 1_000_000u64;
+        let mut checked = 0;
+        for packet in 1..=4000u32 {
+            // Up to 8 ms apart, at times none.
+            now += u64::from(next(8000));
+            let stick = ((next(65536) as i32 - 32768) as i16, (next(65536) as i32 - 32768) as i16);
+            let stick = if next(4) == 0 { (0, 0) } else { stick };
+            p.note_controller(0, stick, now);
+            sent.push(StickSample { at_us: now, seq: packet, stick });
+            assert!(p.stick.len() <= sent.len() && p.stick.back().is_some_and(|s| s.seq == packet));
+            if packet % 7 != 0 {
+                continue;
+            }
+            // Tags naming packets up to 120 back (under a second, all kept), none, or one ahead.
+            for back in [0u32, 1, 5, 40, 120] {
+                for held in [0u32, 3_000, 20_000, 250_000, HELD_NONE] {
+                    let controller_seq = if back == 120 && held == 0 { packet + 2 } else { packet.saturating_sub(back) };
+                    let tag = Tag { frame: 1, controller_seq, controller_held_us: held, ..Tag::default() };
+                    // Presents a little after the newest packet, or computed for just before it.
+                    let at = (now + u64::from(next(50_000))).saturating_sub(u64::from(next(4) == 0) * 20_000);
+                    let newest_end = p.stick_unreflected(&tag, &model, at);
+                    assert_eq!(newest_end, walked(&sent, p.seq_offset, &tag, &model, at), "packet {packet}, {back} back, held {held}, at {at}");
+                    checked += usize::from(newest_end != [0.0; 2]);
+                }
+            }
+        }
+        assert!(checked > 1000, "the integrals were mostly not zero: {checked}");
+        let kept = p.stick.back().unwrap().at_us - p.stick[1].at_us;
+        assert!(kept <= STICK_HISTORY.as_micros() as u64 && p.stick.len() < 400, "the history is trimmed: {kept} us, {} packets", p.stick.len());
+    }
+
+    #[test]
+    fn the_edge_mirrors_the_picture_and_darkens_past_it() {
+        let close = |a: f32, b: f32| (a - b).abs() < 1e-6;
+        assert_eq!(edge([0.3, 0.9]), ([0.3, 0.9], 1.0), "inside, as it is");
+        assert_eq!(edge([0.0, 1.0]), ([0.0, 1.0], 1.0), "the edges too");
+        let (at, fade) = edge([-0.04, 0.5]);
+        assert!(close(at[0], 0.04) && at[1] == 0.5 && close(fade, 1.0 - EDGE_DARKEN * 0.5), "{at:?} {fade}");
+        let (at, fade) = edge([0.5, 1.2]);
+        assert!(close(at[1], 0.8) && close(fade, 1.0 - EDGE_DARKEN), "{at:?} {fade}");
+        let (_, fade) = edge([-0.02, 1.06]);
+        assert!(close(fade, 1.0 - EDGE_DARKEN * 0.75), "the farther axis darkens: {fade}");
+        assert_eq!(edge([-1.5, 2.5]).0, [1.0, 0.0], "past a whole picture, held at the far edge");
     }
 }

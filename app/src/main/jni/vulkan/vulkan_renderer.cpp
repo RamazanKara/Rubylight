@@ -65,9 +65,11 @@ namespace {
         float uvClamp[4];
         float params[4];
         float params2[4];
-        // Frame Warp (video_warp.frag): xy = shift in texture UV, z = 1 to keep the HUD mask in
-        // place. Unused by video.frag.
+        // Frame Warp (video_warp.frag): xy = shift as fractions of the picture, z = 1 to keep the
+        // HUD mask in place; and the picture's UV rect, the crop less any padding (xy its top
+        // left, zw its size). Unused by video.frag.
         float warp[4];
+        float warpRect[4];
     };
 
     constexpr float kOutputPassthrough = 0.0f;
@@ -1643,10 +1645,15 @@ bool VulkanRenderer::warpRefresh(int64_t vsyncNs) {
             lastPresentNs_ >= vsyncNs || warpDueNs_ > vsyncNs + currentPeriodNs_ / 4) {
         return false;
     }
+    // Without the stream's lock first: nothing can have moved unless the model is locked and the
+    // view turns (FrameWarpDrawn::mayMove())
+    if (!warpDrawn_.mayMove(warpApi_)) {
+        return false;
+    }
     // Peeked, so a refresh that draws nothing is not counted; renderFrame() takes the shift it draws
     float out[4] = {};
     const bool active = warpApi_->peek(current_->frameNumber, out) != FRAME_WARP_INACTIVE;
-    if (!frameWarpMoved(warpDrawnPx_[0], warpDrawnPx_[1], active ? out[2] : 0.0f, active ? out[3] : 0.0f)) {
+    if (!frameWarpMoved(warpDrawn_.px[0], warpDrawn_.px[1], active ? out[2] : 0.0f, active ? out[3] : 0.0f)) {
         return false;
     }
 
@@ -1665,7 +1672,20 @@ bool VulkanRenderer::warpRefresh(int64_t vsyncNs) {
     return renderFrame(current_, presentId, 0, false, 0, true);
 }
 
+// Presenting ahead draws a frame as it arrives for a vsync up to a few ahead, and Frame Warp's
+// shift is taken as it is drawn: the turn until that vsync would be missing from it, and the
+// redraws between pictures wait for that vsync (warpDueNs_), so each picture would step by up to
+// a frame's turn. While the host's model is locked, frames wait for their vsync instead
+// (onVsync()), drawn then for the next refresh. An aligned front buffer draws ahead-presented
+// frames at their scan, so it keeps presenting ahead.
+bool VulkanRenderer::presentsAhead() const {
+    return presentAhead_ && (!warpHoldsAhead_ || frontBufferPaced_);
+}
+
 void VulkanRenderer::presentAhead() {
+    if (!presentsAhead()) {
+        return;
+    }
     // In order, as long as each waiting frame's vsync is known and comes after the last one
     // committed. Anything else waits for its vsync.
     for (;;) {
@@ -1860,11 +1880,33 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
     pc.uvRect[1] = crop.top / bufferHeight;
     pc.uvRect[2] = (crop.right - crop.left) / bufferWidth;
     pc.uvRect[3] = (crop.bottom - crop.top) / bufferHeight;
-    // Stay half a texel inside the crop so filtering never pulls in padding
-    pc.uvClamp[0] = (crop.left + 0.5f) / bufferWidth;
-    pc.uvClamp[1] = (crop.top + 0.5f) / bufferHeight;
-    pc.uvClamp[2] = (crop.right - 0.5f) / bufferWidth;
-    pc.uvClamp[3] = (crop.bottom - 0.5f) / bufferHeight;
+    // Frame Warp samples only the stream's picture. A decoder can leave an encoder's padding in
+    // its crop (AMD's AV1 at 2184x1968 as 2240x1968, black at the right), which the stream view
+    // pushes off screen (StreamView.setDecodedPadding()); a shift would pull it back in.
+    FrameWarpRect picture {crop.left, crop.top, crop.right, crop.bottom};
+    if (warpApi_) {
+        picture = frameWarpPicture(picture, config_.streamWidth, config_.streamHeight);
+    }
+    // Stay half a texel inside the picture so filtering never pulls in padding
+    pc.uvClamp[0] = (picture.left + 0.5f) / bufferWidth;
+    pc.uvClamp[1] = (picture.top + 0.5f) / bufferHeight;
+    pc.uvClamp[2] = (picture.right - 0.5f) / bufferWidth;
+    pc.uvClamp[3] = (picture.bottom - 0.5f) / bufferHeight;
+    pc.warpRect[0] = picture.left / bufferWidth;
+    pc.warpRect[1] = picture.top / bufferHeight;
+    pc.warpRect[2] = (picture.right - picture.left) / bufferWidth;
+    pc.warpRect[3] = (picture.bottom - picture.top) / bufferHeight;
+    if (warpApi_ && (width != warpLoggedWidth_ || height != warpLoggedHeight_ || crop.left != warpLoggedCrop_.left ||
+            crop.top != warpLoggedCrop_.top || crop.right != warpLoggedCrop_.right ||
+            crop.bottom != warpLoggedCrop_.bottom)) {
+        warpLoggedWidth_ = width;
+        warpLoggedHeight_ = height;
+        warpLoggedCrop_ = crop;
+        ALOGI("Frame Warp: buffer %ux%u, crop %d,%d-%d,%d, stream %dx%d, picture %d,%d-%d,%d, clamp %.5f,%.5f-%.5f,%.5f",
+              width, height, crop.left, crop.top, crop.right, crop.bottom, config_.streamWidth, config_.streamHeight,
+              picture.left, picture.top, picture.right, picture.bottom, pc.uvClamp[0], pc.uvClamp[1], pc.uvClamp[2],
+              pc.uvClamp[3]);
+    }
 
     // Low dithers at the output's own precision. High dithers at 8-bit precision even on a
     // 10-bit output, which also hides banding from an 8-bit panel or compositor further on.
@@ -1889,17 +1931,20 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
     pc.params2[0] = kSdrWhiteNits;
     pc.params2[1] = static_cast<float>(std::max(quarterTurns(preTransform_), 0));
 
-    // Frame Warp: the picture's shift as of now, as fractions of the picture, then of the buffer
+    // Frame Warp: the picture's shift as of now, as fractions of the picture. The input count is
+    // read first, so input sent while the shift is worked out shows as new at the next refresh.
     int32_t warpCode = FRAME_WARP_INACTIVE;
     float warpOut[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    uint32_t warpSeq = 0;
     if (warpApi_) {
         warpCells_.poll(warpApi_);
+        warpSeq = warpApi_->input_seq();
         warpCode = warpApi_->warp(frame->frameNumber, warpOut);
         if (warpCode == FRAME_WARP_INACTIVE) {
             warpOut[0] = warpOut[1] = warpOut[2] = warpOut[3] = 0.0f;
         }
-        pc.warp[0] = warpOut[0] * pc.uvRect[2];
-        pc.warp[1] = warpOut[1] * pc.uvRect[3];
+        pc.warp[0] = warpOut[0];
+        pc.warp[1] = warpOut[1];
     }
 
     VkCommandBuffer cmd = commandBuffers_[slot];
@@ -2112,11 +2157,16 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
 
     const bool shown = result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR;
     if (warpApi_ && shown) {
-        warpDrawnPx_[0] = warpOut[2];
-        warpDrawnPx_[1] = warpOut[3];
+        warpDrawn_.note(warpCode, warpOut, warpSeq);
         // A present for a later vsync is asked for half a vsync ahead of it (PresentScheduler)
         warpDueNs_ = !onArrival && presentTime.desiredPresentTime != 0 ?
                 static_cast<int64_t>(presentTime.desiredPresentTime) + currentPeriodNs_ / 2 : 0;
+        if (presentAhead_ && warpDrawn_.active != warpHoldsAhead_) {
+            // The model locked or unlocked: presenting ahead stops or starts (presentsAhead())
+            warpHoldsAhead_ = warpDrawn_.active;
+            std::lock_guard<std::mutex> lock(mutex_);
+            pacer_.setPresentAhead(presentsAhead());
+        }
     }
     if (!shown && countedAtTag) {
         // Nothing was queued, so no report will come for the tag: the frame is counted when a
@@ -2231,7 +2281,7 @@ void VulkanRenderer::collectPresentTimings() {
         // frame is late on screen whatever the delay, and it shouldn't raise the delay for all
         // the others.
         const bool counts = pending != pendingPresents_.end() && !pending->second.onArrival &&
-                (!presentAhead_ || (pending->second.ahead && pending->second.slackNs >= presentScheduler_.guardNs()));
+                (!presentsAhead() || (pending->second.ahead && pending->second.slackNs >= presentScheduler_.guardNs()));
         if (counts) {
             presentScheduler_.onPresented(pending->second.vsyncNs, pending->second.delayVsyncs, currentPeriodNs_,
                                           static_cast<int64_t>(t.actualPresentTime),

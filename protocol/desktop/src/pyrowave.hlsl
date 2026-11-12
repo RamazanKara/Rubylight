@@ -182,24 +182,20 @@ float3 gamma22FromScrgb(float3 linear709, float2 position) {
     float3 encoded = pow(saturate((nits - minNits) * invRange), 1.0 / 2.2);
     return saturate(encoded + (orderedDither(position) - 0.5) / 1023.0);
 }
+// Frame Warp, for flag 512.
+#include "frame_warp.hlsl"
 // Flag 512: the planes scaled straight into the target rectangle (bilinear, as SDL scales the
 // picture texture), then SDL's tone map (TONEMAP_CHROME of its texture_advanced shader), colour
 // scale and, with flag 1024 (an sRGB target, not scRGB), its sRGB encoding and clamp, so the
 // result is what drawing the converted texture with SDL gives, in one pass. With flag 4096 instead
 // of 1024 (an HDR10 swapchain image taken in a video-only frame, window-target.patch), the scRGB
-// result is PQ-encoded as the PQ present pass would encode the back buffer.
-// The picture point (pixels) `q` shows under Frame Warp: `q` less the shift, or `q` on a HUD cell.
-float2 frameWarp(float2 q, float2 visible) {
-    if (all(warp == 0)) return q;
-    if (warp.z > 0) {
-        uint2 cell = min(uint2(max(q / visible, 0) * warp.zw), uint2(warp.zw) - 1);
-        if (((uint(hudMask.Load(int3(cell.x >> 3, cell.y, 0)) * 255 + 0.5) >> (cell.x & 7)) & 1) != 0) return q;
-    }
-    return q - warp.xy * visible;
-}
+// result is PQ-encoded as the PQ present pass would encode the back buffer. Frame Warp moves the
+// point sampled (`frameWarp`, in the picture's pixels) and darkens its edge fill by `fade`: the
+// output, or on a PQ target the light it encodes.
 float4 planesDirect(float2 position) {
     float2 visible = picture.xy;
-    float2 at = clamp(frameWarp((position - destination.xy) * visible / destination.zw, visible), 0.5, visible - 0.5);
+    float fade;
+    float2 at = clamp(frameWarp((position - destination.xy) * visible / destination.zw, visible, fade), 0.5, visible - 0.5);
     float3 samples;
     uint2 size;
     planeCb.GetDimensions(size.x, size.y);
@@ -223,10 +219,10 @@ float4 planesDirect(float2 position) {
         rgb = mul(bt2020to709, v);
     }
     rgb *= outputScale;
-    if ((flags & 8192) != 0) return float4(gamma22FromScrgb(rgb, position), 1);
-    if ((flags & 4096) != 0) return float4(pqFromScrgb(rgb), 1);
+    if ((flags & 8192) != 0) return float4(gamma22FromScrgb(rgb, position) * fade, 1);
+    if ((flags & 4096) != 0) return float4(pqFromScrgb(rgb * fade), 1);
     if ((flags & 1024) != 0) rgb = saturate(srgbFromLinear(rgb));
-    return float4(rgb, 1);
+    return float4(rgb * fade, 1);
 }
 #endif
 float4 planes(float4 position : SV_Position) : SV_Target {

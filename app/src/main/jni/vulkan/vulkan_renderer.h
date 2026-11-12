@@ -288,6 +288,9 @@ private:
     bool renderFrame(const FramePtr& frame, uint64_t presentId = 0, int64_t showVsyncNs = 0, bool ahead = false,
                      int64_t commitNs = 0, bool onArrival = false);
     void presentAhead();
+    // Whether frames are presented ahead now: presentAhead_, except while Frame Warp's model is
+    // locked. Under renderMutex_.
+    bool presentsAhead() const;
     // Shows the newest waiting frame now, dropping any older ones: lowest latency mode with a
     // mailbox swapchain, or a front buffer. targetVsyncNs is the scan an aligned front buffer
     // drew it for, for the trace.
@@ -497,8 +500,14 @@ private:
     VkShaderModule warpFragShader_ = VK_NULL_HANDLE;
     // The newest mask from the host (frame_warp_mask.h)
     FrameWarpCells warpCells_;
-    // The shift on screen, picture pixels
-    float warpDrawnPx_[2] = {0.0f, 0.0f};
+    // What the picture on screen was drawn with (frame_warp_mask.h)
+    FrameWarpDrawn warpDrawn_;
+    // The model was locked at the last present, so frames are not presented ahead (presentsAhead())
+    bool warpHoldsAhead_ = false;
+    // The buffer size and crop the picture's place was last logged for
+    uint32_t warpLoggedWidth_ = 0;
+    uint32_t warpLoggedHeight_ = 0;
+    AImageCropRect warpLoggedCrop_ {};
     // When the last present asked to reach the screen, if at a vsync still to come (0 for as soon
     // as it can): no redraw goes ahead of it
     int64_t warpDueNs_ = 0;

@@ -72,11 +72,11 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
     // are the GL thread's.
     private final boolean frameWarp;
     private final int pictureWidth, pictureHeight;
-    private final float[] warpOut = new float[4];
+    private final float[] warpOut = new float[MoonBridge.FRAME_WARP_FLOATS];
     private final int[] maskSize = new int[2];
     private byte[] maskCells = new byte[0];
     private ByteBuffer maskUpload;
-    private int warpUniform, maskTexture;
+    private int warpUniform, lensUniform, maskTexture;
     private int maskGeneration = -1;
     // The decoder time of the picture on screen (-1 before one), and the shift it was last drawn with, picture px.
     private long shownPtsUs = -1;
@@ -299,8 +299,11 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
     /** The HUD mask texture on unit 1, empty until the host sends one. */
     private void initializeFrameWarp() {
         warpUniform = GLES30.glGetUniformLocation(upscaleProgram, "warp");
+        lensUniform = GLES30.glGetUniformLocation(upscaleProgram, "lens");
         GLES30.glUniform1i(GLES30.glGetUniformLocation(upscaleProgram, "hudMask"), 1);
         GLES30.glUniform3f(warpUniform, 0f, 0f, 0f);
+        // A flat picture's lens terms
+        GLES30.glUniform4f(lensUniform, 0f, 0f, 1f, 1f);
         GLES30.glGenTextures(1, size, 0);
         maskTexture = size[0];
         GLES30.glActiveTexture(GLES30.GL_TEXTURE1);
@@ -340,7 +343,10 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
         }
     }
 
-    /** Sets the shift for the picture with decoder time ptsUs, drawn now; the program is in use. */
+    /**
+     * Sets the shift for the picture with decoder time ptsUs, drawn now, and the lens terms the rest of it is turned
+     * through; the program is in use.
+     */
     private void applyWarp(long ptsUs) {
         // Read before the shift, so input sent while it is worked out shows as new at the next refresh
         int inputSeq = (int) MoonBridge.frameWarpInputState();
@@ -354,6 +360,9 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
         drawnInputSeq = inputSeq;
         GLES30.glUniform3f(warpUniform, active ? warpOut[0] : 0f, active ? warpOut[1] : 0f,
                 active && code >= 0 && code == maskGeneration ? 1f : 0f);
+        // As the PC gave them, y down: warp.frag turns the picture in those coordinates
+        GLES30.glUniform4f(lensUniform, active ? warpOut[4] : 0f, active ? warpOut[5] : 0f,
+                active ? warpOut[6] : 1f, active ? warpOut[7] : 1f);
         // Redraws between pictures follow a locked model only: one refresh is looked at after each such draw
         if (active) postRefresh();
     }

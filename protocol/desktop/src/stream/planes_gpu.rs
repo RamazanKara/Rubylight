@@ -592,6 +592,7 @@ impl PlanesPass {
         if !warp.is_identity() {
             let mask = self.ready_mask(renderer, warp);
             uniforms.warp = warp.row(mask);
+            uniforms.warp_lens = warp.lens_row();
         }
         self.set_uniforms(&uniforms)?;
         let drawn = SDL_SetGPURenderState(renderer, self.active_state()) && SDL_RenderFillRect(renderer, destination);
@@ -686,6 +687,8 @@ pub struct Uniforms {
     pub encoding: [f32; 4],
     /// What flag 512 reads of Frame Warp: `WarpDraw::row`; all zero draws the picture in place.
     pub warp: [f32; 4],
+    /// Its lens terms (`WarpDraw::lens_row`), read only beside a row that shifts.
+    pub warp_lens: [f32; 4],
 }
 
 /// The shader's flag for a draw straight into the target rectangle.
@@ -779,6 +782,7 @@ pub fn direct_uniforms(parameters: &[u32; 8], destination: &SDL_FRect, origin: (
         unused: 0.0,
         encoding: if gamma22 { [min_nits, inv_range, 0.0, 0.0] } else { [0.0; 4] },
         warp: [0.0; 4],
+        warp_lens: nightjar_core::frame_warp::FLAT,
     }
 }
 
@@ -1009,23 +1013,26 @@ mod tests {
         assert_eq!(direct_uniforms(&[0; 8], &rect, (0, 0), (4, 4), SdlLook { pq_target: false, ..hdr }).parameters[6], DIRECT_FLAG);
     }
 
-    /// The constants are the shader's 96-byte `Picture` block, in its order.
+    /// The constants are the shader's 128-byte `Picture` block, in its order.
     #[test]
     fn the_direct_constants_match_the_shader_block() {
-        assert_eq!(std::mem::size_of::<Uniforms>(), 112);
+        assert_eq!(std::mem::size_of::<Uniforms>(), 128);
         assert_eq!(std::mem::offset_of!(Uniforms, destination), 32);
         assert_eq!(std::mem::offset_of!(Uniforms, picture), 48);
         assert_eq!(std::mem::offset_of!(Uniforms, output_scale), 64);
         assert_eq!(std::mem::offset_of!(Uniforms, tonemap), 68);
         assert_eq!(std::mem::offset_of!(Uniforms, encoding), 80);
         assert_eq!(std::mem::offset_of!(Uniforms, warp), 96);
+        assert_eq!(std::mem::offset_of!(Uniforms, warp_lens), 112);
         let shader = include_str!("../pyrowave.hlsl");
         let rows = shader.lines().map(str::trim).collect::<Vec<_>>();
         let at = |row: &str| rows.iter().position(|line| *line == row).unwrap_or_else(|| panic!("no {row}"));
         assert_eq!(at("float minNits; float invRange; float2 unusedEncoding;"), at("float outputScale; float tonemap1; float tonemap2; float unused;") + 2,
             "the encoding's row follows the row at 64 (after its comment)");
-        assert_eq!(at("float4 warp;"), at("float minNits; float invRange; float2 unusedEncoding;") + 3,
+        assert_eq!(at("float4 warp;"), at("float minNits; float invRange; float2 unusedEncoding;") + 4,
             "Frame Warp's row follows the encoding's (after its comment)");
+        assert_eq!(at("float4 warpLens;"), at("float4 warp;") + 1, "and its lens row ends the block");
+        assert_eq!(rows[at("float4 warpLens;") + 1], "#endif");
         assert_eq!(MASK_ROW_BYTES, 256, "a 2048-cell row of the mask in bytes");
         assert_eq!(direct_uniforms(&[0; 8], &SDL_FRect { x: 0.0, y: 0.0, w: 8.0, h: 8.0 }, (0, 0), (8, 8),
             SdlLook { texture_headroom: 0.0, output_headroom: 1.0, sdr_white: 1.0, color_scale: 1.0, linear_output: false, pq_target: false, target_encoding: [0.0; 4] }).warp,

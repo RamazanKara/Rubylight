@@ -69,18 +69,90 @@ pub fn edge(p: [f32; 2]) -> ([f32; 2], f32) {
     ([x, y], fade_x.min(fade_y))
 }
 
+/// The lens terms of a picture that moves alike everywhere: [`source`] then only shifts.
+pub const FLAT: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
+/// The least [`source`] divides by: a point this close to level with the turned camera would
+/// sample far outside the picture, and past it from behind the camera.
+pub const MIN_DEPTH: f32 = 0.25;
+
+/// What a turn that moves the centre of a picture of `size` pixels by `pixels` does to the
+/// rest of it, drawn through a lens of `focal` picture pixels (`Model::focal`): how far the
+/// centre moves on the screen, in pixels (`focal * tan(pixels / focal)`: the game turns by an
+/// angle), and the lens terms [`source`] takes with that shift as fractions of the picture,
+/// `[k.x, k.y, n.x, n.y]`. With `t = tan(pixels / focal)` per axis, `k = t * size / focal`
+/// and `n = (sqrt(1 + t.y²), sqrt(1 + t.x²))`.
+pub fn lens_terms(pixels: [f32; 2], focal: f32, size: (u16, u16)) -> ([f32; 2], [f32; 4]) {
+    if !(focal.is_finite() && focal > 0.0) {
+        return (pixels, FLAT);
+    }
+    let size = [f32::from(size.0.max(1)), f32::from(size.1.max(1))];
+    // The host keeps the shift well inside a quarter turn; the bound keeps the tangent finite.
+    let t = pixels.map(|p| (p / focal).clamp(-1.4, 1.4).tan());
+    (
+        [t[0] * focal, t[1] * focal],
+        [t[0] * size[0] / focal, t[1] * size[1] / focal, (1.0 + t[1] * t[1]).sqrt(), (1.0 + t[0] * t[0]).sqrt()],
+    )
+}
+
+/// The horizontal field of view of `model`'s lens in degrees, for logs; `None` for a picture that
+/// moves alike everywhere.
+pub fn field_of_view(model: &Model) -> Option<f32> {
+    model.lens().map(|focal| 2.0 * (f32::from(model.picture_width) * 0.5 / focal).atan().to_degrees())
+}
+
+/// Where the output point `p` samples the picture (fractions of the picture, 0 to 1 inside it;
+/// the edge fill, [`edge`], comes after): through `lens` ([`lens_terms`], or [`FLAT`]) under
+/// the centre's shift `shift`, as a camera turning shows it. From the picture's centre,
+///
+/// ```text
+/// source = (q * lens.zw - shift) / max(1 + dot(q, lens.xy), MIN_DEPTH)
+/// ```
+///
+/// which is `p - shift` for a flat picture and exact for a turn about one axis; a turn about both
+/// is off by the product of the two tangents (under a pixel at the corners for a shift of 3% of
+/// the picture). Every renderer's shader draws the same (`frame_warp.hlsl` on the desktop).
+pub fn source(p: [f32; 2], shift: [f32; 2], lens: [f32; 4]) -> [f32; 2] {
+    let q = [p[0] - 0.5, p[1] - 0.5];
+    let depth = (1.0 + q[0] * lens[0] + q[1] * lens[1]).max(MIN_DEPTH);
+    [0.5 + (q[0] * lens[2] - shift[0]) / depth, 0.5 + (q[1] * lens[3] - shift[1]) / depth]
+}
+
+/// The output point that samples the picture at `at` ([`source`] undone), or `None` where no
+/// point in front of the camera does. For drawing what stays in place as triangles.
+pub fn destination(at: [f32; 2], shift: [f32; 2], lens: [f32; 4]) -> Option<[f32; 2]> {
+    let s = [at[0] - 0.5, at[1] - 0.5];
+    // s * (1 + q.k) = q * n - shift, two linear equations in q.
+    let (a, b, c) = (lens[2] - s[0] * lens[0], -s[0] * lens[1], s[0] + shift[0]);
+    let (d, e, f) = (-s[1] * lens[0], lens[3] - s[1] * lens[1], s[1] + shift[1]);
+    let det = a * e - b * d;
+    if det.abs() < 1e-9 {
+        return None;
+    }
+    let q = [(c * e - b * f) / det, (a * f - c * d) / det];
+    (1.0 + q[0] * lens[0] + q[1] * lens[1] >= MIN_DEPTH).then_some([q[0] + 0.5, q[1] + 0.5])
+}
+
 /// The shift for one picture.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Warp {
-    /// How far to move the picture's content, in picture pixels (x right, y down): sample the
-    /// picture at `position - pixels`.
+    /// How far to move the content at the picture's centre, in picture pixels (x right, y down).
     pub pixels: [f32; 2],
-    /// The same as fractions of the picture's width and height: sample at `uv - uv`.
+    /// The same as fractions of the picture's width and height.
     pub uv: [f32; 2],
+    /// How the rest of the picture follows ([`lens_terms`]): the output point `p` samples the
+    /// picture at [`source`]`(p, uv, lens)`. [`FLAT`] for a picture that moves alike everywhere,
+    /// which samples at `p - uv`.
+    pub lens: [f32; 4],
     /// Whether to draw with the shift and mask at all. False draws the picture as it is.
     pub active: bool,
     /// The HUD mask to keep unshifted, by generation; `None` for none.
     pub mask_generation: Option<u16>,
+}
+
+impl Default for Warp {
+    fn default() -> Self {
+        Self { pixels: [0.0; 2], uv: [0.0; 2], lens: FLAT, active: false, mask_generation: None }
+    }
 }
 
 /// What the statistics overlay shows.
@@ -138,7 +210,8 @@ impl FrameWarp {
 
     /// The request that starts (or stops) this stream's Frame Warp on the host. The host
     /// counts input from the request that starts it, so starting restarts the counts here too;
-    /// a repeated start keeps them.
+    /// a repeated start keeps them. Every renderer here turns the picture through a lens, so the
+    /// request asks for the game's.
     pub fn request(&self, enabled: bool) -> FrameWarpRequest {
         if self.started.swap(enabled, Ordering::AcqRel) != enabled && enabled {
             *self.predictor() = Predictor::new(self.controller);
@@ -149,6 +222,7 @@ impl FrameWarp {
             enabled,
             controller: self.controller,
             mask_max_width: self.mask_max_width,
+            lens: true,
         }
     }
 
@@ -560,6 +634,11 @@ impl Predictor {
         for (value, limit) in shift.iter_mut().zip(model.max_offset) {
             *value = value.clamp(-limit, limit) * self.weight;
         }
+        // Under a lens the picture turns rather than slides, and its centre moves by the tangent.
+        let (shift, lens) = match model.lens() {
+            Some(focal) => lens_terms(shift, focal, (model.picture_width, model.picture_height)),
+            None => (shift, FLAT),
+        };
         if drawn {
             self.warped += 1;
             self.record(shift, now_us);
@@ -571,6 +650,7 @@ impl Predictor {
                 shift[0] / f32::from(model.picture_width),
                 shift[1] / f32::from(model.picture_height),
             ],
+            lens: if active { lens } else { FLAT },
             active,
             mask_generation: self.mask_generation.filter(|_| active),
         }
@@ -631,6 +711,7 @@ mod tests {
             max_offset: [200.0, 100.0],
             lag_us: 30_000,
             confidence: 0.9,
+            focal: 0.0,
         }
     }
 
@@ -726,6 +807,74 @@ mod tests {
         let none = p.warp(30, SETTLED + 2);
         assert!(!none.active);
         assert_eq!(p.status(SETTLED + 2).untagged, 1);
+    }
+
+    #[test]
+    fn a_flat_model_slides_the_picture() {
+        let mut p = Predictor::new(None);
+        p.on_model(model(true, false));
+        p.warp(0, SETTLED - 200_000);
+        p.note_mouse(100, 40, SETTLED);
+        p.on_tags(&tags(&[Tag { frame: 1, ..Tag::default() }]), SETTLED);
+        let warp = p.warp(1, SETTLED + 1);
+        assert_eq!((warp.pixels, warp.lens), ([-50.0, -10.0], FLAT));
+        assert_eq!(source([0.9, 0.2], warp.uv, warp.lens), [0.9 + 0.05, 0.2 + 0.02]);
+        assert_eq!(Warp::default().lens, FLAT);
+    }
+
+    /// Where a camera with a lens of `focal` pixels, turned so that the picture's centre moved by
+    /// the angles `turn` (radians, about the upright axis then the level one), shows the output
+    /// point `p` of a picture of `size` pixels: its ray turned back, as fractions of the picture.
+    fn turned_back(p: [f32; 2], turn: [f64; 2], focal: f64, size: [f64; 2]) -> [f64; 2] {
+        let (x, y, z) = ((f64::from(p[0]) - 0.5) * size[0], (f64::from(p[1]) - 0.5) * size[1], focal);
+        let (x, z) = (x * turn[0].cos() - z * turn[0].sin(), x * turn[0].sin() + z * turn[0].cos());
+        let (y, z) = (y * turn[1].cos() - z * turn[1].sin(), y * turn[1].sin() + z * turn[1].cos());
+        [0.5 + focal * x / z / size[0], 0.5 + focal * y / z / size[1]]
+    }
+
+    #[test]
+    fn a_lens_turns_the_picture_as_a_camera_does() {
+        // 1000 pixels wide through a 500 pixel lens: a 90 degree field of view.
+        let mut p = Predictor::new(None);
+        p.on_model(Model { focal: 500.0, ..model(true, false) });
+        p.warp(0, SETTLED - 200_000);
+        p.note_mouse(100, 0, SETTLED);
+        p.on_tags(&tags(&[Tag { frame: 1, ..Tag::default() }]), SETTLED);
+        let warp = p.warp(1, SETTLED + 1);
+        // The game turned by 50 / 500 radians; the centre shows it as the tangent.
+        let angle = -50.0f64 / 500.0;
+        assert!((f64::from(warp.pixels[0]) - 500.0 * angle.tan()).abs() < 1e-3, "{warp:?}");
+        assert_eq!(warp.pixels[1], 0.0);
+        for at in [[0.5, 0.5], [0.0, 0.5], [1.0, 0.5], [0.25, 0.1], [0.9, 0.95], [1.0, 0.0]] {
+            let exact = turned_back(at, [angle, 0.0], 500.0, [1000.0, 500.0]);
+            let drawn = source(at, warp.uv, warp.lens);
+            assert!((f64::from(drawn[0]) - exact[0]).abs() < 1e-5 && (f64::from(drawn[1]) - exact[1]).abs() < 1e-5, "{at:?}: {drawn:?}, {exact:?}");
+        }
+        // The right edge moves almost twice as far as the centre, and a flat shift misses that.
+        let edge = 1.0 - source([1.0, 0.5], warp.uv, warp.lens)[0];
+        assert!(edge / -warp.uv[0] < -1.7, "{edge}");
+
+        // Both axes at once, 30 by 12 pixels at the centre: the two turns' order, which the terms
+        // leave out, moves the corners by less than a pixel.
+        let (pixels, lens) = lens_terms([30.0, -12.0], 500.0, (1000, 500));
+        let uv = [pixels[0] / 1000.0, pixels[1] / 500.0];
+        for at in [[0.5, 0.5], [0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [0.3, 0.8]] {
+            let exact = turned_back(at, [30.0 / 500.0, -12.0 / 500.0], 500.0, [1000.0, 500.0]);
+            let drawn = source(at, uv, lens);
+            let off = ((f64::from(drawn[0]) - exact[0]) * 1000.0).hypot((f64::from(drawn[1]) - exact[1]) * 500.0);
+            assert!(off < 1.0, "{at:?}: {off} px");
+            let back = destination(drawn, uv, lens).unwrap();
+            assert!((back[0] - at[0]).abs() < 1e-4 && (back[1] - at[1]).abs() < 1e-4, "{at:?}: {back:?}");
+        }
+        assert!((field_of_view(&Model { focal: 500.0, ..model(true, false) }).unwrap() - 90.0).abs() < 1e-3);
+        assert_eq!(field_of_view(&model(true, false)), None);
+        // No lens, or a broken one, is a flat picture.
+        assert_eq!(lens_terms([30.0, -12.0], 0.0, (1000, 500)), ([30.0, -12.0], FLAT));
+        assert_eq!(lens_terms([30.0, -12.0], f32::NAN, (1000, 500)), ([30.0, -12.0], FLAT));
+        // A point level with the camera or behind it is held at the least depth.
+        let wide = source([1.0, 0.5], [0.0, 0.0], [-3.0, 0.0, 1.0, 1.0]);
+        assert_eq!(wide, [0.5 + 0.5 / MIN_DEPTH, 0.5]);
+        assert_eq!(destination([40.0, 0.5], [0.0, 0.0], [-3.0, 0.0, 1.0, 1.0]), None);
     }
 
     #[test]

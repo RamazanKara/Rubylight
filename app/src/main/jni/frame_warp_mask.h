@@ -22,6 +22,14 @@ inline bool frameWarpMoved(float drawnX, float drawnY, float x, float y) {
     return std::hypot(x - drawnX, y - drawnY) >= kFrameWarpRedrawPx;
 }
 
+// What warp() writes (frame_warp_api.h) for a picture drawn as it is, into `out`: no shift, and
+// the lens terms of a flat picture.
+inline void frameWarpStill(float *out) {
+    for (int i = 0; i < FRAME_WARP_FLOATS; ++i) {
+        out[i] = i >= 6 ? 1.0f : 0.0f;
+    }
+}
+
 // What the picture on screen was last drawn with, so that a refresh between the host's pictures
 // can tell without peek() (which takes the stream's lock) that a redraw has nothing new to show.
 // GlesUpscaler keeps the same in Java.
@@ -34,7 +42,7 @@ struct FrameWarpDrawn {
     uint32_t inputSeq = 0;
 
     // A draw that `code` and `out` came from (warp(), frame_warp_api.h), with input_seq read
-    // before it
+    // before it. The shift in pixels says whether the picture moved: the lens terms turn with it.
     void note(int32_t code, const float *out, uint32_t seq) {
         active = code != FRAME_WARP_INACTIVE;
         px[0] = active ? out[2] : 0.0f;

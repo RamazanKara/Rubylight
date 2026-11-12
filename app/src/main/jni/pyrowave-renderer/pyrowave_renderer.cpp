@@ -607,6 +607,8 @@ namespace {
 
     // A mask image not written yet (WarpSlot::generation)
     constexpr int32_t WARP_MASK_UNWRITTEN = -2;
+    // The floats of FrameWarpShift (shaders/frame_warp.glsl): vec4 shift, then vec4 lens
+    constexpr size_t WARP_SHIFT_FLOATS = 8;
 
     // Frame Warp's share of a slot: what its draws read besides the planes (set 1 in
     // shaders/frame_warp.glsl). Only the present thread uses it once enableFrameWarp() made it, and
@@ -616,7 +618,8 @@ namespace {
         // The mask generation in the image, and the one the recorded commands write
         int32_t generation = WARP_MASK_UNWRITTEN;
         int32_t writing = WARP_MASK_UNWRITTEN;
-        // The shift (FrameWarpShift), set just before each submit
+        // The shift and the lens terms (FrameWarpShift: WARP_SHIFT_FLOATS floats), set just before
+        // each submit
         VkBuffer shift = VK_NULL_HANDLE;
         VkDeviceMemory shiftMemory = VK_NULL_HANDLE;
         float *shiftMapped = nullptr;
@@ -2202,7 +2205,8 @@ namespace {
                 }
             }
             // Frame Warp: the shift as of now, after the wait, for the draw just recorded
-            float warpOut[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+            float warpOut[FRAME_WARP_FLOATS];
+            frameWarpStill(warpOut);
             int32_t warpCode = FRAME_WARP_INACTIVE;
             uint32_t warpSeq = 0;
             if (warp != nullptr) warpCode = setWarpShift(index, warp, warpMask, warpOut, &warpSeq);
@@ -2413,8 +2417,9 @@ namespace {
             return 0;
         }
 
-        // Frame Warp: the shift for slot `index`'s picture as of now, counted as drawn, into `out`
-        // (frame_warp_api.h) and the uniform its recorded draw reads (the slot's draw fence has
+        // Frame Warp: the shift for slot `index`'s picture as of now and the lens terms the rest of
+        // it is turned through, counted as drawn, into `out` (FRAME_WARP_FLOATS floats,
+        // frame_warp_api.h) and the uniform its recorded draw reads (the slot's draw fence has
         // signalled, so the GPU is not reading it). The HUD stays in place only where the host's mask
         // for this shift is the one the draw reads (`mask`). Returns warp()'s code; `seq` gets the
         // input count read before it, so input sent meanwhile shows as new at the next vsync.
@@ -2422,11 +2427,13 @@ namespace {
             WarpSlot &slot = warpSlots[index];
             *seq = warp->input_seq();
             const int32_t code = warp->warp(slot.frameNumber, out);
-            if (code == FRAME_WARP_INACTIVE) out[0] = out[1] = out[2] = out[3] = 0.0f;
+            if (code == FRAME_WARP_INACTIVE) frameWarpStill(out);
             slot.shiftMapped[0] = out[0];
             slot.shiftMapped[1] = out[1];
             slot.shiftMapped[2] = code >= 0 && code == mask ? 1.0f : 0.0f;
             slot.shiftMapped[3] = 0.0f;
+            // vec4 lens
+            std::memcpy(slot.shiftMapped + 4, out + 4, 4 * sizeof(float));
             return code;
         }
 
@@ -2467,7 +2474,7 @@ namespace {
             if (drawn == VK_NOT_READY) return true;
             if (!check(drawn, "Frame Warp draw fence")) return false;
             // Peeked, so a vsync that draws nothing is not counted; setWarpShift() takes what is drawn
-            float peeked[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+            float peeked[FRAME_WARP_FLOATS] = {};
             const bool active = warp->peek(warpSlots[index].frameNumber, peeked) != FRAME_WARP_INACTIVE;
             if (!frameWarpMoved(warpDrawn.px[0], warpDrawn.px[1], active ? peeked[2] : 0.0f, active ? peeked[3] : 0.0f)) {
                 return true;
@@ -2483,7 +2490,8 @@ namespace {
 
             int32_t warpMask = FrameWarpCells::kEmpty;
             if (!recordDraw(index, imageIndex, warp, &warpMask)) return false;
-            float warpOut[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+            float warpOut[FRAME_WARP_FLOATS];
+            frameWarpStill(warpOut);
             uint32_t warpSeq = 0;
             const int32_t warpCode = setWarpShift(index, warp, warpMask, warpOut, &warpSeq);
 
@@ -2699,7 +2707,7 @@ namespace {
         // Points the slot's set at its mask image and shift buffer.
         void writeWarpDescriptors(const WarpSlot &slot) {
             const VkDescriptorImageInfo image = {warpSampler, slot.mask.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-            const VkDescriptorBufferInfo shift = {slot.shift, 0, 4 * sizeof(float)};
+            const VkDescriptorBufferInfo shift = {slot.shift, 0, WARP_SHIFT_FLOATS * sizeof(float)};
             VkWriteDescriptorSet writes[2] = {};
             writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             writes[0].dstSet = slot.set;
@@ -2798,7 +2806,7 @@ namespace {
                 if (!check(vk.AllocateDescriptorSets(device, &setInfo, &slot.set), "vkAllocateDescriptorSets(Frame Warp)") ||
                     !createWarpMask(slot.mask, 1, 1)) return false;
                 void *shift = nullptr;
-                if (!createMappedBuffer(4 * sizeof(float), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, &slot.shift, &slot.shiftMemory,
+                if (!createMappedBuffer(WARP_SHIFT_FLOATS * sizeof(float), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, &slot.shift, &slot.shiftMemory,
                                         &shift)) return false;
                 slot.shiftMapped = static_cast<float *>(shift);
                 // Unwritten, so the first draw clears the mask before it is read

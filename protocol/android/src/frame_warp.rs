@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use nightjar_core::control::ClientMessage;
-use nightjar_core::frame_warp::{FrameWarp, Mask, Model, Status, Warp, FRAME_WARP_REQUEST_MESSAGE_TYPE};
+use nightjar_core::frame_warp::{FrameWarp, Mask, Model, Status, Warp, FLAT, FRAME_WARP_REQUEST_MESSAGE_TYPE};
 
 use crate::engine;
 
@@ -32,7 +32,13 @@ pub const MASK_MAX_WIDTH: u16 = 1024;
 pub const FRAME_RING: usize = 128;
 
 /// [`FrameWarpApi::version`]; `frame_warp_api.h` checks it.
-pub const API_VERSION: u32 = 2;
+pub const API_VERSION: u32 = 3;
+/// The floats `warp` and `peek` write: the centre's shift as fractions of the picture (x, y) and
+/// in picture pixels (x, y), then the lens terms `[k.x, k.y, n.x, n.y]`
+/// (`nightjar_core::frame_warp::source`). `frame_warp_api.h` and `MoonBridge` say the same.
+pub const WARP_FLOATS: usize = 8;
+/// What they write for a picture drawn as it is: no shift, through the lens of a flat picture.
+pub const WARP_STILL: [f32; WARP_FLOATS] = [0.0, 0.0, 0.0, 0.0, FLAT[0], FLAT[1], FLAT[2], FLAT[3]];
 /// `warp` codes besides a mask generation (0 to 65535).
 pub const WARP_NO_MASK: i32 = -1;
 pub const WARP_INACTIVE: i32 = -2;
@@ -167,22 +173,23 @@ pub fn frame_for_pts(pts_us: i64) -> Option<u32> {
     lock(&FRAMES).find(pts_us)
 }
 
-/// The shift for `frame` drawn now, as `warp` of [`API`] gives it: the code, and the shift as
-/// fractions of the picture (x, y) and in picture pixels (x, y). Inactive without a stream's
-/// Frame Warp or a frame number.
-pub fn warp_for(frame: Option<u32>) -> (i32, [f32; 4]) {
+/// The shift for `frame` drawn now, as `warp` of [`API`] gives it: the code, and the centre's
+/// shift as fractions of the picture (x, y) and in picture pixels (x, y), then the lens terms the
+/// rest of the picture is turned through ([`WARP_FLOATS`]). Inactive without a stream's Frame
+/// Warp or a frame number.
+pub fn warp_for(frame: Option<u32>) -> (i32, [f32; WARP_FLOATS]) {
     match (current(), frame) {
         (Some(warp), Some(frame)) => encode_warp(&warp.warp(frame)),
-        _ => (WARP_INACTIVE, [0.0; 4]),
+        _ => (WARP_INACTIVE, WARP_STILL),
     }
 }
 
 /// As [`warp_for`], without counting it in the statistics: for a renderer deciding whether to
 /// draw the picture on screen again. A redraw that follows calls [`warp_for`] for what it draws.
-pub fn peek_for(frame: Option<u32>) -> (i32, [f32; 4]) {
+pub fn peek_for(frame: Option<u32>) -> (i32, [f32; WARP_FLOATS]) {
     match (current(), frame) {
         (Some(warp), Some(frame)) => encode_warp(&warp.peek(frame)),
-        _ => (WARP_INACTIVE, [0.0; 4]),
+        _ => (WARP_INACTIVE, WARP_STILL),
     }
 }
 
@@ -212,12 +219,13 @@ pub fn pack_input_state(seq: u32, stick_deflected: bool) -> i64 {
     i64::from(seq) | (i64::from(stick_deflected) * INPUT_STICK_DEFLECTED)
 }
 
-pub fn encode_warp(warp: &Warp) -> (i32, [f32; 4]) {
+pub fn encode_warp(warp: &Warp) -> (i32, [f32; WARP_FLOATS]) {
     if !warp.active {
-        return (WARP_INACTIVE, [0.0; 4]);
+        return (WARP_INACTIVE, WARP_STILL);
     }
     let code = warp.mask_generation.map_or(WARP_NO_MASK, i32::from);
-    (code, [warp.uv[0], warp.uv[1], warp.pixels[0], warp.pixels[1]])
+    let [kx, ky, nx, ny] = warp.lens;
+    (code, [warp.uv[0], warp.uv[1], warp.pixels[0], warp.pixels[1], kx, ky, nx, ny])
 }
 
 /// Writes `mask` as one byte per cell, [`CELL_SET`] or [`CELL_CLEAR`], rows from the top, into
@@ -315,8 +323,12 @@ pub fn model_line(model: &Model) -> String {
         (false, true) => "stick locked",
         (false, false) => "unlocked",
     };
+    let lens = match nightjar_core::frame_warp::field_of_view(model) {
+        Some(degrees) => format!("a {degrees:.0} degree lens"),
+        None => "no lens".to_owned(),
+    };
     format!(
-        "Frame Warp: model {} {state} for {}x{}: mouse {:.3}/{:.3} px/count, stick {:.0}/{:.0} px/s, lag {:.1} ms, fit {:.2}",
+        "Frame Warp: model {} {state} for {}x{}: mouse {:.3}/{:.3} px/count, stick {:.0}/{:.0} px/s, lag {:.1} ms, fit {:.2}, {lens}",
         model.generation,
         model.picture_width,
         model.picture_height,
@@ -337,9 +349,10 @@ pub struct FrameWarpApi {
     pub version: u32,
     /// The frame queued with presentation time `pts_us` (µs), or -1.
     pub frame_for_pts: extern "C" fn(pts_us: i64) -> i64,
-    /// The shift for `frame` (-1 for unknown) drawn now: writes uv x, uv y, px x, px y to `out`
-    /// (four floats) and returns the HUD mask generation to draw with, [`WARP_NO_MASK`], or
-    /// [`WARP_INACTIVE`] to draw the picture as it is.
+    /// The shift for `frame` (-1 for unknown) drawn now: writes uv x, uv y, px x, px y and the
+    /// lens terms k.x, k.y, n.x, n.y to `out` ([`WARP_FLOATS`] floats) and returns the HUD mask
+    /// generation to draw with, [`WARP_NO_MASK`], or [`WARP_INACTIVE`] to draw the picture as it
+    /// is ([`WARP_STILL`] written).
     pub warp: unsafe extern "C" fn(frame: i64, out: *mut f32) -> i32,
     /// The HUD mask when its generation is not `known` (-1 for none): writes width and height
     /// and, given room, the cells (one byte each, rows from the top) and returns the generation;
@@ -378,7 +391,7 @@ extern "C" fn api_stick_deflected() -> i32 {
 }
 
 /// # Safety
-/// `out` is null or points at four writable floats.
+/// `out` is null or points at [`WARP_FLOATS`] writable floats.
 unsafe extern "C" fn api_warp(frame: i64, out: *mut f32) -> i32 {
     let (code, values) = warp_for(u32::try_from(frame).ok());
     // SAFETY: as this function's.
@@ -387,7 +400,7 @@ unsafe extern "C" fn api_warp(frame: i64, out: *mut f32) -> i32 {
 }
 
 /// # Safety
-/// `out` is null or points at four writable floats.
+/// `out` is null or points at [`WARP_FLOATS`] writable floats.
 unsafe extern "C" fn api_peek(frame: i64, out: *mut f32) -> i32 {
     let (code, values) = peek_for(u32::try_from(frame).ok());
     // SAFETY: as this function's.
@@ -396,10 +409,10 @@ unsafe extern "C" fn api_peek(frame: i64, out: *mut f32) -> i32 {
 }
 
 /// # Safety
-/// `out` is null or points at four writable floats.
-unsafe fn write_shift(values: &[f32; 4], out: *mut f32) {
+/// `out` is null or points at [`WARP_FLOATS`] writable floats.
+unsafe fn write_shift(values: &[f32; WARP_FLOATS], out: *mut f32) {
     if !out.is_null() {
-        // SAFETY: the caller passes four floats (frame_warp_api.h).
+        // SAFETY: the caller passes that many floats (frame_warp_api.h).
         unsafe { std::ptr::copy_nonoverlapping(values.as_ptr(), out, values.len()) };
     }
 }
@@ -497,16 +510,24 @@ mod tests {
         let inactive = Warp {
             pixels: [3.0, 4.0],
             uv: [0.1, 0.2],
+            lens: [0.05, -0.02, 1.001, 1.004],
             active: false,
             mask_generation: Some(3),
         };
-        assert_eq!(encode_warp(&inactive), (WARP_INACTIVE, [0.0; 4]));
+        assert_eq!(WARP_STILL, [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0], "no shift, a flat picture");
+        assert_eq!(encode_warp(&inactive), (WARP_INACTIVE, WARP_STILL));
         let active = Warp {
             active: true,
             mask_generation: None,
             ..inactive
         };
-        assert_eq!(encode_warp(&active), (WARP_NO_MASK, [0.1, 0.2, 3.0, 4.0]));
+        assert_eq!(
+            encode_warp(&active),
+            (WARP_NO_MASK, [0.1, 0.2, 3.0, 4.0, 0.05, -0.02, 1.001, 1.004]),
+            "the shift, then the lens terms"
+        );
+        let flat = Warp { lens: FLAT, ..active };
+        assert_eq!(encode_warp(&flat).1, [0.1, 0.2, 3.0, 4.0, 0.0, 0.0, 1.0, 1.0]);
         let masked = Warp {
             mask_generation: Some(65535),
             ..active
@@ -585,6 +606,9 @@ mod tests {
         assert!(line.contains("model 2 mouse locked for 1920x1080"), "{line}");
         assert!(line.contains("0.940/-0.900 px/count"), "{line}");
         assert!(line.contains("lag 38.4 ms"), "{line}");
+        assert!(line.ends_with(", no lens"), "{line}");
+        let lens = model_line(&Model { focal: 960.0, ..model(true, false) });
+        assert!(lens.ends_with(", a 90 degree lens"), "{lens}");
         assert!(model_line(&model(false, false)).contains("unlocked"));
     }
 
@@ -608,9 +632,9 @@ mod tests {
             (drawn.warped, drawn.extrapolated, drawn.untagged),
             "only drawn pictures count"
         );
-        assert_eq!(peek_for(None), (WARP_INACTIVE, [0.0; 4]));
+        assert_eq!(peek_for(None), (WARP_INACTIVE, WARP_STILL));
         end();
-        assert_eq!(peek_for(Some(7)), (WARP_INACTIVE, [0.0; 4]), "no stream, nothing to shift");
+        assert_eq!(peek_for(Some(7)), (WARP_INACTIVE, WARP_STILL), "no stream, nothing to shift");
     }
 
     #[test]
@@ -619,13 +643,16 @@ mod tests {
         let _serial = crate::engine::tests_serial();
         end();
         assert_eq!((API.frame_for_pts)(5), -1);
-        let mut out = [7.0f32; 4];
+        // One float more than the table writes: nothing past WARP_FLOATS is touched.
+        let mut out = [7.0f32; WARP_FLOATS + 1];
         assert_eq!(unsafe { (API.warp)(3, out.as_mut_ptr()) }, WARP_INACTIVE);
-        assert_eq!(out, [0.0; 4]);
+        assert_eq!(out[..WARP_FLOATS], WARP_STILL);
+        assert_eq!(out[WARP_FLOATS], 7.0);
         assert_eq!(unsafe { (API.warp)(-1, std::ptr::null_mut()) }, WARP_INACTIVE);
-        let mut peeked = [7.0f32; 4];
+        let mut peeked = [7.0f32; WARP_FLOATS + 1];
         assert_eq!(unsafe { (API.peek)(3, peeked.as_mut_ptr()) }, WARP_INACTIVE);
-        assert_eq!(peeked, [0.0; 4]);
+        assert_eq!(peeked[..WARP_FLOATS], WARP_STILL);
+        assert_eq!(peeked[WARP_FLOATS], 7.0);
         assert_eq!(unsafe { (API.peek)(-1, std::ptr::null_mut()) }, WARP_INACTIVE);
         let (mut w, mut h) = (0u32, 0u32);
         assert_eq!(unsafe { (API.mask)(-1, &mut w, &mut h, std::ptr::null_mut(), 0) }, MASK_UNCHANGED);
@@ -673,12 +700,12 @@ mod tests {
         note_frame(16_000, 41);
         assert_eq!((API.frame_for_pts)(16_000), 41);
         assert_eq!((API.frame_for_pts)(16_001), -1);
-        let mut out = [7.0f32; 4];
+        let mut out = [7.0f32; WARP_FLOATS];
         assert_eq!(unsafe { (API.warp)(41, out.as_mut_ptr()) }, WARP_INACTIVE, "no model yet");
-        assert_eq!(out, [0.0; 4]);
-        let mut peeked = [7.0f32; 4];
+        assert_eq!(out, WARP_STILL);
+        let mut peeked = [7.0f32; WARP_FLOATS];
         assert_eq!(unsafe { (API.peek)(41, peeked.as_mut_ptr()) }, WARP_INACTIVE, "peek agrees with warp");
-        assert_eq!(peeked, [0.0; 4]);
+        assert_eq!(peeked, WARP_STILL);
 
         let mut mask = Mask::new(9, 3, 2);
         mask.set(2, 1, true);

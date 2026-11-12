@@ -53,6 +53,17 @@ shift = clamp(mouse if M.mouse_locked + stick if M.stick_locked, -M.max_offset, 
 
 Shifts are in picture pixels (the stream's video size, `M.picture_width` by `M.picture_height`) and move the content: the client samples the picture at `position - shift`. Mouse y grows downward as in `MouseMove`; the stick's y is the input stream's (up is positive), and the model's sign carries the direction. `curve` is the stick response below. The sums wrap at 2³²; take differences as signed 32-bit values. How the client fills the strip that the shift uncovers is its own choice: Nightjar mirrors `position - shift` back into the picture and darkens the fill by up to 35% over its first 8% of the picture past the edge. Where `position - shift` lands on the HUD mask, Nightjar samples `position` itself, so the HUD isn't drawn a second time beside itself.
 
+**The lens.** A game draws through a perspective camera, so a turn moves the edges of its picture farther than the centre: twice as far at the left and right edges of a 90 degree field of view. A model may therefore carry the camera's focal length `M.focal` in picture pixels (`M.picture_width / 2 / tan(horizontal field of view / 2)`), and its gains are then those of the picture's centre. `shift / M.focal` is the angle the camera turned by, per axis, and the client draws the picture turned by it. With `t = tan(shift / M.focal)` per axis, `size` the picture's size, and positions `p` as fractions of the picture with `q = p - 0.5`:
+
+```text
+centre = M.focal * t                                  (how far the picture's centre moves, in pixels)
+k      = t * size / M.focal
+n      = (sqrt(1 + t.y²), sqrt(1 + t.x²))
+source = 0.5 + (q * n - centre / size) / max(1 + dot(q, k), 0.25)
+```
+
+and the client samples the picture at `source` instead of `position - shift`. This is exact for a turn about one axis and within the product of the two tangents for both at once (under a pixel at the corners of a shift of 3% of the picture each way). A model without a focal length (0, or a 48-byte model) describes a picture that moves alike everywhere, and `source` is then `p - shift / size`. The edge fill and the HUD mask apply to `source` as they do to `position - shift`. A client asks for the focal length with the request's lens flag; one that does not is sent none.
+
 The client should compute the shift as late as it can before each present, and draw the same picture again with a new shift on refreshes between pictures. When nothing has been sent for 600 ms, both sums are equal to the host's (no input is in flight), so a lost count lasts until the next pause; Nightjar uses this to rebase. When the model unlocks or the client stops, the shift fades to zero over about 150 ms rather than jumping.
 
 **Stick response** (both sides integrate the same function): with `vx = x / 32767` and `vy = y / 32767` clamped to -1..1, `r = sqrt(vx² + vy²)`; zero when `r` is at most the dead zone, otherwise `s = min((r - deadzone) / (1 - deadzone), 1)` and the result is `(vx / r, vy / r) * s^exponent`.
@@ -68,13 +79,13 @@ All messages travel on the encrypted control stream (`SS_ENC_CONTROL_V2`). All i
 | 0 | u8 | version | 1 |
 | 1 | u8 | enabled | 1 = learn, tag and mask; 0 = stop all three |
 | 2 | u8 | controller | Input stream controller number (0 to 15) whose right stick turns the camera; 0xFF for none |
-| 3 | u8 | reserved | 0 |
+| 3 | u8 | flags | Bit 0: the client draws the picture through the model's lens ("The lens" above). Other bits 0; a host ignores them |
 | 4 | u16 | mask max width | Widest HUD mask the client takes, at most 2048; 0 asks for none |
 | 6 | u16 | reserved | 0 |
 
 An enable request that starts Frame Warp (the first, or the first after a disable) restarts the counts on both sides: the host counts the input it receives from then on, the client the input it sends from then on. Input and control messages travel on different channels, so the counts can still differ by what was in flight; the idle rule above settles that. A repeated enable request keeps the counts. Every enable request makes the host send its current model and mask again. A host stops when the stream ends.
 
-### `0x5544` model, host to client (48 bytes, reliable)
+### `0x5544` model, host to client (52 bytes, reliable)
 
 | Offset | Size | Field | Rule |
 | --- | --- | --- | --- |
@@ -90,8 +101,11 @@ An enable request that starts Frame Warp (the first, or the first after a disabl
 | 32 | f32 × 2 | max shift x, y | 0 to 65535 picture pixels |
 | 40 | u32 | lag µs | The game's lag the tags allow for (for statistics) |
 | 44 | f32 | fit | 0 to 1 (for statistics) |
+| 48 | f32 | focal | The game camera's focal length in picture pixels, 1 to 1000000, or 0 for a picture that moves alike everywhere ("The lens" above). The gains are then the picture centre's |
 
-The host sends a model when it locks or unlocks, and when a locked gain changes by more than a few percent. Neither part locked means: draw unshifted.
+A host sends a focal length only to a client whose request set the lens flag; any other client gets 0. Its gains are the picture centre's as well, so drawn at `position - shift` its picture is right in the middle and moves too little toward the edges. A model of 48 bytes, as hosts sent before the focal length was added, has none. A host limits `max shift` further under a lens, so that the turn never brings the picture's edge near level with the camera.
+
+The host sends a model when it locks or unlocks, and when a locked gain changes by more than a few percent or the focal length does. Neither part locked means: draw unshifted.
 
 ### `0x5545` tags, host to client (4 + 20 × count bytes, unreliable)
 
@@ -132,6 +146,7 @@ The mask covers the whole picture; a set cell stays unshifted. A message is at m
 - It counts input at the point it goes on the wire, so what it adds up is exactly what the host received.
 - Tags are parsed on the control thread; models and masks are checked there and applied atomically between pictures. Video decoding is untouched: the shift happens where the picture is drawn.
 - The overlay shows the current shift, whether the model is locked, and how many pictures were shifted, extrapolated or untagged.
+- Every renderer draws the lens mapping above per pixel in its shader; the desktop's SDL renderer path draws it as triangles small enough to stay within a fifth of a pixel of it at 4K.
 
 ## Host requirements
 

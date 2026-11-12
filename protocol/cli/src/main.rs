@@ -238,15 +238,16 @@ impl SentMouse {
 }
 
 /// `NIGHTJAR_CLI_FRAME_WARP`'s CSV header: a row per decoded picture.
-const FRAME_WARP_HEADER: &str = "wire_frame,barcode_seq,decode_qpc_us,sent_x,sent_y,active,shift_x,shift_y,locked,mouse_gain_x,mouse_gain_y,lag_ms";
+const FRAME_WARP_HEADER: &str = "wire_frame,barcode_seq,decode_qpc_us,sent_x,sent_y,active,shift_x,shift_y,locked,mouse_gain_x,mouse_gain_y,lag_ms,focal";
 
 /// `NIGHTJAR_CLI_FRAME_WARP`: the shift Frame Warp gives each decoded picture as if it were
 /// drawn at once, with what this client had sent when it asked. `wire_frame` is the picture's
 /// frame number (the host's, as the timing CSV's), `barcode_seq` the motion or look probe's
 /// sequence (0 without one), `decode_qpc_us` the performance counter in microseconds,
 /// `sent_x`/`sent_y` the counts handed to the input queue so far (`SentMouse`), `shift_x`/
-/// `shift_y` picture pixels, `locked` the host's model present with its mouse fit locked, and
-/// the model's mouse gain and lag empty until it has sent one.
+/// `shift_y` picture pixels at the picture's centre, `locked` the host's model present with its
+/// mouse fit locked, and the model's mouse gain, lag and focal length (picture pixels, 0 for a
+/// picture that moves alike everywhere) empty until it has sent one.
 struct WarpLog {
     warp: Arc<FrameWarp>,
     sent: Arc<SentMouse>,
@@ -260,17 +261,18 @@ impl WarpLog {
         let decode_us = clock::us();
         let model = self.warp.status().model;
         let locked = model.is_some_and(|m| m.mouse_locked);
-        let (gain_x, gain_y, lag_ms) = match model {
+        let (gain_x, gain_y, lag_ms, focal) = match model {
             Some(m) => (
                 format!("{:.6}", m.mouse_gain[0]),
                 format!("{:.6}", m.mouse_gain[1]),
                 format!("{:.3}", f64::from(m.lag_us) / 1000.0),
+                format!("{:.2}", m.focal),
             ),
             None => Default::default(),
         };
         writeln!(
             self.csv,
-            "{frame},{sequence},{decode_us},{sent_x},{sent_y},{},{:.3},{:.3},{},{gain_x},{gain_y},{lag_ms}",
+            "{frame},{sequence},{decode_us},{sent_x},{sent_y},{},{:.3},{:.3},{},{gain_x},{gain_y},{lag_ms},{focal}",
             u8::from(warp.active),
             warp.pixels[0],
             warp.pixels[1],

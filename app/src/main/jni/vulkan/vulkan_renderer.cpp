@@ -65,12 +65,17 @@ namespace {
         float uvClamp[4];
         float params[4];
         float params2[4];
-        // Frame Warp (video_warp.frag): xy = shift as fractions of the picture, z = 1 to keep the
-        // HUD mask in place; and the picture's UV rect, the crop less any padding (xy its top
-        // left, zw its size). Unused by video.frag.
+        // Frame Warp (video_warp.frag): xy = shift of the picture's centre as fractions of the
+        // picture, z = 1 to keep the HUD mask in place; the picture's UV rect, the crop less any
+        // padding (xy its top left, zw its size); and the lens terms the rest of the picture is
+        // turned through (xy = k, zw = n; 0, 0, 1, 1 for a flat picture). Unused by video.frag.
         float warp[4];
         float warpRect[4];
+        float warpLens[4];
     };
+    // Every Vulkan device takes at least 128 bytes of push constants (maxPushConstantsSize)
+    static_assert(sizeof(PushConstants) == 7 * 4 * sizeof(float) && sizeof(PushConstants) <= 128,
+                  "PushConstants must match the shaders' block and fit the guaranteed size");
 
     constexpr float kOutputPassthrough = 0.0f;
     constexpr float kOutputPqToSdr = 1.0f;
@@ -1651,7 +1656,7 @@ bool VulkanRenderer::warpRefresh(int64_t vsyncNs) {
         return false;
     }
     // Peeked, so a refresh that draws nothing is not counted; renderFrame() takes the shift it draws
-    float out[4] = {};
+    float out[FRAME_WARP_FLOATS] = {};
     const bool active = warpApi_->peek(current_->frameNumber, out) != FRAME_WARP_INACTIVE;
     if (!frameWarpMoved(warpDrawn_.px[0], warpDrawn_.px[1], active ? out[2] : 0.0f, active ? out[3] : 0.0f)) {
         return false;
@@ -1931,21 +1936,24 @@ bool VulkanRenderer::renderFrame(const FramePtr& frame, uint64_t presentId, int6
     pc.params2[0] = kSdrWhiteNits;
     pc.params2[1] = static_cast<float>(std::max(quarterTurns(preTransform_), 0));
 
-    // Frame Warp: the picture's shift as of now, as fractions of the picture. The input count is
-    // read first, so input sent while the shift is worked out shows as new at the next refresh.
+    // Frame Warp: the picture's shift as of now, as fractions of the picture, and the lens terms
+    // the rest of it is turned through. The input count is read first, so input sent while the
+    // shift is worked out shows as new at the next refresh.
     int32_t warpCode = FRAME_WARP_INACTIVE;
-    float warpOut[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    float warpOut[FRAME_WARP_FLOATS];
+    frameWarpStill(warpOut);
     uint32_t warpSeq = 0;
     if (warpApi_) {
         warpCells_.poll(warpApi_);
         warpSeq = warpApi_->input_seq();
         warpCode = warpApi_->warp(frame->frameNumber, warpOut);
         if (warpCode == FRAME_WARP_INACTIVE) {
-            warpOut[0] = warpOut[1] = warpOut[2] = warpOut[3] = 0.0f;
+            frameWarpStill(warpOut);
         }
         pc.warp[0] = warpOut[0];
         pc.warp[1] = warpOut[1];
     }
+    memcpy(pc.warpLens, warpOut + 4, sizeof(pc.warpLens));
 
     VkCommandBuffer cmd = commandBuffers_[slot];
     vk_.vkResetCommandBuffer(cmd, 0);

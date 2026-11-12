@@ -199,8 +199,9 @@ struct Constants {
     tonemap: [f32; 2],
     /// The HLG display's peak in nits and system gamma.
     hlg: [f32; 2],
-    /// Frame Warp's row (`WarpDraw::row`).
+    /// Frame Warp's rows (`WarpDraw::row`, `WarpDraw::lens_row`).
     warp: [f32; 4],
+    warp_lens: [f32; 4],
 }
 
 fn flags(picture: &Picture, output: &Output, tonemap: bool) -> u32 {
@@ -424,6 +425,7 @@ impl Direct {
             tonemap: factors.map_or([0.0; 2], |(a, b)| [a, b]),
             hlg: [hlg.peak, hlg.gamma],
             warp: warp.row(mask.is_some()),
+            warp_lens: warp.lens_row(),
         };
         let c = &self.deferred;
         c.ClearState();
@@ -504,15 +506,19 @@ impl Direct {
 mod tests {
     use super::*;
 
-    /// The constants fill the shader's `Draw` block, Frame Warp's row last.
+    /// The constants fill the shader's `Draw` block, Frame Warp's rows last.
     #[test]
-    fn the_constants_end_with_frame_warps_row() {
-        assert_eq!(std::mem::size_of::<Constants>(), 64);
+    fn the_constants_end_with_frame_warps_rows() {
+        assert_eq!(std::mem::size_of::<Constants>(), 80);
         assert_eq!(std::mem::offset_of!(Constants, warp), 48);
+        assert_eq!(std::mem::offset_of!(Constants, warp_lens), 64);
         let shader = include_str!("../direct.hlsl");
         let gamma = shader.find("float hlgGamma;").expect("the HLG row");
         let warp = shader.find("float4 warp;").expect("the warp row");
         assert!(gamma < warp && !shader[gamma + "float hlgGamma;".len()..warp].contains(';'), "the warp row follows the HLG row");
+        let lens = shader[warp..].trim_start_matches("float4 warp;").trim_start();
+        assert!(lens.starts_with("float4 warpLens;") && lens.trim_start_matches("float4 warpLens;").trim_start().starts_with("};"),
+            "the lens row follows it and ends the block");
         assert!(shader.contains("Texture2D<float> hudMask : register(t2);"));
     }
 

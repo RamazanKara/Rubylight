@@ -19,6 +19,18 @@
 //! samples the picture at `p - shift`. A HUD mask marks what stays put on screen while the
 //! camera turns (crosshair, health, minimap, the weapon); the client does not shift it.
 //!
+//! A game draws through a perspective camera, so a turn moves its picture's edges farther
+//! than its centre. A model with a focal length `f` ([`Model::focal`], picture pixels) says
+//! so: its gains are the picture centre's, and the client turns the picture instead of sliding
+//! it. With `t = tan(shift / f)` per axis and `q` the output point from the picture's centre
+//! in units of `f`, the picture is sampled at
+//!
+//! ```text
+//! (q.x * sqrt(1 + t.y²) - t.x, q.y * sqrt(1 + t.x²) - t.y) / (1 + q.x * t.x + q.y * t.y)
+//! ```
+//!
+//! which is `q - shift / f` at the centre and exact for a turn about one axis.
+//!
 //! - [`FrameWarpRequest`] (0x5543, client to host) starts or stops it.
 //! - [`Model`] (0x5544, host to client, reliable) whenever the learned model changes.
 //! - [`Tags`] (0x5545, host to client, unreliable) for each frame as it goes out, with the
@@ -48,7 +60,10 @@ pub const TAGS_HEADER_BYTES: usize = 4;
 pub const TAG_BYTES: usize = 20;
 /// Tags per message: the newest frame's and up to three before it.
 pub const MAX_TAGS: usize = 4;
-pub const MODEL_BYTES: usize = 48;
+/// A model as a host sends it now: with the focal length.
+pub const MODEL_BYTES: usize = 52;
+/// A model as first defined, without the focal length: the shortest a client takes.
+pub const MODEL_FLAT_BYTES: usize = 48;
 pub const MASK_HEADER_BYTES: usize = 8;
 /// Largest mask width or height.
 pub const MAX_MASK_EDGE: u16 = 2048;
@@ -66,6 +81,9 @@ pub const STICK_EXPONENTS: [f32; 5] = [1.0, 1.5, 2.0, 2.5, 3.0];
 pub const MAX_STICK_DEADZONE: f32 = 0.5;
 /// Largest gain magnitude, in picture pixels per count or per second of full deflection.
 pub const MAX_GAIN: f32 = 100_000.0;
+/// Bounds of a [`Model::focal`] other than 0, in picture pixels.
+pub const MIN_FOCAL: f32 = 1.0;
+pub const MAX_FOCAL: f32 = 1_000_000.0;
 
 const MASK_NONE: u8 = 0;
 const MASK_RUNS: u8 = 1;
@@ -79,6 +97,9 @@ pub struct FrameWarpRequest {
     pub controller: Option<u8>,
     /// Widest HUD mask the client takes; 0 asks for none.
     pub mask_max_width: u16,
+    /// The client draws the picture through the model's lens ([`Model::focal`]). Without it
+    /// the host sends no focal length and gains that suit a picture drawn at `position - shift`.
+    pub lens: bool,
 }
 
 impl FrameWarpRequest {
@@ -92,7 +113,7 @@ impl FrameWarpRequest {
             VERSION,
             u8::from(self.enabled),
             controller,
-            0,
+            u8::from(self.lens),
             width[0],
             width[1],
             0,
@@ -101,7 +122,8 @@ impl FrameWarpRequest {
     }
 
     /// Parses a request; version 0, an `enabled` other than 0 or 1, a controller over 15 (but
-    /// 0xFF) and a mask width over [`MAX_MASK_EDGE`] reject it. Later versions may append.
+    /// 0xFF) and a mask width over [`MAX_MASK_EDGE`] reject it. Later versions may append, and
+    /// the flags' other bits are theirs.
     pub fn decode(data: &[u8]) -> Option<Self> {
         if data.len() < REQUEST_BYTES || data[0] == 0 || data[1] > 1 {
             return None;
@@ -116,6 +138,7 @@ impl FrameWarpRequest {
             enabled: data[1] == 1,
             controller,
             mask_max_width,
+            lens: data[3] & 1 != 0,
         })
     }
 }
@@ -228,6 +251,12 @@ pub struct Model {
     pub lag_us: u32,
     /// How well the model fits, 0 to 1 (for statistics).
     pub confidence: f32,
+    /// The game camera's focal length in picture pixels (half the picture's width over the
+    /// tangent of half its horizontal field of view), or 0 when the picture moves alike
+    /// everywhere or the host has not learned it. With one, the gains are the picture centre's
+    /// and the client turns the picture as a camera does instead of sliding it (the module
+    /// documentation has the mapping).
+    pub focal: f32,
 }
 
 impl Default for Model {
@@ -245,6 +274,7 @@ impl Default for Model {
             max_offset: [0.0; 2],
             lag_us: 0,
             confidence: 0.0,
+            focal: 0.0,
         }
     }
 }
@@ -252,6 +282,11 @@ impl Default for Model {
 impl Model {
     pub fn locked(&self) -> bool {
         self.mouse_locked || self.stick_locked
+    }
+
+    /// The focal length, when the model has one.
+    pub fn lens(&self) -> Option<f32> {
+        (self.focal > 0.0).then_some(self.focal)
     }
 
     fn valid(&self) -> bool {
@@ -266,6 +301,7 @@ impl Model {
                 .iter()
                 .all(|m| m.is_finite() && (0.0..=f32::from(u16::MAX)).contains(m))
             && (0.0..=1.0).contains(&self.confidence)
+            && (self.focal == 0.0 || (MIN_FOCAL..=MAX_FOCAL).contains(&self.focal))
     }
 
     /// The wire form, or `None` for a model out of bounds.
@@ -294,13 +330,15 @@ impl Model {
         }
         out[40..44].copy_from_slice(&self.lag_us.to_le_bytes());
         out[44..48].copy_from_slice(&self.confidence.to_le_bytes());
+        out[48..52].copy_from_slice(&self.focal.to_le_bytes());
         Some(out)
     }
 
-    /// Parses a model; version 0, unknown flag bits and any value out of bounds reject it.
-    /// Bytes after [`MODEL_BYTES`] are a later version's and are ignored.
+    /// Parses a model; version 0, unknown flag bits and any value out of bounds reject it. A
+    /// model of [`MODEL_FLAT_BYTES`] has no focal length. Bytes after [`MODEL_BYTES`] are a
+    /// later version's and are ignored.
     pub fn decode(data: &[u8]) -> Option<Self> {
-        if data.len() < MODEL_BYTES || data[0] == 0 || data[1] & !0b11 != 0 {
+        if data.len() < MODEL_FLAT_BYTES || data[0] == 0 || data[1] & !0b11 != 0 {
             return None;
         }
         let float = |at: usize| f32::from_le_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]]);
@@ -317,6 +355,7 @@ impl Model {
             max_offset: [float(32), float(36)],
             lag_us: u32::from_le_bytes([data[40], data[41], data[42], data[43]]),
             confidence: float(44),
+            focal: if data.len() >= MODEL_BYTES { float(48) } else { 0.0 },
         };
         model.valid().then_some(model)
     }
@@ -580,13 +619,26 @@ mod tests {
             enabled: true,
             controller: Some(3),
             mask_max_width: 960,
+            lens: false,
         };
         assert_eq!(request.encode(), [1, 1, 3, 0, 0xC0, 0x03, 0, 0]);
         assert_eq!(FrameWarpRequest::decode(&request.encode()), Some(request));
+        // A client that draws the lens says so in the flags; their other bits are ignored.
+        let lens = FrameWarpRequest {
+            lens: true,
+            ..request
+        };
+        assert_eq!(lens.encode(), [1, 1, 3, 1, 0xC0, 0x03, 0, 0]);
+        assert_eq!(FrameWarpRequest::decode(&lens.encode()), Some(lens));
+        assert_eq!(
+            FrameWarpRequest::decode(&[1, 1, 3, 0xFE, 0xC0, 0x03, 0, 0]),
+            Some(request)
+        );
         let none = FrameWarpRequest {
             enabled: false,
             controller: None,
             mask_max_width: 0,
+            lens: false,
         };
         assert_eq!(FrameWarpRequest::decode(&none.encode()), Some(none));
         assert_eq!(FrameWarpRequest::decode(&[0, 1, 0, 0, 0, 0, 0, 0]), None);
@@ -647,6 +699,7 @@ mod tests {
             max_offset: [230.0, 130.0],
             lag_us: 32_000,
             confidence: 0.93,
+            focal: 960.0,
         }
     }
 
@@ -654,11 +707,18 @@ mod tests {
     fn model_round_trips_and_rejects_out_of_bounds() {
         let wire = model().encode().unwrap();
         assert_eq!(wire[1], 1);
+        assert_eq!(wire.len(), MODEL_BYTES);
         assert_eq!(Model::decode(&wire), Some(model()));
+        assert_eq!(model().lens(), Some(960.0));
         let mut extended = wire.to_vec();
         extended.extend_from_slice(&[1, 2, 3]);
         assert_eq!(Model::decode(&extended), Some(model()));
-        assert_eq!(Model::decode(&wire[..MODEL_BYTES - 1]), None);
+        // A model as first defined, and one cut inside the focal length, have no lens.
+        let flat = Model { focal: 0.0, ..model() };
+        assert_eq!(Model::decode(&wire[..MODEL_FLAT_BYTES]), Some(flat));
+        assert_eq!(Model::decode(&wire[..MODEL_BYTES - 1]), Some(flat));
+        assert_eq!(flat.lens(), None);
+        assert_eq!(Model::decode(&wire[..MODEL_FLAT_BYTES - 1]), None);
         for broken in [
             Model { mouse_gain: [f32::NAN, 0.0], ..model() },
             Model { stick_gain: [0.0, f32::INFINITY], ..model() },
@@ -667,6 +727,10 @@ mod tests {
             Model { max_offset: [-1.0, 0.0], ..model() },
             Model { confidence: 1.5, ..model() },
             Model { picture_width: 0, ..model() },
+            Model { focal: -1.0, ..model() },
+            Model { focal: 0.5, ..model() },
+            Model { focal: f32::NAN, ..model() },
+            Model { focal: 2_000_000.0, ..model() },
         ] {
             assert!(broken.encode().is_none(), "{broken:?}");
         }

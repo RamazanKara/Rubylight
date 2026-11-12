@@ -355,7 +355,43 @@ public class RustEngineJniParityTest {
         Matcher version = Pattern.compile("pub const API_VERSION: u32 = (\\d+);").matcher(rust);
         assertTrue(version.find());
         fromRust.put("API_VERSION", Integer.parseInt(version.group(1)));
+        // How many floats warp() and peek() write: a renderer with a shorter array would be written past its end.
+        Matcher floats = Pattern.compile("pub const WARP_FLOATS: usize = (\\d+);").matcher(rust);
+        assertTrue(floats.find());
+        fromRust.put("FLOATS", Integer.parseInt(floats.group(1)));
         assertEquals(fromRust, defines);
+        assertEquals(MoonBridge.FRAME_WARP_FLOATS, (int) defines.get("FLOATS"));
+    }
+
+    @Test public void frameWarpWritesTheShiftThenTheLensTermsEverywhere() throws IOException {
+        // Eight floats: the centre's shift as fractions of the picture and in pixels, then the lens terms. A renderer
+        // that read them in another order would turn the picture by its shift in pixels.
+        String rust = read("frame_warp.rs");
+        assertTrue(rust.contains("pub const API_VERSION: u32 = 3;"));
+        assertTrue(rust.contains("pub const WARP_FLOATS: usize = 8;"));
+        assertTrue(rust.contains(
+                "pub const WARP_STILL: [f32; WARP_FLOATS] = [0.0, 0.0, 0.0, 0.0, FLAT[0], FLAT[1], FLAT[2], FLAT[3]];"));
+        assertTrue(rust.contains("let [kx, ky, nx, ny] = warp.lens;\n"
+                + "    (code, [warp.uv[0], warp.uv[1], warp.pixels[0], warp.pixels[1], kx, ky, nx, ny])"));
+        assertTrue(rust.contains("unsafe fn write_shift(values: &[f32; WARP_FLOATS], out: *mut f32) {"));
+        // Java's array is as long as Rust writes, and a shorter one draws the picture as it is.
+        String lib = read("lib.rs");
+        assertEquals(3, lib.split(Pattern.quote("if env.get_array_length(&out).unwrap_or(0) < values.len() as i32"),
+                -1).length);
+        String gles = new String(Files.readAllBytes(
+                new File("src/main/java/com/limelight/binding/video/GlesUpscaler.java").toPath()), StandardCharsets.UTF_8);
+        assertTrue(gles.contains("private final float[] warpOut = new float[MoonBridge.FRAME_WARP_FLOATS];"));
+        // The native renderers size theirs by the header, and a picture drawn as it is has a flat picture's terms.
+        String mask = new String(Files.readAllBytes(new File("src/main/jni/frame_warp_mask.h").toPath()),
+                StandardCharsets.UTF_8).replace("\r\n", "\n");
+        assertTrue(mask.contains("for (int i = 0; i < FRAME_WARP_FLOATS; ++i) {\n        out[i] = i >= 6 ? 1.0f : 0.0f;"));
+        for (String renderer : new String[] {"vulkan/vulkan_renderer.cpp", "pyrowave-renderer/pyrowave_renderer.cpp"}) {
+            String cpp = new String(Files.readAllBytes(new File("src/main/jni/" + renderer).toPath()),
+                    StandardCharsets.UTF_8).replace("\r\n", "\n");
+            assertFalse(renderer, Pattern.compile("float (?:warpOut|out|peeked)\\[4\\]").matcher(cpp).find());
+            assertTrue(renderer, cpp.contains("float warpOut[FRAME_WARP_FLOATS];\n"));
+            assertTrue(renderer, cpp.contains("[FRAME_WARP_FLOATS] = {};\n"));
+        }
     }
 
     @Test public void frameWarpTableHasTheSameFieldsInTheSameOrderInRustAndC() throws IOException {

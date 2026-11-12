@@ -14,8 +14,10 @@ cbuffer Draw : register(b0) {
     float slice; uint flags; float sdrWhite; float colorScale;
     float tonemap1; float tonemap2; float hlgPeak; float hlgGamma;
     // Frame Warp (stream/frame_warp.rs): the shift in fractions of the picture, then the HUD
-    // mask's size in cells (0 for none). All zero draws the picture where it is.
+    // mask's size in cells (0 for none). All zero draws the picture where it is. Then its lens
+    // terms (0, 0, 1, 1 for a flat picture).
     float4 warp;
+    float4 warpLens;
 };
 // Frame Warp's HUD mask: byte x / 8 of row y holds cell x in bit x % 8.
 Texture2D<float> hudMask : register(t2);

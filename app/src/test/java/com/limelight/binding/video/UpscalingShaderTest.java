@@ -45,6 +45,7 @@ public class UpscalingShaderTest {
     public void frameWarpReadsTheMaskWhereThePixelIsAndMirrorsTheShiftedPicture() throws Exception {
         String warp = source("warp.frag");
         assertTrue(warp.contains("uniform vec3 warp;"));
+        assertTrue(warp.contains("uniform vec4 lens;"));
         assertTrue(warp.contains("uniform lowp sampler2D hudMask;"));
         // No shift reads no mask; the mask only when it applies.
         assertTrue(warp.contains("if (warp.x != 0.0 || warp.y != 0.0) {"));
@@ -52,9 +53,14 @@ public class UpscalingShaderTest {
         // The mask is in picture space with rows from the top; upscale.vert's uv has y up.
         assertTrue(warp.contains("vec2 picture = vec2(uv.x, 1.0 - uv.y);"));
         assertTrue(warp.contains("texture(hudMask, picture)"));
-        // Sampled at the position less the shift, mirrored at the edges and faded with the distance past them
-        // (the same rule as the Vulkan, PyroWave and desktop presenters).
-        assertTrue(warp.contains("vec2 p = picture - warp.xy;"));
+        // Sampled where the turn brings the pixel from: from the picture's centre through the lens terms, which is
+        // the position less the shift for a flat picture; then mirrored at the edges and faded with the distance past
+        // them (the same rule as the Vulkan, PyroWave and desktop presenters).
+        int centred = warp.indexOf("vec2 q = picture - 0.5;");
+        int turned = warp.indexOf("vec2 p = 0.5 + (q * lens.zw - warp.xy) / max(1.0 + dot(q, lens.xy), 0.25);");
+        assertTrue(centred > 0 && turned > centred);
+        assertFalse(warp.contains("picture - warp.xy;"));
+        assertTrue(warp.indexOf("vec2 outside = max(-p, p - 1.0);") > turned);
         assertTrue(warp.contains("p = 1.0 - abs(1.0 - abs(p));"));
         assertTrue(warp.contains("float edgeFade = 1.0 - 0.35 * clamp(max(max(outside.x, outside.y), 0.0) / 0.08, 0.0, 1.0);"));
         // A pixel whose shifted position lands on the HUD stays where it is, rather than drawing a copy of the HUD.
@@ -64,6 +70,23 @@ public class UpscalingShaderTest {
         assertTrue(warp.indexOf("at = clamp(vec2(p.x, 1.0 - p.y), 0.0, 1.0);") > ghost);
         assertTrue(warp.contains("textureTransform * vec4(at, 0.0, 1.0)"));
         assertTrue(warp.contains(".rgb * fade, 1.0)"));
+    }
+
+    // The lens terms reach warp.frag as the PC gave them (y down, as the shader's picture coordinates), and a
+    // picture drawn as it is has a flat picture's.
+    @Test
+    public void frameWarpSetsTheLensTermsWithTheShift() throws Exception {
+        String gles = Files.readString(Path.of("src/main/java/com/limelight/binding/video/GlesUpscaler.java"))
+                .replace("\r\n", "\n");
+        assertTrue(gles.contains("lensUniform = GLES30.glGetUniformLocation(upscaleProgram, \"lens\");"));
+        assertTrue(gles.contains("GLES30.glUniform4f(lensUniform, 0f, 0f, 1f, 1f);"));
+        int shift = gles.indexOf("GLES30.glUniform3f(warpUniform, active ? warpOut[0] : 0f, active ? warpOut[1] : 0f,");
+        int lens = gles.indexOf("GLES30.glUniform4f(lensUniform, active ? warpOut[4] : 0f, active ? warpOut[5] : 0f,\n"
+                + "                active ? warpOut[6] : 1f, active ? warpOut[7] : 1f);");
+        assertTrue(shift > 0 && lens > shift);
+        // Redraws between pictures still go by the shift in pixels
+        assertTrue(gles.contains("drawnShiftX = active ? warpOut[2] : 0f;"));
+        assertTrue(gles.contains("drawnShiftY = active ? warpOut[3] : 0f;"));
     }
 
     @Test

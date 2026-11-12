@@ -699,10 +699,15 @@ public class MoonBridge {
         RustBridge.frameWarpNoteFrame(ptsUs, frame);
     }
 
+    /** The floats frameWarpForPts() and frameWarpPeekForPts() write, as the C table's warp() and peek(). */
+    public static final int FRAME_WARP_FLOATS = 8;
+
     /**
-     * The shift for the picture queued with {@code ptsUs}, drawn now: {@code out} (4 floats) gets it as fractions of
-     * the picture (x, y) and in picture pixels (x, y). Returns the HUD mask generation, FRAME_WARP_NO_MASK, or
-     * FRAME_WARP_INACTIVE to draw the picture as it is.
+     * The shift for the picture queued with {@code ptsUs}, drawn now: {@code out} (FRAME_WARP_FLOATS floats) gets
+     * the shift of the picture's centre as fractions of the picture (x, y) and in picture pixels (x, y), then the lens
+     * terms the rest of the picture is turned through (k.x, k.y, n.x, n.y; 0, 0, 1, 1 for a flat picture, which is
+     * sampled at its position less the shift), all with y down. Returns the HUD mask generation,
+     * FRAME_WARP_NO_MASK, or FRAME_WARP_INACTIVE to draw the picture as it is (also when {@code out} is shorter).
      */
     public static int frameWarpForPts(long ptsUs, float[] out) {
         return rustStream ? RustBridge.frameWarpForPts(ptsUs, out) : FRAME_WARP_INACTIVE;

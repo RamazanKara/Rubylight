@@ -22,7 +22,7 @@ int64_t fakeFrameForPts(int64_t) { return -1; }
 
 int32_t fakeWarp(int64_t, float *out) {
     if (out != nullptr) {
-        out[0] = out[1] = out[2] = out[3] = 0.0f;
+        frameWarpStill(out);
     }
     return FRAME_WARP_INACTIVE;
 }
@@ -140,7 +140,8 @@ void looksAgainOnlyWhileLockedAndSomethingMoves() {
     fakeStick = 0;
     // Nothing drawn yet, or drawn as it is (unlocked): no refresh looks, whatever is sent
     assert(!drawn.mayMove(&api));
-    const float still[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    float still[FRAME_WARP_FLOATS];
+    frameWarpStill(still);
     drawn.note(FRAME_WARP_INACTIVE, still, 10);
     fakeInputSeq = 11;
     fakeStick = 1;
@@ -159,7 +160,8 @@ void looksAgainOnlyWhileLockedAndSomethingMoves() {
     fakeStick = 0;
 
     // A shift on screen can still move (the turn in flight, a fade out)
-    const float turning[4] = {0.01f, 0.0f, 19.2f, 0.0f};
+    // The pixels, not the fractions before them or the lens terms after, are what a redraw goes by
+    const float turning[FRAME_WARP_FLOATS] = {0.01f, 0.0f, 19.2f, 0.0f, 0.02f, 0.0f, 1.0f, 1.0002f};
     drawn.note(3, turning, 11);
     assert(drawn.px[0] == 19.2f && drawn.px[1] == 0.0f);
     assert(drawn.mayMove(&api));
@@ -167,6 +169,25 @@ void looksAgainOnlyWhileLockedAndSomethingMoves() {
     // An inactive draw keeps no shift
     drawn.note(FRAME_WARP_INACTIVE, turning, 11);
     assert(!drawn.active && drawn.px[0] == 0.0f);
+}
+
+void aPictureDrawnAsItIsHasNoShiftAndAFlatPicturesLens() {
+    // One float more than warp() writes: nothing past FRAME_WARP_FLOATS is touched
+    float out[FRAME_WARP_FLOATS + 1];
+    for (float &value : out) {
+        value = 7.0f;
+    }
+    frameWarpStill(out);
+    // The shift as fractions and in pixels, then the lens terms k and n
+    const float expected[FRAME_WARP_FLOATS] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f};
+    assert(FRAME_WARP_FLOATS == 8);
+    assert(std::memcmp(out, expected, sizeof(expected)) == 0);
+    assert(out[FRAME_WARP_FLOATS] == 7.0f);
+    // The fake host answers as frame_warp.rs does without a stream
+    float answered[FRAME_WARP_FLOATS] = {7.0f, 7.0f, 7.0f, 7.0f, 7.0f, 7.0f, 7.0f, 7.0f};
+    assert(api.warp(3, answered) == FRAME_WARP_INACTIVE);
+    assert(std::memcmp(answered, expected, sizeof(expected)) == 0);
+    assert(api.version == 3);
 }
 
 void thePictureLeavesOutAnEncodersPadding() {
@@ -201,6 +222,7 @@ int main() {
     refusesAMaskLargerThanAnyTheHostSends();
     redrawsOnlyAfterAQuarterPixel();
     looksAgainOnlyWhileLockedAndSomethingMoves();
+    aPictureDrawnAsItIsHasNoShiftAndAFlatPicturesLens();
     thePictureLeavesOutAnEncodersPadding();
     return 0;
 }

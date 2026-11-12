@@ -88,7 +88,8 @@ if (env.HOST_REPO) {
 
 const n = issue.number;
 const comments = await api(`/repos/${repo}/issues/${n}/comments?per_page=100`);
-const mine = comments.find((c) => c.body.includes(MARKER));
+// The workflow's token comments as github-actions[bot]; anyone can paste the marker.
+const mine = comments.find((c) => c.user?.login === "github-actions[bot]" && c.body.includes(MARKER));
 // Only take back labels this script added, so a maintainer's own "needs info" survives edits.
 const added = new Set(mine ? (mine.body.match(/<!-- labels: (.*?) -->/)?.[1] ?? "").split(",") : []);
 

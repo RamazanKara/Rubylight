@@ -1029,6 +1029,8 @@ mod tests {
         assert_eq!((r.status, r.body.as_slice()), (200, &b"hello"[..]));
         let r = parse(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5;x=1\r\nhello\r\n1\r\n!\r\n0\r\n\r\n").unwrap();
         assert_eq!(r.body, b"hello!");
+        // A chunk size is hex digits only, with no sign.
+        assert!(parse(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n+5\r\nhello\r\n0\r\n\r\n").is_err());
         let r = parse(b"HTTP/1.0 404 Not Found\r\nX-A: b\r\n\r\nrest").unwrap();
         assert_eq!(
             (r.status, r.reason.as_str(), r.body.as_slice()),

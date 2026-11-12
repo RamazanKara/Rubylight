@@ -720,6 +720,8 @@ impl AudioRenderer for Audio {
             opus.channel_count, setup.samples_per_frame
         );
         self.channels = usize::from(opus.channel_count);
+        // The decoder writes up to 5760 samples for every channel, and 7.1.4 has twelve.
+        self.pcm.resize(5760 * self.channels.max(8), 0.0);
         self.decoder = Some(decode::OpusDecoder::new(
             i32::from(opus.channel_count),
             i32::from(opus.streams),

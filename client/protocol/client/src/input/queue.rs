@@ -681,7 +681,6 @@ impl InputQueue {
         } else {
             Delivery::Reliable
         };
-        self.pen_buttons = buttons;
         let event = InputEvent::Pen {
             event,
             tool,
@@ -703,7 +702,11 @@ impl InputQueue {
             channel: event.channel(),
             delivery,
             event,
-        }))
+        }))?;
+        // Only once it is queued: a refused event leaves the buttons the host last got,
+        // so the click tried again is still a change.
+        self.pen_buttons = buttons;
+        Ok(())
     }
 
     /// `LiSendTouchpadFrameEvent`: the contacts of one laptop touchpad frame, at most
@@ -950,7 +953,13 @@ impl InputQueue {
             let Some(Entry::Event(next)) = self.entries.pop_front() else {
                 unreachable!("front was a pen event");
             };
+            // A button change travels reliably; the newer move that carries the same
+            // buttons takes that over with its place.
+            let reliable = matches!(pending.delivery, Delivery::Reliable);
             pending = next;
+            if reliable {
+                pending.delivery = Delivery::Reliable;
+            }
         }
         pending
     }
@@ -1540,6 +1549,31 @@ mod tests {
         q.poll(t0 + MOTION_BATCHING_INTERVAL, false, &mut out);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].delivery, Delivery::Reliable);
+    }
+
+    /// A move that changes the buttons, collapsed into a newer move with the same
+    /// buttons, still goes reliably: the newer one now carries the change.
+    #[test]
+    fn a_pen_button_change_stays_reliable_when_a_newer_move_replaces_it() {
+        let mut q = queue(&sunshine());
+        let t0 = Instant::now();
+        let pen = |q: &mut InputQueue, event, buttons, x| {
+            q.send_pen(event, 1, buttons, x, 0.5, 0.5, 0., 0., 0, 0, pen::ROLL_UNKNOWN)
+        };
+        pen(&mut q, touch_event::DOWN, 0, 0.1).unwrap();
+        pen(&mut q, touch_event::MOVE, 1, 0.2).unwrap();
+        pen(&mut q, touch_event::MOVE, 1, 0.3).unwrap();
+        let mut out = Vec::new();
+        q.poll(t0, false, &mut out);
+        q.poll(t0 + MOTION_BATCHING_INTERVAL, false, &mut out);
+        let xs: Vec<(f32, Delivery)> = out
+            .iter()
+            .map(|p| match decode(&p.data).unwrap() {
+                Input::Pen { x, .. } => (x, p.delivery),
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(xs, [(0.1, Delivery::Reliable), (0.3, Delivery::Reliable)]);
     }
 
     #[test]

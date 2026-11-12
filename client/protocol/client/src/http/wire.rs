@@ -107,8 +107,14 @@ pub(super) fn read_body<R: Read + ?Sized>(reader: &mut Reader<'_, R>, head: &Hea
         loop {
             let line = reader.line()?;
             let size_text = line.split(';').next().unwrap_or_default().trim();
-            let size = usize::from_str_radix(size_text, 16)
-                .map_err(|_| Error::Malformed("invalid chunk size".into()))?;
+            // Hex digits only, as Content-Length takes digits only: `from_str_radix` alone
+            // would take a sign.
+            let size = size_text
+                .bytes()
+                .all(|b| b.is_ascii_hexdigit())
+                .then(|| usize::from_str_radix(size_text, 16).ok())
+                .flatten()
+                .ok_or_else(|| Error::Malformed("invalid chunk size".into()))?;
             if size == 0 {
                 break;
             }

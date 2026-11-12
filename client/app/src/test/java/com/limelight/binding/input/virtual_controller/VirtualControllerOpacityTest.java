@@ -5,6 +5,7 @@ import android.content.Context;
 import android.os.SystemClock;
 import android.view.MotionEvent;
 import android.widget.FrameLayout;
+import android.widget.TextView;
 
 import com.google.android.material.slider.Slider;
 import com.limelight.R;
@@ -89,19 +90,24 @@ public class VirtualControllerOpacityTest {
         controller.setControllerMode(VirtualController.ControllerMode.ResizeButtons);
         assertNotNull(controller.getOpacityPanel());
         Slider slider = controller.getOpacityPanel().findViewById(R.id.osc_opacity_slider);
-        assertFalse("nothing to set before a control is touched", slider.isEnabled());
-        controller.setEditingOpacity(20);
-        assertEquals(VirtualControllerElement.MAX_BUTTON_OPACITY, first.getButtonOpacity());
+        TextView value = controller.getOpacityPanel().findViewById(R.id.osc_opacity_value);
+        // nightjar#107: the slider works before a control is touched, and then sets every control.
+        assertTrue(slider.isEnabled());
+        assertEquals("100 %", value.getText().toString());
+        controller.setEditingOpacity(70);
+        assertEquals(70, first.getButtonOpacity());
+        assertEquals(70, second.getButtonOpacity());
+        assertEquals(70f, slider.getValue(), 0);
 
         touchDown(second);
         assertTrue(slider.isEnabled());
         assertTrue(controller.isSelectedForEditing(second));
         controller.setEditingOpacity(40);
         assertEquals(40, second.getButtonOpacity());
-        assertEquals(VirtualControllerElement.MAX_BUTTON_OPACITY, first.getButtonOpacity());
+        assertEquals(70, first.getButtonOpacity());
 
         touchDown(first);
-        assertEquals(100f, slider.getValue(), 0);
+        assertEquals(70f, slider.getValue(), 0);
         touchDown(second);
         assertEquals(40f, slider.getValue(), 0);
 

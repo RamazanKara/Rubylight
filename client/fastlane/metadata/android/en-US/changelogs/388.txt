@@ -1,0 +1,1 @@
+• A PC can carry other wake addresses: MAC addresses of network adapters that wake it when the one used for streaming cannot. On Android they are in the PC's settings under Connection; on desktop in the PC's details.

@@ -382,7 +382,7 @@ jobs:
       VERSION: ${{ needs.preflight.outputs.version }}
       # The Rubylight commit whose rust/codec-patches/pyrowave and rust/tools/build_pyrowave.sh
       # the PyroWave SDK build reads (patch 0002); a bump is a deliberate commit here.
-      RUBYLIGHT_SHA: 957ace5a9cdb14b5f39cffbe662f0df1dcb41caf
+      RUBYLIGHT_SHA: 20dbee2b3426e1b2b7110045bcf0e711d2c52c77
       FFMPEG_VERSION: 9.0.2
       FFMPEG_SHA256: 8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
       # Inno Setup, pinned by version and SHA-256 (the hash GitHub lists for the asset); the

@@ -1551,6 +1551,11 @@ public class HostStreamSettings extends NightjarActivity {
             LinearLayout form = form();
             TextView help = new TextView(activity);
             help.setText(R.string.pc_settings_wake_macs_help);
+            // Set as a dialog message: a bare TextView takes only the app's face, black at the
+            // platform's smallest size on the night glass (nightjar#7's update dialog)
+            help.setTextAppearance(activity, R.style.TextAppearance_Nightjar_Body);
+            help.setTextColor(com.google.android.material.color.MaterialColors.getColor(help,
+                    com.google.android.material.R.attr.colorOnSurfaceVariant));
             form.addView(help);
             TextInputLayout container = new TextInputLayout(activity);
             container.setHint(R.string.pc_settings_wake_macs);

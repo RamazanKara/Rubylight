@@ -3,12 +3,14 @@ package com.limelight.update;
 import android.app.Activity;
 import android.content.Context;
 import android.text.format.Formatter;
-import android.widget.LinearLayout;
+import android.view.LayoutInflater;
+import android.view.View;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AlertDialog;
 
+import com.limelight.ui.GlassForm;
 import com.limelight.ui.NavigationDialogBuilder;
 import com.google.android.material.progressindicator.LinearProgressIndicator;
 import com.limelight.BuildConfig;
@@ -188,23 +190,10 @@ public final class UpdateFlow {
         }
 
         UpdateDownloader downloader = new UpdateDownloader();
-        LinearLayout content = new LinearLayout(activity);
-        content.setOrientation(LinearLayout.VERTICAL);
-        int padding = Math.round(24 * activity.getResources().getDisplayMetrics().density);
-        content.setPadding(padding, padding / 2, padding, 0);
-        TextView status = new TextView(activity);
-        status.setText(R.string.update_downloading);
-        LinearProgressIndicator bar = new LinearProgressIndicator(activity);
-        bar.setMax(100);
-        bar.setIndeterminate(true);
-        content.addView(status);
-        content.addView(bar);
-        AlertDialog progress = new NavigationDialogBuilder(activity)
-                .setTitle(activity.getString(R.string.update_downloading_title, release.version()))
-                .setView(content)
-                .setNegativeButton(android.R.string.cancel, (dialog, which) -> downloader.cancel())
-                .setOnCancelListener(dialog -> downloader.cancel())
-                .create();
+        DownloadDialog download = downloadDialog(activity, release.version(), downloader::cancel);
+        AlertDialog progress = download.dialog;
+        TextView status = download.status;
+        LinearProgressIndicator bar = download.bar;
         UiHelper.showDialog(activity, progress);
 
         new Thread(() -> {
@@ -244,6 +233,38 @@ public final class UpdateFlow {
                 updating.set(false);
             }
         }, "nightjar-update").start();
+    }
+
+    /** The download's dialog and the two views its progress changes. */
+    static final class DownloadDialog {
+        final AlertDialog dialog;
+        final TextView status;
+        final LinearProgressIndicator bar;
+
+        private DownloadDialog(AlertDialog dialog, TextView status, LinearProgressIndicator bar) {
+            this.dialog = dialog;
+            this.status = status;
+            this.bar = bar;
+        }
+    }
+
+    /**
+     * The download's progress: how much has come over its bar, in a dialog message's type and ink and inside the dialog's
+     * padding (dialog_update_progress). On a TV it stands on the sky, as the pairing PIN does: a Shield on Android 11 has no
+     * blur, and Settings' rows stood sharp around the panel as if it cut them.
+     */
+    static DownloadDialog downloadDialog(Activity activity, String version, Runnable cancel) {
+        NavigationDialogBuilder builder = new NavigationDialogBuilder(activity);
+        if (GlassForm.of(activity) == GlassForm.TELEVISION) builder.ownSurface();
+        // The dialog's own context, as its message is inflated in.
+        View content = LayoutInflater.from(builder.getContext()).inflate(R.layout.dialog_update_progress, null);
+        AlertDialog dialog = builder
+                .setTitle(activity.getString(R.string.update_downloading_title, version))
+                .setView(content)
+                .setNegativeButton(android.R.string.cancel, (shown, which) -> cancel.run())
+                .setOnCancelListener(shown -> cancel.run())
+                .create();
+        return new DownloadDialog(dialog, content.findViewById(R.id.update_status), content.findViewById(R.id.update_bar));
     }
 
     private static int errorMessage(UpdateException.Reason reason) {

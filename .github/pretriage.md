@@ -23,6 +23,10 @@ expected and is not a bug.
    suggests (cite `path:line`), e.g. "this looks like X, because ..." or "this may be a bug in `file`,
    because ...". Treat the excerpts as a hint, not proof: they come from a keyword search and may miss
    the real cause, so say how sure you are.
+   If the report has attached or pasted logs (see "Attached logs" in the item), read them: find the
+   first real error or warning, match it to the docs or the code, and quote only the one to three
+   relevant log lines. Don't ask for a log that is already there. Never repeat tokens, keys, IP
+   addresses, user names or paths with user names from a log.
 5. Always give a best-guess assessment instead of only asking questions. Say what it could be, ranked
    by likelihood (for example a settings/setup problem, a known limitation, a driver or device issue,
    or a probable bug), and what the reporter can try. Don't hold back an assessment because details

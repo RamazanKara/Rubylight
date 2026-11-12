@@ -12,6 +12,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 
 const env = process.env;
 const API = env.GITHUB_API_URL || "https://api.github.com";
@@ -171,6 +172,93 @@ function findCode(text) {
   return out ? `\n\n---\n\n# Source code excerpts\n\nChosen by keyword search on the report, so they may be incomplete or miss the real cause. Line numbers are the file's own.${out}` : "";
 }
 
+// Reporters attach host logs or support bundles. Download the ones hosted by GitHub (public URLs
+// only, no token sent, fixed host allowlist, size caps), reduce them to the lines that matter and
+// mask personal data before the model sees them. Archives are only listed and read with unzip -p.
+const LOG_URL = /https:\/\/(?:github\.com\/user-attachments\/(?:files|assets)\/[^\s)"'<>\]]+|(?:user-images|objects)\.githubusercontent\.com\/[^\s)"'<>\]]+)/g;
+const LOG_MAX_FILES = 4;
+const LOG_DOWNLOAD_MAX_BYTES = 8_000_000;
+const LOG_TOTAL_MAX_CHARS = 30_000;
+const LOG_TEXT = /\.(log|txt|json|csv|md)$/i;
+const LOG_INTERESTING = /error|warn|fail|panic|fatal|hang|timeout|timed out|crash|exception|denied|lost|abort|refused|invalid|unsupported|stall|drop/i;
+
+function redact(text) {
+  return text
+    .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, "<email>")
+    .replace(/\b(\d{1,3}\.){3}\d{1,3}\b/g, "<ip>")
+    .replace(/([A-Za-z]:\\Users\\)[^\\\s"']+/gi, "$1<user>")
+    .replace(/(\/home\/)[^/\s"']+/g, "$1<user>")
+    .replace(/\b(?:[A-Fa-f0-9]{32,}|[A-Za-z0-9+/_-]{40,}={0,2})\b/g, "<redacted>")
+    .replace(/((?:token|secret|password|passwd|pin|key|authorization)["']?\s*[:=]\s*)["']?[^\s"',;]+/gi, "$1<redacted>");
+}
+
+function reduceLog(text, budget) {
+  const lines = text.split(/\r?\n/);
+  if (lines.length * 120 <= budget) return redact(lines.join("\n"));
+  const keep = new Set();
+  const add = (index) => { if (index >= 0 && index < lines.length) keep.add(index); };
+  for (let i = 0; i < Math.min(30, lines.length); i++) add(i);
+  for (let i = Math.max(0, lines.length - 80); i < lines.length; i++) add(i);
+  const seen = new Map();
+  lines.forEach((line, index) => {
+    if (!LOG_INTERESTING.test(line)) return;
+    const shape = line.replace(/\d+/g, "#").slice(0, 80); // collapse repeats of the same message
+    const count = (seen.get(shape) || 0) + 1;
+    seen.set(shape, count);
+    if (count <= 3) for (let i = index - 2; i <= index + 2; i++) add(i);
+  });
+  let out = "";
+  let previous = -2;
+  for (const index of [...keep].sort((a, b) => a - b)) {
+    out += `${index !== previous + 1 ? "...\n" : ""}${lines[index].slice(0, 400)}\n`;
+    previous = index;
+  }
+  return redact(out.length > budget ? `${out.slice(0, budget / 2)}\n...\n${out.slice(-budget / 2)}` : out);
+}
+
+async function download(url) {
+  const response = await fetch(url, { headers: { "User-Agent": "rubylight-pretriage" }, redirect: "follow", signal: AbortSignal.timeout(30_000) });
+  if (!response.ok) throw new Error(`${response.status}`);
+  const length = Number(response.headers.get("content-length") || 0);
+  if (length > LOG_DOWNLOAD_MAX_BYTES) throw new Error("too large");
+  const data = Buffer.from(await response.arrayBuffer());
+  if (data.length > LOG_DOWNLOAD_MAX_BYTES) throw new Error("too large");
+  return data;
+}
+
+function zipEntries(data) {
+  const archive = path.join(env.RUNNER_TEMP || env.TEMP || "/tmp", `pretriage-${process.pid}.zip`);
+  fs.writeFileSync(archive, data);
+  try {
+    const list = execFileSync("unzip", ["-Z1", archive], { encoding: "utf8", timeout: 20_000 }).split("\n").filter((name) => LOG_TEXT.test(name) && !name.includes(".."));
+    return list.slice(0, 12).map((name) => {
+      const content = execFileSync("unzip", ["-p", archive, name], { maxBuffer: 20_000_000, timeout: 20_000 });
+      return { name, text: content.toString("utf8") };
+    });
+  } finally {
+    fs.rmSync(archive, { force: true });
+  }
+}
+
+async function userLogs(texts) {
+  const urls = [...new Set(texts.flatMap((text) => text.match(LOG_URL) || []).map((url) => url.replace(/[.,;:]+$/, "")))].slice(0, LOG_MAX_FILES);
+  const files = [];
+  for (const url of urls) {
+    try {
+      const data = await download(url);
+      const name = decodeURIComponent(url.split("?")[0].split("/").pop());
+      if (data.subarray(0, 2).toString() === "PK") for (const entry of zipEntries(data)) files.push({ name: `${name}:${entry.name}`, text: entry.text });
+      else if (LOG_TEXT.test(name) || !data.includes(0)) files.push({ name, text: data.toString("utf8") });
+      else console.log(`Skipping attachment ${name}: not text`);
+    } catch (error) {
+      console.log(`Could not read attachment ${url.slice(0, 80)}: ${error.message}`);
+    }
+  }
+  if (!files.length) return "";
+  const perFile = Math.floor(LOG_TOTAL_MAX_CHARS / Math.min(files.length, 6));
+  return files.slice(0, 6).map((file) => `\n### ${file.name}\n${reduceLog(file.text, perFile)}`).join("\n");
+}
+
 async function gather() {
   const event = env.GITHUB_EVENT_PATH ? JSON.parse(fs.readFileSync(env.GITHUB_EVENT_PATH, "utf8")) : {};
   const dispatched = env.GITHUB_EVENT_NAME === "workflow_dispatch" || !env.GITHUB_EVENT_NAME;
@@ -233,6 +321,9 @@ async function gather() {
     diff = await gh(`/repos/${REPO}/pulls/${number}`, { accept: "application/vnd.github.diff", text: true });
   }
 
+  const logs = await userLogs([item.body || "", ...comments.filter((comment) => comment.user?.type !== "Bot").map((comment) => comment.body || "")]);
+  console.log(`Attached logs: ${logs.length} chars`);
+
   const instruction = (env.INSTRUCTION || "").trim();
   const build = (diffChars) =>
     [
@@ -245,6 +336,7 @@ async function gather() {
       header,
       `## Body\n${clip(item.body || "(empty)", 20_000)}`,
       thread ? `\n## Comments so far\n${clip(thread, COMMENTS_MAX_CHARS)}` : "",
+      logs ? `\n## Attached logs (reduced to the start, the end and the warning/error lines; personal data masked)\n${logs}` : "",
       isPr ? `\n## Diff\n${clip(diff, diffChars)}` : "",
       "<<<END UNTRUSTED>>>",
     ].join("\n");

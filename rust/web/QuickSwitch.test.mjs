@@ -157,8 +157,11 @@ test('the shell mounts the switcher behind Ctrl+K or ⌘K and a Search button, a
   assert.match(app, /event\.code !== 'KeyK' && event\.key\.toLowerCase\(\) !== 'k'/);
   // A confirmation that is open keeps the keyboard.
   assert.match(app, /if \(!switcherOpen && document\.querySelector\('dialog\[open\]'\)\) return;/);
-  // Page changes fade, the shell stays put, a cover morphs.
-  assert.match(app, /view-transition-name: page;/);
+  // Page changes fade, the shell stays put, a cover morphs. Nothing taller than the window
+  // carries a name: Firefox snapshots it as a cut-off slice that shrinks and jumps back.
+  assert.match(app, /::view-transition-new\(root\)\) \{\s*animation: var\(--duration-slow\)/);
+  assert.match(app, /\.side \{\s*view-transition-name: shell;/);
+  assert.doesNotMatch(app, /view-transition-name: page;/);
   assert.match(app, /::view-transition-group\(game-cover\)/);
   const cover = await source('components/library/AppCover.svelte');
   assert.equal((cover.match(/data-cover=\{uuid\}/g) ?? []).length, 2, 'every cover, with art or without, can morph');

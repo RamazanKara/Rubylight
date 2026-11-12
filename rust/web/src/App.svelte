@@ -534,31 +534,34 @@
     display: grid;
     align-content: start;
     gap: var(--space-5);
-    view-transition-name: page;
+    isolation: isolate;
   }
-  /* Page changes (lib/router.svelte.ts starts them; none under reduced motion): the sidebar and
-     the rest of the shell switch at once and stay on top, the page fades up, and a game's cover
-     morphs into its page and back. */
+  /* Page changes (lib/router.svelte.ts starts them; none under reduced motion): the sidebar
+     switches at once and stays on top, the window behind it fades up, and a game's cover morphs
+     into its page and back. Only elements no taller than the window carry a name: Firefox
+     snapshots a taller one (the page, the full-height sidebar) as a cut-off slice that shrinks
+     and then jumps back to full size. */
   aside {
+    isolation: isolate;
+  }
+  .side {
     view-transition-name: shell;
   }
-  :global(::view-transition-old(root)),
   :global(::view-transition-old(shell)) {
     display: none;
   }
-  :global(::view-transition-new(root)),
   :global(::view-transition-new(shell)),
-  :global(::view-transition-group(page)) {
+  :global(::view-transition-group(root)) {
     animation: none;
   }
   :global(::view-transition-group(shell)) {
     z-index: 1;
   }
-  :global(::view-transition-old(page)) {
+  :global(::view-transition-old(root)) {
     animation: var(--duration-fast) var(--ease-exit) both rubylight-page-out;
     mix-blend-mode: normal;
   }
-  :global(::view-transition-new(page)) {
+  :global(::view-transition-new(root)) {
     animation: var(--duration-slow) var(--ease-enter) both rubylight-page-in;
     mix-blend-mode: normal;
   }
@@ -582,14 +585,17 @@
       grid-template-columns: minmax(0, 1fr);
       grid-template-rows: auto 1fr;
     }
+    /* The phone's top bar is no taller than the window, so it carries the name itself. */
     aside {
       position: sticky;
       top: 0;
       z-index: var(--z-sticky);
       border-right: 0;
       border-bottom: 1px solid var(--line);
+      view-transition-name: shell;
     }
     .side {
+      view-transition-name: none;
       position: static;
       height: auto;
       max-height: 100vh;

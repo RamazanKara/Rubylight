@@ -1,0 +1,1 @@
+- **Firefox: page changes in the console no longer shrink and jump back.** Switching pages fades the window behind the sidebar, which Firefox draws at full size; before, it drew the page as a cut-off slice that shrank and then snapped back.

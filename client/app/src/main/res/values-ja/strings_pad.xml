@@ -32,4 +32,8 @@
     <string name="pad_home">Home</string>
     <string name="pad_touchpad">タッチパッド</string>
     <string name="pad_wasd">WASD スティック</string>
+    <string name="pad_left_trackpad">左トラックパッド</string>
+    <string name="pad_right_trackpad">右トラックパッド</string>
+    <string name="pad_left_grip">左グリップ</string>
+    <string name="pad_right_grip">右グリップ</string>
 </resources>

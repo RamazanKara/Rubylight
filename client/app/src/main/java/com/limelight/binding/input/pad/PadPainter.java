@@ -35,9 +35,12 @@ final class PadPainter {
         /** A stick's position (-1..1, up positive) and its drawn center inside the box, in pixels; NaN centers the base. */
         float stickX, stickY, centerX = Float.NaN, centerY = Float.NaN;
         boolean stickActive;
+        /** A trackpad's finger inside the box, in pixels; NaN while none touches it. */
+        float touchX = Float.NaN, touchY = Float.NaN;
 
         void clear() {
             flags = 0; pressed = false; stickX = 0; stickY = 0; centerX = Float.NaN; centerY = Float.NaN; stickActive = false;
+            touchX = Float.NaN; touchY = Float.NaN;
         }
     }
 
@@ -86,6 +89,7 @@ final class PadPainter {
             case DPAD: drawDpad(canvas, left, top, Math.min(width, height), state.flags); break;
             case FACE: drawFace(canvas, left, top, Math.min(width, height), state.flags); break;
             case PILL: drawPill(canvas, control, left, top, width, height, state.pressed); break;
+            case PAD: drawTrackpad(canvas, control, left, top, width, height, state); break;
             default: drawRound(canvas, control, left, top, Math.min(width, height), state.pressed); break;
         }
     }
@@ -332,7 +336,38 @@ final class PadPainter {
             canvas.drawLine(rect.centerX(), t + h * .3f, rect.centerX(), t + h * .7f, stroke);
             return;
         }
-        label(canvas, control.name(), rect.centerX(), rect.centerY(), rect.height() * .42f, pressed);
+        String name = pillLabel(control);
+        // A long label (the grips') shrinks to stay inside the pill.
+        text.setTextSize(rect.height() * .42f);
+        float fit = Math.min(1, rect.width() * .8f / Math.max(1, text.measureText(name)));
+        label(canvas, name, rect.centerX(), rect.centerY(), rect.height() * .42f * fit, pressed);
+    }
+
+    static String pillLabel(PadLayout.Control control) {
+        switch (control) {
+            case LEFT_GRIP: return "L GRIP";
+            case RIGHT_GRIP: return "R GRIP";
+            default: return control.name();
+        }
+    }
+
+    /** A Steam Controller trackpad: a rounded glass square with its side's letter, and the finger as an amber dot. */
+    private void drawTrackpad(Canvas canvas, PadLayout.Control control, float left, float top, float width, float height,
+                              State state) {
+        float inset = stroke.getStrokeWidth();
+        rect.set(left + inset, top + inset, left + width - inset, top + height - inset);
+        float radius = Math.min(rect.width(), rect.height()) * .2f;
+        fill.setColor(state.pressed ? GLASS_STRONG : GLASS);
+        canvas.drawRoundRect(rect, radius, radius, fill);
+        stroke.setColor(state.pressed ? accent : RIM);
+        canvas.drawRoundRect(rect, radius, radius, stroke);
+        float size = Math.min(rect.width(), rect.height());
+        label(canvas, control == PadLayout.Control.LEFT_PAD ? "L" : "R", rect.centerX(), rect.centerY(), size * .22f, false);
+        if (state.pressed && !Float.isNaN(state.touchX)) {
+            fill.setColor(accent);
+            canvas.drawCircle(left + Math.max(0, Math.min(width, state.touchX)), top + Math.max(0, Math.min(height, state.touchY)),
+                    size * .09f, fill);
+        }
     }
 
     private void drawRound(Canvas canvas, PadLayout.Control control, float left, float top, float size, boolean pressed) {

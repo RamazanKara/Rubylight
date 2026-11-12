@@ -211,7 +211,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         this.prefConfig = prefConfig;
         this.touchpadButtonSession = prefConfig.showTouchpadButton && !prefConfig.onlyL3R3;
         this.onscreenOwnPlayerSession = onscreenOwnsPlayerOne(prefConfig);
-        this.steamControlsSession = prefConfig.oscSteamControls && !prefConfig.modernOnscreenController();
+        // Both on-screen controller styles offer the Steam Controller controls.
+        this.steamControlsSession = prefConfig.oscSteamControls;
         this.deviceFallbackSlot = (short) (onscreenOwnPlayerSession ? 1 : 0);
         this.rumbleAllowed = RumblePolicy.allows(prefConfig.disableRumble);
 		

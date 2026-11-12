@@ -32,4 +32,8 @@
     <string name="pad_home">Home</string>
     <string name="pad_touchpad">Pavé tactile</string>
     <string name="pad_wasd">Stick WASD</string>
+    <string name="pad_left_trackpad">Pavé tactile gauche</string>
+    <string name="pad_right_trackpad">Pavé tactile droit</string>
+    <string name="pad_left_grip">Poignée gauche</string>
+    <string name="pad_right_grip">Poignée droite</string>
 </resources>

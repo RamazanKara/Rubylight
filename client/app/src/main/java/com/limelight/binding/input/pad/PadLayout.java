@@ -17,19 +17,34 @@ public final class PadLayout {
         /** A PlayStation pad's touchpad click, below the top row as on the pad itself. */
         TOUCHPAD(Shape.PILL),
         /** A stick that holds W, A, S and D instead of moving an axis. Not in the default layout: Show adds it. */
-        WASD(Shape.STICK, true);
+        WASD(Shape.STICK, true),
+        /**
+         * A Steam Controller's (2026) trackpads, back buttons and grip touch, as the classic controller offers them.
+         * They show only with the Steam Controller controls setting; {@link ModernController#forcedHidden} keeps them
+         * off otherwise.
+         */
+        LEFT_PAD(Shape.PAD, false, true), RIGHT_PAD(Shape.PAD, false, true),
+        L4(Shape.PILL, false, true), L5(Shape.PILL, false, true), R4(Shape.PILL, false, true), R5(Shape.PILL, false, true),
+        LEFT_GRIP(Shape.PILL, false, true), RIGHT_GRIP(Shape.PILL, false, true);
 
         public final Shape shape;
         /** Whether a layout nobody edited leaves this control out. */
         public final boolean hiddenByDefault;
+        /** Whether this is one of the Steam Controller controls, shown only with their setting. */
+        public final boolean steam;
 
         Control(Shape shape) {
-            this(shape, false);
+            this(shape, false, false);
         }
 
         Control(Shape shape, boolean hiddenByDefault) {
+            this(shape, hiddenByDefault, false);
+        }
+
+        Control(Shape shape, boolean hiddenByDefault, boolean steam) {
             this.shape = shape;
             this.hiddenByDefault = hiddenByDefault;
+            this.steam = steam;
         }
 
         static Control named(String name) {
@@ -40,7 +55,8 @@ public final class PadLayout {
         }
     }
 
-    public enum Shape { STICK, DPAD, FACE, PILL, ROUND }
+    /** {@code PAD} is a Steam Controller trackpad: a rounded square. */
+    public enum Shape { STICK, DPAD, FACE, PILL, ROUND, PAD }
 
     public static final float MIN_SCALE = .5f, MAX_SCALE = 2f;
     public static final int MIN_OPACITY = 10, MAX_OPACITY = 100;
@@ -142,6 +158,7 @@ public final class PadLayout {
             case DPAD: return .30f;
             case FACE: return .40f;
             case PILL: return .25f;
+            case PAD: return .22f;
             default: return control == Control.L3 || control == Control.R3 ? .13f : .11f;
         }
     }
@@ -216,7 +233,15 @@ public final class PadLayout {
                 break;
             }
             case TOUCHPAD: x = width / 2; y = .035f * u + round + Math.max(.02f * u, 8 * density) + pillH / 2; break;
-            default: x = width / 2; y = .035f * u + round / 2; break; // HOME
+            case HOME: x = width / 2; y = .035f * u + round / 2; break;
+            default: {
+                // A Steam Controller control: its place comes from the arrangement the surface has room for.
+                float[] centers = steamCenters(width, height, u, density);
+                int i = control.ordinal() - STEAM_FIRST;
+                x = centers[2 * i];
+                y = centers[2 * i + 1];
+                break;
+            }
         }
         out[0] = x;
         out[1] = y;
@@ -228,10 +253,113 @@ public final class PadLayout {
         if (y + size / 2 > height) return false;
         float[] center = new float[2];
         for (Control other : Control.values()) {
-            if (other == self) continue;
+            // The Steam Controller controls, off unless their setting is on, leave the WASD stick's default place
+            // where it was. The trackpads take the middle too, so with both shown one of them wants moving.
+            if (other == self || other.steam) continue;
             defaultCenter(other, width, height, u, density, center);
             float w = width(other, u, density, 1), h = height(other, u, density, 1);
             if (Math.abs(center[0] - x) < (w + size) / 2 && Math.abs(center[1] - y) < (h + size) / 2) return false;
+        }
+        return true;
+    }
+
+    private static final int STEAM_FIRST = Control.LEFT_PAD.ordinal(), STEAM_COUNT = Control.values().length - STEAM_FIRST;
+
+    /**
+     * The default centers of the Steam Controller controls, x and y for each in {@link Control} order. Three
+     * arrangements are tried, each first below the stream's microphone and menu buttons and then right below the top
+     * row, and the first that keeps every one on the surface and off every default control and each other wins:
+     * <ol>
+     * <li>wide surfaces: the back buttons inward of the shoulders and triggers, the trackpads side by side in the
+     * middle with a grip outside each;</li>
+     * <li>narrower ones: the same, with the two grips stacked between the trackpads;</li>
+     * <li>tall ones (portrait): rows of L4 and R4, L5 and R5 and the grips in the middle, the trackpads below.</li>
+     * </ol>
+     * Where none fits (the smallest phones), the first stands; every control can be moved, resized or hidden.
+     */
+    static float[] steamCenters(float width, float height, float u, float density) {
+        float[] centers = new float[STEAM_COUNT * 2];
+        for (boolean belowButtons : new boolean[] {true, false}) {
+            for (int arrangement = 0; arrangement < 3; arrangement++) {
+                steamArrangement(arrangement, belowButtons, width, u, density, centers);
+                if (steamClear(centers, width, height, u, density)) return centers;
+            }
+        }
+        steamArrangement(0, false, width, u, density, centers);
+        return centers;
+    }
+
+    private static void steamArrangement(int arrangement, boolean belowButtons, float width, float u, float density,
+                                         float[] out) {
+        float pillW = width(Control.L4, u, density, 1), pillH = height(Control.L4, u, density, 1);
+        float pad = width(Control.LEFT_PAD, u, density, 1), round = width(Control.HOME, u, density, 1);
+        float gap = Math.max(.02f * u, 8 * density);
+        // Below the touchpad's default place, and below the microphone and menu buttons that sit under it.
+        float top = .035f * u + round + gap + pillH + (belowButtons ? TOP_BUTTONS_DP * density : 0);
+        float backX = .045f * u + pillW + gap + pillW / 2, triggerY = .04f * u + pillH / 2, shoulderY = .07f * u + pillH * 1.5f;
+        if (arrangement < 2) {
+            steamAt(out, Control.L4, backX, triggerY);
+            steamAt(out, Control.L5, backX, shoulderY);
+            steamAt(out, Control.R4, width - backX, triggerY);
+            steamAt(out, Control.R5, width - backX, shoulderY);
+        }
+        if (arrangement == 0) {
+            float cy = top + gap + pad / 2, gripX = width / 2 - pad - gap / 2 - gap - pillW / 2;
+            steamAt(out, Control.LEFT_PAD, width / 2 - pad / 2 - gap / 2, cy);
+            steamAt(out, Control.RIGHT_PAD, width / 2 + pad / 2 + gap / 2, cy);
+            steamAt(out, Control.LEFT_GRIP, gripX, cy);
+            steamAt(out, Control.RIGHT_GRIP, width - gripX, cy);
+        } else if (arrangement == 1) {
+            float cy = top + gap + Math.max(pad, 2 * pillH + gap) / 2, offset = pillW / 2 + gap + pad / 2;
+            steamAt(out, Control.LEFT_PAD, width / 2 - offset, cy);
+            steamAt(out, Control.RIGHT_PAD, width / 2 + offset, cy);
+            steamAt(out, Control.LEFT_GRIP, width / 2, cy - gap / 2 - pillH / 2);
+            steamAt(out, Control.RIGHT_GRIP, width / 2, cy + gap / 2 + pillH / 2);
+        } else {
+            float left = width / 2 - gap / 2 - pillW / 2, right = width / 2 + gap / 2 + pillW / 2;
+            float y = top + gap + pillH / 2;
+            steamAt(out, Control.L4, left, y);
+            steamAt(out, Control.R4, right, y);
+            y += pillH + gap;
+            steamAt(out, Control.L5, left, y);
+            steamAt(out, Control.R5, right, y);
+            y += pillH + gap;
+            steamAt(out, Control.LEFT_GRIP, left, y);
+            steamAt(out, Control.RIGHT_GRIP, right, y);
+            y += pillH / 2 + gap + pad / 2;
+            steamAt(out, Control.LEFT_PAD, width / 2 - pad / 2 - gap / 2, y);
+            steamAt(out, Control.RIGHT_PAD, width / 2 + pad / 2 + gap / 2, y);
+        }
+    }
+
+    private static void steamAt(float[] out, Control control, float x, float y) {
+        int i = control.ordinal() - STEAM_FIRST;
+        out[2 * i] = x;
+        out[2 * i + 1] = y;
+    }
+
+    /** Whether the Steam Controller controls at these centers lie on the surface, apart from each other and every default control. */
+    private static boolean steamClear(float[] centers, float width, float height, float u, float density) {
+        Control[] controls = Control.values();
+        float[] center = new float[2];
+        for (int i = 0; i < STEAM_COUNT; i++) {
+            Control control = controls[STEAM_FIRST + i];
+            float w = width(control, u, density, 1), h = height(control, u, density, 1);
+            float x = centers[2 * i], y = centers[2 * i + 1];
+            if (x - w / 2 < 0 || y - h / 2 < 0 || x + w / 2 > width || y + h / 2 > height) return false;
+            for (Control other : controls) {
+                if (other.hiddenByDefault) continue;
+                float ow = width(other, u, density, 1), oh = height(other, u, density, 1);
+                if (other.steam) {
+                    int j = other.ordinal() - STEAM_FIRST;
+                    if (j <= i) continue;
+                    center[0] = centers[2 * j];
+                    center[1] = centers[2 * j + 1];
+                } else {
+                    defaultCenter(other, width, height, u, density, center);
+                }
+                if (Math.abs(center[0] - x) < (w + ow) / 2 && Math.abs(center[1] - y) < (h + oh) / 2) return false;
+            }
         }
         return true;
     }

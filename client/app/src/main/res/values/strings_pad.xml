@@ -33,6 +33,10 @@
     <string name="pad_home">Home</string>
     <string name="pad_touchpad">Touchpad</string>
     <string name="pad_wasd">WASD stick</string>
+    <string name="pad_left_trackpad">Left trackpad</string>
+    <string name="pad_right_trackpad">Right trackpad</string>
+    <string name="pad_left_grip">Left grip</string>
+    <string name="pad_right_grip">Right grip</string>
     <string-array name="osc_style_names"><item>@string/osc_style_classic</item><item>@string/osc_style_modern</item></string-array>
     <string-array name="osc_style_values" translatable="false"><item>classic</item><item>modern</item></string-array>
     <string-array name="osc_stick_mode_names"><item>@string/osc_stick_floating</item><item>@string/osc_stick_fixed</item></string-array>

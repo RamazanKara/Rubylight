@@ -1206,6 +1206,10 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
                                         leftX, leftY, rightX, rightY, leftTrigger, rightTrigger);
                             }
                         }, prefConfig, game);
+                // The Steam Controller trackpads, as the classic controller sends them.
+                modernController.setTouchSink((type, pointer, x, y, pressure) -> {
+                    if (controllerHandler != null) controllerHandler.reportOscTouch(type, pointer, x, y, pressure);
+                });
                 modernController.setOnLayoutChanged(() -> {
                     if (micButton != null) micButton.place();
                     if (menuButton != null) menuButton.place();

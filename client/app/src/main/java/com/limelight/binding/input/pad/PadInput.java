@@ -1,6 +1,7 @@
 package com.limelight.binding.input.pad;
 
 import com.limelight.binding.input.LayoutStick;
+import com.limelight.binding.input.virtual_controller.SteamControls;
 import com.limelight.nvstream.input.ControllerPacket;
 
 /** Where a finger on a modern control lands, as gamepad input. Plain math, no allocation. */
@@ -75,8 +76,24 @@ public final class PadInput {
             case START: return ControllerPacket.PLAY_FLAG;
             case HOME: return ControllerPacket.SPECIAL_BUTTON_FLAG;
             case TOUCHPAD: return ControllerPacket.TOUCHPAD_FLAG;
+            case L4: return SteamControls.L4_FLAG;
+            case L5: return SteamControls.L5_FLAG;
+            case R4: return SteamControls.R4_FLAG;
+            case R5: return SteamControls.R5_FLAG;
+            case LEFT_GRIP: return SteamControls.LEFT_GRIP_TOUCH_FLAG;
+            case RIGHT_GRIP: return SteamControls.RIGHT_GRIP_TOUCH_FLAG;
             default: return 0;
         }
+    }
+
+    /** Whether a tap holds the control until the next tap: a grip, which a hand rests on for a whole game. */
+    public static boolean latches(PadLayout.Control control) {
+        return control == PadLayout.Control.LEFT_GRIP || control == PadLayout.Control.RIGHT_GRIP;
+    }
+
+    /** The Steam Controller pad a trackpad control touches, as {@link SteamControls#LEFT_PAD} or {@link SteamControls#RIGHT_PAD}. */
+    public static int steamPad(PadLayout.Control control) {
+        return control == PadLayout.Control.LEFT_PAD ? SteamControls.LEFT_PAD : SteamControls.RIGHT_PAD;
     }
 
     public static boolean isTrigger(PadLayout.Control control) {

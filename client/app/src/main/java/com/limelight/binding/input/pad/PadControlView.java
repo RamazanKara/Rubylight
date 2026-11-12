@@ -10,13 +10,16 @@ import android.view.View;
 import com.limelight.binding.input.LayoutGamepad;
 import com.limelight.binding.input.LayoutStick;
 import com.limelight.binding.input.TouchLayout;
+import com.limelight.binding.input.virtual_controller.SteamControls;
+import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.ui.Haptics;
 
 /**
  * One control of the modern on-screen controller. Each control is its own view so a finger that
  * misses every control reaches the stream underneath, while several fingers on different controls
  * each go to their own. Sticks follow one finger; the face cluster and the D-pad follow every finger
- * on them, so a thumb can slide from A to B or rest between them for both.
+ * on them, so a thumb can slide from A to B or rest between them for both. A Steam Controller trackpad follows one
+ * finger and sends it as a touch on that pad; a grip holds from one tap to the next.
  */
 @SuppressLint("ViewConstructor") // Created by ModernController for one control.
 final class PadControlView extends View {
@@ -39,6 +42,10 @@ final class PadControlView extends View {
     private final KnobLayer knobLayer;
     /** The keys the WASD stick holds; null for every other control. */
     private final WasdKeys wasd;
+    /** Where a trackpad's touches go; the trackpads send nothing without one. */
+    private ModernController.TouchSink touchSink;
+    /** The pressure of the touch being handled, for a trackpad. */
+    private float touchPressure = 1;
 
     PadControlView(Context context, PadLayout.Control control, PadPainter painter, LayoutGamepad gamepad,
                    Runnable changed, WasdKeys.Keys keys) {
@@ -112,6 +119,10 @@ final class PadControlView extends View {
         this.haptics = haptics;
     }
 
+    void setTouchSink(ModernController.TouchSink touchSink) {
+        this.touchSink = touchSink;
+    }
+
     /** The alpha at rest; a press shows at least 60 % so a faint control still answers visibly. */
     void setRestingAlpha(float alpha) {
         restingAlpha = alpha;
@@ -154,11 +165,13 @@ final class PadControlView extends View {
             case MotionEvent.ACTION_DOWN:
             case MotionEvent.ACTION_POINTER_DOWN: {
                 int index = event.getActionIndex();
+                touchPressure = event.getPressure(index);
                 down(event.getPointerId(index), event.getX(index), event.getY(index), event.getEventTime());
                 break;
             }
             case MotionEvent.ACTION_MOVE:
                 for (int i = 0; i < event.getPointerCount(); i++) {
+                    touchPressure = event.getPressure(i);
                     move(event.getPointerId(i), event.getX(i), event.getY(i));
                 }
                 break;
@@ -200,7 +213,24 @@ final class PadControlView extends View {
                 move(pointer, x, y);
                 break;
             }
+            case PAD:
+                // One finger per pad, as on the controller.
+                if (state.pressed) return;
+                pointerIds[0] = pointer;
+                state.pressed = true;
+                padTouch(MoonBridge.LI_TOUCH_EVENT_DOWN, x, y, touchPressure);
+                applyAlpha();
+                redraw();
+                break;
             default:
+                if (PadInput.latches(control)) {
+                    // A grip: each tap toggles it; the finger lifting changes nothing.
+                    state.pressed = !state.pressed;
+                    gamepad.setButtons(slot(), state.pressed ? PadInput.buttonFlag(control) : 0);
+                    feedback(HapticFeedbackConstants.VIRTUAL_KEY);
+                    changed();
+                    break;
+                }
                 if (state.pressed) return;
                 pointerIds[0] = pointer;
                 state.pressed = true;
@@ -238,6 +268,11 @@ final class PadControlView extends View {
                 }
                 break;
             }
+            case PAD:
+                if (!state.pressed || pointer != pointerIds[0]) return;
+                padTouch(MoonBridge.LI_TOUCH_EVENT_MOVE, x, y, touchPressure);
+                redraw();
+                break;
             default:
                 break;
         }
@@ -265,6 +300,16 @@ final class PadControlView extends View {
                 updateMulti();
                 break;
             }
+            case PAD:
+                if (!state.pressed || pointer != pointerIds[0]) return;
+                pointerIds[0] = -1;
+                state.pressed = false;
+                padTouch(MoonBridge.LI_TOUCH_EVENT_UP, state.touchX, state.touchY, touchPressure);
+                state.touchX = Float.NaN;
+                state.touchY = Float.NaN;
+                applyAlpha();
+                redraw();
+                break;
             default:
                 if (!state.pressed || pointerIds[0] != pointer) return;
                 pointerIds[0] = -1;
@@ -273,8 +318,12 @@ final class PadControlView extends View {
         }
     }
 
-    /** Lets go of everything this control holds, as a cancelled touch does. */
+    /** Lets go of everything this control holds, as a cancelled touch does; a grip lets go too. */
     void release() {
+        // A trackpad's finger leaves where it last was, as the classic controller's does.
+        if (control.shape == PadLayout.Shape.PAD && state.pressed) {
+            padTouch(MoonBridge.LI_TOUCH_EVENT_CANCEL, state.touchX, state.touchY, 0f);
+        }
         java.util.Arrays.fill(pointerIds, -1);
         java.util.Arrays.fill(pointerFlags, 0);
         stickPointer = -1;
@@ -298,6 +347,20 @@ final class PadControlView extends View {
         }
         if (was) changed();
         else redraw();
+    }
+
+    /** Sends a finger at ({@code x}, {@code y}) on this trackpad as a touch on its Steam Controller pad. */
+    private void padTouch(byte type, float x, float y, float pressure) {
+        state.touchX = x;
+        state.touchY = y;
+        if (touchSink == null) return;
+        int pad = PadInput.steamPad(control);
+        touchSink.touch(type, SteamControls.pointerId(pad), SteamControls.touchX(pad, fraction(x, getWidth())),
+                SteamControls.touchY(fraction(y, getHeight())), SteamControls.pressure(pressure));
+    }
+
+    private static float fraction(float position, int size) {
+        return size > 0 ? position / size : 0f;
     }
 
     private void releaseButton() {

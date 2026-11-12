@@ -32,4 +32,8 @@
     <string name="pad_home">Home</string>
     <string name="pad_touchpad">Dokunmatik yüzey</string>
     <string name="pad_wasd">WASD çubuğu</string>
+    <string name="pad_left_trackpad">Sol izleme yüzeyi</string>
+    <string name="pad_right_trackpad">Sağ izleme yüzeyi</string>
+    <string name="pad_left_grip">Sol tutamak</string>
+    <string name="pad_right_grip">Sağ tutamak</string>
 </resources>

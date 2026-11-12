@@ -8,7 +8,7 @@ This page lists every feature with a link to its guide. Features available on on
 
 ## Library
 
-- **Home.** Favourites, **Continue playing** and the games of every paired PC in one library. Cover art is cached on the device, so Home works while a PC sleeps, and an offline PC offers **Wake**. Store shelves, Steam collections and Playnite categories, and the richer game pages need a host with the native library API (Rubylight 3.0); Home also shows the app lists of other paired hosts, such as Sunshine, Apollo or Vibepollo. [Home](console.md#home)
+- **Home.** Favourites, **Continue playing** and the games of every paired PC in one library. Cover art is cached on the device, so Home works while a PC sleeps, and an offline PC offers **Wake up**. Store shelves, Steam collections and Playnite categories, and the richer game pages need a host with the native library API (Rubylight 3.0); Home also shows the app lists of other paired hosts, such as Sunshine, Apollo or Vibepollo. [Home](console.md#home)
 - **View.** Grid, rows or a list with each game's store and last-played time; grouped by store, by type, by collection or not at all; small, medium or large cards. [View](console.md#view)
 - **Store shelves on a TV.** Rows for Steam, Epic Games, GOG, EA app, Ubisoft Connect, Battle.net and Xbox under a large hero, plus Recently played, Other apps, and games the PC found but that were never added. Android. [On a TV](console.md#on-a-tv)
 - **All games.** One poster grid, filtered by store, by installed, by hidden or by not yet added.
@@ -22,7 +22,7 @@ This page lists every feature with a link to its guide. Features available on on
 
 ## Pairing and PCs
 
-- **Discovery and manual entry.** PCs are found on the local network or added by name, IPv4 or IPv6 address and port. Wake-on-LAN is sent on every network interface. A PC can be pinned to one address.
+- **Discovery and manual entry.** PCs are found on the local network or added by name, IPv4 or IPv6 address and port. Wake-on-LAN is sent on every network interface, also to the MAC addresses of other adapters added under **Other wake addresses**. A PC can be pinned to one address. [Wake a sleeping PC](pairing.md#wake-a-sleeping-pc)
 - **Pairing.** PIN, one-time PIN, and QR pairing: **Scan QR code** on Android, or a pasted pairing link on Windows and Linux. A pairing link opened from any other app opens Nightjar, which asks before it pairs. QR pairing needs a host that offers it (Rubylight 3.0). [Pairing](pairing.md)
 - **Approve from a paired device.** A new TV or console shows a PIN, and a paired device enters it, with a controller too. Needs a host with pairing approval (Rubylight 3.7). [Approve from a paired device](pairing.md#approve-from-a-paired-device)
 - **Per-device permissions.** Permissions set on the host are checked before every protected action, and a refused action names the missing permission.
@@ -71,7 +71,7 @@ This page lists every feature with a link to its guide. Features available on on
 - **USB controller drivers.** DualSense over USB with adaptive triggers, the lightbar, Edge paddles, waveform haptics, and its speaker, headset jack and microphone; built-in drivers for Xbox and Switch Pro controllers. Android; the desktop uses SDL for the same controllers and has **USB DualSense audio and haptics**. [DualSense and USB](controls.md#dualsense-and-usb)
 - **Stream menu.** The same tiles on Android and desktop, opened by Back, a hotkey, a controller chord or a held Guide; **Y**, **X**, **LB** and **RB** run the tile you pick, and your keyboard shortcuts, Game Bar and Record that are tiles too. [The stream menu](controls.md#the-stream-menu)
 - **Stream hotkeys.** One set on Android and desktop, each changeable or off. [Stream hotkeys](controls.md#stream-hotkeys)
-- **On-screen controls.** Classic and Modern styles with an in-stream editor, a WASD stick, a Touchpad button, the option to be their own player, and per-game touch layouts with keys, buttons, sticks, triggers and a D-pad, shared as files. Android. [On-screen controls](controls.md#on-screen-controls)
+- **On-screen controls.** Classic and Modern styles with an in-stream editor, a WASD stick, a Touchpad button, a Steam Controller's trackpads, back buttons and grip touch, the option to be their own player, and per-game touch layouts with keys, buttons, sticks, triggers and a D-pad, shared as files. Android. [On-screen controls](controls.md#on-screen-controls)
 - **Touch modes.** Trackpad with acceleration and glide, direct mouse, multi-touch, and a local cursor that takes the PC's own cursor shape from a host that sends it. Android. [Touch modes](controls.md#touch-modes)
 - **PC keyboard.** A full on-screen keyboard with Esc, F1 to F12, arrows and sticky modifiers, usable by touch, controller or TV remote. Android. [PC keyboard](controls.md#pc-keyboard)
 - **Keyboard follows text fields.** The device keyboard opens when a text field on the PC takes focus, keeps the field visible and closes afterwards; Nightjar also reports the keyboard layout to the PC. Needs a host that reports text fields (Rubylight 3.0). [Keyboard follows text fields](controls.md#keyboard-follows-text-fields)

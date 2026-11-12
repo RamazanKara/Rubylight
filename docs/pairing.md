@@ -114,7 +114,7 @@ Updates of the same installation keep its pairing. Android backups and device tr
 
 ## Wake a sleeping PC
 
-Pair once while the PC is awake, so Nightjar learns the MAC address of its network adapter. Enable Wake-on-LAN in the PC's firmware and adapter settings. Then select the offline PC, or choose **Wake PC** from its menu (desktop: **Wake up**).
+Pair once while the PC is awake, so Nightjar learns the MAC address of its network adapter. Enable Wake-on-LAN in the PC's firmware and adapter settings. Then select the offline PC, or choose **Wake up** from its menu.
 
 If the PC has another network adapter that wakes it while the one used for streaming cannot, add that adapter's MAC address under **Other wake addresses**: in the PC's settings under **Connection** on Android, in the PC's details on desktop. Nightjar then wakes the PC through every address it knows.
 

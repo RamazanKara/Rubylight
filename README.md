@@ -43,7 +43,7 @@ Turn the camera and the picture turns on your screen's next refresh, instead of 
 - **96% of the trail gone.** A test game with 50 ms of delay, streamed at 1440p and 60 fps, showed the picture a median 64.9 px behind the mouse while turning. With Frame Warp: 1.4 to 2.2 px.
 - **Learns each game by itself.** Sailing in Black Flag Resynced, streamed to a handheld and a laptop, it learned the camera as it turned and kept the quest text, compass and icon wheel in place.
 - **Costs almost nothing.** 0.14 to 0.16 ms of GPU time a frame on the RX 7900 XT, from 1080p to 4K.
-- **One switch.** Settings › Video › Frame Warp, with a Rubylight PC.
+- **One switch.** **Settings → Video → Frame Warp**, with a Rubylight PC.
 
 <p align="center"><img src="docs/assets/frame-warp/black-flag-retroid.webp" width="640" alt="Black Flag Resynced on a Retroid Pocket 6 in the middle of a camera turn with Frame Warp on: the quest text, compass and icon wheel stay in place."></p>
 
@@ -84,6 +84,10 @@ No accounts, advertising or analytics, and nothing sent to its developers. Video
 
 ## What's new
 
+- **Frame Warp.** With a Rubylight PC, a mouse or right-stick camera turn shows on your screen's next refresh. [Frame Warp](#frame-warp)
+- **One settings layout.** Phones, TVs and computers share the same eight sections, Video, Display & image, Controls, Audio, Streaming, App, Advanced and Debug, with rarely changed rows folded under **More settings**. A setting that depends on another appears only while that one is on. [Settings](docs/settings.md)
+- **Steam Controller controls on the on-screen controller.** For a PC whose controller type is the Steam Controller, the classic on-screen controls can add both trackpads, the back buttons L4, R4, L5 and R5, and grip touch. [On-screen controls](docs/controls.md#on-screen-controls)
+- **Other wake addresses.** A PC can carry the MAC addresses of other network adapters that wake it when the one used for streaming cannot. [Wake a sleeping PC](docs/pairing.md#wake-a-sleeping-pc)
 - **Sharper colour where the hardware allows it.** Nightjar for Windows decodes HEVC 4:4:4 in hardware, in 8-bit and 10-bit, on GPUs whose decoder supports it. Before a stream starts, Nightjar checks whether the PC and this device can do full chroma, and a stream that can't starts without it and says why. [HDR and color](docs/video-and-latency.md#hdr-and-color)
 - **Linux HDR straight to the desktop.** HDR streams present as HDR10 on compositors that offer it, are described at the display's own white and peak, and on KDE Plasma 6.5 and later are drawn in the desktop's own HDR format; **HDR brightness follows the desktop** is a setting. NVIDIA NVDEC and Intel VA-API full-chroma pictures stay on the GPU where supported. [HDR and color](docs/video-and-latency.md#hdr-and-color)
 - **Less waiting on slow decoders and displays.** On Windows and Linux, a PyroWave decoder that falls behind skips to the newest frame instead of queueing; on Android, **Take back display queue delay** drops one frame when the display holds frames longer than it needs to. Decoder drops have their own counter, apart from network loss. [Video and latency](docs/video-and-latency.md)
@@ -269,7 +273,7 @@ Report bugs and request features in the [issue tracker](https://github.com/Ramaz
 
 ## Privacy
 
-Video, audio, input, clipboard contents and files travel only between your device and your PC. Nightjar contacts GitHub to check for updates and Moonlight's STUN server (`stun.moonlight-stream.org`) to learn the network's public address, so it can tell whether the PC is reachable from outside. On Android it also uses Moonlight's connection-test server (`android.conntest.moonlight-stream.org`) to diagnose connection failures. Problem reports stay on the device until you share them. The [privacy policy](docs/PRIVACY.md) has the details.
+Video, audio, input, clipboard contents and files travel only between your device and your PC. Nightjar contacts GitHub to check for updates (the Google Play build updates through Play instead) and Moonlight's STUN server (`stun.moonlight-stream.org`) to learn the network's public address, so it can tell whether the PC is reachable from outside. On Android it also uses Moonlight's connection-test server (`android.conntest.moonlight-stream.org`) to diagnose connection failures. Problem reports stay on the device until you share them. The [privacy policy](docs/PRIVACY.md) has the details.
 
 ## License and credits
 

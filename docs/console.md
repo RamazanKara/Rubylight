@@ -127,9 +127,9 @@ The options depend on the PC's state and what its host offers this device:
 | **Microphone only** | [Below](#microphone-only); the host lets this device start apps |
 | **Shared folders**, **Files** | The host offers them; see [sharing](sharing.md) |
 | **Pair**, **Pair with one-time PIN** | Not paired; one-time PIN on hosts that offer it |
-| **Wake PC** | Offline, with a MAC address learned while paired |
+| **Wake up** | Offline, with a MAC address learned while paired or added under [Other wake addresses](pairing.md#wake-a-sleeping-pc) |
 | **Sleep PC**, **Restart PC**, **Shut down PC** | [Below](#the-pcs-power-and-host-updates); dimmed with the reason where the host does not allow it for this device |
-| **Update the PC's host** | The host has an update and lets this device install it |
+| **Update the PC's streaming app** | The host has an update and lets this device install it |
 | **Pair another device** | Hosts with [approval from a paired device](pairing.md#approve-from-a-paired-device); dimmed without the permission |
 | **PC settings**, **Rename**, **Connection address** | Always; Connection address when the PC has more than one address or a pinned one |
 | **Unpair** or **Pairing help** | Paired and online, or not paired |
@@ -147,7 +147,7 @@ The same **Rename**, **Unpair** and **Remove PC** actions are in the PC's settin
 
 On a host that offers them and allows them for this device, the PC's options can put the PC to sleep, restart it or shut it down, on Android and on Windows and Linux. Each asks first; before a shutdown Nightjar warns when the PC may not wake from off, and when Windows refuses it shows Windows' reason.
 
-**Update the PC's host** installs the host's update and waits until the PC is back on the new version. It says when the update waits for another device's stream to end, and shows the PC's reason when it fails. While an automatic update on the PC waits for the PC to be idle, the entry stays in the menu.
+**Update the PC's streaming app** installs the host's update and waits until the PC is back on the new version. It says when the update waits for another device's stream to end, and shows the PC's reason when it fails. While an automatic update on the PC waits for the PC to be idle, the entry stays in the menu.
 
 ### Microphone only
 

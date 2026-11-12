@@ -38,12 +38,12 @@ async fn clipboard_sync_is_offered_only_to_a_launch_that_asks() -> Result<()> {
     let launch = h.launch(0, false).await?;
     assert_eq!(
         control_ids(&h, &launch, 10).await?,
-        "a=x-rl-control:0x5539,0x553b,0x553d,0x553e"
+        "a=x-rl-control:0x5539,0x553b,0x553d,0x553e,0x5543,0x5544,0x5545,0x5546"
     );
     let asked = ask(&h, &launch, u32::MAX);
     assert_eq!(
         control_ids(&h, &asked, 11).await?,
-        "a=x-rl-control:0x5508,0x5539,0x553b,0x553d,0x553e"
+        "a=x-rl-control:0x5508,0x5539,0x553b,0x553d,0x553e,0x5543,0x5544,0x5545,0x5546"
     );
     // Without the clipboard permissions, or view access, it is not offered.
     for (sequence, perm) in [
@@ -53,7 +53,7 @@ async fn clipboard_sync_is_offered_only_to_a_launch_that_asks() -> Result<()> {
         let refused = ask(&h, &launch, perm);
         assert_eq!(
             control_ids(&h, &refused, sequence).await?,
-            "a=x-rl-control:0x5539,0x553b,0x553d,0x553e",
+            "a=x-rl-control:0x5539,0x553b,0x553d,0x553e,0x5543,0x5544,0x5545,0x5546",
             "{perm:#x}"
         );
     }

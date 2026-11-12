@@ -1526,4 +1526,7 @@ sudo sysctl -w net.core.rmem_max={}", "Tampon de réception : le système a acco
     ("Speed not measured: the PC didn’t answer", "Vitesse non mesurée : le PC n’a pas répondu"),
     ("Speed not measured: this PC has no speed test", "Vitesse non mesurée : ce PC n’a pas de test de vitesse"),
     ("Speed not measured: the test failed", "Vitesse non mesurée : le test a échoué"),
+    ("Frame Warp", "Frame Warp"),
+    ("Shifts the picture with your mouse or right stick until the PC’s next frame shows the turn, and keeps the game’s HUD in place. Needs a PC that supports it.", "Décale l’image avec votre souris ou le stick droit jusqu’à ce que la prochaine image du PC montre la rotation, et laisse le HUD du jeu en place. Nécessite un PC compatible."),
+    ("This PC doesn’t offer Frame Warp, so Nightjar streams without it.", "Ce PC ne propose pas Frame Warp, Nightjar diffuse donc sans."),
 ];

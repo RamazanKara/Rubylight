@@ -13,6 +13,7 @@ mod couch_audio;
 mod device_recovery;
 #[cfg(test)]
 mod encoder_tests;
+pub(crate) mod frame_warp;
 mod game_audio;
 mod instance_audio;
 mod keyboard_layout;

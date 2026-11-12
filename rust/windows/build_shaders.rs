@@ -8,7 +8,7 @@ const SOURCE: &str = include_str!("src/shaders/color.hlsl");
 #[cfg(windows)]
 pub fn compile(out: &Path) {
     println!("cargo:rerun-if-changed=src/shaders/color.hlsl");
-    const ENTRIES: [(&str, &str); 31] = [
+    const ENTRIES: [(&str, &str); 35] = [
         ("vertex", "vs_5_0"),
         ("luma", "ps_5_0"),
         ("chroma", "ps_5_0"),
@@ -44,6 +44,11 @@ pub fn compile(out: &Path) {
         // HDR dynamic metadata statistics (`compute_hdr_stats.rs`).
         ("hdr_stats_clear_cs", "cs_5_0"),
         ("hdr_stats_cs", "cs_5_0"),
+        // Frame Warp's thumbnail and HUD passes (`compute_frame_warp.rs`).
+        ("frame_warp_thumb_cs", "cs_5_0"),
+        ("frame_warp_hud_cs", "cs_5_0"),
+        ("frame_warp_score_cs", "cs_5_0"),
+        ("frame_warp_bits_cs", "cs_5_0"),
     ];
     // One thread per entry, so the step takes as long as the slowest shader
     // rather than the sum. Each entry still compiles alone, byte for byte as

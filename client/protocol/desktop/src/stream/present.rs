@@ -859,6 +859,9 @@ pub struct VideoTexture {
     converted_view: Option<windows::Win32::Graphics::Direct3D11::ID3D11RenderTargetView>,
     #[cfg(windows)]
     converted_current: bool,
+    /// Frame Warp's shift for the next draw of the picture into the window (identity without it);
+    /// the presenter sets it before each present.
+    pub warp: super::frame_warp::WarpDraw,
 }
 
 impl Default for VideoTexture {
@@ -939,6 +942,7 @@ impl Default for VideoTexture {
             converted_view: None,
             #[cfg(windows)]
             converted_current: false,
+            warp: super::frame_warp::WarpDraw::default(),
         }
     }
 }
@@ -1865,7 +1869,7 @@ impl VideoTexture {
         let visible = self.size();
         let Some(pass) = self.planes.as_mut() else { return false };
         // SAFETY: The pass copied the current picture's planes on this renderer, for `parameters`.
-        match unsafe { pass.draw_direct(renderer, &parameters, destination, visible, look) } {
+        match unsafe { pass.draw_direct_warped(renderer, &parameters, destination, visible, look, &self.warp) } {
             Ok(()) => {
                 self.passes_drawn(step);
                 true
@@ -1965,13 +1969,14 @@ impl VideoTexture {
             (look, SDL_FlushRenderer(renderer))
         };
         let visible = self.size();
-        let constants = super::direct_planes::constants(destination, visible, look);
+        let mut constants = super::direct_planes::constants(destination, visible, look);
         let viewport = {
             let x = destination.x.max(0.0);
             let y = destination.y.max(0.0);
             [x, y, (destination.x + destination.w).min(output.0 as f32) - x, (destination.y + destination.h).min(output.1 as f32) - y]
         };
         let (Some(pass), Some(picture)) = (self.planes.as_mut(), self.direct_planes.as_ref()) else { return false };
+        if !self.warp.is_identity() { constants.warp = pass.warp_row(&self.warp); }
         let drawn = if !flushed {
             Err(format!("SDL_FlushRenderer: {}", crate::sdl::error()))
         } else {
@@ -2141,7 +2146,7 @@ impl VideoTexture {
         let drawn = direct_pass(&mut self.direct, renderer).and_then(|pass| {
             let held = &self.held;
             // SAFETY: The picture's texture and the renderer belong to the pass's device.
-            unsafe { pass.present(renderer, destination, &picture, tone, |submit| lock_for(held, picture.texture, submit)) }
+            unsafe { pass.present(renderer, destination, &picture, tone, &self.warp, |submit| lock_for(held, picture.texture, submit)) }
         });
         match drawn {
             Ok(()) => true,
@@ -2158,17 +2163,18 @@ impl VideoTexture {
         #[cfg(windows)]
         if self.texture.is_null() {
             if let Some(packed) = &mut self.packed {
-                return packed.present(
+                return packed.present_warped(
                     renderer,
                     self.packed_format.as_ref().unwrap(),
                     destination,
+                    &self.warp,
                 );
             }
         }
         if !self.texture.is_null() {
             let source = self.source_rect(self.texture);
             // SAFETY: The renderer and its video texture are live on this thread.
-            unsafe { SDL_RenderTexture(renderer, self.texture, source.as_ref().map_or(std::ptr::null(), |rect| rect as *const _), destination) };
+            unsafe { super::frame_warp::render_texture(renderer, self.texture, source.as_ref(), destination, &self.warp) };
         }
         true
     }

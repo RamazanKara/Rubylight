@@ -671,3 +671,110 @@ void hdr_stats_cs(uint3 id : SV_DispatchThreadID, uint index : SV_GroupIndex) {
         InterlockedMax(stats[1], statsMax);
     }
 }
+// Frame Warp (docs/frame-warp.md, `compute_frame_warp.rs`): a luma thumbnail
+// of each capture for the host's motion measurement, and the HUD, the pixels
+// that stay exactly the same while the camera turns, scored per mask cell.
+// Both read the capture as captured: before the pointer, scaling or the menu.
+cbuffer FrameWarp : register(b4) {
+    uint2 fwSource; uint2 fwThumb;
+    uint2 fwGrid; uint fwPixel; uint fwMode;
+    uint fwThumbAt; uint fwCodesAt; uint fwCountsAt; uint fwScoresAt;
+    uint fwBitsAt; uint fwStride; uint fwThreshold; uint fwPadding;
+};
+// The thumbnail's words, or the HUD's codes per pixel, then its changed
+// pixels, scores and mask bits per cell.
+RWStructuredBuffer<uint> frameWarp : register(u8);
+// A captured pixel's luma, 0 to 1: of the sRGB codes, of PQ for scRGB, or of
+// the PQ codes of an HDR10 capture.
+float frameWarpLuma(uint2 p) {
+    float3 rgb = source.Load(int3(p, 0)).rgb;
+    if (fwPixel == 1) return dot(pq(max(rgb, 0) / 125.0), float3(0.2126, 0.7152, 0.0722));
+    if (fwPixel == 2) return dot(rgb, float3(0.2627, 0.6780, 0.0593));
+    return dot(rgb, float3(0.2126, 0.7152, 0.0722));
+}
+// Four thumbnail pixels a thread, a byte each in one word, rows top to bottom:
+// the mean of at most 8x8 samples spread over each pixel's box of the source.
+[numthreads(8, 8, 1)]
+void frame_warp_thumb_cs(uint3 id : SV_DispatchThreadID) {
+    uint words = fwThumb.x / 4;
+    if (id.x >= words || id.y >= fwThumb.y) return;
+    uint y0 = id.y * fwSource.y / fwThumb.y;
+    uint y1 = max((id.y + 1) * fwSource.y / fwThumb.y, y0 + 1);
+    uint quad = 0;
+    [unroll] for (uint i = 0; i < 4; i++) {
+        uint x0 = (id.x * 4 + i) * fwSource.x / fwThumb.x;
+        uint x1 = max((id.x * 4 + i + 1) * fwSource.x / fwThumb.x, x0 + 1);
+        uint2 span = uint2(x1 - x0, y1 - y0);
+        uint2 n = min(span, uint2(8, 8));
+        float sum = 0;
+        for (uint sy = 0; sy < n.y; sy++) {
+            for (uint sx = 0; sx < n.x; sx++) {
+                sum += frameWarpLuma(uint2(x0, y0) + (2 * uint2(sx, sy) + 1) * span / (2 * n));
+            }
+        }
+        quad |= uint(saturate(sum / float(n.x * n.y)) * 255.0 + 0.5) << (8 * i);
+    }
+    frameWarp[fwThumbAt + id.y * words + id.x] = quad;
+}
+// A word that changes with any bit of the pixel.
+uint frameWarpCode(uint2 p) {
+    uint4 bits = asuint(source.Load(int3(p, 0)));
+    return focusHash(bits.x ^ focusHash(bits.y ^ focusHash(bits.z ^ focusHash(bits.w))));
+}
+// Counts per HUD cell the pixels that changed since the last pass, and keeps
+// every pixel's code for the next. A cell is no smaller than a pixel, so a
+// 16x16 tile spans at most 17x17 cells.
+groupshared uint fwTileCells[17 * 17];
+[numthreads(16, 16, 1)]
+void frame_warp_hud_cs(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint index : SV_GroupIndex) {
+    for (uint c = index; c < 17 * 17; c += 256) fwTileCells[c] = 0;
+    GroupMemoryBarrierWithGroupSync();
+    uint2 first = group.xy * 16 * fwGrid / fwSource;
+    if (all(id.xy < fwSource)) {
+        uint at = fwCodesAt + id.y * fwSource.x + id.x;
+        uint code = frameWarpCode(id.xy);
+        if (frameWarp[at] != code) {
+            uint2 inTile = id.xy * fwGrid / fwSource - first;
+            InterlockedAdd(fwTileCells[inTile.y * 17 + inTile.x], 1);
+        }
+        frameWarp[at] = code;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    for (uint t = index; t < 17 * 17; t += 256) {
+        uint2 cell = first + uint2(t % 17, t / 17);
+        if (fwTileCells[t] != 0 && all(cell < fwGrid)) {
+            InterlockedAdd(frameWarp[fwCountsAt + cell.y * fwGrid.x + cell.x], fwTileCells[t]);
+        }
+    }
+}
+// Per HUD cell: one whose pixels stayed for at least three in four gains a
+// point, up to 255, and one that changed loses half. Mode 0 only clears the
+// counts (the first pass after the camera stood still), 2 clears the scores
+// too (a new size).
+[numthreads(8, 8, 1)]
+void frame_warp_score_cs(uint3 id : SV_DispatchThreadID) {
+    if (any(id.xy >= fwGrid)) return;
+    uint cell = id.y * fwGrid.x + id.x;
+    uint changed = frameWarp[fwCountsAt + cell];
+    frameWarp[fwCountsAt + cell] = 0;
+    if (fwMode == 2) frameWarp[fwScoresAt + cell] = 0;
+    if (fwMode != 1) return;
+    // The pixels whose `p * fwGrid / fwSource` is this cell.
+    uint2 lo = (id.xy * fwSource + fwGrid - 1) / fwGrid;
+    uint2 hi = ((id.xy + 1) * fwSource + fwGrid - 1) / fwGrid;
+    uint total = (hi.x - lo.x) * (hi.y - lo.y);
+    uint score = frameWarp[fwScoresAt + cell];
+    frameWarp[fwScoresAt + cell] = changed * 4 <= total ? min(score + 1, 255u) : score / 2;
+}
+// The mask: a bit per cell whose score reached fwThreshold, bit i of word w
+// being column 32w + i, rows of fwStride words.
+[numthreads(8, 8, 1)]
+void frame_warp_bits_cs(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= fwStride || id.y >= fwGrid.y) return;
+    uint word = 0;
+    for (uint bit = 0; bit < 32; bit++) {
+        uint x = id.x * 32 + bit;
+        if (x < fwGrid.x && frameWarp[fwScoresAt + id.y * fwGrid.x + x] >= fwThreshold) word |= 1u << bit;
+    }
+    frameWarp[fwBitsAt + id.y * fwStride + id.x] = word;
+}

@@ -79,6 +79,7 @@ fn offer(h: &Shared, config: &Config, dolby: u8) -> Offered {
         display_scale: true,
         // `rlSecondScreen` is read on every launch.
         second_screen: true,
+        frame_warp: frame_warp(config),
         // Per launch: `stream_offered`.
         rate_change: false,
         clipboard_sync: false,
@@ -176,6 +177,13 @@ fn cursor_shape(config: &Config) -> bool {
         )
 }
 
+/// Video: Frame Warp (0x5543-0x5546), while `frame_warp` is on. The host does
+/// nothing for it until a client asks, and then only for that stream; every
+/// capture and encoder takes it, since the GPU passes read the captured image.
+fn frame_warp(config: &Config) -> bool {
+    config.frame_warp()
+}
+
 /// Diagnostics (B): pipeline frame rates. Every stream counts them, off the
 /// hot path, and reports only to a client that asks.
 fn pipeline_rates(_h: &Shared, _config: &Config) -> bool {
@@ -268,6 +276,21 @@ mod tests {
         ] {
             let config = Config::parse(text).unwrap();
             assert_eq!(cursor_shape(&config), offered, "{text}");
+        }
+    }
+
+    /// Frame Warp is offered while its setting is on, with any capture.
+    #[test]
+    fn frame_warp_follows_its_setting() {
+        for (text, offered) in [
+            ("", true),
+            ("capture = wgc\n", true),
+            ("capture = ddx\n", true),
+            ("frame_warp = true\n", true),
+            ("frame_warp = false\n", false),
+        ] {
+            let config = Config::parse(text).unwrap();
+            assert_eq!(frame_warp(&config), offered, "{text}");
         }
     }
 }

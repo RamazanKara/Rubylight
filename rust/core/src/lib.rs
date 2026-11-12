@@ -58,6 +58,7 @@ pub mod encoder_policy;
 pub mod extensions;
 pub mod fec_status;
 pub mod file_transfer;
+pub mod frame_warp;
 pub mod framegen;
 #[cfg(test)]
 mod fuzz;

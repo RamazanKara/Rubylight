@@ -102,6 +102,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "wgc_pacing_smoothing", "Smooth capture pacing", Bool;
         "stream_reconfigure", "Follow client size and frame rate changes", Bool;
         "phase_lock_hold_at_stream_rate", "Hold capped games for the device's refresh (phase lock; off sends their frames as they arrive)", Bool;
+        "frame_warp", "Let devices use Frame Warp", Bool;
         "wgc_direct_encoder_input", "Pass GPU capture directly to the encoder", Bool;
         "gpu_compute_conversion", "Copy and convert captures on a compute queue", Bool;
         "idd_push_fence_ring", "GPU fence transport for direct driver push (on by default; turn off to use the keyed-mutex ring)", Bool;
@@ -637,5 +638,20 @@ mod tests {
                 );
             }
         }
+    }
+    #[test]
+    fn frame_warp_is_a_switch_a_device_may_override() {
+        let setting = GLOBAL
+            .iter()
+            .find(|setting| setting.key == "frame_warp")
+            .unwrap();
+        assert!(matches!(setting.control, Bool));
+        assert_eq!(setting.label, "Let devices use Frame Warp");
+        assert!(butterpollo_core::config::override_allowed("frame_warp"));
+        let mut fields = Fields::new();
+        fields.insert("cfg_frame_warp".into(), "false".into());
+        let mut values = serde_json::Map::new();
+        apply("cfg_", GLOBAL, &fields, &mut values).unwrap();
+        assert_eq!(values["frame_warp"], "false");
     }
 }

@@ -47,4 +47,5 @@
     <string name="stream_pyrowave_no_hdr_on_pc">此电脑不支持 PyroWave HDR，因此 HDR 串流改用 %1$s。</string>
     <string name="connection_test_intro_delay">测试到你电脑的延迟。</string>
     <string name="host_feature_cursor_shape">光标形状</string>
+    <string name="host_feature_frame_warp">Frame Warp</string>
 </resources>

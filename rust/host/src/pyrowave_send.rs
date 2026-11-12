@@ -306,6 +306,8 @@ impl Sender {
                     dropped.prepared(controller.observe(&frame.bytes, now, kbps), frame.wire_len(), now, &current.launch.warnings)
                 } else { Some((0, 0)) }) else { continue };
                 let wire_frame = packetizer.frame;
+                // Frame Warp tags the frame by the number the client decodes it as.
+                current.frame_warp.tag(wire_frame, claim.as_ref().map(|claim| claim.presented));
                 // Same boundary as the conventional packetizer. Neither the
                 // prepared frame's queue nor packet pacing can change it.
                 let packetized = Instant::now();

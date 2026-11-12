@@ -2,6 +2,19 @@
 <resources>
     <string name="title_packed_444">Chroma complet</string>
     <string name="summary_packed_444">Nécessite l’option de chroma complet de Rubylight, le nouveau moteur de streaming et un décodeur matériel HEVC/AV1 compatible. Si le PC ou cet appareil ne le permet pas, le stream démarre sans. Le HDR nécessite aussi une surface d’affichage HDR 10 bits compatible.</string>
+    <string name="title_frame_warp">Frame Warp</string>
+    <string name="summary_frame_warp">Décale l’image avec votre souris ou le stick droit jusqu’à ce que la prochaine image du PC montre la rotation, et laisse le HUD du jeu en place. Nécessite un PC compatible et le nouveau moteur de streaming.</string>
+    <string name="frame_warp_overlay_mouse">Frame Warp : calé %1$s px/unité, délai %2$s ms, décalage %3$s px (pic %4$s)</string>
+    <string name="frame_warp_overlay_stick">Frame Warp : calé %1$s px/s, délai %2$s ms, décalage %3$s px (pic %4$s)</string>
+    <string name="frame_warp_overlay_learning">Frame Warp : apprentissage</string>
+    <string name="frame_warp_overlay_not_offered">Frame Warp : non proposé par le PC</string>
+    <string name="frame_warp_overlay_off">Frame Warp : désactivé pour ce stream</string>
+    <string name="frame_warp_needs_engine">Frame Warp nécessite le nouveau moteur de streaming. Ce stream fonctionne sans.</string>
+    <string name="frame_warp_unavailable">Frame Warp est désactivé pour ce stream : %1$s</string>
+    <string name="frame_warp_reason_hdr">cet appareil n’affiche le HDR que directement depuis le décodeur</string>
+    <string name="frame_warp_reason_full_chroma">le chroma complet est activé</string>
+    <string name="frame_warp_reason_renderer">le rendu GPU n’a pas démarré</string>
+    <string name="frame_warp_replaces_upscaling">Frame Warp dessine l’image sans mise à l’échelle.</string>
     <string name="title_experimental_chipset_tuning">Réglage du chipset</string>
     <string name="summary_experimental_chipset_tuning">Des réglages supplémentaires de faible latence pour les décodeurs MediaTek Dimensity et Samsung Exynos.</string>
     <string name="scut_deleted_pc">PC supprimé</string>

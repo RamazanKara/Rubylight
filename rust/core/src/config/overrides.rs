@@ -135,6 +135,7 @@ pub fn override_allowed(key: &str) -> bool {
         "nvenc_frame_budget_guard",
         "nvenc_realtime_hags",
         "encoder_focus",
+        "frame_warp",
         "hdr_peak_brightness",
         // 3.0 extensions
         "hdr_dynamic_metadata",

@@ -96,6 +96,7 @@ Each default below is what a fresh install uses, checked against the host code. 
 | PyroWave — `pyrowave` | `true` | Offered only to devices that ask for it; others never see it. |
 | **Frame rate and pacing** | | |
 | Frame pacing — `frame_pacing` | `arrival` | Each new frame is encoded as soon as it is captured, limited to the requested stream rate. |
+| Frame Warp — `frame_warp` | `true` | A Nightjar device that turns Frame Warp on shows camera turns on its next refresh. The host does the work only for a device that asks. See [Frame Warp](frame-warp.md). |
 | Use the launch frame rate — `limit_framerate` | `false` | The stream runs at the rate the stream request asks for, which is what Artemis's Warp frame pacing expects. |
 | Pacing rate — `pacing_max_bitrate_kbps` | `0` (automatic) | Fast wired pacing, twice the encoder bitrate on a host Wi-Fi route, and a device's reported link speed caps it. |
 | Adaptive packet pacing — `host_adaptive_pacing` | `false` | Starts slower and probes; useful only on a link with burst loss that a fixed rate cannot fix. |
@@ -1034,6 +1035,7 @@ Every setting in the console, by the console's tabs and groups, with its key and
 | Frame pacing: Use the launch frame rate | `limit_framerate` | `false` | Encodes at the frame rate the device asked for when it launched the app instead of the faster rate its stream request may ask for. |
 | Frame pacing: Follow client size and frame rate changes | `stream_reconfigure` | `true` | Lets a Rubylight client change the stream resolution and frame rate without reconnecting, for example when a foldable phone opens its inner screen. |
 | Frame pacing: Hold capped games for the device's refresh | `phase_lock_hold_at_stream_rate` | `false` | With a Rubylight client's phase lock, holds each frame of a game running at the stream rate or slower until just before the device's refresh. Off, such frames are encoded as they arrive: a frame can't be sent earlier than the game makes it, only later. The hold cost 8 to 11 ms of latency on a Shield TV and halved its rare display gaps. |
+| Frame pacing: Let devices use Frame Warp | `frame_warp` | `true` | Lets a Nightjar device that turns Frame Warp on show camera turns on its next screen refresh, without waiting for the round trip. The host learns how far each game turns per mouse or stick input and which parts of the picture stay put, such as the HUD, only for a device that asks. See [Frame Warp](frame-warp.md). |
 | Frame limiter: Limit every stream | `frame_limiter_enable` | `false` | Caps the game’s frame rate on every stream, not only on virtual displays. Virtual-display streams are already limited unless Virtual display refresh is off. |
 | Frame limiter: Limiter | `frame_limiter_provider` | `auto` (Automatic) | What enforces the limit. Automatic and RTSS use RivaTuner Statistics Server (RTSS), which must be installed; None turns off all limiting. |
 | Frame limiter: Frame limit | `frame_limiter_fps_limit` | `0` fps | The frame rate games are capped at; 0 uses the stream’s frame rate. RTSS keeps decimals such as 59.94. |

@@ -65,7 +65,7 @@ Design notes, measurements and audits for contributors. They describe internals 
 | [Beam racing](beam-racing.md), [early decode](early-decode.md), [mouse pace](mouse-pace.md) | Desktop presentation timing, and input sent at the mouse's pace |
 | [PyroWave GPU decoding](pyrowave-decode.md), [PyroWave decode stages](pyrowave-decode-stages.md) | The desktop PyroWave decoder and its measured stages |
 | [Refresh rate switching](expected-refresh-switch.md), [HDR on Android displays](expected-hdr10.md) | How the Android app requests refresh rates and HDR, and reports refusals |
-| [Client roaming](protocol/client-roaming.md), [host cursor shapes](protocol/cursor-shape.md) | Protocol extensions proposed for Moonlight-compatible hosts |
+| [Client roaming](protocol/client-roaming.md), [host cursor shapes](protocol/cursor-shape.md), [Frame Warp](protocol/frame-warp.md) | Protocol extensions proposed for Moonlight-compatible hosts |
 | [Android audit, October 2026](android-audit-2026-10.md) | Audit findings and their resolution |
 | [Rename history](RENAME.md) | The renames to Nightjar, and the identifiers that keep their old names |
 | [Demo mode](demo/README.md) | The offline demo fixtures used for screenshots and the promotional video |

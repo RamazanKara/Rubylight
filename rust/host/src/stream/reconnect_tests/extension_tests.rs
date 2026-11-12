@@ -35,17 +35,52 @@ async fn describe_for_a_default_config_is_byte_identical() -> Result<()> {
              a=fmtp:97 surround-params=12,8,4,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
              a=fmtp:97 surround-params=12,12,0,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
              a=x-ss-general.penBarrelRoll:1\r\n\
-             a=x-rl-control:0x5539,0x553b,0x553d,0x553e\r\n\
+             a=x-rl-control:0x5539,0x553b,0x553d,0x553e,0x5543,0x5544,0x5545,0x5546\r\n\
              m=audio {mic} RTP/AVP 96\r\n\
              a=rtpmap:96 opus/48000/1\r\n\
              a=fmtp:96 minptime=10;useinbandfec=1\r\n"
         ),
         "{body}"
     );
-    // The default host's 3.0 control messages (FEC report, text input, pipeline rates and
-    // keyboard layout) are a second line, which stock clients ignore.
+    // The default host's 3.0 control messages (FEC report, text input, pipeline rates,
+    // keyboard layout and Frame Warp) are a second line, which stock clients ignore.
     assert_eq!(body.matches("a=x-rl-control:").count(), 2, "{body}");
     assert!(body.contains(butterpollo_core::rtsp::CONTROL_MESSAGES));
+    let (session, client) = h.play(&launch).await?;
+    h.end(&session, client).await?;
+    h.finish().await
+}
+
+/// With `frame_warp` off, DESCRIBE lists none of Frame Warp's messages and serverinfo has no
+/// `FrameWarpVersion`; everything else stays as offered.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn frame_warp_is_listed_only_while_its_setting_is_on() -> Result<()> {
+    let h = Harness::configured(10_000, 1, "frame_warp=false\n").await?;
+    let launch = h.launch(0, false).await?;
+    let describe = h.rtsp(&launch, 10, "DESCRIBE", "").await?;
+    assert!(
+        describe.contains("a=x-rl-control:0x5539,0x553b,0x553d,0x553e\r\n"),
+        "{describe}"
+    );
+    for id in ["0x5543", "0x5544", "0x5545", "0x5546"] {
+        assert!(!describe.contains(id), "{describe}");
+    }
+    let config = h.h.config.read().unwrap().clone();
+    let offered = crate::extensions::offered(&h.h, &config);
+    assert!(!offered.frame_warp);
+    assert!(
+        !offered
+            .serverinfo_fields()
+            .iter()
+            .any(|(field, _)| *field == "FrameWarpVersion")
+    );
+    let on = crate::extensions::offered(&h.h, &Config::default());
+    assert!(on.frame_warp);
+    assert!(
+        on.serverinfo_fields()
+            .iter()
+            .any(|(field, value)| *field == "FrameWarpVersion" && value == "1")
+    );
     let (session, client) = h.play(&launch).await?;
     h.end(&session, client).await?;
     h.finish().await
@@ -89,7 +124,7 @@ async fn describe_with_packed_444_and_the_microphone_is_byte_identical() -> Resu
              a=fmtp:97 surround-params=12,8,4,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
              a=fmtp:97 surround-params=12,12,0,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
              a=x-ss-general.penBarrelRoll:1\r\n\
-             a=x-rl-control:0x5539,0x553b,0x553d,0x553e\r\n\
+             a=x-rl-control:0x5539,0x553b,0x553d,0x553e,0x5543,0x5544,0x5545,0x5546\r\n\
              m=audio {mic} RTP/AVP 96\r\n\
              a=rtpmap:96 opus/48000/1\r\n\
              a=fmtp:96 minptime=10;useinbandfec=1\r\n"

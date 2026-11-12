@@ -76,7 +76,9 @@ async fn rate_changes_reach_only_a_client_that_launched_asking() -> Result<()> {
         .await?;
     let describe = h.rtsp(&launch, 10, "DESCRIBE", "").await?;
     assert!(
-        describe.contains("a=x-rl-control:0x5539,0x553b,0x553c,0x553d,0x553e\r\n"),
+        describe.contains(
+            "a=x-rl-control:0x5539,0x553b,0x553c,0x553d,0x553e,0x5543,0x5544,0x5545,0x5546\r\n"
+        ),
         "{describe}"
     );
     let (session, client) = h.play(&launch).await?;

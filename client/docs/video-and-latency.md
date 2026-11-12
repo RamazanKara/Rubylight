@@ -161,6 +161,24 @@ PyroWave SDR streams use SGSR 1 inside the Vulkan renderer for both FSR and SGSR
 
 Sharpening ranges from 0–100%, default 50%. At 0%, FSR bypasses extra sharpening; SGSR still performs spatial reconstruction. The setting applies next stream. Compare text, edges, motion, battery use and added time, not just a still image.
 
+## Frame Warp
+
+**Frame Warp** (Video settings on Android and the desktop, off by default) shows a mouse or right-stick camera turn on the next refresh of this screen instead of a network round trip and the game's own delay later. Each picture is shifted by the part of your turn the PC has not drawn yet, and the game's HUD (crosshair, health, minimap, weapon) stays where it is. On a screen faster than the stream, such as a 60 fps stream on a 120 Hz screen, the picture is drawn again with a new shift between frames while you turn, so the turn moves at the screen's rate.
+
+It needs a PC that offers it (Rubylight). The PC learns each game while you play: how far the picture moves per mouse count and per second of stick, how long the game takes to show an input, and where the HUD is. Until a game's model locks, the overlay reads **Frame Warp: learning** and nothing is shifted; a PC remembers what it learned for the next session. Menus, cutscenes and a mouse pointer unlock it again.
+
+What to expect:
+
+- The shift is a translation. It is right for a camera turn, approximate near the screen's edges at a wide field of view, and it does not predict moving or strafing. While turning, the edge the picture moves away from repeats its outermost pixels until the PC's frame arrives.
+- A HUD element that moves or fades can be shifted for a moment, and a scene that hardly changes can keep a few cells unshifted.
+- Turning the in-game sensitivity refits within a few seconds. Mouse acceleration in the game makes the fit worse and can keep it from locking.
+
+The Statistics and Debug overlays show its state: not offered by the PC, learning, or locked with the learned gain, the game's delay and the current and largest shift.
+
+On Android it needs the New streaming engine. It draws through Vulkan where the device has it (Android 10 and newer), even if the renderer was not set to Vulkan, or else through OpenGL ES without upscaling; PyroWave streams draw it in PyroWave's own renderer, with its upscaling and HDR. It is off for a stream with Full chroma, and for HDR on a device without Vulkan, with a message saying why. On the desktop every presenter draws it; with beam racing on, the shift is set once per frame and the picture is not drawn again between frames.
+
+The protocol is described in [Frame Warp](protocol/frame-warp.md).
+
 ## Snapdragon GPU drivers
 
 **Settings → Advanced → Snapdragon GPU driver** selects the Vulkan driver used by PyroWave; it is shown on arm64 Adreno devices only. **System GPU driver** is the default. Custom drivers require Android 10+, an arm64 app and an Adreno GPU; they do not replace Android's system driver or the MediaCodec drivers used by H.264, HEVC and AV1. The selected driver must still pass PyroWave's Vulkan checks.

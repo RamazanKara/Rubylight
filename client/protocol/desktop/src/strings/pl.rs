@@ -1526,4 +1526,7 @@ sudo sysctl -w net.core.rmem_max={}", "Bufor odbioru: system przydzielił {0} Ki
     ("Speed not measured: the PC didn’t answer", "Szybkość niezmierzona: komputer nie odpowiedział"),
     ("Speed not measured: this PC has no speed test", "Szybkość niezmierzona: ten komputer nie ma testu szybkości"),
     ("Speed not measured: the test failed", "Szybkość niezmierzona: test się nie powiódł"),
+    ("Frame Warp", "Frame Warp"),
+    ("Shifts the picture with your mouse or right stick until the PC’s next frame shows the turn, and keeps the game’s HUD in place. Needs a PC that supports it.", "Przesuwa obraz zgodnie z myszą lub prawym drążkiem, aż następna klatka z komputera pokaże obrót, a HUD gry zostaje na miejscu. Wymaga komputera, który to obsługuje."),
+    ("This PC doesn’t offer Frame Warp, so Nightjar streams without it.", "Ten komputer nie oferuje Frame Warp, więc Nightjar streamuje bez niego."),
 ];

@@ -1914,6 +1914,8 @@ impl Converter {
 #[cfg(test)]
 #[path = "compute_focus_tests.rs"]
 mod focus_tests;
+#[path = "compute_frame_warp.rs"]
+pub mod frame_warp;
 #[path = "compute_hdr_stats.rs"]
 pub(crate) mod hdr_stats;
 #[path = "compute_menu.rs"]

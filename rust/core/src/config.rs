@@ -378,6 +378,12 @@ impl Config {
     pub fn bandwidth_probe(&self) -> bool {
         self.boolean("bandwidth_probe", true)
     }
+    /// Let devices use Frame Warp (`frame_warp`, on by default): the host
+    /// offers `FrameWarpVersion` and 0x5543-0x5546, and does the work only
+    /// for a client that asks.
+    pub fn frame_warp(&self) -> bool {
+        self.boolean("frame_warp", true)
+    }
     /// Show the device's keyboard when a text field on the host gets the focus
     /// (`keyboard_follows_focus`, on by default, Experimental): the host offers
     /// text input (0x553B) and watches the focus for devices that ask.

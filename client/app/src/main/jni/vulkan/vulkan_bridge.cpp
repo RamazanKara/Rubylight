@@ -43,7 +43,7 @@ Java_com_limelight_binding_video_VulkanRendererBridge_nativeCreate(
         JNIEnv* env, jclass, jobject outputSurface, jint streamWidth, jint streamHeight, jint streamFps,
         jint framePacing, jint jitterBuffer, jint ditherMode, jint colorspace, jboolean fullRange, jboolean tenBit,
         jboolean hlg, jfloat displayRefreshHz, jstring codec, jstring decoderName, jstring traceDirectory,
-        jboolean frontBuffer) {
+        jboolean frontBuffer, jlong frameWarpApi) {
     ANativeWindow* output = ANativeWindow_fromSurface(env, outputSurface);
     if (!output) {
         return 0;
@@ -62,6 +62,8 @@ Java_com_limelight_binding_video_VulkanRendererBridge_nativeCreate(
     config.hdrTransfer = hlg ? vkr::kHdrTransferHlg : vkr::kHdrTransferPq;
     config.displayRefreshHz = displayRefreshHz;
     config.frontBuffer = frontBuffer;
+    // Null unless the stream draws Frame Warp (and the table is one this build knows)
+    config.frameWarp = frameWarpApiFrom(frameWarpApi);
     auto toString = [env](jstring string) {
         std::string value;
         if (string) {
@@ -181,6 +183,12 @@ extern "C" JNIEXPORT jboolean JNICALL
 Java_com_limelight_binding_video_VulkanRendererBridge_nativeIsHdrToneMapped(JNIEnv*, jclass, jlong handle) {
     VulkanRenderer* renderer = fromHandle(handle);
     return renderer && renderer->hdrToneMapped() ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_limelight_binding_video_VulkanRendererBridge_nativeDrawsFrameWarp(JNIEnv*, jclass, jlong handle) {
+    VulkanRenderer* renderer = fromHandle(handle);
+    return renderer && renderer->drawsFrameWarp() ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT void JNICALL

@@ -448,6 +448,8 @@ impl Sender {
                     // The first unit of a streamed frame.
                     let packetized = Instant::now();
                     packetizer.fec_percent = s.frame_fec_percent(false);
+                    // Frame Warp tags the frame by the number the client decodes it as.
+                    s.frame_warp.tag(packetizer.frame, claim.as_ref().map(|claim| claim.presented));
                     streams.begin(&s, &mut packetizer, streamed::Start {
                         peer, claimed, polled, packetized,
                         processing: micros(packetized.saturating_duration_since(processing_started)),
@@ -466,6 +468,7 @@ impl Sender {
                 }
                 packetizer.fec_percent = s.video_fec_percent(frame.idr || frame.after_invalidation, frame.bytes.len());
                 let wire_frame = packetizer.frame;
+                s.frame_warp.tag(wire_frame, claim.as_ref().map(|claim| claim.presented));
                 let layout = packetizer.block_layout(frame.bytes.len());
                 let fec_limited = packetizer.fec_limited(frame.bytes.len());
                 let wire = packetizer.clone();

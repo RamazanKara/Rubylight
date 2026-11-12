@@ -630,7 +630,17 @@ pub(super) fn session_config(settings: &Settings, role: AppRole, stream: StreamC
         // On for the desktop; NIGHTJAR_DECODE_PRIORITY=0 turns it off for A/B runs.
         receive_decode_priority: true,
         roaming: roaming_config(settings, watching),
+        // Set by the start for a PC that offers it (`frame_warp_for`).
+        frame_warp: None,
     }
+}
+
+/// Frame Warp for a stream: on with the setting, for a played stream (not input only or a
+/// remote monitor), from a PC whose serverinfo offers it.
+pub(super) fn frame_warp_for(settings: &Settings, role: AppRole, capabilities: &nightjar_core::http::HostCapabilities)
+    -> Option<Arc<nightjar_core::frame_warp::FrameWarp>> {
+    (settings.frame_warp && role == AppRole::Stream && capabilities.has(Feature::FrameWarp))
+        .then(|| nightjar_core::frame_warp::FrameWarp::new(Some(0), super::frame_warp::MASK_EDGE))
 }
 
 /// Client roaming as set. With the watcher running its hints say which networks are metered;
@@ -1033,9 +1043,14 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
         std::thread::spawn(move || client.native_capabilities_with_files().map_err(|e| e.to_string()))
     });
     let passthrough = stream.audio_passthrough;
+    // The session counts input for Frame Warp and feeds it the host's messages; the presenter
+    // takes the same state (`Facts::frame_warp`).
+    let frame_warp = frame_warp_for(settings, role, &plan.info.capabilities);
+    let mut config = session_config(settings, role, stream, location, watch.is_some() && settings.client_roaming);
+    config.frame_warp = frame_warp.clone();
     let session = Session::start(
         &host,
-        session_config(settings, role, stream, location, watch.is_some() && settings.client_roaming),
+        config,
         Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early).with_beam_race(slices).with_gpu_decoder(plan.gpu_decoder).with_dmabuf(plan.dmabuf)),
         pipeline::audio_renderer(shared.clone(), passthrough, settings.mute_audio),
         Arc::new(pipeline::Events::new(shared)),
@@ -1049,7 +1064,18 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
     let outcome = session.outcome();
     keep_roam_watch(&roam_shared, watch);
     session.watch_host(plan.info.https_port, gateway::toward);
+    // The request goes only to a host that lists it among its control messages.
+    let frame_warp = frame_warp.filter(|_| outcome.host_control_messages.contains(&nightjar_core::frame_warp::FRAME_WARP_REQUEST_MESSAGE_TYPE));
+    let frame_warp_refused = settings.frame_warp && role == AppRole::Stream && frame_warp.is_none();
+    if frame_warp_refused {
+        eprintln!("nightjar: Frame Warp is on, but the PC does not offer it (FrameWarpVersion {}); streaming without it",
+            plan.info.capabilities.evidence().map_or(-1, |evidence| evidence.frame_warp_version));
+    } else if frame_warp.is_some() {
+        eprintln!("nightjar: Frame Warp on: the picture follows the mouse and right stick once the PC's model locks");
+    }
     let mut facts = Facts {
+        frame_warp,
+        frame_warp_refused,
         role,
         width: outcome.config.width,
         height: outcome.config.height,

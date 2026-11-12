@@ -886,3 +886,12 @@ test('PyroWave encode overlap is a Codecs switch, off by default, shown with Pyr
   assert.equal(overlap.visibleWhen({ pyrowave: 'false' }), false);
   assert.match(overlap.details, /one frame at a time/);
 });
+
+test('Frame Warp is a live Frame pacing switch, on by default, without an Experimental label', () => {
+  const setting = settings.get('frame_warp');
+  assert.deepEqual([setting.category, setting.group, setting.control.kind, setting.default], ['video', 'Frame pacing', 'toggle', true]);
+  assert.equal(setting.label, 'Let devices use Frame Warp');
+  assert.equal(setting.pending, undefined);
+  assert.equal(pending.some(candidate => candidate.key === 'frame_warp'), false);
+  assert.doesNotMatch(`${setting.label} ${setting.description} ${setting.details ?? ''}`, /Experimental/);
+});

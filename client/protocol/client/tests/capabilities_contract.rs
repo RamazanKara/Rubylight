@@ -85,6 +85,7 @@ fn feature_name(feature: Feature) -> &'static str {
         Feature::HostTiming => "host_timing",
         Feature::WebUi => "web_ui",
         Feature::CursorShape => "cursor_shape",
+        Feature::FrameWarp => "frame_warp",
         Feature::NativeApi => "native_api",
         Feature::Sleep => "sleep",
         Feature::FileUpload => "file_upload",

@@ -94,18 +94,20 @@ public class VulkanRendererBridge {
      * @param hlg the stream's HDR is HLG rather than PQ
      * @param frontBuffer draw into a front buffer the display reads directly, timed to each scan,
      *                    where the device has one
+     * @param frameWarpApi MoonBridge.frameWarpApi(): draw Frame Warp with the table at this address, or 0 not to
      */
     public static VulkanRendererBridge create(Surface output, int streamWidth, int streamHeight, int streamFps,
                                               int framePacing, int jitterBuffer, int ditherMode, int colorspace,
                                               boolean fullRange, boolean tenBit, boolean hlg, float displayRefreshHz,
                                               String codec, String decoderName, String traceDirectory,
-                                              boolean frontBuffer) {
+                                              boolean frontBuffer, long frameWarpApi) {
         if (!isSupported()) {
             return null;
         }
 
         long handle = nativeCreate(output, streamWidth, streamHeight, streamFps, framePacing, jitterBuffer, ditherMode,
-                colorspace, fullRange, tenBit, hlg, displayRefreshHz, codec, decoderName, traceDirectory, frontBuffer);
+                colorspace, fullRange, tenBit, hlg, displayRefreshHz, codec, decoderName, traceDirectory, frontBuffer,
+                frameWarpApi);
         if (handle == 0) {
             LimeLog.warning("Vulkan renderer could not start: " + nativeLastError());
             return null;
@@ -257,6 +259,16 @@ public class VulkanRendererBridge {
         }
     }
 
+    /** Whether it draws Frame Warp: create() was given its table and the renderer could set up its pass. */
+    public boolean drawsFrameWarp() {
+        if (!gate.enter()) return false;
+        try {
+            return handle != 0 && nativeDrawsFrameWarp(handle);
+        } finally {
+            gate.exit();
+        }
+    }
+
     /**
      * Capture latency since the last call, into out: the total time in nanoseconds from frames'
      * capture until they were decoded, how many frames that counts and how many of them were
@@ -391,7 +403,7 @@ public class VulkanRendererBridge {
                                             int framePacing, int jitterBuffer, int ditherMode, int colorspace,
                                             boolean fullRange, boolean tenBit, boolean hlg, float displayRefreshHz,
                                             String codec, String decoderName, String traceDirectory,
-                                            boolean frontBuffer);
+                                            boolean frontBuffer, long frameWarpApi);
     private static native Surface nativeGetDecoderSurface(long handle);
     private static native void nativeNoteReceived(long handle, long hostPtsUs, long receiveTimeUs, long enqueueTimeUs,
                                                   char hostProcessingLatency);
@@ -404,6 +416,7 @@ public class VulkanRendererBridge {
     private static native boolean nativeIsFrontBufferUnavailable(long handle);
     private static native boolean nativeIsFrontBufferActive(long handle);
     private static native boolean nativeIsHdrToneMapped(long handle);
+    private static native boolean nativeDrawsFrameWarp(long handle);
     private static native void nativeTakeCaptureLatency(long handle, long[] out);
     private static native boolean nativeReportsPresentTimes(long handle);
     private static native int nativeTakePresentReports(long handle, long[] out);

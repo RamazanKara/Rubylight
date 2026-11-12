@@ -37,6 +37,7 @@ pub(crate) use present::macos_video_check::run as check_metal;
 
 mod shader;
 mod upscale;
+pub mod frame_warp;
 pub mod enhance;
 #[cfg(windows)]
 mod amf_scaler;
@@ -123,6 +124,7 @@ use stats::*;
 pub use connect::{end_before, host_ended_stream, offers_714, termination_text, ConnectFailed, Connecting, LEAVE_WAIT};
 pub(crate) use connect::env_flag;
 pub use negotiate::{base_probe_formats, codec_name, color_probe_formats, plain_formats, probes_color, pyrowave_bitrate_warning, pyrowave_notice, stream_mode};
+pub use frame_warp::frame_warp_notice;
 
 /// What the display offers, for "native" resolution and "display" refresh.
 #[derive(Clone, Copy, Debug)]
@@ -262,6 +264,11 @@ pub struct Facts {
     pub codec_fallback: Option<String>,
     pub app_name: String,
     pub host_name: String,
+    /// Frame Warp's state, shared with the session, while the PC offered it to a stream with the
+    /// setting on (`connect::frame_warp_for`).
+    pub frame_warp: Option<Arc<nightjar_core::frame_warp::FrameWarp>>,
+    /// The setting is on for a played stream and the PC does not offer Frame Warp.
+    pub frame_warp_refused: bool,
 }
 
 /// The timing CSV when `NIGHTJAR_TIMING_CSV` names a file or folder.
@@ -639,6 +646,8 @@ pub struct Streaming {
     /// An HDR stream is shown on HDR output: `display_changed` says when that changes.
     hdr_output: bool,
     timings: VecDeque<(u32, u64)>,
+    /// Frame Warp's shift for each present, while the stream runs it (`Facts::frame_warp`).
+    frame_warp: Option<frame_warp::Presenter>,
 }
 
 /// What the main loop should do next.
@@ -822,6 +831,7 @@ impl Streaming {
         let mut doctor = doctor::Doctor::default();
         doctor.receive_buffer = session.video_receive_buffer();
         let direct_motion = direct_motion::DirectMotion::new(session.input_handle(), facts.touch);
+        let warp_presenter = facts.frame_warp.clone().map(frame_warp::Presenter::new);
         let mut streaming = Self {
             usb,
             usb_refused,
@@ -959,6 +969,7 @@ impl Streaming {
             needs_redraw: true,
             hdr_output: hdr_stream,
             timings: VecDeque::new(),
+            frame_warp: warp_presenter,
         };
         streaming.report_keyboard_layout();
         streaming.start_clipboard_sync();

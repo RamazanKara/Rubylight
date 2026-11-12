@@ -13,7 +13,23 @@ cbuffer Draw : register(b0) {
     float2 picture; float2 textureSize;
     float slice; uint flags; float sdrWhite; float colorScale;
     float tonemap1; float tonemap2; float hlgPeak; float hlgGamma;
+    // Frame Warp (stream/frame_warp.rs): the shift in fractions of the picture, then the HUD
+    // mask's size in cells (0 for none). All zero draws the picture where it is.
+    float4 warp;
 };
+// Frame Warp's HUD mask: byte x / 8 of row y holds cell x in bit x % 8.
+Texture2D<float> hudMask : register(t2);
+
+// `uv` (of the texture) less Frame Warp's shift, or `uv` itself on a HUD cell.
+float2 frameWarp(float2 uv) {
+    if (all(warp == 0)) return uv;
+    float2 scale = picture / textureSize;
+    if (warp.z > 0) {
+        uint2 cell = min(uint2(saturate(uv / scale) * warp.zw), uint2(warp.zw) - 1);
+        if (((uint(hudMask.Load(int3(cell.x >> 3, cell.y, 0)) * 255 + 0.5) >> (cell.x & 7)) & 1) != 0) return uv;
+    }
+    return uv - warp.xy * scale;
+}
 
 // flags: bit 0 10-bit, bit 1 full range, bits 2-3 matrix (0 BT.601, 1 BT.709, 2 BT.2020),
 // bit 4 PQ, bit 5 linear (scRGB) output, bit 6 tone map, bit 7 HLG.
@@ -65,6 +81,7 @@ static const float3x3 bt2020To709 = {
 };
 
 float4 draw(float4 position : SV_Position, float2 uv : TEXCOORD0) : SV_Target {
+    uv = frameWarp(uv);
     // Keep the bilinear taps inside the picture: the decoder's surfaces are taller than it.
     float2 lumaAt = clamp(uv, 0.5 / textureSize, (picture - 0.5) / textureSize);
     float2 chromaAt = clamp(uv, 1.0 / textureSize, (picture - 1.0) / textureSize);

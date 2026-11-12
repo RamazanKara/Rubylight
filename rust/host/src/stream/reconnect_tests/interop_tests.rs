@@ -245,7 +245,7 @@ async fn stream_asking(
 }
 
 /// The host's control extensions Nightjar must know, in the order the host announces them.
-const CONTROL_EXTENSIONS: [u16; 13] = [
+const CONTROL_EXTENSIONS: [u16; 17] = [
     ptype::PHASE_LOCK_REPORT,
     ptype::DISPLAY_CAPS,
     ptype::RECONFIGURE,
@@ -260,6 +260,10 @@ const CONTROL_EXTENSIONS: [u16; 13] = [
     butterpollo_core::text_input::TEXT_INPUT_MESSAGE_TYPE,
     ptype::PIPELINE_RATES,
     butterpollo_core::keyboard_layout::KEYBOARD_LAYOUT_MESSAGE_TYPE,
+    butterpollo_core::frame_warp::FRAME_WARP_REQUEST_MESSAGE_TYPE,
+    butterpollo_core::frame_warp::FRAME_WARP_MODEL_MESSAGE_TYPE,
+    butterpollo_core::frame_warp::FRAME_WARP_TAGS_MESSAGE_TYPE,
+    butterpollo_core::frame_warp::FRAME_WARP_MASK_MESSAGE_TYPE,
 ];
 
 /// Launch, the RTSP handshake and the control stream both ways: Nightjar's keyframe request
@@ -400,6 +404,59 @@ async fn nightjar_receives_the_cursor_it_draws() -> Result<()> {
     stream.send(ClientMessage::CursorShapeRequest { enabled: false })?;
     until("the pointer back in the video", LOADED, || {
         !session.client_cursor.active()
+    })
+    .await;
+    stream.stop();
+    until("sessions released", LOADED, || {
+        h.h.sessions.lock().unwrap().idle()
+    })
+    .await;
+    h.finish().await
+}
+
+/// Frame Warp (0x5543 to 0x5546): the host offers it in serverinfo and DESCRIBE, Nightjar's
+/// request turns it on and is answered with a model Nightjar reads, and its stop turns it off.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn nightjar_hears_the_frame_warp_model() -> Result<()> {
+    use butterpollo_core::frame_warp::FrameWarpRequest;
+    use nightjar_core::control::ClientMessage;
+    let h = Harness::new(10_000, 1).await?;
+    let client = device(&h, u32::MAX, &[])?;
+    assert!(
+        client
+            .server_info(true)?
+            .capabilities
+            .has(Feature::FrameWarp)
+    );
+    let (_launch, session, stream, recorder) = stream(&h, &client).await?;
+    assert!(
+        stream
+            .outcome()
+            .host_control_messages
+            .contains(&ptype::FRAME_WARP_REQUEST)
+    );
+    assert!(!session.frame_warp.enabled());
+    stream.send(ClientMessage::FrameWarpRequest(FrameWarpRequest {
+        enabled: true,
+        controller: Some(0),
+        mask_max_width: 1024,
+    }))?;
+    until("the host turns Frame Warp on", LOADED, || {
+        session.frame_warp.enabled()
+    })
+    .await;
+    until("the model at Nightjar", LOADED, || {
+        recorder.saw(|e| matches!(e, ControlEvent::FrameWarpModel(_)))
+    })
+    .await;
+
+    stream.send(ClientMessage::FrameWarpRequest(FrameWarpRequest {
+        enabled: false,
+        controller: None,
+        mask_max_width: 0,
+    }))?;
+    until("the host turns Frame Warp off", LOADED, || {
+        !session.frame_warp.enabled()
     })
     .await;
     stream.stop();
@@ -871,6 +928,7 @@ const SERVERINFO_FIELDS: &[(&str, Reading)] = &[
     ("KeyboardLayoutVersion", Reading::Read),
     ("PenBarrelRollVersion", Reading::Read),
     ("SecondScreenVersion", Reading::Read),
+    ("FrameWarpVersion", Reading::Read),
     (
         "RustHostSessionCount",
         Reading::Ignored("diagnostics for scripts and the release harness"),
@@ -989,6 +1047,8 @@ fn expected(feature: Feature) -> Availability {
         | Feature::Hlg => Supported,
         // `rlSecondScreen` is read on every launch.
         Feature::SecondScreen => Supported,
+        // `frame_warp` is on by default.
+        Feature::FrameWarp => Supported,
         // Keyboard follows focus, the device's layout and pen barrel roll are on by default.
         Feature::TextInput | Feature::ClientKeyboardLayout | Feature::PenBarrelRoll => Supported,
         Feature::ServerCommands => Unsupported(Some(Reason::NoCommands)),

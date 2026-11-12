@@ -2,6 +2,19 @@
 <resources>
     <string name="title_packed_444">Croma completo</string>
     <string name="summary_packed_444">Requer a opção de croma completo do Rubylight, o novo mecanismo de transmissão e um decodificador HEVC/AV1 por hardware compatível. Se o PC ou este dispositivo não for compatível, a transmissão começa sem ele. HDR também requer uma superfície de exibição HDR de 10 bits compatível.</string>
+    <string name="title_frame_warp">Frame Warp</string>
+    <string name="summary_frame_warp">Desloca a imagem com o mouse ou o analógico direito até o próximo quadro do PC mostrar o giro, e mantém o HUD do jogo no lugar. Requer um PC compatível e o novo mecanismo de transmissão.</string>
+    <string name="frame_warp_overlay_mouse">Frame Warp: travado %1$s px/contagem, atraso %2$s ms, deslocamento %3$s px (pico %4$s)</string>
+    <string name="frame_warp_overlay_stick">Frame Warp: travado %1$s px/s, atraso %2$s ms, deslocamento %3$s px (pico %4$s)</string>
+    <string name="frame_warp_overlay_learning">Frame Warp: aprendendo</string>
+    <string name="frame_warp_overlay_not_offered">Frame Warp: não oferecido pelo PC</string>
+    <string name="frame_warp_overlay_off">Frame Warp: desligado nesta transmissão</string>
+    <string name="frame_warp_needs_engine">Frame Warp requer o novo mecanismo de transmissão. Esta transmissão funciona sem ele.</string>
+    <string name="frame_warp_unavailable">Frame Warp está desligado nesta transmissão: %1$s</string>
+    <string name="frame_warp_reason_hdr">este dispositivo só mostra HDR direto do decodificador</string>
+    <string name="frame_warp_reason_full_chroma">o croma completo está ligado</string>
+    <string name="frame_warp_reason_renderer">o caminho de GPU não iniciou</string>
+    <string name="frame_warp_replaces_upscaling">Frame Warp desenha a imagem sem upscaling.</string>
     <string name="title_experimental_chipset_tuning">Ajuste do chipset</string>
     <string name="summary_experimental_chipset_tuning">Configurações extras de baixa latência para decodificadores MediaTek Dimensity e Samsung Exynos.</string>
     <string name="scut_deleted_pc">PC excluído</string>

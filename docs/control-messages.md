@@ -203,7 +203,7 @@ By default (`link_rate_adaptation`, [configuration](configuration.md#lower-bitra
 These are defined for 3.0, in the same crate. A host that takes some of them adds a second `a=x-rl-control` line to its `DESCRIBE` answer, after the first, the packed 4:4:4 lines and before the microphone's `m=audio`. With the default settings it is:
 
 ```
-a=x-rl-control:0x5539,0x553b,0x553d,0x553e
+a=x-rl-control:0x5539,0x553b,0x553d,0x553e,0x5543,0x5544,0x5545,0x5546
 ```
 
 The second line appears only when the host offers something, and stock clients ignore it. Each message is also announced in serverinfo or asked for in the launch; send it only when both say so.
@@ -218,6 +218,10 @@ The second line appears only when the host offers something, and stock clients i
 | `0x553E` | Keyboard layout | `keyboard_layout::KeyboardLayout` | client to host | while `keyboard` is on and `keyboard_layout = client` (the default) | `KeyboardLayoutVersion` |
 | `0x5540` | Cursor shape request | `cursor_shape::CursorShapeRequest` | client to host | while `client_cursor` is on (the default) and `capture` is `ddx` or `dxgi` | `CursorShapeVersion` |
 | `0x5541` | Cursor shape | `cursor_shape::CursorShape` | host to client | with `0x5540` | `CursorShapeVersion` |
+| `0x5543` | Frame Warp request | `frame_warp::FrameWarpRequest` | client to host | while `frame_warp` is on (the default) | `FrameWarpVersion` |
+| `0x5544` | Frame Warp model | `frame_warp::Model` | host to client | with `0x5543` | `FrameWarpVersion` |
+| `0x5545` | Frame Warp tags | `frame_warp::Tags` | host to client | with `0x5543` | `FrameWarpVersion` |
+| `0x5546` | Frame Warp HUD mask | `frame_warp::Mask` | host to client | with `0x5543` | `FrameWarpVersion` |
 
 `0x5508` (clipboard sync, above) goes on the same second line. `0x5542` is reserved. `0x5506`-`0x5510` belong to other clients and hosts: Rubylight takes `0x5508` with Moonlight V+'s frame unchanged and defines nothing else there. Nightjar sends `0x5510` (FEC summary, Moonlight V+'s format) only to a host whose `DESCRIBE` has `x-ss-video[0].fecControlVersion`, which Rubylight does not send.
 
@@ -315,6 +319,10 @@ With `always_send_scancodes` on (the default), a key the client did not normaliz
 
 As Nightjar's [cursor shape protocol](../client/docs/protocol/cursor-shape.md), version 1: a 4-byte request, and shapes with an 8-byte header, then for an image 12 more bytes and width × height × 4 bytes of RGBA, at most 96 pixels a side, with 32 cached ids on each side. There is no position message: the client keeps sending absolute mouse positions.
 
+### 0x5543 to 0x5546 Frame Warp
+
+As [Frame Warp](frame-warp.md) and Nightjar's [protocol document](../client/docs/protocol/frame-warp.md), version 1. The client sends the 8-byte request once the stream runs; the host then keeps the input history, measures the picture's motion and sends the model (reliable) when it locks, unlocks or changes, a tag for every video frame with the three before it (unreliable, unsequenced) and the HUD mask (reliable) when it changes. A request with `enabled` 0 stops all three. The tags' frame numbers are the video frame numbers the client decodes. Nothing is sent to a client that did not ask, and the host does no Frame Warp work for it.
+
 ### Pen barrel roll (input packet `0x5500000B`, 40 bytes)
 
 Bytes 0-35 are Moonlight's pen packet (`0x55000003`) with this magic at offset 4, and its declared big-endian length is 36. Bytes 36-37 are `barrel_roll u16`, in degrees clockwise from 0 to 359 or `0xFFFF` when unknown, and bytes 38-39 are reserved (0). The client sends it instead of the pen packet only when serverinfo has `PenBarrelRollVersion` and the `DESCRIBE` answer has `a=x-ss-general.penBarrelRoll:1`.
@@ -337,6 +345,7 @@ Each is absent until the host offers it.
 | serverinfo | `BandwidthProbeVersion` | the host serves `GET /bandwidth-probe?bytes=N` on the paired port |
 | serverinfo | `DisplayScaleVersion` | the host reads `rlDisplayScale` |
 | serverinfo | `SecondScreenVersion` | the host reads `rlSecondScreen` |
+| serverinfo | `FrameWarpVersion` | `1` while `frame_warp` is on: the host takes `0x5543` and sends `0x5544` to `0x5546` |
 | every HTTPS request | `rlSecondScreen` | `1` marks a request of a paired device's second screen (Nightjar's Dual screen mode). On `/launch` and `/resume` it starts or resumes that screen's stream, which the host keeps beside the device's first stream as a device of its own under the same pairing, and lays the two displays out as the user left them. The second screen always has a display of its own: a virtual display beside the first screen's, also when it resumes the game the first screen plays (it never joins the game's display), or, when the device's streams show physical displays, the PC's other monitor (the same one only when there is no other). The second screen's process sends it on every other request too (`/bitrate`, `/api/abr/capabilities`, `/api/network-path`, `/api/hardware-metrics`, `/actions/clipboard`, the native API), so each reaches its own stream; without it a request is the device's first screen's. Permissions, the enabled switch and the device's settings are the device's for both screens, except the resolution and scale kept from a stream, which each screen keeps for itself; a second screen takes no Nucleus Co-op seat. Unpairing or turning the device off ends both and releases what both held. Any other value is the device itself |
 | `/launch` | `rlDisplayScale` | the Windows scale (text and interface size) of the stream's virtual display in percent, one of 100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450 or 500; anything else is refused. Sent with or without `virtualDisplay=1`, since the host may make a virtual display of its own; ignored for a stream on a physical display. It comes before the device, app and host `dd_virtual_display_scale`, is lowered, with a warning, to the largest the display's resolution allows, and a scale Windows refuses is a warning, not a failed stream. `scaleFactor` is the render size, not this |
 | `/launch`, `/resume` | `rlFecPercentage` | `host` or absent keeps the host's settings, `auto` follows the `0x5539` reports, 0-255 fixes the share; anything else is refused |

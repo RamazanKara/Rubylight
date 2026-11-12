@@ -121,6 +121,8 @@ pub enum ClientMessage {
     /// A clipboard item or the hello that starts the host's copies (0x5508), as
     /// [`super::clipboard_sync::ClipboardSync`] makes them.
     ClipboardSync(rubylight_protocol::clipboard_sync::Frame),
+    /// Starts or stops Frame Warp (0x5543): the host's model, tags and HUD mask.
+    FrameWarpRequest(rubylight_protocol::frame_warp::FrameWarpRequest),
 }
 
 impl ClientMessage {
@@ -150,6 +152,7 @@ impl ClientMessage {
             Self::ControllerAudioStatus { .. } => ptype::CONTROLLER_AUDIO_CONTROL,
             Self::Usb(_) => ptype::USB,
             Self::ClipboardSync(_) => ptype::CLIPBOARD_SYNC,
+            Self::FrameWarpRequest(_) => ptype::FRAME_WARP_REQUEST,
         }
     }
 
@@ -196,6 +199,7 @@ impl ClientMessage {
             // `is_valid` refused what does not encode.
             Self::Usb(message) => message.encode().unwrap_or_default(),
             Self::ClipboardSync(frame) => frame.encode().unwrap_or_default(),
+            Self::FrameWarpRequest(request) => request.encode().to_vec(),
         }
     }
 
@@ -244,7 +248,8 @@ impl ClientMessage {
             | Self::ControllerMicrophone(_)
             | Self::ControllerAudioStatus { .. }
             | Self::Usb(_)
-            | Self::ClipboardSync(_) => Some(self.message_type()),
+            | Self::ClipboardSync(_)
+            | Self::FrameWarpRequest(_) => Some(self.message_type()),
             _ => None,
         }
     }

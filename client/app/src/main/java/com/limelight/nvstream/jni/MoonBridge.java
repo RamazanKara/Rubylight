@@ -585,6 +585,8 @@ public class MoonBridge {
     private static volatile boolean pyrowaveEarlyRequested;
     private static volatile boolean codecDirectRequested;
     private static volatile boolean receiveDecodePriorityRequested;
+    private static volatile boolean frameWarpWanted;
+    private static volatile boolean frameWarpRequested;
 
     /** Call before startConnection(): whether the next stream should use the Rust engine. */
     public static void requestRustEngine(boolean requested) {
@@ -631,6 +633,104 @@ public class MoonBridge {
      */
     public static void requestReceiveDecodePriority(boolean requested) {
         receiveDecodePriorityRequested = requested;
+    }
+
+    /**
+     * Call before startConnection(): Frame Warp for the next stream (docs/frame-warp.md). {@code wanted} is the
+     * setting, {@code listed} whether the host's serverinfo lists it. Only the Rust engine draws it.
+     */
+    public static void requestFrameWarp(boolean wanted, boolean listed) {
+        frameWarpWanted = wanted;
+        frameWarpRequested = wanted && listed;
+    }
+
+    /** frameWarpStatus(): no Frame Warp line (the setting is off). */
+    public static final int FRAME_WARP_OFF = 0;
+    /** frameWarpStatus(): the setting is on, the host does not offer it. */
+    public static final int FRAME_WARP_NOT_OFFERED = 1;
+    /** frameWarpStatus(): offered; the host has not learned this game's camera yet. */
+    public static final int FRAME_WARP_LEARNING = 2;
+    /** frameWarpStatus(): locked to the mouse; the gain is picture pixels per mouse count. */
+    public static final int FRAME_WARP_MOUSE = 3;
+    /** frameWarpStatus(): locked to the right stick; the gain is picture pixels per second of full stick. */
+    public static final int FRAME_WARP_STICK = 4;
+    /** frameWarpStatus(): asked for, but this stream draws without it (the renderer, or the classic engine). */
+    public static final int FRAME_WARP_OFF_FOR_STREAM = 5;
+    /** frameWarpForPts() and the C table: draw the picture as it is. */
+    public static final int FRAME_WARP_INACTIVE = -2;
+    /** frameWarpForPts(): shift the whole picture, there is no HUD mask. */
+    public static final int FRAME_WARP_NO_MASK = -1;
+    /** frameWarpMask(): the mask the caller holds is current. */
+    public static final int FRAME_WARP_MASK_UNCHANGED = -1;
+    /** frameWarpMask(): there is no mask any more. */
+    public static final int FRAME_WARP_MASK_CLEARED = -2;
+    /** frameWarpMask(): the cells array is too small; size holds what it needs. */
+    public static final int FRAME_WARP_MASK_TOO_SMALL = -3;
+
+    /**
+     * Whether the running stream draws with Frame Warp: asked for, on the Rust engine, the host announced it, and no
+     * renderer declined it. Known from the end of the RTSP handshake, so while the renderers start.
+     */
+    public static boolean isFrameWarpStream() {
+        return frameWarpRequested && rustStream && RustBridge.frameWarpOffered();
+    }
+
+    /** Frame Warp was asked for but this stream fell back to the classic engine, which cannot draw it. */
+    public static boolean frameWarpNeedsEngine() {
+        return frameWarpRequested && rustEngineRequested && !rustStream;
+    }
+
+    /** The address of the C table the native renderers take (jni/frame_warp_api.h), 0 without Frame Warp. */
+    public static long frameWarpApi() {
+        return isFrameWarpStream() ? RustBridge.frameWarpApi() : 0;
+    }
+
+    /** The decoder queued frame {@code frame} with presentation time {@code ptsUs}; call only on a Frame Warp stream. */
+    public static void frameWarpNoteFrame(long ptsUs, int frame) {
+        RustBridge.frameWarpNoteFrame(ptsUs, frame);
+    }
+
+    /**
+     * The shift for the picture queued with {@code ptsUs}, drawn now: {@code out} (4 floats) gets it as fractions of
+     * the picture (x, y) and in picture pixels (x, y). Returns the HUD mask generation, FRAME_WARP_NO_MASK, or
+     * FRAME_WARP_INACTIVE to draw the picture as it is.
+     */
+    public static int frameWarpForPts(long ptsUs, float[] out) {
+        return rustStream ? RustBridge.frameWarpForPts(ptsUs, out) : FRAME_WARP_INACTIVE;
+    }
+
+    /**
+     * As {@link #frameWarpForPts}, without counting it in the overlay's statistics: whether the picture on screen
+     * should be drawn again. What a redraw then draws goes through frameWarpForPts().
+     */
+    public static int frameWarpPeekForPts(long ptsUs, float[] out) {
+        return rustStream ? RustBridge.frameWarpPeekForPts(ptsUs, out) : FRAME_WARP_INACTIVE;
+    }
+
+    /**
+     * The HUD mask when its generation is not {@code known} (-1 for none): {@code size} gets width and height and
+     * {@code cells}, when it has room, one byte per cell (0 or 255, rows from the top). Returns the generation or a
+     * FRAME_WARP_MASK_* code.
+     */
+    public static int frameWarpMask(int known, int[] size, byte[] cells) {
+        return rustStream ? RustBridge.frameWarpMask(known, size, cells) :
+                known < 0 ? FRAME_WARP_MASK_UNCHANGED : FRAME_WARP_MASK_CLEARED;
+    }
+
+    /** The renderer cannot draw Frame Warp for this stream: the host stops its work for it. */
+    public static void frameWarpDecline() {
+        if (frameWarpRequested && rustStream) RustBridge.frameWarpDecline();
+    }
+
+    /**
+     * The overlay's Frame Warp line: a FRAME_WARP_* state, and in {@code out} (4 floats) the gain, the game's lag in
+     * ms, the shift and the last second's peak in picture pixels.
+     */
+    public static int frameWarpStatus(float[] out) {
+        if (!frameWarpWanted) return FRAME_WARP_OFF;
+        if (!frameWarpRequested) return FRAME_WARP_NOT_OFFERED;
+        if (!rustStream) return FRAME_WARP_OFF_FOR_STREAM;
+        return RustBridge.frameWarpStatus(out);
     }
 
     /** Whether the running stream (or the last one) hands PyroWave frames over while they arrive. */
@@ -742,6 +842,10 @@ public class MoonBridge {
         } else {
             LimeLog.info("Streaming engine: " + StreamEngine.summary());
         }
+        if (frameWarpRequested && !rust) {
+            // The renderer says so on screen, in the user's language.
+            LimeLog.warning("Frame Warp: needs the New streaming engine; this stream runs without it");
+        }
         if (audioPassthroughRequested != 0 && !rust) {
             LimeLog.warning("Audio passthrough: needs the New streaming engine; this stream plays Opus");
             bridgeClDisplayMessage("Audio passthrough needs the New streaming engine. This stream plays Opus.");
@@ -762,7 +866,7 @@ public class MoonBridge {
                     pyrowaveLinkMbps, pyrowavePaceMbps, clientWireless, networkGracePeriodMs, packed444Requested, packedModes,
                     remoteMonitor, unbatchedInput, networkPriority, roamingRequested, roamingMeteredRequested,
                     audioPassthroughRequested, hdrFormatRequested, videoFecRequested, pyrowaveEarlyRequested,
-                    codecDirectRequested, receiveDecodePriorityRequested);
+                    codecDirectRequested, receiveDecodePriorityRequested, frameWarpRequested);
         }
         return cStartConnection(address, appVersion, gfeVersion, rtspSessionUrl, serverCodecModeSupport,
                 width, height, fps, bitrate, packetSize, streamingRemotely, audioConfiguration,

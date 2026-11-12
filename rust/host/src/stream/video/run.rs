@@ -129,6 +129,8 @@ impl SessionThread<'_> {
         let mut last_image: Option<std::sync::Weak<GpuImage>> = None;
         // The couch menu's panel; one atomic load a frame while closed.
         let mut menu = crate::couch_menu::VideoOverlay::default();
+        // Frame Warp's passes over captures, for a client that asked (0x5543).
+        let mut frame_warp = crate::stream::frame_warp::VideoFrameWarp::default();
         // The device draws the pointer (0x5540): it is left out of the video.
         let mut pointer_left_out = false;
         let mut pointer_warned = false;
@@ -315,6 +317,7 @@ impl SessionThread<'_> {
                         let timestamp = (stamp.saturating_duration_since(start).as_secs_f64() * 90000.) as u64 as u32;
                         packetizer.fec_percent = s.frame_fec_percent(false);
                         let wire_frame = packetizer.frame;
+                        s.frame_warp.tag(wire_frame, claim.as_ref().map(|claim| claim.presented));
                         let route = link_watch.get(peer);
                         link = Some(route);
                         let bitrate = s.bitrate.load(Ordering::Relaxed);
@@ -498,6 +501,8 @@ impl SessionThread<'_> {
                 }
                 packetizer.fec_percent = s.video_fec_percent(frame.idr || frame.after_invalidation, frame.bytes.len());
                 let wire_frame = packetizer.frame;
+                // Frame Warp tags the frame by the number the client decodes it as.
+                s.frame_warp.tag(wire_frame, claim.as_ref().map(|claim| claim.presented));
                 let block_layout = packetizer.block_layout(frame.bytes.len());
                 let fec_limited = packetizer.fec_limited(frame.bytes.len());
                 let packet_bytes = packetizer.packet_size + 16 + if packetizer.key.is_some() { 32 } else { 0 };
@@ -1595,6 +1600,8 @@ impl SessionThread<'_> {
                 // its trace observation belongs only to this submission.
                 first_seen = None;
                 send_frames(output, peer, call_latency, latest, capture_tick)?;
+                // After the frame went out, off its path: Frame Warp's passes.
+                frame_warp.frame(h, s, &image, fresh, (stream.width, stream.height));
             }
             Ok(())
         })()

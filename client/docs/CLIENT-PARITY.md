@@ -148,6 +148,7 @@ Android needs no scan-line check: SurfaceFlinger never flips mid-scan.
 | Per-game touch controls | Yes | No | No | |
 | Touch modes (trackpad, direct, multi-touch, local cursor) | Yes | Partial | Partial | The desktop sends native touch only. |
 | Host cursor shapes | Yes | Yes | Yes | |
+| Frame Warp | Yes | Yes | Yes | Android: New streaming engine; Vulkan, or OpenGL ES without upscaling, and PyroWave's own renderer with its upscaling and HDR; not with Full chroma. Desktop: every presenter, macOS through Metal; with beam racing one shift per frame. |
 | Keyboard, mouse and pen | Yes | Yes | Yes | The desktop also sends pen rotation. |
 | System keys only in full screen | Yes | Yes | Yes | With **Send system keys** on, Alt+Tab, the Windows key and similar stay with this device while the stream is in a window (Android: split screen or a window). |
 | On-screen PC keyboard | Yes | N/A | N/A | |

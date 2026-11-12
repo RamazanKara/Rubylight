@@ -61,7 +61,19 @@ pub struct PlanesPass {
     sampled_states: std::collections::HashMap<usize, *mut SDL_GPURenderState>,
     /// The state of the picture sampled last, which the next draw uses; null: the planes' copies.
     sampled_active: *mut SDL_GPURenderState,
+    /// Frame Warp's HUD mask (`hudMask`, the fourth sampler slot), `MASK_ROW_BYTES` by
+    /// `MASK_ROWS` R8 texels; null when it could not be made, the luma plane standing in.
+    mask: *mut SDL_GPUTexture,
+    /// The HUD the mask texture holds.
+    mask_made: Option<Arc<super::frame_warp::Hud>>,
+    /// A mask could not be made or uploaded (said once): the HUD moves with the picture.
+    mask_failed: bool,
 }
+
+/// The mask texture's size: a row of the widest mask's bytes (`frame_warp::mask_bytes`), and
+/// its rows.
+const MASK_ROW_BYTES: u32 = super::frame_warp::MASK_EDGE.div_ceil(32) as u32 * 4;
+const MASK_ROWS: u32 = super::frame_warp::MASK_EDGE as u32;
 
 /// The decoder's plane images as SDL textures of the pass's device.
 struct Wrapped {
@@ -226,7 +238,7 @@ impl PlanesPass {
         let mut pass = Self {
             renderer, device, shader: ptr::null_mut(), sampler: ptr::null_mut(), textures: [ptr::null_mut(); 3],
             transfer: ptr::null_mut(), state: ptr::null_mut(), sizes, sample_bytes, wrapped: None, handover: Handover::default(),
-            sampled_states: Default::default(), sampled_active: ptr::null_mut(),
+            sampled_states: Default::default(), sampled_active: ptr::null_mut(), mask: ptr::null_mut(), mask_made: None, mask_failed: false,
         };
         pass.shader = create_shader(device);
         if pass.shader.is_null() {
@@ -239,6 +251,11 @@ impl PlanesPass {
         if pass.sampler.is_null() {
             return Err(format!("the plane sampler cannot be created: {}", crate::sdl::error()));
         }
+        // The shader reads the mask only while Frame Warp shifts with one; without the texture
+        // the slot holds a plane and the HUD moves with the picture.
+        pass.mask = SDL_CreateGPUTexture(device, &SDL_GPUTextureCreateInfo {
+            r#type: SDL_GPU_TEXTURETYPE_2D, format: SDL_GPU_TEXTUREFORMAT_R8_UNORM, usage: SDL_GPU_TEXTUREUSAGE_SAMPLER,
+            width: MASK_ROW_BYTES, height: MASK_ROWS, layer_count_or_depth: 1, num_levels: 1, sample_count: SDL_GPU_SAMPLECOUNT_1, ..Default::default() });
         Ok(pass)
     }
 
@@ -249,9 +266,11 @@ impl PlanesPass {
     }
 
     unsafe fn make_state(&self, renderer: *mut SDL_Renderer, textures: [*mut SDL_GPUTexture; 3]) -> Result<*mut SDL_GPURenderState, String> {
-        let bindings = textures.map(|texture| SDL_GPUTextureSamplerBinding { texture, sampler: self.sampler });
+        // The fourth slot is Frame Warp's HUD mask; the shader loads it, so the sampler is any.
+        let mask = if self.mask.is_null() { textures[0] } else { self.mask };
+        let bindings = [textures[0], textures[1], textures[2], mask].map(|texture| SDL_GPUTextureSamplerBinding { texture, sampler: self.sampler });
         let state = SDL_CreateGPURenderState(renderer, &SDL_GPURenderStateCreateInfo {
-            fragment_shader: self.shader, num_sampler_bindings: 3, sampler_bindings: bindings.as_ptr(), ..Default::default() });
+            fragment_shader: self.shader, num_sampler_bindings: 4, sampler_bindings: bindings.as_ptr(), ..Default::default() });
         if state.is_null() {
             return Err(format!("the plane render state cannot be created: {}", crate::sdl::error()));
         }
@@ -520,14 +539,94 @@ impl PlanesPass {
     ///
     /// # Safety
     /// `renderer` must be live and the pass the one made on it, its planes copied for `parameters`.
+    #[cfg(test)]
     pub unsafe fn draw_direct(&mut self, renderer: *mut SDL_Renderer, parameters: &[u32; 8], destination: &SDL_FRect, visible: (i32, i32), look: SdlLook) -> Result<(), String> {
+        self.draw_direct_warped(renderer, parameters, destination, visible, look, &super::frame_warp::WarpDraw::default())
+    }
+
+    /// `draw_direct` with the picture shifted by Frame Warp's `warp`, its HUD mask uploaded when
+    /// it changed.
+    ///
+    /// # Safety
+    /// As `draw_direct`.
+    pub unsafe fn draw_direct_warped(&mut self, renderer: *mut SDL_Renderer, parameters: &[u32; 8], destination: &SDL_FRect, visible: (i32, i32), look: SdlLook,
+        warp: &super::frame_warp::WarpDraw) -> Result<(), String> {
         let mut viewport = SDL_Rect::default();
         SDL_GetRenderViewport(renderer, &mut viewport);
-        self.set_uniforms(&direct_uniforms(parameters, destination, (viewport.x, viewport.y), visible, look))?;
+        let mut uniforms = direct_uniforms(parameters, destination, (viewport.x, viewport.y), visible, look);
+        if !warp.is_identity() {
+            let mask = self.ready_mask(renderer, warp);
+            uniforms.warp = warp.row(mask);
+        }
+        self.set_uniforms(&uniforms)?;
         let drawn = SDL_SetGPURenderState(renderer, self.active_state()) && SDL_RenderFillRect(renderer, destination);
         let error = if drawn { String::new() } else { crate::sdl::error() };
         SDL_SetGPURenderState(renderer, ptr::null_mut());
         if drawn { Ok(()) } else { Err(format!("the planes cannot be drawn into the back buffer: {error}")) }
+    }
+
+    /// Whether the mask texture holds `warp`'s HUD mask for the shader, uploading it when it
+    /// changed. A mask that cannot be made or uploaded is said once and drawn as none from then
+    /// on: the HUD moves with the picture.
+    unsafe fn ready_mask(&mut self, renderer: *mut SDL_Renderer, warp: &super::frame_warp::WarpDraw) -> bool {
+        let Some(hud) = warp.mask() else { return false };
+        if self.mask_failed { return false; }
+        if self.mask_made.as_ref().is_some_and(|made| Arc::ptr_eq(made, hud)) { return true; }
+        match self.upload_mask(renderer, &hud.mask) {
+            Ok(()) => {
+                self.mask_made = Some(hud.clone());
+                true
+            }
+            Err(error) => {
+                eprintln!("nightjar: Frame Warp: the HUD mask cannot reach the GPU ({error}); the HUD moves with the picture");
+                self.mask_failed = true;
+                false
+            }
+        }
+    }
+
+    /// Uploads `mask` (`frame_warp::mask_bytes`) into the top left of the mask texture, ahead of
+    /// the renderer's next draws.
+    unsafe fn upload_mask(&mut self, renderer: *mut SDL_Renderer, mask: &nightjar_core::frame_warp::Mask) -> Result<(), String> {
+        if self.mask.is_null() {
+            return Err("its texture could not be made".into());
+        }
+        let (row, bytes) = super::frame_warp::mask_bytes(mask);
+        let rows = u32::from(mask.height);
+        if bytes.is_empty() || row as u32 > MASK_ROW_BYTES || rows > MASK_ROWS {
+            return Err(format!("a {}x{} mask is larger than its texture", mask.width, mask.height));
+        }
+        // The draws queued so far read the mask before this upload replaces it.
+        if !SDL_FlushRenderer(renderer) {
+            return Err(format!("the renderer cannot flush: {}", crate::sdl::error()));
+        }
+        let transfer = SDL_CreateGPUTransferBuffer(self.device, &SDL_GPUTransferBufferCreateInfo {
+            usage: SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, size: bytes.len() as u32, ..Default::default() });
+        if transfer.is_null() {
+            return Err(format!("no transfer buffer: {}", crate::sdl::error()));
+        }
+        let mapped = SDL_MapGPUTransferBuffer(self.device, transfer, false).cast::<u8>();
+        let result = if mapped.is_null() {
+            Err(format!("the transfer buffer cannot be mapped: {}", crate::sdl::error()))
+        } else {
+            ptr::copy_nonoverlapping(bytes.as_ptr(), mapped, bytes.len());
+            SDL_UnmapGPUTransferBuffer(self.device, transfer);
+            let commands = SDL_AcquireGPUCommandBuffer(self.device);
+            if commands.is_null() {
+                Err(format!("no GPU command buffer: {}", crate::sdl::error()))
+            } else {
+                let copy = SDL_BeginGPUCopyPass(commands);
+                SDL_UploadToGPUTexture(copy,
+                    &SDL_GPUTextureTransferInfo { transfer_buffer: transfer, offset: 0, pixels_per_row: row as u32, rows_per_layer: rows },
+                    &SDL_GPUTextureRegion { texture: self.mask, w: row as u32, h: rows, d: 1, ..Default::default() },
+                    true);
+                SDL_EndGPUCopyPass(copy);
+                if SDL_SubmitGPUCommandBuffer(commands) { Ok(()) } else { Err(format!("the upload cannot be submitted: {}", crate::sdl::error())) }
+            }
+        };
+        // SDL keeps the buffer until the GPU is done with it.
+        SDL_ReleaseGPUTransferBuffer(self.device, transfer);
+        result
     }
 }
 
@@ -544,6 +643,8 @@ pub struct Uniforms {
     pub unused: f32,
     /// What flag 8192 reads: the gamma 2.2 range's minimum and 1 / (peak - minimum), in nits.
     pub encoding: [f32; 4],
+    /// What flag 512 reads of Frame Warp: `WarpDraw::row`; all zero draws the picture in place.
+    pub warp: [f32; 4],
 }
 
 /// The shader's flag for a draw straight into the target rectangle.
@@ -636,6 +737,7 @@ pub fn direct_uniforms(parameters: &[u32; 8], destination: &SDL_FRect, origin: (
         tonemap: [tonemap1, tonemap2],
         unused: 0.0,
         encoding: if gamma22 { [min_nits, inv_range, 0.0, 0.0] } else { [0.0; 4] },
+        warp: [0.0; 4],
     }
 }
 
@@ -731,6 +833,7 @@ impl Drop for PlanesPass {
             if !self.state.is_null() { SDL_DestroyGPURenderState(self.state); }
             if !self.transfer.is_null() { SDL_ReleaseGPUTransferBuffer(self.device, self.transfer); }
             for texture in self.textures { if !texture.is_null() { SDL_ReleaseGPUTexture(self.device, texture); } }
+            if !self.mask.is_null() { SDL_ReleaseGPUTexture(self.device, self.mask); }
             if !self.sampler.is_null() { SDL_ReleaseGPUSampler(self.device, self.sampler); }
             if !self.shader.is_null() { SDL_ReleaseGPUShader(self.device, self.shader); }
         }
@@ -868,17 +971,24 @@ mod tests {
     /// The constants are the shader's 96-byte `Picture` block, in its order.
     #[test]
     fn the_direct_constants_match_the_shader_block() {
-        assert_eq!(std::mem::size_of::<Uniforms>(), 96);
+        assert_eq!(std::mem::size_of::<Uniforms>(), 112);
         assert_eq!(std::mem::offset_of!(Uniforms, destination), 32);
         assert_eq!(std::mem::offset_of!(Uniforms, picture), 48);
         assert_eq!(std::mem::offset_of!(Uniforms, output_scale), 64);
         assert_eq!(std::mem::offset_of!(Uniforms, tonemap), 68);
         assert_eq!(std::mem::offset_of!(Uniforms, encoding), 80);
+        assert_eq!(std::mem::offset_of!(Uniforms, warp), 96);
         let shader = include_str!("../pyrowave.hlsl");
         let rows = shader.lines().map(str::trim).collect::<Vec<_>>();
         let at = |row: &str| rows.iter().position(|line| *line == row).unwrap_or_else(|| panic!("no {row}"));
         assert_eq!(at("float minNits; float invRange; float2 unusedEncoding;"), at("float outputScale; float tonemap1; float tonemap2; float unused;") + 2,
             "the encoding's row follows the row at 64 (after its comment)");
+        assert_eq!(at("float4 warp;"), at("float minNits; float invRange; float2 unusedEncoding;") + 3,
+            "Frame Warp's row follows the encoding's (after its comment)");
+        assert_eq!(MASK_ROW_BYTES, 256, "a 2048-cell row of the mask in bytes");
+        assert_eq!(direct_uniforms(&[0; 8], &SDL_FRect { x: 0.0, y: 0.0, w: 8.0, h: 8.0 }, (0, 0), (8, 8),
+            SdlLook { texture_headroom: 0.0, output_headroom: 1.0, sdr_white: 1.0, color_scale: 1.0, linear_output: false, pq_target: false, target_encoding: [0.0; 4] }).warp,
+            [0.0; 4], "no shift unless Frame Warp sets one");
     }
 
     /// The draw into the back buffer flags itself, places the picture in the viewport and keeps

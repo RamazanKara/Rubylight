@@ -1526,4 +1526,7 @@ sudo sysctl -w net.core.rmem_max={}", "Alma arabelleği: sistem istenen {1} KiB'
     ("Speed not measured: the PC didn’t answer", "Hız ölçülmedi: bilgisayar yanıt vermedi"),
     ("Speed not measured: this PC has no speed test", "Hız ölçülmedi: bu bilgisayarda hız testi yok"),
     ("Speed not measured: the test failed", "Hız ölçülmedi: test başarısız oldu"),
+    ("Frame Warp", "Frame Warp"),
+    ("Shifts the picture with your mouse or right stick until the PC’s next frame shows the turn, and keeps the game’s HUD in place. Needs a PC that supports it.", "Bilgisayarın sonraki karesi dönüşü gösterene kadar görüntüyü fare veya sağ çubukla kaydırır ve oyunun HUD’unu yerinde bırakır. Bunu destekleyen bir bilgisayar gerekir."),
+    ("This PC doesn’t offer Frame Warp, so Nightjar streams without it.", "Bu bilgisayar Frame Warp sunmuyor, bu yüzden Nightjar onsuz yayın yapıyor."),
 ];

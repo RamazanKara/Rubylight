@@ -342,6 +342,11 @@ impl Listener for Events {
             ControlEvent::CursorShapeRejected(reason) => {
                 platform::warn(&format!("Dropping a cursor shape message: {reason}"));
             }
+            // The session has already handed the model to the stream's FrameWarp; the renderers
+            // and the overlay read it from there.
+            ControlEvent::FrameWarpModel(model) => {
+                platform::info(&crate::frame_warp::model_line(&model));
+            }
             ControlEvent::SteamHaptic(haptic) => {
                 self.bytes_callback(
                     m.steam_haptic,

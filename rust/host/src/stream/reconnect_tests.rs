@@ -19,6 +19,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 mod clipboard_sync_tests;
 mod control_fuzz_tests;
 mod extension_tests;
+mod frame_warp_tests;
 mod interop_tests;
 mod rate_change_tests;
 mod roaming_tests;
@@ -404,7 +405,9 @@ impl Fixture {
                 // A synthetic encoded access unit still uses the production
                 // packetizer and video socket. No decoder or GPU is involved. It opens with
                 // an SPS and PPS like an encoder's IDR: Moonlight's depacketizer, and
-                // Nightjar's (interop_tests), drop a key frame without them.
+                // Nightjar's (interop_tests), drop a key frame without them. Frame Warp tags
+                // it as the video senders tag a frame they are about to send.
+                s.frame_warp.tag(packetizer.frame, None);
                 for packet in packetizer.encode_recovery(SYNTHETIC_IDR, true, false, 0, 0)? {
                     media.video.send_to(&packet, peer)?;
                     s.stats.packets.fetch_add(1, Ordering::Relaxed);
@@ -1111,6 +1114,8 @@ fn the_client_socket_outlives_a_datagram_to_a_closed_port() -> Result<()> {
 }
 /// Link notice payloads with the time each arrived.
 type Notices = Arc<Mutex<Vec<(Instant, Vec<u8>)>>>;
+/// Frame Warp control messages the client got: message type and payload.
+type FrameWarpMessages = Arc<Mutex<Vec<(u16, Vec<u8>)>>>;
 
 struct Client {
     control_down: Arc<AtomicBool>,
@@ -1130,6 +1135,8 @@ struct Client {
     rate_answers: Notices,
     /// Clipboard sync frames (0x5508) the host sent.
     clipboard: Notices,
+    /// Frame Warp messages (0x5544 to 0x5546) the host sent, with their types.
+    frame_warp: FrameWarpMessages,
     /// Plain control messages for the worker to send, reliable.
     outbox: Arc<Mutex<Vec<Vec<u8>>>>,
     /// Sockets ENet and the video pings move to (`move_to`).
@@ -1163,6 +1170,7 @@ impl Client {
         let text_notices = Notices::default();
         let rate_answers = Notices::default();
         let clipboard = Notices::default();
+        let frame_warp = FrameWarpMessages::default();
         let outbox = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
         let control_move = Arc::<Mutex<Option<UdpSocket>>>::default();
         let video_move = Arc::<Mutex<Option<UdpSocket>>>::default();
@@ -1200,6 +1208,7 @@ impl Client {
         let worker_text_notices = text_notices.clone();
         let worker_rate_answers = rate_answers.clone();
         let worker_clipboard = clipboard.clone();
+        let worker_frame_warp = frame_warp.clone();
         let worker_rounds = rounds.clone();
         let worker_keyframe_heartbeat = keyframe_heartbeat.clone();
         let worker = thread::spawn(move || -> Result<()> {
@@ -1248,6 +1257,17 @@ impl Client {
                                 .lock()
                                 .unwrap()
                                 .push((Instant::now(), payload.clone()));
+                        }
+                        if matches!(
+                            kind,
+                            butterpollo_core::frame_warp::FRAME_WARP_MODEL_MESSAGE_TYPE
+                                | butterpollo_core::frame_warp::FRAME_WARP_TAGS_MESSAGE_TYPE
+                                | butterpollo_core::frame_warp::FRAME_WARP_MASK_MESSAGE_TYPE
+                        ) {
+                            worker_frame_warp
+                                .lock()
+                                .unwrap()
+                                .push((kind, payload.clone()));
                         }
                         if kind == butterpollo_core::link_notice::LINK_NOTICE_MESSAGE_TYPE {
                             worker_notices
@@ -1324,6 +1344,7 @@ impl Client {
             text_notices,
             rate_answers,
             clipboard,
+            frame_warp,
             outbox,
             control_move,
             video_move,

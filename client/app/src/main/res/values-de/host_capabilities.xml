@@ -50,4 +50,5 @@
     <string name="stream_pyrowave_no_hdr_on_pc">Dieser PC hat kein PyroWave-HDR, daher nutzt der HDR-Stream %1$s.</string>
     <string name="connection_test_intro_delay">Teste die Latenz zum PC.</string>
     <string name="host_feature_cursor_shape">Mauszeigerformen</string>
+    <string name="host_feature_frame_warp">Frame Warp</string>
 </resources>

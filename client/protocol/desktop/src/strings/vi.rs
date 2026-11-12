@@ -1526,4 +1526,7 @@ sudo sysctl -w net.core.rmem_max={}", "Bộ đệm nhận: hệ thống chỉ c�
     ("Speed not measured: the PC didn’t answer", "Chưa đo tốc độ: PC không phản hồi"),
     ("Speed not measured: this PC has no speed test", "Chưa đo tốc độ: PC này không có bài kiểm tra tốc độ"),
     ("Speed not measured: the test failed", "Chưa đo tốc độ: bài kiểm tra thất bại"),
+    ("Frame Warp", "Frame Warp"),
+    ("Shifts the picture with your mouse or right stick until the PC’s next frame shows the turn, and keeps the game’s HUD in place. Needs a PC that supports it.", "Dịch chuyển hình ảnh theo chuột hoặc cần phải cho đến khi khung hình tiếp theo của PC thể hiện cú xoay, và giữ HUD của trò chơi tại chỗ. Cần PC hỗ trợ tính năng này."),
+    ("This PC doesn’t offer Frame Warp, so Nightjar streams without it.", "PC này không cung cấp Frame Warp nên Nightjar truyền phát mà không dùng nó."),
 ];

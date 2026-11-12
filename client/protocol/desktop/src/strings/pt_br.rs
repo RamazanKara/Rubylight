@@ -1526,4 +1526,7 @@ sudo sysctl -w net.core.rmem_max={}", "Buffer de recepção: o sistema concedeu 
     ("Speed not measured: the PC didn’t answer", "Velocidade não medida: o PC não respondeu"),
     ("Speed not measured: this PC has no speed test", "Velocidade não medida: este PC não tem teste de velocidade"),
     ("Speed not measured: the test failed", "Velocidade não medida: o teste falhou"),
+    ("Frame Warp", "Frame Warp"),
+    ("Shifts the picture with your mouse or right stick until the PC’s next frame shows the turn, and keeps the game’s HUD in place. Needs a PC that supports it.", "Desloca a imagem com o mouse ou o analógico direito até o próximo quadro do PC mostrar o giro, e mantém o HUD do jogo no lugar. Requer um PC compatível."),
+    ("This PC doesn’t offer Frame Warp, so Nightjar streams without it.", "Este PC não oferece Frame Warp, então o Nightjar transmite sem ele."),
 ];

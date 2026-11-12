@@ -14,6 +14,7 @@ pub mod echo;
 mod engine;
 pub mod extras;
 pub mod files;
+mod frame_warp;
 mod listener;
 pub mod native_api;
 mod opus;
@@ -26,7 +27,7 @@ mod usb;
 
 use std::time::Duration;
 
-use jni::objects::{JByteArray, JClass, JLongArray, JShortArray, JString};
+use jni::objects::{JByteArray, JClass, JFloatArray, JIntArray, JLongArray, JShortArray, JString};
 use jni::sys::{jboolean, jbyte, jfloat, jint, jlong, jshort, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 
@@ -130,6 +131,7 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_startConnectio
     pyrowave_early: jboolean,
     codec_direct: jboolean,
     receive_decode_priority: jboolean,
+    frame_warp_requested: jboolean,
 ) -> jint {
     let Some(bridge) = bridge::get() else {
         platform::error("RustBridge.startConnection before init");
@@ -182,6 +184,14 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_startConnectio
         network_priority: network_priority == JNI_TRUE,
         receive_decode_priority: receive_decode_priority == JNI_TRUE,
         roaming: extras::roaming_config(roaming == JNI_TRUE, roaming_metered == JNI_TRUE),
+        // Shifts pictures, so not for a stream without them or one that sends no input.
+        frame_warp: (frame_warp_requested == JNI_TRUE && !input_only && remote_monitor != JNI_TRUE)
+            .then(|| {
+                nightjar_core::frame_warp::FrameWarp::new(
+                    Some(frame_warp::CONTROLLER),
+                    frame_warp::MASK_MAX_WIDTH,
+                )
+            }),
     };
     engine::start(
         bridge,
@@ -656,6 +666,134 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_hostSupportsCo
     message_type: jint,
 ) -> jboolean {
     jbool(u16::try_from(message_type).is_ok_and(engine::host_supports))
+}
+
+/// Whether this stream draws with Frame Warp (`frame_warp::offered`), unless a renderer declined
+/// it: a renderer set up again later (a decoder reset) keeps to that.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_frameWarpOffered(
+    _: JNIEnv,
+    _: JClass,
+) -> jboolean {
+    jbool(frame_warp::offered() && !frame_warp::declined())
+}
+
+/// The address of the C table the native renderers call (`frame_warp_api.h`).
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_frameWarpApi(
+    _: JNIEnv,
+    _: JClass,
+) -> jlong {
+    frame_warp::api_address()
+}
+
+/// The decoder queued `frame` with presentation time `pts_us`.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_frameWarpNoteFrame(
+    _: JNIEnv,
+    _: JClass,
+    pts_us: jlong,
+    frame: jint,
+) {
+    frame_warp::note_frame(pts_us, frame as u32);
+}
+
+/// The shift for the picture queued with `pts_us`, drawn now: `out` gets uv x, uv y, px x, px y
+/// and the return is the HUD mask generation, -1 without a mask or -2 to draw it as it is.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_frameWarpForPts(
+    env: JNIEnv,
+    _: JClass,
+    pts_us: jlong,
+    out: JFloatArray,
+) -> jint {
+    let (code, values) = frame_warp::warp_for(frame_warp::frame_for_pts(pts_us));
+    if env.get_array_length(&out).unwrap_or(0) < values.len() as i32
+        || env.set_float_array_region(&out, 0, &values).is_err()
+    {
+        return frame_warp::WARP_INACTIVE;
+    }
+    code
+}
+
+/// As `frameWarpForPts`, without counting it in the statistics: whether the GLES presenter
+/// should draw the picture on screen again (`frame_warp::peek_for`).
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_frameWarpPeekForPts(
+    env: JNIEnv,
+    _: JClass,
+    pts_us: jlong,
+    out: JFloatArray,
+) -> jint {
+    let (code, values) = frame_warp::peek_for(frame_warp::frame_for_pts(pts_us));
+    if env.get_array_length(&out).unwrap_or(0) < values.len() as i32
+        || env.set_float_array_region(&out, 0, &values).is_err()
+    {
+        return frame_warp::WARP_INACTIVE;
+    }
+    code
+}
+
+/// The HUD mask when its generation is not `known` (-1 for none): `size` gets width and height,
+/// and `cells`, when it has room, one byte per cell (0 or 255, rows from the top). Returns the
+/// generation, -1 unchanged, -2 cleared, or -3 when `cells` is too small.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_frameWarpMask(
+    env: JNIEnv,
+    _: JClass,
+    known: jint,
+    size: JIntArray,
+    cells: JByteArray,
+) -> jint {
+    let warp = frame_warp::current();
+    let mask = match frame_warp::mask_update(warp.as_deref(), known) {
+        frame_warp::MaskUpdate::Unchanged => return frame_warp::MASK_UNCHANGED,
+        frame_warp::MaskUpdate::Cleared => return frame_warp::MASK_CLEARED,
+        frame_warp::MaskUpdate::New(mask) => mask,
+    };
+    if env.get_array_length(&size).unwrap_or(0) < 2
+        || env
+            .set_int_array_region(&size, 0, &[i32::from(mask.width), i32::from(mask.height)])
+            .is_err()
+    {
+        return frame_warp::MASK_TOO_SMALL;
+    }
+    let count = usize::from(mask.width) * usize::from(mask.height);
+    if (env.get_array_length(&cells).unwrap_or(0) as usize) < count {
+        return frame_warp::MASK_TOO_SMALL;
+    }
+    let mut bytes = vec![0u8; count];
+    if !frame_warp::pack_r8(&mask, &mut bytes)
+        || env.set_byte_array_region(&cells, 0, bridge::jbytes(&bytes)).is_err()
+    {
+        return frame_warp::MASK_TOO_SMALL;
+    }
+    i32::from(mask.generation)
+}
+
+/// The renderer cannot draw Frame Warp for this stream: the host stops its work for it.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_frameWarpDecline(
+    _: JNIEnv,
+    _: JClass,
+) {
+    frame_warp::decline();
+}
+
+/// The overlay's Frame Warp line: returns `RustBridge.FRAME_WARP_*` and writes gain, lag ms,
+/// shift px and peak px to `out`.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_frameWarpStatus(
+    env: JNIEnv,
+    _: JClass,
+    out: JFloatArray,
+) -> jint {
+    let mut numbers = [0.0f32; frame_warp::STATUS_NUMBERS];
+    let state = frame_warp::status(&mut numbers);
+    if env.get_array_length(&out).unwrap_or(0) >= numbers.len() as i32 {
+        let _ = env.set_float_array_region(&out, 0, &numbers);
+    }
+    state
 }
 
 #[no_mangle]

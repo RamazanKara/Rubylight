@@ -246,6 +246,9 @@ pub enum ControlEvent {
     CursorShape(CursorShape),
     /// A cursor shape message that broke a rule of the format.
     CursorShapeRejected(&'static str),
+    /// The host's Frame Warp model changed (0x5544), while Frame Warp is requested. Tags and
+    /// HUD masks go straight to [`crate::frame_warp::FrameWarp`] and are not events.
+    FrameWarpModel(rubylight_protocol::frame_warp::Model),
     /// A Steam Controller haptic report (0x5504), for the real controller's pads. Never
     /// coalesced: the host re-sends the same report to keep a buzz going.
     SteamHaptic(SteamHaptic),

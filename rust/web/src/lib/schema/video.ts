@@ -418,6 +418,18 @@ const video: Setting[] = [
     advanced: true,
   },
   {
+    key: 'frame_warp',
+    label: 'Let devices use Frame Warp',
+    description:
+      'Lets a Nightjar device that turns Frame Warp on show camera turns on its next screen refresh, without waiting for the round trip.',
+    details:
+      'The host learns how far each game turns per mouse or stick input and which parts of the picture stay put, such as the HUD. It does this work only for a device that asks; others see no change.',
+    category: 'video',
+    group: 'Frame pacing',
+    control: { kind: 'toggle' },
+    default: true,
+  },
+  {
     key: 'max_bitrate',
     label: 'Maximum bitrate',
     description: "Caps the bitrate a device can request. 0 uses the device's bitrate.",

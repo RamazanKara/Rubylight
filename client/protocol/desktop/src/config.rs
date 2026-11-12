@@ -522,6 +522,10 @@ pub struct Settings {
     pub full_range: bool,
     pub upscaling: Upscaling,
     pub upscale_sharpness: u32,
+    /// Frame Warp (Android's `checkbox_frame_warp`): with a PC that offers it, each present moves
+    /// the picture by the mouse and right-stick input the PC had not seen when it rendered it,
+    /// keeping the HUD in place (`stream::frame_warp`). Off by default.
+    pub frame_warp: bool,
     /// What a cold start opens (Android's `list_open_on_start`). Not a per-PC or per-game override.
     pub open_on_start: OpenOnStart,
     /// Open on Home (Continue playing, the library across PCs) when a paired PC has the
@@ -1082,6 +1086,7 @@ impl Default for Settings {
             full_range: false,
             upscaling: Upscaling::Bilinear,
             upscale_sharpness: 50,
+            frame_warp: false,
             open_on_start: OpenOnStart::Pcs,
             console_home: true,
             quick_resume: false,
@@ -1206,6 +1211,8 @@ pub struct HostRecord {
 pub const NOTICE_PYROWAVE_FALLBACK: &str = "PYROWAVE_FALLBACK";
 /// Full chroma is on and a stream from this PC starts without it: the PC or this device cannot do it.
 pub const NOTICE_PACKED_UNAVAILABLE: &str = "PACKED_UNAVAILABLE";
+/// Frame Warp is on and a stream from this PC runs without it: the PC does not offer it.
+pub const NOTICE_FRAME_WARP_UNAVAILABLE: &str = "FRAME_WARP_UNAVAILABLE";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaceCalibration {
@@ -2761,6 +2768,23 @@ mod tests {
         overrides.0.insert("hdr_desktop_brightness".into(), serde_json::json!(true));
         assert!(overrides.apply(&Settings::default()).hdr_desktop_brightness, "a PC's own setting");
         assert!(!overrides.needs_gpu(), "the renderer HDR takes is enough");
+    }
+
+    #[test]
+    fn frame_warp_is_off_by_default_and_saved_under_its_own_key() {
+        assert!(!Settings::default().frame_warp, "off until the player turns it on");
+        let old: Settings = serde_json::from_str("{\"upscale_sharpness\": 70}").unwrap();
+        assert!(!old.frame_warp, "an older file gets the default");
+        let on: Settings = serde_json::from_str("{\"frame_warp\": true}").unwrap();
+        assert!(on.frame_warp);
+        let saved = serde_json::to_value(&on).unwrap();
+        assert_eq!(saved["frame_warp"], serde_json::json!(true), "saved under its own key");
+        let again: Settings = serde_json::from_value(saved).unwrap();
+        assert_eq!(again, on, "it round-trips");
+        let mut overrides = Overrides::default();
+        overrides.0.insert("frame_warp".into(), serde_json::json!(true));
+        assert!(overrides.apply(&Settings::default()).frame_warp, "a PC's or game's own setting");
+        assert!(!overrides.needs_gpu(), "every renderer draws it");
     }
 
     #[test]

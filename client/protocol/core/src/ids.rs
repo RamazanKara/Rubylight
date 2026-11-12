@@ -8,7 +8,7 @@
 //! for the messages it takes over from them as they are.
 
 use crate::{
-    clipboard_sync, control, cursor_shape, fec_report, keyboard_layout, pen, phase_lock,
+    clipboard_sync, control, cursor_shape, fec_report, frame_warp, keyboard_layout, pen, phase_lock,
     pipeline_rates, rate_change, steam_controller, text_input, usb,
 };
 use core::ops::RangeInclusive;
@@ -78,6 +78,13 @@ pub const CONTROL_IDS: &[(u16, &str)] = &[
         "cursor shape request",
     ),
     (cursor_shape::CURSOR_SHAPE_MESSAGE_TYPE, "cursor shape"),
+    (
+        frame_warp::FRAME_WARP_REQUEST_MESSAGE_TYPE,
+        "frame warp request",
+    ),
+    (frame_warp::FRAME_WARP_MODEL_MESSAGE_TYPE, "frame warp model"),
+    (frame_warp::FRAME_WARP_TAGS_MESSAGE_TYPE, "frame warp tags"),
+    (frame_warp::FRAME_WARP_MASK_MESSAGE_TYPE, "frame warp HUD mask"),
     (0x5601, "DualSense haptics"),
 ];
 
@@ -97,7 +104,7 @@ pub const ADOPTED_CONTROL_IDS: &[u16] = &[
 pub const HAPTICS_CAPABILITY: u16 = 0x8000;
 
 /// The first and last control message types Rubylight 3.0 defines.
-pub const RUBYLIGHT_3_CONTROL_IDS: RangeInclusive<u16> = 0x5539..=0x5542;
+pub const RUBYLIGHT_3_CONTROL_IDS: RangeInclusive<u16> = 0x5539..=0x5546;
 
 /// Input packet magics in use, with what they carry.
 pub const INPUT_MAGICS: &[(u32, &str)] = &[
@@ -194,7 +201,7 @@ mod tests {
             .collect();
         assert_eq!(
             new,
-            [0x5539, 0x553A, 0x553B, 0x553C, 0x553D, 0x553E, 0x5540, 0x5541]
+            [0x5539, 0x553A, 0x553B, 0x553C, 0x553D, 0x553E, 0x5540, 0x5541, 0x5543, 0x5544, 0x5545, 0x5546]
         );
     }
 

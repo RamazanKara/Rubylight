@@ -11,8 +11,8 @@ use std::collections::BTreeMap;
 
 use anyhow::{Result, bail};
 use rubylight_protocol::{
-    audio_ext, clipboard_sync, cursor_shape, fec_report, hdr, keyboard_layout, pen, pipeline_rates,
-    rate_change, text_input, usb,
+    audio_ext, clipboard_sync, cursor_shape, fec_report, frame_warp, hdr, keyboard_layout, pen,
+    pipeline_rates, rate_change, text_input, usb,
 };
 
 pub use rubylight_protocol::fec_report::FecChoice;
@@ -93,6 +93,8 @@ pub struct Offered {
     pub display_scale: bool,
     /// `SecondScreenVersion` and the `rlSecondScreen` launch option.
     pub second_screen: bool,
+    /// `FrameWarpVersion` and Frame Warp's messages (0x5543-0x5546).
+    pub frame_warp: bool,
     /// Rate changes (0x553C), in the DESCRIBE of a stream whose client launched with
     /// `rlRateChange=1`; no serverinfo element.
     pub rate_change: bool,
@@ -117,6 +119,7 @@ impl Offered {
         pipeline_rates: false,
         display_scale: false,
         second_screen: false,
+        frame_warp: false,
         rate_change: false,
         clipboard_sync: false,
     };
@@ -167,6 +170,7 @@ impl Offered {
                 self.second_screen,
                 crate::display_policy::SECOND_SCREEN_SERVERINFO_FIELD,
             ),
+            (self.frame_warp, frame_warp::SERVERINFO_FIELD),
         ] {
             if offered {
                 fields.push((field, version()));
@@ -230,6 +234,10 @@ impl Offered {
                 self.cursor_shape,
                 cursor_shape::CURSOR_SHAPE_REQUEST_MESSAGE_TYPE,
             ),
+            (self.frame_warp, frame_warp::FRAME_WARP_REQUEST_MESSAGE_TYPE),
+            (self.frame_warp, frame_warp::FRAME_WARP_MODEL_MESSAGE_TYPE),
+            (self.frame_warp, frame_warp::FRAME_WARP_TAGS_MESSAGE_TYPE),
+            (self.frame_warp, frame_warp::FRAME_WARP_MASK_MESSAGE_TYPE),
         ]
         .into_iter()
         .filter_map(|(offered, id)| offered.then_some(id))
@@ -332,6 +340,7 @@ mod tests {
         pipeline_rates: true,
         display_scale: true,
         second_screen: true,
+        frame_warp: true,
         rate_change: true,
         clipboard_sync: true,
     };
@@ -370,6 +379,7 @@ mod tests {
                 ("PipelineRatesVersion", "1"),
                 ("DisplayScaleVersion", "1"),
                 ("SecondScreenVersion", "1"),
+                ("FrameWarpVersion", "1"),
             ]
         );
         assert_eq!(
@@ -381,12 +391,14 @@ mod tests {
              a=fmtp:97 surround-params=12,8,4,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
              a=fmtp:97 surround-params=12,12,0,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
              a=x-ss-general.penBarrelRoll:1\r\n\
-             a=x-rl-control:0x5508,0x5539,0x553a,0x553b,0x553c,0x553d,0x553e,0x5540\r\n"
+             a=x-rl-control:0x5508,0x5539,0x553a,0x553b,0x553c,0x553d,0x553e,0x5540,0x5543,\
+             0x5544,0x5545,0x5546\r\n"
         );
         assert_eq!(
             ALL_ON.control_ids(),
             [
-                0x5508, 0x5539, 0x553A, 0x553B, 0x553C, 0x553D, 0x553E, 0x5540
+                0x5508, 0x5539, 0x553A, 0x553B, 0x553C, 0x553D, 0x553E, 0x5540, 0x5543, 0x5544,
+                0x5545, 0x5546
             ]
         );
     }

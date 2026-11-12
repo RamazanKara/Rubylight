@@ -849,6 +849,42 @@ impl Media {
                                     ),
                                 }
                             }
+                            // Frame Warp (0x5543): while offered, the host learns the game's
+                            // camera response and tags every frame for a client that asked;
+                            // the pass below sends the model, mask and tags.
+                            butterpollo_core::frame_warp::FRAME_WARP_REQUEST_MESSAGE_TYPE => {
+                                let Ok(config) = p.config(&h, &s) else {
+                                    continue;
+                                };
+                                if !crate::extensions::offered(&h, &config).frame_warp {
+                                    tracing::debug!(
+                                        len = payload.len(),
+                                        "unoffered frame warp request"
+                                    );
+                                    continue;
+                                }
+                                let was = s.frame_warp.enabled();
+                                let wake = self.control_wake.clone();
+                                s.frame_warp.set_wake(Arc::new(move || {
+                                    let _ = wake.send(&[1]);
+                                }));
+                                match s.frame_warp.on_request(&payload) {
+                                    Some(enabled) => {
+                                        if enabled != was {
+                                            tracing::info!(
+                                                client = %s.launch.client.name,
+                                                enabled,
+                                                "frame warp"
+                                            );
+                                        }
+                                        let _ = self.control_wake.send(&[1]);
+                                    }
+                                    None => tracing::debug!(
+                                        len = payload.len(),
+                                        "invalid frame warp request"
+                                    ),
+                                }
+                            }
                             // The registry checks the setting and the device's permission and
                             // queues the answer, which the pass below sends.
                             butterpollo_core::usb_forward::USB_MESSAGE_TYPE if encrypted => {
@@ -1056,6 +1092,23 @@ impl Media {
                                                 "pointer arrivals"
                                             );
                                         }
+                                        // Frame Warp's input history, for a client that asked:
+                                        // a short queue push before the event is injected.
+                                        if s.frame_warp.enabled() {
+                                            match &event {
+                                                input::Input::Relative { x, y } => {
+                                                    s.frame_warp.on_mouse(*x, *y, p.seen)
+                                                }
+                                                input::Input::Controller { id, sticks, .. } => {
+                                                    s.frame_warp.on_controller(
+                                                        *id,
+                                                        (sticks[2], sticks[3]),
+                                                        p.seen,
+                                                    )
+                                                }
+                                                _ => {}
+                                            }
+                                        }
                                         if !queue_input(&mut p.inputs, event) {
                                             // Warnings::set logs it as well.
                                             s.launch.warnings.set("input_overflow", INPUT_OVERFLOW);
@@ -1237,6 +1290,48 @@ impl Media {
                                 PacketKind::AlwaysUnreliable { sequenced: false },
                             ),
                         );
+                    }
+                    // Frame Warp for a client that asked (0x5543): the model and the HUD
+                    // mask reliably, then the frames' tags unreliably, as each tags
+                    // message repeats the three frames before it.
+                    if s.frame_warp.enabled() {
+                        let outgoing = s.frame_warp.take_outgoing();
+                        let reliable = [
+                            outgoing.model.map(|model| {
+                                (
+                                    butterpollo_core::frame_warp::FRAME_WARP_MODEL_MESSAGE_TYPE,
+                                    model.to_vec(),
+                                )
+                            }),
+                            outgoing.mask.map(|mask| {
+                                (
+                                    butterpollo_core::frame_warp::FRAME_WARP_MASK_MESSAGE_TYPE,
+                                    mask,
+                                )
+                            }),
+                        ];
+                        for (kind, payload) in reliable.into_iter().flatten() {
+                            if let Ok(message) = p.encrypt(&s, kind, &payload) {
+                                let _ = host
+                                    .peer_mut(*peer_id)
+                                    .send(0, &Packet::new(message, PacketKind::Reliable));
+                            }
+                        }
+                        for tags in outgoing.tags {
+                            if let Ok(message) = p.encrypt(
+                                &s,
+                                butterpollo_core::frame_warp::FRAME_WARP_TAGS_MESSAGE_TYPE,
+                                &tags,
+                            ) {
+                                let _ = host.peer_mut(*peer_id).send(
+                                    0,
+                                    &Packet::new(
+                                        message,
+                                        PacketKind::AlwaysUnreliable { sequenced: false },
+                                    ),
+                                );
+                            }
+                        }
                     }
                     if poll_feedback && let Some((old, new)) = s.tick_fec(Instant::now()) {
                         tracing::info!(

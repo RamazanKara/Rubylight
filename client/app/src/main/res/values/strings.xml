@@ -2,6 +2,19 @@
 <resources>
     <string name="title_packed_444">Full chroma</string>
     <string name="summary_packed_444">Requires Rubylight’s full chroma option, the New streaming engine, and a compatible hardware HEVC/AV1 decoder. If the PC or this device can’t do it, the stream starts without it. HDR also requires a compatible 10-bit HDR display surface.</string>
+    <string name="title_frame_warp">Frame Warp</string>
+    <string name="summary_frame_warp">Shifts the picture with your mouse or right stick until the PC’s next frame shows the turn, and keeps the game’s HUD in place. Needs a PC that supports it and the New streaming engine.</string>
+    <string name="frame_warp_overlay_mouse">Frame Warp: locked %1$s px/count, lag %2$s ms, shift %3$s px (peak %4$s)</string>
+    <string name="frame_warp_overlay_stick">Frame Warp: locked %1$s px/s, lag %2$s ms, shift %3$s px (peak %4$s)</string>
+    <string name="frame_warp_overlay_learning">Frame Warp: learning</string>
+    <string name="frame_warp_overlay_not_offered">Frame Warp: not offered by the PC</string>
+    <string name="frame_warp_overlay_off">Frame Warp: off for this stream</string>
+    <string name="frame_warp_needs_engine">Frame Warp needs the New streaming engine. This stream runs without it.</string>
+    <string name="frame_warp_unavailable">Frame Warp is off for this stream: %1$s</string>
+    <string name="frame_warp_reason_hdr">this device shows HDR only straight from the decoder</string>
+    <string name="frame_warp_reason_full_chroma">Full chroma is on</string>
+    <string name="frame_warp_reason_renderer">the GPU path did not start</string>
+    <string name="frame_warp_replaces_upscaling">Frame Warp draws the picture without upscaling.</string>
     <!-- Shortcut strings -->
     <string name="scut_deleted_pc">PC deleted</string>
     <string name="scut_not_paired">PC not paired</string>

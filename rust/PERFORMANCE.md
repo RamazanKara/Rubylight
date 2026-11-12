@@ -6,6 +6,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 
 | Find a result | Recorded evidence |
 | --- | --- |
+| Frame Warp: how much of a turn's input-to-picture gap it removes on a test game with known response, the learned gain and lag, lock time, a real game (Black Flag Resynced), GPU pass cost at 1080p to 4K, host processing on and off | [November 12, Frame Warp](#november-12-frame-warp) |
 | Optimizations left after a full review: H.264 keyframe header scan, pooled rewrite buffers, a per-block send pool, FEC 16/8-byte tails (kernel restructure slower, dropped), a short first FEC block (no gain, dropped), Nightjar desktop drawing Windows planes straight to the back buffer and sampling Linux VA-API pictures in place, D3D11 bind on AMD (no gain), Linux V-Sync queueing (none), and what was dropped unbuilt | [November 11, what a full optimization review left](#november-11-what-a-full-optimization-review-left) |
 | Sending a large frame block by block (`video_send_early_blocks`) on PyroWave, HEVC and AV1 at 1080p and 4K, AMF output prediction and output thread under GPU load (both kept off), fixed-rate pacing without a blocking output query, GFNI parity (`fec_gfni`) on the 8845HS against a no-GFNI control, and the whole build against 3.9.0 | [November 8, sending, FEC and AMF output after 3.9.0](#november-8-sending-fec-and-amf-output-after-390) |
 | Rumble forwarding on ViGEm and VHF pads at 500 changes a second, idle and under HIGHEST CPU load, fast feedback poll (kept off), touch pinch frames per pass, keyboard and mouse behind a controller state, the new input fields of the stream timings line, the VHF feedback stall under load (also in the old build) | [November 8, gamepad feedback, touch and input under load](#november-8-gamepad-feedback-touch-and-input-under-load) |
@@ -9232,6 +9233,63 @@ the laptop). A separate NUC run, HEVC with LTR, repaired 40 ms bursts and decode
 HEVC repairs only within 128 frames of the last one shown; the skipped-frame history keeps 64 repairs
 per IDR; the size estimate is linear; the rewriters have mutation tests (3000 per codec), not a fuzz
 harness. Android MediaCodec checked in the rc.4 hardware pass.
+
+## November 12: Frame Warp
+
+How much of a camera turn's input-to-picture delay [Frame Warp](../docs/frame-warp.md) takes off
+the screen, and what it costs the host. Loopback on the RX 7900 XT: `look_probe` (a fake
+mouse-look game, 1 picture px per mouse count, 50 ms game lag, drawn at 120 Hz) on the primary
+display at 2560x1440, an isolated packaged host, nightjar-cli receiving H.264 at 60 fps and
+40 Mbps with the scripted turn pattern (seed 7), 60 s per run. `rust/release/frame_warp_accuracy.py`
+joins the client's shift log to the probe by barcode. "Without" is how far each shown picture
+is from where the client's input says it should be; "with" is what is left after the shift.
+
+| Measure | Result |
+|---|---|
+| Model locked | 0.63 s after the first picture, about 1 s after the request |
+| Pictures with a locked model | 98.9% (3,544 of 3,584) |
+| Learned gain x, y (true -1.0) | -0.995, -0.900 |
+| Learned lag | 56 ms (the game's 50 ms plus draw to capture) |
+| Displacement without Frame Warp | median 64.8 px, p95 184.2 px |
+| Left with Frame Warp | median 5.1 px, p95 29.8 px |
+| Removed | 90.4% |
+
+The vertical gain went from -0.33 to -0.90 over three estimator changes on this rig: the HUD
+found so far is left out of the motion measurement (its static bars pulled vertical shifts toward
+zero), shifts are refined to a tenth of a pixel (a three-point parabola rounded slow turns
+toward whole pixels), and a picture counts as still when most of its textured cells are
+unchanged. The remaining 10% low vertical gain shows as under-shift on fast vertical turns.
+
+GPU cost of the thumbnail and HUD passes (ignored test `the_passes_finish_within_a_frame` in
+`rust/windows/src/compute_frame_warp_tests.rs`, 300 iterations, submit to completion, an upper
+bound since it includes the queue):
+
+| Capture | Median | p95 |
+|---|---|---|
+| 1920x1080 | 0.23 ms | 0.37 ms |
+| 2560x1440 | 0.22 ms | 0.26 ms |
+| 3840x2160 | 0.27 ms | 0.32 ms |
+
+Host processing, the same stream with Frame Warp on and off, medians of the ten 5 s stream
+timings windows after the first:
+
+| | Host mean | Host p99 | Present to send mean | Encode mean | Convert |
+|---|---|---|---|---|---|
+| Off | 0.65 ms | 0.87 ms | 3.62 ms | 3.15 ms | 0.19 ms |
+| On | 0.71 ms | 0.94 ms | 3.70 ms | 3.17 ms | 0.22 ms |
+
+About 0.06 ms more host processing with Frame Warp on, one run each. The host does no Frame Warp
+work for a client that has not asked.
+
+A real game: Assassin's Creed Black Flag Resynced on the same rig, sailing in a storm (a
+third-person camera orbiting the ship, sea and ship moving on their own, the game near 168 fps),
+the same scripted turns for 60 s. The model locked 0.63 s after the first picture and held on
+91.8% of pictures (3,289 of 3,583), with a learned lag of 88 to 108 ms (median 90 ms) and a fit
+of 0.80 to 0.93. It relearned twice: the gain went from -0.90 to -0.55/-0.21 and then -0.44 as
+the orbiting camera's response changed with its angle. The median shift while turning was 70 px
+(p95 213 px). Without the probe's barcode the remaining error can't be measured on a game.
+
+Not measured here: NVIDIA (no hardware) and receivers other than nightjar-cli.
 
 ## Hardware covered
 

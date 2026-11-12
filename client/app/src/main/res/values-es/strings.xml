@@ -2,6 +2,19 @@
 <resources>
     <string name="title_packed_444">Croma completo</string>
     <string name="summary_packed_444">Requiere la opción de croma completo de Rubylight, el nuevo motor de streaming y un decodificador HEVC/AV1 por hardware compatible. Si el PC o este dispositivo no lo admite, la transmisión empieza sin él. HDR también requiere una superficie de visualización HDR de 10 bits compatible.</string>
+    <string name="title_frame_warp">Frame Warp</string>
+    <string name="summary_frame_warp">Desplaza la imagen con el ratón o el stick derecho hasta que el siguiente fotograma del PC muestre el giro, y deja el HUD del juego en su sitio. Requiere un PC que lo admita y el nuevo motor de streaming.</string>
+    <string name="frame_warp_overlay_mouse">Frame Warp: fijado %1$s px/cuenta, retraso %2$s ms, desplazamiento %3$s px (pico %4$s)</string>
+    <string name="frame_warp_overlay_stick">Frame Warp: fijado %1$s px/s, retraso %2$s ms, desplazamiento %3$s px (pico %4$s)</string>
+    <string name="frame_warp_overlay_learning">Frame Warp: aprendiendo</string>
+    <string name="frame_warp_overlay_not_offered">Frame Warp: el PC no lo ofrece</string>
+    <string name="frame_warp_overlay_off">Frame Warp: desactivado en esta transmisión</string>
+    <string name="frame_warp_needs_engine">Frame Warp requiere el nuevo motor de streaming. Esta transmisión funciona sin él.</string>
+    <string name="frame_warp_unavailable">Frame Warp está desactivado en esta transmisión: %1$s</string>
+    <string name="frame_warp_reason_hdr">este dispositivo solo muestra HDR directamente desde el decodificador</string>
+    <string name="frame_warp_reason_full_chroma">el croma completo está activado</string>
+    <string name="frame_warp_reason_renderer">la ruta de GPU no se inició</string>
+    <string name="frame_warp_replaces_upscaling">Frame Warp dibuja la imagen sin escalado.</string>
     <string name="title_experimental_chipset_tuning">Ajuste del chipset</string>
     <string name="summary_experimental_chipset_tuning">Ajustes adicionales de baja latencia para los decodificadores MediaTek Dimensity y Samsung Exynos.</string>
     <string name="scut_deleted_pc">PC eliminado</string>

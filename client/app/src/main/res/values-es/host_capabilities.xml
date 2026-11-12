@@ -47,4 +47,5 @@
     <string name="stream_pyrowave_no_hdr_on_pc">Este PC no tiene PyroWave HDR, así que la transmisión HDR usa %1$s.</string>
     <string name="connection_test_intro_delay">Prueba el retraso hasta tu PC.</string>
     <string name="host_feature_cursor_shape">Formas del cursor</string>
+    <string name="host_feature_frame_warp">Frame Warp</string>
 </resources>

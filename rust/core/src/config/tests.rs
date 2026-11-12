@@ -277,6 +277,23 @@ fn the_update_check_time_is_a_time_of_day_and_unset_otherwise() {
 }
 
 #[test]
+fn frame_warp_is_on_unless_turned_off() {
+    assert!(super::Config::default().frame_warp());
+    for (text, on) in [
+        ("frame_warp = true\n", true),
+        ("frame_warp = disabled\n", false),
+        ("frame_warp = 0\n", false),
+    ] {
+        assert_eq!(
+            super::Config::parse(text).unwrap().frame_warp(),
+            on,
+            "{text}"
+        );
+    }
+    assert!(super::override_allowed("frame_warp"));
+}
+
+#[test]
 fn the_bandwidth_probe_is_on_unless_turned_off() {
     assert!(super::Config::default().bandwidth_probe());
     for (text, on) in [

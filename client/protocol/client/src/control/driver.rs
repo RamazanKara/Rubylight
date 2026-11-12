@@ -128,6 +128,8 @@ pub struct DriverConfig {
     /// earlier connection's, since the host rejects seqs it has seen.
     pub roam_seq: LaunchSeq,
     pub warn: Warn,
+    /// Frame Warp's shared state: counts input as it leaves and takes the host's messages.
+    pub frame_warp: Option<Arc<crate::frame_warp::FrameWarp>>,
 }
 
 impl DriverConfig {
@@ -144,6 +146,7 @@ impl DriverConfig {
             roaming: false,
             roam_seq: LaunchSeq::default(),
             warn: Warn::default(),
+            frame_warp: None,
         }
     }
 
@@ -886,12 +889,17 @@ pub fn connect(
         .id();
     let mut input = InputQueue::new(&caps);
     input.set_unbatched(config.unbatched_input);
+    input.set_frame_warp(config.frame_warp.clone());
     if config.input_disabled {
         input.disable();
     }
     let shared = Arc::new(Shared {
         input: Mutex::new(input),
-        session: Mutex::new(ControlSession::new(caps, key, options)),
+        session: Mutex::new({
+            let mut session = ControlSession::new(caps, key, options);
+            session.set_frame_warp(config.frame_warp.clone());
+            session
+        }),
         stop: AtomicBool::new(false),
         wake_pending: AtomicBool::new(false),
         contact_lost: AtomicBool::new(false),

@@ -1193,6 +1193,9 @@ pub struct HostRecord {
     /// native `GET /wake` (`wol::targets`); kept so a PC that sleeps can be woken through them.
     pub wake_macs: Vec<String>,
     pub wake_broadcasts: Vec<String>,
+    /// MACs the user added for the PC: an adapter that wakes it while the one paired over cannot
+    /// (`wol::parse_macs`). What the PC lists never replaces them.
+    pub own_wake_macs: Vec<String>,
     /// Added by hand rather than found on the network.
     pub manual: bool,
     pub settings: Option<Overrides>,
@@ -1236,6 +1239,12 @@ impl PaceCalibration {
 pub const ALIAS_MAX_CHARS: usize = 40;
 
 impl HostRecord {
+    /// Whether there is a MAC to wake the PC by: serverinfo's, one its `/wake` listed, or one the
+    /// user added. Every wake gate asks this.
+    pub fn can_wake(&self) -> bool {
+        self.mac.is_some() || !self.wake_macs.is_empty() || !self.own_wake_macs.is_empty()
+    }
+
     /// Keeps `text` as this device's name for the PC. Empty (or blank) restores the PC's own name.
     pub fn set_alias(&mut self, text: &str) {
         let text: String = text.trim().chars().take(ALIAS_MAX_CHARS).collect();

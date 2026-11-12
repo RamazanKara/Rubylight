@@ -11,6 +11,10 @@
     <string name="pc_settings_wake">Wake-on-LAN</string>
     <string name="pc_settings_wake_ready">Thiết bị này có thể đánh thức PC từ menu của PC</string>
     <string name="pc_settings_wake_unknown">Hãy ghép đôi khi PC đang bật, rồi bật Wake-on-LAN trên PC</string>
+    <string name="pc_settings_wake_macs">Địa chỉ đánh thức khác</string>
+    <string name="pc_settings_wake_macs_none">Địa chỉ MAC của các bộ điều hợp mạng khác có thể đánh thức PC</string>
+    <string name="pc_settings_wake_macs_help">Gói Wake-on-LAN cũng được gửi tới các địa chỉ MAC này, dành cho bộ điều hợp mạng có thể đánh thức PC khi bộ dùng để stream không làm được. Mỗi dòng một địa chỉ, ví dụ 00:11:22:33:44:55.</string>
+    <string name="pc_settings_wake_macs_invalid">Nhập tối đa 8 địa chỉ MAC, ví dụ 00:11:22:33:44:55</string>
     <string name="pc_settings_details_summary">Ứng dụng stream, tính năng và địa chỉ</string>
     <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
     <string name="pc_settings_shortcut">Thêm vào màn hình chính</string>

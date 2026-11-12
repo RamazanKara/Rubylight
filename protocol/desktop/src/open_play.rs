@@ -562,7 +562,7 @@ impl crate::App {
             identity: self.hosts.identity().is_some(),
             host: host.map(|h| HostSeen {
                 reach: h.reach,
-                can_wake: h.record.mac.is_some(),
+                can_wake: h.record.can_wake(),
                 paired: h.paired(),
                 session: SessionSeen::of(h.native_api(), h.native.session.as_ref(), h.native.error.is_some()),
                 reads: h.native_api().then(|| h.session_reads()),

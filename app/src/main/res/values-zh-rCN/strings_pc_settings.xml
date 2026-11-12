@@ -11,6 +11,10 @@
     <string name="pc_settings_wake">Wake-on-LAN</string>
     <string name="pc_settings_wake_ready">此设备可通过菜单唤醒电脑</string>
     <string name="pc_settings_wake_unknown">请在电脑开机时配对，然后在电脑上开启 Wake-on-LAN</string>
+    <string name="pc_settings_wake_macs">其他唤醒地址</string>
+    <string name="pc_settings_wake_macs_none">可以唤醒电脑的其他网络适配器的 MAC 地址</string>
+    <string name="pc_settings_wake_macs_help">Wake-on-LAN 数据包也会发送到这些 MAC 地址，适用于串流所用的网卡无法唤醒电脑、而另一块网卡可以的情况。每行一个，例如 00:11:22:33:44:55。</string>
+    <string name="pc_settings_wake_macs_invalid">请输入最多 8 个 MAC 地址，例如 00:11:22:33:44:55</string>
     <string name="pc_settings_details_summary">串流应用、功能和地址</string>
     <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
     <string name="pc_settings_shortcut">添加到主屏幕</string>

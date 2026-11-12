@@ -112,7 +112,7 @@ pub fn host_options(host: &Host) -> Vec<HostOption> {
         }
     }
     // Not reached yet counts too: a PC that is asleep has not answered since this started.
-    if host.reach != Reach::Online && host.record.mac.is_some() {
+    if host.reach != Reach::Online && host.record.can_wake() {
         options.push(HostOption::Wake);
     }
     // Only where the PC offers it; listed but not selectable when it does not allow this device.
@@ -280,7 +280,7 @@ impl Launcher {
                     // Says what the PCs page says of it: the running game's name, or Online.
                     let status = pcs::pc_line_of(host).words().to_owned();
                     // Wake needs the PC's address, learnt while pairing with it on.
-                    let note = (host.reach == Reach::Offline && host.record.mac.is_none()).then_some(en("Pair once while the PC is on to enable Wake up."));
+                    let note = (host.reach == Reach::Offline && !host.record.can_wake()).then_some(en("Pair once while the PC is on to enable Wake up."));
                     let (outcome, took) = popover(ctx, "host-options", self.menu_anchor, host.display_name(), Some((status, *ON_SURFACE_VARIANT)), &rows, note, focus_first);
                     focused = took;
                     match outcome {
@@ -413,6 +413,44 @@ impl Launcher {
                         if primary_button(ui, "Save").clicked() || submitted {
                             commands.push(Command::Rename { host: id, alias: text.clone() });
                             close = true;
+                        }
+                        if quiet_button(ui, "Cancel").clicked() {
+                            close = true;
+                        }
+                    });
+                });
+            }
+            Dialog::WakeAddresses { host, text, invalid } => {
+                let id = *host;
+                modal(ctx, "wake-addresses", |ui| {
+                    ui.set_width(440.0);
+                    let title = ui.label(RichText::new(tr("Other wake addresses")).font(semibold(text::SECTION)));
+                    ui.label(RichText::new(tr("Wake-on-LAN packets also go to these MAC addresses, for a network adapter that can wake the PC when the one used for streaming cannot. One per line, for example 00:11:22:33:44:55.")).color(ON_SURFACE_VARIANT));
+                    ui.add_space(8.0);
+                    let edit = ui.add(
+                        egui::TextEdit::multiline(text)
+                            .hint_text(hint("00:11:22:33:44:55", regular(text::BODY)))
+                            .desired_rows(3)
+                            .desired_width(f32::INFINITY)
+                            .margin(Margin::symmetric(12, 10)),
+                    )
+                    .labelled_by(title.id);
+                    if focus_first {
+                        edit.request_focus();
+                        focused = true;
+                    }
+                    if *invalid {
+                        ui.label(RichText::new(tr("Enter up to 8 MAC addresses, such as 00:11:22:33:44:55")).color(ERROR));
+                    }
+                    dialog_buttons(ui, |ui| {
+                        if primary_button(ui, "Save").clicked() {
+                            match crate::wol::parse_macs(text) {
+                                Some(macs) => {
+                                    commands.push(Command::WakeAddresses { host: id, macs });
+                                    close = true;
+                                }
+                                None => *invalid = true,
+                            }
                         }
                         if quiet_button(ui, "Cancel").clicked() {
                             close = true;

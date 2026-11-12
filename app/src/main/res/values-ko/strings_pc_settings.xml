@@ -11,6 +11,10 @@
     <string name="pc_settings_wake">Wake-on-LAN</string>
     <string name="pc_settings_wake_ready">이 기기가 메뉴에서 PC를 절전 해제할 수 있습니다</string>
     <string name="pc_settings_wake_unknown">PC가 켜져 있을 때 페어링한 후 PC에서 Wake-on-LAN을 켜세요</string>
+    <string name="pc_settings_wake_macs">다른 깨우기 주소</string>
+    <string name="pc_settings_wake_macs_none">PC를 깨울 수 있는 다른 네트워크 어댑터의 MAC 주소</string>
+    <string name="pc_settings_wake_macs_help">Wake-on-LAN 패킷이 이 MAC 주소로도 전송됩니다. 스트리밍에 쓰는 어댑터로는 PC를 깨울 수 없지만 다른 어댑터로는 깨울 수 있을 때 사용하세요. 한 줄에 하나씩, 예: 00:11:22:33:44:55.</string>
+    <string name="pc_settings_wake_macs_invalid">MAC 주소를 최대 8개까지 입력하세요(예: 00:11:22:33:44:55)</string>
     <string name="pc_settings_details_summary">스트리밍 앱, 기능 및 주소</string>
     <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
     <string name="pc_settings_shortcut">홈 화면에 추가</string>

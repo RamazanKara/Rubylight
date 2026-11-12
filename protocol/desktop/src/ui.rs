@@ -105,6 +105,8 @@ pub enum Command {
     Rename { host: u64, alias: String },
     /// Always connect to the PC through this known address; None brings back the automatic pick.
     PinAddress { host: u64, address: Option<String> },
+    /// The MACs the user added to wake the PC by (`wol::parse_macs`); empty removes them.
+    WakeAddresses { host: u64, macs: Vec<String> },
     HostSettings(u64),
     SaveHostSettings(u64),
     AppSettings { host: u64, app: nightjar_core::http::App },
@@ -321,6 +323,8 @@ pub enum Dialog {
     /// A game's actions: its page, favourites, its settings, starting it.
     GameMenu { host: u64, game: GameTarget },
     Rename { host: u64, text: String },
+    /// The PC's own wake addresses being edited; `invalid` once Save found one that is not a MAC.
+    WakeAddresses { host: u64, text: String, invalid: bool },
     ConfirmRemove { host: u64, name: String },
     ConfirmUnpair { host: u64, name: String },
     /// Sleep PC: waiting for the PC's token (`offer` None), then asking to confirm. `ask` is

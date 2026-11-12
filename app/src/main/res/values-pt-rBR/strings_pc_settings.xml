@@ -11,6 +11,10 @@
     <string name="pc_settings_wake">Wake-on-LAN</string>
     <string name="pc_settings_wake_ready">Este dispositivo pode despertar o PC pelo menu dele</string>
     <string name="pc_settings_wake_unknown">Pareie com o PC ligado e ative o Wake-on-LAN no PC</string>
+    <string name="pc_settings_wake_macs">Outros endereços para ligar</string>
+    <string name="pc_settings_wake_macs_none">Endereços MAC de outros adaptadores que podem ligar o PC</string>
+    <string name="pc_settings_wake_macs_help">Os pacotes Wake-on-LAN também vão para estes endereços MAC, para um adaptador de rede que consegue ligar o PC quando o usado para o streaming não consegue. Um por linha, por exemplo 00:11:22:33:44:55.</string>
+    <string name="pc_settings_wake_macs_invalid">Digite até 8 endereços MAC, como 00:11:22:33:44:55</string>
     <string name="pc_settings_details_summary">App de transmissão, recursos e endereços</string>
     <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
     <string name="pc_settings_shortcut">Adicionar à tela inicial</string>

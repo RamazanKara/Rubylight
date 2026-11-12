@@ -38,7 +38,7 @@ pub(super) enum PcAction {
 
 pub(super) fn pc_action(host: &Host) -> PcAction {
     match (host.reach, host.paired()) {
-        (Reach::Offline, _) if host.record.mac.is_some() => PcAction::Wake,
+        (Reach::Offline, _) if host.record.can_wake() => PcAction::Wake,
         (Reach::Offline, _) => PcAction::TryAgain,
         (_, false) => PcAction::Pair,
         (_, true) => running_entry(host).map_or(PcAction::Open, |app| PcAction::Resume(app.id)),

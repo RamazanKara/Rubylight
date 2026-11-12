@@ -11,6 +11,10 @@
     <string name="pc_settings_wake">Wake-on-LAN</string>
     <string name="pc_settings_wake_ready">Questo dispositivo può riattivare il PC dal relativo menu</string>
     <string name="pc_settings_wake_unknown">Accoppia mentre il PC è acceso, poi attiva Wake-on-LAN sul PC</string>
+    <string name="pc_settings_wake_macs">Altri indirizzi di riattivazione</string>
+    <string name="pc_settings_wake_macs_none">Indirizzi MAC di altre schede di rete che possono riattivare il PC</string>
+    <string name="pc_settings_wake_macs_help">I pacchetti Wake-on-LAN vanno anche a questi indirizzi MAC, per una scheda di rete che può riattivare il PC quando quella usata per lo streaming non può. Uno per riga, per esempio 00:11:22:33:44:55.</string>
+    <string name="pc_settings_wake_macs_invalid">Inserisci fino a 8 indirizzi MAC, come 00:11:22:33:44:55</string>
     <string name="pc_settings_details_summary">App di streaming, funzionalità e indirizzi</string>
     <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
     <string name="pc_settings_shortcut">Aggiungi alla schermata Home</string>

@@ -8327,3 +8327,28 @@ fn a_pc_card_shows_the_running_or_last_games_cover() {
     f.hosts.list[0].reach = Reach::Offline;
     assert_eq!(super::pcs::card_game(&f.hosts.list[0], &f.l.recents), None, "away, its screen is off");
 }
+
+#[test]
+fn a_pcs_own_wake_addresses_are_checked_before_they_are_kept() {
+    let mut f = details(Reach::Online, "MJOLNIR_STATE_FREE", "");
+    let id = f.hosts.list[0].id;
+    f.l.dialog = Dialog::WakeAddresses { host: id, text: "the 2.5 Gb adapter".into(), invalid: false };
+    f.settle();
+    let commands = click_text(&mut f, "Save");
+    assert!(!commands.iter().any(|c| matches!(c, Command::WakeAddresses { .. })), "nothing is kept");
+    assert!(matches!(f.l.dialog, Dialog::WakeAddresses { invalid: true, .. }), "the dialog stays open");
+    f.settle();
+    assert!(shows(&f, "Enter up to 8 MAC addresses, such as 00:11:22:33:44:55"), "{:?}", f.drawn);
+
+    let Dialog::WakeAddresses { text, .. } = &mut f.l.dialog else { panic!("the wake addresses dialog") };
+    *text = "0A-00-27-00-00-05\n".into();
+    let commands = click_text(&mut f, "Save");
+    let macs = commands.iter().find_map(|c| match c {
+        Command::WakeAddresses { host, macs } if *host == id => Some(macs.clone()),
+        _ => None,
+    });
+    assert_eq!(macs, Some(vec!["0a:00:27:00:00:05".to_owned()]));
+    assert!(!f.hosts.list[0].record.can_wake());
+    assert!(f.hosts.set_own_wake_macs(id, vec!["0a:00:27:00:00:05".into()]));
+    assert!(f.hosts.list[0].record.can_wake(), "a PC with only the user's own address can be woken");
+}

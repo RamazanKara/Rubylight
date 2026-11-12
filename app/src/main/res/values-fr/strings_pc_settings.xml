@@ -11,6 +11,10 @@
     <string name="pc_settings_wake">Wake-on-LAN</string>
     <string name="pc_settings_wake_ready">Cet appareil peut réveiller le PC depuis son menu</string>
     <string name="pc_settings_wake_unknown">Associez le PC pendant qu’il est allumé, puis activez Wake-on-LAN sur le PC</string>
+    <string name="pc_settings_wake_macs">Autres adresses de réveil</string>
+    <string name="pc_settings_wake_macs_none">Adresses MAC d’autres cartes réseau capables de réveiller le PC</string>
+    <string name="pc_settings_wake_macs_help">Les paquets Wake-on-LAN sont aussi envoyés à ces adresses MAC, pour une carte réseau qui peut réveiller le PC quand celle utilisée pour le streaming ne le peut pas. Une par ligne, par exemple 00:11:22:33:44:55.</string>
+    <string name="pc_settings_wake_macs_invalid">Saisissez jusqu’à 8 adresses MAC, par exemple 00:11:22:33:44:55</string>
     <string name="pc_settings_details_summary">Application de streaming, fonctionnalités et adresses</string>
     <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
     <string name="pc_settings_shortcut">Ajouter à l’écran d’accueil</string>

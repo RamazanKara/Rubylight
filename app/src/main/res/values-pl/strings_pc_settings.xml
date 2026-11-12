@@ -11,6 +11,10 @@
     <string name="pc_settings_wake">Wake-on-LAN</string>
     <string name="pc_settings_wake_ready">To urządzenie może wybudzić komputer z jego menu</string>
     <string name="pc_settings_wake_unknown">Sparuj, gdy komputer jest włączony, a potem włącz Wake-on-LAN na komputerze</string>
+    <string name="pc_settings_wake_macs">Inne adresy wybudzania</string>
+    <string name="pc_settings_wake_macs_none">Adresy MAC innych kart sieciowych, które mogą wybudzić komputer</string>
+    <string name="pc_settings_wake_macs_help">Pakiety Wake-on-LAN trafiają też na te adresy MAC — dla karty sieciowej, która może wybudzić komputer, gdy ta używana do streamingu tego nie potrafi. Jeden w wierszu, na przykład 00:11:22:33:44:55.</string>
+    <string name="pc_settings_wake_macs_invalid">Wpisz maksymalnie 8 adresów MAC, np. 00:11:22:33:44:55</string>
     <string name="pc_settings_details_summary">Aplikacja do strumieniowania, funkcje i adresy</string>
     <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
     <string name="pc_settings_shortcut">Dodaj do ekranu głównego</string>

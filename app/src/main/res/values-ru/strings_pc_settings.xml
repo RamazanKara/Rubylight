@@ -11,6 +11,10 @@
     <string name="pc_settings_wake">Wake-on-LAN</string>
     <string name="pc_settings_wake_ready">Это устройство может разбудить ПК из его меню</string>
     <string name="pc_settings_wake_unknown">Выполните сопряжение, пока ПК включён, затем включите Wake-on-LAN на ПК</string>
+    <string name="pc_settings_wake_macs">Другие адреса для пробуждения</string>
+    <string name="pc_settings_wake_macs_none">MAC-адреса других сетевых адаптеров, которые могут разбудить ПК</string>
+    <string name="pc_settings_wake_macs_help">Пакеты Wake-on-LAN также отправляются на эти MAC-адреса — для сетевого адаптера, который может разбудить ПК, когда адаптер для стриминга не может. По одному в строке, например 00:11:22:33:44:55.</string>
+    <string name="pc_settings_wake_macs_invalid">Введите не более 8 MAC-адресов, например 00:11:22:33:44:55</string>
     <string name="pc_settings_details_summary">Приложение для трансляции, функции и адреса</string>
     <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
     <string name="pc_settings_shortcut">Добавить на главный экран</string>

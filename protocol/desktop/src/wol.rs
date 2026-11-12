@@ -61,6 +61,31 @@ fn normal_mac(mac: &str) -> Option<String> {
     (normal != "00:00:00:00:00:00").then_some(normal)
 }
 
+/// The MACs typed into a PC's own wake addresses, separated by commas, spaces or lines, as
+/// `00:11:22:33:44:55`, `00-11-22-33-44-55` or `001122334455`; each once. None when one of them is
+/// not a MAC address, is all zeros, or there are more than [`MAX_MACS`].
+pub fn parse_macs(text: &str) -> Option<Vec<String>> {
+    let mut macs = Vec::new();
+    for token in text.split(|c: char| c.is_whitespace() || c == ',' || c == ';').filter(|t| !t.is_empty()) {
+        let spaced;
+        let token = if token.len() == 12 && token.bytes().all(|b| b.is_ascii_hexdigit()) {
+            spaced = (0..6).map(|i| &token[i * 2..i * 2 + 2]).collect::<Vec<_>>().join(":");
+            spaced.as_str()
+        } else {
+            token
+        };
+        let mac = normal_mac(token)?;
+        if macs.contains(&mac) {
+            continue;
+        }
+        if macs.len() >= MAX_MACS {
+            return None;
+        }
+        macs.push(mac);
+    }
+    Some(macs)
+}
+
 /// What a host's `GET /wake` adds to serverinfo's MAC, for [`HostRecord::wake_macs`] and
 /// [`HostRecord::wake_broadcasts`]: its adapters' MACs and their subnet broadcasts, well formed
 /// and without repeats.
@@ -136,6 +161,7 @@ fn plan(host: &HostRecord, links: &Links) -> Result<Plan, String> {
         .mac
         .iter()
         .chain(&host.wake_macs)
+        .chain(&host.own_wake_macs)
         .filter_map(|mac| normal_mac(mac))
     {
         if !macs.contains(&mac) {
@@ -413,6 +439,39 @@ mod tests {
 
     fn v4(address: &str, port: u16) -> SocketAddr {
         SocketAddr::new(address.parse().unwrap(), port)
+    }
+
+    #[test]
+    fn typed_macs_are_read_in_every_usual_form_once() {
+        assert_eq!(
+            parse_macs(" 00:11:22:33:44:55\n0A-1B-2C-3D-4E-5F, AABBCCDDEEFF;00-11-22-33-44-55 ").unwrap(),
+            ["00:11:22:33:44:55", "0a:1b:2c:3d:4e:5f", "aa:bb:cc:dd:ee:ff"]
+        );
+        assert_eq!(parse_macs("  \n "), Some(Vec::new()));
+        for wrong in ["00:11:22:33:44", "00:11-22:33:44:55", "00:00:00:00:00:00", "the PC", "ÄÄ:11:22:33:44:55"] {
+            assert_eq!(parse_macs(wrong), None, "{wrong}");
+        }
+        let nine: String = (0..=MAX_MACS).map(|i| format!("02:00:00:00:00:0{i}\n")).collect();
+        assert_eq!(parse_macs(&nine), None);
+    }
+
+    #[test]
+    fn the_users_own_macs_wake_the_pc_too() {
+        let mut host = host(None, &[], &[]);
+        assert!(!host.can_wake());
+        assert_eq!(plan(&host, &links()).err().as_deref(), Some(NO_MAC));
+        host.own_wake_macs = vec!["0a:00:27:00:00:05".into()];
+        assert!(host.can_wake());
+        host.mac = Some("02:7c:16:b4:13:4f".into());
+        host.wake_macs = vec!["0a:00:27:00:00:05".into()];
+        let plan = plan(&host, &links()).unwrap();
+        assert_eq!(
+            plan.payloads,
+            [
+                magic_packet("02:7c:16:b4:13:4f").unwrap(),
+                magic_packet("0a:00:27:00:00:05").unwrap()
+            ]
+        );
     }
 
     #[test]

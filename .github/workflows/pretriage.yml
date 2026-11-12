@@ -38,6 +38,7 @@ env:
   OTHER_REPO: RamazanKara/nightjar
   INSTRUCTIONS: .github/pretriage.md
   DOCS: docs/troubleshooting.md,docs/getting-started.md,docs/features.md,docs/nvenc.md,docs/configuration.md@headings
+  CODE_DIRS: rust
   LABELS: bug,enhancement,question,documentation,duplicate,needs info,accessibility
 
 jobs:
@@ -56,6 +57,7 @@ jobs:
           sparse-checkout: |
             .github
             docs
+            rust
 
       - id: gather
         run: node .github/scripts/pretriage.mjs gather

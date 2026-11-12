@@ -38,6 +38,7 @@ env:
   OTHER_REPO: RamazanKara/Rubylight
   INSTRUCTIONS: .github/pretriage.md
   DOCS: docs/TROUBLESHOOTING.md,docs/faq.md,docs/quick-start.md,docs/features.md,docs/devices.md,docs/pairing.md,docs/settings.md@headings
+  CODE_DIRS: app,protocol
   LABELS: bug,enhancement,question,documentation,duplicate,needs info,accessibility,good first issue
 
 jobs:
@@ -56,6 +57,8 @@ jobs:
           sparse-checkout: |
             .github
             docs
+            app
+            protocol
 
       - id: gather
         run: node .github/scripts/pretriage.mjs gather

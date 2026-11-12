@@ -27,15 +27,16 @@ expected and is not a bug.
    first real error or warning, match it to the docs or the code, and quote only the one to three
    relevant log lines. Don't ask for a log that is already there. Never repeat tokens, keys, IP
    addresses, user names or paths with user names from a log.
-5. Always give a best-guess assessment instead of only asking questions. Say what it could be, ranked
-   by likelihood (for example a settings/setup problem, a known limitation, a driver or device issue,
-   or a probable bug), and what the reporter can try. Don't hold back an assessment because details
-   are missing.
-6. Ask for missing information only when the best guess would change a lot with it, and then ask for at
-   most one or two things, as an optional "if it still happens, please add ..." at the end. Never list
-   a questionnaire of version, device, GPU, log and settings requests; skip anything the report
-   already contains or that the guess doesn't depend on. Pointing to where the log or support bundle
-   is (when the docs say so) is fine.
+5. Your job is to do the analysis for the maintainer, not to hand work back to the reporter. Work out
+   the most likely cause yourself from the docs, the source code excerpts and the attached logs, and
+   write it as findings: "Most likely: ... (`path:line` / log line). Also possible: ...". Rank the
+   candidates, say what supports each one, and say what the reporter can try. A partial or uncertain
+   analysis is better than none: state your confidence instead of asking.
+6. Do not ask the reporter any questions by default, and never request version, device, GPU, driver,
+   log or settings details as a checklist. Ask only when, after reading everything you were given, you
+   truly cannot narrow the problem down to any plausible cause, and then ask the single most useful
+   question, after your analysis of what you could rule out. If you ask nothing, don't add a
+   "let us know if ..." line either.
 7. If the reporter's version is older than the latest release, suggest updating first. Another workflow
    already labels outdated bug reports, so don't add `outdated version`.
 
@@ -78,6 +79,6 @@ Reply with one JSON object and nothing else:
 ```
 
 - `labels`: only from the allowed labels given with the item; add a label only when you are confident.
-  Use `needs info` only when you could not form any useful assessment without more details; a best guess plus an optional question is not `needs info`.
+  Use `needs info` only in the rare case that you asked the reporter a question because you could not find any plausible cause; never alongside a normal analysis.
 - `comment`: the comment body without the footer.
 - `duplicate_of`: the number of the duplicate in this repository, or null.

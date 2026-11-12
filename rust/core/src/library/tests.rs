@@ -647,6 +647,28 @@ fn library_settings_turn_launchers_on_by_default_and_read_the_game_folders() {
     assert!(!settings.reads_local(r"c:\games\hades"));
 }
 
+/// Nightjar issue 7: Steam library turned off in the settings showed on again in the Library's
+/// launcher list, whose switch is the scan's state. The scan reads Steam's own switch now.
+#[test]
+fn the_scan_skips_steam_while_steam_library_is_off() {
+    let defaults = Settings::default();
+    assert!(defaults.enabled(Source::Steam), "on by default");
+    for off in ["steam_enabled = false\n", "steam_enabled = \"off\"\n"] {
+        let config = crate::config::Config::parse(off).unwrap();
+        let settings = Settings::from_config(&config);
+        assert!(!settings.enabled(Source::Steam), "{off}");
+        // The same switch as Steam's own sync, and the other launchers stay on.
+        let steam = crate::steam::Settings::from_config(&config);
+        assert_eq!(settings.steam, steam.enabled, "{off}");
+        assert!(settings.enabled(Source::Epic), "{off}");
+    }
+    let on = sync_settings("steam_enabled = true\n");
+    assert!(on.enabled(Source::Steam));
+    // Another launcher's switch is not Steam's.
+    let epic_off = sync_settings("library_epic_enabled = false\n");
+    assert!(epic_off.enabled(Source::Steam) && !epic_off.enabled(Source::Epic));
+}
+
 #[test]
 fn a_game_folder_starts_its_game_not_its_installers_redistributables_or_crash_reporters() {
     let games = local_games();

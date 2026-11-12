@@ -36,6 +36,29 @@ test('each launcher’s Options opens its own group on All settings › Games', 
   for (const key of Object.values(sources.AUTO_SYNC_KEYS)) assert.ok(keys.has(key), key);
 });
 
+// Nightjar issue 7: Steam turned off here came back on after a reload while Steam library stayed
+// off. Each switch saves the same setting its launcher's group on All settings › Games shows.
+test('each launcher’s switch saves the setting its options group shows', () => {
+  const byKey = new Map(schema.settings.map((setting) => [setting.key, setting]));
+  for (const launcher of sources.LAUNCHER_ORDER) {
+    const key = sources.LAUNCHER_KEYS[launcher];
+    if (launcher === 'local') {
+      assert.equal(key, null, 'game folders are on while there are folders');
+      continue;
+    }
+    const setting = byKey.get(key);
+    assert.ok(setting, `${launcher}: ${key} is a setting`);
+    assert.equal(setting.control.kind, 'toggle', key);
+    assert.equal(setting.group, LAUNCHER_GROUPS[launcher], key);
+    assert.equal(setting.default, true, key);
+  }
+  assert.equal(sources.LAUNCHER_KEYS.steam, 'steam_enabled');
+  assert.equal(byKey.get('steam_enabled').label, 'Steam library');
+  // The switch shows the host's scan, which skips a launcher whose setting is off.
+  assert.match(source, /onchange=\{\(on\) => toggle\(key, on\)\}/);
+  assert.match(source, /api\.config\.patch\(\{ \[key\]: on \}\)/);
+});
+
 test('a launcher the PC does not have shows its switch off and disabled', () => {
   const missing = { source: 'gog', name: 'GOG', state: 'unavailable' };
   assert.equal(sources.notInstalled(missing, []), true);

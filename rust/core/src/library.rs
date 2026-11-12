@@ -170,6 +170,9 @@ pub struct Settings {
     pub local_folders: Vec<PathBuf>,
     /// Game folders the folder scan leaves out, by folder name or full path.
     pub local_exclude: Vec<String>,
+    /// Steam's switch, `steam_enabled` as Steam's own sync reads it (`crate::steam::Settings`):
+    /// off, the scan skips Steam as it skips any launcher that is off.
+    pub steam: bool,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -198,17 +201,19 @@ impl Settings {
                 .into_iter()
                 .map(|entry| entry.trim().to_owned())
                 .collect(),
+            steam: crate::steam::Settings::from_config(config).enabled,
         }
     }
     /// A synced source's options; `None` for Steam.
     pub fn options(&self, source: Source) -> Option<&Options> {
         self.sources.get(&source)
     }
-    /// Whether the scan reads `source`. Game folders are read when there are some.
+    /// Whether the scan reads `source`. Game folders are read when there are some, and Steam
+    /// while its own switch is on, so the Library's switch shows the setting.
     pub fn enabled(&self, source: Source) -> bool {
         match source {
             Source::Local => !self.local_folders.is_empty(),
-            Source::Steam => true,
+            Source::Steam => self.steam,
             _ => self.options(source).is_some_and(|options| options.enabled),
         }
     }

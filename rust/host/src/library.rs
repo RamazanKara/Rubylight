@@ -78,7 +78,13 @@ fn scan_installed(settings: library::Settings) -> Scan {
                 .filter(|game| game.installed)
                 .map(|game| format!("steam:{}", game.appid)),
         )
-        .skipping(discovery.skipped())
+        // Steam's installs are read above with its library off too, so its apps still say
+        // whether their game is installed.
+        .skipping(
+            discovery
+                .skipped()
+                .filter(|source| *source != library::Source::Steam),
+        )
         .reading(settings)
         // `0` is Steam's never played; without a read history the time is unknown.
         .playing(

@@ -931,6 +931,53 @@ async fn library_discovery_and_import_require_authentication_and_validate_identi
     }
 }
 
+/// Nightjar issue 7: the Library's Steam switch, drawn from the launcher scan, showed on again
+/// after a reload although Steam library (`steam_enabled`) was off. Both now read one setting.
+#[tokio::test]
+async fn the_library_steam_switch_and_the_steam_library_setting_agree() {
+    /// What the Library shows (Steam's state in the scan, and whether it lists Steam games)
+    /// and what All settings shows (`steam_enabled`), each read as the console reads it.
+    async fn shown(f: &Fixture) -> (Value, bool, Value) {
+        let discovery = value(
+            request(f, "GET", "/api/library/discovery", Value::Null).await,
+            StatusCode::OK,
+        )
+        .await;
+        let state = discovery["sources"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|source| source["source"] == "steam")
+            .map(|source| source["state"].clone())
+            .unwrap();
+        let games = discovery["games"].as_array().unwrap();
+        let steam_games = games.iter().any(|game| game["source"] == "steam");
+        let config = value(
+            request(f, "GET", "/api/config", Value::Null).await,
+            StatusCode::OK,
+        )
+        .await;
+        (state, steam_games, config["steam_enabled"].clone())
+    }
+    let f = Fixture::new();
+    let (state, _, _) = shown(&f).await;
+    assert_ne!(state, "disabled", "on by default");
+    // The Library's switch saves the setting as All settings does, and a reload reads it back.
+    for on in [false, true] {
+        value(
+            request(&f, "PATCH", "/api/config", json!({"steam_enabled": on})).await,
+            StatusCode::OK,
+        )
+        .await;
+        let (state, steam_games, setting) = shown(&f).await;
+        assert_eq!(setting, json!(on));
+        assert_eq!(state == "disabled", !on, "{on}: {state}");
+        if !on {
+            assert!(!steam_games, "an unread launcher lists no games");
+        }
+    }
+}
+
 #[tokio::test]
 async fn the_console_lists_forwarded_usb_devices_and_detaches_them() {
     use butterpollo_core::usb_forward::{UsbMessage, UsbReason, UsbState};

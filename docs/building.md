@@ -180,4 +180,4 @@ python3 -m pip install -r site/requirements.txt
 python3 site/build.py
 ```
 
-Open `_site/index.html`. The build fails on a link to a file that doesn't exist. The landing page's measurements are written into [site/index.html](../site/index.html); when a newer measurement replaces one, update it there too.
+Open `_site/index.html`. The build fails on a broken link in a rendered page, README.md or the landing page: a file that doesn't exist, or a `#fragment` that names no heading or id in its target. The landing page's measurements are written into [site/index.html](../site/index.html); when a newer measurement replaces one, update it there too.

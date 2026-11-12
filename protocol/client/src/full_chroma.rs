@@ -23,7 +23,7 @@ pub enum Unavailable {
 }
 
 impl Unavailable {
-    /// Whether the PC's side ruled it out (Android's `HOST_STAGE`), which picks the notice's wording.
+    /// Whether the PC's side ruled it out, which picks the notice's wording ("with this PC").
     pub fn from_host(self) -> bool {
         matches!(self, Self::Host | Self::NoCommonMode)
     }

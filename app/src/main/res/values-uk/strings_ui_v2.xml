@@ -9,7 +9,7 @@
     <string name="stream_presets_help_title">Про пресети</string>
     <string name="settings_version">Версія %1$s</string>
     <string name="settings_source">Вихідний код і ліцензії</string>
-    <string name="settings_csv_summary">Зберегти останні вимірювання затримки</string>
+    <string name="settings_csv_summary">Зберігає останні вимірювання затримки.</string>
     <string name="host_profile_footer">Збережіть налаштування трансляції, перш ніж вийти. Режим дисплея зберігається окремо кнопкою «Зберегти режим дисплея» в його діалоговому вікні. Зміни застосуються до наступної трансляції.</string>
     <string name="stream_overlay_menu">Оверлей</string>
     <string name="stream_bitrate_manual">Задати бітрейт</string>

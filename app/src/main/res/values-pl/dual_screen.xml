@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_dual_screen">Tryb dwóch ekranów</string>
-    <string name="summary_checkbox_dual_screen">Na urządzeniu z drugim ekranem uruchamia na nim drugi strumień tej samej gry, we własnej rozdzielczości tego ekranu. Drugi strumień to to samo urządzenie co pierwszy, więc komputer paruje się tylko raz. Pierwszy ekran zachowuje dźwięk, kontrolery i mikrofon, a zmiana trybu dotyku na dowolnym z ekranów dotyczy obu. Komputer musi być hostem Rubylight, który to obsługuje, i to on decyduje, który z jego ekranów pokazuje każdy z nich. Obowiązuje od następnego strumienia.</string>
+    <string name="summary_checkbox_dual_screen">Drugi strumień tej samej gry na drugim ekranie.</string>
     <string name="title_resolution_screen2">Rozdzielczość drugiego ekranu</string>
-    <string name="summary_resolution_screen2">Rozdzielczość strumienia drugiego ekranu, niezależna od pierwszego. Przy własnym rozmiarze strumień ma pełną rozdzielczość tego ekranu.</string>
+    <string name="summary_resolution_screen2">Rozdzielczość strumienia drugiego ekranu.</string>
     <string name="resolution_screen2_native">Własny rozmiar drugiego ekranu</string>
     <string name="dual_screen_unavailable">Nie udało się otworzyć drugiego ekranu.</string>
 </resources>

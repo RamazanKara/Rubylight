@@ -99,10 +99,10 @@ pub fn show(ui: &mut egui::Ui, page: &mut Page, lines: &[(&'static str, String)]
         ui.add_space(theme::space::XS);
         ui.add_enabled_ui(!working, |ui| {
             if state.host_menu() {
-                if menu_style::action(ui, Icon::Screen, tr("Open host menu"), None).clicked() {
+                if menu_style::action(ui, Icon::Screen, tr("Open the PC’s menu"), None).clicked() {
                     outcome = Outcome::HostMenu;
                 }
-                menu_style::note(ui, tr("Return to the stream and show the PC's own menu in it."));
+                menu_style::note(ui, tr("Return to the stream and show the PC’s own menu in it."));
             }
             if menu_style::action(ui, Icon::Power, tr("Disconnect"), None).clicked() {
                 outcome = Outcome::Disconnect;
@@ -149,7 +149,7 @@ pub fn show(ui: &mut egui::Ui, page: &mut Page, lines: &[(&'static str, String)]
 
     menu_style::divider(ui);
     // Escape or B on this page goes back to the controls (main.rs), so the key sits here.
-    let back = ui.add_enabled_ui(!working, |ui| menu_style::action_keys(ui, Icon::Sliders, tr("Back to stream controls"), Some(crate::shortcuts::Key::Escape.cap().as_ref())));
+    let back = ui.add_enabled_ui(!working, |ui| menu_style::action_keys(ui, Icon::Sliders, tr("Back to stream menu"), Some(crate::shortcuts::Key::Escape.cap().as_ref())));
     if back.inner.clicked() && outcome == Outcome::Stay {
         outcome = Outcome::Back;
     }
@@ -173,7 +173,7 @@ fn radeon_panel(ui: &mut egui::Ui, page: &Page, state: &State) {
         ui.label(RichText::new(message).color(theme::OUTLINE));
     }
     if panel.gpus.iter().all(|g| g.rows.is_empty()) {
-        ui.label(RichText::new(tr("The host reports no settings.")).color(theme::OUTLINE));
+        ui.label(RichText::new(tr("The PC reports no settings.")).color(theme::OUTLINE));
     }
     let failure = state.radeon.write_failure.as_ref();
     for gpu in &panel.gpus {

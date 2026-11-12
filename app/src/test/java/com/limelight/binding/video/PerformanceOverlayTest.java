@@ -274,7 +274,7 @@ public class PerformanceOverlayTest {
         LinkNoticeStatus status = LinkNoticeStatus.parse(LinkNoticeStatus.STATE_LIMITED, 150_000, 37_500);
         CharSequence compact = PerformanceOverlay.compactText(context, 119.94f, 120, 8, 0.14f, 4.6f);
         CharSequence with = PerformanceOverlay.withLinkNotice(context, compact, status);
-        assertEquals("● 119.9 FPS · 8 ms RTT · 0.1% loss\nHost lowered the bitrate to 38 Mbps: network", with.toString());
+        assertEquals("● 119.9 FPS · 8 ms RTT · 0.1% loss\nPC lowered the bitrate to 38 Mbps: network", with.toString());
         assertEquals(0xff5fd38d, dotColor(with));
         android.text.Spanned spanned = (android.text.Spanned) with;
         android.text.style.ForegroundColorSpan[] amber = spanned.getSpans(compact.length(), with.length(),
@@ -285,18 +285,18 @@ public class PerformanceOverlayTest {
         assertSame(compact, PerformanceOverlay.withLinkNotice(context, compact, null));
         String statistics = PerformanceOverlay.statisticsText(context, "AV1", 60, 60, 20, 0, 8, 1, 2, -1, 4, 1, false).toString();
         assertTrue(PerformanceOverlay.withLinkNotice(context, statistics, status).toString()
-                .endsWith("Decode: 4.00 ms · Display wait: 1.00 ms\nHost lowered the bitrate to 38 Mbps: network"));
+                .endsWith("Decode: 4.00 ms · Display wait: 1.00 ms\nPC lowered the bitrate to 38 Mbps: network"));
     }
 
     @Test
     public void theNoticeSaysMbpsInTheUsersLocaleAndTheCompactDescriptionCarriesIt() {
         LinkNoticeStatus floor = LinkNoticeStatus.parse(LinkNoticeStatus.STATE_FLOOR, 150_000, 4_500);
-        assertEquals("Host lowered the bitrate to 4.5 Mbps: network",
+        assertEquals("PC lowered the bitrate to 4.5 Mbps: network",
                 PerformanceOverlay.linkNoticeText(context(Locale.US), floor));
-        assertEquals("Host hat die Bitrate auf 4,5 Mbit/s gesenkt: Netzwerk",
+        assertEquals("PC hat die Bitrate auf 4,5 Mbit/s gesenkt: Netzwerk",
                 PerformanceOverlay.linkNoticeText(context(Locale.GERMANY), floor));
         CharSequence compact = PerformanceOverlay.compactText(context(Locale.US), 119.94f, 120, 8, 0.14f, 4.6f);
-        assertEquals("Stream good: 119.9 FPS · 8 ms RTT · 0.1% loss. Host lowered the bitrate to 4.5 Mbps: network",
+        assertEquals("Stream good: 119.9 FPS · 8 ms RTT · 0.1% loss. PC lowered the bitrate to 4.5 Mbps: network",
                 PerformanceOverlay.describeCompact(context(Locale.US), compact, floor));
         assertEquals(PerformanceOverlay.describeCompact(context(Locale.US), compact),
                 PerformanceOverlay.describeCompact(context(Locale.US), compact, null));
@@ -464,8 +464,8 @@ public class PerformanceOverlayTest {
                 "{\"id\":11520,\"name\":\"AMD Radeon\",\"metrics\":{\"gpu_usage_percent\":50,\"gpu_temperature_c\":47,\"gpu_power_w\":28}}," +
                 "{\"id\":7,\"name\":\"\",\"metrics\":{\"gpu_usage_percent\":0}}]}");
         String text = PerformanceOverlay.withHardwareMetrics(context(Locale.US), "Stream stats", metrics, false).toString();
-        assertEquals("Stream stats\nHost CPU: 41.6%\nHost GPU 11520: 50.0% · 47.0 °C · 28.0 W\n" +
-                "Host GPU 7: 0.0% · — °C · — W", text);
+        assertEquals("Stream stats\nPC CPU: 41.6%\nPC GPU 11520: 50.0% · 47.0 °C · 28.0 W\n" +
+                "PC GPU 7: 0.0% · — °C · — W", text);
         assertFalse(text.contains("Encoder GPU"));
     }
 
@@ -478,8 +478,8 @@ public class PerformanceOverlayTest {
                 "\"gpu_voltage_mv\":950,\"gpu_fan_rpm\":0,\"gpu_fan_percent\":0," +
                 "\"gpu_power_w\":28,\"gpu_board_power_w\":40,\"gpu_vram_used_mb\":2679,\"gpu_vram_usage_percent\":13.09}}]}");
         String text = PerformanceOverlay.withHardwareMetrics(context(Locale.US), "Decode\np95/p99", metrics, true).toString();
-        assertTrue(text.startsWith("Decode\np95/p99\n\nHost hardware (all GPUs)\nHost CPU: —%"));
-        assertTrue(text.contains("Host sample: 1791712800000 ms since Unix epoch · Interval: 2000 ms"));
+        assertTrue(text.startsWith("Decode\np95/p99\n\nPC hardware (all GPUs)\nPC CPU: —%"));
+        assertTrue(text.contains("PC sample: 1791712800000 ms since Unix epoch · Interval: 2000 ms"));
         assertTrue(text.contains("GPU 4 · AMD Radeon"));
         assertTrue(text.contains("Usage: 20.0% · GPU clock: 1200 MHz · Memory clock: 900 MHz"));
         assertTrue(text.contains("GPU: 47.0 °C · Hotspot: 51.0 °C · Memory: 50.0 °C"));
@@ -493,11 +493,11 @@ public class PerformanceOverlayTest {
         HardwareMetrics metrics = HardwareMetrics.parse("{\"version\":1,\"sampled_at_unix_ms\":1000,\"interval_ms\":1000," +
                 "\"cpu\":{\"cpu_usage_percent\":41.6},\"gpus\":[{\"id\":7,\"name\":\"\",\"metrics\":{}}]}");
         String text = PerformanceOverlay.withHardwareMetrics(context(Locale.GERMANY), "Stream", metrics, true).toString();
-        assertTrue(text.contains("Host-CPU: 41,6%"));
+        assertTrue(text.contains("PC-CPU: 41,6%"));
         assertTrue(text.contains("GPU 7 · Unbenannte GPU"));
         assertTrue(text.contains("Lüfter: — U/min (—%)"));
         HardwareMetrics empty = HardwareMetrics.parse("{\"version\":1,\"sampled_at_unix_ms\":2000,\"interval_ms\":1000,\"cpu\":{},\"gpus\":[]}");
-        assertEquals("Stream\nHost CPU: —%", PerformanceOverlay.withHardwareMetrics(context(Locale.US), "Stream", empty, false).toString());
+        assertEquals("Stream\nPC CPU: —%", PerformanceOverlay.withHardwareMetrics(context(Locale.US), "Stream", empty, false).toString());
         CharSequence base = PerformanceOverlay.statisticsText(context(Locale.US), "AV1", 60, 60, 20, 0, 8, 1, 2, -1, 4, 1, false);
         assertSame(base, PerformanceOverlay.withHardwareMetrics(context(Locale.US), base, null, false));
         assertSame(base, PerformanceOverlay.withHardwareMetrics(context(Locale.US), base, null, true));

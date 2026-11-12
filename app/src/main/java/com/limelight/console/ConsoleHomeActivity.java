@@ -14,20 +14,14 @@ import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.limelight.AppView;
-import com.limelight.FolderBrowserActivity;
 import com.limelight.R;
 import com.limelight.computers.ComputerManagerService;
 import com.limelight.computers.HostActions;
 import com.limelight.computers.PairingWatch;
 import com.limelight.computers.HostMenu;
-import com.limelight.files.FileTransferActivity;
-import com.limelight.grid.PcGridAdapter;
 import com.limelight.nativeapi.ConsoleRepository;
 import com.limelight.nativeapi.ConsoleSnapshot;
-import com.limelight.nativeapi.NativePcPower;
 import com.limelight.nvstream.http.ComputerDetails;
-import com.limelight.preferences.HostStreamSettings;
 import com.limelight.ui.ActionSheet;
 import com.limelight.ui.AppTheme;
 import com.limelight.ui.BackdropView;
@@ -86,7 +80,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     private HomeAmbience ambience;
     private HomeChrome chrome;
     private HomeHints hints;
-    private HostSheet hostSheet;
+    private HostCapsule capsule;
     private HomeSearch search;
     private ShelfAdapter.Env searchEnv;
     private View loading;
@@ -139,7 +133,6 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     });
     /** A "which PC?" question is pending; further taps on games wait for its answer. */
     private boolean choosing;
-    private ActionSheet hostMenu;
     private ActionSheet viewSheet;
     /** Grid or rows, by store or not, the card size: the stored choice, else this device's look. */
     private HomeView view;
@@ -185,6 +178,10 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         findViewById(R.id.console_empty_hosts).setOnClickListener(v -> openHosts());
 
         list = findViewById(R.id.console_list);
+        // A RecyclerView makes itself focusable in touch mode whatever its layout says. A finger that ends key navigation then
+        // hands the keys' focus to the list, which gives it to the first shelf strip below Play; that shelf's snap starts a
+        // scroll, and the list takes the finger's down to stop it, so the tap never reached Play. Keys still focus the list.
+        list.setFocusableInTouchMode(false);
         feed = new HostFeed(this, this);
         pairingBanner = findViewById(R.id.home_pairing_banner);
         pairingBanner.setOnClickListener(v -> hostActions.approvePairing(waitingToPair));
@@ -213,7 +210,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
 
             @Override
             public void onHostOptions(HomeModel.HostCard card) {
-                showHostOptions(card);
+                capsule.showOptions(card);
             }
 
             @Override
@@ -249,6 +246,12 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             setUpGrid(listener);
         }
         chrome = new HomeChrome(this, list, view.layout == HomeView.Layout.ROWS);
+        capsule = new HostCapsule(this, findViewById(R.id.glass_host), findViewById(R.id.home_pc), new HostCapsule.Screen() {
+            @Override public HomeModel model() { return model; }
+            @Override public ComputerDetails host(String uuid) { return feed.host(uuid); }
+            @Override public ComputerManagerService.ComputerManagerBinder binder() { return feed.binder(); }
+            @Override public HostActions actions() { return hostActions; }
+        });
         setUpAmbience();
         setUpViewButton();
         setUpSearch(listener);
@@ -750,7 +753,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             }
             shownSnapshot = snapshot;
             this.model = model;
-            showHostCapsule(model);
+            if (capsule != null) capsule.show(model);
             submitKeepingFocus(model);
             if (search != null) search.onModel();
             // While a saved PC has yet to answer, an empty Home is still loading, not "No PCs yet".
@@ -1205,136 +1208,11 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     }
 
     private void openLibrary(String uuid, String name) {
-        startActivity(new Intent(this, AppView.class)
-                .putExtra(AppView.NAME_EXTRA, name)
-                .putExtra(AppView.UUID_EXTRA, uuid));
+        HostCapsule.openLibrary(this, uuid, name);
     }
 
     /** The list of PCs: pairing and adding a PC. */
     private void openHosts() {
         ShellBar.open(this, ShellBar.Destination.HOME, ShellBar.Destination.PCS);
-    }
-
-    /** The PC's options, the same list as on the PCs screen (only for PCs this device is paired with). */
-    private static HomeModel.HostCard capsuleHost(HomeModel model) {
-        HomeModel.HostCard shown = null;
-        for (HomeModel.HostCard card : model.hosts) {
-            if (shown == null || (card.online && !shown.online)) shown = card;
-        }
-        return shown;
-    }
-
-    /** The PC capsule names the host that answers, else the first; one host opens its options, several a sheet of them. */
-    private void showHostCapsule(HomeModel model) {
-        if (chrome == null) return;
-        HomeModel.HostCard shown = capsuleHost(model);
-        final HomeModel.HostCard only = model.hosts.size() == 1 ? shown : null;
-        chrome.showHost(shown, v -> {
-            if (only != null) showHostOptions(only);
-            else showHostSheet();
-        });
-    }
-
-    /** The PCs behind the capsule in glass, each with what it is doing; one opens its options, and Back leaves the capsule in focus. */
-    private void showHostSheet() {
-        if (hostMenu != null) return;
-        if (hostSheet == null) {
-            hostSheet = HostSheet.attach(this, findViewById(R.id.glass_host), findViewById(R.id.home_pc));
-        }
-        if (hostSheet.isOpen()) return;
-        java.util.List<HostSheet.Row> rows = new java.util.ArrayList<>();
-        HomeModel.HostCard current = chrome == null ? null : capsuleHost(model);
-        for (HomeModel.HostCard card : model.hosts) {
-            rows.add(HostSheet.rowOf(this, card, feed.host(card.uuid), runningGameOf(card.uuid), card == current));
-        }
-        hostSheet.show(rows, this::showHostOptions);
-    }
-
-    private void showHostOptions(HomeModel.HostCard card) {
-        ComputerDetails details = feed.host(card.uuid);
-        if (hostMenu != null || details == null) {
-            return;
-        }
-        String game = runningGameOf(card.uuid);
-        ActionSheet sheet = HostMenu.build(this, details, PcGridAdapter.rowState(details, false), game,
-                action -> onHostAction(details, action));
-        hostMenu = sheet;
-        sheet.setOnDismissListener(dialog -> hostMenu = null);
-        sheet.show();
-    }
-
-    /** The title of the game running on the PC, from what Home shows; null when it does not say. */
-    private String runningGameOf(String hostUuid) {
-        for (HomeModel.GameCard card : model.continuePlaying) {
-            if (card.hostUuid.equals(hostUuid) && card.badge == HomeModel.Badge.RUNNING) {
-                return card.title;
-            }
-        }
-        return null;
-    }
-
-    private void onHostAction(ComputerDetails details, int action) {
-        ComputerManagerService.ComputerManagerBinder binder = feed.binder();
-        switch (action) {
-            case HostMenu.LIBRARY:
-                openLibrary(details.uuid, details.displayName());
-                break;
-            case HostMenu.RESUME:
-            case HostMenu.QUIT:
-                if (binder == null) {
-                    hostActions.showError(details.displayName(), getString(R.string.error_manager_not_running), null);
-                } else if (action == HostMenu.RESUME) {
-                    ServerHelper.doStart(this, HostMenu.runningApp(null, details), details, binder,
-                            LaunchSource.CONSOLE_RESUME);
-                } else {
-                    UiHelper.displayQuitConfirmationDialog(this, () -> ServerHelper.doQuit(this, details,
-                            HostMenu.runningApp(null, details), binder, null), null);
-                }
-                break;
-            case HostMenu.WAKE:
-                hostActions.wake(details);
-                break;
-            case HostMenu.SLEEP:
-                hostActions.sleep(details);
-                break;
-            case HostMenu.RESTART:
-                hostActions.pcPower(details, NativePcPower.Action.RESTART);
-                break;
-            case HostMenu.SHUT_DOWN:
-                hostActions.pcPower(details, NativePcPower.Action.SHUT_DOWN);
-                break;
-            case HostMenu.UPDATE_HOST:
-                hostActions.updateHost(details);
-                break;
-            case HostMenu.PAIR_ANOTHER:
-                hostActions.pairAnother(details);
-                break;
-            case HostMenu.COOP:
-                hostActions.joinCoop(details);
-                break;
-            case HostMenu.MIC_ONLY:
-                hostActions.micOnly(details);
-                break;
-            case HostMenu.FILES:
-                startActivity(FileTransferActivity.forPc(this, details.uuid));
-                break;
-            case HostMenu.PC_SETTINGS:
-                HostStreamSettings.show(this, details.uuid, details.displayName());
-                break;
-            case HostMenu.SHARED_FOLDERS:
-                FolderBrowserActivity.open(this, details);
-                break;
-            case HostMenu.RENAME:
-                hostActions.rename(details);
-                break;
-            case HostMenu.UNPAIR:
-                hostActions.confirmUnpair(details);
-                break;
-            case HostMenu.REMOVE:
-                hostActions.confirmRemove(details);
-                break;
-            default:
-                break;
-        }
     }
 }

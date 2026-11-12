@@ -2,24 +2,24 @@
 <resources>
     <!-- Controller and keyboard options -->
     <string name="title_checkbox_disable_rumble">Titreşimi kapat</string>
-    <string name="summary_checkbox_disable_rumble">Bir oyunun istediği tüm titreşimi durdurur: kumanda ve tetik titreşimi, USB DualSense dokunsal geri bildirimi ve kumandanın yerine bu cihazın titreşmesi.</string>
-    <string name="title_checkbox_mouse_emulation_fixed_step">Sabit adımlı fare hareketi</string>
-    <string name="summary_checkbox_mouse_emulation_fixed_step">Kumandayla fare modunda, imleci her seferinde sabit sayıda piksel hareket ettirmek için çubuğu hareket ettirirken X’e basılı tutun. Adımı iki katına çıkarmak için Y’ye basın; 1’den 128 piksele kadar çıkar, sonra yeniden 1 olur.</string>
+    <string name="summary_checkbox_disable_rumble">Tüm titreşimi, tetik titreşimini ve dokunsal geri bildirimi durdurur.</string>
+    <string name="title_checkbox_mouse_emulation_fixed_step">Hassas kumanda faresi</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">X basılı tutulurken imleci sabit piksel adımlarıyla hareket ettirir.</string>
     <string name="stream_mouse_step">Fare adımı: %1$d px</string>
     <string name="title_checkbox_capture_system_keys">Sistem tuşlarını gönder</string>
-    <string name="summary_checkbox_capture_system_keys">Giriş yakalanırken Esc, Alt+Tab, Windows tuşu ve benzerleri PC’ye gider; birçok Android klavyesinde Esc yerine bulunan Geri tuşu da Esc olarak gider. Android, Alt+Tab ve Windows tuşunu yalnızca Android 16 QPR2 (Aralık 2025) ve sonrasında ve birçok Samsung cihazında uygulamaya bırakır; diğerlerinde kendisi kullanır. Ana ekran, güç ve ses tuşları her zaman Android’de kalır. Yayın menüsünü kendi kısayolu ya da Android’in Geri hareketi veya düğmesiyle açın. Sonraki yayında uygulanır.</string>
+    <string name="summary_checkbox_capture_system_keys">Alt+Tab, Windows tuşu ve benzerleri bilgisayara gider.</string>
     <string name="title_checkbox_system_keys_fullscreen_only">Sistem tuşları yalnızca tam ekranda</string>
-    <string name="summary_checkbox_system_keys_fullscreen_only">Pencere modunda Alt+Tab, Windows tuşu ve benzerleri bu cihazda kalır.</string>
+    <string name="summary_checkbox_system_keys_fullscreen_only">Pencere modunda sistem tuşları bu cihazda kalır.</string>
     <string name="title_checkbox_back_as_meta">Klavyedeki Geri tuşu Windows tuşu gönderir</string>
-    <string name="summary_checkbox_back_as_meta">Fiziksel klavyedeki Geri tuşu Windows tuşunu (Mac’te Command) gönderir. Yayın menüsünü kendi kısayolu, Android’in Geri hareketi veya düğmesi ya da kumanda tuş kombinasyonuyla açın.</string>
-    <string name="title_checkbox_right_alt_as_meta">Sağ Alt Command olarak</string>
-    <string name="summary_checkbox_right_alt_as_meta">Sağ Alt, Mac’in Command olarak kullandığı Windows tuşunu gönderir; böylece Sağ Alt+C kopyalar. Sol Alt değişmez. AltGr ile karakter yazıyorsanız kapalı bırakın.</string>
+    <string name="summary_checkbox_back_as_meta">Fiziksel klavyenin Geri tuşu Windows tuşunu gönderir.</string>
+    <string name="title_checkbox_right_alt_as_meta">Sağ Alt Windows tuşu olarak</string>
+    <string name="summary_checkbox_right_alt_as_meta">Sağ Alt, Mac’in Command olarak kullandığı Windows tuşunu gönderir.</string>
     <string name="title_checkbox_keyboard_follows_text_fields">Klavye metin alanlarını takip eder</string>
-    <string name="summary_checkbox_keyboard_follows_text_fields">Akıştaki bir metin alanı odaklandığında ekran klavyesi o alana uygun olarak açılır: sayı alanı için rakamlar, parola için öneri yok. Alan odağı kaybettiğinde yeniden kapanır. Bağlı bir fiziksel klavye varsa onunla yazmaya devam edilir.</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">Bilgisayarda bir metin alanı odaklandığında ekran klavyesi açılır.</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">Kumanda testi</string>
-    <string name="controller_test_summary">Düğmeleri, çubukları, tetikleri, titreşimi, ışıkları ve hareketi kontrol edin</string>
+    <string name="controller_test_summary">Bir kumandanın gönderdiği düğmeleri, çubukları, tetikleri, titreşimi, ışıkları ve hareketi gösterir.</string>
     <string name="controller_test_open">Kumandayı test et</string>
     <string name="controller_test_hint">Düğmelere basın ve çubukları hareket ettirin. Yön tuşları ve A ile de bu sayfada gezinebilirsiniz; çıkmak için B veya Back’e bir saniye basılı tutun.</string>
     <string name="controller_test_waiting">Bir kumanda bağlayın ve herhangi bir düğmeye basın.</string>
@@ -57,6 +57,6 @@
 
     <!-- USB Switch Pro driver -->
     <string name="title_usb_switch_pro">USB Switch Pro sürücüsü</string>
-    <string name="summary_usb_switch_pro">Kabloyla bağlı Nintendo Switch Pro Controller’ı doğrudan okur; hareket sensörleri, titreşim, Home ve Capture desteklenir.</string>
+    <string name="summary_usb_switch_pro">Kablolu bir Switch Pro Controller’ı hareket, titreşim, Home ve Capture ile okur.</string>
     <string name="usb_switch_pro_denied">USB erişimi yok; Switch Pro Controller Android girişini kullanmaya devam ediyor.\nTekrar denemek için kabloyu yeniden takın.</string>
 </resources>

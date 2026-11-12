@@ -50,7 +50,9 @@ pub(super) fn tile_colors(pair: usize) -> (Color32, Color32) {
 }
 
 /// How many covers fit a row `width` wide, and how wide each is: as many as fit at
-/// [`POSTER_MAX_W`] or less, filling the row exactly.
+/// [`POSTER_MAX_W`] or less, filling the row exactly. The pages use [`grid_up_to`] at the card
+/// size; this is the medium size's.
+#[cfg(test)]
 pub(super) fn grid(width: f32) -> (usize, f32) {
     grid_up_to(width, POSTER_MAX_W)
 }
@@ -209,16 +211,15 @@ pub(super) fn card_line(painter: &egui::Painter, card: Rect, y: f32, text: &str,
     cut
 }
 
-/// What a PC's card says of it: the words, their colour, and the colour of the dot's ring.
+/// What a PC's card says of it: the words, their colour, and the colour of the dot's ring. The words
+/// are the PCs page's own ([`super::pcs::pc_line_of`]), so a PC reads the same on Home.
 pub(super) fn host_status(host: &Host) -> (String, Role, Role) {
+    let words = super::pcs::pc_line_of(host).words().to_owned();
     match (host.reach, host.paired()) {
-        (Reach::Offline, _) => (tr("Offline").to_owned(), OUTLINE, OUTLINE),
-        (Reach::Unknown, _) => (tr("Checking…").to_owned(), ON_SURFACE_VARIANT, ON_SURFACE_VARIANT),
-        (Reach::Online, false) => (tr("Ready to pair").to_owned(), TERTIARY, ON_SURFACE_VARIANT),
-        (Reach::Online, true) => match host.running_app() {
-            Some(_) => (tr("Paired · an app is running").to_owned(), OK, OK),
-            None => (tr("Paired · ready").to_owned(), OK, OK),
-        },
+        (Reach::Offline, _) => (words, OUTLINE, OUTLINE),
+        (Reach::Unknown, _) => (words, ON_SURFACE_VARIANT, ON_SURFACE_VARIANT),
+        (Reach::Online, false) => (words, TERTIARY, ON_SURFACE_VARIANT),
+        (Reach::Online, true) => (words, OK, OK),
     }
 }
 
@@ -245,7 +246,7 @@ pub(super) fn cover_uv(art: Vec2, box_size: Vec2) -> Rect {
 pub(super) fn cover_shapes(ui: &Ui, out: &mut Vec<Shape>, rect: Rect, text_w: f32, r: f32, title: &str, art: Option<&Art>, rim_boost: f32) {
     let ctx = ui.ctx();
     if !high_contrast() {
-        glass::soft(out, ctx, rect.translate(vec2(0.0, t::COVER_SHADOW_Y)), r, t::COVER_SHADOW_BLUR, t::COVER_SHADOW);
+        glass::soft(out, ctx, rect.translate(vec2(0.0, t::COVER_SHADOW_Y)), r, t::COVER_SHADOW_BLUR, shade::COVER_SHADOW.get());
     }
     match art {
         Some(Art::Ready(texture)) => {
@@ -254,7 +255,7 @@ pub(super) fn cover_shapes(ui: &Ui, out: &mut Vec<Shape>, rect: Rect, text_w: f3
             let seconds = if ui.style().animation_time > 0.0 { t::MOTION_COVER_IN_MS as f32 / 1000.0 } else { 0.0 };
             let reveal = ctx.animate_bool_with_time(Id::unique(("cover-in", title)), true, seconds);
             if reveal < 1.0 {
-                glass::solid(out, ctx, rect, r, t::COVER_PLACEHOLDER);
+                glass::solid(out, ctx, rect, r, shade::COVER_PLACEHOLDER.get());
             }
             let tint = Color32::WHITE.gamma_multiply(reveal);
             glass::image(out, ctx, rect, r, texture.id(), cover_uv(texture.size_vec2(), rect.size()), tint);
@@ -263,7 +264,7 @@ pub(super) fn cover_shapes(ui: &Ui, out: &mut Vec<Shape>, rect: Rect, text_w: f3
         // One given up for room shows as one on its way: it is, from its file.
         Some(Art::Loading | Art::Dropped) => {
             ctx.animate_bool_with_time(Id::unique(("cover-in", title)), false, 0.0);
-            glass::solid(out, ctx, rect, r, t::COVER_PLACEHOLDER);
+            glass::solid(out, ctx, rect, r, shade::COVER_PLACEHOLDER.get());
         }
         Some(Art::Missing) | None => tile_shapes(ui, out, rect, text_w, r, title),
     }
@@ -321,7 +322,8 @@ fn tile_shapes(ui: &Ui, out: &mut Vec<Shape>, rect: Rect, text_w: f32, r: f32, t
 pub(super) fn running_dot(out: &mut Vec<Shape>, cover: Rect) {
     let center = cover.right_bottom() - Vec2::splat(18.0);
     out.push(Shape::circle_filled(center, 10.0, SCRIM));
-    out.push(Shape::circle_filled(center, 5.0, *OK));
+    // The disc is dark in every look, so by day too the dot keeps the night's light green.
+    out.push(Shape::circle_filled(center, 5.0, if look() == Look::Day { t::COLOR_OK } else { *OK }));
 }
 
 /// A cover outside a grid: the game page's and a List line's. It takes no focus of its own.
@@ -362,12 +364,58 @@ pub(super) fn bare_poster(ui: &mut Ui, name: &str, art: Option<&Art>, badge: Bad
     cover_slot(ui, name, art, badge, width, false)
 }
 
-/// A place in a grid while the list is on its way: where a cover will land, so nothing moves.
-pub(super) fn cover_placeholder(ui: &mut Ui, width: f32) {
-    let (rect, _) = ui.allocate_exact_size(vec2(width, cover_height(width)), Sense::hover());
+/// A place in a grid while the list is on its way: where a cover will land, so nothing moves. Its
+/// glass is the cover's own placeholder, with a soft light running down it while motion is on; a
+/// `captioned` one keeps the room of the name under it, a short bar there.
+pub(super) fn cover_placeholder(ui: &mut Ui, width: f32, captioned: bool) {
+    let height = cover_height(width);
+    let caption = if captioned { POSTER_CAPTION } else { 0.0 };
+    let (slot, _) = ui.allocate_exact_size(vec2(width, height + caption), Sense::hover());
+    if !ui.is_rect_visible(slot) {
+        return;
+    }
+    let rect = Rect::from_min_size(slot.min, vec2(width, height));
     let mut shapes = Vec::new();
     cover_shapes(ui, &mut shapes, rect, width, t::RADIUS_COVER, "", Some(&Art::Loading), 1.0);
+    shimmer(&mut shapes, ui.ctx(), rect, t::RADIUS_COVER);
+    if captioned {
+        let bar = Rect::from_min_size(pos2(rect.left() + 2.0, rect.bottom() + space::S + 3.0), vec2(width * CAPTION_BAR_SHARE, CAPTION_BAR_H));
+        glass::solid(&mut shapes, ui.ctx(), bar, CAPTION_BAR_H / 2.0, shade::COVER_PLACEHOLDER.get());
+    }
     ui.painter().extend(shapes);
+}
+
+/// A placeholder's name bar: its share of the cover's width and its height.
+const CAPTION_BAR_SHARE: f32 = 0.62;
+const CAPTION_BAR_H: f32 = 10.0;
+/// The light that runs down a placeholder: once in this many seconds, this tall a share of it, this
+/// bright at its middle; the next column's runs a little after.
+const SHIMMER_SECONDS: f64 = 1.6;
+const SHIMMER_BAND: f32 = 0.35;
+const SHIMMER_ALPHA: f32 = 0.07;
+const SHIMMER_LAG_POINTS: f32 = 1600.0;
+const SHIMMER_FRAME_SECONDS: f32 = 1.0 / 30.0;
+
+/// The placeholder's running light: none with reduced motion or in high contrast.
+fn shimmer(out: &mut Vec<Shape>, ctx: &egui::Context, rect: Rect, r: f32) {
+    if !super::spring::motion(ctx) || high_contrast() {
+        return;
+    }
+    let along = (ctx.input(|i| i.time) / SHIMMER_SECONDS + f64::from(rect.left() / SHIMMER_LAG_POINTS)).fract() as f32;
+    let middle = shimmer_middle(along);
+    let stops: Vec<f32> = [-1.0, -0.5, 0.0, 0.5, 1.0].map(|n| middle + n * SHIMMER_BAND).into_iter().filter(|s| *s > 0.0 && *s < 1.0).collect();
+    let light = |p: Pos2| {
+        let off = (((p.y - rect.top()) / rect.height() - middle).abs() / SHIMMER_BAND).min(1.0);
+        Color32::WHITE.gamma_multiply(SHIMMER_ALPHA * (1.0 - off * off))
+    };
+    glass::shaded(out, ctx, rect, r, &stops, &light);
+    ctx.request_repaint_after(std::time::Duration::from_secs_f32(SHIMMER_FRAME_SECONDS));
+}
+
+/// Where the light's middle is, as a share of the placeholder's height, `along` its run: from above
+/// its top to below its foot, so it comes in and leaves whole.
+pub(super) fn shimmer_middle(along: f32) -> f32 {
+    -SHIMMER_BAND + along.clamp(0.0, 1.0) * (1.0 + 2.0 * SHIMMER_BAND)
 }
 
 /// The placeholder's words: a game's name until its art says it.
@@ -481,7 +529,7 @@ pub(super) fn all_tile(ui: &mut Ui, count: usize, said: &str, width: f32) -> Res
     let feel = glass::feel(&ctx, &response, t::FOCUS_SCALE_COVER, t::HOVER_SCALE_COVER);
     let tile = glass::scaled_rect(Rect::from_min_size(rect.min, vec2(width, height)), feel.scale);
     let mut shapes = Vec::new();
-    glass::group(&mut shapes, &ctx, tile, t::RADIUS_COVER, t::TINT_GROUP_FILL);
+    glass::group(&mut shapes, &ctx, tile, t::RADIUS_COVER, shade::TINT_GROUP_FILL.get());
     lift_shapes(&mut shapes, &ctx, tile, t::RADIUS_COVER, feel.hovered, feel.pressed);
     let ink = if feel.hovered || feel.focused { *ON_SURFACE } else { *ON_SURFACE_VARIANT };
     let words = ui.painter().layout_no_wrap(label, semibold(text::BODY), ink);

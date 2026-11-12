@@ -18,11 +18,11 @@ use crate::strings::{en, tr, trf};
 pub fn software_label(caps: &HostCapabilities) -> String {
     let label = match caps.family() {
         Family::Rubylight => return trf("Rubylight {}", &[&caps.host_version().unwrap_or_default()]),
-        Family::Vibepollo => en("Vibepollo-compatible host"),
-        Family::Apollo => en("Apollo-compatible host"),
-        Family::Sunshine => en("Sunshine-compatible host"),
+        Family::Vibepollo => en("Vibepollo-compatible streaming app"),
+        Family::Apollo => en("Apollo-compatible streaming app"),
+        Family::Sunshine => en("Sunshine-compatible streaming app"),
         Family::GameStream => en("NVIDIA GameStream"),
-        Family::Unknown => en("Moonlight-compatible host"),
+        Family::Unknown => en("Moonlight-compatible streaming app"),
     };
     tr(label).to_owned()
 }
@@ -101,7 +101,7 @@ pub fn start_check(remote: &mut RemoteAccess, identity: Option<&Arc<ClientIdenti
 /// address, so it can be opened elsewhere, and the error.
 pub fn open_web_ui(url: &str, open: impl FnOnce(&str) -> Result<(), String>) -> Option<(String, String)> {
     open(url).err().map(|e| {
-        (tr("No browser could open the host's web UI. Copy its address and open it on another device.").to_owned(), format!("{url}\n\n{e}"))
+        (tr("No browser could open the PC’s web UI. Copy its address and open it on another device.").to_owned(), format!("{url}\n\n{e}"))
     })
 }
 
@@ -177,7 +177,7 @@ impl Report {
     }
 }
 
-const FAILED: &str = en("The paired PC could not be verified. Check that it is awake, the host and VPN are running, and the saved address and streaming ports are correct. If pairing changed, pair again at home. This test cannot distinguish a sleeping PC from a blocked route.");
+const FAILED: &str = en("The paired PC could not be verified. Check that it is awake, its streaming app and VPN are running, and the saved address and streaming ports are correct. If pairing changed, pair again at home. This test cannot distinguish a sleeping PC from a blocked route.");
 
 /// RemoteSetupActivity's result texts for one check.
 pub fn report(result: Result<RemoteCheck, Error>) -> Report {
@@ -199,14 +199,14 @@ pub fn report(result: Result<RemoteCheck, Error>) -> Report {
         }
         RemoteOutcome::PermissionDenied => {
             return Report::failed(
-                en("The paired PC responded, but this device cannot view streams. Enable viewing or launching applications for this device in your host's settings or web UI."),
+                en("The paired PC responded, but this device cannot view streams. Enable viewing or launching applications for this device in the PC’s settings or web UI."),
                 None,
             );
         }
         RemoteOutcome::Unreachable(e) => return Report::failed(FAILED, Some(e.to_string())),
     };
     let unknown = (
-        en("Direct or relayed path: unavailable. This host, VPN or connection does not expose a current route classification. Check your VPN's status; low ping alone does not prove a direct path."),
+        en("Direct or relayed path: unavailable. This PC, VPN or connection does not expose a current route classification. Check your VPN’s status; low ping alone does not prove a direct path."),
         en("Unavailable"),
     );
     let ((route, name), error) = match path {
@@ -216,7 +216,7 @@ pub fn report(result: Result<RemoteCheck, Error>) -> Report {
         ),
         Ok(NetworkPath::Relay) => (
             (
-                en("Tailscale reports a DERP relay. It provides connectivity, but streaming speed may be limited. Check Tailscale's connectivity guidance or configure a suitable peer relay."),
+                en("Tailscale reports a DERP relay. It provides connectivity, but streaming speed may be limited. Check Tailscale’s connectivity guidance or configure a suitable peer relay."),
                 en("Relay (DERP)"),
             ),
             None,
@@ -352,10 +352,10 @@ pub(crate) mod tests {
     fn the_software_label_names_the_family_and_rubylights_version() {
         let label = |state: &str, extra: &str| software_label(&info(state, extra).capabilities);
         assert_eq!(label("SUNSHINE_SERVER_FREE", "<RustHostVersion>3.0.0</RustHostVersion>"), "Rubylight 3.0.0");
-        assert_eq!(label("SUNSHINE_SERVER_FREE", "<Permission>1</Permission>"), "Apollo-compatible host");
+        assert_eq!(label("SUNSHINE_SERVER_FREE", "<Permission>1</Permission>"), "Apollo-compatible streaming app");
         assert_eq!(label("MJOLNIR_STATE_FREE", ""), "NVIDIA GameStream");
-        assert_eq!(label("SUNSHINE_SERVER_FREE", ""), "Moonlight-compatible host");
-        assert_eq!(software_label(&HostCapabilities::UNKNOWN), "Moonlight-compatible host");
+        assert_eq!(label("SUNSHINE_SERVER_FREE", ""), "Moonlight-compatible streaming app");
+        assert_eq!(software_label(&HostCapabilities::UNKNOWN), "Moonlight-compatible streaming app");
     }
 
     #[test]
@@ -579,7 +579,7 @@ pub(crate) mod tests {
         assert_eq!(open_web_ui(url, |u| { opened = Some(u.to_owned()); Ok(()) }), None, "nothing to say");
         assert_eq!(opened.as_deref(), Some(url));
         let (title, body) = open_web_ui(url, |_| Err("No handler for https".into())).expect("a message");
-        assert!(title.starts_with("No browser could open the host's web UI."), "{title}");
+        assert!(title.starts_with("No browser could open the PC’s web UI."), "{title}");
         assert_eq!(body, "https://192.0.2.7:47990\n\nNo handler for https", "the link to copy, then the error");
     }
 

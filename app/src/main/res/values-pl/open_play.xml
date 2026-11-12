@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_open_on_start">Po otwarciu Nightjar</string>
-    <string name="summary_open_on_start">Twoje komputery albo 3-sekundowe odliczanie do gry.</string>
+    <string name="summary_open_on_start">Start, twoje komputery albo krótkie odliczanie do gry.</string>
     <string name="open_play_menu">Otwieraj przy uruchomieniu Nightjar</string>
     <string name="open_play_menu_stop">Nie otwieraj przy uruchomieniu Nightjar</string>
     <string name="open_play_countdown">Start na %1$s za %2$d</string>

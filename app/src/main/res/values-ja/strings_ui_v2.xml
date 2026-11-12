@@ -9,7 +9,7 @@
     <string name="stream_presets_help_title">プリセットについて</string>
     <string name="settings_version">バージョン %1$s</string>
     <string name="settings_source">ソースとライセンス</string>
-    <string name="settings_csv_summary">最新の遅延測定結果を保存します</string>
+    <string name="settings_csv_summary">最新の遅延測定結果を保存します。</string>
     <string name="host_profile_footer">画面を離れる前にストリーミング設定を保存してください。表示モードは、そのダイアログの [表示モードを保存] で別途保存されます。変更は次回のストリームから適用されます。</string>
     <string name="stream_overlay_menu">オーバーレイ</string>
     <string name="stream_bitrate_manual">ビットレートを設定</string>

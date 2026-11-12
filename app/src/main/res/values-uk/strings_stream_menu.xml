@@ -6,7 +6,7 @@
     <string name="overlay_compact_rtt">RTT %1$s мс</string>
     <string name="overlay_compact_loss">Втрати %1$s%%</string>
     <string name="overlay_compact_waiting">Очікування відео</string>
-    <string name="link_notice_lowered">Хост знизив бітрейт до %1$s Мбіт/с: мережа</string>
+    <string name="link_notice_lowered">ПК знизив бітрейт до %1$s Мбіт/с: мережа</string>
     <string name="overlay_health_good">Трансляція в нормі</string>
     <string name="overlay_health_fair">Трансляція з проблемами</string>
     <string name="overlay_health_poor">Трансляція погана</string>
@@ -14,7 +14,7 @@
     <string name="stream_section_input">Введення</string>
     <string name="stream_section_display">Дисплей</string>
     <string name="stream_section_quality">Якість</string>
-    <string name="stream_section_host">Хост</string>
+    <string name="stream_section_host">ПК</string>
     <string name="stream_microphone">Мікрофон</string>
     <string name="stream_cursor_show">Показати курсор миші</string>
     <string name="stream_cursor_hide">Сховати курсор миші</string>
@@ -24,8 +24,7 @@
     <string name="stream_quit_game">Закрити гру</string>
     <string name="stream_quit_game_confirm">Закрити гру на ПК?\nНезбережений прогрес буде втрачено.</string>
     <string name="stream_end_session">Завершити сеанс</string>
-    <string name="stream_end_session_confirm">Завершити сеанс трансляції на ПК?
-Гра продовжить працювати.</string>
+    <string name="stream_end_session_confirm">Завершити сеанс на ПК?\nПК поверне собі екран і звук. Гра продовжить працювати на ньому.</string>
     <string name="stream_close_game">Закрити гру</string>
     <string name="stream_close_game_confirm">Закрити гру на ПК?
 Незбережений прогрес буде втрачено.</string>
@@ -55,7 +54,7 @@
     <string name="stream_menu_button_hide">Сховати кнопку меню</string>
     <string name="stream_menu_settings">Меню трансляції</string>
     <string name="title_floating_menu_button">Плавна кнопка меню</string>
-    <string name="summary_floating_menu_button">Кругла кнопка поверх трансляції, що відкриває меню</string>
+    <string name="summary_floating_menu_button">Кругла кнопка поверх трансляції, що відкриває меню.</string>
     <string name="stream_tile_keyboard">Клавіатура</string>
     <string name="stream_tile_pc_keyboard">Клавіатура ПК</string>
     <string name="stream_tile_mouse">Миша</string>

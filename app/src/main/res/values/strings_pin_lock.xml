@@ -2,7 +2,7 @@
 <resources>
     <!-- The row in Settings that opens the PIN lock page -->
     <string name="pin_lock_title">PIN lock</string>
-    <string name="pin_lock_summary">Ask for a PIN to open Nightjar or to start a stream. A forgotten PIN can only be reset by clearing Nightjar\'s app data in Android\'s settings, which also removes your paired PCs.</string>
+    <string name="pin_lock_summary">Asks for a PIN to open Nightjar or to start a stream.</string>
 
     <!-- The PIN lock page -->
     <string name="pin_set">Set PIN</string>
@@ -28,7 +28,7 @@
     <string name="pin_grace_hour">1 hour</string>
     <string name="pin_remove_title">Remove the PIN?</string>
     <string name="pin_remove_message">Nightjar will stop asking for a PIN.</string>
-    <string name="pin_footer">If you forget the PIN, the only way to reset it is to clear Nightjar\'s app data in Android\'s settings. That also removes your paired PCs, so you have to pair them again.</string>
+    <string name="pin_footer">If you forget the PIN, the only way to reset it is to clear Nightjar’s app data in Android’s settings. That also removes your paired PCs, so you have to pair them again.</string>
     <string name="pin_saved">PIN saved</string>
     <string name="pin_removed">PIN removed</string>
 

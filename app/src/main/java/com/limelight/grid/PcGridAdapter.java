@@ -118,9 +118,9 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
                         context.getString(R.string.pc_status_playing, computer.runningGame.getAppName()) :
                         context.getString(R.string.pc_status_playing_unknown);
             case READY:
-                return context.getString(R.string.pc_status_ready);
+                return context.getString(R.string.pc_status_online);
             case NOT_PAIRED:
-                return context.getString(R.string.pc_needs_pairing);
+                return context.getString(R.string.pc_status_not_paired);
             case WAKING:
                 return context.getString(R.string.pc_status_waking);
             case OFFLINE:

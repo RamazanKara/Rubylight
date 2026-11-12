@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="pin_lock_title">PIN 잠금</string>
-    <string name="pin_lock_summary">Nightjar를 열거나 스트림을 시작할 때 PIN을 요청합니다. 잊어버린 PIN은 Android 설정에서 Nightjar의 앱 데이터를 지워야만 초기화할 수 있으며, 이때 페어링된 PC도 함께 삭제됩니다.</string>
+    <string name="pin_lock_summary">Nightjar를 열거나 스트림을 시작할 때 PIN을 요청합니다.</string>
     <string name="pin_set">PIN 설정</string>
     <string name="pin_change">PIN 변경</string>
     <string name="pin_remove">PIN 삭제</string>

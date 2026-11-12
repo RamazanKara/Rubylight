@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_dual_screen">Dual screen mode</string>
-    <string name="summary_checkbox_dual_screen">On a device with a second screen, starts a second stream of the same game on it, at that screen\'s own resolution. The second stream is the same device as the first, so the PC pairs once. The first screen keeps the sound, the controllers and the microphone, and a touch mode change on either screen applies to both. The PC must be a Rubylight host that supports it, and decides which of its screens each one shows. Takes effect on the next stream.</string>
+    <string name="summary_checkbox_dual_screen">A second stream of the same game on a second screen.</string>
     <string name="title_resolution_screen2">Second screen resolution</string>
-    <string name="summary_resolution_screen2">The resolution of the second screen\'s stream, apart from the first screen\'s. Its own size streams at the full resolution of that screen.</string>
-    <string name="resolution_screen2_native">Second screen\'s own size</string>
+    <string name="summary_resolution_screen2">The resolution of the second screen’s stream.</string>
+    <string name="resolution_screen2_native">Second screen’s own size</string>
     <string name="dual_screen_unavailable">The second screen could not be opened.</string>
 
     <string-array name="resolution_screen2_names">

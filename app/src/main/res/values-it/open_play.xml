@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_open_on_start">All’apertura di Nightjar</string>
-    <string name="summary_open_on_start">I tuoi PC o un conto alla rovescia di 3 secondi verso un gioco.</string>
+    <string name="summary_open_on_start">Home, i tuoi PC o un breve conto alla rovescia verso un gioco.</string>
     <string name="open_play_menu">Apri all’avvio di Nightjar</string>
     <string name="open_play_menu_stop">Non aprire più all’avvio di Nightjar</string>
     <string name="open_play_countdown">Avvio su %1$s tra %2$d</string>

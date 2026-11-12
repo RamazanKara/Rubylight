@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_adaptive_quality">Qualidade automática da transmissão</string>
-    <string name="summary_adaptive_quality">Reduz a resolução ou os FPS durante congestionamento prolongado, decodificação lenta ou aquecimento, e depois recupera aos poucos. Usa taxa de bits automática quando compatível. Requer suporte a reconfiguração no host e um decodificador adaptável; indisponível com PyroWave.</string>
-    <string name="title_adaptive_quality_min_resolution">Resolução automática mínima</string>
-    <string name="summary_adaptive_quality_min_resolution">Menor lado curto, mantendo a proporção. A resolução de transmissão selecionada continua sendo o máximo. Uma resolução inicial mais baixa nunca é aumentada por este limite.</string>
-    <string name="title_adaptive_quality_min_fps">Taxa de quadros automática mínima</string>
-    <string name="summary_adaptive_quality_min_fps">Menor FPS permitido. A taxa de quadros de transmissão selecionada continua sendo o máximo. Vale para a qualidade automática, incluindo o modo bateria.</string>
+    <string name="summary_adaptive_quality">Reduz a resolução ou os FPS durante congestionamento prolongado, decodificação lenta ou aquecimento, e depois recupera aos poucos. Usa taxa de bits automática quando compatível. Requer um PC capaz de alterar uma transmissão em andamento e um decodificador adaptável; indisponível com PyroWave.</string>
+    <string name="title_adaptive_quality_min_resolution">Resolução mínima</string>
+    <string name="summary_adaptive_quality_min_resolution">A menor resolução a que a Qualidade automática pode descer.</string>
+    <string name="title_adaptive_quality_min_fps">Taxa de quadros mínima</string>
+    <string name="summary_adaptive_quality_min_fps">A menor taxa de quadros a que a Qualidade automática pode descer.</string>
     <string name="quality_off">Desativado</string>
     <string name="quality_motion">Preservar movimento</string>
     <string name="quality_detail">Preservar detalhes</string>

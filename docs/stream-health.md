@@ -2,7 +2,7 @@
 
 [Documentation](index.md)
 
-**Why did my stream stutter?** explains stutter from measurements Nightjar already collects. Open the stream menu, then **Diagnostics → Why did my stream stutter?** (on Windows and Linux, the stream controls' **Why did my stream stutter?**).
+**Why did my stream stutter?** explains stutter from measurements Nightjar already collects. Open the stream menu, then **Diagnostics → Why did my stream stutter?** (on Windows and Linux, the stream menu's **Why did my stream stutter?**).
 
 The report uses up to 30 seconds of stream measurements, the start times of network stalls from the last 20 minutes, and the current Wi-Fi reading. It does not move the mouse, record video, contact any service, or write a history to disk. Copying the report puts only the displayed evidence and advice on the clipboard.
 
@@ -10,7 +10,7 @@ The report identifies network loss and variation, slow decoding, host processing
 
 Play for a few seconds, then open the report right after a stutter. Sampling continues while menus are open and pauses while the app is in the background or a host action runs. Stage counters older than two seconds are not used, old history expires, and advice is withheld when there is no recent video.
 
-When the network findings repeat and the host supports bitrate changes during a stream (Rubylight 3.0), the report offers **Try a lower bitrate**. It lowers the encoder bitrate by 20%, to no less than 500 kbps, for this session. Play similar content for another 30 seconds, then return and choose **Undo bitrate trial** if nothing improved. The trial is not offered while **Device controls bitrate**, automatic quality or a manual change controls the bitrate. With other hosts the report gives the same findings and advice without the trial.
+When the network findings repeat and the host supports bitrate changes during a stream (Rubylight 3.0), the report offers **Try a lower bitrate**. It lowers the encoder bitrate by 20%, to no less than 500 kbps, for this session. Play similar content for another 30 seconds, then return and choose **Undo bitrate trial** if nothing improved. The trial is not offered while **Lower bitrate when the network is busy**, automatic quality or a manual change controls the bitrate. With other hosts the report gives the same findings and advice without the trial.
 
 ## Wi-Fi facts
 

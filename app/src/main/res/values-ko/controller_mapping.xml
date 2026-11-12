@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="controller_mapping_title">컨트롤러 버튼</string>
-    <string name="controller_mapping_summary">컨트롤러 모델별로 버튼 다시 매핑</string>
+    <string name="controller_mapping_summary">컨트롤러 모델별로 버튼과 스틱을 다시 매핑합니다.</string>
     <string name="controller_mapping_intro">“버튼 매핑”을 탭한 후 다시 매핑할 컨트롤러 버튼을 누르세요.\n변경 사항은 다음 스트림부터 적용됩니다.</string>
     <string name="controller_mapping_waiting">컨트롤러를 연결한 후 “버튼 매핑”을 탭하세요.</string>
     <string name="controller_mapping_unnamed">컨트롤러</string>

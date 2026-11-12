@@ -48,7 +48,7 @@ import com.limelight.binding.audio.MicrophoneCapture;
 import com.limelight.binding.audio.MicrophoneStatus;
 import com.limelight.binding.audio.Surround714;
 import com.limelight.binding.input.InputBatcher;
-import com.limelight.binding.video.PackedFallback;
+import com.limelight.binding.video.SharpColor;
 import com.limelight.binding.video.PyroWaveDecoderRenderer;
 import com.limelight.binding.video.Sdr10Policy;
 import com.limelight.computers.HostNotices;
@@ -690,13 +690,109 @@ public class NvConnection {
         return formats | pyroWave;
     }
 
-    /** Packed full chroma streams 8-bit SDR 4:4:4 for {@code reason}: said once per PC. */
+    /**
+     * A packed stream that asked for HDR came out 8-bit SDR 4:4:4 for {@code reason} (the log's). Sharper
+     * colored text lets HDR win before the launch (SharpColor), so this is the rare handshake that went
+     * another way: said once per PC.
+     */
     static void announcePackedHdrDrop(Context appContext, String uuid, NvConnectionListener listener, String reason) {
         LimeLog.warning("HDR not used with packed full chroma: " + reason);
         if (HostNotices.claim(appContext, uuid, HostNotices.Notice.PACKED_HDR_UNAVAILABLE)) {
-            listener.displayTransientMessage("HDR is off: experimental full chroma cannot run in HDR here (" +
-                    reason + "). The stream is 8-bit SDR 4:4:4.");
+            listener.displayTransientMessage(appContext.getString(R.string.sharp_color_hdr_dropped));
         }
+    }
+
+    /** Native 4:4:4 formats Sharper colored text may add; PyroWave's 4:4:4 is that codec's own choice. */
+    static final int NATIVE_444_FORMATS = MoonBridge.VIDEO_FORMAT_MASK_YUV444 & ~MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE;
+    /** The 10-bit formats 10-bit SDR adds. */
+    static final int SDR10_FORMATS = MoonBridge.VIDEO_FORMAT_H265_MAIN10 | MoonBridge.VIDEO_FORMAT_AV1_MAIN10 |
+            MoonBridge.VIDEO_FORMAT_H265_REXT10_444;
+
+    /**
+     * The request for Sharper colored text from what this start offers ({@code offered}, the decoders'
+     * formats with 4:4:4) and what the PC said. Package-visible for its test.
+     */
+    static SharpColor.Request sharpColorRequest(int offered, boolean sdr10, boolean pyroWave, boolean packedEngine,
+                                                int hostScm, int hostPacked, boolean refusedBefore) {
+        SharpColor.Request request = new SharpColor.Request();
+        int tenBitSdr = sdr10 ? SDR10_FORMATS : 0;
+        request.auto = true;
+        request.hdr = !sdr10 && (offered & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
+        request.sdr10 = sdr10;
+        request.pyroWave = pyroWave;
+        request.packedEngine = packedEngine;
+        request.base = offered & ~NATIVE_444_FORMATS & ~tenBitSdr;
+        request.decodable = offered & (NATIVE_444_FORMATS | tenBitSdr);
+        request.decoderReason = (offered & NATIVE_444_FORMATS) == 0 ? "no 4:4:4 decoder on this device" : "";
+        request.hostScm = hostScm;
+        request.hostPacked = packedEngine ? hostPacked : -1;
+        request.packedRefusedBefore = packedEngine && refusedBefore;
+        return request;
+    }
+
+    /** The formats packed full chroma streams from {@code offered}: HEVC and AV1 4:2:0, 10-bit only for HDR. */
+    static int packedFormats(int offered, boolean hdr) {
+        int formats = offered & (MoonBridge.VIDEO_FORMAT_MASK_H265 | MoonBridge.VIDEO_FORMAT_MASK_AV1) & ~NATIVE_444_FORMATS;
+        return hdr ? formats : formats & ~MoonBridge.VIDEO_FORMAT_MASK_10BIT;
+    }
+
+    /** The formats this start offers after Sharper colored text's {@code pick}. */
+    static int formatsAfter(SharpColor.Pick pick, int offered, boolean hdr) {
+        switch (pick.kind) {
+            case NATIVE: return pick.formats;
+            case PACKED: return packedFormats(offered, hdr);
+            default: return offered & ~NATIVE_444_FORMATS;
+        }
+    }
+
+    /**
+     * Sharper colored text before the launch: native 4:4:4 where both sides have it, else packed full
+     * chroma, else neither (SharpColor, the decision desktop Nightjar makes). Sets this session's packed
+     * choice and returns the formats to offer. Neither, for a reason the player can act on, is said once
+     * per PC; a stream that gets either re-arms that.
+     */
+    private int chooseSharpColor(VideoDecoderRenderer renderer, ComputerDetails details, int offered) {
+        boolean sdr10 = context.streamConfig.isSdr10Bit();
+        boolean packedEngine = context.streamConfig.isPacked444();
+        int hostPacked = -1;
+        boolean refusedBefore = false;
+        if (packedEngine) {
+            // An update of this app or the PC since it refused: it is asked again.
+            HostPackedModes.renew(appContext, details.uuid,
+                    HostPackedModes.stamp(BuildConfig.VERSION_NAME, details.caps.hostVersion()));
+            hostPacked = hostPackedModesBeforeLaunch(appContext, details);
+            refusedBefore = HostPackedModes.refused(appContext, details.uuid);
+        }
+        SharpColor.Request request = sharpColorRequest(offered, sdr10, context.streamConfig.isPyroWaveChosen(),
+                packedEngine, context.serverCodecModeSupport, hostPacked, refusedBefore);
+        final int probeFormats = negotiateVideoFormats(packedFormats(offered, request.hdr), context.serverCodecModeSupport);
+        // Verifying costs a decode: only when the decision reaches packed.
+        SharpColor.Pick pick = SharpColor.decide(request, () -> renderer.preparePacked444Modes(probeFormats,
+                context.negotiatedWidth, context.negotiatedHeight, context.streamConfig.getRefreshRate()));
+        LimeLog.info("Sharper colored text: " + pick);
+        boolean packed = pick.kind == SharpColor.Pick.Kind.PACKED;
+        int formats = formatsAfter(pick, offered, request.hdr);
+        // Packed streams 8-bit unless it carries HDR: 10-bit SDR gives way, as it did to full chroma before.
+        boolean keepSdr10 = sdr10 && !packed;
+        renderer.setPacked444(packed);
+        renderer.setNative444(pick.kind == SharpColor.Pick.Kind.NATIVE);
+        context.streamConfig.applySharpColor(packed, formats, keepSdr10);
+        if (sdr10 && !keepSdr10) {
+            LimeLog.warning("10-bit SDR not used: packed full chroma takes precedence");
+            if (HostNotices.claim(appContext, details.uuid, HostNotices.Notice.SDR10_UNAVAILABLE)) {
+                context.connListener.displayTransientMessage(appContext.getString(R.string.stream_sdr10_unavailable,
+                        appContext.getString(R.string.stream_sdr10_reason_packed)));
+            }
+        }
+        if (pick.worthSaying()) {
+            if (HostNotices.claim(appContext, details.uuid, HostNotices.Notice.PACKED_UNAVAILABLE)) {
+                context.connListener.displayTransientMessage(appContext.getString(pick.fromHost() ?
+                        R.string.sharp_color_unavailable_pc : R.string.sharp_color_unavailable_device));
+            }
+        } else if (pick.kind != SharpColor.Pick.Kind.WITHOUT) {
+            HostNotices.reset(appContext, details.uuid, HostNotices.Notice.PACKED_UNAVAILABLE);
+        }
+        return formats;
     }
 
     /**
@@ -713,17 +809,6 @@ public class NvConnection {
         } else if (!dropAfter.equals(dropAtLaunch)) {
             announcePackedHdrDrop(appContext, uuid, listener, dropAfter);
         }
-    }
-
-    // Why this start ended before the launch for full chroma's sake, else null.
-    private volatile PackedFallback.Unavailable packedUnavailable;
-
-    /**
-     * Whether this start's full chroma failure came before anything was launched on the PC: the
-     * stream can then simply be started again without it, instead of resuming a running game.
-     */
-    public boolean packedRefusedBeforeLaunch() {
-        return packedUnavailable != null;
     }
 
     /**
@@ -925,6 +1010,9 @@ public class NvConnection {
             }
 
             int offeredFormats = context.streamConfig.getSupportedVideoFormats();
+            if (context.streamConfig.isSharpColor()) {
+                offeredFormats = chooseSharpColor(renderer, details, offeredFormats);
+            }
             int commonFormats = negotiateVideoFormats(offeredFormats, context.serverCodecModeSupport);
             // The pick order ranks Main10 above native 4:4:4, so when both are possible with this PC,
             // 4:4:4 is kept by leaving the 10-bit formats out before negotiating.
@@ -961,24 +1049,8 @@ public class NvConnection {
                 // profile 10).
                 context.negotiatedVideoFormats = hdrFormatVideoFormats;
             }
-            if (context.streamConfig.isPacked444()) {
-                // Before the launch: afterwards the only way out is to tear the half-started stream
-                // down and resume the game that was just launched for nothing.
-                final int packedFormats = context.negotiatedVideoFormats;
-                // An update of this app or the PC since it refused: it is asked again.
-                HostPackedModes.renew(appContext, details.uuid,
-                        HostPackedModes.stamp(BuildConfig.VERSION_NAME, details.caps.hostVersion()));
-                packedUnavailable = PackedFallback.beforeLaunch(
-                        PreferenceConfiguration.readPreferences(appContext).rustEngine, hostPacked,
-                        HostPackedModes.refused(appContext, details.uuid),
-                        () -> renderer.preparePacked444Modes(packedFormats, context.negotiatedWidth,
-                                context.negotiatedHeight, context.streamConfig.getRefreshRate()));
-                if (packedUnavailable != null) {
-                    LimeLog.warning("Full chroma is unavailable before the launch (" + packedUnavailable +
-                            "): PC modes " + hostPacked + ", formats 0x" + Integer.toHexString(packedFormats));
-                    return false;
-                }
-            }
+            // Packed full chroma was decided before negotiating (chooseSharpColor), so a stream that
+            // cannot have it starts without it instead of launching and being refused.
             // The decoder for the negotiated format and HDR format sets the reference-frame and slice capabilities.
             context.videoCapabilities = renderer.getCapabilities(context.negotiatedVideoFormats, context.hdrFormat);
             if (pyroWaveHdrLost(commonFormats, context.negotiatedVideoFormats)) {
@@ -1384,16 +1456,10 @@ public class NvConnection {
                     }
                     acquired = true;
                     if (!startApp(videoDecoderRenderer)) {
-                        PackedFallback.Unavailable packed = packedUnavailable;
                         if (stopRequested || context.launchActionCompleted) {
                             return;
                         }
-                        if (packed != null) {
-                            // Nothing was launched; the listener starts this stream again without full chroma.
-                            context.connListener.stageFailed(packed.stage, 0, MoonBridge.CLIENT_ERROR_PACKED_444_REFUSED);
-                        } else {
-                            context.connListener.stageFailed(appName, 0, 0);
-                        }
+                        context.connListener.stageFailed(appName, 0, 0);
                         return;
                     }
                     if (stopRequested) {

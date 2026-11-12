@@ -289,6 +289,8 @@ impl Gui {
         if self.glass.set_over_video(over_video) {
             self.chain.release();
         }
+        // The stream menu and overlay keep the night look in every theme.
+        crate::theme::set_over_video(&self.ctx, over_video);
     }
 
     /// Tells this pass's glass its tier.

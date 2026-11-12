@@ -166,7 +166,7 @@ impl<C: Clipboard> Sync<C> {
             Ok(text) => text,
             Err(error) => {
                 eprintln!("nightjar: clipboard sync: could not read the clipboard: {error}");
-                let toast = self.tell(TOLD_READ, tr("Clipboard sync could not read this device's clipboard."));
+                let toast = self.tell(TOLD_READ, tr("Clipboard sync could not read this device’s clipboard."));
                 return Step { send: None, toast };
             }
         };
@@ -193,7 +193,7 @@ impl<C: Clipboard> Sync<C> {
                     Ok(()) => Step::default(),
                     Err(error) => {
                         eprintln!("nightjar: clipboard sync: could not put the PC's copy on the clipboard: {error}");
-                        let toast = self.tell(TOLD_WRITE, tr("Clipboard sync could not put the PC's copy on this device's clipboard."));
+                        let toast = self.tell(TOLD_WRITE, tr("Clipboard sync could not put the PC’s copy on this device’s clipboard."));
                         Step { send: None, toast }
                     }
                 };

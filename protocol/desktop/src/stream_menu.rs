@@ -35,7 +35,7 @@ pub enum Page {
 impl Page {
     pub fn title(&self) -> &'static str {
         match self {
-            Page::Grid => tr("Stream controls"),
+            Page::Grid => tr("Stream menu"),
             Page::Shortcuts => tr("Shortcuts"),
             Page::More => tr("More"),
             Page::Quality => tr("Quality"),
@@ -67,8 +67,9 @@ pub struct Available {
     pub host_audio: bool,
     pub controller_audio: bool,
     pub usb: bool,
-    /// The ways out that end the PC's session or game, beside Disconnect: End session and Close
-    /// or Quit game as the Session and graphics page offers them, Quit game on a PC without it.
+    /// The ways out that end the PC's session or game, beside Disconnect: End session (a More row)
+    /// and Close or Quit game as the Session and graphics page offers them, Quit game on a PC
+    /// without it.
     pub exits: Vec<HostExit>,
 }
 
@@ -122,7 +123,7 @@ pub fn offers(a: &Available) -> Vec<Offer> {
     offers
 }
 
-/// The model's footer ID for a way out.
+/// The model's ID for a way out: Quit game's in the footer, End session's under More.
 pub fn exit_id(exit: HostExit) -> &'static str {
     match exit {
         HostExit::End => "end_host_session",
@@ -169,7 +170,7 @@ pub fn button_cap(layout: &Layout, way: Leave) -> Option<&'static str> {
 
 /// What the desktop's stream menu can give a controller button, for its setting: the ids and how
 /// they read. A desktop has no on-screen keyboard or controls, so those are left out.
-pub const ASSIGNABLE: [(&str, &str); 12] = [
+pub const ASSIGNABLE: [(&str, &str); 11] = [
     ("controller_mouse", en("Mouse")),
     ("overlay", en("Overlay")),
     ("shortcuts", en("Shortcuts")),
@@ -180,7 +181,6 @@ pub const ASSIGNABLE: [(&str, &str); 12] = [
     ("server_commands", en("PC commands")),
     ("native_page", en("Session and graphics")),
     ("disconnect", en("Disconnect")),
-    ("end_host_session", en("End session")),
     ("quit_game", en("Quit game")),
 ];
 
@@ -305,8 +305,8 @@ pub fn grid(ui: &mut Ui, layout: &Layout, saved: &Shortcuts, hotkey: Option<Hotk
     pressed.or(picked.map(|index| chosen(&layout.grid[index])))
 }
 
-/// Under the grid: the ways out side by side, Disconnect first. Closing the menu is the head's round
-/// close, so it isn't one of them here.
+/// Under the grid: the ways out side by side, Disconnect and Quit game. Closing the menu is the head's
+/// round close, so it isn't one of them here, and End session is a row under More.
 pub fn footer(ui: &mut Ui, layout: &Layout) -> Option<Leave> {
     ui.add_space(space::M);
     let mut picked = None;
@@ -345,6 +345,11 @@ pub fn footer(ui: &mut Ui, layout: &Layout) -> Option<Leave> {
 /// Some(false) to go back to the grid.
 pub fn confirm(ui: &mut Ui, exit: HostExit, focus_first: bool) -> Option<bool> {
     ask(ui, tr(exit.confirm()), tr(exit.label()), focus_first)
+}
+
+/// Where Cancel on a question goes: End session is asked from More, the rest from the first page.
+pub fn back_from_confirm(exit: HostExit) -> Page {
+    if exit == HostExit::End { Page::More } else { Page::Grid }
 }
 
 /// Asks before Disconnect run from a controller button, as [`confirm`] does.
@@ -639,9 +644,9 @@ mod tests {
             assert!(!label(id).is_empty());
         }
         assert_eq!(layout.grid[layout.grid.len() - 2..], [Cell::Shortcut(0), Cell::Add]);
-        assert_eq!(layout.footer, ["close", "disconnect", "end_host_session", "close_game"]);
+        assert_eq!(layout.footer, ["close", "disconnect", "close_game"]);
         assert_eq!(layout.more, ["picture", "night_mode", "image_clipboard_send", "image_clipboard_receive", "usb_devices",
-            "controller_audio", "export_statistics", "help", "reconnect"]);
+            "controller_audio", "export_statistics", "help", "reconnect", "end_host_session"]);
         for built_in in format::BUILT_INS {
             assert!(!built_in_label(built_in.id).is_empty());
         }
@@ -672,7 +677,7 @@ mod tests {
         named.push((model::ADD, en("Add shortcut")));
         named.push((model::CLOSE, en("Return to stream")));
         named.push(("disconnect", en("Disconnect")));
-        named.extend([HostExit::End, HostExit::CloseGame, HostExit::QuitApp].map(|exit| (exit_id(exit), exit.label())));
+        named.extend([HostExit::CloseGame, HostExit::QuitApp].map(|exit| (exit_id(exit), exit.label())));
         let (english, german) = (android_tile_labels("values"), android_tile_labels("values-de"));
         for (id, text) in named {
             let model = model::label(id).unwrap_or_else(|| panic!("{id} has no label in the model"));
@@ -721,19 +726,31 @@ mod tests {
     }
 
     /// nightjar#63: every way out the model may put in the footer runs on the desktop (no footer ID
-    /// it cannot draw), Disconnect first and the ways that end the PC's game after it.
+    /// it cannot draw), Disconnect first and Quit game after it. End session, which leaves the game
+    /// running, is More's last row instead of a third way out beside them.
     #[test]
     fn every_way_out_the_desktop_offers_runs_from_the_footer() {
         for exits in [vec![], vec![HostExit::QuitApp], vec![HostExit::End, HostExit::QuitApp], vec![HostExit::End, HostExit::CloseGame]] {
             let layout = layout(&Available { exits: exits.clone(), ..everything() }, 0);
             let leaves: Vec<_> = layout.footer.iter().map(|id| leave(id).unwrap_or_else(|| panic!("{id} has no way to run"))).collect();
-            let want: Vec<_> = [Leave::Close, Leave::Disconnect].into_iter().chain(exits.into_iter().map(Leave::Exit)).collect();
+            let want: Vec<_> = [Leave::Close, Leave::Disconnect].into_iter().chain(exits.iter().copied().filter(|e| *e != HostExit::End).map(Leave::Exit)).collect();
             assert_eq!(leaves, want);
+            assert_eq!(layout.more.last() == Some(&"end_host_session"), exits.contains(&HostExit::End), "{exits:?}");
         }
         assert_eq!(leave("end_session"), None, "a remote monitor's End session is Android's");
-        for exit in [HostExit::End, HostExit::CloseGame, HostExit::QuitApp] {
+        for exit in [HostExit::CloseGame, HostExit::QuitApp] {
             assert_eq!(model::tile(exit_id(exit)).map(|t| t.place), Some(model::Place::Footer));
         }
+        assert_eq!(model::tile(exit_id(HostExit::End)).map(|t| t.place), Some(model::Place::More));
+    }
+
+    /// Cancel on End session's question goes back to More, where it was asked; the footer's ways
+    /// out go back to the first page.
+    #[test]
+    fn cancel_goes_back_to_where_the_question_was_asked() {
+        assert_eq!(back_from_confirm(HostExit::End), Page::More);
+        assert_eq!(back_from_confirm(HostExit::CloseGame), Page::Grid);
+        assert_eq!(back_from_confirm(HostExit::QuitApp), Page::Grid);
     }
 
     /// One frame in the menu's window: each named widget's place, and the focused one's name.
@@ -741,7 +758,7 @@ mod tests {
         let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1280.0, 800.0))), ..Default::default() };
         let mut add = Some(add);
         let mut output = ctx.run_ui(input, |ui| {
-            menu_style::show(ui.ctx(), "Stream controls", "footer-test", |ui| (add.take().unwrap())(ui));
+            menu_style::show(ui.ctx(), "Stream menu", "footer-test", |ui| (add.take().unwrap())(ui));
         });
         output.textures_delta.clear();
         let tree = output.platform_output.accesskit_update.expect("AccessKit is on");
@@ -778,7 +795,7 @@ mod tests {
             };
             let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1280.0, 800.0))), events, ..Default::default() };
             let mut output = ctx.run_ui(input, |ui| {
-                menu_style::show(ui.ctx(), "Stream controls", "glow-test", |ui| {
+                menu_style::show(ui.ctx(), "Stream menu", "glow-test", |ui| {
                     menu_style::head(ui, "Racing Game", "1080p");
                     let reserve = menu_style::pinned_room(ui.ctx(), "glow-footer");
                     // As the real menu asks it.
@@ -818,7 +835,7 @@ mod tests {
         let last = said.iter().position(|on| on.starts_with("Quit game")).expect("Quit game");
         assert_eq!(said.get(last + 1), Some(&"Return to stream"), "after the last way out: {said:?}");
         assert!(said.get(last + 2).is_some_and(|on| on.starts_with("Mouse")), "{said:?}");
-        for way in ["Return to stream", "Disconnect", "End session", "Quit game"] {
+        for way in ["Return to stream", "Disconnect", "Quit game"] {
             assert!(buttons.iter().any(|b| b.starts_with(way)), "{way} in {buttons:?}");
         }
         assert!(buttons.len() > 8, "the tiles too: {buttons:?}");
@@ -831,8 +848,8 @@ mod tests {
         assert!((reach - crate::ui::design_tokens::FOCUS_HALO_BLUR).abs() < 1.0, "outside a menu the glow keeps its reach: {reach}");
     }
 
-    /// Return to stream across the width, and under it Disconnect and the game's ways out side by
-    /// side in equal widths, as Starwire's menu has them.
+    /// Disconnect and Quit game side by side in equal widths, as Starwire's menu has them; End
+    /// session is not a third one.
     #[test]
     fn the_ways_out_sit_side_by_side_across_the_panel() {
         crate::theme::own_palette();
@@ -848,12 +865,11 @@ mod tests {
             .0;
         }
         let find = |name: &str| nodes.iter().find(|(label, _)| label.starts_with(name)).map(|(_, r)| *r).unwrap_or_else(|| panic!("{name} in {nodes:#?}"));
-        let (disconnect, end, close) = (find("Disconnect"), find("End session"), find("Quit game"));
-        for other in [end, close] {
-            assert!((other.top() - disconnect.top()).abs() < 1.0, "one row: {other:?} beside {disconnect:?}");
-            assert!((other.width() - disconnect.width()).abs() < 1.5, "equal widths");
-        }
-        assert!(disconnect.right() < end.left() && end.right() < close.left(), "Disconnect, End session, Quit game");
+        let (disconnect, close) = (find("Disconnect"), find("Quit game"));
+        assert!((close.top() - disconnect.top()).abs() < 1.0, "one row: {close:?} beside {disconnect:?}");
+        assert!((close.width() - disconnect.width()).abs() < 1.5, "equal widths");
+        assert!(disconnect.right() < close.left(), "Disconnect, then Quit game");
+        assert!(!nodes.iter().any(|(label, _)| label.starts_with("End session")), "End session is under More");
         assert!(!nodes.iter().any(|(label, _)| label.starts_with("Return to stream")), "the head's round close does that");
         let spoken = nodes.iter().find(|(label, _)| label.starts_with("Disconnect")).unwrap().0.clone();
         assert!(spoken.starts_with("Disconnect, "), "Disconnect's keys are read out: {spoken}");

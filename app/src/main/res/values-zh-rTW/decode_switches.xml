@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_submit_hint">加快影格交付</string>
-    <string name="summary_submit_hint">效能提示也涵蓋將影格交給解碼器的執行緒。</string>
+    <string name="summary_submit_hint">效能提示也涵蓋向解碼器送入資料的執行緒。</string>
     <string name="title_covering_decoder_size">為折疊準備解碼器</string>
-    <string name="summary_covering_decoder_size">預先依另一個螢幕和旋轉後的尺寸設定解碼器，折疊或旋轉時不必重新啟動。</string>
+    <string name="summary_covering_decoder_size">依另一個螢幕設定解碼器大小，折疊時不必重新啟動。</string>
     <string name="title_pyrowave_preacquire">PyroWave 提前取得螢幕影像</string>
-    <string name="summary_pyrowave_preacquire">關閉影格調步時，在每個 PyroWave 影格到達前先取得下一張螢幕影像。</string>
+    <string name="summary_pyrowave_preacquire">在每個 PyroWave 影格到達前先取得下一張螢幕影像。</string>
     <string name="title_codec_direct">影片資料直達解碼器</string>
-    <string name="summary_codec_direct">每個影格只複製一次到解碼器，省去中間副本。僅限新串流引擎。</string>
+    <string name="summary_codec_direct">每個影格只複製一次到解碼器。</string>
     <string name="title_receive_decode_priority">接收使用解碼器優先順序</string>
-    <string name="summary_receive_decode_priority">新串流引擎：接收影片並交給解碼器的執行緒以解碼器的優先順序執行。</string>
+    <string name="summary_receive_decode_priority">接收影片的執行緒以解碼器的優先順序執行。</string>
 </resources>

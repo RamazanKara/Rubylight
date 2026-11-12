@@ -470,7 +470,7 @@ impl Drop for GpuDecoder {
 }
 
 fn check_config(config: GpuConfig) -> Result<(), String> {
-    if config.slots == 0 || config.width == 0 || config.height == 0 || (!config.chroma444 && (config.width % 2 != 0 || config.height % 2 != 0)) {
+    if config.slots == 0 || config.width == 0 || config.height == 0 || (!config.chroma444 && (!config.width.is_multiple_of(2) || !config.height.is_multiple_of(2))) {
         return Err(format!("PyroWave GPU decoding: bad picture {}x{} with {} plane sets", config.width, config.height, config.slots));
     }
     Ok(())

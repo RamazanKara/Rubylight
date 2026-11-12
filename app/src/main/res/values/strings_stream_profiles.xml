@@ -67,7 +67,7 @@
 
     <!-- Bitrate on mobile data (Settings → Video) -->
     <string name="title_mobile_bitrate">Bitrate on mobile data</string>
-    <string name="summary_mobile_bitrate">Caps the bitrate when a stream starts on mobile data or on Wi-Fi that Android marks as metered, such as a phone’s hotspot. It caps every profile, PC and game value too. Off uses the same bitrate as on other networks.</string>
+    <string name="summary_mobile_bitrate">The highest bitrate a stream uses on mobile data or a metered network.</string>
     <string name="mobile_bitrate_off">Off</string>
 
     <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->
@@ -97,7 +97,7 @@
     <string name="layers_from_pc">set for this PC</string>
     <string name="layers_from_game">set for this game</string>
     <string name="layers_from_mobile_limit">mobile data limit</string>
-    <string name="layers_pacing_vrr">Adaptive refresh is on, so the stream uses Lowest latency.</string>
+    <string name="layers_pacing_vrr">Variable refresh rate is on, so the stream uses Lowest latency.</string>
 
     <!-- In the stream -->
     <string name="layers_applied">Settings: %1$s</string>
@@ -119,7 +119,7 @@
     <string name="game_preset_smoothness">Smoothness</string>
     <string name="game_preset_smoothness_summary">Sets the smoothest frame pacing, which holds frames back and adds delay, and turns adaptive refresh off for this game. Bitrate is unchanged.</string>
     <string name="game_preset_quality">Quality</string>
-    <string name="game_preset_quality_summary" formatted="false">Sets the bitrate to 150% of the PC’s, or of the main settings’ if the PC has none, up to the host limit. Frame pacing and adaptive refresh are unchanged; on a weak connection the larger frames can add delay.</string>
+    <string name="game_preset_quality_summary" formatted="false">Sets the bitrate to 150% of the PC’s, or of the main settings’ if the PC has none, up to the PC’s limit. Frame pacing and adaptive refresh are unchanged; on a weak connection the larger frames can add delay.</string>
     <string name="game_preset_custom">Custom</string>
     <string name="game_preset_custom_summary">Your own values, set below.</string>
 </resources>

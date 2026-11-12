@@ -9,7 +9,7 @@
     <string name="stream_presets_help_title">Sobre as predefinições</string>
     <string name="settings_version">Versão %1$s</string>
     <string name="settings_source">Código-fonte e licenças</string>
-    <string name="settings_csv_summary">Salvar as medições de latência mais recentes</string>
+    <string name="settings_csv_summary">Salva as medições de latência mais recentes.</string>
     <string name="host_profile_footer">Salve as configurações de transmissão antes de sair. O modo de exibição é salvo separadamente com Salvar modo de exibição na caixa de diálogo dele. As alterações valem para a próxima transmissão.</string>
     <string name="stream_overlay_menu">Sobreposição</string>
     <string name="stream_bitrate_manual">Definir taxa de bits</string>

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_display_queue_recovery">Recuperar o atraso da fila de exibição</string>
-    <string name="summary_display_queue_recovery">Com o ritmo de quadros Menor latência ou Equilibrado: quando a tela mantém um quadro esperando uma atualização inteira a mais do que esta transmissão precisa, um quadro é pulado para eliminar esse atraso. Cada pulo é verificado, e isso para na transmissão se os pulos não mudarem nada. Somente em dispositivos que informam quando os quadros são exibidos.</string>
+    <string name="summary_display_queue_recovery">Pula um quadro quando a tela segura os quadros por uma atualização a mais que o necessário.</string>
 </resources>

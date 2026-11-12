@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">Enviar imagem da área de transferência ao host</string>
-    <string name="stream_clipboard_image_receive">Copiar imagem da área de transferência do host</string>
+    <string name="stream_clipboard_image_send">Enviar imagem da área de transferência ao PC</string>
+    <string name="stream_clipboard_image_receive">Copiar imagem da área de transferência do PC</string>
     <string name="stream_clipboard_image_empty">A área de transferência não tem imagem</string>
-    <string name="stream_clipboard_image_sent">Imagem da área de transferência enviada ao host</string>
-    <string name="stream_clipboard_image_none">A área de transferência do host não tem imagem</string>
-    <string name="stream_clipboard_image_received">Imagem do host copiada para a área de transferência</string>
-    <string name="clipboard_image_too_large">A imagem é grande demais para a área de transferência do host</string>
-    <string name="clipboard_image_too_large_here">A imagem do host é grande demais para ser copiada para este dispositivo</string>
+    <string name="stream_clipboard_image_sent">Imagem da área de transferência enviada ao PC</string>
+    <string name="stream_clipboard_image_none">A área de transferência do PC não tem imagem</string>
+    <string name="stream_clipboard_image_received">Imagem do PC copiada para a área de transferência</string>
+    <string name="clipboard_image_too_large">A imagem é grande demais para a área de transferência do PC</string>
+    <string name="clipboard_image_too_large_here">A imagem do PC é grande demais para ser copiada para este dispositivo</string>
     <string name="clipboard_image_not_png">Não foi possível ler a imagem</string>
-    <string name="clipboard_image_no_host">Este host não pode compartilhar imagens da área de transferência</string>
-    <string name="clipboard_image_forbidden">O host não permite que este dispositivo use a área de transferência dele</string>
-    <string name="clipboard_image_unsupported">O host não conseguiu converter esta imagem</string>
+    <string name="clipboard_image_no_host">Este PC não pode compartilhar imagens da área de transferência</string>
+    <string name="clipboard_image_forbidden">O PC não permite que este dispositivo use a área de transferência dele</string>
+    <string name="clipboard_image_unsupported">O PC não conseguiu converter esta imagem</string>
     <string name="stream_clipboard_not_copied">Texto não copiado: a transmissão foi encerrada</string>
     <string name="stream_clipboard_image_not_copied">Imagem não copiada: a transmissão foi encerrada</string>
     <string name="folders_title">Pastas compartilhadas</string>
@@ -48,7 +48,7 @@
     <string name="folders_no_console_user">Ninguém está conectado no PC.</string>
     <string name="folders_busy">Outra transferência deste dispositivo está em andamento. Tente novamente quando ela terminar.</string>
     <string name="folders_size_unknown">O tamanho do arquivo é desconhecido, então ele não pode ser enviado.</string>
-    <string name="folders_unsupported">Este PC não oferece pastas compartilhadas: o host é antigo demais ou ainda não compartilha nenhuma. Compartilhe uma na interface web do PC.</string>
+    <string name="folders_unsupported">Este PC não oferece pastas compartilhadas: o app de transmissão dele é antigo demais ou ainda não compartilha nenhuma. Compartilhe uma na interface web do PC.</string>
     <string name="folders_save_lost">O arquivo a salvar se perdeu enquanto a caixa de salvamento estava aberta. Nada foi salvo.</string>
     <string name="folders_partial_left">%1$s Um arquivo parcial ficou em %2$s.</string>
     <string name="folders_bad_path">O Nightjar não pode abrir este caminho: %1$s</string>

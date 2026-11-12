@@ -69,7 +69,7 @@
 
     <!-- Bitrate on mobile data (Settings → Video) -->
     <string name="title_mobile_bitrate">Битрейт в мобильном интернете</string>
-    <string name="summary_mobile_bitrate">Ограничивает битрейт, когда трансляция запускается в мобильном интернете или в сети Wi-Fi, которую Android отмечает как лимитную, например в точке доступа телефона. Ограничение действует и на значения профилей, ПК и игр. «Выкл.» — тот же битрейт, что и в других сетях.</string>
+    <string name="summary_mobile_bitrate">Наибольший битрейт трансляции в мобильном интернете или лимитной сети.</string>
     <string name="mobile_bitrate_off">Выкл.</string>
 
     <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->
@@ -101,7 +101,7 @@
     <string name="layers_from_pc">задано для этого ПК</string>
     <string name="layers_from_game">задано для этой игры</string>
     <string name="layers_from_mobile_limit">лимит для мобильного интернета</string>
-    <string name="layers_pacing_vrr">Адаптивная частота включена, поэтому трансляция использует режим «Минимальная задержка».</string>
+    <string name="layers_pacing_vrr">Переменная частота обновления включена, поэтому трансляция использует режим «Минимальная задержка».</string>
 
     <!-- In the stream -->
     <string name="layers_applied">Настройки: %1$s</string>
@@ -123,7 +123,7 @@
     <string name="game_preset_smoothness">Плавность</string>
     <string name="game_preset_smoothness_summary">Устанавливает самый плавный pacing кадров, который удерживает кадры и добавляет задержку, и отключает адаптивную частоту обновления для этой игры. Битрейт не меняется.</string>
     <string name="game_preset_quality">Качество</string>
-    <string name="game_preset_quality_summary" formatted="false">Устанавливает битрейт в 150% от значения ПК (или основных настроек, если у ПК его нет) в пределах лимита хоста. Pacing кадров и адаптивная частота обновления не меняются; при слабом соединении более крупные кадры могут добавить задержку.</string>
+    <string name="game_preset_quality_summary" formatted="false">Устанавливает битрейт в 150% от значения ПК (или основных настроек, если у ПК его нет) в пределах лимита ПК. Pacing кадров и адаптивная частота обновления не меняются; при слабом соединении более крупные кадры могут добавить задержку.</string>
     <string name="game_preset_custom">Свой</string>
     <string name="game_preset_custom_summary">Ваши собственные значения, заданные ниже.</string>
 </resources>

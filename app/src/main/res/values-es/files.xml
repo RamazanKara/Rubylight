@@ -30,11 +30,11 @@
     <string name="files_no_upload_permission">Este dispositivo no puede enviar archivos a este PC. En el PC, abre la página «Devices» de la interfaz web y permite «Upload files» para él.</string>
     <string name="files_no_download_permission">Este dispositivo no puede descargar archivos de este PC. En el PC, abre la página «Devices» de la interfaz web y permite «Download files» para él.</string>
     <string name="files_off">La transferencia de archivos está desactivada en este PC. Actívala en la interfaz web del PC, en «File transfer».</string>
-    <string name="files_unavailable">El host de este PC no tiene transferencia de archivos.</string>
+    <string name="files_unavailable">La aplicación de transmisión de este PC no tiene transferencia de archivos.</string>
     <string name="files_no_library">Esta versión de Nightjar no puede transferir archivos.</string>
     <string name="files_offline">El PC no está en línea.</string>
     <string name="files_pick_pc">¿A qué PC enviar?</string>
-    <string name="files_no_pc">No hay ningún PC vinculado en línea. Primero activa o vincula uno en la lista de PC.</string>
+    <string name="files_no_pc">No hay ningún PC vinculado en línea. Primero usa «Activar» o vincula uno en la lista de PC.</string>
     <string name="files_waiting_to_send">Archivos pendientes de envío: %1$d. Se enviarán cuando este dispositivo pueda enviar archivos.</string>
     <plurals name="files_share_refused">
         <item quantity="one">%1$d elemento compartido no se envió: solo se pueden enviar archivos de otra app.</item>

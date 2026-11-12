@@ -4,7 +4,7 @@
     <string name="health_intro">Amostras ativas: %1$d. Os dados cobrem os últimos 30 segundos. Várias etapas podem estar lentas ao mesmo tempo; estas observações sugerem causas, não um diagnóstico garantido. Nenhum vídeo ou informação pessoal é registrado.</string>
     <string name="health_insufficient">Não há vídeo recente suficiente para avaliar. Jogue por alguns segundos com o menu fechado e volte logo após um travamento.</string>
     <string name="health_no_issue">Nenhum gargalo repetido foi observado nas medições disponíveis. Picos curtos e etapas não medidas ainda podem causar um travamento.</string>
-    <string name="health_network">Rede: perda de quadros ou variação de ida e volta repetidas. Tente uma taxa de bits menor, um host com cabo ou uma conexão Wi-Fi menos congestionada.</string>
+    <string name="health_network">Rede: perda de quadros ou variação de ida e volta repetidas. Tente uma taxa de bits menor, um PC com cabo ou uma conexão Wi-Fi menos congestionada.</string>
     <string name="health_decoder">Decodificação: a saída levou repetidamente pelo menos um intervalo de quadro. Tente uma resolução ou taxa de quadros menor; reduzir só a taxa de bits pode não ajudar.</string>
     <string name="health_host">Host: as amostras de processamento mais lentas excederam o intervalo de quadro. Compare a carga do jogo/GPU e um limite de quadros menor no jogo. Esta medição inclui mais do que a codificação.</string>
     <string name="health_presentation">Apresentação: os quadros foram liberados mais rápido do que foram exibidos, e chegaram atrasados à tela. Compare os modos de ritmo de quadros e a taxa de atualização da tela.</string>
@@ -14,9 +14,9 @@
     <string name="health_trial_help">Um teste de taxa de bits altera apenas esta sessão. Compare outros 30 segundos de jogo semelhante e volte aqui para desfazê-lo. Alterações manuais ou automáticas da taxa de bits substituem o teste.</string>
     <string name="health_try">Testar uma taxa de bits menor</string>
     <string name="health_undo">Desfazer teste de taxa de bits</string>
-    <string name="health_bitrate_unavailable">O host não informou a taxa de bits atual do codificador. O teste não foi aplicado.</string>
-    <string name="health_trial_replaced">A taxa de bits do host mudou desde o teste. A ação de desfazer foi cancelada para preservar essa alteração.</string>
+    <string name="health_bitrate_unavailable">O PC não informou a taxa de bits atual do codificador. O teste não foi aplicado.</string>
+    <string name="health_trial_replaced">A taxa de bits do PC mudou desde o teste. A ação de desfazer foi cancelada para preservar essa alteração.</string>
     <string name="health_bitrate_minimum">O codificador já está na taxa de bits mínima de teste. Nada foi alterado.</string>
     <string name="health_periodic">Travamentos repetidos: %2$d travamentos de rede nos últimos 20 minutos, a cada %1$s, aproximadamente. Um ritmo constante assim geralmente vem de buscas de Wi-Fi em segundo plano neste dispositivo ou no PC. Para reduzi-las:\n• Android: Configurações → Local → Serviços de localização, desative a Busca por Wi-Fi e a Busca por Bluetooth.\n• Android: deixe ativada a opção Opções do desenvolvedor → Limitação de busca por Wi-Fi.\n• Durante a transmissão, feche apps que procuram redes ou dispositivos próximos.\n• PC: conecte-o por cabo ou pare as ferramentas que buscam redes Wi-Fi.\nO Nightjar já mantém o bloqueio de Wi-Fi de baixa latência do Android durante a transmissão, o que pede ao sistema para adiar as buscas; alguns dispositivos buscam mesmo assim.</string>
-    <string name="health_bursts">Rajadas: em %1$d dos últimos %2$d segundos, a rede segurou quadros e entregou vários de uma vez, embora o host os tenha enviado a tempo; um cabo ou um canal Wi-Fi de 5 ou 6 GHz menos congestionado ajuda.</string>
+    <string name="health_bursts">Rajadas: em %1$d dos últimos %2$d segundos, a rede segurou quadros e entregou vários de uma vez, embora o PC os tenha enviado a tempo; um cabo ou um canal Wi-Fi de 5 ou 6 GHz menos congestionado ajuda.</string>
 </resources>

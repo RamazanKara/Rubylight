@@ -442,7 +442,9 @@ final class GameConnection {
         boolean sdr10Av1 = mediaStream && game.decoderRenderer.isAv1Main10SdrSupported();
         Sdr10Policy.Refusal sdr10Refusal = Sdr10Policy.refusal(mediaStream, game.prefConfig.enableSdr10Bit, willStreamHdr,
                 sdr10Hevc, sdr10Av1, game.prefConfig.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE,
-                game.prefConfig.experimentalPacked444);
+                // Sharper colored text picks native 4:4:4 or packed with the PC (NvConnection), and gives
+                // 10-bit SDR way only when it packs.
+                false);
         game.streamSdr10 = Sdr10Policy.formats(sdr10Refusal, sdr10Hevc, sdr10Av1) != 0;
         game.decoderRenderer.setSdr10Requested(game.streamSdr10);
         if (Sdr10Policy.worthSaying(sdr10Refusal)) {
@@ -463,6 +465,10 @@ final class GameConnection {
             // disabled for games that don't properly support detection
             // of gamepads removed and replugged at runtime.
             gamepadMask = 1;
+        }
+        if (!game.prefConfig.sendControllers) {
+            // Controllers set to Off: the PC sees none (ControllerHandler sends no physical controller).
+            gamepadMask = 0;
         }
         if (game.prefConfig.onscreenController) {
             // If we're using OSC, always set at least gamepad 1.
@@ -538,7 +544,10 @@ final class GameConnection {
                 .setRemoteConfiguration(StreamConfiguration.STREAM_CFG_AUTO) // NvConnection will perform LAN and VPN detection
                 .setSupportedVideoFormats(supportedVideoFormats)
                 .setSdr10Bit(game.streamSdr10)
-                .setPacked444(game.prefConfig.experimentalPacked444)
+                // Packed full chroma only ever through Sharper colored text's decision before the launch.
+                .setPacked444(mediaStream && game.prefConfig.experimentalPacked444 && game.prefConfig.rustEngine)
+                .setSharpColor(mediaStream && (game.prefConfig.enableYuv444 || game.prefConfig.experimentalPacked444),
+                        game.prefConfig.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE)
                 .setAttachedGamepadMask(gamepadMask)
                 .setClientRefreshRateX100(Math.round(game.desiredRefreshRate * 100))
                 .setVirtualDisplay(!smallStream && game.prefConfig.virtualDisplay, game.prefConfig.virtualDisplayScale)
@@ -958,20 +967,17 @@ final class GameConnection {
                 }
                 // Once per session: the replacement starts without full chroma. A refusal in a session
                 // already without it (never expected: it does not ask) shows the error as usual.
-                // Ruled out before the launch: nothing runs on the PC yet, so the same start is simply made again.
                 // Refused in the handshake after the launch: the same start made again finds the game it just
-                // launched running and resumes it, without the recovery's delay and resume-only rules.
-                if (packedRefused && game.conn != null && PackedFallback.restartsAsTheSameStart(
-                        game.conn.packedRefusedBeforeLaunch(), game.app == null ||
-                                game.app.getControl() != NvApp.Control.NONE || game.app.isMicOnly())) {
-                    boolean afterLaunch = !game.conn.packedRefusedBeforeLaunch();
-                    String why = !afterLaunch ? "Full chroma unavailable before the launch (" + stage + ")" :
-                            "Full chroma refused at stream start (" + Game.terminationDescription(errorCode) +
-                                    (game.connectionErrorMessage != null ? "): " + game.connectionErrorMessage : ")");
-                    if (game.streamRecovery.restartWithoutPackedChroma(why, PackedFallback.refusedToast(stage), afterLaunch)) return;
+                // launched running and resumes it, without the recovery's delay and resume-only rules. (What
+                // cannot run is known before the launch, where Sharper colored text decides not to ask.)
+                if (packedRefused && game.conn != null && PackedFallback.restartsAsTheSameStart(game.app == null ||
+                        game.app.getControl() != NvApp.Control.NONE || game.app.isMicOnly())) {
+                    String why = "Full chroma refused at stream start (" + Game.terminationDescription(errorCode) +
+                            (game.connectionErrorMessage != null ? "): " + game.connectionErrorMessage : ")");
+                    if (game.streamRecovery.restartWithoutPackedChroma(why, game.getString(PackedFallback.refusedToast(stage)))) return;
                 } else if (packedRefused && game.streamRecovery.reconnectWithoutPackedChroma("Full chroma refused at stream start (" +
                         Game.terminationDescription(errorCode) + (game.connectionErrorMessage != null ?
-                        "): " + game.connectionErrorMessage : ")"), PackedFallback.refusedToast(stage))) return;
+                        "): " + game.connectionErrorMessage : ")"), game.getString(PackedFallback.refusedToast(stage)))) return;
                 if (transientRecoveryFailure && game.streamRecovery.tryAutomaticRecovery()) return;
                 if (game.spinner != null) {
                     game.spinner.dismiss();

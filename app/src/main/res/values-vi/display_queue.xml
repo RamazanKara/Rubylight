@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_display_queue_recovery">Lấy lại độ trễ hàng đợi màn hình</string>
-    <string name="summary_display_queue_recovery">Với nhịp khung hình Độ trễ thấp nhất hoặc Cân bằng: khi màn hình giữ một khung hình chờ lâu hơn một lần làm mới so với mức luồng này cần, một khung hình sẽ được bỏ qua để loại bỏ độ trễ đó. Mỗi lần bỏ qua đều được kiểm tra và sẽ dừng cho luồng nếu không thay đổi gì. Chỉ trên thiết bị có báo thời điểm khung hình được hiển thị.</string>
+    <string name="summary_display_queue_recovery">Bỏ qua một khung hình khi màn hình giữ khung hình lâu hơn cần thiết một lần làm mới.</string>
 </resources>

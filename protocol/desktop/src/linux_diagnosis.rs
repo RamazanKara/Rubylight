@@ -107,10 +107,10 @@ impl Diagnosis {
         use crate::strings::{tr, trf};
         Some(match self {
             Self::MesaWithoutCodecs { fedora: true } => {
-                tr("Fedora's Mesa leaves out H.264 and HEVC decoding. Install mesa-va-drivers-freeworld from RPM Fusion, or use the Nightjar Flatpak.").to_owned()
+                tr("Fedora’s Mesa leaves out H.264 and HEVC decoding. Install mesa-va-drivers-freeworld from RPM Fusion, or use the Nightjar Flatpak.").to_owned()
             }
             Self::MesaWithoutCodecs { fedora: false } => {
-                tr("This system's VA-API driver decodes neither H.264 nor HEVC. Install your distribution's full Mesa VA drivers, or use the Nightjar Flatpak.").to_owned()
+                tr("This system’s VA-API driver decodes neither H.264 nor HEVC. Install your distribution’s full Mesa VA drivers, or use the Nightjar Flatpak.").to_owned()
             }
             Self::NvidiaWithoutVulkanVideo => return None,
             Self::FlatpakWithoutNvidiaGl { extension } => trf("The Flatpak lacks {}, the NVIDIA driver it needs. Run flatpak update to install it.", &[extension]),
@@ -192,7 +192,7 @@ pub fn packed_modes_that_fit(modes: u8, coded: (u32, u32), order: &[PackedDecode
 pub fn packed_too_large(from: u8, to: u8, coded: (u32, u32), max: (u32, u32)) -> (String, Option<String>) {
     let (coded, max) = (format!("{}x{}", coded.0, coded.1), format!("{}x{}", max.0, max.1));
     let line = format!("full chroma: the packed {coded} picture is larger than the decoder's {max}, packed modes {from:#x} -> {to:#x}");
-    let toast = (to == 0).then(|| crate::strings::trf("Full chroma needs a {0} picture, larger than this decoder's {1}, so the stream is 4:2:0. A lower resolution keeps full chroma.", &[&coded, &max]));
+    let toast = (to == 0).then(|| crate::strings::trf("Sharper colored text needs a {0} picture, larger than this decoder’s {1}, so the stream is 4:2:0. A lower resolution keeps sharper colored text.", &[&coded, &max]));
     (line, toast)
 }
 

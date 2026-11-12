@@ -1,18 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_auto_bitrate_enable">Attiva «Il dispositivo controlla il bitrate»</string>
-    <string name="stream_auto_bitrate_disable">Disattiva «Il dispositivo controlla il bitrate»</string>
     <string name="stream_auto_bitrate_help">Adatta il bitrate alla connessione.\nSalvato per questo PC; le modifiche manuali lo disattivano.</string>
     <string name="stream_pyrowave_bitrate_help">Regola PyroWave automaticamente per questo PC.\nIl bitrate manuale lo disattiva.</string>
     <string name="stream_auto_bitrate_failed">Errore temporaneo nell’aggiornamento del bitrate. Nuovo tentativo automatico.</string>
-    <string name="stream_auto_bitrate_unavailable">Questo PC non comunica il bitrate dello stream. «Il dispositivo controlla il bitrate» è disattivato per questo stream.</string>
-    <string name="stream_auto_bitrate_status">Il dispositivo controlla il bitrate: %1$.1f Mbps</string>
-    <string name="stream_bitrate_busy">Host occupato. Riprova tra poco.</string>
+    <string name="stream_auto_bitrate_unavailable">Questo PC non comunica il bitrate dello stream. «Riduci il bitrate se la rete è congestionata» è disattivato per questo stream.</string>
+    <string name="stream_auto_bitrate_status">Bitrate attuale: %1$.1f Mbps</string>
+    <string name="stream_bitrate_busy">PC occupato. Riprova tra poco.</string>
     <string name="stream_host_abr_failed">Il PC non ha avviato il suo bitrate automatico: %1$s</string>
-    <string name="title_auto_bitrate">Il dispositivo controlla il bitrate</string>
-    <string name="dialog_auto_bitrate">Abbassa il bitrate quando la connessione o il dispositivo non reggono e lo rialza quando la situazione migliora. Non supera mai il bitrate dello streaming. È il valore predefinito per tutti i PC; il menu dello streaming può cambiarlo per un solo PC.</string>
+    <string name="title_auto_bitrate">Riduci il bitrate se la rete è congestionata</string>
+    <string name="dialog_auto_bitrate">Abbassa il bitrate quando la connessione resta indietro e lo rialza quando si riprende.</string>
     <string name="title_thermal_protection">Protezione termica</string>
-    <string name="dialog_thermal_protection">Riduce bitrate e risoluzione finché il dispositivo è caldo. Telefoni e chiavette TV si scaldano spesso durante lo streaming, quindi è disattivata per impostazione predefinita: un bitrate più basso rende l\'immagine meno nitida.</string>
+    <string name="dialog_thermal_protection">Riduce bitrate e risoluzione finché il dispositivo è caldo.</string>
     <string name="title_automatic_bitrate">Bitrate automatico</string>
-    <string name="dialog_automatic_bitrate">Nightjar sceglie il bitrate in base a risoluzione, frequenza dei fotogrammi e codec, e lo cambia insieme a loro. Spostare il cursore del bitrate lo disattiva.</string>
+    <string name="dialog_automatic_bitrate">Nightjar sceglie il bitrate in base a risoluzione, frame rate e codec.</string>
 </resources>

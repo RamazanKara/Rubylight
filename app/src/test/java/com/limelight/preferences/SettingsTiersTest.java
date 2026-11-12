@@ -106,22 +106,41 @@ public class SettingsTiersTest {
             for (String key : main) {
                 assertTrue(key + " is a row of " + section, sections.get(section).contains(key));
             }
-            assertTrue("the More row ends " + section, sections.get(section).get(sections.get(section).size() - 1)
-                    .equals(StreamSettings.MORE_PREFIX + section));
+            // The main rows come first, in the tier's order (Customize's switches sit among them), then the More row.
+            List<String> rows = sections.get(section);
+            List<String> first = new ArrayList<>(rows.subList(0, rows.indexOf(StreamSettings.MORE_PREFIX + section)));
+            first.removeAll(StreamSettings.LOW_LATENCY_CUSTOMIZED);
+            assertEquals(section + " opens on its main rows, then More", main, first);
         }
     }
 
     @Test
-    public void aMainRowNeverDependsOnAFoldedOne() throws Exception {
+    public void noRowDeclaresADependencyBecauseRowsThatDoNotApplyAreHidden() throws Exception {
         Map<String, String> dependencies = new LinkedHashMap<>();
-        Map<String, List<String>> sections = sectionKeys(dependencies);
-        for (Map.Entry<String, List<String>> section : sections.entrySet()) {
-            for (String key : section.getValue()) {
-                String dependency = dependencies.get(key);
-                if (dependency == null || StreamSettings.foldsInSection(context(), section.getKey(), key)) continue;
-                assertFalse(key + " shows while " + dependency + " folds",
-                        StreamSettings.foldsInSection(context(), section.getKey(), dependency));
-            }
+        sectionKeys(dependencies);
+        assertEquals("rows hide through SettingRules instead of greying", new LinkedHashMap<>(), dependencies);
+    }
+
+    /** A row hidden because its switch is off leaves the More count, and comes back in its place when it is on. */
+    @Test
+    public void aHiddenDependentRowLeavesTheMoreCountAndComesBack() {
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            StreamSettings screen = controller.get();
+            android.content.SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context());
+            prefs.edit().putBoolean("checkbox_dual_screen", false).commit();
+            StreamSettings.SettingsFragment fragment = openFolded(screen, "streaming");
+            String off = String.valueOf(fragment.findPreference("more_streaming").getTitle());
+            click(fragment.findPreference("more_streaming"));
+            settle(screen);
+            assertFalse(visible(fragment).contains("list_resolution_screen2"));
+            prefs.edit().putBoolean("checkbox_dual_screen", true).commit();
+            settle(screen);
+            List<String> shown = visible(fragment);
+            assertEquals("back right after its switch", shown.indexOf("checkbox_dual_screen") + 1,
+                    shown.indexOf("list_resolution_screen2"));
+            click(fragment.findPreference("more_streaming"));
+            settle(screen);
+            assertNotEquals("the count follows", off, String.valueOf(fragment.findPreference("more_streaming").getTitle()));
         }
     }
 
@@ -257,7 +276,7 @@ public class SettingsTiersTest {
             assertTrue(StreamSettings.foldsInSection(screen, "streaming", key));
             assertFalse(visible(openFolded(screen, "streaming")).contains(key));
 
-            StreamSettings.SettingsFragment results = search(screen, "Ride out network drops");
+            StreamSettings.SettingsFragment results = search(screen, "Wait through network dropouts");
             Preference result = results.getPreferenceScreen().findPreference("search_result_" + key);
             assertNotNull("search finds the folded row", result);
             assertNull("search lists no More row", results.getPreferenceScreen().findPreference("search_result_more_streaming"));
@@ -309,7 +328,7 @@ public class SettingsTiersTest {
             PreferenceGroup diagnostics = (PreferenceGroup) ((StreamSettings.SettingsFragment) shown(screen))
                     .getPreferenceScreen().findPreference("category_advanced_diagnostics");
             assertEquals("checkbox_link_probe", SettingsStructureTest.keys(diagnostics).get(0));
-            assertEquals("Link test before the first bitrate", String.valueOf(diagnostics.findPreference("checkbox_link_probe").getTitle()));
+            assertEquals("Test the link before starting", String.valueOf(diagnostics.findPreference("checkbox_link_probe").getTitle()));
             assertEquals("USB Switch Pro driver", screen.getString(R.string.title_usb_switch_pro));
         }
     }
@@ -332,7 +351,7 @@ public class SettingsTiersTest {
             assertNull(rowSummary(video, "checkbox_auto_bitrate"));
             auto.setChecked(false);
 
-            Preference result = search(screen, "Device controls bitrate").getPreferenceScreen()
+            Preference result = search(screen, "Lower bitrate when the network is busy").getPreferenceScreen()
                     .findPreference("search_result_checkbox_auto_bitrate");
             assertNotNull(result);
             assertEquals(line, String.valueOf(result.getSummary()));
@@ -349,8 +368,8 @@ public class SettingsTiersTest {
             Preference loss = SettingsStructureTest.open(screen, "debug").findPreference("checkbox_rate_change_bitrate");
             assertNotNull(loss);
             assertEquals("category_debug", loss.getParent().getKey());
-            assertEquals("Loss-based bitrate (Rust engine)", String.valueOf(loss.getTitle()));
-            assertEquals("Off: uses Device controls bitrate. On: this device adjusts from frame loss and network delay.",
+            assertEquals("Lower bitrate when frames are lost", String.valueOf(loss.getTitle()));
+            assertEquals("Off: Lower bitrate when the network is busy applies. On: this device adjusts from frame loss and network delay.",
                     String.valueOf(loss.getSummary()));
 
             PreferenceScreen results = search(screen, "bitrate").getPreferenceScreen();
@@ -358,8 +377,8 @@ public class SettingsTiersTest {
             Preference lossResult = results.findPreference("search_result_checkbox_rate_change_bitrate");
             assertNotNull(device);
             assertNotNull("search finds the Debug row", lossResult);
-            assertEquals("Device controls bitrate", String.valueOf(device.getTitle()));
-            assertEquals("Loss-based bitrate (Rust engine)", String.valueOf(lossResult.getTitle()));
+            assertEquals("Lower bitrate when the network is busy", String.valueOf(device.getTitle()));
+            assertEquals("Lower bitrate when frames are lost", String.valueOf(lossResult.getTitle()));
         }
     }
 

@@ -32,7 +32,7 @@ fn magic_packet(mac: &str) -> Result<[u8; 102], String> {
         *octet = u8::from_str_radix(&mac[offset..offset + 2], 16).unwrap();
     }
     let mut packet = [0xff; 102];
-    for chunk in packet[6..].chunks_exact_mut(6) {
+    for chunk in packet[6..].as_chunks_mut::<6>().0 {
         chunk.copy_from_slice(&address);
     }
     Ok(packet)
@@ -368,7 +368,7 @@ mod tests {
     fn packet_repeats_the_mac_sixteen_times() {
         let packet = magic_packet("00:1a:2B:3c:4D:5e").unwrap();
         assert_eq!(&packet[..6], &[255; 6]);
-        for chunk in packet[6..].chunks_exact(6) {
+        for chunk in packet[6..].as_chunks::<6>().0 {
             assert_eq!(chunk, &[0, 0x1a, 0x2b, 0x3c, 0x4d, 0x5e]);
         }
         assert_eq!(magic_packet("00-1a-2b-3c-4d-5e").unwrap(), packet);

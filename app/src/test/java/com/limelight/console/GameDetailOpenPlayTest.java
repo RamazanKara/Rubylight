@@ -403,7 +403,7 @@ public class GameDetailOpenPlayTest {
 
     @Test
     public void aGameThePcCannotLaunchSaysThat() throws Exception {
-        assertEquals("Tower can't start this game", failureWith(library("r2", portalWith("\"launchable\":false"))));
+        assertEquals("Tower can’t start this game", failureWith(library("r2", portalWith("\"launchable\":false"))));
     }
 
     /** Portal as the library lists it, with this field where it says it is installed. */

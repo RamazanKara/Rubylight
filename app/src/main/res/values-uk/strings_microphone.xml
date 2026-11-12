@@ -1,26 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_enable_mic">Передавати мікрофон на ПК</string>
-    <string name="summary_checkbox_enable_mic">Ігри та чати на ПК чутимуть мікрофон цього пристрою, якщо хост його приймає</string>
+    <string name="summary_checkbox_enable_mic">Передає звук мікрофона цього пристрою на ПК.</string>
     <string name="mic_permission_denied">Доступ до мікрофона не надано, тому мікрофон залишається вимкненим. Дозвольте його в налаштуваннях Android, щоб говорити через ПК.</string>
     <string name="mic_status_sending">Мікрофон: передається</string>
     <string name="mic_status_muted">Мікрофон: вимкнено звук</string>
-    <string name="mic_status_not_offered">Мікрофон: хост не підтримує</string>
+    <string name="mic_status_not_offered">Мікрофон: ПК не підтримує</string>
     <string name="mic_status_unavailable">Мікрофон: недоступний</string>
     <string name="mic_status_no_permission">Мікрофон: потрібен дозвіл</string>
     <string name="title_list_mic_echo_cancel">Придушення луни</string>
-    <string name="summary_list_mic_echo_cancel">Не пускає звук гри з динаміка в мікрофон. «Автоматично» вмикає його з динаміком і вимикає з навушниками та Bluetooth-гарнітурами, а також стежить за перемиканням під час трансляції.</string>
+    <string name="summary_list_mic_echo_cancel">Не пускає звук трансляції з динаміків у мікрофон.</string>
     <string name="mic_echo_auto">Автоматично</string>
     <string name="mic_echo_on">Увімк.</string>
     <string name="mic_echo_off">Вимк.</string>
     <string name="title_checkbox_mic_noise_suppression">Шумозаглушення</string>
-    <string name="summary_checkbox_mic_noise_suppression">Прибирає з мікрофона рівний фоновий шум, наприклад вентилятора</string>
+    <string name="summary_checkbox_mic_noise_suppression">Прибирає з мікрофона рівний фоновий шум.</string>
     <string name="title_checkbox_mic_auto_gain">Автопідсилення</string>
-    <string name="summary_checkbox_mic_auto_gain">Пристрій вирівнює тиху й гучну мову. Підсилення мікрофона нижче застосовується додатково.</string>
+    <string name="summary_checkbox_mic_auto_gain">Вирівнює тиху й гучну мову.</string>
     <string name="title_seekbar_mic_gain">Підсилення мікрофона</string>
-    <string name="summary_seekbar_mic_gain">Робить мікрофон тихішим або гучнішим перед надсиланням. Гучні піки згладжуються, а не перевантажуються.</string>
+    <string name="summary_seekbar_mic_gain">Робить мікрофон тихішим або гучнішим перед надсиланням.</string>
     <string name="title_checkbox_mic_button">Кнопка мікрофона</string>
-    <string name="summary_checkbox_mic_button">Показує поверх трансляції кнопку, яка вимикає та вмикає мікрофон. Перетягніть, щоб перемістити.</string>
+    <string name="summary_checkbox_mic_button">Кнопка поверх трансляції, що вимикає та вмикає мікрофон.</string>
     <string name="mic_button_mute">Вимкнути мікрофон</string>
     <string name="mic_button_unmute">Увімкнути мікрофон</string>
     <string name="stream_mic_button_show">Показати кнопку мікрофона</string>

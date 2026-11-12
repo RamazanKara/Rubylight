@@ -45,8 +45,6 @@ final class HomeChrome {
     private final View topRow;
     private final View bottomRow;
     private final View pc;
-    private final TextView pcName;
-    private final View pcDot;
     private final int listInset;
     private GlassProbe probe;
     private HomeSearch search;
@@ -60,8 +58,6 @@ final class HomeChrome {
         topRow = activity.findViewById(R.id.home_top_row);
         bottomRow = activity.findViewById(R.id.home_bottom_row);
         pc = activity.findViewById(R.id.home_pc);
-        pcName = activity.findViewById(R.id.home_pc_name);
-        pcDot = activity.findViewById(R.id.home_pc_dot);
         GlassTier tier = GlassTier.land(activity);
         host.setTier(tier);
         com.limelight.LimeLog.info("Glass tier: " + tier);
@@ -108,16 +104,21 @@ final class HomeChrome {
 
     /** The PC capsule: its host's name and whether it answers; hidden until there is a host to name. */
     void showHost(HomeModel.HostCard card, View.OnClickListener open) {
+        showHost(pc, card, open);
+    }
+
+    /** Any screen's PC capsule ({@code home_pc}, with its {@code home_pc_name} and {@code home_pc_dot}), as on Home. */
+    static void showHost(View pc, HomeModel.HostCard card, View.OnClickListener open) {
         if (card == null) {
             pc.setVisibility(View.GONE);
             return;
         }
-        pcName.setText(card.name);
+        ((TextView) pc.findViewById(R.id.home_pc_name)).setText(card.name);
         GradientDrawable dot = new GradientDrawable();
         dot.setShape(GradientDrawable.OVAL);
         dot.setColor(card.online ? MaterialColors.getColor(pc, R.attr.glassOk)
-                : ResourcesCompat.getColor(activity.getResources(), R.color.nj_color_label_secondary, null));
-        pcDot.setBackground(dot);
+                : ResourcesCompat.getColor(pc.getResources(), R.color.nj_color_label_secondary, null));
+        pc.findViewById(R.id.home_pc_dot).setBackground(dot);
         pc.setContentDescription(card.name);
         pc.setOnClickListener(open);
         pc.setVisibility(View.VISIBLE);

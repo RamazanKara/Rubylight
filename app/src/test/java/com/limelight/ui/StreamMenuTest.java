@@ -693,7 +693,7 @@ public class StreamMenuTest {
             menu.row(MORE).performClick();
             assertEquals(StreamMenu.Page.MORE, menu.page());
             assertNotNull(menu.row(KEYBOARD_KEYS));
-            assertEquals("Open host menu", menu.row(HOST_MENU).getText().toString());
+            assertEquals("Open the PC’s menu", menu.row(HOST_MENU).getText().toString());
             menu.row(HOST_MENU).performClick();
             assertEquals(Arrays.asList(HOST_MENU), chosen);
             menu.back();
@@ -1014,6 +1014,22 @@ public class StreamMenuTest {
         }
     }
 
+    /** End session moved under More, where no button runs it: a button saved on it is back on Default, which the list shows. */
+    @Test
+    public void aSavedEndSessionButtonIsBackOnDefault() {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            android.content.SharedPreferences prefs = android.preference.PreferenceManager.getDefaultSharedPreferences(activity);
+            prefs.edit().putString("list_stream_menu_button_x", "end_host_session").commit();
+            assertFalse(StreamMenu.buttonChoices(activity).containsKey("x"));
+            StreamMenu.upgradeButtonChoices(prefs);
+            assertEquals("default", prefs.getString("list_stream_menu_button_x", null));
+            List<String> values = Arrays.asList(activity.getResources().getStringArray(R.array.stream_menu_button_values));
+            assertTrue(values.contains("default"));
+            assertFalse(values.contains("end_host_session"));
+        }
+    }
+
     @Test
     public void theButtonsRunWhatTheUserGaveThemIncludingAWayOutOrNothing() {
         try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
@@ -1149,12 +1165,57 @@ public class StreamMenuTest {
                     ids.contains(entry.item.name().toLowerCase(java.util.Locale.ROOT)));
         }
         assertTrue(ids.contains("shortcuts"));
-        // The ways out sit in the footer.
+        // The ways out sit in the footer; End session, which leaves the game running, is a row under More.
         for (RustStreamMenuModel.Tile tile : model.tiles) {
-            if (tile.id.equals("disconnect") || tile.id.endsWith("_game") || tile.id.startsWith("end_")) {
+            if (tile.id.equals("end_host_session")) {
+                assertEquals(tile.id, "more", tile.place);
+            } else if (tile.id.equals("disconnect") || tile.id.endsWith("_game") || tile.id.startsWith("end_")) {
                 assertEquals(tile.id, "footer", tile.place);
             }
         }
+    }
+
+    /** Two ways out under the grid, Disconnect and Quit game; End session waits last on More, red, and asks first there. */
+    @Test
+    public void theFooterHoldsDisconnectAndQuitGameAndEndSessionIsUnderMore() {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            activity.setTheme(R.style.StreamTheme);
+            for (boolean hostControl : new boolean[] {false, true}) {
+                StreamMenu.Options state = options(nativeApiHost(), NvApp.Role.STREAM);
+                state.nativeHostControl = hostControl;
+                StreamMenu.Item quit = hostControl ? CLOSE_GAME : QUIT_GAME;
+                List<StreamMenu.Item> chosen = new ArrayList<>();
+                StreamMenu menu = new StreamMenu(activity, () -> state, chosen::add);
+                menu.show();
+                android.view.ViewGroup footer = (android.view.ViewGroup) menu.row(DISCONNECT).getParent();
+                assertTrue(footer instanceof ActionSheet.FooterBar);
+                assertSame(footer, menu.row(quit).getParent());
+                assertNull("End session is not a third way out", menu.row(END_HOST_SESSION));
+                assertEquals(activity.getString(R.string.stream_tile_quit_game), menu.row(quit).getText().toString());
+
+                menu.row(MORE).performClick();
+                assertEquals(StreamMenu.Page.MORE, menu.page());
+                List<StreamMenu.Item> more = items(menu.entries());
+                assertEquals("End session closes More", END_HOST_SESSION, more.get(more.size() - 1));
+                assertEquals(activity.getString(R.string.stream_end_session), menu.row(END_HOST_SESSION).getText().toString());
+                menu.row(END_HOST_SESSION).performClick();
+                assertEquals(Arrays.asList(END_HOST_SESSION), chosen);
+                menu.sheet().dismiss();
+            }
+        }
+    }
+
+    /** Disconnect's and End session's confirms say different things: one waits to resume, the other gives the PC back. */
+    @Test
+    public void endSessionsConfirmSaysWhatSetsItApartFromDisconnect() {
+        android.content.Context context = org.robolectric.RuntimeEnvironment.getApplication();
+        String disconnect = context.getString(R.string.stream_disconnect_confirm);
+        String end = context.getString(R.string.stream_end_session_confirm);
+        assertNotEquals(disconnect, end);
+        assertTrue(disconnect, disconnect.contains("resume"));
+        assertFalse(end, end.contains("resume"));
+        assertTrue(end, end.contains("game keeps running"));
     }
 
     /** A shortcut named after its keys (Caps Lock, the editor's default name) says them once, not twice. */

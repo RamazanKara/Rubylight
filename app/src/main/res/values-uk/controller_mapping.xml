@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="controller_mapping_title">Кнопки контролера</string>
-    <string name="controller_mapping_summary">Перепризначення кнопок для кожної моделі контролера</string>
+    <string name="controller_mapping_summary">Перепризначає кнопки й стіки моделі контролера.</string>
     <string name="controller_mapping_intro">Торкніться «Призначити кнопку», потім натисніть кнопку контролера, яку потрібно перепризначити.\nЗміни застосуються до наступної трансляції.</string>
     <string name="controller_mapping_waiting">Підключіть контролер, потім торкніться «Призначити кнопку».</string>
     <string name="controller_mapping_unnamed">Контролер</string>

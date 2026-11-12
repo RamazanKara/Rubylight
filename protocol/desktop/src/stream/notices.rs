@@ -46,7 +46,7 @@ impl Streaming {
                     match result {
                         Ok(Some(image)) => match crate::clipboard::write(image) {
                             Ok(()) => self.show_toast(tr("PC image copied to this device.")),
-                            Err(error) => self.show_toast(trf("Could not put the PC's image on this device's clipboard: {}", &[&error])),
+                            Err(error) => self.show_toast(trf("Could not put the PC’s image on this device’s clipboard: {}", &[&error])),
                         },
                         Ok(None) => self.show_toast(tr("Image sent to the PC.")),
                         Err(error) => self.show_toast(error),
@@ -187,7 +187,7 @@ impl Streaming {
         let mut status = [0u8; 16];
         if self.controller_audio_available() {
             for pad in &pads.pads {
-                if let Some(audio) = &pad.audio { status[usize::from(pad.index)] = audio.status(self.settings.microphone, self.microphone_muted); }
+                if let Some(audio) = &pad.audio { status[usize::from(pad.sent_as())] = audio.status(self.settings.microphone, self.microphone_muted); }
             }
         }
         if status != self.audio_status.0 || self.audio_status.1.elapsed() >= Duration::from_secs(1) {
@@ -295,7 +295,7 @@ impl Streaming {
         eprintln!("nightjar: cursor: {error}");
         if !self.cursor_warning {
             self.cursor_warning = true;
-            self.show_toast(tr("The PC's cursor could not be drawn; using the default pointer."));
+            self.show_toast(tr("The PC’s cursor could not be drawn; using the default pointer."));
         }
     }
 }

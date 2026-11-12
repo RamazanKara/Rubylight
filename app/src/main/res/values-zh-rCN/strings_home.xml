@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="pc_status_ready">就绪</string>
     <string name="pc_status_playing">正在玩 %1$s</string>
     <string name="pc_status_playing_unknown">正在玩游戏</string>
     <string name="pc_status_waking">正在唤醒…</string>

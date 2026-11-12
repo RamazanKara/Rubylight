@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_fec_choice">Correction d’erreurs</string>
-    <string name="summary_fec_choice">Quantité de données de récupération que le PC ajoute à la vidéo. Automatique suit les pertes de cet appareil. Les PC qui ne prennent pas ce choix utilisent leur propre réglage.</string>
+    <string name="summary_fec_choice">Des données de récupération ajoutées par le PC, pour que les paquets perdus ne dégradent pas l’image.</string>
     <string name="fec_choice_host">Réglage du PC</string>
     <string name="fec_choice_auto">Automatique</string>
-    <string name="title_link_probe">Test de connexion avant le premier débit</string>
-    <string name="summary_link_probe">Un nouveau flux au débit automatique teste d’abord la connexion avec un PC Rubylight et ne démarre pas au-dessus de ce qu’elle supporte.</string>
+    <string name="title_link_probe">Tester la connexion avant de démarrer</string>
+    <string name="summary_link_probe">Un nouveau stream au débit automatique mesure d’abord la connexion et ne démarre pas plus haut.</string>
 </resources>

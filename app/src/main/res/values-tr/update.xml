@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="host_update_available">Rubylight %1$s güncellemesi mevcut</string>
-    <string name="host_update_stream_notice">Rubylight %1$s mevcut. Ana makinenin Bakım sekmesinden güncelleyin.</string>
+    <string name="host_update_stream_notice">Rubylight %1$s mevcut. Rubylight’ın Bakım sekmesinden güncelleyin.</string>
     <string name="update_stream_notice">Nightjar %1$s mevcut. Güncellemek için Nightjar ayarlarını açın.</string>
     <string name="title_check_updates">Güncellemeleri otomatik denetle</string>
-    <string name="summary_check_updates">Uygulama açıldığında yeni sürüm arar, günde en fazla iki kez. Siz seçmeden hiçbir şey kurulmaz.</string>
+    <string name="summary_check_updates">Nightjar açıldığında daha yeni bir sürüm arar; hiçbir şey kendiliğinden kurulmaz.</string>
     <string name="title_check_updates_now">Güncellemeleri şimdi denetle</string>
-    <string name="summary_check_updates_now">Daha yeni bir sürüm ara</string>
+    <string name="summary_check_updates_now">Şimdi daha yeni bir sürüm arar.</string>
     <string name="update_checking">Güncellemeler denetleniyor…</string>
     <string name="update_up_to_date">En son sürümü kullanıyorsunuz</string>
     <string name="update_check_failed">Güncellemeler denetlenemedi</string>

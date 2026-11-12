@@ -62,7 +62,7 @@ pub enum VideoScaling {
 
 impl VideoScaling {
     pub fn label(self) -> &'static str {
-        match self { Self::Fit => en("Fit"), Self::Fill => en("Fill (crop)"), Self::Stretch => en("Stretch"), Self::Native => en("Native pixels (1:1)") }
+        match self { Self::Fit => en("Fit"), Self::Fill => en("Fill (crop)"), Self::Stretch => en("Stretch"), Self::Native => en("1:1 pixels") }
     }
 }
 
@@ -224,6 +224,26 @@ impl MicEcho {
     }
 }
 
+/// "Theme" (Android's `ThemeChoice`): System follows the system's light or dark setting, Dark is
+/// the night look, OLED black its black-surfaced variant. High contrast wins over all three.
+/// Dark by default: the look desktop Nightjar had before the choice.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Theme {
+    System,
+    #[default]
+    Dark,
+    Oled,
+}
+
+impl Theme {
+    pub const ALL: [Self; 3] = [Self::System, Self::Dark, Self::Oled];
+
+    /// Android's `theme_choice_names`.
+    pub fn label(self) -> &'static str {
+        match self { Self::System => en("System"), Self::Dark => en("Dark"), Self::Oled => en("OLED black") }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QualityMode {
     #[default]
@@ -290,9 +310,12 @@ pub struct Settings {
     /// (`stream::wl_scanout::Brightness`). Off: the PC's absolute brightness, which HDR10 means
     /// and direct scanout needs.
     pub hdr_desktop_brightness: bool,
+    /// "Sharper colored text" (`nightjar_core::sharp_color`) is one choice kept in two keys that
+    /// older versions read: Off is both off, Automatic both on. Every load sets both to "either
+    /// was on" ([`Settings::migrate`], [`Overrides`]).
     pub experimental_packed_444: bool,
-    /// "Prefer YUV 4:4:4" (Experimental): offers the 8-bit 4:4:4 formats, and with `sdr_10bit`
-    /// HEVC 4:4:4 10-bit (`color::offer`).
+    /// See `experimental_packed_444`. Older versions read it as "offer the 8-bit 4:4:4 formats, and
+    /// with `sdr_10bit` HEVC 4:4:4 10-bit" (`color::offer`).
     pub prefer_yuv444: bool,
     /// "10-bit color (SDR)" (Experimental): offers Main10 without asking for HDR.
     pub sdr_10bit: bool,
@@ -317,6 +340,10 @@ pub struct Settings {
     pub vsync: bool,
     /// Without VRR: how pictures wait for the display (Android's `frame_pacing`).
     pub frame_pacing: FramePacing,
+    /// "Keep only the newest frame" (Android's `checkbox_drop_late_frames`): with Balanced frame
+    /// pacing, the newest picture at each refresh. Off: each picture in turn, one a refresh, as
+    /// Smoothest video waits (`stream::present::Pacer::take_due`). On by default.
+    pub drop_late_frames: bool,
     /// The performance overlay is on (Android's `checkbox_enable_perf_overlay`), showing
     /// `overlay_mode` in the `overlay_position` corner. The stream menu and its shortcut change
     /// these and keep them.
@@ -335,12 +362,19 @@ pub struct Settings {
     /// With `capture_system_keys`: only while the stream's window is full screen (the Fullscreen
     /// and Borderless window modes); in a window those keys stay with this computer.
     pub system_keys_fullscreen_only: bool,
+    /// "Controllers" not Off ([`nightjar_policy::controllers::Controllers`]): controller input goes to the PC.
     pub controllers: bool,
+    /// "Controllers" A player each: every controller is its own player; off sends them all as
+    /// player 1. Kept while `controllers` is off. On by default, as before it was a choice.
+    pub multi_controller: bool,
     /// Nintendo layout: swap A/B and X/Y.
     pub swap_face_buttons: bool,
     pub controller_motion: bool,
     pub controller_audio: bool,
     pub back_opens_menu: bool,
+    /// "Back button as Guide": the controller's Back (Select, View) sends Guide to the PC (Android's
+    /// `checkbox_back_as_guide`). Off by default, as on Android.
+    pub back_as_guide: bool,
     /// Holding the controller's Guide (Home) button this long opens the stream menu; a shorter
     /// press still goes to the PC. 0 is off (one of [`GUIDE_HOLD_MS`], Android's stored values).
     pub guide_hold_ms: u32,
@@ -351,6 +385,11 @@ pub struct Settings {
     pub analog_scrolling: AnalogScrolling,
     pub mouse_fixed_step: bool,
     pub gamepad_touchpad_as_mouse: bool,
+    /// "Stick dead zone" in percent of the stick's travel, for every controller whose buttons
+    /// page sets none of its own (`gamepad::Mapping::deadzone` 0). 0 by default, as before.
+    pub deadzone: u32,
+    /// "Trigger dead zone" in percent, likewise for `gamepad::Mapping::trigger_deadzone`.
+    pub trigger_deadzone: u32,
     pub disable_rumble: bool,
     /// Keep sending controller input while the window is in the background.
     pub background_controllers: bool,
@@ -381,8 +420,23 @@ pub struct Settings {
     pub microphone: bool,
     /// Echo cancellation on the microphone (`stream::microphone`), automatic by default.
     pub mic_echo_cancel: MicEcho,
+    /// "Microphone gain" in percent, applied before the microphone is encoded (Android's
+    /// `seekbar_mic_gain`, 25-400 in steps of 5). 100 by default: unchanged.
+    pub mic_gain: u32,
+    /// "Noise suppression" on the microphone (Android's `checkbox_mic_noise_suppression`):
+    /// WebRTC's noise suppressor before Opus (`stream::mic_dsp`), or the Windows voice DSP's own
+    /// with echo cancellation. On by default, as on Android and as that DSP already runs it.
+    pub mic_noise_suppression: bool,
+    /// "Automatic gain" on the microphone (Android's `checkbox_mic_auto_gain`): WebRTC's AGC2
+    /// adaptive digital gain before Opus (`stream::mic_dsp`). Off by default.
+    pub mic_auto_gain: bool,
     pub cursor_shapes: bool,
+    /// "Wait through network dropouts": one of `nightjar_policy::recovery::NETWORK_GRACE_CHOICES_S`
+    /// in ms, or Off (anything up to the connection's own timeout; 3 s by default).
     pub network_grace_ms: u32,
+    /// "Hide connection warnings": a stream shows no warnings about a poor connection (Android's
+    /// `checkbox_disable_warnings`). Off by default.
+    pub hide_connection_warnings: bool,
     /// Client roaming (Experimental): keep the stream when this device changes networks, with a
     /// Rubylight PC that supports it. On by default.
     pub client_roaming: bool,
@@ -462,6 +516,9 @@ pub struct Settings {
     /// times `GET /bandwidth-probe` first and starts at no more than 80 % of it. Off by default:
     /// on the NUC it started streams lower with more loss and freezes (rust/PERFORMANCE.md).
     pub link_probe: bool,
+    /// "Game optimization hint": the launch lets the PC adjust the game's settings for the stream
+    /// (`sops`). On by default, as the launch always asked before it was a setting.
+    pub sops: bool,
     pub full_range: bool,
     pub upscaling: Upscaling,
     pub upscale_sharpness: u32,
@@ -485,10 +542,16 @@ pub struct Settings {
     pub ui_zoom: u32,
     /// Brighter text, black surfaces and thicker outlines and focus rings.
     pub high_contrast: bool,
+    /// "Theme" (Android's `ThemeChoice`, stored there as `checkbox_always_dark` and
+    /// `checkbox_oled_black`): the system's light or dark, the night look, or OLED black.
+    pub theme: Theme,
     pub reduce_motion: ReduceMotion,
     pub language: Language,
     /// Windows and AppImage: look for a newer stable release once per launch (update_check.rs).
     pub check_updates: bool,
+    /// "Show decode time after streaming" (Android's `checkbox_enable_post_stream_toast`): when a
+    /// stream ends, a notice gives its average decode time and codec. Off by default.
+    pub post_stream_decode_time: bool,
 }
 
 /// The launcher's sizes in percent, smallest first (the same steps as Nightjar Android).
@@ -576,8 +639,6 @@ pub enum OpenOnStart {
 }
 
 impl OpenOnStart {
-    pub const ALL: [Self; 3] = [Self::Pcs, Self::Last, Self::Chosen];
-
     pub fn label(self) -> &'static str {
         match self {
             Self::Pcs => en("Show my PCs"),
@@ -797,11 +858,124 @@ fn display_scale<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u3
     Ok(if DISPLAY_SCALES.contains(&percent) { percent } else { 0 })
 }
 
+/// The global stick dead zone's range in percent, as a controller's own on its buttons page.
+pub const DEADZONE: std::ops::RangeInclusive<u32> = 0..=50;
+/// The microphone gain's range in percent and its step, as on Android (`seekbar_mic_gain`).
+pub const MIC_GAIN: std::ops::RangeInclusive<u32> = 25..=400;
+pub const MIC_GAIN_STEP: u32 = 5;
+
 impl Settings {
-    /// Turns Recover interrupted streams on once in settings saved before it became the default.
-    fn migrate(&mut self) {
+    /// What every load does to settings saved by an earlier version. Idempotent: it needs no flag
+    /// but `auto_reconnect_default_on`'s.
+    pub(crate) fn migrate(&mut self) {
+        // Turns Recover interrupted streams on once in settings saved before it became the default.
         if !self.auto_reconnect_default_on {
             (self.auto_reconnect, self.auto_reconnect_default_on) = (true, true);
+        }
+        normalize_values(&mut SettingsValues(self));
+    }
+}
+
+/// A settings layer's values, main or not, for [`normalize_values`].
+trait Values {
+    fn bool(&self, key: &str) -> Option<bool>;
+    fn u32(&self, key: &str) -> Option<u32>;
+    fn set_bool(&mut self, key: &str, value: bool);
+    fn set_u32(&mut self, key: &str, value: u32);
+}
+
+/// The main settings, which hold every key.
+struct SettingsValues<'a>(&'a mut Settings);
+
+impl Values for SettingsValues<'_> {
+    fn bool(&self, key: &str) -> Option<bool> {
+        match key {
+            "prefer_yuv444" => Some(self.0.prefer_yuv444),
+            "experimental_packed_444" => Some(self.0.experimental_packed_444),
+            _ => None,
+        }
+    }
+    fn u32(&self, key: &str) -> Option<u32> {
+        match key {
+            "network_grace_ms" => Some(self.0.network_grace_ms),
+            "quality_min_short_edge" => Some(self.0.quality_min_short_edge),
+            "quality_min_fps" => Some(self.0.quality_min_fps),
+            "mic_gain" => Some(self.0.mic_gain),
+            "deadzone" => Some(self.0.deadzone),
+            "trigger_deadzone" => Some(self.0.trigger_deadzone),
+            _ => None,
+        }
+    }
+    fn set_bool(&mut self, key: &str, value: bool) {
+        match key {
+            "prefer_yuv444" => self.0.prefer_yuv444 = value,
+            "experimental_packed_444" => self.0.experimental_packed_444 = value,
+            _ => {}
+        }
+    }
+    fn set_u32(&mut self, key: &str, value: u32) {
+        let s = &mut *self.0;
+        match key {
+            "network_grace_ms" => s.network_grace_ms = value,
+            "quality_min_short_edge" => s.quality_min_short_edge = value,
+            "quality_min_fps" => s.quality_min_fps = value,
+            "mic_gain" => s.mic_gain = value,
+            "deadzone" => s.deadzone = value,
+            "trigger_deadzone" => s.trigger_deadzone = value,
+            _ => {}
+        }
+    }
+}
+
+/// A PC's, game's or profile's own values, which hold only the keys they set.
+impl Values for serde_json::Map<String, serde_json::Value> {
+    fn bool(&self, key: &str) -> Option<bool> {
+        self.get(key).and_then(serde_json::Value::as_bool)
+    }
+    fn u32(&self, key: &str) -> Option<u32> {
+        self.get(key).and_then(serde_json::Value::as_u64).and_then(|v| u32::try_from(v).ok())
+    }
+    fn set_bool(&mut self, key: &str, value: bool) {
+        self.insert(key.to_owned(), value.into());
+    }
+    fn set_u32(&mut self, key: &str, value: u32) {
+        self.insert(key.to_owned(), value.into());
+    }
+}
+
+/// The keys "Sharper colored text" is kept in (`nightjar_core::sharp_color`).
+pub const SHARP_COLOR_KEYS: [&str; 2] = ["prefer_yuv444", "experimental_packed_444"];
+
+/// Brings a layer's saved values onto what this version offers. Every load of every layer runs it
+/// (the main settings, profiles, PCs and games), and it changes nothing a second time:
+/// - "Sharper colored text" is one choice in two keys: a layer that holds either gets both, set to
+///   whether either was on. A layer that holds neither keeps inheriting them.
+/// - "Wait through network dropouts", "Minimum resolution" and "Minimum frame rate" read as the
+///   nearest of the choices both clients offer (`nightjar_policy::recovery`, `::quality`).
+/// - Microphone gain and the dead zones stay in their ranges.
+fn normalize_values(values: &mut impl Values) {
+    use nightjar_policy::quality::{nearest_floor, MIN_FPS_CHOICES, MIN_SHORT_EDGE_CHOICES};
+    let held: Vec<bool> = SHARP_COLOR_KEYS.iter().filter_map(|key| values.bool(key)).collect();
+    if !held.is_empty() {
+        let on = held.contains(&true);
+        for key in SHARP_COLOR_KEYS {
+            values.set_bool(key, on);
+        }
+    }
+    let fixes: [(&str, &dyn Fn(u32) -> u32); 6] = [
+        ("network_grace_ms", &nightjar_policy::recovery::network_grace_ms),
+        ("quality_min_short_edge", &|v: u32| nearest_floor(&MIN_SHORT_EDGE_CHOICES, v)),
+        ("quality_min_fps", &|v: u32| nearest_floor(&MIN_FPS_CHOICES, v)),
+        ("mic_gain", &|v: u32| v.clamp(*MIC_GAIN.start(), *MIC_GAIN.end()) / MIC_GAIN_STEP * MIC_GAIN_STEP),
+        ("deadzone", &|v: u32| v.min(*DEADZONE.end())),
+        ("trigger_deadzone", &|v: u32| v.min(u32::from(crate::gamepad::MAX_TRIGGER_DEADZONE))),
+    ];
+    for (key, fix) in fixes {
+        if let Some(value) = values.u32(key) {
+            let fixed = fix(value);
+            if fixed != value {
+                values.set_u32(key, fixed);
+            }
         }
     }
 }
@@ -835,6 +1009,7 @@ impl Default for Settings {
             present_at_host_times: false,
             vsync: true,
             frame_pacing: FramePacing::Latency,
+            drop_late_frames: true,
             overlay: false,
             overlay_mode: OverlayMode::Compact,
             overlay_position: OverlayCorner::TopLeft,
@@ -846,10 +1021,12 @@ impl Default for Settings {
             capture_system_keys: true,
             system_keys_fullscreen_only: false,
             controllers: true,
+            multi_controller: true,
             swap_face_buttons: false,
             controller_motion: true,
             controller_audio: false,
             back_opens_menu: false,
+            back_as_guide: false,
             // 1 s, Android's default (`list_guide_menu_hold`); a lone press reaches the PC on release.
             guide_hold_ms: 1000,
             gamepad_quit_combo: GamepadQuitCombo::StartSelectLbRb,
@@ -858,6 +1035,8 @@ impl Default for Settings {
             analog_scrolling: AnalogScrolling::Right,
             mouse_fixed_step: false,
             gamepad_touchpad_as_mouse: false,
+            deadzone: 0,
+            trigger_deadzone: 0,
             disable_rumble: false,
             background_controllers: false,
             decoder: DecoderPreference::Auto,
@@ -869,8 +1048,12 @@ impl Default for Settings {
             graphics_card: GraphicsCard::Automatic,
             microphone: false,
             mic_echo_cancel: MicEcho::Auto,
+            mic_gain: 100,
+            mic_noise_suppression: true,
+            mic_auto_gain: false,
             cursor_shapes: true,
             network_grace_ms: 3000,
+            hide_connection_warnings: false,
             client_roaming: true,
             roaming_metered: false,
             usb_forwarding: false,
@@ -895,6 +1078,7 @@ impl Default for Settings {
             host_display: HostDisplay::HostDefault,
             error_correction: ErrorCorrection::Host,
             link_probe: false,
+            sops: true,
             full_range: false,
             upscaling: Upscaling::Bilinear,
             upscale_sharpness: 50,
@@ -907,9 +1091,11 @@ impl Default for Settings {
             home_card_size: CardSize::Medium,
             ui_zoom: 100,
             high_contrast: false,
+            theme: Theme::Dark,
             reduce_motion: ReduceMotion::System,
             language: Language::System,
             check_updates: true,
+            post_stream_decode_time: false,
         }
     }
 }
@@ -928,7 +1114,7 @@ impl Settings {
     pub fn gpu_need(&self) -> Option<&'static str> {
         [
             (self.experimental_packed_444, "packed full chroma"),
-            (self.codec.is_pyrowave(), "PyroWave"),
+            (self.codec.is_pyrowave(), en("PyroWave")),
             (self.upscaling != Upscaling::Bilinear, "upscaling"),
             (self.prefer_yuv444, "4:4:4"),
             (self.sdr_10bit, "10-bit SDR"),
@@ -942,10 +1128,10 @@ impl Settings {
 /// The settings page's name for what [`Settings::gpu_need`] found, for a refusal to translate.
 pub fn gpu_need_label(need: &'static str) -> &'static str {
     match need {
-        "packed full chroma" => en("Full chroma"),
+        "packed full chroma" => en("Sharper colored text"),
         "upscaling" => en("Upscaling"),
-        "4:4:4" => en("Sharper colored text (YUV 4:4:4)"),
-        "10-bit SDR" => en("Less color banding (10-bit SDR)"),
+        "4:4:4" => en("Sharper colored text"),
+        "10-bit SDR" => en("Less color banding"),
         other => other,
     }
 }
@@ -1136,8 +1322,9 @@ pub struct Overrides(serde_json::Map<String, serde_json::Value>);
 
 impl<'de> Deserialize<'de> for Overrides {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let values = serde_json::Map::deserialize(deserializer)?;
+        let mut values = serde_json::Map::deserialize(deserializer)?;
         serde_json::from_value::<Settings>(serde_json::Value::Object(values.clone())).map_err(serde::de::Error::custom)?;
+        normalize_values(&mut values);
         Ok(Self(values))
     }
 }
@@ -3039,6 +3226,54 @@ mod tests {
             let mode = std::fs::metadata(dir.join("identity.json")).unwrap().permissions().mode();
             assert_eq!(mode & 0o777, 0o600, "the private key is the user's alone");
         }
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// Settings saved before "Sharper colored text", the shared value lists and the merged
+    /// Controllers choice read on, in every layer, and a second load changes nothing.
+    #[test]
+    fn earlier_settings_read_as_the_merged_choices_in_every_layer() {
+        let dir = std::env::temp_dir().join(format!("nightjar-merged-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        let store = Store::at(dir.clone()).unwrap();
+        // Main settings: only "Prefer YUV 4:4:4" on, a 12-second wait, desktop's old stepper floors.
+        std::fs::write(dir.join("settings.json"), r#"{"prefer_yuv444":true,"network_grace_ms":12000,"quality_min_short_edge":256,"quality_min_fps":75,"controllers":false,"mic_gain":1000}"#).unwrap();
+        let settings = store.settings();
+        assert!(settings.prefer_yuv444 && settings.experimental_packed_444, "either on reads as Automatic");
+        assert_eq!((settings.network_grace_ms, settings.quality_min_short_edge, settings.quality_min_fps), (15_000, 360, 60));
+        assert_eq!(settings.mic_gain, 400);
+        assert!(!settings.controllers && settings.multi_controller, "Controllers off stays Off; a player each comes back with it");
+        store.save_settings(&settings).unwrap();
+        assert_eq!(store.settings(), settings, "a second load changes nothing");
+        // The defaults stay as they were: 3 s reads as Off and is kept.
+        let defaults = Settings::default();
+        let mut migrated = defaults.clone();
+        migrated.migrate();
+        assert_eq!(migrated, defaults);
+        assert_eq!((defaults.network_grace_ms, defaults.quality_min_short_edge, defaults.quality_min_fps), (3000, 720, 30));
+        assert!(!defaults.prefer_yuv444 && !defaults.experimental_packed_444 && defaults.controllers && defaults.multi_controller && defaults.sops);
+        // A PC's, a game's and a profile's own values: either key gets both, neither stays unset.
+        let layer = |json: &str| -> Overrides { serde_json::from_str(json).unwrap() };
+        let packed = layer(r#"{"experimental_packed_444":true}"#);
+        assert!(packed.has(&["prefer_yuv444"]) && packed.apply(&Settings::default()).prefer_yuv444);
+        let off = layer(r#"{"prefer_yuv444":false}"#);
+        let on = Settings { prefer_yuv444: true, experimental_packed_444: true, ..Settings::default() };
+        let applied = off.apply(&on);
+        assert!(!applied.prefer_yuv444 && !applied.experimental_packed_444, "a layer's Off wins over the main Automatic");
+        let neither = layer(r#"{"fps":120}"#);
+        assert!(!neither.has(&SHARP_COLOR_KEYS) && neither.apply(&on).experimental_packed_444, "inherited");
+        assert_eq!(layer(r#"{"network_grace_ms":5000}"#).apply(&Settings::default()).network_grace_ms, 5000, "Off as stored");
+        assert_eq!(layer(r#"{"quality_min_fps":15}"#).apply(&Settings::default()).quality_min_fps, 30);
+        let hosts_file = serde_json::json!([{"name": "Desk", "settings": {"experimental_packed_444": true}, "app_settings": {"id:7": {"prefer_yuv444": true, "experimental_packed_444": false}}}]);
+        std::fs::write(dir.join("hosts.json"), hosts_file.to_string()).unwrap();
+        let hosts = store.hosts();
+        let own = hosts[0].settings.as_ref().unwrap();
+        assert_eq!(serde_json::to_value(own).unwrap(), serde_json::json!({"experimental_packed_444": true, "prefer_yuv444": true}));
+        let game = hosts[0].app_settings("", 7).unwrap();
+        assert_eq!(serde_json::to_value(game).unwrap(), serde_json::json!({"experimental_packed_444": true, "prefer_yuv444": true}));
+        std::fs::write(dir.join("profiles.json"), r#"{"entries":[{"id":1,"name":"Travel","settings":{"prefer_yuv444":true,"network_grace_ms":40000}}]}"#).unwrap();
+        let profile = &store.profiles().entries[0].settings;
+        assert_eq!(serde_json::to_value(profile).unwrap(), serde_json::json!({"prefer_yuv444": true, "experimental_packed_444": true, "network_grace_ms": 30000}));
         std::fs::remove_dir_all(dir).ok();
     }
 }

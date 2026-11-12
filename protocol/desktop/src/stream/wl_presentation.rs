@@ -177,7 +177,7 @@ impl Glass {
             self.scanout = Some(Probe::open(window));
         }
         // The swapchain's format and mode, now and then (a few property reads).
-        if self.pictures % 256 == 0 {
+        if self.pictures.is_multiple_of(256) {
             self.facts = crate::sdl::swap_facts(window);
         }
         self.pictures += 1;

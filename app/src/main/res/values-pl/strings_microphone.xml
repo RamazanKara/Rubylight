@@ -1,26 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_enable_mic">Wysyłaj mikrofon do komputera</string>
-    <string name="summary_checkbox_enable_mic">Gry i komunikatory na komputerze słyszą mikrofon tego urządzenia, jeśli host go przyjmuje</string>
+    <string name="summary_checkbox_enable_mic">Wysyła mikrofon tego urządzenia do komputera.</string>
     <string name="mic_permission_denied">Nie zezwolono na dostęp do mikrofonu, więc mikrofon pozostaje wyłączony. Zezwól na to w ustawieniach Androida, aby rozmawiać przez komputer.</string>
     <string name="mic_status_sending">Mikrofon: wysyłanie</string>
     <string name="mic_status_muted">Mikrofon: wyciszony</string>
-    <string name="mic_status_not_offered">Mikrofon: nieobsługiwany przez hosta</string>
+    <string name="mic_status_not_offered">Mikrofon: nieobsługiwany przez komputer</string>
     <string name="mic_status_unavailable">Mikrofon: niedostępny</string>
     <string name="mic_status_no_permission">Mikrofon: wymagane uprawnienie</string>
     <string name="title_list_mic_echo_cancel">Usuwanie echa</string>
-    <string name="summary_list_mic_echo_cancel">Nie dopuszcza dźwięku gry z głośnika do mikrofonu. Automatycznie włącza je przy głośniku i wyłącza przy słuchawkach i zestawach Bluetooth, także po zmianie w trakcie streamu.</string>
+    <string name="summary_list_mic_echo_cancel">Nie dopuszcza dźwięku strumienia z głośników do mikrofonu.</string>
     <string name="mic_echo_auto">Automatycznie</string>
     <string name="mic_echo_on">Włączone</string>
     <string name="mic_echo_off">Wyłączone</string>
     <string name="title_checkbox_mic_noise_suppression">Tłumienie szumów</string>
-    <string name="summary_checkbox_mic_noise_suppression">Odfiltrowuje z mikrofonu stały szum tła, na przykład wentylatora</string>
+    <string name="summary_checkbox_mic_noise_suppression">Odfiltrowuje z mikrofonu stały szum tła.</string>
     <string name="title_checkbox_mic_auto_gain">Automatyczne wzmocnienie</string>
-    <string name="summary_checkbox_mic_auto_gain">Urządzenie wyrównuje cichą i głośną mowę. Wzmocnienie mikrofonu poniżej działa dodatkowo.</string>
+    <string name="summary_checkbox_mic_auto_gain">Wyrównuje cichą i głośną mowę.</string>
     <string name="title_seekbar_mic_gain">Wzmocnienie mikrofonu</string>
-    <string name="summary_seekbar_mic_gain">Ścisza lub podgłaśnia mikrofon przed wysłaniem. Głośne szczyty są zaokrąglane zamiast przesterowania.</string>
+    <string name="summary_seekbar_mic_gain">Ścisza lub podgłaśnia mikrofon przed wysłaniem.</string>
     <string name="title_checkbox_mic_button">Przycisk mikrofonu</string>
-    <string name="summary_checkbox_mic_button">Pokazuje na strumieniu przycisk, który wycisza i włącza mikrofon. Przeciągnij, aby go przesunąć.</string>
+    <string name="summary_checkbox_mic_button">Przycisk na strumieniu, który wycisza i włącza mikrofon.</string>
     <string name="mic_button_mute">Wycisz mikrofon</string>
     <string name="mic_button_unmute">Włącz mikrofon</string>
     <string name="stream_mic_button_show">Pokaż przycisk mikrofonu</string>

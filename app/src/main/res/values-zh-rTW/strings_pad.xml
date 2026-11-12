@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_list_osc_style">Controller style</string>
-    <string name="summary_list_osc_style">Classic is the original on-screen gamepad. Modern has analog sticks that follow your thumb, face buttons that press two at once between them, and a layout editor that can keep a layout for each game.</string>
+    <string name="summary_list_osc_style">「Classic」，或搖桿跟隨拇指並附有版面編輯器的「Modern」。</string>
     <string name="osc_style_classic">Classic</string>
     <string name="osc_style_modern">Modern</string>
     <string name="title_list_osc_stick_mode">Modern controller sticks</string>
-    <string name="summary_list_osc_stick_mode">Floating centers a stick where your thumb lands; Fixed keeps it where it is drawn.</string>
+    <string name="summary_list_osc_stick_mode">「Floating」搖桿以拇指落點為中心；「Fixed」搖桿固定不動。</string>
     <string name="osc_stick_floating">Floating</string>
     <string name="osc_stick_fixed">Fixed</string>
     <string name="title_seekbar_osc_stick_deadzone">Modern controller stick deadzone</string>
-    <string name="summary_seekbar_osc_stick_deadzone">How far a thumb moves before a modern controller stick answers</string>
+    <string name="summary_seekbar_osc_stick_deadzone">拇指移動多遠後搖桿才會回應。</string>
     <string name="pad_edit_title">Edit controller layout</string>
     <string name="pad_edit_all">All controls</string>
     <string name="pad_edit_hidden">%1$s (hidden)</string>

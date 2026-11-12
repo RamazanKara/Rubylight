@@ -8,7 +8,7 @@
     <string name="stream_presets_help_title">About presets</string>
     <string name="settings_version">Version %1$s</string>
     <string name="settings_source">Source and licenses</string>
-    <string name="settings_csv_summary">Save the latest latency measurements</string>
+    <string name="settings_csv_summary">Saves the latest latency measurements.</string>
     <string name="host_profile_footer">Save stream settings before leaving. Display mode saves separately with Save display mode in its dialog. Changes apply to the next stream.</string>
     <string name="stream_overlay_menu">Overlay</string>
     <string name="stream_bitrate_manual">Set bitrate</string>

@@ -139,6 +139,13 @@ public class SettingsNavigationTest {
                 .getStringExtra(StreamSettings.EXTRA_SECTION));
     }
 
+    // The bitrate slider shows, and search finds it, while Automatic bitrate is off (SettingRules.bitrateShown). Set
+    // after the first start, whose move to this screen's defaults turns it on.
+    private static void chooseOwnBitrate() {
+        android.preference.PreferenceManager.getDefaultSharedPreferences(org.robolectric.RuntimeEnvironment.getApplication())
+                .edit().putBoolean(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING, true).commit();
+    }
+
     private static void settle(StreamSettings screen) {
         ShadowLooper.idleMainLooper(150, TimeUnit.MILLISECONDS);
         screen.getFragmentManager().executePendingTransactions();
@@ -148,6 +155,7 @@ public class SettingsNavigationTest {
     public void returningFromAResultRestoresSearchAndThenItsOrigin() {
         ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup();
         try {
+            chooseOwnBitrate();
             StreamSettings screen = controller.get();
             screen.showSection("input");
             settle(screen);
@@ -181,6 +189,7 @@ public class SettingsNavigationTest {
     public void lastKeystrokeSurvivesRecreationWithoutReplacingRestoredFragmentOnAttach() {
         ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup();
         try {
+            chooseOwnBitrate();
             SearchView search = controller.get().findViewById(R.id.settings_search);
             search.setQuery("bitrate", false);
             // Deliberately recreate before the debounced search runs.

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_checkbox_back_opens_menu">Indietro fisico apre il menu dello stream</string>
-    <string name="summary_checkbox_back_opens_menu">Il tasto Indietro dedicato della console portatile o del controller apre il menu dello stream. Select e Start mantengono la mappatura. L’opzione Indietro invia Windows ha priorità sulle tastiere fisiche. Dal prossimo stream.</string>
+    <string name="title_checkbox_back_opens_menu">Indietro apre il menu dello stream</string>
+    <string name="summary_checkbox_back_opens_menu">Il tasto Indietro del controller o della console portatile apre il menu dello stream.</string>
     <string name="title_checkbox_back_as_guide">Pulsante Indietro come Guide</string>
-    <string name="summary_checkbox_back_as_guide">Indietro su qualsiasi controller, e il tasto di sistema di una console portatile che funge da Indietro, inviano Guide (Home/PS). Un controller il cui Select è Indietro invia invece Guide. «Indietro fisico apre il menu dello stream» ha la priorità. Apri il menu dello stream con la combinazione del controller o il gesto Indietro di Android. Si applica al prossimo stream.</string>
+    <string name="summary_checkbox_back_as_guide">Indietro invia Guide (Home o PS) al PC.</string>
 </resources>

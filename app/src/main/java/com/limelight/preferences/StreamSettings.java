@@ -103,6 +103,16 @@ public class StreamSettings extends NightjarActivity {
     public static final String EXTRA_FOCUS_KEY = "com.limelight.preferences.FOCUS_KEY";
     /** The Streaming row that leads to a saved PC's connection test and frame pace calibration. */
     static final String NETWORK_TESTS_KEY = "network_tests";
+    /** Sharper colored text: Off or Automatic, written into checkbox_yuv444 and experimental_packed_444. */
+    static final String SHARP_COLOR_KEY = "sharp_color";
+    /** Controllers: Off, One player or A player each (ControllersChoice). */
+    static final String CONTROLLERS_KEY = "controllers";
+    /** Mouse mode, the switch drawn as Captured or Desktop pointer. */
+    static final String MOUSE_MODE_KEY = "checkbox_absolute_mouse_mode";
+    /** The main Display arrangement (HostDisplayChoice); a PC's own wins. */
+    static final String HOST_DISPLAY_KEY = "host_display_location";
+    /** A saved PC's PyroWave frame pace, opened from Advanced › Diagnostics. */
+    static final String PACE_CALIBRATION_KEY = "pace_calibration";
     static final String LOW_LATENCY_DECODING_KEY = "low_latency_decoding";
     /** The Automatic bitrate switch: stores nothing itself, it shows and sets whether the bitrate is the user's. */
     static final String AUTOMATIC_BITRATE_KEY = "automatic_bitrate";
@@ -116,19 +126,24 @@ public class StreamSettings extends NightjarActivity {
     // of each holds only its More row (MORE_PREFIX).
     static final Map<String, String[]> SECTIONS = new LinkedHashMap<>();
     static {
-        SECTIONS.put("video", new String[] {"category_basic_settings", "category_more_video"});
-        SECTIONS.put("display", new String[] {"category_display_refresh", "category_upscaling", "category_host_display",
-                "category_more_display"});
-        SECTIONS.put("input", new String[] {"category_gamepad_settings", "category_stream_menu", "category_usb_controllers", "category_input_settings",
-                "category_onscreen_controls", "category_keyboard_shortcuts", "category_more_input"});
-        SECTIONS.put("audio", new String[] {"category_audio_settings", "category_more_audio"});
-        SECTIONS.put("streaming", new String[] {"category_streaming", "category_more_streaming"});
-        SECTIONS.put("app", new String[] {"category_ui_settings", "category_accessibility", "category_more_app"});
-        SECTIONS.put("advanced", new String[] {"category_advanced_settings", "category_advanced_decoder",
-                "category_advanced_compatibility", "category_advanced_experimental",
-                "category_advanced_diagnostics", "category_more_advanced"});
+        // Each section: its main rows (untitled), its More row, then the folded rows in their groups. Desktop
+        // Nightjar draws the same sections, groups and order.
+        SECTIONS.put("video", new String[] {"category_video_main", "category_more_video", "category_basic_settings"});
+        SECTIONS.put("display", new String[] {"category_display_main", "category_more_display", "category_display_refresh",
+                "category_upscaling", "category_host_display"});
+        SECTIONS.put("input", new String[] {"category_input_main", "category_more_input", "category_gamepad_settings",
+                "category_stream_menu", "category_input_settings", "category_keyboard_shortcuts", "category_onscreen_controls",
+                "category_usb_controllers"});
+        SECTIONS.put("audio", new String[] {"category_audio_main", "category_more_audio", "category_audio_settings"});
+        SECTIONS.put("streaming", new String[] {"category_streaming_main", "category_more_streaming",
+                "category_streaming_connection", "category_streaming"});
+        SECTIONS.put("app", new String[] {"category_app_main", "category_more_app", "category_ui_settings",
+                "category_accessibility"});
+        SECTIONS.put("advanced", new String[] {"category_advanced_settings", "category_more_advanced",
+                "category_advanced_compatibility", "category_advanced_diagnostics"});
         // Settings whose default is right for nearly everyone, kept for troubleshooting.
-        SECTIONS.put("debug", new String[] {"category_debug", "category_more_debug"});
+        SECTIONS.put("debug", new String[] {"category_debug", "category_more_debug", "category_debug_pyrowave",
+                "category_debug_decoder"});
     }
     /**
      * The row ending each section, "more_" and the section: it shows and hides the rows settings_tiers.xml does not
@@ -345,9 +360,10 @@ public class StreamSettings extends NightjarActivity {
         // Not before the list has focus: a selected row moves a list that overflows, and nothing needs it yet.
         if (list == null || list.getAdapter() == null || !list.hasFocus()) return;
         int position = RootFragment.positionOf(list, markedRow());
-        if (position < 0) return;
+        // In touch mode nothing is selected: the first D-pad press, which leaves it, places it (onCreate's listener).
+        // The section shown is no longer the rail's first row, so the list's own pick on leaving would be another.
+        if (position < 0 || list.isInTouchMode()) return;
         firstFocusPlaced = true;
-        if (list.isInTouchMode()) return;
         if (list.getChildCount() > 0) selectInPlace(list, position);
         else androidx.core.view.OneShotPreDrawListener.add(list, () -> selectInPlace(list, position));
     }
@@ -807,6 +823,12 @@ public class StreamSettings extends NightjarActivity {
                 .remove(PreferenceConfiguration.BITRATE_PREF_OLD_STRING)
                 .remove(PreferenceConfiguration.PREFS_VERSION_PREF_STRING)
                 .remove(PreferenceConfiguration.CODEC_LOW_LATENCY_CORRUPTION_OFF_PREF_STRING)
+                // Stored by the Sharper colored text, Controllers and When Nightjar opens pickers.
+                .remove(PreferenceConfiguration.YUV444_PREF_STRING)
+                .remove(PreferenceConfiguration.PACKED_444_PREF_STRING)
+                .remove(PreferenceConfiguration.SEND_CONTROLLERS_PREF_STRING)
+                .remove(PreferenceConfiguration.MULTI_CONTROLLER_PREF_STRING)
+                .remove(com.limelight.console.HomeSettings.PREF_KEY)
                 .commit();
         PreferenceManager.setDefaultValues(context, R.xml.preferences, true);
         PreferenceConfiguration.migrateToNativeDefaults(context);
@@ -860,6 +882,11 @@ public class StreamSettings extends NightjarActivity {
 
         setContentView(R.layout.activity_stream_settings);
         twoPane = findViewById(R.id.settings_sections) != null;
+        if (twoPane) {
+            getWindow().getDecorView().getViewTreeObserver().addOnTouchModeChangeListener(inTouchMode -> {
+                if (!inTouchMode) placeFirstFocus();
+            });
+        }
         rail = SettingsRail.attach(this);
         dropMisplacedPanes();
         toolbar = TopAppBar.configure(this, R.id.settings_toolbar, getString(R.string.settings), 0);
@@ -1277,10 +1304,8 @@ public class StreamSettings extends NightjarActivity {
         @Override
         public void onCreate(Bundle savedInstanceState) {
             super.onCreate(savedInstanceState);
+            // One order on every screen: a TV opens on Controls in its place, not with Controls moved to the rail's top.
             addPreferencesFromResource(R.xml.preferences_root);
-            if (isTelevision(getActivity())) {
-                findPreference("input").setOrder(-1);
-            }
             stylePreferences(getPreferenceScreen(), getActivity());
             for (String key : SECTIONS.keySet()) {
                 Preference row = findPreference(key);
@@ -1512,7 +1537,7 @@ public class StreamSettings extends NightjarActivity {
         }
 
         private String networkTestsSummary() {
-            return getString(R.string.connection_test_title) + " · " + getString(R.string.pace_calibration_title);
+            return getString(R.string.summary_network_tests);
         }
 
         /** The saved PCs by name: the network tests are a PC's own, on its settings screen. */
@@ -1532,20 +1557,31 @@ public class StreamSettings extends NightjarActivity {
             return pcs;
         }
 
-        /** With no saved PC there is nothing to test: the row says so and stays greyed. */
+        /**
+         * The connection test needs a saved PC, and the PyroWave frame pace a saved PC that can measure it or has
+         * one saved: without them the rows are hidden (they leave the More count and search).
+         */
         private void refreshNetworkTests() {
-            Preference row = allPreferences.get(NETWORK_TESTS_KEY);
-            if (row == null) row = findPreference(NETWORK_TESTS_KEY);
-            if (row == null || getActivity() == null) return;
-            boolean any = !savedPcs().isEmpty();
-            row.setEnabled(any);
-            row.setSummary(any ? networkTestsSummary() : getString(R.string.pin_pcs_empty));
+            if (getActivity() == null) return;
+            List<com.limelight.nvstream.http.ComputerDetails> pcs = savedPcs();
+            setShown(NETWORK_TESTS_KEY, !pcs.isEmpty());
+            setShown(PACE_CALIBRATION_KEY, !pacePcs(pcs).isEmpty());
+            placeRows();
         }
 
-        /** One saved PC opens its tests; several ask which PC first. */
-        private void openNetworkTests() {
+        /** The saved PCs whose PyroWave frame pace can be measured, or that have one saved. */
+        private List<com.limelight.nvstream.http.ComputerDetails> pacePcs(List<com.limelight.nvstream.http.ComputerDetails> pcs) {
+            List<com.limelight.nvstream.http.ComputerDetails> pace = new ArrayList<>();
+            for (com.limelight.nvstream.http.ComputerDetails pc : pcs) {
+                if (pc.supportsPyroWavePaceCalibration() ||
+                        com.limelight.utils.PyroWavePaceStore.get(getActivity(), pc.uuid) != null) pace.add(pc);
+            }
+            return pace;
+        }
+
+        /** One PC opens its tests, where its frame pace is measured; several ask which PC first. */
+        private void openPcTests(List<com.limelight.nvstream.http.ComputerDetails> pcs, int title) {
             Activity activity = getActivity();
-            List<com.limelight.nvstream.http.ComputerDetails> pcs = savedPcs();
             if (pcs.isEmpty()) {
                 refreshNetworkTests();
                 return;
@@ -1557,11 +1593,16 @@ public class StreamSettings extends NightjarActivity {
             String[] names = new String[pcs.size()];
             for (int i = 0; i < names.length; i++) names[i] = pcs.get(i).displayName();
             UiHelper.showDialog(activity, new NavigationDialogBuilder(activity)
-                    .setTitle(R.string.network_tests_title)
+                    .setTitle(title)
                     .setItems(names, (dialog, which) ->
                             HostStreamSettings.showTests(activity, pcs.get(which).uuid, pcs.get(which).name))
                     .setNegativeButton(android.R.string.cancel, null)
                     .create());
+        }
+
+        /** One saved PC opens its tests; several ask which PC first. */
+        private void openNetworkTests() {
+            openPcTests(savedPcs(), R.string.network_tests_title);
         }
 
         /** Records whether a setting applies; placeRows then puts it in or out of the list. */
@@ -1579,17 +1620,41 @@ public class StreamSettings extends NightjarActivity {
         }
 
         /**
-         * Frame pacing is greyed while adaptive refresh or host frame times replace it. A setting that does
-         * nothing for the current choices is hidden, not greyed: the frame-drop choice shows only with Balanced
-         * pacing, the sharpness only with an upscaler that sharpens, the two minimums only while automatic
-         * quality is on, client roaming and USB forwarding only with the new streaming engine and roaming's
-         * mobile-data choice only while roaming is on. Hidden settings stay out of search, and come back in their place.
+         * A setting that does nothing for the current choices is hidden, not greyed, and keeps its value: frame
+         * pacing while adaptive refresh or host frame times replace it, the frame-drop choice without Balanced
+         * pacing, the sharpness without an upscaler that sharpens, the two minimums while automatic quality is
+         * off, a switch's own rows while it is off (SettingRules), and the new streaming engine's rows with the
+         * classic one. Hidden settings leave search and their section's More count, and come back in their place.
          */
         private void applySettingRules(SharedPreferences prefs) {
-            Preference pacing = allPreferences.get(SettingRules.FRAME_PACING);
-            if (pacing != null) pacing.setEnabled(SettingRules.framePacingApplies(getActivity(), prefs));
-            Preference upscaling = allPreferences.get(PreferenceConfiguration.UPSCALING_PREF_STRING);
-            if (upscaling != null) upscaling.setEnabled(SettingRules.upscalingApplies(prefs));
+            Context context = getActivity();
+            setShown(PreferenceConfiguration.BITRATE_PREF_STRING, SettingRules.bitrateShown(prefs));
+            setShown(SHARP_COLOR_KEY, SettingRules.sharpColorApplies(prefs));
+            setShown("checkbox_enable_sdr_10bit", SettingRules.sdr10Applies(prefs));
+            setShown(SettingRules.FRAME_PACING, SettingRules.framePacingApplies(context, prefs));
+            setShown("checkbox_reduce_refresh_rate", SettingRules.reduceRefreshRateApplies(context, prefs));
+            setShown("checkbox_content_rate_frame_rate", SettingRules.contentRateApplies(context, prefs));
+            setShown("checkbox_display_queue_recovery", SettingRules.displayQueueRecoveryApplies(context, prefs));
+            setShown(PreferenceConfiguration.UPSCALING_PREF_STRING, SettingRules.upscalingApplies(prefs));
+            setShown("video_alignment", SettingRules.videoAlignmentApplies(prefs));
+            setShown("seekbar_virtual_display_scale", SettingRules.virtualDisplayScaleApplies(prefs));
+            boolean controllers = SettingRules.controllersOn(prefs);
+            for (String key : SettingRules.CONTROLLER_ROWS) setShown(key, controllers);
+            boolean controllerMouse = SettingRules.controllerMouseApplies(prefs);
+            setShown("analog_scrolling", controllerMouse);
+            setShown("checkbox_mouse_emulation_fixed_step", controllerMouse);
+            setShown("seekbar_vibrate_fallback_strength", prefs.getBoolean("checkbox_vibrate_fallback", false));
+            setShown("checkbox_usb_bind_all", prefs.getBoolean("checkbox_usb_driver", true));
+            setShown("checkbox_usb_dualsense_haptics", prefs.getBoolean("checkbox_usb_dualsense", false));
+            setShown("checkbox_system_keys_fullscreen_only", prefs.getBoolean("checkbox_capture_system_keys", true));
+            setShown("list_trackpad_acceleration_curve", prefs.getBoolean("checkbox_trackpad_acceleration", false));
+            setShown("list_trackpad_momentum_glide", prefs.getBoolean("checkbox_trackpad_momentum", false));
+            boolean onScreen = SettingRules.onScreenControlsOn(prefs);
+            for (String key : SettingRules.ON_SCREEN_ROWS) setShown(key, onScreen);
+            boolean mic = SettingRules.micOn(prefs);
+            for (String key : SettingRules.MIC_ROWS) setShown(key, mic);
+            setShown("performance_overlay_position", SettingRules.overlayOn(prefs));
+            setShown("list_resolution_screen2", prefs.getBoolean("checkbox_dual_screen", false));
             setShown(SettingRules.DROP_LATE_FRAMES, SettingRules.dropLateFramesApplies(getActivity(), prefs));
             setShown(PreferenceConfiguration.UPSCALING_SHARPNESS_PREF_STRING, SettingRules.upscalingUsesSharpness(prefs));
             boolean limits = SettingRules.qualityLimitsApply(prefs);
@@ -1601,7 +1666,7 @@ public class StreamSettings extends NightjarActivity {
                     SettingRules.audioPassthroughApplies(prefs, Build.VERSION.SDK_INT));
             setShown(PreferenceConfiguration.USB_FORWARDING_PREF_STRING, SettingRules.usbForwardingApplies(prefs));
             setShown(PreferenceConfiguration.CLIPBOARD_SYNC_PREF_STRING, SettingRules.clipboardSyncApplies(prefs));
-            boolean modern = SettingRules.modernControllerApplies(prefs);
+            boolean modern = onScreen && SettingRules.modernControllerApplies(prefs);
             setShown(PreferenceConfiguration.OSC_STICK_MODE_PREF_STRING, modern);
             setShown(PreferenceConfiguration.OSC_STICK_DEADZONE_PREF_STRING, modern);
             placeRows();
@@ -1700,6 +1765,20 @@ public class StreamSettings extends NightjarActivity {
                 } else if ("checkbox_touchscreen_trackpad".equals(pref.getKey())) {
                     int mode = storedTouchMode(prefs);
                     value = getResources().getStringArray(R.array.stream_touch_modes)[mode];
+                } else if (SHARP_COLOR_KEY.equals(pref.getKey())) {
+                    value = getResources().getStringArray(R.array.sharp_color_names)[
+                            PreferenceConfiguration.sharpColor(prefs) ? 1 : 0];
+                } else if (CONTROLLERS_KEY.equals(pref.getKey())) {
+                    value = getResources().getStringArray(R.array.controllers_names)[ControllersChoice.read(prefs)];
+                } else if (MOUSE_MODE_KEY.equals(pref.getKey())) {
+                    value = getResources().getStringArray(R.array.mouse_mode_names)[
+                            prefs.getBoolean(MOUSE_MODE_KEY, false) ? 1 : 0];
+                } else if (com.limelight.console.OpenPlay.SETTING.equals(pref.getKey())) {
+                    value = startScreenName(StartScreenChoice.read(prefs));
+                } else if (HOST_DISPLAY_KEY.equals(pref.getKey())) {
+                    value = getString(HostDisplayChoice.loadMain(getActivity()).label);
+                } else if (PACE_CALIBRATION_KEY.equals(pref.getKey())) {
+                    continue;
                 } else if (VideoScaling.STRETCH_PREF.equals(pref.getKey())) {
                     value = getResources().getStringArray(R.array.video_scaling_modes)[storedVideoScaling(prefs)];
                 } else if (OverlayChoice.ENABLED_KEY.equals(pref.getKey())) {
@@ -1750,8 +1829,8 @@ public class StreamSettings extends NightjarActivity {
                         value = getString(R.string.settings_joined, value, getString(R.string.upscaling_pyrowave_short));
                     } else if (prefs.getBoolean("checkbox_enable_sdr_10bit", false) &&
                             // Only when 10-bit SDR is not refused by settings alone (HDR and PyroWave are above).
-                            com.limelight.binding.video.Sdr10Policy.refusal(true, true, false, true, true, false,
-                                    prefs.getBoolean("experimental_packed_444", false)) ==
+                            // Sharper colored text gives way per PC (NvConnection), so it does not count here.
+                            com.limelight.binding.video.Sdr10Policy.refusal(true, true, false, true, true, false, false) ==
                                     com.limelight.binding.video.Sdr10Policy.Refusal.NONE) {
                         value = getString(R.string.settings_joined, value, getString(R.string.upscaling_tenbit_short));
                     }
@@ -2210,6 +2289,10 @@ public class StreamSettings extends NightjarActivity {
 
         /** A one-of-several picker for a row that is not a list preference; Help explains the choices when given. */
         private void showChoices(int title, int names, int selected, int help, java.util.function.IntConsumer onPick) {
+            showChoices(title, getResources().getTextArray(names), selected, help, onPick);
+        }
+
+        private void showChoices(int title, CharSequence[] names, int selected, int help, java.util.function.IntConsumer onPick) {
             com.google.android.material.dialog.MaterialAlertDialogBuilder builder = new NavigationDialogBuilder(getActivity()).setTitle(title)
                     .setSingleChoiceItems(names, selected, (dialog, which) -> {
                         onPick.accept(which);
@@ -2221,6 +2304,15 @@ public class StreamSettings extends NightjarActivity {
             if (help != 0) {
                 picker.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view -> showInfo(title, help));
             }
+        }
+
+        /** A start screen's entry: Home, Show my PCs, Continue my last game, or the chosen game's title. */
+        private String startScreenName(String screen) {
+            if (StartScreenChoice.CHOSEN.equals(screen)) {
+                String title = com.limelight.console.OpenPlay.chosenTitle(getActivity());
+                if (title != null) return title;
+            }
+            return getResources().getStringArray(R.array.start_screen_names)[StartScreenChoice.index(screen)];
         }
 
         private boolean customizeOpen() {
@@ -2347,17 +2439,60 @@ public class StreamSettings extends NightjarActivity {
                 texture.setEnabled(!hdr.isChecked() && !(Boolean) value && !"forcepyrowave".equals(codec.getValue()));
                 return true;
             });
-            Preference fullChroma = findPreference("experimental_packed_444");
-            if (fullChroma != null) {
-                fullChroma.setOnPreferenceChangeListener((preference, value) -> {
-                    // Switching it is how to ask again a PC that refused it before, and to hear again
-                    // when a stream starts without it.
-                    com.limelight.computers.HostPackedModes.clearRefusals(getActivity());
-                    com.limelight.computers.HostNotices.resetEverywhere(getActivity(),
-                            com.limelight.computers.HostNotices.Notice.PACKED_UNAVAILABLE);
+            findPreference(SHARP_COLOR_KEY).setOnPreferenceClickListener(preference -> {
+                SharedPreferences prefs = getPreferenceManager().getSharedPreferences();
+                showChoices(R.string.title_sharp_color, R.array.sharp_color_names, PreferenceConfiguration.sharpColor(prefs) ? 1 : 0,
+                        R.string.summary_sharp_color, which -> {
+                            SharedPreferences.Editor editor = prefs.edit();
+                            PreferenceConfiguration.saveSharpColor(editor, which == 1);
+                            editor.apply();
+                            // Switching it is how to ask again a PC that refused it before, and to hear again
+                            // when a stream starts without it.
+                            com.limelight.computers.HostPackedModes.clearRefusals(getActivity());
+                            com.limelight.computers.HostNotices.resetEverywhere(getActivity(),
+                                    com.limelight.computers.HostNotices.Notice.PACKED_UNAVAILABLE);
+                        });
+                return true;
+            });
+            findPreference(CONTROLLERS_KEY).setOnPreferenceClickListener(preference -> {
+                SharedPreferences prefs = getPreferenceManager().getSharedPreferences();
+                showChoices(R.string.title_controllers, R.array.controllers_names, ControllersChoice.read(prefs),
+                        R.string.summary_controllers, which -> {
+                            SharedPreferences.Editor editor = prefs.edit();
+                            ControllersChoice.save(editor, which);
+                            editor.apply();
+                        });
+                return true;
+            });
+            Preference mouseMode = findPreference(MOUSE_MODE_KEY);
+            if (mouseMode != null) {
+                mouseMode.setOnPreferenceClickListener(preference -> {
+                    SharedPreferences prefs = getPreferenceManager().getSharedPreferences();
+                    showChoices(R.string.title_checkbox_absolute_mouse_mode, R.array.mouse_mode_names,
+                            prefs.getBoolean(MOUSE_MODE_KEY, false) ? 1 : 0, R.string.summary_checkbox_absolute_mouse_mode,
+                            which -> prefs.edit().putBoolean(MOUSE_MODE_KEY, which == 1).apply());
                     return true;
                 });
             }
+            findPreference(com.limelight.console.OpenPlay.SETTING).setOnPreferenceClickListener(preference -> {
+                SharedPreferences prefs = getPreferenceManager().getSharedPreferences();
+                // "A chosen game" is there once a game has been chosen, under its title.
+                List<String> screens = new ArrayList<>(Arrays.asList(StartScreenChoice.SCREENS));
+                if (com.limelight.console.OpenPlay.chosenTitle(getActivity()) == null) screens.remove(StartScreenChoice.CHOSEN);
+                CharSequence[] names = new CharSequence[screens.size()];
+                for (int i = 0; i < names.length; i++) names[i] = startScreenName(screens.get(i));
+                showChoices(R.string.title_open_on_start, names, screens.indexOf(StartScreenChoice.read(prefs)),
+                        R.string.summary_open_on_start, which -> {
+                            SharedPreferences.Editor editor = prefs.edit();
+                            StartScreenChoice.save(prefs, editor, screens.get(which));
+                            editor.apply();
+                        });
+                return true;
+            });
+            findPreference(PACE_CALIBRATION_KEY).setOnPreferenceClickListener(preference -> {
+                openPcTests(pacePcs(savedPcs()), R.string.pace_calibration_title);
+                return true;
+            });
             findPreference("about_app").setSummary(getString(R.string.settings_version, BuildConfig.VERSION_NAME));
             findPreference("about_app").setOnPreferenceClickListener(preference -> {
                 showAbout();
@@ -2381,8 +2516,12 @@ public class StreamSettings extends NightjarActivity {
                 removeSetting(UpdatePrefs.AUTO_CHECK_PREF_STRING);
                 removeSetting("check_updates_now");
             }
-            findPreference("host_display_location").setOnPreferenceClickListener(preference -> {
-                showInfo(R.string.host_display_menu, R.string.host_display_location);
+            findPreference(HOST_DISPLAY_KEY).setOnPreferenceClickListener(preference -> {
+                HostDisplayChoice[] choices = HostDisplayChoice.values();
+                CharSequence[] names = new CharSequence[choices.length];
+                for (int i = 0; i < choices.length; i++) names[i] = getString(choices[i].label);
+                showChoices(R.string.host_display_menu, names, HostDisplayChoice.loadMain(getActivity()).ordinal(),
+                        R.string.summary_host_display_location, which -> HostDisplayChoice.saveMain(getActivity(), choices[which]));
                 return true;
             });
             findPreference("latency_benchmark").setOnPreferenceClickListener(preference -> {
@@ -2519,6 +2658,7 @@ public class StreamSettings extends NightjarActivity {
                 PreferenceCategory category =
                         (PreferenceCategory) findPreference("category_onscreen_controls");
                 screen.removePreference(category);
+                removeSetting("checkbox_show_onscreen_controls");
                 // The floating menu button is for touch; a TV opens the menu from the remote or controller.
                 PreferenceCategory menu = (PreferenceCategory) findPreference("category_stream_menu");
                 Preference floating = findPreference(PreferenceConfiguration.FLOATING_MENU_BUTTON_PREF_STRING);
@@ -2744,16 +2884,9 @@ public class StreamSettings extends NightjarActivity {
             // The row shows off without saving that, so the choice returns if Android later adds ARR.
             SwitchPreference vrr = (SwitchPreference) findPreference(PreferenceConfiguration.VRR_PREF_STRING);
             if (vrr != null && !DisplayFrameRatePolicy.vrrOffered(getActivity())) {
-                LimeLog.info("Greying adaptive refresh: no screen has ARR");
+                LimeLog.info("Hiding adaptive refresh: no screen has ARR");
                 vrr.setPersistent(false);
-                vrr.setChecked(false);
-                // A disabled preference greys its dependents too; VRR can't be on here, so they always apply.
-                for (String key : new String[] {SettingRules.FRAME_PACING, "checkbox_reduce_refresh_rate"}) {
-                    Preference dependent = findPreference(key);
-                    if (dependent != null) dependent.setDependency(null);
-                }
-                vrr.setEnabled(false);
-                vrr.setSummary(R.string.summary_vrr_unavailable);
+                removeSetting(PreferenceConfiguration.VRR_PREF_STRING);
             }
 
             // Remove HDR preference for devices below Nougat

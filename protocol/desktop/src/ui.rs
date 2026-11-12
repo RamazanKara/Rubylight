@@ -1,6 +1,7 @@
 //! The launcher: PCs, pairing, the app library, settings, and the connecting card. It only
 //! draws and collects [`Command`]s; `main.rs` carries them out.
 
+mod about;
 mod backdrop;
 mod cards;
 mod chrome;
@@ -16,6 +17,8 @@ mod first_run;
 mod game;
 mod help;
 mod home;
+mod launch_scene;
+mod latency_bench;
 mod library;
 mod pages;
 pub(crate) mod pcs;
@@ -41,11 +44,13 @@ use crate::theme::*;
 use cards::*;
 use dialogs::*;
 pub use dialogs::moves_in_hotkey_dialog;
+pub use about::SOURCE as ABOUT_SOURCE;
 pub use library::{asked_start, at_sentence_start, join_target, playing_elsewhere, policy_role, running_name};
 use library::*;
 pub(crate) use widgets::{column, focus_ring, focus_ring_around, glass_behind, group_row, lift_shapes, name_for_readers, page_scroll_from, pin_key, pin_slots, primary_button, quiet_button, round_button, row, section, toggle, Combo, ToTop, Tone, DIALOG_MARGIN};
 pub(crate) use chrome::{BACK_SIZE, PAGE_TITLE};
 use widgets::*;
+pub(crate) use launch_scene::settings_line;
 pub(crate) use icons::Icon;
 
 /// Where Nightjar's guides live, the pages Android's help opens.
@@ -128,6 +133,20 @@ pub enum Command {
     ExportShortcuts,
     /// Show the folder with Nightjar's log files in the file manager.
     OpenLogs,
+    /// Settings → App → Check for updates now: GitHub's latest release, asked once, now.
+    CheckUpdatesNow,
+    /// Settings → App → Report a problem: the redacted logs saved as one report in the logs folder,
+    /// which then opens (Android's `ProblemReport`, which shares it instead).
+    ReportProblem,
+    /// About's Source and licenses: Nightjar's repository in the default browser.
+    OpenSource,
+    /// Settings → Advanced → Export latency CSV: the last stream's measurements, saved where the
+    /// system's file dialog says.
+    ExportLatencyCsv,
+    /// The latency benchmark page's Start: the 10-second timing test and the decoder benchmark.
+    StartLatencyBenchmark,
+    /// The latency benchmark page's Stop, or leaving the page.
+    StopLatencyBenchmark,
     /// Check that the PC answers at its saved address (the details page's remote access test).
     RemoteCheck(u64),
     /// Read a PC's app list if it was never read: Home's Play starts from it.
@@ -161,6 +180,12 @@ pub enum Command {
     CloseGame(u64),
     SaveSettings,
     CancelConnect,
+    /// The first run: start looking for PCs on the network again, after it could not start.
+    SearchAgain,
+    /// The failed start's card: the same start again.
+    RetryLaunch,
+    /// The failed start's card: test whether this network lets a stream's ports out.
+    TestConnection,
     /// Star the game, or take its star off.
     ToggleFavourite(crate::config::Favourite),
     /// Hides these games on this device, or shows them again.
@@ -203,6 +228,11 @@ pub enum Screen {
     StreamHotkeys,
     /// Getting started, the keyboard and controller shortcuts, sharing and common problems.
     Help,
+    /// Settings → App → About: the version, the licence and the credits (`about`).
+    About,
+    /// Settings → Advanced → Latency benchmark: this device's display, input, timer and decoder
+    /// timing without a PC (`latency_bench`).
+    LatencyBenchmark,
 }
 
 impl Screen {
@@ -211,7 +241,8 @@ impl Screen {
         match self {
             Self::Home | Self::AllGames | Self::Game { .. } => Self::Home,
             Self::Hosts | Self::Apps(_) | Self::HostDetails(_) | Self::Files(_) | Self::HostSettings(_) | Self::AppSettings(_) => Self::Hosts,
-            Self::Settings | Self::Profiles | Self::ProfileSettings(_) | Self::Controllers | Self::Shortcuts | Self::StreamHotkeys => Self::Settings,
+            Self::Settings | Self::Profiles | Self::ProfileSettings(_) | Self::Controllers | Self::Shortcuts | Self::StreamHotkeys
+            | Self::About | Self::LatencyBenchmark => Self::Settings,
             Self::Help => Self::Help,
         }
     }
@@ -224,7 +255,7 @@ impl Screen {
             Self::Profiles | Self::HostSettings(_) => crate::network::Pace::Live,
             Self::Home | Self::AllGames | Self::Game { .. } | Self::Hosts | Self::Apps(_) | Self::HostDetails(_) | Self::Files(_)
             | Self::Settings | Self::AppSettings(_) | Self::ProfileSettings(_) | Self::Controllers | Self::Shortcuts
-            | Self::StreamHotkeys | Self::Help => crate::network::Pace::Idle,
+            | Self::StreamHotkeys | Self::Help | Self::About | Self::LatencyBenchmark => crate::network::Pace::Idle,
         }
     }
 
@@ -248,7 +279,14 @@ pub enum Dialog {
     /// added or paired until Pair is chosen here. `shown` is when it first appeared (egui's time):
     /// Pair stays off for a moment, so a click meant for what was there before cannot land on it.
     ConfirmLink { link: Box<rubylight_protocol::pairing_uri::PairingUri>, shown: Option<f64> },
-    NetworkTest { stage: String },
+    /// A network test running: Connection test, or PyroWave's frame-pace calibration with
+    /// `calibrate`. `stage` is in English; the dialog translates it.
+    NetworkTest { stage: String, calibrate: bool },
+    /// Connection test's result (`network_test::Connection`): the delay, the speed or why it was
+    /// not measured, and Try again.
+    ConnectionTest { host: u64, result: crate::network_test::Connection },
+    /// Settings' Presets: this preset replaces the stream settings it sets, once confirmed.
+    ConfirmPreset(nightjar_policy::presets::Preset),
     Otp { host: u64, pin: String, passphrase: String, error: Option<String> },
     Message { title: String, body: String },
     /// The countdown of an automatic start (`open_play`): closing it any way cancels the start.
@@ -314,6 +352,9 @@ pub enum Dialog {
     /// Shown once after updating: the PCs that keep settings of their own or for games, one
     /// line each, and a reset of them all (`Launcher::show_kept_settings_once`).
     KeptSettings { pcs: Vec<KeptPc> },
+    /// A start that failed before its first frame: the launch scene's card, with the start's
+    /// stream settings in a line and the network test it offers (`launch_scene`).
+    ConnectFailed { launch: ConnectingView, body: String, settings: Option<String>, test: launch_scene::CardTest },
 }
 
 /// A PC in `Dialog::KeptSettings`: its name, whether it has settings of its own, and for how
@@ -342,11 +383,15 @@ impl KeptPc {
 pub const DESTINATIONS: [(&str, Screen); 4] =
     [(en("Home"), Screen::Home), (en("PCs"), Screen::Hosts), (en("Settings"), Screen::Settings), (en("Help"), Screen::Help)];
 
-/// The connecting card's content.
+/// The launch scene's content: the game, its PC and the stage the start is at. The PC's id and the
+/// app's id in its list find the cover and its ambient.
+#[derive(Clone)]
 pub struct ConnectingView {
     pub app: String,
     pub host: String,
     pub stage: String,
+    pub host_id: u64,
+    pub app_id: i32,
 }
 
 pub struct Launcher {
@@ -414,9 +459,11 @@ pub struct Launcher {
     restore_key: Option<String>,
     /// The cards a menu's Hide can take off this frame's screen, in the order drawn, with their game.
     cards: Vec<(String, String)>,
-    /// Some PC has games to show, so Home has something on it and is offered: a native library,
-    /// or the app list of a PC without one.
+    /// Some PC has games to show, so Home has something on it: a native library, or the app list
+    /// of a PC without one.
     home_ready: bool,
+    /// No PC is known yet: Home is the PCs' first run (`Launcher::ui`).
+    no_pcs: bool,
     /// Some PC has a native library: Home is where Back ends. App lists alone leave that to the
     /// list of PCs, as on Android.
     home_root: bool,
@@ -464,8 +511,11 @@ pub struct Launcher {
     pub power: Vec<crate::power::Offer>,
     /// The system's preferred languages, for the Language setting's default.
     pub system_languages: Vec<String>,
-    /// The palette and motion egui's style was last built for.
-    look: Option<(bool, bool)>,
+    /// The look and motion egui's style was last built for.
+    look: Option<(crate::theme::Look, bool)>,
+    /// Whether the system asks for light apps (`sdl::system_light`), for the System theme: the main
+    /// loop keeps it current.
+    pub system_light: bool,
     /// The details page's remote access check.
     pub remote: crate::host_page::RemoteAccess,
     /// The details page's shared folder browser.
@@ -474,6 +524,8 @@ pub struct Launcher {
     pub coop: crate::coop_page::CoopSessions,
     /// The Files page and its transfers.
     pub files: files::Files,
+    /// The latency benchmark page's test and results (`crate::latency_bench`); main.rs feeds it.
+    pub latency_bench: crate::latency_bench::Bench,
     /// A short notice over the launcher, such as the game quitting after leaving its stream.
     toast: Option<(String, std::time::Instant)>,
     /// The PIN lock; None in tests that do not look at it.
@@ -541,6 +593,7 @@ impl Launcher {
             restore_key: None,
             cards: Vec::new(),
             home_ready: false,
+            no_pcs: false,
             home_root: false,
             header_width: 0.0,
             hero: None,
@@ -568,10 +621,12 @@ impl Launcher {
             power: Vec::new(),
             system_languages: Vec::new(),
             look: None,
+            system_light: false,
             remote: Default::default(),
             folders: Default::default(),
             coop: Default::default(),
             files: Default::default(),
+            latency_bench: Default::default(),
             toast: None,
             pin: None,
         }
@@ -586,9 +641,11 @@ impl Launcher {
             ReduceMotion::Full => false,
             ReduceMotion::System => crate::theme::system_reduces_motion(),
         };
-        if self.look != Some((s.high_contrast, still)) {
-            set_look(ctx, s.high_contrast, still);
-            self.look = Some((s.high_contrast, still));
+        // The Theme setting's look, high contrast over it; a change shows on the next frame.
+        let look = crate::theme::Look::of(s.theme, self.system_light, s.high_contrast);
+        if self.look != Some((look, still)) {
+            crate::theme::set_theme_look(ctx, look, still);
+            self.look = Some((look, still));
         }
         let zoom = crate::config::nearest_zoom(s.ui_zoom) as f32 / 100.0;
         if (ctx.zoom_factor() - zoom).abs() > f32::EPSILON {
@@ -648,7 +705,7 @@ impl Launcher {
     pub fn open_settings(&mut self) {
         match self.screen {
             Screen::Settings => {}
-            Screen::Profiles | Screen::Controllers | Screen::Shortcuts | Screen::StreamHotkeys => self.leave_subpage(),
+            Screen::Profiles | Screen::Controllers | Screen::Shortcuts | Screen::StreamHotkeys | Screen::About | Screen::LatencyBenchmark => self.leave_subpage(),
             Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => self.go(Screen::Settings),
             // A library or game page is not a destination: Settings opens over it, and Back
             // returns to the page with its item focused.
@@ -983,7 +1040,7 @@ impl Launcher {
                     commands.extend(self.screen.save_command());
                     self.go(self.settings_return);
                 }
-                Screen::Profiles | Screen::Shortcuts | Screen::StreamHotkeys => self.leave_subpage(),
+                Screen::Profiles | Screen::Shortcuts | Screen::StreamHotkeys | Screen::About | Screen::LatencyBenchmark => self.leave_subpage(),
                 Screen::Controllers => {
                     commands.push(Command::SaveControllerMapping);
                     self.leave_subpage();
@@ -1049,11 +1106,20 @@ impl Launcher {
         }
         let sources: Vec<Source> = view.hosts.list.iter().map(Source::of).collect();
         self.home_ready = console::has_library(&sources);
+        self.no_pcs = view.hosts.list.is_empty();
         self.home_root = console::has_native_library(&sources);
         // With a menu open, Escape (B) only closes it: the menu closes itself as it is drawn.
         let menu_open = egui::Popup::is_any_open(&ctx);
         let escape = ctx.input(|i| i.key_pressed(Key::Escape)) && !menu_open;
         let pad = std::mem::take(&mut self.pad_back);
+        // From Play until the stream takes the window, or a failed start's card: the launch scene
+        // covers the launcher whole.
+        if self.scene_up(&view) {
+            self.launch_scene(ui, &view, escape, &mut commands);
+            self.button_hints(&ctx, &view);
+            self.draw_toast(&ctx);
+            return commands;
+        }
         // On a settings page and on All games, Escape leaves the search before the page.
         if escape && view.connecting.is_none() && view.waking.is_none() && !(matches!(self.dialog, Dialog::None) && (self.escape_search() || self.escape_library_search())) {
             self.back(&mut commands, pad);
@@ -1131,6 +1197,8 @@ impl Launcher {
                             Screen::Shortcuts => self.shortcuts_page(ui, &mut commands),
                             Screen::StreamHotkeys => self.stream_hotkeys_page(ui, &mut commands),
                             Screen::Help => self.help_page(ui, &view, &mut commands),
+                            Screen::About => self.about_page(ui, &mut commands),
+                            Screen::LatencyBenchmark => self.latency_benchmark_page(ui, &view, &mut commands),
                             Screen::Home | Screen::Settings | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => {}
                         }
                     });
@@ -1161,9 +1229,7 @@ impl Launcher {
             egui::Popup::close_all(&ctx);
         }
         self.dialogs(&ctx, &view, &mut commands);
-        if let Some(c) = &view.connecting {
-            self.connecting(&ctx, c, &mut commands);
-        } else if let Some(host) = &view.waking {
+        if let Some(host) = &view.waking {
             waking(&ctx, host, &mut commands);
         }
         self.button_hints(&ctx, &view);
@@ -1228,9 +1294,11 @@ impl Launcher {
             Screen::Apps(id) | Screen::HostDetails(id) | Screen::Files(id) => view.hosts.get(id).map_or("", |h| h.display_name()).to_owned(),
             Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => self.edit_name.clone(),
             Screen::Profiles => tr("Profiles").to_owned(),
-            Screen::Controllers => tr("Controller mappings").to_owned(),
+            Screen::Controllers => tr("Controller buttons").to_owned(),
             Screen::Shortcuts => tr("Keyboard shortcuts").to_owned(),
             Screen::StreamHotkeys => tr("Stream hotkeys").to_owned(),
+            Screen::About => tr("About").to_owned(),
+            Screen::LatencyBenchmark => tr("Latency benchmark").to_owned(),
         };
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 14.0;
@@ -1239,7 +1307,7 @@ impl Launcher {
             // it from the destination of the same name in the row above.
             let said = match self.screen {
                 Screen::Apps(_) if self.trail.last().is_none_or(|(s, _)| *s == Screen::Hosts) => en("Back to PCs"),
-                Screen::Profiles | Screen::Controllers | Screen::Shortcuts | Screen::StreamHotkeys => en("Back to Settings"),
+                Screen::Profiles | Screen::Controllers | Screen::Shortcuts | Screen::StreamHotkeys | Screen::About | Screen::LatencyBenchmark => en("Back to Settings"),
                 _ => en("Back"),
             };
             let (slot, _) = ui.allocate_exact_size(Vec2::splat(chrome::BACK_SIZE), Sense::hover());
@@ -1259,9 +1327,10 @@ impl Launcher {
     }
 
     /// The destinations the top bar offers now: Home waits for a library, unless it is shown.
+    /// The top bar's destinations: all of them, always in the same places. Home stays without a
+    /// library to show (it says what to do then), as Android's Start does.
     fn offered_destinations(&self) -> Vec<Screen> {
-        let marked = self.screen.destination();
-        DESTINATIONS.iter().map(|(_, s)| *s).filter(|s| *s != Screen::Home || self.home_ready || marked == Screen::Home).collect()
+        DESTINATIONS.iter().map(|(_, s)| *s).collect()
     }
 
     /// L1 and R1: to the destination left or right of the current one, round from the last to the
@@ -1270,7 +1339,11 @@ impl Launcher {
         if !matches!(self.dialog, Dialog::None) || ctx.text_edit_focused() {
             return;
         }
-        let offered = self.offered_destinations();
+        // With no PC at all Home is the PCs' first run, so the shoulders step past it.
+        let mut offered = self.offered_destinations();
+        if self.no_pcs {
+            offered.retain(|s| *s != Screen::Home);
+        }
         let Some(at) = offered.iter().position(|s| *s == self.screen.destination()) else { return };
         let to = offered[if forward { (at + 1) % offered.len() } else { (at + offered.len() - 1) % offered.len() }];
         if to != self.screen {
@@ -1360,6 +1433,8 @@ fn page_area(screen: Screen) -> Id {
         Screen::Shortcuts => Id::unique("shortcuts"),
         Screen::StreamHotkeys => Id::unique("stream-hotkeys"),
         Screen::Help => Id::unique("help"),
+        Screen::About => Id::unique("about"),
+        Screen::LatencyBenchmark => Id::unique("latency-benchmark"),
         Screen::Settings | Screen::HostSettings(_) | Screen::AppSettings(_) | Screen::ProfileSettings(_) => Id::unique("settings"),
     }
 }

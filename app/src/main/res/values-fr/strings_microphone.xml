@@ -1,26 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_enable_mic">Envoyer le micro au PC</string>
-    <string name="summary_checkbox_enable_mic">Les jeux et applis de chat du PC entendent le micro de cet appareil, si l’hôte l’accepte</string>
+    <string name="summary_checkbox_enable_mic">Envoie le micro de cet appareil au PC.</string>
     <string name="mic_permission_denied">L’accès au micro n’a pas été autorisé : le micro reste désactivé. Autorisez-le dans les paramètres Android pour parler via le PC.</string>
     <string name="mic_status_sending">Micro : envoi en cours</string>
     <string name="mic_status_muted">Micro : coupé</string>
-    <string name="mic_status_not_offered">Micro : non proposé par l’hôte</string>
+    <string name="mic_status_not_offered">Micro : non proposé par le PC</string>
     <string name="mic_status_unavailable">Micro : indisponible</string>
     <string name="mic_status_no_permission">Micro : autorisation requise</string>
     <string name="title_list_mic_echo_cancel">Annulation d\'écho</string>
-    <string name="summary_list_mic_echo_cancel">Empêche le son du jeu dans le haut-parleur d\'entrer dans le micro. Automatique l\'active avec le haut-parleur et la coupe avec un casque ou des écouteurs Bluetooth, et suit un changement pendant le stream.</string>
+    <string name="summary_list_mic_echo_cancel">Empêche le son du stream sortant des haut-parleurs d’entrer dans le micro.</string>
     <string name="mic_echo_auto">Automatique</string>
     <string name="mic_echo_on">Activée</string>
     <string name="mic_echo_off">Désactivée</string>
     <string name="title_checkbox_mic_noise_suppression">Réduction du bruit</string>
-    <string name="summary_checkbox_mic_noise_suppression">Filtre du micro les bruits de fond constants, comme un ventilateur</string>
+    <string name="summary_checkbox_mic_noise_suppression">Filtre du micro les bruits de fond constants.</string>
     <string name="title_checkbox_mic_auto_gain">Gain automatique</string>
-    <string name="summary_checkbox_mic_auto_gain">Laisse l\'appareil égaliser la voix faible et forte. Le gain du micro ci-dessous s\'ajoute.</string>
+    <string name="summary_checkbox_mic_auto_gain">Égalise la voix faible et la voix forte.</string>
     <string name="title_seekbar_mic_gain">Gain du micro</string>
-    <string name="summary_seekbar_mic_gain">Rend le micro plus faible ou plus fort avant l\'envoi. Les pics forts sont arrondis au lieu de saturer.</string>
+    <string name="summary_seekbar_mic_gain">Rend le micro plus faible ou plus fort avant l’envoi.</string>
     <string name="title_checkbox_mic_button">Bouton du micro</string>
-    <string name="summary_checkbox_mic_button">Affiche sur le stream un bouton qui coupe et rétablit le micro. Faites-le glisser pour le déplacer.</string>
+    <string name="summary_checkbox_mic_button">Un bouton sur le stream qui coupe et rétablit le micro.</string>
     <string name="mic_button_mute">Couper le micro</string>
     <string name="mic_button_unmute">Rétablir le micro</string>
     <string name="stream_mic_button_show">Afficher le bouton du micro</string>

@@ -20,6 +20,7 @@ import com.limelight.R;
 public final class NavigationDialogBuilder extends MaterialAlertDialogBuilder {
     private DialogInterface.OnKeyListener keyListener;
     private boolean startOnCancel;
+    private boolean ownSurface;
     private final boolean overStream;
 
     public NavigationDialogBuilder(Context context) {
@@ -35,6 +36,15 @@ public final class NavigationDialogBuilder extends MaterialAlertDialogBuilder {
         return this;
     }
 
+    /**
+     * For a dialog that is a task of its own (a pairing PIN): it stands on the sky instead of over the page, so its panel never
+     * covers the page's heading or a card's edge. Over a stream it stays as any dialog there.
+     */
+    public NavigationDialogBuilder ownSurface() {
+        ownSurface = true;
+        return this;
+    }
+
     @Override
     public MaterialAlertDialogBuilder setOnKeyListener(DialogInterface.OnKeyListener listener) {
         keyListener = listener;
@@ -47,13 +57,17 @@ public final class NavigationDialogBuilder extends MaterialAlertDialogBuilder {
         // The platform's selector is a grey block, which is no focus language of ours.
         ListView list = dialog.getListView();
         if (list != null) list.setSelector(R.drawable.dialog_row_focus);
+        boolean onSky = ownSurface && !overStream;
         if (dialog.getWindow() != null) {
-            // Over a stream the game stays in view around the glass, as around the stream menu.
-            if (overStream) dialog.getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            // Over a stream the game stays in view around the glass, as around the stream menu; on its own surface the sky
+            // is all there is behind it, as around the PIN lock.
+            if (overStream || onSky) dialog.getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             else dialog.getWindow().setDimAmount(GlassPanelDrawable.dialogBackdropDim(getContext()));
         }
-        // On a page, the page blurs behind the dialog where this device affords it; never over a stream.
-        PageBlur.behind(dialog);
+        // On a page, the page blurs behind the dialog where this device affords it; never over a stream, and not under a sky
+        // that hides it.
+        if (onSky) DialogSky.under(dialog);
+        else PageBlur.behind(dialog);
         // Builds the views now: the buttons exist, and their bar can be laid out for capsules.
         dialog.create();
         styleButtons(dialog);

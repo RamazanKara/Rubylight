@@ -30,11 +30,11 @@
     <string name="files_no_upload_permission">このデバイスはこの PC にファイルを送信できません。PC でウェブ UI の「Devices」ページを開き、このデバイスに「Upload files」を許可してください。</string>
     <string name="files_no_download_permission">このデバイスはこの PC のファイルをダウンロードできません。PC でウェブ UI の「Devices」ページを開き、このデバイスに「Download files」を許可してください。</string>
     <string name="files_off">この PC ではファイル転送がオフです。PC のウェブ UI の「File transfer」でオンにしてください。</string>
-    <string name="files_unavailable">この PC のホストにはファイル転送がありません。</string>
+    <string name="files_unavailable">この PC のストリーミングアプリにはファイル転送がありません。</string>
     <string name="files_no_library">このビルドの Nightjar はファイルを転送できません。</string>
     <string name="files_offline">PC がオンラインではありません。</string>
     <string name="files_pick_pc">どの PC に送信しますか？</string>
-    <string name="files_no_pc">オンラインのペアリング済み PC がありません。先に PC 一覧で起動するかペアリングしてください。</string>
+    <string name="files_no_pc">オンラインのペアリング済み PC がありません。先に PC 一覧で [ウェイク] するかペアリングしてください。</string>
     <string name="files_waiting_to_send">送信待ちのファイル: %1$d。このデバイスが送信を許可されると送信されます。</string>
     <plurals name="files_share_refused">
         <item quantity="other">共有された %1$d 件は送信されませんでした。送信できるのは他のアプリのファイルだけです。</item>

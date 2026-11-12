@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_adaptive_quality">Qualité de stream automatique</string>
-    <string name="summary_adaptive_quality">Réduit la résolution ou les FPS en cas de congestion prolongée, de décodage lent ou de surchauffe, puis rétablit progressivement. Utilise le débit automatique s’il est pris en charge. Nécessite que l’hôte gère la reconfiguration et un décodeur adaptatif ; indisponible avec PyroWave.</string>
-    <string name="title_adaptive_quality_min_resolution">Résolution automatique minimale</string>
-    <string name="summary_adaptive_quality_min_resolution">Plus petit côté court, en conservant le format d’image. La résolution de stream sélectionnée reste le maximum. Une résolution de départ plus basse n’est jamais augmentée par cette limite.</string>
-    <string name="title_adaptive_quality_min_fps">Fréquence d’images automatique minimale</string>
-    <string name="summary_adaptive_quality_min_fps">FPS minimum autorisé. La fréquence d’images de stream sélectionnée reste le maximum. S’applique à la qualité automatique, y compris le mode batterie.</string>
+    <string name="summary_adaptive_quality">Réduit la résolution ou les FPS en cas de congestion prolongée, de décodage lent ou de surchauffe, puis rétablit progressivement. Utilise le débit automatique s’il est pris en charge. Nécessite un PC capable de modifier un stream en cours et un décodeur adaptatif ; indisponible avec PyroWave.</string>
+    <string name="title_adaptive_quality_min_resolution">Résolution minimale</string>
+    <string name="summary_adaptive_quality_min_resolution">La résolution la plus basse à laquelle descend la Qualité automatique.</string>
+    <string name="title_adaptive_quality_min_fps">Fréquence d’images minimale</string>
+    <string name="summary_adaptive_quality_min_fps">La fréquence d’images la plus basse à laquelle descend la Qualité automatique.</string>
     <string name="quality_off">Désactivée</string>
     <string name="quality_motion">Préserver la fluidité</string>
     <string name="quality_detail">Préserver les détails</string>

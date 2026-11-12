@@ -2,5 +2,5 @@
 <!-- Mute audio: Settings > Audio (GameConnection.renderers). -->
 <resources>
     <string name="title_checkbox_mute_audio">Mute audio</string>
-    <string name="summary_checkbox_mute_audio">Plays no sound from the stream on this device. The microphone and the PC\'s sound are unaffected.</string>
+    <string name="summary_checkbox_mute_audio">Plays no stream sound on this device.</string>
 </resources>

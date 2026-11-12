@@ -165,7 +165,7 @@ pub(super) fn check_scalers() {
                 assert!(!rgba.is_null());
                 for y in 0..128 {
                     let row = std::slice::from_raw_parts(((*rgba).pixels as *const u8).add(y * (*rgba).pitch as usize), 128 * 4);
-                    for (x, pixel) in row.chunks_exact(4).enumerate() {
+                    for (x, pixel) in row.as_chunks::<4>().0.iter().enumerate() {
                         if color.is_none() && (x.abs_diff(64) < 8 || y.abs_diff(64) < 8) { continue; }
                         let expected = color.map_or_else(|| quadrant(x >= 64, y >= 64), |c| [c, c, c, 255]);
                         assert!(pixel[..3].iter().zip(&expected).all(|(c, e)| c.abs_diff(*e) <= 2), "{mode:?} at ({x},{y}): {expected:?} -> {pixel:?}");

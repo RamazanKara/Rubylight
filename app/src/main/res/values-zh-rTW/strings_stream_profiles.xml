@@ -66,7 +66,7 @@
 
     <!-- Bitrate on mobile data (Settings → Video) -->
     <string name="title_mobile_bitrate">行動數據位元速率</string>
-    <string name="summary_mobile_bitrate">在行動數據或 Android 標示為計量付費的 Wi-Fi (例如手機的無線基地台) 上開始串流時，限制位元速率。設定檔、電腦和遊戲的值也同樣受此限制。關閉時會使用與其他網路相同的位元速率。</string>
+    <string name="summary_mobile_bitrate">串流在行動數據或計量付費網路上使用的最高位元速率。</string>
     <string name="mobile_bitrate_off">關閉</string>
 
     <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->
@@ -95,7 +95,7 @@
     <string name="layers_from_pc">為這部電腦設定</string>
     <string name="layers_from_game">為這個遊戲設定</string>
     <string name="layers_from_mobile_limit">行動數據上限</string>
-    <string name="layers_pacing_vrr">已開啟自動調整更新率，因此串流會使用「最低延遲」。</string>
+    <string name="layers_pacing_vrr">可變更新率已開啟，因此串流會使用「最低延遲」。</string>
 
     <!-- In the stream -->
     <string name="layers_applied">設定：%1$s</string>
@@ -117,7 +117,7 @@
     <string name="game_preset_smoothness">流暢</string>
     <string name="game_preset_smoothness_summary">將影格排程設為最流暢（會暫存影格並增加延遲），並為這個遊戲關閉自適應更新率。位元率不變。</string>
     <string name="game_preset_quality">畫質</string>
-    <string name="game_preset_quality_summary" formatted="false">將位元率設為電腦位元率的 150%（電腦未設定時取主設定的位元率），上限為主機限制。影格排程和自適應更新率不變；連線較弱時，更大的影格可能增加延遲。</string>
+    <string name="game_preset_quality_summary" formatted="false">將位元率設為電腦位元率的 150%（電腦未設定時取主設定的位元率），上限為電腦的限制。影格排程和自適應更新率不變；連線較弱時，更大的影格可能增加延遲。</string>
     <string name="game_preset_custom">自訂</string>
     <string name="game_preset_custom_summary">你在下方設定的自訂值。</string>
 </resources>

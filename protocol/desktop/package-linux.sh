@@ -90,6 +90,8 @@ if [[ -n $sdk ]]; then
 	cp -r "$sdk/licenses" "$stage/licenses-pyrowave"
 fi
 cp "$here/README.md" "$stage/"
+# sonora's BSD notice: the microphone's noise suppression and automatic gain are built in.
+install -Dm644 "$here/assets/NOTICE-SONORA.txt" "$stage/licenses-sonora/NOTICE-SONORA.txt"
 # The desktop entry, the icon in the hicolor sizes and the AppStream data, laid out as under
 # /usr/share: packaging/linux/build-packages.sh makes the .deb, .rpm and AppImage from them, and
 # the AUR and Flatpak recipes install them from this archive.

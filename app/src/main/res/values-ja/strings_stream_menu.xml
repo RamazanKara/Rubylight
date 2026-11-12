@@ -6,7 +6,7 @@
     <string name="overlay_compact_rtt">RTT %1$s ms</string>
     <string name="overlay_compact_loss">損失 %1$s%%</string>
     <string name="overlay_compact_waiting">映像を待機中</string>
-    <string name="link_notice_lowered">ホストがビットレートを %1$s Mbps に下げました: ネットワーク</string>
+    <string name="link_notice_lowered">PC がビットレートを %1$s Mbps に下げました: ネットワーク</string>
     <string name="overlay_health_good">ストリーム良好</string>
     <string name="overlay_health_fair">ストリーム不安定</string>
     <string name="overlay_health_poor">ストリーム不良</string>
@@ -14,7 +14,7 @@
     <string name="stream_section_input">入力</string>
     <string name="stream_section_display">表示</string>
     <string name="stream_section_quality">画質</string>
-    <string name="stream_section_host">ホスト</string>
+    <string name="stream_section_host">PC</string>
     <string name="stream_microphone">マイク</string>
     <string name="stream_cursor_show">マウスカーソルを表示</string>
     <string name="stream_cursor_hide">マウスカーソルを非表示</string>
@@ -24,8 +24,7 @@
     <string name="stream_quit_game">ゲームを終了</string>
     <string name="stream_quit_game_confirm">PC 上のゲームを終了しますか？\n保存していない進行状況は失われます。</string>
     <string name="stream_end_session">セッションを終了</string>
-    <string name="stream_end_session_confirm">PCのストリーミングセッションを終了しますか？
-ゲームは実行されたままです。</string>
+    <string name="stream_end_session_confirm">PCのセッションを終了しますか？\nPCの画面と音声は元に戻ります。ゲームはPCで実行されたままです。</string>
     <string name="stream_close_game">ゲームを終了</string>
     <string name="stream_close_game_confirm">PC上のゲームを閉じますか？
 保存されていない進行状況は失われます。</string>
@@ -55,7 +54,7 @@
     <string name="stream_menu_button_hide">メニューボタンを非表示</string>
     <string name="stream_menu_settings">ストリームメニュー</string>
     <string name="title_floating_menu_button">フローティングメニューボタン</string>
-    <string name="summary_floating_menu_button">ストリームの上に表示され、メニューを開く丸いボタン</string>
+    <string name="summary_floating_menu_button">ストリームの上に表示され、メニューを開く丸いボタンです。</string>
     <string name="stream_tile_keyboard">キーボード</string>
     <string name="stream_tile_pc_keyboard">PCキーボード</string>
     <string name="stream_tile_mouse">マウス</string>

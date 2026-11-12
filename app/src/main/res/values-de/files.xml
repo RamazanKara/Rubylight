@@ -30,11 +30,11 @@
     <string name="files_no_upload_permission">Dieses Gerät darf keine Dateien an diesen PC senden. Öffne am PC in der Web-UI die Seite Devices und erlaube ihm „Upload files“.</string>
     <string name="files_no_download_permission">Dieses Gerät darf keine Dateien dieses PCs laden. Öffne am PC in der Web-UI die Seite Devices und erlaube ihm „Download files“.</string>
     <string name="files_off">Die Dateiübertragung ist auf diesem PC aus. Schalte sie in der Web-UI des PCs unter „File transfer“ ein.</string>
-    <string name="files_unavailable">Der Host dieses PCs hat keine Dateiübertragung.</string>
+    <string name="files_unavailable">Die Streaming-App dieses PCs hat keine Dateiübertragung.</string>
     <string name="files_no_library">Dieser Nightjar-Build kann keine Dateien übertragen.</string>
     <string name="files_offline">Der PC ist nicht online.</string>
     <string name="files_pick_pc">An welchen PC senden?</string>
-    <string name="files_no_pc">Kein gekoppelter PC ist online. Wecke oder kopple zuerst einen in der PC-Liste.</string>
+    <string name="files_no_pc">Kein gekoppelter PC ist online. Nutze zuerst in der PC-Liste „Aufwecken“ oder kopple einen.</string>
     <string name="files_waiting_to_send">Wartende Dateien: %1$d. Sie werden gesendet, sobald dieses Gerät Dateien senden darf.</string>
     <plurals name="files_share_refused">
         <item quantity="one">%1$d geteiltes Element wurde nicht gesendet: Nur Dateien einer anderen App lassen sich senden.</item>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_auto_reconnect">Recuperar transmisiones interrumpidas</string>
-    <string name="summary_auto_reconnect">Reanuda automáticamente el mismo juego en ejecución tras un fallo temporal de conexión. Hasta cinco intentos en un minuto; pulsa Atrás para cancelar.</string>
+    <string name="summary_auto_reconnect">Vuelve a conectar con el mismo juego tras una caída de la conexión, hasta cinco veces por minuto.</string>
     <string name="stream_recovery_attempt">Reconectando con tu juego… Intento %1$d de %2$d. Pulsa Atrás para cancelar.</string>
     <string name="stream_recovery_session_changed">La sesión de juego anterior ya no está disponible. La recuperación automática se ha detenido para no iniciar ni sustituir un juego.</string>
     <string name="continue_here_browser_stream">Otro dispositivo está jugando a este juego en un navegador y esta transmisión no puede funcionar a la vez. Termina primero esa transmisión.</string>

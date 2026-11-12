@@ -53,6 +53,8 @@ impl PacingMode {
 pub fn pacing(settings: &crate::config::Settings, tearing_supported: bool) -> (PacingMode, bool) {
     let vrr = settings.vrr && tearing_supported;
     let mode = if vrr {
+        // `experimental_packed_444` is the stream's pick here: the launch's settings hold "Sharper
+        // colored text" as `full_chroma::decide` resolved it, packed full chroma or not.
         if settings.present_at_host_times && !(cfg!(windows) && settings.experimental_packed_444) {
             PacingMode::HostTimes
         } else {
@@ -565,6 +567,10 @@ pub struct Pacer {
     pending: std::sync::Arc<std::sync::Mutex<VecDeque<Pending>>>,
     /// The frame pacing setting, which applies while the mode is V-Sync.
     frame_pacing: FramePacing,
+    /// Keep only the newest frame (`Settings::drop_late_frames`, Android's
+    /// `checkbox_drop_late_frames`): off, Balanced shows every picture in turn as the in-order
+    /// pacings do instead of the newest due one.
+    drop_late_frames: bool,
     /// One frame of the stream (`frame_us`).
     frame_us: u64,
     /// The FPS limit's last present slot.
@@ -589,6 +595,7 @@ impl Pacer {
             }),
             pending,
             frame_pacing: FramePacing::Latency,
+            drop_late_frames: true,
             frame_us: frame_us(60),
             last_slot_us: None,
             decode_queue: 0,
@@ -610,9 +617,22 @@ impl Pacer {
         self
     }
 
+    /// Keep only the newest frame, for Balanced frame pacing.
+    pub fn with_drop_late_frames(mut self, drop_late_frames: bool) -> Self {
+        self.drop_late_frames = drop_late_frames;
+        self
+    }
+
     /// Whether this stream skips a picture that would wait behind the last one, on this display.
+    /// Balanced that keeps every picture keeps it as the in-order pacings do.
     pub fn skips_instead_of_waiting(&self, refresh_hz: f32) -> bool {
-        skips_instead_of_waiting(self.mode, self.frame_pacing, self.frame_us, refresh_hz)
+        !self.keeps_every_picture() && skips_instead_of_waiting(self.mode, self.frame_pacing, self.frame_us, refresh_hz)
+    }
+
+    /// Whether pictures are shown in turn, one a refresh, instead of the newest due one: the FPS
+    /// limit, the smoothest pacing, and Balanced without Keep only the newest frame.
+    fn keeps_every_picture(&self) -> bool {
+        self.paced(FramePacing::CapFps) || self.paced(FramePacing::Smoothness) || (self.paced(FramePacing::Balanced) && !self.drop_late_frames)
     }
 
     /// One frame of the stream.
@@ -668,14 +688,15 @@ impl Pacer {
     }
 
     /// The newest picture due at `now_us`; older due ones are dropped (counted in the
-    /// return's second value). With the FPS limit or the smoothest frame pacing it is the oldest
-    /// due picture instead, one a refresh: an older one is dropped only once it is more than a
-    /// frame old and a newer one is due.
+    /// return's second value). With the FPS limit, the smoothest frame pacing or Balanced without
+    /// Keep only the newest frame it is the oldest due picture instead, one a refresh: an older one
+    /// is dropped only once it is more than a frame old and a newer one is due.
     pub fn take_due(&mut self, now_us: u64) -> (Option<Pending>, u32) {
         let mut chosen = None;
         let mut dropped = 0;
+        let keeps_every_picture = self.keeps_every_picture();
         let mut pending = super::pipeline::lock(&self.pending);
-        if self.paced(FramePacing::CapFps) || self.paced(FramePacing::Smoothness) {
+        if keeps_every_picture {
             while pending.get(1).is_some_and(|next| next.present_us <= now_us)
                 && pending.front().is_some_and(|p| now_us.saturating_sub(p.decoded.ready_us) > self.frame_us)
             {
@@ -4001,6 +4022,27 @@ pub(crate) mod tests {
             let (picture, dropped) = pacer.take_due(17_000);
             assert_eq!((picture.unwrap().decoded.ready_us, dropped), (17_000, 2), "{mode:?}");
         }
+    }
+
+    #[test]
+    fn balanced_without_keep_only_the_newest_frame_shows_each_picture_in_turn() {
+        let mut pacer = Pacer::new(PacingMode::Vsync, 8_333).with_frame_pacing(FramePacing::Balanced, 60).with_drop_late_frames(false);
+        for ready in [1_000, 9_000, 17_000] {
+            pacer.accept(decoded(ready));
+        }
+        let (picture, dropped) = pacer.take_due(17_000);
+        assert_eq!((picture.unwrap().decoded.ready_us, dropped), (1_000, 0), "the oldest due one, as Android's queue");
+        assert!(!pacer.skips_instead_of_waiting(60.0), "a kept picture waits its turn");
+        // The switch is Balanced's: the lowest latency pacing and VRR always take the newest.
+        for (mode, pacing) in [(PacingMode::Vsync, FramePacing::Latency), (PacingMode::Immediate, FramePacing::Balanced)] {
+            let mut pacer = Pacer::new(mode, 8_333).with_frame_pacing(pacing, 60).with_drop_late_frames(false);
+            for ready in [1_000, 9_000, 17_000] {
+                pacer.accept(decoded(ready));
+            }
+            assert_eq!(pacer.take_due(17_000).1, 2, "{mode:?} {pacing:?}");
+        }
+        let on = Pacer::new(PacingMode::Vsync, 8_333).with_frame_pacing(FramePacing::Balanced, 60);
+        assert!(on.skips_instead_of_waiting(60.0), "on, the default, keeps today's skip");
     }
 
     #[test]

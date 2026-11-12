@@ -53,9 +53,9 @@ pub enum Missing {
 impl Missing {
     pub fn message(&self) -> String {
         match self {
-            Self::Usbip => tr("Webcams and audio devices are forwarded by Linux's USB/IP tools, which aren't installed. Install your distribution's usbip package (on Ubuntu: linux-tools-generic), then press Refresh.").to_owned(),
-            Self::Pkexec => tr("Webcams and audio devices need pkexec to ask for your password, which isn't installed. Install your distribution's pkexec or polkit package, then press Refresh.").to_owned(),
-            Self::Flatpak => tr("Webcams and audio devices can't be forwarded from the Flatpak. Use the .deb, .rpm or AppImage of Nightjar for them.").to_owned(),
+            Self::Usbip => tr("Webcams and audio devices are forwarded by Linux’s USB/IP tools, which aren’t installed. Install your distribution’s usbip package (on Ubuntu: linux-tools-generic), then press Refresh.").to_owned(),
+            Self::Pkexec => tr("Webcams and audio devices need pkexec to ask for your password, which isn’t installed. Install your distribution’s pkexec or polkit package, then press Refresh.").to_owned(),
+            Self::Flatpak => tr("Webcams and audio devices can’t be forwarded from the Flatpak. Use the .deb, .rpm or AppImage of Nightjar for them.").to_owned(),
         }
     }
 }
@@ -171,7 +171,7 @@ impl System {
             let output = run(command)?;
             if output.code == Some(0) && self.is_installed() { return Ok(()); }
             Err(match output.code {
-                Some(7) => tr("Setting up USB forwarding failed: the rule that gives a device back after it's unplugged could not be loaded. Try again.").to_owned(),
+                Some(7) => tr("Setting up USB forwarding failed: the rule that gives a device back after it’s unplugged could not be loaded. Try again.").to_owned(),
                 code => failure(code, &output.stderr),
             })
         });
@@ -231,17 +231,17 @@ impl System {
 /// What the helper made of a run, as the user reads it.
 fn failure(code: Option<i32>, stderr: &str) -> String {
     match code {
-        _ if stderr.contains("operation_timeout") => tr("Linux's USB/IP tools didn't answer in time. Unplug the device, plug it in again and retry.").to_owned(),
+        _ if stderr.contains("operation_timeout") => tr("Linux’s USB/IP tools didn’t answer in time. Unplug the device, plug it in again and retry.").to_owned(),
         _ if stderr.contains("authentication agent") => tr("No password prompt could be shown: no polkit authentication agent runs in this desktop session.").to_owned(),
         Some(126 | 127) => tr("Forwarding this device needs your password, and the prompt was cancelled or failed.").to_owned(),
         Some(3) => Missing::Usbip.message(),
-        Some(4) => tr("Linux's USB/IP module (usbip-host) could not be loaded. Install your distribution's extra kernel modules (on Ubuntu: linux-modules-extra), then retry.").to_owned(),
+        Some(4) => tr("Linux’s USB/IP module (usbip-host) could not be loaded. Install your distribution’s extra kernel modules (on Ubuntu: linux-modules-extra), then retry.").to_owned(),
         Some(5) => tr("Another device was plugged in there meanwhile. Press Refresh and attach again.").to_owned(),
-        Some(8) => tr("The device's last connection didn't let go. Unplug it, plug it in again and retry.").to_owned(),
+        Some(8) => tr("The device’s last connection didn’t let go. Unplug it, plug it in again and retry.").to_owned(),
         Some(10) => busy(),
         code => {
             let detail = stderr.lines().map(str::trim).rfind(|l| !l.is_empty()).map_or_else(|| format!("exit {code:?}"), str::to_owned);
-            trf("Linux's USB/IP tools failed: {}", &[&detail])
+            trf("Linux’s USB/IP tools failed: {}", &[&detail])
         }
     }
 }
@@ -495,7 +495,7 @@ echo "unbind complete" >&2
             (5, "device_changed", tr("Another device was plugged in there meanwhile. Press Refresh and attach again.").to_owned()),
             (126, "", tr("Forwarding this device needs your password, and the prompt was cancelled or failed.").to_owned()),
             (127, "Error executing command as another user: No authentication agent found.", tr("No password prompt could be shown: no polkit authentication agent runs in this desktop session.").to_owned()),
-            (1, "usbip: error: device on busid 1-2 is already bound to usbip-host\nlast words", trf("Linux's USB/IP tools failed: {}", &[&"last words"])),
+            (1, "usbip: error: device on busid 1-2 is already bound to usbip-host\nlast words", trf("Linux’s USB/IP tools failed: {}", &[&"last words"])),
         ] {
             let helper = fake.script(&format!("exit{code}"), &format!("echo '{stderr}' >&2\nexit {code}\n"));
             let system = fake.system(&helper);
@@ -509,7 +509,7 @@ echo "unbind complete" >&2
 
     #[test]
     fn a_helper_killed_by_its_watchdog_says_the_tools_hung() {
-        assert_eq!(failure(None, "operation_timeout\n"), tr("Linux's USB/IP tools didn't answer in time. Unplug the device, plug it in again and retry."));
+        assert_eq!(failure(None, "operation_timeout\n"), tr("Linux’s USB/IP tools didn’t answer in time. Unplug the device, plug it in again and retry."));
     }
 
     #[test]

@@ -2,13 +2,14 @@
 //! answers, and the waking and connecting cards.
 
 use super::*;
+use super::settings::{apply_preset, preset_label};
 use nightjar_core::http::{valid_pairing_pin, PairingRequest};
 
 /// What the pairing help says, in the order of Nightjar Android's guide.
 pub(super) const PAIRING_STEPS: [&str; 3] = [
-    en("1. Start a Moonlight-compatible host on the PC, such as Apollo, Rubylight, Sunshine or Vibepollo."),
+    en("1. Start a Moonlight-compatible streaming app on the PC, such as Apollo, Rubylight, Sunshine or Vibepollo."),
     en("2. Here, choose the PC on the same network and select Pair."),
-    en("3. Enter the PIN shown here in your host's settings or web UI, usually on its PIN or pairing page."),
+    en("3. Enter the PIN shown here in the PC’s settings or web UI, usually on its PIN or pairing page."),
 ];
 
 /// What a PC's options list can hold.
@@ -78,7 +79,7 @@ impl HostOption {
             Self::Sleep => en("Sleep PC"),
             Self::RestartPc => en("Restart PC"),
             Self::ShutDownPc => en("Shut down PC"),
-            Self::UpdateHost => en("Update the PC's host"),
+            Self::UpdateHost => en("Update the PC’s streaming app"),
             Self::PairAnother => en("Pair another device"),
             Self::Files => en("Files"),
             Self::Settings => en("PC settings"),
@@ -253,6 +254,8 @@ impl Launcher {
                 }
                 return;
             }
+            // Drawn by the launch scene, over the whole window (`launch_scene`).
+            Dialog::ConnectFailed { .. } => {}
             Dialog::HostOptions { host: id } => {
                 let id = *id;
                 if let Some(host) = view.hosts.get(id) {
@@ -277,7 +280,7 @@ impl Launcher {
                     // Says what the PCs page says of it: the running game's name, or Online.
                     let status = pcs::pc_line_of(host).words().to_owned();
                     // Wake needs the PC's address, learnt while pairing with it on.
-                    let note = (host.reach == Reach::Offline && host.record.mac.is_none()).then_some(en("Pair once while the PC is on to enable Wake."));
+                    let note = (host.reach == Reach::Offline && host.record.mac.is_none()).then_some(en("Pair once while the PC is on to enable Wake up."));
                     let (outcome, took) = popover(ctx, "host-options", self.menu_anchor, host.display_name(), Some((status, *ON_SURFACE_VARIANT)), &rows, note, focus_first);
                     focused = took;
                     match outcome {
@@ -395,7 +398,7 @@ impl Launcher {
                     // Left empty, the PC goes by the name the placeholder shows.
                     let edit = ui.add(
                         egui::TextEdit::singleline(text)
-                            .hint_text(own.as_str())
+                            .hint_text(hint(&own, regular(text::BODY)))
                             .char_limit(crate::config::ALIAS_MAX_CHARS)
                             .desired_width(f32::INFINITY)
                             .margin(Margin::symmetric(12, 10)),
@@ -571,6 +574,31 @@ impl Launcher {
                     });
                 });
             }
+            // Android's PresetPreference: the preset's name, what it replaces, OK or Cancel.
+            Dialog::ConfirmPreset(preset) => {
+                let preset = *preset;
+                modal(ctx, "confirm-preset", |ui| {
+                    ui.set_width(440.0);
+                    ui.label(RichText::new(tr(preset_label(preset))).font(semibold(text::SECTION)));
+                    ui.label(RichText::new(tr("This replaces resolution, frame rate, bitrate, frame pacing, upscaling, VRR and performance settings with this preset’s values. Codec and HDR choices stay as they are.")).color(ON_SURFACE_VARIANT));
+                    dialog_buttons(ui, |ui| {
+                        let ok = primary_button(ui, "OK");
+                        if focus_first {
+                            ok.request_focus();
+                            focused = true;
+                        }
+                        if ok.clicked() {
+                            apply_preset(&mut self.settings, preset);
+                            (self.custom_size, self.custom_fps) = (None, None);
+                            commands.push(Command::SaveSettings);
+                            close = true;
+                        }
+                        if quiet_button(ui, "Cancel").clicked() {
+                            close = true;
+                        }
+                    });
+                });
+            }
             Dialog::ConfirmPower(offer) => {
                 let offer = *offer;
                 let action = offer.action;
@@ -603,19 +631,10 @@ impl Launcher {
                         RichText::new(tr("The PC sleeps only while no app or stream runs on it. Wake it with Wake up."))
                             .color(ON_SURFACE_VARIANT),
                     );
-                    // The asking line keeps its room once the offer is in, and Sleep PC is there
-                    // from the start, only off: nothing moves under the pointer or the focus,
-                    // so a press meant for Cancel never lands on Sleep PC.
+                    // The asking line sits left of the buttons, and Sleep PC is there from the
+                    // start, only off: nothing moves under the pointer or the focus, so a press
+                    // meant for Cancel never lands on Sleep PC, and no empty row waits above them.
                     let waiting = offer.is_none();
-                    ui.add_space(space::M);
-                    ui.horizontal(|ui| {
-                        if waiting {
-                            spinner(ui, 9.0);
-                        } else {
-                            ui.allocate_exact_size(Vec2::splat(18.0), Sense::hover());
-                        }
-                        ui.add_visible(waiting, egui::Label::new(RichText::new(tr("Asking the PC…")).color(ON_SURFACE_VARIANT)));
-                    });
                     dialog_buttons(ui, |ui| {
                         let sleep = ui.add_enabled_ui(!waiting, |ui| primary_button(ui, "Sleep PC")).inner;
                         if let (true, Some((token, at))) = (sleep.clicked(), offer) {
@@ -631,6 +650,7 @@ impl Launcher {
                         if cancel.clicked() {
                             close = true;
                         }
+                        asking_line(ui, waiting);
                     });
                 });
             }
@@ -644,21 +664,15 @@ impl Launcher {
                     };
                     ui.label(RichText::new(title).font(semibold(text::SECTION)));
                     ui.label(RichText::new(tr("Apps with unsaved work on the PC can block this.")).color(ON_SURFACE_VARIANT));
-                    // As Sleep PC: the asking line keeps its room and the action button is there
-                    // from the start, only off, so nothing moves under the pointer or the focus.
+                    // As Sleep PC: the asking line sits left of the buttons and the action button is
+                    // there from the start, only off, so nothing moves under the pointer or the
+                    // focus. Shut down keeps a line's room for the PC saying it cannot wake again.
                     let waiting = offer.is_none();
                     let no_wake = action == PcPower::ShutDown && matches!(offer, Some((_, _, false)));
-                    ui.add_space(space::M);
-                    ui.horizontal(|ui| {
-                        if waiting {
-                            spinner(ui, 9.0);
-                        } else {
-                            ui.allocate_exact_size(Vec2::splat(18.0), Sense::hover());
-                        }
-                        let line = if no_wake { tr("Once off, this PC may only start with its power button.") } else { tr("Asking the PC…") };
-                        let color = if no_wake { ERROR } else { ON_SURFACE_VARIANT };
-                        ui.add_visible(waiting || no_wake, egui::Label::new(RichText::new(line).color(color)));
-                    });
+                    if action == PcPower::ShutDown {
+                        ui.add_space(space::M);
+                        ui.add_visible(no_wake, egui::Label::new(RichText::new(tr("Once off, this PC may only start with its power button.")).color(ERROR)));
+                    }
                     dialog_buttons(ui, |ui| {
                         let label = match action {
                             PcPower::Restart => en("Restart"),
@@ -678,6 +692,7 @@ impl Launcher {
                         if cancel.clicked() {
                             close = true;
                         }
+                        asking_line(ui, waiting);
                     });
                 });
             }
@@ -685,8 +700,8 @@ impl Launcher {
                 let id = *host;
                 modal(ctx, "confirm-update", |ui| {
                     ui.set_width(440.0);
-                    ui.label(RichText::new(trf("Update the host on {} to {}?", &[&name, &version])).font(semibold(text::SECTION)));
-                    ui.label(RichText::new(tr("The host restarts to install it, and a stream from this device ends.")).color(ON_SURFACE_VARIANT));
+                    ui.label(RichText::new(trf("Update the streaming app on {} to {}?", &[&name, &version])).font(semibold(text::SECTION)));
+                    ui.label(RichText::new(tr("The streaming app restarts to install it, and a stream from this device ends.")).color(ON_SURFACE_VARIANT));
                     dialog_buttons(ui, |ui| {
                         if primary_button(ui, "Update").clicked() {
                             commands.push(Command::InstallUpdate { host: id });
@@ -835,10 +850,11 @@ impl Launcher {
                     });
                 });
             }
-            Dialog::NetworkTest { stage } => {
+            Dialog::NetworkTest { stage, calibrate } => {
+                let title = if *calibrate { tr("Network test") } else { tr("Connection test") };
                 modal(ctx, "network-test", |ui| {
                     ui.set_width(420.0);
-                    ui.label(RichText::new(tr("Network test")).font(semibold(text::SECTION)));
+                    ui.label(RichText::new(title).font(semibold(text::SECTION)));
                     ui.horizontal(|ui| { spinner(ui, 10.0); ui.label(tr(stage.as_str())); });
                     dialog_buttons(ui, |ui| {
                         let button = quiet_button(ui, "Cancel");
@@ -847,14 +863,42 @@ impl Launcher {
                     });
                 });
             }
+            // Android's result: the delay line, then the speed or why it is missing; OK, and Try
+            // again to run it once more.
+            Dialog::ConnectionTest { host, result } => {
+                let host = *host;
+                let (delay, speed) = (result.delay_line(), result.speed_line());
+                modal(ctx, "connection-test", |ui| {
+                    ui.set_width(440.0);
+                    ui.label(RichText::new(tr("Connection test")).font(semibold(text::SECTION)));
+                    ui.label(RichText::new(delay).color(ON_SURFACE_VARIANT));
+                    if let Some(speed) = speed {
+                        ui.label(RichText::new(speed).color(ON_SURFACE_VARIANT));
+                    }
+                    dialog_buttons(ui, |ui| {
+                        let ok = primary_button(ui, "OK");
+                        if focus_first {
+                            ok.request_focus();
+                            focused = true;
+                        }
+                        if ok.clicked() {
+                            close = true;
+                        }
+                        if quiet_button(ui, "Try again").clicked() {
+                            commands.push(Command::NetworkTest { host, calibrate: false });
+                            close = true;
+                        }
+                    });
+                });
+            }
             Dialog::Shortcut { id, name, chord, error } => {
                 modal(ctx, "shortcut-editor", |ui| {
                     ui.set_width(420.0);
                     ui.label(RichText::new(if id.is_some() { tr("Edit shortcut") } else { tr("New shortcut") }).font(semibold(text::SECTION)));
                     ui.add_space(space::S);
-                    let edit = dialog_field(ui, egui::TextEdit::singleline(name).hint_text(tr("Shortcut name")));
+                    let edit = dialog_field(ui, egui::TextEdit::singleline(name).hint_text(hint(tr("Shortcut name"), regular(text::BODY))));
                     if focus_first { edit.request_focus(); focused = true; }
-                    dialog_field(ui, egui::TextEdit::singleline(chord).hint_text("CTRL + ALT + DELETE"));
+                    dialog_field(ui, egui::TextEdit::singleline(chord).hint_text(hint("CTRL + ALT + DELETE", regular(text::BODY))));
                     ui.label(RichText::new(tr("Use letters, digits, F1–F24, CTRL, SHIFT, ALT, WIN, TAB, ENTER, ESC, arrows or other key names.")).font(regular(text::CAPTION)).color(ON_SURFACE_VARIANT));
                     if let Some(error) = error { ui.label(RichText::new(error.as_str()).color(ERROR)); }
                     dialog_buttons(ui, |ui| {
@@ -925,7 +969,7 @@ impl Launcher {
                     ui.set_width(420.0);
                     ui.label(RichText::new(if id.is_some() { tr("Rename profile") } else { tr("New profile") }).font(semibold(text::SECTION)));
                     ui.add_space(space::S);
-                    let edit = dialog_field(ui, egui::TextEdit::singleline(name).hint_text(tr("Profile name")));
+                    let edit = dialog_field(ui, egui::TextEdit::singleline(name).hint_text(hint(tr("Profile name"), regular(text::BODY))));
                     if focus_first { edit.request_focus(); focused = true; }
                     if let Some(error) = error { ui.label(RichText::new(error.as_str()).color(ERROR)); }
                     let submitted = edit.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
@@ -1098,12 +1142,12 @@ impl Launcher {
                     ui.label(RichText::new(tr("Pair with one-time PIN")).font(semibold(text::SECTION)));
                     ui.label(RichText::new(tr("Enter the PIN and passphrase created on the PC.")).color(ON_SURFACE_VARIANT));
                     ui.add_space(space::S);
-                    let edit = dialog_field(ui, egui::TextEdit::singleline(pin).hint_text(tr("PIN")));
+                    let edit = dialog_field(ui, egui::TextEdit::singleline(pin).hint_text(hint(tr("PIN"), regular(text::BODY))));
                     if focus_first {
                         edit.request_focus();
                         focused = true;
                     }
-                    dialog_field(ui, egui::TextEdit::singleline(passphrase).password(true).hint_text(tr("Passphrase")));
+                    dialog_field(ui, egui::TextEdit::singleline(passphrase).password(true).hint_text(hint(tr("Passphrase"), regular(text::BODY))));
                     if let Some(error) = error {
                         ui.label(RichText::new(error.as_str()).color(ERROR));
                     }
@@ -1133,7 +1177,7 @@ impl Launcher {
                     ui.add_space(8.0);
                     let edit = ui.add(
                         egui::TextEdit::singleline(text)
-                            .hint_text(tr("IP address or name"))
+                            .hint_text(hint(tr("IP address or name"), regular(text::BODY)))
                             .desired_width(f32::INFINITY)
                             .margin(Margin::symmetric(12, 10)),
                     )
@@ -1173,7 +1217,7 @@ impl Launcher {
                     if !pin.is_empty() {
                         ui.add_space(14.0);
                         ui.label(
-                            RichText::new(tr("Enter this PIN in your host’s settings or web UI, usually on its PIN or pairing page."))
+                            RichText::new(tr("Enter this PIN in the PC’s settings or web UI, usually on its PIN or pairing page."))
                                 .color(ON_SURFACE_VARIANT),
                         );
                     }
@@ -1615,10 +1659,10 @@ impl Launcher {
     pub fn update_answered(&mut self, host: u64, name: &str, result: Result<UpdateStep, String>) {
         let (title, body) = match result {
             Ok(UpdateStep::Started(version)) => {
-                (trf("Updating {}", &[&name]), trf("The host installs version {} and comes back on its own.", &[&version]))
+                (trf("Updating {}", &[&name]), trf("The streaming app installs version {} and comes back on its own.", &[&version]))
             }
             Ok(UpdateStep::Waiting(reason)) => (trf("Updating {}", &[&name]), trf("{} The update starts once that stream ends.", &[&reason])),
-            Ok(UpdateStep::Back(version)) => (trf("{} is back", &[&name]), trf("The host now runs version {}.", &[&version])),
+            Ok(UpdateStep::Back(version)) => (trf("{} is back", &[&name]), trf("The streaming app now runs version {}.", &[&version])),
             Err(e) => (trf("Could not update {}", &[&name]), e),
         };
         self.sleep_message(host, title, body);
@@ -1638,26 +1682,6 @@ impl Launcher {
     pub fn pair_failed(&mut self, host: u64, body: impl Into<String>, one_time: bool) {
         self.dialog = Dialog::PairError { host, body: body.into(), one_time };
         self.focus_dialog = true;
-    }
-
-    pub(super) fn connecting(&mut self, ctx: &egui::Context, c: &ConnectingView, commands: &mut Vec<Command>) {
-        modal(ctx, "connecting", |ui| {
-            ui.set_width(400.0);
-            ui.label(RichText::new(&c.app).font(semibold(text::SECTION)));
-            ui.label(RichText::new(trf("on {}", &[&c.host])).color(ON_SURFACE_VARIANT));
-            ui.add_space(space::M);
-            ui.horizontal(|ui| {
-                spinner(ui, 10.0);
-                ui.label(RichText::new(tr(&c.stage)).color(ON_SURFACE));
-            });
-            dialog_buttons(ui, |ui| {
-                let r = quiet_button(ui, "Cancel");
-                r.request_focus();
-                if r.clicked() {
-                    commands.push(Command::CancelConnect);
-                }
-            });
-        });
     }
 }
 
@@ -1816,6 +1840,18 @@ pub(super) fn dialog_buttons(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
     ui.allocate_ui_with_layout(vec2(ui.available_width(), Size::CONTROL.height), Layout::right_to_left(Align::Center), |ui| {
         ui.spacing_mut().item_spacing.x = space::S;
         add(ui);
+    });
+}
+
+/// While the PC is asked, a spinner and "Asking the PC…" at the left of a dialog's buttons (added
+/// after them, in their right-to-left row); it goes without moving them once the answer is in.
+fn asking_line(ui: &mut Ui, waiting: bool) {
+    ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+        if waiting {
+            ui.spacing_mut().item_spacing.x = space::S;
+            spinner(ui, 9.0);
+            ui.add(egui::Label::new(RichText::new(tr("Asking the PC…")).color(ON_SURFACE_VARIANT)).truncate());
+        }
     });
 }
 
@@ -2159,6 +2195,20 @@ pub fn pc_sheet(ctx: &egui::Context, anchor: Anchor, hosts: &[Host], current: u6
     (outcome, focused)
 }
 
+/// A menu row's state: the pointer moving onto it takes the focus there, and only the focused row
+/// lights, so one highlight shows whether the pointer or the keys moved last (a resting pointer no
+/// longer lights a second row beside the focus). Lit and pressed; neither for a row that is off.
+pub(super) fn hover_takes_focus(ui: &Ui, response: &Response) -> (bool, bool) {
+    if !ui.is_enabled() {
+        return (false, false);
+    }
+    let moved_in = response.hovered() && ui.input(|i| i.pointer.is_moving());
+    if moved_in && !response.has_focus() {
+        response.request_focus();
+    }
+    (response.has_focus() || moved_in, response.is_pointer_button_down_on())
+}
+
 /// Where a PC row's words start.
 const PC_ROW_WORDS: f32 = 14.0 + 9.0 + 12.0;
 /// What a PC row keeps free at its right for the mark.
@@ -2166,8 +2216,8 @@ const PC_ROW_MARK: f32 = 8.0 + 20.0 + 14.0;
 
 fn pc_row(ui: &mut Ui, host: &Host, current: bool) -> Response {
     let width = ui.available_width();
-    let (hovered, pressed) = last_state(ui);
     let (rect, response) = ui.allocate_exact_size(vec2(width, 60.0), Sense::click());
+    let (lit, pressed) = hover_takes_focus(ui, &response);
     let line = pcs::pc_line_of(host);
     let (name, status) = (host.display_name(), line.words());
     response.widget_info(|| {
@@ -2179,7 +2229,7 @@ fn pc_row(ui: &mut Ui, host: &Host, current: bool) -> Response {
         return response;
     }
     let mut shapes = Vec::new();
-    lift_shapes(&mut shapes, ui.ctx(), rect, 14.0, hovered, pressed);
+    lift_shapes(&mut shapes, ui.ctx(), rect, 14.0, lit, pressed);
     chrome::pc_dot(&mut shapes, ui.ctx(), Pos2::new(rect.left() + 14.0 + 4.5, rect.center().y), host);
     ui.painter().extend(shapes);
     let room = width - PC_ROW_WORDS - PC_ROW_MARK;
@@ -2206,7 +2256,7 @@ fn pc_row(ui: &mut Ui, host: &Host, current: bool) -> Response {
 /// A thin line between a menu's parts.
 fn divider(ui: &mut Ui) {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 9.0), Sense::hover());
-    ui.painter().hline(rect.x_range().shrink(6.0), rect.center().y, Stroke::new(1.0, design_tokens::TINT_SEPARATOR));
+    ui.painter().hline(rect.x_range().shrink(6.0), rect.center().y, Stroke::new(1.0, shade::TINT_SEPARATOR.get()));
 }
 
 /// The glass around a menu's rows.
@@ -2218,7 +2268,6 @@ pub(super) const MENU_FADE: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 
 /// A menu row: icon, label, and the shortcut at the right; why it is off under the label.
 fn menu_row(ui: &mut Ui, row: &MenuRow) -> Response {
     let width = ui.available_width();
-    let (hovered, pressed) = last_state(ui);
     let enabled = ui.is_enabled();
     // Why it is off wraps under the label.
     let why = row.blocked.map(|why| ui.painter().layout(tr(why).to_owned(), regular(text::CAPTION), *OUTLINE, width - 42.0 - 14.0));
@@ -2231,14 +2280,15 @@ fn menu_row(ui: &mut Ui, row: &MenuRow) -> Response {
         None => label.to_owned(),
     };
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &said));
+    let (lit, pressed) = hover_takes_focus(ui, &response);
     if !ui.is_rect_visible(rect) {
         return response;
     }
     let painter = ui.painter();
     let mut lift = Vec::new();
-    lift_shapes(&mut lift, ui.ctx(), rect, 14.0, hovered && enabled, pressed && enabled);
+    lift_shapes(&mut lift, ui.ctx(), rect, 14.0, lit, pressed);
     painter.extend(lift);
-    let (ink, icon_ink) = if row.destructive { (*ERROR, *ERROR) } else if hovered { (*ON_SURFACE, *ON_SURFACE) } else { (*ON_SURFACE, *ON_SURFACE_VARIANT) };
+    let (ink, icon_ink) = if row.destructive { (*ERROR, *ERROR) } else if lit { (*ON_SURFACE, *ON_SURFACE) } else { (*ON_SURFACE, *ON_SURFACE_VARIANT) };
     let top = if row.blocked.is_some() { rect.top() + 20.0 } else { rect.center().y };
     icons::paint(painter, row.icon, Rect::from_center_size(Pos2::new(rect.left() + 21.0, top), Vec2::splat(18.0)), icon_ink);
     let words = painter.layout_no_wrap(label.to_owned(), semibold(text::LABEL), ink);

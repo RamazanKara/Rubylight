@@ -11,10 +11,10 @@
     <string name="stats_host">Обробка на хості: %1$s мс</string>
     <string name="stats_host_network">Хост із надсиланням: %1$s мс</string>
     <string name="stats_client">Декодування: %1$s мс · Очікування показу: %2$s мс</string>
-    <string name="hardware_title">Обладнання хоста (усі GPU)</string>
-    <string name="hardware_cpu">CPU хоста: %1$s%%</string>
-    <string name="hardware_gpu_summary">GPU хоста %1$d: %2$s%% · %3$s °C · %4$s Вт</string>
-    <string name="hardware_sample">Вибірка хоста: %1$d мс від епохи Unix · Інтервал: %2$d мс</string>
+    <string name="hardware_title">Обладнання ПК (усі GPU)</string>
+    <string name="hardware_cpu">CPU ПК: %1$s%%</string>
+    <string name="hardware_gpu_summary">GPU ПК %1$d: %2$s%% · %3$s °C · %4$s Вт</string>
+    <string name="hardware_sample">Вибірка ПК: %1$d мс від епохи Unix · Інтервал: %2$d мс</string>
     <string name="hardware_gpu_name">GPU %1$d · %2$s</string>
     <string name="hardware_gpu_unnamed">GPU без назви</string>
     <string name="hardware_gpu_clocks">Навантаження: %1$s%% · Частота GPU: %2$s МГц · Частота пам’яті: %3$s МГц</string>

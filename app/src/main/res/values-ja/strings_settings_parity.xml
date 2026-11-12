@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings shared with desktop Nightjar: Sharper colored text, Controllers, Mouse mode, When Nightjar
+     opens, group names, row hints and notices. -->
+<resources>
+    <string name="title_sharp_color">色付き文字をくっきり表示</string>
+    <string name="summary_sharp_color">色の情報をすべて保ち、色付きの文字や細い線をくっきり表示します。</string>
+    <string-array name="sharp_color_names">
+        <item>オフ</item>
+        <item>自動</item>
+    </string-array>
+    <string name="title_controllers">コントローラ</string>
+    <string name="summary_controllers">オフ、全コントローラで 1 人のプレイヤー、またはコントローラごとに別々のプレイヤー。</string>
+    <string-array name="controllers_names">
+        <item>オフ</item>
+        <item>1 人のプレイヤー</item>
+        <item>コントローラごとに 1 人</item>
+    </string-array>
+    <string-array name="mouse_mode_names">
+        <item>キャプチャ</item>
+        <item>デスクトップポインタ</item>
+    </string-array>
+    <string-array name="start_screen_names">
+        <item>ホーム</item>
+        <item>PCの一覧を表示</item>
+        <item>前回のゲームを続ける</item>
+        <item>選んだゲーム</item>
+    </string-array>
+    <string name="summary_host_display_location">PC がストリーム用のディスプレイを自身の画面に対してどう配置するかです。</string>
+    <string name="summary_pace_calibration_row">PC の PyroWave フレームが欠けずに届く最速のペースを測定します。</string>
+    <string name="summary_network_tests">Ping、ジッター、損失を測定し、PC が対応していればダウンロード速度も測定します。</string>
+    <string name="settings_category_touch_mouse">タッチとマウス</string>
+    <string name="settings_category_connection">接続</string>
+    <string name="sharp_color_unavailable_pc">この PC では「色付き文字をくっきり表示」を利用できません。</string>
+    <string name="sharp_color_unavailable_device">このデバイスでは「色付き文字をくっきり表示」を利用できません。</string>
+    <string name="sharp_color_stopped">「色付き文字をくっきり表示」が停止しました。この設定なしで再接続しています。</string>
+    <string name="sharp_color_hdr_dropped">このストリームは SDR です。この PC では「色付き文字をくっきり表示」と HDR を同時に使用できません。</string>
+    <string name="hint_show_onscreen_controls">ストリームの上に表示されるタッチ式のゲームパッドです。</string>
+    <string name="hint_mouse_speed">ポインタが動く速さです。</string>
+    <string name="hint_trackpad_speed">タッチモード「トラックパッド」でのポインタの速度です。</string>
+    <string name="hint_local_cursor_speed">タッチモード「ローカルカーソル」でのポインタの速度です。</string>
+    <string name="hint_trackpad_acceleration_curve">速くスワイプしたときにポインタがより遠くまで動く度合いです。</string>
+    <string name="hint_trackpad_momentum_glide">ポインタが慣性で進む距離です。</string>
+    <string name="hint_pc_keyboard_size">画面上のPCキーボードのサイズです。</string>
+    <string name="hint_pc_keyboard_opacity">画面上のPCキーボードの透け具合です。</string>
+    <string name="hint_vibrate_osc">画面上のボタンを押すとデバイスが振動します。</string>
+    <string name="hint_show_guide_button">オンスクリーンコントロールに Guide ボタンを追加します。</string>
+    <string name="hint_host_audio">ストリーミング中も PC のスピーカーから音声を出します。</string>
+    <string name="hint_overlay_position">パフォーマンス オーバーレイを表示する画面の隅です。</string>
+    <string name="summary_reset_all">すべての設定を既定値に戻します。PC、ゲーム、プロファイル、言語はそのままです。</string>
+</resources>

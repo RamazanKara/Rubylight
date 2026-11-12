@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="pc_status_ready">Pronto</string>
     <string name="pc_status_playing">In gioco: %1$s</string>
     <string name="pc_status_playing_unknown">In gioco</string>
     <string name="pc_status_waking">Riattivazione…</string>

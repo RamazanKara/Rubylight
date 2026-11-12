@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="library_computers">ПК</string>
-    <string name="pc_needs_pairing">Готовий до сполучення</string>
     <string name="pc_offline">Не в мережі</string>
-    <string name="pc_checking">Перевірка з’єднання…</string>
+    <string name="pc_checking">Перевірка…</string>
     <string name="app_running">Запущено</string>
     <string name="app_hidden">Приховано</string>
     <string name="app_running_hidden">Запущено · Приховано</string>

@@ -529,14 +529,14 @@ pub fn folder_error(error: &FileError) -> String {
             )),
             FileRefusal::FoldersDisabled => Some(en("The PC shares no folders.")),
             FileRefusal::FolderUnreadable => Some(en(
-                "The PC can't read this folder: Windows denies its signed-in user access. Check the folder's permissions on the PC.",
+                "The PC can’t read this folder: Windows denies its signed-in user access. Check the folder’s permissions on the PC.",
             )),
             FileRefusal::NoConsoleUser => Some(en(
                 "Nobody is signed in on the PC. Shared folders open as the signed-in Windows user.",
             )),
             FileRefusal::NotFound => Some(en("The file or folder is no longer there.")),
             FileRefusal::TooLarge => Some(en("The file is larger than the PC takes.")),
-            FileRefusal::InsufficientStorage => Some(en("The PC's drive is full.")),
+            FileRefusal::InsufficientStorage => Some(en("The PC’s drive is full.")),
             FileRefusal::TransferBusy => {
                 Some(en("Another upload from this device is still running."))
             }
@@ -956,7 +956,7 @@ pub(crate) mod tests {
             message: "denied".into(),
         });
         assert!(
-            error.starts_with("The PC can't read this folder: Windows denies"),
+            error.starts_with("The PC can’t read this folder: Windows denies"),
             "{error}"
         );
     }

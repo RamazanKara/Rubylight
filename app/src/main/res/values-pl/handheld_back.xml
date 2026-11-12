@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_checkbox_back_opens_menu">Fizyczny Wstecz otwiera menu strumienia</string>
-    <string name="summary_checkbox_back_opens_menu">Dedykowany klawisz Wstecz konsoli przenośnej lub kontrolera otwiera menu strumienia. Select i Start zachowują mapowanie. Opcja Wstecz wysyła Windows ma pierwszeństwo na klawiaturze fizycznej. Od następnego strumienia.</string>
+    <string name="title_checkbox_back_opens_menu">Wstecz otwiera menu strumienia</string>
+    <string name="summary_checkbox_back_opens_menu">Przycisk Wstecz kontrolera lub konsoli przenośnej otwiera menu strumienia.</string>
     <string name="title_checkbox_back_as_guide">Przycisk Wstecz jako Guide</string>
-    <string name="summary_checkbox_back_as_guide">Wstecz na dowolnym kontrolerze oraz przycisk systemowy konsoli przenośnej działający jak Wstecz wysyłają Guide (Home/PS). Kontroler, którego Select to Wstecz, wysyła zamiast tego Guide. „Fizyczny Wstecz otwiera menu strumienia” ma pierwszeństwo. Menu streamu otwórz kombinacją przycisków kontrolera lub gestem Wstecz w Androidzie. Działa od następnego streamu.</string>
+    <string name="summary_checkbox_back_as_guide">Wstecz wysyła Guide (Home lub PS) do komputera.</string>
 </resources>

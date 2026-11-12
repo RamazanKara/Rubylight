@@ -1625,7 +1625,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     /**
-     * The toast when "Prefer YUV 4:4:4" is on and the stream is 4:2:0. A 10-bit stream that is not
+     * The toast when Sharper colored text asked for native 4:4:4 and the stream is 4:2:0. A 10-bit stream that is not
      * 10-bit SDR is HDR, which takes priority over 4:4:4 (the handshake ranks Main10 above 4:4:4),
      * and the toast says so; otherwise the PC or this device had no 4:4:4 for the stream.
      *
@@ -1672,7 +1672,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 (getDecoderVideoFormats(tenBitHevcDecoder(), "video/hevc", false, true, false) |
                         getDecoderVideoFormats(tenBitAv1Decoder(), "video/av01", false, true, false)) &
                         MoonBridge.VIDEO_FORMAT_MASK_10BIT;
-        if (prefs.experimentalPacked444) {
+        // Sharper colored text offers native 4:4:4 first (enableYuv444); packed alone, from an older
+        // layer, keeps the 4:2:0 HEVC and AV1 formats packing needs.
+        if (prefs.experimentalPacked444 && !prefs.enableYuv444) {
             return getDecoderVideoFormats(hevcDecoder, "video/hevc", hdr, false) |
                     getDecoderVideoFormats(av1Decoder, "video/av01", hdr, false) | tenBit;
         }
@@ -1816,6 +1818,24 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     @Override
     public void setHostPacked444Modes(int modes) {
         hostPacked444Modes = modes;
+    }
+
+    /**
+     * Sharper colored text decided before the launch (NvConnection.chooseSharpColor): packed for this
+     * stream or not. The session's settings carry it from here, as they do after a packed failure.
+     */
+    @Override
+    public void setPacked444(boolean packed) {
+        prefs.experimentalPacked444 = packed;
+    }
+
+    // False once Sharper colored text started without native 4:4:4: it said why, once per PC, so the
+    // stream does not say it again.
+    private volatile boolean native444Picked = true;
+
+    @Override
+    public void setNative444(boolean native444) {
+        native444Picked = native444;
     }
 
     /**
@@ -2857,7 +2877,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             listener.onStreamSizeChanged(packing == null ? width : packing.width, packing == null ? height : packing.height);
         }
         if (result == 0) {
-            if (packing == null && prefs.enableYuv444 && (format & MoonBridge.VIDEO_FORMAT_MASK_YUV444) == 0) {
+            if (packing == null && prefs.enableYuv444 && native444Picked && (format & MoonBridge.VIDEO_FORMAT_MASK_YUV444) == 0) {
                 int fallback = yuv444FallbackMessage(format, sdr10);
                 activity.runOnUiThread(() -> Toast.makeText(context, fallback, Toast.LENGTH_LONG).show());
             }

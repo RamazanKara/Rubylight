@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_adaptive_quality">Automatische Streamqualität</string>
-    <string name="summary_adaptive_quality">Verringert bei anhaltender Überlastung, langsamer Dekodierung oder Hitze die Auflösung oder Bildrate und erhöht sie später schrittweise. Nutzt automatische Bitrate, sofern unterstützt. Erfordert Unterstützung durch Host und Decoder; nicht mit PyroWave verfügbar.</string>
-    <string name="title_adaptive_quality_min_resolution">Minimale automatische Auflösung</string>
-    <string name="summary_adaptive_quality_min_resolution">Kürzeste Kante bei gleichem Seitenverhältnis. Die gewählte Streamauflösung bleibt das Maximum. Eine niedrigere Startauflösung wird dadurch nicht erhöht.</string>
-    <string name="title_adaptive_quality_min_fps">Minimale automatische Bildrate</string>
-    <string name="summary_adaptive_quality_min_fps">Niedrigste erlaubte Bildrate. Die gewählte Streambildrate bleibt das Maximum. Gilt auch für den Akkumodus.</string>
+    <string name="summary_adaptive_quality">Verringert bei anhaltender Überlastung, langsamer Dekodierung oder Hitze die Auflösung oder Bildrate und erhöht sie später schrittweise. Nutzt automatische Bitrate, sofern unterstützt. Braucht einen PC, der einen laufenden Stream ändern kann, und einen adaptiven Decoder; nicht mit PyroWave verfügbar.</string>
+    <string name="title_adaptive_quality_min_resolution">Minimale Auflösung</string>
+    <string name="summary_adaptive_quality_min_resolution">Die niedrigste Auflösung, auf die „Automatische Qualität“ heruntergeht.</string>
+    <string name="title_adaptive_quality_min_fps">Minimale Bildrate</string>
+    <string name="summary_adaptive_quality_min_fps">Die niedrigste Bildrate, auf die „Automatische Qualität“ heruntergeht.</string>
     <string name="quality_off">Aus</string>
     <string name="quality_motion">Flüssige Bewegung bevorzugen</string>
     <string name="quality_detail">Details bevorzugen</string>

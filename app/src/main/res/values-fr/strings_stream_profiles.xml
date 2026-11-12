@@ -67,7 +67,7 @@
 
     <!-- Bitrate on mobile data (Settings → Video) -->
     <string name="title_mobile_bitrate">Débit sur données mobiles</string>
-    <string name="summary_mobile_bitrate">Limite le débit quand un stream démarre sur données mobiles ou sur un Wi-Fi qu’Android considère comme facturé à l’usage, comme le partage de connexion d’un téléphone. La limite s’applique aussi aux valeurs des profils, des PC et des jeux. Désactivé utilise le même débit que sur les autres réseaux.</string>
+    <string name="summary_mobile_bitrate">Le débit maximal d’un stream sur données mobiles ou sur un réseau facturé à l’usage.</string>
     <string name="mobile_bitrate_off">Désactivé</string>
 
     <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->
@@ -97,7 +97,7 @@
     <string name="layers_from_pc">défini pour ce PC</string>
     <string name="layers_from_game">défini pour ce jeu</string>
     <string name="layers_from_mobile_limit">limite données mobiles</string>
-    <string name="layers_pacing_vrr">Le rafraîchissement adaptatif est activé, le stream utilise donc Latence minimale.</string>
+    <string name="layers_pacing_vrr">Le rafraîchissement variable est activé, le stream utilise donc Latence minimale.</string>
 
     <!-- In the stream -->
     <string name="layers_applied">Paramètres : %1$s</string>
@@ -119,7 +119,7 @@
     <string name="game_preset_smoothness">Fluidité</string>
     <string name="game_preset_smoothness_summary">Règle le frame pacing le plus fluide, qui retient les images et ajoute du délai, et désactive le rafraîchissement adaptatif pour ce jeu. Le débit ne change pas.</string>
     <string name="game_preset_quality">Qualité</string>
-    <string name="game_preset_quality_summary" formatted="false">Règle le débit à 150 % de celui du PC, ou des réglages principaux si le PC n’en a pas, jusqu’à la limite de l’hôte. Le frame pacing et le rafraîchissement adaptatif ne changent pas ; sur une connexion faible, les images plus lourdes peuvent ajouter du délai.</string>
+    <string name="game_preset_quality_summary" formatted="false">Règle le débit à 150 % de celui du PC, ou des réglages principaux si le PC n’en a pas, jusqu’à la limite du PC. Le frame pacing et le rafraîchissement adaptatif ne changent pas ; sur une connexion faible, les images plus lourdes peuvent ajouter du délai.</string>
     <string name="game_preset_custom">Personnalisé</string>
     <string name="game_preset_custom_summary">Vos propres valeurs, réglées ci-dessous.</string>
 </resources>

@@ -72,6 +72,9 @@ public class AutoBitrateSettingTest {
     @Test
     public void theSwitchSitsDirectlyUnderTheBitrateSliderAndIsOffByDefault() {
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            // The slider shows while Automatic bitrate is off (SettingRules.bitrateShown); after the first start's
+            // move to this screen's defaults, which turns it on.
+            prefs().edit().putBoolean(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING, true).commit();
             StreamSettings.SettingsFragment video = open(controller.get(), "video");
             SwitchPreference auto = (SwitchPreference) video.findPreference(AutoBitrateChoice.SETTINGS_KEY);
             assertNotNull(auto);
@@ -84,8 +87,7 @@ public class AutoBitrateSettingTest {
                 if (group.getPreference(i) == slider) at = i;
             }
             assertTrue(at >= 0);
-            // The loss-based switch (0x553C) lives in Advanced's Experimental group (SettingsTiersTest), so nothing
-            // sits between.
+            // The loss-based switch (0x553C) lives in Debug (SettingsTiersTest), so nothing sits between.
             assertSame(auto, group.getPreference(at + 1));
             assertFalse(PreferenceConfiguration.readPreferences(app()).autoBitrate);
         }

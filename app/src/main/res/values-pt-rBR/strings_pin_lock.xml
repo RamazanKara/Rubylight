@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="pin_lock_title">Bloqueio por PIN</string>
-    <string name="pin_lock_summary">Pede um PIN para abrir o Nightjar ou iniciar uma transmissão. Um PIN esquecido só pode ser redefinido limpando os dados do Nightjar nas configurações do Android, o que também remove seus PCs pareados.</string>
+    <string name="pin_lock_summary">Pede um PIN para abrir o Nightjar ou iniciar uma transmissão.</string>
     <string name="pin_set">Definir PIN</string>
     <string name="pin_change">Alterar PIN</string>
     <string name="pin_remove">Remover PIN</string>

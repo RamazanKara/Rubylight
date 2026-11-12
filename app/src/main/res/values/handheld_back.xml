@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_checkbox_back_opens_menu">Physical Back opens stream menu</string>
-    <string name="summary_checkbox_back_opens_menu">Use a handheld or controller’s dedicated Back key to open the stream menu. Select and Start keep their mappings. Keyboard Back sends Windows key takes priority on physical keyboards. Applies to the next stream.</string>
+    <string name="title_checkbox_back_opens_menu">Back opens the stream menu</string>
+    <string name="summary_checkbox_back_opens_menu">The controller’s or handheld’s Back button opens the stream menu.</string>
     <string name="title_checkbox_back_as_guide">Back button as Guide</string>
-    <string name="summary_checkbox_back_as_guide">Back on any controller, and a handheld\'s system button that acts as Back, sends Guide (Home/PS). A controller whose Select is Back sends Guide instead. Physical Back opens stream menu takes priority. Open the stream menu with the controller chord or Android\'s Back gesture. Applies to the next stream.</string>
+    <string name="summary_checkbox_back_as_guide">Back sends Guide (Home or PS) to the PC.</string>
 </resources>

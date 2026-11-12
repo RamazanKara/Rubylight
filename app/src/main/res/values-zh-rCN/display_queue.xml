@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_display_queue_recovery">收回显示队列延迟</string>
-    <string name="summary_display_queue_recovery">帧节奏为“最低延迟”或“平衡”时：如果屏幕让某一帧比本串流所需多等待一整次刷新，就跳过一帧来消除这段延迟。每次跳帧都会检查效果，若跳帧没有变化，本次串流中便停止。仅适用于会报告帧显示时间的设备。</string>
+    <string name="summary_display_queue_recovery">屏幕让帧比所需多停留一次刷新时，跳过一帧。</string>
 </resources>

@@ -8,7 +8,8 @@ package com.limelight.utils;
 public final class NetworkGrace {
     /** The control stream's built-in timeout. A grace period must be longer to change anything. */
     public static final int DEFAULT_TIMEOUT_SECONDS = 10;
-    static final int[] CHOICES_SECONDS = {0, 20, 30, 60};
+    /** nightjar-policy's NETWORK_GRACE_CHOICES_S, the waits desktop Nightjar offers (SettingValueListsTest). */
+    static final int[] CHOICES_SECONDS = {0, 15, 20, 30, 60};
 
     private NetworkGrace() { }
 

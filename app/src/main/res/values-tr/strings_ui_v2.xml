@@ -9,7 +9,7 @@
     <string name="stream_presets_help_title">Hazır ayarlar hakkında</string>
     <string name="settings_version">Sürüm %1$s</string>
     <string name="settings_source">Kaynak kodu ve lisanslar</string>
-    <string name="settings_csv_summary">En son gecikme ölçümlerini kaydet</string>
+    <string name="settings_csv_summary">En son gecikme ölçümlerini kaydeder.</string>
     <string name="host_profile_footer">Ayrılmadan önce yayın ayarlarını kaydedin. Ekran modu, kendi iletişim kutusundaki Ekran modunu kaydet ile ayrıca kaydedilir. Değişiklikler sonraki yayında geçerli olur.</string>
     <string name="stream_overlay_menu">Katman</string>
     <string name="stream_bitrate_manual">Bit hızını ayarla</string>

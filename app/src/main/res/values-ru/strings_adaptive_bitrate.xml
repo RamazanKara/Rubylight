@@ -1,18 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_auto_bitrate_enable">Включить «Устройство управляет битрейтом»</string>
-    <string name="stream_auto_bitrate_disable">Выключить «Устройство управляет битрейтом»</string>
     <string name="stream_auto_bitrate_help">Подстраивать битрейт под подключение.\nСохраняется для этого ПК; ручное изменение отключает функцию.</string>
     <string name="stream_pyrowave_bitrate_help">Автонастройка PyroWave для этого ПК.\nРучной битрейт отключает функцию.</string>
     <string name="stream_auto_bitrate_failed">Временная ошибка изменения битрейта. Повтор выполняется автоматически.</string>
-    <string name="stream_auto_bitrate_unavailable">Этот ПК не сообщает битрейт трансляции. «Устройство управляет битрейтом» для этой трансляции выключено.</string>
-    <string name="stream_auto_bitrate_status">Устройство управляет битрейтом: %1$.1f Мбит/с</string>
-    <string name="stream_bitrate_busy">Хост занят. Повторите попытку чуть позже.</string>
+    <string name="stream_auto_bitrate_unavailable">Этот ПК не сообщает битрейт трансляции. «Снижать битрейт при загруженной сети» для этой трансляции выключено.</string>
+    <string name="stream_auto_bitrate_status">Текущий битрейт: %1$.1f Мбит/с</string>
+    <string name="stream_bitrate_busy">ПК занят. Повторите попытку чуть позже.</string>
     <string name="stream_host_abr_failed">ПК не включил автоматический битрейт: %1$s</string>
-    <string name="title_auto_bitrate">Устройство управляет битрейтом</string>
-    <string name="dialog_auto_bitrate">Снижает битрейт, когда соединение или устройство не справляется, и возвращает его, когда всё налаживается. Выше битрейта трансляции он не поднимается. Это значение по умолчанию для всех ПК; в меню трансляции его можно изменить для одного ПК.</string>
+    <string name="title_auto_bitrate">Снижать битрейт при загруженной сети</string>
+    <string name="dialog_auto_bitrate">Снижает битрейт, пока соединение не справляется, и возвращает его, когда оно восстанавливается.</string>
     <string name="title_thermal_protection">Тепловая защита</string>
-    <string name="dialog_thermal_protection">Снижает битрейт и разрешение, пока устройство горячее. Телефоны и ТВ-приставки часто нагреваются во время стриминга, поэтому по умолчанию выключено: при меньшем битрейте картинка менее чёткая.</string>
+    <string name="dialog_thermal_protection">Снижает битрейт и разрешение, пока устройство горячее.</string>
     <string name="title_automatic_bitrate">Автоматический битрейт</string>
-    <string name="dialog_automatic_bitrate">Nightjar выбирает битрейт по разрешению, частоте кадров и кодеку и меняет его вместе с ними. Если передвинуть ползунок битрейта, это выключится.</string>
+    <string name="dialog_automatic_bitrate">Nightjar выбирает битрейт по разрешению, частоте кадров и кодеку.</string>
 </resources>

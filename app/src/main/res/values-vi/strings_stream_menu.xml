@@ -6,7 +6,7 @@
     <string name="overlay_compact_rtt">RTT %1$s ms</string>
     <string name="overlay_compact_loss">Mất %1$s%%</string>
     <string name="overlay_compact_waiting">Đang chờ video</string>
-    <string name="link_notice_lowered">Máy chủ đã giảm bitrate xuống %1$s Mbps: mạng</string>
+    <string name="link_notice_lowered">PC đã giảm bitrate xuống %1$s Mbps: mạng</string>
     <string name="overlay_health_good">Stream tốt</string>
     <string name="overlay_health_fair">Stream chập chờn</string>
     <string name="overlay_health_poor">Stream kém</string>
@@ -14,7 +14,7 @@
     <string name="stream_section_input">Đầu vào</string>
     <string name="stream_section_display">Hiển thị</string>
     <string name="stream_section_quality">Chất lượng</string>
-    <string name="stream_section_host">Máy chủ</string>
+    <string name="stream_section_host">PC</string>
     <string name="stream_microphone">Micrô</string>
     <string name="stream_cursor_show">Hiện con trỏ chuột</string>
     <string name="stream_cursor_hide">Ẩn con trỏ chuột</string>
@@ -24,8 +24,7 @@
     <string name="stream_quit_game">Thoát trò chơi</string>
     <string name="stream_quit_game_confirm">Thoát trò chơi trên PC?\nTiến trình chưa lưu sẽ bị mất.</string>
     <string name="stream_end_session">Kết thúc phiên</string>
-    <string name="stream_end_session_confirm">Kết thúc phiên stream trên PC?
-Trò chơi vẫn tiếp tục chạy.</string>
+    <string name="stream_end_session_confirm">Kết thúc phiên trên PC?\nPC lấy lại màn hình và âm thanh. Trò chơi vẫn tiếp tục chạy trên đó.</string>
     <string name="stream_close_game">Thoát trò chơi</string>
     <string name="stream_close_game_confirm">Đóng trò chơi trên PC?
 Tiến trình chưa lưu sẽ bị mất.</string>
@@ -55,7 +54,7 @@ Tiến trình chưa lưu sẽ bị mất.</string>
     <string name="stream_menu_button_hide">Ẩn nút menu</string>
     <string name="stream_menu_settings">Menu stream</string>
     <string name="title_floating_menu_button">Nút menu nổi</string>
-    <string name="summary_floating_menu_button">Nút tròn trên stream để mở menu</string>
+    <string name="summary_floating_menu_button">Nút tròn trên stream để mở menu.</string>
     <string name="stream_tile_keyboard">Bàn phím</string>
     <string name="stream_tile_pc_keyboard">Bàn phím PC</string>
     <string name="stream_tile_mouse">Chuột</string>

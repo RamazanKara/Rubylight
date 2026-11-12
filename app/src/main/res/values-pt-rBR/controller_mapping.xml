@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="controller_mapping_title">Botões do controle</string>
-    <string name="controller_mapping_summary">Remapear botões para cada modelo de controle</string>
+    <string name="controller_mapping_summary">Remapeia os botões e analógicos de um modelo de controle.</string>
     <string name="controller_mapping_intro">Toque em “Mapear um botão” e pressione o botão do controle a ser remapeado.\nAs alterações valem para a próxima transmissão.</string>
     <string name="controller_mapping_waiting">Conecte um controle e toque em “Mapear um botão”.</string>
     <string name="controller_mapping_unnamed">Controle</string>

@@ -66,7 +66,7 @@
 
     <!-- Bitrate on mobile data (Settings → Video) -->
     <string name="title_mobile_bitrate">Tốc độ bit trên dữ liệu di động</string>
-    <string name="summary_mobile_bitrate">Giới hạn tốc độ bit khi stream bắt đầu trên dữ liệu di động hoặc trên Wi-Fi mà Android đánh dấu là mạng có đo lượng dữ liệu, chẳng hạn điểm phát sóng của điện thoại. Giới hạn này cũng áp dụng cho mọi giá trị của hồ sơ, PC và trò chơi. Tắt sẽ dùng cùng tốc độ bit như trên các mạng khác.</string>
+    <string name="summary_mobile_bitrate">Tốc độ bit cao nhất mà stream dùng trên dữ liệu di động hoặc mạng có đo lượng dữ liệu.</string>
     <string name="mobile_bitrate_off">Tắt</string>
 
     <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->
@@ -95,7 +95,7 @@
     <string name="layers_from_pc">đặt cho PC này</string>
     <string name="layers_from_game">đặt cho trò chơi này</string>
     <string name="layers_from_mobile_limit">giới hạn dữ liệu di động</string>
-    <string name="layers_pacing_vrr">Tần số quét thích ứng đang bật, nên stream dùng Độ trễ thấp nhất.</string>
+    <string name="layers_pacing_vrr">Tần số quét biến thiên đang bật, nên stream dùng “Độ trễ thấp nhất”.</string>
 
     <!-- In the stream -->
     <string name="layers_applied">Cài đặt: %1$s</string>
@@ -117,7 +117,7 @@
     <string name="game_preset_smoothness">Mượt mà</string>
     <string name="game_preset_smoothness_summary">Đặt frame pacing mượt nhất, giữ lại khung hình và tăng độ trễ, đồng thời tắt tần số quét thích ứng cho trò chơi này. Bitrate không đổi.</string>
     <string name="game_preset_quality">Chất lượng</string>
-    <string name="game_preset_quality_summary" formatted="false">Đặt bitrate bằng 150% bitrate của PC, hoặc của cài đặt chính nếu PC không có, tối đa đến giới hạn của máy chủ. Frame pacing và tần số quét thích ứng không đổi; khi kết nối yếu, các khung hình lớn hơn có thể làm tăng độ trễ.</string>
+    <string name="game_preset_quality_summary" formatted="false">Đặt bitrate bằng 150% bitrate của PC, hoặc của cài đặt chính nếu PC không có, tối đa đến giới hạn của PC. Frame pacing và tần số quét thích ứng không đổi; khi kết nối yếu, các khung hình lớn hơn có thể làm tăng độ trễ.</string>
     <string name="game_preset_custom">Tùy chỉnh</string>
     <string name="game_preset_custom_summary">Các giá trị riêng của bạn, đặt bên dưới.</string>
 </resources>

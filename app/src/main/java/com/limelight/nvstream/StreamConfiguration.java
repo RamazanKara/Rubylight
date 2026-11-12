@@ -52,8 +52,13 @@ public class StreamConfiguration {
     private int supportedVideoFormats;
     // The 10-bit formats offered are for 10-bit SDR, not HDR: the launch does not ask for HDR.
     private boolean sdr10Bit;
-    // Packed 4:4:4 as this session uses it (off for a session reconnected after the GPU path failed).
+    // Packed 4:4:4 as this session may use it (off for a session reconnected after the GPU path failed);
+    // NvConnection decides before the launch whether it does (SharpColor).
     private boolean packed444;
+    // Sharper colored text is Automatic: NvConnection picks native 4:4:4, packed or neither (SharpColor).
+    private boolean sharpColor;
+    // PyroWave is the chosen codec, whose 4:4:4 is its own.
+    private boolean pyroWaveChosen;
     private int attachedGamepadMask;
     private int colorRange;
     private int colorSpace;
@@ -247,9 +252,16 @@ public class StreamConfiguration {
             return this;
         }
 
-        /** Whether this stream asks for experimental packed 4:4:4: the session's choice, not the saved setting. */
+        /** Whether this stream may ask for packed 4:4:4: the session's choice, not the saved setting. */
         public StreamConfiguration.Builder setPacked444(boolean packed444) {
             config.packed444 = packed444;
+            return this;
+        }
+
+        /** Sharper colored text is Automatic, and whether PyroWave is the chosen codec. */
+        public StreamConfiguration.Builder setSharpColor(boolean sharpColor, boolean pyroWaveChosen) {
+            config.sharpColor = sharpColor;
+            config.pyroWaveChosen = pyroWaveChosen;
             return this;
         }
 
@@ -392,6 +404,21 @@ public class StreamConfiguration {
 
     public boolean isPacked444() {
         return packed444;
+    }
+
+    public boolean isSharpColor() {
+        return sharpColor;
+    }
+
+    public boolean isPyroWaveChosen() {
+        return pyroWaveChosen;
+    }
+
+    /** Sharper colored text's pick before the launch: packed or not, and the formats it leaves. */
+    void applySharpColor(boolean packed, int formats, boolean sdr10) {
+        packed444 = packed;
+        supportedVideoFormats = formats;
+        sdr10Bit = sdr10;
     }
 
     public int getAttachedGamepadMask() {

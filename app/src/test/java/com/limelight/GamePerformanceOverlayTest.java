@@ -112,7 +112,7 @@ public class GamePerformanceOverlayTest {
     public void aLoweredBitrateShowsInEveryModeUntilTheHostIsBackAtFullRate() {
         Game game = game();
         TextView overlay = game.findViewById(R.id.performanceOverlay);
-        String notice = "Host lowered the bitrate to 38 Mbps: network";
+        String notice = "PC lowered the bitrate to 38 Mbps: network";
         ReflectionHelpers.setField(game.overlays, "compactPerformanceText", com.limelight.binding.video.PerformanceOverlay
                 .compactText(game, 119.94f, 120, 8, 0.14f, 4.6f));
         game.linkNotice(1, 150_000, 37_500);

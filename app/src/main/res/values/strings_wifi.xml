@@ -30,7 +30,7 @@
     <string name="wifi_lock_held">held</string>
     <string name="wifi_lock_not_held">not held</string>
     <string name="wifi_lock_unsupported">needs Android 10</string>
-    <string name="wifi_warn_24">Warning: 2.4 GHz is slower and more crowded than 5 or 6 GHz and often causes stutter. Join the router\'s 5 or 6 GHz network if it has one.</string>
+    <string name="wifi_warn_24">Warning: 2.4 GHz is slower and more crowded than 5 or 6 GHz and often causes stutter. Join the router’s 5 or 6 GHz network if it has one.</string>
     <string name="wifi_warn_weak">Weak signal: move closer to the router or clear what stands between them.</string>
     <string name="wifi_line_rhythm">Stall rhythm: about every %1$s</string>
     <string name="wifi_period_seconds">%1$d s</string>

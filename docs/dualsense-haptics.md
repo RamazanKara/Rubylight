@@ -1,4 +1,4 @@
-# DualSense USB audio and haptics
+# USB DualSense audio and haptics
 
 [Documentation](index.md) · [Controls](controls.md#dualsense-and-usb) · [Settings](settings.md)
 
@@ -6,9 +6,9 @@ Nightjar implements the DualSense waveform extension that [Vibepollo](https://gi
 
 ## Setup
 
-1. Enable **Settings → Controls → USB DualSense driver** and **USB DualSense audio and haptics** on Android. Both are off by default. Nightjar for Windows and Linux has one switch, **Settings → Controls → DualSense USB audio** (off by default); the Android permission steps below do not apply there.
+1. Enable **Settings → Controls → USB DualSense driver** and **USB DualSense audio and haptics** on Android. Both are off by default. Nightjar for Windows and Linux has one switch, **Settings → Controls → USB DualSense audio and haptics** (off by default); the Android permission steps below do not apply there.
 2. Connect the controller by USB, grant Android's USB access request and start a new stream. Reconnect the controller and stream after changing the option.
-3. Enable DualSense haptics on the host. On a Windows Rubylight host, select the bundled **USB audio and haptics support** installer component and Automatic or USB/IP DualSense controller type. See [host setup](https://github.com/RamazanKara/Rubylight/blob/main/docs/dualsense-haptics.md). For waveform-only support with Vibepollo, follow [its host instructions](https://github.com/Nonary/Vibepollo/blob/8b3ea1c4a41c383752475ffa551168a16b024d48/docs/windows-dualsense-haptics.md).
+3. Enable DualSense haptics on the host. On a Windows Rubylight host, select the bundled **USB audio and haptics support** installer component and set **Controller type** (**Sound & controls → Controllers** in its console) to **Automatic** or **DualSense with waveform haptics (USB/IP)**. See [host setup](https://github.com/RamazanKara/Rubylight/blob/main/docs/dualsense-haptics.md). For waveform-only support with Vibepollo, follow [its host instructions](https://github.com/Nonary/Vibepollo/blob/8b3ea1c4a41c383752475ffa551168a16b024d48/docs/windows-dualsense-haptics.md).
 4. Enable native DualSense support in a compatible game. Steam Input translation can prevent the game from seeing the native controller and its audio endpoint.
 5. For controller microphone input, enable microphone streaming and grant Android's recording permission. Select the virtual DualSense microphone in the host game or voice application. The controller mute button and the stream menu share one mute setting; host mute commands and Android's global microphone mute also stop USB capture.
 

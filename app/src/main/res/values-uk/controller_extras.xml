@@ -2,24 +2,24 @@
 <resources>
     <!-- Controller and keyboard options -->
     <string name="title_checkbox_disable_rumble">Вимкнути вібрацію</string>
-    <string name="summary_checkbox_disable_rumble">Вимикає всю вібрацію, яку запитує гра: вібрацію контролера й тригерів, тактильну віддачу USB DualSense і вібрацію цього пристрою замість контролера.</string>
-    <string name="title_checkbox_mouse_emulation_fixed_step">Переміщення миші з фіксованим кроком</string>
-    <string name="summary_checkbox_mouse_emulation_fixed_step">У режимі миші з контролера утримуйте X під час руху стіка, щоб вказівник зміщувався на фіксовану кількість пікселів. Натисніть Y, щоб подвоїти крок: від 1 до 128 пікселів, а потім знову 1.</string>
+    <string name="summary_checkbox_disable_rumble">Вимикає всю вібрацію, зокрема вібрацію тригерів і тактильну віддачу.</string>
+    <string name="title_checkbox_mouse_emulation_fixed_step">Точна миша з контролера</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">Переміщує вказівник фіксованими кроками в пікселях, поки утримується X.</string>
     <string name="stream_mouse_step">Крок миші: %1$d пкс</string>
     <string name="title_checkbox_capture_system_keys">Надсилати системні клавіші</string>
-    <string name="summary_checkbox_capture_system_keys">Esc, Alt+Tab, клавіша Windows та подібні йдуть на ПК, поки ввід захоплено, як і клавіша «Назад», що на багатьох клавіатурах для Android стоїть замість Esc. Alt+Tab і клавішу Windows Android віддає застосунку лише починаючи з Android 16 QPR2 (грудень 2025) і на багатьох пристроях Samsung; в інших випадках залишає собі. «Додому», живлення й гучність завжди лишаються за Android. Меню потоку відкривається своєю гарячою клавішею або жестом чи кнопкою «Назад» Android. З наступного потоку.</string>
+    <string name="summary_checkbox_capture_system_keys">Alt+Tab, клавіша Windows і подібні йдуть на ПК.</string>
     <string name="title_checkbox_system_keys_fullscreen_only">Системні клавіші лише на повному екрані</string>
-    <string name="summary_checkbox_system_keys_fullscreen_only">У вікні Alt+Tab, клавіша Windows і подібні залишаються на цьому пристрої.</string>
+    <string name="summary_checkbox_system_keys_fullscreen_only">У вікні системні клавіші залишаються на цьому пристрої.</string>
     <string name="title_checkbox_back_as_meta">«Назад» на клавіатурі як клавіша Windows</string>
-    <string name="summary_checkbox_back_as_meta">Клавіша «Назад» на фізичній клавіатурі надсилає клавішу Windows (Command на Mac). Меню трансляції відкривається своєю гарячою клавішею, жестом або кнопкою «Назад» Android чи комбінацією кнопок контролера.</string>
-    <string name="title_checkbox_right_alt_as_meta">Правий Alt як Command</string>
-    <string name="summary_checkbox_right_alt_as_meta">Правий Alt надсилає клавішу Windows, яку Mac використовує як Command, тож правий Alt+C копіює. Лівий Alt не змінюється. Не вмикайте, якщо вводите символи за допомогою AltGr.</string>
+    <string name="summary_checkbox_back_as_meta">Клавіша «Назад» на фізичній клавіатурі надсилає клавішу Windows.</string>
+    <string name="title_checkbox_right_alt_as_meta">Правий Alt як клавіша Windows</string>
+    <string name="summary_checkbox_right_alt_as_meta">Правий Alt надсилає клавішу Windows, яку Mac використовує як Command.</string>
     <string name="title_checkbox_keyboard_follows_text_fields">Клавіатура стежить за текстовими полями</string>
-    <string name="summary_checkbox_keyboard_follows_text_fields">Екранна клавіатура відкривається, коли текстове поле в трансляції отримує фокус, і підлаштовується під нього: цифри для числового поля, без підказок для пароля. Коли поле втрачає фокус, вона закривається. З підключеною фізичною клавіатурою введення йде з неї, як і раніше.</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">Екранна клавіатура відкривається, коли текстове поле на ПК отримує фокус.</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">Перевірка контролера</string>
-    <string name="controller_test_summary">Перевірка кнопок, стіків, тригерів, вібрації, підсвічування та датчиків руху</string>
+    <string name="controller_test_summary">Показує кнопки, стіки, тригери, вібрацію, підсвічування та рух контролера.</string>
     <string name="controller_test_open">Перевірити контролер</string>
     <string name="controller_test_hint">Натискайте кнопки й рухайте стіки. Хрестовина й A також переміщують цією сторінкою; щоб вийти, утримуйте B або Back одну секунду.</string>
     <string name="controller_test_waiting">Підключіть контролер і натисніть будь-яку кнопку.</string>
@@ -57,6 +57,6 @@
 
     <!-- USB Switch Pro driver -->
     <string name="title_usb_switch_pro">Драйвер Switch Pro через USB</string>
-    <string name="summary_usb_switch_pro">Зчитує дротовий Nintendo Switch Pro Controller напряму: датчики руху, вібрація, Home і Capture.</string>
+    <string name="summary_usb_switch_pro">Зчитує дротовий Switch Pro Controller з датчиками руху, вібрацією, Home і Capture.</string>
     <string name="usb_switch_pro_denied">Немає доступу до USB; Switch Pro Controller працює через введення Android.\nПерепідключіть кабель, щоб повторити.</string>
 </resources>

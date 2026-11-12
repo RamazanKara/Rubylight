@@ -63,9 +63,9 @@ public class HostFeatureGateTest {
     public void notesFollowTheControlsOwnText() {
         Application app = RuntimeEnvironment.getApplication();
         HostFeatureGate older = gate("butterpollo-serverinfo.xml", HOST_DISPLAY_MODES);
-        assertEquals("PC display mode\nUpdate the host software to use this",
+        assertEquals("PC display mode\nUpdate the PC’s streaming app to use this",
                 older.withNote(app, "PC display mode").toString());
-        assertEquals("Update the host software to use this", older.withNote(app, null).toString());
+        assertEquals("Update the PC’s streaming app to use this", older.withNote(app, null).toString());
         assertEquals("PC display mode", gate("rubylight-serverinfo.xml", HOST_DISPLAY_MODES).withNote(app, "PC display mode"));
     }
 }

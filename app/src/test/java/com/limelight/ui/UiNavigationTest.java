@@ -60,7 +60,7 @@ public class UiNavigationTest {
             Screen screen = controller.get();
             View card = screen.getLayoutInflater().inflate(R.layout.pc_grid_item, new FrameLayout(screen), false);
             // Chip turns itself focusable when its text is set; GridView ignores item touches on cards with a focusable child.
-            ((android.widget.TextView) card.findViewById(R.id.grid_status)).setText(R.string.pc_needs_pairing);
+            ((android.widget.TextView) card.findViewById(R.id.grid_status)).setText(R.string.pc_status_not_paired);
             assertFalse(card.hasExplicitFocusable());
         } finally {
             controller.pause().stop().destroy();

@@ -334,7 +334,7 @@ pub(crate) mod tests {
     // ---- The table against the sources. ----
 
     /// The UI sources, up to their test modules.
-    const SOURCES: [(&str, &str); 37] = [
+    const SOURCES: [(&str, &str); 40] = [
         ("open_play.rs", include_str!("open_play.rs")),
         ("full_chroma.rs", include_str!("full_chroma.rs")),
         ("autostart.rs", include_str!("autostart.rs")),
@@ -352,6 +352,7 @@ pub(crate) mod tests {
         ("ui/first_run.rs", include_str!("ui/first_run.rs")),
         ("ui/settings.rs", include_str!("ui/settings.rs")),
         ("ui/dialogs.rs", include_str!("ui/dialogs.rs")),
+        ("ui/launch_scene.rs", include_str!("ui/launch_scene.rs")),
         ("host_page.rs", include_str!("host_page.rs")),
         ("folders_page.rs", include_str!("folders_page.rs")),
         ("coop_page.rs", include_str!("coop_page.rs")),
@@ -372,11 +373,15 @@ pub(crate) mod tests {
         ("ui/help.rs", include_str!("ui/help.rs")),
         ("menu_style.rs", include_str!("menu_style.rs")),
         ("stream_menu.rs", include_str!("stream_menu.rs")),
+        ("ui/about.rs", include_str!("ui/about.rs")),
+        ("ui/latency_bench.rs", include_str!("ui/latency_bench.rs")),
     ];
 
     /// Read for its marked texts and its toasts only: the stream code keeps its own overlay lines.
-    const MARKED_ONLY: [(&str, &str); 16] = [
+    const MARKED_ONLY: [(&str, &str); 18] = [
         ("glyphs.rs", include_str!("glyphs.rs")),
+        ("network_test.rs", include_str!("network_test.rs")),
+        ("latency_bench.rs", include_str!("latency_bench.rs")),
         ("gpu_adapters.rs", include_str!("gpu_adapters.rs")),
         ("linux_diagnosis.rs", include_str!("linux_diagnosis.rs")),
         ("power.rs", include_str!("power.rs")),
@@ -704,11 +709,11 @@ pub(crate) mod tests {
         "Radeon Image Sharpening", "Enhanced Sync", "Frame Rate Target Control", "AMD Fluid Motion Frames", "Radeon Super Resolution",
         "Rubylight {}", "NVIDIA GameStream", "Nightjar {}", "{} %", "Ctrl", "Shift", "Ctrl+F", "V-Sync", "{} ms", "{} fps", "OK",
         "Share / Misc", "PIN", "Co-op", "Enter", "Del", "{} s", "{} min", "Stereo", "Codec", "Back / Select", "Software", "Video", "Audio",
-        "Host", "Jitter", "Offline", "PCs", "Streaming", "App", "Relay (DERP)", "Store", "Bitrate", "Debug", "Headset", "Overlay",
+        "Jitter", "Offline", "PCs", "Streaming", "App", "Relay (DERP)", "Store", "Bitrate", "Debug", "Headset", "Overlay",
         "Frame pacing", "Input-only", "Mouse", "Display ({} Hz)", "X / West", "Paddle 1", "Paddle 2", "Paddle 3", "Paddle 4", "Type",
         "Options", "Axes", "Compact", "Direct", "{} minutes", "Passphrase", "Home", "Upscaling", "Folder", "Layout", "Logs", "Link",
         "5.1 surround", "7.1 surround", "7.1.4 surround", "Game Bar", "Collection", "Online", "Desktop", "Renderer", "PC",
-        "Low Latency Mode", "Smooth Motion",
+        "Low Latency Mode", "Smooth Motion", "PyroWave", "USB", "Decoder", "Image", "System",
     ];
 
     #[test]
@@ -802,7 +807,7 @@ pub(crate) mod tests {
         }
         let shown = |file: &str, text: &str| marked().iter().any(|m| m.file == file && m.text == text);
         for (file, text) in [("main.rs", "Send image to PC"), ("main.rs", "Copy PC image here"), ("ui/pages.rs", "Shared folders"),
-            ("ui/settings.rs", "Full chroma"), ("ui/pages.rs", "Co-op"), ("ui/settings.rs", "Keep streaming when the network changes"), ("ui/settings.rs", "USB forwarding")]
+            ("ui/settings.rs", "Sharper colored text"), ("ui/pages.rs", "Co-op"), ("ui/settings.rs", "Keep streaming when the network changes"), ("ui/settings.rs", "Forward USB devices")]
         {
             assert!(shown(file, text), "{file} shows {text:?}");
         }

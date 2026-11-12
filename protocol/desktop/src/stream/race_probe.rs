@@ -561,7 +561,7 @@ mod win {
         pub fn after(&mut self, window: HWND, before: Option<Sample>, around: Surroundings) {
             self.presents += 1;
             let mut follow = Follow::Same;
-            if self.presents % FOLLOW_EVERY == 0 {
+            if self.presents.is_multiple_of(FOLLOW_EVERY) {
                 follow = self.scan.as_mut().map_or(Follow::Same, Scanline::follow_window);
                 if follow == Follow::Lost { self.scan = None; }
             }

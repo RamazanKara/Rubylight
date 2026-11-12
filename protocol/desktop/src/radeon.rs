@@ -38,9 +38,9 @@ impl Notice {
             Notice::ReadOnly => en("These settings can be seen but not changed."),
             Notice::Unsupported => en("These settings are not supported on this GPU or driver."),
             Notice::Unavailable => en("The settings are not available right now. Trying again."),
-            Notice::AdlxUnavailable => en("The host could not load the graphics driver interface."),
-            Notice::NeedsExternalSetup => en("Some settings need a one-time setup in the graphics driver’s control panel on the host."),
-            Notice::NeedsHostControl => en("Turn on Host control for this device on the host to change these settings."),
+            Notice::AdlxUnavailable => en("The PC could not load the graphics driver interface."),
+            Notice::NeedsExternalSetup => en("Some settings need a one-time setup in the graphics driver’s control panel on the PC."),
+            Notice::NeedsHostControl => en("Turn on Host control for this device in the PC’s web UI to change these settings."),
             Notice::NeedsSession => en("You can change these settings while this device owns the session."),
         })
     }
@@ -414,13 +414,13 @@ impl Failure {
 
     pub fn text(&self) -> String {
         match self.kind {
-            FailureKind::InvalidValue => tr("The host does not accept that value.").into(),
+            FailureKind::InvalidValue => tr("The PC does not accept that value.").into(),
             FailureKind::NotWritable => tr("This setting cannot be changed.").into(),
             FailureKind::DriverRejected => tr("The graphics driver rejected this change.").into(),
-            FailureKind::HostControl => tr("Turn on Host control for this device on the host.").into(),
+            FailureKind::HostControl => tr("Turn on Host control for this device in the PC’s web UI.").into(),
             FailureKind::NoSession => tr("Start or resume a session to change settings.").into(),
-            FailureKind::Busy => tr("The host is busy. Try again in a moment.").into(),
-            FailureKind::Unreachable => tr("Cannot reach the host.").into(),
+            FailureKind::Busy => tr("The PC is busy. Try again in a moment.").into(),
+            FailureKind::Unreachable => tr("Cannot reach the PC.").into(),
             FailureKind::Generic => match &self.host_message {
                 Some(m) if !m.is_empty() => m.clone(),
                 _ => tr("The change could not be applied.").into(),
@@ -689,7 +689,7 @@ mod tests {
         let failure = Failure::of(&api_error(422, ErrorCode::InvalidValue, Some("chill.max_fps")), Some("anti_lag.enabled"));
         assert_eq!(failure.kind, FailureKind::InvalidValue);
         assert_eq!(failure.setting.as_deref(), Some("chill.max_fps"), "the host's setting wins");
-        assert_eq!(failure.text(), "The host does not accept that value.");
+        assert_eq!(failure.text(), "The PC does not accept that value.");
         let failure = Failure::of(&api_error(409, ErrorCode::DriverRejected, None), Some("chill.max_fps"));
         assert_eq!(failure.setting.as_deref(), Some("chill.max_fps"), "else the one that was written");
         assert_eq!(failure.text(), "The graphics driver rejected this change.");
@@ -700,7 +700,7 @@ mod tests {
         let generic = Failure::of(&api_error(500, ErrorCode::Internal, None), None);
         assert_eq!(generic.text(), "host words", "an error we have no text for shows the host's");
         let unreachable = Failure::of(&Error::Io(std::io::Error::from(std::io::ErrorKind::TimedOut)), None);
-        assert_eq!(unreachable.text(), "Cannot reach the host.");
+        assert_eq!(unreachable.text(), "Cannot reach the PC.");
     }
 
     #[test]

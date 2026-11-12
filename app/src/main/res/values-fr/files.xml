@@ -30,11 +30,11 @@
     <string name="files_no_upload_permission">Cet appareil n’a pas le droit d’envoyer des fichiers à ce PC. Sur le PC, ouvrez la page « Devices » de l’interface Web et autorisez-lui « Upload files ».</string>
     <string name="files_no_download_permission">Cet appareil n’a pas le droit de télécharger les fichiers de ce PC. Sur le PC, ouvrez la page « Devices » de l’interface Web et autorisez-lui « Download files ».</string>
     <string name="files_off">Le transfert de fichiers est désactivé sur ce PC. Activez-le dans l’interface Web du PC, sous « File transfer ».</string>
-    <string name="files_unavailable">L’hôte de ce PC n’a pas de transfert de fichiers.</string>
+    <string name="files_unavailable">L’application de streaming de ce PC n’a pas de transfert de fichiers.</string>
     <string name="files_no_library">Cette version de Nightjar ne peut pas transférer de fichiers.</string>
     <string name="files_offline">Le PC n’est pas en ligne.</string>
     <string name="files_pick_pc">Envoyer à quel PC ?</string>
-    <string name="files_no_pc">Aucun PC associé n’est en ligne. Réveillez-en un ou associez-en un dans la liste des PC d’abord.</string>
+    <string name="files_no_pc">Aucun PC associé n’est en ligne. Utilisez d’abord « Réveiller » ou associez un PC dans la liste des PC.</string>
     <string name="files_waiting_to_send">Fichiers en attente d’envoi : %1$d. Ils partiront dès que cet appareil aura le droit d’envoyer des fichiers.</string>
     <plurals name="files_share_refused">
         <item quantity="one">%1$d élément partagé n’a pas été envoyé : seuls les fichiers d’une autre app peuvent être envoyés.</item>

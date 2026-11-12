@@ -466,7 +466,7 @@ impl GpuDecoder {
     /// `async_compute` where the device has one (`queue::own_device_queue`). Errors name the step
     /// that failed.
     pub fn with_queue(api: Arc<Api>, d3d: &ID3D11Device, config: GpuConfig, async_compute: bool) -> Result<Self, String> {
-        if config.slots == 0 || config.width == 0 || config.height == 0 || (!config.chroma444 && (config.width % 2 != 0 || config.height % 2 != 0)) {
+        if config.slots == 0 || config.width == 0 || config.height == 0 || (!config.chroma444 && (!config.width.is_multiple_of(2) || !config.height.is_multiple_of(2))) {
             return Err(format!("PyroWave GPU decoding: bad picture {}x{} with {} plane sets", config.width, config.height, config.slots));
         }
         // The D3D11 side first: its failures are the cheap ones to name.

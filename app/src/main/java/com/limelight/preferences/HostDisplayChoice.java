@@ -72,12 +72,30 @@ public enum HostDisplayChoice {
         return HOST_DEFAULT;
     }
 
+    /** The main settings' Display arrangement, stored in the default preferences: what a PC without its own uses. */
+    public static final String MAIN_PREF = "host_display_location";
+
+    /** This PC's own choice, else the main settings' (desktop Nightjar's host_display works the same way). */
     public static HostDisplayChoice load(Context context, String hostUuid) {
         if (context == null || hostUuid == null) {
             return HOST_DEFAULT;
         }
-        return fromStored(context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-                .getString(hostUuid, null));
+        String own = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString(hostUuid, null);
+        return own != null ? fromStored(own) : loadMain(context);
+    }
+
+    public static HostDisplayChoice loadMain(Context context) {
+        return fromStored(android.preference.PreferenceManager.getDefaultSharedPreferences(context).getString(MAIN_PREF, null));
+    }
+
+    public static void saveMain(Context context, HostDisplayChoice choice) {
+        SharedPreferences.Editor editor = android.preference.PreferenceManager.getDefaultSharedPreferences(context).edit();
+        if (choice == HOST_DEFAULT) {
+            editor.remove(MAIN_PREF);
+        } else {
+            editor.putString(MAIN_PREF, choice.name());
+        }
+        editor.apply();
     }
 
     public static void save(Context context, String hostUuid, HostDisplayChoice choice) {

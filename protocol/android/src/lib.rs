@@ -20,6 +20,7 @@ mod opus;
 mod platform;
 mod renderers;
 pub mod open_play;
+pub mod sharp_color;
 pub mod stream_menu;
 mod usb;
 

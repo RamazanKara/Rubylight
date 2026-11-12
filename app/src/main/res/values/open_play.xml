@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_open_on_start">When Nightjar opens</string>
-    <string name="summary_open_on_start">Your PCs, or a 3-second countdown into a game.</string>
+    <string name="summary_open_on_start">Home, your PCs, or a short countdown into a game.</string>
     <string name="open_play_menu">Open this when Nightjar starts</string>
     <string name="open_play_menu_stop">Stop opening this when Nightjar starts</string>
     <string name="open_play_countdown">Starting on %1$s in %2$d</string>
-    <string name="open_play_skipped">%1$s didn\'t start last time, so Nightjar opened as usual.</string>
+    <string name="open_play_skipped">%1$s didn’t start last time, so Nightjar opened as usual.</string>
     <string name="open_play_chosen">%1$s opens when Nightjar starts</string>
     <string name="open_play_continue">Continue %1$s</string>
     <string name="open_play_not_listed">%1$s no longer lists this game</string>
-    <string name="open_play_no_list">%1$s didn\'t send its game list</string>
+    <string name="open_play_no_list">%1$s didn’t send its game list</string>
     <string name="open_play_other_device">A game on %1$s is playing on another device, so Nightjar opened as usual.</string>
     <string name="open_play_game_running">A game is already running on %1$s, so Nightjar opened as usual.</string>
     <string name="open_play_no_network">No network, so Nightjar opened as usual.</string>

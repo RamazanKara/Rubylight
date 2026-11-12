@@ -193,7 +193,11 @@ public final class HostStreamProfile {
         if (virtualDisplay != null) config.virtualDisplay = virtualDisplay;
         if (hdr != null) config.enableHdr = hdr;
         if (fullRange != null) config.fullRange = fullRange;
-        if (yuv444 != null) config.enableYuv444 = yuv444;
+        // A layer's yuv444 is Sharper colored text: Automatic tries native 4:4:4, then packed full chroma.
+        if (yuv444 != null) {
+            config.enableYuv444 = yuv444;
+            config.experimentalPacked444 = yuv444;
+        }
         if (vrr != null) config.vrr = vrr;
         if (upscalingMode != null) config.upscalingMode = upscalingMode;
         if (upscalingSharpness != null) config.upscalingSharpness = upscalingSharpness;

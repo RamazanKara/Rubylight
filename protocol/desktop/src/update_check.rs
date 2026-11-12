@@ -12,6 +12,10 @@
 //!
 //! Failures of the background check stay out of the UI (anonymous GitHub requests are rate limited,
 //! as Android's UpdateChecker notes) and go to the log. Failures after Update now show in the notice.
+//!
+//! Settings → Check for updates now asks once more whenever it is chosen, setting on or off, as
+//! Android's `UpdateFlow.checkNow`: its answer is a toast, or the notice when there is an update.
+//! Nothing is asked without the setting or that choice.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -74,10 +78,43 @@ struct Job {
     done: Receiver<Result<std::path::PathBuf, Failure>>,
 }
 
+/// What Check for updates now found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Answer {
+    /// A newer release: the notice shows it.
+    Found,
+    UpToDate,
+    Failed,
+}
+
+impl Answer {
+    /// Its toast, Android's `update_up_to_date` and `update_check_failed`; none for an update.
+    pub fn toast(self) -> Option<&'static str> {
+        match self {
+            Self::Found => None,
+            Self::UpToDate => Some(tr("You have the latest version")),
+            Self::Failed => Some(tr("Couldn’t check for updates")),
+        }
+    }
+}
+
+/// What a check needs, kept for Check for updates now.
+struct Asker {
+    net: Arc<dyn Transport>,
+    copy: CopyKind,
+    current: &'static str,
+    online: fn() -> bool,
+}
+
 /// The launch's one check, what it found and where the update stands.
 #[derive(Default)]
 pub struct Updates {
     pending: Option<Receiver<Release>>,
+    /// None for a copy that doesn't check (a package manager updates it).
+    asker: Option<Asker>,
+    /// Check for updates now, waiting for GitHub.
+    asked: Option<Receiver<Result<Option<Release>, String>>>,
+    answer: Option<Answer>,
     found: Option<Release>,
     /// None for a copy that keeps the link.
     steps: Option<Steps>,
@@ -109,6 +146,7 @@ impl Updates {
             failure = Some(Failure::NotInstalled);
         }
         let leftovers = steps.as_ref().map(|s| (s.dir.clone(), s.own_dir));
+        let asker = Asker { net: net.clone(), copy: copy.clone(), current, online };
         let (send, receive) = channel();
         let waker = wake.clone();
         let spawned = std::thread::Builder::new().name("update-check".into()).spawn(move || {
@@ -126,8 +164,42 @@ impl Updates {
             }
         });
         if let Err(e) = spawned { eprintln!("nightjar: update check: no thread: {e}"); }
-        if !enabled { return Self::default(); }
-        Self { pending: Some(receive), found, steps, wake: Some(wake), failure, ..Self::default() }
+        // Off, the copy still answers Check for updates now, and an update it finds installs.
+        if !enabled { return Self { asker: Some(asker), steps, wake: Some(wake), ..Self::default() }; }
+        Self { pending: Some(receive), asker: Some(asker), found, steps, wake: Some(wake), failure, ..Self::default() }
+    }
+
+    /// Check for updates now: one check, asked for by the user. False when this copy doesn't check
+    /// or a check or download is already running; its answer comes from [`Self::answer`].
+    pub fn check_now(&mut self) -> bool {
+        if self.asked.is_some() || self.job.is_some() { return false; }
+        let Some(asker) = &self.asker else { return false };
+        let (net, copy, current, online) = (asker.net.clone(), asker.copy.clone(), asker.current, asker.online);
+        let wake = self.wake.clone();
+        let (send, receive) = channel();
+        let spawned = std::thread::Builder::new().name("update-check-now".into()).spawn(move || {
+            let _ = send.send(check(&*net, &copy, current, online));
+            if let Some(wake) = wake { wake(); }
+        });
+        match spawned {
+            Ok(_) => self.asked = Some(receive),
+            Err(e) => {
+                eprintln!("nightjar: update check: no thread: {e}");
+                self.answer = Some(Answer::Failed);
+            }
+        }
+        true
+    }
+
+    /// Whether Check for updates now is waiting for GitHub.
+    #[cfg(test)]
+    pub fn checking(&self) -> bool {
+        self.asked.is_some()
+    }
+
+    /// Check for updates now's answer, once.
+    pub fn answer(&mut self) -> Option<Answer> {
+        self.answer.take()
     }
 
     /// Whether a stream is running or starting. Called on every pass of the main loop, so a stream
@@ -199,6 +271,32 @@ impl Updates {
         if let Some(release) = self.pending.as_ref().and_then(|r| r.try_recv().ok()) {
             self.pending = None;
             self.found = Some(release);
+        }
+        if let Some(answer) = self.asked.as_ref().and_then(|r| match r.try_recv() {
+            Ok(answer) => Some(answer),
+            Err(TryRecvError::Empty) => None,
+            Err(TryRecvError::Disconnected) => Some(Err("the check stopped".into())),
+        }) {
+            self.asked = None;
+            self.answer = Some(match answer {
+                Ok(Some(release)) => {
+                    eprintln!("nightjar: update check now: Nightjar {} is available", release.version);
+                    // A notice dismissed earlier shows again; a download in progress keeps its own.
+                    if self.job.is_none() {
+                        self.failure = None;
+                        self.found = Some(release);
+                    }
+                    Answer::Found
+                }
+                Ok(None) => {
+                    eprintln!("nightjar: update check now: up to date");
+                    Answer::UpToDate
+                }
+                Err(e) => {
+                    eprintln!("nightjar: update check now: {e}");
+                    Answer::Failed
+                }
+            });
         }
         let job = self.job.as_ref()?;
         let result = match job.done.try_recv() {
@@ -490,7 +588,52 @@ mod tests {
         wait_until("the leftover stays", || !part.exists());
         std::thread::sleep(Duration::from_millis(50));
         assert_eq!(count.gets.load(Ordering::Relaxed), 0, "no request");
-        assert!(updates.pending.is_none() && updates.found.is_none() && updates.steps.is_none());
+        assert!(updates.pending.is_none() && updates.found.is_none() && !updates.checking());
+    }
+
+    #[test]
+    fn check_now_asks_once_when_chosen_with_the_setting_off() {
+        let installer = Installer::new("check-now");
+        let count = Arc::new(Counting::default());
+        let digest = format!(r#","digest":"{DIGEST}""#);
+        *count.answer.lock().unwrap() = answer("v4.1.0", false, false, &setup_asset(&github_url(), &digest));
+        let net: Arc<dyn Transport> = count.clone();
+        let mut updates = Updates::begin(false, CopyKind::Installed, net.clone(), Some(installer.steps(net, local)), "4.0.0", || true, Arc::new(|| {}));
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(count.gets.load(Ordering::Relaxed), 0, "nothing until it is chosen");
+        assert!(updates.check_now());
+        assert!(!updates.check_now(), "one check at a time");
+        wait_until("no answer", || { updates.step(); !updates.checking() });
+        assert_eq!(updates.answer(), Some(Answer::Found));
+        assert_eq!(updates.answer(), None, "the answer comes once");
+        assert!(updates.found.as_ref().unwrap().asset.is_ok(), "the notice offers Update now");
+        assert_eq!(count.gets.load(Ordering::Relaxed), 1);
+        assert!(installer.ran().is_empty(), "nothing installs without the click");
+
+        // Dismissed, the notice comes back with the next check; this version is up to date.
+        updates.found = None;
+        assert!(updates.check_now());
+        wait_until("no second answer", || { updates.step(); !updates.checking() });
+        assert_eq!(updates.answer(), Some(Answer::Found));
+        assert!(updates.found.is_some());
+        *count.answer.lock().unwrap() = answer("v4.0.0", false, false, "");
+        assert!(updates.check_now());
+        wait_until("no third answer", || { updates.step(); !updates.checking() });
+        assert_eq!(updates.answer(), Some(Answer::UpToDate));
+        assert_eq!(Answer::UpToDate.toast(), Some("You have the latest version"));
+        *count.answer.lock().unwrap() = "<html>".into();
+        assert!(updates.check_now());
+        wait_until("no fourth answer", || { updates.step(); !updates.checking() });
+        assert_eq!(updates.answer(), Some(Answer::Failed));
+        assert_eq!(Answer::Failed.toast(), Some("Couldn’t check for updates"));
+        assert_eq!(Answer::Found.toast(), None, "the notice says it");
+    }
+
+    #[test]
+    fn a_managed_copy_has_no_check_now() {
+        let mut updates = Updates::default();
+        assert!(!updates.check_now());
+        assert!(!updates.checking() && updates.answer().is_none());
     }
 
     // A local server stands in for GitHub; the real WinHTTP or ureq talks to it.

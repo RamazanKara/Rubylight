@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="library_computers">Komputery</string>
-    <string name="pc_needs_pairing">Gotowy do sparowania</string>
     <string name="pc_offline">Offline</string>
-    <string name="pc_checking">Sprawdzanie połączenia…</string>
+    <string name="pc_checking">Sprawdzanie…</string>
     <string name="app_running">Uruchomiona</string>
     <string name="app_hidden">Ukryta</string>
     <string name="app_running_hidden">Uruchomiona · Ukryta</string>

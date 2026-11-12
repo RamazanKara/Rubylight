@@ -207,9 +207,9 @@ fn fixture_rgb(x: usize, y: usize, ten_bit: bool, packing: u32) -> [f32; 3] {
     let (u, v) = if packing == 2 {
         let base = (x / 2 * 7 + y / 2 * 19 + 17) & maximum;
         let mut uv = [base, maximum - base];
-        let detail = if x % 2 != 0 {
+        let detail = if !x.is_multiple_of(2) {
             Some([(x / 2 + (64 + y) * 13) & maximum, (64 + x / 2 + (64 + y) * 13) & maximum])
-        } else if y % 2 != 0 {
+        } else if !y.is_multiple_of(2) {
             let u = (x / 2 * 7 + (32 + y / 2) * 19 + 17) & maximum;
             Some([u, maximum - u])
         } else { None };
@@ -220,7 +220,7 @@ fn fixture_rgb(x: usize, y: usize, ten_bit: bool, packing: u32) -> [f32; 3] {
             }
         }
         (uv[0], uv[1])
-    } else if x % 2 == 0 {
+    } else if x.is_multiple_of(2) {
         let u = (x / 2 * 7 + y * 19 + 17) & maximum;
         (u, maximum - u)
     } else {
@@ -840,7 +840,7 @@ mod tests {
 
     /// The SPIR-V instructions' opcodes of `code`.
     fn opcodes(code: &[u8]) -> Vec<u32> {
-        let words: Vec<u32> = code.chunks_exact(4).map(|w| u32::from_le_bytes(w.try_into().unwrap())).collect();
+        let words: Vec<u32> = code.as_chunks::<4>().0.iter().map(|w| u32::from_le_bytes(*w)).collect();
         assert_eq!(words[0], 0x0723_0203, "SPIR-V magic");
         let mut at = 5;
         let mut opcodes = Vec::new();

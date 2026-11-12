@@ -10,15 +10,15 @@
     <string name="host_rename_title">Rename PC</string>
     <string name="host_unpair_title">Unpair %1$s?</string>
     <string name="host_unpair_message">The PC forgets this device and its saved library is cleared here. You will need to pair again to stream. The PC stays in the list.</string>
-    <string name="host_wake_needs_pairing">Pair once while the PC is on to enable Wake</string>
+    <string name="host_wake_needs_pairing">Pair once while the PC is on to enable Wake up.</string>
     <!-- Sleep PC: the host's /power-actions/v1. Refusals show the host's own message. -->
     <string name="host_menu_sleep">Sleep PC</string>
     <string name="host_sleep_title">Put %1$s to sleep?</string>
-    <string name="host_sleep_message">Games and streams on the PC must be closed first. Wake-on-LAN can wake it again.</string>
+    <string name="host_sleep_message">The PC sleeps only while no app or stream runs on it. Wake it with Wake up.</string>
     <string name="host_sleep_asking">Asking the PC…</string>
     <string name="host_sleep_accepted">PC is going to sleep</string>
     <string name="host_sleep_unsupported">This PC can’t sleep.</string>
-    <string name="host_sleep_permission_help">To allow it, turn on Sleep PC for this device in the host’s web console, under its device settings.</string>
+    <string name="host_sleep_permission_help">To allow it, turn on Sleep PC for this device in the PC’s web UI, under its device settings.</string>
     <string name="host_sleep_busy">The PC can’t sleep right now. Close games and streams on it, then try again.</string>
     <string name="host_sleep_refused">The PC refused to sleep (HTTP %1$d).</string>
     <string name="host_sleep_failed">Couldn’t reach the PC.</string>
@@ -26,7 +26,7 @@
     <!-- Restart PC, Shut down PC and the host's update (native /power and /update). Refusals show the host's own words. -->
     <string name="host_menu_restart">Restart PC</string>
     <string name="host_menu_shutdown">Shut down PC</string>
-    <string name="host_menu_update">Update the PC’s host</string>
+    <string name="host_menu_update">Update the PC’s streaming app</string>
     <string name="host_menu_pair_another">Pair another device</string>
     <string name="pairing_wants_to_pair">%1$s wants to pair</string>
     <string name="pairing_many_want_to_pair">%1$d devices want to pair</string>
@@ -47,14 +47,14 @@
     <string name="host_restart_accepted">%1$s is restarting</string>
     <string name="host_shutdown_accepted">%1$s is shutting down</string>
     <string name="host_power_busy">The PC can’t do this right now.</string>
-    <string name="host_update_title">Update the host on %1$s to %2$s?</string>
-    <string name="host_update_message">The host restarts to install it, and a stream from this device ends.</string>
+    <string name="host_update_title">Update the streaming app on %1$s to %2$s?</string>
+    <string name="host_update_message">The streaming app restarts to install it, and a stream from this device ends.</string>
     <string name="host_update_action">Update</string>
-    <string name="host_update_none">The host has no update to install.</string>
+    <string name="host_update_none">The streaming app has no update to install.</string>
     <string name="host_update_started_title">Updating %1$s</string>
-    <string name="host_update_started">The host installs version %1$s and comes back on its own.</string>
+    <string name="host_update_started">The streaming app installs version %1$s and comes back on its own.</string>
     <string name="host_update_back_title">%1$s is back</string>
-    <string name="host_update_back">The host now runs version %1$s.</string>
+    <string name="host_update_back">The streaming app now runs version %1$s.</string>
     <string name="host_update_failed_title">Couldn’t update %1$s</string>
     <string name="host_update_timeout">The PC didn’t come back with version %1$s in time.</string>
     <string name="host_restart_refused_title">Couldn’t restart %1$s</string>
@@ -67,12 +67,12 @@
     <string name="host_update_old_version">The PC came back on version %1$s; the update didn’t install.</string>
     <!-- Accessibility: interface size, high contrast and reduced motion. -->
     <string name="settings_category_accessibility">Accessibility</string>
-    <string name="title_ui_scale">Interface size</string>
-    <string name="summary_ui_scale">Scales the menus, lists and dialogs of the app. The stream is not scaled. The system font size still applies on top. Takes effect at once.</string>
+    <string name="title_ui_scale">Text and button size</string>
+    <string name="summary_ui_scale">Makes Nightjar’s menus bigger or smaller; the stream is not scaled.</string>
     <string name="title_high_contrast">High contrast</string>
-    <string name="summary_high_contrast">A black background, stronger text and outlines, and a thicker focus ring on every screen of the app. The stream is not changed.</string>
+    <string name="summary_high_contrast">Black surfaces, stronger text and thicker focus rings.</string>
     <string name="title_reduce_motion">Reduce motion</string>
-    <string name="summary_reduce_motion">Follow system turns animation off when Android’s animation scale is 0. Reduce replaces the focus zoom and the sliding sheets with a plain ring. Full always animates.</string>
+    <string name="summary_reduce_motion">Turns off fades, slides and zooms; Follow system uses the system’s setting.</string>
     <string name="reduce_motion_system">Follow system</string>
     <string name="reduce_motion_reduce">Reduce</string>
     <string name="reduce_motion_full">Full</string>
@@ -82,7 +82,7 @@
     <string-array name="reduce_motion_values" translatable="false"><item>system</item><item>reduce</item><item>full</item></string-array>
     <!-- tv-mode-toggle -->
     <string name="title_ui_mode">Interface layout</string>
-    <string name="summary_ui_mode">Automatic follows the device. Choose TV to lay the app out for a TV, with focus and a remote or gamepad, on a handheld or phone that is connected to one. Choose Handheld for the touch layouts on a TV. The stream is not changed. Takes effect at once.</string>
+    <string name="summary_ui_mode">The TV or handheld layout, or the device’s own.</string>
     <string name="ui_mode_auto">Automatic</string>
     <string name="ui_mode_tv">TV</string>
     <string name="ui_mode_handheld">Handheld</string>

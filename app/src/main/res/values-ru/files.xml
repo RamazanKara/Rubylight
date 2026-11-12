@@ -30,11 +30,11 @@
     <string name="files_no_upload_permission">Этому устройству нельзя отправлять файлы на этот ПК. На ПК откройте страницу «Devices» в веб-интерфейсе и разрешите ему «Upload files».</string>
     <string name="files_no_download_permission">Этому устройству нельзя скачивать файлы этого ПК. На ПК откройте страницу «Devices» в веб-интерфейсе и разрешите ему «Download files».</string>
     <string name="files_off">Передача файлов на этом ПК отключена. Включите её в веб-интерфейсе ПК, в разделе «File transfer».</string>
-    <string name="files_unavailable">Хост этого ПК не поддерживает передачу файлов.</string>
+    <string name="files_unavailable">Приложение для трансляции на этом ПК не поддерживает передачу файлов.</string>
     <string name="files_no_library">Эта сборка Nightjar не может передавать файлы.</string>
     <string name="files_offline">ПК не в сети.</string>
     <string name="files_pick_pc">На какой ПК отправить?</string>
-    <string name="files_no_pc">Нет сопряжённых ПК в сети. Сначала разбудите или выполните сопряжение с одним в списке ПК.</string>
+    <string name="files_no_pc">Нет сопряжённых ПК в сети. Сначала разбудите один из них или выполните сопряжение в списке ПК.</string>
     <string name="files_waiting_to_send">Файлы ожидают отправки: %1$d. Они уйдут, как только этому устройству разрешат отправлять файлы.</string>
     <plurals name="files_share_refused">
         <item quantity="one">%1$d общий элемент не отправлен: отправлять можно только файлы другого приложения.</item>

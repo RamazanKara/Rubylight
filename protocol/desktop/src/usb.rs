@@ -43,8 +43,8 @@ pub enum Blocked {
 impl Blocked {
     pub fn message(&self) -> String {
         match self {
-            Self::NoWinUsb(driver) => trf("No WinUSB driver ({}). Install WinUSB for this device, for example with Zadig, to forward it. Windows can't use it here while WinUSB has it.", &[driver]),
-            Self::Isochronous => tr("It has isochronous endpoints (audio or video), which Nightjar doesn't forward on this computer.").to_owned(),
+            Self::NoWinUsb(driver) => trf("No WinUSB driver ({}). Install WinUSB for this device, for example with Zadig, to forward it. Windows can’t use it here while WinUSB has it.", &[driver]),
+            Self::Isochronous => tr("It has isochronous endpoints (audio or video), which Nightjar doesn’t forward on this computer.").to_owned(),
             #[cfg(target_os = "linux")]
             Self::Kernel(missing) => missing.message(),
         }
@@ -520,7 +520,7 @@ impl BlockingDevice for Libusb {
             Direction::In => read_sliced(transfer.length as usize, cancelled, |buffer| self.call(address, kind, buffer.as_mut_ptr(), buffer.len())),
             Direction::Out => {
                 let data = &transfer.data;
-                let zero = transfer.flags & URB_ZERO_PACKET != 0 && !data.is_empty() && max_packet > 0 && data.len() % usize::from(max_packet) == 0;
+                let zero = transfer.flags & URB_ZERO_PACKET != 0 && !data.is_empty() && max_packet > 0 && data.len().is_multiple_of(usize::from(max_packet));
                 write_sliced(data, zero, cancelled, |rest| self.call(address, kind, rest.as_ptr().cast_mut(), rest.len()))
             }
         }
@@ -648,7 +648,7 @@ pub fn refusal(availability: Availability) -> Option<&'static str> {
     match availability {
         Availability::Supported => None,
         Availability::Unsupported(Some(Reason::UsbPermission)) => Some(en(
-            "This PC has not allowed USB devices for this device. On the PC, open the web UI's Devices page and allow USB devices for it.",
+            "This PC has not allowed USB devices for this device. On the PC, open the web UI’s Devices page and allow USB devices for it.",
         )),
         // A host without the native API is a 2.6.x one or another family: it doesn't offer it.
         Availability::Unsupported(_) => Some(en("The PC does not forward USB devices.")),
@@ -729,7 +729,7 @@ fn attach_error(e: &AttachError) -> String {
     match e {
         AttachError::Ended => tr("The stream ended.").to_owned(),
         AttachError::Busy => tr("The device is attached already.").to_owned(),
-        AttachError::Invalid => tr("The device's name or bus ID can't be sent to the PC.").to_owned(),
+        AttachError::Invalid => tr("The device’s name or bus ID can’t be sent to the PC.").to_owned(),
         AttachError::Send(SendError::Unsupported) => tr("The PC does not forward USB devices.").to_owned(),
         AttachError::Send(e) => trf("The request did not reach the PC: {}", &[&format!("{e:?}")]),
     }
@@ -746,7 +746,7 @@ pub fn phase_label(phase: &Phase) -> String {
             (_, UsbReason::Permission) => tr("The PC has not allowed USB devices for this client.").to_owned(),
             (_, UsbReason::Disabled) => tr("USB forwarding is off on the PC.").to_owned(),
             (_, UsbReason::Limit) => tr("The PC has as many USB devices attached as it allows.").to_owned(),
-            (_, UsbReason::Driver) => tr("The PC's USB/IP driver is missing or failed.").to_owned(),
+            (_, UsbReason::Driver) => tr("The PC’s USB/IP driver is missing or failed.").to_owned(),
             (_, UsbReason::TunnelTimeout) => tr("The connection to the PC timed out.").to_owned(),
             (_, UsbReason::DeviceError) => tr("The device stopped answering.").to_owned(),
             (_, UsbReason::SessionEnd) => tr("Detached when the stream ended.").to_owned(),
@@ -790,7 +790,7 @@ mod tests {
         assert_eq!(offered(Ok(native("\"usb\"", true))), None);
         assert_eq!(
             offered(Ok(native("\"usb\"", false))),
-            Some("This PC has not allowed USB devices for this device. On the PC, open the web UI's Devices page and allow USB devices for it.")
+            Some("This PC has not allowed USB devices for this device. On the PC, open the web UI’s Devices page and allow USB devices for it.")
         );
         // The permission alone is no offer: the host turned USB forwarding off.
         assert_eq!(offered(Ok(native("\"files.upload\"", true))), Some("The PC does not forward USB devices."));

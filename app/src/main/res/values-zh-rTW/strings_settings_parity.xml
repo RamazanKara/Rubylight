@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings shared with desktop Nightjar: Sharper colored text, Controllers, Mouse mode, When Nightjar
+     opens, group names, row hints and notices. -->
+<resources>
+    <string name="title_sharp_color">更清晰的彩色文字</string>
+    <string name="summary_sharp_color">完整的色彩細節，讓彩色文字和細線保持清晰。</string>
+    <string-array name="sharp_color_names">
+        <item>關閉</item>
+        <item>自動</item>
+    </string-array>
+    <string name="title_controllers">控制器</string>
+    <string name="summary_controllers">關閉、所有控制器作為同一位玩家，或每個控制器各為一位玩家。</string>
+    <string-array name="controllers_names">
+        <item>關閉</item>
+        <item>同一位玩家</item>
+        <item>各為一位玩家</item>
+    </string-array>
+    <string-array name="mouse_mode_names">
+        <item>擷取</item>
+        <item>桌面指標</item>
+    </string-array>
+    <string-array name="start_screen_names">
+        <item>首頁</item>
+        <item>顯示我的電腦</item>
+        <item>繼續上次的遊戲</item>
+        <item>選定的遊戲</item>
+    </string-array>
+    <string name="summary_host_display_location">電腦如何將串流顯示器排列在自己的螢幕旁。</string>
+    <string name="summary_pace_calibration_row">找出電腦的 PyroWave 影格能完整送達的最快節奏。</string>
+    <string name="summary_network_tests">測量 Ping、抖動和遺失率，電腦支援時也會測量下載速度。</string>
+    <string name="settings_category_touch_mouse">觸控與滑鼠</string>
+    <string name="settings_category_connection">連線</string>
+    <string name="sharp_color_unavailable_pc">這台電腦不支援「更清晰的彩色文字」。</string>
+    <string name="sharp_color_unavailable_device">這部裝置不支援「更清晰的彩色文字」。</string>
+    <string name="sharp_color_stopped">「更清晰的彩色文字」已停止。正在關閉此功能並重新連線。</string>
+    <string name="sharp_color_hdr_dropped">此串流為 SDR：在這台電腦上，HDR 無法與「更清晰的彩色文字」同時使用。</string>
+    <string name="hint_show_onscreen_controls">覆蓋在串流畫面上的觸控控制器。</string>
+    <string name="hint_mouse_speed">指標移動的速度。</string>
+    <string name="hint_trackpad_speed">「觸控板」觸控模式下的指標速度。</string>
+    <string name="hint_local_cursor_speed">「本機游標」觸控模式下的指標速度。</string>
+    <string name="hint_trackpad_acceleration_curve">快速滑動時指標額外移動的距離。</string>
+    <string name="hint_trackpad_momentum_glide">指標滑行的距離。</string>
+    <string name="hint_pc_keyboard_size">螢幕上 PC 鍵盤的大小。</string>
+    <string name="hint_pc_keyboard_opacity">螢幕上 PC 鍵盤的透明程度。</string>
+    <string name="hint_vibrate_osc">按下螢幕按鈕時裝置會震動。</string>
+    <string name="hint_show_guide_button">在螢幕控制按鈕中加入 Guide 按鈕。</string>
+    <string name="hint_host_audio">串流時電腦的喇叭仍會播放聲音。</string>
+    <string name="hint_overlay_position">效能覆蓋層所在的角落。</string>
+    <string name="summary_reset_all">將所有設定恢復為預設值；電腦、遊戲、設定檔和語言會保留。</string>
+</resources>

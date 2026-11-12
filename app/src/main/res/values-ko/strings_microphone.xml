@@ -1,26 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_enable_mic">PC로 마이크 보내기</string>
-    <string name="summary_checkbox_enable_mic">호스트가 마이크를 지원하면 PC의 게임과 채팅 앱에서 이 기기의 마이크 소리를 들을 수 있습니다</string>
+    <string name="summary_checkbox_enable_mic">이 기기의 마이크를 PC로 보냅니다.</string>
     <string name="mic_permission_denied">마이크 접근이 허용되지 않아 마이크가 꺼져 있습니다. PC를 통해 대화하려면 Android 설정에서 허용하세요.</string>
     <string name="mic_status_sending">마이크: 전송 중</string>
     <string name="mic_status_muted">마이크: 음소거됨</string>
-    <string name="mic_status_not_offered">마이크: 호스트에서 지원하지 않음</string>
+    <string name="mic_status_not_offered">마이크: PC에서 지원하지 않음</string>
     <string name="mic_status_unavailable">마이크: 사용할 수 없음</string>
     <string name="mic_status_no_permission">마이크: 권한 필요</string>
     <string name="title_list_mic_echo_cancel">에코 제거</string>
-    <string name="summary_list_mic_echo_cancel">스피커의 게임 소리가 마이크로 들어가지 않게 합니다. 자동은 스피커에서는 켜고 헤드폰과 블루투스 헤드셋에서는 끄며, 스트리밍 중 전환도 따라갑니다.</string>
+    <string name="summary_list_mic_echo_cancel">스피커에서 나오는 스트림 소리가 마이크로 들어가지 않게 합니다.</string>
     <string name="mic_echo_auto">자동</string>
     <string name="mic_echo_on">켜기</string>
     <string name="mic_echo_off">끄기</string>
     <string name="title_checkbox_mic_noise_suppression">소음 억제</string>
-    <string name="summary_checkbox_mic_noise_suppression">팬 같은 일정한 배경 소음을 마이크에서 걸러냅니다</string>
+    <string name="summary_checkbox_mic_noise_suppression">일정한 배경 소음을 마이크에서 걸러냅니다.</string>
     <string name="title_checkbox_mic_auto_gain">자동 게인</string>
-    <string name="summary_checkbox_mic_auto_gain">기기가 작은 목소리와 큰 목소리를 고르게 맞춥니다. 아래 마이크 게인이 추가로 적용됩니다.</string>
+    <string name="summary_checkbox_mic_auto_gain">작은 목소리와 큰 목소리를 고르게 맞춥니다.</string>
     <string name="title_seekbar_mic_gain">마이크 게인</string>
-    <string name="summary_seekbar_mic_gain">보내기 전에 마이크를 작게 또는 크게 합니다. 큰 피크는 찢어지지 않고 부드럽게 다듬어집니다.</string>
+    <string name="summary_seekbar_mic_gain">보내기 전에 마이크 소리를 작게 또는 크게 합니다.</string>
     <string name="title_checkbox_mic_button">마이크 버튼</string>
-    <string name="summary_checkbox_mic_button">스트림 위에 마이크를 음소거하고 해제하는 버튼을 표시합니다. 드래그해서 옮길 수 있습니다.</string>
+    <string name="summary_checkbox_mic_button">스트림 위에서 마이크를 음소거하고 해제하는 버튼입니다.</string>
     <string name="mic_button_mute">마이크 음소거</string>
     <string name="mic_button_unmute">마이크 음소거 해제</string>
     <string name="stream_mic_button_show">마이크 버튼 표시</string>

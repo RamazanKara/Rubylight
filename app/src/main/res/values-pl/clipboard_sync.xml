@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_clipboard_sync">Synchronizacja schowka</string>
-    <string name="summary_clipboard_sync">Tekst skopiowany na tym urządzeniu trafia do schowka PC, a tekst skopiowany na PC trafia tutaj. Android pozwala aplikacji czytać schowek tylko wtedy, gdy stream jest na wierzchu, więc kopia z innej aplikacji zostanie wysłana po powrocie. PC musi pozwolić temu urządzeniu odczytywać i zapisywać swój schowek.</string>
+    <string name="summary_clipboard_sync">Skopiowany tekst przechodzi między tym urządzeniem a komputerem.</string>
     <string name="clipboard_sync_not_offered">Synchronizacja schowka jest wyłączona: PC jej nie zaoferował. Musi pozwolić temu urządzeniu odczytywać i zapisywać swój schowek.</string>
     <string name="clipboard_sync_failed">Nie udało się uruchomić synchronizacji schowka.</string>
     <string name="clipboard_sync_read_refused">Android nie pozwolił synchronizacji odczytać schowka, więc ta kopia zostaje na tym urządzeniu.</string>

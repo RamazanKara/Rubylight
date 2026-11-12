@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="controller_mapping_title">手柄按键</string>
-    <string name="controller_mapping_summary">为每种手柄型号重新映射按键</string>
+    <string name="controller_mapping_summary">重新映射某种手柄型号的按键和摇杆。</string>
     <string name="controller_mapping_intro">点按“映射按键”，然后按下要重新映射的手柄按键。\n更改将在下次串流时生效。</string>
     <string name="controller_mapping_waiting">请连接手柄，然后点按“映射按键”。</string>
     <string name="controller_mapping_unnamed">手柄</string>

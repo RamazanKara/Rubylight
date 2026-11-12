@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="pc_status_ready">Готово</string>
     <string name="pc_status_playing">Запущено: %1$s</string>
     <string name="pc_status_playing_unknown">Запущено гру</string>
-    <string name="pc_status_waking">Пробудження…</string>
+    <string name="pc_status_waking">Прокидається…</string>
     <string name="discovery_connect_help">Як підключитися</string>
     <string name="pc_list_searching">Пошук інших ПК у цій мережі</string>
     <string name="pc_menu_settings">Налаштування ПК…</string>

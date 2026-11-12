@@ -33,10 +33,10 @@ const PROBLEMS: [(&str, &str); 5] = [
             en("Connect both to the same network, or add the PC by its address with Add PC.")
         },
     ),
-    (en("Pairing fails"), en("Cancel, clear the pending request in the host's web page, and pair again with a new PIN.")),
+    (en("Pairing fails"), en("Cancel, clear the pending request in the PC’s web UI, and pair again with a new PIN.")),
     (en("Black picture or no video"), en("Try H.264 at 720p with HDR and upscaling off, then raise one setting at a time.")),
-    (en("Stutter or lag"), en("Lower the bitrate or connect the PC by cable. Why did my stream stutter? in the stream controls names the cause.")),
-    (en("No sound"), en("Choose Stereo, check the PC's audio output, then reconnect.")),
+    (en("Stutter or lag"), en("Lower the bitrate or connect the PC by cable. Why did my stream stutter? in the stream menu names the cause.")),
+    (en("No sound"), en("Choose Stereo, check the PC’s audio output, then reconnect.")),
 ];
 
 /// Where Nightjar's releases and their notes are.
@@ -118,9 +118,9 @@ impl Launcher {
         let style = Style::of(view.pads);
         let quit = self.settings.gamepad_quit_combo;
         let steps: [(&str, &str); 3] = [
-            (en("Find your PC"), en("Start a Moonlight-compatible host on the same network. If it doesn't show under PCs, add it by its address.")),
-            (en("Pair"), en("Select the PC and enter the PIN Nightjar shows in the host's web page.")),
-            (en("Play"), en("Open the PC's library and choose a game.")),
+            (en("Find your PC"), en("Start a Moonlight-compatible streaming app on a PC on the same network. If it doesn’t show under PCs, add it by its address.")),
+            (en("Pair"), en("Select the PC and enter the PIN Nightjar shows in the PC’s web UI.")),
+            (en("Play"), en("Open the PC’s library and choose a game.")),
         ];
         let columns = if width >= 960.0 { 3 } else { 1 };
         grid(ui, "help-steps", columns, steps.len(), |ui, n| {
@@ -278,10 +278,10 @@ impl Launcher {
 
     fn help_sharing(&mut self, ui: &mut Ui, width: f32) {
         let tiles: [(Icon, &str, &str); 4] = [
-            (Icon::ClipboardUp, en("Clipboard"), en("Send text to the PC or copy the PC's text here from the stream controls, or with the keys below. Clipboard sync in Settings does it as you copy.")),
-            (Icon::File, en("Files"), en("Send files to a PC's transfer folder and download from it: Files in the PC's options.")),
-            (Icon::Folder, en("Shared folders"), en("Browse the folders a PC shares with this device and download from them, on the PC's details page.")),
-            (Icon::Usb, en("USB devices"), en("Attach a USB device plugged in here to the PC from the stream controls, when the PC supports it.")),
+            (Icon::ClipboardUp, en("Clipboard"), en("Send text to the PC or copy the PC’s text here from the stream menu, or with the keys below. Clipboard sync in Settings does it as you copy.")),
+            (Icon::File, en("Files"), en("Send files to a PC’s transfer folder and download from it: Files in the PC’s options.")),
+            (Icon::Folder, en("Shared folders"), en("Browse the folders a PC shares with this device and download from them, on the PC’s details page.")),
+            (Icon::Usb, en("USB devices"), en("Attach a USB device plugged in here to the PC from the stream menu, when the PC supports it.")),
         ];
         let columns = if width >= 1000.0 { 4 } else if width >= 560.0 { 2 } else { 1 };
         grid(ui, "help-sharing", columns, tiles.len(), |ui, n| {
@@ -408,7 +408,7 @@ impl Launcher {
 /// A hairline between rows, inset like the rows' text.
 fn separator(ui: &mut Ui) {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-    ui.painter().rect_filled(rect.shrink2(vec2(space::S, 0.0)), 0.0, design_tokens::TINT_SEPARATOR);
+    ui.painter().rect_filled(rect.shrink2(vec2(space::S, 0.0)), 0.0, shade::TINT_SEPARATOR.get());
 }
 
 /// A card's heading: a small icon and its title.
@@ -442,7 +442,7 @@ fn icon_tile(ui: &mut Ui, icon: Icon) {
 fn segment(ui: &mut Ui, name: &str, chosen: bool) -> Response {
     let ink = if chosen { *ON_SURFACE } else { *ON_SURFACE_VARIANT };
     let button = egui::Button::new(RichText::new(name).font(semibold(text::CAPTION)).color(ink))
-        .fill(if chosen { design_tokens::TINT_SEG_ON_FILL } else { Color32::TRANSPARENT })
+        .fill(if chosen { shade::TINT_SEG_ON_FILL.get() } else { Color32::TRANSPARENT })
         .corner_radius(CornerRadius::same(14))
         .min_size(vec2(0.0, 28.0));
     let response = ui.add(button);

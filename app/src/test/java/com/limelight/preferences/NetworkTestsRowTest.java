@@ -27,8 +27,8 @@ import org.robolectric.shadows.ShadowDialog;
 import static org.junit.Assert.*;
 
 /**
- * Settings' Network tests row: a saved PC's connection test and frame pace calibration, which live on that PC's settings
- * screen, found from Streaming and from search.
+ * Settings' Connection test row: a saved PC's connection tests, which live on that PC's settings screen, found from
+ * Streaming and from search.
  */
 @RunWith(org.robolectric.RobolectricTestRunner.class)
 @Config(sdk = 28, application = Application.class,
@@ -78,9 +78,8 @@ public class NetworkTestsRowTest {
             assertNotNull(row);
             assertEquals(app.getString(R.string.network_tests_title), row.getTitle().toString());
             assertTrue(row.isEnabled());
-            String summary = row.getSummary().toString();
-            assertTrue(summary, summary.contains(app.getString(R.string.connection_test_title)));
-            assertTrue(summary, summary.contains(app.getString(R.string.pace_calibration_title)));
+            // Its hint; the PyroWave frame pace has its own row in Advanced › Diagnostics.
+            assertEquals(app.getString(R.string.summary_network_tests), row.getSummary().toString());
         }
     }
 
@@ -102,21 +101,23 @@ public class NetworkTestsRowTest {
     }
 
     @Test
-    public void withoutASavedPcTheRowIsGreyedAndSaysWhy() {
+    public void withoutASavedPcTheRowIsHidden() {
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
-            Preference row = row(controller.get());
-            assertFalse(row.isEnabled());
-            assertEquals(app.getString(R.string.pin_pcs_empty), row.getSummary().toString());
+            StreamSettings screen = controller.get();
+            StreamSettings.SettingsFragment streaming = SettingsStructureTest.open(screen, "streaming");
+            android.preference.PreferenceGroup main = (android.preference.PreferenceGroup) streaming.findPreference("category_streaming_main");
+            assertFalse(SettingsStructureTest.keys(main).contains(StreamSettings.NETWORK_TESTS_KEY));
         }
     }
 
     @Test
-    public void searchFindsItByItsTestsNames() {
+    public void searchFindsItByItsTitleAndWhatItMeasures() {
         save("one-pc", "Den PC");
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             StreamSettings screen = controller.get();
             SettingsStructureTest.settle(screen);
-            for (String query : new String[] {"Network tests", "Connection test", "frame pacing"}) {
+            // Its title and its hint, which names what it measures.
+            for (String query : new String[] {"Connection test", "jitter", "download speed"}) {
                 StreamSettings.SettingsFragment results = SettingsStructureTest.search(screen, query);
                 assertNotNull(query, SettingsStructureTest.resultGroup(results, StreamSettings.NETWORK_TESTS_KEY));
             }

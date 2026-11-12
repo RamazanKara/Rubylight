@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_open_on_start">Під час запуску Nightjar</string>
-    <string name="summary_open_on_start">Ваші ПК або 3-секундний відлік до гри.</string>
+    <string name="summary_open_on_start">Головна, ваші ПК або короткий відлік до гри.</string>
     <string name="open_play_menu">Відкривати під час запуску Nightjar</string>
     <string name="open_play_menu_stop">Не відкривати під час запуску Nightjar</string>
     <string name="open_play_countdown">Запуск на %1$s через %2$d</string>

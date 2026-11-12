@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_fec_choice">Correzione degli errori</string>
-    <string name="summary_fec_choice">Quanti dati di recupero il PC aggiunge al video. Automatico segue le perdite di questo dispositivo. I PC che non accettano questa scelta usano la propria impostazione.</string>
+    <string name="summary_fec_choice">Dati di recupero aggiunti dal PC, così i pacchetti persi non rovinano l’immagine.</string>
     <string name="fec_choice_host">Impostazione del PC</string>
     <string name="fec_choice_auto">Automatico</string>
-    <string name="title_link_probe">Test della connessione prima del primo bitrate</string>
-    <string name="summary_link_probe">Un nuovo stream al bitrate automatico prova prima la connessione con un PC Rubylight e non parte oltre ciò che regge.</string>
+    <string name="title_link_probe">Testa la connessione prima di iniziare</string>
+    <string name="summary_link_probe">Un nuovo stream al bitrate automatico misura prima la connessione e non parte più in alto.</string>
 </resources>

@@ -1808,7 +1808,7 @@ pub fn pcm_s16le(packet: Option<&[u8]>, channels: usize, samples: usize, pcm: &m
     match packet {
         Some(bytes) => {
             let frames = (bytes.len() / 2 / channels).min(pcm.len() / channels);
-            for (out, pair) in pcm.iter_mut().zip(bytes.chunks_exact(2)).take(frames * channels) {
+            for (out, pair) in pcm.iter_mut().zip(bytes.as_chunks::<2>().0).take(frames * channels) {
                 *out = f32::from(i16::from_le_bytes([pair[0], pair[1]])) / 32768.0;
             }
             frames
@@ -2260,7 +2260,7 @@ mod tests {
         assert_eq!(packet_buffer_size(1 << 20), (1 << 20) + (256 << 10));
         for needed in [100, 65_535, 300_000, 5_000_000] {
             let size = packet_buffer_size(needed);
-            assert!(size >= needed + needed / 4 && size % (64 * 1024) == 0);
+            assert!(size >= needed + needed / 4 && size.is_multiple_of(64 * 1024));
         }
     }
 

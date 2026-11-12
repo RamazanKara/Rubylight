@@ -98,7 +98,7 @@ sudo sysctl -w net.core.rmem_max={}", &[&granted, &asked, &buffer.asked])
 /// the decoder slow on this device (#80: 3840x4320 at 100 fps, 200 to 400 ms behind).
 pub fn packed_hint(report: &Report, from_memory: Option<(i32, i32)>) -> Option<String> {
     let (width, height) = from_memory.filter(|_| report.findings.iter().any(|finding| matches!(finding, Finding::Decoder)))?;
-    Some(trf("Full chroma: this device copies each {}x{} picture through memory, and that takes longer than a frame at this frame rate. Turn Full chroma off, or lower the resolution or frame rate.", &[&width, &height]))
+    Some(trf("Sharper colored text: this device copies each {}x{} picture through memory, and that takes longer than a frame at this frame rate. Turn Sharper colored text off, or lower the resolution or frame rate.", &[&width, &height]))
 }
 
 /// A value of the evidence, or "no data yet".
@@ -139,12 +139,12 @@ pub fn report_text(report: &Report) -> String {
     for finding in &report.findings {
         text.push_str("\n\n");
         match finding {
-            Finding::Network => text.push_str(tr("Network: repeated frame loss or round-trip variation. Try a lower bitrate, a wired host or a less congested Wi-Fi connection.")),
+            Finding::Network => text.push_str(tr("Network: repeated frame loss or round-trip variation. Try a lower bitrate, a wired PC or a less congested Wi-Fi connection.")),
             Finding::Decoder => text.push_str(tr("Decode: output repeatedly took at least one frame interval. Try a lower resolution or frame rate; lowering bitrate alone may not help.")),
             Finding::Host => text.push_str(tr("Host: the slower processing samples exceeded the frame interval. Compare game/GPU load and a lower game frame limit. This measurement includes more than encoding.")),
             Finding::Presentation => text.push_str(tr("Presentation: frames were released faster than they were shown, with long display waits. Compare frame-pacing modes and the screen refresh rate.")),
             Finding::Heat => text.push_str(tr("Temperature: this device reported high thermal pressure. Lower frame rate/resolution or disable expensive client processing; allow the device to cool.")),
-            Finding::Bursts => text.push_str(&trf("Bursts: in {} of the last {} seconds, the network held frames back and delivered several at once, although the host sent them on time; a cable or a less busy 5 or 6 GHz Wi-Fi channel helps.", &[&report.late_samples, &report.samples])),
+            Finding::Bursts => text.push_str(&trf("Bursts: in {} of the last {} seconds, the network held frames back and delivered several at once, although the PC sent them on time; a cable or a less busy 5 or 6 GHz Wi-Fi channel helps.", &[&report.late_samples, &report.samples])),
             Finding::Periodic => text.push_str(&trf("Repeating stalls: {} network stalls in the last 20 minutes started about every {}. A steady rhythm like this usually comes from background Wi-Fi scans on this device or on the PC. To reduce them:\n• Connect this device or the PC by cable.\n• Stop tools that scan for Wi-Fi networks or nearby devices while streaming.", &[&report.stalls, &period(report.stall_period_ms)])),
         }
     }
@@ -177,9 +177,22 @@ pub fn offer_label(offer: TrialOffer) -> Option<&'static str> {
     }
 }
 
-/// The report after a stream, when it found something worth a look.
-pub fn summary(report: &Report) -> Option<String> {
-    (report.samples >= 3 && !report.findings.is_empty()).then(|| report_text(report))
+/// The report after a stream, when it found something worth a look. With "Hide connection
+/// warnings" (`hide_connection`) the findings about the connection are left out of it, and a
+/// stream that found nothing else has none; the stream menu's report still tells them.
+pub fn summary(report: &Report, hide_connection: bool) -> Option<String> {
+    if !hide_connection || !report.findings.iter().any(|finding| about_connection(*finding)) {
+        return (report.samples >= 3 && !report.findings.is_empty()).then(|| report_text(report));
+    }
+    let mut shown = report.clone();
+    shown.findings.retain(|finding| !about_connection(*finding));
+    summary(&shown, false)
+}
+
+/// A finding about the network between the PC and this device, which "Hide connection warnings"
+/// keeps from the screen after the stream (as Android's hides its poor-connection warnings).
+fn about_connection(finding: Finding) -> bool {
+    matches!(finding, Finding::Network | Finding::Bursts | Finding::Periodic)
 }
 
 /// The launcher's message after a stream: why it ended (`ended`, translated here) and the
@@ -255,16 +268,16 @@ pub fn finished(trial: &mut BitrateTrial, outcome: TrialOutcome) -> (Option<u32>
     match outcome.result {
         Ok(applied) => {
             trial.applied(outcome.undo, outcome.live_kbps, applied);
-            (Some(applied), trf("Host applied {} Mbps", &[&number(f64::from(applied) / 1000.0, 1)]))
+            (Some(applied), trf("PC applied {} Mbps", &[&number(f64::from(applied) / 1000.0, 1)]))
         }
         // The trial is kept: nothing changed, and the host may report its bitrate next time.
         Err(TrialError::Refused(TrialRefused::Unavailable)) => {
-            (None, tr("The host did not report its current encoder bitrate. The trial was not applied.").to_owned())
+            (None, tr("The PC did not report its current encoder bitrate. The trial was not applied.").to_owned())
         }
         Err(TrialError::Refused(refused)) => {
             trial.clear();
             let text = if refused == TrialRefused::Replaced {
-                tr("The host bitrate has changed since the trial. Undo was cancelled to preserve that change.")
+                tr("The PC’s bitrate has changed since the trial. Undo was cancelled to preserve that change.")
             } else {
                 tr("The encoder is already at the minimum trial bitrate. No change was made.")
             };
@@ -336,7 +349,7 @@ mod tests {
         assert!(text.starts_with("Active samples: 5."), "{text}");
         assert!(text.contains("Network: repeated frame loss"), "{text}");
         assert!(text.contains("Frame loss: 6.0 %\nDecode: 2.0 ms\nHost processing p95: no data yet ms"), "{text}");
-        assert_eq!(summary(&report).as_deref(), Some(text.as_str()));
+        assert_eq!(summary(&report, false).as_deref(), Some(text.as_str()));
         assert!(log_line(&report).starts_with("NETWORK over 5 samples, worst loss 6.0 %"));
     }
 
@@ -392,7 +405,7 @@ mod tests {
         let (slow, quick) = (slow.report(7000), quick.report(7000));
         assert!(slow.findings.contains(&Finding::Decoder), "{:?}", slow.findings);
         let hint = packed_hint(&slow, Some((3840, 4320))).expect("named");
-        assert!(hint.starts_with("Full chroma: this device copies each 3840x4320 picture through memory"), "{hint}");
+        assert!(hint.starts_with("Sharper colored text: this device copies each 3840x4320 picture through memory"), "{hint}");
         assert_eq!(packed_hint(&slow, None), None, "an unpacked stream has its own causes");
         assert_eq!(packed_hint(&quick, Some((3840, 4320))), None, "a decoder that keeps up says nothing");
         set(Lang::De);
@@ -408,11 +421,39 @@ mod tests {
         }
         let report = doctor.report(7000);
         assert!(report.findings.is_empty());
-        assert_eq!(summary(&report), None);
+        assert_eq!(summary(&report, false), None);
         assert!(report_text(&report).contains("No repeated bottleneck"));
         let short = Doctor::default().report(1000);
         assert!(report_text(&short).contains("Not enough recent video"));
-        assert_eq!(summary(&short), None);
+        assert_eq!(summary(&short, false), None);
+    }
+
+    /// "Hide connection warnings": the screen after a stream leaves out what it found about the
+    /// connection and tells the rest; the stream menu's report still has everything.
+    #[test]
+    fn hidden_connection_warnings_leave_the_rest_of_the_summary() {
+        set(Lang::En);
+        let mut doctor = Doctor::default();
+        for n in 1..=7 {
+            let mut stats = tick(n * 1000, 6.0);
+            doctor.timings(&mut stats);
+            doctor.add(&stats);
+        }
+        let lossy = doctor.report(7000);
+        assert_eq!(lossy.findings, [Finding::Network]);
+        assert!(summary(&lossy, false).is_some_and(|text| text.contains("Network: repeated frame loss")));
+        assert_eq!(summary(&lossy, true), None, "only the connection: nothing after the stream");
+        assert!(report_text(&lossy).contains("Network: repeated frame loss"), "the menu's report keeps it");
+        for connection in [Finding::Bursts, Finding::Periodic] {
+            let only = Report { findings: vec![connection], ..lossy.clone() };
+            assert!(summary(&only, false).is_some());
+            assert_eq!(summary(&only, true), None, "{connection:?}");
+        }
+        let both = Report { findings: vec![Finding::Network, Finding::Decoder], ..lossy.clone() };
+        let shown = summary(&both, true).expect("the decoder finding stays");
+        assert!(shown.contains("Decode: output repeatedly took"), "{shown}");
+        assert!(!shown.contains("Network: repeated frame loss"), "{shown}");
+        assert_eq!(summary(&both, false).as_deref(), Some(report_text(&both).as_str()));
     }
 
     #[test]
@@ -438,11 +479,11 @@ mod tests {
         let asked = std::cell::Cell::new(0);
         let outcome = run_trial(trial, false, || Ok(20_000), |kbps| { asked.set(kbps); Ok(kbps) });
         assert_eq!(asked.get(), 16_000);
-        assert_eq!(finished(&mut trial, outcome), (Some(16_000), "Host applied 16.0 Mbps".to_owned()));
+        assert_eq!(finished(&mut trial, outcome), (Some(16_000), "PC applied 16.0 Mbps".to_owned()));
         assert_eq!(trial.offer(false, 16_000, true, false, false), TrialOffer::Undo);
         let outcome = run_trial(trial, true, || Ok(16_000), |kbps| { asked.set(kbps); Ok(kbps) });
         assert_eq!(asked.get(), 20_000);
-        assert_eq!(finished(&mut trial, outcome), (Some(20_000), "Host applied 20.0 Mbps".to_owned()));
+        assert_eq!(finished(&mut trial, outcome), (Some(20_000), "PC applied 20.0 Mbps".to_owned()));
         assert_eq!(trial, BitrateTrial::default());
     }
 

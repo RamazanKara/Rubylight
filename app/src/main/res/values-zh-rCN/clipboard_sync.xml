@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_clipboard_sync">剪贴板同步</string>
-    <string name="summary_clipboard_sync">在本设备上复制的文本会进入电脑的剪贴板，在电脑上复制的文本会来到这里。Android 只允许应用在串流位于前台时读取剪贴板，因此在其他应用中复制的内容会在你返回后发送。电脑必须允许本设备读写其剪贴板。</string>
+    <string name="summary_clipboard_sync">复制的文本在此设备和电脑之间同步。</string>
     <string name="clipboard_sync_not_offered">剪贴板同步已关闭：电脑没有提供。电脑必须允许本设备读写其剪贴板。</string>
     <string name="clipboard_sync_failed">剪贴板同步无法启动。</string>
     <string name="clipboard_sync_read_refused">Android 不允许同步读取剪贴板，因此这次复制的内容留在本设备上。</string>

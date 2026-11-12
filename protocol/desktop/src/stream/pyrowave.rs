@@ -108,7 +108,7 @@ fn word(data: &[u8], offset: usize) -> u32 {
 impl Decoder {
     pub fn new(width: usize, height: usize, chroma444: bool) -> Result<Self, &'static str> {
         if width == 0 || height == 0 || width > 8192 || height > 8192
-            || width * height > 16_777_216 || (!chroma444 && (width % 2 != 0 || height % 2 != 0)) {
+            || width * height > 16_777_216 || (!chroma444 && (!width.is_multiple_of(2) || !height.is_multiple_of(2))) {
             return Err("PyroWave supports up to 16 megapixels and even 4:2:0 sizes");
         }
         let stride = width.div_ceil(32).max(4) * 32;

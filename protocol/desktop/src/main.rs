@@ -18,6 +18,7 @@ mod autostream;
 mod cli;
 mod clipboard;
 mod config;
+mod conn_test;
 #[cfg(windows)]
 mod crash_dump;
 #[cfg(feature = "demo-library")]
@@ -46,8 +47,10 @@ mod link_channel;
 mod linux_diagnosis;
 #[cfg(any(target_os = "linux", test))]
 mod linux_video;
+mod latency_bench;
 mod logpipe;
 mod media;
+mod mp4;
 mod menu_style;
 mod nav_repeat;
 mod move_watch;
@@ -186,6 +189,8 @@ struct App {
     pending_end: Option<PendingEnd>,
     identity: Option<Receiver<Result<ClientIdentity, String>>>,
     shortcut_file: Option<(bool, sdl::FileChoice)>,
+    /// Where Export latency CSV saves the last stream's measurements, being chosen.
+    latency_csv_file: Option<sdl::FileChoice>,
     /// A folder to download into, or a file to upload, being chosen for the shared folder browser.
     folder_pick: Option<(FolderPick, sdl::FileChoice)>,
     /// The network read for a start, which waits for it.
@@ -199,6 +204,8 @@ struct App {
     network_test: Option<network_test::Test>,
     /// Host, app, resume, and Input-only through a small stream.
     network_launch: Option<(u64, i32, bool, LaunchKind)>,
+    /// The start a failed start's card offers to make again (`Command::RetryLaunch`).
+    failed_launch: Option<(u64, i32, bool, LaunchKind)>,
     /// A pairing link from the system, until the launcher can ask about it.
     links: Arc<link_channel::Inbox>,
     #[cfg(feature = "demo-library")]
@@ -276,6 +283,22 @@ impl RendererState {
         // Its first HDR stream must still prepare that output (`switch_for_stream`).
         Self { choice, made_for_hdr: false, vulkan_video, gpu_failed }
     }
+}
+
+/// The name of app `app` on `host`: its entry in the PC's list, else its game in the PC's library.
+fn app_name_of(host: &hosts::Host, app: i32) -> Option<String> {
+    if let Apps::Loaded(apps) = &host.apps {
+        if let Some(entry) = apps.iter().find(|a| a.id == app) {
+            return Some(entry.name.clone());
+        }
+    }
+    host.library()?.games.iter().find(|g| g.app_id as i32 == app).map(|g| g.title.clone())
+}
+
+/// Now on the session clock (`nightjar_core::session::now_us`), in nanoseconds, the clock
+/// `stream::phase::timing` reports vblanks on.
+fn session_now_ns() -> i64 {
+    i64::try_from(nightjar_core::session::now_us()).unwrap_or(i64::MAX / 1000).saturating_mul(1000)
 }
 
 fn display_of(window: *mut SDL_Window) -> Display {
@@ -744,6 +767,8 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     gui.set_refresh(display.refresh_hz);
     shortcuts::set_hotkeys(store.hotkeys());
     let mut launcher = Launcher::new(settings.clone(), profiles, store.shortcuts(), display);
+    // The System theme's light or dark; SDL tells of a change (SDL_EVENT_SYSTEM_THEME_CHANGED).
+    launcher.system_light = sdl::system_light();
     launcher.recents = store.recents();
     launcher.pin = Some(if second_screen::this_process() {
         let hand_over = second_screen::follow_first(|| {
@@ -875,6 +900,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         pending_end: None,
         identity: None,
         shortcut_file: None,
+        latency_csv_file: None,
         folder_pick: None,
         network_query: None,
         network_watch: network::Watch::start(waker.clone()),
@@ -882,6 +908,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         power_request: None,
         network_test: None,
         network_launch: None,
+        failed_launch: None,
         links,
         #[cfg(feature = "demo-library")]
         demo: demo_driver::start(waker.clone()),
@@ -992,6 +1019,8 @@ impl App {
     fn shutdown(&mut self) {
         self.save_edits();
         self.network_test = None;
+        // Its decoders may run on the renderer's device, which goes with the process.
+        self.launcher.latency_bench.finish();
         // Its input closes now; the process going closes it too.
         if let Some(companion) = self.second_screen.take() {
             companion.end();
@@ -1222,6 +1251,11 @@ impl App {
         }
         // SAFETY: reading the event type.
         let kind = SDL_EventType(unsafe { event.r#type });
+        if kind == SDL_EVENT_SYSTEM_THEME_CHANGED {
+            // The System theme follows at once: the next frame has the other look.
+            self.launcher.system_light = sdl::system_light();
+            self.window_changed = true;
+        }
         if kind == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED || another_display(kind) {
             window_place::set_minimum_size(self.window);
         }
@@ -1293,8 +1327,10 @@ impl App {
         unsafe {
             let mut event: SDL_Event = std::mem::zeroed();
             if SDL_WaitEventTimeout(&mut event, timeout) {
+                self.latency_input(&event);
                 self.handle_launcher_event(&event);
                 while SDL_PollEvent(&mut event) {
+                    self.latency_input(&event);
                     self.handle_launcher_event(&event);
                 }
             }
@@ -1307,13 +1343,15 @@ impl App {
         #[cfg(feature = "demo-library")]
         self.demo_steps();
         let test_events: Vec<_> = self.network_test.as_ref().map(|test| test.events.try_iter().collect()).unwrap_or_default();
+        let calibrate = self.network_test.as_ref().is_some_and(|test| test.calibrate);
         for event in test_events {
             match event {
-                network_test::Event::Progress(stage) => self.launcher.dialog = Dialog::NetworkTest { stage },
+                network_test::Event::Progress(stage) => self.launcher.dialog = Dialog::NetworkTest { stage, calibrate },
                 network_test::Event::Done(result) => {
                     let host = self.network_test.take().unwrap().host;
                     match result {
-                        Ok(network_test::Outcome::Bandwidth(mbps)) => self.launcher.message(tr("Bandwidth test"), trf("{} Mbps received from the PC over pinned HTTPS. This measures transfer speed, not a recommended video bitrate.", &[&format!("{mbps:.1}")])),
+                        // Its result replaces the running test's dialog, as Android's does.
+                        Ok(network_test::Outcome::Connection(result)) => self.launcher.ask(Dialog::ConnectionTest { host, result }),
                         Ok(network_test::Outcome::Pace(calibration, measurement)) => {
                             let text = trf("Saved {} Mbps frame pace ({}). Packet loss {}%, worst 100 ms loss {}%, missing frame tails {}%. The calibration applies while the network and endpoint link speeds match.",
                                 &[&calibration.pace_mbps, &if calibration.qualified { tr("confirmed twice") } else { tr("best measured result; some loss limits exceeded") },
@@ -1356,6 +1394,19 @@ impl App {
                     Ok(None) => {}
                     Err(e) => self.launcher.message(tr("File dialog unavailable"), e),
                 }
+            }
+        }
+        if let Some(result) = self.latency_csv_file.as_ref().and_then(|receiver| receiver.try_recv().ok()) {
+            self.latency_csv_file = None;
+            let kept = self.store.dir().join("statistics").join(stream::LATENCY_CSV);
+            match result.map(|chosen| chosen.map(|path| std::fs::copy(&kept, &path))) {
+                Ok(None) => {}
+                Ok(Some(Ok(_))) => self.launcher.toast(tr("Latency CSV saved.")),
+                Ok(Some(Err(e))) => {
+                    eprintln!("nightjar: latency CSV: {e}");
+                    self.launcher.toast(tr("Could not save the latency CSV."));
+                }
+                Err(e) => self.launcher.message(tr("File dialog unavailable"), e),
             }
         }
         if let Some(offers) = self.power_probe.as_ref().and_then(|receiver| receiver.try_recv().ok()) {
@@ -1562,10 +1613,18 @@ impl App {
                 }
                 Ok(None) => {}
                 Err(failed) => {
-                    self.connecting = None;
+                    let gone = self.connecting.take();
                     if !std::mem::take(&mut self.cancelled) {
                         match failed {
-                            ConnectFailed::Message(e) => self.launcher.message(tr("The stream could not start"), e),
+                            ConnectFailed::Message(e) => match gone {
+                                Some(c) => {
+                                    let plan = c.plan();
+                                    let launch = (plan.host_id, plan.app.id, plan.resume, LaunchKind::of_plan(plan.join, plan.small_stream_input_only, plan.mic_only));
+                                    let mode = stream::stream_mode(&c.settings, plan.display);
+                                    self.start_failed(launch, Some(c.app_name.clone()), Some(mode), e);
+                                }
+                                None => self.launcher.message(tr("The stream could not start"), e),
+                            },
                             ConnectFailed::ConfirmReplace(plan) => {
                                 if !self.open_play_game_running() {
                                     self.ask_replace(plan);
@@ -1583,10 +1642,17 @@ impl App {
             app: c.app_name.clone(),
             host: c.host_name.clone(),
             stage: c.stage.clone(),
-        }).or_else(|| self.network_launch.map(|(host, ..)| ConnectingView {
-            app: tr("Starting stream").into(),
-            host: self.hosts.get(host).map_or(String::new(), |h| h.display_name().to_owned()),
-            stage: tr("Checking network profile").into(),
+            host_id: c.host_id,
+            app_id: c.plan().app.id,
+        }).or_else(|| self.network_launch.map(|(host, app, ..)| {
+            let pc = self.hosts.get(host);
+            ConnectingView {
+                app: pc.and_then(|h| app_name_of(h, app)).unwrap_or_else(|| tr("Starting stream").into()),
+                host: pc.map_or(String::new(), |h| h.display_name().to_owned()),
+                stage: tr("Checking network profile").into(),
+                host_id: host,
+                app_id: app,
+            }
         }));
         let waking = self.waking.host().and_then(|id| self.hosts.get(id)).map(|h| h.display_name().to_owned());
         // Outside the frame: egui can run it twice, and the answer comes only once.
@@ -1599,6 +1665,10 @@ impl App {
                 pin.returned();
             }
         }
+        if let Some(toast) = self.updates.answer().and_then(update_check::Answer::toast) {
+            self.launcher.toast(toast);
+        }
+        self.latency_bench_frame();
         #[cfg(feature = "demo-library")]
         let demo_scrolling = self.demo_scrolling();
         let mut commands = Vec::new();
@@ -1624,11 +1694,7 @@ impl App {
                 View {
                     hosts,
                     pads,
-                    connecting: connecting.as_ref().map(|c| ConnectingView {
-                        app: c.app.clone(),
-                        host: c.host.clone(),
-                        stage: c.stage.clone(),
-                    }),
+                    connecting: connecting.clone(),
                     waking: waking.clone(),
                 },
             );
@@ -1646,7 +1712,9 @@ impl App {
         let rescaled = sdl::launcher_white(renderer, self.streaming.is_none());
         #[cfg(not(target_os = "linux"))]
         let rescaled = false;
-        let must_draw = std::mem::take(&mut self.window_changed) || self.screenshot_requested || rescaled;
+        // The latency benchmark's frames each reach the screen, paced by V-Sync, as Android's
+        // Choreographer frames are.
+        let must_draw = std::mem::take(&mut self.window_changed) || self.screenshot_requested || rescaled || self.launcher.latency_bench.timing();
         // A screenshot or capture reads the frame back, and so does live glass's timed chain: the
         // frame stays in the GPU renderer's back buffer.
         #[cfg(feature = "demo-library")]
@@ -1665,6 +1733,7 @@ impl App {
             self.take_screenshot("launcher");
             // SAFETY: a live renderer.
             unsafe { SDL_RenderPresent(self.renderer) };
+            self.launcher.latency_bench.presented(session_now_ns());
             static FIRST_FRAME_SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
             if let Some(line) = first_frame_line(&FIRST_FRAME_SAID, LAUNCH.get().map(|at| at.elapsed())) {
                 eprintln!("{line}");
@@ -1672,6 +1741,60 @@ impl App {
         }
         for command in commands {
             self.command(command);
+        }
+    }
+
+    /// The latency benchmark's part of a launcher frame (`latency_bench`): leaving its page, or a
+    /// start under way, stops it; on the page the device it reports is read once, the test
+    /// advances, and while the timing test runs this frame is a sample.
+    fn latency_bench_frame(&mut self) {
+        if self.launcher.screen != Screen::LatencyBenchmark || self.connecting.is_some() || self.network_launch.is_some() {
+            let bench = &mut self.launcher.latency_bench;
+            if bench.running() || bench.device.is_some() {
+                bench.leave();
+            }
+            return;
+        }
+        if self.launcher.latency_bench.device.is_none() {
+            self.launcher.latency_bench.device = Some(self.latency_device());
+        }
+        self.launcher.latency_bench.step(Instant::now());
+        if self.launcher.latency_bench.timing() {
+            let vblank = stream::phase::timing(self.renderer, display_of(self.window).refresh_hz).map(|(latch_us, _)| latch_us.saturating_mul(1000));
+            self.launcher.latency_bench.frame(vblank, session_now_ns());
+        }
+    }
+
+    /// What the latency benchmark reports about this device: the display mode's refresh rate, the
+    /// default output's audio format and the renderer's GPU.
+    fn latency_device(&self) -> latency_bench::Device {
+        let display = display_of(self.window);
+        #[cfg(windows)]
+        let gpu = gpu_adapters::renderer_gpu(sdl::renderer_pointer(self.renderer, SDL_PROP_RENDERER_D3D11_DEVICE_POINTER));
+        #[cfg(not(windows))]
+        let gpu = None;
+        latency_bench::Device { panel_hz: display.refresh_reported.then_some(display.refresh_hz), audio: latency_bench::audio_format(), gpu }
+    }
+
+    /// An input event's age for the latency benchmark while its test runs: SDL stamps events in
+    /// `SDL_GetTicksNS` time.
+    fn latency_input(&mut self, event: &SDL_Event) {
+        if !self.launcher.latency_bench.timing() {
+            return;
+        }
+        // SAFETY: every event starts with its type and timestamp.
+        let (kind, stamp) = unsafe { (SDL_EventType(event.r#type), event.common.timestamp) };
+        let input = matches!(
+            kind,
+            SDL_EVENT_KEY_DOWN | SDL_EVENT_KEY_UP | SDL_EVENT_MOUSE_MOTION | SDL_EVENT_MOUSE_BUTTON_DOWN | SDL_EVENT_MOUSE_BUTTON_UP
+                | SDL_EVENT_MOUSE_WHEEL | SDL_EVENT_GAMEPAD_AXIS_MOTION | SDL_EVENT_GAMEPAD_BUTTON_DOWN | SDL_EVENT_GAMEPAD_BUTTON_UP
+                | SDL_EVENT_FINGER_DOWN | SDL_EVENT_FINGER_UP | SDL_EVENT_FINGER_MOTION | SDL_EVENT_PEN_DOWN | SDL_EVENT_PEN_UP
+                | SDL_EVENT_PEN_MOTION
+        );
+        if input && stamp > 0 {
+            // SAFETY: SDL is up.
+            let age = unsafe { SDL_GetTicksNS() }.saturating_sub(stamp);
+            self.launcher.latency_bench.input(age.min(i64::MAX as u64) as i64);
         }
     }
 
@@ -1876,8 +1999,9 @@ impl App {
                 };
                 let settings = host.record.settings(&self.launcher.profiles.settings(&self.launcher.settings, self.launcher.network.kind(&self.launcher.profiles.home_wifi)));
                 let (_, _, fps, bitrate) = stream::stream_mode(&settings, display_of(self.window));
-                self.network_test = Some(network_test::Test::start(id, client, self.launcher.network.clone(), host.connect_address().to_owned(), (bitrate, fps), calibrate, self.waker.clone()));
-                self.launcher.dialog = Dialog::NetworkTest { stage: if calibrate { tr("Preparing frame-shaped UDP probes") } else { tr("Receiving 32 MiB from the PC") }.into() };
+                self.network_test = Some(network_test::Test::start(id, client, self.launcher.network.clone(), host.connect_address().to_owned(), (bitrate, fps), calibrate, host.bandwidth_test(), self.waker.clone()));
+                let stage = if calibrate { tr("Preparing frame-shaped UDP probes") } else { strings::en("Measuring ping, jitter and loss") };
+                self.launcher.dialog = Dialog::NetworkTest { stage: stage.into(), calibrate };
             }
             Command::CancelNetworkTest => { self.network_test = None; self.launcher.dialog = Dialog::None; }
             Command::ClearPace(id) => {
@@ -1945,6 +2069,47 @@ impl App {
             Command::OpenLogs => {
                 if let Err(e) = logfile::open_folder() {
                     self.launcher.message(tr("Could not open the logs folder"), e);
+                }
+            }
+            // Android's ProblemReport: the redacted logs as one file, shown in the logs folder.
+            Command::ReportProblem => {
+                let header = format!("Nightjar {VERSION} / {} {}
+Redacted logs, oldest line first; addresses, PC names, PINs and credentials are removed.",
+                    std::env::consts::OS, std::env::consts::ARCH);
+                match logfile::logs_dir().and_then(|dir| logfile::write_report(&dir, &header)) {
+                    Ok(_) => {
+                        self.launcher.toast(tr("Problem report saved."));
+                        if let Err(e) = logfile::open_folder() {
+                            self.launcher.message(tr("Could not open the logs folder"), e);
+                        }
+                    }
+                    Err(e) => self.launcher.message(tr("Could not save the report"), e.to_string()),
+                }
+            }
+            // The latency benchmark page (`latency_bench`).
+            Command::StartLatencyBenchmark => {
+                let hardware = self.hardware(&self.launcher.settings);
+                self.launcher.latency_bench.device = Some(self.latency_device());
+                self.launcher.latency_bench.start(hardware, self.waker.clone());
+            }
+            Command::StopLatencyBenchmark => self.launcher.latency_bench.stop(),
+            // Android's Export latency CSV: the last stream's file, saved where the dialog says.
+            Command::ExportLatencyCsv => {
+                if !self.store.dir().join("statistics").join(stream::LATENCY_CSV).is_file() {
+                    self.launcher.toast(tr("Finish a stream before exporting its timings."));
+                } else if self.latency_csv_file.is_none() {
+                    self.latency_csv_file = Some(sdl::choose_csv_file(self.window));
+                }
+            }
+            Command::OpenSource => {
+                if let Err(e) = sdl::open_url(ui::ABOUT_SOURCE) {
+                    self.launcher.message(tr("No browser could open the page. Its address is below, to open on another device."), format!("{}\n\n{e}", ui::ABOUT_SOURCE));
+                }
+            }
+            // Android's UpdateFlow.checkNow: a toast says it asks; the answer is a toast or the notice.
+            Command::CheckUpdatesNow => {
+                if self.updates.check_now() {
+                    self.launcher.toast(tr("Checking for updates…"));
                 }
             }
             Command::RemoteCheck(id) => {
@@ -2040,6 +2205,17 @@ impl App {
                 self.pads.configure(s);
                 if let Err(e) = self.store.save_settings(s) {
                     eprintln!("nightjar: saving settings failed: {e}");
+                }
+            }
+            Command::RetryLaunch => {
+                if let Some((host, app, resume, kind)) = self.failed_launch.take() {
+                    self.launch(host, app, resume, kind, LaunchFrom::Launcher);
+                }
+            }
+            Command::TestConnection => self.launcher.test_connection(self.waker.clone()),
+            Command::SearchAgain => {
+                if !self.hosts.search_again() {
+                    eprintln!("nightjar: looking for PCs on the network could not start again");
                 }
             }
             Command::CancelConnect => {
@@ -2168,6 +2344,8 @@ impl App {
         let wanted = if gpu { "gpu" } else if cfg!(target_os = "macos") { "metal" } else { "opengl" };
         // Waits for a settings probe still on the old device, and forgets what it found.
         stream::pyrowave_mode::settings_probe_reset();
+        // And for the latency benchmark's decoders, which may decode on the old device.
+        self.launcher.latency_bench.finish();
         self.gui.release_renderer();
         // SAFETY: the renderer run() made, its textures freed, with no stream or launch using it.
         unsafe { crate::sdl::destroy_renderer(self.renderer) };
@@ -2328,8 +2506,7 @@ impl App {
         if auto.failed || self.connecting.is_some() || self.network_launch.is_some() {
             return;
         }
-        if let Dialog::Message { title, body } = &self.launcher.dialog {
-            let why = format!("{title}: {body}");
+        if let Some(why) = self.launcher.message_shown() {
             auto.fail(&why);
             self.running = false;
             return;
@@ -2363,8 +2540,8 @@ impl App {
     /// A plan made earlier, with this moment's display and controllers.
     fn refresh_plan(&mut self, plan: &mut LaunchPlan) {
         plan.display = display_of(self.window);
-        plan.gamepad_mask = if plan.settings.controllers { u32::from(self.pads.active_mask()) } else { 0 };
-        plan.prepared_controllers = if plan.settings.controllers { self.pads.prepare(plan.settings.controller_motion) } else { String::new() };
+        plan.gamepad_mask = self.pads.launch_mask(&plan.settings);
+        plan.prepared_controllers = self.pads.launch_controllers(&plan.settings);
     }
 
     /// The PC refused `plan` until the user confirms closing the app it runs: ask.
@@ -2391,10 +2568,7 @@ impl App {
         if cli.failed.is_some() {
             return;
         }
-        let message = match &self.launcher.dialog {
-            Dialog::Message { title, body } => Some(format!("{title}: {body}")),
-            _ => None,
-        };
+        let message = self.launcher.message_shown();
         // The stream and any reconnect are over: --quit-on-exit closes Nightjar.
         if self.streaming.is_none() && self.connecting.is_none() && cli.stream_ended(message.clone()) {
             self.running = false;
@@ -2455,6 +2629,33 @@ impl App {
         }
         self.network_launch = Some((host_id, app_id, resume, kind));
         self.network_query = Some(network::query(self.waker.clone()));
+    }
+
+    /// A start that failed before its first frame: the launch scene turns into its card, which
+    /// offers the same start again, the stream's settings (`mode`, else as this PC's settings make
+    /// it) and a test of the network. `name`: the game's, when the PC's list may no longer have it.
+    fn start_failed(&mut self, launch: (u64, i32, bool, LaunchKind), name: Option<String>, mode: Option<(u32, u32, u32, u32)>, body: String) {
+        let (host_id, app_id, ..) = launch;
+        let host = self.hosts.get(host_id);
+        let mode = mode.or_else(|| {
+            let host = host?;
+            let mut settings = host.record.settings(&self.launcher.profiles.settings(&self.launcher.settings, self.launcher.network.kind(&self.launcher.profiles.home_wifi)));
+            if let Apps::Loaded(apps) = &host.apps {
+                if let Some(overrides) = apps.iter().find(|a| a.id == app_id).and_then(|app| host.record.app_settings(&app.uuid, app.id)) {
+                    settings = overrides.apply(&settings);
+                }
+            }
+            Some(stream::stream_mode(&settings, display_of(self.window)))
+        });
+        let view = ConnectingView {
+            app: name.or_else(|| host.and_then(|h| app_name_of(h, app_id))).unwrap_or_default(),
+            host: host.map_or(String::new(), |h| h.display_name().to_owned()),
+            stage: String::new(),
+            host_id,
+            app_id,
+        };
+        self.failed_launch = Some(launch);
+        self.launcher.start_failed(view, body, mode.map(ui::settings_line));
     }
 
     /// The PC refused full chroma after `plan`'s launch, so its app runs there: the PC is
@@ -2537,16 +2738,16 @@ impl App {
                 if read_list_for_launch(&mut self.hosts, host_id) {
                     self.network_launch = Some((host_id, app_id, resume, kind));
                 } else {
-                    self.launcher.message(tr("The stream could not start"), trf("The app list could not be loaded. {}", &[&tr("Creating this device's pairing key…")]));
+                    self.start_failed((host_id, app_id, resume, kind), None, None, trf("The app list could not be loaded. {}", &[&tr("Creating this device’s pairing key…")]));
                 }
                 return;
             }
             LaunchApp::Failed(why) => {
-                self.launcher.message(tr("The stream could not start"), trf("The app list could not be loaded. {}", &[&why]));
+                self.start_failed((host_id, app_id, resume, kind), None, None, trf("The app list could not be loaded. {}", &[&why]));
                 return;
             }
             LaunchApp::Missing => {
-                self.launcher.message(tr("The stream could not start"), tr("The PC's app list has no entry for this game.").to_owned());
+                self.start_failed((host_id, app_id, resume, kind), None, None, tr("The PC’s app list has no entry for this game.").to_owned());
                 return;
             }
         } };
@@ -2583,8 +2784,8 @@ impl App {
         self.gpu_failure = None;
         // Before the renderer may be made again for this stream and before its decoder.
         stream::pyrowave_sdk::queue::use_async_compute(settings.pyrowave_async_compute);
-        // Full chroma without the GPU renderer starts without it (`full_chroma::decide`), as on a
-        // decoder without it; anything else that needs the renderer refuses the stream.
+        // Sharper colored text without the GPU renderer starts without it (`full_chroma::decide`), as
+        // on a decoder without it; anything else that needs the renderer refuses the stream.
         #[cfg(unix)]
         let packed_without_gpu = {
             self.switch_for_stream(&settings);
@@ -2592,7 +2793,8 @@ impl App {
             match full_chroma::gpu_check(&settings, |need| self.gpu_missing(need)) {
                 Ok(left_out) => left_out,
                 Err(advice) => {
-                    self.launcher.message(tr("The stream could not start"), advice);
+                    let mode = stream::stream_mode(&settings, display_of(self.window));
+                    self.start_failed((host_id, app_id, resume, kind), Some(app.name.clone()), Some(mode), advice);
                     return;
                 }
             }
@@ -2638,13 +2840,13 @@ impl App {
                 (Ok(()), config::PyroWaveDecoder::Gpu) => gpu_decoder = gpu_device,
                 (Ok(()), config::PyroWaveDecoder::Cpu) => {}
                 (Err(reason), config::PyroWaveDecoder::Cpu) => {
-                    let advice = self.gpu_missing("PyroWave").map_or_else(|| format!("{reason}."), |why| format!("{reason}. {why}"));
+                    let advice = self.gpu_missing(strings::en("PyroWave")).map_or_else(|| format!("{reason}."), |why| format!("{reason}. {why}"));
                     self.launcher.message(tr("PyroWave output unavailable"), advice);
                     return;
                 }
                 (Err(reason), config::PyroWaveDecoder::Gpu) => {
                     // The CPU decoder draws with the GPU renderer too: without it, switching would not help.
-                    let advice = match self.gpu_missing("PyroWave") {
+                    let advice = match self.gpu_missing(strings::en("PyroWave")) {
                         Some(why) => format!("{reason}. {why}"),
                         None => trf("{}. Switch the PyroWave decoder to CPU in the settings, or pick another codec.", &[&reason]),
                     };
@@ -2655,15 +2857,41 @@ impl App {
         }
         // Before any decoder probe: the Vulkan video Debug settings change the backend order.
         media::use_vulkan_video_settings(settings.vulkan_video_first, settings.vulkan_rfi);
-        // Before the launch: a stream that cannot have full chroma starts without it, instead of
-        // launching the game and being refused in the handshake.
+        // Before the launch: a stream that cannot have sharper colored text starts without it,
+        // instead of launching the game and being refused in the handshake.
         let refused_now = self.full_chroma_off.take() == Some(host_id);
         let (hardware, renderer, size) = (self.hardware(&settings), self.renderer, (settings.width, settings.height));
+        // It tries the codec's own 4:4:4 first: what this device decodes of it, and of the plain
+        // formats, as a stream without packing has them. Offers follow what the decoder decodes
+        // here, not what it is said to.
+        let native = full_chroma::native_probe_settings(&settings);
+        let color_decodable = if !packed_without_gpu && stream::probes_color(&native) {
+            let wanted = stream::color_probe_formats(&native);
+            probed_once(&mut self.color_probed, probe_key(hardware, wanted, &native), || {
+                stream::color_probe::probe(hardware, wanted, |ten_bit| stream::color_probe::planes_drawable(renderer, ten_bit))
+            })
+        } else {
+            (0, String::new())
+        };
+        let plain_decodable = match (hardware, stream::base_probe_formats(&native)) {
+            (Hardware::None, _) => stream::color_probe::Base::software(),
+            (hardware, wanted) => {
+                let key = probe_key(hardware, wanted, &native);
+                probed_once(&mut self.base_probed, key, || stream::color_probe::probe_base(hardware, wanted))
+            }
+        };
         let Some(host) = self.hosts.get_mut(host_id) else { return };
         // An update on either side since the PC refused full chroma: it is asked again.
-        let renewed = settings.experimental_packed_444
+        let renewed = full_chroma::automatic(&settings)
             && full_chroma::renew(&mut host.record, VERSION, info.capabilities.host_version());
-        let chroma = full_chroma::decide(&mut settings, &mut host.record, info.packed444_modes, refused_now, || {
+        let known = full_chroma::Known {
+            serverinfo_modes: info.packed444_modes,
+            host_scm: info.trusted_codec_mode_support(),
+            color_decodable: &color_decodable,
+            hardware_decodable: plain_decodable.decodable,
+            renderer_missing: packed_without_gpu,
+        };
+        let chroma = full_chroma::decide(&mut settings, &mut host.record, &known, refused_now, || {
             if packed_without_gpu {
                 eprintln!("nightjar: full chroma: no GPU renderer for its shader pass");
                 return (0, None);
@@ -2679,22 +2907,12 @@ impl App {
         }
         self.packed_note = chroma.note;
         let packed_modes = chroma.modes;
-        let color_decodable = if stream::probes_color(&settings) {
-            let (hardware, renderer) = (self.hardware(&settings), self.renderer);
-            let wanted = stream::color_probe_formats(&settings);
-            probed_once(&mut self.color_probed, probe_key(hardware, wanted, &settings), || {
-                stream::color_probe::probe(hardware, wanted, |ten_bit| stream::color_probe::planes_drawable(renderer, ten_bit))
-            })
+        // Packed full chroma checks its own formats (`stream::packed444::probe`) and offers the
+        // plain ones whatever the decoder check found.
+        let base_decodable = if settings.experimental_packed_444 && hardware != Hardware::None {
+            stream::color_probe::Base { decodable: 0, reason: String::new(), backends: Vec::new() }
         } else {
-            (0, String::new())
-        };
-        // Offers follow what the decoder decodes here, not what it is said to.
-        let base_decodable = match (self.hardware(&settings), stream::base_probe_formats(&settings)) {
-            (Hardware::None, _) => stream::color_probe::Base::software(),
-            (hardware, wanted) => {
-                let key = probe_key(hardware, wanted, &settings);
-                probed_once(&mut self.base_probed, key, || stream::color_probe::probe_base(hardware, wanted))
-            }
+            plain_decodable
         };
         let (Some(identity), Some(host)) = (identity, self.hosts.get(host_id)) else {
             return;
@@ -2726,8 +2944,8 @@ impl App {
             base_decodable,
             pacing,
             vrr,
-            gamepad_mask: if settings.controllers { u32::from(self.pads.active_mask()) } else { 0 },
-            prepared_controllers: if settings.controllers { self.pads.prepare(settings.controller_motion) } else { String::new() },
+            gamepad_mask: self.pads.launch_mask(&settings),
+            prepared_controllers: self.pads.launch_controllers(&settings),
             network: self.launcher.network.clone(),
             pace: host.record.pace.clone(),
             host_link_mbps: host.info.as_ref().map_or(0, |info| info.pyrowave_host_link_mbps),
@@ -3036,6 +3254,14 @@ impl App {
             }
         }
         let streaming_app = streaming.app().id;
+        // Settings → Advanced → Export latency CSV saves this file: the measurements of the last
+        // stream, written once now.
+        let csv = self.store.dir().join("statistics").join(stream::LATENCY_CSV);
+        if let Err(e) = streaming.keep_latency_csv(&csv) {
+            eprintln!("nightjar: latency CSV {}: {e}", csv.display());
+        }
+        // Show decode time after streaming, Android's post-stream toast; a reconnect isn't an end.
+        let decode_time = streaming.decode_time_line().filter(|_| self.launcher.settings.post_stream_decode_time && reconnect.is_none());
         streaming.finish(self.window, &mut self.pads);
         // The stream's cursor shows the pointer again on leaving.
         self.pointer.shown();
@@ -3080,6 +3306,10 @@ impl App {
                 }
             }
         }
+        }
+        if let Some(line) = decode_time.filter(|_| self.running) {
+            eprintln!("nightjar: {line}");
+            self.launcher.toast(line);
         }
         // egui forgets held modifiers from before the stream.
         self.gui.push(egui::Event::WindowFocused(true));
@@ -3249,6 +3479,10 @@ impl App {
         self.track_visibility(event);
         // SAFETY: reading the event type.
         let kind = SDL_EventType(unsafe { event.r#type });
+        // A stream keeps the night look; the launcher it returns to has the system's theme.
+        if kind == SDL_EVENT_SYSTEM_THEME_CHANGED {
+            self.launcher.system_light = sdl::system_light();
+        }
         if kind.0 == self.wake_event {
             // The Session page's worker published something new.
             if let Some((s, _)) = self.streaming.as_mut() {
@@ -3518,7 +3752,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
             let (heading, line) = if grid_page { s.menu_header() } else { (page.title().to_owned(), title.clone()) };
             let button = if grid_page { s.menu_hotkey.and_then(|key| stream_menu::button_leave(&layout, key)) } else { None };
             let mut leave = None;
-            menu_style::show(&ctx, tr("Stream controls"), "stream-controls", |ui| {
+            menu_style::show(&ctx, tr("Stream menu"), "stream-controls", |ui| {
                 // On the grid the head and the ways out stay in view; only the tiles scroll.
                 if grid_page && menu_style::head(ui, &heading, &line) {
                     leave = Some(stream_menu::Leave::Close);
@@ -3562,7 +3796,8 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                 s.end_on_host(*exit);
                                 next = Some(stream_menu::Page::Grid);
                             }
-                            Some(false) => next = Some(stream_menu::Page::Grid),
+                            // Cancel goes back to where the question was asked from.
+                            Some(false) => next = Some(stream_menu::back_from_confirm(*exit)),
                             None => {}
                         },
                         stream_menu::Page::ConfirmDisconnect => match stream_menu::confirm_disconnect(ui, focus_first) {
@@ -3611,7 +3846,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                             if s.facts.runtime_bitrate {
                                 if s.facts.role == nightjar_core::http::AppRole::Stream && !s.client_hint_active() {
                                     let mut enabled = s.adaptive_bitrate;
-                                    if ui.add_enabled_ui(!s.bitrate_busy, |ui| menu_style::switch(ui, Icon::Gauge, tr("Device controls bitrate"), &mut enabled)).inner.changed() {
+                                    if ui.add_enabled_ui(!s.bitrate_busy, |ui| menu_style::switch(ui, Icon::Gauge, tr("Lower bitrate when the network is busy"), &mut enabled)).inner.changed() {
                                         s.enable_adaptive_bitrate(enabled);
                                     }
                                 }
@@ -3790,6 +4025,10 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                         }
                                     }
                                     "reconnect" => if menu_style::action(ui, Icon::Reconnect, tr("Reconnect"), None).clicked() { s.exit = Some(Exit::Reconnect); },
+                                    // Under More, not beside Disconnect: it reads too much like it. Asked first.
+                                    "end_host_session" => if menu_style::action(ui, Icon::Power, tr(session_page::HostExit::End.label()), None).clicked() {
+                                        next = Some(stream_menu::Page::Confirm(session_page::HostExit::End));
+                                    },
                                     other => unreachable!("More has no row for {other}"),
                                 }
                             }

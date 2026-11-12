@@ -102,6 +102,13 @@ public final class OpenPlay {
         }
     }
 
+    /** The chosen game's title for Settings' "A chosen game" entry; null while no game is chosen. */
+    public static String chosenTitle(Context context) {
+        Game game = chosen(context);
+        if (game == null) return null;
+        return game.title == null || game.title.isEmpty() ? game.hostName : game.title;
+    }
+
     private static Game last(Context context) {
         List<RecentsStore.Recent> recents = new PreferencesRecentsStore(context).load();
         if (recents.isEmpty()) return null;

@@ -3,7 +3,11 @@
 //! path when the host offers it. Latency, jitter and loss follow ConnectionTestStats.java.
 
 use super::network_path::NetworkPath;
-use super::{Error, HostApiError, HostClient, ServerInfo, PERMISSION_LAUNCH, PERMISSION_VIEW};
+use super::transport::{self, Request, Timeouts};
+use super::{
+    Error, HostApiError, HostClient, ServerInfo, PERMISSION_LAUNCH, PERMISSION_VIEW, READ_TIMEOUT,
+    SHORT_CONNECT_TIMEOUT,
+};
 use std::time::{Duration, Instant};
 
 pub const REMOTE_CHECK_PROBES: usize = 5;
@@ -163,6 +167,37 @@ fn run(
 }
 
 impl HostClient {
+    /// One serverinfo over plain HTTP, answered within `timeout` with connecting included, as
+    /// Android's `NvHTTP.probeServerLatency`: the round trip in milliseconds, parsing the answer
+    /// included. The connection test's delay probe (`nightjar_policy::connection_test`): an
+    /// unpaired PC answers it too, and a redirect is a failure, never followed.
+    pub fn probe_server_latency(&self, timeout: Duration) -> Result<f64, Error> {
+        let target = self.url_target("serverinfo", None);
+        let started = Instant::now();
+        let response = transport::probe(
+            &Request {
+                host: &self.host,
+                port: self.http_port,
+                target: &target,
+                tls: None,
+                timeouts: Timeouts {
+                    connect: SHORT_CONNECT_TIMEOUT.min(timeout),
+                    read: Some(READ_TIMEOUT),
+                },
+                body_limit: MAX_PROBE_BYTES,
+            },
+            &self.cancel,
+            timeout,
+            &mut |status, headers, _| {
+                super::hardware_metrics::check_head("serverinfo", status, headers, false)
+            },
+        )?;
+        let raw = String::from_utf8(response.body)
+            .map_err(|_| Error::Malformed("host reply is not UTF-8".into()))?;
+        ServerInfo::parse(&raw, self.http_port)?;
+        Ok(started.elapsed().as_secs_f64() * 1000.0)
+    }
+
     /// Checks that this address reaches the paired host whose serverinfo `uniqueid` is
     /// `expected_unique_id`: five pinned HTTPS probes 150 ms apart, then the network path.
     /// Blocks for up to about 20 s; [`HostClient::cancel_pending_requests`] ends it with
@@ -474,5 +509,79 @@ mod tests {
             unknown_port.remote_check("0123-ABCD"),
             Err(Error::InvalidArgument(_))
         ));
+    }
+
+    /// A local stand-in for a PC's HTTP port: each connection gets `reply`'s bytes, or nothing
+    /// for `None` (it reads the request and holds the socket open).
+    fn http_pc(reply: Option<String>, connections: usize) -> (u16, std::thread::JoinHandle<()>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let served = std::thread::spawn(move || {
+            let mut held = Vec::new();
+            for _ in 0..connections {
+                let (mut socket, _) = listener.accept().unwrap();
+                let mut request = [0u8; 4096];
+                let _ = socket.read(&mut request);
+                assert!(
+                    request.starts_with(b"GET /serverinfo?"),
+                    "{}",
+                    String::from_utf8_lossy(&request)
+                );
+                match &reply {
+                    Some(reply) => socket.write_all(reply.as_bytes()).unwrap(),
+                    None => held.push(socket),
+                }
+            }
+            // A held socket stays silent well past the probe's timeout.
+            std::thread::sleep(Duration::from_millis(if held.is_empty() { 0 } else { 2500 }));
+        });
+        (port, served)
+    }
+
+    fn http_reply(status: &str, body: &str) -> String {
+        format!(
+            "HTTP/1.1 {status}\r\nContent-Type: text/xml\r\nContent-Length: {}\r\n\
+             Connection: close\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
+    #[test]
+    fn the_delay_probe_times_one_plain_serverinfo() {
+        let (port, served) = http_pc(Some(http_reply("200 OK", RUBYLIGHT)), 1);
+        let identity = std::sync::Arc::new(crate::http::identity::tests::fixture());
+        let client = HostClient::new("127.0.0.1", port, identity).unwrap();
+        let ms = client.probe_server_latency(Duration::from_secs(2)).expect("an answer");
+        assert!(ms.is_finite() && (0.0..2000.0).contains(&ms), "{ms}");
+        served.join().unwrap();
+    }
+
+    #[test]
+    fn a_delay_probe_fails_on_a_refusal_a_redirect_or_no_serverinfo() {
+        let identity = std::sync::Arc::new(crate::http::identity::tests::fixture());
+        for reply in [
+            http_reply("404 Not Found", ""),
+            "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/serverinfo\r\n\
+             Content-Length: 0\r\nConnection: close\r\n\r\n"
+                .to_owned(),
+            http_reply("200 OK", "<html>not a PC</html>"),
+        ] {
+            let (port, served) = http_pc(Some(reply.clone()), 1);
+            let client = HostClient::new("127.0.0.1", port, identity.clone()).unwrap();
+            assert!(client.probe_server_latency(Duration::from_secs(2)).is_err(), "{reply}");
+            served.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn a_delay_probe_the_pc_never_answers_ends_at_its_timeout() {
+        let (port, served) = http_pc(None, 1);
+        let identity = std::sync::Arc::new(crate::http::identity::tests::fixture());
+        let client = HostClient::new("127.0.0.1", port, identity).unwrap();
+        let started = Instant::now();
+        assert!(client.probe_server_latency(Duration::from_millis(200)).is_err());
+        assert!(started.elapsed() < Duration::from_millis(1500), "{:?}", started.elapsed());
+        served.join().unwrap();
     }
 }

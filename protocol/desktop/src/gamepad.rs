@@ -11,6 +11,7 @@
 use crate::strings::{en, trf};
 use nightjar_core::input::packets::{button, capability, motion_type, touch_event};
 use nightjar_core::input::InputQueue;
+use nightjar_policy::controllers::Controllers;
 use serde::{Deserialize, Serialize};
 use sdl3_sys::everything::*;
 
@@ -129,9 +130,69 @@ pub struct Report {
     pub rs: (i16, i16),
 }
 
+/// Stick and trigger dead zones, in percent of their travel.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DeadZones {
+    pub stick: u8,
+    pub trigger: u8,
+}
+
+/// What every controller's state goes through on its way to the PC besides its own mapping.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PadSettings {
+    /// Nintendo layout: A/B and X/Y swapped.
+    pub swap: bool,
+    /// "Back button as Guide": the physical Back (Select, View) reaches the PC as Guide.
+    pub back_as_guide: bool,
+    /// "Stick dead zone" and "Trigger dead zone", for a mapping that sets none of its own.
+    pub dead_zones: DeadZones,
+}
+
+impl From<&crate::config::Settings> for PadSettings {
+    fn from(settings: &crate::config::Settings) -> Self {
+        Self {
+            swap: settings.swap_face_buttons,
+            // "Back opens the stream menu" keeps Back for Nightjar, which never sends it, as on Android.
+            back_as_guide: settings.back_as_guide && !settings.back_opens_menu,
+            dead_zones: DeadZones {
+                stick: settings.deadzone.min(u32::from(MAX_STICK_DEADZONE)) as u8,
+                trigger: settings.trigger_deadzone.min(u32::from(MAX_TRIGGER_DEADZONE)) as u8,
+            },
+        }
+    }
+}
+
+/// The face button swap alone: a mapping as it is, without the settings' dead zones or Back as Guide.
+impl From<bool> for PadSettings {
+    fn from(swap: bool) -> Self {
+        Self { swap, ..Self::default() }
+    }
+}
+
+/// "Controllers" One player ([`Controllers`]): every controller is player 1, and the PC keeps
+/// player 1 while none is connected (Android's `persistGamepadsAfterDisconnect`).
+pub fn one_player(settings: &crate::config::Settings) -> bool {
+    Controllers::from_saved(settings.controllers, settings.multi_controller) == Controllers::OnePlayer
+}
+
+/// The gamepad number a controller in host slot `index` reaches the PC as: its own, or 0 (player 1)
+/// for every controller with One player.
+fn sent_index(one_player: bool, index: u8) -> u8 {
+    let players = if one_player { Controllers::OnePlayer } else { Controllers::PlayerEach };
+    players.sent_index(index).unwrap_or(index)
+}
+
+/// "Back button as Guide": the physical Back as Guide, before the mapping, which then sends what it
+/// sends for Guide (Android remaps Back before its button map too).
+fn back_as_guide(raw: u32, on: bool) -> u32 {
+    const BACK: u32 = 1 << SDL_GAMEPAD_BUTTON_BACK.0;
+    const GUIDE: u32 = 1 << SDL_GAMEPAD_BUTTON_GUIDE.0;
+    if on && raw & BACK != 0 { (raw & !BACK) | GUIDE } else { raw }
+}
+
 impl Mapping {
     pub fn valid(&self) -> bool {
-        self.deadzone <= 50
+        self.deadzone <= MAX_STICK_DEADZONE
             && self.trigger_deadzone <= MAX_TRIGGER_DEADZONE
             && self.buttons.iter().flatten().all(|b| *b == 0 || BUTTON_MAP.contains(b))
             && self.axes.iter().enumerate().all(|(i, source)| {
@@ -173,7 +234,17 @@ impl Mapping {
         })
     }
 
-    pub fn apply(&self, buttons: u32, axes: [i16; 6], swap: bool) -> Report {
+    /// The dead zones this mapping streams with: its own, and `defaults` (the settings') where it
+    /// sets none (0).
+    pub fn dead_zones(&self, defaults: DeadZones) -> DeadZones {
+        DeadZones {
+            stick: if self.deadzone != 0 { self.deadzone } else { defaults.stick },
+            trigger: if self.trigger_deadzone != 0 { self.trigger_deadzone } else { defaults.trigger },
+        }
+    }
+
+    /// The physical `buttons` (bits of `1 << SDL_GamepadButton`) and `axes` as the PC gets them.
+    pub fn apply(&self, buttons: u32, axes: [i16; 6], settings: PadSettings) -> Report {
         let mut mapped = [0; 6];
         for (value, source) in mapped.iter_mut().zip(self.axes) {
             if source != 0 {
@@ -181,12 +252,13 @@ impl Mapping {
                 if source < 0 { *value = invert(*value); }
             }
         }
-        let trigger = |v: i16| trigger(v, self.trigger_deadzone);
+        let zones = self.dead_zones(settings.dead_zones);
+        let trigger = |v: i16| trigger(v, zones.trigger);
         Report {
-            buttons: self.map_buttons(buttons, swap),
+            buttons: self.map_buttons(back_as_guide(buttons, settings.back_as_guide), settings.swap),
             lt: trigger(mapped[4]), rt: trigger(mapped[5]),
-            ls: deadzone((mapped[0], invert(mapped[1])), self.deadzone),
-            rs: deadzone((mapped[2], invert(mapped[3])), self.deadzone),
+            ls: deadzone((mapped[0], invert(mapped[1])), zones.stick),
+            rs: deadzone((mapped[2], invert(mapped[3])), zones.stick),
         }
     }
 }
@@ -202,6 +274,8 @@ fn clickpad(buttons: u32, swallowed: &mut u32) -> u32 {
 }
 
 pub const MAX_TRIGGER_DEADZONE: u8 = 30;
+/// The largest stick dead zone in percent, a mapping's or the settings'.
+const MAX_STICK_DEADZONE: u8 = 50;
 
 /// A trigger as 0-255: travel inside the dead zone reads as released, the rest scales smoothly to
 /// full, like the stick dead zone.
@@ -226,8 +300,11 @@ pub struct Pad {
     pub audio: Option<crate::controller_audio::Audio>,
     pub id: SDL_JoystickID,
     pub handle: *mut SDL_Gamepad,
-    /// Host controller number.
+    /// Host controller slot: which controller this is, in the stream menu and the buttons page.
     pub index: u8,
+    /// The gamepad number the PC knows it as: `index`, or 0 for every controller with
+    /// "Controllers" One player ([`sent_index`]).
+    sent_as: u8,
     pub key: String,
     pub name: String,
     pub mapping: Mapping,
@@ -249,6 +326,9 @@ pub struct Pad {
     back_waiting: bool,
     /// Holding Guide opens the stream menu: where this pad's Guide press is.
     guide: Guide,
+    /// The physical button (as `1 << SDL_GamepadButton`) `guide` follows: Guide, or Back with
+    /// "Back button as Guide".
+    guide_bit: u32,
 }
 
 /// A Guide press while holding it opens the stream menu. The press is kept from the PC until it is
@@ -272,18 +352,26 @@ enum Guide {
 const GUIDE_TAP: std::time::Duration = std::time::Duration::from_millis(50);
 
 impl Pad {
-    pub fn preview(&self, mapping: &Mapping, swap: bool) -> Report {
+    /// The physical state through `mapping` and `settings` (the stream's [`PadSettings`], from the
+    /// settings, or the face button swap alone), for the buttons page's test view.
+    pub fn preview(&self, mapping: &Mapping, settings: impl Into<PadSettings>) -> Report {
+        let settings = settings.into();
         // Read physical state so the test view works without sending input to a PC.
         unsafe {
             let buttons = (0..21).filter(|i| SDL_GetGamepadButton(self.handle, SDL_GamepadButton(*i)))
                 .fold(0, |bits, i| bits | (1 << i));
             let axes = std::array::from_fn(|i| SDL_GetGamepadAxis(self.handle, SDL_GamepadAxis(i as i32)));
-            mapping.apply(buttons, axes, swap)
+            mapping.apply(buttons, axes, settings)
         }
     }
 
-    fn update(&mut self, swap: bool) {
-        let state = self.mapping.apply(self.raw_buttons, self.raw_axes, swap);
+    /// The gamepad number the PC knows this controller as (`index`, or 0 with One player).
+    pub fn sent_as(&self) -> u8 {
+        self.sent_as
+    }
+
+    fn update(&mut self, settings: PadSettings) {
+        let state = self.mapping.apply(self.raw_buttons, self.raw_axes, settings);
         self.buttons = if self.mapping.emulates_clickpad(self.has_touchpad_click) {
             clickpad(state.buttons, &mut self.clickpad_swallowed)
         } else {
@@ -328,6 +416,12 @@ pub struct Gamepads {
     disable_rumble: bool,
     /// How long Guide is held to open the stream menu; None: Guide always goes to the PC.
     guide_hold: Option<std::time::Duration>,
+    /// "Back button as Guide" (never with `back_opens_menu`, [`PadSettings`]).
+    back_as_guide: bool,
+    /// The settings' dead zones, for a mapping without its own.
+    dead_zones: DeadZones,
+    /// "Controllers" One player: every controller is sent as gamepad 0 ([`one_player`]).
+    one_player: bool,
 }
 
 /// The physical buttons of a quit combo, as bits of `1 << SDL_GamepadButton`. Face buttons are
@@ -363,6 +457,12 @@ impl Gamepads {
         self.mouse_fixed_step = settings.mouse_fixed_step;
         self.touchpad_as_mouse = settings.gamepad_touchpad_as_mouse;
         self.disable_rumble = settings.disable_rumble;
+        let pad_settings = PadSettings::from(settings);
+        (self.back_as_guide, self.dead_zones) = (pad_settings.back_as_guide, pad_settings.dead_zones);
+        self.one_player = one_player(settings);
+        for pad in &mut self.pads {
+            pad.sent_as = sent_index(self.one_player, pad.index);
+        }
         self.guide_hold = (settings.guide_hold_ms > 0).then(|| std::time::Duration::from_millis(u64::from(settings.guide_hold_ms)));
         if self.guide_hold.is_none() {
             // Turned off mid-press: the held Guide is forgotten (the PC never had it), a tap still goes up on the tick.
@@ -407,6 +507,7 @@ impl Gamepads {
             id,
             handle,
             index,
+            sent_as: sent_index(self.one_player, index),
             key,
             name,
             mapping,
@@ -424,11 +525,12 @@ impl Gamepads {
             clickpad_swallowed: 0,
             back_waiting: false,
             guide: Guide::Up,
+            guide_bit: 1 << SDL_GAMEPAD_BUTTON_GUIDE.0,
         });
         Ok(())
     }
 
-    /// Closes a removed gamepad; returns its host number.
+    /// Closes a removed gamepad; returns the gamepad number the PC knew it as.
     pub fn removed(&mut self, id: SDL_JoystickID) -> Option<u8> {
         let position = self.pads.iter().position(|p| p.id == id)?;
         let pad = self.pads.remove(position);
@@ -436,22 +538,58 @@ impl Gamepads {
         drop(pad.audio);
         // SAFETY: a gamepad we opened.
         unsafe { SDL_CloseGamepad(pad.handle) };
-        Some(pad.index)
+        Some(pad.sent_as)
     }
 
+    /// The gamepads the PC has during the stream: player 1 alone with "Controllers" One player
+    /// (also without a controller, as Android keeps it for games that miss one added later), else
+    /// one for each controller.
     pub fn active_mask(&self) -> u16 {
-        self.pads.iter().fold(0, |m, p| m | (1 << p.index))
+        if self.one_player { 1 } else { self.pads.iter().fold(0, |m, p| m | (1 << p.sent_as)) }
     }
 
-    pub fn prepare(&self, motion: bool) -> String {
-        self.pads.iter().map(|pad| {
+    /// The gamepad mask a launch with `settings` tells the PC: none with "Controllers" Off, player 1
+    /// with One player, else one for each controller connected now.
+    pub fn launch_mask(&self, settings: &crate::config::Settings) -> u32 {
+        match Controllers::from_saved(settings.controllers, settings.multi_controller) {
+            Controllers::Off => 0,
+            Controllers::OnePlayer => 1,
+            Controllers::PlayerEach => self.pads.iter().fold(0, |m, p| m | (1 << p.index)),
+        }
+    }
+
+    /// Rubylight's prepared controller list for a launch with `settings`: empty with "Controllers"
+    /// Off, with One player the first controller as player 1 alone.
+    pub fn launch_controllers(&self, settings: &crate::config::Settings) -> String {
+        let players = Controllers::from_saved(settings.controllers, settings.multi_controller);
+        let mut listed = 0u16;
+        self.pads.iter().filter_map(|pad| {
+            let sent = players.sent_index(pad.index)?;
+            if listed & (1 << sent) != 0 {
+                return None;
+            }
+            listed |= 1 << sent;
             let (kind, buttons, mut caps) = describe(pad);
-            if !motion {
+            if !settings.controller_motion {
                 caps &= !(capability::ACCEL | capability::GYRO);
             }
             let kind = if kind == CTYPE_UNKNOWN { CTYPE_XBOX } else { kind };
-            format!("{}:{kind}:{caps}:{buttons}", pad.index)
+            Some(format!("{sent}:{kind}:{caps}:{buttons}"))
         }).collect::<Vec<_>>().join(",")
+    }
+
+    /// The controllers the PC knows as gamepad `index`: one, or every one with One player.
+    fn sent_as(&self, index: u16) -> impl Iterator<Item = &Pad> {
+        self.pads.iter().filter(move |pad| u16::from(pad.sent_as) == index)
+    }
+
+    /// What each controller's state goes through on its way to the PC.
+    fn pad_settings(&self) -> PadSettings {
+        PadSettings {
+            swap: self.swap_face_buttons,
+            back_as_guide: self.back_as_guide && !self.back_opens_menu,
+            dead_zones: self.dead_zones,
+        }
     }
 
     /// The type of this gamepad if it is a real pad, with a stick: SDL also calls some other devices
@@ -469,10 +607,6 @@ impl Gamepads {
         self.pads.iter_mut().find(|p| p.id == id)
     }
 
-    pub fn by_index(&self, index: u16) -> Option<&Pad> {
-        self.pads.iter().find(|p| u16::from(p.index) == index)
-    }
-
     /// Tells the host about every controller (at stream start).
     pub fn announce_all(&mut self, queue: &mut InputQueue) {
         let mask = self.active_mask();
@@ -488,9 +622,15 @@ impl Gamepads {
         }
     }
 
-    /// The host forgets a controller: a neutral state with it out of the mask.
+    /// The host forgets gamepad `index` ([`Self::removed`]): a neutral state with it out of the
+    /// mask. With One player another controller still sent as it sends its own state instead, and
+    /// player 1 stays in the mask.
     pub fn send_removed(&self, index: u8, queue: &mut InputQueue) {
         let mask = self.active_mask();
+        if let Some(pad) = self.sent_as(u16::from(index)).find(|pad| pad.announced) {
+            send_state(pad, mask, queue);
+            return;
+        }
         let _ = queue.send_controller(u16::from(index), mask, 0, 0, 0, (0, 0), (0, 0));
     }
 
@@ -518,7 +658,7 @@ impl Gamepads {
     /// Applies an SDL gamepad event to the host's controller state. Returns an action for
     /// the special combos.
     pub fn handle(&mut self, event: &SDL_Event, queue: &mut InputQueue) -> Option<Action> {
-        let swap = self.swap_face_buttons;
+        let pad_settings = self.pad_settings();
         let motion = self.motion;
         let mask = self.active_mask();
         let back_opens_menu = self.back_opens_menu;
@@ -540,14 +680,18 @@ impl Gamepads {
                         return None;
                     }
                     let flag = 1 << b.button;
-                    if guide_hold.is_some() && i32::from(b.button) == SDL_GAMEPAD_BUTTON_GUIDE.0 {
+                    // With "Back button as Guide" Back is the PC's Guide, held for the menu like
+                    // Guide (as on Android); its bit stays Back's for the local chords below.
+                    let guide = i32::from(b.button) == SDL_GAMEPAD_BUTTON_GUIDE.0
+                        || (pad_settings.back_as_guide && i32::from(b.button) == SDL_GAMEPAD_BUTTON_BACK.0);
+                    if guide_hold.is_some() && guide {
                         let now = std::time::Instant::now();
                         match (b.down, pad.guide) {
                             (true, held) => {
                                 // A tap still going out ends first.
                                 if matches!(held, Guide::Tapped(_)) {
-                                    pad.raw_buttons &= !flag;
-                                    pad.update(swap);
+                                    pad.raw_buttons &= !pad.guide_bit;
+                                    pad.update(pad_settings);
                                     send_state(pad, mask, queue);
                                 }
                                 if pad.raw_buttons != 0 {
@@ -555,14 +699,16 @@ impl Gamepads {
                                     pad.guide = Guide::Passed;
                                 } else {
                                     pad.guide = Guide::Held(now);
+                                    pad.guide_bit = flag;
                                     return None;
                                 }
                             }
                             (false, Guide::Held(_)) => {
                                 // Let go before the menu: the PC gets the whole press, and `guide_tick` its release.
                                 pad.raw_buttons |= flag;
+                                pad.guide_bit = flag;
                                 pad.guide = Guide::Tapped(now);
-                                pad.update(swap);
+                                pad.update(pad_settings);
                                 send_state(pad, mask, queue);
                                 return None;
                             }
@@ -575,7 +721,7 @@ impl Gamepads {
                         }
                     } else if b.down && matches!(pad.guide, Guide::Held(_)) {
                         // Another button while Guide is held: a chord for the PC (Steam's Guide chords), Guide first.
-                        pad.raw_buttons |= 1 << SDL_GAMEPAD_BUTTON_GUIDE.0;
+                        pad.raw_buttons |= pad.guide_bit;
                         pad.guide = Guide::Passed;
                     }
                     // Local escape chords use physical buttons even when remapped or disabled.
@@ -606,11 +752,11 @@ impl Gamepads {
                         pad.raw_axes = [0; 6];
                         pad.mouse.release(queue);
                         pad.touchpad.release(queue);
-                        pad.update(swap);
+                        pad.update(pad_settings);
                         send_state(pad, mask, queue);
                         return Some(action);
                     }
-                    pad.update(swap);
+                    pad.update(pad_settings);
                     let action = pad.mouse.update(pad.report(), mouse_emulation, precision, std::time::Instant::now(), queue);
                     send_state(pad, mask, queue);
                     return action.map(Action::Mouse);
@@ -619,7 +765,7 @@ impl Gamepads {
                     let a = event.gaxis;
                     let pad = self.find(a.which)?;
                     *pad.raw_axes.get_mut(usize::from(a.axis))? = a.value;
-                    pad.update(swap);
+                    pad.update(pad_settings);
                     send_state(pad, mask, queue);
                 }
                 SDL_EVENT_GAMEPAD_TOUCHPAD_DOWN
@@ -636,7 +782,7 @@ impl Gamepads {
                         _ => touch_event::MOVE,
                     };
                     let _ = queue.send_controller_touch(
-                        pad.index,
+                        pad.sent_as,
                         phase,
                         t.touchpad as u8,
                         t.finger as u32,
@@ -652,12 +798,12 @@ impl Gamepads {
                     let [x, y, z] = s.data;
                     match SDL_SensorType(s.sensor) {
                         SDL_SENSOR_ACCEL => {
-                            let _ = queue.send_controller_motion(pad.index, motion_type::ACCEL, x, y, z);
+                            let _ = queue.send_controller_motion(pad.sent_as, motion_type::ACCEL, x, y, z);
                         }
                         SDL_SENSOR_GYRO => {
                             let deg = 57.295_78;
                             let _ = queue.send_controller_motion(
-                                pad.index,
+                                pad.sent_as,
                                 motion_type::GYRO,
                                 x * deg,
                                 y * deg,
@@ -678,11 +824,11 @@ impl Gamepads {
         None
     }
 
-    /// Rumble from the host; motor speeds 0-65535.
+    /// Rumble from the host for gamepad `index`, on every controller sent as it; motor speeds 0-65535.
     pub fn rumble(&self, index: u16, low: u16, high: u16) {
         if self.disable_rumble { return; }
-        if let Some(pad) = self.by_index(index) {
-            if pad.audio.as_ref().is_some_and(|audio| audio.active()) { return; }
+        for pad in self.sent_as(index) {
+            if pad.audio.as_ref().is_some_and(|audio| audio.active()) { continue; }
             // SAFETY: an open gamepad. A long duration; the host sends 0 to stop.
             unsafe { SDL_RumbleGamepad(pad.handle, low, high, 30_000) };
         }
@@ -690,14 +836,14 @@ impl Gamepads {
 
     pub fn rumble_triggers(&self, index: u16, left: u16, right: u16) {
         if self.disable_rumble { return; }
-        if let Some(pad) = self.by_index(index) {
+        for pad in self.sent_as(index) {
             // SAFETY: an open gamepad.
             unsafe { SDL_RumbleGamepadTriggers(pad.handle, left, right, 30_000) };
         }
     }
 
     pub fn set_led(&self, index: u16, r: u8, g: u8, b: u8) {
-        if let Some(pad) = self.by_index(index) {
+        for pad in self.sent_as(index) {
             // SAFETY: an open gamepad.
             unsafe { SDL_SetGamepadLED(pad.handle, r, g, b) };
             if let Some(audio) = &pad.audio { audio.send(pad.handle); }
@@ -705,39 +851,34 @@ impl Gamepads {
     }
 
     pub fn adaptive_triggers(&self, index: u16, flags: u8, type_left: u8, type_right: u8, left: &[u8; 10], right: &[u8; 10]) {
-        if let Some(pad) = self.by_index(index) {
-            unsafe {
-                if SDL_GetGamepadType(pad.handle) == SDL_GAMEPAD_TYPE_PS5 {
-                    let effect = trigger_effect(flags, type_left, type_right, left, right);
-                    SDL_SendGamepadEffect(pad.handle, effect.as_ptr().cast(), effect.len() as i32);
-                }
-            }
+        for pad in self.sent_as(index) {
+            send_trigger_effect(pad, flags, type_left, type_right, left, right);
         }
     }
 
-    /// The host wants motion data from a controller (rate 0 stops it).
+    /// The host wants motion data from gamepad `index` (rate 0 stops it), from every controller
+    /// sent as it.
     pub fn set_motion(&self, index: u16, kind: u8, rate_hz: u16) {
         if !self.motion {
             return;
         }
-        let Some(pad) = self.by_index(index) else {
-            return;
-        };
         let sensor = match kind {
             motion_type::ACCEL => SDL_SENSOR_ACCEL,
             motion_type::GYRO => SDL_SENSOR_GYRO,
             _ => return,
         };
-        // A pad pinned as Xbox told the host it has no motion sensors.
-        let on = rate_hz != 0 && !pad.mapping.drops_motion_and_touchpad();
-        // SAFETY: an open gamepad.
-        unsafe { SDL_SetGamepadSensorEnabled(pad.handle, sensor, on) };
+        for pad in self.sent_as(index) {
+            // A pad pinned as Xbox told the host it has no motion sensors.
+            let on = rate_hz != 0 && !pad.mapping.drops_motion_and_touchpad();
+            // SAFETY: an open gamepad.
+            unsafe { SDL_SetGamepadSensorEnabled(pad.handle, sensor, on) };
+        }
     }
 
     /// Stops every motor and sensor (stream end).
     pub fn reset(&mut self) {
         for pad in &self.pads {
-            self.adaptive_triggers(u16::from(pad.index), 0x0C, 0x05, 0x05, &[0; 10], &[0; 10]);
+            send_trigger_effect(pad, 0x0C, 0x05, 0x05, &[0; 10], &[0; 10]);
         }
         for pad in &mut self.pads {
             if let Some(audio) = pad.audio.take() { audio.reset(pad.handle); }
@@ -836,9 +977,10 @@ impl Gamepads {
         }
     }
 
+    /// Haptics or speaker audio for gamepad `pcm.controller`: the controller sent as it that plays it.
     pub fn pcm(&mut self, pcm: nightjar_core::control::haptics::Pcm, speaker: bool) {
         if !speaker && self.disable_rumble { return; }
-        if let Some(pad) = self.pads.iter_mut().find(|p| u16::from(p.index) == pcm.controller) {
+        if let Some(pad) = self.pads.iter_mut().find(|p| u16::from(p.sent_as) == pcm.controller && p.audio.is_some()) {
             if let Some(audio) = &mut pad.audio { audio.offer(pcm, speaker); audio.update(pad.handle); }
         }
     }
@@ -846,7 +988,7 @@ impl Gamepads {
     pub fn audio_control(&mut self, payload: &[u8]) {
         if !crate::controller_audio::valid_control(payload) { return; }
         let index = u16::from_le_bytes([payload[2], payload[3]]);
-        if let Some(pad) = self.pads.iter_mut().find(|p| u16::from(p.index) == index) {
+        if let Some(pad) = self.pads.iter_mut().find(|p| u16::from(p.sent_as) == index && p.audio.is_some()) {
             if let Some(audio) = &mut pad.audio { audio.control(payload, pad.handle); }
         }
     }
@@ -854,7 +996,7 @@ impl Gamepads {
     /// Holding Guide, on the stream loop's tick: true when a Guide held for the setting's time opens
     /// the stream menu. A short press's release goes out here once the PC has seen it down.
     pub fn guide_tick(&mut self, now: std::time::Instant, queue: &mut InputQueue) -> bool {
-        let (swap, mask) = (self.swap_face_buttons, self.active_mask());
+        let (pad_settings, mask) = (self.pad_settings(), self.active_mask());
         let mut open = false;
         for pad in &mut self.pads {
             match pad.guide {
@@ -863,9 +1005,9 @@ impl Gamepads {
                     open = true;
                 }
                 Guide::Tapped(at) if now.duration_since(at) >= GUIDE_TAP => {
-                    pad.raw_buttons &= !(1 << SDL_GAMEPAD_BUTTON_GUIDE.0);
+                    pad.raw_buttons &= !pad.guide_bit;
                     pad.guide = Guide::Up;
-                    pad.update(swap);
+                    pad.update(pad_settings);
                     send_state(pad, mask, queue);
                 }
                 _ => {}
@@ -935,10 +1077,21 @@ fn trigger_effect(flags: u8, type_left: u8, type_right: u8, left: &[u8; 10], rig
     effect
 }
 
+/// The host's adaptive trigger effect, on a DualSense.
+fn send_trigger_effect(pad: &Pad, flags: u8, type_left: u8, type_right: u8, left: &[u8; 10], right: &[u8; 10]) {
+    // SAFETY: an open gamepad.
+    unsafe {
+        if SDL_GetGamepadType(pad.handle) == SDL_GAMEPAD_TYPE_PS5 {
+            let effect = trigger_effect(flags, type_left, type_right, left, right);
+            SDL_SendGamepadEffect(pad.handle, effect.as_ptr().cast(), effect.len() as i32);
+        }
+    }
+}
+
 fn send_state(pad: &Pad, mask: u16, queue: &mut InputQueue) {
     let report = if pad.mouse.active { Report::default() } else { pad.report() };
     let _ = queue.send_controller(
-        u16::from(pad.index),
+        u16::from(pad.sent_as),
         mask,
         report.buttons,
         report.lt,
@@ -1008,7 +1161,7 @@ fn describe(pad: &Pad) -> (u8, u32, u16) {
 fn announce(pad: &mut Pad, mask: u16, motion: bool, queue: &mut InputQueue) {
     let (kind, supported, mut caps) = describe(pad);
     if !motion { caps &= !(capability::ACCEL | capability::GYRO); }
-    let _ = queue.send_controller_arrival(pad.index, mask, kind, supported, caps);
+    let _ = queue.send_controller_arrival(pad.sent_as, mask, kind, supported, caps);
     pad.announced = true;
     if caps & capability::BATTERY_STATE != 0 {
         let mut percent = -1;
@@ -1030,7 +1183,7 @@ fn send_battery(pad: &Pad, state: SDL_PowerState, percent: i32, queue: &mut Inpu
     } else {
         BATTERY_PERCENT_UNKNOWN
     };
-    let _ = queue.send_controller_battery(pad.index, state_code, percent);
+    let _ = queue.send_controller_battery(pad.sent_as, state_code, percent);
 }
 
 #[cfg(test)]
@@ -1489,7 +1642,7 @@ mod tests {
         assert_eq!(mapping.map_buttons(1, true), button::X);
         assert_eq!(mapping.map_buttons(1 | 4, false), button::X | button::Y);
         mapping.axes = [-4, 3, 0, -1, 6, 0];
-        let report = mapping.apply(0, [-32768, 1000, -2000, 32767, 0, 32767], false);
+        let report = mapping.apply(0, [-32768, 1000, -2000, 32767, 0, 32767], PadSettings::default());
         assert_eq!(report.ls, (-32767, 2000));
         assert_eq!(report.rs, (0, -32767));
         assert_eq!((report.lt, report.rt), (255, 0));
@@ -1500,8 +1653,8 @@ mod tests {
         assert_eq!(trigger(19660, 20), 127, "60% raw is 50% of the travel past a 20% dead zone");
         mapping.trigger_deadzone = 20;
         // lt reads source 6 here
-        assert_eq!(mapping.apply(0, [0, 0, 0, 0, 0, 6000], false).lt, 0);
-        assert_eq!(mapping.apply(0, [0, 0, 0, 0, 0, 19660], false).lt, 127);
+        assert_eq!(mapping.apply(0, [0, 0, 0, 0, 0, 6000], PadSettings::default()).lt, 0);
+        assert_eq!(mapping.apply(0, [0, 0, 0, 0, 0, 19660], PadSettings::default()).lt, 127);
         assert!(mapping.valid());
         mapping.trigger_deadzone = MAX_TRIGGER_DEADZONE + 1;
         assert!(!mapping.valid());
@@ -1516,6 +1669,222 @@ mod tests {
         mapping.axes[4] = 6;
         mapping.buttons[0] = Some(button::A | button::B);
         assert!(!mapping.valid());
+    }
+
+    /// "Stick dead zone" and "Trigger dead zone" in the settings apply to a controller whose
+    /// buttons page sets none of its own; a mapping's own value wins, each on its own.
+    #[test]
+    fn the_settings_dead_zones_fill_in_for_a_mapping_without_its_own() {
+        let settings = crate::config::Settings { deadzone: 20, trigger_deadzone: 10, ..Default::default() };
+        let applied = PadSettings::from(&settings);
+        assert_eq!(applied.dead_zones, DeadZones { stick: 20, trigger: 10 });
+        let plain = Mapping::default();
+        assert_eq!(plain.dead_zones(applied.dead_zones), DeadZones { stick: 20, trigger: 10 });
+        // Inside the settings' 20 % stick and 10 % trigger dead zones nothing reaches the PC.
+        let movement = [3000, -3000, 0, 0, 3000, 3000];
+        let report = plain.apply(0, movement, applied);
+        assert_eq!((report.ls, report.lt, report.rt), ((0, 0), 0, 0));
+        // Without them the same movement goes through.
+        let raw = plain.apply(0, movement, PadSettings::default());
+        assert_eq!(raw.ls, (3000, 3000));
+        assert!(raw.lt > 0 && raw.rt > 0);
+        // A mapping's own value wins over the settings'.
+        let own_stick = Mapping { deadzone: 5, ..Mapping::default() };
+        assert_eq!(own_stick.dead_zones(applied.dead_zones), DeadZones { stick: 5, trigger: 10 });
+        assert_eq!(own_stick.apply(0, [3000, 0, 0, 0, 0, 0], applied).ls, deadzone((3000, 0), 5));
+        let own_trigger = Mapping { trigger_deadzone: 30, ..Mapping::default() };
+        assert_eq!(own_trigger.dead_zones(applied.dead_zones), DeadZones { stick: 20, trigger: 30 });
+        // Settings past a mapping's range are held to it, and the defaults change nothing.
+        let wide = PadSettings::from(&crate::config::Settings { deadzone: 90, trigger_deadzone: 90, ..Default::default() });
+        assert_eq!(wide.dead_zones, DeadZones { stick: MAX_STICK_DEADZONE, trigger: MAX_TRIGGER_DEADZONE });
+        assert_eq!(PadSettings::from(&crate::config::Settings::default()), PadSettings::default());
+        assert_eq!(PadSettings::from(true), PadSettings { swap: true, ..PadSettings::default() });
+    }
+
+    /// "Back button as Guide": the physical Back reaches the PC as Guide, through what the mapping
+    /// sends for Guide; "Back opens the stream menu" keeps Back for Nightjar instead, as on Android.
+    #[test]
+    fn back_as_guide_sends_guide_for_back() {
+        let back = 1 << SDL_GAMEPAD_BUTTON_BACK.0;
+        let on = PadSettings { back_as_guide: true, ..PadSettings::default() };
+        let mapping = Mapping::default();
+        assert_eq!(mapping.apply(back, [0; 6], PadSettings::default()).buttons, button::BACK);
+        assert_eq!(mapping.apply(back, [0; 6], on).buttons, button::SPECIAL);
+        assert_eq!(mapping.apply(back | 1, [0; 6], on).buttons, button::SPECIAL | button::A, "other buttons stay");
+        assert_eq!(mapping.apply(1 << SDL_GAMEPAD_BUTTON_GUIDE.0, [0; 6], on).buttons, button::SPECIAL, "Guide stays Guide");
+        let mut guide_bound = Mapping::default();
+        guide_bound.buttons[SDL_GAMEPAD_BUTTON_GUIDE.0 as usize] = Some(button::MISC);
+        assert_eq!(guide_bound.apply(back, [0; 6], on).buttons, button::MISC, "Guide's binding applies");
+        let from = |back_as_guide, back_opens_menu| {
+            PadSettings::from(&crate::config::Settings { back_as_guide, back_opens_menu, ..Default::default() }).back_as_guide
+        };
+        assert!(from(true, false));
+        assert!(!from(true, true), "Back opens the stream menu wins");
+        assert!(!from(false, false) && !from(false, true));
+    }
+
+    /// With "Back button as Guide" a held Back opens the stream menu as a held Guide does, a short
+    /// press reaches the PC as Guide, and the quit combo with Select still leaves the stream.
+    #[test]
+    fn back_as_guide_holds_for_the_menu_and_keeps_the_quit_combo() {
+        use crate::config::{GamepadQuitCombo, Settings};
+        use std::time::{Duration, Instant};
+        let _sdl = crate::sdl::TEST_LOCK.lock().unwrap();
+        use nightjar_core::control::HostCapabilities;
+        // SAFETY: SDL calls on this test's thread; the descriptor outlives the attach.
+        unsafe {
+            assert!(SDL_Init(SDL_INIT_GAMEPAD), "{}", crate::sdl::error());
+            let mut desc: SDL_VirtualJoystickDesc = std::mem::zeroed();
+            desc.version = std::mem::size_of::<SDL_VirtualJoystickDesc>() as u32;
+            desc.r#type = SDL_JOYSTICK_TYPE_GAMEPAD.0 as u16;
+            desc.naxes = SDL_GAMEPAD_AXIS_COUNT.0 as u16;
+            desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT.0 as u16;
+            desc.button_mask = (1u32 << SDL_GAMEPAD_BUTTON_COUNT.0) - 1;
+            desc.axis_mask = (1u32 << SDL_GAMEPAD_AXIS_COUNT.0) - 1;
+            desc.name = c"Nightjar test pad".as_ptr();
+            let id = SDL_AttachVirtualJoystick(&desc);
+            assert!(id.0 != 0, "{}", crate::sdl::error());
+            let mut pads = Gamepads::default();
+            // Guide held for 1 s opens the menu by default.
+            pads.configure(&Settings { back_as_guide: true, controller_mouse: false, ..Default::default() });
+            pads.added(id).unwrap();
+            let mut queue = InputQueue::new(&HostCapabilities { app_version: [7, 1, 431, -1], feature_flags: 0x03, ..Default::default() });
+            pads.announce_all(&mut queue);
+            let press = |pads: &mut Gamepads, queue: &mut InputQueue, button: i32, down: bool| {
+                let event = SDL_Event { gbutton: SDL_GamepadButtonEvent { r#type: if down { SDL_EVENT_GAMEPAD_BUTTON_DOWN } else { SDL_EVENT_GAMEPAD_BUTTON_UP },
+                    which: id, button: button as u8, down, ..Default::default() } };
+                pads.handle(&event, queue)
+            };
+            let back = SDL_GAMEPAD_BUTTON_BACK.0;
+
+            // A short press: kept back while it may be a hold, then Guide for the PC, let go after the tap time.
+            assert_eq!(press(&mut pads, &mut queue, back, true), None);
+            assert_eq!(pads.pads[0].buttons, 0);
+            press(&mut pads, &mut queue, back, false);
+            assert_eq!(pads.pads[0].buttons, button::SPECIAL);
+            assert!(!pads.guide_tick(Instant::now() + GUIDE_TAP, &mut queue));
+            assert_eq!((pads.pads[0].buttons, pads.pads[0].raw_buttons), (0, 0));
+            // A hold opens the menu, and the PC never sees it.
+            press(&mut pads, &mut queue, back, true);
+            assert!(pads.guide_tick(Instant::now() + Duration::from_millis(1100), &mut queue));
+            assert_eq!(press(&mut pads, &mut queue, back, false), None);
+            assert_eq!(pads.pads[0].buttons, 0);
+            // Over a held button Back goes to the PC as Guide at once.
+            press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_SOUTH.0, true);
+            press(&mut pads, &mut queue, back, true);
+            assert_eq!(pads.pads[0].buttons, button::SPECIAL | button::A);
+            press(&mut pads, &mut queue, back, false);
+            press(&mut pads, &mut queue, SDL_GAMEPAD_BUTTON_SOUTH.0, false);
+            assert_eq!((pads.pads[0].buttons, pads.pads[0].raw_buttons), (0, 0));
+
+            // The quit combo with Select still leaves the stream, Select first or last.
+            pads.quit_combo = GamepadQuitCombo::StartSelectLbRb;
+            let shoulders = [SDL_GAMEPAD_BUTTON_LEFT_SHOULDER.0, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER.0];
+            for order in [[back, shoulders[0], shoulders[1], SDL_GAMEPAD_BUTTON_START.0], [shoulders[0], shoulders[1], SDL_GAMEPAD_BUTTON_START.0, back]] {
+                let actions: Vec<_> = order.iter().map(|b| press(&mut pads, &mut queue, *b, true)).collect();
+                for b in &order { press(&mut pads, &mut queue, *b, false); }
+                assert_eq!(actions.last(), Some(&Some(Action::Quit)), "{order:?}: {actions:?}");
+                assert!(actions[..3].iter().all(Option::is_none), "{order:?}: {actions:?}");
+                assert_eq!(pads.pads[0].raw_buttons, 0);
+                assert!(!pads.guide_waiting());
+            }
+
+            // Without the hold Back reaches the PC as Guide on press.
+            pads.configure(&Settings { back_as_guide: true, guide_hold_ms: 0, controller_mouse: false, ..Default::default() });
+            assert_eq!(press(&mut pads, &mut queue, back, true), None);
+            assert_eq!(pads.pads[0].buttons, button::SPECIAL);
+            press(&mut pads, &mut queue, back, false);
+            assert_eq!(pads.pads[0].buttons, 0);
+            // "Back opens the stream menu" wins: Back is Nightjar's and the PC gets nothing.
+            pads.configure(&Settings { back_as_guide: true, back_opens_menu: true, controller_mouse: false, ..Default::default() });
+            assert_eq!(press(&mut pads, &mut queue, back, true), Some(Action::Menu));
+            assert_eq!(pads.pads[0].buttons, 0);
+            press(&mut pads, &mut queue, back, false);
+
+            pads.close_all();
+            SDL_DetachVirtualJoystick(id);
+            SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+        }
+    }
+
+    /// "Controllers" One player: every controller reaches the PC as gamepad 0 with player 1 alone
+    /// in the mask, and the PC's rumble for it reaches each of them; A player each keeps a gamepad
+    /// per controller, and Off tells a launch of none.
+    #[test]
+    fn one_player_sends_every_controller_as_player_one() {
+        use crate::config::Settings;
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static FIRST: AtomicU32 = AtomicU32::new(0);
+        static SECOND: AtomicU32 = AtomicU32::new(0);
+        unsafe extern "C" fn rumble_into(userdata: *mut std::ffi::c_void, low: u16, high: u16) -> bool {
+            (*userdata.cast::<AtomicU32>()).store((u32::from(low) << 16) | u32::from(high), Ordering::SeqCst);
+            true
+        }
+        let _sdl = crate::sdl::TEST_LOCK.lock().unwrap();
+        use nightjar_core::control::HostCapabilities;
+        // SAFETY: SDL calls on this test's thread; the descriptors outlive the attaches.
+        unsafe {
+            assert!(SDL_Init(SDL_INIT_GAMEPAD), "{}", crate::sdl::error());
+            let attach = |rumbled: &'static AtomicU32| {
+                let mut desc: SDL_VirtualJoystickDesc = std::mem::zeroed();
+                desc.version = std::mem::size_of::<SDL_VirtualJoystickDesc>() as u32;
+                desc.r#type = SDL_JOYSTICK_TYPE_GAMEPAD.0 as u16;
+                desc.naxes = SDL_GAMEPAD_AXIS_COUNT.0 as u16;
+                desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT.0 as u16;
+                desc.button_mask = (1u32 << SDL_GAMEPAD_BUTTON_COUNT.0) - 1;
+                desc.axis_mask = (1u32 << SDL_GAMEPAD_AXIS_COUNT.0) - 1;
+                desc.name = c"Nightjar test pad".as_ptr();
+                desc.userdata = (rumbled as *const AtomicU32).cast_mut().cast();
+                desc.Rumble = Some(rumble_into);
+                let id = SDL_AttachVirtualJoystick(&desc);
+                assert!(id.0 != 0, "{}", crate::sdl::error());
+                id
+            };
+            let ids = [attach(&FIRST), attach(&SECOND)];
+            let one = Settings { multi_controller: false, ..Default::default() };
+            let each = Settings::default();
+            let off = Settings { controllers: false, multi_controller: false, ..Default::default() };
+            assert!(one_player(&one) && !one_player(&each) && !one_player(&off));
+            let mut pads = Gamepads::default();
+            pads.configure(&one);
+            for id in ids { pads.added(id).unwrap(); }
+            let mut queue = InputQueue::new(&HostCapabilities { app_version: [7, 1, 431, -1], feature_flags: 0x03, ..Default::default() });
+            pads.announce_all(&mut queue);
+            let numbers = |pads: &Gamepads| pads.pads.iter().map(|p| (p.index, p.sent_as())).collect::<Vec<_>>();
+            assert_eq!(numbers(&pads), [(0, 0), (1, 0)], "each keeps its slot, both are player 1");
+            assert_eq!((pads.active_mask(), pads.launch_mask(&one)), (1, 1));
+            let listed = pads.launch_controllers(&one);
+            assert!(listed.starts_with("0:") && !listed.contains(','), "{listed}");
+            pads.rumble(0, 0x1111, 0x2222);
+            assert_eq!((FIRST.load(Ordering::SeqCst), SECOND.load(Ordering::SeqCst)), (0x1111_2222, 0x1111_2222));
+            pads.rumble(1, 0x5555, 0x6666);
+            assert_eq!(SECOND.load(Ordering::SeqCst), 0x1111_2222, "no gamepad 1");
+
+            // A player each: a gamepad per controller, and gamepad 1's rumble reaches the second alone.
+            pads.configure(&each);
+            assert_eq!(numbers(&pads), [(0, 0), (1, 1)]);
+            assert_eq!((pads.active_mask(), pads.launch_mask(&each)), (3, 3));
+            let listed = pads.launch_controllers(&each);
+            assert!(listed.starts_with("0:") && listed.contains(",1:"), "{listed}");
+            pads.rumble(1, 0x3333, 0x4444);
+            assert_eq!((FIRST.load(Ordering::SeqCst), SECOND.load(Ordering::SeqCst)), (0x1111_2222, 0x3333_4444));
+            // Off: a launch tells the PC of none.
+            assert_eq!((pads.launch_mask(&off), pads.launch_controllers(&off).as_str()), (0, ""));
+
+            // One player again: player 1 stays while a controller is sent as it, and after the last one goes.
+            pads.configure(&one);
+            assert_eq!(pads.removed(ids[0]), Some(0));
+            pads.send_removed(0, &mut queue);
+            assert_eq!(pads.active_mask(), 1);
+            assert_eq!(pads.removed(ids[1]), Some(0));
+            assert_eq!(pads.active_mask(), 1, "player 1 stays, as Android keeps it");
+
+            pads.close_all();
+            for id in ids {
+                SDL_DetachVirtualJoystick(id);
+            }
+            SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+        }
     }
 
     #[test]

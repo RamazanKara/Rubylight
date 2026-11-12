@@ -14,7 +14,7 @@ pub(super) fn early_line(now: (u64, u64), last: (u64, u64), secs: f64) -> String
 pub(super) fn link_notice_line(notice: &LinkNotice) -> String {
     let mbps = f64::from(notice.current_kbps) / 1000.0;
     let mbps = if mbps >= 10.0 { format!("{mbps:.0}") } else { format!("{mbps:.1}") };
-    trf("Host lowered the bitrate to {} Mbps: network", &[&mbps])
+    trf("PC lowered the bitrate to {} Mbps: network", &[&mbps])
 }
 
 /// The overlay's host pipeline line: the frames per second each host stage handled over the

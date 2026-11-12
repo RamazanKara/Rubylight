@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_adaptive_quality">Автоматична якість трансляції</string>
-    <string name="summary_adaptive_quality">Знижує роздільну здатність або FPS при тривалому перевантаженні мережі, повільному декодуванні чи перегріві, потім поступово відновлює. Використовує автоматичний бітрейт, якщо він підтримується. Потрібні підтримка переналаштування на хості та адаптивний декодер; недоступно з PyroWave.</string>
-    <string name="title_adaptive_quality_min_resolution">Мінімальна автоматична роздільна здатність</string>
-    <string name="summary_adaptive_quality_min_resolution">Найменша коротка сторона зі збереженням співвідношення сторін. Вибрана роздільна здатність трансляції лишається максимальною. Нижча початкова роздільна здатність ніколи не підвищується через це обмеження.</string>
-    <string name="title_adaptive_quality_min_fps">Мінімальна автоматична частота кадрів</string>
-    <string name="summary_adaptive_quality_min_fps">Найнижчий дозволений FPS. Вибрана частота кадрів трансляції лишається максимальною. Діє для автоматичної якості, зокрема в режимі економії заряду.</string>
+    <string name="summary_adaptive_quality">Знижує роздільну здатність або FPS при тривалому перевантаженні мережі, повільному декодуванні чи перегріві, потім поступово відновлює. Використовує автоматичний бітрейт, якщо він підтримується. Потрібні ПК, що вміє змінювати поточну трансляцію, та адаптивний декодер; недоступно з PyroWave.</string>
+    <string name="title_adaptive_quality_min_resolution">Мінімальна роздільна здатність</string>
+    <string name="summary_adaptive_quality_min_resolution">Найменша роздільна здатність, до якої знижує «Автоматична якість».</string>
+    <string name="title_adaptive_quality_min_fps">Мінімальна частота кадрів</string>
+    <string name="summary_adaptive_quality_min_fps">Найменша частота кадрів, до якої знижує «Автоматична якість».</string>
     <string name="quality_off">Вимкнено</string>
     <string name="quality_motion">Плавність руху</string>
     <string name="quality_detail">Деталізація</string>

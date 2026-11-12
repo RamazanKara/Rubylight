@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_clipboard_sync">Sincronizza appunti</string>
-    <string name="summary_clipboard_sync">Il testo copiato su questo dispositivo va negli appunti del PC, e il testo copiato sul PC arriva qui. Android lascia leggere gli appunti all\'app solo mentre lo stream è in primo piano, quindi una copia fatta in un\'altra app parte quando torni. Il PC deve consentire a questo dispositivo di leggere e scrivere i suoi appunti.</string>
+    <string name="summary_clipboard_sync">Il testo copiato passa tra questo dispositivo e il PC.</string>
     <string name="clipboard_sync_not_offered">La sincronizzazione degli appunti è disattivata: il PC non l\'ha offerta. Deve consentire a questo dispositivo di leggere e scrivere i suoi appunti.</string>
     <string name="clipboard_sync_failed">La sincronizzazione degli appunti non è riuscita ad avviarsi.</string>
     <string name="clipboard_sync_read_refused">Android non ha lasciato leggere gli appunti alla sincronizzazione, quindi questa copia resta su questo dispositivo.</string>

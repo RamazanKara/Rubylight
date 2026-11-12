@@ -16,7 +16,7 @@
     <string name="console_badge_running">Em execução</string>
     <string name="console_badge_suspended">Pausado</string>
     <string name="console_card_on_host">Em %1$s</string>
-    <string name="console_card_on_hosts">Em %1$d hosts</string>
+    <string name="console_card_on_hosts">Em %1$d PCs</string>
     <string name="console_host_games">Jogos: %1$d</string>
     <string name="console_host_saved_games">Offline. Jogos salvos: %1$d</string>
     <string name="console_host_offline">Offline</string>

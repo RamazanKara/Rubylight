@@ -982,7 +982,7 @@ fn codes(buffers: &[Vec<u8>; 3], config: GpuConfig) -> [Vec<u16>; 3] {
         let (width, height) = config.plane_size(plane);
         assert_eq!(buffers[plane].len(), config.plane_bytes(plane));
         let samples: Vec<u16> = if config.ten_bit {
-            buffers[plane].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect()
+            buffers[plane].as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect()
         } else {
             buffers[plane].iter().map(|&b| u16::from(b)).collect()
         };

@@ -1,25 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Controller and keyboard options -->
-    <string name="title_checkbox_disable_rumble">Disable rumble</string>
-    <string name="summary_checkbox_disable_rumble">Stops all vibration a game asks for: controller and trigger rumble, USB DualSense haptics, and this device vibrating in a controller\'s place.</string>
-    <string name="title_checkbox_mouse_emulation_fixed_step">Fixed-step mouse movement</string>
-    <string name="summary_checkbox_mouse_emulation_fixed_step">In controller mouse mode, hold X while moving the stick to move the pointer a fixed number of pixels at a time. Press Y to double the step, from 1 up to 128 pixels and then back to 1.</string>
+    <string name="title_checkbox_disable_rumble">Turn off vibration</string>
+    <string name="summary_checkbox_disable_rumble">Stops all rumble, trigger rumble and haptics.</string>
+    <string name="title_checkbox_mouse_emulation_fixed_step">Precise controller mouse</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">Moves the pointer in fixed pixel steps while X is held.</string>
     <string name="stream_mouse_step">Mouse step: %1$d px</string>
     <string name="title_checkbox_capture_system_keys">Send system keys</string>
-    <string name="summary_checkbox_capture_system_keys">Esc, Alt+Tab, the Windows key and similar go to the PC while input is captured, as does the Back key many Android keyboards have in place of Esc. Android hands over Alt+Tab and the Windows key only on Android 16 QPR2 (December 2025) and newer and on many Samsung devices; elsewhere it keeps them. Home, power and volume always stay with Android. Open the stream menu with its stream hotkey or Android\'s Back gesture or button. Applies to the next stream.</string>
+    <string name="summary_checkbox_capture_system_keys">Alt+Tab, the Windows key and similar go to the PC.</string>
     <string name="title_checkbox_system_keys_fullscreen_only">System keys only in full screen</string>
-    <string name="summary_checkbox_system_keys_fullscreen_only">In a window, Alt+Tab, the Windows key and similar stay with this device.</string>
+    <string name="summary_checkbox_system_keys_fullscreen_only">In a window, system keys stay with this device.</string>
     <string name="title_checkbox_back_as_meta">Keyboard Back sends Windows key</string>
-    <string name="summary_checkbox_back_as_meta">The Back key on a physical keyboard sends the Windows key (Command on a Mac). Open the stream menu with its stream hotkey, Android\'s Back gesture or button, or the controller chord.</string>
-    <string name="title_checkbox_right_alt_as_meta">Right Alt as Command</string>
-    <string name="summary_checkbox_right_alt_as_meta">Right Alt sends the Windows key, which a Mac uses as Command, so Right Alt+C copies. Left Alt is unchanged. Leave off if you type characters with AltGr.</string>
+    <string name="summary_checkbox_back_as_meta">A physical keyboard’s Back key sends the Windows key.</string>
+    <string name="title_checkbox_right_alt_as_meta">Right Alt as Windows key</string>
+    <string name="summary_checkbox_right_alt_as_meta">Right Alt sends the Windows key, which a Mac uses as Command.</string>
     <string name="title_checkbox_keyboard_follows_text_fields">Keyboard follows text fields</string>
-    <string name="summary_checkbox_keyboard_follows_text_fields">The on-screen keyboard opens when a text field in the stream gets focus, set up for it: numbers for a number field, no suggestions for a password. It closes again when the field loses focus. An attached hardware keyboard keeps typing instead.</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">The on-screen keyboard opens when a text field on the PC has focus.</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">Controller test</string>
-    <string name="controller_test_summary">Check buttons, sticks, triggers, rumble, lights and motion</string>
+    <string name="controller_test_summary">Shows the buttons, sticks, triggers, rumble, lights and motion a controller sends.</string>
     <string name="controller_test_open">Test controller</string>
     <string name="controller_test_hint">Press buttons and move the sticks. The D-pad and A also move around this page; hold B or Back for one second to leave.</string>
     <string name="controller_test_waiting">Connect a controller and press any button.</string>
@@ -57,6 +57,6 @@
 
     <!-- USB Switch Pro driver -->
     <string name="title_usb_switch_pro">USB Switch Pro driver</string>
-    <string name="summary_usb_switch_pro">Reads a wired Nintendo Switch Pro Controller directly, with motion, rumble, Home and Capture.</string>
+    <string name="summary_usb_switch_pro">Reads a wired Switch Pro Controller with motion, rumble, Home and Capture.</string>
     <string name="usb_switch_pro_denied">No USB access; the Switch Pro Controller stays on Android’s input.\nReconnect the cable to retry.</string>
 </resources>

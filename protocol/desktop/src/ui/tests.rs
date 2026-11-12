@@ -270,6 +270,8 @@ struct Frames {
     /// The same text with where it landed and the clip it was drawn in.
     placed: Vec<(String, Rect, Rect)>,
     waking: Option<String>,
+    /// A start under way, as main.rs hands it over: the launch scene covers the launcher.
+    connecting: Option<ConnectingView>,
     /// Every texture change since the first frame, and the last frame's shapes, for screenshots.
     textures: egui::TexturesDelta,
     shapes: Vec<egui::epaint::ClippedShape>,
@@ -322,11 +324,13 @@ impl Frames {
         input.viewports.entry(egui::ViewportId::ROOT).or_default().native_pixels_per_point = Some(self.native_ppp);
         let mut commands = Vec::new();
         let output = self.ctx.run_ui(input, |ui| {
-            commands = self.l.ui(ui, View { hosts: &self.hosts, pads: &self.pads, connecting: None, waking: self.waking.clone() });
+            commands = self.l.ui(ui, View { hosts: &self.hosts, pads: &self.pads, connecting: self.connecting.clone(), waking: self.waking.clone() });
         });
         self.access = output.platform_output.accesskit_update.clone();
-        // Only screenshots read the textures; everyone else lets them go.
-        if self.native_ppp == 1.0 && !self.shots {
+        // Only screenshots read the textures; everyone else lets them go. A run that writes them
+        // keeps every frame's from the first, so a glyph added after shots begin patches a font
+        // texture the canvas already has.
+        if self.native_ppp == 1.0 && !self.shots && std::env::var_os("NIGHTJAR_SHOTS").is_none() {
             let mut delta = output.textures_delta;
             delta.clear();
         } else {
@@ -353,6 +357,7 @@ impl Frames {
             drawn: Vec::new(),
             placed: Vec::new(),
             waking: None,
+            connecting: None,
             textures: Default::default(),
             shapes: Vec::new(),
             native_ppp: 1.0,
@@ -703,6 +708,8 @@ fn screen_readers_hear_a_name_for_everything_on_the_main_screens() {
     let mut f = Frames::with(record("Desk", true, true), Reach::Online, Some(answer(true, 7)), vec![game(7), game(9)]);
     f.ctx.enable_accesskit();
     f.size = vec2(1280.0, 12000.0);
+    // Every row of the settings, each section's fold open.
+    f.l.settings_view.more = [true; 8];
     let id = f.hosts.list[0].id;
     let mut screens = vec![("PCs", Screen::Hosts), ("Home", Screen::Home), ("library", Screen::Apps(id)), ("details", Screen::HostDetails(id)), ("PC settings", Screen::HostSettings(id))];
     screens.push(("settings", Screen::Settings));
@@ -766,70 +773,57 @@ fn settings_main_rows_are_androids_tiers() {
         assert!(preferences.contains(&format!("android:key=\"{android}\"")), "{desktop} matches Android's {android}, which exists");
         assert!(!DESKTOP_MAIN.contains(&desktop), "{desktop}: Android decides its tier");
     }
-    assert!(main_row("adaptive_bitrate") && main_row("auto_reconnect") && main_row("window_mode") && main_row("network_tests"));
-    assert!(!main_row("ui_zoom") && !main_row("usb_forwarding"));
+    assert!(main_row("adaptive_bitrate") && main_row("auto_reconnect") && main_row("window_mode") && main_row("connection_test"));
+    assert!(main_row("vrr") && main_row("mouse_mode") && main_row("controllers") && main_row("controller_test") && main_row("open_on_start"));
+    assert!(!main_row("ui_zoom") && !main_row("usb_forwarding") && !main_row("swap_face_buttons") && !main_row("pyrowave_pace"));
 }
 
+/// Every section draws Android's main rows first, then one row that says how many more it holds;
+/// opened, it shows exactly that many, after the main rows, in their groups.
 #[test]
-fn settings_show_a_sections_every_row_with_the_rarer_ones_in_groups_after() {
+fn settings_show_a_sections_main_rows_then_a_counted_fold() {
     let mut f = Frames::new(record("PC", true, false), Reach::Online);
     f.size = vec2(1280.0, 12000.0);
     f.l.go(Screen::Settings);
     f.settle();
-    for text in ["Lower bitrate when the network is busy", "Fine-tuning", "Automatic quality", "PyroWave decoder"] {
-        assert!(shows(&f, text), "{text}: nothing is folded away: {:?}", f.drawn);
-    }
-    assert!(!shows(&f, "Recover interrupted streams") && !shows(&f, "More Video settings (6)"), "one section at a time, no fold");
-    // In every section, Android's main rows come before the first group, and no group holds one.
-    for section in SETTINGS_SECTIONS {
-        f.l.settings_view.section = section;
-        f.settle();
-        let drawn = f.l.settings_view.drawn.clone();
-        assert!(!drawn.is_empty(), "{section} draws rows");
-        let first_grouped = drawn.iter().position(|(_, grouped)| *grouped).unwrap_or(drawn.len());
-        for (at, (key, grouped)) in drawn.iter().enumerate() {
-            if main_row(key) {
-                assert!(!grouped && at < first_grouped, "{section}: main row {key} comes first: {drawn:?}");
-            }
-        }
-        // A section without any of Android's main rows (Advanced) lists its rows directly.
-        if drawn.iter().any(|(key, _)| main_row(key)) {
-            for (key, grouped) in &drawn {
-                assert!(main_row(key) || *grouped, "{section}: rarer row {key} sits in a group: {drawn:?}");
-            }
-        }
-    }
-    // A PC's own value in a group shows in its section like any other row.
+    assert!(shows(&f, "Lower bitrate when the network is busy") && !shows(&f, "Automatic quality"), "{:?}", f.drawn);
+    assert!(!shows(&f, "Recover interrupted streams") && !shows(&f, "Fine-tuning"), "one section at a time, no catch-all group");
+    let fold = |f: &Frames| f.drawn.iter().find(|t| t.starts_with("More ") || t.starts_with("Fewer ")).cloned();
     let id = f.hosts.list[0].id;
+    for screen in [Screen::Settings, Screen::HostSettings(id)] {
+        f.l.go(screen);
+        for section in SETTINGS_SECTIONS {
+            if screen != Screen::Settings && section == "App" { continue; }
+            f.l.settings_view.section = section;
+            f.l.settings_view.more = [false; 8];
+            f.settle();
+            let closed = f.l.settings_view.drawn.clone();
+            assert!(!closed.is_empty(), "{section} draws rows");
+            let any_main = closed.iter().any(|(key, _)| main_row(key));
+            assert!(!any_main || closed.iter().all(|(key, folded)| main_row(key) && !folded),
+                "{screen:?} {section}: only main rows while closed: {closed:?}");
+            let more = fold(&f);
+            f.l.settings_view.more = [true; 8];
+            f.settle();
+            let open = f.l.settings_view.drawn.clone();
+            let folded = open.iter().filter(|(_, folded)| *folded).count();
+            // A section without main rows here (Advanced without a second GPU) lists its rows directly.
+            if any_main && folded > 0 {
+                assert_eq!(more, Some(format!("More {section} settings ({folded})")), "{screen:?}: {open:?}");
+                assert_eq!(fold(&f), Some(format!("Fewer {section} settings")));
+                let first = open.iter().position(|(_, folded)| *folded).unwrap();
+                assert!(open[..first].iter().all(|(key, _)| main_row(key)) && open[first..].iter().all(|(key, _)| !main_row(key)), "{screen:?} {section}: {open:?}");
+            } else {
+                assert_eq!((more, fold(&f)), (None, None), "{screen:?} {section}: no fold over nothing");
+            }
+        }
+    }
+    // A PC's own value behind the fold shows in its section like any other row.
     f.l.go(Screen::HostSettings(id));
     f.l.settings_view.section = "Streaming";
     f.l.edit_overrides.capture(&Settings { client_roaming: false, ..Settings::default() }, &["client_roaming"]);
     f.settle();
-    assert!(shows(&f, "Keep streaming when the network changes") && shows(&f, "USB forwarding"), "{:?}", f.drawn);
-}
-
-/// Network tests is one of Streaming's main rows: its group comes right after them, before the
-/// rarer groups, so the frame pace calibration is found without scrolling past Connection.
-#[test]
-fn network_tests_follow_streamings_main_rows() {
-    let mut f = Frames::new(record("PC", true, false), Reach::Online);
-    f.size = vec2(1280.0, 12000.0);
-    f.l.go(Screen::Settings);
-    f.l.settings_view.section = "Streaming";
-    f.settle();
-    for text in ["Network tests", "Network speed test", "PyroWave frame pace"] {
-        assert!(shows(&f, text), "{text}: {:?}", f.drawn);
-    }
-    let y = |text: &str| f.placed.iter().find(|(t, ..)| t == text).unwrap_or_else(|| panic!("{text} placed")).1.top();
-    assert!(y("Recover interrupted streams") < y("Network tests"), "after the main rows");
-    assert!(y("PyroWave frame pace") < y("Connection"), "before the Connection group");
-    // A PC's own page puts them in the same place.
-    let id = f.hosts.list[0].id;
-    f.l.go(Screen::HostSettings(id));
-    f.l.settings_view.section = "Streaming";
-    f.settle();
-    let y = |text: &str| f.placed.iter().find(|(t, ..)| t == text).unwrap_or_else(|| panic!("{text} placed")).1.top();
-    assert!(y("PyroWave frame pace") < y("Connection"));
+    assert!(shows(&f, "Keep streaming when the network changes") && shows(&f, "Dual screen mode"), "{:?}", f.drawn);
 }
 
 #[test]
@@ -890,13 +884,19 @@ fn the_pc_render_resolution_is_named_and_ranged_as_on_android() {
     let mut f = Frames::new(record("PC", true, false), Reach::Online);
     f.size = vec2(1280.0, 12000.0);
     f.l.settings_view.section = "Display & image";
+    f.l.settings_view.more = [true; 8];
     f.l.go(Screen::Settings);
     f.settle();
-    assert!(shows(&f, "PC render resolution"), "{:?}", f.drawn);
-    assert!(shows(&f, "The size the PC renders at, as a percent of the stream resolution. The video it sends keeps its size. To send fewer pixels and upscale here, lower Resolution instead."));
+    assert!(!shows(&f, "PC render resolution"), "with the virtual display off it has nothing to set: {:?}", f.drawn);
+    f.l.settings.virtual_display = true;
+    f.settle();
+    let row = f.placed.iter().find(|(t, ..)| t == "PC render resolution").unwrap_or_else(|| panic!("{:?}", f.drawn)).1;
+    f.frame(vec![egui::Event::PointerMoved(row.center())]);
+    f.settle();
+    assert!(shows(&f, "The size the PC renders at, as a percent of the stream resolution."), "{:?}", f.drawn);
     // The old name and description went to the Windows scale, a row of its own.
     assert!(!f.drawn.iter().any(|t| t == "Text and interface size on the virtual display."), "{:?}", f.drawn);
-    assert!(shows(&f, "PC display scaling") && shows(&f, "Text and interface size on the PC’s virtual display."));
+    assert!(shows(&f, "PC display scaling"));
     // The slider holds Android's 50-200 %.
     for (set, kept) in [(300, 200), (25, 50), (135, 135)] {
         f.l.settings.virtual_display_scale = set;
@@ -908,10 +908,10 @@ fn the_pc_render_resolution_is_named_and_ranged_as_on_android() {
 #[test]
 fn a_pcs_own_display_scaling_is_offered_only_by_hosts_that_read_it() {
     use nightjar_core::http::{Availability, Reason};
-    assert_eq!(display_scale_gate(Availability::Supported), Some(None));
-    assert_eq!(display_scale_gate(Availability::Unknown), Some(None), "the main settings and a PC not reached");
-    assert_eq!(display_scale_gate(Availability::Unsupported(None)), None);
-    assert_eq!(display_scale_gate(Availability::Unsupported(Some(Reason::UpdateHost))), Some(Some("Update the host software to use this.")));
+    assert!(display_scale_gate(Availability::Supported));
+    assert!(display_scale_gate(Availability::Unknown), "the main settings and a PC not reached");
+    assert!(!display_scale_gate(Availability::Unsupported(None)));
+    assert!(!display_scale_gate(Availability::Unsupported(Some(Reason::UpdateHost))), "shown only where it works");
     let info = |extra: &str| {
         let xml = format!(
             "<?xml version=\"1.0\" encoding=\"utf-8\"?><root status_code=\"200\"><hostname>PC</hostname><uniqueid>uid</uniqueid><HttpsPort>47984</HttpsPort><ExternalPort>47989</ExternalPort><PairStatus>1</PairStatus><currentgame>0</currentgame><state>SUNSHINE_SERVER_FREE</state><Permission>1</Permission>{extra}</root>"
@@ -919,23 +919,20 @@ fn a_pcs_own_display_scaling_is_offered_only_by_hosts_that_read_it() {
         nightjar_core::http::ServerInfo::parse(&xml, 47989).expect("the answer parses")
     };
     let rubylight = "<RustHostVersion>3.0.0</RustHostVersion><VirtualDisplayCapable>true</VirtualDisplayCapable><VirtualDisplayDriverReady>true</VirtualDisplayDriverReady>";
-    let description = "Text and interface size on the PC’s virtual display.";
     for (host, extra, drawn) in [
-        ("Rubylight that reads it", format!("{rubylight}<DisplayScaleVersion>1</DisplayScaleVersion>"), Some(description.to_owned())),
-        ("older Rubylight", rubylight.to_owned(), Some(format!("{description} Update the host software to use this."))),
-        ("Apollo", String::new(), None),
+        ("Rubylight that reads it", format!("{rubylight}<DisplayScaleVersion>1</DisplayScaleVersion>"), true),
+        ("older Rubylight", rubylight.to_owned(), false),
+        ("Apollo", String::new(), false),
     ] {
         let mut f = Frames::with(record("PC", true, false), Reach::Online, Some(info(&extra)), Vec::new());
         f.size = vec2(1280.0, 12000.0);
         f.l.settings_view.section = "Display & image";
+        f.l.settings_view.more = [true; 8];
         let id = f.hosts.list[0].id;
         f.l.go(Screen::HostSettings(id));
         f.settle();
-        assert!(shows(&f, "PC render resolution"), "{host}: {:?}", f.drawn);
-        assert_eq!(shows(&f, "PC display scaling"), drawn.is_some(), "{host}: {:?}", f.drawn);
-        if let Some(drawn) = drawn {
-            assert!(shows(&f, &drawn), "{host}: {:?}", f.drawn);
-        }
+        assert!(shows(&f, "Display arrangement"), "{host}: {:?}", f.drawn);
+        assert_eq!(shows(&f, "PC display scaling"), drawn, "{host}: {:?}", f.drawn);
     }
 }
 
@@ -1052,7 +1049,7 @@ fn at_150_percent_in_german_a_1280x720_window_clips_no_button() {
         };
         let dialogs = [
             Dialog::HostOptions { host: id },
-            Dialog::AddHost { text: String::new(), error: Some("Cannot reach the host.".into()) },
+            Dialog::AddHost { text: String::new(), error: Some("Cannot reach the PC.".into()) },
             Dialog::Otp { host: id, pin: "1234".into(), passphrase: String::new(), error: None },
             Dialog::PairingHelp,
             Dialog::Rename { host: id, text: String::new() },
@@ -1065,7 +1062,7 @@ fn at_150_percent_in_german_a_1280x720_window_clips_no_button() {
             Dialog::NowPlaying { host: id, app: 7, device: "A long name for a television".into() },
             Dialog::GameCameBack { host: id, app: 7 },
             Dialog::MoveFailed { host: id, app: 7 },
-            Dialog::PairError { host: id, body: "PIN rejected. Generate a new one-time PIN in your host's web UI and check the passphrase.".into(), one_time: true },
+            Dialog::PairError { host: id, body: "PIN rejected. Generate a new one-time PIN in the PC’s web UI and check the passphrase.".into(), one_time: true },
             Dialog::Message { title: "Network test failed".into(), body: "The PC did not answer.".into() },
             Dialog::ConfirmSleep { host: id, ask: 1, name: "A long name for a gaming PC".into(), offer: None },
             Dialog::ConfirmSleep { host: id, ask: 1, name: "A long name for a gaming PC".into(), offer: Some(("t".into(), Handed::now())) },
@@ -1265,6 +1262,8 @@ fn at_150_percent_in_german_a_40_character_pc_name_fits_its_card_options_and_det
 fn at_150_percent_in_german_every_settings_page_fits_the_width() {
     let mut f = Frames::new(record("PC", true, false), Reach::Online);
     fit_150(&mut f);
+    // Every row of every section.
+    f.l.settings_view.more = [true; 8];
     let id = f.hosts.list[0].id;
     for screen in [Screen::Home, Screen::Settings, Screen::HostSettings(id), Screen::Profiles, Screen::Controllers, Screen::Shortcuts] {
         f.l.go(screen);
@@ -1309,6 +1308,7 @@ fn at_150_percent_in_german_the_roaming_rows_fit_and_mobile_data_shows_only_with
     // without scrolling to them.
     f.size.y = 8000.0;
     f.l.settings_view.section = "Streaming";
+    f.l.settings_view.more = [true; 8];
     let shown = |f: &Frames, text: &str| f.placed.iter().any(|(t, _, _)| t.contains(text));
     let id = f.hosts.list[0].id;
     for (screen, global) in [(Screen::Settings, true), (Screen::HostSettings(id), false)] {
@@ -1325,6 +1325,35 @@ fn at_150_percent_in_german_the_roaming_rows_fit_and_mobile_data_shows_only_with
             assert!(!shown(&f, "Über mobile Daten fortsetzen"), "mobile data hides while roaming is off");
         }
     }
+}
+
+#[test]
+fn the_theme_setting_changes_the_look_on_the_next_frame() {
+    use crate::config::Theme;
+    use crate::theme::{look, Look};
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    assert_eq!(look(), Look::Night, "Dark is the default");
+    let night_page = f.ctx.global_style().visuals.panel_fill;
+    f.l.settings.theme = Theme::System;
+    f.settle();
+    assert_eq!(look(), Look::Night, "System on a dark system");
+    f.l.system_light = true;
+    f.settle();
+    assert_eq!(look(), Look::Day, "System on a light system follows it at once");
+    assert!(!f.ctx.global_style().visuals.dark_mode, "egui's own widgets are light too");
+    assert_ne!(f.ctx.global_style().visuals.panel_fill, night_page);
+    f.l.settings.theme = Theme::Oled;
+    f.settle();
+    assert_eq!(look(), Look::Oled, "OLED black whatever the system says");
+    assert_eq!(f.ctx.global_style().visuals.panel_fill, egui::Color32::BLACK);
+    f.l.settings.high_contrast = true;
+    f.settle();
+    assert_eq!(look(), Look::HighContrast, "high contrast wins over every theme");
+    f.l.settings.high_contrast = false;
+    f.l.settings.theme = Theme::Dark;
+    f.settle();
+    assert_eq!(look(), Look::Night);
+    assert_eq!(f.ctx.global_style().visuals.panel_fill, night_page);
 }
 
 #[test]
@@ -1734,18 +1763,18 @@ fn relay_check() -> Result<nightjar_core::http::RemoteCheck, nightjar_core::http
 fn the_details_page_shows_what_the_pc_offers_not_its_brand() {
     let f = details(Reach::Online, "SUNSHINE_SERVER_FREE", RUBYLIGHT);
     // The address sits inside the web UI card, under its description.
-    let in_card = f.drawn.iter().any(|t| t.starts_with("Manage the host's applications") && t.ends_with("
+    let in_card = f.drawn.iter().any(|t| t.starts_with("Manage the PC’s apps") && t.ends_with("
 https://192.0.2.7:47990"));
     assert!(shows(&f, "Rubylight 3.0.0") && shows(&f, "Open in browser") && in_card, "{:?}", f.drawn);
     assert!(shows(&f, "Test this PC"));
     let f = details(Reach::Online, "SUNSHINE_SERVER_FREE", "<Permission>1</Permission>");
-    assert!(shows(&f, "Apollo-compatible host") && shows(&f, "Open in browser"), "a known host has a web UI: {:?}", f.drawn);
+    assert!(shows(&f, "Apollo-compatible streaming app") && shows(&f, "Open in browser"), "a known host has a web UI: {:?}", f.drawn);
     // A stock host: the generic details and the check, no web UI.
     let f = details(Reach::Online, "MJOLNIR_STATE_FREE", "");
     assert!(shows(&f, "NVIDIA GameStream") && shows(&f, "Test this PC"), "{:?}", f.drawn);
     assert!(!shows(&f, "Open in browser"));
     let f = details(Reach::Online, "SUNSHINE_SERVER_FREE", "");
-    assert!(shows(&f, "Moonlight-compatible host") && !shows(&f, "Open in browser"), "an unknown host's web UI is not guessed");
+    assert!(shows(&f, "Moonlight-compatible streaming app") && !shows(&f, "Open in browser"), "an unknown host's web UI is not guessed");
     let f = details(Reach::Offline, "SUNSHINE_SERVER_FREE", RUBYLIGHT);
     assert!(!shows(&f, "Open in browser"), "an offline PC's web UI cannot be reached");
     // A saved address no browser opens: no button, and the page says why.
@@ -1994,7 +2023,7 @@ fn cancel_and_leaving_the_page_stop_the_check() {
     let commands = f.press(Key::Enter);
     assert!(!commands.iter().any(|c| matches!(c, Command::RemoteCheck(_))));
     assert_eq!(probe.cancels.load(Ordering::SeqCst), 1, "the requests in flight are cancelled");
-    assert!(shows(&f, "Test cancelled. No host or network settings were changed."), "{:?}", f.drawn);
+    assert!(shows(&f, "Test cancelled. No PC or network settings were changed."), "{:?}", f.drawn);
     assert!(!f.l.remote.running());
 
     let probe = FakeProbe::answering(relay_check());
@@ -2006,7 +2035,7 @@ fn cancel_and_leaving_the_page_stop_the_check() {
     assert!(!f.l.remote.running() && f.l.remote.state.is_none());
     f.l.open(Screen::HostDetails(id));
     f.settle();
-    assert!(!shows(&f, "Test cancelled. No host or network settings were changed."), "the page opens fresh");
+    assert!(!shows(&f, "Test cancelled. No PC or network settings were changed."), "the page opens fresh");
 }
 
 #[test]
@@ -2643,14 +2672,15 @@ fn header_stops(f: &mut Frames) -> Vec<Rect> {
 
 #[test]
 fn tab_walks_the_header_left_to_right_and_the_actions_sit_at_the_right_edge() {
-    // PCs: Home hides while there is no library; the destinations sit together beside the brand,
-    // and Add PC at the right edge, where the search and the PC capsule are elsewhere.
+    // PCs: Home stays though no library is in yet, so the bar does not change under the pointer;
+    // the destinations sit together beside the brand, and Add PC at the right edge, where the
+    // search and the PC capsule are elsewhere.
     let mut f = Frames::new(record("Paired", true, false), Reach::Online);
     let stops = header_stops(&mut f);
-    assert_eq!(stops.len(), 4, "PCs, Settings, Help and Add PC: {stops:?}");
+    assert_eq!(stops.len(), 5, "Home, PCs, Settings, Help and Add PC: {stops:?}");
     assert!(stops.windows(2).all(|w| w[0].right() <= w[1].left()), "in reading order: {stops:?}");
-    assert!(stops[1].right() < 640.0, "the destinations sit at the left: {stops:?}");
-    assert!(1280.0 - stops[3].right() < 80.0, "Add PC is at the right edge: {:?}", stops[3]);
+    assert!(stops[3].right() < 640.0, "the destinations sit at the left: {stops:?}");
+    assert!(1280.0 - stops[4].right() < 80.0, "Add PC is at the right edge: {:?}", stops[4]);
     assert!(shows(&f, "Add PC") && !shows(&f, "Ctrl K"), "{:?}", f.drawn);
     // Hit targets a finger or a pointer finds: no destination is shorter than 36 points.
     assert!(stops.iter().all(|r| r.height() >= 36.0), "{stops:?}");
@@ -2850,9 +2880,10 @@ fn dialogs_put_the_primary_action_right_and_cancel_left_and_escape_cancels() {
 fn settings_scroll_beside_their_column_on_a_wide_window() {
     let mut f = Frames::new(record("Desk", true, true), Reach::Online);
     f.size = vec2(1920.0, 640.0);
+    f.l.settings_view.more = [true; 8];
     f.l.go(Screen::Settings);
     f.settle();
-    let top = |f: &Frames| f.placed.iter().find(|(t, ..)| t == "Codec").map(|p| p.1.top()).expect("the Codec row");
+    let top = |f: &Frames| f.placed.iter().find(|(t, ..)| t == "Video codec").map(|p| p.1.top()).expect("the Video codec row");
     let before = top(&f);
     let beside = Pos2::new(1500.0, 600.0);
     f.frame(vec![egui::Event::PointerMoved(beside)]);
@@ -2927,8 +2958,8 @@ fn the_game_page_says_its_state_in_a_chip_and_the_pc_on_its_own_line() {
     assert!(shows(&f, "Desk") && !shows(&f, "Running") && !shows(&f, "Suspended"), "{:?}", f.drawn);
 }
 
-/// A game's page: the title over one Play with Favourite on its line, its rows under them, and no
-/// sentence with nothing to know. Quit game only for a game that runs.
+/// A game's page: the title over one Play with Add to favourites on its line, its rows under them,
+/// and no sentence with nothing to know. Quit game only for a game that runs.
 #[test]
 fn a_games_page_is_one_play_beside_favourite_over_its_rows() {
     let mut f = home_with_games(2);
@@ -2937,7 +2968,7 @@ fn a_games_page_is_one_play_beside_favourite_over_its_rows() {
     f.l.go(Screen::Game { host: pc, app: 1000 });
     f.settle();
     let at = |f: &Frames, text: &str| f.placed.iter().rfind(|(t, r, _)| t == text && r.top() > chrome::PAGE_TOP).map(|p| p.1).unwrap_or_else(|| panic!("{text} in {:?}", f.drawn));
-    let (title, play, star, settings) = (at(&f, "Game 00"), at(&f, "Play"), at(&f, "Favourite"), at(&f, "Stream settings"));
+    let (title, play, star, settings) = (at(&f, "Game 00"), at(&f, "Play"), at(&f, "Add to favourites"), at(&f, "Stream settings"));
     assert!(title.bottom() <= play.top() && play.bottom() <= settings.top(), "{title:?} {play:?} {settings:?}");
     assert!((play.center().y - star.center().y).abs() < 2.0 && play.right() < star.left(), "{play:?} {star:?}");
     assert!(!shows(&f, "Quit game"), "{:?}", f.drawn);
@@ -3004,7 +3035,7 @@ fn play_before_the_list_is_loud_when_it_cannot_start_and_ends_with_the_page() {
     assert!(shows(&f, "The stream could not start") && shows(&f, "The app list could not be loaded. The PC did not answer"), "{:?}", f.drawn);
     let mut f = press(Apps::Loaded(vec![game(77)]));
     f.settle();
-    assert!(shows(&f, "The stream could not start") && shows(&f, "The PC's app list has no entry for this game."), "{:?}", f.drawn);
+    assert!(shows(&f, "The stream could not start") && shows(&f, "The PC’s app list has no entry for this game."), "{:?}", f.drawn);
     // Gone from the page, nothing starts behind the player's back.
     let mut f = press(Apps::Loading);
     f.l.go(Screen::Home);
@@ -3259,7 +3290,7 @@ fn the_home_card_of_a_pc_to_pair_fits_its_state() {
     f.hosts.list[1].info = Some(answer(false, 0));
     f.l.go(Screen::Home);
     f.settle();
-    assert!(shows(&f, "Ready to pair"), "{:?}", f.drawn);
+    assert!(shows(&f, "Not paired"), "as the PCs page says: {:?}", f.drawn);
     assert!(!f.drawn.iter().any(|t| t.contains("Games not") || t.ends_with('…')), "{:?}", f.drawn);
 }
 
@@ -3298,15 +3329,38 @@ fn the_first_run_is_one_line_and_add_pc_from_home_too() {
     }
 }
 
-/// With no search running it says so, out loud; the dot is off and Add PC is the way on.
+/// With no search running it says so in the page's own ink, not as an error: Add PC is the way on,
+/// and Search again the fix.
 #[test]
 fn a_first_run_that_cannot_search_says_so() {
     let mut f = first_run_frames(Vec::new());
     f.hosts.discovering = false;
     f.l.go(Screen::Hosts);
     f.settle();
-    assert!(shows(&f, "Can't search this network for PCs") && !shows(&f, "Searching for PCs\u{2026}"), "{:?}", f.drawn);
+    let words = "Can\u{2019}t search this network for PCs";
+    assert!(shows(&f, words) && !shows(&f, "Searching for PCs\u{2026}"), "{:?}", f.drawn);
     assert!(shows(&f, "Add PC"), "{:?}", f.drawn);
+    let mut inks = Vec::new();
+    for clipped in &f.shapes {
+        galley_inks(&clipped.shape, words, &mut inks);
+    }
+    assert!(!inks.is_empty() && inks.iter().all(|ink| *ink != *ERROR), "{inks:?}");
+    let again = f.placed.iter().find(|(t, ..)| t == "Search again").map(|p| p.1).expect("Search again");
+    let commands = f.click_at(again.center(), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::SearchAgain)));
+    // A search that runs has nothing to try again.
+    f.hosts.discovering = true;
+    f.settle();
+    assert!(!shows(&f, "Search again"), "{:?}", f.drawn);
+}
+
+/// The colours a galley of `text` is drawn in.
+fn galley_inks(shape: &egui::Shape, text: &str, out: &mut Vec<Color32>) {
+    match shape {
+        egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| galley_inks(s, text, out)),
+        egui::Shape::Text(t) if t.galley.text() == text => out.push(t.fallback_color),
+        _ => {}
+    }
 }
 
 /// A found PC arrives as a card with Pair as the page's one moon action, which takes the focus; Add PC
@@ -3713,10 +3767,10 @@ fn a_pc_offers_the_one_action_its_state_calls_for() {
     assert_eq!(action_of(&f), PcAction::Open);
     assert!(commands.iter().any(|c| matches!(c, Command::LoadApps(_))));
 
-    // Asleep with a saved address: Wake. Without one: Try again, which checks again.
+    // Asleep with a saved address: Wake up, as its options say. Without one: Try again, which checks again.
     let mut f = Frames::new(HostRecord { mac: Some("00:1a:2b:3c:4d:5e".into()), ..record("Den", true, true) }, Reach::Offline);
     assert_eq!((action_of(&f), line_of(&f)), (PcAction::Wake, PcLine::Offline));
-    assert!(shows(&f, "Wake") && shows(&f, "Offline"), "{:?}", f.drawn);
+    assert!(shows(&f, "Wake up") && shows(&f, "Offline"), "{:?}", f.drawn);
     assert!(click_action(&mut f).iter().any(|c| matches!(c, Command::Wake(_))));
     let mut f = Frames::new(HostRecord { mac: None, ..record("Den", true, true) }, Reach::Offline);
     assert_eq!(action_of(&f), PcAction::TryAgain);
@@ -4084,7 +4138,12 @@ fn keys_walk_the_pcs_from_the_first_row_and_back_to_the_capsule() {
     f.press(Key::ArrowDown);
     assert_eq!(focused_row(&f).as_deref(), Some("Attic"));
     let tree = f.access.as_ref().expect("AccessKit is on");
-    let marked = |label: &str| tree.nodes.iter().find(|(_, n)| n.label() == Some(label)).unwrap_or_else(|| panic!("{label}")).1.toggled();
+    // The capsule above says the same of the PC ("Den, Online"); the sheet's row is the one with a mark.
+    let marked = |label: &str| {
+        let rows: Vec<_> = tree.nodes.iter().filter(|(_, n)| n.label() == Some(label)).collect();
+        assert!(!rows.is_empty(), "{label}");
+        rows.iter().find_map(|(_, n)| n.toggled())
+    };
     assert_eq!(marked("Den, Online"), Some(egui::accesskit::Toggled::True), "the mark is read out too");
     assert_eq!(marked("Attic, Not paired"), Some(egui::accesskit::Toggled::False));
     f.press(Key::Escape);
@@ -4271,21 +4330,51 @@ fn the_list_lands_where_its_places_were_held() {
     assert!(held.len() >= 14, "two rows of seven: {held:?}");
 }
 
-/// The chips stay while the words narrow them, each counting what it would show.
+/// While words narrow the games each chip counts what it would show, and a chip that would show
+/// nothing goes: All stays, and so does the chip chosen.
 #[test]
-fn chip_counts_follow_the_search_and_the_chips_stay() {
+fn chip_counts_follow_the_search_and_empty_chips_go() {
     let mut f = store_mix();
     f.l.go(Screen::AllGames);
     f.settle();
-    let before: Vec<String> = f.drawn.iter().filter(|t| ["All", "Steam", "Epic Games"].contains(&t.as_str())).cloned().collect();
+    let chips = |f: &Frames| -> Vec<String> { f.drawn.iter().filter(|t| ["All", "Steam", "Epic Games"].contains(&t.as_str())).cloned().collect() };
+    assert_eq!(chips(&f), ["All", "Steam", "Epic Games"]);
     let total = f.hosts.list[0].native.library.as_ref().unwrap().games.len();
     assert!(shows(&f, &total.to_string()), "{:?}", f.drawn);
     f.l.search_open = true;
     f.l.library_query = "fort".into();
     f.settle();
-    let after: Vec<String> = f.drawn.iter().filter(|t| ["All", "Steam", "Epic Games"].contains(&t.as_str())).cloned().collect();
-    assert_eq!(before, after, "the chips stay");
+    assert_eq!(chips(&f), ["All", "Epic Games"], "Steam holds no Fortnite");
     assert!(!shows(&f, &total.to_string()) && f.drawn.iter().any(|t| t == "1"), "only Fortnite counts: {:?}", f.drawn);
+    assert!(!shows(&f, "0"), "no chip counts nothing: {:?}", f.drawn);
+    // The chosen chip stays though it holds nothing, so the focus has a place to stay.
+    f.l.library_filter = console::LibraryFilter::Store("steam".into());
+    f.settle();
+    assert_eq!(chips(&f), ["All", "Steam", "Epic Games"]);
+}
+
+/// The grid of all games names its covers as Home's shelves do, and a focused cover's ring stays
+/// clear of the chips above it.
+#[test]
+fn all_games_names_its_covers_and_keeps_the_ring_off_the_chips() {
+    let mut f = store_mix();
+    f.l.go(Screen::AllGames);
+    f.settle();
+    let focused = f.ctx.memory(|m| m.focused()).expect("the first cover has focus");
+    let slot = f.ctx.read_response(focused).expect("the cover").rect;
+    assert_eq!(slot.height(), super::cards::cover_height(slot.width()) + super::cards::POSTER_CAPTION, "its name has its room under it");
+    let shown: Rect = f.ctx.data(|d| d.get_temp(focused.with("shown"))).expect("the risen cover");
+    let all = f.ctx.read_response(Id::unique(("all-games", &console::LibraryFilter::All.key()))).expect("the All chip").rect;
+    let ring = design_tokens::HC_FOCUS_RING_WIDTH + 3.0;
+    assert!(shown.top() - ring >= all.bottom() + 4.0, "ring {} vs chips {}", shown.top() - ring, all.bottom());
+}
+
+/// The light on a placeholder comes in from above it and leaves below it whole.
+#[test]
+fn the_placeholders_light_runs_from_above_to_below() {
+    assert!(super::cards::shimmer_middle(0.0) < -0.3);
+    assert!(super::cards::shimmer_middle(1.0) > 1.3);
+    assert!(super::cards::shimmer_middle(0.5) > 0.4 && super::cards::shimmer_middle(0.5) < 0.6);
 }
 
 #[test]
@@ -4508,6 +4597,31 @@ fn glass_page_screenshots() {
     f.l.library_query = "ocean".into();
     at_rest(&mut f);
     f.shoot(&dir, "search");
+    // The Theme setting's other looks: by day (System on a light system) and OLED black.
+    for (look, theme, light) in [("day", crate::config::Theme::System, true), ("oled", crate::config::Theme::Oled, false)] {
+        let mut f = library(Tier::Live, 1.0, 1, &[]);
+        f.l.settings.theme = theme;
+        f.l.system_light = light;
+        at_rest(&mut f);
+        f.shoot(&dir, &format!("home-{look}"));
+        let pc = f.hosts.list[0].id;
+        for (name, screen) in [("pcs", Screen::Hosts), ("settings", Screen::Settings), ("game", Screen::Game { host: pc, app: 1002 }), ("all-games", Screen::AllGames)] {
+            f.l.go(screen);
+            at_rest(&mut f);
+            f.shoot(&dir, &format!("{name}-{look}"));
+        }
+        f.l.go(Screen::Home);
+        at_rest(&mut f);
+        f.l.add_host_dialog();
+        at_rest(&mut f);
+        f.shoot(&dir, &format!("dialog-{look}"));
+    }
+    // By day on the baked tier, whose glass samples the ambient instead of the page.
+    let mut f = library(Tier::Baked, 1.0, 1, &[]);
+    f.l.settings.theme = crate::config::Theme::System;
+    f.l.system_light = true;
+    at_rest(&mut f);
+    f.shoot(&dir, "home-day-baked");
 }
 
 /// All 36 games of the Android demo's library have a cover of their own that this app's image
@@ -4629,6 +4743,16 @@ fn polish_screenshots() {
         shoot(&mut f, "home");
         f.press(Key::ArrowRight);
         shoot(&mut f, "home-focus-moved");
+        // A little way down: the page passes under the top bar's frosted band.
+        f.frame(vec![egui::Event::PointerMoved((f.size / 2.0).to_pos2())]);
+        f.frame(vec![egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: vec2(0.0, -260.0),
+            phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
+            modifiers: egui::Modifiers::NONE,
+        }]);
+        shoot(&mut f, "home-scrolled");
         f.scroll_to_end();
         shoot(&mut f, "home-end");
         // Home's View: its menu, then each layout, grouping and card size.
@@ -4721,6 +4845,10 @@ fn polish_screenshots() {
         shoot(&mut f, "game-not-installed");
         f.l.go(Screen::Hosts);
         shoot(&mut f, "pcs");
+        // A PC's card with the last game played there on its screen.
+        f.l.recents = vec![crate::config::Recent { host: "Living Room PC".into(), install_id: "install-3".into(), app_id: 1003, title: titles[3].0.into(), at: 1 }];
+        shoot(&mut f, "pcs-covers");
+        f.l.recents.clear();
         f.l.go(Screen::Apps(pc));
         shoot(&mut f, "library");
         f.l.go(Screen::HostDetails(pc));
@@ -4760,9 +4888,34 @@ fn polish_screenshots() {
         f.l.sleep_answered(pc, 1, "Living Room PC", false, Ok(SleepStep::Offer { token: "t".into(), at: Handed::now() }));
         shoot(&mut f, "dialog-sleep-offered");
         f.l.close_dialog();
+        // Connection test: running, then its result with the speed (a Rubylight PC) and with the
+        // delay alone (a PC without a speed test).
+        f.l.ask(Dialog::NetworkTest { stage: "Measuring ping, jitter and loss".into(), calibrate: false });
+        shoot(&mut f, "dialog-connection-test");
+        let measured = nightjar_policy::connection_test::Speed::Measured { mbps: 912.6, link_mbps: 2500 };
+        let result = crate::network_test::Connection { latency_ms: Some(4.2), jitter_ms: Some(0.8), loss_percent: Some(0.0), speed: Some(measured) };
+        f.l.ask(Dialog::ConnectionTest { host: pc, result });
+        shoot(&mut f, "dialog-connection-test-result");
+        f.l.ask(Dialog::ConnectionTest { host: pc, result: crate::network_test::Connection { latency_ms: Some(23.0), jitter_ms: Some(6.0), loss_percent: Some(10.0), speed: None } });
+        shoot(&mut f, "dialog-connection-test-delay");
+        f.l.close_dialog();
         f.waking = Some("Office PC".into());
         shoot(&mut f, "waking");
         f.waking = None;
+        // The launch scene: the game's cover in its ambient with the orbit, then the card of a
+        // start that failed; then the stream menu over a game, with More open.
+        let launch = ConnectingView { app: apps[0].name.clone(), host: "Living Room PC".into(), stage: "Checking network profile".into(), host_id: pc, app_id: apps[0].id };
+        f.connecting = Some(launch.clone());
+        shoot(&mut f, "connecting");
+        f.connecting = None;
+        f.l.start_failed(launch, "The PC did not answer. Check that it is on and on this network.", Some(settings_line((1920, 1080, 60, 20_000))));
+        shoot(&mut f, "connect-failed");
+        f.l.close_dialog();
+        for (menu, name) in [(demo::DemoMenu::Grid, "stream-menu"), (demo::DemoMenu::More, "stream-menu-more")] {
+            f.l.demo_menu = Some(menu);
+            shoot(&mut f, name);
+        }
+        f.l.demo_menu = None;
         // Home's rows in one column, drawn alone as `at_one_column_a_long_row_is_its_all_tile`
         // does (the top bar keeps the window wider): a row too long to fit is its All tile.
         if only.is_empty() || only.split(',').any(|o| "home-one-column".starts_with(o)) {
@@ -5353,14 +5506,16 @@ fn the_arrow_keys_keep_the_focus_clear_of_the_chrome_on_every_long_page() {
 fn the_side_list_stays_below_the_chrome_while_the_rows_scroll() {
     use super::demo::Page;
     let mut f = demo_frames(vec2(1600.0, 700.0));
+    // Every row: a section long enough to scroll.
+    f.l.settings_view.more = [true; 8];
     let top_of = |f: &Frames, text: &str| f.placed.iter().find(|(t, ..)| t == text).map(|p| p.1.top()).unwrap_or_else(|| panic!("{text} is drawn"));
     demo_page(&mut f, Page::Settings);
-    let (entry, row) = (top_of(&f, "Audio"), top_of(&f, "Codec"));
+    let (entry, row) = (top_of(&f, "Audio"), top_of(&f, "Video codec"));
     wheel(&mut f, Pos2::new(1500.0, 600.0), -200.0);
-    assert!(top_of(&f, "Codec") < row - 50.0, "the rows move");
+    assert!(top_of(&f, "Video codec") < row - 50.0, "the rows move");
     assert!((top_of(&f, "Audio") - entry).abs() < 0.5, "the sections do not");
     wheel(&mut f, Pos2::new(120.0, 680.0), 200.0);
-    assert!((top_of(&f, "Codec") - row).abs() < 0.5, "the wheel over the list scrolls the page too");
+    assert!((top_of(&f, "Video codec") - row).abs() < 0.5, "the wheel over the list scrolls the page too");
 
     demo_page(&mut f, Page::PcSettings);
     let entry = top_of(&f, "Audio");
@@ -5953,16 +6108,18 @@ fn a_focused_cover_title_too_long_runs_sideways_after_a_pause() {
 }
 
 /// While a PC's library is on its way, All games says so as Home does instead of calling the
-/// library empty.
+/// library empty: the covers' places in glass, under the words.
 #[test]
 fn all_games_shows_the_library_loading_as_home_does() {
     let mut f = Frames::with(record("Desk", true, true), Reach::Online, Some(files::tests::native_answer()), Vec::new());
     f.l.go(Screen::Home);
     f.settle();
     assert!(shows(&f, "Loading the games…"), "Home: {:?}", f.drawn);
+    assert!(!meshes_holding(&f.shapes, design_tokens::COVER_PLACEHOLDER).is_empty(), "Home holds the covers' places");
     f.l.open(Screen::AllGames);
     f.settle();
     assert!(shows(&f, "Loading the games…"), "All games: {:?}", f.drawn);
+    assert!(meshes_holding(&f.shapes, design_tokens::COVER_PLACEHOLDER).len() >= 2, "two lines of places");
     assert!(!shows(&f, "No games to show yet. They appear here once a PC that shares its game library is online."), "{:?}", f.drawn);
 }
 
@@ -6514,6 +6671,68 @@ fn stream_hotkeys_screenshots() {
     }
 }
 
+/// A launcher on Settings → Latency benchmark, with this device's display and audio read.
+fn latency_benchmark_frames(high: bool) -> Frames {
+    crate::theme::own_palette();
+    let ctx = egui::Context::default();
+    crate::theme::apply(&ctx);
+    let mut l = launcher(false, false);
+    l.settings.high_contrast = high;
+    l.go(Screen::LatencyBenchmark);
+    l.latency_bench.device = Some(crate::latency_bench::Device { panel_hz: Some(143.998), audio: Some((48_000, 480)), gpu: None });
+    let mut f = Frames::over(ctx, l, Hosts::without_discovery(Vec::new(), Arc::new(|| {})));
+    f.size = vec2(1280.0, 800.0);
+    f
+}
+
+#[test]
+fn the_latency_benchmark_page_starts_stops_and_shows_its_results() {
+    let mut f = latency_benchmark_frames(false);
+    f.settle();
+    for text in ["Start 10-second test", "Copy results", "Reported panel refresh: 144.00 Hz", "Reported audio: 48000 Hz · 480 frames per buffer", "Frame callback interval", "Timer wakeup delay", "Decoder benchmark", "H.264", "AV1"] {
+        assert!(f.drawn.iter().any(|t| t == text), "{text}: {:?}", f.drawn);
+    }
+    assert_eq!(f.drawn.iter().filter(|t| *t == "no data yet").count(), 7, "four metrics and three codecs before a test");
+    let at = |f: &Frames, text: &str| f.placed.iter().find(|(t, ..)| t == text).unwrap_or_else(|| panic!("{text}")).1.center();
+    let commands = f.click_at(at(&f, "Start 10-second test"), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::StartLatencyBenchmark)));
+
+    f.l.latency_bench.start(crate::media::Hardware::None, Arc::new(|| {}));
+    f.settle();
+    assert!(f.drawn.iter().any(|t| t == "Stop test"));
+    assert_eq!(f.drawn.iter().filter(|t| *t == "Testing…").count(), 3, "the codecs wait for their turn");
+    let commands = f.click_at(at(&f, "Stop test"), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::StopLatencyBenchmark)));
+    f.l.latency_bench.finish();
+
+    f.l.latency_bench = crate::latency_bench::Bench::fixture();
+    f.settle();
+    for text in ["6.94 / 7.12 / 7.61 (n=1439)", "0.52 / 0.98 / 1.21 (n=99)", "1.18 ms · D3D11VA", "1.04 ms · D3D11VA", "Not supported"] {
+        assert!(f.drawn.iter().any(|t| t == text), "{text}: {:?}", f.drawn);
+    }
+    f.click_at(at(&f, "Copy results"), egui::PointerButton::Primary);
+    assert!(f.drawn.iter().any(|t| t == "Results copied"), "a toast says so");
+}
+
+/// Settings → Latency benchmark before a test and with results:
+/// `NIGHTJAR_SHOTS=<dir> cargo test -p nightjar-desktop --bin nightjar latency_benchmark_screenshots -- --ignored`.
+#[test]
+#[ignore = "writes PNGs; set NIGHTJAR_SHOTS"]
+fn latency_benchmark_screenshots() {
+    let Some(dir) = std::env::var_os("NIGHTJAR_SHOTS").map(std::path::PathBuf::from) else { return };
+    std::fs::create_dir_all(&dir).expect("the folder for the screenshots");
+    for high in [false, true] {
+        let look = if high { "high-contrast" } else { "normal" };
+        let mut f = latency_benchmark_frames(high);
+        f.native_ppp = 1.5;
+        f.settle();
+        f.shoot(&dir, &format!("latency-benchmark-{look}-desktop"));
+        f.l.latency_bench = crate::latency_bench::Bench::fixture();
+        f.settle();
+        f.shoot(&dir, &format!("latency-benchmark-results-{look}-desktop"));
+    }
+}
+
 fn opened_link(name: &str) -> rubylight_protocol::pairing_uri::PairingUri {
     rubylight_protocol::pairing_uri::PairingUri {
         host: "192.168.4.2".into(),
@@ -6923,8 +7142,8 @@ fn f_on_a_found_card_opens_its_options() {
     assert!(matches!(f.l.dialog, Dialog::HostOptions { .. }));
 }
 
-/// The hint names what Go does: Play, Resume, Favourite and Quit game on the hero's buttons, Play or
-/// Resume on the game page's, and Open only on what opens.
+/// The hint names what Go does: Play, Resume, Add to favourites and Quit game on the hero's buttons,
+/// Play or Resume on the game page's, and Open only on what opens.
 #[test]
 fn the_go_hint_names_what_the_control_does() {
     let tab_until = |f: &mut Frames, word: &str, go: &str| {
@@ -6947,7 +7166,17 @@ fn the_go_hint_names_what_the_control_does() {
     f.l.input_source = crate::input_source::InputSource::Keyboard;
     f.settle();
     tab_until(&mut f, "Play", "Play");
-    tab_until(&mut f, "Favourite", "Favourite");
+    // The hero's star shows no words: its hint says what it does.
+    let star = Id::unique("hero-star");
+    for _ in 0..20 {
+        if f.ctx.memory(|m| m.has_focus(star)) {
+            break;
+        }
+        f.press(Key::Tab);
+        f.settle();
+    }
+    assert!(f.ctx.memory(|m| m.has_focus(star)), "Tab reaches the star");
+    assert!(f.placed.iter().any(|(t, ..)| t == "Add to favourites"), "its hint: {:?}", f.placed);
     let pc = f.hosts.list[0].id;
     f.l.go(Screen::Game { host: pc, app: 1000 });
     f.settle();
@@ -7079,8 +7308,12 @@ fn try_again_leaves_homes_row_in_the_smallest_window() {
         f.hosts.list[0].apps = Apps::Failed("The PC did not answer".into());
         f.l.refocus();
         f.settle();
+        // The star is a round button with no words: its place is its response's.
         let words = |f: &Frames| -> Vec<Rect> {
-            ["Resume", "Play", "Try again", "Favourite", "Quit game"].iter().filter_map(|w| f.placed.iter().find(|(t, ..)| t == w).map(|p| p.1)).collect()
+            let mut row: Vec<Rect> = ["Resume", "Play", "Try again", "Quit game"].iter().filter_map(|w| f.placed.iter().find(|(t, ..)| t == w).map(|p| p.1)).collect();
+            row.extend(f.ctx.read_response(Id::unique("hero-star")).map(|r| r.rect));
+            row.sort_by(|a, b| a.left().total_cmp(&b.left()));
+            row
         };
         let row = words(&f);
         assert!(row.len() >= 3, "{:?}", f.drawn);
@@ -7096,7 +7329,7 @@ fn homes_play_says_what_stops_it_and_recovers() {
     type Case = (fn() -> Apps, &'static str);
     let cases: [Case; 2] = [
         (|| Apps::Failed("The PC did not answer".into()), "The app list could not be loaded. The PC did not answer"),
-        (|| Apps::Loaded(vec![game(77)]), "The PC's app list has no entry for this game."),
+        (|| Apps::Loaded(vec![game(77)]), "The PC’s app list has no entry for this game."),
     ];
     for (list, why) in cases {
         for screen in ["Home", "Game"] {
@@ -7559,6 +7792,8 @@ fn the_moon_comes_back_where_the_page_makes_room_again() {
             let mut f = four_pcs();
             f.l.settings.ui_zoom = zoom;
             f.size = window;
+            // Every row, so some sections are long.
+            f.l.settings_view.more = [true; 8];
             f.l.settings_view.section = section;
             f.l.go(Screen::Settings);
             f.settle();
@@ -7929,7 +8164,166 @@ fn no_page_draws_a_cover_larger_than_covers_are_kept_for() {
     let [w, h] = crate::hosts::COVER_POINTS;
     assert_eq!(super::game::COVER_MAX_W, w, "the game page's cover, the largest there is");
     assert_eq!(h, w * 1.5, "two by three, as that cover is");
+    assert!(super::launch_scene::COVER_MOST <= h, "the launch scene's cover");
     // The largest card, at the largest size the settings have and grown under the focus.
     let card = super::cards::POSTER_MAX_W * crate::config::CardSize::Large.scale() * design_tokens::FOCUS_SCALE_COVER_TV.max(design_tokens::FOCUS_SCALE_COVER);
     assert!(card <= w, "{card}");
+}
+
+/// A PC with one game in its list, and the launch of that game as main.rs hands it to the scene.
+fn launching() -> (Frames, ConnectingView) {
+    let mut f = Frames::with(record("Living Room PC", true, true), Reach::Online, Some(answer(true, 0)), vec![nightjar_core::http::App { name: "Racing Game".into(), ..game(7) }]);
+    let launch = ConnectingView { app: "Racing Game".into(), host: "Living Room PC".into(), stage: "Checking network profile".into(), host_id: f.hosts.list[0].id, app_id: 7 };
+    f.connecting = Some(launch.clone());
+    f.settle();
+    (f, launch)
+}
+
+/// From Play until the stream takes over, the scene covers the launcher: the game, its PC, the
+/// stage and Cancel, which has the focus, and nothing of the page under it.
+#[test]
+fn a_start_under_way_covers_the_launcher_with_its_scene() {
+    let (mut f, _) = launching();
+    for words in ["Racing Game", "Living Room PC", "Checking network profile", "Cancel"] {
+        assert!(shows(&f, words), "{words}: {:?}", f.drawn);
+    }
+    assert!(!shows(&f, "PCs"), "the top bar is not drawn under it");
+    assert_eq!(f.ctx.memory(|m| m.focused()), Some(Id::unique("launch-cancel")));
+    let commands = f.press(Key::Enter);
+    assert!(commands.iter().any(|c| matches!(c, Command::CancelConnect)), "A or Enter cancels");
+    let commands = f.press(Key::Escape);
+    assert!(commands.iter().any(|c| matches!(c, Command::CancelConnect)), "so does B");
+}
+
+/// A failed start keeps its scene and turns it into a card: Try again (focused), the stream's
+/// settings in a line, a network test and Back, never a bare OK.
+#[test]
+fn a_failed_start_offers_try_again_its_settings_and_a_network_test() {
+    let (mut f, launch) = launching();
+    f.connecting = None;
+    f.l.start_failed(launch, "The PC did not answer.", Some(settings_line((1920, 1080, 60, 20_000))));
+    f.settle();
+    for words in ["The stream could not start", "Racing Game, Living Room PC", "The PC did not answer.", "Try again", "Stream settings", "1920 × 1080 at 60 fps, 20 Mbps", "Test the network", "Back"] {
+        assert!(shows(&f, words), "{words}: {:?}", f.drawn);
+    }
+    assert!(!shows(&f, "OK"));
+    assert_eq!(f.ctx.memory(|m| m.focused()), Some(Id::unique("launch-retry")));
+    assert_eq!(f.l.message_shown().as_deref(), Some("The stream could not start: The PC did not answer."), "what --host reports");
+    let commands = f.press(Key::Enter);
+    assert!(commands.iter().any(|c| matches!(c, Command::RetryLaunch)));
+    assert!(f.no_dialog(), "the scene goes on with the new start");
+}
+
+#[test]
+fn the_failed_starts_card_opens_settings_or_runs_the_test_or_goes_back() {
+    let (mut f, launch) = launching();
+    f.connecting = None;
+    let open = |f: &mut Frames| {
+        f.l.start_failed(launch.clone(), "The PC did not answer.", Some(settings_line((1920, 1080, 60, 20_000))));
+        f.settle();
+    };
+    open(&mut f);
+    let row = f.ctx.read_response(Id::unique("launch-test")).expect("the test row").rect;
+    let commands = f.click_at(row.center(), egui::PointerButton::Primary);
+    assert!(commands.iter().any(|c| matches!(c, Command::TestConnection)));
+    assert!(matches!(f.l.dialog, Dialog::ConnectFailed { .. }), "the card stays for the answer");
+    let row = f.ctx.read_response(Id::unique("launch-settings")).expect("the settings row").rect;
+    f.click_at(row.center(), egui::PointerButton::Primary);
+    assert!(f.no_dialog());
+    assert_eq!(f.l.screen, Screen::Settings);
+    f.l.go(Screen::Hosts);
+    open(&mut f);
+    f.press(Key::Escape);
+    assert!(f.no_dialog(), "B closes the card");
+    assert_eq!(f.l.screen, Screen::Hosts, "and the page it was started from is there again");
+}
+
+/// The card says what the test found, in the row that ran it.
+#[test]
+fn the_network_test_answers_in_its_row() {
+    let (mut f, launch) = launching();
+    f.connecting = None;
+    f.l.start_failed(launch, "The PC did not answer.", None);
+    let (tx, rx) = std::sync::mpsc::channel();
+    if let Dialog::ConnectFailed { test, .. } = &mut f.l.dialog {
+        *test = super::launch_scene::CardTest::Running(rx);
+    }
+    f.settle();
+    assert!(!shows(&f, "Stream settings"), "no settings known, no row");
+    tx.send(crate::conn_test::Outcome::Blocked).unwrap();
+    f.settle();
+    assert!(f.drawn.iter().any(|t| t.starts_with("Internet streaming may be blocked.")), "{:?}", f.drawn);
+}
+
+/// Settings' Connection test while it runs: its own title and stage (the calibration keeps
+/// "Network test"), and Cancel, or B, stops it.
+#[test]
+fn the_connection_test_runs_under_its_own_name_until_cancelled() {
+    let mut f = Frames::new(record("Den", true, false), Reach::Online);
+    f.l.ask(Dialog::NetworkTest { stage: "Measuring ping, jitter and loss".into(), calibrate: false });
+    f.settle();
+    assert!(shows(&f, "Connection test") && shows(&f, "Measuring ping, jitter and loss") && !shows(&f, "Network test"), "{:?}", f.drawn);
+    let commands = f.press(Key::Escape);
+    assert!(commands.iter().any(|c| matches!(c, Command::CancelNetworkTest)));
+    assert!(f.no_dialog());
+    f.l.ask(Dialog::NetworkTest { stage: "Preparing frame-shaped UDP probes".into(), calibrate: true });
+    f.settle();
+    assert!(shows(&f, "Network test") && !shows(&f, "Connection test"), "{:?}", f.drawn);
+    let commands = click_in_dialog(&mut f, "Cancel");
+    assert!(commands.iter().any(|c| matches!(c, Command::CancelNetworkTest)));
+    assert!(f.no_dialog());
+}
+
+/// Clicks the last `text` drawn: a dialog's, over the page.
+fn click_in_dialog(f: &mut Frames, text: &str) -> Vec<Command> {
+    let at = f.placed.iter().rev().find(|(t, ..)| t == text).unwrap_or_else(|| panic!("{text:?} is not drawn: {:?}", f.drawn)).1.center();
+    f.click_at(at, egui::PointerButton::Primary)
+}
+
+/// Its result, as Android's: the delay line, then the speed or why it is missing; OK (focused)
+/// closes it and Try again runs the test once more on the same PC.
+#[test]
+fn the_connection_test_result_shows_its_lines_and_runs_again() {
+    use nightjar_policy::connection_test::Speed;
+    let mut f = Frames::new(record("Den", true, false), Reach::Online);
+    let host = f.hosts.list[0].id;
+    let result = |speed| crate::network_test::Connection { latency_ms: Some(2.5), jitter_ms: Some(1.0), loss_percent: Some(25.0), speed };
+    f.l.ask(Dialog::ConnectionTest { host, result: result(Some(Speed::Measured { mbps: 312.4, link_mbps: 1000 })) });
+    f.settle();
+    for line in ["Connection test", "Ping 2.5 ms · Jitter 1.0 ms · Loss 25.0 %", "Speed 312.4 Mbps · PC link 1000 Mbps", "OK", "Try again"] {
+        assert!(shows(&f, line), "{line}: {:?}", f.drawn);
+    }
+    let commands = f.press(Key::Enter);
+    assert!(f.no_dialog() && !commands.iter().any(|c| matches!(c, Command::NetworkTest { .. })), "OK has the focus and only closes it");
+
+    f.l.ask(Dialog::ConnectionTest { host, result: result(None) });
+    f.settle();
+    assert!(shows(&f, "Ping 2.5 ms · Jitter 1.0 ms · Loss 25.0 %") && !f.drawn.iter().any(|t| t.starts_with("Speed")), "a PC without a speed test: the delay alone: {:?}", f.drawn);
+    let commands = click_in_dialog(&mut f, "Try again");
+    assert!(commands.iter().any(|c| matches!(c, Command::NetworkTest { host: again, calibrate: false } if *again == host)), "{} commands", commands.len());
+    assert!(f.no_dialog(), "the running test's dialog follows");
+
+    f.l.ask(Dialog::ConnectionTest { host, result: result(Some(Speed::NoAnswer)) });
+    f.settle();
+    assert!(shows(&f, "Speed not measured: the PC didn’t answer"), "{:?}", f.drawn);
+}
+
+/// A PC's card shows the cover of the game it runs, else of the last game this device played
+/// there, as Android's PC tile does; with neither, its own tile.
+#[test]
+fn a_pc_card_shows_the_running_or_last_games_cover() {
+    let mut f = Frames::with(record("Den", true, true), Reach::Online, Some(answer(true, 0)), vec![nightjar_core::http::App { name: "Racing Game".into(), ..game(7) }]);
+    let texture = cover_texture(&f, "racing");
+    f.hosts.list[0].art.insert(7, Art::Ready(texture.clone()));
+    let shows_cover = |f: &Frames| meshes_drawn(f).iter().any(|(m, _)| m.texture_id == texture.id());
+    f.settle();
+    assert!(!shows_cover(&f), "nothing played there yet");
+    f.l.recents = vec![crate::config::Recent { host: "Den".into(), install_id: String::new(), app_id: 7, title: "Racing Game".into(), at: 1 }];
+    f.settle();
+    assert!(shows_cover(&f), "the last game played there");
+    assert_eq!(super::pcs::card_game(&f.hosts.list[0], &f.l.recents), Some(7));
+    f.hosts.list[0].info = Some(answer(true, 9));
+    assert_eq!(super::pcs::card_game(&f.hosts.list[0], &f.l.recents), Some(9), "the game it runs comes first");
+    f.hosts.list[0].reach = Reach::Offline;
+    assert_eq!(super::pcs::card_game(&f.hosts.list[0], &f.l.recents), None, "away, its screen is off");
 }

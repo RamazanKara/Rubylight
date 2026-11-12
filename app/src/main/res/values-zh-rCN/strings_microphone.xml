@@ -1,26 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_enable_mic">将麦克风发送到电脑</string>
-    <string name="summary_checkbox_enable_mic">主机支持麦克风时，电脑上的游戏和聊天应用可以听到此设备的麦克风</string>
+    <string name="summary_checkbox_enable_mic">将此设备的麦克风发送到电脑。</string>
     <string name="mic_permission_denied">未获得麦克风权限，因此麦克风保持关闭。请在 Android 设置中允许该权限，即可通过电脑语音。</string>
     <string name="mic_status_sending">麦克风：正在发送</string>
     <string name="mic_status_muted">麦克风：已静音</string>
-    <string name="mic_status_not_offered">麦克风：主机未提供</string>
+    <string name="mic_status_not_offered">麦克风：电脑未提供</string>
     <string name="mic_status_unavailable">麦克风：不可用</string>
     <string name="mic_status_no_permission">麦克风：需要权限</string>
     <string name="title_list_mic_echo_cancel">回声消除</string>
-    <string name="summary_list_mic_echo_cancel">防止扬声器里的游戏声音进入麦克风。自动模式在使用扬声器时开启，使用耳机和蓝牙耳机时关闭，并在串流中切换时跟随。</string>
+    <string name="summary_list_mic_echo_cancel">防止扬声器播放的串流声音进入麦克风。</string>
     <string name="mic_echo_auto">自动</string>
     <string name="mic_echo_on">开启</string>
     <string name="mic_echo_off">关闭</string>
     <string name="title_checkbox_mic_noise_suppression">噪声抑制</string>
-    <string name="summary_checkbox_mic_noise_suppression">滤除麦克风中风扇等持续的背景噪声</string>
+    <string name="summary_checkbox_mic_noise_suppression">滤除麦克风中持续的背景噪声。</string>
     <string name="title_checkbox_mic_auto_gain">自动增益</string>
-    <string name="summary_checkbox_mic_auto_gain">让设备平衡小声和大声的说话。下方的麦克风增益会在此基础上应用。</string>
+    <string name="summary_checkbox_mic_auto_gain">平衡小声和大声的说话。</string>
     <string name="title_seekbar_mic_gain">麦克风增益</string>
-    <string name="summary_seekbar_mic_gain">在发送前调低或调高麦克风。响亮的峰值会被圆滑处理而不会削波。</string>
+    <string name="summary_seekbar_mic_gain">在发送前调低或调高麦克风音量。</string>
     <string name="title_checkbox_mic_button">麦克风按钮</string>
-    <string name="summary_checkbox_mic_button">在串流画面上显示一个用于静音和取消静音麦克风的按钮。拖动即可移动。</string>
+    <string name="summary_checkbox_mic_button">串流画面上用于静音和取消静音麦克风的按钮。</string>
     <string name="mic_button_mute">静音麦克风</string>
     <string name="mic_button_unmute">取消静音麦克风</string>
     <string name="stream_mic_button_show">显示麦克风按钮</string>

@@ -16,6 +16,7 @@ pub mod roaming;
 pub mod rtsp;
 pub mod sdp;
 pub mod session;
+pub mod sharp_color;
 pub mod stun;
 pub mod tile;
 pub mod timing_record;

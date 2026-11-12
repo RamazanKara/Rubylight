@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_list_gamepad_quit_combo">Combinación para salir con el mando</string>
-    <string name="summary_list_gamepad_quit_combo">Mantén estos botones para salir de la transmisión; termina cuando los sueltas todos. Desactivado lo deja al menú de la transmisión, que abre Start+Select+LB+RB. Se aplica en la próxima transmisión.</string>
+    <string name="title_list_gamepad_quit_combo">Botones para salir de la transmisión</string>
+    <string name="summary_list_gamepad_quit_combo">Los botones que se mantienen pulsados a la vez para salir de la transmisión.</string>
     <string name="gamepad_quit_combo_off">Desactivado</string>
     <string name="stream_controller_mouse">Ratón con el mando</string>
     <string name="title_list_guide_menu_hold">Mantener Guide para abrir el menú de la transmisión</string>
-    <string name="summary_list_guide_menu_hold">Una pulsación corta sigue llegando al PC como Guide. Se aplica en la próxima transmisión.</string>
+    <string name="summary_list_guide_menu_hold">Cuánto tiempo se mantiene pulsado Guide para abrir el menú; una pulsación corta llega al PC.</string>
 </resources>

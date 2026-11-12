@@ -6,7 +6,7 @@
     <string name="pc_keyboard_layout_us">Английская (США)</string>
     <string name="pc_keyboard_layout_de">Немецкая (QWERTZ)</string>
     <string name="pc_keyboard_layout_title">Раскладка клавиатуры</string>
-    <string name="pc_keyboard_layout_summary">Раскладка экранной клавиатуры ПК. Клавиши передают позиции клавиш, поэтому набираемый символ определяет раскладка клавиатуры Windows на ПК. Выберите одну и ту же раскладку в обоих местах.</string>
+    <string name="pc_keyboard_layout_summary">Раскладка экранной клавиатуры ПК.</string>
     <string name="pc_keyboard_size_title">Размер клавиатуры</string>
     <string name="pc_keyboard_opacity_title">Прозрачность клавиатуры</string>
 </resources>

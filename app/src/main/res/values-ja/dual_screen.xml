@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_dual_screen">デュアルスクリーンモード</string>
-    <string name="summary_checkbox_dual_screen">2 つ目の画面があるデバイスで、同じゲームの 2 つ目のストリームをその画面本来の解像度で、その画面に開始します。2 つ目のストリームは 1 つ目と同じデバイスなので、PC とのペアリングは 1 回で済みます。音声、コントローラ、マイクは 1 つ目の画面に残り、どちらかの画面でタッチモードを変えると両方に適用されます。PC はこれに対応した Rubylight ホストである必要があり、各画面に PC のどの画面を表示するかは PC が決めます。次回のストリームから適用されます。</string>
+    <string name="summary_checkbox_dual_screen">2 つ目の画面で、同じゲームの 2 つ目のストリームを表示します。</string>
     <string name="title_resolution_screen2">2 つ目の画面の解像度</string>
-    <string name="summary_resolution_screen2">2 つ目の画面のストリームの解像度です。1 つ目の画面とは別に設定します。本来のサイズでは、その画面のフル解像度でストリーミングします。</string>
+    <string name="summary_resolution_screen2">2 つ目の画面のストリームの解像度です。</string>
     <string name="resolution_screen2_native">2 つ目の画面の本来のサイズ</string>
     <string name="dual_screen_unavailable">2 つ目の画面を開けませんでした。</string>
 </resources>

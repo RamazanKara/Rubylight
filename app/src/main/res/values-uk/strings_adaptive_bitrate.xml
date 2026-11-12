@@ -1,18 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_auto_bitrate_enable">Увімкнути «Пристрій керує бітрейтом»</string>
-    <string name="stream_auto_bitrate_disable">Вимкнути «Пристрій керує бітрейтом»</string>
     <string name="stream_auto_bitrate_help">Підлаштовує бітрейт під ваше з’єднання.\nЗберігається для цього ПК; зміна вручну вимикає його.</string>
     <string name="stream_pyrowave_bitrate_help">Автоналаштування PyroWave для цього ПК.\nРучний бітрейт вимикає його.</string>
     <string name="stream_auto_bitrate_failed">Тимчасова помилка оновлення бітрейту. Автоматична повторна спроба.</string>
-    <string name="stream_auto_bitrate_unavailable">Цей ПК не повідомляє бітрейт трансляції. «Пристрій керує бітрейтом» для цієї трансляції вимкнено.</string>
-    <string name="stream_auto_bitrate_status">Пристрій керує бітрейтом: %1$.1f Мбіт/с</string>
-    <string name="stream_bitrate_busy">Хост зайнятий. Спробуйте ще раз за мить.</string>
+    <string name="stream_auto_bitrate_unavailable">Цей ПК не повідомляє бітрейт трансляції. «Знижувати бітрейт, коли мережа завантажена» для цієї трансляції вимкнено.</string>
+    <string name="stream_auto_bitrate_status">Поточний бітрейт: %1$.1f Мбіт/с</string>
+    <string name="stream_bitrate_busy">ПК зайнятий. Спробуйте ще раз за мить.</string>
     <string name="stream_host_abr_failed">ПК не ввімкнув автоматичний бітрейт: %1$s</string>
-    <string name="title_auto_bitrate">Пристрій керує бітрейтом</string>
-    <string name="dialog_auto_bitrate">Знижує бітрейт, коли з’єднання або пристрій не встигає, і піднімає його знову, коли все налагоджується. Вище за бітрейт трансляції він не підіймається. Це значення за замовчуванням для всіх ПК; у меню трансляції його можна змінити для одного ПК.</string>
+    <string name="title_auto_bitrate">Знижувати бітрейт, коли мережа завантажена</string>
+    <string name="dialog_auto_bitrate">Знижує бітрейт, поки з’єднання не встигає, і повертає його, коли воно відновлюється.</string>
     <string name="title_thermal_protection">Тепловий захист</string>
-    <string name="dialog_thermal_protection">Знижує бітрейт і роздільність, поки пристрій гарячий. Телефони й ТВ-приставки часто нагріваються під час стримінгу, тому типово вимкнено: з нижчим бітрейтом зображення менш чітке.</string>
+    <string name="dialog_thermal_protection">Знижує бітрейт і роздільну здатність, поки пристрій гарячий.</string>
     <string name="title_automatic_bitrate">Автоматичний бітрейт</string>
-    <string name="dialog_automatic_bitrate">Nightjar вибирає бітрейт за роздільністю, частотою кадрів і кодеком та змінює його разом із ними. Якщо посунути повзунок бітрейту, це вимкнеться.</string>
+    <string name="dialog_automatic_bitrate">Nightjar вибирає бітрейт за роздільною здатністю, частотою кадрів і кодеком.</string>
 </resources>

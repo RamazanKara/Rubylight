@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="report_problem">問題を報告</string>
-    <string name="report_problem_summary">個人情報を削除したレポートを共有します</string>
+    <string name="report_problem_summary">個人情報を削除したレポートを共有します。</string>
     <string name="report_problem_details">個人情報を削除したレポートを共有します。\n送信先はご自身で選択します。</string>
     <string name="report_problem_share">問題のレポートを共有</string>
     <string name="report_problem_failed">レポートを共有できませんでした。\nストレージを確認し、ファイル共有アプリをインストールしてください。</string>
@@ -12,8 +12,8 @@
     <string name="stream_restore_help">ストリームが中断されました。\n再開するには PC のアプリ一覧を開いてください。</string>
     <string name="stream_presets">プリセット</string>
     <string name="stream_presets_help">[ネイティブ] は、この画面の解像度とリフレッシュレートで、遅延に関する設定をすべてオンにしてストリーミングします。\n[バッテリー セーバー] は同じ解像度で 30 fps に抑えます。\nPC ごとのプロファイルが引き続き優先されます。</string>
-    <string name="summary_frame_pacing">VRR がオフのときの応答速度と滑らかさのバランスを調整します。</string>
-    <string name="summary_language">アプリで使用する言語を選択します。</string>
+    <string name="summary_frame_pacing">VRR がオフの間、応答速度と滑らかさのバランスを取ります。</string>
+    <string name="summary_language">Nightjar のメニューの言語です。</string>
     <string name="overlay_mode_help">[オフ] はオーバーレイを非表示にします。[コンパクト] は、描画 FPS、ネットワークの往復時間（RTT）、フレーム損失を 1 行で表示し、ストリームが不安定になると先頭の点が黄色または赤に変わります。[統計] はストリームの測定値をリアルタイムで表示します。[デバッグ] はタイミングのパーセンタイルとデコーダーの診断情報を追加します。すべての詳細を見るにはスクロールしてください。ストリームメニューからも変更できます。</string>
     <string name="overlay_statistics">統計</string>
     <string name="overlay_debug">デバッグ</string>
@@ -53,11 +53,11 @@
     <string name="connection_test_stats">Ping %1$s · ジッター %2$s · 損失 %3$s</string>
     <string name="connection_test_unavailable">–</string>
     <string name="connection_test_failed">速度未測定: テストに失敗しました</string>
-    <string name="pair_connection_fix">同じネットワークを使用し、ホストを起動してください。\nファイアウォールを確認してから再試行してください。</string>
+    <string name="pair_connection_fix">同じネットワークを使用し、PC のストリーミングアプリを起動してください。\nファイアウォールを確認してから再試行してください。</string>
     <string name="pair_try_again">再試行</string>
     <string name="discovery_add">PC を手動で追加</string>
     <string name="discovery_help">ペアリングのヘルプ</string>
     <string name="wol_help_title">Wake-on-LAN を設定</string>
-    <string name="summary_wol_help">スリープ中の PC をアプリから起動する方法を確認します。</string>
-    <string name="wol_help_text">1. PC の電源が入っているときにペアリングします。\n2. PC で Wake-on-LAN を有効にします。\n3. LAN に接続し、[PC を起動] を選択します。</string>
+    <string name="summary_wol_help">スリープ中の PC をアプリからウェイクする方法を確認します。</string>
+    <string name="wol_help_text">1. PC の電源が入っているときにペアリングします。\n2. PC で Wake-on-LAN を有効にします。\n3. LAN に接続し、[ウェイク] を選択します。</string>
 </resources>

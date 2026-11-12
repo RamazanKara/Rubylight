@@ -156,4 +156,40 @@ public class NavigationDialogBuilderTest {
             assertFalse(custom.isShowing());
         } finally { locked.dismiss(); custom.dismiss(); activity.destroy(); }
     }
+
+    /** A pairing PIN stands on the sky, not over the page's heading; the page comes back, for a screen reader too, when it goes. */
+    @Test public void aDialogOnItsOwnSurfaceHidesThePageUnderTheSkyWhileItShows() {
+        ActivityController<UiNavigationTest.Screen> activity = Robolectric.buildActivity(UiNavigationTest.Screen.class).setup().visible();
+        try {
+            android.view.ViewGroup content = activity.get().findViewById(android.R.id.content);
+            android.view.View page = content.getChildAt(0);
+            assertEquals(1, content.getChildCount());
+            AlertDialog dialog = new NavigationDialogBuilder(activity.get()).ownSurface().setTitle("Pair with PC")
+                    .setMessage("1234").setNegativeButton(android.R.string.cancel, null).create();
+            dialog.show();
+            frame();
+            assertEquals("the sky covers the page", 2, content.getChildCount());
+            assertTrue(content.getChildAt(1) instanceof NightSkyView);
+            assertEquals(android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS, page.getImportantForAccessibility());
+            assertEquals("no dim over the sky", 0, dialog.getWindow().getAttributes().flags
+                    & android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+            frame();
+            assertFalse(dialog.isShowing());
+            assertEquals("the page is back", 1, content.getChildCount());
+            assertEquals(android.view.View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, page.getImportantForAccessibility());
+
+            // Any other dialog stays over its dimmed page.
+            AlertDialog plain = new NavigationDialogBuilder(activity.get()).setTitle("Remove PC").show();
+            frame();
+            assertEquals(1, content.getChildCount());
+            plain.dismiss();
+        } finally { activity.destroy(); }
+    }
+
+    /** A window's first traversal attaches its views; it waits for the next frame. */
+    private static void frame() {
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(100));
+    }
 }

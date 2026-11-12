@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="fps_show_supported">Mostrar só as taxas de quadros compatíveis</string>
-    <string name="title_adaptive_quality_setting">Reduzir a resolução ou a taxa de quadros quando necessário</string>
-    <string name="summary_adaptive_quality_setting">Quando a rede, uma decodificação lenta ou o calor atrapalham a transmissão, reduz a resolução ou a taxa de quadros e os aumenta de novo quando a situação melhora. Não se aplica ao PyroWave.</string>
+    <string name="title_adaptive_quality_setting">Qualidade automática</string>
+    <string name="summary_adaptive_quality_setting">Reduz a resolução ou a taxa de quadros enquanto o PC, a rede ou o dispositivo não dão conta.</string>
     <string name="title_low_latency_customize">Personalizar</string>
     <string name="low_latency_customize_closed">Escolha quais partes da baixa latência ficam ativas</string>
     <string name="low_latency_customize_open">Ocultar as chaves individuais</string>

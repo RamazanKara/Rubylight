@@ -69,7 +69,7 @@
 
     <!-- Bitrate on mobile data (Settings → Video) -->
     <string name="title_mobile_bitrate">Szybkość transmisji na danych mobilnych</string>
-    <string name="summary_mobile_bitrate">Ogranicza szybkość transmisji, gdy strumień startuje na danych mobilnych lub w sieci Wi-Fi oznaczonej przez Androida jako sieć z pomiarem użycia danych, np. w hotspocie telefonu. Ogranicza też wartości z każdego profilu, komputera i gry. Wył. oznacza tę samą szybkość transmisji co w innych sieciach.</string>
+    <string name="summary_mobile_bitrate">Najwyższa szybkość transmisji strumienia na danych mobilnych lub w sieci z pomiarem danych.</string>
     <string name="mobile_bitrate_off">Wył.</string>
 
     <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->
@@ -101,7 +101,7 @@
     <string name="layers_from_pc">ustawione dla tego komputera</string>
     <string name="layers_from_game">ustawione dla tej gry</string>
     <string name="layers_from_mobile_limit">limit dla danych mobilnych</string>
-    <string name="layers_pacing_vrr">Adaptacyjne odświeżanie jest włączone, więc strumień używa trybu Najniższe opóźnienie.</string>
+    <string name="layers_pacing_vrr">„Zmienna częstotliwość odświeżania” jest włączona, więc strumień używa trybu „Najniższe opóźnienie”.</string>
 
     <!-- In the stream -->
     <string name="layers_applied">Ustawienia: %1$s</string>
@@ -123,7 +123,7 @@
     <string name="game_preset_smoothness">Płynność</string>
     <string name="game_preset_smoothness_summary">Ustawia najpłynniejszy frame pacing, który wstrzymuje klatki i zwiększa opóźnienie, oraz wyłącza adaptacyjne odświeżanie dla tej gry. Bitrate się nie zmienia.</string>
     <string name="game_preset_quality">Jakość</string>
-    <string name="game_preset_quality_summary" formatted="false">Ustawia bitrate na 150% wartości z komputera lub, jeśli komputer jej nie ma, z ustawień głównych, do limitu hosta. Frame pacing i adaptacyjne odświeżanie się nie zmieniają; przy słabym połączeniu większe klatki mogą zwiększyć opóźnienie.</string>
+    <string name="game_preset_quality_summary" formatted="false">Ustawia bitrate na 150% wartości z komputera lub, jeśli komputer jej nie ma, z ustawień głównych, do limitu komputera. Frame pacing i adaptacyjne odświeżanie się nie zmieniają; przy słabym połączeniu większe klatki mogą zwiększyć opóźnienie.</string>
     <string name="game_preset_custom">Własne</string>
     <string name="game_preset_custom_summary">Twoje własne wartości, ustawione poniżej.</string>
 </resources>

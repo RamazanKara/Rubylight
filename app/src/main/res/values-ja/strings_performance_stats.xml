@@ -11,10 +11,10 @@
     <string name="stats_host">ホストの処理: %1$s ms</string>
     <string name="stats_host_network">ホスト（送信込み）: %1$s ms</string>
     <string name="stats_client">デコード: %1$s ms · 表示待ち: %2$s ms</string>
-    <string name="hardware_title">ホストのハードウェア（全 GPU）</string>
-    <string name="hardware_cpu">ホストの CPU: %1$s%%</string>
-    <string name="hardware_gpu_summary">ホストの GPU %1$d: %2$s%% · %3$s °C · %4$s W</string>
-    <string name="hardware_sample">ホストのサンプル: Unix エポックから %1$d ms · 間隔: %2$d ms</string>
+    <string name="hardware_title">PC のハードウェア（全 GPU）</string>
+    <string name="hardware_cpu">PC の CPU: %1$s%%</string>
+    <string name="hardware_gpu_summary">PC の GPU %1$d: %2$s%% · %3$s °C · %4$s W</string>
+    <string name="hardware_sample">PC のサンプル: Unix エポックから %1$d ms · 間隔: %2$d ms</string>
     <string name="hardware_gpu_name">GPU %1$d · %2$s</string>
     <string name="hardware_gpu_unnamed">名前のない GPU</string>
     <string name="hardware_gpu_clocks">使用率: %1$s%% · GPU クロック: %2$s MHz · メモリクロック: %3$s MHz</string>

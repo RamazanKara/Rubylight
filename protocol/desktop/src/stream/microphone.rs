@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use sdl3_sys::everything::*;
 
+use super::mic_dsp::{Choice, MicDsp};
 use super::pipeline::{Notice, Shared};
 use crate::config::MicEcho;
 use crate::strings::tr;
@@ -96,6 +97,36 @@ struct Capture {
     sender: SyncSender<Vec<u8>>,
     shared: Arc<Shared>,
     failed: bool,
+    /// Noise suppression and automatic gain, when either is on (`mic_dsp`).
+    dsp: Option<MicDsp>,
+    /// "Microphone gain" in percent ([`apply_gain`]).
+    gain: u32,
+}
+
+/// "Microphone gain" at its default: the samples go to Opus as recorded.
+const UNITY_GAIN: u32 = 100;
+
+/// Scales recorded samples by "Microphone gain" (`percent`) before Opus, held to full scale so a
+/// raised gain clips instead of wrapping. At 100 % it does nothing.
+fn apply_gain(samples: &mut [f32], percent: u32) {
+    if percent == UNITY_GAIN {
+        return;
+    }
+    let gain = percent as f32 / UNITY_GAIN as f32;
+    for sample in samples {
+        *sample = (*sample * gain).clamp(-1.0, 1.0);
+    }
+}
+
+/// A recorded 10 ms frame on its way to Opus: noise suppression and automatic gain first (after
+/// the system's echo cancellation, which comes before SDL hands the frame over), then
+/// "Microphone gain", last as on Android, where the system's effects run before Nightjar's gain.
+fn clean(samples: &mut [f32], dsp: Option<&mut MicDsp>, gain: u32) -> Result<(), String> {
+    if let Some(dsp) = dsp {
+        dsp.process(samples)?;
+    }
+    apply_gain(samples, gain);
+    Ok(())
 }
 
 unsafe extern "C" fn record(userdata: *mut c_void, stream: *mut SDL_AudioStream, _: i32, _: i32) {
@@ -114,7 +145,7 @@ unsafe extern "C" fn record(userdata: *mut c_void, stream: *mut SDL_AudioStream,
                 crate::sdl::error()
             ))
         } else {
-            capture.encoder.encode(&samples)
+            clean(&mut samples, capture.dsp.as_mut(), capture.gain).and_then(|()| capture.encoder.encode(&samples))
         };
         match result {
             Ok(packet) => {
@@ -236,10 +267,15 @@ pub struct Microphone {
     shared: Arc<Shared>,
     sender: SyncSender<Vec<u8>>,
     pub packets: Receiver<Vec<u8>>,
+    /// "Microphone gain" in percent, for whichever capture runs.
+    gain: u32,
+    /// Noise suppression and automatic gain, for whichever capture runs: sonora's on SDL's
+    /// frames, the Voice Capture DSP's own with Windows' echo cancellation.
+    cleanup: Choice,
 }
 
 impl Microphone {
-    fn new(shared: Arc<Shared>) -> Self {
+    fn new(shared: Arc<Shared>, gain: u32, cleanup: Choice) -> Self {
         let (sender, packets) = sync_channel(4);
         Self {
             stream: None,
@@ -249,22 +285,25 @@ impl Microphone {
             shared,
             sender,
             packets,
+            gain,
+            cleanup,
         }
     }
 
     /// Opens the microphone with echo cancellation as `echo` asks, where this system has it. On
     /// Windows the echo canceller opens on a thread of its own, so the caller (the render thread,
     /// when the microphone is turned on mid-stream) never waits for it: [`Self::poll`] takes its
-    /// answer.
-    pub fn open(shared: Arc<Shared>, echo: MicEcho) -> Result<Self, String> {
+    /// answer. `gain` is "Microphone gain" in percent; `cleanup` is Noise suppression and
+    /// Automatic gain.
+    pub fn open(shared: Arc<Shared>, echo: MicEcho, gain: u32, cleanup: Choice) -> Result<Self, String> {
         #[cfg(windows)]
         if echo != MicEcho::Off {
-            return Self::open_voice(shared, echo);
+            return Self::open_voice(shared, echo, gain, cleanup);
         }
         let wanted = !cfg!(windows) && echo.wanted(false);
         let devices = if wanted { recording_devices() } else { Vec::new() };
         let names: Vec<String> = devices.iter().map(|(_, name)| name.clone()).collect();
-        let mut microphone = Self::new(shared);
+        let mut microphone = Self::new(shared, gain, cleanup);
         match plan(wanted, false, &names) {
             Source::EchoCanceller(index) => {
                 let (id, name) = &devices[index];
@@ -274,7 +313,7 @@ impl Microphone {
             }
             Source::Default if wanted => {
                 eprintln!("nightjar: the microphone is sent without echo cancellation: no echo-cancel source (PipeWire's libpipewire-module-echo-cancel or PulseAudio's module-echo-cancel)");
-                without_echo_cancellation(&microphone.shared, tr("No echo cancellation: this system has no echo-cancel source. Load PipeWire's or PulseAudio's echo-cancel module to have one.").to_owned());
+                without_echo_cancellation(&microphone.shared, tr("No echo cancellation: this system has no echo-cancel source. Load PipeWire’s or PulseAudio’s echo-cancel module to have one.").to_owned());
             }
             Source::Default | Source::VoiceCapture => {}
         }
@@ -318,14 +357,14 @@ impl Microphone {
     }
 
     #[cfg(windows)]
-    fn open_voice(shared: Arc<Shared>, echo: MicEcho) -> Result<Self, String> {
-        let mut microphone = Self::new(shared.clone());
+    fn open_voice(shared: Arc<Shared>, echo: MicEcho, gain: u32, cleanup: Choice) -> Result<Self, String> {
+        let mut microphone = Self::new(shared.clone(), gain, cleanup);
         let (answer, opening) = std::sync::mpsc::channel();
         let sender = microphone.sender.clone();
         let spawned = std::thread::Builder::new().name("nightjar-mic-open".into()).spawn(move || {
             let wanted = echo.wanted(echo == MicEcho::Auto && super::voice_capture::private_output());
             let opened = if plan(wanted, true, &[]) == Source::VoiceCapture {
-                match Self::start_voice(shared.clone(), sender) {
+                match Self::start_voice(shared.clone(), sender, gain, cleanup) {
                     Ok((voice, failed)) => Opened::Voice(voice, failed),
                     Err(error) => {
                         eprintln!("nightjar: Windows' echo cancellation cannot run ({error}); the microphone is sent without it");
@@ -351,35 +390,65 @@ impl Microphone {
         Ok(microphone)
     }
 
+    /// Windows' echo canceller, with its own noise suppression and AGC as `cleanup` says: they run
+    /// after its echo cancellation, so sonora's would only suppress the same frame twice.
     #[cfg(windows)]
-    fn start_voice(shared: Arc<Shared>, sender: SyncSender<Vec<u8>>) -> Result<(super::voice_capture::VoiceCapture, Receiver<String>), String> {
+    fn start_voice(shared: Arc<Shared>, sender: SyncSender<Vec<u8>>, gain: u32, cleanup: Choice) -> Result<(super::voice_capture::VoiceCapture, Receiver<String>), String> {
         let mut encoder = Encoder::new(super::voice_capture::RATE as i32)?;
         let frames_shared = shared.clone();
-        let frames = move |samples: &[f32]| match encoder.encode(samples) {
-            Ok(packet) => {
-                if sender.try_send(packet).is_ok() {
-                    frames_shared.wake();
+        // The canceller lends its samples: a gain other than 100 % scales a copy.
+        let mut scaled = Vec::new();
+        let frames = move |samples: &[f32]| {
+            let samples = if gain == UNITY_GAIN {
+                samples
+            } else {
+                scaled.clear();
+                scaled.extend_from_slice(samples);
+                apply_gain(&mut scaled, gain);
+                &scaled[..]
+            };
+            match encoder.encode(samples) {
+                Ok(packet) => {
+                    if sender.try_send(packet).is_ok() {
+                        frames_shared.wake();
+                    }
+                    true
                 }
-                true
-            }
-            Err(error) => {
-                frames_shared.notify(Notice::MicrophoneFailed(error));
-                false
+                Err(error) => {
+                    frames_shared.notify(Notice::MicrophoneFailed(error));
+                    false
+                }
             }
         };
         let (fail, failed) = std::sync::mpsc::channel();
-        let voice = super::voice_capture::VoiceCapture::start(frames, move |error| canceller_failed(&fail, &shared, error))?;
-        eprintln!("nightjar: the microphone runs through Windows' echo cancellation");
+        let voice = super::voice_capture::VoiceCapture::start(cleanup, frames, move |error| canceller_failed(&fail, &shared, error))?;
+        eprintln!(
+            "nightjar: the microphone runs through Windows' echo cancellation (its noise suppression {}, its automatic gain {})",
+            if cleanup.noise_suppression { "on" } else { "off" },
+            if cleanup.auto_gain { "on" } else { "off" },
+        );
         Ok((voice, failed))
     }
 
     /// Records `device` through SDL into `packets`.
     fn start_sdl(&mut self, device: SDL_AudioDeviceID) -> Result<(), String> {
+        let dsp = MicDsp::new(self.cleanup, 48000);
+        if dsp.is_some() {
+            eprintln!(
+                "nightjar: the microphone runs with{}{}{} (adds {:.2} ms)",
+                if self.cleanup.noise_suppression { " noise suppression" } else { "" },
+                if self.cleanup.noise_suppression && self.cleanup.auto_gain { " and" } else { "" },
+                if self.cleanup.auto_gain { " automatic gain" } else { "" },
+                super::mic_dsp::delay_samples(self.cleanup) as f64 / 48.0,
+            );
+        }
         let mut capture = Box::new(Capture {
             encoder: Encoder::new(48000)?,
             sender: self.sender.clone(),
             shared: self.shared.clone(),
             failed: false,
+            dsp,
+            gain: self.gain,
         });
         let spec = SDL_AudioSpec {
             format: SDL_AUDIO_F32,
@@ -429,6 +498,63 @@ mod tests {
         let mut decoded = [0.0; 480];
         assert_eq!(decoder.decode(Some(&packet), &mut decoded), 480);
         assert!(decoded.iter().all(|sample| sample.is_finite()));
+    }
+
+    /// "Microphone gain": 100 % leaves the samples as recorded, 200 % doubles them and holds them
+    /// to full scale, 25 % quarters them.
+    #[test]
+    fn microphone_gain_scales_the_samples_and_clips_at_full_scale() {
+        let recorded = [0.0f32, 0.25, -0.25, 0.75, -0.8, 1.0];
+        let mut unity = recorded;
+        apply_gain(&mut unity, 100);
+        assert_eq!(unity, recorded);
+        let mut doubled = recorded;
+        apply_gain(&mut doubled, 200);
+        assert_eq!(doubled, [0.0, 0.5, -0.5, 1.0, -1.0, 1.0]);
+        let mut quartered = recorded;
+        apply_gain(&mut quartered, 25);
+        assert_eq!(quartered, [0.0, 0.0625, -0.0625, 0.1875, -0.2, 0.25]);
+    }
+
+    /// Noise suppression and automatic gain run on the recorded frame before "Microphone gain":
+    /// what goes to Opus is the processor's output scaled, never the processor run on a scaled
+    /// frame. Off, the frame is only scaled.
+    #[test]
+    fn noise_suppression_and_automatic_gain_run_before_the_microphone_gain() {
+        let choice = Choice { noise_suppression: true, auto_gain: true };
+        let (mut sent, mut twin) = (MicDsp::new(choice, 48000).unwrap(), MicDsp::new(choice, 48000).unwrap());
+        let mut seed = 1u32;
+        for frame in 0..100 {
+            let recorded: [f32; 480] = std::array::from_fn(|i| {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                let t = (frame * 480 + i) as f32 / 48000.0;
+                (std::f32::consts::TAU * 220.0 * t).sin() * 0.05 + ((seed >> 8) as f32 / (1u32 << 23) as f32 - 1.0) * 0.01
+            });
+            let mut cleaned = recorded;
+            clean(&mut cleaned, Some(&mut sent), 150).unwrap();
+            let mut expected = recorded;
+            twin.process(&mut expected).unwrap();
+            apply_gain(&mut expected, 150);
+            assert_eq!(cleaned, expected, "frame {frame}");
+        }
+        let recorded: [f32; 480] = std::array::from_fn(|i| (i as f32 * 0.05).sin() * 0.2);
+        let mut plain = recorded;
+        clean(&mut plain, None, 100).unwrap();
+        assert_eq!(plain, recorded, "both off: the frame goes to Opus as recorded");
+        clean(&mut plain, None, 200).unwrap();
+        let mut doubled = recorded;
+        apply_gain(&mut doubled, 200);
+        assert_eq!(plain, doubled);
+    }
+
+    #[test]
+    fn a_processor_failure_ends_the_frame_before_opus() {
+        let mut dsp = MicDsp::new(Choice { noise_suppression: true, auto_gain: false }, 16000).unwrap();
+        // A 48 kHz frame given to a 16 kHz processor: an error the capture reports, not a frame
+        // sent half processed.
+        let mut samples = [0.1f32; 480];
+        assert!(clean(&mut samples, Some(&mut dsp), 200).is_err());
+        assert_eq!(samples, [0.1; 480], "nothing scaled");
     }
 
     extern "C" {

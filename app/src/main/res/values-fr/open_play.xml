@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_open_on_start">À l’ouverture de Nightjar</string>
-    <string name="summary_open_on_start">Vos PC, ou un compte à rebours de 3 secondes vers un jeu.</string>
+    <string name="summary_open_on_start">Accueil, vos PC ou un court compte à rebours vers un jeu.</string>
     <string name="open_play_menu">Ouvrir au lancement de Nightjar</string>
     <string name="open_play_menu_stop">Ne plus ouvrir au lancement de Nightjar</string>
     <string name="open_play_countdown">Démarrage sur %1$s dans %2$d</string>

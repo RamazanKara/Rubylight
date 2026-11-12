@@ -217,14 +217,15 @@ public class AdvancedOptionsTest {
                 PreferenceScreen other = open(screen, section).getPreferenceScreen();
                 for (String key : ADVANCED_CONTROLS) assertNull(section + ": " + key, other.findPreference(key));
             }
-            assertEquals(screen.getString(R.string.settings_section_advanced) + " · " +
-                            screen.getString(R.string.settings_category_decoder),
+            // A main row sits in its section's untitled first group, so its result names only the section.
+            assertEquals(screen.getString(R.string.settings_section_advanced),
                     resultGroup(search(screen, "compatibility"), "checkbox_texture_view").toString());
         }
     }
 
-    // Settings whose default is right for nearly everyone sit together in Debug, the last section. The decoder
-    // switches fold behind its More row, so Debug keeps the 8 main rows at most that SettingsTiersTest allows.
+    // Settings whose default is right for nearly everyone sit together in Debug, the last section. The PyroWave and
+    // decoder switches fold behind its More row in their own groups, so Debug keeps the 8 main rows at most that
+    // SettingsTiersTest allows.
     private static final List<String> DEBUG_MAIN = Arrays.asList(
             "list_fec_choice", "checkbox_rate_change_bitrate", "checkbox_tell_host_wireless", "checkbox_tell_host_link_speed",
             "checkbox_network_priority", "checkbox_unbatched_input", "checkbox_full_range");
@@ -244,8 +245,12 @@ public class AdvancedOptionsTest {
             // The overview says what each holds now that input settings left Advanced.
             assertEquals("Rarely needed settings for troubleshooting", root(screen).findPreference("debug").getSummary().toString());
             assertEquals("Decoding and diagnostics", root(screen).findPreference("advanced").getSummary().toString());
-            PreferenceGroup debug = (PreferenceGroup) open(screen, "debug").getPreferenceScreen().findPreference("category_debug");
-            assertEquals(DEBUG_CONTROLS, SettingsStructureTest.keys(debug));
+            PreferenceScreen debugRows = open(screen, "debug").getPreferenceScreen();
+            assertEquals(DEBUG_MAIN, SettingsStructureTest.keys((PreferenceGroup) debugRows.findPreference("category_debug")));
+            assertEquals(Arrays.asList("checkbox_pyrowave_preacquire"),
+                    SettingsStructureTest.keys((PreferenceGroup) debugRows.findPreference("category_debug_pyrowave")));
+            assertEquals(Arrays.asList("checkbox_submit_hint", "checkbox_codec_direct", "checkbox_receive_decode_priority"),
+                    SettingsStructureTest.keys((PreferenceGroup) debugRows.findPreference("category_debug_decoder")));
             assertEquals(DEBUG_MAIN, StreamSettings.mainKeys(screen, "debug"));
             for (String key : DEBUG_CONTROLS) {
                 assertEquals(key, !DEBUG_MAIN.contains(key), StreamSettings.foldsInSection(screen, "debug", key));
@@ -258,7 +263,8 @@ public class AdvancedOptionsTest {
             for (String key : DEBUG_CONTROLS) assertEquals(key, "debug", StreamSettings.sectionOfKey(screen, key));
             assertEquals("Debug", resultGroup(search(screen, "Error correction"), "list_fec_choice").toString());
             assertEquals("Debug", resultGroup(search(screen, "Prioritize stream traffic"), "checkbox_network_priority").toString());
-            assertEquals("Debug", resultGroup(search(screen, "Video data straight"), "checkbox_codec_direct").toString());
+            assertEquals("Debug · " + screen.getString(R.string.settings_category_decoder),
+                    resultGroup(search(screen, "Video data straight"), "checkbox_codec_direct").toString());
         }
     }
 
@@ -362,8 +368,8 @@ public class AdvancedOptionsTest {
             assertEquals(1, countKey(advanced, GPU_BOOST));
             MaterialSwitchPreference boost = (MaterialSwitchPreference) advanced.findPreference(GPU_BOOST);
             assertEquals("Boost GPU performance for PyroWave", boost.getTitle().toString());
-            assertEquals("Can reduce decoding time, but uses more power and produces more heat.",
-                    boost.getSummary().toString());
+            assertEquals(screen.getString(R.string.summary_gpu_max_clocks), boost.getSummary().toString());
+            assertEquals("Higher GPU clocks for faster PyroWave decoding, at more power and heat.", boost.getSummary().toString());
             assertNull(boost.getExplanation());
             assertFalse(boost.isChecked());
             assertFalse(PreferenceConfiguration.readPreferences(screen).gpuMaxClocks);
@@ -380,8 +386,8 @@ public class AdvancedOptionsTest {
             for (String section : new String[] {"video", "display", "input", "audio", "streaming", "app"}) {
                 assertNull(section, open(screen, section).getPreferenceScreen().findPreference(GPU_BOOST));
             }
-            assertEquals(screen.getString(R.string.settings_section_advanced) + " · " +
-                            screen.getString(R.string.settings_category_decoder),
+            // A main row of Advanced: its result names only the section.
+            assertEquals(screen.getString(R.string.settings_section_advanced),
                     resultGroup(search(screen, "Boost GPU"), GPU_BOOST).toString());
         }
     }

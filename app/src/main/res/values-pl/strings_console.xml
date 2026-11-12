@@ -16,7 +16,7 @@
     <string name="console_badge_running">Uruchomiona</string>
     <string name="console_badge_suspended">Wstrzymana</string>
     <string name="console_card_on_host">Na: %1$s</string>
-    <string name="console_card_on_hosts">Na %1$d hostach</string>
+    <string name="console_card_on_hosts">Na %1$d komputerach</string>
     <string name="console_host_games">Gry: %1$d</string>
     <string name="console_host_saved_games">Offline. Zapisane gry: %1$d</string>
     <string name="console_host_offline">Offline</string>
@@ -66,9 +66,9 @@
     <!-- tv-redesign-5 -->
     <string name="console_detail_installed">Zainstalowana</string>
     <string name="console_card_asleep">%1$s, komputer uśpiony</string>
-    <string name="console_wake_and_play">Obudź komputer i graj</string>
-    <string name="console_wake_waiting">Czekam, aż %1$s się obudzi…</string>
-    <string name="console_wake_timeout">%1$s nie obudził się na czas. Sprawdź, czy Wake-on-LAN jest skonfigurowany, i spróbuj ponownie.</string>
+    <string name="console_wake_and_play">Wybudź komputer i graj</string>
+    <string name="console_wake_waiting">Czekam, aż %1$s się wybudzi…</string>
+    <string name="console_wake_timeout">%1$s nie wybudził się na czas. Sprawdź, czy Wake-on-LAN jest skonfigurowany, i spróbuj ponownie.</string>
     <string name="console_choose_pc">Na którym komputerze grać?</string>
     <string name="console_badge_asleep">Komputer uśpiony</string>
     <string name="pc_status_online">Online</string>

@@ -119,7 +119,7 @@ impl HostAudio {
 
     /// The line the menu shows when the PC offers switches but their state couldn't be read.
     pub fn problem(&self) -> Option<&'static str> {
-        self.unread.then(|| tr("The PC's audio settings could not be read"))
+        self.unread.then(|| tr("The PC’s audio settings could not be read"))
     }
 
     /// Takes the PC's answer; a failed change is the text to show.
@@ -145,7 +145,7 @@ impl HostAudio {
                 }
             }
             AudioAnswer::Changed(Ok(audio)) => self.audio = Some(audio),
-            AudioAnswer::Changed(Err(error)) => return Err(trf("Could not change the PC's audio: {}", &[&error])),
+            AudioAnswer::Changed(Err(error)) => return Err(trf("Could not change the PC’s audio: {}", &[&error])),
         }
         Ok(())
     }
@@ -237,7 +237,7 @@ pub fn kbps(position: f64) -> u32 {
 fn label(kbps: u32) -> String {
     if kbps < 1000 { return format!("{kbps} kbps"); }
     let mbps = f64::from(kbps) / 1000.0;
-    if kbps % 1000 == 0 { format!("{mbps:.0} Mbps") } else { format!("{mbps:.1} Mbps") }
+    if kbps.is_multiple_of(1000) { format!("{mbps:.0} Mbps") } else { format!("{mbps:.1} Mbps") }
 }
 
 /// Typed text: a number in Mbps, or with a kbps or Mbps suffix.
@@ -385,7 +385,7 @@ mod tests {
         // The switches go, nothing stale stays, and the menu says why.
         menu.answered(read(Some(vec![NIGHT_MODE, HEADPHONE_SURROUND]), Err("timed out".into()))).unwrap();
         assert!(menu.switches().is_empty());
-        assert_eq!(menu.problem(), Some("The PC's audio settings could not be read"));
+        assert_eq!(menu.problem(), Some("The PC’s audio settings could not be read"));
         // The next read that works takes the line away.
         menu.answered(read(Some(vec![NIGHT_MODE, HEADPHONE_SURROUND]), Ok(Some(audio())))).unwrap();
         assert_eq!(menu.problem(), None);

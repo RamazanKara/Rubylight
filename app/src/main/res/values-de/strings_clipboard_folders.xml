@@ -48,7 +48,7 @@
     <string name="folders_no_console_user">Am PC ist niemand angemeldet.</string>
     <string name="folders_busy">Eine andere Übertragung von diesem Gerät läuft. Versuche es danach erneut.</string>
     <string name="folders_size_unknown">Die Größe der Datei ist unbekannt, daher kann sie nicht hochgeladen werden.</string>
-    <string name="folders_unsupported">Dieser PC bietet keine geteilten Ordner an: Sein Host ist zu alt dafür oder er teilt noch keinen. Teile einen in der Web-Oberfläche des PCs.</string>
+    <string name="folders_unsupported">Dieser PC bietet keine geteilten Ordner an: Seine Streaming-App ist zu alt dafür oder er teilt noch keinen. Teile einen in der Web-UI des PCs.</string>
     <string name="folders_save_lost">Die zu speichernde Datei ging verloren, während der Speichern-Dialog offen war. Nichts wurde gespeichert.</string>
     <string name="folders_partial_left">%1$s Eine unvollständige Datei liegt noch unter %2$s.</string>
     <string name="folders_bad_path">Diesen Pfad kann Nightjar nicht öffnen: %1$s</string>

@@ -114,6 +114,34 @@ pub const ROUTE_PROBE_TIMEOUT_MS: u64 = 400;
 /// `CONTROL_PEER_TIMEOUT`): a tolerance up to it changes nothing.
 pub const PEER_TIMEOUT_MS: u32 = 10_000;
 
+/// "Wait through network dropouts": the waits both clients offer, in seconds. 0 is Off: the
+/// connection keeps its own timeout ([`PEER_TIMEOUT_MS`]), so any wait up to it changes nothing
+/// and reads as Off. Android stores the seconds (`list_network_grace`), desktop the milliseconds
+/// (`network_grace_ms`); neither default changes.
+pub const NETWORK_GRACE_CHOICES_S: [u32; 5] = [0, 15, 20, 30, 60];
+
+/// The choice, in seconds, that a stored wait in milliseconds reads as: Off up to the
+/// connection's own timeout, else the nearest longer wait offered (a tie takes the longer one).
+pub fn network_grace_choice_s(stored_ms: u32) -> u32 {
+    if stored_ms <= PEER_TIMEOUT_MS {
+        return 0;
+    }
+    NETWORK_GRACE_CHOICES_S
+        .into_iter()
+        .filter(|&s| s > 0)
+        .min_by_key(|&s| (u64::from(s) * 1000).abs_diff(u64::from(stored_ms)) * 2 + u64::from(s * 1000 < stored_ms))
+        .unwrap_or(0)
+}
+
+/// A stored wait as the engine takes it: Off as stored (any wait up to the timeout is the same),
+/// a longer one moved onto its choice.
+pub fn network_grace_ms(stored_ms: u32) -> u32 {
+    match network_grace_choice_s(stored_ms) {
+        0 => stored_ms,
+        seconds => seconds * 1000,
+    }
+}
+
 /// A network is back after the stream's was lost. True: reconnect now, since the engine said
 /// the connection cannot carry on over it (`cannot_continue`: the route toward the PC leaves
 /// from another address and the stream did not roam there) and would only time out. Never when
@@ -341,6 +369,36 @@ impl Subject for TracedRouteWait {
             }
             "unreachable_checks" => Args::new(args, 0).map(|_| wait.unreachable_checks().into()),
             _ => Err(format!("unknown method {method}")),
+        }
+    }
+}
+
+#[cfg(test)]
+mod network_grace_tests {
+    use super::*;
+
+    #[test]
+    fn every_stored_wait_reads_as_one_choice() {
+        // Desktop's old list (0, 3, 5, 10, 15 s) and default (3 s): up to the timeout all are Off.
+        for ms in [0, 3_000, 5_000, 10_000] {
+            assert_eq!(network_grace_choice_s(ms), 0, "{ms}");
+            assert_eq!(network_grace_ms(ms), ms, "{ms}: Off stays as stored");
+        }
+        assert_eq!(network_grace_choice_s(15_000), 15);
+        // Android's list (Off, 20, 30, 60 s) keeps its values.
+        for s in [20, 30, 60] {
+            assert_eq!(network_grace_choice_s(s * 1000), s);
+        }
+        // A hand-edited value moves to the nearest; a tie takes the longer wait.
+        assert_eq!(network_grace_choice_s(10_001), 15);
+        assert_eq!(network_grace_choice_s(17_500), 20);
+        assert_eq!(network_grace_choice_s(24_000), 20);
+        assert_eq!(network_grace_choice_s(45_000), 60);
+        assert_eq!(network_grace_choice_s(600_000), 60);
+        assert_eq!(network_grace_ms(12_000), 15_000);
+        // Every choice reads as itself.
+        for s in NETWORK_GRACE_CHOICES_S {
+            assert_eq!(network_grace_choice_s(s * 1000), s);
         }
     }
 }

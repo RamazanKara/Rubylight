@@ -95,7 +95,8 @@ pub const CLOSE: &str = "close";
 
 /// Every tile either client offers, in the order the menu shows them. The keyboards, the mouse,
 /// the overlay and the shortcuts come first, each with a button; the ways out of the session sit
-/// in the footer, leaving first, ending the PC's session or game after it.
+/// in the footer, leaving first and quitting the game after it. Ending the PC's session while its
+/// game keeps running is rarer and sits last under More, so the footer never offers three exits.
 pub const TILES: &[Tile] = &[
     grid("keyboard", Some(Hotkey::Y), l("keyboard", "Keyboard")),
     grid("pc_keyboard", None, l("pc_keyboard", "PC keyboard")),
@@ -141,8 +142,8 @@ pub const TILES: &[Tile] = &[
     more("export_statistics"),
     more("help"),
     more("reconnect"),
+    more("end_host_session"),
     footer("disconnect", Some(l("disconnect", "Disconnect"))),
-    footer("end_host_session", Some(l("end_session", "End session"))),
     footer("close_game", Some(l("close_game", "Quit game"))),
     footer("quit_game", Some(l("quit_game", "Quit game"))),
     footer("end_session", None),
@@ -559,6 +560,20 @@ mod tests {
         assert_eq!(layout.grid[2], Cell::Tile { id: "overlay", on: Some(true), hotkey: Some(Hotkey::Rb) });
     }
 
+    /// The bottom row has two ways out, Disconnect and Quit game; End session, which leaves the game
+    /// running on the PC, is the last row under More.
+    #[test]
+    fn the_footer_offers_disconnect_and_quit_game_and_end_session_sits_under_more() {
+        let offers = [Offer::action("end_host_session"), Offer::action("close_game"), Offer::action("disconnect"), Offer::action("reconnect")];
+        let layout = layout(&offers, None).unwrap();
+        assert_eq!(layout.footer, ["close", "disconnect", "close_game"]);
+        assert_eq!(layout.more, ["reconnect", "end_host_session"]);
+        assert!(!assignable(tile("end_host_session").unwrap()), "a button runs what the first page shows");
+        let only_end = layout_with_buttons(&[Offer::action("end_host_session")], None, &Buttons::from([(Hotkey::Y, "end_host_session".to_owned())])).unwrap();
+        assert_eq!(only_end.footer, ["close"]);
+        assert_eq!(only_end.buttons.get(&Hotkey::Y), None, "an old choice of End session leaves Y on its default, which is not offered");
+    }
+
     #[test]
     fn a_button_runs_the_tile_the_user_chose_for_it() {
         let offers = [Offer::action("keyboard"), Offer::switch("controller_mouse", false), Offer::switch("overlay", false),
@@ -722,9 +737,12 @@ mod tests {
                 Place::Footer => {}
             }
         }
-        for id in ["disconnect", "end_host_session", "close_game", "quit_game", MORE, CLOSE, ADD] {
+        for id in ["disconnect", "close_game", "quit_game", MORE, CLOSE, ADD] {
             assert!(label(id).is_some(), "{id}");
         }
+        // The footer holds Disconnect and Quit game only; End session is a More row.
+        assert_eq!(tile("end_host_session").map(|t| t.place), Some(Place::More));
+        assert_eq!(label("end_host_session"), None);
         assert_eq!(label("bitrate"), label("rate_change"), "both change the quality");
         // The native Close game and the classic Quit end the same game: one word for both.
         assert_eq!(label("close_game").map(|l| l.en), label("quit_game").map(|l| l.en));

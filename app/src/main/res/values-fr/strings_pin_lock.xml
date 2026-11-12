@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="pin_lock_title">Verrouillage par code PIN</string>
-    <string name="pin_lock_summary">Demande un code PIN pour ouvrir Nightjar ou lancer un stream. Un code PIN oublié ne peut être réinitialisé qu’en effaçant les données de Nightjar dans les paramètres d’Android, ce qui supprime aussi vos PC associés.</string>
+    <string name="pin_lock_summary">Demande un code PIN pour ouvrir Nightjar ou lancer un stream.</string>
     <string name="pin_set">Définir le code PIN</string>
     <string name="pin_change">Modifier le code PIN</string>
     <string name="pin_remove">Supprimer le code PIN</string>

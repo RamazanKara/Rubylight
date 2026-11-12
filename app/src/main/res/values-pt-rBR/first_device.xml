@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="report_problem">Informar um problema</string>
-    <string name="report_problem_summary">Compartilhar um relatório sem dados pessoais</string>
+    <string name="report_problem_summary">Compartilha um relatório sem dados pessoais.</string>
     <string name="report_problem_details">Compartilhe um relatório sem dados pessoais.\nVocê escolhe para onde enviá-lo.</string>
     <string name="report_problem_share">Compartilhar relatório</string>
     <string name="report_problem_failed">Não foi possível compartilhar o relatório.\nVerifique o armazenamento e instale um app de compartilhamento de arquivos.</string>
@@ -12,8 +12,8 @@
     <string name="stream_restore_help">Transmissão interrompida.\nAbra a lista de apps do seu PC para retomar.</string>
     <string name="stream_presets">Predefinições</string>
     <string name="stream_presets_help">Nativo transmite na resolução e taxa de atualização desta tela com todas as configurações de latência ativadas.\nEconomia de bateria mantém essa resolução a 30 fps.\nOs perfis de PC continuam tendo prioridade.</string>
-    <string name="summary_frame_pacing">Equilibra o tempo de resposta e a fluidez quando o VRR está desativado.</string>
-    <string name="summary_language">Escolha o idioma usado pelo app.</string>
+    <string name="summary_frame_pacing">Equilibra o tempo de resposta e a fluidez enquanto o VRR está desativado.</string>
+    <string name="summary_language">O idioma dos menus do Nightjar.</string>
     <string name="overlay_mode_help">Desativado oculta a sobreposição. Compacta mostra uma linha: FPS renderizados, tempo de ida e volta da rede (RTT) e perda de quadros, atrás de um ponto que fica âmbar ou vermelho quando a transmissão tem dificuldades. Estatísticas mostra medições da transmissão em tempo real. Depuração adiciona percentis de tempo e diagnósticos do decodificador; role para ver todos os detalhes. Você também pode alterá-la no menu da transmissão.</string>
     <string name="overlay_statistics">Estatísticas</string>
     <string name="overlay_debug">Depuração</string>
@@ -53,11 +53,11 @@
     <string name="connection_test_stats">Ping %1$s · Jitter %2$s · Perda %3$s</string>
     <string name="connection_test_unavailable">–</string>
     <string name="connection_test_failed">Velocidade não medida: o teste falhou</string>
-    <string name="pair_connection_fix">Use a mesma rede e inicie o host.\nVerifique o firewall e tente novamente.</string>
+    <string name="pair_connection_fix">Use a mesma rede e inicie o app de transmissão do PC.\nVerifique o firewall e tente novamente.</string>
     <string name="pair_try_again">Tentar novamente</string>
     <string name="discovery_add">Adicionar um PC manualmente</string>
     <string name="discovery_help">Ajuda com pareamento</string>
     <string name="wol_help_title">Configurar Wake-on-LAN</string>
-    <string name="summary_wol_help">Saiba como ligar um PC em suspensão pelo app.</string>
-    <string name="wol_help_text">1. Pareie com o PC ligado.\n2. Ative o Wake-on-LAN no PC.\n3. Use a rede local e escolha Ligar PC.</string>
+    <string name="summary_wol_help">Saiba como despertar um PC em suspensão pelo app.</string>
+    <string name="wol_help_text">1. Pareie com o PC ligado.\n2. Ative o Wake-on-LAN no PC.\n3. Use a rede local e escolha “Despertar”.</string>
 </resources>

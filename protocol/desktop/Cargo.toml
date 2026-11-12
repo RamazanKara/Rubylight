@@ -4,8 +4,8 @@ description = "Nightjar desktop Moonlight-protocol game-streaming client for Win
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-# sdl3-sys needs 1.85.
-rust-version = "1.85"
+# sdl3-sys needs 1.85, sonora 1.91.
+rust-version = "1.91"
 publish = false
 
 [[bin]]
@@ -31,6 +31,9 @@ mdns-sd = { version = "0.21", default-features = false }
 if-addrs = "0.15"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# The microphone's noise suppression and automatic gain (stream/mic_dsp.rs): WebRTC's audio
+# processing in pure Rust (BSD-3-Clause, assets/NOTICE-SONORA.txt), as Android's echo canceller uses.
+sonora = "0.2"
 directories = "6"
 # The PyroWave SDK library is loaded at run time (stream/pyrowave_sdk.rs); ash only gives it the
 # Vulkan types, so neither bindgen nor Vulkan headers are involved.

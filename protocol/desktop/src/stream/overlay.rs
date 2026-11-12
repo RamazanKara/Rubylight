@@ -133,14 +133,14 @@ fn reading(readings: &Readings, key: &str, decimals: usize) -> String {
 /// The host's readings, as Android's `withHardwareMetrics`: the CPU and each GPU's usage,
 /// temperature and power in Statistics; the sample time and each GPU in full in Debug.
 pub fn hardware(metrics: &HardwareMetrics, debug: bool) -> Vec<(String, String)> {
-    let mut lines = vec![("Host CPU".into(), format!("{}%", reading(&metrics.cpu, "cpu_usage_percent", 1)))];
+    let mut lines = vec![("PC CPU".into(), format!("{}%", reading(&metrics.cpu, "cpu_usage_percent", 1)))];
     if debug {
-        lines.push(("Host sample".into(), format!("{} ms since Unix epoch · Interval: {} ms", metrics.sampled_at_unix_ms, metrics.interval_ms)));
+        lines.push(("PC sample".into(), format!("{} ms since Unix epoch · Interval: {} ms", metrics.sampled_at_unix_ms, metrics.interval_ms)));
     }
     for gpu in &metrics.gpus {
         let r = &gpu.metrics;
         if !debug {
-            lines.push((format!("Host GPU {}", gpu.id), format!("{}% · {} °C · {} W",
+            lines.push((format!("PC GPU {}", gpu.id), format!("{}% · {} °C · {} W",
                 reading(r, "gpu_usage_percent", 1), reading(r, "gpu_temperature_c", 1), reading(r, "gpu_power_w", 1))));
             continue;
         }
@@ -258,8 +258,8 @@ mod tests {
             "cpu":{"cpu_usage_percent":41.6},
             "gpus":[{"id":0,"name":"","metrics":{"gpu_usage_percent":0,"gpu_temperature_c":61.5,"gpu_clock_mhz":2400}}]}"#).unwrap();
         assert_eq!(hardware(&sample, false), [
-            ("Host CPU".to_owned(), "41.6%".to_owned()),
-            ("Host GPU 0".to_owned(), "0.0% · 61.5 °C · — W".to_owned()),
+            ("PC CPU".to_owned(), "41.6%".to_owned()),
+            ("PC GPU 0".to_owned(), "0.0% · 61.5 °C · — W".to_owned()),
         ]);
         let debug = hardware(&sample, true);
         assert_eq!(debug[1].1, "1791712800000 ms since Unix epoch · Interval: 1000 ms");

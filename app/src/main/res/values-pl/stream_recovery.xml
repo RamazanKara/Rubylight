@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_auto_reconnect">Przywracaj przerwane strumienie</string>
-    <string name="summary_auto_reconnect">Automatycznie wznawia tę samą uruchomioną grę po chwilowej awarii połączenia. Do pięciu prób w ciągu jednej minuty; naciśnij Wstecz, aby anulować.</string>
+    <string name="summary_auto_reconnect">Ponownie łączy z tą samą grą po zerwaniu połączenia, do pięciu razy na minutę.</string>
     <string name="stream_recovery_attempt">Ponowne łączenie z grą… Próba %1$d z %2$d. Naciśnij Wstecz, aby anulować.</string>
     <string name="stream_recovery_session_changed">Poprzednia sesja gry nie jest już dostępna. Automatyczne przywracanie zostało zatrzymane, aby nie uruchomić ani nie zastąpić gry.</string>
     <string name="continue_here_browser_stream">Inne urządzenie gra w tę grę w przeglądarce i ten strumień nie może działać równolegle. Najpierw zakończ tamten strumień.</string>

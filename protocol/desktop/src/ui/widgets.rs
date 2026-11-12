@@ -21,7 +21,7 @@ pub(crate) fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
     } else if high_contrast() {
         *SURFACE_HIGHEST
     } else {
-        design_tokens::TINT_TRACK_FILL
+        shade::TINT_TRACK_FILL.get()
     };
     let track = if enabled { track } else { track.gamma_multiply(0.4) };
     let mut shapes = Vec::new();
@@ -31,8 +31,8 @@ pub(crate) fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
     }
     let thumb = round - 3.0;
     let knob_x = egui::lerp(rect.left() + round..=rect.right() - round, t);
-    let knob = if enabled { *PAPER } else { PAPER.gamma_multiply(0.6) };
-    shapes.push(egui::Shape::circle_filled(Pos2::new(knob_x, rect.center().y), thumb, knob));
+    let knob_fill = if enabled { knob() } else { knob().gamma_multiply(0.6) };
+    shapes.push(egui::Shape::circle_filled(Pos2::new(knob_x, rect.center().y), thumb, knob_fill));
     ui.painter().extend(shapes);
     focus_ring(ui, rect, &response, round as u8);
     response
@@ -61,9 +61,9 @@ pub(crate) fn paint_focus_ring(painter: &egui::Painter, rect: Rect, radius: u8) 
 /// What a tinted surface or control takes under the pointer or while held: one lift for all of them.
 pub(crate) fn lift_shapes(out: &mut Vec<egui::Shape>, ctx: &egui::Context, rect: Rect, r: f32, hovered: bool, pressed: bool) {
     let lift = if pressed {
-        design_tokens::PRESS_FILL_LIFT
+        shade::PRESS_FILL_LIFT.get()
     } else if hovered {
-        design_tokens::HOVER_FILL_LIFT
+        shade::HOVER_FILL_LIFT.get()
     } else {
         return;
     };
@@ -130,7 +130,7 @@ impl Tone {
                 (fill, *ON_MOON_CONTAINER)
             }
             Tone::Danger if high_contrast() => (*state_fill(SURFACE_HIGH, hovered, pressed), *ERROR),
-            Tone::Danger => (design_tokens::COLOR_DANGER_FILL, design_tokens::COLOR_ON_DANGER_FILL),
+            Tone::Danger => (shade::COLOR_DANGER_FILL.get(), shade::COLOR_ON_DANGER_FILL.get()),
         }
     }
 }
@@ -211,8 +211,8 @@ pub(crate) fn button_at_least(ui: &mut Ui, id: Option<egui::Id>, icon: Option<Ic
                     glass::solid(&mut shapes, ctx, rect, r, fill);
                     glass::rim(&mut shapes, ctx, rect, r, 1.5, &|_| design_tokens::HC_COLOR_RIM);
                 } else {
-                    glass::solid(&mut shapes, ctx, rect, r, design_tokens::TINT_SELECTED_FILL);
-                    let rim = glass::gradient(rect, 180.0, &[(0.0, design_tokens::TINT_SELECTED_RIM_TOP), (0.06, Color32::TRANSPARENT)]);
+                    glass::solid(&mut shapes, ctx, rect, r, shade::TINT_SELECTED_FILL.get());
+                    let rim = glass::gradient(rect, 180.0, &[(0.0, shade::TINT_SELECTED_RIM_TOP.get()), (0.06, Color32::TRANSPARENT)]);
                     glass::rim(&mut shapes, ctx, rect, r, 1.0, &rim);
                 }
                 lift_shapes(&mut shapes, ctx, rect, r, hovered && enabled, pressed && enabled);
@@ -225,7 +225,7 @@ pub(crate) fn button_at_least(ui: &mut Ui, id: Option<egui::Id>, icon: Option<Ic
                     glass::rim(&mut shapes, ctx, rect, r, 1.5, &|_| *ERROR);
                 } else {
                     glass::solid(&mut shapes, ctx, rect, r, fill);
-                    let rim = glass::gradient(rect, 180.0, &[(0.0, design_tokens::TINT_CONTROL_RIM_TOP), (0.4, Color32::TRANSPARENT)]);
+                    let rim = glass::gradient(rect, 180.0, &[(0.0, shade::TINT_CONTROL_RIM_TOP.get()), (0.4, Color32::TRANSPARENT)]);
                     glass::rim(&mut shapes, ctx, rect, r, 1.0, &rim);
                 }
                 lift_shapes(&mut shapes, ctx, rect, r, hovered && enabled, pressed && enabled);
@@ -468,6 +468,17 @@ pub(crate) fn page_scroll_from(ui: &mut Ui, id: impl std::hash::Hash + std::fmt:
     .inner
 }
 
+/// Room for the caret at a field's start: a hint begins after it, so the caret of an empty field
+/// never covers its first letter ("|P address or name").
+const CARET_ROOM: f32 = 4.0;
+
+/// A field's hint in `font` (the field's own), clear of the caret, in the colour fields give hints.
+pub(super) fn hint(text: &str, font: egui::FontId) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::default();
+    job.append(text, CARET_ROOM, egui::TextFormat::simple(font, Color32::PLACEHOLDER));
+    job
+}
+
 /// A column of rows `width` wide in a page that scrolls whole.
 pub(crate) fn column(ui: &mut Ui, width: f32, add: impl FnOnce(&mut Ui)) {
     ui.vertical(|ui| {
@@ -530,14 +541,14 @@ pub(super) fn section_at(ui: &mut Ui, title: &str, jump: &mut Option<&'static st
 
 /// What a group of rows or a card on the night sky is filled with: the sky shows through a little.
 pub(super) fn group_fill() -> Color32 {
-    if high_contrast() { *SURFACE } else { design_tokens::TINT_GROUP_ON_SKY_FILL }
+    if high_contrast() { *SURFACE } else { shade::TINT_GROUP_ON_SKY_FILL.get() }
 }
 
 /// What a group of settings rows is filled with. A row's words may pass over the moon, and text
 /// reads over the worst backdrop: dark enough for the secondary colour on amber, and the sky still
 /// shows through a little.
 pub(super) fn rows_fill() -> Color32 {
-    if high_contrast() { *SURFACE } else { design_tokens::COLOR_SURFACE_LOW.gamma_multiply(ROWS_ALPHA) }
+    if high_contrast() { *SURFACE } else { shade::COLOR_SURFACE_LOW.get().gamma_multiply(ROWS_ALPHA) }
 }
 
 const ROWS_ALPHA: f32 = 0.9;
@@ -576,7 +587,7 @@ pub(crate) fn group_row(ui: &mut Ui, add: impl FnOnce(&mut Ui)) -> Rect {
         Some(run) => {
             ui.add_space(-gap);
             let line = Rect::from_min_max(Pos2::new(run.left + 18.0, run.bottom - 0.5), Pos2::new(run.right, run.bottom + 0.5));
-            painter.rect_filled(line, CornerRadius::ZERO, design_tokens::TINT_SEPARATOR);
+            painter.rect_filled(line, CornerRadius::ZERO, shade::TINT_SEPARATOR.get());
             run
         }
         None => RowRun {

@@ -4,7 +4,7 @@
     <string name="health_intro">Mẫu hiện có: %1$d. Dữ liệu bao quát 30 giây gần nhất. Nhiều giai đoạn có thể chậm cùng lúc; các quan sát này chỉ gợi ý nguyên nhân, không phải chẩn đoán chắc chắn. Không ghi lại video hay thông tin cá nhân.</string>
     <string name="health_insufficient">Chưa đủ video gần đây để đánh giá. Hãy chơi vài giây khi đóng menu, rồi quay lại ngay sau khi bị giật.</string>
     <string name="health_no_issue">Không thấy nút thắt cổ chai lặp lại nào trong các phép đo hiện có. Những đợt tăng vọt ngắn và các giai đoạn không được đo vẫn có thể gây giật.</string>
-    <string name="health_network">Mạng: mất khung hình hoặc thời gian khứ hồi dao động lặp lại. Hãy thử tốc độ bit thấp hơn, nối máy chủ bằng dây hoặc dùng Wi-Fi ít tắc nghẽn hơn.</string>
+    <string name="health_network">Mạng: mất khung hình hoặc thời gian khứ hồi dao động lặp lại. Hãy thử tốc độ bit thấp hơn, nối PC bằng dây hoặc dùng Wi-Fi ít tắc nghẽn hơn.</string>
     <string name="health_decoder">Giải mã: đầu ra liên tục mất ít nhất một khoảng khung hình. Hãy thử độ phân giải hoặc tốc độ khung hình thấp hơn; chỉ giảm tốc độ bit có thể không giúp được.</string>
     <string name="health_host">Máy chủ: các mẫu xử lý chậm hơn vượt quá khoảng khung hình. Hãy so sánh tải trò chơi/GPU và thử giới hạn khung hình trong trò chơi thấp hơn. Phép đo này bao gồm nhiều hơn chỉ quá trình mã hóa.</string>
     <string name="health_presentation">Hiển thị: khung hình được đưa ra nhanh hơn tốc độ hiển thị, và lên màn hình trễ. Hãy so sánh các chế độ nhịp độ khung hình và tần số quét màn hình.</string>
@@ -14,9 +14,9 @@
     <string name="health_trial_help">Thử tốc độ bit chỉ thay đổi phiên này. Hãy so sánh thêm 30 giây chơi tương tự, rồi quay lại đây để hoàn tác. Thay đổi tốc độ bit thủ công hoặc tự động sẽ thay thế lần thử.</string>
     <string name="health_try">Thử tốc độ bit thấp hơn</string>
     <string name="health_undo">Hoàn tác thử tốc độ bit</string>
-    <string name="health_bitrate_unavailable">Máy chủ không báo tốc độ bit hiện tại của bộ mã hóa. Chưa áp dụng lần thử.</string>
-    <string name="health_trial_replaced">Tốc độ bit của máy chủ đã thay đổi kể từ lần thử. Đã hủy hoàn tác để giữ thay đổi đó.</string>
+    <string name="health_bitrate_unavailable">PC không báo tốc độ bit hiện tại của bộ mã hóa. Chưa áp dụng lần thử.</string>
+    <string name="health_trial_replaced">Tốc độ bit của PC đã thay đổi kể từ lần thử. Đã hủy hoàn tác để giữ thay đổi đó.</string>
     <string name="health_bitrate_minimum">Bộ mã hóa đã ở tốc độ bit thử tối thiểu. Không có thay đổi nào.</string>
     <string name="health_periodic">Giật lặp lại: %2$d lần mạng bị khựng trong 20 phút qua, bắt đầu khoảng mỗi %1$s một lần. Nhịp đều như vậy thường do quét Wi-Fi chạy nền trên thiết bị này hoặc trên PC. Để giảm:\n• Android: Cài đặt → Vị trí → Dịch vụ vị trí, tắt Quét tìm Wi-Fi và Quét tìm Bluetooth.\n• Android: để bật Tùy chọn cho nhà phát triển → Hạn chế quét tìm Wi-Fi.\n• Đóng các ứng dụng tìm mạng hoặc thiết bị lân cận trong khi stream.\n• PC: nối bằng cáp mạng hoặc dừng các công cụ quét mạng Wi-Fi.\nNightjar đã giữ khóa Wi-Fi độ trễ thấp của Android trong khi stream để yêu cầu hệ thống hoãn quét; một số thiết bị vẫn quét.</string>
-    <string name="health_bursts">Dồn khung hình: trong %1$d trên %2$d giây gần nhất, mạng đã giữ khung hình lại rồi giao nhiều khung cùng lúc dù máy chủ đã gửi đúng giờ; dùng cáp mạng hoặc kênh Wi-Fi 5 hay 6 GHz ít đông đúc hơn sẽ giúp ích.</string>
+    <string name="health_bursts">Dồn khung hình: trong %1$d trên %2$d giây gần nhất, mạng đã giữ khung hình lại rồi giao nhiều khung cùng lúc dù PC đã gửi đúng giờ; dùng cáp mạng hoặc kênh Wi-Fi 5 hay 6 GHz ít đông đúc hơn sẽ giúp ích.</string>
 </resources>

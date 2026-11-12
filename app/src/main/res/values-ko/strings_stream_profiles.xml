@@ -66,7 +66,7 @@
 
     <!-- Bitrate on mobile data (Settings → Video) -->
     <string name="title_mobile_bitrate">모바일 데이터 비트레이트</string>
-    <string name="summary_mobile_bitrate">모바일 데이터 또는 휴대전화 핫스팟처럼 Android가 데이터 사용량 제한 네트워크로 표시한 Wi-Fi에서 스트림을 시작할 때 비트레이트를 제한합니다. 프로필, PC, 게임 값도 모두 이 한도를 넘지 않습니다. 사용 안함으로 두면 다른 네트워크와 같은 비트레이트를 사용합니다.</string>
+    <string name="summary_mobile_bitrate">모바일 데이터나 데이터 사용량 제한 네트워크에서 스트림이 사용하는 최대 비트레이트입니다.</string>
     <string name="mobile_bitrate_off">사용 안함</string>
 
     <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->
@@ -95,7 +95,7 @@
     <string name="layers_from_pc">이 PC에 설정됨</string>
     <string name="layers_from_game">이 게임에 설정됨</string>
     <string name="layers_from_mobile_limit">모바일 데이터 한도</string>
-    <string name="layers_pacing_vrr">적응형 주사율이 켜져 있어 스트림에 최저 지연 시간을 사용합니다.</string>
+    <string name="layers_pacing_vrr">가변 주사율이 켜져 있어 스트림에 최저 지연 시간을 사용합니다.</string>
 
     <!-- In the stream -->
     <string name="layers_applied">설정: %1$s</string>
@@ -117,7 +117,7 @@
     <string name="game_preset_smoothness">부드러움</string>
     <string name="game_preset_smoothness_summary">프레임을 붙잡아 지연이 늘어나는 가장 부드러운 프레임 페이싱으로 설정하고, 이 게임의 적응형 주사율을 끕니다. 비트레이트는 바뀌지 않습니다.</string>
     <string name="game_preset_quality">화질</string>
-    <string name="game_preset_quality_summary" formatted="false">비트레이트를 PC의 값(PC에 값이 없으면 기본 설정의 값)의 150%로 설정합니다. 호스트 한도까지입니다. 프레임 페이싱과 적응형 주사율은 바뀌지 않으며, 연결이 약하면 커진 프레임 때문에 지연이 늘 수 있습니다.</string>
+    <string name="game_preset_quality_summary" formatted="false">비트레이트를 PC의 값(PC에 값이 없으면 기본 설정의 값)의 150%로 설정합니다. PC 한도까지입니다. 프레임 페이싱과 적응형 주사율은 바뀌지 않으며, 연결이 약하면 커진 프레임 때문에 지연이 늘 수 있습니다.</string>
     <string name="game_preset_custom">사용자 지정</string>
     <string name="game_preset_custom_summary">아래에서 직접 설정한 값입니다.</string>
 </resources>

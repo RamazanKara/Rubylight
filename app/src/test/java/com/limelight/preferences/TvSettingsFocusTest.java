@@ -107,9 +107,14 @@ public class TvSettingsFocusTest {
         StreamSettings screen = open();
         ListView list = sections(screen);
         assertTrue("the rail has the first focus", list.hasFocus());
-        // The rail opens at its top, on its first row, whole; then the rows in their TV order.
-        press(screen, KeyEvent.KEYCODE_DPAD_UP);
-        assertEquals("input", keyAt(list, list.getSelectedItemPosition()));
+        // The rail opens on Controls in its place among the sections, as on every screen; Up climbs a row at a time to its
+        // first row, which stands whole; then Down goes through the rows in that one order.
+        int start = list.getSelectedItemPosition();
+        assertEquals("input", keyAt(list, start));
+        for (int i = start - 1; i >= 0; i--) {
+            press(screen, KeyEvent.KEYCODE_DPAD_UP);
+            assertEquals("Up moves one row", i, list.getSelectedItemPosition());
+        }
         assertEquals(0, list.getFirstVisiblePosition());
         assertEquals(list.getListPaddingTop(), list.getChildAt(0).getTop());
         List<String> visited = new ArrayList<>();
@@ -121,7 +126,7 @@ public class TvSettingsFocusTest {
             assertTrue(list.hasFocus());
             visited.add(keyAt(list, list.getSelectedItemPosition()));
         }
-        assertEquals(Arrays.asList("input", "stream_presets", "stream_profiles", "video", "display",
+        assertEquals(Arrays.asList("stream_presets", "stream_profiles", "video", "display", "input",
                 "audio", "streaming", "app", "advanced", "debug"), visited);
         for (int i = list.getCount() - 2; i >= 0; i--) {
             press(screen, KeyEvent.KEYCODE_DPAD_UP);
@@ -214,10 +219,8 @@ public class TvSettingsFocusTest {
     public void onASectionTheRingAndTheShownSectionAreTheSameRow() {
         StreamSettings screen = open();
         ListView list = sections(screen);
-        // Display: past Presets, and not the section a TV opens on.
-        for (int i = 0; i < list.getCount() && !"display".equals(keyAt(list, list.getSelectedItemPosition())); i++) {
-            press(screen, KeyEvent.KEYCODE_DPAD_DOWN);
-        }
+        // Display: past Presets, and not the section a TV opens on (Controls, the row below it).
+        goToRow(screen, "display");
         String selected = keyAt(list, list.getSelectedItemPosition());
         assertEquals("display", selected);
         // The pane follows the selected row after its pause, and the mark follows the pane.
@@ -235,21 +238,27 @@ public class TvSettingsFocusTest {
         StreamSettings screen = open();
         ListView list = sections(screen);
         View bar = screen.findViewById(R.id.settings_rail_bar);
+        int opened = StreamSettings.RootFragment.positionOf(list, "input");
+        assertEquals("the section it opens on is marked", opened, list.getCheckedItemPosition());
+        // Video, the section beside Profiles: the way up to Presets passes no other section, whose preview would load.
+        goToRow(screen, "video");
+        ShadowLooper.idleMainLooper(1, TimeUnit.SECONDS);
+        settle(screen);
+        int shown = StreamSettings.RootFragment.positionOf(list, "video");
         android.app.Fragment pane = screen.getFragmentManager().findFragmentById(R.id.stream_settings);
-        int input = StreamSettings.RootFragment.positionOf(list, "input");
-        assertEquals("the section it opens on is marked", input, list.getCheckedItemPosition());
+        assertEquals("the section shown is marked", shown, list.getCheckedItemPosition());
         assertEquals(View.VISIBLE, bar.getVisibility());
 
         for (String key : new String[] {"stream_presets", "stream_profiles"}) {
             goToRow(screen, key);
-            assertEquals(key + ": the section shown stays marked", input, list.getCheckedItemPosition());
+            assertEquals(key + ": the section shown stays marked", shown, list.getCheckedItemPosition());
             assertEquals(key + ": the pill stays", View.VISIBLE, bar.getVisibility());
             assertSame(key + ": the pane stays", pane, screen.getFragmentManager().findFragmentById(R.id.stream_settings));
         }
 
         // Focus on the pane's section again.
-        goToRow(screen, "input");
-        assertEquals(input, list.getCheckedItemPosition());
+        goToRow(screen, "video");
+        assertEquals(shown, list.getCheckedItemPosition());
         assertEquals(View.VISIBLE, bar.getVisibility());
         assertSame(pane, screen.getFragmentManager().findFragmentById(R.id.stream_settings));
 
@@ -257,7 +266,7 @@ public class TvSettingsFocusTest {
         goToRow(screen, "stream_profiles");
         press(screen, KeyEvent.KEYCODE_DPAD_RIGHT);
         assertFalse(list.hasFocus());
-        assertEquals(input, list.getCheckedItemPosition());
+        assertEquals(shown, list.getCheckedItemPosition());
         assertEquals(View.VISIBLE, bar.getVisibility());
     }
 

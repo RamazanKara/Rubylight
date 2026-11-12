@@ -212,20 +212,31 @@ pub(super) fn offered_formats(settings: &Settings, scm: u32, decodable: &(u32, S
 /// `color_probe::probe_base`): the PC then picks one the hardware decodes, H.264 at least, where
 /// FFmpeg would decode it in software. Packed full chroma checks its formats in its own probe.
 pub(super) fn offered_formats_decoding(settings: &Settings, scm: u32, decodable: &(u32, String), hardware_decodable: u32) -> color::Offer {
-    let mut base = video_formats(settings.codec, settings.hdr, if settings.experimental_packed_444 { 0 } else { scm });
-    if !settings.experimental_packed_444 {
-        base &= !(color_probe::BASE_FORMATS & !hardware_decodable);
-        // HDR on AV1 that decodes only 8-bit streams HEVC Main10 where that decodes: the
-        // handshake takes AV1 first, and AV1 8-bit would drop HDR.
-        if settings.hdr && base & VIDEO_FORMAT_AV1_MAIN10 == 0 && base & VIDEO_FORMAT_H265_MAIN10 != 0 {
-            base &= !VIDEO_FORMAT_AV1_MAIN8;
-        }
+    let base = if settings.experimental_packed_444 {
+        video_formats(settings.codec, settings.hdr, 0)
+    } else {
+        let mut base = plain_formats(settings.codec, settings.hdr, scm, hardware_decodable);
         // So do 4:4:4 and 10-bit SDR that only HEVC carries.
         if color::av1_given_up(base, color_wants(settings), decodable.0, scm) != 0 {
             base &= !VIDEO_FORMAT_AV1_MAIN8;
         }
-    }
+        base
+    };
     color::offer(base, color_wants(settings), decodable.0, &decodable.1, scm)
+}
+
+/// The plain formats a stream without packed full chroma offers before 4:4:4 and 10-bit SDR: the
+/// codec choice's that the PC encodes (`scm`), without the HEVC and AV1 ones (and their Main10
+/// ones) the stream's decoder cannot decode (`hardware_decodable`, of `color_probe::BASE_FORMATS`).
+/// "Sharper colored text" decides its own 4:4:4 from them (`full_chroma::decide`).
+pub fn plain_formats(codec: CodecPreference, hdr: bool, scm: u32, hardware_decodable: u32) -> u32 {
+    let mut base = video_formats(codec, hdr, scm) & !(color_probe::BASE_FORMATS & !hardware_decodable);
+    // HDR on AV1 that decodes only 8-bit streams HEVC Main10 where that decodes: the
+    // handshake takes AV1 first, and AV1 8-bit would drop HDR.
+    if hdr && base & VIDEO_FORMAT_AV1_MAIN10 == 0 && base & VIDEO_FORMAT_H265_MAIN10 != 0 {
+        base &= !VIDEO_FORMAT_AV1_MAIN8;
+    }
+    base
 }
 
 /// When the codec chosen is one this device's hardware decoder can't decode (`hardware_decodable`,
@@ -253,7 +264,7 @@ pub(super) fn codec_fallback(settings: &Settings, scm: u32, hardware_decodable: 
         let (asked, streamed) = (codec_name(asked), codec_name(negotiated));
         return Some((
             format!("nightjar: {asked} was chosen with full chroma, but this PC and device have no packed {asked} mode in common; streaming {streamed}"),
-            trf("Full chroma can’t run {} with this PC and device, so Nightjar uses {}.", &[&asked, &streamed]),
+            trf("Sharper colored text can’t run {} with this PC and device, so Nightjar uses {}.", &[&asked, &streamed]),
         ));
     }
     // AV1 that decodes but leaves 4:4:4 or 10-bit SDR to HEVC (`color::av1_given_up`): the AV1
@@ -357,11 +368,11 @@ fn refusal_text(refusal: &color::Refusal) -> String {
     use color::Refusal;
     match refusal {
         Refusal::Off | Refusal::Hdr => String::new(),
-        Refusal::Packed444 => tr("full chroma is on and has its own 4:4:4 and 10-bit handling.").into(),
+        Refusal::Packed444 => tr("sharper colored text is on and has its own 4:4:4 and 10-bit handling.").into(),
         Refusal::PyroWave => tr("PyroWave is chosen, and it has its own 4:4:4 and 10-bit modes.").into(),
         Refusal::Decoder(why) => trf("this device can’t decode or draw it ({}).", &[why]),
         Refusal::Host => tr("the PC doesn’t encode it for this codec.").into(),
-        Refusal::Yuv444 => tr("4:4:4 is on, and the PC takes 4:4:4 or 10-bit, not both.").into(),
+        Refusal::Yuv444 => tr("sharper colored text is on, and the PC takes 4:4:4 or 10-bit, not both.").into(),
     }
 }
 
@@ -377,7 +388,7 @@ pub(super) fn color_notice(offer: &color::Offer, negotiated: u32) -> Option<Stri
     }
     for notice in color::notices(offer, negotiated) {
         lines.push(match notice {
-            color::Notice::Yuv444Unavailable(refusal) => trf("YUV 4:4:4 unavailable; using 4:2:0: {}", &[&refusal_text(&refusal)]),
+            color::Notice::Yuv444Unavailable(refusal) => trf("Sharper colored text isn’t available for this stream: {}", &[&refusal_text(&refusal)]),
             color::Notice::Sdr10Unavailable(refusal) => trf("10-bit SDR isn’t used, so the stream is 8-bit: {}", &[&refusal_text(&refusal)]),
             color::Notice::Sdr10NotAccepted => tr("This PC didn’t accept 10-bit, so the stream is 8-bit.").to_owned(),
         });

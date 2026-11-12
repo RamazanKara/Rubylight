@@ -90,7 +90,9 @@ public class PreferenceConfiguration {
     private static final String OSC_OPACITY_PREF_STRING = "seekbar_osc_opacity";
     static final String LANGUAGE_PREF_STRING = "list_languages";
     private static final String SMALL_ICONS_PREF_STRING = "checkbox_small_icon_mode";
-    private static final String MULTI_CONTROLLER_PREF_STRING = "checkbox_multi_controller";
+    static final String MULTI_CONTROLLER_PREF_STRING = "checkbox_multi_controller";
+    /** Controllers: Off sends no physical controller (ControllersChoice writes it with checkbox_multi_controller). */
+    static final String SEND_CONTROLLERS_PREF_STRING = "checkbox_send_controllers";
     static final String AUDIO_CONFIG_PREF_STRING = "list_audio_config";
     /** The audio setting's 7.1.4 value, offered only where {@link Surround714#playable} says so. */
     static final String AUDIO_CONFIG_714 = "714";
@@ -162,7 +164,7 @@ public class PreferenceConfiguration {
     private static final String LATENCY_TOAST_PREF_STRING = "checkbox_enable_post_stream_toast";
     // Off: streams use the C engine. The Rust engine is a beta and falls back per stream.
     static final String RUST_ENGINE_PREF_STRING = "checkbox_rust_engine";
-    private static final String PACKED_444_PREF_STRING = "experimental_packed_444";
+    static final String PACKED_444_PREF_STRING = "experimental_packed_444";
     private static final String CHIPSET_TUNING_PREF_STRING = "checkbox_experimental_chipset_tuning";
     static final String FRAME_PACING_PREF_STRING = "frame_pacing";
     private static final String ABSOLUTE_MOUSE_MODE_PREF_STRING = "checkbox_absolute_mouse_mode";
@@ -219,7 +221,7 @@ public class PreferenceConfiguration {
     static final String VIRTUAL_DISPLAY_DPI_PREF_STRING = "list_virtual_display_dpi";
     /** The Windows scales "PC display scaling" offers (rlDisplayScale); 0 keeps the PC's own. */
     static final int[] VIRTUAL_DISPLAY_DPI_VALUES = {0, 100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500};
-    private static final String YUV444_PREF_STRING = "checkbox_yuv444";
+    static final String YUV444_PREF_STRING = "checkbox_yuv444";
     static final String VRR_PREF_STRING = "checkbox_vrr";
     static final String HOST_FRAME_TIMES_PREF_STRING = "checkbox_host_frame_times";
     static final String CONTENT_RATE_FRAME_RATE_PREF_STRING = "checkbox_content_rate_frame_rate";
@@ -325,6 +327,8 @@ public class PreferenceConfiguration {
     public boolean oscFloatingSticks = true;
     public int oscStickDeadzone = DEFAULT_OSC_STICK_DEADZONE;
     public String language;
+    /** Physical controllers reach the PC: Controllers is not Off. */
+    public boolean sendControllers = true;
     public boolean smallIconMode, multiController, usbDriver, usbDualSense, usbDualSenseHaptics, usbSwitchPro, flipFaceButtons;
     // Forward USB devices to a host that offers it during a stream (Rust engine only).
     public boolean usbForwarding;
@@ -921,6 +925,42 @@ public class PreferenceConfiguration {
 
     public static String oscStyle(String stored) {
         return OSC_STYLE_MODERN.equals(stored) ? OSC_STYLE_MODERN : OSC_STYLE_CLASSIC;
+    }
+
+    /**
+     * "Sharper colored text" is Automatic: one choice stored in the two switches it replaced, Prefer YUV 4:4:4
+     * ({@code checkbox_yuv444}) and Full chroma ({@code experimental_packed_444}). Settings writes both the same;
+     * a store from before reads as Automatic when either is on, so a player who had one gets both paths
+     * (native 4:4:4 first, packed full chroma where it cannot run). Nothing is rewritten, and older
+     * versions read the same two keys.
+     */
+    /**
+     * "Minimum resolution" and "Minimum frame rate" offer nightjar-policy's quality floors
+     * ({@code MIN_SHORT_EDGE_CHOICES}, {@code MIN_FPS_CHOICES}), the lists desktop Nightjar offers;
+     * SettingValueListsTest holds both to them. Every value an older version stored is among them.
+     */
+    static final int[] QUALITY_MIN_SHORT_EDGES = {360, 540, 720, 1080, 1440};
+    static final int[] QUALITY_MIN_FPS = {30, 45, 60, 90, 120};
+
+    /** A stored list value that is one of {@code choices}, else {@code fallback}. */
+    static int listChoice(String stored, int[] choices, int fallback) {
+        try {
+            int value = Integer.parseInt(stored.trim());
+            for (int choice : choices) {
+                if (choice == value) return value;
+            }
+        } catch (NumberFormatException | NullPointerException ignored) {
+        }
+        return fallback;
+    }
+
+    static boolean sharpColor(SharedPreferences prefs) {
+        return prefs.getBoolean(YUV444_PREF_STRING, false) || prefs.getBoolean(PACKED_444_PREF_STRING, false);
+    }
+
+    /** Writes Sharper colored text: Automatic sets both switches, Off clears both. */
+    static void saveSharpColor(SharedPreferences.Editor editor, boolean automatic) {
+        editor.putBoolean(YUV444_PREF_STRING, automatic).putBoolean(PACKED_444_PREF_STRING, automatic);
     }
 
     public static PreferenceConfiguration readPreferences(Context context, String hostUuid) {
@@ -1558,6 +1598,7 @@ public class PreferenceConfiguration {
                 prefs.getInt(OSC_STICK_DEADZONE_PREF_STRING, DEFAULT_OSC_STICK_DEADZONE)));
         config.smallIconMode = prefs.getBoolean(SMALL_ICONS_PREF_STRING, getDefaultSmallMode(context));
         config.multiController = prefs.getBoolean(MULTI_CONTROLLER_PREF_STRING, DEFAULT_MULTI_CONTROLLER);
+        config.sendControllers = prefs.getBoolean(SEND_CONTROLLERS_PREF_STRING, true);
         config.usbDriver = prefs.getBoolean(USB_DRIVER_PREF_SRING, DEFAULT_USB_DRIVER);
         config.usbDualSense = prefs.getBoolean(USB_DUALSENSE_PREF_STRING, false);
         config.usbDualSenseHaptics = config.usbDualSense && prefs.getBoolean("checkbox_usb_dualsense_haptics", false);
@@ -1581,11 +1622,9 @@ public class PreferenceConfiguration {
         config.quickResume = prefs.getBoolean(QUICK_RESUME_PREF_STRING, false);
         config.adaptiveQualityMode = com.limelight.nvstream.AdaptiveQualityController.Mode.parse(
                 prefs.getString("adaptive_quality_mode", "off"));
-        String qualityFloor = prefs.getString("adaptive_quality_min_resolution", "720");
-        config.qualityMinShortEdge = "360".equals(qualityFloor) ? 360 : "540".equals(qualityFloor) ? 540 :
-                "1080".equals(qualityFloor) ? 1080 : 720;
-        String qualityFps = prefs.getString("adaptive_quality_min_fps", "30");
-        config.qualityMinFps = "45".equals(qualityFps) ? 45 : "60".equals(qualityFps) ? 60 : 30;
+        config.qualityMinShortEdge = listChoice(prefs.getString("adaptive_quality_min_resolution", "720"),
+                QUALITY_MIN_SHORT_EDGES, 720);
+        config.qualityMinFps = listChoice(prefs.getString("adaptive_quality_min_fps", "30"), QUALITY_MIN_FPS, 30);
         config.thermalProtection = prefs.getBoolean(THERMAL_PROTECTION_PREF_STRING, false);
         dropAutoBitrateLimits(prefs);
         config.autoBitrate = prefs.getBoolean(AutoBitrateChoice.SETTINGS_KEY, false);
@@ -1643,7 +1682,8 @@ public class PreferenceConfiguration {
         config.trackpadScrollSpeed = Math.max(10, Math.min(300, prefs.getInt(TRACKPAD_SCROLL_SPEED_PREF_STRING, DEFAULT_TRACKPAD_SCROLL_SPEED)));
         config.enableLatencyToast = prefs.getBoolean(LATENCY_TOAST_PREF_STRING, DEFAULT_LATENCY_TOAST);
         config.rustEngine = prefs.getBoolean(RUST_ENGINE_PREF_STRING, true);
-        config.experimentalPacked444 = prefs.getBoolean(PACKED_444_PREF_STRING, false);
+        // Sharper colored text: one choice stored in the two older switches (sharpColor).
+        config.experimentalPacked444 = sharpColor(prefs);
         config.experimentalChipsetTuning = prefs.getBoolean(CHIPSET_TUNING_PREF_STRING, false);
         config.absoluteMouseMode = prefs.getBoolean(ABSOLUTE_MOUSE_MODE_PREF_STRING, DEFAULT_ABSOLUTE_MOUSE_MODE);
         config.enableAudioFx = prefs.getBoolean(ENABLE_AUDIO_FX_PREF_STRING, DEFAULT_ENABLE_AUDIO_FX);
@@ -1684,7 +1724,7 @@ public class PreferenceConfiguration {
         config.virtualDisplay = prefs.getBoolean(VIRTUAL_DISPLAY_PREF_STRING, false);
         config.virtualDisplayScale = Math.max(50, Math.min(200, prefs.getInt(VIRTUAL_DISPLAY_SCALE_PREF_STRING, 100)));
         config.virtualDisplayDpi = virtualDisplayDpi(prefs.getString(VIRTUAL_DISPLAY_DPI_PREF_STRING, "0"));
-        config.enableYuv444 = prefs.getBoolean(YUV444_PREF_STRING, false);
+        config.enableYuv444 = config.experimentalPacked444;
         // Adaptive refresh needs a screen with ARR; the settings screen greys it elsewhere.
         config.vrr = prefs.getBoolean(VRR_PREF_STRING, false) && com.limelight.binding.video.DisplayFrameRatePolicy.vrrOffered(context);
         config.upscalingMode = UpscalingPolicy.Mode.fromPreference(prefs.getString(UPSCALING_PREF_STRING, "off"));

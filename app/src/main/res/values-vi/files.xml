@@ -30,11 +30,11 @@
     <string name="files_no_upload_permission">Thiết bị này không được gửi tệp tới PC này. Trên PC, mở trang “Devices” của giao diện web và cho phép “Upload files” cho thiết bị.</string>
     <string name="files_no_download_permission">Thiết bị này không được tải xuống tệp của PC này. Trên PC, mở trang “Devices” của giao diện web và cho phép “Download files” cho thiết bị.</string>
     <string name="files_off">Truyền tệp đang tắt trên PC này. Hãy bật trong giao diện web của PC, mục “File transfer”.</string>
-    <string name="files_unavailable">Host của PC này không có tính năng truyền tệp.</string>
+    <string name="files_unavailable">Ứng dụng stream của PC này không có tính năng truyền tệp.</string>
     <string name="files_no_library">Bản dựng Nightjar này không thể truyền tệp.</string>
     <string name="files_offline">PC không trực tuyến.</string>
     <string name="files_pick_pc">Gửi tới PC nào?</string>
-    <string name="files_no_pc">Không có PC đã ghép đôi nào trực tuyến. Hãy đánh thức hoặc ghép đôi một PC trong danh sách PC trước.</string>
+    <string name="files_no_pc">Không có PC đã ghép đôi nào trực tuyến. Hãy chọn “Đánh thức” hoặc ghép đôi một PC trong danh sách PC trước.</string>
     <string name="files_waiting_to_send">Tệp đang chờ gửi: %1$d. Chúng sẽ được gửi khi thiết bị này được phép gửi tệp.</string>
     <plurals name="files_share_refused">
         <item quantity="other">%1$d mục được chia sẻ không được gửi: chỉ có thể gửi tệp của ứng dụng khác.</item>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_enable_sdr10">Kolor 10-bitowy (SDR)</string>
-    <string name="summary_enable_sdr10">Przesyła SDR w 10-bitowym HEVC lub AV1, aby zmniejszyć pasmowanie. Wymaga dekodera Main10 na tym urządzeniu; ekran komputera musi być w trybie SDR.</string>
+    <string name="title_enable_sdr10">Mniej pasmowania kolorów</string>
+    <string name="summary_enable_sdr10">Przesyła wideo bez HDR w 10 bitach, więc w gradientach widać mniej pasmowania.</string>
     <string name="startup_sdr10_not_accepted">Ten komputer nie przyjął 10 bitów, więc strumień jest 8-bitowy.</string>
     <string name="stream_sdr10_host_hdr">Komputer wysyła HDR. Przełącz jego ekran na SDR, aby użyć 10-bitowego SDR.</string>
     <string name="stream_sdr10_unavailable">10-bitowy SDR nie jest używany, więc strumień jest 8-bitowy: %1$s</string>

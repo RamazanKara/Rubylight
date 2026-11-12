@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings shared with desktop Nightjar: Sharper colored text, Controllers, Mouse mode, When Nightjar
+     opens, group names, row hints and notices. -->
+<resources>
+    <string name="title_sharp_color">Schärferer farbiger Text</string>
+    <string name="summary_sharp_color">Volle Farbauflösung, damit farbiger Text und dünne Linien scharf bleiben.</string>
+    <string-array name="sharp_color_names">
+        <item>Aus</item>
+        <item>Automatisch</item>
+    </string-array>
+    <string name="title_controllers">Controller</string>
+    <string name="summary_controllers">Aus, alle Controller als ein Spieler oder jeder Controller als eigener Spieler.</string>
+    <string-array name="controllers_names">
+        <item>Aus</item>
+        <item>Ein Spieler</item>
+        <item>Je ein Spieler</item>
+    </string-array>
+    <string-array name="mouse_mode_names">
+        <item>Erfasst</item>
+        <item>Desktop-Zeiger</item>
+    </string-array>
+    <string-array name="start_screen_names">
+        <item>Start</item>
+        <item>Meine PCs anzeigen</item>
+        <item>Mein letztes Spiel fortsetzen</item>
+        <item>Ein gewähltes Spiel</item>
+    </string-array>
+    <string name="summary_host_display_location">Wie der PC das gestreamte Display neben seinen eigenen Bildschirmen anordnet.</string>
+    <string name="summary_pace_calibration_row">Ermittelt das schnellste Tempo, bei dem die PyroWave-Frames eines PCs vollständig ankommen.</string>
+    <string name="summary_network_tests">Misst Ping, Jitter und Paketverlust, dazu die Download-Geschwindigkeit, sofern der PC das unterstützt.</string>
+    <string name="settings_category_touch_mouse">Touch und Maus</string>
+    <string name="settings_category_connection">Verbindung</string>
+    <string name="sharp_color_unavailable_pc">Schärferer farbiger Text ist mit diesem PC nicht verfügbar.</string>
+    <string name="sharp_color_unavailable_device">Schärferer farbiger Text ist auf diesem Gerät nicht verfügbar.</string>
+    <string name="sharp_color_stopped">Schärferer farbiger Text ist ausgefallen. Die Verbindung wird ohne ihn neu aufgebaut.</string>
+    <string name="sharp_color_hdr_dropped">Dieser Stream läuft in SDR: HDR ist auf diesem PC nicht zusammen mit schärferem farbigem Text verfügbar.</string>
+    <string name="hint_show_onscreen_controls">Ein Touch-Gamepad über dem Stream.</string>
+    <string name="hint_mouse_speed">Wie schnell sich der Mauszeiger bewegt.</string>
+    <string name="hint_trackpad_speed">Zeigertempo im Touch-Modus „Trackpad“.</string>
+    <string name="hint_local_cursor_speed">Zeigertempo im Touch-Modus „Lokaler Mauszeiger“.</string>
+    <string name="hint_trackpad_acceleration_curve">Wie viel weiter schnelle Wischbewegungen reichen.</string>
+    <string name="hint_trackpad_momentum_glide">Wie weit der Zeiger nachgleitet.</string>
+    <string name="hint_pc_keyboard_size">Die Größe der PC-Tastatur auf dem Bildschirm.</string>
+    <string name="hint_pc_keyboard_opacity">Wie durchsichtig die PC-Tastatur auf dem Bildschirm ist.</string>
+    <string name="hint_vibrate_osc">Das Gerät vibriert, wenn eine Bildschirmtaste gedrückt wird.</string>
+    <string name="hint_show_guide_button">Fügt den Bildschirmtasten eine Guide-Taste hinzu.</string>
+    <string name="hint_host_audio">Der Ton bleibt beim Streamen auf den Lautsprechern des PCs.</string>
+    <string name="hint_overlay_position">Die Ecke, in der die Leistungsanzeige erscheint.</string>
+    <string name="summary_reset_all">Setzt jede Einstellung auf den Standard zurück; PCs, Spiele, Profile und Sprache bleiben.</string>
+</resources>

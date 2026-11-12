@@ -149,6 +149,8 @@ def main():
         shutil.copy2(ROOT / "LICENSE.txt", notices / "Nightjar-GPL-3.0.txt")
         shutil.copy2(ROOT / "CONTRIBUTORS.md", notices)
         shutil.copy2(DESKTOP / "assets/Figtree-OFL.txt", notices)
+        # sonora (BSD-3-Clause): the microphone's noise suppression and automatic gain.
+        shutil.copy2(DESKTOP / "assets/NOTICE-SONORA.txt", notices)
         shutil.copy2(ROOT / "app/src/main/assets/pyrowave_notices.txt", notices)
         # The upscaling pass (metal/upscale.metal) carries AMD FSR 1 and Qualcomm SGSR 1 code.
         for notice in ("NOTICE-FSR1.txt", "NOTICE-SGSR1.txt"):

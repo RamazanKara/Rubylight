@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_fec_choice">錯誤更正</string>
-    <string name="summary_fec_choice">電腦在影像中加入的復原資料量。自動會依照此裝置的遺失情況調整。不支援此選項的電腦使用自己的設定。</string>
+    <string name="summary_fec_choice">電腦加入的復原資料，讓遺失的封包不會使畫面破碎。</string>
     <string name="fec_choice_host">電腦的設定</string>
     <string name="fec_choice_auto">自動</string>
-    <string name="title_link_probe">首次位元率前測試連線</string>
-    <string name="summary_link_probe">使用自動位元率的新串流會先測試與 Rubylight 電腦的連線，起始位元率不會超過連線能承受的程度。</string>
+    <string name="title_link_probe">開始前測試連線</string>
+    <string name="summary_link_probe">使用自動位元速率的新串流會先測量連線，起始位元速率不會高於測得的值。</string>
 </resources>

@@ -30,7 +30,7 @@
     <string name="files_no_upload_permission">Bu cihaz bu bilgisayara dosya gönderemez. Bilgisayarda web arayüzünün “Devices” sayfasını açın ve bu cihaz için “Upload files” iznini verin.</string>
     <string name="files_no_download_permission">Bu cihaz bu bilgisayarın dosyalarını indiremez. Bilgisayarda web arayüzünün “Devices” sayfasını açın ve bu cihaz için “Download files” iznini verin.</string>
     <string name="files_off">Bu bilgisayarda dosya aktarımı kapalı. Bilgisayarın web arayüzünde “File transfer” altından açın.</string>
-    <string name="files_unavailable">Bu bilgisayarın host yazılımında dosya aktarımı yok.</string>
+    <string name="files_unavailable">Bu bilgisayarın yayın uygulamasında dosya aktarımı yok.</string>
     <string name="files_no_library">Nightjar’ın bu sürümü dosya aktaramaz.</string>
     <string name="files_offline">Bilgisayar çevrimiçi değil.</string>
     <string name="files_pick_pc">Hangi bilgisayara gönderilsin?</string>

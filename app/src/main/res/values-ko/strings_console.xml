@@ -16,7 +16,7 @@
     <string name="console_badge_running">실행 중</string>
     <string name="console_badge_suspended">일시 중지됨</string>
     <string name="console_card_on_host">%1$s에 있음</string>
-    <string name="console_card_on_hosts">호스트 %1$d대</string>
+    <string name="console_card_on_hosts">PC %1$d대</string>
     <string name="console_host_games">게임: %1$d</string>
     <string name="console_host_saved_games">오프라인. 저장된 게임: %1$d</string>
     <string name="console_host_offline">오프라인</string>
@@ -57,12 +57,12 @@
     <!-- tv-redesign-5 -->
     <string name="console_detail_installed">설치됨</string>
     <string name="console_card_asleep">%1$s, PC 절전 중</string>
-    <string name="console_wake_and_play">PC를 깨우고 플레이</string>
-    <string name="console_wake_waiting">%1$s이(가) 켜지기를 기다리는 중…</string>
-    <string name="console_wake_timeout">%1$s이(가) 제때 켜지지 않았습니다. Wake-on-LAN이 설정되어 있는지 확인한 뒤 다시 시도하세요.</string>
+    <string name="console_wake_and_play">PC 절전 해제 후 플레이</string>
+    <string name="console_wake_waiting">%1$s의 절전 해제를 기다리는 중…</string>
+    <string name="console_wake_timeout">%1$s의 절전이 제때 해제되지 않았습니다. Wake-on-LAN이 설정되어 있는지 확인한 뒤 다시 시도하세요.</string>
     <string name="console_choose_pc">어느 PC에서 플레이할까요?</string>
     <string name="console_badge_asleep">PC 절전 중</string>
     <string name="pc_status_online">온라인</string>
     <string name="pc_status_not_paired">페어링 안 됨</string>
-    <string name="pc_action_wake">깨우기</string>
+    <string name="pc_action_wake">절전 해제</string>
 </resources>

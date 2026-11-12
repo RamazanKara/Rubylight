@@ -100,7 +100,7 @@ pub fn nodes() -> Result<Vec<Node>, String> {
     use windows::Win32::Devices::Properties::{DEVPKEY_Device_BusReportedDeviceDesc, DEVPROPTYPE};
 
     fn wide(buffer: &[u8]) -> Vec<String> {
-        let units: Vec<u16> = buffer.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+        let units: Vec<u16> = buffer.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect();
         units.split(|&u| u == 0).filter(|s| !s.is_empty()).map(String::from_utf16_lossy).collect()
     }
 

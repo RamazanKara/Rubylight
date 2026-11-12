@@ -33,9 +33,9 @@ function Find-FFmpeg {
 
 # Labels the capture looks up that differ per app language (Set-CaptureLocale switches them).
 $script:labels = @{ 'Presets' = 'Presets'; 'Native preset' = 'Native (recommended)'; 'Display & image' = 'Display & image'
-    'Client-side upscaling' = 'Client-side upscaling'; 'Display on the PC' = 'Display on the PC'; 'Video' = 'Video'
+    'Client-side upscaling' = 'Upscaling'; 'Display on the PC' = 'Display on the PC'; 'Video' = 'Video'
     'Video codec' = 'Video codec'; 'Controls' = 'Controls'; 'Advanced' = 'Advanced'; 'GPU driver' = 'Snapdragon GPU driver'
-    'PC display mode' = 'PC display mode'; 'USB controllers' = 'USB controllers'
+    'PC display mode' = 'Display arrangement'; 'USB controllers' = 'USB controllers'
     'More display' = 'More Display & image settings'; 'Sharp FSR' = 'Sharp (FSR)' }
 
 function Set-CaptureLocale([string]$Locale) {
@@ -43,14 +43,14 @@ function Set-CaptureLocale([string]$Locale) {
     $null = Invoke-Adb @('shell', 'cmd', 'locale', 'set-app-locales', $package, '--user', '0', '--locales', $Locale)
     $script:labels = switch ($Locale) {
         'de' { @{ 'Presets' = 'Vorgaben'; 'Native preset' = 'Nativ (empfohlen)'; 'Display & image' = 'Display und Bild'
-            'Client-side upscaling' = 'Hochskalierung auf dem Gerät'; 'Display on the PC' = 'Anzeige am PC'; 'Video' = 'Video'
+            'Client-side upscaling' = 'Hochskalierung'; 'Display on the PC' = 'Anzeige am PC'; 'Video' = 'Video'
             'Video codec' = 'Videocodec'; 'Controls' = 'Steuerung'; 'Advanced' = 'Erweitert'; 'GPU driver' = 'Snapdragon-GPU-Treiber'
-            'PC display mode' = 'PC-Displaymodus'; 'USB controllers' = 'USB-Controller'
+            'PC display mode' = 'Display-Anordnung'; 'USB controllers' = 'USB-Controller'
             'More display' = 'Weitere Einstellungen für Display und Bild'; 'Sharp FSR' = 'Scharf (FSR)' } }
         default { @{ 'Presets' = 'Presets'; 'Native preset' = 'Native (recommended)'; 'Display & image' = 'Display & image'
-            'Client-side upscaling' = 'Client-side upscaling'; 'Display on the PC' = 'Display on the PC'; 'Video' = 'Video'
+            'Client-side upscaling' = 'Upscaling'; 'Display on the PC' = 'Display on the PC'; 'Video' = 'Video'
             'Video codec' = 'Video codec'; 'Controls' = 'Controls'; 'Advanced' = 'Advanced'; 'GPU driver' = 'Snapdragon GPU driver'
-            'PC display mode' = 'PC display mode'; 'USB controllers' = 'USB controllers'
+            'PC display mode' = 'Display arrangement'; 'USB controllers' = 'USB controllers'
             'More display' = 'More Display & image settings'; 'Sharp FSR' = 'Sharp (FSR)' } }
     }
 }

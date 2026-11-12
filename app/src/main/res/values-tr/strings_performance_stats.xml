@@ -11,10 +11,10 @@
     <string name="stats_host">Ana bilgisayar işleme süresi: %1$s ms</string>
     <string name="stats_host_network">Ana bilgisayar (gönderim dahil): %1$s ms</string>
     <string name="stats_client">Kod çözme: %1$s ms · Görüntüleme bekleme: %2$s ms</string>
-    <string name="hardware_title">Ana bilgisayar donanımı (tüm GPU’lar)</string>
-    <string name="hardware_cpu">Ana bilgisayar CPU: %%%1$s</string>
-    <string name="hardware_gpu_summary">Ana bilgisayar GPU %1$d: %%%2$s · %3$s °C · %4$s W</string>
-    <string name="hardware_sample">Ana bilgisayar örneği: Unix epoch’tan bu yana %1$d ms · Aralık: %2$d ms</string>
+    <string name="hardware_title">Bilgisayar donanımı (tüm GPU’lar)</string>
+    <string name="hardware_cpu">Bilgisayar CPU: %%%1$s</string>
+    <string name="hardware_gpu_summary">Bilgisayar GPU %1$d: %%%2$s · %3$s °C · %4$s W</string>
+    <string name="hardware_sample">Bilgisayar örneği: Unix epoch’tan bu yana %1$d ms · Aralık: %2$d ms</string>
     <string name="hardware_gpu_name">GPU %1$d · %2$s</string>
     <string name="hardware_gpu_unnamed">Adsız GPU</string>
     <string name="hardware_gpu_clocks">Kullanım: %%%1$s · GPU saati: %2$s MHz · Bellek saati: %3$s MHz</string>

@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_dual_screen">Çift ekran modu</string>
-    <string name="summary_checkbox_dual_screen">İkinci ekranı olan bir cihazda, aynı oyunun ikinci bir yayınını o ekranda, ekranın kendi çözünürlüğünde başlatır. İkinci yayın birincisiyle aynı cihaz sayıldığından bilgisayarla yalnızca bir kez eşleştirilir. Ses, kumandalar ve mikrofon ilk ekranda kalır; ekranlardan birinde dokunma modunu değiştirmek ikisine de uygulanır. Bilgisayar bunu destekleyen bir Rubylight ana bilgisayarı olmalıdır ve her ekranın kendi ekranlarından hangisini göstereceğine o karar verir. Sonraki yayından itibaren geçerli olur.</string>
+    <string name="summary_checkbox_dual_screen">Aynı oyunun ikinci bir yayını, ikinci bir ekranda.</string>
     <string name="title_resolution_screen2">İkinci ekran çözünürlüğü</string>
-    <string name="summary_resolution_screen2">İkinci ekranın yayınının çözünürlüğü, ilk ekrandan ayrı. Kendi boyutunda yayın, o ekranın tam çözünürlüğünde olur.</string>
+    <string name="summary_resolution_screen2">İkinci ekranın yayınının çözünürlüğü.</string>
     <string name="resolution_screen2_native">İkinci ekranın kendi boyutu</string>
     <string name="dual_screen_unavailable">İkinci ekran açılamadı.</string>
 </resources>

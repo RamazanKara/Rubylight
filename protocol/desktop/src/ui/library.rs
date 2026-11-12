@@ -37,7 +37,7 @@ impl Launcher {
             return;
         };
         let running = host.running_app();
-        let (columns, width) = grid(ui.available_width());
+        let (columns, width) = grid_up_to(ui.available_width(), self.cover_widest());
         ui.spacing_mut().item_spacing.y = GRID_ROW_GAP;
         match &host.apps {
             // Read again from an empty list: the same place, its button at work.
@@ -47,17 +47,7 @@ impl Launcher {
             Apps::NotLoaded | Apps::Loading => {
                 // The covers' own places, so the list lands without a jump, under one word of what is
                 // going on.
-                let top = ui.cursor().min;
-                for _ in 0..LOADING_ROWS {
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = POSTER_GAP;
-                        for _ in 0..columns {
-                            cover_placeholder(ui, width);
-                        }
-                    });
-                }
-                let room = Rect::from_min_size(top, vec2(ui.available_width(), LOADING_ROWS as f32 * (cover_height(width) + GRID_ROW_GAP)));
-                loading_chip(ui, room);
+                loading_covers(ui, tr("Loading the library…"), LOADING_ROWS, false, self.cover_widest());
             }
             Apps::Failed(e) => {
                 self.refreshing_empty = None;
@@ -257,14 +247,19 @@ impl Launcher {
         // read yet.
         if chips.is_empty() {
             if library_loading(view) {
-                loading_games(ui);
+                ui.add_space(space::L);
+                loading_covers(ui, tr("Loading the games…"), LOADING_ROWS, true, self.cover_widest());
                 return;
             }
             ui.label(RichText::new(tr("No games to show yet. They appear here once a PC that shares its game library is online.")).color(ON_SURFACE_VARIANT));
             return;
         }
-        // The chips stay as they are while words narrow them, only their counts follow.
+        // While words narrow them each chip counts what it would show, and one that would show
+        // nothing goes; All stays, and so does the chip chosen.
         count_chips(&mut chips, entries, hidden, &words);
+        if !words.is_empty() {
+            chips.retain(|c| c.count > 0 || c.filter == console::LibraryFilter::All || c.filter == self.library_filter);
+        }
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(space::S, space::S);
             for chip in &chips {
@@ -301,8 +296,10 @@ impl Launcher {
             ui.label(RichText::new(tr("No games match this filter.")).color(ON_SURFACE_VARIANT));
             return;
         }
-        ui.add_space(LIFT);
-        let (columns, width) = grid(ui.available_width());
+        let (columns, width) = grid_up_to(ui.available_width(), self.cover_widest());
+        // A focused cover rises from its foot with its ring around it: the first line keeps that
+        // clear of the chips, with a gap.
+        ui.add_space(ring_clearance(width).max(LIFT));
         ui.spacing_mut().item_spacing.y = GRID_ROW_GAP;
         let mut first = true;
         for line in shown.chunks(columns) {
@@ -356,8 +353,8 @@ impl Launcher {
         } else {
             Badge::None
         };
-        // Home's shelves name their covers; the grid of all games lets the art say it.
-        let response = if row.is_some() { poster(ui, &entry.title, art, badge, width) } else { bare_poster(ui, &entry.title, art, badge, width) };
+        // Named under the cover, on Home's shelves and in the grid of all games alike.
+        let response = poster(ui, &entry.title, art, badge, width);
         if let Some(c) = cover {
             request_cover(ui, view, c.host, c.app_id, &response, commands);
         }
@@ -525,6 +522,12 @@ impl Launcher {
         let root = self.root();
         self.pop(root);
     }
+
+    /// A cover's widest in a PC's library and All games: Home's card size, which Settings' Use
+    /// small box art sets (Android's `checkbox_small_icon_mode`).
+    pub(super) fn cover_widest(&self) -> f32 {
+        POSTER_MAX_W * self.settings.home_card_size.scale()
+    }
 }
 
 /// The games of `pool` under `filter` whose title holds the lowercase `words`.
@@ -547,11 +550,40 @@ fn count_chips(chips: &mut [console::FilterChip], entries: &[console::Entry], hi
     }
 }
 
-/// "Loading the library…" with its spinner, over the middle of the places held for the covers.
-fn loading_chip(ui: &mut Ui, room: Rect) {
+/// Above a cover of `width`, what its rise under the focus and its ring take, and a gap.
+pub(super) fn ring_clearance(width: f32) -> f32 {
+    const RING: f32 = t::HC_FOCUS_RING_WIDTH + 3.0;
+    cover_height(width) * (t::FOCUS_SCALE_COVER - 1.0) + RING + space::S
+}
+
+/// The places of `rows` lines of covers while the games are on their way, `captioned` as the covers
+/// that will land there are, `widest` at most as theirs are, under one chip of `words` with a
+/// spinner. A screen reader hears the words.
+pub(super) fn loading_covers(ui: &mut Ui, words: &str, rows: usize, captioned: bool, widest: f32) {
+    let (columns, width) = grid_up_to(ui.available_width(), widest);
+    let top = ui.cursor().min;
+    let row_h = cover_height(width) + if captioned { POSTER_CAPTION } else { 0.0 };
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = GRID_ROW_GAP;
+        for _ in 0..rows {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = POSTER_GAP;
+                for _ in 0..columns {
+                    cover_placeholder(ui, width, captioned);
+                }
+            });
+        }
+    });
+    let room = Rect::from_min_size(top, vec2(ui.available_width(), rows as f32 * (row_h + GRID_ROW_GAP)));
+    loading_chip(ui, room, words);
+}
+
+/// `words` with a spinner, over the middle of the places held for the covers.
+fn loading_chip(ui: &mut Ui, room: Rect, words: &str) {
     const H: f32 = 40.0;
     const R: f32 = 8.0;
-    let words = ui.painter().layout_no_wrap(tr("Loading the library…").to_owned(), regular(text::LABEL), *ON_SURFACE);
+    let said = words.to_owned();
+    let words = ui.painter().layout_no_wrap(said.clone(), regular(text::LABEL), *ON_SURFACE);
     let rect = Rect::from_center_size(room.center(), vec2(14.0 + 2.0 * R + 10.0 + words.size().x + 18.0, H));
     let mut out = Vec::new();
     glass::control(&mut out, ui.ctx(), rect, H / 2.0);
@@ -559,6 +591,8 @@ fn loading_chip(ui: &mut Ui, room: Rect) {
     let spinning = Rect::from_min_size(pos2(rect.left() + 14.0, rect.center().y - R), Vec2::splat(2.0 * R));
     ui.scope_builder(UiBuilder::new().max_rect(spinning), |ui| spinner(ui, R));
     ui.painter().galley(pos2(spinning.right() + 10.0, rect.center().y - words.size().y / 2.0), words, *ON_SURFACE);
+    ui.interact(rect, Id::unique(("loading-chip", &said)), Sense::hover())
+        .widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, &said));
 }
 
 /// A Play that waits for its PC's app list, and the page it was pressed on.
@@ -593,7 +627,7 @@ impl PlayState {
         }
         match &host.apps {
             Apps::Failed(e) => Some(trf("The app list could not be loaded. {}", &[&e])),
-            Apps::Loaded(_) => Some(tr("The PC's app list has no entry for this game.").to_owned()),
+            Apps::Loaded(_) => Some(tr("The PC’s app list has no entry for this game.").to_owned()),
             Apps::NotLoaded | Apps::Loading => None,
         }
     }
@@ -635,14 +669,6 @@ pub(super) fn card_neighbour(cards: &[(String, String)], key: &str) -> Option<St
     let at = cards.iter().position(|(card, _)| card == key)?;
     let game = &cards[at].1;
     cards[at + 1..].iter().chain(cards[..at].iter().rev()).find(|(_, other)| other != game).map(|(card, _)| card.clone())
-}
-
-/// "Loading the games…" by a spinner, on Home and All games alike.
-pub(super) fn loading_games(ui: &mut Ui) {
-    ui.horizontal(|ui| {
-        spinner(ui, 10.0);
-        ui.label(RichText::new(tr("Loading the games…")).color(ON_SURFACE_VARIANT));
-    });
 }
 
 /// Quick resume: a paired PC running a game from its known library goes straight back into it.

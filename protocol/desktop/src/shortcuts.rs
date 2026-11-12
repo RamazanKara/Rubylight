@@ -155,7 +155,7 @@ impl Action {
             Self::PreviousTab => en("Previous tab"),
             Self::NextTab => en("Next tab"),
             Self::Screenshot => en("Save a screenshot"),
-            Self::StreamControls => en("Stream controls"),
+            Self::StreamControls => en("Stream menu"),
             Self::StreamShortcuts => en("Shortcuts & help"),
             Self::Disconnect => en("Disconnect"),
             Self::Capture => en("Release or capture input"),
@@ -561,7 +561,7 @@ pub fn hotkey_error_text(error: &HotkeyError) -> String {
         HotkeyError::OneKey => tr("Use one key besides Ctrl, Alt and Shift.").into(),
         HotkeyError::Reserved => tr("Windows keeps this combination.").into(),
         HotkeyError::Typing => tr("This combination is for typing.").into(),
-        HotkeyError::LastWayOut => tr("Keep a hotkey for Stream controls or Disconnect.").into(),
+        HotkeyError::LastWayOut => tr("Keep a hotkey for Stream menu or Disconnect.").into(),
         HotkeyError::UnsupportedKey(key) => trf("Unsupported key: {}", &[key]),
         HotkeyError::RepeatedKey(key) => trf("Repeated key: {}", &[key]),
         // The page lists only the desktop's own actions; these name a bug, in English.
@@ -1041,7 +1041,7 @@ mod tests {
     #[test]
     fn the_last_way_out_cannot_be_turned_off() {
         turn_off_hotkey("quit").unwrap();
-        assert_eq!(turn_off_hotkey("stream_menu"), Err(tr("Keep a hotkey for Stream controls or Disconnect.").to_owned()));
+        assert_eq!(turn_off_hotkey("stream_menu"), Err(tr("Keep a hotkey for Stream menu or Disconnect.").to_owned()));
         assert!(hotkeys().iter().find(|b| b.id == "stream_menu").unwrap().keys.is_some());
         for id in ["help", "capture", "mouse_mode", "overlay", "send_clipboard", "fetch_clipboard", "fullscreen", "minimize"] {
             turn_off_hotkey(id).unwrap();

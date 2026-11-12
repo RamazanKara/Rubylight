@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    The main rows of each Settings section (StreamSettings.SECTIONS), at most eight. Every other
-    row of the section folds behind its "More … settings" row; search still finds it. The desktop
-    client checks its own list against this file, and scripts/generate-settings.py writes the
-    Tier column of docs/settings.md from it.
+    The main rows of each Settings section (StreamSettings.SECTIONS), at most eight, in the order
+    preferences.xml shows them in the section's untitled first group. Every other row of the
+    section folds behind its "More … settings (n)" row; search still finds it. Desktop Nightjar
+    mirrors this list (MAIN_KEYS, mapped through ANDROID_KEYS), and scripts/generate-settings.py
+    writes the Tier column of docs/settings.md from it.
 -->
 <resources>
     <string-array name="settings_tier_video" translatable="false">
@@ -19,13 +20,14 @@
     <string-array name="settings_tier_display" translatable="false">
         <item>checkbox_stretch_video</item>
         <item>stream_orientation</item>
+        <item>checkbox_vrr</item>
     </string-array>
     <string-array name="settings_tier_input" translatable="false">
-        <item>checkbox_multi_controller</item>
+        <item>checkbox_touchscreen_trackpad</item>
+        <item>checkbox_absolute_mouse_mode</item>
+        <item>controllers</item>
         <item>controller_button_mapping</item>
         <item>controller_test</item>
-        <item>checkbox_flip_face_buttons</item>
-        <item>checkbox_touchscreen_trackpad</item>
         <item>checkbox_show_onscreen_controls</item>
         <item>checkbox_keyboard_follows_text_fields</item>
         <item>checkbox_clipboard_sync</item>
@@ -38,13 +40,14 @@
     </string-array>
     <string-array name="settings_tier_streaming" translatable="false">
         <item>checkbox_enable_perf_overlay</item>
+        <item>performance_overlay_position</item>
         <item>checkbox_auto_reconnect</item>
         <item>network_tests</item>
     </string-array>
     <string-array name="settings_tier_app" translatable="false">
         <item>checkbox_always_dark</item>
         <item>list_languages</item>
-        <item>checkbox_console_home</item>
+        <item>list_open_on_start</item>
         <item>checkbox_quick_resume</item>
         <item>pin_lock</item>
         <item>help</item>

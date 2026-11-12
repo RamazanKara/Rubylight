@@ -87,7 +87,7 @@ pub fn fingerprint(primitives: &[ClippedPrimitive], regions: &[Rect]) -> u64 {
             continue;
         }
         let mut clip_written = false;
-        for tri in mesh.indices.chunks_exact(3) {
+        for tri in mesh.indices.as_chunks::<3>().0 {
             let v = [tri[0], tri[1], tri[2]].map(|i| &mesh.vertices[i as usize]);
             let bounds = Rect::from_min_max(
                 egui::pos2(

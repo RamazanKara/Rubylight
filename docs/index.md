@@ -20,7 +20,7 @@ New to Nightjar? Read the [quick start](quick-start.md), then return here when y
 | [Home and the session menu](console.md) | Home and its views, game pages, Continue here, PC options and power, Microphone only, Join co-op, the Session and graphics page, TV and accessibility |
 | [Controls](controls.md) | Controllers, touch, mouse, keyboard, pen, on-screen controls and the microphone |
 | [Gamepad navigation](gamepad-navigation.md) | Using the menus and the PC keyboard with a controller |
-| [DualSense USB audio and haptics](dualsense-haptics.md) | Waveform haptics and controller audio over USB |
+| [USB DualSense audio and haptics](dualsense-haptics.md) | Waveform haptics and controller audio over USB |
 | [Video and latency](video-and-latency.md) | Codecs, HDR, PyroWave, refresh rate, scaling, bitrate, error correction and audio |
 | [Recovery and automatic quality](recovery-and-quality.md) | Recovering interrupted streams, riding out network drops, automatic resolution and frame rate |
 | [Clipboard, files, folders and USB devices](sharing.md) | Sharing with a PC whose host supports it |

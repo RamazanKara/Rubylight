@@ -16,7 +16,7 @@
     <string name="console_badge_running">執行中</string>
     <string name="console_badge_suspended">已暫停</string>
     <string name="console_card_on_host">位於 %1$s</string>
-    <string name="console_card_on_hosts">位於 %1$d 台主機</string>
+    <string name="console_card_on_hosts">位於 %1$d 台電腦</string>
     <string name="console_host_games">遊戲：%1$d</string>
     <string name="console_host_saved_games">已離線。已儲存的遊戲：%1$d</string>
     <string name="console_host_offline">已離線</string>

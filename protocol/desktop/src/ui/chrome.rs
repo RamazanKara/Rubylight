@@ -142,7 +142,7 @@ fn on_selected() -> Color32 {
     if high_contrast() {
         *ON_SURFACE
     } else {
-        t::COLOR_ON_SELECTED
+        shade::COLOR_ON_SELECTED.get()
     }
 }
 
@@ -400,12 +400,12 @@ impl Launcher {
                     10.0,
                     Color32::from_rgba_premultiplied(0, 0, 0, 64),
                 );
-                glass::solid(&mut out, &ctx, pill, r, t::TINT_SELECTED_FILL);
+                glass::solid(&mut out, &ctx, pill, r, shade::TINT_SELECTED_FILL.get());
                 let rim = glass::gradient(
                     pill,
                     180.0,
                     &[
-                        (0.0, t::TINT_SELECTED_RIM_TOP),
+                        (0.0, shade::TINT_SELECTED_RIM_TOP.get()),
                         (0.06, Color32::TRANSPARENT),
                     ],
                 );
@@ -544,7 +544,7 @@ impl Launcher {
             let edit = egui::TextEdit::singleline(&mut self.library_query)
                 .id(field_id)
                 .frame(Frame::NONE)
-                .hint_text(tr("Search"))
+                .hint_text(hint(tr("Search"), regular(TAB_FONT)))
                 .font(regular(TAB_FONT))
                 .text_color(*ON_SURFACE)
                 .margin(egui::Margin::ZERO)
@@ -756,13 +756,13 @@ pub(super) fn pc_dot(out: &mut Vec<Shape>, ctx: &egui::Context, at: Pos2, host: 
             Rect::from_center_size(at, Vec2::splat(9.0)),
             4.5,
             8.0,
-            t::COLOR_OK,
+            shade::COLOR_OK.get(),
         );
     }
     out.push(Shape::circle_filled(
         at,
         4.5,
-        if up { *OK } else { t::COLOR_OFFLINE },
+        if up { *OK } else { shade::COLOR_OFFLINE.get() },
     ));
 }
 
@@ -800,7 +800,7 @@ pub(super) fn play_button(
     let ink = if enabled {
         glass::play(&mut out, &ctx, shown, r);
         lift_shapes(&mut out, &ctx, shown, r, feel.hovered, feel.pressed);
-        *ON_MOON
+        glass::on_play()
     } else {
         // Off is grey, never a faded amber.
         glass::control(&mut out, &ctx, shown, r);
@@ -885,6 +885,44 @@ pub(super) fn control_capsule(
         shown.center().y,
         label,
         semibold(t::TYPE_BODY_SIZE),
+        ink,
+    );
+    if feel.focused {
+        paint_focus_ring(ui.painter(), shown, r as u8);
+    }
+    response
+}
+
+/// A round tinted control showing only its icon, for a row with no room for words (the hero's
+/// star, as on Android's Home): its words are its tooltip and what a screen reader says.
+pub(super) fn icon_capsule(
+    ui: &mut Ui,
+    rect: Rect,
+    id: Id,
+    icon: Icon,
+    said: &str,
+    enabled: bool,
+) -> Response {
+    let sense = if enabled {
+        Sense::click()
+    } else {
+        Sense::hover()
+    };
+    let response = ui.interact(rect, id, sense).on_hover_text(said);
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, said));
+    let ctx = ui.ctx().clone();
+    let feel = glass::feel(&ctx, &response, t::FOCUS_SCALE_CONTROL, 1.0);
+    let shown = glass::scaled_rect(rect, feel.scale);
+    let r = shown.height() / 2.0;
+    let mut out = Vec::new();
+    glass::control(&mut out, &ctx, shown, r);
+    extend(ui, out);
+    hover_lift(ui, shown, r, feel);
+    let ink = if enabled { *ON_SURFACE } else { *OUTLINE };
+    icons::paint(
+        ui.painter(),
+        icon,
+        Rect::from_center_size(shown.center(), Vec2::splat(19.0)),
         ink,
     );
     if feel.focused {

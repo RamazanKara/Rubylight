@@ -16,7 +16,7 @@
     <string name="console_badge_running">Запущена</string>
     <string name="console_badge_suspended">Приостановлена</string>
     <string name="console_card_on_host">На %1$s</string>
-    <string name="console_card_on_hosts">На хостах: %1$d</string>
+    <string name="console_card_on_hosts">На %1$d ПК</string>
     <string name="console_host_games">Игр: %1$d</string>
     <string name="console_host_saved_games">Не в сети. Сохранённых игр: %1$d</string>
     <string name="console_host_offline">Не в сети</string>

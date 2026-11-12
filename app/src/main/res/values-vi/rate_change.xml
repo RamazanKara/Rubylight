@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="stream_rate_change">Change bitrate / frame rate</string>
-    <string name="stream_rate_change_help">The host changes the running stream. A value left as it is stays.</string>
+    <string name="stream_rate_change_help">PC thay đổi stream đang chạy. Giá trị nào để nguyên sẽ được giữ nguyên.</string>
     <string name="stream_rate_change_fps">Frame rate (fps)</string>
     <string name="stream_rate_change_fps_invalid">Enter a frame rate from 10 to 500 fps</string>
     <string name="stream_rate_change_nothing">Change the bitrate or the frame rate first</string>
-    <string name="stream_rate_change_not_sent">The change could not be sent to the host.</string>
+    <string name="stream_rate_change_not_sent">Không gửi được thay đổi đến PC.</string>
     <string name="stream_rate_change_stream_ended">The stream ended before the change was sent. Nothing was changed.</string>
     <string name="stream_rate_change_bitrate_applied">Bitrate: %1$.1f Mbps</string>
     <string name="stream_rate_change_bitrate_clamped">Bitrate: %1$.1f Mbps, lower than asked. %2$s</string>
@@ -13,19 +13,19 @@
     <string name="stream_rate_change_fps_applied">Frame rate: %1$s fps</string>
     <string name="stream_rate_change_fps_clamped">Frame rate: %1$s fps, lower than asked. %2$s</string>
     <string name="stream_rate_change_fps_refused">Frame rate not changed, still %1$s fps. %2$s</string>
-    <string name="stream_rate_change_reason_invalid">The host did not accept the value.</string>
-    <string name="stream_rate_change_reason_disabled">The host has these changes turned off.</string>
+    <string name="stream_rate_change_reason_invalid">PC không chấp nhận giá trị này.</string>
+    <string name="stream_rate_change_reason_disabled">PC đã tắt các thay đổi này.</string>
     <string name="stream_rate_change_reason_codec">This stream\'s video format cannot change it while streaming.</string>
-    <string name="stream_rate_change_reason_host_limit">That is the most the host or this device allows.</string>
-    <string name="stream_rate_change_reason_encoder_limit">That is the most the host\'s encoder manages at this resolution.</string>
-    <string name="stream_rate_change_reason_encoder_failed">The host\'s encoder could not run at it, so the stream stayed as it was.</string>
+    <string name="stream_rate_change_reason_host_limit">Đây là mức cao nhất mà PC hoặc thiết bị này cho phép.</string>
+    <string name="stream_rate_change_reason_encoder_limit">Đây là mức cao nhất mà bộ mã hóa của PC xử lý được ở độ phân giải này.</string>
+    <string name="stream_rate_change_reason_encoder_failed">Bộ mã hóa của PC không chạy được ở mức này, nên stream vẫn giữ như cũ.</string>
     <string name="stream_rate_change_reason_superseded">A newer change replaced it.</string>
-    <string name="stream_rate_change_reason_other">The host could not apply it.</string>
-    <string name="stream_rate_change_auto_stopped">Loss-based bitrate stopped for this stream: the host refused a change. %1$s</string>
-    <string name="stream_rate_change_auto_not_sent">Loss-based bitrate stopped for this stream: a change could not be sent to the host.</string>
-    <string name="stream_rate_change_no_answer">The host did not answer the change.</string>
-    <string name="stream_rate_change_auto_no_answer">Loss-based bitrate stopped for this stream: the host did not answer a change.</string>
-    <string name="title_rate_change_bitrate">Loss-based bitrate (Rust engine)</string>
-    <string name="summary_short_rate_change_bitrate">Off: uses Device controls bitrate. On: this device adjusts from frame loss and network delay.</string>
-    <string name="summary_rate_change_bitrate">Nightjar watches frame loss and network delay and asks the host for a lower or higher bitrate, in place of Device controls bitrate. Needs the Rust engine and a host that offers bitrate changes; other streams use Device controls bitrate.</string>
+    <string name="stream_rate_change_reason_other">PC không áp dụng được.</string>
+    <string name="stream_rate_change_auto_stopped">Đã dừng điều chỉnh tốc độ bit theo mất gói cho stream này: PC đã từ chối một thay đổi. %1$s</string>
+    <string name="stream_rate_change_auto_not_sent">Đã dừng điều chỉnh tốc độ bit theo mất gói cho stream này: không gửi được một thay đổi đến PC.</string>
+    <string name="stream_rate_change_no_answer">PC không phản hồi thay đổi.</string>
+    <string name="stream_rate_change_auto_no_answer">Đã dừng điều chỉnh tốc độ bit theo mất gói cho stream này: PC không phản hồi một thay đổi.</string>
+    <string name="title_rate_change_bitrate">Giảm tốc độ bit khi mất khung hình</string>
+    <string name="summary_short_rate_change_bitrate">Tắt: áp dụng “Giảm tốc độ bit khi mạng bận”. Bật: thiết bị này điều chỉnh theo mất khung hình và độ trễ mạng.</string>
+    <string name="summary_rate_change_bitrate">Giảm tốc độ bit ngay khi khung hình bị mất.</string>
 </resources>

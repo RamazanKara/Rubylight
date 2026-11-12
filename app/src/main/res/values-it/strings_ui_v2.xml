@@ -9,7 +9,7 @@
     <string name="stream_presets_help_title">Informazioni sui preset</string>
     <string name="settings_version">Versione %1$s</string>
     <string name="settings_source">Codice sorgente e licenze</string>
-    <string name="settings_csv_summary">Salva le ultime misurazioni della latenza</string>
+    <string name="settings_csv_summary">Salva le ultime misurazioni della latenza.</string>
     <string name="host_profile_footer">Salva le impostazioni dello stream prima di uscire. La modalità display si salva a parte con Salva modalità display nella relativa finestra. Le modifiche si applicano al prossimo stream.</string>
     <string name="stream_overlay_menu">Overlay</string>
     <string name="stream_bitrate_manual">Imposta bitrate</string>

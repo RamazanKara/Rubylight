@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_submit_hint">フレーム受け渡しの高速化</string>
-    <string name="summary_submit_hint">パフォーマンス ヒントの対象に、フレームをデコーダーへ渡すスレッドも含めます。</string>
+    <string name="summary_submit_hint">パフォーマンス ヒントの対象に、デコーダーへデータを渡すスレッドも含めます。</string>
     <string name="title_covering_decoder_size">折りたたみに備えたデコーダー</string>
-    <string name="summary_covering_decoder_size">もう一方の画面や回転に合わせてデコーダーのサイズを先に確保し、折りたたみや回転で再起動しないようにします。</string>
+    <string name="summary_covering_decoder_size">もう一方の画面に合わせてデコーダーのサイズを確保し、折りたたんでも再起動しないようにします。</string>
     <string name="title_pyrowave_preacquire">PyroWave 画面イメージの先行取得</string>
-    <string name="summary_pyrowave_preacquire">フレームペーシングがオフのとき、各 PyroWave フレームの到着前に次の画面イメージを取得します。</string>
+    <string name="summary_pyrowave_preacquire">各 PyroWave フレームの到着前に次の画面イメージを取得します。</string>
     <string name="title_codec_direct">映像データをデコーダーへ直接</string>
-    <string name="summary_codec_direct">各フレームを中間コピーなしで一度だけデコーダーへコピーします。新しいストリーミングエンジンのみ。</string>
+    <string name="summary_codec_direct">各フレームをデコーダーへ一度だけコピーします。</string>
     <string name="title_receive_decode_priority">受信にデコーダーの優先度</string>
-    <string name="summary_receive_decode_priority">新しいストリーミングエンジン: 映像を受信してデコーダーへ渡すスレッドをデコーダーと同じ優先度で動かします。</string>
+    <string name="summary_receive_decode_priority">映像を受信するスレッドをデコーダーと同じ優先度で動かします。</string>
 </resources>

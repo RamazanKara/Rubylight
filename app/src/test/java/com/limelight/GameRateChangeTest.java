@@ -223,7 +223,7 @@ public class GameRateChangeTest {
         game.rateChange(new RateChangeResult(serial, 30_000, 60_000, STATUS_APPLIED, REASON_NONE,
                 STATUS_REFUSED, REASON_DISABLED));
         ShadowLooper.idleMainLooper();
-        assertEquals("Bitrate: 30.0 Mbps\nFrame rate not changed, still 60 fps. The host has these changes turned off.",
+        assertEquals("Bitrate: 30.0 Mbps\nFrame rate not changed, still 60 fps. The PC has these changes turned off.",
                 ShadowToast.getTextOfLatestToast());
         assertEquals(30_000, (int) ReflectionHelpers.getField(game, "currentBitrate"));
         assertEquals("a refused rate keeps the stream's", 60, (int) ReflectionHelpers.getField(game, "streamFps"));
@@ -371,8 +371,8 @@ public class GameRateChangeTest {
     public void clampedValuesSayWhatLimitsThem() {
         RateChangeResult result = new RateChangeResult(1, 80_000, 90_000, STATUS_CLAMPED, REASON_ENCODER_LIMIT,
                 STATUS_CLAMPED, REASON_HOST_LIMIT);
-        assertEquals("Bitrate: 80.0 Mbps, lower than asked. That is the most the host's encoder manages at this resolution.\n" +
-                        "Frame rate: 90 fps, lower than asked. That is the most the host or this device allows.",
+        assertEquals("Bitrate: 80.0 Mbps, lower than asked. That is the most the PC’s encoder manages at this resolution.\n" +
+                        "Frame rate: 90 fps, lower than asked. That is the most the PC or this device allows.",
                 Game.rateChangeText(game, result));
         assertEquals("Frame rate: 59.94 fps", Game.rateChangeText(game, new RateChangeResult(1, 30_000, 59_940,
                 STATUS_UNCHANGED, REASON_NONE, STATUS_APPLIED, REASON_NONE)));

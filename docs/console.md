@@ -13,7 +13,7 @@ Nightjar opens on Home when a paired PC supports the native API. Home has four p
 - **Library.** The games of every paired PC, with cover art. A game installed on several PCs appears once, marked with the number of PCs.
 - **PCs.** Each PC with its number of games. An offline PC keeps the games it last reported, says it is offline and offers **Wake**; a PC that does not answer within 10 seconds counts as offline. The three dots on a card open the PC's options.
 
-**Settings → App → Open on Home** (on by default) starts on Home; off, Nightjar starts on the PC list. **When Nightjar opens** can instead continue your last game or start a chosen game after a 3-second countdown; see the [settings reference](settings.md#app). The bar under the top bar switches between **Home**, **PCs** and **Settings** at any time, and **L1** and **R1** on a controller step through them; Home appears in it as soon as a PC has a library. A PC paired from the PC list that supports the native API opens on Home; other PCs open their app grid.
+**Settings → App → When Nightjar opens** starts on **Home** by default; **Show my PCs** starts on the PC list, and **Continue my last game** or **A chosen game** starts that game after a 3-second countdown; see the [settings reference](settings.md#app). The bar under the top bar switches between **Home**, **PCs** and **Settings** at any time, and **L1** and **R1** on a controller step through them; Home appears in it as soon as a PC has a library. A PC paired from the PC list that supports the native API opens on Home; other PCs open their app grid.
 
 ### View
 
@@ -64,6 +64,7 @@ Home and the PC list have dedicated TV layouts, chosen by Android's television m
 - **Library rows.** Under Favourites, Continue playing and Recently played, Home shows one row per store in the library (Steam, Epic Games, GOG, EA app, Ubisoft Connect, Battle.net, Xbox), the largest first, then **Other apps** for the apps no store owns, then the PCs. Installed games come first in a row. A row is as wide as the window; when it holds more games than fit, its last tile reads **All N** and opens All games with that store's filter. A library without stores is one **Library** row, and a library from a single store is that store's row; either is shown whole, with no **All N** tile.
 - **All games.** Opens from **All games** at the right of Home's top bar, shown once any PC has a game, or from a row's **All N** tile. Every game of the paired PCs as covers, by title, under filter chips: **All**, **Installed** (when some game is not installed), one chip per store, and **Other apps** (beside stores). Each chip shows how many games it holds. A game that is not installed is dimmed and says **Not installed**; its page says **Not installed on** the PC and offers no Play until the PC installs it (a running game still resumes). The first game has focus when the page opens, Up reaches the chips, and Back returns to Home.
 - **Menus.** A game's or PC's menu opens by its card; see [PC and game menus on Windows and Linux](#pc-and-game-menus-on-windows-and-linux).
+- **Starting a stream.** **Play** fills the window with the game's cover, the PC and the current step until the stream takes over; **Cancel** stops the start. A start that fails turns into a card beside the cover with the reason, **Try again**, **Stream settings** (the stream's resolution, frame rate and bitrate; it opens Settings) and **Test the network**, which asks Moonlight's port-test server whether a firewall blocks the streaming ports and shows the answer in place. **Back** closes the card. See [troubleshooting](TROUBLESHOOTING.md#nightjar-for-windows-and-linux).
 
 ## Join co-op
 
@@ -108,7 +109,7 @@ You can change a setting when the host marks it configurable, the device has **H
 
 **Home**, **PCs** and **Settings** sit in one bar under the top app bar, with the current one highlighted. On a TV the bar and the screens stay inside the safe area.
 
-- The first screen is Home when **Open on Home** is on and a library exists, otherwise PCs. Back from either of the other two returns to the first screen; Back there leaves the app.
+- The first screen is Home when **When Nightjar opens** is on **Home** and a library exists, otherwise PCs. Back from either of the other two returns to the first screen; Back there leaves the app.
 - Switching does not stack screens. A game's page belongs to Home and stays underneath when you open PCs or Settings from it; Back from PCs then returns to Home, not to the game page, and **Home** in the bar closes the game page.
 - Settings opened from a menu or with **Ctrl+,** closes on Back.
 - Help is under **Settings → App → Help**, on **F1**, and in the pairing guide. On Windows and Linux, **Help** is in the bar right after Settings, and opens on **F1** or **?** from any page.
@@ -174,7 +175,7 @@ A game's menu on Home and All games: **Game details**, **Add to favourites** or 
 
 **Settings → App → Theme** picks **System**, **Dark** or **OLED black**. The settings under **Settings → App → Accessibility** apply to every screen of the app. They are global, and never scale or recolor the stream itself.
 
-- **Interface size.** 85, 100, 115, 130 or 150 percent. The app's screens scale while touch targets stay at least 48 dp; the system font size applies on top.
+- **Text and button size.** 85, 100, 115, 130 or 150 percent. The app's screens scale while touch targets stay at least 48 dp; the system font size applies on top.
 - **Interface layout.** **Automatic**, **TV** or **Handheld**: TV gives a handheld docked to a TV the TV layouts; Handheld gives a TV the touch layouts.
 - **High contrast.** Black surfaces, outlines on cards, and a thick amber focus ring on every control. Body and secondary text reach a contrast ratio of at least 7:1, focus rings at least 3:1.
 - **Reduce motion.** **Follow system**, **Reduce** or **Full**. Follow system reduces motion when Android's animation scale is 0. Reduce replaces the TV focus zoom with a still ring and removes sliding transitions.

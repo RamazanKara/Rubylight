@@ -461,7 +461,7 @@ pub fn size(bytes: u64) -> String {
 /// What a failed transfer or folder read means for the user.
 pub fn problem_text(problem: Problem) -> &'static str {
     match problem {
-        Problem::NoPermission => en("This device lacks the permission; allow it in the PC's web UI, under Devices."),
+        Problem::NoPermission => en("This device lacks the permission; allow it in the PC’s web UI, under Devices."),
         Problem::TransferOff => en("File transfer is off on the PC; turn it on in its web UI."),
         Problem::InvalidName => en("The PC refused the file name."),
         Problem::Interrupted => en("The upload stopped before its end."),
@@ -481,14 +481,14 @@ pub fn refusal_text(availability: Availability, upload: bool) -> Option<&'static
     match availability {
         Availability::Supported => None,
         Availability::Unsupported(Some(Reason::FilePermission)) if upload => {
-            Some(en("This device may not send files to this PC. On the PC, open the web UI's Devices page and allow Upload files for it."))
+            Some(en("This device may not send files to this PC. On the PC, open the web UI’s Devices page and allow Upload files for it."))
         }
         Availability::Unsupported(Some(Reason::FilePermission)) => {
-            Some(en("This device may not download this PC's files. On the PC, open the web UI's Devices page and allow Download files for it."))
+            Some(en("This device may not download this PC’s files. On the PC, open the web UI’s Devices page and allow Download files for it."))
         }
         Availability::Unsupported(None) if upload => Some(en("This PC takes no files.")),
         Availability::Unsupported(None) => Some(en("This PC offers no files to download.")),
-        Availability::Unsupported(Some(_)) => Some(en("This PC's host has no file transfer.")),
+        Availability::Unsupported(Some(_)) => Some(en("This PC’s streaming app has no file transfer.")),
         Availability::Unknown => Some(en("The PC is not online.")),
     }
 }
@@ -594,7 +594,7 @@ impl Launcher {
             Access::Known { upload, download } => {
                 let both_off = upload.is_never() && download.is_never();
                 let reasons = if both_off {
-                    vec![en("File transfer is off on this PC. Turn it on in the PC's web UI, under File transfer.")]
+                    vec![en("File transfer is off on this PC. Turn it on in the PC’s web UI, under File transfer.")]
                 } else {
                     [refusal_text(*upload, true), refusal_text(*download, false)].into_iter().flatten().collect()
                 };
@@ -660,7 +660,7 @@ impl Launcher {
         if page.listing.is_some() {
             ui.horizontal(|ui| {
                 spinner(ui, 10.0);
-                ui.label(RichText::new(tr("Reading the PC's folder…")).color(ON_SURFACE_VARIANT));
+                ui.label(RichText::new(tr("Reading the PC’s folder…")).color(ON_SURFACE_VARIANT));
             });
         }
         let mut fetch = None;
@@ -674,7 +674,7 @@ impl Launcher {
                 ui.label(RichText::new(trf("{0} · {1} free", &[&list.folder, &size(list.free_bytes)])).color(ON_SURFACE_VARIANT));
                 ui.add_space(4.0);
                 if list.files.is_empty() && page.may(Feature::FileDownload) {
-                    ui.label(RichText::new(tr("No files in the PC's folder yet.")).color(ON_SURFACE_VARIANT));
+                    ui.label(RichText::new(tr("No files in the PC’s folder yet.")).color(ON_SURFACE_VARIANT));
                 }
                 for file in &list.files {
                     let button = item(ui, &file.name, &size(file.size), *ON_SURFACE_VARIANT, |ui| {
@@ -919,7 +919,7 @@ pub(crate) mod tests {
         let (access, _, listing) = known(Some(native(BOTH, true, false)));
         let Access::Known { upload, download } = access else { panic!("{access:?}") };
         assert!(upload.is_supported() && listing);
-        assert_eq!(refusal_text(download, false), Some("This device may not download this PC's files. On the PC, open the web UI's Devices page and allow Download files for it."));
+        assert_eq!(refusal_text(download, false), Some("This device may not download this PC’s files. On the PC, open the web UI’s Devices page and allow Download files for it."));
         assert_eq!(refusal_text(upload, true), None);
         // Neither permission: nothing is read.
         let (access, lists, listing) = known(Some(native(BOTH, false, false)));
@@ -934,7 +934,7 @@ pub(crate) mod tests {
         let (access, ..) = known(None);
         assert!(matches!(&access, Access::Failed(e) if e.contains("no answer")), "{access:?}");
         assert_eq!(refusal_text(Availability::Unknown, true), Some("The PC is not online."));
-        assert_eq!(refusal_text(Availability::Unsupported(Some(Reason::UpdateHost)), true), Some("This PC's host has no file transfer."));
+        assert_eq!(refusal_text(Availability::Unsupported(Some(Reason::UpdateHost)), true), Some("This PC’s streaming app has no file transfer."));
     }
 
     #[test]

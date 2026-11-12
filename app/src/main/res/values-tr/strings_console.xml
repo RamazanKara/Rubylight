@@ -16,7 +16,7 @@
     <string name="console_badge_running">Çalışıyor</string>
     <string name="console_badge_suspended">Duraklatıldı</string>
     <string name="console_card_on_host">%1$s üzerinde</string>
-    <string name="console_card_on_hosts">%1$d ana bilgisayarda</string>
+    <string name="console_card_on_hosts">%1$d bilgisayarda</string>
     <string name="console_host_games">Oyunlar: %1$d</string>
     <string name="console_host_saved_games">Çevrimdışı. Kayıtlı oyunlar: %1$d</string>
     <string name="console_host_offline">Çevrimdışı</string>

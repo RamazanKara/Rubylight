@@ -19,6 +19,7 @@ Rubylight is a Moonlight-compatible game-streaming host for Windows 10 and 11 PC
 | --- | --- |
 | [Configuration](configuration.md) | Every feature's settings by topic, then every configuration key with its default. |
 | [Features](features.md) | The complete feature set, by area. |
+| [Frame Warp](frame-warp.md) | Camera turns on the client's next refresh: what the host learns per game, the HUD it keeps in place, and the measurements. |
 | [Co-op and background streaming](nucleus-coop.md) | Several players on one PC, each with their own picture, sound and controller, and play while someone else uses the PC. |
 | [WebRTC server](webrtc.md) | Streaming to browsers and Samsung TVs, paired with a PIN. |
 | [Guests in the browser](browser-guests.md) | Guest links for friends, with access controls. |

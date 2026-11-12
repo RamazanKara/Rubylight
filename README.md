@@ -38,7 +38,23 @@
   </tr>
 </table>
 
-<!-- frame-warp -->
+## Frame Warp
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/frame-warp/trail-dark.png">
+    <img src="docs/media/frame-warp/trail-light.png" width="900" alt="Chart of 6 seconds of turns: without Frame Warp the picture trails the mouse by up to 190 pixels; with Frame Warp it stays within about 20.">
+  </picture>
+</p>
+
+Turn the camera and the picture turns on your screen's next refresh, instead of a round trip and the game's own delay later. Nightjar shifts each picture by the turn your mouse or right stick has made since the PC drew it. Rubylight learns, for the game you are playing, how far the picture moves per input and how long the game takes to show it, and keeps the HUD where it is.
+
+- **96% of the trail gone.** A test game with 50 ms of delay, streamed at 1440p and 60 fps, showed the picture a median 64.9 px behind the mouse while turning. With Frame Warp: 1.4 to 2.2 px.
+- **Learns each game by itself.** Sailing in Black Flag Resynced, streamed to a handheld and a laptop, it learned the camera as it turned and kept the quest text, compass and icon wheel in place.
+- **Costs almost nothing.** 0.14 to 0.16 ms of GPU time a frame on the RX 7900 XT, from 1080p to 4K.
+- **One switch.** Nightjar › Settings › Video › Frame Warp. Rubylight is ready for it out of the box.
+
+[How Frame Warp works](docs/frame-warp.md) · [Measurements](rust/PERFORMANCE.md#november-12-frame-warp)
 
 <table>
   <tr>

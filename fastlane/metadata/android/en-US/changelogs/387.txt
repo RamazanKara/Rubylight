@@ -1,0 +1,8 @@
+• Frame Warp: with a Rubylight PC, a mouse or right-stick camera turn shows on your screen's next refresh.
+• One settings layout on phones, TVs and computers.
+• A new look: moonlit glass everywhere.
+• Dual screen mode for devices with a second screen.
+• Continue here moves a running game between your devices.
+• Restart, shut down or update your PC from Nightjar.
+• Touchpad gestures and a Trackpad touch mode.
+• PyroWave decodes sooner, and lost packets are rebuilt faster.

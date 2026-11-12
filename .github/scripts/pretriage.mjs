@@ -24,6 +24,12 @@ const DIFF_MAX_CHARS = 70_000;
 const DOC_MAX_CHARS = 60_000;
 const COMMENTS_MAX_CHARS = 15_000;
 const COMMENT_OUT_MAX_CHARS = 12_000;
+const CODE_MAX_CHARS = 45_000;
+const CODE_MAX_FILES = 6;
+const CODE_FILE_MAX_BYTES = 400_000;
+const CODE_SKIP_DIRS = new Set([".git", "node_modules", "target", "build", "dist", "third-party", "moonlight-common-c", "_site", ".gradle"]);
+const CODE_EXTS = new Set([".rs", ".java", ".kt", ".c", ".cc", ".cpp", ".h", ".hpp", ".toml", ".ts", ".js", ".mjs", ".html", ".xml", ".ps1", ".cs", ".hlsl"]);
+const STOPWORDS = new Set(("this that with from have been were what when where which will would could should there their about after before into over also just than then them they your does doesnt dont cant wont only some more most very much many such like each other these those being using used uses still even need needs want wants issue issues problem please thanks thank version steps expected actual behavior behaviour description logs log error errors bug feature request reproduce reproduction happens happen works working work stream streaming host client").split(" "));
 
 async function gh(route, { token = env.GITHUB_TOKEN, method = "GET", body, accept, text = false } = {}) {
   const response = await fetch(route.startsWith("http") ? route : API + route, {
@@ -82,6 +88,89 @@ async function latestRelease(repo) {
   }
 }
 
+// Finds source files related to the report so the model, which has no tools, can read the code when
+// the docs don't explain a problem. Search terms come from the untrusted text but are only matched
+// against files in this process; nothing from the report is executed.
+function searchTerms(text) {
+  const counts = new Map();
+  const add = (term, weight) => counts.set(term, (counts.get(term) || 0) + weight);
+  for (const match of text.matchAll(/[A-Za-z_][A-Za-z0-9_]{3,}/g)) {
+    const raw = match[0];
+    const term = raw.toLowerCase();
+    if (STOPWORDS.has(term)) continue;
+    const identifier = /_/.test(raw) || /[a-z][A-Z]/.test(raw);
+    add(term, identifier ? 3 : 1);
+    if (identifier) for (const part of raw.split(/_|(?<=[a-z])(?=[A-Z])/)) if (part.length > 3 && !STOPWORDS.has(part.toLowerCase())) add(part.toLowerCase(), 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40);
+}
+
+function* walkCode(dir) {
+  let entries;
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (!CODE_SKIP_DIRS.has(entry.name)) yield* walkCode(full);
+    } else if (CODE_EXTS.has(path.extname(entry.name).toLowerCase())) {
+      yield full;
+    }
+  }
+}
+
+function findCode(text) {
+  const dirs = (env.CODE_DIRS || "").split(",").map((dir) => dir.trim()).filter(Boolean);
+  if (!dirs.length) return "";
+  const terms = searchTerms(text);
+  if (!terms.length) return "";
+  const files = [];
+  const docFreq = new Map();
+  for (const dir of dirs) {
+    for (const full of walkCode(path.join(ROOT, dir))) {
+      let size;
+      try { size = fs.statSync(full).size; } catch { continue; }
+      if (size > CODE_FILE_MAX_BYTES) continue;
+      const lines = fs.readFileSync(full, "utf8").split("\n");
+      const lowerLines = lines.map((line) => line.toLowerCase());
+      const lowerPath = path.relative(ROOT, full).replaceAll("\\", "/").toLowerCase();
+      const hits = new Map();
+      for (const [term] of terms) {
+        const where = [];
+        lowerLines.forEach((line, index) => { if (line.includes(term)) where.push(index); });
+        if (where.length) { hits.set(term, where); docFreq.set(term, (docFreq.get(term) || 0) + 1); }
+      }
+      if (hits.size) files.push({ full, lines, hits, lowerPath });
+    }
+  }
+  const weight = new Map(terms);
+  for (const file of files) {
+    file.score = 0;
+    for (const [term, where] of file.hits) {
+      const idf = Math.log(1 + files.length / docFreq.get(term));
+      file.score += weight.get(term) * idf * (1 + Math.log(where.length)) + (file.lowerPath.includes(term) ? 4 * weight.get(term) : 0);
+    }
+  }
+  files.sort((a, b) => b.score - a.score);
+
+  let out = "";
+  for (const file of files.slice(0, CODE_MAX_FILES)) {
+    const rare = [...file.hits.keys()].sort((a, b) => docFreq.get(a) - docFreq.get(b)).slice(0, 12);
+    const keep = new Set();
+    for (const term of rare) for (const index of file.hits.get(term).slice(0, 6)) for (let i = Math.max(0, index - 10); i <= Math.min(file.lines.length - 1, index + 18); i++) keep.add(i);
+    const picked = [...keep].sort((a, b) => a - b).slice(0, 160);
+    let block = `\n\n## ${path.relative(ROOT, file.full).replaceAll("\\", "/")}\n`;
+    let previous = -2;
+    for (const index of picked) {
+      if (index !== previous + 1) block += "...\n";
+      block += `${index + 1}: ${file.lines[index]}\n`;
+      previous = index;
+    }
+    if (out.length + block.length > CODE_MAX_CHARS) break;
+    out += block;
+  }
+  return out ? `\n\n---\n\n# Source code excerpts\n\nChosen by keyword search on the report, so they may be incomplete or miss the real cause. Line numbers are the file's own.${out}` : "";
+}
+
 async function gather() {
   const event = env.GITHUB_EVENT_PATH ? JSON.parse(fs.readFileSync(env.GITHUB_EVENT_PATH, "utf8")) : {};
   const dispatched = env.GITHUB_EVENT_NAME === "workflow_dispatch" || !env.GITHUB_EVENT_NAME;
@@ -118,12 +207,16 @@ async function gather() {
     otherRepo ? recentItems(otherRepo, 0) : Promise.resolve(""),
   ]);
 
+  const code = isPr ? "" : findCode([item.title, item.body, ...comments.map((comment) => comment.body)].join("\n"));
+  console.log(`Code excerpts: ${code.length} chars`);
+
   const context = [
     instructions.trim(),
     `\n\n---\n\n# Latest releases\n\n${releases.join("\n")}`,
     `\n\n---\n\n# Recent issues and pull requests in ${REPO}\n\n${ownList}`,
     otherRepo ? `\n\n---\n\n# Recent issues and pull requests in ${otherRepo}\n\n${otherList}` : "",
     docs,
+    code,
   ].join("");
 
   const thread = comments

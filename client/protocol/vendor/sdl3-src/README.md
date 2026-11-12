@@ -56,7 +56,8 @@ either (libsdl-org/SDL issue 10876; pull request 14157 adds no Vulkan path).
   backbuffer and the PQ pass. The app promises that its only draws there are its own render states
   writing PQ as `desktop/src/pq_present.hlsl` encodes (the planes shader's flag 4096); SDL encodes
   a clear the same way and drops its own draws there (they write linear light), with an error and
-  a count in `SDL.renderer.gpu.video_only_dropped_draws`. Such a frame that cannot take its image
+  a count in `SDL.renderer.gpu.video_only_dropped_draws`. Nightjar draws its overlay and stream
+  menu there with such a render state (`desktop/src/ui_pq.hlsl`). Such a frame that cannot take its image
   (a resize, read-back) leaves PQ in the backbuffer, which the present blits as it is.
   `SDL.renderer.gpu.video_only_frame` holds the value SDL settled for the latest frame. The output
   colorspace, HDR headroom and SDR white point properties do not change. The comment above

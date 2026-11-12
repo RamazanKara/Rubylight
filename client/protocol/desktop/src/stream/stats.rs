@@ -270,6 +270,11 @@ impl Streaming {
             "Render".into(),
             format!("{:.2} ms", avg(w.render_us as f64, w.shown) / 1000.0),
         ));
+        // The present call apart: the wait for the GPU, the display and the compositor is not Nightjar's drawing.
+        lines.push((
+            "Present wait".into(),
+            format!("{:.2} ms (GPU, display, compositor)", avg(w.present_us as f64, w.shown) / 1000.0),
+        ));
         let mut pacing = pacing_label(self.pacer.mode, self.vrr.fell_back).to_owned();
         if self.vrr.sync != present::VrrSync::Off && self.pacer.mode != PacingMode::Vsync {
             pacing.push_str(&format!(", VRR sync {}", self.vrr.sync.label()));

@@ -78,6 +78,10 @@ pub mod gpu_planes;
 pub(crate) mod pyrowave_sdk;
 #[cfg(unix)]
 mod planes_gpu;
+// The overlay's meshes on an HDR10 swapchain image; its constants and module are tested everywhere.
+#[cfg(any(target_os = "linux", test))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub mod ui_pq;
 #[cfg(all(test, unix))]
 mod vulkan_tests_unix;
 mod negotiate;
@@ -332,7 +336,10 @@ struct Window {
     shown: u32,
     dropped_pacing: u32,
     late: u32,
+    /// Nightjar's own drawing of the frames shown (`render::frame_shares`).
     render_us: u64,
+    /// Their present calls, which are the system's.
+    present_us: u64,
     hold_us: i64,
     latency_us: i64,
     latency_n: u32,

@@ -842,11 +842,20 @@ linear light (`pq-present.patch`). A frame that draws only the video now skips i
   module byte for byte before the change.
 - `Streaming::clear_window` (`stream/render.rs`) asks for a video-only frame when the output is
   PQ, the plane pass draws the picture straight into the window's target (no upscaler, no AI
-  enhancement), nothing else draws (no overlay, toast, stream menu or Remote Input screen) and no
+  enhancement), nothing else draws that SDL would draw itself (no Remote Input screen) and no
   read-back is asked for (a screenshot). It sets the property, queues the clear, flushes it (a
   clear takes no swapchain image, so V-Sync's wait stays at the frame's first draw), resets the
   property and reads the settled value, which `draw_direct` uses for the flag. The property is
   true only around that flush, so the launcher and later frames never inherit it.
+- The statistics overlay, a toast and the stream menu are egui meshes, which SDL's own shaders
+  would draw in linear light, so a frame with any of them used to go through the back buffer:
+  with the overlay on, every frame (nightjar issue 104, a Radeon 760M at 4K 120: 84 of 121
+  pictures shown). In a video-only frame the painter now draws them with a render state of
+  Nightjar's own (`stream/ui_pq.rs`, `ui_pq.hlsl`), which SDL does not drop: its fragment stage
+  does SDL's textured draw (texel times vertex colour, the colour scale) and then the present's
+  encode, PQ or the scanout present's gamma 2.2. `Gui::set_window_state` hands the painter the
+  state for the frame, and only the window's target takes it. The alpha stays premultiplied, so
+  the blend is between encoded values where the back buffer blended linear light.
 - A frame in which SDL still dropped draws (something drew that the check did not foresee) holds
   video-only frames off for 2 s, doubling each time, and after four for the rest of the stream,
   each logged (`present::VideoOnly`). `NIGHTJAR_PQ_VIDEO_ONLY=0` keeps every frame on the PQ pass.
@@ -858,8 +867,11 @@ linear light (`pq-present.patch`). A frame that draws only the video now skips i
 It saves 133 MB a frame (15 GB/s at 112 fps); the draw that remains reads 49.8 MB and writes
 33.2 MB. With both changes the presenter moves about 83 MB a frame instead of 315 MB. A frame that
 turns video only shows a newly opened overlay or menu in the same frame, since input is handled
-before the frame starts; anything drawn from inside the overlay closure that its check does not
-know of is lost for one frame and then held off as above. Not measured yet on a Radeon under Linux.
+before the frame starts; anything drawn from inside the overlay closure that is not an egui mesh
+is lost for one frame and then held off as above. With the overlay on, the Iris Plus 655 spent
+8.5 to 9.3 ms of its render engine and 115 to 137 MiB of memory traffic a picture through the back
+buffer and 6.6 to 6.8 ms and 83 to 84 MiB with the meshes writing PQ (`rust/PERFORMANCE.md`,
+November 12). Not measured yet on a Radeon under Linux.
 
 ### Built: per-surface import caches for VA-API pictures
 

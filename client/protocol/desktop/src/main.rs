@@ -3440,7 +3440,10 @@ Redacted logs, oldest line first; addresses, PC names, PINs and credentials are 
         let dir = self.screenshot_dir.clone();
         let mut shortcuts_changed = false;
         streaming.present(renderer, |s, renderer| {
+            // In a video-only frame on a PQ output the overlay's meshes write PQ themselves.
+            gui.set_window_state(s.ui_state(renderer));
             shortcuts_changed = draw_overlay(gui, window, renderer, s, &mut pads.pads(), shortcuts);
+            gui.set_window_state(std::ptr::null_mut());
             if screenshot {
                 let stamp = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)

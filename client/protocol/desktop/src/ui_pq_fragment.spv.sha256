@@ -1,0 +1,6 @@
+# ui_pq_fragment.spv is glslang 16.3.0's output for ui_pq.hlsl, with the command in its header.
+# Regenerate the module after any change to the shader and put both SHA-256s here (the shader's
+# with LF line endings): a unit test
+# (`stream::ui_pq::tests::the_module_was_built_from_the_shader_as_it_is`) compares them.
+ui_pq.hlsl acfa6a73925d49de97e133e2ca52b39a364e6245db8e2a78fc1a505af00994eb
+ui_pq_fragment.spv 58e70e6af6f5b8610ccb6a426e0fb805ac4a1a153e9e19c2c3378e37f33fbd89

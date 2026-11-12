@@ -782,6 +782,12 @@ pub struct VideoTexture {
     pq_target: bool,
     #[cfg(target_os = "linux")]
     video_only: VideoOnly,
+    /// The render state egui's meshes write PQ with in a video-only frame, once one was asked for.
+    #[cfg(target_os = "linux")]
+    ui_pq: Option<super::ui_pq::UiPq>,
+    /// It could not be made: frames with the overlay go through the back buffer.
+    #[cfg(target_os = "linux")]
+    ui_pq_failed: bool,
     /// Why the last `upload` failed, when it knows more than the caller can say.
     pub failure: Option<String>,
     /// The last failure written to the log, so a failing picture stream logs each reason once.
@@ -895,6 +901,10 @@ impl Default for VideoTexture {
             pq_target: false,
             #[cfg(target_os = "linux")]
             video_only: VideoOnly::from_environment(),
+            #[cfg(target_os = "linux")]
+            ui_pq: None,
+            #[cfg(target_os = "linux")]
+            ui_pq_failed: false,
             failure: None,
             logged_failure: None,
             hdr_frame: false,
@@ -1857,6 +1867,39 @@ impl VideoTexture {
         &mut self.video_only
     }
 
+    /// Whether the overlay, a toast and the stream menu can be drawn into an HDR10 swapchain
+    /// image (`ui_pq::UiPq`), so a frame with them can be video only too. Makes the render state
+    /// the first time; a failure is logged once and holds for the stream.
+    ///
+    /// # Safety
+    /// `renderer` is the live renderer of the presenting thread.
+    #[cfg(target_os = "linux")]
+    pub unsafe fn ui_draws_pq(&mut self, renderer: *mut SDL_Renderer) -> bool {
+        if self.ui_pq.is_none() && !self.ui_pq_failed {
+            match super::ui_pq::UiPq::new(renderer) {
+                Ok(ui) => self.ui_pq = Some(ui),
+                Err(error) => {
+                    self.ui_pq_failed = true;
+                    eprintln!("nightjar: HDR frames with the overlay or the menu go through the back buffer and its PQ pass: {error}");
+                }
+            }
+        }
+        self.ui_pq.is_some()
+    }
+
+    /// The render state for egui's meshes in this frame: null unless SDL settled it as video
+    /// only, where SDL's own draws would be dropped.
+    ///
+    /// # Safety
+    /// `renderer` is the live renderer of the presenting thread.
+    #[cfg(target_os = "linux")]
+    pub unsafe fn ui_pq_state(&mut self, renderer: *mut SDL_Renderer) -> *mut SDL_GPURenderState {
+        match self.ui_pq.as_mut().filter(|_| self.pq_target) {
+            Some(ui) => ui.state(renderer),
+            None => std::ptr::null_mut(),
+        }
+    }
+
     /// Draws the current picture's copied planes straight into `destination` of the back buffer,
     /// converted and scaled in one pass, and returns true; false for SDL to draw `texture` (an
     /// upscaler's output, a picture that is not planes, or after a failure, which is logged once).
@@ -2536,6 +2579,8 @@ impl VideoTexture {
         self.finish_direct();
         #[cfg(any(windows, unix))]
         { self.planes = None; }
+        #[cfg(target_os = "linux")]
+        { self.ui_pq = None; }
         self.pyrowave = None;
         self.pyrowave_format = None;
         self.packed = None;
@@ -2617,7 +2662,8 @@ pub struct VideoOnlyFrame {
     /// The plane pass draws the picture straight into the window's target (`draws_planes_direct`),
     /// with no upscaler or AI enhancement drawing it instead.
     pub planes_direct: bool,
-    /// Nothing else draws there: no overlay, toast, stream menu or Remote Input screen.
+    /// Nothing else draws there that SDL would draw itself: no Remote Input screen, and the
+    /// overlay, a toast or the stream menu only as meshes that write PQ (`ui_pq::UiPq`).
     pub nothing_else: bool,
     /// A read-back of the frame is asked for (a screenshot), which reads the back buffer as scRGB.
     pub read_back: bool,

@@ -35,6 +35,9 @@ pub struct Gui {
     /// The tier the context holds, so a stream's frames do not write it again.
     tier_set: Option<Tier>,
     no_output_said: bool,
+    /// The render state the meshes drawn into the window's target take (`set_window_state`); null
+    /// for SDL's own.
+    window_state: *mut SDL_GPURenderState,
     /// The print of what the window shows; None after a frame that was not the launcher's.
     on_screen: Option<u64>,
     /// The stream overlay's last pass (see [`Self::overlay_paint`]).
@@ -244,6 +247,7 @@ impl Gui {
             chain: Chain::default(),
             tier_set: None,
             no_output_said: false,
+            window_state: std::ptr::null_mut(),
             on_screen: None,
             overlay: OverlayShown::default(),
         }
@@ -562,6 +566,14 @@ impl Gui {
         self.repaint_delay != Duration::MAX
     }
 
+    /// The render state the passes painted from now on draw their meshes with on the window's
+    /// target, until it is set to null again: a stream's video-only frame on a PQ output, where
+    /// SDL drops its own draws and `stream::ui_pq` writes them as PQ. The state must outlive
+    /// the frame's flush.
+    pub fn set_window_state(&mut self, state: *mut SDL_GPURenderState) {
+        self.window_state = state;
+    }
+
     /// Repaints the shapes the last overlay pass drew, without running egui. Only valid while
     /// [`Self::overlay_shown`] is the digest of the frame being drawn.
     pub fn overlay_repaint(&mut self, renderer: *mut SDL_Renderer) {
@@ -615,6 +627,7 @@ impl Gui {
             colors: &mut self.colors,
             chain: &mut self.chain,
             no_output_said: &mut self.no_output_said,
+            window_state: self.window_state,
         };
         self.glass.paint(&mut stage, primitives, textures_changed);
         self.glass.settle(&mut stage);
@@ -708,6 +721,7 @@ struct SdlStage<'a> {
     colors: &'a mut Vec<SDL_FColor>,
     chain: &'a mut Chain,
     no_output_said: &'a mut bool,
+    window_state: *mut SDL_GPURenderState,
 }
 
 impl Stage for SdlStage<'_> {
@@ -763,6 +777,11 @@ impl Stage for SdlStage<'_> {
         // SAFETY: the arrays hold `vertices.len()` entries; uv points into the vertex
         // array with the vertex stride; indices are u32.
         unsafe {
+            // Glass's own targets keep SDL's draw; only the window's target takes the state.
+            let state = if SDL_GetRenderTarget(self.renderer).is_null() { self.window_state } else { std::ptr::null_mut() };
+            if !state.is_null() {
+                SDL_SetGPURenderState(self.renderer, state);
+            }
             SDL_SetRenderClipRect(self.renderer, &rect);
             SDL_RenderGeometryRaw(
                 self.renderer,
@@ -778,6 +797,9 @@ impl Stage for SdlStage<'_> {
                 mesh.indices.len() as i32,
                 4,
             );
+            if !state.is_null() {
+                SDL_SetGPURenderState(self.renderer, std::ptr::null_mut());
+            }
         }
     }
 

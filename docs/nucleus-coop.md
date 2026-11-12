@@ -310,7 +310,8 @@ folder under `C:\Program Files`; that warning doesn't apply here.
 
 Earlier Rubylight versions downloaded Nucleus Co-op into
 `C:\ProgramData\Butterpollo\nucleus\2.4.2`. With no folder chosen, that
-install keeps working (Help shows it as **Earlier install**); choosing a
+install keeps working (the Nucleus Co-op panel under **Advanced →
+Troubleshoot** shows it as **Earlier install**); choosing a
 folder takes over from it. A folder kept as `nucleus_path` that isn't 2.4.2
 (one an earlier version allowed) falls back to that install while it exists:
 the panels say so and offer to choose another folder. Games added in Nucleus

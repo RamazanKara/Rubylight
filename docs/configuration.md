@@ -306,7 +306,7 @@ Frame-size limits are best-effort: encoded frames can exceed them. If the driver
 
 ### NVIDIA NVENC
 
-On an NVIDIA GPU, **Encoder → Automatic** encodes H.264, HEVC and AV1 with NVENC. Its settings are in the collapsed **NVIDIA NVENC** group of **All settings → Picture**, which shows while NVENC is the encoder in use (search finds them otherwise, as it does the AMD AMF ones), listed with their keys and defaults under [All settings, Picture](#picture); the stream presets set `nvenc_vbv_increase`, `nvenc_preset` and `nvenc_temporal_aq` as shown in [Stream presets](#stream-presets). [NVENC](nvenc.md) describes how the host drives NVENC and how it matches the AMF path. The AMD AMF settings above do not apply to it.
+On an NVIDIA GPU, **Encoder → Automatic** encodes H.264, HEVC and AV1 with NVENC. Its settings are in the collapsed **NVIDIA NVENC** group of **All settings → Picture**, which shows while NVENC is the encoder in use (search finds them otherwise, as it does the AMD AMF ones), listed with their keys and defaults under [All settings, Picture](#picture); the stream presets set `nvenc_vbv_increase`, `nvenc_preset` and `nvenc_temporal_aq` as shown in [Stream presets](#stream-presets). **Rate control** (`nvenc_rate_control`) defaults to constant bitrate; with variable bitrate (`vbr`), **Peak bitrate** (`nvenc_peak_bitrate_ratio`, 1× to 3×, default 1.5×) sets how far busy scenes may go above the stream bitrate, at the cost of larger bursts on the network. **Full GPU clocks while streaming** (`nvenc_latency_over_power`, on by default) sets NVIDIA's power management to Prefer maximum performance in a driver profile that covers the host alone; turn it off to keep the driver's own power management. [NVENC](nvenc.md) describes how the host drives NVENC and how it matches the AMF path. The AMD AMF settings above do not apply to it.
 
 ## Displays and RTSS
 
@@ -322,7 +322,7 @@ A device's **Display mode** (`display_mode`, `WIDTHxHEIGHTxREFRESH`) sets its vi
 
 **Rotate the display** (`dd_rotation_option`, default `disabled`) gives the streamed display the device's portrait or landscape shape. Set it in **All settings → Picture → Streamed display** or for one device under **Devices → (device) → Display overrides**. **Match the device** (`auto`) makes a device's own virtual display in the stream's shape, so a phone streaming in portrait gets a portrait display; a virtual display is never turned, since a turned one would reach the encoder sideways. A monitor gets the stream's mode in the shape it shows, then turns to the stream's shape. When the device turns during the stream and asks for the turned size (Nightjar's Orientation → Rotate), the virtual display changes shape or the monitor turns, off the stream loop; a display that cannot follow logs a warning and the stream's picture is scaled to the new size. **Choose below** (`manual`) turns the display to **Rotation** (`dd_manual_rotation`: `0`, `90`, `180` or `270` degrees clockwise); a virtual display is made in the turned shape instead. A monitor is turned back when the stream ends, and after a crash when the host next starts. A monitor another stream is using keeps its rotation. A turned monitor needs Windows Graphics Capture: Desktop Duplication refuses it with an error. A device's own **Display scale** (`dd_virtual_display_scale` in its overrides) also scales a monitor and is put back the same way; the host-wide Virtual display scale sets only virtual displays.
 
-A disconnect leaves the app running but restores its displays by default: `dd_config_revert_on_disconnect=true`, after `dd_config_revert_delay` (default `3000` ms). Exclusive layouts use that delay even in profiles that turn restoration off, so the physical monitors do not stay disabled while nobody is streaming; with `dd_hold_layout_while_paused=true` the user chose to keep them off, and the lifetime below applies to them too. Other layouts can still be kept for reconnection by turning restoration off; `dd_paused_virtual_display_timeout_secs` then controls their lifetime (default `7200` seconds; `0` keeps them until the app closes). Restoration waits for the last stream using a layout. If that layout disabled an original display, the original layout is restored even after a Win+P change; other layouts preserve later user changes. A failed restoration remains in the recovery journal and the next stream retains its original baseline. A device remembers eligible layout changes only at its last stream's disconnect; later local changes during the pause do not become its streaming default. A client that sends nothing for `ping_timeout` (default `10000` ms) ends its stream. **Advanced → Troubleshoot** saves and restores a display layout and removes the virtual displays Rubylight created.
+A disconnect leaves the app running but restores its displays by default: `dd_config_revert_on_disconnect=true`, after `dd_config_revert_delay` (default `3000` ms). Exclusive layouts use that delay even in profiles that turn restoration off, so the physical monitors do not stay disabled while nobody is streaming; with `dd_hold_layout_while_paused=true` the user chose to keep them off, so with restoration turned off the lifetime below applies to them too, and a **Restore hotkey**, once set, still brings the monitors back. Other layouts can still be kept for reconnection by turning restoration off; `dd_paused_virtual_display_timeout_secs` then controls their lifetime (default `7200` seconds; `0` keeps them until the app closes). Restoration waits for the last stream using a layout. If that layout disabled an original display, the original layout is restored even after a Win+P change; other layouts preserve later user changes. A failed restoration remains in the recovery journal and the next stream retains its original baseline. A device remembers eligible layout changes only at its last stream's disconnect; later local changes during the pause do not become its streaming default. A client that sends nothing for `ping_timeout` (default `10000` ms) ends its stream. **Advanced → Troubleshoot** saves and restores a display layout and removes the virtual displays Rubylight created.
 
 **Virtual display → Default (by Windows version)** leaves the choice to the host: one virtual display per device on Windows 11 23H2 or later, none on earlier Windows. **Activate a virtual display** (`dd_activate_virtual_display`) is shown while Virtual display is unset or Off, or while it is on. It gives streams a virtual display when the mode is off, and it also overrides a device's or app's own Off.
 
@@ -332,6 +332,7 @@ Under **All settings → Picture**, in the **Frame limiter** and **RTSS** groups
 - Rubylight starts RTSS when a limit is needed and restores the previous limit after disconnect. If RTSS requires administrator access, the installed service can use the signed-in administrator's token; otherwise start RTSS with the required access yourself.
 - **Frame limit** (`frame_limiter_fps_limit`) defaults to `0`, meaning the stream rate. RTSS preserves fractional rates such as 59.94 FPS.
 - **Virtual display refresh** offers 2× (`legacy`), 4× (`enabled`), 1000 Hz (`vrr`) or Off (`disabled`). Turning **Limit every stream** off does not disable the automatic virtual-display limit. Choose **Limiter → None** (`frame_limiter_provider = none`) to disable all limiting.
+- **RTSS limit mode** (`rtss_frame_limit_type`, default `async`) offers Asynchronous, Front edge sync, Back edge sync and NVIDIA Reflex. Virtual-display streams (unless **Virtual display refresh** is Off) and frame-generation games on a monitor choose their own mode: NVIDIA Reflex when the PC streams with an NVIDIA GPU, front edge sync otherwise. **Use this mode on virtual displays** (`rtss_allow_virtual_display_override`) applies your mode to virtual-display streams instead; apps set to game-provided frame generation keep front edge sync. On a GPU other than NVIDIA, NVIDIA Reflex limits with front edge sync and the log says so.
 
 ## Lower bitrate when the link cannot carry it
 
@@ -611,14 +612,16 @@ If launch keeps interrupting a window you are using on the host, enable **Stop a
 
 ## Radeon settings per game
 
-An app can ask for Radeon driver settings while it runs. On the app's page in **Games**, the **Radeon** panel picks a profile:
+An app can ask for graphics driver settings while it runs, on Radeon and on NVIDIA graphics cards. On the app's page in **Games**, **Graphics driver → Driver preset** picks a profile:
 
-| Profile | Writes |
-|---|---|
-| Competitive | Radeon Anti-Lag on |
-| Smoothness | Frame Rate Target Control on, at the stream's frame rate |
-| Quality | Anisotropic filtering on and the driver's "enhance application settings" anti-aliasing |
-| Custom | Up to 24 settings you list (ids as in `GET /api/native/v1/radeon`; a feature's `.enabled` toggle goes first) |
+| Profile | Writes on Radeon | Writes on NVIDIA |
+|---|---|---|
+| Competitive | Radeon Anti-Lag on | Low Latency Mode at Ultra |
+| Smoothness | Frame Rate Target Control on, at the stream's frame rate | Max frame rate at the stream's frame rate |
+| Quality | Anisotropic filtering on and the driver's "enhance application settings" anti-aliasing | 16x anisotropic filtering and high-quality texture filtering |
+| Custom | Up to 24 settings you list (ids as in `GET /api/native/v1/radeon`; a feature's `.enabled` toggle goes first) | The same |
+
+Each preset lists both drivers' settings, and the host writes only those of the driver it streams with.
 
 The table is `rust/core/src/radeon_profiles.json`. The app stores the choice as two top-level keys of the app, `radeon-profile` and, for Custom only, `radeon-settings` (an object of setting ids and values, such as `{ "anti_lag.enabled": true }`). The host refuses to save an unknown profile, `radeon-settings` with any profile but Custom (or Custom with none), an id that is not lower-case words joined by dots, a value that is not a boolean, a whole number or a short text, or more than 24 custom settings. At launch the host applies the settings through the Radeon control path of the Session API (validated, journaled, read back, undone on failure), and restores them with the other Radeon changes when the session ends or the host restarts after a crash. The app's config is the administrator's consent, so the device needs no Host control for its game's profile; the device's own Radeon writes (the Session API's panel) still do. The settings are written on a thread of their own, so a launch never waits for the driver, and a game launched from another device first has the earlier device's settings put back, so the new profile's originals are the PC's own. Starting another game on the same device puts back only the settings the earlier profile wrote, not what the device changed itself; Disconnect keeps the profile, and it goes with the session's end (or a launch that never connects). A setting the GPU does not list is refused before anything is written, a profile that follows the stream's frame rate is refused when the launch states none, and both are reported in the session's `radeon_profile.message` and in the host log; the game still starts.
 
@@ -850,11 +853,11 @@ A paired client such as [Nightjar](https://github.com/RamazanKara/nightjar) uses
 
 ### Host control for a device
 
-**Host control** (`host_control`) lets one paired device close games and change Radeon settings. It is not part of the other permissions. Open **Devices**, open the device, then under **Permissions → Custom permissions → Other** tick **Host control: change Radeon settings and close games from this device** and save.
+**Host control** (`host_control`) lets one paired device close games and change graphics driver settings (Radeon or NVIDIA). It is not part of the other permissions. Open **Devices**, open the device, then under **Permissions → Custom permissions → Other** tick **Host control: change graphics driver settings and close games from this device** and save.
 
 - It is off for every device, including new pairings and devices imported from Apollo or Vibepollo. Only the console turns it on; nothing on the streaming port can.
 - Turning it off applies on the device's next request. It does not end a running stream.
-- A device also needs the **List apps**, **View streams** and **Launch apps** permissions for what it does. Reading the Radeon state needs View or Launch only.
+- A device also needs the **List apps**, **View streams** and **Launch apps** permissions for what it does. Reading the graphics driver state needs View or Launch only.
 
 ### Sleep PC and sleep after idle
 
@@ -894,9 +897,11 @@ Every change is written to a journal on disk before it is applied, and put back 
 
 It is not put back at Disconnect: a suspended session keeps its settings until it resumes or ends. If you changed a setting on the PC in the meantime, your change stays and the host forgets its own. A restore that fails is logged and retried at the next start. Which settings each driver accepted is recorded for the RX 7900 XT in the [hardware matrix](hardware-matrix.md). The request and response shapes are in [native-api.md](native-api.md#radeon-state-and-writes).
 
+On a host that streams with an NVIDIA graphics card, the same panel and the same restore cover NVIDIA's global 3D settings, read and written through NVAPI: Low Latency Mode, Max frame rate, Vertical sync, Power management mode, Texture filtering quality, Anisotropic filtering and Smooth Motion (driver 571.86 or newer). Nightjar shows them in its stream menu, and a game's **Graphics driver** panel in the console offers them for that game's [driver preset](#radeon-settings-per-game). A value the panel cannot put back exactly, such as one set with NVIDIA Profile Inspector, shows as read only and is left alone.
+
 ## Clipboard, files and USB
 
-Each of these needs a permission you give a device on **Devices**; pairing never grants them, and **Full control** leaves the file, folder and USB ones as they are.
+Each of these needs a permission you give a device on **Devices**; pairing never grants them, and **Everything** leaves the file, folder and USB ones as they are.
 
 - **Clipboard.** A device with the clipboard permissions copies text to and from this PC, and images too while **Copy images** (`clipboard_image`, default `true`) is on, up to **Largest image** (`clipboard_image_max_mb`, `16` MiB as PNG) in each direction. Background streams have no clipboard.
 - **Files and shared folders.** See [File transfer](#file-transfer) and [Shared folders](#shared-folders) below.
@@ -929,11 +934,11 @@ Off by default. With **WebRTC server** (`webrtc_server`) on, Rubylight listens f
 
 | Key | Default | What it means |
 | --- | --- | --- |
-| `webrtc_server` | `false` | Turns the server on. Needs a restart. |
+| `webrtc_server` | `false` | Turns the server on. Needs a restart; **Turn on** on the console's **Stream in the browser** page saves it and restarts in one step. |
 | `webrtc_port` | `8000` | TCP port of the WebSocket, announced in the discovery reply. 1024 to 65535. Discovery itself always listens on UDP 8000, where TVs send their broadcast. |
 | `webrtc_media_port` | `8001` | UDP port for WebRTC video, audio and input. 1024 to 65535. Guests of the console's stream use the next four ports ([guests](browser-guests.md#what-must-be-reachable)). |
 
-- Pairing: the TV shows a four-digit PIN and the request appears on the console's PIN page next to Moonlight's. Enter the PIN there. The TV then holds a client ID and a secret; the secret is stored in `sunshine_state.json` and is never shown in the console. Paired TVs are listed on **Devices** with a WebRTC badge, where you can disable or unpair them. A disabled or unpaired TV is disconnected at once. At most 32 TVs stay paired; the oldest go first.
+- Pairing: the TV shows a four-digit PIN and the request appears on **Devices** next to Moonlight's, with a WebRTC badge. Enter the PIN there. The TV then holds a client ID and a secret; the secret is stored in `sunshine_state.json` and is never shown in the console. Paired TVs are listed on **Devices** with a WebRTC badge, where you can disable or unpair them. A disabled or unpaired TV is disconnected at once. At most 32 TVs stay paired; the oldest go first.
 - Signalling is plain `ws://`, not encrypted. Signing in keeps other devices from using or interrupting a stream; it does not hide what is sent on the network. Only peers on the local network are served: loopback, private (RFC 1918), link-local, unique-local IPv6 and carrier-grade NAT (100.64.0.0/10) addresses. Anything else is closed before its first message and logged. Do not forward these ports on your router.
 - At most 8 connections may sit unauthenticated at once (the oldest is closed for a ninth) and 32 paired devices connected.
 - If another program holds the port, the console shows a `webrtc_server` warning, the log has the error and the server does not run. The port never moves on its own.

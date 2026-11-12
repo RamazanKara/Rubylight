@@ -368,9 +368,9 @@ Implementation: [HostStreamSettings.java](../app/src/main/java/com/limelight/pre
 | Virtual display | Same as all PCs, On, Off | On asks the PC for a display matching this stream. Off leaves it to the PC's display settings. Shown for PCs whose host has a virtual display. |
 | PC render resolution | Same as all PCs, or 50–200% | Change the PC's render resolution relative to the stream. Used with the virtual-display request. |
 | PC display scaling | Same as all PCs, PC’s own, or 100–500% in Windows' steps | Larger text and interface on this PC's virtual display; the resolution does not change. Shown only for PCs whose host reads it; on an older host version it is disabled with the reason. |
-| Full color range (under **Debug**, last, after the Connection and Host groups) | Same as all PCs, On, Off | Request full-range color for this PC. |
+| Full color range (under **Debug**, last, after the Connection and PC groups) | Same as all PCs, On, Off | Request full-range color for this PC. |
 
-Between **Display on the PC** and **Debug**, the PC's screen also holds its **Connection** group (**Connection test**, **PyroWave frame pace** for PCs that offer it, **Play away from home**, **Wake-on-LAN**) and its **Host** group (**Open host web UI**, **View details**, **Add games to a launcher**, **Add to home screen**, **Rename**, **Unpair**, **Remove PC**). These are actions, not stored values.
+Between **Display on the PC** and **Debug**, the PC's screen also holds its **Connection** group (**Connection test**, **PyroWave frame pace** for PCs that offer it, **Play away from home**, **Wake-on-LAN**, **Other wake addresses**) and its **PC** group (**Open the PC's web UI**, **View details**, **Add games to a launcher**, **Add to home screen**, **Rename**, **Unpair**, **Remove PC**). These are actions, except **Other wake addresses**: up to eight MAC addresses of the PC's other network adapters, which every wake also targets ([Wake a sleeping PC](pairing.md#wake-a-sleeping-pc)).
 
 A PC keeps only the values that differ from the main settings. The host's device and app policy may override a request. The performance overlay and the log show the PC's own values and the display choice for each stream.
 

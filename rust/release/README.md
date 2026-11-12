@@ -10,7 +10,7 @@ python rust/release/bump.py <version>   # versions, download links, a "## New in
 git push origin <commit>:refs/tags/v<version>   # the commit whose main run is green
 ```
 
-Push the tag by commit: a clone that pulled Nightjar's subtree holds Nightjar's own `v4.x` tags, so a local `git tag v4.0.1` can collide with one of them.
+The workflow runs for tags `v2.*` to `v9.*` (`v[2-9].*`). Push the tag by commit: a clone that pulled Nightjar's subtree holds Nightjar's own `v4.x` tags, so a local `git tag v4.0.1` can collide with one of them.
 
 Without git, the same release is one click: **Actions → Rubylight Windows → Run workflow** on `main` with **Publish** ticked. It releases the version in `Cargo.toml` at main's head and creates its `v<version>` tag. An existing tag with or without `v` prevents publishing that version again. Package filenames keep the bare version. **Notes** instead of **Publish** only rewrites the published release's text from `rust/RELEASE_NOTES.md` on main, keeping its assets and its link to the run that built it.
 
@@ -20,7 +20,7 @@ The tag's run (or the published run) of [`rust-windows.yml`](../../.github/workf
 | --- | --- |
 | Check that the tag matches `Cargo.toml` and that its release notes section is filled in | `tag` job, `notes.py` |
 | Reuse the installer main's run already built and tested for the tagged commit. A signed release (SignPath configured, see [code signing](../../docs/code-signing.md)) always builds afresh. Otherwise only when there is none (the run was cancelled by a later push, or still running): formatting, tests, clippy, the release build, the web console and the package with its installer, from scratch. Tests, clippy and the build run in parallel; signing waits for tests and clippy | `tag` job; `test`, `lint` and `windows` jobs (`rust/build.ps1 -Stage Test`, `-Stage Lint`, `-Stage Build -Package`) |
-| Publish `Rubylight <version>` (a prerelease for `-rc.N`) with three assets: the installer, the portable ZIP and `SHA256SUMS`. The host check adds `VALIDATION.json` and the laptop's smoke test `REAL-CLIENT.json`, five in all. The text is `body.md` with the `## New in <version>` section and a link to the run that built the package; links relative to `rust/` point at the tagged source. A release that already exists is left alone | `publish` job, `notes.py` |
+| Publish `Rubylight <version>` (a prerelease for a version with a suffix such as `-rc.N`, otherwise the latest release) with three assets: the installer, the portable ZIP and `SHA256SUMS`. The host check adds `VALIDATION.json` and the laptop's smoke test `REAL-CLIENT.json`, five in all. The text is `body.md` with the `## New in <version>` section and a link to the run that built the package; links relative to `rust/` point at the tagged source. A release that already exists is left alone | `publish` job, `notes.py` |
 
 Tag a commit whose main run is green and the release is out in about a minute. A failed run can be re-run from the Actions page. To release again after a fix, bump to the next version.
 
@@ -110,4 +110,5 @@ cargo build --release -p butterpollo-windows --example udp_shaper   # copy udp_s
 | `cadence_matrix.py`, `claims_summary.py` | The host's cadence error across stream rate, codec and game cadence, and a summary of a host log's per-claim pacing trace. |
 | `chroma_quality.py`, `chroma_fixtures.py` | 4:2:0 against packed 4:4:4 picture quality on the AMD encoder, and the text fixtures it and `focus_ab.py` encode. |
 | `amf_sweep.ps1` | An AMF A/B sweep after a reboot, with an idle installed host. |
+| `frame_warp_accuracy.py` | How much of a turn's input-to-picture displacement Frame Warp removes: joins `look_probe`'s report with nightjar-cli's Frame Warp log by barcode ([PERFORMANCE.md](../PERFORMANCE.md#november-12-frame-warp)). |
 | `package.ps1`, `sign-artifacts.ps1` | Called by `rust/build.ps1` and CI: the file manifest, ZIP and installer, and the SignPath staging and apply steps. |

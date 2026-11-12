@@ -14,6 +14,8 @@ Rubylight can stream over WebRTC to a Samsung Tizen TV or a browser, alongside t
 2. Switch on **WebRTC server**.
 3. Save and restart Rubylight when the console asks; the setting takes effect after a restart.
 
+Or open **Stream in the browser** under **Advanced** in the sidebar and press **Turn on**: it saves the setting and restarts Rubylight in one step, after asking first if a device is streaming.
+
 If another program already holds a port, the console shows a `webrtc_server` warning, the log names the error and the server does not run. Rubylight never moves to another port on its own. Pick a free **WebRTC signalling port** or **WebRTC media port** instead.
 
 ### Ports and firewall

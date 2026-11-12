@@ -71,12 +71,16 @@ Turn the camera and the picture turns on your screen's next refresh, instead of 
 
 ## What's new
 
-- **More controller choices.** A [Steam Controller (2026) profile](docs/configuration.md#controllers) with trackpads, back grips, motion and haptics, plus **Xbox 360 (ViGEmBus)** for tools such as reWASD that look for a USB controller.
-- **Move a game between devices, or use two screens.** **Continue here** moves the stream while the game keeps running; **Stream here too** joins it. Nightjar's **Dual screen mode** gets a second virtual display, or the PC's other physical monitor. [Release notes](rust/RELEASE_NOTES.md#new-in-3111)
+Rubylight 4.0 covers everything since 3.0. Nightjar 5.0 is the matching client. [Release notes](rust/RELEASE_NOTES.md#new-in-400)
+
+- **A calmer console.** Home opens on pairing for a new PC and lists what needs attention, each with a button that fixes it. **All settings** has six tabs, **Ctrl+K** finds any game, device, setting or action, and restarting Rubylight, display recovery and crash reports moved to **Advanced › Troubleshoot**.
+- **NVIDIA graphics cards, with their driver settings.** NVENC encodes H.264, HEVC and AV1, with native YUV 4:4:4 where the encoder offers it. A game's **Graphics driver** panel and Nightjar's stream menu set NVIDIA's Low Latency Mode, Max frame rate, Vertical sync, Smooth Motion and more, and put the PC's own values back when the session ends. **Peak bitrate** sets how far variable bitrate may go, and **NVIDIA Reflex** is an RTSS limit mode again. [NVENC](docs/nvenc.md)
+- **Move a game between devices, or use two screens.** **Continue here** moves the stream while the game keeps running; **Stream here too** joins it. Nightjar's **Dual screen mode** gets a second virtual display, or the PC's other physical monitor.
 - **Play in a browser and invite friends.** A PIN-paired play page for browsers, TVs and consoles, plus guest links with access controls; H.264, HEVC and AV1, with HDR where supported. [Browser streaming](docs/webrtc.md)
-- **Manage the PC from the couch.** Authorised Nightjar devices can approve another device's pairing, restart or shut down an idle PC, and install a pending host update. Permissions control each action. [Release notes](rust/RELEASE_NOTES.md#new-in-370)
-- **Settings that follow each game and device.** App × device overrides, [managed game files](docs/configuration.md#managed-game-files) that restore after play, and an opt-in [Neural Rendering](docs/configuration.md#neural-rendering) mod installer for supported Radeon PCs and games.
-- **Steadier PyroWave delivery.** Bitrate backs off when the host loses packets while sending, bursts are bounded on routes without client bandwidth hints, and recovery is paced after congestion. Full-chroma HEVC also works at larger coded sizes, and Wake-on-LAN includes physical adapters behind Hyper-V switches. [3.11.6](rust/RELEASE_NOTES.md#new-in-3116) · [3.11.5](rust/RELEASE_NOTES.md#new-in-3115)
+- **Every launcher works like Steam.** Epic Games, Battle.net, Microsoft Store and Xbox, EA app, Ubisoft Connect, GOG and your game folders each sync on their own terms, and each device can keep its own copy of a game's settings files. [Managed game files](docs/configuration.md#managed-game-files)
+- **More controller choices.** A [Steam Controller (2026) profile](docs/configuration.md#controllers) with trackpads, back grips, motion and haptics, plus **Xbox 360 (ViGEmBus)** for tools such as reWASD that look for a USB controller.
+- **Manage the PC from the couch.** Authorised Nightjar devices can approve another device's pairing, restart or shut down an idle PC, install a pending host update, and serve as the PC's microphone with no stream. Permissions control each action.
+- **Frames leave sooner.** 4K frames go out slice by slice, large frames start leaving before the whole frame is ready, and streams stay timed to the device's refresh after the PC was busy. [Performance](docs/performance.md)
 
 ## Why Rubylight
 
@@ -84,11 +88,11 @@ Turn the camera and the picture turns on your screen's next refresh, instead of 
   <tr>
     <td width="33%" valign="top"><h4>Built around your GPU</h4>AMF on Radeon and NVENC on NVIDIA encode H.264, HEVC and AV1 at 8 and 10 bits. Colour conversion and scaling run on D3D12 compute queues beside the game, and Rubylight's own display driver hands each frame to the host with no desktop capture in between.</td>
     <td width="33%" valign="top"><h4>A display for every device</h4>Each phone, TV or handheld gets a virtual display at its own resolution, refresh rate and HDR mode. When the stream ends, your monitors come back exactly as you left them.</td>
-    <td width="33%" valign="top"><h4>The picture your screen can show</h4>HDR10, HDR10+, Dolby Vision and HLG, with per-scene brightness measured on the GPU. Full 4:4:4 colour for Nightjar and PyroWave clients keeps small text and red-on-black HUDs sharp.</td>
+    <td width="33%" valign="top"><h4>The picture your screen can show</h4>HDR10, HDR10+, Dolby Vision and HLG, with per-scene brightness measured on the GPU. Full 4:4:4 colour, for Nightjar and PyroWave clients and natively from NVIDIA encoders, keeps small text and red-on-black HUDs sharp.</td>
   </tr>
   <tr>
     <td width="33%" valign="top"><h4>Steady on real networks</h4>The bitrate follows what the link delivers, Wi-Fi clients are paced from the first frame, a lost frame is repaired without waiting for a keyframe, and a scene cut too large to protect is encoded again so it arrives whole.</td>
-    <td width="33%" valign="top"><h4>Your whole library, from the couch</h4>Steam, Epic, Battle.net, EA, Ubisoft, GOG, Microsoft Store, Xbox and Playnite games appear with their covers. Per-game stream and Radeon settings apply at launch and are undone afterwards.</td>
+    <td width="33%" valign="top"><h4>Your whole library, from the couch</h4>Steam, Epic, Battle.net, EA, Ubisoft, GOG, Microsoft Store, Xbox and Playnite games appear with their covers. Per-game stream and graphics driver settings apply at launch and are undone afterwards.</td>
     <td width="33%" valign="top"><h4>Play together</h4>Up to four devices each play their own instance of a game through Nucleus Co-op, with their own picture, sound and controller. Or play in the background while someone else keeps using the PC.</td>
   </tr>
 </table>
@@ -99,7 +103,7 @@ Turn the camera and the picture turns on your screen's next refresh, instead of 
 
 Open **https://localhost:47990** on the PC and Home walks you through pairing and your first game. Nightjar pairs by scanning a QR code; Moonlight with a PIN. While you play, Home shows the stream's frame rate, bitrate and encoder timing, and what the host changed and why.
 
-**Settings** holds the few settings most people change; **All settings** has every other one in six tabs, with search and one line of explanation each, and **Ctrl+K** finds any page, game, device or setting. When something goes wrong, **Help** reads the host log and explains what it found, such as an AMD encoder hang, lost capture, a port in use or network loss, with the fix for each.
+**Settings** holds the few settings most people change; **All settings** has every other one in six tabs, with search and one line of explanation each, and **Ctrl+K** finds any page, game, device or setting. When something goes wrong, **Help** reads the host log and explains what it found, such as an AMD encoder hang, lost capture, a port in use or network loss, with the fix for each. Restarting Rubylight, display recovery and crash reports are under **Advanced › Troubleshoot**.
 
 <table>
   <tr>
@@ -116,7 +120,7 @@ Installed games from Steam, Epic Games, Battle.net, EA app, Ubisoft Connect, GOG
   <img src="docs/media/showcase/console-games.png" width="800" alt="Games: the library with covers from Steam, EA and other launchers, with search, sort and Add games.">
 </p>
 
-Each game can carry its own stream, display, input and encoder settings, RTSS frame limits, a Lossless Scaling profile and a Radeon profile: **Competitive** (Anti-Lag), **Smoothness** (capped at the stream's frame rate), **Quality** or your own list. They apply when the game starts and are reverted when the session ends, Radeon settings even after a crash.
+Each game can carry its own stream, display, input and encoder settings, RTSS frame limits, a Lossless Scaling profile and a graphics driver profile for Radeon or NVIDIA: **Competitive** (Anti-Lag, or NVIDIA's Low Latency Mode at Ultra), **Smoothness** (capped at the stream's frame rate), **Quality** or your own list. They apply when the game starts and are reverted when the session ends, driver settings even after a crash.
 
 ### Co-op on one PC
 
@@ -128,7 +132,7 @@ A game that Nucleus Co-op supports gets a "(Co-op)" entry. Each device that star
 
 ### Nightjar, the client built alongside it
 
-[Nightjar](https://github.com/RamazanKara/nightjar) runs on Android phones and handhelds, Android TV, Fire TV, Windows, Linux and macOS. It streams from any Moonlight host, and with Rubylight it adds QR pairing, the whole library with covers, PyroWave and packed 4:4:4, Dolby Vision, HDR10+ and HLG, Radeon controls during the stream, clipboard, files, USB forwarding and co-op. [Nightjar's website](https://ramazankara.github.io/nightjar/) has the trailer and the downloads.
+[Nightjar](https://github.com/RamazanKara/nightjar) runs on Android phones and handhelds, Android TV, Fire TV, Windows, Linux and macOS. It streams from any Moonlight host, and with Rubylight it adds Frame Warp, QR pairing, the whole library with covers, PyroWave and packed 4:4:4, Dolby Vision, HDR10+ and HLG, Radeon and NVIDIA driver settings during the stream, clipboard, files, USB forwarding and co-op. [Nightjar's website](https://ramazankara.github.io/nightjar/) has the trailer and the downloads.
 
 ### And everything around the game
 
@@ -142,7 +146,7 @@ Rubylight speaks the Moonlight protocol and keeps its protocol version, so unmod
 | --- | --- | --- |
 | [Moonlight](https://moonlight-stream.org) | Windows, macOS, Linux, Android, iOS, Apple TV, and community ports such as Xbox | The reference client: H.264, HEVC and AV1, SDR and HDR, as the device decodes them |
 | [Artemis](https://github.com/ClassicOldSong/moonlight-android) | Android | Virtual displays matched to the device |
-| [Nightjar](https://github.com/RamazanKara/nightjar) ([website](https://ramazankara.github.io/nightjar/)) | Android, Android TV, Fire TV, Windows, Linux, macOS | Rubylight's own client: PyroWave and packed 4:4:4, QR pairing, the game library, Radeon controls, device-chosen error correction and pacing |
+| [Nightjar](https://github.com/RamazanKara/nightjar) ([website](https://ramazankara.github.io/nightjar/)) | Android, Android TV, Fire TV, Windows, Linux, macOS | Rubylight's own client: Frame Warp, PyroWave and packed 4:4:4, QR pairing, the game library, Radeon and NVIDIA driver settings, device-chosen error correction and pacing |
 | [Nonary's Moonlight](https://github.com/Nonary/moonlight-qt) | Desktop (a Moonlight-Qt fork) | PyroWave |
 | Browsers and Samsung Tizen TVs | WebRTC | H.264, HEVC and AV1 with HDR, surround sound and gamepads, paired with a PIN ([WebRTC](docs/webrtc.md)) |
 
@@ -236,6 +240,7 @@ All figures come from our own runs on an RX 7900 XT under Windows 11 25H2. Each 
 | Displays, HDR, codecs, audio, controllers, per-game settings and every configuration key | [Configuration](docs/configuration.md) |
 | Pairing, picture, colour, smoothness and update problems | [Troubleshooting](docs/troubleshooting.md) |
 | The complete feature set | [Features](docs/features.md) |
+| Camera turns on the client's next refresh | [Frame Warp](docs/frame-warp.md) |
 | Latency, smoothness and how they are measured | [Performance](docs/performance.md) · [Measurement record](rust/PERFORMANCE.md) |
 | Tested GPUs, Windows versions and clients | [Hardware matrix](docs/hardware-matrix.md) |
 | How the host is built internally | [Architecture](docs/architecture.md) |
@@ -263,7 +268,7 @@ Report problems in [GitHub issues](https://github.com/RamazanKara/Rubylight/issu
 
 ## Project status
 
-- **Rubylight 3** is the current release line, developed on `main`, for AMD Radeon GPUs with AMF and NVIDIA GPUs with NVENC. Patch releases fix bugs and minor releases add features; the [release notes](rust/RELEASE_NOTES.md) list every change. PCs with only Intel graphics use Rubylight 2.6.x.
+- **Rubylight 4** is the current release line, developed on `main`, for AMD Radeon GPUs with AMF and NVIDIA GPUs with NVENC. Nightjar 5 is the matching client. Patch releases fix bugs and minor releases add features; the [release notes](rust/RELEASE_NOTES.md) list every change. PCs with only Intel graphics use Rubylight 2.6.x.
 - Rubylight was called **Butterpollo** until October 2026. The executable (`butterpollo.exe`), the profile folder (`%ProgramData%\Butterpollo`) and the `BUTTERPOLLO_*` environment variables keep that name, so existing installations and scripts continue to work.
 
 ## Credits and license

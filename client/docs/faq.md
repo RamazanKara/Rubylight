@@ -32,7 +32,7 @@ Yes, when this device can reach the host's streaming ports. Pair on the local ne
 
 ## Where do I set device permissions?
 
-In the host's web UI, on hosts with per-device permissions such as Apollo, Vibepollo and Rubylight. Nightjar opens it from an online PC's settings (**Open host web UI** on Android, **The PC’s web UI** on the desktop); sign in with the web UI's own account. Listing apps, viewing, launching, each input type, each clipboard direction and commands are separate permissions. See [pairing](pairing.md#per-device-permissions).
+In the host's web UI, on hosts with per-device permissions such as Apollo, Vibepollo and Rubylight. Nightjar opens it from an online PC's settings (**Open the PC's web UI** on Android, **The PC’s web UI** on the desktop); sign in with the web UI's own account. Listing apps, viewing, launching, each input type, each clipboard direction and commands are separate permissions. See [pairing](pairing.md#per-device-permissions).
 
 ## Does Disconnect close my game?
 

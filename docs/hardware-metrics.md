@@ -14,7 +14,7 @@ In **All settings → This PC → Hardware metrics**, enable **Send hardware met
 | `hardware_metrics_interval` | `1000` | Minimum time between fresh samples, in milliseconds; configurable from `500` to `10000`. |
 | `hardware_metrics_selection` | `[]` | All supported readings when empty, or a list of metric identifiers from the table below. |
 
-These are host-wide settings. GPU readings require an AMD driver with ADLX support; CPU usage comes from Windows and can be available without ADLX. CPU temperature and CPU clock readings are not provided by version 1.
+These are host-wide settings. GPU readings require an AMD driver with ADLX support, so an NVIDIA GPU has no readings in version 1; CPU usage comes from Windows and can be available without ADLX. CPU temperature and CPU clock readings are not provided by version 1.
 
 ## Discover and authenticate
 

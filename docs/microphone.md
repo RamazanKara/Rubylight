@@ -18,6 +18,10 @@ A streaming device can send its microphone to the PC. Games and chat application
 - The microphone uses UDP port 48001 (the base port plus 12), next to the other stream ports. With UPnP on, it is mapped with them.
 - The stream card shows **Microphone unavailable** with the reason when the PC cannot play it, for example when Steam is not installed. The log records `microphone started` and, at the end, `microphone stopped` with the packets received, concealed, recovered from error correction, late and trimmed, and the underruns (the queue ran dry while packets kept coming) with the time they cost, including how much of it was concealed. A dry spell plays the Opus decoder's concealment instead of silence, faded out after 40 ms and gone after 60 ms, and the voice crossfades back in when its packets arrive. The audio device gets no more of it than it would have got silence, so concealment adds no delay.
 
+## Microphone with no stream
+
+Nightjar's **Microphone only** makes the device the PC's microphone with no stream: no picture, no sound back to the device, no input and no app started, for voice chat while the game plays on the PC or another device. The device needs the **Launch apps** permission; a device that may only view streams cannot start one. Its microphone plays on Steam Streaming Microphone exactly as in a stream, with the same level limit, and **Use the device microphone** must be on. One microphone plays at a time; while another device's is playing, Nightjar says the microphone is in use on another device. The console lists such a session like any other. Clients start it through the [native API](native-api.md) (`session.mic_only`).
+
 ## For client developers
 
 The microphone is a separate UDP stream from the client to the host. Nothing goes back to the client; the video and audio streams are unchanged.

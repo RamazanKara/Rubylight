@@ -61,7 +61,9 @@ The [Svelte console](web) is packaged with the host; server-rendered pages remai
 
 Useful implementation entry points:
 
-- [compute.rs](windows/src/compute.rs): Radeon copies, RGB-to-YUV conversion and D3D12 handoff to AMF.
+- [compute.rs](windows/src/compute.rs): capture copies and RGB-to-YUV conversion on D3D12 compute queues, handed to the encoder.
+- [amf.rs](windows/src/amf.rs) and [nvenc.rs](windows/src/nvenc.rs): the AMD AMF and NVIDIA NVENC encoders.
+- [compute_frame_warp.rs](windows/src/compute_frame_warp.rs) and [core/src/frame_warp](core/src/frame_warp): Frame Warp's GPU passes and its per-game model ([Frame Warp](../docs/frame-warp.md)).
 - [Windows source](windows/src): capture, encoders, virtual displays and native integration.
 - [Host source](host/src): session scheduling, configuration, administration and media transport.
 - [Core source](core/src): protocol and durable-state primitives.
@@ -70,7 +72,7 @@ PyroWave shares D3D11/Vulkan planar textures and returns only the encoded bitstr
 
 ## Validation
 
-The ordinary checks (formatting, Clippy with warnings denied, workspace tests) and the SDK environment they need are listed in the [contributor guide](../.github/CONTRIBUTING.md#building-and-checking). CI runs them through [build.ps1](build.ps1) on every push to main and on pull requests that change the Rust tree. The layers beyond them:
+The ordinary checks (formatting, Clippy with warnings denied, workspace tests) and the SDK environment they need are listed in the [contributor guide](../.github/CONTRIBUTING.md#building-and-checking). CI runs them through [build.ps1](build.ps1) on every push to main and on pull requests that change the Rust tree. `tools\dev.ps1 check` runs the checks for a worktree's changes, and `-DryRun` lists them first ([build guide](../docs/building.md)). The layers beyond them:
 
 | Validation layer | Entry points and scope |
 | --- | --- |

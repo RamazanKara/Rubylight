@@ -80,7 +80,7 @@ Do these in order. Steps 1 to 5 can happen before applying; steps 7 to 18 need t
 
 ### First signed release
 
-15. **Release a candidate.** Bump to a release candidate (`python rust/release/bump.py 3.0.1-rc.1`), fill in its notes and push to `main`. Then use Actions, **Rubylight Windows**, **Run workflow** on `main` with **publish**. A failed signing run publishes nothing and creates no tag, so you can fix SignPath's settings and run it again.
+15. **Release a candidate.** Bump to a release candidate (`python rust/release/bump.py <version>-rc.1`), fill in its notes and push to `main`. Then use Actions, **Rubylight Windows**, **Run workflow** on `main` with **publish**. A failed signing run publishes nothing and creates no tag, so you can fix SignPath's settings and run it again.
 16. **Approve the requests.** SignPath e-mails you for each request: first the binaries, then the driver catalog, then the installer. Approve each one that came from this run; its page shows the repository, commit and workflow run. Each request waits up to an hour.
 17. **Check the result.** Download both release files and run `Get-AuthenticodeSignature` on the installer and on the executables and DLLs in the ZIP: each must be `Valid`, signed by SignPath Foundation, with a timestamp. Install, update and uninstall on a clean Windows PC, check the installed `uninstall.exe` the same way, and note what SmartScreen shows.
 18. **Record it.** Name the first signed version in the [code signing policy](code-signing-policy.md) and add the change to the release notes.

@@ -33,6 +33,7 @@ Rubylight is a Moonlight-compatible game-streaming host for Windows 10 and 11 PC
 | Task | Read |
 | --- | --- |
 | Move from another host, try Rubylight beside it, or update the host | [Coming from another host](getting-started.md#coming-from-another-host) · [Import a profile](getting-started.md#bring-an-existing-profile) · [Install alongside](getting-started.md#keep-another-host-and-install-alongside) · [Upgrading](getting-started.md#upgrading) |
+| Use Frame Warp with Nightjar | [Frame Warp](frame-warp.md) |
 | Choose a codec, turn on HDR or use PyroWave | [Choose your stream format](getting-started.md#choose-your-stream-format) · [Capture and video](configuration.md#capture-and-video) |
 | Stream Dolby Vision, HDR10+ or HLG to a TV | [Capture and video](configuration.md#capture-and-video) |
 | Send PCM or Dolby Digital to a receiver, or use 7.1.4, night mode or headphone surround | [PCM and Dolby Digital audio](configuration.md#pcm-and-dolby-digital-audio) · [Surround, night mode and headphone surround](configuration.md#surround-night-mode-and-headphone-surround) |
@@ -42,7 +43,8 @@ Rubylight is a Moonlight-compatible game-streaming host for Windows 10 and 11 PC
 | Move a running game to another device, share it, or stream a second screen | [Displays](features.md#displays) · [Control from a client](features.md#control-from-a-client) |
 | Keep the stream steady on a slow or lossy link, or pick a latency or quality preset | [Link-rate adaptation](configuration.md#lower-bitrate-when-the-link-cannot-carry-it) · [Host bitrate adaptation](configuration.md#host-bitrate-adaptation) · [Stream presets](configuration.md#stream-presets) |
 | Let a device play while someone else uses the PC, or play together on one PC | [Background streaming](configuration.md#background-streaming) · [Co-op and background streaming](nucleus-coop.md) |
-| Let a device close games or change Radeon settings | [Host control](configuration.md#host-control-for-a-device) · [Session actions](configuration.md#session-actions) · [Radeon settings with restore](configuration.md#radeon-settings-with-restore) · [Radeon settings per game](configuration.md#radeon-settings-per-game) |
+| Stream from an NVIDIA GPU | [NVENC](nvenc.md) · [NVIDIA NVENC settings](configuration.md#nvidia-nvenc) |
+| Let a device close games or change Radeon or NVIDIA driver settings | [Host control](configuration.md#host-control-for-a-device) · [Session actions](configuration.md#session-actions) · [Radeon settings with restore](configuration.md#radeon-settings-with-restore) · [Radeon settings per game](configuration.md#radeon-settings-per-game) |
 | Set up a controller or use the client's microphone | [Controllers](configuration.md#controllers) · [DualSense USB audio and haptics](dualsense-haptics.md) · [Microphone](microphone.md) |
 | Open a menu inside the stream | [Couch menu](configuration.md#couch-menu) |
 | Share the clipboard, files, folders or USB devices with a device | [Clipboard, files and USB](configuration.md#clipboard-files-and-usb) · [USB forwarding](usb-forwarding.md) |
@@ -69,7 +71,7 @@ Rubylight is a Moonlight-compatible game-streaming host for Windows 10 and 11 PC
 | Reference | Contents |
 | --- | --- |
 | [HTTP API](api.md) | The console API: authentication, CSRF, permissions and endpoints. |
-| [Native API v1](native-api.md) | The paired-client API used by Nightjar: capabilities, library, session actions, Radeon settings, files and USB. |
+| [Native API v1](native-api.md) | The paired-client API used by Nightjar: capabilities, library, session actions, Radeon and NVIDIA driver settings, files and USB. |
 | [Control messages](control-messages.md) | Rubylight's client-to-host control messages and how a client discovers them. |
 | [Hardware metrics](hardware-metrics.md) | CPU and GPU readings for client overlays. |
 | [Webhooks](webhooks.md) | Signed event notifications to your own services. |

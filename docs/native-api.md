@@ -2,7 +2,7 @@
 
 [Documentation](README.md) · [HTTP API](api.md) · [Control messages](control-messages.md) · [Hardware metrics](hardware-metrics.md)
 
-The native API lets a paired client go beyond the Moonlight protocol: read the host's capabilities, game library and session state, run session actions, and, with the device's host control permission, read and change Radeon settings. Further features (wake targets, audio processing, files, the image clipboard, shared folders and USB forwarding) are listed in the capabilities response when the host serves them. Version 1 shipped in Rubylight 3.0.0, and Nightjar is the reference client. This page is the contract between the host and Nightjar's `nightjar-core`; [HTTP API](api.md#native-api-v1-paired-clients) has a short summary. Fake-backend host tests and the compatibility matrix in `rust/host/src/nvhttp/native_tests/compat.rs` cover the contract, and the [hardware matrix](hardware-matrix.md) records the Radeon round trip and crash restore on real hardware.
+The native API lets a paired client go beyond the Moonlight protocol: read the host's capabilities, game library and session state, run session actions, and, with the device's host control permission, read and change the graphics driver's settings (Radeon, or NVIDIA on a host that streams with an NVIDIA GPU). Further features (wake targets, audio processing, files, the image clipboard, shared folders and USB forwarding) are listed in the capabilities response when the host serves them. Version 1 shipped in Rubylight 3.0.0, and Nightjar is the reference client. This page is the contract between the host and Nightjar's `nightjar-core`; [HTTP API](api.md#native-api-v1-paired-clients) has a short summary. Fake-backend host tests and the compatibility matrix in `rust/host/src/nvhttp/native_tests/compat.rs` cover the contract, and the [hardware matrix](hardware-matrix.md) records the Radeon round trip and crash restore on real hardware.
 
 ## Ground rules
 
@@ -34,7 +34,7 @@ GET /api/native/v1/capabilities
 ```json
 {
   "api_version": 1,
-  "host": { "name": "GAMING-PC", "version": "3.11.8", "unique_id": "5E0F4B1C-..." },
+  "host": { "name": "GAMING-PC", "version": "4.0.2", "unique_id": "5E0F4B1C-..." },
   "features": ["library", "session", "session.close_game", "session.launcher", "wake",
                "audio.night_mode", "audio.headphone_surround", "session.mic_only",
                "session.continue_here", "power.restart", "power.shutdown",
@@ -615,7 +615,7 @@ Every non-2xx answer has the same body:
 | 400 | `invalid_request` | Malformed JSON, unknown fields in a write, or a body over 16 KiB |
 | 422 | `invalid_value` / `not_writable` | Wrong type, out of range, or the setting is not `configurable` |
 | 409 | `no_session` / `not_session_owner` / `session_busy` | A write or action needs a session the caller owns. `session_busy`: a launch or teardown is in progress, retry after `retry_after_ms` |
-| 409 | `driver_rejected` | ADLX refused a write. `setting` names it, and the earlier changes of the request were rolled back |
+| 409 | `driver_rejected` | ADLX (or NVAPI on an NVIDIA host) refused a write. `setting` names it, and the earlier changes of the request were rolled back |
 | 400 | `invalid_name` / `incomplete_upload` | Files: a name the host refuses / an upload that ended or stalled before its `Content-Length` |
 | 411 | `length_required` | An upload without `Content-Length` |
 | 413 | `too_large` | An upload over `max_file_bytes` |
@@ -647,7 +647,7 @@ The API types live in a dependency-light crate inside `rust/core`, re-exported b
 
 - `rust/core/native-api/Cargo.toml`: package `rubylight-native-api`, a workspace member. Its only dependency is `serde` with `derive` (`serde_json` for tests). Its manifest is self-contained: it sets `version`, `edition = "2021"`, `rust-version = "1.80"`, `license` and `repository` itself and copies the workspace lints, because a `*.workspace = true` key makes cargo read the root manifest, whose `resolver = "3"` a 1.80 cargo can't parse. The crate has its own version (`1.1.0`), which follows the API and not the host, so `rust/release/bump.py` (which only bumps `rust/*/Cargo.toml`) leaves it alone.
 - `butterpollo-core` depends on it by path and exposes it as `butterpollo_core::native_api` (`pub use rubylight_native_api as native_api;` in `rust/core/src/lib.rs`).
-- Why not `butterpollo-core` itself: nightjar-core uses butterpollo-core only as a **dev-dependency** for interop tests. As a runtime dependency it would pull `x509-parser`, `rcgen`, `regex`, `quick-xml`, `prost`, `anyhow` and an `embed-resource` build script into the Android library, and its edition 2024 / Rust 1.88 floor into Nightjar's 1.80 workspace. Why not `rubylight-protocol`: it is `no_std` without serde, and JSON doesn't belong there.
+- Why not `butterpollo-core` itself: nightjar-core uses butterpollo-core only as a **dev-dependency** for interop tests. As a runtime dependency it would pull `x509-parser`, `rcgen`, `regex`, `quick-xml`, `prost`, `anyhow` and an `embed-resource` build script into the Android library, and its edition 2024 / Rust 1.89 floor into Nightjar's 1.80 workspace. Why not `rubylight-protocol`: it is `no_std` without serde, and JSON doesn't belong there.
 
 Modules (serde shapes as in the examples above, all `snake_case`; the source is authoritative):
 

@@ -672,9 +672,10 @@ void hdr_stats_cs(uint3 id : SV_DispatchThreadID, uint index : SV_GroupIndex) {
     }
 }
 // Frame Warp (docs/frame-warp.md, `compute_frame_warp.rs`): a luma thumbnail
-// of each capture for the host's motion measurement, and the HUD, the pixels
-// that stay exactly the same while the camera turns, scored per mask cell.
-// Both read the capture as captured: before the pointer, scaling or the menu.
+// of each capture for the host's motion measurement, and the HUD, the
+// textured pixels that stay the same within a small tolerance while the
+// camera turns, scored per mask cell. Both read the capture as captured: before the pointer,
+// scaling or the menu.
 cbuffer FrameWarp : register(b4) {
     uint2 fwSource; uint2 fwThumb;
     uint2 fwGrid; uint fwPixel; uint fwMode;
@@ -684,79 +685,229 @@ cbuffer FrameWarp : register(b4) {
 // The thumbnail's words, or the HUD's codes per pixel, then its changed
 // pixels, scores and mask bits per cell.
 RWStructuredBuffer<uint> frameWarp : register(u8);
-// A captured pixel's luma, 0 to 1: of the sRGB codes, of PQ for scRGB, or of
-// the PQ codes of an HDR10 capture.
-float frameWarpLuma(uint2 p) {
-    float3 rgb = source.Load(int3(p, 0)).rgb;
-    if (fwPixel == 1) return dot(pq(max(rgb, 0) / 125.0), float3(0.2126, 0.7152, 0.0722));
-    if (fwPixel == 2) return dot(rgb, float3(0.2627, 0.6780, 0.0593));
-    return dot(rgb, float3(0.2126, 0.7152, 0.0722));
+// scRGB as PQ of scRGB / 125: 0 to 1, like the sRGB codes of an SDR capture
+// and the PQ codes of an HDR10 capture, which are taken as captured.
+float3 frameWarpPq(float3 rgb) {
+    return pq(max(rgb, 0) / 125.0);
+}
+// The luma of a captured pixel's channels, 0 to 1 each (after frameWarpPq for
+// scRGB).
+float frameWarpLuma(float3 channels) {
+    if (fwPixel == 2) return dot(channels, float3(0.2627, 0.6780, 0.0593));
+    return dot(channels, float3(0.2126, 0.7152, 0.0722));
 }
 // Four thumbnail pixels a thread, a byte each in one word, rows top to bottom:
 // the mean of at most 8x8 samples spread over each pixel's box of the source.
+// The sample rows are worked out once a thread and the columns once a box, a
+// row's eight loads go out together, and the sum takes the samples in the
+// same order as one at a time would.
 [numthreads(8, 8, 1)]
 void frame_warp_thumb_cs(uint3 id : SV_DispatchThreadID) {
     uint words = fwThumb.x / 4;
     if (id.x >= words || id.y >= fwThumb.y) return;
     uint y0 = id.y * fwSource.y / fwThumb.y;
-    uint y1 = max((id.y + 1) * fwSource.y / fwThumb.y, y0 + 1);
+    uint spanY = max((id.y + 1) * fwSource.y / fwThumb.y, y0 + 1) - y0;
+    uint ny = min(spanY, 8u);
+    uint ys[8];
+    [unroll] for (uint r = 0; r < 8; r++) ys[r] = y0 + (2 * r + 1) * spanY / (2 * ny);
     uint quad = 0;
-    [unroll] for (uint i = 0; i < 4; i++) {
+    [loop] for (uint i = 0; i < 4; i++) {
         uint x0 = (id.x * 4 + i) * fwSource.x / fwThumb.x;
-        uint x1 = max((id.x * 4 + i + 1) * fwSource.x / fwThumb.x, x0 + 1);
-        uint2 span = uint2(x1 - x0, y1 - y0);
-        uint2 n = min(span, uint2(8, 8));
+        uint spanX = max((id.x * 4 + i + 1) * fwSource.x / fwThumb.x, x0 + 1) - x0;
+        uint nx = min(spanX, 8u);
+        uint xs[8];
+        [unroll] for (uint c = 0; c < 8; c++) xs[c] = x0 + (2 * c + 1) * spanX / (2 * nx);
         float sum = 0;
-        for (uint sy = 0; sy < n.y; sy++) {
-            for (uint sx = 0; sx < n.x; sx++) {
-                sum += frameWarpLuma(uint2(x0, y0) + (2 * uint2(sx, sy) + 1) * span / (2 * n));
+        [unroll] for (uint sy = 0; sy < 8; sy++) {
+            if (sy < ny) {
+                // Columns from nx on are loaded too but not summed: at most 7
+                // pixels past the box, and a load outside the capture reads 0.
+                float3 row[8];
+                [unroll] for (uint lx = 0; lx < 8; lx++) row[lx] = source.Load(int3(xs[lx], ys[sy], 0)).rgb;
+                [branch] if (fwPixel == 1) {
+                    [unroll] for (uint sx = 0; sx < 8; sx++) {
+                        [flatten] if (sx < nx) sum += frameWarpLuma(frameWarpPq(row[sx]));
+                    }
+                } else {
+                    [unroll] for (uint sx = 0; sx < 8; sx++) {
+                        [flatten] if (sx < nx) sum += frameWarpLuma(row[sx]);
+                    }
+                }
             }
         }
-        quad |= uint(saturate(sum / float(n.x * n.y)) * 255.0 + 0.5) << (8 * i);
+        quad |= uint(saturate(sum / float(nx * ny)) * 255.0 + 0.5) << (8 * i);
     }
     frameWarp[fwThumbAt + id.y * words + id.x] = quad;
 }
-// A word that changes with any bit of the pixel.
-uint frameWarpCode(uint2 p) {
-    uint4 bits = asuint(source.Load(int3(p, 0)));
-    return focusHash(bits.x ^ focusHash(bits.y ^ focusHash(bits.z ^ focusHash(bits.w))));
+// How far, in 10-bit steps, a channel may move between passes with its pixel
+// still counted as the same: 8 is 2/255. Games add faint noise or dither to
+// their HUD; in Assassin's Creed Black Flag Resynced, while the camera turned,
+// the static compass bar was 99% within 2/255 between frames but only about
+// 44% bit-identical, and the quest text 89% within 2/255 but about 50%
+// identical, so exact codes never let those cells reach a HUD score.
+static const uint fwTolerance = 8;
+// A captured pixel's channels (after frameWarpPq for scRGB), 10 bits each in
+// one word (R10G10B10). 8-bit codes land on every fourth step, so 2/255 is
+// exactly fwTolerance; 10-bit codes land on every step.
+uint frameWarpCode(float3 channels) {
+    uint3 steps = uint3(saturate(channels) * (fwPixel == 0 ? 1020.0 : 1023.0) + 0.5);
+    return steps.r | (steps.g << 10) | (steps.b << 20);
 }
-// Counts per HUD cell the pixels that changed since the last pass, and keeps
-// every pixel's code for the next. A cell is no smaller than a pixel, so a
-// 16x16 tile spans at most 17x17 cells.
-groupshared uint fwTileCells[17 * 17];
-[numthreads(16, 16, 1)]
-void frame_warp_hud_cs(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint index : SV_GroupIndex) {
-    for (uint c = index; c < 17 * 17; c += 256) fwTileCells[c] = 0;
-    GroupMemoryBarrierWithGroupSync();
-    uint2 first = group.xy * 16 * fwGrid / fwSource;
-    if (all(id.xy < fwSource)) {
-        uint at = fwCodesAt + id.y * fwSource.x + id.x;
-        uint code = frameWarpCode(id.xy);
-        if (frameWarp[at] != code) {
-            uint2 inTile = id.xy * fwGrid / fwSource - first;
-            InterlockedAdd(fwTileCells[inTile.y * 17 + inTile.x], 1);
+// Whether any channel of two codes differs by more than fwTolerance.
+bool frameWarpChanged(uint a, uint b) {
+    uint3 x = uint3(a, a >> 10, a >> 20) & 1023;
+    uint3 y = uint3(b, b >> 10, b >> 20) & 1023;
+    return any(max(x, y) - min(x, y) > fwTolerance);
+}
+// Whether the step from code a to its neighbour b is the step from c to d,
+// the same two pixels in the last pass: every channel within fwTolerance or
+// half the step.
+bool frameWarpSameStep(uint a, uint b, uint c, uint d) {
+    int3 now = int3(uint3(a, a >> 10, a >> 20) & 1023) - int3(uint3(b, b >> 10, b >> 20) & 1023);
+    int3 then = int3(uint3(c, c >> 10, c >> 20) & 1023) - int3(uint3(d, d >> 10, d >> 20) & 1023);
+    return all(abs(now - then) <= max(int(fwTolerance), abs(now) / 2));
+}
+// Counts per HUD cell the pixels that changed since the last pass, the
+// textured ones (a code that differs by more than fwTolerance from its right
+// or lower neighbour, its left or upper one at the tile's or capture's edge)
+// and the textured ones that changed, and keeps every pixel's code for the
+// next pass. A pixel textured in both passes whose steps to those neighbours
+// stayed the same counts as unchanged: the edge of a translucent HUD, grey
+// text over a moving scene, keeps its place and its step while its value
+// follows what is behind it. A group takes a 16x16 tile, a thread four pixels
+// of one of its rows. A cell is no smaller than a pixel, so a tile spans at
+// most 17x17 cells: the tile's cell per column and per row are worked out
+// once a group, and a thread adds its pixels once per cell they fall in rather
+// than once per pixel.
+groupshared uint fwTileColumns[16];
+groupshared uint fwTileRows[16];
+groupshared uint fwTileCodes[16 * 16];
+groupshared uint fwTileBefore[16 * 16];
+groupshared uint fwTileCells[3 * 17 * 17];
+void frameWarpAddRun(uint cell, uint3 run) {
+    if (run.x != 0) InterlockedAdd(fwTileCells[3 * cell], run.x);
+    if (run.y != 0) InterlockedAdd(fwTileCells[3 * cell + 1], run.y);
+    if (run.z != 0) InterlockedAdd(fwTileCells[3 * cell + 2], run.z);
+}
+[numthreads(4, 16, 1)]
+void frame_warp_hud_cs(uint3 group : SV_GroupID, uint3 inGroup : SV_GroupThreadID, uint index : SV_GroupIndex) {
+    uint2 tile = group.xy * 16;
+    uint2 first = tile * fwGrid / fwSource;
+    for (uint c = index; c < 3 * 17 * 17; c += 64) fwTileCells[c] = 0;
+    if (index < 16) fwTileColumns[index] = (tile.x + index) * fwGrid.x / fwSource.x - first.x;
+    else if (index < 32) fwTileRows[index - 16] = (tile.y + index - 16) * fwGrid.y / fwSource.y - first.y;
+    // Bit k: pixel x0 + k changed, or is textured.
+    uint changed = 0;
+    uint textured = 0;
+    uint4 codes = 0;
+    uint4 before = 0;
+    uint x0 = tile.x + inGroup.x * 4;
+    uint y = tile.y + inGroup.y;
+    if (y < fwSource.y) {
+        uint row = fwCodesAt + y * fwSource.x;
+        // The four pixels' loads go out together. Past the capture's right
+        // edge the texture reads 0 and the code is the row's last, never past
+        // the buffer; neither is used.
+        float3 rgb[4];
+        [unroll] for (uint k = 0; k < 4; k++) {
+            rgb[k] = source.Load(int3(x0 + k, y, 0)).rgb;
+            before[k] = frameWarp[row + min(x0 + k, fwSource.x - 1)];
         }
-        frameWarp[at] = code;
+        [branch] if (fwPixel == 1) {
+            [unroll] for (uint p = 0; p < 4; p++) codes[p] = frameWarpCode(frameWarpPq(rgb[p]));
+        } else {
+            [unroll] for (uint p = 0; p < 4; p++) codes[p] = frameWarpCode(rgb[p]);
+        }
+        [unroll] for (uint q = 0; q < 4; q++) {
+            if (x0 + q < fwSource.x) {
+                if (frameWarpChanged(before[q], codes[q])) changed |= 1u << q;
+                frameWarp[row + x0 + q] = codes[q];
+            }
+        }
+    }
+    [unroll] for (uint s = 0; s < 4; s++) {
+        fwTileCodes[inGroup.y * 16 + inGroup.x * 4 + s] = codes[s];
+        fwTileBefore[inGroup.y * 16 + inGroup.x * 4 + s] = before[s];
     }
     GroupMemoryBarrierWithGroupSync();
-    for (uint t = index; t < 17 * 17; t += 256) {
+    if (y < fwSource.y) {
+        uint ly = inGroup.y;
+        bool below = ly < 15 && y + 1 < fwSource.y;
+        // A pixel with no neighbour (a capture one pixel wide or high) is its
+        // own, which never differs.
+        uint other = below ? ly + 1 : (ly > 0 ? ly - 1 : ly);
+        [unroll] for (uint q = 0; q < 4; q++) {
+            uint lx = inGroup.x * 4 + q;
+            if (x0 + q < fwSource.x) {
+                bool right = lx < 15 && x0 + q + 1 < fwSource.x;
+                uint beside = right ? lx + 1 : (lx > 0 ? lx - 1 : lx);
+                uint here = ly * 16 + lx;
+                uint side = ly * 16 + beside;
+                uint under = other * 16 + lx;
+                uint code = fwTileCodes[here];
+                uint then = fwTileBefore[here];
+                if (frameWarpChanged(code, fwTileCodes[side])
+                    || frameWarpChanged(code, fwTileCodes[under])) {
+                    textured |= 1u << q;
+                    if ((changed >> q & 1) != 0
+                        && (frameWarpChanged(then, fwTileBefore[side])
+                            || frameWarpChanged(then, fwTileBefore[under]))
+                        && frameWarpSameStep(code, fwTileCodes[side], then, fwTileBefore[side])
+                        && frameWarpSameStep(code, fwTileCodes[under], then, fwTileBefore[under])) {
+                        changed &= ~(1u << q);
+                    }
+                }
+            }
+        }
+    }
+    uint moved = changed & textured;
+    if ((changed | textured) != 0) {
+        // Cells only grow along a row, so the thread's pixels fall in runs.
+        uint cells = fwTileRows[inGroup.y] * 17;
+        uint column = fwTileColumns[inGroup.x * 4];
+        uint3 run = uint3(changed, textured, moved) & 1;
+        [unroll] for (uint j = 1; j < 4; j++) {
+            uint next = fwTileColumns[inGroup.x * 4 + j];
+            if (next != column) {
+                frameWarpAddRun(cells + column, run);
+                column = next;
+                run = 0;
+            }
+            run += (uint3(changed, textured, moved) >> j) & 1;
+        }
+        frameWarpAddRun(cells + column, run);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    for (uint t = index; t < 17 * 17; t += 64) {
         uint2 cell = first + uint2(t % 17, t / 17);
-        if (fwTileCells[t] != 0 && all(cell < fwGrid)) {
-            InterlockedAdd(frameWarp[fwCountsAt + cell.y * fwGrid.x + cell.x], fwTileCells[t]);
+        if (all(cell < fwGrid)) {
+            uint at = fwCountsAt + 3 * (cell.y * fwGrid.x + cell.x);
+            [unroll] for (uint f = 0; f < 3; f++) {
+                if (fwTileCells[3 * t + f] != 0) InterlockedAdd(frameWarp[at + f], fwTileCells[3 * t + f]);
+            }
         }
     }
 }
-// Per HUD cell: one whose pixels stayed for at least three in four gains a
-// point, up to 255, and one that changed loses half. Mode 0 only clears the
-// counts (the first pass after the camera stood still), 2 clears the scores
-// too (a new size).
+// Per HUD cell, as the camera turns: one where a quarter of the pixels or
+// more changed loses half its score (a fade, a flash, the scene). Otherwise a
+// cell with too few textured pixels keeps its score: a smooth sky or fog
+// looks the same moved or not, so whether it stayed tells nothing, and with
+// the tolerance it would otherwise become HUD and hide whatever crosses it.
+// A textured cell gains a point, up to 255, when no more than a quarter of
+// its textured pixels changed, and loses half otherwise. Mode 0 only clears
+// the counts (the first pass after the camera stood still), 2 clears the
+// scores too (a new size).
 [numthreads(8, 8, 1)]
 void frame_warp_score_cs(uint3 id : SV_DispatchThreadID) {
     if (any(id.xy >= fwGrid)) return;
     uint cell = id.y * fwGrid.x + id.x;
-    uint changed = frameWarp[fwCountsAt + cell];
-    frameWarp[fwCountsAt + cell] = 0;
+    uint at = fwCountsAt + 3 * cell;
+    uint changed = frameWarp[at];
+    uint textured = frameWarp[at + 1];
+    uint moved = frameWarp[at + 2];
+    frameWarp[at] = 0;
+    frameWarp[at + 1] = 0;
+    frameWarp[at + 2] = 0;
     if (fwMode == 2) frameWarp[fwScoresAt + cell] = 0;
     if (fwMode != 1) return;
     // The pixels whose `p * fwGrid / fwSource` is this cell.
@@ -764,7 +915,10 @@ void frame_warp_score_cs(uint3 id : SV_DispatchThreadID) {
     uint2 hi = ((id.xy + 1) * fwSource + fwGrid - 1) / fwGrid;
     uint total = (hi.x - lo.x) * (hi.y - lo.y);
     uint score = frameWarp[fwScoresAt + cell];
-    frameWarp[fwScoresAt + cell] = changed * 4 <= total ? min(score + 1, 255u) : score / 2;
+    if (changed * 4 > total) score /= 2;
+    else if (textured * 8 < total) return;
+    else score = moved * 4 <= textured ? min(score + 1, 255u) : score / 2;
+    frameWarp[fwScoresAt + cell] = score;
 }
 // The mask: a bit per cell whose score reached fwThreshold, bit i of word w
 // being column 32w + i, rows of fwStride words.

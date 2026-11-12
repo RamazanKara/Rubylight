@@ -1,6 +1,7 @@
 //! Frame Warp's passes: their sizes and constants, and on a GPU the
 //! thumbnail against the same samples taken on the CPU and the HUD mask of
-//! frames whose left part stays while the rest changes.
+//! frames whose left part stays, exactly or within a faint noise, while the
+//! rest changes.
 use super::*;
 use crate::capture::{ComGuard, Device, Image};
 
@@ -27,10 +28,10 @@ fn the_hud_words_follow_one_another() {
         Layout {
             codes: 0,
             counts: 5000,
-            scores: 5800,
-            bits: 6600,
+            scores: 7400,
+            bits: 8200,
             stride: 2,
-            words: 6640,
+            words: 8240,
         }
     );
     assert!(super::layout((65536, 65536), (2048, 2048)).is_err());
@@ -43,13 +44,14 @@ fn constants_match_the_shader_cbuffer() {
         hud: Some(Hud {
             grid: (40, 20),
             read: true,
+            every_us: 0,
         }),
     };
     let layout = layout((100, 50), (40, 20)).unwrap();
     assert_eq!(
         constants((100, 50), Pixel::Rgba10Pq, &pass, SCORE, Some(&layout)),
         [
-            100, 50, 256, 144, 40, 20, 2, 1, 0, 0, 5000, 5800, 6600, 2, HUD_SCORE, 0
+            100, 50, 256, 144, 40, 20, 2, 1, 0, 0, 5000, 7400, 8200, 2, HUD_SCORE, 0
         ]
     );
     let thumbnail_only = Pass {
@@ -73,7 +75,13 @@ fn passes_outside_the_buffers_are_refused() {
     assert!(pass((254, 144), None).check().is_err());
     assert!(pass((256, 257), None).check().is_err());
     assert!(pass((256, 0), None).check().is_err());
-    let hud = |grid| Some(Hud { grid, read: false });
+    let hud = |grid| {
+        Some(Hud {
+            grid,
+            read: false,
+            every_us: 0,
+        })
+    };
     assert!(pass((256, 144), hud((2048, 1152))).check().is_ok());
     assert!(pass((256, 144), hud((2049, 1152))).check().is_err());
     assert!(pass((256, 144), hud((64, 0))).check().is_err());
@@ -95,6 +103,25 @@ fn grey(width: u32, height: u32, value: impl Fn(u32, u32) -> u8) -> Image {
         bytes,
         captured: std::time::Instant::now(),
         pixel: Pixel::Bgra8,
+    }
+}
+
+/// A grey HDR10 picture, the PQ code `code(x, y)` in every colour channel.
+fn grey10(width: u32, height: u32, code: impl Fn(u32, u32) -> u32) -> Image {
+    let mut bytes = Vec::with_capacity((width * height * 4) as usize);
+    for y in 0..height {
+        for x in 0..width {
+            let c = code(x, y).min(1023);
+            bytes.extend_from_slice(&(c | c << 10 | c << 20 | 3 << 30).to_le_bytes());
+        }
+    }
+    Image {
+        width,
+        height,
+        stride: width as usize * 4,
+        bytes,
+        captured: std::time::Instant::now(),
+        pixel: Pixel::Rgba10Pq,
     }
 }
 
@@ -236,13 +263,14 @@ fn cells_that_stay_while_the_rest_changes_become_hud() -> Result<()> {
     let (width, height) = (256, 128);
     let grid = hud_grid(64, (width, height)).unwrap();
     assert_eq!(grid, (64, 32));
-    // The left quarter stays; the rest changes on every frame.
+    // The left quarter, a texture, stays; the rest, another, pans 5 pixels a
+    // frame.
     let frame = |n: u32| {
         grey(width, height, move |x, y| {
             if x < 64 {
-                (x + y) as u8
+                ((x * 37 + y * 11) % 251) as u8
             } else {
-                (x * 3 + y + n * 17) as u8
+                (((x + 5 * n) * 37 + y * 11) % 256) as u8
             }
         })
     };
@@ -251,7 +279,11 @@ fn cells_that_stay_while_the_rest_changes_become_hud() -> Result<()> {
         let last = n == HUD_SCORE + 2;
         let pass = Pass {
             thumbnail: (256, 128),
-            hud: Some(Hud { grid, read: last }),
+            hud: Some(Hud {
+                grid,
+                read: last,
+                every_us: 0,
+            }),
         };
         let (_, read) = rig.run(&frame(n), &pass, u64::from(n))?;
         if last {
@@ -276,11 +308,196 @@ fn cells_that_stay_while_the_rest_changes_become_hud() -> Result<()> {
     rig.run(&frame(100), &still, 100)?;
     let pass = Pass {
         thumbnail: (256, 128),
-        hud: Some(Hud { grid, read: true }),
+        hud: Some(Hud {
+            grid,
+            read: true,
+            every_us: 0,
+        }),
     };
     let (_, mask) = rig.run(&frame(101), &pass, 101)?;
     let mask = mask.context("the mask after a pause")?;
     assert!(mask.words.chunks(2).all(|row| row == [0x0000_ffff, 0]));
+    Ok(())
+}
+
+/// A slow turn: the right three quarters pan one pixel a capture, too little
+/// for a texture to change everywhere, and the left quarter stays. Compared
+/// with the capture before, the panned part keeps earning points too; with
+/// `every_us` 4 the pass compares captures four apart, in which the pan moved
+/// 4 pixels, and only the left quarter becomes HUD. The captures in between
+/// run no HUD pass and keep the reference.
+#[test]
+#[ignore = "requires D3D12 compute"]
+fn a_slow_turn_is_compared_over_enough_captures_to_move() -> Result<()> {
+    let grid = hud_grid(64, (256, 128)).context("a grid")?;
+    // Stripes 4 pixels wide: a 1-pixel pan changes a quarter of a cell's
+    // pixels, too few for it to count as changed, and not the ones textured in
+    // the new capture; a 4-pixel pan changes them all.
+    let frame = |n: u32| {
+        grey(256, 128, move |x, y| {
+            if x < 64 {
+                ((x * 37 + y * 11) % 251) as u8
+            } else if (x + n) % 8 < 4 {
+                40
+            } else {
+                200
+            }
+        })
+    };
+    let mask = |every_us: u64| -> Result<Vec<u32>> {
+        let mut rig = Rig::new()?;
+        let captures = 4 * (HUD_SCORE + 2);
+        let mut mask = None;
+        for n in 0..=captures {
+            let pass = Pass {
+                thumbnail: (256, 128),
+                hud: Some(Hud {
+                    grid,
+                    read: n == captures,
+                    every_us,
+                }),
+            };
+            if let (_, Some(read)) = rig.run(&frame(n), &pass, u64::from(n))? {
+                mask = Some(read);
+            }
+        }
+        Ok(mask.context("the mask")?.words)
+    };
+    let slow = mask(4)?;
+    assert!(
+        slow.chunks(2).all(|row| row == [0x0000_ffff, 0]),
+        "{slow:08x?}"
+    );
+    let each = mask(0)?;
+    assert!(
+        each.chunks(2).all(|row| row[1] != 0),
+        "compared with the capture before, the pan stays: {each:08x?}"
+    );
+    Ok(())
+}
+
+/// The HUD mask of a 256x128 capture (64x32 cells of 4x4 pixels) after
+/// HUD_SCORE + 2 turning frames `frame(n)`.
+fn mask_after_turning(rig: &mut Rig, frame: impl Fn(u32) -> Image) -> Result<MaskReadout> {
+    let grid = hud_grid(64, (256, 128)).context("a grid")?;
+    assert_eq!(grid, (64, 32));
+    let mut mask = None;
+    for n in 0..=HUD_SCORE + 2 {
+        let pass = Pass {
+            thumbnail: (256, 128),
+            hud: Some(Hud {
+                grid,
+                read: n == HUD_SCORE + 2,
+                every_us: 0,
+            }),
+        };
+        mask = rig.run(&frame(n), &pass, u64::from(n))?.1;
+    }
+    let mask = mask.context("the mask")?;
+    assert_eq!((mask.width, mask.height), grid);
+    Ok(mask)
+}
+
+/// A translucent HUD over a moving scene: pixels 0-63 are 65% a pattern of
+/// one-pixel stripes and 35% a scene of vertical bands panning 5 pixels a
+/// frame, so their values change by up to 13 steps but the stripes' edges stay
+/// where they are with about their step; they become HUD. Pixels 64-255, a
+/// sharp texture panning the same way, do not.
+#[test]
+#[ignore = "requires D3D12 compute"]
+fn a_translucent_hud_over_a_moving_scene_becomes_hud() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mask = mask_after_turning(&mut rig, |n| {
+        grey(256, 128, move |x, y| {
+            let panned = (x + 5 * n) * 37 + y * 11;
+            if x < 64 {
+                let hud = if x % 2 == 0 { 200.0 } else { 0.0 };
+                let scene = 100.0 + ((x + 5 * n) * 37 % 40) as f32;
+                (0.65 * hud + 0.35 * scene).round() as u8
+            } else {
+                (panned % 256) as u8
+            }
+        })
+    })?;
+    for row in mask.words.chunks(2) {
+        assert_eq!(row, [0x0000_ffff, 0], "{:08x?}", mask.words);
+    }
+    Ok(())
+}
+
+/// Games add faint noise or dither to a HUD that stands still: it moves by up
+/// to two codes between frames. Pixels 0-63, a texture, do that and stay HUD;
+/// pixels 64-127 flicker by three codes and 128-255 are a texture panning 5
+/// pixels a frame, and neither is HUD.
+#[test]
+#[ignore = "requires D3D12 compute"]
+fn a_hud_with_faint_noise_becomes_hud_and_flicker_or_motion_does_not() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mask = mask_after_turning(&mut rig, |n| {
+        grey(256, 128, move |x, y| {
+            let base = ((x + y) / 2) as u8;
+            if x < 64 {
+                // 0, 1 or 2, going +2, -1, -1 from frame to frame.
+                ((x * 37 + y * 11) % 200) as u8 + ((x * 7 + y * 13 + n * 5) % 3) as u8
+            } else if x < 128 {
+                base + 3 * (n % 2) as u8
+            } else {
+                (((x + 5 * n) * 37 + y * 11) % 256) as u8
+            }
+        })
+    })?;
+    for row in mask.words.chunks(2) {
+        assert_eq!(row, [0x0000_ffff, 0], "{:08x?}", mask.words);
+    }
+    Ok(())
+}
+
+/// The same in an HDR10 capture, whose PQ codes have 10 bits: noise of up to
+/// eight codes between frames stays HUD, a flicker of nine does not.
+#[test]
+#[ignore = "requires D3D12 compute"]
+fn an_hdr10_hud_with_faint_noise_becomes_hud_and_flicker_or_motion_does_not() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mask = mask_after_turning(&mut rig, |n| {
+        grey10(256, 128, move |x, y| {
+            let base = 100 + 2 * (x + y);
+            if x < 64 {
+                100 + 4 * ((x * 37 + y * 11) % 200) + 4 * ((x * 7 + y * 13 + n * 5) % 3)
+            } else if x < 128 {
+                base + 9 * (n % 2)
+            } else {
+                ((x + 5 * n) * 149 + y * 43) % 1024
+            }
+        })
+    })?;
+    for row in mask.words.chunks(2) {
+        assert_eq!(row, [0x0000_ffff, 0], "{:08x?}", mask.words);
+    }
+    Ok(())
+}
+
+/// A smooth part of the picture, a sky or fog, looks the same whether it moved
+/// or not, so staying tells nothing about it: pixels 64-127, a gradient that
+/// stays, are not HUD while pixels 0-63, a texture that stays, are, and
+/// 128-255 pan.
+#[test]
+#[ignore = "requires D3D12 compute"]
+fn a_smooth_part_that_stays_is_not_hud() -> Result<()> {
+    let mut rig = Rig::new()?;
+    let mask = mask_after_turning(&mut rig, |n| {
+        grey(256, 128, move |x, y| {
+            if x < 64 {
+                ((x * 37 + y * 11) % 251) as u8
+            } else if x < 128 {
+                (40 + (x + y) / 2) as u8
+            } else {
+                (((x + 5 * n) * 37 + y * 11) % 256) as u8
+            }
+        })
+    })?;
+    for row in mask.words.chunks(2) {
+        assert_eq!(row, [0x0000_ffff, 0], "{:08x?}", mask.words);
+    }
     Ok(())
 }
 
@@ -302,6 +519,7 @@ fn the_passes_finish_within_a_frame() -> Result<()> {
                 hud: Some(Hud {
                     grid,
                     read: n % 60 == 59,
+                    every_us: 0,
                 }),
             };
             let start = std::time::Instant::now();

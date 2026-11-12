@@ -1,6 +1,6 @@
 //! Frame Warp on this host (docs/frame-warp.md). The video thread runs the GPU passes over
 //! each new capture after its frame went to the encoder and hands their readbacks to a
-//! worker, which measures and fits them off the frame path
+//! worker, which measures and fits them off the frame path and outside the host's lock
 //! ([`butterpollo_core::session::FrameWarpState`]). What a game taught the host is kept for
 //! its next session in `frame_warp.json`. Nothing runs until a client asks.
 
@@ -10,7 +10,7 @@ use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use butterpollo_core::frame_warp::{Mask, Model, Prior, Thumbnail};
+use butterpollo_core::frame_warp::{Mask, Measurer, Model, Prior, Thumbnail};
 use butterpollo_windows::capture::GpuImage;
 use butterpollo_windows::compute::frame_warp::{FrameWarpGpu, Hud, Pass, hud_grid};
 use serde::{Deserialize, Serialize};
@@ -35,7 +35,8 @@ pub(crate) struct VideoFrameWarp {
     worker: Option<Worker>,
     /// The worker could not start: no Frame Warp for the rest of this video thread.
     stopped: bool,
-    picture: Option<(u32, u32)>,
+    /// The stream's picture and the capture's size in it, as last given to the host.
+    picture: Option<((u32, u32), (u32, u32))>,
     mask_due: Option<Instant>,
 }
 
@@ -51,9 +52,15 @@ impl VideoFrameWarp {
         fresh: bool,
         picture: (u32, u32),
     ) {
-        if self.picture != Some(picture) {
-            self.picture = Some(picture);
-            s.frame_warp.set_picture((edge(picture.0), edge(picture.1)));
+        let capture = (image.width, image.height);
+        if self.picture != Some((picture, capture)) {
+            self.picture = Some((picture, capture));
+            // A capture of another shape is letterboxed into the stream, as the converter does.
+            let (x, y, w, h) = butterpollo_core::display_policy::letterbox(capture, picture);
+            s.frame_warp.set_picture(
+                (edge(picture.0), edge(picture.1)),
+                (edge(x), edge(y), edge(w), edge(h)),
+            );
         }
         if !s.frame_warp.enabled() || self.stopped {
             // Turned off: the passes' buffers go; the worker stays to save at the end.
@@ -135,19 +142,21 @@ impl VideoFrameWarp {
         };
         let params = s.frame_warp.params();
         let now = Instant::now();
-        let grid = if params.moving {
-            hud_grid(params.mask_width, (image.width, image.height))
-        } else {
-            None
-        };
+        let grid = params.hud_every_us.and_then(|every_us| {
+            Some((
+                hud_grid(params.mask_width, (image.width, image.height))?,
+                every_us,
+            ))
+        });
         let pass = Pass {
             thumbnail: (
                 u32::try_from(params.thumbnail.0).unwrap_or(u32::MAX),
                 u32::try_from(params.thumbnail.1).unwrap_or(u32::MAX),
             ),
-            hud: grid.map(|grid| Hud {
+            hud: grid.map(|(grid, every_us)| Hud {
                 grid,
                 read: self.mask_due.is_none_or(|due| now >= due),
+                every_us,
             }),
         };
         match passes.submit(image, &pass, s.frame_warp.us(image.captured)) {
@@ -228,17 +237,34 @@ fn work(s: &Session, store: &Store, receiver: &Receiver<Work>) {
             "frame warp starts from what it learned for this game before"
         );
     }
+    // The previous thumbnail and the HUD's pixels: measured against here, outside the host's
+    // lock, which the control thread takes for the input and the tags.
+    let mut measurer = Measurer::default();
     let mut locked = false;
     let mut saved = false;
+    let mut generation = None;
     while let Ok(item) = receiver.recv() {
         let now_us = s.frame_warp.now_us();
-        let (model, prior) = s.frame_warp.with(|host| {
-            match item {
-                Work::Thumbnail(thumbnail) => host.on_thumbnail(thumbnail, now_us),
-                Work::Hud(mask) => host.on_hud(mask, now_us),
+        let learned = match item {
+            Work::Thumbnail(thumbnail) => {
+                s.frame_warp.on_thumbnail(&mut measurer, thumbnail, now_us)
             }
-            (host.status().model.filter(Model::locked), host.prior())
-        });
+            Work::Hud(mask) => s.frame_warp.on_hud(&mut measurer, mask, now_us),
+        };
+        if let Some(sent) = learned.model
+            && generation.replace(sent.generation) != Some(sent.generation)
+        {
+            tracing::debug!(
+                client = %s.launch.client.name,
+                generation = sent.generation,
+                mouse_gain = ?sent.mouse_gain,
+                stick_gain = ?sent.stick_gain,
+                lag_ms = sent.lag_us as f32 / 1000.0,
+                fit = sent.confidence,
+                "frame warp model sent"
+            );
+        }
+        let (model, prior) = (learned.model.filter(Model::locked), learned.prior);
         if model.is_some() == locked {
             continue;
         }

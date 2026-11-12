@@ -1,12 +1,17 @@
 //! A stream's Frame Warp ([`FrameWarpHost`]) where no hot path waits for it.
 //!
 //! The control thread decodes input and the packetizer assigns frame numbers;
-//! neither may wait, but the frame-warp worker holds the host for every
-//! thumbnail, whose fit can take milliseconds. So every event goes into a
-//! short inbox, and whoever gets the host next (`try_lock`) applies the inbox
-//! in order; a holder applies what came in meanwhile before it lets go. What
-//! the host produces goes into an outbox the control loop takes from, and the
-//! control loop is woken.
+//! neither may wait. The frame-warp worker measures each thumbnail and runs
+//! each fit outside the host's lock ([`Measurer`], [`FitJob`]), holding the
+//! host only to hand over the results, so holds are short. Still, every event
+//! goes into a short inbox, and whoever gets the host next (`try_lock`)
+//! applies the inbox in order; a holder applies what came in meanwhile before
+//! it lets go. A frame's tag only goes into the inbox: the control loop, woken
+//! for it, makes the tags message off the frame path. What the host produces
+//! goes into an outbox the control loop takes from, and the control loop is
+//! woken unless a wake is already on its way.
+//!
+//! [`FitJob`]: crate::frame_warp::FitJob
 //!
 //! Times are microseconds on the session's clock: since `Session::started`.
 
@@ -15,7 +20,10 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::time::Instant;
 
-use crate::frame_warp::{FrameWarpHost, FrameWarpRequest, MODEL_BYTES, Status};
+use crate::frame_warp::{
+    FrameWarpHost, FrameWarpRequest, Learned, MODEL_BYTES, Mask, Measurer, Status, Thumbnail,
+    hud_pixels, shape,
+};
 
 /// Wakes the control loop: something is waiting to be sent.
 pub type Wake = Arc<dyn Fn() + Send + Sync>;
@@ -43,7 +51,7 @@ enum Event {
         frame: u32,
         capture_us: u64,
     },
-    Picture((u16, u16)),
+    Picture((u16, u16), (u16, u16, u16, u16)),
 }
 
 #[derive(Default)]
@@ -60,8 +68,9 @@ pub struct Params {
     pub thumbnail: (usize, usize),
     /// [`FrameWarpHost::mask_width`].
     pub mask_width: u16,
-    /// [`FrameWarpHost::camera_moving`] when the host was last held.
-    pub moving: bool,
+    /// [`FrameWarpHost::hud_every_us`] when the host was last held: `None` while the camera
+    /// stands still.
+    pub hud_every_us: Option<u64>,
 }
 
 /// What the control loop sends, in this order: the model and mask reliably,
@@ -92,6 +101,9 @@ pub struct FrameWarpState {
     /// What an earlier session learned for the game was looked up.
     prior_claimed: AtomicBool,
     wake: Mutex<Option<Wake>>,
+    /// A wake is on its way and the control loop has not taken the outbox since: another
+    /// wake would only cost a syscall.
+    woken: AtomicBool,
 }
 
 impl std::fmt::Debug for FrameWarpState {
@@ -110,7 +122,7 @@ impl FrameWarpState {
         let params = Params {
             thumbnail: host.thumbnail_size(),
             mask_width: 0,
-            moving: false,
+            hud_every_us: None,
         };
         Self {
             epoch,
@@ -122,6 +134,7 @@ impl FrameWarpState {
             last_capture_us: AtomicU64::new(NONE),
             prior_claimed: AtomicBool::new(false),
             wake: Mutex::new(None),
+            woken: AtomicBool::new(false),
         }
     }
 
@@ -151,9 +164,11 @@ impl FrameWarpState {
     pub fn on_request(&self, payload: &[u8]) -> Option<bool> {
         let request = FrameWarpRequest::decode(payload)?;
         self.on.store(request.enabled, Ordering::Release);
+        // While off, the control loop takes nothing and so never clears a wake's mark.
+        self.woken.store(false, Ordering::Release);
         if !request.enabled {
             *lock(&self.outbox) = Outbox::default();
-            lock(&self.inbox).retain(|event| matches!(event, Event::Picture(_)));
+            lock(&self.inbox).retain(|event| matches!(event, Event::Picture(..)));
         }
         self.push(Event::Request(payload.to_vec()));
         Some(request.enabled)
@@ -180,7 +195,9 @@ impl FrameWarpState {
     }
 
     /// Tags video frame `frame` as its number is assigned. `captured` is the capture's
-    /// present time; a repeated picture has none and shows the last capture tagged.
+    /// present time; a repeated picture has none and shows the last capture tagged. Only
+    /// queues the tag and wakes the control loop, which makes the message
+    /// ([`Self::take_outgoing`]).
     pub fn tag(&self, frame: u32, captured: Option<Instant>) {
         if !self.enabled() {
             return;
@@ -196,12 +213,14 @@ impl FrameWarpState {
                 us => us,
             },
         };
-        self.push(Event::Tag { frame, capture_us });
+        self.queue(Event::Tag { frame, capture_us });
+        self.wake();
     }
 
-    /// The stream's picture size changed (a reconfigure).
-    pub fn set_picture(&self, picture: (u16, u16)) {
-        self.push(Event::Picture(picture));
+    /// The stream's picture size changed (a reconfigure), or where the capture sits in it
+    /// ([`FrameWarpHost::set_picture`]).
+    pub fn set_picture(&self, picture: (u16, u16), content: (u16, u16, u16, u16)) {
+        self.push(Event::Picture(picture, content));
     }
 
     /// Runs `f` on the host, waiting for it: for the frame-warp worker only, never on a
@@ -235,8 +254,62 @@ impl FrameWarpState {
         self.with(|host| host.status())
     }
 
-    /// Everything waiting to be sent; nothing while Frame Warp is off.
+    /// The worker's: a capture's luma thumbnail. The motion estimate runs before the host is
+    /// held and a due fit after it, on copies, so neither holds up the frame path or the
+    /// input.
+    pub fn on_thumbnail(
+        &self,
+        measurer: &mut Measurer,
+        thumbnail: Thumbnail,
+        now_us: u64,
+    ) -> Learned {
+        let measured = measurer.measure(&thumbnail);
+        let (keep, resets, job, learned) = self.with(|host| {
+            let keep = host.on_measured(&measured, now_us);
+            (keep, host.resets(), host.fit_job(now_us), host.learned())
+        });
+        measurer.keep(thumbnail, keep, resets);
+        let Some(job) = job else {
+            return learned;
+        };
+        let fitted = job.run();
+        self.with(|host| {
+            host.publish_fit(fitted);
+            host.learned()
+        })
+    }
+
+    /// The worker's: the GPU's HUD bits, shaped ([`shape`]), laid over the picture
+    /// ([`crate::frame_warp::Placement::place`]) and over the thumbnail outside the lock.
+    pub fn on_hud(&self, measurer: &mut Measurer, mask: Mask, now_us: u64) -> Learned {
+        let shaped = shape(&mask);
+        let placement = self.with(|host| host.placement());
+        let placed = placement.place(&shaped);
+        let (size, resets, learned) = self.with(|host| {
+            let size = host.on_hud(&placed, placement, now_us);
+            (size, host.resets(), host.learned())
+        });
+        match size {
+            Some(size) => measurer.set_hud(hud_pixels(&shaped, size), resets),
+            None => measurer.catch_up(resets),
+        }
+        learned
+    }
+
+    /// Everything waiting to be sent; nothing while Frame Warp is off. Makes the tags of the
+    /// frames queued since, unless the worker holds the host (it makes them and wakes the
+    /// control loop again).
     pub fn take_outgoing(&self) -> Outgoing {
+        // From here on, whatever is produced wakes the control loop again.
+        self.woken.store(false, Ordering::Release);
+        let queued = !lock(&self.inbox).is_empty();
+        if queued
+            && self.enabled()
+            && let Some(host) = self.try_host()
+        {
+            // Taken just below: no wake.
+            self.hold_quietly(host, |_| ());
+        }
         let mut outbox = lock(&self.outbox);
         if !self.enabled() {
             *outbox = Outbox::default();
@@ -249,16 +322,32 @@ impl FrameWarpState {
         }
     }
 
+    /// Queues `event` and applies it unless someone holds the host.
     fn push(&self, event: Event) {
-        {
-            let mut inbox = lock(&self.inbox);
-            if inbox.len() == INBOX {
-                inbox.pop_front();
-            }
-            inbox.push_back(event);
-        }
+        self.queue(event);
         if let Some(host) = self.try_host() {
             self.hold(host, |_| ());
+        }
+    }
+
+    fn queue(&self, event: Event) {
+        let mut inbox = lock(&self.inbox);
+        if inbox.len() == INBOX {
+            inbox.pop_front();
+        }
+        inbox.push_back(event);
+    }
+
+    /// Wakes the control loop, unless a wake is on its way: the control loop takes everything
+    /// when it comes ([`Self::take_outgoing`]).
+    fn wake(&self) {
+        if self.woken.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let wake = lock(&self.wake).clone();
+        match wake {
+            Some(wake) => wake(),
+            None => self.woken.store(false, Ordering::Release),
         }
     }
 
@@ -275,9 +364,22 @@ impl FrameWarpState {
     /// after the last look, unless someone else has it, who then applies them.
     fn hold<R>(
         &self,
-        mut host: MutexGuard<'_, FrameWarpHost>,
+        host: MutexGuard<'_, FrameWarpHost>,
         f: impl FnOnce(&mut FrameWarpHost) -> R,
     ) -> R {
+        let (result, produced) = self.hold_quietly(host, f);
+        if produced {
+            self.wake();
+        }
+        result
+    }
+
+    /// [`Self::hold`] without the wake; also whether the host produced anything to send.
+    fn hold_quietly<R>(
+        &self,
+        mut host: MutexGuard<'_, FrameWarpHost>,
+        f: impl FnOnce(&mut FrameWarpHost) -> R,
+    ) -> (R, bool) {
         self.apply(&mut host);
         let result = f(&mut host);
         let mut produced = self.apply_and_collect(&mut host);
@@ -288,13 +390,7 @@ impl FrameWarpState {
             };
             produced |= self.apply_and_collect(&mut host);
         }
-        if produced {
-            let wake = lock(&self.wake).clone();
-            if let Some(wake) = wake {
-                wake();
-            }
-        }
-        result
+        (result, produced)
     }
 
     fn apply_and_collect(&self, host: &mut FrameWarpHost) -> bool {
@@ -316,7 +412,7 @@ impl FrameWarpState {
                     at_us,
                 } => host.on_controller(number, stick, at_us),
                 Event::Tag { frame, capture_us } => host.tag(frame, capture_us),
-                Event::Picture(picture) => host.set_picture(picture),
+                Event::Picture(picture, content) => host.set_picture(picture, content),
             }
         }
     }
@@ -345,7 +441,7 @@ impl FrameWarpState {
         *lock(&self.params) = Params {
             thumbnail: host.thumbnail_size(),
             mask_width: host.mask_width(),
-            moving: host.camera_moving(self.now_us()),
+            hud_every_us: host.hud_every_us(self.now_us()),
         };
         produced && self.enabled()
     }
@@ -361,7 +457,8 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::frame_warp::{FRAME_WARP_REQUEST_MESSAGE_TYPE, Tags};
+    use crate::frame_warp::motion::tests::scene;
+    use crate::frame_warp::{FRAME_WARP_REQUEST_MESSAGE_TYPE, Model, Tags, thumbnail_height};
     use std::sync::atomic::AtomicUsize;
     use std::time::Duration;
 
@@ -460,6 +557,64 @@ mod tests {
         warp.tag(2, Some(epoch));
         assert!(warp.take_outgoing().is_empty());
         assert!(!warp.status().enabled);
+    }
+
+    #[test]
+    fn tags_only_queue_and_wake_the_control_loop_once_until_it_takes_them() {
+        let (epoch, warp) = state();
+        let wakes = Arc::new(AtomicUsize::new(0));
+        let counter = wakes.clone();
+        warp.set_wake(Arc::new(move || {
+            counter.fetch_add(1, Ordering::Relaxed);
+        }));
+        warp.on_request(&request(true, None, 0));
+        let _ = warp.take_outgoing();
+        let woken = || wakes.load(Ordering::Relaxed);
+        let before = woken();
+        warp.tag(1, Some(epoch + Duration::from_millis(1)));
+        warp.tag(2, Some(epoch + Duration::from_millis(2)));
+        // Queued, not made: the frame path does not take the host.
+        assert_eq!(lock(&warp.inbox).len(), 2);
+        assert_eq!(woken() - before, 1);
+        let sent = warp.take_outgoing();
+        assert_eq!(sent.tags.len(), 2);
+        let tags = Tags::decode(&sent.tags[1]).unwrap();
+        assert_eq!(
+            tags.tags.iter().map(|t| t.frame).collect::<Vec<_>>(),
+            [1, 2]
+        );
+        assert!(lock(&warp.inbox).is_empty());
+        // Taken: the next tag wakes the control loop again.
+        warp.tag(3, Some(epoch + Duration::from_millis(3)));
+        assert_eq!(woken() - before, 2);
+    }
+
+    #[test]
+    fn the_worker_learns_from_thumbnails_and_the_model_goes_out() {
+        let (epoch, warp) = state();
+        warp.on_request(&request(true, Some(0), 480));
+        let _ = warp.take_outgoing();
+        let mut measurer = Measurer::default();
+        let h = thumbnail_height((1920, 1080));
+        // The camera pans 2 thumbnail pixels per 8 ms frame, for 40 ms of mouse input each.
+        let (mut t, mut sum, mut learned) = (0u64, 0, Learned::default());
+        while t < 3_000_000 {
+            warp.on_mouse(16, 0, epoch + Duration::from_micros(t));
+            sum += 16;
+            let offset = (sum as f32 - 16.0 * 5.0).max(0.0) * 0.125;
+            learned = warp.on_thumbnail(&mut measurer, scene(256, h, offset, 0.0, t), t);
+            t += 8_000;
+        }
+        let model = learned.model.expect("a model");
+        assert!(model.mouse_locked, "{model:?}");
+        assert!((model.mouse_gain[0] + 0.9375).abs() < 0.08, "{model:?}");
+        assert!(learned.prior.is_some_and(|p| p.mouse_gain.is_some()));
+        let sent = warp
+            .take_outgoing()
+            .model
+            .map(|m| Model::decode(&m).unwrap());
+        assert_eq!(sent, Some(model));
+        assert_eq!(warp.status().model, Some(model));
     }
 
     #[test]

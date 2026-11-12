@@ -9244,21 +9244,30 @@ display at 2560x1440, an isolated packaged host, nightjar-cli receiving H.264 at
 joins the client's shift log to the probe by barcode. "Without" is how far each shown picture
 is from where the client's input says it should be; "with" is what is left after the shift.
 
-| Measure | Result |
-|---|---|
-| Model locked | 0.63 s after the first picture, about 1 s after the request |
-| Pictures with a locked model | 98.9% (3,544 of 3,584) |
-| Learned gain x, y (true -1.0) | -0.995, -0.900 |
-| Learned lag | 56 ms (the game's 50 ms plus draw to capture) |
-| Displacement without Frame Warp | median 64.8 px, p95 184.2 px |
-| Left with Frame Warp | median 5.1 px, p95 29.8 px |
-| Removed | 90.4% |
+Two runs of the release build:
 
-The vertical gain went from -0.33 to -0.90 over three estimator changes on this rig: the HUD
-found so far is left out of the motion measurement (its static bars pulled vertical shifts toward
-zero), shifts are refined to a tenth of a pixel (a three-point parabola rounded slow turns
-toward whole pixels), and a picture counts as still when most of its textured cells are
-unchanged. The remaining 10% low vertical gain shows as under-shift on fast vertical turns.
+| Measure | Run 1 | Run 2 |
+|---|---|---|
+| Model locked, after the first picture | 0.62 s | 0.62 s |
+| Pictures with a locked model | 98.9% (3,545 of 3,585) | 98.9% (3,543 of 3,583) |
+| Learned gain x, y (true -1.0) | -0.986, -0.980 | -0.994, -0.994 |
+| Learned lag (the game's 50 ms plus draw to capture) | 64 ms | 60 ms |
+| Models sent after the first | 5 | 6 |
+| Displacement without Frame Warp | median 64.9 px, p95 184.2 px | median 64.9 px, p95 184.2 px |
+| Left with Frame Warp | median 2.2 px, p95 13.4 px | median 1.4 px, p95 10.6 px |
+| Removed | 95.8% | 96.4% |
+
+How the calibrator got here, on this rig. The vertical gain went from -0.33 to -0.90 over three
+estimator changes: the HUD found so far is left out of the motion measurement (its static bars
+pulled vertical shifts toward zero), shifts are refined to a tenth of a pixel (a three-point
+parabola rounded slow turns toward whole pixels), and a picture counts as still when most of its
+textured cells are unchanged. That build removed 90.4% (median 5.1 px, p95 29.8 px left), but it
+replaced the model with every fit that explained more: 89 models in 60 s, the lag wandering
+between 52 and 62 ms, each change moving every frame's tag. Keeping a locked model unless a
+fresh fit explains 3 points more froze the lag picked at the first lock, 0.6 s in: one model,
+86.2% and 88.6% removed over two runs, since at a 99% fit no fit can explain 3 points more. The
+rule now is 3 points or a quarter of what the locked model leaves unexplained, whichever is less,
+and a kept model takes the least-squares gain at its lag, which settles as turns add up.
 
 GPU cost of the thumbnail and HUD passes (ignored test `the_passes_finish_within_a_frame` in
 `rust/windows/src/compute_frame_warp_tests.rs`, 300 iterations, submit to completion, an upper
@@ -9266,28 +9275,53 @@ bound since it includes the queue):
 
 | Capture | Median | p95 |
 |---|---|---|
-| 1920x1080 | 0.23 ms | 0.37 ms |
-| 2560x1440 | 0.22 ms | 0.26 ms |
-| 3840x2160 | 0.27 ms | 0.32 ms |
+| 1920x1080 | 0.15 ms | 0.25 ms |
+| 2560x1440 | 0.14 ms | 0.17 ms |
+| 3840x2160 | 0.16 ms | 0.20 ms |
+
+The HUD pass now runs only on captures it compares (the scene has moved a thumbnail pixel since
+its reference), so most captures while turning slowly cost the thumbnail alone.
 
 Host processing, the same stream with Frame Warp on and off, medians of the ten 5 s stream
 timings windows after the first:
 
 | | Host mean | Host p99 | Present to send mean | Encode mean | Convert |
 |---|---|---|---|---|---|
-| Off | 0.65 ms | 0.87 ms | 3.62 ms | 3.15 ms | 0.19 ms |
-| On | 0.71 ms | 0.94 ms | 3.70 ms | 3.17 ms | 0.22 ms |
+| Off | 0.65 ms | 0.83 ms | 3.58 ms | 3.11 ms | 0.18 ms |
+| On, run 1 | 0.56 ms | 1.07 ms | 3.61 ms | 3.03 ms | 0.24 ms |
+| On, run 2 | 0.54 ms | 1.03 ms | 3.59 ms | 3.05 ms | 0.25 ms |
 
-About 0.06 ms more host processing with Frame Warp on, one run each. The host does no Frame Warp
-work for a client that has not asked.
+Present to send is the same within 0.03 ms; the passes add about 0.07 ms to the conversion stage
+and 0.2 ms to the host p99, while the host mean moved by more than that between runs either way.
+The host does no Frame Warp work for a client that has not asked.
 
-A real game: Assassin's Creed Black Flag Resynced on the same rig, sailing in a storm (a
+A real game, with the first build: Assassin's Creed Black Flag Resynced on the same rig, sailing in a storm (a
 third-person camera orbiting the ship, sea and ship moving on their own, the game near 168 fps),
 the same scripted turns for 60 s. The model locked 0.63 s after the first picture and held on
 91.8% of pictures (3,289 of 3,583), with a learned lag of 88 to 108 ms (median 90 ms) and a fit
 of 0.80 to 0.93. It relearned twice: the gain went from -0.90 to -0.55/-0.21 and then -0.44 as
 the orbiting camera's response changed with its angle. The median shift while turning was 70 px
 (p95 213 px). Without the probe's barcode the remaining error can't be measured on a game.
+
+The same game streamed to real clients over the network from an isolated host on this PC, the
+turns swiped or moved by script, mid-turn screenshots taken on the client:
+
+- Retroid Pocket 6 (Nightjar for Android, Vulkan, 1920x1080). Fitting each axis on its own, the
+  vertical gain followed the slight vertical drift of sideways swipes, mostly the ship's roll,
+  and the model was resent about every 200 ms. An axis with under a quarter of the other's input
+  now takes the other's gain. In the last run (50 s of swipes) the lag changed once (110 to
+  88 ms) and the gain followed the orbiting camera's changing response, from -0.37 to -0.22 px per
+  count in steps of 2 to 5%, about twice a second while turning, at a fit of 0.89 to 0.93. The HUD
+  pass at first missed slow turns and translucent pieces: it now compares captures far enough
+  apart for the scene to have moved a thumbnail pixel, keeps edges that hold their shape, and
+  joins pieces. Quest text, compass, objective marker and the icon wheel stayed in place in 8 of
+  8 mid-turn screenshots. The thin three-segment bar held over the dark deck (small tears in 2 or
+  3 of 6) but tore along its top edge over white water in most screenshots of the last run.
+- Radeon 780M laptop (Nightjar for Windows, 2880x1800). The 2560x1440 capture is letterboxed
+  into that stream; the HUD mask had been laid over the whole stream, up to 80 px off, and the
+  HUD showed twice. Placed where the capture shows, with the bars counted as HUD, it stayed single
+  in every screenshot. Locked at -0.46 px per count, fit 0.81. Small pieces that change in play,
+  the wheel's selection bracket and the end of a bar, still ghost when the picture shifts.
 
 Not measured here: NVIDIA (no hardware) and receivers other than nightjar-cli.
 

@@ -74,20 +74,73 @@ pub fn estimate(prev: &Thumbnail, cur: &Thumbnail) -> Option<Motion> {
 /// size): a HUD stays where it is, and a wide bar's rows left in would pull every vertical
 /// shift toward 0. Ignored when its size does not match.
 pub fn estimate_around(prev: &Thumbnail, cur: &Thumbnail, hud: Option<&[bool]>) -> Option<Motion> {
+    estimate_with(prev, cur, hud, &mut Scratch::default())
+}
+
+/// The buffers an estimate works in, kept from one estimate to the next.
+#[derive(Debug, Default)]
+pub struct Scratch {
+    /// The previous thumbnail's detrended row profile for each column band, unshifted: the
+    /// same in both vertical passes.
+    before_rows: [Vec<f32>; GRID],
+    buffers: Buffers,
+}
+
+#[derive(Debug, Default)]
+struct Buffers {
+    before: Vec<f32>,
+    after: Vec<f32>,
+    sums: Vec<(f32, u32)>,
+    prefix: Vec<f32>,
+    count: Vec<u32>,
+    scores: Vec<Option<f32>>,
+}
+
+/// [`estimate_around`] in `scratch`'s buffers.
+pub fn estimate_with(
+    prev: &Thumbnail,
+    cur: &Thumbnail,
+    hud: Option<&[bool]>,
+    scratch: &mut Scratch,
+) -> Option<Motion> {
     if !prev.valid() || !cur.valid() || prev.width != cur.width || prev.height != cur.height {
         return None;
     }
-    let hud = hud.filter(|hud| hud.len() == cur.width * cur.height);
-    let (w, h) = (cur.width, cur.height);
-    let x_edges = edges(w);
-    let y_edges = edges(h);
-    let search_x = ((w as f32 * SEARCH) as usize).max(2);
-    let search_y = ((h as f32 * SEARCH) as usize).max(2);
+    let w = cur.width;
+    // One branch here, so the loops below inline the test (or drop it without a HUD).
+    match hud.filter(|hud| hud.len() == cur.width * cur.height) {
+        None => measure(prev, cur, |_, _| true, scratch),
+        Some(hud) => measure(prev, cur, |x, y| !hud[y * w + x], scratch),
+    }
+}
 
-    let scene = |x: usize, y: usize| hud.is_none_or(|hud| !hud[y * w + x]);
+/// Where the cells are and how far each searches.
+struct Grid {
+    x_edges: [usize; GRID + 1],
+    y_edges: [usize; GRID + 1],
+    search_x: usize,
+    search_y: usize,
+}
+
+/// [`estimate_around`] where `scene` is the picture (not the HUD).
+fn measure<S: Fn(usize, usize) -> bool + Copy>(
+    prev: &Thumbnail,
+    cur: &Thumbnail,
+    scene: S,
+    scratch: &mut Scratch,
+) -> Option<Motion> {
+    let (w, h) = (cur.width, cur.height);
+    let grid = Grid {
+        x_edges: edges(w),
+        y_edges: edges(h),
+        search_x: ((w as f32 * SEARCH) as usize).max(2),
+        search_y: ((h as f32 * SEARCH) as usize).max(2),
+    };
+    let (x_edges, y_edges) = (&grid.x_edges, &grid.y_edges);
+
     // A picture whose texture (the HUD left out) is mostly unchanged stands still, whatever
     // moves in one corner of it.
-    let still = still_cells(prev, cur, &scene, &x_edges, &y_edges);
+    let still = still_cells(prev, cur, scene, x_edges, y_edges);
     if still * 2 > GRID * GRID {
         return Some(Motion {
             dx: 0.0,
@@ -100,19 +153,17 @@ pub fn estimate_around(prev: &Thumbnail, cur: &Thumbnail, hud: Option<&[bool]>) 
     // Then horizontal: one column profile per row band, the current one taken that band's
     // vertical shift lower so a tilt does not blur it. Then vertical again, the current
     // column band taken that band's horizontal shift across, so a fast pan does not blur it.
-    let vertical_pass = |column_shift: [isize; GRID]| {
-        let mut out = [[None; GRID]; GRID];
-        for (band, cells) in out.iter_mut().enumerate() {
-            let (x0, x1) = (x_edges[band], x_edges[band + 1]);
-            let before = detrend(&profile_rows(prev, x0, x1, 0, &scene));
-            let after = detrend(&profile_rows(cur, x0, x1, column_shift[band], &scene));
-            for (cell, slot) in cells.iter_mut().enumerate() {
-                *slot = best_shift(&before, &after, y_edges[cell], y_edges[cell + 1], search_y);
-            }
-        }
-        out
-    };
-    let first: [[Option<Shift>; GRID]; GRID] = vertical_pass([0; GRID]);
+    let Scratch {
+        before_rows,
+        buffers,
+    } = scratch;
+    for (band, before) in before_rows.iter_mut().enumerate() {
+        profile_rows(prev, x_edges[band], x_edges[band + 1], 0, scene, before);
+        detrend(before, &mut buffers.prefix, &mut buffers.count);
+    }
+    let first: [[Option<Shift>; GRID]; GRID] = core::array::from_fn(|band| {
+        vertical_band(cur, scene, &grid, band, &before_rows[band], 0, buffers)
+    });
     let mut horizontal = [[None; GRID]; GRID];
     for cell in 0..GRID {
         let (y0, y1) = (y_edges[cell], y_edges[cell + 1]);
@@ -120,17 +171,48 @@ pub fn estimate_around(prev: &Thumbnail, cur: &Thumbnail, hud: Option<&[bool]>) 
             .filter_map(|band| first[band][cell].map(|s| s.at))
             .collect();
         let shift_y = median(&shifts).unwrap_or(0.0).round() as isize;
-        let before = detrend(&profile_columns(prev, y0, y1, 0, &scene));
-        let after = detrend(&profile_columns(cur, y0, y1, shift_y, &scene));
+        let Buffers {
+            before,
+            after,
+            sums,
+            prefix,
+            count,
+            scores,
+        } = &mut *buffers;
+        profile_columns(prev, y0, y1, 0, scene, sums, before);
+        detrend(before, prefix, count);
+        profile_columns(cur, y0, y1, shift_y, scene, sums, after);
+        detrend(after, prefix, count);
         for (band, column) in horizontal.iter_mut().enumerate() {
-            column[cell] = best_shift(&before, &after, x_edges[band], x_edges[band + 1], search_x);
+            column[cell] = best_shift(
+                before,
+                after,
+                x_edges[band],
+                x_edges[band + 1],
+                grid.search_x,
+                scores,
+            );
         }
     }
     let column_shift: [isize; GRID] = core::array::from_fn(|band| {
         let shifts: Vec<f32> = horizontal[band].iter().flatten().map(|s| s.at).collect();
         median(&shifts).unwrap_or(0.0).round() as isize
     });
-    let vertical = vertical_pass(column_shift);
+    // A band that did not move across measures as it did the first time.
+    let mut vertical = first;
+    for (band, cells) in vertical.iter_mut().enumerate() {
+        if column_shift[band] != 0 {
+            *cells = vertical_band(
+                cur,
+                scene,
+                &grid,
+                band,
+                &before_rows[band],
+                column_shift[band],
+                buffers,
+            );
+        }
+    }
     let mut cells = Vec::with_capacity(GRID * GRID);
     for band in 0..GRID {
         for cell in 0..GRID {
@@ -161,6 +243,40 @@ pub fn estimate_around(prev: &Thumbnail, cur: &Thumbnail, hud: Option<&[bool]>) 
     })
 }
 
+/// The vertical shift of each cell in column band `band`: `before` (the previous thumbnail's
+/// detrended row profile over the band) found in the current one's, its columns taken
+/// `column_shift` across.
+fn vertical_band<S: Fn(usize, usize) -> bool + Copy>(
+    cur: &Thumbnail,
+    scene: S,
+    grid: &Grid,
+    band: usize,
+    before: &[f32],
+    column_shift: isize,
+    buffers: &mut Buffers,
+) -> [Option<Shift>; GRID] {
+    let Buffers {
+        after,
+        prefix,
+        count,
+        scores,
+        ..
+    } = buffers;
+    let (x0, x1) = (grid.x_edges[band], grid.x_edges[band + 1]);
+    profile_rows(cur, x0, x1, column_shift, scene, after);
+    detrend(after, prefix, count);
+    core::array::from_fn(|cell| {
+        best_shift(
+            before,
+            after,
+            grid.y_edges[cell],
+            grid.y_edges[cell + 1],
+            grid.search_y,
+            scores,
+        )
+    })
+}
+
 /// Cell boundaries along an edge of `len` pixels, margins left out.
 fn edges(len: usize) -> [usize; GRID + 1] {
     let margin = (len as f32 * MARGIN) as usize;
@@ -174,10 +290,10 @@ fn edges(len: usize) -> [usize; GRID + 1] {
 
 /// How many grid cells stand still: their texture in `prev` where `scene` is at least
 /// [`STILL_SHARE`] exactly the same in `cur`.
-fn still_cells(
+fn still_cells<S: Fn(usize, usize) -> bool>(
     prev: &Thumbnail,
     cur: &Thumbnail,
-    scene: &dyn Fn(usize, usize) -> bool,
+    scene: S,
     x_edges: &[usize; GRID + 1],
     y_edges: &[usize; GRID + 1],
 ) -> usize {
@@ -208,41 +324,45 @@ fn still_cells(
     still
 }
 
-/// Mean of each row over columns `x0..x1` where `scene` (not the HUD), the columns taken
-/// `shift` to the right (clamped at the edges); NaN for a row of HUD only.
-fn profile_rows(
+/// Into `out`: the mean of each row over columns `x0..x1` where `scene` (not the HUD), the
+/// columns taken `shift` to the right (clamped at the edges); NaN for a row of HUD only.
+fn profile_rows<S: Fn(usize, usize) -> bool>(
     t: &Thumbnail,
     x0: usize,
     x1: usize,
     shift: isize,
-    scene: &dyn Fn(usize, usize) -> bool,
-) -> Vec<f32> {
+    scene: S,
+    out: &mut Vec<f32>,
+) {
     let last = t.width as isize - 1;
-    (0..t.height)
-        .map(|y| {
-            let (mut sum, mut n) = (0.0f32, 0u32);
-            for x in x0..x1 {
-                let x = (x as isize + shift).clamp(0, last) as usize;
-                if scene(x, y) {
-                    sum += t.at(x, y);
-                    n += 1;
-                }
+    out.clear();
+    out.extend((0..t.height).map(|y| {
+        let (mut sum, mut n) = (0.0f32, 0u32);
+        for x in x0..x1 {
+            let x = (x as isize + shift).clamp(0, last) as usize;
+            if scene(x, y) {
+                sum += t.at(x, y);
+                n += 1;
             }
-            if n == 0 { f32::NAN } else { sum / n as f32 }
-        })
-        .collect()
+        }
+        if n == 0 { f32::NAN } else { sum / n as f32 }
+    }));
 }
 
-/// Mean of each column over rows `y0..y1` where `scene` (not the HUD), rows taken `shift`
-/// lower (clamped at the edges); NaN for a column of HUD only.
-fn profile_columns(
+/// Into `out`: the mean of each column over rows `y0..y1` where `scene` (not the HUD), rows
+/// taken `shift` lower (clamped at the edges); NaN for a column of HUD only. `sums` is
+/// scratch.
+fn profile_columns<S: Fn(usize, usize) -> bool>(
     t: &Thumbnail,
     y0: usize,
     y1: usize,
     shift: isize,
-    scene: &dyn Fn(usize, usize) -> bool,
-) -> Vec<f32> {
-    let mut sums = vec![(0.0f32, 0u32); t.width];
+    scene: S,
+    sums: &mut Vec<(f32, u32)>,
+    out: &mut Vec<f32>,
+) {
+    sums.clear();
+    sums.resize(t.width, (0.0, 0));
     for y in y0..y1 {
         let y = (y as isize + shift).clamp(0, t.height as isize - 1) as usize;
         for (x, (sum, n)) in sums.iter_mut().enumerate() {
@@ -252,37 +372,40 @@ fn profile_columns(
             }
         }
     }
-    sums.into_iter()
-        .map(|(sum, n)| if n == 0 { f32::NAN } else { sum / n as f32 })
-        .collect()
+    out.clear();
+    out.extend(
+        sums.iter()
+            .map(|&(sum, n)| if n == 0 { f32::NAN } else { sum / n as f32 }),
+    );
 }
 
-/// The profile less its moving average over 13 samples: lighting and slow gradients out,
-/// edges and texture kept. NaN samples (HUD only) stay NaN and are left out of the averages.
-fn detrend(profile: &[f32]) -> Vec<f32> {
+/// The profile, in place, less its moving average over 13 samples: lighting and slow
+/// gradients out, edges and texture kept. NaN samples (HUD only) stay NaN and are left out of
+/// the averages. `prefix` and `count` are scratch.
+fn detrend(profile: &mut [f32], prefix: &mut Vec<f32>, count: &mut Vec<u32>) {
     const RADIUS: usize = 6;
     let n = profile.len();
-    let mut prefix = Vec::with_capacity(n + 1);
-    let mut count = Vec::with_capacity(n + 1);
+    prefix.clear();
+    count.clear();
     prefix.push(0.0f32);
     count.push(0u32);
-    for v in profile {
+    for v in profile.iter() {
         let known = !v.is_nan();
         prefix.push(prefix.last().unwrap() + if known { *v } else { 0.0 });
         count.push(count.last().unwrap() + u32::from(known));
     }
-    (0..n)
-        .map(|i| {
-            let a = i.saturating_sub(RADIUS);
-            let b = (i + RADIUS + 1).min(n);
-            let known = count[b] - count[a];
-            if profile[i].is_nan() || known == 0 {
-                f32::NAN
-            } else {
-                profile[i] - (prefix[b] - prefix[a]) / known as f32
-            }
-        })
-        .collect()
+    // Each sample's average comes from the running sums, not its neighbours, so the profile
+    // can take the result as it goes.
+    for (i, value) in profile.iter_mut().enumerate() {
+        let a = i.saturating_sub(RADIUS);
+        let b = (i + RADIUS + 1).min(n);
+        let known = count[b] - count[a];
+        *value = if value.is_nan() || known == 0 {
+            f32::NAN
+        } else {
+            *value - (prefix[b] - prefix[a]) / known as f32
+        };
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -294,30 +417,28 @@ struct Shift {
 
 /// The shift of `before[from..to]` within `after`, searched over `-search..=search`, by
 /// normalised correlation and refined to sub-pixel by a parabola through the peak. `None` for
-/// a flat cell, a weak or an ambiguous peak.
+/// a flat cell, a weak or an ambiguous peak. `scores` is scratch.
 fn best_shift(
     before: &[f32],
     after: &[f32],
     from: usize,
     to: usize,
     search: usize,
+    scores: &mut Vec<Option<f32>>,
 ) -> Option<Shift> {
     let len = to.checked_sub(from)?;
-    let known: Vec<f32> = before[from..to]
-        .iter()
-        .copied()
-        .filter(|v| !v.is_nan())
-        .collect();
-    if len < 8 || known.len() < 8 {
+    let known = || before[from..to].iter().copied().filter(|v| !v.is_nan());
+    let count = known().count();
+    if len < 8 || count < 8 {
         return None;
     }
-    let mean = known.iter().sum::<f32>() / known.len() as f32;
-    let variance = known.iter().map(|v| (v - mean) * (v - mean)).sum::<f32>() / known.len() as f32;
+    let mean = known().sum::<f32>() / count as f32;
+    let variance = known().map(|v| (v - mean) * (v - mean)).sum::<f32>() / count as f32;
     if variance < MIN_VARIANCE {
         return None;
     }
     let search = search as isize;
-    let mut scores = Vec::with_capacity(2 * search as usize + 1);
+    scores.clear();
     for s in -search..=search {
         scores.push(correlation(before, after, from, to, s));
     }
@@ -406,21 +527,26 @@ fn correlation(before: &[f32], after: &[f32], from: usize, to: usize, s: isize) 
         return None;
     }
     // The pairs where both profiles saw some of the scene.
+    let (a, b) = (
+        &before[lo..hi],
+        &after[(lo as isize + s) as usize..(hi as isize + s) as usize],
+    );
     let pairs = || {
-        (lo..hi)
-            .map(move |i| (before[i], after[(i as isize + s) as usize]))
+        a.iter()
+            .zip(b)
+            .map(|(&a, &b)| (a, b))
             .filter(|(a, b)| !a.is_nan() && !b.is_nan())
     };
-    let count = pairs().count();
+    let (mut count, mut sa, mut sb) = (0usize, 0.0f32, 0.0f32);
+    for (a, b) in pairs() {
+        count += 1;
+        sa += a;
+        sb += b;
+    }
     if count * 10 < (to - from) * 6 {
         return None;
     }
     let n = count as f32;
-    let (mut sa, mut sb) = (0.0f32, 0.0f32);
-    for (a, b) in pairs() {
-        sa += a;
-        sb += b;
-    }
     let (ma, mb) = (sa / n, sb / n);
     let (mut ab, mut aa, mut bb) = (0.0f32, 0.0f32, 0.0f32);
     for (a, b) in pairs() {
@@ -439,7 +565,17 @@ fn median(values: &[f32]) -> Option<f32> {
     if values.is_empty() {
         return None;
     }
-    let mut sorted = values.to_vec();
+    // At most a value per cell here: sorted on the stack.
+    let mut buffer = [0.0f32; GRID * GRID];
+    let mut owned = Vec::new();
+    let sorted = if values.len() <= buffer.len() {
+        let sorted = &mut buffer[..values.len()];
+        sorted.copy_from_slice(values);
+        sorted
+    } else {
+        owned.extend_from_slice(values);
+        owned.as_mut_slice()
+    };
     sorted.sort_by(f32::total_cmp);
     let mid = sorted.len() / 2;
     Some(if sorted.len() % 2 == 1 {

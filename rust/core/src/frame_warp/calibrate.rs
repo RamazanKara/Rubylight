@@ -18,7 +18,7 @@ use std::collections::VecDeque;
 
 use rubylight_protocol::frame_warp::{Model, STICK_EXPONENTS};
 
-use super::history::InputHistory;
+use super::history::{InputHistory, StickIntegrals};
 use super::motion::Motion;
 
 /// Samples kept and fitted over.
@@ -43,8 +43,19 @@ const MIN_MOTION: f64 = 30.0;
 const MIN_CONFIDENCE: f32 = 0.35;
 /// How often the fit runs.
 const EVERY_US: u64 = 200_000;
-/// A locked model is sent again when a gain moves by this fraction or the lag by this much.
-const GAIN_CHANGE: f32 = 0.04;
+/// How much more of the motion a fresh fit must explain than the locked model does over the
+/// same samples to replace it. Without it every fit (5 a second) replaced the model: on smooth
+/// input many lags fit almost equally, the chosen lag wandered by 10-20 ms between fits, and each
+/// change moved every frame's tag by the input in between, a visible jolt while turning.
+const REFIT_MARGIN: f64 = 0.03;
+/// Or this share of what the locked model leaves unexplained, when that is less: at a 99% fit
+/// no fit could explain 3 points more, and a lag a few milliseconds off, picked on the first few
+/// turns, would stay for good.
+const REFIT_SHARE: f64 = 0.25;
+/// A locked model is sent again when a gain moves by this fraction or the lag by this much. A
+/// gain change is seamless on the client (the shift of the input still outstanding scales with
+/// it); a lag change moves every tag.
+const GAIN_CHANGE: f32 = 0.02;
 const LAG_CHANGE_US: u32 = 3_000;
 /// Largest shift, as a fraction of the picture's width and height.
 pub const MAX_OFFSET: f32 = 0.15;
@@ -91,17 +102,20 @@ pub struct Prior {
     pub stick_lag_us: Option<u64>,
     pub stick_deadzone: Option<f32>,
     pub stick_exponent: Option<f32>,
-    /// The picture size the gains are in.
+    /// The size of the game's picture the gains are in: the stream's, less any black bars.
     pub picture_width: u16,
     pub picture_height: u16,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Calibrator {
     samples: VecDeque<Sample>,
     /// Picture pixels per thumbnail pixel, x and y.
     scale: [f64; 2],
+    /// The stream's picture, which the model is sent for.
     picture: (u16, u16),
+    /// The game's part of it, which the thumbnails cover: the picture less any black bars.
+    content: (u16, u16),
     mouse: Option<Fit>,
     stick: Option<Fit>,
     mouse_locked: bool,
@@ -119,6 +133,7 @@ impl Calibrator {
             samples: VecDeque::new(),
             scale: [1.0; 2],
             picture,
+            content: picture,
             mouse: None,
             stick: None,
             mouse_locked: false,
@@ -128,17 +143,25 @@ impl Calibrator {
             sent: None,
             prior: None,
         };
-        out.set_sizes(picture, thumbnail);
+        out.set_sizes(picture, picture, thumbnail);
         out
     }
 
-    /// A new stream or thumbnail size; what was learned carries over in picture pixels.
-    pub fn set_sizes(&mut self, picture: (u16, u16), thumbnail: (usize, usize)) {
+    /// A new stream or thumbnail size: the stream's `picture`, the `content` of it the game
+    /// fills (the picture less black bars) and the `thumbnail` of that content. What was
+    /// learned carries over in picture pixels.
+    pub fn set_sizes(
+        &mut self,
+        picture: (u16, u16),
+        content: (u16, u16),
+        thumbnail: (usize, usize),
+    ) {
         let old_scale = self.scale;
         self.picture = (picture.0.max(1), picture.1.max(1));
+        self.content = (content.0.max(1), content.1.max(1));
         self.scale = [
-            f64::from(self.picture.0) / thumbnail.0.max(1) as f64,
-            f64::from(self.picture.1) / thumbnail.1.max(1) as f64,
+            f64::from(self.content.0) / thumbnail.0.max(1) as f64,
+            f64::from(self.content.1) / thumbnail.1.max(1) as f64,
         ];
         if old_scale != self.scale {
             // Samples are in the old thumbnail's pixels.
@@ -161,8 +184,8 @@ impl Calibrator {
     pub fn set_prior(&mut self, prior: Prior) {
         let scale = |gain: [f32; 2]| {
             let ratio = [
-                f64::from(self.picture.0) / f64::from(prior.picture_width.max(1)),
-                f64::from(self.picture.1) / f64::from(prior.picture_height.max(1)),
+                f64::from(self.content.0) / f64::from(prior.picture_width.max(1)),
+                f64::from(self.content.1) / f64::from(prior.picture_height.max(1)),
             ];
             [
                 f64::from(gain[0]) * ratio[0] / self.scale[0],
@@ -214,8 +237,8 @@ impl Calibrator {
             stick_lag_us: stick.map(|f| f.lag_us).or(earlier.stick_lag_us),
             stick_deadzone: stick.map(|f| f.deadzone).or(earlier.stick_deadzone),
             stick_exponent: stick.map(|f| f.exponent).or(earlier.stick_exponent),
-            picture_width: self.picture.0,
-            picture_height: self.picture.1,
+            picture_width: self.content.0,
+            picture_height: self.content.1,
         })
     }
 
@@ -246,12 +269,15 @@ impl Calibrator {
         }
     }
 
+    /// Whether [`Self::update`] would fit at `now_us`.
+    pub fn due(&self, now_us: u64) -> bool {
+        self.last_fit_us
+            .is_none_or(|at| now_us.saturating_sub(at) >= EVERY_US)
+    }
+
     /// Fits again if it is time, and returns the model to send when it changed enough to.
     pub fn update(&mut self, history: &InputHistory, now_us: u64) -> Option<Model> {
-        if self
-            .last_fit_us
-            .is_some_and(|at| now_us.saturating_sub(at) < EVERY_US)
-        {
+        if !self.due(now_us) {
             return None;
         }
         self.last_fit_us = Some(now_us);
@@ -271,7 +297,14 @@ impl Calibrator {
                 history.mouse_between(c.t0_us.saturating_sub(lag), c.t1_us.saturating_sub(lag));
             Some([x as f64, y as f64])
         };
-        let fresh = best_fit(all, &input, MIN_MOUSE_COUNTS);
+        let mut fresh = best_fit(all, &input, MIN_MOUSE_COUNTS);
+        if self.mouse_locked
+            && let Some(model) = self.mouse.as_mut()
+        {
+            keep_unless_better(model, &mut fresh, |m, gain| {
+                explained(all, &input, m.lag_us, gain, MIN_MOUSE_COUNTS)
+            });
+        }
         // Recent input under the model in force (or the fresh fit) decides an unlock.
         let current = if self.mouse_locked {
             self.mouse
@@ -304,28 +337,36 @@ impl Calibrator {
     }
 
     fn update_stick(&mut self, history: &InputHistory, all: &[Chunk], recent: &[Chunk]) {
-        let integral = |deadzone: f32, exponent: f32| {
-            move |c: &Chunk, lag: u64| {
-                let (t0, t1) = (c.t0_us.saturating_sub(lag), c.t1_us.saturating_sub(lag));
-                let (mx, my) = history.mouse_between(t0, t1);
-                if mx != 0 || my != 0 {
-                    return None;
-                }
-                Some(history.stick_integral(t0, t1, deadzone, exponent))
+        // Each curve's running integral is built once per fit (every chunk at every lag reads
+        // it with two binary searches, instead of walking the chunk's pad packets).
+        let input = |curve: &StickIntegrals<'_>, c: &Chunk, lag: u64| {
+            let (t0, t1) = (c.t0_us.saturating_sub(lag), c.t1_us.saturating_sub(lag));
+            let (mx, my) = history.mouse_between(t0, t1);
+            if mx != 0 || my != 0 {
+                return None;
             }
+            Some(curve.between(t0, t1))
         };
         // The lag with a middling curve, then the curve at that lag.
-        let mut fresh = best_fit(all, &integral(0.15, 1.0), MIN_STICK_SECONDS).map(|mut f| {
-            f.deadzone = 0.15;
-            f.exponent = 1.0;
-            f
-        });
+        let middling = history.stick_integrals(0.15, 1.0);
+        let mut fresh =
+            best_fit(all, &|c, lag| input(&middling, c, lag), MIN_STICK_SECONDS).map(|mut f| {
+                f.deadzone = 0.15;
+                f.exponent = 1.0;
+                f
+            });
         if let Some(found) = fresh {
             for deadzone in DEADZONES {
                 for exponent in [1.0, 1.5, 2.0] {
+                    let curve = if (deadzone, exponent) == (0.15, 1.0) {
+                        None
+                    } else {
+                        Some(history.stick_integrals(deadzone, exponent))
+                    };
+                    let curve = curve.as_ref().unwrap_or(&middling);
                     if let Some(mut fit) = score(
                         all,
-                        &integral(deadzone, exponent),
+                        &|c, lag| input(curve, c, lag),
                         found.lag_us,
                         None,
                         MIN_STICK_SECONDS,
@@ -338,17 +379,30 @@ impl Calibrator {
                 }
             }
             // The lag again, with the curve found.
-            if let Some(curve) = fresh
-                && let Some(mut refit) = best_fit(
+            if let Some(curve) = fresh {
+                let integrals = history.stick_integrals(curve.deadzone, curve.exponent);
+                if let Some(mut refit) =
+                    best_fit(all, &|c, lag| input(&integrals, c, lag), MIN_STICK_SECONDS)
+                {
+                    refit.deadzone = curve.deadzone;
+                    refit.exponent = curve.exponent;
+                    fresh = Some(refit);
+                }
+            }
+        }
+        if self.stick_locked
+            && let Some(model) = self.stick.as_mut()
+        {
+            let integrals = history.stick_integrals(model.deadzone, model.exponent);
+            keep_unless_better(model, &mut fresh, |m, gain| {
+                explained(
                     all,
-                    &integral(curve.deadzone, curve.exponent),
+                    &|c, lag| input(&integrals, c, lag),
+                    m.lag_us,
+                    gain,
                     MIN_STICK_SECONDS,
                 )
-            {
-                refit.deadzone = curve.deadzone;
-                refit.exponent = curve.exponent;
-                fresh = Some(refit);
-            }
+            });
         }
         let current = if self.stick_locked {
             self.stick
@@ -356,9 +410,10 @@ impl Calibrator {
             fresh.or(self.stick)
         };
         let recent_fit = current.and_then(|f| {
+            let integrals = history.stick_integrals(f.deadzone, f.exponent);
             score(
                 recent,
-                &integral(f.deadzone, f.exponent),
+                &|c, lag| input(&integrals, c, lag),
                 f.lag_us,
                 Some(f.gain),
                 MIN_STICK_SECONDS,
@@ -536,17 +591,67 @@ fn best_fit(
     fits.into_iter().find(|f| f.fit >= best * LAG_TOLERANCE)
 }
 
+/// A locked `model` keeps its lag unless `fresh` explains at least [`REFIT_MARGIN`] more of the
+/// motion than `model` does over the same samples (`at_lag`, with `model`'s gain), or
+/// [`REFIT_SHARE`] of what `model` leaves unexplained when that is less; otherwise `fresh`
+/// is dropped and `model` takes the least-squares gain at its lag (`at_lag` with `None`) when
+/// that explains as much. That gain settles as samples gather, so a model locked early on a
+/// few turns still converges, where a lag picked afresh would wander.
+fn keep_unless_better(
+    model: &mut Fit,
+    fresh: &mut Option<Fit>,
+    at_lag: impl Fn(&Fit, Option<[f64; 2]>) -> Option<Fit>,
+) {
+    let Some(found) = *fresh else { return };
+    if let Some(now) = at_lag(model, Some(model.gain))
+        && now.fit + REFIT_MARGIN.min(REFIT_SHARE * (1.0 - now.fit).max(0.0)) >= found.fit
+    {
+        let settled = at_lag(model, None).filter(|fit| fit.fit >= now.fit);
+        model.gain = settled.map_or(model.gain, |fit| fit.gain);
+        model.fit = settled.map_or(now.fit, |fit| fit.fit);
+        *fresh = None;
+    }
+}
+
+/// How much of the motion `gain` at `lag` explains, or without one the least-squares gain there
+/// and its share, counted as a fresh fit's share is (against the measured motion alone), so the
+/// two compare.
+fn explained(
+    chunks: &[Chunk],
+    input: &dyn Fn(&Chunk, u64) -> Option<[f64; 2]>,
+    lag: u64,
+    gain: Option<[f64; 2]>,
+    min_input: f64,
+) -> Option<Fit> {
+    fit_at(chunks, input, lag, gain, min_input, false)
+}
+
 /// The fit of `input` at `lag`: with `gain` given, how much of the motion it explains; without,
 /// the least-squares gains and theirs. `None` without enough input or motion.
 ///
-/// An axis with too little input of its own takes the other axis's gain (square pixels, the
-/// same sensitivity both ways, as games default to).
+/// An axis with too little input of its own, under half of `min_input` or a quarter of the other
+/// axis's, takes the other axis's gain (square pixels, the same sensitivity both ways, as games
+/// default to): a gain fitted to a sliver of input, a turn's slight drift up or down, mostly fits
+/// whatever else moves the picture that way (a ship's roll) and changes with every fit.
 fn score(
     chunks: &[Chunk],
     input: &dyn Fn(&Chunk, u64) -> Option<[f64; 2]>,
     lag: u64,
     gain: Option<[f64; 2]>,
     min_input: f64,
+) -> Option<Fit> {
+    fit_at(chunks, input, lag, gain, min_input, gain.is_some())
+}
+
+/// [`score`], with `checking` saying how a given gain is counted: against the measured and the
+/// predicted motion together (`true`), or against the measured motion alone like a fresh fit.
+fn fit_at(
+    chunks: &[Chunk],
+    input: &dyn Fn(&Chunk, u64) -> Option<[f64; 2]>,
+    lag: u64,
+    gain: Option<[f64; 2]>,
+    min_input: f64,
+    checking: bool,
 ) -> Option<Fit> {
     let (mut uu, mut um, mut mm, mut used_input) =
         ([0.0f64; 2], [0.0f64; 2], [0.0f64; 2], [0.0f64; 2]);
@@ -564,11 +669,14 @@ fn score(
     }
     // A fresh fit needs motion to fit; checking a given gain does not, as a picture that
     // stands still while input arrives is exactly what must fail it.
-    if used_input[0] + used_input[1] < min_input || gain.is_none() && moved < MIN_MOTION {
+    if used_input[0] + used_input[1] < min_input || !checking && moved < MIN_MOTION {
         return None;
     }
-    let checking = gain.is_some();
-    let enough = |axis: usize| used_input[axis] >= min_input * 0.5 && uu[axis] > 0.0;
+    let enough = |axis: usize| {
+        used_input[axis] >= min_input * 0.5
+            && used_input[axis] * 4.0 >= used_input[1 - axis]
+            && uu[axis] > 0.0
+    };
     let gain = gain.unwrap_or_else(|| {
         let own = |axis: usize| um[axis] / uu[axis];
         match (enough(0), enough(1)) {
@@ -610,6 +718,24 @@ mod tests {
     /// A game at 60 fps captured at 120 fps: frame `i` shows the camera as of the input that
     /// arrived `lag_us` before it was rendered, `gain` thumbnail pixels per count.
     fn mouse_session(gain: f64, lag_us: u64, noise: f32) -> (InputHistory, Calibrator, u64) {
+        mouse_session_with(
+            gain,
+            lag_us,
+            noise,
+            |phase, _| (phase * 1.1).sin() * 4.0,
+            0.0,
+        )
+    }
+
+    /// [`mouse_session`] with the mouse's dy at a time and turn speed given by `dy_at`, and the
+    /// picture also rolling up and down by `roll` thumbnail pixels, whatever the input.
+    fn mouse_session_with(
+        gain: f64,
+        lag_us: u64,
+        noise: f32,
+        dy_at: fn(f64, f64) -> f64,
+        roll: f64,
+    ) -> (InputHistory, Calibrator, u64) {
         let mut history = InputHistory::new(None);
         let mut cal = Calibrator::new((1920, 1080), (256, 144));
         let mut seed = 7u32;
@@ -623,13 +749,14 @@ mod tests {
         while t < end {
             let phase = t as f64 / 1e6;
             let speed = (phase * 2.3).sin() * (phase * 0.7).cos() * 9.0;
-            let dy = ((phase * 1.1).sin() * 4.0) as i16;
+            let dy = dy_at(phase, speed) as i16;
             history.on_mouse(speed as i16, dy, t);
             t += 2_000;
         }
         let camera = |t: u64, h: &InputHistory| {
             let (x, y) = h.mouse_at(t.saturating_sub(lag_us));
-            (x as f64 * gain, y as f64 * gain)
+            let rolled = roll * (t as f64 / 1e6 * 1.7).sin();
+            (x as f64 * gain, y as f64 * gain - rolled)
         };
         let frame_us = 16_667u64;
         let capture_us = 8_333u64;
@@ -675,6 +802,108 @@ mod tests {
         assert_eq!(model.generation, 1);
         // Nothing new: no new model.
         assert_eq!(cal.update(&history, end + EVERY_US), None);
+    }
+
+    #[test]
+    fn a_sliver_of_vertical_input_takes_the_horizontal_gain() {
+        // Turns that drift down a count for every 12 across, while the picture rolls by 3
+        // thumbnail pixels: the vertical gain fitted alone would mostly fit the roll.
+        let (history, mut cal, end) =
+            mouse_session_with(0.12, 50_000, 0.3, |_, speed| (speed / 12.0).round(), 3.0);
+        let model = cal.update(&history, end).expect("a locked model");
+        assert!(model.mouse_locked, "{model:?}");
+        assert!((model.mouse_gain[0] + 0.9).abs() < 0.05, "{model:?}");
+        assert!(
+            (model.mouse_gain[1] - model.mouse_gain[0]).abs() < 1e-4,
+            "{model:?}"
+        );
+    }
+
+    #[test]
+    fn a_locked_model_stays_until_a_fit_explains_clearly_more() {
+        let (history, mut cal, end) = mouse_session(0.12, 50_000, 0.3);
+        cal.update(&history, end).expect("a locked model");
+        let learned = cal.mouse.expect("a mouse fit");
+        // A model a couple of milliseconds off explains the motion almost as well as the best
+        // fit, so its lag stays rather than wandering with every fit.
+        let near = Fit {
+            lag_us: learned.lag_us + 4_000,
+            ..learned
+        };
+        cal.mouse = Some(near);
+        cal.update(&history, end + EVERY_US);
+        assert!(cal.mouse_locked);
+        let kept = cal.mouse.expect("a mouse fit");
+        assert_eq!(kept.lag_us, near.lag_us);
+        assert!(
+            (kept.gain[0] / learned.gain[0] - 1.0).abs() < 0.02,
+            "{kept:?}"
+        );
+        // A gain 4% off at the right lag explains almost as much too: the lag stays and the
+        // gain settles on the least-squares one there.
+        cal.mouse = Some(Fit {
+            gain: [learned.gain[0] * 0.96, learned.gain[1] * 0.96],
+            ..learned
+        });
+        cal.update(&history, end + 2 * EVERY_US);
+        let settled = cal.mouse.expect("a mouse fit");
+        assert_eq!(settled.lag_us, learned.lag_us);
+        assert!(
+            (settled.gain[0] / learned.gain[0] - 1.0).abs() < 0.005,
+            "{settled:?} vs {learned:?}"
+        );
+        // One with half the gain explains clearly less: the fresh fit replaces it.
+        cal.mouse = Some(Fit {
+            gain: [near.gain[0] * 0.5, near.gain[1] * 0.5],
+            ..near
+        });
+        cal.update(&history, end + 3 * EVERY_US);
+        let refit = cal.mouse.expect("a mouse fit");
+        assert!(cal.mouse_locked);
+        assert!(
+            (refit.gain[0] - learned.gain[0]).abs() < 0.01,
+            "{refit:?} vs {learned:?}"
+        );
+    }
+
+    #[test]
+    fn a_locked_lag_gives_way_to_a_fit_that_explains_a_quarter_of_what_it_leaves() {
+        let locked = Fit {
+            gain: [1.0; 2],
+            lag_us: 50_000,
+            fit: 0.0,
+            deadzone: 0.0,
+            exponent: 1.0,
+        };
+        // The locked model explains `share` of the motion; the least-squares gain at its lag no
+        // more.
+        let at = |share: f64| {
+            move |model: &Fit, gain: Option<[f64; 2]>| {
+                Some(Fit {
+                    fit: share,
+                    gain: gain.unwrap_or(model.gain),
+                    ..*model
+                })
+            }
+        };
+        let fresh = |fit: f64| {
+            Some(Fit {
+                fit,
+                lag_us: 54_000,
+                ..locked
+            })
+        };
+        let replaced = |share: f64, fit: f64| {
+            let (mut model, mut found) = (locked, fresh(fit));
+            keep_unless_better(&mut model, &mut found, at(share));
+            found.is_some()
+        };
+        // At 99% a quarter of the rest is a quarter point.
+        assert!(!replaced(0.990, 0.992));
+        assert!(replaced(0.990, 0.9935));
+        // At 80% the 3 points apply.
+        assert!(!replaced(0.80, 0.82));
+        assert!(replaced(0.80, 0.84));
     }
 
     #[test]
@@ -743,6 +972,26 @@ mod tests {
         assert!((model.mouse_gain[0] + 0.6).abs() < 0.04, "{model:?}");
         assert!(!model.mouse_locked);
         assert_eq!(next.mouse_lag_us(), prior.mouse_lag_us.unwrap());
+    }
+
+    #[test]
+    fn a_letterboxed_capture_keeps_its_gains_in_its_own_pixels() {
+        // A 16:9 capture with bars in a 16:10 stream: the thumbnails cover the capture alone.
+        let mut cal = Calibrator::new((2880, 1800), (256, 160));
+        cal.set_sizes((2880, 1800), (2880, 1620), (256, 144));
+        cal.set_prior(Prior {
+            mouse_gain: Some([2.0, 2.0]),
+            mouse_lag_us: Some(20_000),
+            picture_width: 1920,
+            picture_height: 1080,
+            ..Default::default()
+        });
+        let model = cal.model(1);
+        assert_eq!((model.picture_width, model.picture_height), (2880, 1800));
+        for gain in model.mouse_gain {
+            assert!((gain - 3.0).abs() < 1e-4, "{model:?}");
+        }
+        assert!((model.max_offset[1] - 1800.0 * MAX_OFFSET).abs() < 1e-3);
     }
 
     #[test]

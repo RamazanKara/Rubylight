@@ -1,8 +1,9 @@
 //! Frame Warp's passes over captures (docs/frame-warp.md) on the capture
 //! GPU's compute queue, for every capture format and either encoder: a luma
 //! thumbnail of each new capture for the host's motion measurement and,
-//! while the camera turns, which pixels stay exactly as they were, scored per
-//! HUD mask cell (`frame_warp_*_cs` in `shaders/color.hlsl`). A capture's
+//! while the camera turns, which pixels stay the same within a small
+//! tolerance, scored per HUD mask cell (`frame_warp_*_cs` in
+//! `shaders/color.hlsl`). A capture's
 //! list goes in after its frame went to the encoder, and nothing waits for
 //! one on the CPU: [`FrameWarpGpu::poll`] hands back the passes that have
 //! finished, usually a frame later.
@@ -16,8 +17,8 @@ const THUMBNAIL_BYTES: u64 = THUMBNAIL_EDGE as u64 * THUMBNAIL_EDGE as u64;
 /// HUD cells across or down at most
 /// (`rubylight_protocol::frame_warp::MAX_MASK_EDGE`).
 pub const MAX_GRID_EDGE: u32 = 2048;
-/// The score from which a cell is HUD: it stayed through about 24 frames of
-/// turning, and every change halves it.
+/// The score from which a cell is HUD: it stayed through about 24
+/// comparisons while the camera turned, and every change halves it.
 pub const HUD_SCORE: u32 = 24;
 /// `cbuffer FrameWarp` (b4).
 const CONSTANTS: u32 = 16;
@@ -38,6 +39,12 @@ pub struct Hud {
     /// Copy the mask bits back for [`FrameWarpGpu::poll`]; ignored while one
     /// copy is still being read.
     pub read: bool,
+    /// How far apart, in the `at` of [`FrameWarpGpu::submit`], the captures
+    /// the pass compares are at least: the captures in between run none, so
+    /// that a slow turn at a high frame rate still moves the scene far enough
+    /// between the two for its pixels to change. 0 compares each capture with
+    /// the one before.
+    pub every_us: u64,
 }
 impl Pass {
     fn check(&self) -> Result<()> {
@@ -75,7 +82,8 @@ pub fn hud_grid(width: u16, source: (u32, u32)) -> Option<(u32, u32)> {
 }
 
 /// Where the HUD pass keeps its words in its buffer: a code per pixel, then
-/// per cell the changed pixels and the score, then the mask bits.
+/// per cell its changed, textured and textured-and-changed pixels, then per
+/// cell the score, then the mask bits.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Layout {
     codes: u32,
@@ -90,7 +98,7 @@ fn layout(source: (u32, u32), grid: (u32, u32)) -> Result<Layout> {
     let pixels = u64::from(source.0) * u64::from(source.1);
     let cells = u64::from(grid.0) * u64::from(grid.1);
     let stride = grid.0.div_ceil(32);
-    let bits = pixels + 2 * cells;
+    let bits = pixels + 4 * cells;
     let words = bits + u64::from(stride) * u64::from(grid.1);
     anyhow::ensure!(
         words <= u64::from(u32::MAX),
@@ -101,7 +109,7 @@ fn layout(source: (u32, u32), grid: (u32, u32)) -> Result<Layout> {
     Ok(Layout {
         codes: 0,
         counts: pixels as u32,
-        scores: (pixels + cells) as u32,
+        scores: (pixels + 3 * cells) as u32,
         bits: bits as u32,
         stride,
         words,
@@ -182,6 +190,9 @@ struct Slot {
     /// The thumbnail in `readback` once the list has run, not yet polled.
     thumbnail: Option<(u64, (u32, u32))>,
     /// The capture and its D3D12 view of it, kept until the list has run.
+    /// Only a pool copy's reuse waits for this queue on the GPU (`read_by`);
+    /// a keyed or fence-ring lease hands its texture back behind its own
+    /// compute queue, which `can_read` does not prove is this one.
     capture: Option<(GpuImage, ID3D12Resource)>,
 }
 struct HudBuffer {
@@ -190,11 +201,17 @@ struct HudBuffer {
     grid: (u32, u32),
     layout: Layout,
 }
+/// A mask copy in flight to [`FrameWarpGpu::mask_readback`].
 struct MaskRead {
     fence: u64,
-    readback: ID3D12Resource,
     grid: (u32, u32),
     stride: u32,
+}
+/// A persistently mapped READBACK buffer for the mask bits of one grid size.
+struct MaskReadback {
+    buffer: ID3D12Resource,
+    mapped: *const u32,
+    words: usize,
 }
 
 /// The passes' GPU objects on one compute queue.
@@ -216,9 +233,15 @@ pub struct FrameWarpGpu {
     /// The HUD's words for the current capture size and grid, in COMMON
     /// between lists.
     hud_buffer: Option<HudBuffer>,
-    /// The last list ran a HUD pass, so the codes are the previous capture's.
+    /// The codes are a capture's that the next HUD pass compares with: the
+    /// last list ran a HUD pass, or held its codes ([`Hud::every_us`]).
     primed: bool,
+    /// The `at` of the capture whose codes those are.
+    taken_at: u64,
     mask_read: Option<MaskRead>,
+    /// Kept between mask reads, replaced only for a new grid size while no
+    /// copy into it is in flight.
+    mask_readback: Option<MaskReadback>,
     /// Buffers replaced while a list may still use them, with that fence value.
     retired: Vec<(u64, ID3D12Resource)>,
     /// The fence value of the last list submitted.
@@ -364,7 +387,9 @@ impl FrameWarpGpu {
                 slots,
                 hud_buffer: None,
                 primed: false,
+                taken_at: 0,
                 mask_read: None,
+                mask_readback: None,
                 retired: Vec::new(),
                 last: 0,
             })
@@ -426,22 +451,32 @@ impl FrameWarpGpu {
             source.0 > 0 && source.1 > 0,
             "Frame Warp over an empty capture"
         );
+        // Too soon after the capture the codes are from: no HUD pass, and the
+        // next one still compares with that capture.
+        let held = self.primed
+            && pass
+                .hud
+                .is_some_and(|hud| at < self.taken_at.saturating_add(hud.every_us));
+        let pass = &Pass {
+            hud: pass.hud.filter(|_| !held),
+            ..*pass
+        };
         let mode = match pass.hud {
             Some(hud) => Some(self.prepare_hud(source, hud.grid)?),
             None => None,
         };
         let read = pass.hud.is_some_and(|hud| hud.read) && self.mask_read.is_none();
-        let mask_readback = match (read, self.hud_buffer.as_ref()) {
-            (true, Some(hud)) => Some(focus_buffer(
-                &compute.device,
-                D3D12_HEAP_TYPE_READBACK,
-                u64::from(hud.layout.stride) * u64::from(hud.grid.1) * 4,
-                D3D12_RESOURCE_STATE_COPY_DEST,
-            )?),
-            _ => None,
-        };
+        if read {
+            self.prepare_mask_readback()?;
+        }
         let opened = compute.open(&image.texture)?;
         let hud = mode.zip(self.hud_buffer.as_ref());
+        let mask_readback = self
+            .mask_readback
+            .as_ref()
+            .filter(|_| read && hud.is_some())
+            .map(|readback| &readback.buffer);
+        let reading = mask_readback.is_some();
         let values = constants(
             source,
             image.pixel,
@@ -477,70 +512,95 @@ impl FrameWarpGpu {
                     ptr: gpu.ptr + (index * self.increment as usize) as u64,
                 },
             );
-            let barrier = |resource: &ID3D12Resource, before, after| {
-                let mut barriers = [transition(resource, before, after)];
-                list.ResourceBarrier(&barriers);
-                drop_barriers(&mut barriers);
+            // One call per batch; then the references the transitions hold go.
+            let barriers = |batch: &mut [D3D12_RESOURCE_BARRIER]| {
+                list.ResourceBarrier(batch);
+                for barrier in batch.iter_mut() {
+                    if barrier.Type == D3D12_RESOURCE_BARRIER_TYPE_TRANSITION {
+                        drop_barriers(std::slice::from_mut(barrier));
+                    }
+                }
             };
-            barrier(
-                &self.thumbnail,
-                D3D12_RESOURCE_STATE_COMMON,
-                D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-            );
+            let thumbnail = |before, after| transition(&self.thumbnail, before, after);
+            // The thumbnail and HUD passes write different buffers: no barrier between them.
+            match hud {
+                Some((_, hud)) => barriers(&mut [
+                    thumbnail(
+                        D3D12_RESOURCE_STATE_COMMON,
+                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                    ),
+                    transition(
+                        &hud.buffer,
+                        D3D12_RESOURCE_STATE_COMMON,
+                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                    ),
+                ]),
+                None => barriers(&mut [thumbnail(
+                    D3D12_RESOURCE_STATE_COMMON,
+                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                )]),
+            }
             list.SetComputeRootUnorderedAccessView(2, self.thumbnail.GetGPUVirtualAddress());
             list.SetPipelineState(&self.thumb);
             list.Dispatch((thumb_width / 4).div_ceil(8), thumb_height.div_ceil(8), 1);
-            barrier(
-                &self.thumbnail,
+            let thumbnail_copy = thumbnail(
                 D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                 D3D12_RESOURCE_STATE_COPY_SOURCE,
             );
-            list.CopyBufferRegion(&slot.readback, 0, &self.thumbnail, 0, thumb_bytes);
-            barrier(
-                &self.thumbnail,
-                D3D12_RESOURCE_STATE_COPY_SOURCE,
-                D3D12_RESOURCE_STATE_COMMON,
-            );
             if let Some((_, hud)) = hud {
-                barrier(
-                    &hud.buffer,
-                    D3D12_RESOURCE_STATE_COMMON,
-                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                );
                 list.SetComputeRootUnorderedAccessView(2, hud.buffer.GetGPUVirtualAddress());
                 list.SetPipelineState(&self.hud);
                 list.Dispatch(source.0.div_ceil(16), source.1.div_ceil(16), 1);
-                list.ResourceBarrier(&[uav_barrier()]);
-                list.SetPipelineState(&self.score);
-                list.Dispatch(hud.grid.0.div_ceil(8), hud.grid.1.div_ceil(8), 1);
-                if let Some(readback) = &mask_readback {
-                    list.ResourceBarrier(&[uav_barrier()]);
-                    list.SetPipelineState(&self.bits);
-                    list.Dispatch(hud.layout.stride.div_ceil(8), hud.grid.1.div_ceil(8), 1);
-                    barrier(
-                        &hud.buffer,
-                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                        D3D12_RESOURCE_STATE_COPY_SOURCE,
-                    );
-                    list.CopyBufferRegion(
-                        readback,
-                        0,
-                        &hud.buffer,
-                        u64::from(hud.layout.bits) * 4,
-                        u64::from(hud.layout.stride) * u64::from(hud.grid.1) * 4,
-                    );
-                    barrier(
-                        &hud.buffer,
-                        D3D12_RESOURCE_STATE_COPY_SOURCE,
-                        D3D12_RESOURCE_STATE_COMMON,
-                    );
-                } else {
-                    barrier(
-                        &hud.buffer,
-                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                        D3D12_RESOURCE_STATE_COMMON,
-                    );
+                // The score pass reads the HUD pass's counts.
+                barriers(&mut [thumbnail_copy, uav_barrier()]);
+            } else {
+                barriers(&mut [thumbnail_copy]);
+            }
+            list.CopyBufferRegion(&slot.readback, 0, &self.thumbnail, 0, thumb_bytes);
+            let thumbnail_done = thumbnail(
+                D3D12_RESOURCE_STATE_COPY_SOURCE,
+                D3D12_RESOURCE_STATE_COMMON,
+            );
+            match hud {
+                Some((_, hud)) => {
+                    list.SetPipelineState(&self.score);
+                    list.Dispatch(hud.grid.0.div_ceil(8), hud.grid.1.div_ceil(8), 1);
+                    if let Some(readback) = mask_readback {
+                        barriers(&mut [uav_barrier()]);
+                        list.SetPipelineState(&self.bits);
+                        list.Dispatch(hud.layout.stride.div_ceil(8), hud.grid.1.div_ceil(8), 1);
+                        barriers(&mut [transition(
+                            &hud.buffer,
+                            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                            D3D12_RESOURCE_STATE_COPY_SOURCE,
+                        )]);
+                        list.CopyBufferRegion(
+                            readback,
+                            0,
+                            &hud.buffer,
+                            u64::from(hud.layout.bits) * 4,
+                            u64::from(hud.layout.stride) * u64::from(hud.grid.1) * 4,
+                        );
+                        barriers(&mut [
+                            thumbnail_done,
+                            transition(
+                                &hud.buffer,
+                                D3D12_RESOURCE_STATE_COPY_SOURCE,
+                                D3D12_RESOURCE_STATE_COMMON,
+                            ),
+                        ]);
+                    } else {
+                        barriers(&mut [
+                            thumbnail_done,
+                            transition(
+                                &hud.buffer,
+                                D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                                D3D12_RESOURCE_STATE_COMMON,
+                            ),
+                        ]);
+                    }
                 }
+                None => barriers(&mut [thumbnail_done]),
             }
             list.Close()?;
         }
@@ -562,12 +622,14 @@ impl FrameWarpGpu {
         slot.fence = fence;
         slot.thumbnail = Some((at, pass.thumbnail));
         slot.capture = Some((image.clone(), opened));
-        self.primed = pass.hud.is_some();
-        let started = match (mask_readback, grid) {
-            (Some(readback), Some((grid, stride))) => {
+        self.primed = pass.hud.is_some() || held;
+        if pass.hud.is_some() {
+            self.taken_at = at;
+        }
+        let started = match (reading, grid) {
+            (true, Some((grid, stride))) => {
                 self.mask_read = Some(MaskRead {
                     fence,
-                    readback,
                     grid,
                     stride,
                 });
@@ -609,6 +671,44 @@ impl FrameWarpGpu {
             self.retired.push((self.last, old.buffer));
         }
         Ok(RESET)
+    }
+
+    /// The mapped READBACK buffer for the current HUD grid's mask bits, made
+    /// once per grid size. Called only while no mask copy is in flight, so
+    /// the buffer it replaces has had its last copy read.
+    fn prepare_mask_readback(&mut self) -> Result<()> {
+        let Some(hud) = &self.hud_buffer else {
+            return Ok(());
+        };
+        let words = hud.layout.stride as usize * hud.grid.1 as usize;
+        if self
+            .mask_readback
+            .as_ref()
+            .is_some_and(|readback| readback.words == words)
+        {
+            return Ok(());
+        }
+        let buffer = focus_buffer(
+            &self.compute.device,
+            D3D12_HEAP_TYPE_READBACK,
+            words as u64 * 4,
+            D3D12_RESOURCE_STATE_COPY_DEST,
+        )?;
+        let mut mapped = std::ptr::null_mut();
+        // SAFETY: A READBACK buffer may stay mapped for its life; Drop, or its replacement
+        // here, unmaps it.
+        unsafe { buffer.Map(0, None, Some(&mut mapped))? };
+        let readback = MaskReadback {
+            buffer,
+            mapped: mapped.cast_const().cast::<u32>(),
+            words,
+        };
+        if let Some(old) = self.mask_readback.replace(readback) {
+            // SAFETY: Nothing reads the old mapping again; Unmap ends CPU access only.
+            unsafe { old.buffer.Unmap(0, None) };
+            self.retired.push((self.last, old.buffer));
+        }
+        Ok(())
     }
 
     fn release_retired(&mut self) {
@@ -653,15 +753,14 @@ impl FrameWarpGpu {
             .take_if(|read| self.compute.completed(read.fence))
         {
             let count = read.stride as usize * read.grid.1 as usize;
-            // SAFETY: The copy into `readback` has completed, nothing writes it again, and the
-            // slice stays inside the mapped buffer until Unmap.
-            let words = unsafe {
-                let mut mapped = std::ptr::null_mut();
-                read.readback.Map(0, None, Some(&mut mapped))?;
-                let words = std::slice::from_raw_parts(mapped.cast::<u32>(), count).to_vec();
-                read.readback.Unmap(0, None);
-                words
-            };
+            let readback = self
+                .mask_readback
+                .as_ref()
+                .filter(|readback| count <= readback.words)
+                .context("no Frame Warp mask readback for the copy")?;
+            // SAFETY: The copy into the buffer has completed, the next one needs `&mut self`
+            // (`submit`), and the slice stays inside the mapped words.
+            let words = unsafe { std::slice::from_raw_parts(readback.mapped, count) }.to_vec();
             mask = Some(MaskReadout {
                 width: read.grid.0,
                 height: read.grid.1,
@@ -686,8 +785,8 @@ impl Drop for FrameWarpGpu {
         if let Some(hud) = &self.hud_buffer {
             work.keep(&hud.buffer);
         }
-        if let Some(read) = &self.mask_read {
-            work.keep(&read.readback);
+        if let Some(readback) = &self.mask_readback {
+            work.keep(&readback.buffer);
         }
         for (_, buffer) in &self.retired {
             work.keep(buffer);
@@ -706,6 +805,10 @@ impl Drop for FrameWarpGpu {
             // SAFETY: Each buffer was mapped once in `new`; nothing reads it after this. Unmap
             // ends CPU access only; retained GPU work still owns the resource.
             unsafe { slot.readback.Unmap(0, None) };
+        }
+        if let Some(readback) = &self.mask_readback {
+            // SAFETY: Mapped once in `prepare_mask_readback`; as above.
+            unsafe { readback.buffer.Unmap(0, None) };
         }
     }
 }

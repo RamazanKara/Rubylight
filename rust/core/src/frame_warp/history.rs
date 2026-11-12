@@ -33,7 +33,7 @@ struct PadEntry {
     stick: (i16, i16),
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct InputHistory {
     controller: Option<u8>,
     mouse: VecDeque<MouseEntry>,
@@ -181,6 +181,31 @@ impl InputHistory {
         sum
     }
 
+    /// [`Self::stick_integral`] for many spans under one curve: the curve's running integral
+    /// over the whole history, built once, so each span costs two binary searches.
+    pub fn stick_integrals(&self, deadzone: f32, exponent: f32) -> StickIntegrals<'_> {
+        let curve: Vec<[f32; 2]> = self
+            .pads
+            .iter()
+            .map(|pad| stick_curve(pad.stick.0, pad.stick.1, deadzone, exponent))
+            .collect();
+        let mut running = Vec::with_capacity(curve.len());
+        let mut sum = [0.0f64; 2];
+        for (i, value) in curve.iter().enumerate() {
+            running.push(sum);
+            if let Some(next) = self.pads.get(i + 1) {
+                let seconds = (next.at_us - self.pads[i].at_us) as f64 / 1e6;
+                sum[0] += f64::from(value[0]) * seconds;
+                sum[1] += f64::from(value[1]) * seconds;
+            }
+        }
+        StickIntegrals {
+            pads: &self.pads,
+            curve,
+            running,
+        }
+    }
+
     /// Whether the tracked pad's right stick was off centre at any time in `t0..t1`.
     pub fn stick_active(&self, t0: u64, t1: u64) -> bool {
         let start = self
@@ -202,6 +227,40 @@ impl InputHistory {
         let mouse = self.mouse.back().map(|e| e.at_us);
         let pad = self.pads.back().map(|e| e.at_us);
         mouse.max(pad)
+    }
+}
+
+/// One stick curve's running integral over the pad history ([`InputHistory::stick_integrals`]).
+#[derive(Debug)]
+pub struct StickIntegrals<'a> {
+    pads: &'a VecDeque<PadEntry>,
+    /// Each packet's curved stick, held until the next packet (the last one indefinitely).
+    curve: Vec<[f32; 2]>,
+    /// The integral from the first packet to each packet, in seconds of full deflection.
+    running: Vec<[f64; 2]>,
+}
+
+impl StickIntegrals<'_> {
+    /// [`InputHistory::stick_integral`] over `t0..t1` with this curve.
+    pub fn between(&self, t0: u64, t1: u64) -> [f64; 2] {
+        if t1 <= t0 {
+            return [0.0; 2];
+        }
+        let (a, b) = (self.until(t0), self.until(t1));
+        [b[0] - a[0], b[1] - a[1]]
+    }
+
+    /// The integral from the first packet to `t`; 0 before it.
+    fn until(&self, t: u64) -> [f64; 2] {
+        let after = self.pads.partition_point(|e| e.at_us <= t);
+        let Some(i) = after.checked_sub(1) else {
+            return [0.0; 2];
+        };
+        let seconds = (t - self.pads[i].at_us) as f64 / 1e6;
+        [
+            self.running[i][0] + f64::from(self.curve[i][0]) * seconds,
+            self.running[i][1] + f64::from(self.curve[i][1]) * seconds,
+        ]
     }
 }
 
@@ -257,6 +316,56 @@ mod tests {
         assert!((spanning[1] + 0.5).abs() < 1e-4, "{spanning:?}");
         assert!(h.stick_active(1_200_000, 1_300_000));
         assert!(!h.stick_active(100_000, 900_000));
+    }
+
+    #[test]
+    fn running_stick_integrals_match_the_direct_sum() {
+        let mut seed = 0x9e37_79b9u32;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed
+        };
+        let mut h = InputHistory::new(Some(0));
+        let mut t = 50_000u64;
+        for _ in 0..3_000 {
+            // 0 to 4 ms apart (repeated times included), the stick anywhere, centred often.
+            t += u64::from(next() % 4_001) / u64::from(1 + next() % 2);
+            let stick = if next() % 4 == 0 {
+                (0, 0)
+            } else {
+                (next() as i16, next() as i16)
+            };
+            h.on_controller(0, stick, t);
+        }
+        let end = t;
+        for (deadzone, exponent) in [(0.0, 1.0), (0.15, 1.0), (0.2, 1.5), (0.25, 2.0)] {
+            let running = h.stick_integrals(deadzone, exponent);
+            for _ in 0..2_000 {
+                // Spans before the first packet, past the last, empty and reversed included.
+                let t0 = u64::from(next()) % (end + 100_000);
+                let t1 = match next() % 8 {
+                    0 => t0,
+                    1 => t0.saturating_sub(u64::from(next() % 10_000)),
+                    _ => t0 + u64::from(next() % 230_000),
+                };
+                let direct = h.stick_integral(t0, t1, deadzone, exponent);
+                let fast = running.between(t0, t1);
+                for axis in 0..2 {
+                    assert!(
+                        (direct[axis] - fast[axis]).abs() < 1e-9,
+                        "{t0}..{t1} with {deadzone}/{exponent}: {direct:?} vs {fast:?}"
+                    );
+                }
+            }
+        }
+        // No pad packets: nothing either way.
+        let empty = InputHistory::new(Some(0));
+        assert_eq!(
+            empty.stick_integrals(0.1, 1.0).between(0, 1_000_000),
+            [0.0; 2]
+        );
     }
 
     #[test]

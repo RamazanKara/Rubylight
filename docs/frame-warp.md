@@ -28,15 +28,38 @@ lets clients use it; the host does nothing for Frame Warp until a client asks.
    it. The calibrator
    (`calibrate.rs`) fits the moves to the input over the last four seconds: for every lag from
    0 to 200 ms, a least-squares gain per axis, and the lag that explains the most motion wins.
-   It locks at 80% explained and unlocks when the last 1.2 s of input with the locked model
-   explain less than 50% (a menu, a cutscene, a cursor).
+   An axis with less than a quarter of the other's input takes the other's gain: fitted to the
+   slight drift of a sideways turn, it would mostly fit whatever else moves the picture that way,
+   a ship's roll. It locks at 80% explained and unlocks when the last 1.2 s of input with the
+   locked model explain less than 50% (a menu, a cutscene, a cursor). While locked, a new fit
+   replaces the model only when it explains at least 3 points more of the motion, or a quarter
+   of what the model leaves unexplained when that is less, so the lag doesn't wander from fit
+   to fit; otherwise the model keeps its lag and takes the least-squares gain there, which
+   settles as turns add up after an early lock.
 4. Each frame, as its number is assigned, is tagged with the mouse sums and the pad packet
    count as of its capture time less the game's lag, and how long that packet had been held
    (0x5545, with the three previous frames' tags, unreliable).
-5. The model (0x5544, reliable) goes out when it locks, unlocks or changes by more than 4%.
-6. While the camera turns, the GPU marks every pixel that stays exactly the same; a pixel that
-   stays through most turns is HUD. The mask is sent at the client's width or less, at most
-   once a second when it changes (0x5546, reliable, run-length coded).
+5. The model (0x5544, reliable) goes out when it locks, unlocks, a gain changes by more than 2%
+   or the lag by more than 3 ms.
+6. While the camera turns, the GPU compares every pixel with the same pixel in an earlier
+   capture, within 2/255 per channel, since games add faint noise or dither to their HUD. The
+   earlier capture is one the scene has moved at least a thumbnail pixel since: the previous one
+   in a fast turn, a few back in a slow turn at a high frame rate, which would otherwise move
+   too little between captures for a textured scene to change. A pixel whose value changed
+   still counts as staying when it differs from its right and lower neighbours as it did: the
+   edge of a translucent HUD, grey text over the sea, keeps its place and its contrast while
+   its value follows the scene behind it. A mask cell gains a point when its textured pixels
+   (those that differ from a neighbour by more than the tolerance) mostly stayed, and loses
+   half when they or a quarter of all its pixels changed. A smooth cell, a sky or fog, looks
+   the same moved or not and keeps its score; with the tolerance it would otherwise become HUD
+   and hide whatever crosses it. A cell that held through about 24 comparisons is HUD. The host
+   joins HUD pieces up to 3% of the picture's height apart into one region, so text found
+   letter by letter stays in place as a whole, and grows the mask by a cell for anti-aliased
+   edges. The mask is sent at the client's width or less, at most once a second when it
+   changes (0x5546, reliable, run-length coded). The client lays it over the whole picture: a
+   capture of another shape than the stream, letterboxed into it, has its grid placed where it
+   shows, and the bars count as HUD, so they hold still and nothing is shifted in from them.
+   Thumbnails and gains likewise cover only the capture's part of the picture.
 7. The client keeps its own sums of what it sent. For each picture it draws, as late as it
    can, the shift is
 
@@ -47,7 +70,10 @@ lets clients use it; the host does nothing for Frame Warp until a client asks.
 
    where `tau` is the send time of the tagged pad packet plus how long the host had held it,
    clamped to 15% of the picture. The client samples the picture at `position - shift`, and at
-   `position` where the HUD mask is set; edges clamp.
+   `position` where the HUD mask is set or where `position - shift` lands on it, so the HUD
+   stays in place without a second copy beside it. The strip the shift uncovers mirrors the
+   picture back from its edge, darkened by up to 35% over the first 8% of the picture, so it
+   reads as an edge rather than a smear of the outermost pixels.
 
 The same shift is drawn again on refreshes between pictures, so a 60 fps stream turns smoothly
 on a 120 Hz screen.
@@ -60,7 +86,9 @@ on a 120 Hz screen.
 - A model fits the game's sensitivity as it is; in-game sensitivity changes refit within about
   four seconds. Mouse acceleration in the game makes the fit worse and may keep it unlocked.
 - A HUD element that moves or fades, or a scene that changes nowhere, can leave HUD shifted or
-  scene unshifted for a moment.
+  scene unshifted for a moment. A HUD so faint that the scene behind it shows through more than
+  it does is found only in part, and the scene between HUD pieces joined into one region
+  stays in place with them.
 - The client's and host's sums start at the request that starts Frame Warp, and a client that
   has sent no input for 600 ms sets them equal again, so a lost count lasts until the next
   pause.

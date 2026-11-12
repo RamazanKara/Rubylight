@@ -164,7 +164,10 @@ impl SdrReason {
 /// picture is one pass into a 10-bit image (`stream::present::VideoOnly`). Under gamescope too,
 /// unless [`scrgb_first`] masks `hdr_stream`: headless gamescope on an Iris Plus 655 drew a 4K
 /// picture in 1.94 ms as PQ and 2.16 ms as scRGB (rust/PERFORMANCE.md, November 12; what
-/// gamescope then does with either was not measured). Otherwise
+/// gamescope then does with either was not measured). Its DRM backend decides that in
+/// `CDRMBackend::Present`: with HDR output on and no AMD plane colour properties in the kernel
+/// (`AMD_PLANE_CTM`, `AMD_PLANE_BLEND_TF`), only a single HDR10 PQ layer is scanned out and every
+/// scRGB frame is composited; with them, either can be scanned out. Otherwise
 /// scRGB, as before: the launcher and SDR streams keep drawing straight into the swapchain, which
 /// PQ's present pass rules out. A desktop offering HDR10 alone stays SDR without an HDR stream;
 /// gamescope offering HDR10 alone presents PQ whatever is drawn.

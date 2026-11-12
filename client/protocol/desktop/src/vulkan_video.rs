@@ -236,11 +236,16 @@ pub const EXTENSIONS_PROPERTY: &CStr = c"nightjar.vulkan_video.extensions";
 pub const DECODE_QUEUES_PROPERTY: &CStr = c"SDL.gpu.device.create.vulkan.video_decode_queues";
 const DECODE_FAMILIES: &CStr = c"SDL.gpu.device.vulkan.video_decode_queue_families";
 
+/// The last libavutil 60 minor of an FFmpeg release (8.1): the development versions after it
+/// changed the Vulkan structs step by step towards 61's.
+const LAST_RELEASED_60: u32 = 26;
+
 /// Whether the libavutil of `version` (`avutil_version()`) has the `AVVulkanDeviceContext` and
-/// frame structs as declared below: their queue families arrived in 59.34 (FFmpeg 7.1), and 61
-/// drops the fixed queue fields before them. The layout is checked against 59.39 (FFmpeg 7.1) and
-/// 60.26 (FFmpeg 8.1.2) (`the_structs_have_libavutils_layout`); FFmpeg moves no field within a
-/// major version.
+/// frame structs as declared below (`StructLayout`): their queue families arrived in 59.34
+/// (FFmpeg 7.1); 61 (FFmpeg 9) drops the fixed queue fields before them, widens `AVVkFrame`'s
+/// access flags and moves its internal part last; 62 drops the queue locks. The layouts are checked
+/// against 59.39 (FFmpeg 7.1), 60.26 (FFmpeg 8.1.2) and 61.1 (FFmpeg 9.0.2)
+/// (`the_structs_have_libavutils_layout`); FFmpeg moves no field within a released major version.
 pub fn ffmpeg_supported(version: u32) -> Result<(), String> {
     let (major, minor, micro) = (version >> 16, (version >> 8) & 0xff, version & 0xff);
     if version < (59 << 16 | 34 << 8 | 100) {
@@ -248,15 +253,145 @@ pub fn ffmpeg_supported(version: u32) -> Result<(), String> {
             "FFmpeg's libavutil {major}.{minor}.{micro} predates the Vulkan queue families this needs (59.34, FFmpeg 7.1)"
         ));
     }
-    if major >= 61 {
+    if major == 60 && minor > LAST_RELEASED_60 {
         return Err(format!(
-            "FFmpeg's libavutil {major}.{minor}.{micro} has Vulkan structs this build does not know (it knows 59 and 60)"
+            "FFmpeg's libavutil {major}.{minor}.{micro} is a development version between FFmpeg 8.1 and 9, whose Vulkan structs this build does not know (it knows 59.34 to 60.{LAST_RELEASED_60} and 61)"
+        ));
+    }
+    if major >= 62 {
+        return Err(format!(
+            "FFmpeg's libavutil {major}.{minor}.{micro} has Vulkan structs this build does not know (it knows 59, 60 and 61)"
         ));
     }
     Ok(())
 }
 
-/// `AVVulkanDeviceQueueFamily` (libavutil/hwcontext_vulkan.h, 59.34 to 60).
+/// Which libavutil's `AVVulkanDeviceContext` and `AVVkFrame` the linked FFmpeg has.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum StructLayout {
+    /// libavutil 59.34 to 60.26 (FFmpeg 7.1 to 8.1).
+    V60,
+    /// libavutil 61 (FFmpeg 9).
+    V61,
+}
+
+impl StructLayout {
+    /// Of a libavutil `ffmpeg_supported` takes.
+    fn of(version: u32) -> Self {
+        if version >> 16 >= 61 {
+            Self::V61
+        } else {
+            Self::V60
+        }
+    }
+
+    /// The linked libavutil's.
+    fn linked() -> Self {
+        // SAFETY: Returns a constant.
+        Self::of(unsafe { avutil_version() })
+    }
+
+    /// `sizeof(AVVkFrame)`.
+    fn frame_size(self) -> usize {
+        match self {
+            Self::V60 => std::mem::size_of::<VkFrame60>(),
+            Self::V61 => std::mem::size_of::<VkFrame61>(),
+        }
+    }
+
+    /// The fields of `frame` this client writes.
+    ///
+    /// # Safety
+    /// `frame` is a live AVVkFrame of this layout that nothing else reads or writes meanwhile
+    /// (its frame lock is held, or it is no picture's yet), for as long as the view is used.
+    unsafe fn fields<'a>(self, frame: *mut VkFrame) -> Frame<'a> {
+        match self {
+            Self::V60 => {
+                let frame = &mut *frame.cast::<VkFrame60>();
+                Frame {
+                    img: &mut frame.img,
+                    tiling: &mut frame.tiling,
+                    mem: &mut frame.mem,
+                    size: &mut frame.size,
+                    flags: &mut frame.flags,
+                    access: Access::Bits(&mut frame.access),
+                    layout: &mut frame.layout,
+                    sem: &mut frame.sem,
+                    sem_value: &mut frame.sem_value,
+                    queue_family: &mut frame.queue_family,
+                }
+            }
+            Self::V61 => {
+                let frame = &mut *frame.cast::<VkFrame61>();
+                Frame {
+                    img: &mut frame.img,
+                    tiling: &mut frame.tiling,
+                    mem: &mut frame.mem,
+                    size: &mut frame.size,
+                    flags: &mut frame.flags,
+                    access: Access::Bits2(&mut frame.access),
+                    layout: &mut frame.layout,
+                    sem: &mut frame.sem,
+                    sem_value: &mut frame.sem_value,
+                    queue_family: &mut frame.queue_family,
+                }
+            }
+        }
+    }
+
+    /// What `frame` holds now, read without a reference to it.
+    ///
+    /// # Safety
+    /// `frame` is a live AVVkFrame of this layout.
+    unsafe fn read(self, frame: *const VkFrame) -> FrameNow {
+        match self {
+            Self::V60 => {
+                let frame = frame.cast::<VkFrame60>();
+                FrameNow {
+                    img: (*frame).img,
+                    mem: (*frame).mem,
+                    access: (*frame).access.map(|flags| vk::AccessFlags2::from_raw(u64::from(flags.as_raw()))),
+                    layout: (*frame).layout,
+                    sem: (*frame).sem,
+                    sem_value: (*frame).sem_value,
+                    queue_family: (*frame).queue_family,
+                    internal: (*frame).internal,
+                }
+            }
+            Self::V61 => {
+                let frame = frame.cast::<VkFrame61>();
+                FrameNow {
+                    img: (*frame).img,
+                    mem: (*frame).mem,
+                    access: (*frame).access,
+                    layout: (*frame).layout,
+                    sem: (*frame).sem,
+                    sem_value: (*frame).sem_value,
+                    queue_family: (*frame).queue_family,
+                    internal: (*frame).internal,
+                }
+            }
+        }
+    }
+}
+
+/// The linked libavutil's fields of `frame` (`StructLayout::fields`).
+///
+/// # Safety
+/// As `StructLayout::fields`.
+unsafe fn frame_fields<'a>(frame: *mut VkFrame) -> Frame<'a> {
+    StructLayout::linked().fields(frame)
+}
+
+/// What `frame` holds now (`StructLayout::read`).
+///
+/// # Safety
+/// `frame` is a live AVVkFrame of the linked libavutil.
+unsafe fn frame_now(frame: *const VkFrame) -> FrameNow {
+    StructLayout::linked().read(frame)
+}
+
+/// `AVVulkanDeviceQueueFamily` (libavutil/hwcontext_vulkan.h, 59.34 to 61).
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct QueueFamily {
@@ -266,9 +401,9 @@ struct QueueFamily {
     video_caps: vk::VideoCodecOperationFlagsKHR,
 }
 
-/// `AVVulkanDeviceContext` of libavutil 59.34 to 60 (`ffmpeg_supported`).
+/// `AVVulkanDeviceContext` of libavutil 59.34 to 60.26 (`StructLayout::V60`).
 #[repr(C)]
-struct DeviceContext {
+struct DeviceContext60 {
     alloc: *const c_void,
     get_proc_addr: Option<vk::PFN_vkGetInstanceProcAddr>,
     inst: vk::Instance,
@@ -287,7 +422,30 @@ struct DeviceContext {
     nb_qf: c_int,
 }
 
-/// `AVVulkanFramesContext` of libavutil 59.34 to 60.
+/// `AVVulkanDeviceContext` of libavutil 61 (`StructLayout::V61`): without the fixed queue fields,
+/// and with the flags FFmpeg makes its own device's queues with.
+#[repr(C)]
+struct DeviceContext61 {
+    alloc: *const c_void,
+    get_proc_addr: Option<vk::PFN_vkGetInstanceProcAddr>,
+    inst: vk::Instance,
+    phys_dev: vk::PhysicalDevice,
+    act_dev: vk::Device,
+    device_features: vk::PhysicalDeviceFeatures2<'static>,
+    enabled_inst_extensions: *const *const c_char,
+    nb_enabled_inst_extensions: c_int,
+    enabled_dev_extensions: *const *const c_char,
+    nb_enabled_dev_extensions: c_int,
+    /// Deprecated in 61 and still called for every submit (`FF_API_VULKAN_SYNC_QUEUES`, until 62).
+    lock_queue: Option<unsafe extern "C" fn(*mut AVHWDeviceContext, u32, u32)>,
+    unlock_queue: Option<unsafe extern "C" fn(*mut AVHWDeviceContext, u32, u32)>,
+    qf: [QueueFamily; 64],
+    nb_qf: c_int,
+    /// Left 0: the renderer's queues are not internally synchronized, FFmpeg takes `lock_queue`.
+    queue_flags: vk::DeviceQueueCreateFlags,
+}
+
+/// `AVVulkanFramesContext` of libavutil 59.34 to 61.
 #[repr(C)]
 struct FramesContext {
     tiling: vk::ImageTiling,
@@ -302,9 +460,16 @@ struct FramesContext {
     unlock_frame: Option<unsafe extern "C" fn(*mut AVHWFramesContext, *mut VkFrame)>,
 }
 
-/// `AVVkFrame` of libavutil 59.34 to 60.
+/// An `AVVkFrame`, only ever behind a pointer: its fields are where the linked libavutil has them
+/// (`VkFrame60`, `VkFrame61`), reached through `frame_fields` and `frame_now`.
 #[repr(C)]
 struct VkFrame {
+    _libavutils: [u8; 0],
+}
+
+/// `AVVkFrame` of libavutil 59.34 to 60.26 (`StructLayout::V60`).
+#[repr(C)]
+struct VkFrame60 {
     img: [vk::Image; 8],
     tiling: vk::ImageTiling,
     mem: [vk::DeviceMemory; 8],
@@ -317,6 +482,74 @@ struct VkFrame {
     internal: *mut c_void,
     offset: [isize; 8],
     queue_family: [u32; 8],
+}
+
+/// `AVVkFrame` of libavutil 61 (`StructLayout::V61`): the access flags are `VkAccessFlagBits2`,
+/// and the internal part comes last.
+#[repr(C)]
+struct VkFrame61 {
+    img: [vk::Image; 8],
+    tiling: vk::ImageTiling,
+    mem: [vk::DeviceMemory; 8],
+    size: [usize; 8],
+    flags: vk::MemoryPropertyFlags,
+    access: [vk::AccessFlags2; 8],
+    layout: [vk::ImageLayout; 8],
+    sem: [vk::Semaphore; 8],
+    sem_value: [u64; 8],
+    offset: [isize; 8],
+    queue_family: [u32; 8],
+    internal: *mut c_void,
+}
+
+/// An `AVVkFrame`'s access flags, 32 bits wide until libavutil 61.
+enum Access<'a> {
+    Bits(&'a mut [vk::AccessFlags; 8]),
+    Bits2(&'a mut [vk::AccessFlags2; 8]),
+}
+
+impl Access<'_> {
+    fn get(&self, index: usize) -> vk::AccessFlags2 {
+        match self {
+            Self::Bits(flags) => vk::AccessFlags2::from_raw(u64::from(flags[index].as_raw())),
+            Self::Bits2(flags) => flags[index],
+        }
+    }
+
+    /// `flags` are of the 32 bits both widths have.
+    fn set(&mut self, index: usize, flags: vk::AccessFlags) {
+        match self {
+            Self::Bits(all) => all[index] = flags,
+            Self::Bits2(all) => all[index] = vk::AccessFlags2::from_raw(u64::from(flags.as_raw())),
+        }
+    }
+}
+
+/// The fields of an `AVVkFrame` this client writes, wherever the linked libavutil has them
+/// (`StructLayout::fields`).
+struct Frame<'a> {
+    img: &'a mut [vk::Image; 8],
+    tiling: &'a mut vk::ImageTiling,
+    mem: &'a mut [vk::DeviceMemory; 8],
+    size: &'a mut [usize; 8],
+    flags: &'a mut vk::MemoryPropertyFlags,
+    access: Access<'a>,
+    layout: &'a mut [vk::ImageLayout; 8],
+    sem: &'a mut [vk::Semaphore; 8],
+    sem_value: &'a mut [u64; 8],
+    queue_family: &'a mut [u32; 8],
+}
+
+/// What an `AVVkFrame` held when it was read (`StructLayout::read`).
+struct FrameNow {
+    img: [vk::Image; 8],
+    mem: [vk::DeviceMemory; 8],
+    access: [vk::AccessFlags2; 8],
+    layout: [vk::ImageLayout; 8],
+    sem: [vk::Semaphore; 8],
+    sem_value: [u64; 8],
+    queue_family: [u32; 8],
+    internal: *mut c_void,
 }
 
 /// What the device context's callbacks need, kept in its `user_opaque` until FFmpeg frees it.
@@ -442,20 +675,29 @@ unsafe fn share(
         return Err("FFmpeg cannot allocate a Vulkan device context".into());
     }
     let context = (*reference).data.cast::<AVHWDeviceContext>();
-    let vulkan = &mut *(*context).hwctx.cast::<DeviceContext>();
-    vulkan.get_proc_addr = Some(get_instance_proc_addr);
-    vulkan.inst = sdl.instance;
-    vulkan.phys_dev = sdl.physical_device;
-    vulkan.act_dev = sdl.device;
-    vulkan.device_features = opaque.chain.pdf2;
-    vulkan.enabled_dev_extensions = opaque.extensions.as_ptr();
-    vulkan.nb_enabled_dev_extensions = opaque.extensions.len() as c_int;
-    vulkan.lock_queue = Some(lock_queue);
-    vulkan.unlock_queue = Some(unlock_queue);
-    for (slot, family) in vulkan.qf.iter_mut().zip(listed) {
-        *slot = *family;
+    // The same fields, where the linked libavutil has them.
+    macro_rules! fill {
+        ($context:ty) => {{
+            let vulkan = &mut *(*context).hwctx.cast::<$context>();
+            vulkan.get_proc_addr = Some(get_instance_proc_addr);
+            vulkan.inst = sdl.instance;
+            vulkan.phys_dev = sdl.physical_device;
+            vulkan.act_dev = sdl.device;
+            vulkan.device_features = opaque.chain.pdf2;
+            vulkan.enabled_dev_extensions = opaque.extensions.as_ptr();
+            vulkan.nb_enabled_dev_extensions = opaque.extensions.len() as c_int;
+            vulkan.lock_queue = Some(lock_queue);
+            vulkan.unlock_queue = Some(unlock_queue);
+            for (slot, family) in vulkan.qf.iter_mut().zip(listed) {
+                *slot = *family;
+            }
+            vulkan.nb_qf = listed.len().min(vulkan.qf.len()) as c_int;
+        }};
     }
-    vulkan.nb_qf = listed.len().min(vulkan.qf.len()) as c_int;
+    match StructLayout::linked() {
+        StructLayout::V60 => fill!(DeviceContext60),
+        StructLayout::V61 => fill!(DeviceContext61),
+    }
     (*context).user_opaque = Box::into_raw(opaque).cast();
     (*context).free = Some(free_opaque);
     let status = av_hwdevice_ctx_init(reference);
@@ -846,12 +1088,12 @@ fn import_memory_type(fd_types: u32, image_types: u32, types: &[vk::MemoryProper
 /// (`VK_QUEUE_FAMILY_EXTERNAL`, in GENERAL, nothing to make available), as the copy's release left
 /// it (`after_copy`), whatever an earlier picture of it did not get to. The semaphores keep their
 /// values: the copy waits for the last one and signals one more.
-fn ready_for_reuse(frame: &mut VkFrame) {
+fn ready_for_reuse(frame: &mut Frame) {
     for index in 0..frame.img.len() {
         if frame.img[index] != vk::Image::null() {
             frame.layout[index] = vk::ImageLayout::GENERAL;
             frame.queue_family[index] = vk::QUEUE_FAMILY_EXTERNAL;
-            frame.access[index] = vk::AccessFlags::empty();
+            frame.access.set(index, vk::AccessFlags::empty());
         }
     }
 }
@@ -948,7 +1190,7 @@ mod imports {
 
         /// Waits up to `COPY_WAIT` for each of `frame`'s semaphores to reach its value, the last
         /// copy's signal: then the GPU no longer reads its images.
-        unsafe fn wait(&self, frame: &VkFrame) -> bool {
+        unsafe fn wait(&self, frame: &FrameNow) -> bool {
             let (semaphores, values): (Vec<vk::Semaphore>, Vec<u64>) = (0..frame.sem.len())
                 .filter(|&index| frame.sem[index] != vk::Semaphore::null())
                 .map(|index| (frame.sem[index], frame.sem_value[index]))
@@ -1011,8 +1253,8 @@ mod imports {
             // From here on, `Drop` destroys what was made if a later step fails.
             let import = Self { vulkan: vulkan.clone(), frame, sampled, size: (width, height) };
             let device = &vulkan.device;
-            let vkf = &mut *frame;
-            vkf.tiling = vk::ImageTiling::DRM_FORMAT_MODIFIER_EXT;
+            let mut vkf = frame_fields(frame);
+            *vkf.tiling = vk::ImageTiling::DRM_FORMAT_MODIFIER_EXT;
             for (index, &format) in formats.iter().enumerate() {
                 let (object, modifier, layout) = layer_layout(descriptor, index);
                 if modifier == DRM_FORMAT_MOD_INVALID {
@@ -1084,7 +1326,7 @@ mod imports {
                 })?;
                 vkf.mem[index] = memory;
                 vkf.size[index] = requirements.size as usize;
-                vkf.flags |= vulkan.memory_types[kind as usize];
+                *vkf.flags |= vulkan.memory_types[kind as usize];
                 device
                     .bind_image_memory(image, memory, 0)
                     .map_err(|e| format!("layer {index}'s imported memory cannot be bound ({e})"))?;
@@ -1098,7 +1340,7 @@ mod imports {
                 vkf.sem_value[index] = 0;
                 // Owned by VA-API, its contents those of the surface: the copy acquires it.
                 vkf.layout[index] = vk::ImageLayout::UNDEFINED;
-                vkf.access[index] = vk::AccessFlags::empty();
+                vkf.access.set(index, vk::AccessFlags::empty());
                 vkf.queue_family[index] = vk::QUEUE_FAMILY_EXTERNAL;
             }
             Ok(import)
@@ -1111,8 +1353,8 @@ mod imports {
             // SAFETY: Objects this import made on the renderer's device, which outlives the decoder
             // and the presenter's pictures; the frame is no picture's any more.
             unsafe {
-                let frame = &*self.frame;
-                if !self.vulkan.wait(frame) {
+                let frame = frame_now(self.frame);
+                if !self.vulkan.wait(&frame) {
                     note("a kept VAAPI import's last copy did not finish; its Vulkan images stay allocated");
                     return;
                 }
@@ -1135,13 +1377,13 @@ mod imports {
 
     /// Frees an AVVkFrame of `av_vk_frame_alloc` as hwcontext_vulkan's `vulkan_free_internal`
     /// does: its internal part begins with the `pthread_mutex_t` the default frame lock takes
-    /// (libavutil 59 and 60; the CUDA fields after it are never set on these frames), which is
-    /// destroyed, then both are freed.
+    /// (libavutil 59 to 61; the semaphore of 61's DRM export and the CUDA fields after it are never
+    /// set on these frames), which is destroyed, then both are freed.
     ///
     /// # Safety
     /// `frame` is an unused frame of `av_vk_frame_alloc`.
     unsafe fn free_frame(frame: *mut VkFrame) {
-        let internal = (*frame).internal;
+        let internal = frame_now(frame).internal;
         if !internal.is_null() {
             libc::pthread_mutex_destroy(internal.cast());
             av_free(internal);
@@ -1173,7 +1415,10 @@ mod imports {
         /// The luma and chroma images.
         pub fn images(&self) -> [vk::Image; 2] {
             // SAFETY: The frame lives as long as the import.
-            unsafe { [(*self.0.frame).img[0], (*self.0.frame).img[1]] }
+            unsafe {
+                let frame = frame_now(self.0.frame);
+                [frame.img[0], frame.img[1]]
+            }
         }
 
         /// The picture's size.
@@ -1210,7 +1455,7 @@ mod imports {
                 // `Planes` keeps a picture until its copy is done, so this does not wait; a picture
                 // freed earlier (its reference could not be kept) waits for the copy, as FFmpeg's
                 // own unmap does, before VA-API may decode into the surface again.
-                if !self.import.vulkan.wait(&*self.import.frame) {
+                if !self.import.vulkan.wait(&frame_now(self.import.frame)) {
                     note("a mapped VAAPI picture's copy did not finish; its surface goes back to the decoder anyway");
                 }
                 av_frame_free(&mut self.source);
@@ -1291,7 +1536,7 @@ mod imports {
             // The exported descriptors close here; the imports hold their own.
             drop(export);
             // SAFETY: No other picture uses the import (`CachedImport`'s Send).
-            ready_for_reuse(&mut *import.frame);
+            ready_for_reuse(&mut frame_fields(import.frame));
             lend(target, source, frames, import)?;
             Ok(cached)
         }
@@ -1309,7 +1554,7 @@ mod imports {
         }
         let vkf = import.frame;
         let opaque = Box::into_raw(Box::new(Lent { source: held, import }));
-        let buffer = av_buffer_create(vkf.cast(), std::mem::size_of::<VkFrame>(), Some(give_back), opaque.cast(), 0);
+        let buffer = av_buffer_create(vkf.cast(), StructLayout::linked().frame_size(), Some(give_back), opaque.cast(), 0);
         if buffer.is_null() {
             drop(Box::from_raw(opaque));
             return Err("FFmpeg cannot allocate the mapped picture's buffer".into());
@@ -2436,12 +2681,13 @@ impl Planes {
                 sw_format(frame)
             ));
         }
-        let sources = if (*source).img[1] == vk::Image::null() {
+        let now = frame_now(source);
+        let sources = if now.img[1] == vk::Image::null() {
             1
         } else {
             2
         };
-        if let Some(&family) = (&(*source).queue_family)[..sources]
+        if let Some(&family) = now.queue_family[..sources]
             .iter()
             .find(|&&family| ![vk::QUEUE_FAMILY_IGNORED, vk::QUEUE_FAMILY_EXTERNAL, self.family].contains(&family))
         {
@@ -2478,7 +2724,7 @@ impl Planes {
         drop(self.held.take(self.next));
         let imported = mapped_frames(&*(*frames_ref).data.cast::<AVHWFramesContext>());
         lock_frame(frames, source);
-        let result = self.record_and_submit(commands, fence, &mut *source);
+        let result = self.record_and_submit(commands, fence, &mut frame_fields(source));
         unlock_frame(frames, source);
         if result.is_ok() {
             if imported {
@@ -2501,7 +2747,7 @@ impl Planes {
         &mut self,
         commands: vk::CommandBuffer,
         fence: vk::Fence,
-        source: &mut VkFrame,
+        source: &mut Frame,
     ) -> Result<(), String> {
         let device = &self.device;
         // One multi-plane image, or one image per plane (`AV_VK_FRAME_FLAG_DISABLE_MULTIPLANE`).
@@ -2534,9 +2780,7 @@ impl Planes {
                     acquire(source.queue_family[index], source.layout[index], family);
                 vk::ImageMemoryBarrier2::default()
                     .src_stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
-                    .src_access_mask(vk::AccessFlags2::from_raw(u64::from(
-                        source.access[index].as_raw(),
-                    )))
+                    .src_access_mask(source.access.get(index))
                     .dst_stage_mask(vk::PipelineStageFlags2::COPY)
                     .dst_access_mask(vk::AccessFlags2::TRANSFER_READ)
                     .old_layout(old_layout)
@@ -2671,7 +2915,7 @@ impl Planes {
             let (layout, owner) = after_copy(source.queue_family[index]);
             source.layout[index] = layout;
             source.queue_family[index] = owner;
-            source.access[index] = vk::AccessFlags::empty();
+            source.access.set(index, vk::AccessFlags::empty());
         }
         Ok(())
     }
@@ -3403,30 +3647,39 @@ mod tests {
     /// its frame, with the semaphore values the last copy signalled.
     #[test]
     fn a_kept_import_is_handed_out_owned_by_vaapi_with_its_semaphore_values() {
-        // SAFETY: A plain C struct, all-zero is valid.
-        let mut frame: VkFrame = unsafe { std::mem::zeroed() };
-        for index in 0..2 {
-            frame.img[index] = vk::Image::from_raw(0x10 + index as u64);
-            frame.sem[index] = vk::Semaphore::from_raw(0x20 + index as u64);
-            frame.sem_value[index] = 41;
-            frame.layout[index] = vk::ImageLayout::TRANSFER_SRC_OPTIMAL;
-            frame.queue_family[index] = 3;
-            frame.access[index] = vk::AccessFlags::TRANSFER_READ;
+        // In both libavutils' layouts: the larger frame's memory holds either.
+        for layout in [StructLayout::V60, StructLayout::V61] {
+            // SAFETY: A plain C struct, all-zero is valid, and nothing else uses it.
+            let mut memory: VkFrame61 = unsafe { std::mem::zeroed() };
+            let raw = std::ptr::addr_of_mut!(memory).cast::<VkFrame>();
+            let mut frame = unsafe { layout.fields(raw) };
+            for index in 0..2 {
+                frame.img[index] = vk::Image::from_raw(0x10 + index as u64);
+                frame.sem[index] = vk::Semaphore::from_raw(0x20 + index as u64);
+                frame.sem_value[index] = 41;
+                frame.layout[index] = vk::ImageLayout::TRANSFER_SRC_OPTIMAL;
+                frame.queue_family[index] = 3;
+                frame.access.set(index, vk::AccessFlags::TRANSFER_READ);
+                assert!(frame.access.get(index) == vk::AccessFlags2::TRANSFER_READ, "{layout:?}");
+            }
+            frame.layout[0] = vk::ImageLayout::UNDEFINED;
+            ready_for_reuse(&mut frame);
+            // SAFETY: As above; the view is no longer used.
+            let frame = unsafe { layout.read(raw) };
+            for index in 0..2 {
+                assert!(frame.layout[index] == vk::ImageLayout::GENERAL, "{layout:?} layer {index}");
+                assert_eq!(frame.queue_family[index], vk::QUEUE_FAMILY_EXTERNAL, "{layout:?} layer {index}");
+                assert!(frame.access[index] == vk::AccessFlags2::empty(), "{layout:?} layer {index}");
+                assert_eq!(frame.sem_value[index], 41, "the copy waits for the last signal");
+                assert!(acquire(frame.queue_family[index], frame.layout[index], 3) == (vk::ImageLayout::GENERAL, vk::QUEUE_FAMILY_EXTERNAL, 3));
+            }
+            assert!((frame.layout[2], frame.queue_family[2]) == (vk::ImageLayout::UNDEFINED, 0), "no image, nothing set");
+            assert!(frame.internal.is_null() && frame.mem[0] == vk::DeviceMemory::null());
         }
-        frame.layout[0] = vk::ImageLayout::UNDEFINED;
-        ready_for_reuse(&mut frame);
-        for index in 0..2 {
-            assert!(frame.layout[index] == vk::ImageLayout::GENERAL, "layer {index}");
-            assert_eq!(frame.queue_family[index], vk::QUEUE_FAMILY_EXTERNAL, "layer {index}");
-            assert!(frame.access[index] == vk::AccessFlags::empty(), "layer {index}");
-            assert_eq!(frame.sem_value[index], 41, "the copy waits for the last signal");
-            assert!(acquire(frame.queue_family[index], frame.layout[index], 3) == (vk::ImageLayout::GENERAL, vk::QUEUE_FAMILY_EXTERNAL, 3));
-        }
-        assert!((frame.layout[2], frame.queue_family[2]) == (vk::ImageLayout::UNDEFINED, 0), "no image, nothing set");
     }
 
     #[test]
-    fn only_libavutil_59_34_to_60_has_the_structs_declared_here() {
+    fn only_libavutil_59_34_to_61_has_the_structs_declared_here() {
         let version = |major: u32, minor: u32, micro: u32| major << 16 | minor << 8 | micro;
         assert!(ffmpeg_supported(version(59, 39, 100)).is_ok(), "FFmpeg 7.1");
         assert!(ffmpeg_supported(version(60, 26, 103)).is_ok(), "FFmpeg 8.1");
@@ -3439,8 +3692,18 @@ mod tests {
             ffmpeg_supported(version(58, 29, 100)).is_err(),
             "FFmpeg 6.1"
         );
-        let new = ffmpeg_supported(version(61, 0, 100)).unwrap_err();
-        assert!(new.contains("61.0.100"), "{new}");
+        assert!(ffmpeg_supported(version(61, 1, 102)).is_ok(), "FFmpeg 9.0");
+        assert!(ffmpeg_supported(version(61, 20, 100)).is_ok(), "61 keeps its layout");
+        // 60.34 already had 61's access flags, in a frame that was neither layout.
+        let between = ffmpeg_supported(version(60, 34, 100)).unwrap_err();
+        assert!(between.contains("60.34.100") && between.contains("development version"), "{between}");
+        let new = ffmpeg_supported(version(62, 0, 100)).unwrap_err();
+        assert!(new.contains("62.0.100"), "{new}");
+        assert_eq!(StructLayout::of(version(59, 39, 100)), StructLayout::V60);
+        assert_eq!(StructLayout::of(version(60, 26, 103)), StructLayout::V60);
+        assert_eq!(StructLayout::of(version(61, 1, 102)), StructLayout::V61);
+        assert_eq!(StructLayout::V60.frame_size(), 504);
+        assert_eq!(StructLayout::V61.frame_size(), 536);
     }
 
     #[test]
@@ -3449,59 +3712,60 @@ mod tests {
         // Each field's offset (or size) here, then offsetof and sizeof with gcc on x86-64 in the
         // hwcontext_vulkan.h of FFmpeg 7.1 (libavutil 59.39) and of FFmpeg 8.1.2 (60.26), which
         // the release ships: 60 still has the fixed queue fields (FF_API_VULKAN_FIXED_QUEUES
-        // lasts until 61) and lock_queue (FF_API_VULKAN_SYNC_QUEUES until 62).
+        // lasts until 61) and lock_queue (FF_API_VULKAN_SYNC_QUEUES until 62). The third number
+        // is the 61 struct's, against FFmpeg 9.0.2 (libavutil 61.1).
         let fields = [
             (
                 "AVVulkanDeviceContext.get_proc_addr",
-                offset_of!(DeviceContext, get_proc_addr),
+                offset_of!(DeviceContext60, get_proc_addr),
                 8,
                 8,
             ),
             (
                 "AVVulkanDeviceContext.act_dev",
-                offset_of!(DeviceContext, act_dev),
+                offset_of!(DeviceContext60, act_dev),
                 32,
                 32,
             ),
             (
                 "AVVulkanDeviceContext.device_features",
-                offset_of!(DeviceContext, device_features),
+                offset_of!(DeviceContext60, device_features),
                 40,
                 40,
             ),
             (
                 "AVVulkanDeviceContext.enabled_dev_extensions",
-                offset_of!(DeviceContext, enabled_dev_extensions),
+                offset_of!(DeviceContext60, enabled_dev_extensions),
                 296,
                 296,
             ),
             (
                 "AVVulkanDeviceContext.nb_enabled_dev_extensions",
-                offset_of!(DeviceContext, nb_enabled_dev_extensions),
+                offset_of!(DeviceContext60, nb_enabled_dev_extensions),
                 304,
                 304,
             ),
             (
                 "AVVulkanDeviceContext.lock_queue",
-                offset_of!(DeviceContext, lock_queue),
+                offset_of!(DeviceContext60, lock_queue),
                 352,
                 352,
             ),
             (
                 "AVVulkanDeviceContext.unlock_queue",
-                offset_of!(DeviceContext, unlock_queue),
+                offset_of!(DeviceContext60, unlock_queue),
                 360,
                 360,
             ),
             (
                 "AVVulkanDeviceContext.qf",
-                offset_of!(DeviceContext, qf),
+                offset_of!(DeviceContext60, qf),
                 368,
                 368,
             ),
             (
                 "AVVulkanDeviceContext.nb_qf",
-                offset_of!(DeviceContext, nb_qf),
+                offset_of!(DeviceContext60, nb_qf),
                 1392,
                 1392,
             ),
@@ -3548,36 +3812,65 @@ mod tests {
                 136,
             ),
             // The fields a kept VAAPI import fills (`imports::CachedImport`).
-            ("AVVkFrame.img", offset_of!(VkFrame, img), 0, 0),
-            ("AVVkFrame.tiling", offset_of!(VkFrame, tiling), 64, 64),
-            ("AVVkFrame.mem", offset_of!(VkFrame, mem), 72, 72),
-            ("AVVkFrame.size", offset_of!(VkFrame, size), 136, 136),
-            ("AVVkFrame.flags", offset_of!(VkFrame, flags), 200, 200),
-            ("AVVkFrame.internal", offset_of!(VkFrame, internal), 400, 400),
-            ("AVVkFrame.access", offset_of!(VkFrame, access), 204, 204),
-            ("AVVkFrame.layout", offset_of!(VkFrame, layout), 236, 236),
-            ("AVVkFrame.sem", offset_of!(VkFrame, sem), 272, 272),
+            ("AVVkFrame.img", offset_of!(VkFrame60, img), 0, 0),
+            ("AVVkFrame.tiling", offset_of!(VkFrame60, tiling), 64, 64),
+            ("AVVkFrame.mem", offset_of!(VkFrame60, mem), 72, 72),
+            ("AVVkFrame.size", offset_of!(VkFrame60, size), 136, 136),
+            ("AVVkFrame.flags", offset_of!(VkFrame60, flags), 200, 200),
+            ("AVVkFrame.internal", offset_of!(VkFrame60, internal), 400, 400),
+            ("AVVkFrame.access", offset_of!(VkFrame60, access), 204, 204),
+            ("AVVkFrame.layout", offset_of!(VkFrame60, layout), 236, 236),
+            ("AVVkFrame.sem", offset_of!(VkFrame60, sem), 272, 272),
             (
                 "AVVkFrame.sem_value",
-                offset_of!(VkFrame, sem_value),
+                offset_of!(VkFrame60, sem_value),
                 336,
                 336,
             ),
-            ("AVVkFrame.offset", offset_of!(VkFrame, offset), 408, 408),
+            ("AVVkFrame.offset", offset_of!(VkFrame60, offset), 408, 408),
             (
                 "AVVkFrame.queue_family",
-                offset_of!(VkFrame, queue_family),
+                offset_of!(VkFrame60, queue_family),
                 472,
                 472,
             ),
-            ("sizeof AVVkFrame", size_of::<VkFrame>(), 504, 504),
+            ("sizeof AVVkFrame", size_of::<VkFrame60>(), 504, 504),
         ];
         for (name, ours, v59, v60) in fields {
             assert_eq!(ours, v59, "{name} in libavutil 59.39");
             assert_eq!(ours, v60, "{name} in libavutil 60.26");
         }
-        assert_eq!(size_of::<DeviceContext>(), 1400);
+        assert_eq!(size_of::<DeviceContext60>(), 1400);
         assert_eq!(size_of::<FramesContext>(), 144);
+        let fields61 = [
+            ("AVVulkanDeviceContext.get_proc_addr", offset_of!(DeviceContext61, get_proc_addr), 8),
+            ("AVVulkanDeviceContext.act_dev", offset_of!(DeviceContext61, act_dev), 32),
+            ("AVVulkanDeviceContext.device_features", offset_of!(DeviceContext61, device_features), 40),
+            ("AVVulkanDeviceContext.enabled_dev_extensions", offset_of!(DeviceContext61, enabled_dev_extensions), 296),
+            ("AVVulkanDeviceContext.nb_enabled_dev_extensions", offset_of!(DeviceContext61, nb_enabled_dev_extensions), 304),
+            ("AVVulkanDeviceContext.lock_queue", offset_of!(DeviceContext61, lock_queue), 312),
+            ("AVVulkanDeviceContext.unlock_queue", offset_of!(DeviceContext61, unlock_queue), 320),
+            ("AVVulkanDeviceContext.qf", offset_of!(DeviceContext61, qf), 328),
+            ("AVVulkanDeviceContext.nb_qf", offset_of!(DeviceContext61, nb_qf), 1352),
+            ("AVVulkanDeviceContext.queue_flags", offset_of!(DeviceContext61, queue_flags), 1356),
+            ("sizeof AVVulkanDeviceContext", size_of::<DeviceContext61>(), 1360),
+            ("AVVkFrame.img", offset_of!(VkFrame61, img), 0),
+            ("AVVkFrame.tiling", offset_of!(VkFrame61, tiling), 64),
+            ("AVVkFrame.mem", offset_of!(VkFrame61, mem), 72),
+            ("AVVkFrame.size", offset_of!(VkFrame61, size), 136),
+            ("AVVkFrame.flags", offset_of!(VkFrame61, flags), 200),
+            ("AVVkFrame.access", offset_of!(VkFrame61, access), 208),
+            ("AVVkFrame.layout", offset_of!(VkFrame61, layout), 272),
+            ("AVVkFrame.sem", offset_of!(VkFrame61, sem), 304),
+            ("AVVkFrame.sem_value", offset_of!(VkFrame61, sem_value), 368),
+            ("AVVkFrame.offset", offset_of!(VkFrame61, offset), 432),
+            ("AVVkFrame.queue_family", offset_of!(VkFrame61, queue_family), 496),
+            ("AVVkFrame.internal", offset_of!(VkFrame61, internal), 528),
+            ("sizeof AVVkFrame", size_of::<VkFrame61>(), 536),
+        ];
+        for (name, ours, v61) in fields61 {
+            assert_eq!(ours, v61, "{name} in libavutil 61.1");
+        }
     }
 
     #[test]

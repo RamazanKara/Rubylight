@@ -66,11 +66,11 @@ impl Sampling {
 }
 
 /// The barrier that hands `image` of a kept import to the renderer for sampling.
-fn sampled_acquire(source: &VkFrame, index: usize, family: u32) -> vk::ImageMemoryBarrier2<'static> {
+fn sampled_acquire(source: &FrameNow, index: usize, family: u32) -> vk::ImageMemoryBarrier2<'static> {
     let (old_layout, from, to) = acquire(source.queue_family[index], source.layout[index], family);
     vk::ImageMemoryBarrier2::default()
         .src_stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
-        .src_access_mask(vk::AccessFlags2::from_raw(u64::from(source.access[index].as_raw())))
+        .src_access_mask(source.access[index])
         .dst_stage_mask(vk::PipelineStageFlags2::FRAGMENT_SHADER)
         .dst_access_mask(vk::AccessFlags2::SHADER_SAMPLED_READ)
         .old_layout(old_layout)
@@ -169,7 +169,7 @@ impl SampleGpu for Queue<'_> {
         // SAFETY: `incoming` is the live frame of a picture the presenter holds; its lock is FFmpeg's.
         unsafe {
             (self.lock_frame)(self.frames, self.incoming);
-            let source = &*self.incoming;
+            let source = &frame_now(self.incoming);
             let barriers: [_; 2] = std::array::from_fn(|index| sampled_acquire(source, index, self.family));
             let waits: [_; 2] = std::array::from_fn(|index| {
                 vk::SemaphoreSubmitInfo::default().semaphore(source.sem[index]).value(source.sem_value[index]).stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
@@ -191,7 +191,7 @@ impl SampleGpu for Queue<'_> {
         // SAFETY: The frame of a picture the presenter still holds; its lock is FFmpeg's.
         unsafe {
             (self.lock_frame)(self.frames, frame);
-            let source = &mut *frame;
+            let mut source = frame_fields(frame);
             let barriers: [_; 2] = std::array::from_fn(|index| sampled_release(source.img[index], self.family));
             let signals: [_; 2] = std::array::from_fn(|index| {
                 vk::SemaphoreSubmitInfo::default().semaphore(source.sem[index]).value(source.sem_value[index] + 1).stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
@@ -202,7 +202,7 @@ impl SampleGpu for Queue<'_> {
                     source.sem_value[index] += 1;
                     source.layout[index] = vk::ImageLayout::GENERAL;
                     source.queue_family[index] = vk::QUEUE_FAMILY_EXTERNAL;
-                    source.access[index] = vk::AccessFlags::empty();
+                    source.access.set(index, vk::AccessFlags::empty());
                 }
             }
             (self.unlock_frame)(self.frames, frame);

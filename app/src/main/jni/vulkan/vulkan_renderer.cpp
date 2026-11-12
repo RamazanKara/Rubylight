@@ -23,6 +23,7 @@
 #include <android/looper.h>
 
 #include "output_format.h"
+#include "ycbcr_components.h"
 #include "../window-dataspace/window_dataspace.h"
 #include "shaders_spv.h"
 
@@ -91,6 +92,11 @@ namespace {
                   vkr::kVkColorSpaceHdr10Hlg == VK_COLOR_SPACE_HDR10_HLG_EXT);
     static_assert(vkr::kDataspaceBt2020Pq == ADATASPACE_BT2020_PQ &&
                   vkr::kDataspaceBt2020Hlg == ADATASPACE_BT2020_HLG);
+    static_assert(vkr::kVkComponentSwizzleIdentity == VK_COMPONENT_SWIZZLE_IDENTITY &&
+                  vkr::kVkComponentSwizzleR == VK_COMPONENT_SWIZZLE_R &&
+                  vkr::kVkComponentSwizzleB == VK_COMPONENT_SWIZZLE_B &&
+                  vkr::kVkFormatG10X6B10X6R10X6TwoPlane420Unorm3Pack16 ==
+                          VK_FORMAT_G10X6_B10X6R10X6_2PLANE_420_UNORM_3PACK16);
 
     // Quarter turns clockwise for a pre-rotation, or -1 for a transform we can't render
     int quarterTurns(VkSurfaceTransformFlagBitsKHR transform) {
@@ -582,6 +588,7 @@ bool VulkanRenderer::pickDevice() {
                 vk_.vkGetPhysicalDeviceProperties(device, &props);
                 timestampValidBits_ = families[i].timestampValidBits;
                 timestampPeriodNs_ = props.limits.timestampPeriod;
+                vendorId_ = props.vendorID;
                 ALOGI("Using %s (Vulkan %u.%u.%u), queue family %u", props.deviceName,
                       VK_API_VERSION_MAJOR(props.apiVersion), VK_API_VERSION_MINOR(props.apiVersion),
                       VK_API_VERSION_PATCH(props.apiVersion), i);
@@ -2891,8 +2898,9 @@ bool VulkanRenderer::ensureConversion(const ConversionKey& key) {
 
     conversionKey_ = key;
     haveConversion_ = true;
-    ALOGI("YCbCr conversion: external format %" PRIu64 ", format %d, model %d, range %d, filter %d",
-          key.externalFormat, key.format, key.model, key.range, key.filter);
+    ALOGI("YCbCr conversion: external format %" PRIu64 ", format %d, model %d, range %d, filter %d, "
+          "components %d %d %d %d", key.externalFormat, key.format, key.model, key.range, key.filter,
+          key.components.r, key.components.g, key.components.b, key.components.a);
     return true;
 }
 
@@ -3285,6 +3293,10 @@ VulkanRenderer::ImportedBuffer* VulkanRenderer::importBuffer(AHardwareBuffer* bu
         key.range = config_.fullRange ? VK_SAMPLER_YCBCR_RANGE_ITU_FULL : VK_SAMPLER_YCBCR_RANGE_ITU_NARROW;
         if (!key.ycbcr) {
             key.components = {};
+        }
+        else {
+            // The chroma of Tegra's P010 buffers, swapped back (ycbcr_components.h)
+            key.components = vkr::ycbcrComponents(key.components, vendorId_, key.format);
         }
 
         if (!ensureConversion(key)) {

@@ -130,4 +130,41 @@ public class WakeTargetsTest {
         targets.forget("pc");
         assertSame(WakeTargets.Targets.NONE, targets.load("pc"));
     }
+
+    @Test
+    public void typedMacsAreReadInEveryUsualFormOnce() {
+        assertEquals(Arrays.asList("00:11:22:33:44:55", "0a:1b:2c:3d:4e:5f", "aa:bb:cc:dd:ee:ff"),
+                WakeTargets.parseMacs(" 00:11:22:33:44:55\n0A-1B-2C-3D-4E-5F, AABBCCDDEEFF;00-11-22-33-44-55 "));
+        assertEquals(Collections.emptyList(), WakeTargets.parseMacs("  \n "));
+        assertNull(WakeTargets.parseMacs("00:11:22:33:44"));
+        assertNull(WakeTargets.parseMacs("00:11-22:33:44:55"));
+        assertNull(WakeTargets.parseMacs("00:00:00:00:00:00"));
+        assertNull(WakeTargets.parseMacs("the PC"));
+        StringBuilder nine = new StringBuilder();
+        for (int i = 0; i < WakeTargets.MAX_MACS + 1; i++) nine.append("02:00:00:00:00:0").append(i).append('\n');
+        assertNull(WakeTargets.parseMacs(nine.toString()));
+    }
+
+    @Test
+    public void theUsersOwnMacsWakeAlongsideTheHostsAndOutliveItsListUntilThePcGoes() throws Exception {
+        targets.storeManual("pc", Arrays.asList("0a:00:27:00:00:05", "02:7c:16:b4:13:4f"));
+        assertEquals(Arrays.asList("0a:00:27:00:00:05", "02:7c:16:b4:13:4f"), targets.load("pc").macs);
+        assertEquals(Collections.emptyList(), targets.load("pc").broadcasts);
+
+        transport.reply("pc", "wake", ok(WAKE));
+        targets.store("pc", client().wake());
+        assertEquals(Arrays.asList("02:7c:16:b4:13:4f", "02:e0:4c:68:00:01", "0a:00:27:00:00:05"),
+                targets.load("pc").macs);
+
+        // A host without the feature takes only its own list away.
+        targets.forget("pc");
+        assertEquals(Arrays.asList("0a:00:27:00:00:05", "02:7c:16:b4:13:4f"), targets.load("pc").macs);
+        targets.storeManual("pc", Collections.emptyList());
+        assertSame(WakeTargets.Targets.NONE, targets.load("pc"));
+
+        targets.storeManual("pc", Collections.singletonList("0a:00:27:00:00:05"));
+        targets.forgetHost("pc");
+        assertSame(WakeTargets.Targets.NONE, targets.load("pc"));
+        assertEquals(Collections.emptyList(), targets.manual("pc"));
+    }
 }

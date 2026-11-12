@@ -11,6 +11,10 @@
     <string name="pc_settings_wake">Wake-on-LAN</string>
     <string name="pc_settings_wake_ready">Bu cihaz bilgisayarı menüsünden uyandırabilir</string>
     <string name="pc_settings_wake_unknown">Bilgisayar açıkken eşleştirin, ardından bilgisayarda Wake-on-LAN’i açın</string>
+    <string name="pc_settings_wake_macs">Diğer uyandırma adresleri</string>
+    <string name="pc_settings_wake_macs_none">Bilgisayarı uyandırabilen diğer ağ bağdaştırıcılarının MAC adresleri</string>
+    <string name="pc_settings_wake_macs_help">Wake-on-LAN paketleri bu MAC adreslerine de gider; yayın için kullanılan bağdaştırıcı bilgisayarı uyandıramadığında onu uyandırabilen bir ağ bağdaştırıcısı içindir. Her satıra bir tane, örneğin 00:11:22:33:44:55.</string>
+    <string name="pc_settings_wake_macs_invalid">En fazla 8 MAC adresi girin, örneğin 00:11:22:33:44:55</string>
     <string name="pc_settings_details_summary">Yayın uygulaması, özellikler ve adresler</string>
     <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
     <string name="pc_settings_shortcut">Ana ekrana ekle</string>

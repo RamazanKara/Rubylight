@@ -140,7 +140,7 @@ public final class ConsoleRepository {
         new FileLibraryCache(libraryDirectory(app)).forget(hostUuid);
         new PreferencesRecentsStore(app).forgetHost(hostUuid);
         new PreferencesFavouritesStore(app).forgetHost(hostUuid);
-        new WakeTargets(app).forget(hostUuid);
+        new WakeTargets(app).forgetHost(hostUuid);
         com.limelight.console.OpenPlay.forgetHost(app, hostUuid);
     }
 

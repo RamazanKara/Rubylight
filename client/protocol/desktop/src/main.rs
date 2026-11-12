@@ -1935,6 +1935,11 @@ impl App {
             Command::PcPower { host, ask, action, token, at } => self.hosts.pc_power(host, ask, action, token, at),
             Command::InstallUpdate { host } => self.hosts.install_update(host),
             Command::Rename { host, alias } => rename_host(&mut self.hosts, &self.store, host, &alias),
+            Command::WakeAddresses { host, macs } => {
+                if self.hosts.set_own_wake_macs(host, macs) {
+                    save_hosts(&self.store, &self.hosts);
+                }
+            }
             Command::PinAddress { host, address } => {
                 if self.hosts.pin_address(host, address.as_deref()) {
                     save_hosts(&self.store, &self.hosts);

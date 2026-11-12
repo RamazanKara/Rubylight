@@ -1354,6 +1354,15 @@ impl Hosts {
     /// Pins the PC to one of its known addresses (`Some`), which then is the only one polled and
     /// streamed to, or brings back the automatic pick (`None`), as Moonlight V+ PC's
     /// `pinAddress` and `resetToAutomaticAddress`. False for an unknown PC or address.
+    /// Keeps the MACs the user added to wake the PC by. False for an unknown PC.
+    pub fn set_own_wake_macs(&mut self, id: u64, macs: Vec<String>) -> bool {
+        let Some(host) = self.get_mut(id) else {
+            return false;
+        };
+        host.record.own_wake_macs = macs;
+        true
+    }
+
     pub fn pin_address(&mut self, id: u64, address: Option<&str>) -> bool {
         let Some(host) = self.get_mut(id) else {
             return false;
@@ -2557,6 +2566,11 @@ impl Hosts {
                     kept.wake_macs = dropped.wake_macs;
                     kept.wake_broadcasts = dropped.wake_broadcasts;
                 }
+                for mac in dropped.own_wake_macs {
+                    if !kept.own_wake_macs.contains(&mac) {
+                        kept.own_wake_macs.push(mac);
+                    }
+                }
                 if kept.settings.is_none() {
                     kept.settings = dropped.settings;
                 }
@@ -3318,6 +3332,7 @@ pub(crate) mod tests {
             mac: None,
             wake_macs: Vec::new(),
             wake_broadcasts: Vec::new(),
+            own_wake_macs: Vec::new(),
             manual: true,
             settings: None,
             app_settings: Default::default(),

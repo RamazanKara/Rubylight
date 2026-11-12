@@ -11,6 +11,10 @@
     <string name="pc_settings_wake">Wake-on-LAN</string>
     <string name="pc_settings_wake_ready">このデバイスはメニューから PC をウェイクできます</string>
     <string name="pc_settings_wake_unknown">PC の電源が入っているときにペアリングしてから、PC で Wake-on-LAN を有効にしてください</string>
+    <string name="pc_settings_wake_macs">その他の起動用アドレス</string>
+    <string name="pc_settings_wake_macs_none">PC を起動できる他のネットワークアダプターの MAC アドレス</string>
+    <string name="pc_settings_wake_macs_help">Wake-on-LAN パケットはこれらの MAC アドレスにも送られます。ストリーミングに使うアダプターでは PC を起動できず、別のアダプターでは起動できる場合に使います。1 行に 1 つ、例: 00:11:22:33:44:55。</string>
+    <string name="pc_settings_wake_macs_invalid">MAC アドレスを 8 個まで入力してください（例: 00:11:22:33:44:55）</string>
     <string name="pc_settings_details_summary">ストリーミングアプリ、機能、アドレス</string>
     <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
     <string name="pc_settings_shortcut">ホーム画面に追加</string>

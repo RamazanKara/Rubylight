@@ -234,7 +234,6 @@ impl Launcher {
                     ui.label(RichText::new(why).color(ERROR));
                 }
             }
-            self.connection_address(ui, host, commands);
             section(ui, "Play away from home");
             let button = row(ui, "Remote access", "Checks the paired PC’s identity with five small HTTPS requests. It does not start a stream or download a speed-test file.", |ui| {
                 if running {
@@ -264,6 +263,7 @@ impl Launcher {
                 }
                 Some(CheckState::Done(report)) => remote_report(ui, report),
             }
+            self.connection_address(ui, host, commands);
             if caps.has(nightjar_core::http::Feature::SharedFolders) {
                 self.shared_folders(ui, id, commands);
             }
@@ -273,16 +273,30 @@ impl Launcher {
         });
     }
 
-    /// The details page's connection address: Automatic, or one of the PC's known addresses to
-    /// always connect through (Moonlight V+ PC's address pinning). Shown once the PC has more
-    /// than one address, or while one is pinned.
+    /// The details page's connection rows: the PC's own wake addresses, and the connection
+    /// address (see `pinned_address`).
     pub(super) fn connection_address(&mut self, ui: &mut Ui, host: &Host, commands: &mut Vec<Command>) {
+        section(ui, "Connection");
+        self.pinned_address(ui, host, commands);
+        let own = &host.record.own_wake_macs;
+        let listed = own.join(", ");
+        let about = if own.is_empty() { en("MAC addresses of other adapters that can wake the PC") } else { listed.as_str() };
+        let button = row(ui, "Other wake addresses", about, |ui| quiet_button(ui, "Edit"));
+        self.focus_item(&button, "wake-addresses", false);
+        if button.clicked() {
+            self.dialog = Dialog::WakeAddresses { host: host.id, text: own.join("\n"), invalid: false };
+            self.focus_dialog = true;
+        }
+    }
+
+    /// Automatic, or one of the PC's known addresses to always connect through (Moonlight V+ PC's
+    /// address pinning). Shown once the PC has more than one address, or while one is pinned.
+    fn pinned_address(&mut self, ui: &mut Ui, host: &Host, commands: &mut Vec<Command>) {
         let record = &host.record;
         let known: Vec<&String> = std::iter::once(&record.address).chain(&record.other_addresses).collect();
         if known.len() < 2 && record.pinned_address.is_none() {
             return;
         }
-        section(ui, "Connection");
         let pinned = record.pinned_address.clone();
         let mut choice = pinned.clone();
         let shown = pinned.clone().unwrap_or_else(|| tr("Automatic").to_owned());

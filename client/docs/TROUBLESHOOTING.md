@@ -61,7 +61,7 @@ Nightjar uses the ports the host advertises, including custom port offsets; chec
 | A preset or global change seems ignored | This PC has its own value for that setting. | Long-press the PC, open **PC settings…**, set the value to **Same as all PCs** and save. |
 | A reset kept a controller mapping or layout | A global reset preserves them by design. | Reset the controller under **Controller buttons**, or use **Reset controls layout**. |
 | An APK update is rejected | A different signing key or an incompatible build. | Install an update signed with the installed app's key. Uninstalling allows a different key but removes local data and the pairing identity. |
-| The PC does not wake | No MAC address saved, or a network adapter, firmware, Wi-Fi or routing limitation. | Pair once while the PC is awake, enable Wake-on-LAN, and test from sleep over Ethernet on the same subnet. |
+| The PC does not wake | No MAC address saved, or a network adapter, firmware, Wi-Fi or routing limitation. | Pair once while the PC is awake, enable Wake-on-LAN, and test from sleep over Ethernet on the same subnet. If only another adapter of the PC wakes it, add its MAC address under **Other wake addresses**. |
 | A launcher cannot open a game file | A missing file permission, an invalid entry or an unpaired PC. | Export again after opening the paired PC's library; follow the [launcher setup](FRONTENDS.md). |
 
 ## Nightjar for Windows and Linux

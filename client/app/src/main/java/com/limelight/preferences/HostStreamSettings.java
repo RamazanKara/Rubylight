@@ -70,6 +70,7 @@ import com.limelight.utils.ShortcutHelper;
 import com.limelight.utils.UiHelper;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -937,6 +938,9 @@ public class HostStreamSettings extends NightjarActivity {
                     .setSummary(R.string.pc_settings_remote_summary);
             row(connection, "wake", R.string.pc_settings_wake, screen::showWakeHelp).setSummary(WakeTargets.hasMac(screen, pc) ?
                     R.string.pc_settings_wake_ready : R.string.pc_settings_wake_unknown);
+            List<String> wakeMacs = new WakeTargets(screen).manual(pc.uuid);
+            row(connection, "wake_macs", R.string.pc_settings_wake_macs, this::showWakeMacs).setSummary(wakeMacs.isEmpty() ?
+                    getString(R.string.pc_settings_wake_macs_none) : android.text.TextUtils.join(", ", wakeMacs));
 
             host.removeAll();
             HostFeatureGate webUi = gate(HostCapabilities.Feature.WEB_UI);
@@ -1336,6 +1340,7 @@ public class HostStreamSettings extends NightjarActivity {
                 case "refresh": showNumber(key, R.string.host_profile_refresh); break;
                 case "bitrate": showNumber(key, R.string.host_profile_bitrate); break;
                 case "scale": showNumber(key, R.string.host_profile_scale); break;
+                case "wake_macs": showWakeMacs(); break;
                 default: activity.restoredEditorKey = null; break;
             }
         }
@@ -1537,6 +1542,41 @@ public class HostStreamSettings extends NightjarActivity {
                 });
             });
             showEditor(key, dialog);
+        }
+
+        /** The PC's own wake addresses: MACs of adapters that wake it besides the one it was paired over. */
+        private void showWakeMacs() {
+            WakeTargets targets = new WakeTargets(activity);
+            String uuid = activity.computer.uuid;
+            LinearLayout form = form();
+            TextView help = new TextView(activity);
+            help.setText(R.string.pc_settings_wake_macs_help);
+            form.addView(help);
+            TextInputLayout container = new TextInputLayout(activity);
+            container.setHint(R.string.pc_settings_wake_macs);
+            EditText field = new TextInputEditText(container.getContext());
+            field.setId(R.id.host_profile_field_primary);
+            field.setContentDescription(getString(R.string.pc_settings_wake_macs));
+            field.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                    | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+            field.setMinHeight(Math.round(56 * getResources().getDisplayMetrics().density));
+            field.setText(android.text.TextUtils.join("\n", targets.manual(uuid)));
+            container.addView(field);
+            form.addView(container);
+            AlertDialog dialog = new NavigationDialogBuilder(activity).setTitle(R.string.pc_settings_wake_macs)
+                    .setView(scrollable(form)).setPositiveButton(android.R.string.ok, null)
+                    .setNegativeButton(android.R.string.cancel, null).create();
+            dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                List<String> macs = WakeTargets.parseMacs(field.getText().toString());
+                if (macs == null) {
+                    showError(field, getString(R.string.pc_settings_wake_macs_invalid));
+                    return;
+                }
+                targets.storeManual(uuid, macs);
+                showActions();
+                dialog.dismiss();
+            }));
+            showEditor("wake_macs", dialog);
         }
 
         private Integer readNumber(EditText field, int min, int max) {

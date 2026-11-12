@@ -23,12 +23,16 @@ import java.util.Locale;
  * The wake targets a host's native API lists besides serverinfo's MAC (GET /wake): the MACs of its other adapters
  * and the subnet broadcasts that reach them. They live in their own preferences file keyed by host UUID, so a PC that
  * is asleep can still be woken through them; a host without {@link NativeCapabilities#WAKE} has none.
+ *
+ * <p>The user can add MACs of their own for a PC (an adapter that wakes it while the one paired over cannot), kept
+ * under {@code manual:<uuid>}: what the host lists replaces only its own entry, and only removing the PC drops them.
  */
 public final class WakeTargets {
     static final String PREFS = "wake_targets";
     /** A host lists one target per physical adapter; more than this is not a PC's worth. */
     static final int MAX_MACS = 8;
     static final int MAX_BROADCASTS = 16;
+    static final String MANUAL = "manual:";
 
     /** What is stored for one host. */
     public static final class Targets {
@@ -60,18 +64,68 @@ public final class WakeTargets {
                 || !new WakeTargets(context).load(computer.uuid).macs.isEmpty());
     }
 
+    /** The host's targets with the user's own MACs after them. */
     public synchronized Targets load(String hostUuid) {
+        List<String> manual = manual(hostUuid);
         String stored = hostUuid == null ? null : prefs.getString(hostUuid, null);
         if (stored == null) {
-            return Targets.NONE;
+            return manual.isEmpty() ? Targets.NONE : new Targets(manual, new ArrayList<>());
         }
         try {
             JSONObject json = new JSONObject(stored);
-            return new Targets(strings(json.optJSONArray("macs")), strings(json.optJSONArray("broadcasts")));
+            List<String> macs = strings(json.optJSONArray("macs"));
+            for (String mac : manual) {
+                if (!macs.contains(mac)) macs.add(mac);
+            }
+            return new Targets(macs, strings(json.optJSONArray("broadcasts")));
         } catch (JSONException e) {
             LimeLog.warning("Unreadable wake targets of " + hostUuid + ": " + e.getMessage());
-            return Targets.NONE;
+            return manual.isEmpty() ? Targets.NONE : new Targets(manual, new ArrayList<>());
         }
+    }
+
+    /** The MACs the user added for the PC, lowercase and colon-separated. */
+    public synchronized List<String> manual(String hostUuid) {
+        String stored = hostUuid == null ? null : prefs.getString(MANUAL + hostUuid, null);
+        if (stored == null) {
+            return new ArrayList<>();
+        }
+        try {
+            List<String> macs = new ArrayList<>();
+            for (String mac : strings(new JSONArray(stored))) addMac(macs, mac);
+            return macs;
+        } catch (JSONException e) {
+            LimeLog.warning("Unreadable wake addresses of " + hostUuid + ": " + e.getMessage());
+            return new ArrayList<>();
+        }
+    }
+
+    /** Keeps the user's MACs for the PC (already checked by {@link #parseMacs}); an empty list removes them. */
+    public synchronized void storeManual(String hostUuid, List<String> macs) {
+        if (macs.isEmpty()) {
+            prefs.edit().remove(MANUAL + hostUuid).apply();
+        } else {
+            prefs.edit().putString(MANUAL + hostUuid, new JSONArray(macs).toString()).apply();
+        }
+    }
+
+    /**
+     * The MACs typed into the PC's wake addresses, separated by commas, spaces or lines, as {@code 00:11:22:33:44:55},
+     * {@code 00-11-22-33-44-55} or {@code 001122334455}; each once. Null when one of them is not a MAC address, is all
+     * zeros, or there are more than {@link #MAX_MACS}.
+     */
+    public static List<String> parseMacs(String text) {
+        List<String> macs = new ArrayList<>();
+        for (String token : text.trim().split("[\\s,;]+")) {
+            if (token.isEmpty()) continue;
+            String mac = token.matches("(?i)[0-9a-f]{12}") ? token.replaceAll("(..)(?!$)", "$1:") : token;
+            if (!isMac(mac)) return null;
+            String normal = normal(mac);
+            if (macs.contains(normal)) continue;
+            if (macs.size() >= MAX_MACS || normal.equals("00:00:00:00:00:00")) return null;
+            macs.add(normal);
+        }
+        return macs;
     }
 
     /** Keeps the host's targets in place of the stored ones; MACs and broadcasts that are not well formed are left out. */
@@ -98,8 +152,14 @@ public final class WakeTargets {
         }
     }
 
+    /** Drops what the host listed; the user's own MACs stay (see {@link #forgetHost}). */
     public synchronized void forget(String hostUuid) {
         prefs.edit().remove(hostUuid).apply();
+    }
+
+    /** Drops everything kept for a removed PC, the user's own MACs too. */
+    public synchronized void forgetHost(String hostUuid) {
+        prefs.edit().remove(hostUuid).remove(MANUAL + hostUuid).apply();
     }
 
     /**
@@ -121,12 +181,19 @@ public final class WakeTargets {
         }
     }
 
+    private static boolean isMac(String mac) {
+        return mac.matches("(?i)[0-9a-f]{2}([:-])[0-9a-f]{2}(\\1[0-9a-f]{2}){4}");
+    }
+
+    private static String normal(String mac) {
+        return mac.replace('-', ':').toLowerCase(Locale.ROOT);
+    }
+
     private static void addMac(List<String> macs, String mac) {
-        if (mac == null || macs.size() >= MAX_MACS
-                || !mac.matches("(?i)[0-9a-f]{2}([:-])[0-9a-f]{2}(\\1[0-9a-f]{2}){4}")) {
+        if (mac == null || macs.size() >= MAX_MACS || !isMac(mac)) {
             return;
         }
-        String normal = mac.replace('-', ':').toLowerCase(Locale.ROOT);
+        String normal = normal(mac);
         // A zero MAC is a host that could not tell; it wakes nothing.
         if (!normal.equals("00:00:00:00:00:00") && !macs.contains(normal)) {
             macs.add(normal);

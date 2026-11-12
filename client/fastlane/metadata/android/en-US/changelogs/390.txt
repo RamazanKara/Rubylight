@@ -1,0 +1,6 @@
+• Frame Warp turns the picture as the game's camera turns, so the edges keep up like the middle. Needs Rubylight 4.1.0.
+• USB devices can go to the PC automatically: tick Automatic under USB devices in the stream menu.
+• Steam Controller trackpads, back buttons and grips in the Modern on-screen controls.
+• Classic controls: the Opacity slider works straight away.
+• New setting Group incoming video packets: turn it off if video turns blocky.
+• TV: clearer focus on tabs, PCs and settings.

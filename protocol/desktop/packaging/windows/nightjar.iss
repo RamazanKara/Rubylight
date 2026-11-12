@@ -2,7 +2,7 @@
 ; unpacked release zip, so the installer carries exactly the zip's files:
 ;
 ;   ISCC.exe /DAppVersion=4.0.0 /DNumericVersion=4.0.0.0 /DSourceDir=<unpacked zip>
-;            /DOutputDir=<folder> /DOutputBaseName=<name> nightjar.iss
+;            /DOutputDir=<folder> /DOutputBaseName=<name> [/DArch=arm64] nightjar.iss
 ;
 ; Per user, no administrator prompt: %LOCALAPPDATA%\Programs\Nightjar, a Start menu shortcut, an
 ; optional desktop shortcut and an Apps & features entry. The client keeps everything in
@@ -28,11 +28,18 @@
 #ifndef SourceDir
   #error Pass /DSourceDir=<the unpacked zip>
 #endif
+; x86_64 (the default) or arm64: the architecture of the zip's nightjar.exe.
+#ifndef Arch
+  #define Arch "x86_64"
+#endif
+#if Arch != "x86_64" && Arch != "arm64"
+  #error Arch must be x86_64 or arm64
+#endif
 #ifndef OutputDir
   #define OutputDir "."
 #endif
 #ifndef OutputBaseName
-  #define OutputBaseName "nightjar-desktop-" + AppVersion + "-windows-x86_64-setup"
+  #define OutputBaseName "nightjar-desktop-" + AppVersion + "-windows-" + Arch + "-setup"
 #endif
 
 ; The DLLs this Setup ships, as |a.dll|b.dll|, for IsShippedDll.
@@ -70,8 +77,14 @@ DisableProgramGroupPage=yes
 DisableReadyPage=yes
 ; English or German by the Windows display language, without asking.
 ShowLanguageDialog=no
+; The x86_64 build runs on x64 Windows and, emulated, on ARM64 Windows 11; the arm64 one only on ARM64.
+#if Arch == "arm64"
+ArchitecturesAllowed=arm64
+ArchitecturesInstallIn64BitMode=arm64
+#else
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+#endif
 MinVersion=10.0
 WizardStyle=modern
 SetupIconFile=..\icons\nightjar.ico

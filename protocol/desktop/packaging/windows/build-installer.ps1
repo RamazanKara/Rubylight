@@ -1,10 +1,12 @@
 # Builds the Windows installer from the release zip that package-windows.ps1 made, so the installer
 # carries exactly the zip's files:
 #
-#   .\build-installer.ps1 -Zip <nightjar-desktop-<version>-windows-x86_64.zip> [-Out <folder>]
+#   .\build-installer.ps1 -Zip <nightjar-desktop-<version>-windows-<x86_64 or arm64>.zip> [-Out <folder>]
 #       [-Iscc <ISCC.exe>] [-SignCommand <command>] [-Smoke]
 #
-# The result is nightjar-desktop-<version>-windows-x86_64-setup.exe beside the zip (or in -Out).
+# The result is nightjar-desktop-<version>-windows-<arch>-setup.exe beside the zip (or in -Out). The
+# arm64 setup installs on ARM64 Windows only; the x86_64 one on x64 Windows and, emulated, on ARM64
+# Windows 11 too. Both have the same AppId, so either replaces the other's install in place.
 # Needs Inno Setup 6 (ISCC.exe): -Iscc, $env:ISCC, or a usual install folder. The release workflow
 # installs a pinned, hash-checked Inno Setup first.
 #
@@ -39,8 +41,9 @@ $ErrorActionPreference = 'Stop'
 
 $Zip = (Resolve-Path $Zip).Path
 $zipName = [IO.Path]::GetFileNameWithoutExtension($Zip)
-if ($zipName -notmatch '^nightjar-desktop-(.+)-windows-x86_64$') { throw "$Zip is not named nightjar-desktop-<version>-windows-x86_64.zip" }
+if ($zipName -notmatch '^nightjar-desktop-(.+)-windows-(x86_64|arm64)$') { throw "$Zip is not named nightjar-desktop-<version>-windows-<x86_64 or arm64>.zip" }
 $version = $Matches[1]
+$arch = $Matches[2]
 # Windows wants four numbers in the file version: 4.0.0-rc.1 becomes 4.0.0.0.
 if ($version -notmatch '^(\d+)\.(\d+)\.(\d+)') { throw "version $version does not start with <major>.<minor>.<patch>" }
 $numeric = "$($Matches[1]).$($Matches[2]).$($Matches[3]).0"
@@ -66,7 +69,7 @@ function Build-Setup([string]$outDir, [string[]]$defines) {
         Expand-Archive -Path $Zip -DestinationPath $stage
         if (-not (Test-Path (Join-Path $stage 'nightjar.exe'))) { throw "$Zip has no nightjar.exe at its top" }
         $iscArgs = @('/Q', "/DAppVersion=$version", "/DNumericVersion=$numeric", "/DSourceDir=$stage",
-            "/DOutputDir=$outDir", "/DOutputBaseName=$zipName-setup") + $defines
+            "/DOutputDir=$outDir", "/DOutputBaseName=$zipName-setup", "/DArch=$arch") + $defines
         & $Iscc @iscArgs (Join-Path $PSScriptRoot 'nightjar.iss')
         if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)" }
     } finally {

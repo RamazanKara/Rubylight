@@ -67,7 +67,13 @@ pub fn offer(json: &str, current: &str, copy: &CopyKind) -> Result<Option<Releas
     }
     let url = value["html_url"].as_str().filter(|u| u.starts_with("https://github.com/")).ok_or("the release has no page")?;
     let version = tag.trim_start_matches('v');
-    let asset = copy.asset_name(version).ok_or(Failure::NoInstaller).and_then(|name| self_update::asset(&value, tag, &name));
+    // The first asset the release has; a broken one (address, digest, size) is reported, not skipped.
+    let asset = copy
+        .asset_names(version)
+        .iter()
+        .map(|name| self_update::asset(&value, tag, name))
+        .find(|found| !matches!(found, Err(Failure::NoInstaller)))
+        .unwrap_or(Err(Failure::NoInstaller));
     Ok(Some(Release { version: version.to_owned(), url: url.to_owned(), asset }))
 }
 
@@ -484,7 +490,10 @@ mod tests {
         assert!(newer_stable("v4.1.0", "4.0.0+local"), "only the tag is held to this");
     }
 
-    const SETUP: &str = "nightjar-desktop-4.1.0-windows-x86_64-setup.exe";
+    /// The setup an installed copy on this PC takes (x86_64 or arm64, by the PC's Windows).
+    fn setup() -> String {
+        CopyKind::Installed.asset_name("4.1.0").unwrap()
+    }
     const DIGEST: &str = "sha256:AB12000000000000000000000000000000000000000000000000000000000000";
 
     fn answer(tag: &str, draft: bool, pre: bool, assets: &str) -> String {
@@ -492,11 +501,11 @@ mod tests {
     }
 
     fn setup_asset(url: &str, digest: &str) -> String {
-        format!(r#"{{"name":"{SETUP}","size":1000,"browser_download_url":"{url}"{digest}}}"#)
+        format!(r#"{{"name":"{}","size":1000,"browser_download_url":"{url}"{digest}}}"#, setup())
     }
 
     fn github_url() -> String {
-        format!("https://github.com/RamazanKara/nightjar/releases/download/v4.1.0/{SETUP}")
+        format!("https://github.com/RamazanKara/nightjar/releases/download/v4.1.0/{}", setup())
     }
 
     #[test]
@@ -520,7 +529,7 @@ mod tests {
         let read = |assets: &str| offer(&answer("v4.1.0", false, false, assets), "4.0.0", &CopyKind::Installed).unwrap().unwrap().asset;
         let digest = format!(r#","digest":"{DIGEST}""#);
         assert_eq!(read(&setup_asset(&github_url(), &digest)), Ok(Asset {
-            name: SETUP.into(),
+            name: setup(),
             url: github_url(),
             digest: DIGEST[7..].to_ascii_lowercase(),
             size: 1000,
@@ -540,7 +549,7 @@ mod tests {
     #[test]
     fn an_asset_on_another_host_refuses() {
         let digest = format!(r#","digest":"{DIGEST}""#);
-        let url = format!("https://evil.example/RamazanKara/nightjar/releases/download/v4.1.0/{SETUP}");
+        let url = format!("https://evil.example/RamazanKara/nightjar/releases/download/v4.1.0/{}", setup());
         let release = offer(&answer("v4.1.0", false, false, &setup_asset(&url, &digest)), "4.0.0", &CopyKind::Installed).unwrap().unwrap();
         assert_eq!(release.asset, Err(Failure::Address(url)));
     }
@@ -779,7 +788,7 @@ mod tests {
     }
 
     fn asset_at(url: String, body: &[u8]) -> Asset {
-        Asset { name: SETUP.into(), url, digest: sha256(body), size: body.len() as u64 }
+        Asset { name: setup(), url, digest: sha256(body), size: body.len() as u64 }
     }
 
     /// Steps until the download is over. Whether Nightjar should exit.

@@ -2,10 +2,12 @@
 # protocol/desktop/pyrowave-sdk.pin with its patches, into a folder outside the repo:
 #
 #   .\scripts\build-pyrowave-sdk.ps1 [-Out <folder>] [-HostRepo <Rubylight checkout>] [-Jobs <n>]
+#       [-Msys <MSYS2 folder>]
 #
 # <Out> gets libpyrowave-shared-1.dll, build-info.txt (the pin, the patches, the DLL's SHA-256 and
 # the toolchain) and licenses\. The DLL is built by the Rubylight host's rust/tools/build_pyrowave.sh
-# (MSYS2 UCRT64 with git, gcc, cmake 3.27 or newer and ninja), which is copied next to the patch set
+# (MSYS2 UCRT64 with git, gcc, cmake 3.27 or newer and ninja; on an ARM64 PC CLANGARM64 with clang in
+# place of gcc, for the ARM64 package), which is copied next to the patch set
 # so it applies 0002 (from the host's rust/codec-patches/pyrowave) and 0003 to 0005 (from this
 # repo's app/src/main/jni/pyrowave-renderer/patches). The sources and the build tree stay in
 # <Out>\work, so a second run only rebuilds what changed.
@@ -13,12 +15,17 @@
 param(
     [string]$Out = 'C:\src\butterpollo-release\nj-pyrowave-sdk',
     [string]$HostRepo = 'C:\src\rubylight-rel',
-    [int]$Jobs = 0
+    [int]$Jobs = 0,
+    [string]$Msys = 'C:\msys64'
 )
 $ErrorActionPreference = 'Stop'
 
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$msys = 'C:\msys64'
+$msys = $Msys
+# The SDK is built for this PC's architecture, in the MSYS2 environment package-windows.ps1 uses.
+$arm64 = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq 'Arm64'
+$msystem = if ($arm64) { 'CLANGARM64' } else { 'UCRT64' }
+$envDir = $msystem.ToLowerInvariant()
 $pin = @{}
 Get-Content (Join-Path $repo 'protocol\desktop\pyrowave-sdk.pin') | Where-Object { $_ -match '^\s*[a-z_]+=' } | ForEach-Object {
     $key, $value = $_ -split '=', 2
@@ -57,7 +64,7 @@ foreach ($name in $pin['patches'] -split ',') {
 # Any other patch in the host's folder would be applied too: the stage holds the pin's patches only.
 
 function ConvertTo-Msys([string]$path) { '/' + $path.Substring(0, 1).ToLowerInvariant() + $path.Substring(2).Replace('\', '/') }
-$env:MSYSTEM = 'UCRT64'
+$env:MSYSTEM = $msystem
 $env:CHERE_INVOKING = '1'
 $env:PYROWAVE_WORKDIR = ConvertTo-Msys $work
 if ($Jobs -gt 0) { $env:PYROWAVE_JOBS = "$Jobs" }
@@ -78,17 +85,23 @@ if ($built['patches'] -ne $pin['patches']) { throw "built with patches $($built[
 Copy-Item $dll $Out -Force
 if (Test-Path "$Out\licenses") { Remove-Item -Recurse -Force "$Out\licenses" }
 Copy-Item (Join-Path $prefix 'share\licenses\pyrowave') "$Out\licenses" -Recurse
-# The DLL carries the MinGW runtime statically (it imports no libwinpthread or libstdc++ DLL), and
-# the licences of those libraries ask for their notices to travel with it.
+# The DLL carries the MinGW runtime statically (it imports no libwinpthread, libstdc++ or libc++ DLL),
+# and the licences of those libraries ask for their notices to travel with it: winpthreads, and
+# gcc's runtime library exception on UCRT64 or LLVM's libc++, libunwind and compiler-rt (one
+# licence, Apache-2.0 with LLVM exceptions) on CLANGARM64.
 $runtime = @{
-    'LICENSE.winpthreads'            = @('ucrt64\share\licenses\winpthreads\COPYING', 'ucrt64\share\licenses\libwinpthread\COPYING')
+    'LICENSE.winpthreads' = @("$envDir\share\licenses\winpthreads\COPYING", "$envDir\share\licenses\libwinpthread\COPYING")
+}
+if ($arm64) {
+    $runtime['LICENSE.llvm-runtime'] = @("$envDir\share\licenses\libc++\LICENSE", "$envDir\share\licenses\libunwind\LICENSE")
+} else {
     # gcc 16.2 split gcc-libs into libgcc, libstdc++ and others; older MSYS2 still has gcc-libs.
-    'LICENSE.gcc-runtime-exception'  = @('ucrt64\share\licenses\libgcc\COPYING.RUNTIME', 'ucrt64\share\licenses\gcc-libs\COPYING.RUNTIME', 'ucrt64\share\licenses\gcc\COPYING.RUNTIME')
+    $runtime['LICENSE.gcc-runtime-exception'] = @("$envDir\share\licenses\libgcc\COPYING.RUNTIME", "$envDir\share\licenses\gcc-libs\COPYING.RUNTIME", "$envDir\share\licenses\gcc\COPYING.RUNTIME")
 }
 foreach ($name in $runtime.Keys) {
     $candidates = @($runtime[$name] | ForEach-Object { Join-Path $msys $_ })
     $source = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-    if (-not $source) { throw "none of $($candidates -join ', ') exists; install the MSYS2 package that owns it (mingw-w64-ucrt-x86_64-winpthreads, mingw-w64-ucrt-x86_64-libgcc or -gcc-libs)" }
+    if (-not $source) { throw "none of $($candidates -join ', ') exists; install the MSYS2 package that owns it (winpthreads, and libgcc or gcc-libs on UCRT64, libc++ on CLANGARM64)" }
     Copy-Item $source "$Out\licenses\$name"
 }
 $sha = (Get-FileHash (Join-Path $Out 'libpyrowave-shared-1.dll') -Algorithm SHA256).Hash.ToLowerInvariant()

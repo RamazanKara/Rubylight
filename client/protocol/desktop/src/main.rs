@@ -2262,7 +2262,7 @@ Redacted logs, oldest line first; addresses, PC names, PINs and credentials are 
             hdr_swapchain: sdl::swapchain_takes_hdr(self.renderer),
             made_for_hdr: state.made_for_hdr,
             gpu_failed: state.gpu_failed.is_some(),
-            pq_unused: gpu && handheld::pq_unused(handheld::gamescope(), sdl::output_decision(), sdl::hdr10_offered(self.renderer), sdl::pq_failed()),
+            pq_unused: gpu && handheld::pq_unused(handheld::keeps_scrgb_first(), sdl::output_decision(), sdl::hdr10_offered(self.renderer), sdl::pq_failed()),
             hdr_unreachable: gpu && sdl::pq_failed() && !sdl::scrgb_offered(self.renderer),
         };
         let vulkan_choice = vulkan_video::Choice::from_environment();

@@ -56,7 +56,7 @@ Steam keeps the Steam button in Game Mode, so the Hold Guide shortcut does not r
 
 ## HDR
 
-With HDR turned on in the Steam Deck OLED's display settings (or gamescope started with `--hdr-enabled` on another handheld), Nightjar presents HDR through gamescope: scRGB where gamescope offers it, HDR10 (PQ) where it offers only that. The log names the renderer and the choice (`nightjar: renderer "gpu": swapchain offers ...`). Without HDR output, an HDR stream plays in SDR and its first seconds say so.
+With HDR turned on in the Steam Deck OLED's display settings (or gamescope started with `--hdr-enabled` on another handheld), Nightjar presents HDR through gamescope: an HDR stream as HDR10 (PQ) where gamescope offers it, else scRGB. The log names the renderer and the choice (`nightjar: renderer "gpu": swapchain offers ...`). Without HDR output, an HDR stream plays in SDR and its first seconds say so.
 
 ## What the Flatpak can't do
 

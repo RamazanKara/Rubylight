@@ -76,6 +76,27 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | Reproduction and scope | [Probes](#reproduce-on-another-machine) · [Hardware covered](#hardware-covered) |
 | PyroWave encode overlap, send buffer, Nightjar receive path | [November 10, PyroWave at 1.4 Gbps](#november-10-pyrowave-at-14-gbps-to-a-780m-laptop) |
 
+## November 12: Nightjar on Linux, HDR output under gamescope and VA-API pictures that go through memory
+
+A report of a 4K120 AV1 HDR stream to a mini PC with a mobile Radeon under gamescope: Nightjar showed 84 of 121 pictures a second, each taking 11.6 ms to draw, where moonlight-qt showed them all. Not reproduced: no Radeon runs Linux here, and the report has no log. Two paths that fit it were measured and changed. Kept: under gamescope an HDR stream presents as HDR10 PQ where the swapchain offers it, as on a desktop (`NIGHTJAR_GAMESCOPE_PQ=0` keeps scRGB first), and a VA-API stream whose pictures cannot be mapped into the GPU renderer's Vulkan images is decoded with Vulkan video on the renderer's device where that decodes it, instead of each picture being read back and uploaded (`NIGHTJAR_UNMAPPED_VULKAN_VIDEO=0` keeps VA-API through memory).
+
+Release build of Nightjar desktop against FFmpeg 8.1.2 in an Arch container on a NUC with an Iris Plus 655 (Mesa 26.2.6, iHD 26.3.5), under headless gamescope 3.17.0 at 3840x2160 with `--hdr-enabled --hdr-debug-force-support`, HEVC Main10 at 80 Mbps from an isolated 3.11.10 host that captured a still desktop, so about 20 pictures a second arrived: these are costs per picture, not what a 60 or 120 fps stream holds. 40 s per run with the first 5 s discarded, single runs, about 690 pictures each. Times in ms, p50 / p95. Decode runs from the decoder's input to its picture, which for VA-API includes the wait for the surface, while Vulkan video hands its picture on before the GPU has decoded it, so its decode time is not comparable; the stream health's display p95 (picture to present) is given for it below. Draw runs from the presenter's start on a picture to the return of its present call.
+
+| Arm | Decode | Draw |
+| --- | ---: | ---: |
+| scRGB (`NIGHTJAR_GAMESCOPE_PQ=0`), pictures mapped | 6.47 / 9.09 | 2.16 / 2.56 |
+| HDR10 PQ, pictures mapped | 6.41 / 8.37 | 1.94 / 2.39 |
+| scRGB, overlay on | 6.44 / 8.83 | 2.40 / 2.87 |
+| HDR10 PQ, overlay on | 6.51 / 9.24 | 2.40 / 2.86 |
+| HDR10 PQ, VA-API through memory (`NIGHTJAR_VAAPI_VULKAN_MAP=0`) | 40.12 / 52.38 | 9.55 / 11.48 |
+| HDR10 PQ, Vulkan video in its place (with `NIGHTJAR_UNMAPPED_VULKAN_VIDEO=1`, `ANV_DEBUG=video-decode`) | 1.25 / 1.50 | 2.42 / 3.46 |
+| HDR10 PQ, Vulkan video first | 1.23 / 1.54 | 2.39 / 3.18 |
+
+- **Through memory is the expensive path.** A 4K 10-bit picture is 25 MB; mapping and uploading it cost 34 ms more in the decoder and 7.6 ms more at the draw than the mapped picture (32.47 / 48.43 and 9.80 / 12.38 in a second run), and the stream's health check named the decoder. The draw alone, 9.6 to 11.5 ms, is longer than a frame at 120 fps, and is what the report showed. With Vulkan video in VA-API's place the draw is 2.4 ms. The stream health's decode and display p95 were 1.5 and 18.9 ms for it, 7.4 and 3.0 ms for mapped VA-API and 41.9 and 14.2 ms through memory: Vulkan video is far ahead of memory and behind mapped VA-API, which stays first where its pictures map.
+- **PQ against scRGB is a small gain on the client.** A frame of only the picture is drawn 0.22 ms sooner as PQ (one pass into a 10-bit image); with the overlay on, the two are the same. Headless gamescope scans nothing out, so what gamescope does with an fp16 scRGB surface against a PQ one, on a display, was not measured.
+- **Not measured:** AV1 (this GPU does not decode it), a Radeon, 60 or 120 pictures a second, a gamescope that drives a display, and why a mapping is refused on the reporter's PC (the log line `VAAPI pictures go through memory to the GPU renderer: <why>` says).
+- Arch's FFmpeg now has libavutil 61, whose Vulkan structures Nightjar does not know, so a build against it maps no VA-API picture and logs why; the release packages bundle FFmpeg 8.1.2.
+
 ## November 11: what a full optimization review left
 
 Five read-only reviews (host capture and encode; host send, audio and input; Nightjar's protocol crate; Nightjar desktop; Nightjar Android) listed what remained after the November 10 work, each checked against this file first. Everything was built, measured where our hardware reaches, and kept only if it measured no worse. Host fixtures: B = this batch's package, A = the Rubylight 3.11.8 package; RX 7900 XT and Ryzen 7 5800X3D, isolated test host on loopback, the independent receiver with D3D11VA, `e2e.py --record --skip-first 5`, 45 s per run, ABBA. Times in ms, median / p95 / p99. Device runs used the 780M laptop (Nightjar desktop on Windows) and the NUC (Iris 655, Nightjar desktop under headless sway), both against an isolated host on the PC.

@@ -414,7 +414,11 @@ public class StreamSettings extends NightjarActivity {
         if (adapter == null) return;
         Integer remembered = section == null ? null : paneSelection.get(section);
         int position = PaneFocus.target(remembered == null ? -1 : remembered, adapter.getCount(), adapter::isEnabled);
-        if (position >= 0) list.setSelection(position);
+        // setSelection puts the row at the list's top, and so does the list as it takes focus. For the first row that scrolled
+        // its group's gap out of sight, and the list, now scrolled, laid its top fade over the row and took the top edge of its
+        // ring (nightjar#7, Shield TV). The row stands the fade's length down instead, as the D-pad leaves a row, so the first
+        // row stays under its gap with the list at its top. This comes after requestFocus, which places the row too.
+        if (position >= 0) list.setSelectionFromTop(position, list.getVerticalFadingEdgeLength());
     }
 
     /** Called when a section row is selected: the right pane follows after a short pause, so a fast scroll does not rebuild it per row. */
@@ -1942,7 +1946,8 @@ public class StreamSettings extends NightjarActivity {
                     list.post(() -> {
                         int position = RootFragment.positionOf(list, key);
                         if (position >= 0) {
-                            list.setSelection(position);
+                            // Below the top fade, as focusContentPane places a row: at the very top the fade covered its ring.
+                            list.setSelectionFromTop(position, list.getVerticalFadingEdgeLength());
                             if (activity.twoPane && focus) list.requestFocus();
                         } else if (activity.twoPane) {
                             // A row of the list of sections, such as the presets.
@@ -2339,7 +2344,8 @@ public class StreamSettings extends NightjarActivity {
             if (list == null || list.isInTouchMode()) return;
             list.post(() -> {
                 int position = RootFragment.positionOf(list, select);
-                if (position >= 0) list.setSelection(position);
+                // Below the top fade, as focusContentPane places a row: at the very top the fade covered its ring.
+                if (position >= 0) list.setSelectionFromTop(position, list.getVerticalFadingEdgeLength());
             });
         }
 

@@ -70,6 +70,20 @@ public class PcViewLifecycleTest {
     private final java.util.List<String> invalidated = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     private ActivityController<Library> pairingScreen(CountDownLatch pollingStopped, int port) {
+        ActivityController<Library> controller = emptyScreen(pollingStopped);
+        ComputerDetails computer = new ComputerDetails();
+        computer.uuid = "host-uuid";
+        computer.name = "PC";
+        computer.state = ComputerDetails.State.ONLINE;
+        computer.pairState = PairingManager.PairState.NOT_PAIRED;
+        computer.activeAddress = new ComputerDetails.AddressTuple("127.0.0.1", port);
+        ReflectionHelpers.callInstanceMethod(controller.get(), "updateComputer",
+                ReflectionHelpers.ClassParameter.from(ComputerDetails.class, computer));
+        return controller;
+    }
+
+    /** The PCs page, polling a manager that has reported no PC yet. */
+    private ActivityController<Library> emptyScreen(CountDownLatch pollingStopped) {
         Application application = RuntimeEnvironment.getApplication();
         GlPreferences gl = GlPreferences.readPreferences(application);
         gl.savedFingerprint = Build.FINGERPRINT;
@@ -95,14 +109,6 @@ public class PcViewLifecycleTest {
             }
         });
         ReflectionHelpers.callInstanceMethod(controller.get(), "startComputerUpdates");
-        ComputerDetails computer = new ComputerDetails();
-        computer.uuid = "host-uuid";
-        computer.name = "PC";
-        computer.state = ComputerDetails.State.ONLINE;
-        computer.pairState = PairingManager.PairState.NOT_PAIRED;
-        computer.activeAddress = new ComputerDetails.AddressTuple("127.0.0.1", port);
-        ReflectionHelpers.callInstanceMethod(controller.get(), "updateComputer",
-                ReflectionHelpers.ClassParameter.from(ComputerDetails.class, computer));
         return controller;
     }
 
@@ -991,6 +997,15 @@ public class PcViewLifecycleTest {
         }
     }
 
+    /** A view's left edge in its window as laid out, whatever scale it or a parent is drawn at. */
+    private static int laidOutLeft(android.view.View view) {
+        int left = 0;
+        for (android.view.View at = view; at.getParent() instanceof android.view.View; at = (android.view.View) at.getParent()) {
+            left += at.getLeft() - ((android.view.View) at.getParent()).getScrollX();
+        }
+        return left;
+    }
+
     /** The row started at x=330 with the title at x=96, and the capsule 8 px below Home's. */
     @Test
     @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
@@ -1001,11 +1016,10 @@ public class PcViewLifecycleTest {
             report(pc("b", "Beta", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED));
             assertEquals(com.limelight.console.HomeShellTest.tvCapsule(), com.limelight.ui.TvAudit.topCapsule(screen));
             GridView grid = screen.findViewById(R.id.fragmentView);
-            int[] card = new int[2];
-            grid.getChildAt(0).findViewById(R.id.grid_card).getLocationInWindow(card);
-            int[] title = new int[2];
-            screen.findViewById(R.id.pc_focus_title).getLocationInWindow(title);
-            assertEquals(title[0], card[0]);
+            // Where the two are laid out: the first PC has the focus, and a focused tile is drawn larger around its
+            // middle.
+            assertEquals(96, laidOutLeft(screen.findViewById(R.id.pc_focus_title)));
+            assertEquals(96, laidOutLeft(grid.getChildAt(0).findViewById(R.id.grid_card)));
         } finally {
             controller.pause().stop().destroy();
         }
@@ -1041,6 +1055,82 @@ public class PcViewLifecycleTest {
         } finally {
             controller.pause().stop().destroy();
         }
+    }
+
+    /**
+     * Shield TV, Android 11: the PCs page opened with the title naming the first PC and the hints offering OK, but its tile
+     * had no ring, glow or scale until Right ringed the second. The grid, handed an empty adapter, took no focus until the
+     * adapter reported the PCs, so the focus came from inside its first layout, which had already left the tile unmarked.
+     */
+    @Test
+    @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")
+    public void onATelevisionTheFirstPcWearsTheRingBeforeAnyKey() {
+        ActivityController<Library> controller = emptyScreen(new CountDownLatch(0));
+        try {
+            Library screen = controller.get();
+            com.limelight.ui.TvScreensPreviewTest.leaveTouchMode(screen);
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            // As polling starts, the manager reports every PC it knows, one after the other, before the list is laid out.
+            polling[0].notifyComputerUpdated(pc("a", "Alpha", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED));
+            polling[0].notifyComputerUpdated(pc("b", "Beta", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED));
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            assertEquals(2, grid.getCount());
+            assertFalse(grid.isInTouchMode());
+            assertTrue("the list holds focus", grid.isFocused());
+            assertEquals(0, grid.getSelectedItemPosition());
+            assertEquals("Alpha", ((TextView) screen.findViewById(R.id.pc_focus_title)).getText().toString());
+            assertTrue("the first tile wears the ring with no key pressed", wearsRing(grid, 0));
+            assertFalse(wearsRing(grid, 1));
+
+            assertTrue("both tiles share a row", grid.getNumColumns() > 1);
+            grid.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_RIGHT));
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertEquals(1, grid.getSelectedItemPosition());
+            assertTrue("Right moves the ring to the second tile", wearsRing(grid, 1));
+            assertFalse(wearsRing(grid, 0));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** A touched phone keeps no selection as its first PCs arrive: no row wears the ring until a key is pressed. */
+    @Test
+    @Config(qualifiers = "w411dp-h891dp-xxhdpi")
+    public void onATouchedPhoneTheFirstPcsWearNoRing() {
+        ActivityController<Library> controller = emptyScreen(new CountDownLatch(0));
+        try {
+            Library screen = controller.get();
+            Object root = ReflectionHelpers.callInstanceMethod(screen.getWindow().getDecorView(), "getViewRootImpl");
+            ReflectionHelpers.callInstanceMethod(root, "ensureTouchMode", ReflectionHelpers.ClassParameter.from(boolean.class, true));
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            polling[0].notifyComputerUpdated(pc("a", "Alpha", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED));
+            polling[0].notifyComputerUpdated(pc("b", "Beta", ComputerDetails.State.ONLINE, PairingManager.PairState.PAIRED));
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            assertTrue(grid.isInTouchMode());
+            assertTrue(grid.getChildCount() > 0);
+            assertTrue("a phone lists PCs as rows", grid.getChildAt(0) instanceof com.limelight.ui.PcRow);
+            assertFalse(grid.isFocused());
+            assertEquals(android.widget.AdapterView.INVALID_POSITION, grid.getSelectedItemPosition());
+            for (int i = 0; i < grid.getChildCount(); i++) {
+                assertFalse(grid.getChildAt(i).isSelected());
+            }
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** The grid marks the tile it selects; its ring takes that state from it. */
+    private static boolean wearsRing(GridView grid, int position) {
+        android.view.View tile = grid.getChildAt(position - grid.getFirstVisiblePosition());
+        if (tile == null || !tile.isSelected()) return false;
+        for (int state : tile.findViewById(R.id.grid_ring).getDrawableState()) {
+            if (state == android.R.attr.state_selected) return true;
+        }
+        return false;
     }
 
     /** With a remote the sheet opens with the ring on its first row. */

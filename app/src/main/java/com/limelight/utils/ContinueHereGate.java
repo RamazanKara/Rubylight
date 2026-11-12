@@ -24,6 +24,7 @@ import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.pin.PinGate;
 import com.limelight.pin.PinLockActivity;
+import com.limelight.ui.GlassForm;
 import com.limelight.ui.NavigationDialogBuilder;
 
 import java.util.concurrent.atomic.AtomicReference;
@@ -130,7 +131,12 @@ public final class ContinueHereGate {
 
     @VisibleForTesting
     static AlertDialog prompt(Activity parent, ComputerDetails computer, NativeApiClient client, StreamMove move, Consumer<Context> start) {
-        AlertDialog dialog = new NavigationDialogBuilder(parent)
+        NavigationDialogBuilder builder = new NavigationDialogBuilder(parent);
+        // A TV's game page has Play, Favourite and Quit game on the line where the prompt's buttons land, and a TV without
+        // blur (a Shield on Android 11) shows them sharp under the dim: Quit game stood just past the panel's edge, as if the
+        // panel cut it. On a TV the prompt stands on the sky instead, as the pairing PIN does.
+        if (GlassForm.of(parent) == GlassForm.TELEVISION) builder.ownSurface();
+        AlertDialog dialog = builder
                 .setMessage(parent.getString(R.string.continue_here_playing_on, move.playingTitle, move.playingOn))
                 .setPositiveButton(R.string.continue_here_action, (shown, which) -> PinLockActivity.runAfterPin(
                         parent, computer.uuid, computer.displayName(), () -> press(parent, client::continueHere, start)))

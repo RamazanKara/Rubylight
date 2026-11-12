@@ -264,14 +264,14 @@ export const settings: Setting[] = [
       ],
     },
     default: 3000,
-    details: 'Also applies to exclusive layouts when Restore displays on disconnect is turned off. A custom delay is in milliseconds.',
+    details: 'Also applies to exclusive layouts when Restore displays on disconnect is turned off, unless Keep monitors off while paused is on. A custom delay is in milliseconds.',
   },
   {
     key: 'dd_paused_virtual_display_timeout_secs',
     label: 'Keep a disconnected display for',
     description:
-      'How long a disconnected device’s non-exclusive display is kept while its app runs.',
-    details: 'Exclusive layouts always use the restore delay so the physical monitors become usable again. A custom time is in seconds.',
+      'How long a disconnected device’s display is kept while its app runs.',
+    details: 'Unless Keep monitors off while paused is on, exclusive layouts use the restore delay instead, so the physical monitors become usable again. A custom time is in seconds.',
     category: 'display',
     group: 'After a stream',
     control: {
@@ -295,7 +295,7 @@ export const settings: Setting[] = [
     key: 'dd_hold_layout_while_paused',
     label: 'Keep monitors off while paused',
     description:
-      'With an exclusive layout, keep switching the monitors back off while a device is disconnected, until it returns or the restore delay ends.',
+      'With an exclusive layout, keep the monitors off while a device is disconnected, until it returns or its display is no longer kept.',
     details:
       'For monitors that wake up or re-announce themselves over HDMI and pull the game onto them. While it holds, Win+P cannot bring a monitor back; the restore hotkey still can.',
     category: 'display',

@@ -209,9 +209,13 @@ impl Config {
     }
     /// How long a disconnected stream may keep its display. Exclusive layouts
     /// must release even when an older profile disables restoration: otherwise
-    /// the local user's physical displays can remain off for hours.
+    /// the local user's physical displays can remain off for hours. Keeping the
+    /// monitors off while paused (`dd_hold_layout_while_paused`, which no older
+    /// profile carries) is the user's choice to keep them off: such a layout keeps
+    /// its display as long as an ordinary one would (issue #92).
     pub fn display_disconnect_delay(&self, exclusive: bool) -> Option<std::time::Duration> {
-        if exclusive || self.boolean("dd_config_revert_on_disconnect", true) {
+        let forced = exclusive && !self.boolean("dd_hold_layout_while_paused", false);
+        if forced || self.boolean("dd_config_revert_on_disconnect", true) {
             Some(std::time::Duration::from_millis(
                 self.integer("dd_config_revert_delay", 3000).max(0) as u64,
             ))

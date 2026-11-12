@@ -581,6 +581,20 @@ fn disconnected_displays_restore_by_default_and_exclusive_layouts_cannot_be_reta
         ),
         ("dd_config_revert_delay=0", Some(0), Some(0)),
         ("dd_config_revert_delay=-1", Some(0), Some(0)),
+        // Issue #92: keeping the monitors off while paused is the user's choice, which
+        // no older profile carries, so the exclusive layout keeps its display as chosen.
+        (
+            "dd_hold_layout_while_paused=true\ndd_config_revert_on_disconnect=false\ndd_paused_virtual_display_timeout_secs=0",
+            None,
+            None,
+        ),
+        (
+            "dd_hold_layout_while_paused=true\ndd_config_revert_on_disconnect=false\ndd_paused_virtual_display_timeout_secs=60",
+            Some(60_000),
+            Some(60_000),
+        ),
+        // Restoring on disconnect still ends it after the restore delay.
+        ("dd_hold_layout_while_paused=true", Some(3000), Some(3000)),
         (
             "dd_config_revert_on_disconnect=invalid",
             Some(3000),

@@ -1,1 +1,0 @@
-- **Game settings per device go back as soon as the game closes.** A game that had exited could still count as running while another program, such as Steam or Playnite, held on to it. Its settings files then stayed in place, the console warned that they were not back yet, and starting the game again was refused until they were (issue #82).

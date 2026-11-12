@@ -159,6 +159,16 @@ if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Force $stage | Out-Null
 Copy-Item $exe $stage
 foreach ($path in $found.Values) { Copy-Item $path $stage }
+# MSYS2 runtime DLLs whose licence must travel with them: the ARM64 exe imports LLVM's
+# libunwind.dll (Rust's gnullvm target links it dynamically), under Apache-2.0 with LLVM
+# exceptions, whose exception covers only code built into a program, not the DLL itself.
+$llvmRuntime = @{ 'libunwind.dll' = 'libunwind'; 'libc++.dll' = 'libc++' }
+foreach ($dll in $llvmRuntime.Keys | Where-Object { $found.Contains($_) }) {
+    $licence = Join-Path (Split-Path $msys) "share\licenses\$($llvmRuntime[$dll])\LICENSE"
+    if (-not (Test-Path $licence)) { throw "$dll ships, but its licence $licence is missing; install the MSYS2 package that owns it" }
+    New-Item -ItemType Directory -Force (Join-Path $stage 'licenses-llvm') | Out-Null
+    Copy-Item $licence (Join-Path $stage "licenses-llvm\LICENSE.$($llvmRuntime[$dll])")
+}
 if ($sdkDll) {
     Copy-Item $sdkDll $stage
     Copy-Item (Join-Path $PyrowaveSdkDir 'build-info.txt') (Join-Path $stage 'pyrowave-sdk-build-info.txt')

@@ -8,6 +8,12 @@
 //! error (exit code 1) instead of leaving the launcher open; a wrong command line exits with 64.
 //! Cancelling the start closes Nightjar with exit code 0.
 //!
+//! moonlight-qt's form works too, for tools written for it (MoonDeck):
+//! `nightjar [options] stream <host> <app>`, which closes Nightjar when the stream ends, with
+//! moonlight-qt's stream options (`--resolution 1920x1080`, `--fps`, `--bitrate` in Kbps, `--hdr`,
+//! `--no-vsync` and the others in [`StreamOptions`]). They change the settings of this run's
+//! streams only and are never saved.
+//!
 //! `nightjar <pairing link>` is how the system opens a `rubylight:` link (see `link_channel`).
 
 use std::ffi::OsString;
@@ -15,16 +21,26 @@ use std::time::{Duration, Instant};
 
 use nightjar_core::http::{App, AppControl};
 
+use crate::config::{AudioChannels, CodecPreference, DecoderPreference, FramePacing, MouseMode, Settings, WindowMode};
+
 /// How long the PC gets to answer and list its apps.
 const START_LIMIT: Duration = Duration::from_secs(60);
 /// How long a launched stream gets to start: a backstop, the connection's own steps time out
 /// sooner.
 const LAUNCH_LIMIT: Duration = Duration::from_secs(180);
 
-pub const USAGE: &str = "usage: nightjar [--version | --host <name|uuid> [--app <name|uuid>] [--quit-on-exit] | <pairing link>]";
+pub const USAGE: &str = "usage: nightjar [--version | --host <name|uuid> [--app <name|uuid>] [--quit-on-exit] [stream options] | [stream options] stream <host> <app> | <pairing link>]
+stream options, as moonlight-qt's: --resolution <W>x<H>, --720, --1080, --1440, --4K, --fps <n>, --bitrate <Kbps>,
+  --video-codec auto|H.264|HEVC|AV1, --video-decoder auto|software|hardware, --audio-config stereo|5.1-surround|7.1-surround,
+  --display-mode fullscreen|windowed|borderless, --capture-system-keys never|fullscreen|always, and these with their --no- forms:
+  --hdr, --vsync, --frame-pacing, --performance-overlay, --quit-after, --yuv444, --audio-on-host, --absolute-mouse,
+  --game-optimization, --multi-controller, --swap-gamepad-buttons, --background-gamepad";
 
 /// Not the link itself: it holds a PIN and passphrase, and this goes to the log.
 const LINK_NOT_ALONE: &str = "a pairing link is the only argument";
+
+/// moonlight-qt's form needs both.
+const STREAM_NEEDS: &str = "stream needs a host and an app: stream <host> <app>";
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Launch {
@@ -35,6 +51,221 @@ pub struct Launch {
     /// screen that joined it (`--second-screen-join`). The PC reports no running game to this
     /// device then, so `app` cannot find it.
     pub join: Option<i32>,
+    /// moonlight-qt's stream options, for this run's streams from this PC.
+    pub options: StreamOptions,
+}
+
+/// moonlight-qt's stream options (its `app/cli/commandlineparser.cpp`), as given: None leaves the
+/// saved setting. They change the settings of one run's streams and are never saved. Options
+/// Nightjar has no setting for (`--packet-size`, `--mouse-buttons-swap`, `--touchscreen-trackpad`,
+/// `--mute-on-focus-loss`, `--reverse-scroll-direction`, `--keep-awake`) are taken and change
+/// nothing, so a command line written for moonlight-qt still starts.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct StreamOptions {
+    pub resolution: Option<(u32, u32)>,
+    pub fps: Option<u32>,
+    pub bitrate_kbps: Option<u32>,
+    pub codec: Option<CodecPreference>,
+    pub decoder: Option<DecoderPreference>,
+    pub audio: Option<AudioChannels>,
+    pub window_mode: Option<WindowMode>,
+    /// `--capture-system-keys`: whether they are captured, and whether only in full screen.
+    pub system_keys: Option<(bool, bool)>,
+    pub hdr: Option<bool>,
+    pub vsync: Option<bool>,
+    pub frame_pacing: Option<bool>,
+    pub overlay: Option<bool>,
+    pub yuv444: Option<bool>,
+    pub audio_on_host: Option<bool>,
+    pub absolute_mouse: Option<bool>,
+    pub game_optimization: Option<bool>,
+    pub multi_controller: Option<bool>,
+    pub swap_face_buttons: Option<bool>,
+    pub background_gamepad: Option<bool>,
+    /// `--quit-after`: leaving the stream quits the game on the PC; `--no-quit-after`: it does
+    /// not, whatever the game's own choice says.
+    pub quit_after: Option<bool>,
+}
+
+/// moonlight-qt's on/off options, each with its `--no-` form; the last one given wins.
+const TOGGLES: [&str; 17] = [
+    "hdr",
+    "vsync",
+    "frame-pacing",
+    "performance-overlay",
+    "yuv444",
+    "audio-on-host",
+    "absolute-mouse",
+    "game-optimization",
+    "multi-controller",
+    "swap-gamepad-buttons",
+    "background-gamepad",
+    "quit-after",
+    // Taken, and nothing changes: Nightjar has no such setting.
+    "mouse-buttons-swap",
+    "touchscreen-trackpad",
+    "mute-on-focus-loss",
+    "reverse-scroll-direction",
+    "keep-awake",
+];
+
+/// moonlight-qt's options with a value; the last one given wins.
+const VALUES: [&str; 9] = [
+    "resolution",
+    "fps",
+    "bitrate",
+    "packet-size",
+    "display-mode",
+    "audio-config",
+    "capture-system-keys",
+    "video-codec",
+    "video-decoder",
+];
+
+impl StreamOptions {
+    fn any(&self) -> bool {
+        *self != Self::default()
+    }
+
+    /// Changes `settings` for one stream as moonlight-qt does: a resolution or frame rate given
+    /// without a bitrate picks the bitrate for them.
+    pub fn apply(&self, settings: &mut Settings) {
+        fn set(value: Option<bool>, field: &mut bool) {
+            if let Some(value) = value {
+                *field = value;
+            }
+        }
+        if let Some((width, height)) = self.resolution {
+            (settings.width, settings.height) = (width, height);
+        }
+        if let Some(fps) = self.fps {
+            settings.fps = fps;
+        }
+        match self.bitrate_kbps {
+            Some(kbps) => settings.bitrate_kbps = kbps,
+            None if self.resolution.is_some() || self.fps.is_some() => settings.bitrate_kbps = 0,
+            None => {}
+        }
+        if let Some(codec) = self.codec {
+            settings.codec = codec;
+        }
+        if let Some(decoder) = self.decoder {
+            settings.decoder = decoder;
+        }
+        if let Some(audio) = self.audio {
+            settings.audio = audio;
+        }
+        if let Some(mode) = self.window_mode {
+            settings.window_mode = mode;
+        }
+        if let Some((capture, fullscreen_only)) = self.system_keys {
+            settings.capture_system_keys = capture;
+            settings.system_keys_fullscreen_only = fullscreen_only;
+        }
+        set(self.hdr, &mut settings.hdr);
+        set(self.vsync, &mut settings.vsync);
+        // moonlight-qt's frame pacing shows every frame in turn, one a refresh: Smoothest video.
+        // A pacing already chosen that waits for the refresh is kept.
+        match self.frame_pacing {
+            Some(true) if settings.frame_pacing == FramePacing::Latency => settings.frame_pacing = FramePacing::Smoothness,
+            Some(false) => settings.frame_pacing = FramePacing::Latency,
+            _ => {}
+        }
+        set(self.overlay, &mut settings.overlay);
+        if let Some(on) = self.yuv444 {
+            // "Sharper colored text" is kept in both keys (`Settings::experimental_packed_444`).
+            settings.experimental_packed_444 = on;
+            settings.prefer_yuv444 = on;
+        }
+        set(self.audio_on_host, &mut settings.play_audio_on_host);
+        if let Some(absolute) = self.absolute_mouse {
+            settings.mouse_mode = if absolute { MouseMode::Absolute } else { MouseMode::Capture };
+        }
+        set(self.game_optimization, &mut settings.sops);
+        set(self.multi_controller, &mut settings.multi_controller);
+        set(self.swap_face_buttons, &mut settings.swap_face_buttons);
+        set(self.background_gamepad, &mut settings.background_controllers);
+    }
+
+    fn toggle(&mut self, name: &str, on: bool) {
+        let slot = match name {
+            "hdr" => &mut self.hdr,
+            "vsync" => &mut self.vsync,
+            "frame-pacing" => &mut self.frame_pacing,
+            "performance-overlay" => &mut self.overlay,
+            "yuv444" => &mut self.yuv444,
+            "audio-on-host" => &mut self.audio_on_host,
+            "absolute-mouse" => &mut self.absolute_mouse,
+            "game-optimization" => &mut self.game_optimization,
+            "multi-controller" => &mut self.multi_controller,
+            "swap-gamepad-buttons" => &mut self.swap_face_buttons,
+            "background-gamepad" => &mut self.background_gamepad,
+            "quit-after" => &mut self.quit_after,
+            _ => return,
+        };
+        *slot = Some(on);
+    }
+
+    fn value(&mut self, name: &str, value: &str) -> Result<(), String> {
+        let wrong = || format!("--{name} cannot be {value}");
+        let number = |n: &str| n.parse::<u32>().ok().filter(|n| *n > 0).ok_or_else(wrong);
+        // moonlight-qt compares its choices ignoring case.
+        let choice = value.to_ascii_lowercase();
+        match name {
+            "resolution" => {
+                let (w, h) = choice.split_once('x').ok_or_else(wrong)?;
+                self.resolution = Some((number(w)?, number(h)?));
+            }
+            "fps" => self.fps = Some(number(value)?),
+            "bitrate" => self.bitrate_kbps = Some(number(value)?),
+            "packet-size" => {
+                number(value)?;
+            }
+            "display-mode" => {
+                self.window_mode = Some(match choice.as_str() {
+                    "fullscreen" => WindowMode::Fullscreen,
+                    "windowed" => WindowMode::Windowed,
+                    "borderless" => WindowMode::Borderless,
+                    _ => return Err(wrong()),
+                })
+            }
+            "audio-config" => {
+                self.audio = Some(match choice.as_str() {
+                    "stereo" => AudioChannels::Stereo,
+                    "5.1-surround" => AudioChannels::Surround51,
+                    "7.1-surround" => AudioChannels::Surround71,
+                    _ => return Err(wrong()),
+                })
+            }
+            "capture-system-keys" => {
+                self.system_keys = Some(match choice.as_str() {
+                    "never" => (false, false),
+                    "fullscreen" => (true, true),
+                    "always" => (true, false),
+                    _ => return Err(wrong()),
+                })
+            }
+            "video-codec" => {
+                self.codec = Some(match choice.as_str() {
+                    "auto" => CodecPreference::Auto,
+                    "h.264" => CodecPreference::H264,
+                    "hevc" => CodecPreference::Hevc,
+                    "av1" => CodecPreference::Av1,
+                    _ => return Err(wrong()),
+                })
+            }
+            "video-decoder" => {
+                // Automatic decodes in hardware where this device can.
+                self.decoder = Some(match choice.as_str() {
+                    "auto" | "hardware" => DecoderPreference::Auto,
+                    "software" => DecoderPreference::Software,
+                    _ => return Err(wrong()),
+                })
+            }
+            _ => return Err(format!("unknown argument --{name}")),
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -61,16 +292,21 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Parsed, String
     let mut host = None;
     let mut app = None;
     let mut quit_on_exit = false;
+    let mut options = StreamOptions::default();
+    // moonlight-qt's `stream <host> <app>`, as its words come.
+    let mut words: Vec<String> = Vec::new();
+    let mut first = true;
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         // Alone, whatever else the command line holds: a link with a quote in it must not be able
         // to break out of the system's quoting and add arguments of its own.
         if is_link(&arg.to_string_lossy()) {
-            if host.is_some() || app.is_some() || quit_on_exit || args.next().is_some() {
+            if !first || args.next().is_some() {
                 return Err(LINK_NOT_ALONE.into());
             }
             return Ok(Parsed::Link(arg.into_string().unwrap_or_default()));
         }
+        first = false;
         let arg = arg
             .into_string()
             .map_err(|a| format!("{} is not valid text", a.to_string_lossy()))?;
@@ -80,23 +316,29 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Parsed, String
             }
             _ => (arg, None),
         };
+        let mut value_of = |inline: Option<String>| -> Result<String, String> {
+            let value = match inline {
+                Some(value) => value,
+                None => args
+                    .next()
+                    .and_then(|v| v.into_string().ok())
+                    .filter(|v| !v.starts_with("--"))
+                    .ok_or_else(|| format!("{flag} needs a value"))?,
+            };
+            let value = value.trim().to_owned();
+            if value.is_empty() {
+                return Err(format!("{flag} needs a value"));
+            }
+            Ok(value)
+        };
+        let name = flag.strip_prefix("--").unwrap_or_default();
+        let toggle = |n: &str| TOGGLES.contains(&n);
         match flag.as_str() {
             "--help" | "-h" if inline.is_none() => return Ok(Parsed::Help),
             "--version" if inline.is_none() => return Ok(Parsed::Version),
             "--quit-on-exit" if inline.is_none() => quit_on_exit = true,
             "--host" | "--app" => {
-                let value = match inline {
-                    Some(value) => value,
-                    None => args
-                        .next()
-                        .and_then(|v| v.into_string().ok())
-                        .filter(|v| !v.starts_with("--"))
-                        .ok_or_else(|| format!("{flag} needs a value"))?,
-                };
-                let value = value.trim().to_owned();
-                if value.is_empty() {
-                    return Err(format!("{flag} needs a value"));
-                }
+                let value = value_of(inline)?;
                 let slot = if flag == "--host" {
                     &mut host
                 } else {
@@ -106,8 +348,40 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Parsed, String
                     return Err(format!("{flag} is given twice"));
                 }
             }
+            "--720" | "--1080" | "--1440" | "--4K" | "--4k" if inline.is_none() => {
+                options.resolution = Some(match name {
+                    "720" => (1280, 720),
+                    "1080" => (1920, 1080),
+                    "1440" => (2560, 1440),
+                    _ => (3840, 2160),
+                });
+            }
+            _ if inline.is_none() && toggle(name) => options.toggle(name, true),
+            _ if inline.is_none() && name.strip_prefix("no-").is_some_and(toggle) => {
+                options.toggle(&name[3..], false)
+            }
+            _ if VALUES.contains(&name) => {
+                let value = value_of(inline)?;
+                options.value(name, &value)?;
+            }
+            // moonlight-qt finds its action anywhere among the words.
+            _ if !flag.starts_with('-') && (!words.is_empty() || flag.eq_ignore_ascii_case("stream")) => {
+                words.push(flag.clone());
+            }
             _ => return Err(format!("unknown argument {flag}")),
         }
+    }
+    if !words.is_empty() {
+        let [_, stream_host, stream_app] = <[String; 3]>::try_from(words).map_err(|_| STREAM_NEEDS.to_owned())?;
+        let (stream_host, stream_app) = (stream_host.trim().to_owned(), stream_app.trim().to_owned());
+        if stream_host.is_empty() || stream_app.is_empty() {
+            return Err(STREAM_NEEDS.into());
+        }
+        if host.is_some() || app.is_some() {
+            return Err("give the PC and app either with stream or with --host and --app".into());
+        }
+        // moonlight-qt closes when the stream it started from the command line ends.
+        (host, app, quit_on_exit) = (Some(stream_host), Some(stream_app), true);
     }
     match host {
         Some(host) => Ok(Parsed::Launch(Launch {
@@ -115,9 +389,11 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Parsed, String
             app,
             quit_on_exit,
             join: None,
+            options,
         })),
         None if app.is_some() => Err("--app needs --host".into()),
         None if quit_on_exit => Err("--quit-on-exit needs --host".into()),
+        None if options.any() => Err("stream options need --host or stream <host> <app>".into()),
         None => Ok(Parsed::Gui),
     }
 }
@@ -166,12 +442,12 @@ pub fn use_parent_console() {
 
 /// Whether the usage text (`--help`, or a wrong command line) is shown in a box too: only by a
 /// build without a console, where printing it shows nothing, and never for a command line that
-/// names a PC: that is a frontend's start, where a box could open behind it and keep Nightjar
-/// open (see [`shows_error_box`]).
+/// names a PC (`--host`, or moonlight-qt's `stream`): that is a frontend's start, where a box
+/// could open behind it and keep Nightjar open (see [`shows_error_box`]).
 pub fn shows_usage_box<S: AsRef<std::ffi::OsStr>>(has_console: bool, args: &[S]) -> bool {
     let names_a_host = args.iter().any(|arg| {
         let arg = arg.as_ref().to_string_lossy();
-        arg == "--host" || arg.starts_with("--host=")
+        arg == "--host" || arg.starts_with("--host=") || arg.eq_ignore_ascii_case("stream")
     });
     !has_console && !names_a_host
 }
@@ -547,6 +823,7 @@ mod tests {
             app: app.map(Into::into),
             quit_on_exit,
             join: None,
+            options: StreamOptions::default(),
         })
     }
 
@@ -630,6 +907,134 @@ mod tests {
         assert!(args(&["--quit-on-exit=yes", "--host", "pc"]).is_err());
         assert!(args(&["pc"]).is_err());
         assert!(args(&["--version=1"]).is_err());
+    }
+
+    fn options_of(list: &[&str]) -> StreamOptions {
+        match args(list) {
+            Ok(Parsed::Launch(launch)) => launch.options,
+            other => panic!("{list:?}: {other:?}"),
+        }
+    }
+
+    /// MoonDeck's command line (its `moonlightproxy.py`): options first, then `stream`.
+    #[test]
+    fn moondecks_moonlight_qt_command_line_starts_the_stream_with_its_options() {
+        let parsed = args(&[
+            "--audio-config", "7.1-surround", "--resolution", "2560x1440", "--fps", "120", "--hdr", "--bitrate", "60000",
+            "--no-quit-after", "--performance-overlay", "--no-vsync", "--frame-pacing", "--video-codec", "HEVC",
+            "stream", "Gaming PC", "Steam Big Picture",
+        ]);
+        let launch = match parsed {
+            Ok(Parsed::Launch(launch)) => launch,
+            other => panic!("{other:?}"),
+        };
+        // moonlight-qt closes once its command-line stream ends.
+        assert_eq!((launch.host.as_str(), launch.app.as_deref(), launch.quit_on_exit), ("Gaming PC", Some("Steam Big Picture"), true));
+        let wanted = StreamOptions {
+            resolution: Some((2560, 1440)),
+            fps: Some(120),
+            bitrate_kbps: Some(60000),
+            codec: Some(CodecPreference::Hevc),
+            audio: Some(AudioChannels::Surround71),
+            hdr: Some(true),
+            vsync: Some(false),
+            frame_pacing: Some(true),
+            overlay: Some(true),
+            quit_after: Some(false),
+            ..Default::default()
+        };
+        assert_eq!(launch.options, wanted);
+    }
+
+    #[test]
+    fn moonlight_qt_options_follow_its_spelling_and_the_last_one_wins() {
+        assert_eq!(options_of(&["stream", "pc", "app", "--hdr", "--no-hdr"]).hdr, Some(false));
+        assert_eq!(options_of(&["--no-hdr", "--hdr", "--host", "pc"]).hdr, Some(true));
+        assert_eq!(options_of(&["--1080", "stream", "pc", "app"]).resolution, Some((1920, 1080)));
+        assert_eq!(options_of(&["--resolution=1280X800", "--4K", "stream", "pc", "app"]).resolution, Some((3840, 2160)));
+        assert_eq!(options_of(&["--video-codec", "h.264", "stream", "pc", "app"]).codec, Some(CodecPreference::H264));
+        assert_eq!(options_of(&["--video-codec=AV1", "stream", "pc", "app"]).codec, Some(CodecPreference::Av1));
+        assert_eq!(options_of(&["--video-codec", "auto", "stream", "pc", "app"]).codec, Some(CodecPreference::Auto));
+        assert_eq!(options_of(&["--video-decoder", "hardware", "stream", "pc", "app"]).decoder, Some(DecoderPreference::Auto));
+        assert_eq!(options_of(&["--display-mode", "borderless", "stream", "pc", "app"]).window_mode, Some(WindowMode::Borderless));
+        assert_eq!(options_of(&["--capture-system-keys", "fullscreen", "stream", "pc", "app"]).system_keys, Some((true, true)));
+        // The action is found anywhere among the words, in any case, as moonlight-qt finds it.
+        assert_eq!(args(&["STREAM", "pc", "Desktop"]), Ok(Parsed::Launch(launch_of("pc", "Desktop"))));
+        // moonlight-qt's options Nightjar has no setting for are taken, so its command lines start.
+        for unused in ["--packet-size=1392", "--keep-awake", "--no-mouse-buttons-swap", "--touchscreen-trackpad", "--mute-on-focus-loss", "--reverse-scroll-direction"] {
+            assert_eq!(options_of(&[unused, "stream", "pc", "app"]), StreamOptions::default(), "{unused}");
+        }
+    }
+
+    fn launch_of(host: &str, app: &str) -> Launch {
+        Launch { host: host.into(), app: Some(app.into()), quit_on_exit: true, join: None, options: StreamOptions::default() }
+    }
+
+    #[test]
+    fn wrong_moonlight_qt_command_lines_are_errors() {
+        for wrong in [
+            &["stream"][..],
+            &["stream", "pc"],
+            &["stream", "pc", "app", "more"],
+            &["stream", " ", "app"],
+            &["--host", "pc", "stream", "pc", "app"],
+            &["list", "pc"],
+            &["--fps", "sixty", "stream", "pc", "app"],
+            &["--fps", "0", "stream", "pc", "app"],
+            &["--bitrate", "stream", "pc", "app"],
+            &["--resolution", "1080p", "stream", "pc", "app"],
+            &["--resolution", "0x1080", "stream", "pc", "app"],
+            &["--video-codec", "VP9", "stream", "pc", "app"],
+            &["--audio-config", "quad", "stream", "pc", "app"],
+            &["--hdr=yes", "stream", "pc", "app"],
+            &["--no-fps", "stream", "pc", "app"],
+            &["--fps", "60"],
+            &["--hdr"],
+        ] {
+            assert!(args(wrong).is_err(), "{wrong:?}");
+        }
+        // A link still stands alone after moonlight-qt's words or options.
+        let link = "rubylight://pair?otp=4821&pass=secret";
+        assert_eq!(args(&["stream", "pc", link]), Err(LINK_NOT_ALONE.into()));
+        assert_eq!(args(&["--hdr", link]), Err(LINK_NOT_ALONE.into()));
+    }
+
+    #[test]
+    fn moonlight_qt_options_change_one_streams_settings_as_moonlight_qt_does() {
+        let saved = Settings { width: 1920, height: 1080, fps: 60, bitrate_kbps: 40000, frame_pacing: FramePacing::Latency, ..Default::default() };
+        let mut settings = saved.clone();
+        StreamOptions::default().apply(&mut settings);
+        assert_eq!(settings, saved);
+        // A resolution or rate without a bitrate gets the bitrate for them.
+        let mut settings = saved.clone();
+        StreamOptions { fps: Some(120), ..Default::default() }.apply(&mut settings);
+        assert_eq!((settings.fps, settings.bitrate_kbps), (120, 0));
+        let mut settings = saved.clone();
+        let options = StreamOptions {
+            resolution: Some((2560, 1600)),
+            bitrate_kbps: Some(80000),
+            hdr: Some(true),
+            vsync: Some(false),
+            frame_pacing: Some(true),
+            overlay: Some(true),
+            yuv444: Some(true),
+            absolute_mouse: Some(true),
+            system_keys: Some((true, false)),
+            ..Default::default()
+        };
+        options.apply(&mut settings);
+        assert_eq!((settings.width, settings.height, settings.bitrate_kbps), (2560, 1600, 80000));
+        assert!(settings.hdr && !settings.vsync && settings.overlay);
+        assert_eq!(settings.frame_pacing, FramePacing::Smoothness);
+        assert!(settings.experimental_packed_444 && settings.prefer_yuv444);
+        assert_eq!(settings.mouse_mode, MouseMode::Absolute);
+        assert!(settings.capture_system_keys && !settings.system_keys_fullscreen_only);
+        // A pacing already chosen that waits for the refresh stays; off is the lowest latency.
+        let mut settings = Settings { frame_pacing: FramePacing::CapFps, ..saved.clone() };
+        StreamOptions { frame_pacing: Some(true), ..Default::default() }.apply(&mut settings);
+        assert_eq!(settings.frame_pacing, FramePacing::CapFps);
+        StreamOptions { frame_pacing: Some(false), ..Default::default() }.apply(&mut settings);
+        assert_eq!(settings.frame_pacing, FramePacing::Latency);
     }
 
     fn entry<'a>(
@@ -737,6 +1142,7 @@ mod tests {
                 app: app.map(Into::into),
                 quit_on_exit,
                 join: None,
+                options: StreamOptions::default(),
             },
             7,
         )
@@ -928,6 +1334,7 @@ mod tests {
             app: None,
             quit_on_exit: true,
             join: None,
+            options: StreamOptions::default(),
         };
         assert!(!shows_error_box(Some(&launch)));
     }
@@ -944,6 +1351,7 @@ mod tests {
         assert!(!shows_usage_box(false, &["--host", "pc", "--bogus"]));
         assert!(!shows_usage_box(false, &["--bogus", "--host=pc"]));
         assert!(shows_usage_box(false, &["--hostname"]));
+        assert!(!shows_usage_box(false, &["--bogus", "stream", "pc", "app"]));
     }
 
     #[test]

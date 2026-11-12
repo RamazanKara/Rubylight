@@ -43,7 +43,7 @@ pub struct Rule {
 }
 
 const GPU_RESET: &str = "the-picture-freezes-and-the-gpu-resets-during-a-stream";
-const NO_AMD: &str = "setup-or-the-host-says-this-pc-cannot-run-rubylight-30";
+const NO_AMD: &str = "setup-or-the-host-says-this-pc-cannot-run-rubylight";
 const CODEC: &str = "the-client-asks-for-a-codec-this-gpu-cannot-encode";
 const BLACK: &str = "black-picture-no-display-or-wgc-fails";
 const FREEZE: &str = "the-picture-freezes-while-audio-and-input-continue";

@@ -637,7 +637,7 @@ Which actions are allowed (`GET /session`, and the same rules apply to the POSTs
 ## Versioning and compatibility
 
 - The path carries the major version (`/v1`). Within v1, changes are additive only: new fields, features, setting ids, actions, error codes and enum values. Clients ignore unknown fields. They treat an unknown state as `unsupported`, an unknown session state as `idle` with no actions, and hide unknown actions.
-- Removing or renaming a field, changing a type, or changing an action's meaning needs `/v2`. Then `NativeApiVersion` reports 2, and the host keeps serving v1 for at least the whole 3.x line.
+- Removing or renaming a field, changing a type, or changing an action's meaning needs `/v2`. Then `NativeApiVersion` reports 2, and the host keeps serving v1 beside it.
 - `api_version` in the capabilities response is the version of the path that answered.
 - Compatibility: stock Moonlight and clients without native API support ignore the field, and `/applist`, `/cancel` and the tiles are unchanged for them; Nightjar against a host without the field (Rubylight 2.6.x and other Moonlight hosts) shows the classic grid.
 

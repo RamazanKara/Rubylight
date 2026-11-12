@@ -6,7 +6,7 @@ Start with the stream card on **Home**, **Help → Log analysis** and the host l
 
 | Area | Symptoms |
 | --- | --- |
-| Install and start | [This PC cannot run Rubylight 3.0](#setup-or-the-host-says-this-pc-cannot-run-rubylight-30) · [Console or port](#the-console-will-not-open-or-a-port-is-occupied) · [Profile folder owner](#setup-rejects-the-profile-folders-owner) · [Install folder](#an-update-says-rubylight-cannot-be-updated-in-its-folder) · [Queued update](#an-update-stays-queued) · [Drivers](#a-driver-is-missing-or-out-of-date) |
+| Install and start | [This PC cannot run Rubylight](#setup-or-the-host-says-this-pc-cannot-run-rubylight) · [Console or port](#the-console-will-not-open-or-a-port-is-occupied) · [Profile folder owner](#setup-rejects-the-profile-folders-owner) · [Install folder](#an-update-says-rubylight-cannot-be-updated-in-its-folder) · [Queued update](#an-update-stays-queued) · [Drivers](#a-driver-is-missing-or-out-of-date) |
 | Connecting | [Pairing](#moonlight-cannot-find-or-pair-with-the-pc) · [Outside your network](#clients-outside-your-network-cannot-connect) · [Browser stream or guest link](#the-browser-stream-or-a-guest-link-fails-to-connect) · [os error 10035](#the-stream-disconnects-after-a-second-with-os-error-10035) · [Drops and timeouts](#the-stream-breaks-up-drops-or-times-out-on-the-network) |
 | Picture | [Stream card warnings](#what-the-stream-card-warnings-mean) · [Codec not available](#the-client-asks-for-a-codec-this-gpu-cannot-encode) · [Black screen](#black-picture-no-display-or-wgc-fails) · [HDR colour](#hdr-looks-washed-out-too-bright-or-different-between-clients) · [Blurred PyroWave](#pyrowave-shows-blurred-grey-blocks) · [Stutter](#low-latency-is-reported-but-motion-still-stutters) · [Frozen picture](#the-picture-freezes-while-audio-and-input-continue) · [GPU reset](#the-picture-freezes-and-the-gpu-resets-during-a-stream) |
 | Displays | [Layout not restored](#monitors-stay-on-or-the-display-layout-does-not-return) · [Mode refused](#windows-refuses-the-virtual-displays-requested-mode) · [Display not active](#virtual-display-did-not-become-active-before-the-deadline) |
@@ -14,7 +14,7 @@ Start with the stream card on **Home**, **Help → Log analysis** and the host l
 | Games | [Playnite](#playnite-does-not-launch) · [RTSS](#rtss-does-not-start-or-the-game-ignores-the-cap) · [Nightjar host control](#nightjar-cannot-close-a-game-or-change-radeon-settings) |
 | Reporting | [Logs and a useful report](#logs-and-a-useful-report) |
 
-## Setup or the host says this PC cannot run Rubylight 3.0
+## Setup or the host says this PC cannot run Rubylight
 
 Rubylight encodes on an AMD Radeon GPU through the AMF video encoder in AMD's driver, or on an NVIDIA GPU through NVENC in NVIDIA's driver, on Windows 10 or 11. Setup checks before it installs or updates anything, and the host checks at startup and for every stream.
 

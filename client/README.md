@@ -209,7 +209,7 @@ Nightjar has its own application ID and pairs separately, so it installs beside 
 >
 > - **What you need:** an Android device with the Play Store and a PC running a Moonlight-compatible host.
 > - **What you do:** keep Nightjar installed for 14 days, play the way you always do, and tell us what breaks in [issues](https://github.com/RamazanKara/nightjar/issues).
-> - **What it costs:** nothing. Nightjar will be a paid app on Google Play, but testers get a free code for it. If Google Play charges you anyway, you get the full amount back.
+> - **What it costs:** nothing. Testers get a free code for Nightjar on Google Play. If Google Play charges you anyway, you get the full amount back.
 > - **How to join:** email [ramazan.kara.fo@gmail.com](mailto:ramazan.kara.fo@gmail.com?subject=Nightjar%20tester) with the subject "Nightjar tester" and the Google account you use on Google Play. You get the invite link and your code by email.
 >
 > The download here on GitHub stays free and gets the same updates.

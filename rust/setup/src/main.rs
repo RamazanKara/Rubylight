@@ -196,7 +196,7 @@ fn main() {
     } else {
         log::open();
     }
-    // Rubylight 3.0 streams only with an AMD GPU and its AMF encoder: refuse
+    // Rubylight streams only through AMD AMF or NVIDIA NVENC: refuse
     // before anything changes, in every mode that installs or updates it.
     let refusal = (!args.uninstall && !args.repair_drivers)
         .then(gpu::refusal)
@@ -207,7 +207,7 @@ fn main() {
             // The console shows the update record, so it says why there.
             update::record_refusal(&install::profile(), None, &error);
         }
-        failed(args.quiet, "This PC cannot run Rubylight 3.0", &error)
+        failed(args.quiet, "This PC cannot run Rubylight", &error)
     } else if args.repair_drivers {
         // The service runs it unattended and quiet; a person sees progress
         // and the result.

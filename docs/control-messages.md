@@ -321,7 +321,7 @@ As Nightjar's [cursor shape protocol](../client/docs/protocol/cursor-shape.md), 
 
 ### 0x5543 to 0x5546 Frame Warp
 
-As [Frame Warp](frame-warp.md) and Nightjar's [protocol document](../client/docs/protocol/frame-warp.md), version 1. The client sends the 8-byte request once the stream runs; the host then keeps the input history, measures the picture's motion and sends the model (reliable) when it locks, unlocks or changes, a tag for every video frame with the three before it (unreliable, unsequenced) and the HUD mask (reliable) when it changes. A request with `enabled` 0 stops all three. The tags' frame numbers are the video frame numbers the client decodes. Nothing is sent to a client that did not ask, and the host does no Frame Warp work for it.
+As [Frame Warp](frame-warp.md) and Nightjar's [protocol document](../client/docs/protocol/frame-warp.md), version 1. The client sends the 8-byte request once the stream runs; the host then keeps the input history, measures the picture's motion and sends the model (reliable) when it locks, unlocks or changes, a tag for every video frame with the three before it (unreliable, unsequenced) and the HUD mask (reliable) when it changes. A request with `enabled` 0 stops all three. The request's flags say whether the client draws the lens; only such a client is sent the model's focal length, any other gets 0. The tags' frame numbers are the video frame numbers the client decodes. Nothing is sent to a client that did not ask, and the host does no Frame Warp work for it.
 
 ### Pen barrel roll (input packet `0x5500000B`, 40 bytes)
 

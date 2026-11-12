@@ -262,11 +262,12 @@ round_trip!(
 );
 round_trip!(
     frame_warp_request,
-    (any::<bool>(), any::<u8>(), 0u16..2100).prop_map(|(enabled, controller, mask_max_width)| {
+    (any::<bool>(), any::<u8>(), 0u16..2100, any::<bool>()).prop_map(|(enabled, controller, mask_max_width, lens)| {
         frame_warp::FrameWarpRequest {
             enabled,
             controller: (controller < 20).then_some(controller),
             mask_max_width,
+            lens,
         }
         .encode()
         .to_vec()
@@ -306,10 +307,10 @@ round_trip!(
         0.0f32..0.5,
         0usize..5,
         any::<([f32; 2], u32)>(),
-        0.0f32..=1.0,
+        (0.0f32..=1.0, prop_oneof![Just(0.0f32), 1.0f32..=1_000_000.0]),
     )
         .prop_map(
-            |((generation, mouse_locked, stick_locked, w, h), gains, deadzone, exponent, (max_offset, lag_us), confidence)| {
+            |((generation, mouse_locked, stick_locked, w, h), gains, deadzone, exponent, (max_offset, lag_us), (confidence, focal))| {
                 frame_warp::Model {
                     generation,
                     mouse_locked,
@@ -323,6 +324,7 @@ round_trip!(
                     max_offset,
                     lag_us,
                     confidence,
+                    focal,
                 }
                 .encode()
                 .map(|m| m.to_vec())

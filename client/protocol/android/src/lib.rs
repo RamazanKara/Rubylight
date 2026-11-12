@@ -701,7 +701,8 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_frameWarpNoteF
 }
 
 /// The shift for the picture queued with `pts_us`, drawn now: `out` gets uv x, uv y, px x, px y
-/// and the return is the HUD mask generation, -1 without a mask or -2 to draw it as it is.
+/// and the lens terms k.x, k.y, n.x, n.y (`frame_warp::WARP_FLOATS` floats), and the return is the
+/// HUD mask generation, -1 without a mask or -2 to draw it as it is (also when `out` is shorter).
 #[no_mangle]
 pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_frameWarpForPts(
     env: JNIEnv,

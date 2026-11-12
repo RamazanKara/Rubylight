@@ -16,9 +16,10 @@
 
 use std::collections::VecDeque;
 
-use rubylight_protocol::frame_warp::{Model, STICK_EXPONENTS};
+use rubylight_protocol::frame_warp::{MAX_FOCAL, MIN_FOCAL, Model, STICK_EXPONENTS};
 
 use super::history::{InputHistory, StickIntegrals};
+use super::lens::{Layout, Turn};
 use super::motion::Motion;
 
 /// Samples kept and fitted over.
@@ -59,6 +60,12 @@ const GAIN_CHANGE: f32 = 0.02;
 const LAG_CHANGE_US: u32 = 3_000;
 /// Largest shift, as a fraction of the picture's width and height.
 pub const MAX_OFFSET: f32 = 0.15;
+/// Under a lens the shift at the centre also stays within this share of the squared focal length
+/// over the picture's edge: at the whole of it the turn would bring the picture's edge level
+/// with the camera, and near it the edge is stretched beyond use.
+const MAX_LENS_OFFSET: f64 = 0.6;
+/// A model is sent again when its focal length moves by this fraction.
+const FOCAL_CHANGE: f32 = 0.03;
 /// Stick dead zones tried.
 const DEADZONES: [f32; 5] = [0.05, 0.10, 0.15, 0.20, 0.25];
 /// The lag before anything is fitted.
@@ -102,6 +109,10 @@ pub struct Prior {
     pub stick_lag_us: Option<u64>,
     pub stick_deadzone: Option<f32>,
     pub stick_exponent: Option<f32>,
+    /// The game camera's focal length in pixels of the picture below, if it has a lens
+    /// ([`super::lens`]); the gains are then the picture centre's.
+    #[serde(default)]
+    pub focal: Option<f32>,
     /// The size of the game's picture the gains are in: the stream's, less any black bars.
     pub picture_width: u16,
     pub picture_height: u16,
@@ -116,6 +127,14 @@ pub struct Calibrator {
     picture: (u16, u16),
     /// The game's part of it, which the thumbnails cover: the picture less any black bars.
     content: (u16, u16),
+    /// Where the motion estimate's cells lie in that part.
+    layout: Layout,
+    /// The game's lens, as the squared tangent of half its horizontal field of view; `None`
+    /// for a flat picture or one not learned yet. With one, samples count as the turn at the
+    /// picture's centre ([`Layout::resolve`]) and so do the gains.
+    lens: Option<f64>,
+    /// Whether the model carries the lens ([`Self::set_lens_drawn`]).
+    lens_drawn: bool,
     mouse: Option<Fit>,
     stick: Option<Fit>,
     mouse_locked: bool,
@@ -134,6 +153,9 @@ impl Calibrator {
             scale: [1.0; 2],
             picture,
             content: picture,
+            layout: Layout::new(picture, thumbnail),
+            lens: None,
+            lens_drawn: true,
             mouse: None,
             stick: None,
             mouse_locked: false,
@@ -163,6 +185,7 @@ impl Calibrator {
             f64::from(self.content.0) / thumbnail.0.max(1) as f64,
             f64::from(self.content.1) / thumbnail.1.max(1) as f64,
         ];
+        self.layout = Layout::new(self.content, thumbnail);
         if old_scale != self.scale {
             // Samples are in the old thumbnail's pixels.
             self.samples.clear();
@@ -177,6 +200,32 @@ impl Calibrator {
     /// Forgets the measured moves (their input history is gone); what was learned stays.
     pub fn clear_samples(&mut self) {
         self.samples.clear();
+    }
+
+    /// The game's lens changed ([`super::lens::Lens`]). The samples kept are read again under
+    /// it, so the next fit's gains are the picture centre's under the new lens.
+    pub fn set_lens(&mut self, lens: Option<f64>) {
+        self.lens = lens.filter(|t| t.is_finite() && *t > 0.0);
+    }
+
+    /// Whether the client draws the picture through the lens. One that slides it is sent no
+    /// focal length and no limit for one; its gains are the picture centre's either way.
+    pub fn set_lens_drawn(&mut self, drawn: bool) {
+        self.lens_drawn = drawn;
+    }
+
+    pub fn lens(&self) -> Option<f64> {
+        self.lens
+    }
+
+    /// Where the motion estimate's cells lie in the game's picture.
+    pub fn layout(&self) -> &Layout {
+        &self.layout
+    }
+
+    /// The camera's turn in a measured move, under the lens in force.
+    pub fn resolve(&self, motion: &Motion) -> Turn {
+        self.layout.resolve(motion, self.lens)
     }
 
     /// Starts from what an earlier session learned: the lags apply at once and the gains lock
@@ -213,6 +262,11 @@ impl Calibrator {
                     .unwrap_or(1.0),
             });
         }
+        if let Some(focal) = prior.focal.filter(|f| f.is_finite() && *f > 0.0) {
+            // A field of view is the same at every picture size.
+            let ratio = f64::from(prior.picture_width.max(1)) * 0.5 / f64::from(focal);
+            self.set_lens(Some(ratio * ratio));
+        }
         self.prior = Some(prior);
     }
 
@@ -223,6 +277,7 @@ impl Calibrator {
         if mouse.is_none() && stick.is_none() {
             return self.prior;
         }
+        let focal = self.lens.map(|lens| self.layout.focal(lens) as f32);
         let picture = |gain: [f64; 2]| {
             [
                 (gain[0] * self.scale[0]) as f32,
@@ -237,6 +292,7 @@ impl Calibrator {
             stick_lag_us: stick.map(|f| f.lag_us).or(earlier.stick_lag_us),
             stick_deadzone: stick.map(|f| f.deadzone).or(earlier.stick_deadzone),
             stick_exponent: stick.map(|f| f.exponent).or(earlier.stick_exponent),
+            focal,
             picture_width: self.content.0,
             picture_height: self.content.1,
         })
@@ -450,19 +506,20 @@ impl Calibrator {
             if since.is_some_and(|t| s.t0_us < t) {
                 continue;
             }
-            let usable = s.motion.confidence >= MIN_CONFIDENCE;
+            let turn = self.resolve(&s.motion);
+            let usable = turn.confidence >= MIN_CONFIDENCE;
             match (&mut open, usable) {
                 (Some(chunk), true) if chunk.t1_us == s.t0_us => {
                     chunk.t1_us = s.t1_us;
-                    chunk.dx += f64::from(s.motion.dx);
-                    chunk.dy += f64::from(s.motion.dy);
+                    chunk.dx += f64::from(turn.dx);
+                    chunk.dy += f64::from(turn.dy);
                 }
                 (_, true) => {
                     open = Some(Chunk {
                         t0_us: s.t0_us,
                         t1_us: s.t1_us,
-                        dx: f64::from(s.motion.dx),
-                        dy: f64::from(s.motion.dy),
+                        dx: f64::from(turn.dx),
+                        dy: f64::from(turn.dy),
                     });
                 }
                 (_, false) => open = None,
@@ -495,6 +552,9 @@ impl Calibrator {
                         && (sent.stick_deadzone != model.stick_deadzone
                             || sent.stick_exponent != model.stick_exponent)
                     || model.locked() && sent.lag_us.abs_diff(model.lag_us) > LAG_CHANGE_US
+                    || model.locked()
+                        && (sent.focal - model.focal).abs()
+                            > FOCAL_CHANGE * sent.focal.max(model.focal)
             }
         };
         if !changed {
@@ -533,6 +593,17 @@ impl Calibrator {
             (false, true) => stick.fit,
             (false, false) => mouse.fit.max(stick.fit),
         };
+        // In picture pixels, which the game's part of the picture shares.
+        let focal = self
+            .lens
+            .filter(|_| self.lens_drawn)
+            .map(|lens| self.layout.focal(lens))
+            .filter(|f| (f64::from(MIN_FOCAL)..=f64::from(MAX_FOCAL)).contains(f));
+        let lens_limit = |edge: u16| {
+            focal.map_or(f32::INFINITY, |f| {
+                (MAX_LENS_OFFSET * f * f / f64::from(edge.max(1))) as f32
+            })
+        };
         let clamp_gain = |g: [f32; 2]| {
             g.map(|v| {
                 if v.is_finite() {
@@ -557,8 +628,8 @@ impl Calibrator {
                 1.0
             },
             max_offset: [
-                f32::from(self.picture.0) * MAX_OFFSET,
-                f32::from(self.picture.1) * MAX_OFFSET,
+                (f32::from(self.picture.0) * MAX_OFFSET).min(lens_limit(self.picture.0)),
+                (f32::from(self.picture.1) * MAX_OFFSET).min(lens_limit(self.picture.1)),
             ],
             lag_us: if self.mouse_locked || !self.stick_locked {
                 mouse.lag_us
@@ -566,6 +637,7 @@ impl Calibrator {
                 stick.lag_us
             } as u32,
             confidence: (confidence as f32).clamp(0.0, 1.0),
+            focal: focal.map_or(0.0, |f| f as f32),
         }
     }
 }
@@ -775,6 +847,7 @@ mod tests {
                     dx: (-(x1 - x0)) as f32 + noise * random(),
                     dy: (-(y1 - y0)) as f32 + noise * random(),
                     confidence: 0.9,
+                    ..Motion::default()
                 },
             });
             t += capture_us;
@@ -920,6 +993,7 @@ mod tests {
                     dx: ((t / 8_333) % 3) as f32 - 1.0,
                     dy: 0.0,
                     confidence: 0.9,
+                    ..Motion::default()
                 },
             });
             t += 8_333;
@@ -948,6 +1022,7 @@ mod tests {
                     dx: 0.0,
                     dy: 0.0,
                     confidence: 0.9,
+                    ..Motion::default()
                 },
             });
             t += 8_333;
@@ -972,6 +1047,75 @@ mod tests {
         assert!((model.mouse_gain[0] + 0.6).abs() < 0.04, "{model:?}");
         assert!(!model.mouse_locked);
         assert_eq!(next.mouse_lag_us(), prior.mouse_lag_us.unwrap());
+    }
+
+    #[test]
+    fn a_lens_goes_into_the_model_and_the_prior_and_limits_the_shift() {
+        let (history, mut cal, end) = mouse_session(0.12, 50_000, 0.3);
+        // 110 degrees across the picture's 1920 pixels.
+        let half = 55f64.to_radians().tan();
+        let focal = 960.0 / half;
+        cal.set_lens(Some(half * half));
+        let model = cal.update(&history, end).expect("a locked model");
+        assert!((f64::from(model.focal) - focal).abs() < 0.01, "{model:?}");
+        // So wide a lens stretches the picture's left and right before the flat limit does.
+        let limit = (MAX_LENS_OFFSET * focal * focal / 1920.0) as f32;
+        assert!(
+            limit < 288.0 && (model.max_offset[0] - limit).abs() < 0.01,
+            "{model:?}"
+        );
+        assert_eq!(model.max_offset[1], 162.0);
+        // A client that slides the picture is sent neither the lens nor its limit; the lens
+        // stays in force for the gains.
+        cal.set_lens_drawn(false);
+        let slid = cal.model(1);
+        assert_eq!((slid.focal, slid.max_offset), (0.0, [288.0, 162.0]));
+        assert_eq!(slid.mouse_gain, model.mouse_gain);
+        assert!(cal.lens().is_some());
+        cal.set_lens_drawn(true);
+        // The next session, at another size, starts with the same field of view.
+        let prior = cal.prior().unwrap();
+        assert!(
+            (f64::from(prior.focal.unwrap()) - focal).abs() < 0.01,
+            "{prior:?}"
+        );
+        let mut next = Calibrator::new((1280, 720), (256, 144));
+        next.set_prior(prior);
+        let scaled = focal * 1280.0 / 1920.0;
+        assert!((f64::from(next.model(1).focal) - scaled).abs() < 0.01);
+        // What an earlier version saved has no lens.
+        let old: Prior = serde_json::from_str(
+            r#"{"mouse_gain":[1.0,1.0],"mouse_lag_us":30000,"stick_gain":null,"stick_lag_us":null,
+                "stick_deadzone":null,"stick_exponent":null,"picture_width":1920,"picture_height":1080}"#,
+        )
+        .unwrap();
+        assert_eq!(old.focal, None);
+        let mut flat = Calibrator::new((1920, 1080), (256, 144));
+        flat.set_prior(old);
+        assert_eq!(flat.model(1).focal, 0.0);
+        assert_eq!(flat.model(1).max_offset, [288.0, 162.0]);
+
+        // A field of view that wobbles is not sent again; another one is, and so is its loss.
+        cal.set_lens(Some(half * half * 1.02));
+        assert_eq!(cal.update(&history, end + EVERY_US), None);
+        cal.set_lens(Some(1.0));
+        let turned = cal
+            .update(&history, end + 2 * EVERY_US)
+            .expect("a new lens");
+        assert_eq!((turned.focal, turned.generation), (960.0, 2));
+        assert_eq!(turned.max_offset, [288.0, 162.0]);
+        cal.set_lens(None);
+        let lost = cal.update(&history, end + 3 * EVERY_US).expect("no lens");
+        assert_eq!((lost.focal, lost.generation), (0.0, 3));
+        // Nonsense is no lens.
+        cal.set_lens(Some(f64::NAN));
+        assert_eq!(cal.lens(), None);
+        cal.set_lens(Some(1e-20));
+        assert_eq!(
+            cal.model(4).focal,
+            0.0,
+            "a focal length past the protocol's"
+        );
     }
 
     #[test]
@@ -1031,6 +1175,7 @@ mod tests {
                     dx: (-turned[0] * gain) as f32,
                     dy: 0.0,
                     confidence: 0.9,
+                    ..Motion::default()
                 },
             });
             t += 8_333;

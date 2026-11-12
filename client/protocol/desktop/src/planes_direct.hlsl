@@ -13,8 +13,10 @@ cbuffer Direct : register(b1) {
     // Bit 0: the output is sRGB, not scRGB.
     uint directFlags;
     // Frame Warp (stream/frame_warp.rs): the shift in fractions of the picture, then the HUD
-    // mask's size in cells (0 for none). All zero draws the picture where it is.
+    // mask's size in cells (0 for none). All zero draws the picture where it is. Then its lens
+    // terms (0, 0, 1, 1 for a flat picture).
     float4 warp;
+    float4 warpLens;
 };
 // A D3D11VA 4:4:4 surface of the decoder, read in place (a slice of its texture array).
 Texture2DArray<float4> surfaceArray : register(t5);

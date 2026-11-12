@@ -24,6 +24,18 @@
 //! Camera y stops at half the screen height either way and drops the turn past it, as a game's
 //! pitch does; x wraps around a world four screen widths wide.
 //!
+//! With `--fov DEGREES` the world is drawn through a perspective camera with that horizontal
+//! field of view instead of slid across the screen, as a 3D game draws: it lies on a cylinder
+//! around the camera, whose focal length is `f = (width / 2) / tan(fov / 2)` pixels, and the
+//! camera above is its turn in pixels at the screen's centre, so it looks `camera_x / f` radians
+//! to the side (about the upright axis) and `camera_y / f` down. The world point a pixel `(x, y)`
+//! from the screen's centre shows is, with `y' = y cos(pitch) + f sin(pitch)` and
+//! `z' = f cos(pitch) - y sin(pitch)`, at `f * (yaw + atan2(x, z'))` along the cylinder and
+//! `f * y' / hypot(x, z')` below the horizon. A turn then moves the screen's edges farther than
+//! its centre, and a turn to the side while looking up or down also rolls the picture, as in a
+//! game. The world wraps once around the cylinder (`2 pi f`). A host that fits this game learns
+//! the same gains, for the screen's centre, and the focal length (scaled like them).
+//!
 //! With `--injected-only` the camera turns only for SendInput's moves (no device, as the
 //! host's are), so a real mouse moved during a run does not disturb it. OUT.mouse.csv still
 //! lists every move with its injected flag; its running sums, like frames.csv's, are the ones
@@ -42,13 +54,14 @@
 //! look_probe \\.\DISPLAYn OUT.json [--seconds N] [--fps current|HZ] [--gain PX_PER_COUNT]
 //!     [--lag-ms MS] [--stick-gain PX_PER_SECOND] [--stick-deadzone F]
 //!     [--stick-exponent 1|1.5|2|2.5|3] [--hud on|off] [--barcode on|off] [--pad 0-3]
-//!     [--injected-only]
+//!     [--injected-only] [--fov DEGREES]
 //! ```
 //!
 //! Defaults: 60 seconds; presents at the display's refresh (a rate in Hz paces them as
 //! motion_probe does); gain 1 pixel per count on x and y (negative inverts); lag 50 ms; stick
 //! gain 1200 pixels per second of full deflection; dead zone 0.2; exponent 1.5; HUD on;
-//! barcode on; pad 0; every relative move counts. The run ends after `--seconds`, or on Escape
+//! barcode on; pad 0; every relative move counts; no perspective (`--fov` takes 20 to 140). The
+//! run ends after `--seconds`, or on Escape
 //! from any keyboard (raw input, so also when the window is not focused).
 //!
 //! Written at the end: OUT.json (configuration, counts, the model a host should learn) and,
@@ -65,7 +78,7 @@ mod look {
     use std::ops::RangeInclusive;
     use std::path::{Path, PathBuf};
 
-    pub const USAGE: &str = r"usage: look_probe \\.\DISPLAYn OUT.json [--seconds N] [--fps current|HZ] [--gain PX_PER_COUNT] [--lag-ms MS] [--stick-gain PX_PER_SECOND] [--stick-deadzone F] [--stick-exponent 1|1.5|2|2.5|3] [--hud on|off] [--barcode on|off] [--pad 0-3] [--injected-only]";
+    pub const USAGE: &str = r"usage: look_probe \\.\DISPLAYn OUT.json [--seconds N] [--fps current|HZ] [--gain PX_PER_COUNT] [--lag-ms MS] [--stick-gain PX_PER_SECOND] [--stick-deadzone F] [--stick-exponent 1|1.5|2|2.5|3] [--hud on|off] [--barcode on|off] [--pad 0-3] [--injected-only] [--fov DEGREES]";
     /// As `rubylight_protocol::frame_warp`'s: the exponents a model may carry.
     pub const STICK_EXPONENTS: [f32; 5] = [1.0, 1.5, 2.0, 2.5, 3.0];
     /// As `rubylight_protocol::frame_warp`'s: the largest dead zone a model may carry.
@@ -92,6 +105,14 @@ mod look {
         pub pad: u32,
         /// Only SendInput's relative moves turn the camera.
         pub injected_only: bool,
+        /// The horizontal field of view of the perspective camera, in degrees; None slides a
+        /// flat world.
+        pub fov: Option<f64>,
+    }
+
+    /// The focal length, in pixels, of a camera that sees `fov` degrees across `width` pixels.
+    pub fn focal(width: u32, fov: f64) -> f64 {
+        f64::from(width) * 0.5 / (fov.to_radians() * 0.5).tan()
     }
 
     impl Config {
@@ -120,6 +141,7 @@ mod look {
                 barcode: true,
                 pad: 0,
                 injected_only: false,
+                fov: None,
             };
             while let Some(flag) = args.next() {
                 // The one switch without a value.
@@ -156,6 +178,7 @@ mod look {
                     "--hud" => config.hud = on_off(&flag, &value)?,
                     "--barcode" => config.barcode = on_off(&flag, &value)?,
                     "--pad" => config.pad = whole(&flag, &value, 0..=3)? as u32,
+                    "--fov" => config.fov = Some(number(&flag, &value, 20.0..=140.0)?),
                     _ => bail!("unknown option {flag}; {USAGE}"),
                 }
             }
@@ -395,6 +418,10 @@ mod look {
             assert!(config.hud && config.barcode);
             assert_eq!(config.pad, 0);
             assert!(!config.injected_only);
+            assert_eq!(config.fov, None);
+            let lens = parse(r"\\.\DISPLAY1 o --fov 90").unwrap();
+            assert_eq!(lens.fov, Some(90.0));
+            assert!((focal(2560, 90.0) - 1280.0).abs() < 1e-9);
             let config = parse(
                 r"\\.\display3 o.json --seconds 30 --fps 90 --gain -2.5 --lag-ms 33.3 --stick-gain 800 --stick-deadzone 0 --stick-exponent 2 --hud off --injected-only --barcode off --pad 1",
             )
@@ -435,6 +462,9 @@ mod look {
                 "--barcode",
                 "--injected-only on",
                 "--pad 4",
+                "--fov 10",
+                "--fov 141",
+                "--fov wide",
                 "--speed 2",
             ] {
                 assert!(
@@ -590,7 +620,7 @@ cbuffer Frame : register(b0) {
     uint barcode;
     uint ticksLow;      // QueryPerformanceCounter at render time
     uint ticksHigh;
-    uint unused0;
+    float focal;        // the perspective camera's focal length in pixels; 0 slides a flat world
     uint unused1;
 };
 float4 vertex(uint id : SV_VertexID) : SV_Position {
@@ -785,6 +815,16 @@ float4 picture(float4 position : SV_Position) : SV_Target {
     // The world point under this pixel is the screen's plus the camera's, so the content
     // moves against the camera. World y 0 is the horizon.
     float2 w = position.xy + float2(cameraX, cameraY - 0.5 * screenHeight);
+    if (focal > 0) {
+        // Through a lens: the pixel's ray, pitched down by the camera's y and turned by its x,
+        // meets the world on a cylinder around the camera.
+        float2 p = position.xy - 0.5 * float2(screenWidth, screenHeight);
+        float pitch = cameraY / focal;
+        float y = p.y * cos(pitch) + focal * sin(pitch);
+        float z = focal * cos(pitch) - p.y * sin(pitch);
+        w = float2(cameraX + focal * atan2(p.x, z), focal * y / length(float2(p.x, z)));
+        if (w.x < 0) w.x += worldWidth;
+    }
     if (w.x >= worldWidth) w.x -= worldWidth;
     if (structure(w, color)) return float4(color, 1);
     if (w.y < 0) return float4(sky(w), 1);
@@ -1075,7 +1115,9 @@ float4 picture(float4 position : SV_Position) : SV_Target {
             }
         };
         let (width, height) = (display.width, display.height);
-        let world_width = f64::from(width) * 4.0;
+        // A lens's world goes once around the camera.
+        let focal = config.fov.map(|fov| crate::look::focal(width, fov));
+        let world_width = focal.map_or(f64::from(width) * 4.0, |f| std::f64::consts::TAU * f);
         let y_limit = f64::from(height) / 2.0;
         unsafe {
             let module = GetModuleHandleW(None)?;
@@ -1335,7 +1377,7 @@ float4 picture(float4 position : SV_Position) : SV_Target {
                     u32::from(config.barcode),
                     render_ticks as u32,
                     (render_ticks as u64 >> 32) as u32,
-                    0,
+                    (focal.unwrap_or(0.0) as f32).to_bits(),
                     0,
                 ];
                 context.UpdateSubresource(&constants, 0, None, values.as_ptr().cast(), 0, 0);
@@ -1442,6 +1484,7 @@ float4 picture(float4 position : SV_Position) : SV_Target {
                     "barcode": config.barcode,
                     "pad": config.pad,
                     "injected_only": config.injected_only,
+                    "fov": config.fov,
                 },
                 "display": display,
                 "display_refresh_hz": source_mode.dmDisplayFrequency,
@@ -1468,7 +1511,8 @@ float4 picture(float4 position : SV_Position) : SV_Target {
                     "stick_deadzone": short(config.stick_deadzone),
                     "stick_exponent": short(config.stick_exponent),
                     "lag_us_at_least": config.lag_us,
-                    "note": "content shift per input, display pixels, x right and y down; scale by stream width over display width; the host's lag adds the render-to-capture delay",
+                    "focal": focal,
+                    "note": "content shift per input, display pixels, x right and y down, at the screen's centre; focal is the camera's focal length in display pixels, null for a flat world; scale by stream width over display width; the host's lag adds the render-to-capture delay",
                 },
                 "files": {
                     "frames": frames_path.display().to_string(),

@@ -1979,7 +1979,10 @@ impl VideoTexture {
             [x, y, (destination.x + destination.w).min(output.0 as f32) - x, (destination.y + destination.h).min(output.1 as f32) - y]
         };
         let (Some(pass), Some(picture)) = (self.planes.as_mut(), self.direct_planes.as_ref()) else { return false };
-        if !self.warp.is_identity() { constants.warp = pass.warp_row(&self.warp); }
+        if !self.warp.is_identity() {
+            constants.warp = pass.warp_row(&self.warp);
+            constants.warp_lens = self.warp.lens_row();
+        }
         let drawn = if !flushed {
             Err(format!("SDL_FlushRenderer: {}", crate::sdl::error()))
         } else {

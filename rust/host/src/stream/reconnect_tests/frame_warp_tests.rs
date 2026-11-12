@@ -13,6 +13,7 @@ fn request(enabled: bool) -> Vec<u8> {
         enabled,
         controller: None,
         mask_max_width: 0,
+        lens: true,
     }
     .encode()
     .to_vec()

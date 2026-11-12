@@ -467,6 +467,7 @@ mod tests {
             enabled,
             controller,
             mask_max_width,
+            lens: true,
         }
         .encode()
     }

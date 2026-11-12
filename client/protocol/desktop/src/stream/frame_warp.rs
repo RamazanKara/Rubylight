@@ -5,22 +5,25 @@
 //! the shift moves between pictures.
 //!
 //! What every path does, in fractions of the visible picture: the output point `uv` samples the
-//! picture at `uv - shift` with the edge fill where that is outside the picture (mirrored at the
-//! edge and darkened, `nightjar_core::frame_warp::edge`), unless the HUD mask cell
+//! picture at `uv - shift`, or, when the host knows the game's lens, where a camera turned by
+//! that shift at the picture's centre shows it (`nightjar_core::frame_warp::source`: the edges
+//! move farther than the centre), with the edge fill where that is outside the picture (mirrored
+//! at the edge and darkened, `nightjar_core::frame_warp::edge`), unless the HUD mask cell
 //! `floor(uv * (width, height))` is set, or the cell that sample lands on is, which samples at
 //! `uv` as it is: the HUD stays in place and isn't drawn a second time beside itself, a shift
 //! away (the scene behind it isn't in the picture, so it stays unshifted there). The shader
 //! paths share `frame_warp.hlsl` (`hlsl`) and read the mask as bytes (byte `x / 8` of row `y`,
-//! bit `x % 8`: `Mask::words` in little-endian order) through one `warp` row of their constants,
-//! `(shift x, shift y, mask width, mask height)`; the SDL renderer path draws the same mapping as
-//! triangles (`Mesh`, `render_texture`). An identity shift takes each path's draw as it was.
+//! bit `x % 8`: `Mask::words` in little-endian order) through two rows of their constants, `warp`
+//! `(shift x, shift y, mask width, mask height)` and `warpLens` (the lens terms); the SDL renderer
+//! path draws the same mapping as triangles (`Mesh`, `render_texture`). An identity shift takes
+//! each path's draw as it was.
 
 #[cfg(any(windows, test))]
 use std::borrow::Cow;
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
-use nightjar_core::frame_warp::{edge, edge_axis, FrameWarp, Mask, Model, Status, Warp, EDGE_RAMP};
+use nightjar_core::frame_warp::{edge, edge_axis, source, FrameWarp, Mask, Model, Status, Warp, EDGE_RAMP, FLAT, MIN_DEPTH};
 use sdl3_sys::everything::*;
 
 use crate::config::{HostRecord, NOTICE_FRAME_WARP_UNAVAILABLE};
@@ -79,12 +82,22 @@ impl Hud {
 }
 
 /// What one present draws the picture with.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct WarpDraw {
-    /// Sample the picture at `uv - shift`, in fractions of the visible picture.
+    /// How far the picture's centre moves, in fractions of the visible picture: a flat picture
+    /// samples at `uv - shift`.
     pub shift: [f32; 2],
+    /// How the rest of the picture follows (`Warp::lens`): the point `uv` samples at
+    /// `source(uv, shift, lens)`. `FLAT` for a picture that moves alike everywhere.
+    pub lens: [f32; 4],
     /// The cells that stay in place; None for none.
     pub hud: Option<Arc<Hud>>,
+}
+
+impl Default for WarpDraw {
+    fn default() -> Self {
+        Self { shift: [0.0; 2], lens: FLAT, hud: None }
+    }
 }
 
 impl WarpDraw {
@@ -93,7 +106,7 @@ impl WarpDraw {
         if !warp.active {
             return Self::default();
         }
-        Self { shift: warp.uv, hud: hud.filter(|_| warp.mask_generation.is_some()).cloned() }
+        Self { shift: warp.uv, lens: warp.lens, hud: hud.filter(|_| warp.mask_generation.is_some()).cloned() }
     }
 
     /// Nothing moves: every path draws as it does without Frame Warp.
@@ -109,6 +122,11 @@ impl WarpDraw {
         }
         let cells = self.hud.as_ref().filter(|_| mask).map_or([0.0; 2], |hud| [f32::from(hud.mask.width), f32::from(hud.mask.height)]);
         [self.shift[0], self.shift[1], cells[0], cells[1]]
+    }
+
+    /// The shaders' `warpLens` row, which they read only beside a `warp` row that shifts.
+    pub fn lens_row(&self) -> [f32; 4] {
+        if self.is_identity() { FLAT } else { self.lens }
     }
 
     /// The HUD mask whose texture a shader path binds, when the draw shifts at all.
@@ -272,12 +290,100 @@ fn edge_cuts(s: f32) -> ([f32; 8], usize) {
 /// either edge, each moved by the shift and cut to the destination. A stretch that reaches an edge
 /// reaches out all the way past it, since the fill holds that edge past a whole picture.
 fn edge_sources(s: f32, a: f32, b: f32) -> [Option<(f32, f32)>; 3] {
-    let below = if b >= 1.0 { f32::NEG_INFINITY } else { -b };
-    let above = if a <= 0.0 { f32::INFINITY } else { 2.0 - a };
-    [(a, b), (below, -a), (2.0 - b, above)].map(|(lo, hi)| {
+    edge_ranges(a, b).map(|(lo, hi)| {
         let (lo, hi) = ((lo + s).max(0.0), (hi + s).min(1.0));
         (lo < hi).then_some((lo, hi))
     })
+}
+
+/// The stretches of one axis, before the edge fill, that sample inside `a..b` of the picture with
+/// it (`edge_axis`): `a..b` itself and its mirrors past either edge. A stretch that reaches an
+/// edge reaches out all the way past it, since the fill holds that edge past a whole picture.
+fn edge_ranges(a: f32, b: f32) -> [(f32, f32); 3] {
+    let below = if b >= 1.0 { f32::NEG_INFINITY } else { -b };
+    let above = if a <= 0.0 { f32::INFINITY } else { 2.0 - a };
+    [(a, b), (below, -a), (2.0 - b, above)]
+}
+
+/// Where one axis of the picture bends under the edge fill (`edge_cuts`), as what it samples.
+const EDGE_BENDS: [f32; 6] = [-1.0, -EDGE_RAMP, 0.0, 1.0, 1.0 + EDGE_RAMP, 2.0];
+/// How far off, in fractions of the picture, the SDL renderer path may draw a point of a picture
+/// turned through a lens: a turn bends the mapping and each triangle draws it straight, so the
+/// path draws as many cells as keep it this close (`lens_cells`). A fifth of a pixel of 4K.
+const LENS_ERROR: f32 = 5e-5;
+/// The most cells a side it draws: a turn at the limit of both axes through a wide lens bends
+/// its stretched corner more than this many keep within `LENS_ERROR`, by half a pixel of 1080p.
+const MAX_LENS_CELLS: usize = 96;
+/// The most corners of a piece of a lens cell: its four, and one for each line that cuts it.
+const PIECE: usize = 20;
+
+/// `a x + b y + c` over the destination, in fractions of it.
+type Form = [f32; 3];
+
+fn form_at(form: Form, at: [f32; 2]) -> f32 {
+    form[0] * at[0] + form[1] * at[1] + form[2]
+}
+
+/// A convex polygon on the destination, in fractions of it.
+#[derive(Clone, Copy)]
+struct Piece {
+    at: [[f32; 2]; PIECE],
+    len: usize,
+}
+
+impl Piece {
+    fn rect([x0, y0, x1, y1]: [f32; 4]) -> Self {
+        let mut at = [[0.0; 2]; PIECE];
+        at[..4].copy_from_slice(&[[x0, y0], [x1, y0], [x1, y1], [x0, y1]]);
+        Self { at, len: 4 }
+    }
+
+    fn corners(&self) -> &[[f32; 2]] {
+        &self.at[..self.len]
+    }
+
+    /// The part on which `sign * form` is not negative.
+    fn cut(&self, form: Form, sign: f32) -> Self {
+        let mut out = Self { at: self.at, len: 0 };
+        let mut push = |at: [f32; 2]| {
+            if out.len < PIECE {
+                out.at[out.len] = at;
+                out.len += 1;
+            }
+        };
+        for (i, &a) in self.corners().iter().enumerate() {
+            let b = self.at[(i + 1) % self.len];
+            let (va, vb) = (sign * form_at(form, a), sign * form_at(form, b));
+            if va >= 0.0 {
+                push(a);
+            }
+            if (va < 0.0) != (vb < 0.0) && va != vb {
+                let t = va / (va - vb);
+                push([a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]);
+            }
+        }
+        out
+    }
+}
+
+/// The most a picture turned through `lens` under `shift` bends: a bound on the second derivative
+/// of `source` along any line across the destination.
+fn lens_bend(shift: [f32; 2], lens: [f32; 4]) -> f32 {
+    // source = 0.5 + n / d with n = q * lens.zw - shift and d = 1 + dot(q, lens.xy); its second
+    // derivative along a line is at most 2 k (|lens.zw| + |n| k / d) / d².
+    let k = lens[0].abs() + lens[1].abs();
+    let d = (1.0 - 0.5 * k).max(MIN_DEPTH);
+    let scale = lens[2].abs().max(lens[3].abs());
+    let n = 0.5 * scale + shift[0].abs().max(shift[1].abs());
+    2.0 * k * (scale + n * k / d) / (d * d)
+}
+
+/// How many cells a side draw a picture turned through `lens` under `shift` within `LENS_ERROR`
+/// of the mapping, from how much it bends at most (`lens_bend`): 4 to `MAX_LENS_CELLS`.
+fn lens_cells(shift: [f32; 2], lens: [f32; 4]) -> usize {
+    // A chord of length h is off by bend h² / 8 at most.
+    let cells = (lens_bend(shift, lens) / (8.0 * LENS_ERROR)).sqrt().ceil();
+    if cells.is_finite() { (cells as usize).clamp(4, MAX_LENS_CELLS) } else { MAX_LENS_CELLS }
 }
 
 /// The triangles that draw a shifted picture on the SDL renderer path, and the buffers they are
@@ -297,14 +403,19 @@ impl std::fmt::Debug for Mesh {
 }
 
 impl Mesh {
-    /// The picture shifted by `shift` (fractions of the picture), with the edge fill where the
-    /// shift uncovers the outside; over it the picture unshifted wherever the shifted one would
-    /// show the HUD `areas` a second time, beside themselves; then the `areas` in place. Cut where
-    /// the fill bends (`edge_cuts`), and where both axes darken along the line on which they darken
-    /// alike, each triangle samples and darkens linearly: exactly what the shaders do per pixel.
-    pub fn build(&mut self, shift: [f32; 2], areas: &[[f32; 4]]) {
+    /// The picture shifted by `shift` (fractions of the picture) through `lens`, with the edge
+    /// fill where the shift uncovers the outside; over it the picture unshifted wherever the
+    /// shifted one would show the HUD `areas` a second time, beside themselves; then the `areas` in
+    /// place. Cut where the fill bends (`edge_cuts`), and where both axes darken along the line on
+    /// which they darken alike, each triangle of a flat picture samples and darkens linearly:
+    /// exactly what the shaders do per pixel. A lens bends the mapping, which is drawn as cells
+    /// small enough to be within `LENS_ERROR` of it (`lens`).
+    pub fn build(&mut self, shift: [f32; 2], lens: [f32; 4], areas: &[[f32; 4]]) {
         self.corners.clear();
         self.indices.clear();
+        if lens != FLAT {
+            return self.lens(shift, lens, areas);
+        }
         let (xs, columns) = edge_cuts(shift[0]);
         let (ys, rows) = edge_cuts(shift[1]);
         for y in ys[..rows].windows(2) {
@@ -330,6 +441,106 @@ impl Mesh {
         }
     }
 
+    /// `build` for a picture turned through a lens. `source` is a ratio of two linear forms of the
+    /// output point, so every line of the picture is a line of the destination: the cells are cut
+    /// exactly along the lines on which the edge fill bends, and the HUD's ghosts are the areas'
+    /// exact outlines; only between those lines is the mapping drawn straight.
+    fn lens(&mut self, shift: [f32; 2], lens: [f32; 4], areas: &[[f32; 4]]) {
+        // source = 0.5 + (across, down) / max(depth, MIN_DEPTH), each a form of the output point.
+        let depth: Form = [lens[0], lens[1], 1.0 - 0.5 * (lens[0] + lens[1])];
+        let across: Form = [lens[2], 0.0, -0.5 * lens[2] - shift[0]];
+        let down: Form = [0.0, lens[3], -0.5 * lens[3] - shift[1]];
+        // Where the depth is its own and where it is held at the least, on either side of a line.
+        let ahead: Form = [depth[0], depth[1], depth[2] - MIN_DEPTH];
+        let whole = Piece::rect([0.0, 0.0, 1.0, 1.0]);
+        let held = whole.corners().iter().any(|&at| form_at(ahead, at) < 0.0);
+        let sides = [(depth, 1.0), ([0.0, 0.0, MIN_DEPTH], -1.0)];
+        let sides = &sides[..if held { 2 } else { 1 }];
+        // The line on which `axis` samples the picture at `at`: axis / depth = at - 0.5.
+        let line = |axis: Form, depth: Form, at: f32| -> Form { std::array::from_fn(|i| axis[i] - (at - 0.5) * depth[i]) };
+        let cells = lens_cells(shift, lens);
+        let step = 1.0 / cells as f32;
+        for &(depth, side) in sides {
+            let mut bends = [[0.0; 3]; 12];
+            for (i, &bend) in EDGE_BENDS.iter().enumerate() {
+                bends[i] = line(across, depth, bend);
+                bends[EDGE_BENDS.len() + i] = line(down, depth, bend);
+            }
+            for row in 0..cells {
+                for column in 0..cells {
+                    let (x, y) = (column as f32 * step, row as f32 * step);
+                    // The last cell ends on the edge itself.
+                    let end = |cell: usize, at: f32| if cell + 1 == cells { 1.0 } else { at + step };
+                    let cell = Piece::rect([x, y, end(column, x), end(row, y)]);
+                    self.pieces(shift, lens, if held { cell.cut(ahead, side) } else { cell }, &bends);
+                }
+            }
+        }
+        // A point whose source is on the HUD samples itself: each area and its mirrors in the edge
+        // fill, as the outline that samples them.
+        for area in areas {
+            let (columns, rows) = (edge_ranges(area[0], area[2]), edge_ranges(area[1], area[3]));
+            for &(depth, side) in sides {
+                let part = if held { whole.cut(ahead, side) } else { whole };
+                for (y0, y1) in rows {
+                    for (x0, x1) in columns {
+                        let mut piece = part;
+                        for (axis, lo, hi) in [(across, x0, x1), (down, y0, y1)] {
+                            if lo.is_finite() {
+                                piece = piece.cut(line(axis, depth, lo), 1.0);
+                            }
+                            if hi.is_finite() {
+                                piece = piece.cut(line(axis, depth, hi), -1.0);
+                            }
+                        }
+                        let mut corners = [Corner { at: [0.0; 2], uv: [0.0; 2], fade: 1.0 }; PIECE];
+                        for (corner, &at) in corners.iter_mut().zip(piece.corners()) {
+                            (corner.at, corner.uv) = (at, at);
+                        }
+                        self.polygon(&corners[..piece.len]);
+                    }
+                }
+            }
+        }
+        for area in areas {
+            self.in_place(*area);
+        }
+    }
+
+    /// `piece` of a lens cell cut along each of `bends` that crosses it, each part then drawn
+    /// (`darkened`).
+    fn pieces(&mut self, shift: [f32; 2], lens: [f32; 4], piece: Piece, bends: &[Form]) {
+        if piece.len < 3 {
+            return;
+        }
+        let Some((&bend, rest)) = bends.split_first() else {
+            let corner = |at: [f32; 2]| {
+                let (uv, fade) = edge(source(at, shift, lens));
+                Corner { at, uv, fade }
+            };
+            let mut corners = [corner(piece.at[0]); PIECE];
+            let mut gaps = [0.0; PIECE];
+            for (i, &at) in piece.corners().iter().enumerate() {
+                let sampled = source(at, shift, lens);
+                (corners[i], gaps[i]) = (corner(at), edge_axis(sampled[1]).1 - edge_axis(sampled[0]).1);
+            }
+            return self.darkened(&corners[..piece.len], &gaps[..piece.len], corner);
+        };
+        // A corner on the line, as a cut leaves it, is on neither side.
+        let (mut below, mut above) = (false, false);
+        for &at in piece.corners() {
+            let value = form_at(bend, at);
+            below |= value < -1e-6;
+            above |= value > 1e-6;
+        }
+        if below && above {
+            self.pieces(shift, lens, piece.cut(bend, 1.0), rest);
+            self.pieces(shift, lens, piece.cut(bend, -1.0), rest);
+        } else {
+            self.pieces(shift, lens, piece, rest);
+        }
+    }
+
     /// The rectangle `[x0, y0, x1, y1]` of the picture where it is, at full brightness.
     fn in_place(&mut self, [x0, y0, x1, y1]: [f32; 4]) {
         let corner = |x: f32, y: f32| Corner { at: [x, y], uv: [x, y], fade: 1.0 };
@@ -347,14 +558,22 @@ impl Mesh {
         // How much brighter the y axis alone draws a corner than the x axis: linear in a cell.
         let gap = |c: &Corner| edge_axis(c.at[1] - shift[1]).1 - edge_axis(c.at[0] - shift[0]).1;
         let quad = [corner([x0, y0]), corner([x1, y0]), corner([x1, y1]), corner([x0, y1])];
-        let gaps = quad.map(|c| gap(&c));
+        self.darkened(&quad, &quad.map(|c| gap(&c)), corner);
+    }
+
+    /// The convex polygon `corners` (at most `PIECE`), each of which the y axis alone draws
+    /// brighter than the x axis by its `gaps`: as it is, or, where one axis would draw it darker
+    /// than the other in one part and lighter in another, the two parts on either side of where
+    /// they are alike (a `corner` made there), each darkened by its darker axis.
+    fn darkened(&mut self, corners: &[Corner], gaps: &[f32], corner: impl Fn([f32; 2]) -> Corner) {
         if gaps.iter().all(|&g| g >= 0.0) || gaps.iter().all(|&g| g <= 0.0) {
-            self.polygon(&quad);
+            self.polygon(corners);
             return;
         }
-        let (mut darker_x, mut x_count, mut darker_y, mut y_count) = ([quad[0]; 6], 0, [quad[0]; 6], 0);
-        for i in 0..4 {
-            let (a, b, ga, gb) = (quad[i], quad[(i + 1) % 4], gaps[i], gaps[(i + 1) % 4]);
+        let count = corners.len();
+        let (mut darker_x, mut x_count, mut darker_y, mut y_count) = ([corners[0]; PIECE + 2], 0, [corners[0]; PIECE + 2], 0);
+        for i in 0..count {
+            let (a, b, ga, gb) = (corners[i], corners[(i + 1) % count], gaps[i], gaps[(i + 1) % count]);
             if ga >= 0.0 {
                 darker_x[x_count] = a;
                 x_count += 1;
@@ -426,7 +645,7 @@ pub unsafe fn render_texture(renderer: *mut SDL_Renderer, texture: *mut SDL_Text
     let (mut width, mut height) = (0.0, 0.0);
     if SDL_GetTextureSize(texture, &mut width, &mut height) && width > 0.0 && height > 0.0 {
         let source = source.copied().unwrap_or(SDL_FRect { x: 0.0, y: 0.0, w: width, h: height });
-        mesh.build(warp.shift, warp.mask().map_or(&[][..], |hud| hud.areas()));
+        mesh.build(warp.shift, warp.lens, warp.mask().map_or(&[][..], |hud| hud.areas()));
         // SDL copies the vertices into its queue: the mesh is free again once this returns.
         let (vertices, indices) = mesh.geometry(source, (width, height), *destination);
         if SDL_RenderGeometry(renderer, texture, vertices.as_ptr(), vertices.len() as i32, indices.as_ptr(), indices.len() as i32) {
@@ -673,6 +892,9 @@ fn locked_text(model: &Model) -> String {
     if model.stick_locked {
         parts.push(format!("{:.0} px/s", gain(model.stick_gain)));
     }
+    if let Some(degrees) = nightjar_core::frame_warp::field_of_view(model) {
+        parts.push(format!("{degrees:.0} degree lens"));
+    }
     parts.join(", ")
 }
 
@@ -792,12 +1014,13 @@ mod tests {
         if on_hud(uv) {
             return (uv, 1.0);
         }
-        let (source, fade) = edge([uv[0] - draw.shift[0], uv[1] - draw.shift[1]]);
+        let turned = if draw.lens == FLAT { [uv[0] - draw.shift[0], uv[1] - draw.shift[1]] } else { source(uv, draw.shift, draw.lens) };
+        let (sampled, fade) = edge(turned);
         // The HUD's own pixels, which would draw it again beside itself: the point itself instead.
-        if on_hud(source) {
+        if on_hud(sampled) {
             return (uv, 1.0);
         }
-        (source, fade)
+        (sampled, fade)
     }
 
     /// Where the last triangle that covers `at` samples it and how bright, as the GPU draws them in
@@ -911,8 +1134,8 @@ mod tests {
         let shifts = [[0.1, 0.0], [-0.05, 0.2], [0.3, -0.3], [-1.5, 0.0], [0.05, 0.03], [-0.06, -0.02], [0.12, -0.1], [0.02, 0.07]];
         for shift in shifts {
             for with_hud in [false, true] {
-                let draw = WarpDraw { shift, hud: with_hud.then(|| hud.clone()) };
-                mesh.build(draw.shift, draw.mask().map_or(&[][..], |hud| hud.areas()));
+                let draw = WarpDraw { shift, hud: with_hud.then(|| hud.clone()), ..WarpDraw::default() };
+                mesh.build(draw.shift, draw.lens, draw.mask().map_or(&[][..], |hud| hud.areas()));
                 // Off every multiple of 0.01, where the shifted cells' edges are.
                 for j in 0..50 {
                     for i in 0..50 {
@@ -928,10 +1151,69 @@ mod tests {
     }
 
     #[test]
+    fn the_mesh_turns_a_picture_through_a_lens_as_the_shaders_do() {
+        use nightjar_core::frame_warp::lens_terms;
+        let hud = mask(10, 10, |x, y| (x >= 7 && y >= 8) || ((4..6).contains(&x) && (3..5).contains(&y)) || (x == 0 && (2..4).contains(&y)));
+        let hud = Arc::new(Hud::new(Arc::new(hud)));
+        let mut mesh = Mesh::default();
+        // Turns of a 1920x1080 picture, in pixels at its centre, through lenses of 60 to 110
+        // degrees: small, both ways at once, and far past what a stream shifts by; then terms no
+        // host sends, which put part of the picture level with the camera (the least depth).
+        let size = (1920u16, 1080u16);
+        let mut draws: Vec<([f32; 2], [f32; 4])> = [([4.0, 0.0], 960.0), ([-60.0, 25.0], 960.0), ([35.0, -70.0], 1662.8), ([150.0, 90.0], 672.2), ([-260.0, 0.0], 960.0)]
+            .map(|(pixels, focal)| {
+                let (pixels, lens) = lens_terms(pixels, focal, size);
+                ([pixels[0] / f32::from(size.0), pixels[1] / f32::from(size.1)], lens)
+            })
+            .to_vec();
+        draws.push(([0.05, -0.02], [-1.7, 0.4, 1.01, 1.3]));
+        for (shift, lens) in draws {
+            for with_hud in [false, true] {
+                let draw = WarpDraw { shift, lens, hud: with_hud.then(|| hud.clone()) };
+                mesh.build(draw.shift, draw.lens, draw.mask().map_or(&[][..], |hud| hud.areas()));
+                // What the cells' chords may be off by (`lens_cells`), across a cell's diagonal
+                // and over a triangle: `LENS_ERROR` unless the turn takes more cells than drawn.
+                let cells = lens_cells(shift, lens) as f32;
+                let slack = 4.0 * (lens_bend(shift, lens) / (8.0 * cells * cells)).max(LENS_ERROR);
+                let mut compared = 0;
+                for j in 0..60 {
+                    for i in 0..60 {
+                        let at = [(i as f32 + 0.37) / 60.0, (j as f32 + 0.37) / 60.0];
+                        let (want_uv, want_fade) = sample_at(&draw, at);
+                        // On the HUD's outline a point is on one side or the other of it, and what
+                        // it samples jumps: not there.
+                        let steady = [[-2e-3, 0.0], [2e-3, 0.0], [0.0, -2e-3], [0.0, 2e-3]].iter().all(|d| {
+                            let (near, _) = sample_at(&draw, [at[0] + d[0], at[1] + d[1]]);
+                            (near[0] - want_uv[0]).abs() < 0.02 && (near[1] - want_uv[1]).abs() < 0.02
+                        });
+                        if !steady {
+                            continue;
+                        }
+                        compared += 1;
+                        let (uv, fade) = mesh_sample(&mesh, at).expect("the triangles cover the destination");
+                        // The fill darkens by 35% over 8% of the picture.
+                        assert!((uv[0] - want_uv[0]).abs() < slack && (uv[1] - want_uv[1]).abs() < slack && (fade - want_fade).abs() < 6.0 * slack,
+                            "{shift:?} {lens:?} hud {with_hud} at {at:?}: {uv:?} {fade}, not {want_uv:?} {want_fade} within {slack}");
+                    }
+                }
+                assert!(compared > 3000, "{shift:?} {lens:?}: only {compared} points compared");
+            }
+        }
+        // A small turn takes few cells, a wide one more, and never more than the most.
+        assert_eq!(lens_cells([0.0, 0.0], FLAT), 4);
+        let small = lens_terms([4.0, 0.0], 960.0, size);
+        let wide = lens_terms([150.0, 90.0], 672.2, size);
+        let cells = |(pixels, lens): ([f32; 2], [f32; 4])| lens_cells([pixels[0] / 1920.0, pixels[1] / 1080.0], lens);
+        assert!(cells(small) < 12 && cells(wide) > 24, "{} {}", cells(small), cells(wide));
+        assert_eq!(lens_cells([0.0, 0.0], [f32::NAN, 0.0, 1.0, 1.0]), MAX_LENS_CELLS);
+        assert_eq!(lens_cells([0.1, 0.0], [-3.0, 3.0, 1.0, 1.0]), MAX_LENS_CELLS);
+    }
+
+    #[test]
     fn a_point_whose_shifted_source_is_hud_samples_itself() {
         // A HUD on cell (5, 5) of 10x10; turning right by 0.2 would draw it again at x 0.7..0.8.
         let hud = Arc::new(Hud::new(Arc::new(mask(10, 10, |x, y| x == 5 && y == 5))));
-        let draw = WarpDraw { shift: [0.2, 0.0], hud: Some(hud) };
+        let draw = WarpDraw { shift: [0.2, 0.0], hud: Some(hud), ..WarpDraw::default() };
         assert_eq!(sample_at(&draw, [0.75, 0.55]), ([0.75, 0.55], 1.0), "the scene, not the HUD again");
         assert_eq!(sample_at(&draw, [0.55, 0.55]), ([0.55, 0.55], 1.0), "the HUD in place");
         let (uv, fade) = sample_at(&draw, [0.65, 0.55]);
@@ -939,12 +1221,12 @@ mod tests {
         // On the left edge, turning right by 0.15: x 0.2 would sample the HUD at x 0.05, and x 0.12
         // the HUD mirrored in the edge fill, at x 0.03 (and darkened).
         let edge_hud = Arc::new(Hud::new(Arc::new(mask(10, 10, |x, y| x == 0 && y == 5))));
-        let draw = WarpDraw { shift: [0.15, 0.0], hud: Some(edge_hud) };
+        let draw = WarpDraw { shift: [0.15, 0.0], hud: Some(edge_hud), ..WarpDraw::default() };
         assert_eq!(sample_at(&draw, [0.2, 0.55]), ([0.2, 0.55], 1.0));
         assert_eq!(sample_at(&draw, [0.12, 0.55]), ([0.12, 0.55], 1.0), "nor the mirrored HUD");
         // The SDL renderer path's triangles draw the same.
         let mut mesh = Mesh::default();
-        mesh.build(draw.shift, draw.mask().unwrap().areas());
+        mesh.build(draw.shift, draw.lens, draw.mask().unwrap().areas());
         for at in [[0.2, 0.55], [0.12, 0.55]] {
             let (uv, fade) = mesh_sample(&mesh, at).unwrap();
             assert!(close(uv, at) && (fade - 1.0).abs() < 1e-6, "{at:?}: {uv:?} {fade}");
@@ -954,7 +1236,7 @@ mod tests {
     #[test]
     fn the_edge_fill_mirrors_and_darkens_rather_than_repeating_the_edge() {
         // Turning right by a tenth of the picture: its left tenth shows the picture mirrored.
-        let draw = WarpDraw { shift: [0.1, 0.0], hud: None };
+        let draw = WarpDraw { shift: [0.1, 0.0], ..WarpDraw::default() };
         let (uv, fade) = sample_at(&draw, [0.02, 0.5]);
         assert!(close(uv, [0.08, 0.5]) && (fade - 0.65).abs() < 1e-6, "{uv:?} {fade}");
         let (uv, fade) = sample_at(&draw, [0.07, 0.5]);
@@ -965,7 +1247,7 @@ mod tests {
     #[test]
     fn the_geometry_maps_the_source_rectangle_as_sdl_does() {
         let mut mesh = Mesh::default();
-        mesh.build([0.0, 0.0], &[]);
+        mesh.build([0.0, 0.0], FLAT, &[]);
         let whole = |x: f32, y: f32| Corner { at: [x, y], uv: [x, y], fade: 1.0 };
         assert_eq!(mesh.corners, [whole(0.0, 0.0), whole(1.0, 0.0), whole(1.0, 1.0), whole(0.0, 1.0)], "no shift is one quad");
         // A 1920x1080 picture in a 1920x1088 texture, drawn half size at (10, 20).
@@ -988,15 +1270,15 @@ mod tests {
         let mut mesh = Mesh::default();
         let source = SDL_FRect { x: 0.0, y: 0.0, w: 64.0, h: 36.0 };
         // How many triangles a shift takes varies with where the HUD's ghosts fall: the buffers
-        // grow to the most once.
-        let shifts = [[0.05, -0.03], [0.04, -0.02], [-0.01, 0.0]];
-        for shift in shifts {
-            mesh.build(shift, &areas);
+        // grow to the most once. Through a lens too.
+        let shifts = [([0.05, -0.03], FLAT), ([0.04, -0.02], [0.1, -0.04, 1.0, 1.01]), ([-0.01, 0.0], FLAT)];
+        for (shift, lens) in shifts {
+            mesh.build(shift, lens, &areas);
             mesh.geometry(source, (64.0, 36.0), source);
         }
         let buffers = (mesh.corners.as_ptr(), mesh.indices.as_ptr(), mesh.vertices.as_ptr());
-        for shift in shifts {
-            mesh.build(shift, &areas);
+        for (shift, lens) in shifts {
+            mesh.build(shift, lens, &areas);
             mesh.geometry(source, (64.0, 36.0), source);
             assert_eq!((mesh.corners.as_ptr(), mesh.indices.as_ptr(), mesh.vertices.as_ptr()), buffers, "{shift:?}");
         }
@@ -1024,19 +1306,27 @@ mod tests {
         assert!(HLSL.contains(&darken), "frame_warp.hlsl's fade is not `{darken}`");
         // And keep a point whose shifted source is on the HUD where it is, as `sample_at` does.
         assert!(HLSL.contains("if (frameWarpHud(source, size)) return q;"), "frame_warp.hlsl draws the HUD's ghost");
+        // A flat picture is shifted as it was before lenses, and a lens holds the same least depth.
+        assert!(HLSL.contains("if (frameWarpFlat()) return q - shift;"), "frame_warp.hlsl turns a flat picture");
+        assert!(HLSL.contains(&format!("max(1 + dot(c, warpLens.xy), {MIN_DEPTH})")), "frame_warp.hlsl's least depth is not {MIN_DEPTH}");
+        assert!(HLSL.contains(&format!("all(warpLens == float4({}, {}, {}, {}))", FLAT[0], FLAT[1], FLAT[2], FLAT[3])));
     }
 
     #[test]
     fn the_warp_row_is_zero_without_a_shift_and_names_the_mask_only_when_bound() {
         let hud = Arc::new(Hud::new(Arc::new(mask(64, 36, |x, _| x == 0))));
-        assert_eq!(WarpDraw { shift: [0.0, 0.0], hud: Some(hud.clone()) }.row(true), [0.0; 4]);
-        assert!(WarpDraw { shift: [0.0, 0.0], hud: Some(hud.clone()) }.mask().is_none(), "no shift binds no mask");
-        let draw = WarpDraw { shift: [0.01, -0.02], hud: Some(hud) };
+        let still = WarpDraw { shift: [0.0, 0.0], lens: [0.1, 0.0, 1.0, 1.01], hud: Some(hud.clone()) };
+        assert_eq!((still.row(true), still.lens_row()), ([0.0; 4], FLAT));
+        assert!(still.mask().is_none(), "no shift binds no mask");
+        let draw = WarpDraw { shift: [0.01, -0.02], hud: Some(hud), ..WarpDraw::default() };
         assert_eq!(draw.row(true), [0.01, -0.02, 64.0, 36.0]);
         assert_eq!(draw.row(false), [0.01, -0.02, 0.0, 0.0], "a mask that could not be bound is none");
-        let inactive = Warp { pixels: [0.001, 0.0], uv: [0.000_001, 0.0], active: false, mask_generation: None };
+        assert_eq!(draw.lens_row(), FLAT, "a flat picture");
+        let inactive = Warp { pixels: [0.001, 0.0], uv: [0.000_001, 0.0], lens: [0.1, 0.0, 1.0, 1.01], active: false, mask_generation: None };
         assert!(WarpDraw::of(&inactive, None).is_identity());
-        let without_mask = Warp { pixels: [5.0, 0.0], uv: [0.005, 0.0], active: true, mask_generation: None };
+        assert_eq!(WarpDraw::of(&inactive, None).lens, FLAT);
+        let without_mask = Warp { pixels: [5.0, 0.0], uv: [0.005, 0.0], lens: [0.02, 0.0, 1.0, 1.0001], active: true, mask_generation: None };
+        assert_eq!(WarpDraw::of(&without_mask, None).lens_row(), [0.02, 0.0, 1.0, 1.0001], "the lens goes to the shaders");
         let held = Arc::new(Hud::new(Arc::new(Mask::new(1, 1, 1))));
         assert!(WarpDraw::of(&without_mask, Some(&held)).hud.is_none(), "the predictor knows no mask");
     }
@@ -1198,6 +1488,8 @@ mod tests {
             ..Status::default()
         };
         assert_eq!(status_line(Some(&both)), "locked 0.50 px/count, 900 px/s, lag 38 ms, shift 5 px (peak 5), HUD 120 cells");
+        let lens = Status { model: Some(Model { focal: 500.0, ..locked_mouse() }), ..Status::default() };
+        assert_eq!(status_line(Some(&lens)), "locked 0.50 px/count, 90 degree lens, lag 38 ms, shift 0 px (peak 0)");
     }
 
     #[test]

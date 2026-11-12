@@ -33,6 +33,20 @@ How each number is made:
   from drawing a frame to capturing it.
 - picture_age is decode_qpc_us less the probe's render_qpc_us over the counted joined rows: both read the same
   performance counter.
+- A probe run with --fov draws through a perspective camera, and its report carries the camera's focal length
+  (expected_host_model.focal, display pixels; times the stream's width over the display's here, and a stream of
+  another shape is refused). A turn then moves no two points of the picture alike, so the run is measured over the
+  picture: at the points POINTS a side apart from 5% to 95% of each axis. For a measured row the picture shows the
+  camera of its probe frame (camera_x, camera_y) and should show that camera turned by the counts still outstanding,
+  -g_true * (sent + offset - content_sum), its y held at the probe's limit. Where a point of the picture the probe
+  would draw then is in the picture it drew (exact_source: the probe's own projection, undone) is that point's
+  ideal source; the client samples it at client_source, nightjar_core::frame_warp::source from the row's shift and
+  focal (the logged model's focal length; 0 or no such column is a client that slides the picture, point - shift).
+  A point's displacement without Frame Warp is the distance from itself to its ideal source and its error with it
+  the distance from the client's source to the ideal one. The ideal, the error, the bias and removed above are then
+  those of the picture's centre, and `lens` adds, for the centre, the whole picture (a row's mean over the points)
+  and its edge (the mean over the outermost points), the same median, p95 and removed, with the learned field of
+  view (from the median logged focal length over the counted locked rows) beside the probe's.
 - Percentiles are soak_result.percentile's (nearest rank, rounding down).
 """
 import argparse, csv, json, math, pathlib, sys
@@ -40,7 +54,11 @@ from soak_result import percentile
 
 CLIENT_COLUMNS = ('wire_frame', 'barcode_seq', 'decode_qpc_us', 'sent_x', 'sent_y', 'active', 'shift_x', 'shift_y',
                   'locked', 'mouse_gain_x', 'mouse_gain_y', 'lag_ms')
-PROBE_COLUMNS = ('frame', 'mouse_sum_x', 'mouse_sum_y', 'camera_y', 'render_qpc_us')
+PROBE_COLUMNS = ('frame', 'mouse_sum_x', 'mouse_sum_y', 'camera_x', 'camera_y', 'render_qpc_us')
+# The points a side at which a perspective run is measured, and the least depth the client's mapping divides by
+# (nightjar_core::frame_warp::MIN_DEPTH).
+POINTS = 7
+MIN_DEPTH = 0.25
 IDLE_US = 300_000
 IDLE_LAG_MARGIN_US = 250_000
 MIN_IDEAL_PX = 0.5
@@ -65,7 +83,8 @@ def read_client(path):
     rows = [dict(wire_frame=int(row['wire_frame']), seq=int(row['barcode_seq']), decode_us=int(row['decode_qpc_us']),
                  sent=(int(row['sent_x']), int(row['sent_y'])), active=row['active'] == '1',
                  shift=(float(row['shift_x']), float(row['shift_y'])), locked=row['locked'] == '1',
-                 gain=(number(row['mouse_gain_x']), number(row['mouse_gain_y'])), lag_ms=number(row['lag_ms']))
+                 gain=(number(row['mouse_gain_x']), number(row['mouse_gain_y'])), lag_ms=number(row['lag_ms']),
+                 focal=number(row.get('focal')))
             for row in read_csv(path, CLIENT_COLUMNS, 'a NIGHTJAR_CLI_FRAME_WARP log')]
     if not rows:
         raise ValueError(f'{path} has no rows')
@@ -94,6 +113,7 @@ def read_probe(path):
     frames = {}
     for row in read_csv(frames_path(path, report), PROBE_COLUMNS, 'a look_probe frames.csv'):
         frames[int(row['frame'])] = dict(sum=(int(row['mouse_sum_x']), int(row['mouse_sum_y'])),
+                                         camera=(float(row['camera_x']), float(row['camera_y'])),
                                          camera_y=float(row['camera_y']), render_us=int(row['render_qpc_us']))
     if not frames:
         raise ValueError(f'{path}: the probe drew no frames')
@@ -149,10 +169,72 @@ def spread(values):
     return dict(median=percentile(values, 50), p95=percentile(values, 95)) if values else dict(median=None, p95=None)
 
 
+def exact_source(point, shown, wanted, focal):
+    """Where the picture look_probe drew with its camera at `shown` holds what it draws at `point` with the camera at
+    `wanted`: the probe's projection onto its cylinder for one camera, undone for the other. Points are pixels from
+    the picture's centre, cameras the probe's (pixels of turn at the centre), all in the unit of `focal`. None where
+    the first picture's camera does not see it."""
+    yaw, pitch = wanted[0] / focal, wanted[1] / focal
+    y = point[1] * math.cos(pitch) + focal * math.sin(pitch)
+    z = focal * math.cos(pitch) - point[1] * math.sin(pitch)
+    around, height = yaw + math.atan2(point[0], z) - shown[0] / focal, y / math.hypot(point[0], z)
+    pitch = shown[1] / focal
+    x, z = math.sin(around), math.cos(around)
+    y, z = height * math.cos(pitch) - z * math.sin(pitch), z * math.cos(pitch) + height * math.sin(pitch)
+    return (focal * x / z, focal * y / z) if z > 1e-9 else None
+
+
+def client_source(point, shift, focal, size):
+    """Where the client samples the picture for `point` (pixels from its centre) under the centre's `shift`:
+    nightjar_core::frame_warp::source, with lens_terms undone from the shift; point - shift without a focal length."""
+    if not focal or focal <= 0:
+        return point[0] - shift[0], point[1] - shift[1]
+    t = (shift[0] / focal, shift[1] / focal)
+    k = (t[0] * size[0] / focal, t[1] * size[1] / focal)
+    n = (math.sqrt(1 + t[1] * t[1]), math.sqrt(1 + t[0] * t[0]))
+    q = (point[0] / size[0], point[1] / size[1])
+    depth = max(1 + q[0] * k[0] + q[1] * k[1], MIN_DEPTH)
+    return tuple((q[axis] * n[axis] - shift[axis] / size[axis]) / depth * size[axis] for axis in (0, 1))
+
+
+def lens_points(size):
+    """The points a perspective run is measured at, pixels from the picture's centre, and which are its edge."""
+    places = [0.05 + 0.9 * index / (POINTS - 1) - 0.5 for index in range(POINTS)]
+    points = [(x * size[0], y * size[1]) for y in places for x in places]
+    edge = [row in (0, POINTS - 1) or column in (0, POINTS - 1) for row in range(POINTS) for column in range(POINTS)]
+    return points, edge
+
+
+def lens_for(report, scale, size):
+    """The probe camera's focal length in the stream's pixels and the stream's size, or None for a flat probe."""
+    focal = (report.get('expected_host_model') or {}).get('focal')
+    if not focal:
+        return None
+    display = report.get('display') or {}
+    if not display.get('width') or not display.get('height'):
+        raise ValueError('the probe report has no display size to measure its lens over')
+    if abs(scale[0] - scale[1]) > 0.01 * scale[0]:
+        raise ValueError('the stream is not the shape of the probe\'s display, so its picture has no one lens')
+    return dict(focal=focal * scale[0], size=size or (display['width'], display['height']))
+
+
+def region():
+    return dict(ideal=[], error=[])
+
+
+def region_result(values):
+    return dict(without_warp_px=spread(values['ideal']), with_warp_error_px=spread(values['error']),
+                removed=1 - sum(values['error']) / sum(values['ideal']) if sum(values['ideal']) else None)
+
+
 def analyze(report, frames, client, skip_seconds=0.0, size=None):
     expected = report['expected_host_model']
     scale = scale_for(report, size)
     g_true = (expected['mouse_gain'][0] * scale[0], expected['mouse_gain'][1] * scale[1])
+    lens = lens_for(report, scale, size)
+    points, edge = lens_points(lens['size']) if lens else ([], [])
+    regions = dict(centre=region(), picture=region(), edge=region())
+    unseen = 0
     lag_us = int(expected.get('lag_us_at_least') or 0)
     offset = estimate_offset(client, frames, report, max(IDLE_US, lag_us + IDLE_LAG_MARGIN_US))
     first_us = client[0]['decode_us']
@@ -168,6 +250,18 @@ def analyze(report, frames, client, skip_seconds=0.0, size=None):
             pitch_limited += 1
             continue
         ideal = [g_true[axis] * (row['sent'][axis] + offset['counts'][axis] - frame['sum'][axis]) for axis in (0, 1)]
+        exact = None
+        if lens:
+            # The picture's own camera, and that camera turned by what the picture has not seen yet.
+            shown = (frame['camera'][0] * scale[0], frame['camera'][1] * scale[1])
+            wanted = [shown[0] - ideal[0], shown[1] - ideal[1]]
+            if y_limit is not None:
+                wanted[1] = min(max(wanted[1], -y_limit * scale[1]), y_limit * scale[1])
+            exact = [exact_source(point, shown, wanted, lens['focal']) for point in (*points, (0.0, 0.0))]
+            if any(source is None for source in exact):
+                unseen += 1
+                continue
+            ideal = [-exact[-1][0], -exact[-1][1]]
         length = math.hypot(*ideal)
         if length <= MIN_IDEAL_PX:
             small += 1
@@ -177,12 +271,33 @@ def analyze(report, frames, client, skip_seconds=0.0, size=None):
         error_px.append(math.hypot(*error))
         for axis in (0, 1):
             bias[axis].append(error[axis])
+        if lens:
+            without, within = [], []
+            for point, source in zip(points, exact):
+                drawn = client_source(point, row['shift'], row['focal'], lens['size'])
+                without.append(math.hypot(point[0] - source[0], point[1] - source[1]))
+                within.append(math.hypot(drawn[0] - source[0], drawn[1] - source[1]))
+            mean = lambda values, only: (sum(v for v, keep in zip(values, only) if keep) / sum(only))
+            for name, only in (('picture', [True] * len(points)), ('edge', edge)):
+                regions[name]['ideal'].append(mean(without, only))
+                regions[name]['error'].append(mean(within, only))
+            regions['centre']['ideal'].append(length)
+            regions['centre']['error'].append(math.hypot(*error))
     gains = [[row['gain'][axis] for row, _ in locked if row['gain'][axis] is not None] for axis in (0, 1)]
     learned_gain = [percentile(gains[axis], 50) for axis in (0, 1)]
     lags = [row['lag_ms'] for row, _ in locked if row['lag_ms'] is not None]
+    lens_result = None
+    if lens:
+        degrees = lambda focal: math.degrees(2 * math.atan(lens['size'][0] / 2 / focal)) if focal and focal > 0 else None
+        learned_focal = percentile([row['focal'] or 0.0 for row, _ in locked], 50)
+        lens_result = dict(focal=lens['focal'], field_of_view=degrees(lens['focal']), learned_focal=learned_focal,
+                           learned_field_of_view=degrees(learned_focal),
+                           with_lens_share=(sum(bool(row['focal']) for row, _ in locked) / len(locked) if locked else None),
+                           unseen=unseen, **{name: region_result(values) for name, values in regions.items()})
     return dict(
         expected=dict(mouse_gain=list(g_true), scale=list(scale), lag_ms_at_least=lag_us / 1000),
         offset=offset,
+        lens=lens_result,
         rows=dict(client=len(client), with_barcode=sum(row['seq'] != 0 for row in client),
                   joined=sum(row['seq'] in frames for row in client), counted=len(counted), locked=len(locked),
                   pitch_limited=pitch_limited, below_threshold=small, measured=len(ideal_px)),
@@ -238,6 +353,19 @@ def format_table(result):
     lines.append(f'error bias: x {fixed(bias[0], 2, " px")}, y {fixed(bias[1], 2, " px")}')
     removed = '-' if result['removed'] is None else f'{result["removed"]:.1%}'
     lines.append(f'removed: {removed} of the input-to-picture displacement')
+    lens = result.get('lens')
+    if lens:
+        share = '-' if lens['with_lens_share'] is None else f'{lens["with_lens_share"]:.1%}'
+        lines.extend(['', f'lens: {fixed(lens["field_of_view"], 1)} degrees across (focal {fixed(lens["focal"], 1)} px); '
+                          f'learned {fixed(lens["learned_field_of_view"], 1)} degrees '
+                          f'(focal {fixed(lens["learned_focal"], 1)} px, {share} of the locked rows with a lens)',
+                      f'{"over the picture (px)":<24}{"without":>10}{"p95":>10}{"with":>10}{"p95":>10}{"removed":>10}'])
+        for name, key in (('centre', 'centre'), ('whole picture', 'picture'), ('edge', 'edge')):
+            part = lens[key]
+            removed = '-' if part['removed'] is None else f'{part["removed"]:.1%}'
+            lines.append(f'{name:<24}{fixed(part["without_warp_px"]["median"], 2):>10}'
+                         f'{fixed(part["without_warp_px"]["p95"], 2):>10}{fixed(part["with_warp_error_px"]["median"], 2):>10}'
+                         f'{fixed(part["with_warp_error_px"]["p95"], 2):>10}{removed:>10}')
     return '\n'.join(lines) + '\n'
 
 

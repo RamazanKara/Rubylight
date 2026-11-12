@@ -440,6 +440,7 @@ async fn nightjar_hears_the_frame_warp_model() -> Result<()> {
         enabled: true,
         controller: Some(0),
         mask_max_width: 1024,
+        lens: true,
     }))?;
     until("the host turns Frame Warp on", LOADED, || {
         session.frame_warp.enabled()
@@ -454,6 +455,7 @@ async fn nightjar_hears_the_frame_warp_model() -> Result<()> {
         enabled: false,
         controller: None,
         mask_max_width: 0,
+        lens: true,
     }))?;
     until("the host turns Frame Warp off", LOADED, || {
         !session.frame_warp.enabled()

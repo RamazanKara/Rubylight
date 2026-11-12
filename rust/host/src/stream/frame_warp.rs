@@ -261,6 +261,7 @@ fn work(s: &Session, store: &Store, receiver: &Receiver<Work>) {
                 stick_gain = ?sent.stick_gain,
                 lag_ms = sent.lag_us as f32 / 1000.0,
                 fit = sent.confidence,
+                field_of_view = field_of_view(&sent),
                 "frame warp model sent"
             );
         }
@@ -293,10 +294,21 @@ fn log_model(s: &Session, model: Option<Model>) {
             stick_gain = ?model.stick_gain,
             lag_ms = model.lag_us as f32 / 1000.0,
             fit = model.confidence,
+            field_of_view = field_of_view(&model),
             "frame warp model locked"
         ),
         None => tracing::info!(client = %s.launch.client.name, "frame warp model unlocked"),
     }
+}
+
+/// The horizontal field of view of the model's lens in degrees, for the log; 0 for a picture
+/// that moves alike everywhere.
+fn field_of_view(model: &Model) -> f32 {
+    model.lens().map_or(0.0, |focal| {
+        2.0 * (f32::from(model.picture_width) * 0.5 / focal)
+            .atan()
+            .to_degrees()
+    })
 }
 
 /// The game a launch streams, as `frame_warp.json` names it: its uuid, else its name.

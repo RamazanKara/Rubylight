@@ -796,8 +796,8 @@ pub(crate) fn after_slice_draw(recorded: Result<(), String>, signal: impl FnOnce
 }
 
 /// `packed444.hlsl`'s `Presentation` block: the destination, the output's colour, then Frame
-/// Warp's row.
-const PRESENTATION_FLOATS: usize = 12;
+/// Warp's two rows.
+const PRESENTATION_FLOATS: usize = 16;
 const PRESENTATION_BYTES: u32 = PRESENTATION_FLOATS as u32 * 4;
 
 pub struct Packed {
@@ -1002,9 +1002,9 @@ impl Packed {
         warp: &super::frame_warp::WarpDraw) -> bool {
         let Ok(target) = self.back_buffer.borrow_mut().view(swapchain, output) else { return false; };
         let mask = self.mask.borrow_mut().view(&self.device, warp);
-        let row = warp.row(mask.is_some());
+        let (row, lens) = (warp.row(mask.is_some()), warp.lens_row());
         let presentation = [destination[0], destination[1], destination[2], destination[3], u32::from(linear) as f32, scale, 0.0, 0.0,
-            row[0], row[1], row[2], row[3]];
+            row[0], row[1], row[2], row[3], lens[0], lens[1], lens[2], lens[3]];
         let x = destination[0].max(0.0);
         let y = destination[1].max(0.0);
         let clipped = [x, y, (destination[0] + destination[2]).min(output.0 as f32) - x,
@@ -1069,17 +1069,19 @@ mod tests {
         assert_eq!(super::PlanesPass::compiles(), Ok(()));
     }
 
-    /// The packed presentation shader, both outputs, compiles with Frame Warp's row and mask, and
+    /// The packed presentation shader, both outputs, compiles with Frame Warp's rows and mask, and
     /// the block `present` fills is the shader's.
     #[test]
-    fn the_packed_presentation_takes_frame_warps_row() {
+    fn the_packed_presentation_takes_frame_warps_rows() {
         let shader = include_str!("../packed444.hlsl");
         let colour = shader.find("float linearOutput; float colorScale; float2 unused;").expect("the colour row");
         let warp = shader.find("float4 warp;").expect("the warp row");
         assert!(colour < warp && shader[colour..warp].matches(';').count() == 3, "the warp row follows the colour row");
-        assert!(shader[warp..].trim_start_matches("float4 warp;").trim_start().starts_with("};"), "and ends the block");
+        let lens = shader[warp..].trim_start_matches("float4 warp;").trim_start();
+        assert!(lens.starts_with("float4 warpLens;"), "the lens row follows it");
+        assert!(lens.trim_start_matches("float4 warpLens;").trim_start().starts_with("};"), "and ends the block");
         assert!(shader.contains("Texture2D<float> hudMask : register(t2);"));
-        assert_eq!(super::PRESENTATION_BYTES, 48);
+        assert_eq!(super::PRESENTATION_BYTES, 64);
         let sdr = [b"#define SDR_PRESENT 1\n".as_slice(), include_bytes!("../packed444.hlsl")].concat();
         for source in [&include_bytes!("../packed444.hlsl")[..], sdr.as_slice()] {
             // SAFETY: Plain compiler calls on static source.

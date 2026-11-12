@@ -25,7 +25,17 @@ lets clients use it; the host does nothing for Frame Warp until a client asks.
    steps, and the median cell wins. The HUD found so far (step 6) is left out of the profiles,
    since a wide static bar would pull every vertical shift toward zero, and a picture whose
    textured cells are mostly unchanged counts as standing still whatever moves in a corner of
-   it. The calibrator
+   it. That mask is the one the client holds still, so it leaves out a HUD's rim and its plain
+   parts, and a client may ask for none. The measurement therefore also finds what stands
+   still itself, per thumbnail pixel: each move should bring a pixel what its cell's shift says
+   lay that far away, and a pixel that should have changed by 24 luma codes in all (at most 6
+   from one move) and stayed within 2 is left out with its neighbours until it changes. A sky,
+   a horizon during a pan or the middle of a plain panel, which a move brings more of the same,
+   is not marked. A profile takes the moving average out of every picture line before it
+   averages the lines, and drops the samples whose average would reach over a left-out pixel:
+   otherwise rows half under a HUD stand at another level than their neighbours, and that
+   step, fixed on the screen, holds the cell's shift back as the HUD itself would. The
+   calibrator
    (`calibrate.rs`) fits the moves to the input over the last four seconds: for every lag from
    0 to 200 ms, a least-squares gain per axis, and the lag that explains the most motion wins.
    An axis with less than a quarter of the other's input takes the other's gain: fitted to the
@@ -36,11 +46,31 @@ lets clients use it; the host does nothing for Frame Warp until a client asks.
    of what the model leaves unexplained when that is less, so the lag doesn't wander from fit
    to fit; otherwise the model keeps its lag and takes the least-squares gain there, which
    settles as turns add up after an early lock.
+   A game draws through a perspective camera, so a turn moves the edges of its picture farther
+   than the centre, twice as far at the left and right of a 90 degree field of view. The host
+   learns the field of view from the cells (`lens.rs`): for each move made while the player's
+   turning was arriving, and for each field of view from 30 to 120 degrees in steps of 2, it fits
+   the cells' shifts with a camera turn, a zoom about the centre (walking forward) and a roll,
+   leaving out up to two cells where something else moves, and keeps the squared remainder,
+   fading over the last few seconds of turning. Each shift counts where its profile measured it
+   rather than at the cell's centre: a profile follows its slopes, a lens stretches the picture
+   toward its edge, so an outer cell's shift is that of a place nearer the middle (enough to
+   read 90 degrees as 78), and a cell half under a HUD is measured beside it. No cell costs a
+   field of view more than a cell left out does, so a cut or a menu opening costs them all
+   alike. Once 30 moves have added up, the field of view that leaves the least (between the
+   steps, where a parabola through the best and its neighbours is lowest) is taken if it leaves
+   at most 75% of what a flat picture leaves, changed for one at least 1.5 degrees away that
+   leaves at most 98% of what it leaves, and dropped when it leaves more than 90% of the flat
+   picture's remainder. With a lens, each move is read as the turn at the picture's centre from
+   that fit, not the median cell, so the gains are the centre's; a map or a side-scroller, which
+   moves alike everywhere, gets no lens and stays as before. A client whose request does not say
+   it draws the lens (Nightjar 5.0) is sent no focal length, and the centre's gains all the
+   same: the median cell's, longer, would carry the middle of its picture too far.
 4. Each frame, as its number is assigned, is tagged with the mouse sums and the pad packet
    count as of its capture time less the game's lag, and how long that packet had been held
    (0x5545, with the three previous frames' tags, unreliable).
-5. The model (0x5544, reliable) goes out when it locks, unlocks, a gain changes by more than 2%
-   or the lag by more than 3 ms.
+5. The model (0x5544, reliable) goes out when it locks, unlocks, a gain changes by more than 2%,
+   the lag by more than 3 ms or the lens's focal length by more than 3%.
 6. While the camera turns, the GPU compares every pixel with the same pixel in an earlier
    capture, within 2/255 per channel, since games add faint noise or dither to their HUD. The
    earlier capture is one the scene has moved at least a thumbnail pixel since: the previous one
@@ -69,8 +99,12 @@ lets clients use it; the host does nothing for Frame Warp until a client asks.
    ```
 
    where `tau` is the send time of the tagged pad packet plus how long the host had held it,
-   clamped to 15% of the picture. The client samples the picture at `position - shift`, and at
-   `position` where the HUD mask is set or where `position - shift` lands on it, so the HUD
+   clamped to 15% of the picture (less under a lens wider than 90 degrees, whose edges stretch
+   sooner). The client samples the picture at `position - shift`, or, when the model has a lens,
+   where a camera turned by `shift / focal` shows that position: the centre moves by
+   `focal * tan(shift / focal)` and the edges by more, as the game itself would draw the turn
+   ([the mapping](../client/docs/protocol/frame-warp.md#the-shift)). It samples at
+   `position` where the HUD mask is set or where the source lands on it, so the HUD
    stays in place without a second copy beside it. The strip the shift uncovers mirrors the
    picture back from its edge, darkened by up to 35% over the first 8% of the picture, so it
    reads as an edge rather than a smear of the outermost pixels.
@@ -80,9 +114,15 @@ on a 120 Hz screen.
 
 ## Accuracy limits
 
-- The shift is a translation: right for a camera turn near the screen's centre, approximate
-  near its edges at wide fields of view, and wrong for movement (strafing), which it does not
-  try to predict.
+- The shift is a camera turn: right all over the picture for a turn left or right, or up or
+  down, once the field of view is learned (within 3.5 degrees from some seven seconds of
+  turning on in our runs; the first seconds use a narrower one or none). A turn left or right while the camera
+  looks up or down also rolls the picture, which the shift leaves out: at 10 degrees of pitch
+  that is most of what remains at the picture's edges. Movement (strafing) is not predicted.
+- A client that does not draw the lens slides the picture by the centre's turn: right in the
+  middle, too short toward the edges.
+- The field of view is learned from the player's own turns, so a game that is only walked
+  through, or whose picture a HUD covers in most cells, keeps the flat shift.
 - A model fits the game's sensitivity as it is; in-game sensitivity changes refit within about
   four seconds. Mouse acceleration in the game makes the fit worse and may keep it unlocked.
 - A HUD element that moves or fades, or a scene that changes nowhere, can leave HUD shifted or
@@ -103,7 +143,11 @@ and `NIGHTJAR_CLI_LOOK=<seed>` (a mouse-look pattern of turns and pauses). The p
 ties each logged picture to the input it shows, and `rust/release/frame_warp_accuracy.py --probe
 OUT.json --client <csv>` compares each shift with the ideal one: the learned gain and lag, how
 soon the model locks, and how much of the input-to-picture displacement Frame Warp removes.
-[Performance](../rust/PERFORMANCE.md#november-12-frame-warp) has the results.
+With `--fov DEGREES` the probe draws its world through a perspective camera, and the script
+also reports the learned field of view and what is left at the centre, over the whole picture
+and at its edge (a 7 by 7 grid of points, each compared with where the turned camera shows it).
+[Performance](../rust/PERFORMANCE.md#november-12-frame-warp) has the results, and
+[the lens's](../rust/PERFORMANCE.md#november-12-frame-warp-lens).
 
 ## Wire formats
 
@@ -113,8 +157,8 @@ full rules for other hosts. Little-endian throughout.
 
 | Message | Bytes |
 |---|---|
-| Request 0x5543 | version 1, enabled 0/1, controller 0-15 or 0xFF, 0, mask max width u16, 0, 0 |
-| Model 0x5544 | version, flags (bit 0 mouse locked, bit 1 stick locked), generation u16, picture width u16, height u16, then f32: mouse gain x, y (picture px per count), stick gain x, y (px per second of full deflection after the curve), stick dead zone, stick exponent (1 to 3 in halves), max shift x, y; lag µs u32; fit f32 |
+| Request 0x5543 | version 1, enabled 0/1, controller 0-15 or 0xFF, flags (bit 0: the client draws the lens), mask max width u16, 0, 0 |
+| Model 0x5544 | version, flags (bit 0 mouse locked, bit 1 stick locked), generation u16, picture width u16, height u16, then f32: mouse gain x, y (picture px per count), stick gain x, y (px per second of full deflection after the curve), stick dead zone, stick exponent (1 to 3 in halves), max shift x, y; lag µs u32; fit f32; focal length f32 (picture px, 0 for none; absent from hosts before it was added, and clients from before it ignore it) |
 | Tags 0x5545 | version, count 1-4, model generation u16, then per tag: frame u32, mouse sum x i32, y i32, pad packet count u32, held µs u32 (0xFFFFFFFF none) |
 | Mask 0x5546 | version, kind (0 none, 1 runs), generation u16, width u16, height u16, then per row LEB128 run lengths alternating clear and set, starting clear |
 
@@ -123,7 +167,7 @@ full rules for other hosts. Little-endian throughout.
 | Part | Code |
 |---|---|
 | Wire formats, stick curve | `client/protocol/core/src/frame_warp.rs` |
-| Host history, motion, calibration, tags, mask choice | `rust/core/src/frame_warp/` |
+| Host history, motion, lens, calibration, tags, mask choice | `rust/core/src/frame_warp/` |
 | Host GPU thumbnail and HUD passes | `rust/windows/src/compute_frame_warp.rs`, `rust/windows/src/shaders/color.hlsl` |
 | Host wiring and setting | `rust/host/src/stream/frame_warp.rs`, `rust/core/src/config/overrides.rs` |
 | Client counting and shift | `client/protocol/client/src/frame_warp.rs`, `input/queue.rs`, `control/session.rs` |

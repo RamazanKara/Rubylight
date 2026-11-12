@@ -125,6 +125,12 @@ impl InputHistory {
         (b.0 - a.0, b.1 - a.1)
     }
 
+    /// Whether a mouse move arrived after `t0` and by `t1` (moves that cancel count).
+    pub fn mouse_moved(&self, t0: u64, t1: u64) -> bool {
+        self.mouse.partition_point(|e| e.at_us <= t0)
+            < self.mouse.partition_point(|e| e.at_us <= t1)
+    }
+
     /// The tag of a frame that reflects mouse input up to `mouse_us` and pad input up to
     /// `pad_us`.
     pub fn tag(&self, frame: u32, mouse_us: u64, pad_us: u64) -> Tag {

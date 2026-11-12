@@ -1,8 +1,10 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 
-// Frame Warp (docs/frame-warp.md): video.frag with each pixel sampled at its position less the
-// turn the host has not drawn yet, except where the host's HUD mask says the content stays put.
+// Frame Warp (docs/frame-warp.md): video.frag with each pixel sampled where the turn the host has
+// not drawn yet brings it from, except where the host's HUD mask says the content stays put. The
+// picture's centre moves by the shift and the rest is turned through the lens terms, as a camera
+// turning shows it; a flat picture's terms leave every pixel at its position less the shift.
 // Past the picture's edge the shifted position is mirrored back into it and darkened with the
 // distance, rather than the edge column repeated as streaks (frame_warp.glsl and warp.frag alike).
 
@@ -30,7 +32,10 @@ void main() {
             hud = texture(uHud, picture).r > 0.5;
         }
         if (!hud) {
-            vec2 p = picture - pc.warp.xy;
+            // From the picture's centre, turned through the lens terms (nightjar_core's
+            // frame_warp::source): picture - pc.warp.xy for a flat picture
+            vec2 q = picture - 0.5;
+            vec2 p = 0.5 + (q * pc.warpLens.zw - pc.warp.xy) / max(1.0 + dot(q, pc.warpLens.xy), 0.25);
             vec2 outside = max(-p, p - 1.0);
             float edgeFade = 1.0 - 0.35 * clamp(max(max(outside.x, outside.y), 0.0) / 0.08, 0.0, 1.0);
             // Mirrored at the edges: -p below 0, 2 - p above 1

@@ -63,6 +63,8 @@ pub struct Constants {
     pub flags: u32,
     /// Frame Warp's row (`WarpDraw::row`); all zero draws the picture where it is.
     pub warp: [f32; 4],
+    /// Its lens terms (`WarpDraw::lens_row`), read only beside a row that shifts.
+    pub warp_lens: [f32; 4],
 }
 
 /// What SDL's draw of the RGBA64F linear picture texture into the back buffer does to it: its
@@ -116,6 +118,7 @@ pub fn constants(destination: &SDL_FRect, visible: (i32, i32), look: Look) -> Co
         tonemap: [tonemap1, tonemap2],
         flags: u32::from(!look.linear_output),
         warp: [0.0; 4],
+        warp_lens: nightjar_core::frame_warp::FLAT,
     }
 }
 
@@ -127,19 +130,23 @@ mod tests {
 
     #[test]
     fn the_constants_fill_the_shaders_cbuffer_exactly() {
-        // Four float4 rows: destination, picture, then the scale, the two tone map factors and the
-        // flags, then Frame Warp's row.
-        assert_eq!(std::mem::size_of::<Constants>(), 64);
+        // Five float4 rows: destination, picture, then the scale, the two tone map factors and the
+        // flags, then Frame Warp's two rows.
+        assert_eq!(std::mem::size_of::<Constants>(), 80);
         assert_eq!(std::mem::offset_of!(Constants, picture), 16);
         assert_eq!(std::mem::offset_of!(Constants, output_scale), 32);
         assert_eq!(std::mem::offset_of!(Constants, tonemap), 36);
         assert_eq!(std::mem::offset_of!(Constants, flags), 44);
         assert_eq!(std::mem::offset_of!(Constants, warp), 48);
+        assert_eq!(std::mem::offset_of!(Constants, warp_lens), 64);
         let shader = include_str!("../planes_direct.hlsl");
         assert!(shader.contains("float outputScale; float tonemap1; float tonemap2;"), "the shader's row 3 is scale, tonemap1, tonemap2, flags");
         let flags = shader.find("uint directFlags;").expect("the flags");
         let warp = shader.find("float4 warp;").expect("the warp row");
         assert!(flags < warp && !shader[flags + "uint directFlags;".len()..warp].contains(';'), "the warp row follows the flags");
+        let lens = shader[warp..].trim_start_matches("float4 warp;").trim_start();
+        assert!(lens.starts_with("float4 warpLens;") && lens.trim_start_matches("float4 warpLens;").trim_start().starts_with("};"),
+            "the lens row follows it and ends the block");
         assert!(shader.contains("Texture2D<float> hudMask : register(t6);"));
         assert_eq!(constants(&SDL_FRect { x: 0.0, y: 0.0, w: 8.0, h: 8.0 }, (8, 8), SDR).warp, [0.0; 4], "no shift unless Frame Warp sets one");
     }

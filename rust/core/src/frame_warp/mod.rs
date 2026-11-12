@@ -13,6 +13,7 @@
 
 pub mod calibrate;
 pub mod history;
+pub mod lens;
 pub mod motion;
 
 use std::borrow::Cow;
@@ -20,8 +21,9 @@ use std::collections::VecDeque;
 
 pub use calibrate::{Calibrator, Prior};
 pub use history::InputHistory;
+pub use lens::Lens;
 pub use motion::{
-    Motion, Scratch, THUMBNAIL_WIDTH, Thumbnail, estimate, estimate_around, estimate_with,
+    Motion, Scratch, Still, THUMBNAIL_WIDTH, Thumbnail, estimate, estimate_around, estimate_with,
 };
 pub use rubylight_protocol::frame_warp::{
     FRAME_WARP_MASK_MESSAGE_TYPE, FRAME_WARP_MODEL_MESSAGE_TYPE, FRAME_WARP_REQUEST_MESSAGE_TYPE,
@@ -42,6 +44,9 @@ pub const MOTION_MIN: f32 = 1.0;
 pub const MOTION_WINDOW_US: u64 = 100_000;
 /// Confidence a shift needs to count toward the scene moving.
 pub const MOTION_CONFIDENCE: f32 = 0.5;
+/// A move teaches the lens when the player's turning arrived within this of the input the move
+/// shows: the game's own camera work (a cutscene, a walk) is not a turn.
+const LENS_INPUT_MARGIN_US: u64 = 30_000;
 /// Encoded tag messages kept for the control loop; older ones are dropped (the next carries
 /// them again).
 const PENDING_TAGS: usize = 8;
@@ -72,6 +77,8 @@ pub struct FrameWarpHost {
     mask_max_width: u16,
     history: InputHistory,
     calibrator: Calibrator,
+    /// The game's field of view, from the moves the player's turns made.
+    lens: Lens,
     /// What has cleared the worker's previous thumbnail and HUD pixels ([`Measurer`]).
     resets: Resets,
     /// Bumped by whatever changes what a running fit started from ([`FitJob`]).
@@ -101,6 +108,7 @@ impl FrameWarpHost {
             mask_max_width: 0,
             history: InputHistory::new(None),
             calibrator: Calibrator::new(picture, (THUMBNAIL_WIDTH, thumbnail_height(picture))),
+            lens: Lens::default(),
             resets: Resets::default(),
             fit_epoch: 0,
             picture,
@@ -125,6 +133,7 @@ impl FrameWarpHost {
         let starting = request.enabled && !self.enabled;
         self.enabled = request.enabled;
         self.mask_max_width = request.mask_max_width;
+        self.calibrator.set_lens_drawn(request.lens);
         self.fit_epoch += 1;
         if starting {
             // Both sides count input from the request that starts Frame Warp; a repeated
@@ -180,7 +189,15 @@ impl FrameWarpHost {
 
     pub fn set_prior(&mut self, prior: Prior) {
         self.calibrator.set_prior(prior);
+        self.lens.set_prior(self.calibrator.lens());
+        // What this stream's own turns have already said stands.
+        self.apply_lens();
         self.fit_epoch += 1;
+    }
+
+    /// Puts the learned lens in force.
+    fn apply_lens(&mut self) {
+        self.calibrator.set_lens(self.lens.tangent());
     }
 
     /// What to remember for this game.
@@ -230,8 +247,15 @@ impl FrameWarpHost {
             && let Some((t0_us, motion)) = measured.shift
         {
             self.samples += 1;
-            if motion.confidence >= MOTION_CONFIDENCE {
-                self.add_shift((t0_us, measured.at_us, motion.dx, motion.dy), now_us);
+            if self.turning(t0_us, measured.at_us)
+                && self.lens.observe(self.calibrator.layout(), &motion)
+            {
+                self.apply_lens();
+                self.fit_epoch += 1;
+            }
+            let turn = self.calibrator.resolve(&motion);
+            if turn.confidence >= MOTION_CONFIDENCE {
+                self.add_shift((t0_us, measured.at_us, turn.dx, turn.dy), now_us);
             }
             self.calibrator.add(calibrate::Sample {
                 t0_us,
@@ -240,6 +264,20 @@ impl FrameWarpHost {
             });
         }
         true
+    }
+
+    /// Whether the player's mouse or stick was turning the camera in the input that the
+    /// captures from `t0_us` to `t1_us` show.
+    fn turning(&self, t0_us: u64, t1_us: u64) -> bool {
+        let span = |lag: u64| {
+            (
+                t0_us.saturating_sub(lag + LENS_INPUT_MARGIN_US),
+                t1_us.saturating_sub(lag) + LENS_INPUT_MARGIN_US,
+            )
+        };
+        let (m0, m1) = span(self.calibrator.mouse_lag_us());
+        let (s0, s1) = span(self.calibrator.stick_lag_us());
+        self.history.mouse_moved(m0, m1) || self.history.stick_active(s0, s1)
     }
 
     /// The fit to run outside the lock, when one is due: copies of the calibrator and the
@@ -464,6 +502,11 @@ pub struct Measurer {
     hud: Option<Vec<bool>>,
     /// [`Resets::hud`] as of the last hold.
     hud_resets: u64,
+    /// What the measured moves leave standing, left out as well: the rims and plain parts of a
+    /// HUD that the GPU's mask leaves in.
+    still: Still,
+    /// `hud` and `still` together, while both mark something.
+    both: Option<Vec<bool>>,
     scratch: Scratch,
 }
 
@@ -476,8 +519,16 @@ impl Measurer {
             .as_ref()
             .filter(|previous| thumbnail.at_us > previous.at_us)
             .and_then(|previous| {
-                estimate_with(previous, thumbnail, self.hud.as_deref(), &mut self.scratch)
-                    .map(|motion| (previous.at_us, motion))
+                let left_out = self
+                    .both
+                    .as_deref()
+                    .or(self.still.mask())
+                    .or(self.hud.as_deref());
+                let motion = estimate_with(previous, thumbnail, left_out, &mut self.scratch)?;
+                if self.still.observe(previous, thumbnail, &motion) {
+                    self.both = both(self.hud.as_deref(), self.still.mask());
+                }
+                Some((previous.at_us, motion))
             });
         Measured {
             size: (thumbnail.width, thumbnail.height),
@@ -498,6 +549,7 @@ impl Measurer {
     /// [`hud_pixels`] laid them over the thumbnail size the host returned.
     pub fn set_hud(&mut self, hud: Vec<bool>, resets: Resets) {
         self.catch_up(resets);
+        self.both = both(Some(&hud), self.still.mask());
         self.hud = Some(hud);
     }
 
@@ -509,9 +561,16 @@ impl Measurer {
         }
         if resets.hud != self.hud_resets {
             self.hud = None;
+            self.both = None;
             self.hud_resets = resets.hud;
         }
     }
+}
+
+/// The pixels either mask marks, when both mark some and are of one size.
+fn both(hud: Option<&[bool]>, still: Option<&[bool]>) -> Option<Vec<bool>> {
+    let (hud, still) = (hud?, still?);
+    (hud.len() == still.len()).then(|| hud.iter().zip(still).map(|(a, b)| *a || *b).collect())
 }
 
 /// A fit that runs outside the host's lock ([`FrameWarpHost::fit_job`]).
@@ -822,6 +881,7 @@ mod tests {
             enabled: true,
             controller: Some(0),
             mask_max_width: 480,
+            lens: true,
         };
         assert_eq!(host.on_request(&request.encode()), Some(true));
         host
@@ -835,6 +895,90 @@ mod tests {
         if let Some(job) = host.fit_job(now) {
             host.publish_fit(job.run());
         }
+    }
+
+    #[test]
+    fn only_a_client_that_draws_the_lens_is_sent_one() {
+        let prior = Prior {
+            mouse_gain: Some([1.0, 1.0]),
+            mouse_lag_us: Some(30_000),
+            focal: Some(960.0),
+            picture_width: 1920,
+            picture_height: 1080,
+            ..Prior::default()
+        };
+        let request = |lens| {
+            FrameWarpRequest {
+                enabled: true,
+                controller: None,
+                mask_max_width: 480,
+                lens,
+            }
+            .encode()
+        };
+        let focal = |host: &mut FrameWarpHost| {
+            let model = host.take_model().expect("a model for the request");
+            Model::decode(&model).expect("a valid model").focal
+        };
+        let mut host = FrameWarpHost::new((1920, 1080));
+        host.set_prior(prior);
+        // A client that slides the picture is sent no lens, whatever the game's is. Its gains
+        // are the picture centre's under that lens all the same: the median cell's, longer,
+        // would carry the middle of its picture too far.
+        assert_eq!(host.on_request(&request(false)), Some(true));
+        assert_eq!(focal(&mut host), 0.0);
+        assert!(host.calibrator.lens().is_some());
+        // And the game's lens is remembered.
+        assert_eq!(host.prior().unwrap().focal, Some(960.0));
+        // One that draws it gets it with its request, and loses it with the next that doesn't.
+        host.on_request(&request(true));
+        assert!((focal(&mut host) - 960.0).abs() < 0.01);
+        host.on_request(&request(false));
+        assert_eq!(focal(&mut host), 0.0);
+    }
+
+    #[test]
+    fn the_measurer_leaves_out_what_stands_still_with_the_gpus_hud() {
+        assert_eq!(both(None, Some(&[true])), None);
+        assert_eq!(both(Some(&[true]), None), None);
+        assert_eq!(
+            both(Some(&[true, false, false]), Some(&[false, false, true])),
+            Some(vec![true, false, true])
+        );
+        assert_eq!(both(Some(&[true]), Some(&[true, false])), None);
+        // A chequered box stays where it is while the scene pans behind it.
+        let boxed = |ox: f32, at_us: u64| {
+            let mut t = scene(256, 144, ox, 0.0, at_us);
+            for y in 20..50 {
+                for x in 190..240 {
+                    t.luma[y * 256 + x] = if (x / 5 + y / 5) % 2 == 0 { 230 } else { 20 };
+                }
+            }
+            t
+        };
+        let mut measurer = Measurer::default();
+        let mut last = None;
+        for i in 0..12u64 {
+            let thumbnail = boxed(i as f32 * 3.0, 1 + i * 16_000);
+            last = measurer.measure(&thumbnail).shift;
+            measurer.keep(thumbnail, true, Resets::default());
+        }
+        let found = measurer.still.mask().expect("the box");
+        assert!(found[30 * 256 + 200] && !found[100 * 256 + 100]);
+        let (_, motion) = last.expect("a move");
+        assert!((motion.dx + 3.0).abs() < 0.3, "{motion:?}");
+        // With the GPU's HUD both are left out, and what stood still stays when the HUD goes.
+        let mut hud = vec![false; 256 * 144];
+        hud[100 * 256 + 100] = true;
+        measurer.set_hud(hud, Resets::default());
+        let merged = measurer.both.as_deref().expect("both");
+        assert!(merged[30 * 256 + 200] && merged[100 * 256 + 100]);
+        measurer.catch_up(Resets {
+            hud: 1,
+            ..Resets::default()
+        });
+        assert!(measurer.both.is_none() && measurer.hud.is_none());
+        assert!(measurer.still.mask().is_some());
     }
 
     #[test]
@@ -879,6 +1023,7 @@ mod tests {
                 enabled: true,
                 controller: None,
                 mask_max_width: 480,
+                lens: true,
             }
             .encode(),
         );
@@ -935,6 +1080,7 @@ mod tests {
                 enabled,
                 controller: Some(0),
                 mask_max_width: 480,
+                lens: true,
             }
             .encode()
         };
@@ -1065,6 +1211,7 @@ mod tests {
             enabled: true,
             controller: None,
             mask_max_width: 480,
+            lens: true,
         };
         host.on_request(&again.encode());
         assert!(host.take_mask().is_some());
@@ -1103,6 +1250,7 @@ mod tests {
             enabled: true,
             controller: None,
             mask_max_width: 300,
+            lens: true,
         };
         host.on_request(&request.encode());
         assert_eq!(host.mask_width(), 240);
@@ -1123,6 +1271,7 @@ mod tests {
                 enabled: true,
                 controller: None,
                 mask_max_width: 720,
+                lens: true,
             }
             .encode(),
         );

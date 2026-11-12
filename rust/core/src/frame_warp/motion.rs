@@ -32,18 +32,67 @@ impl Thumbnail {
 }
 
 /// The content's shift from one thumbnail to the next, in thumbnail pixels (x right, y down).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Motion {
     pub dx: f32,
     pub dy: f32,
     /// 0 to 1: how many cells agree with the median, and how clearly they found it.
     pub confidence: f32,
+    /// Each grid cell's own shift where it found one clearly, rows top to bottom and columns
+    /// left to right ([`cell_spans`] says where they are). A camera turn moves a perspective
+    /// picture's edges farther than its centre, which the cells show and the median hides
+    /// ([`super::lens`]).
+    pub cells: [Option<CellShift>; CELLS],
+}
+
+/// One grid cell's shift, in thumbnail pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CellShift {
+    pub dx: f32,
+    pub dy: f32,
+    pub correlation: f32,
+    /// Where `dx` and where `dy` were measured; `None` for the whole cell alike.
+    pub place: Option<[Place; 2]>,
+}
+
+/// Where one of a cell's shifts was measured, in thumbnail pixels from the thumbnail's centre. A
+/// profile is followed by its slopes, each weighing in with its square, so a cell that is half
+/// sky moves as its textured half does, a picture stretched toward its edge by a lens as the
+/// less stretched part of the cell, and a cell half under a HUD as the half beside it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Place {
+    /// The slopes' mean place along the shift's axis, and its mean square.
+    pub along: f32,
+    pub squared: f32,
+    /// The mean place, across that axis, of the pixels behind the slopes, and the mean of the
+    /// two places' product.
+    pub across: f32,
+    pub cross: f32,
+}
+
+impl Motion {
+    /// A shift every cell shares, as a flat picture's is.
+    pub fn uniform(dx: f32, dy: f32, confidence: f32) -> Self {
+        Self {
+            dx,
+            dy,
+            confidence,
+            cells: [Some(CellShift {
+                dx,
+                dy,
+                correlation: confidence,
+                place: None,
+            }); CELLS],
+        }
+    }
 }
 
 /// The thumbnail's longer side, as the GPU makes it.
 pub const THUMBNAIL_WIDTH: usize = 256;
 const MIN_EDGE: usize = 32;
-const GRID: usize = 3;
+pub const GRID: usize = 3;
+/// Cells in the grid.
+pub const CELLS: usize = GRID * GRID;
 /// Edges left out: vignettes, letterboxing and edge HUD.
 const MARGIN: f32 = 0.04;
 /// Largest shift searched, as a fraction of the profile's length.
@@ -64,6 +113,19 @@ const STILL_SHARE: f32 = 0.9;
 /// A cell needs this many texture pixels to tell whether it stands still.
 const MIN_TEXTURE: usize = 16;
 
+/// A pixel that stays within this many luma codes of what it was has not changed: a HUD's
+/// pixel in the thumbnail is the mean of many, so a game's dither over it comes to less.
+const STILL_CHANGE: u8 = 2;
+/// A move that should have changed a pixel by at least this much tells whether the pixel moved
+/// along; less is within [`STILL_CHANGE`] and the capture's noise.
+const STILL_STEP: f32 = 3.0;
+/// A pixel stands still once the moves since it last changed should have changed it by this
+/// many luma codes in all, of which one move counts for a quarter at most: where the measured
+/// shift is wrong for once (a thin pole that passes over a pixel of sky), it is not four times.
+const STILL_TOTAL: f32 = 24.0;
+/// Moves shorter than this (thumbnail pixels) say nothing about what stands still.
+const STILL_MIN_MOVE: f32 = 1.0;
+
 /// The content's shift from `prev` to `cur`, or `None` when the thumbnails differ in size or
 /// too few cells find a clear shift.
 pub fn estimate(prev: &Thumbnail, cur: &Thumbnail) -> Option<Motion> {
@@ -83,17 +145,29 @@ pub struct Scratch {
     /// The previous thumbnail's detrended row profile for each column band, unshifted: the
     /// same in both vertical passes.
     before_rows: [Vec<f32>; GRID],
+    /// Where across each of those profiles' rows its pixels lie ([`Lines::across`]).
+    before_across: [Vec<f32>; GRID],
     buffers: Buffers,
 }
 
 #[derive(Debug, Default)]
 struct Buffers {
     before: Vec<f32>,
+    across: Vec<f32>,
     after: Vec<f32>,
-    sums: Vec<(f32, u32)>,
+    scores: Vec<Option<f32>>,
+    lines: Lines,
+}
+
+/// What a profile is built in ([`profile_rows`], [`profile_columns`]).
+#[derive(Debug, Default)]
+struct Lines {
+    line: Vec<f32>,
+    /// Per sample of the profile: its pixels' sum, their count and the sum of their places
+    /// across the profile.
+    sums: Vec<(f32, u32, f32)>,
     prefix: Vec<f32>,
     count: Vec<u32>,
-    scores: Vec<Option<f32>>,
 }
 
 /// [`estimate_around`] in `scratch`'s buffers.
@@ -112,6 +186,138 @@ pub fn estimate_with(
         None => measure(prev, cur, |_, _| true, scratch),
         Some(hud) => measure(prev, cur, |x, y| !hud[y * w + x], scratch),
     }
+}
+
+/// What stands still in a picture that moves: a HUD's frames, bars and letters, down to the
+/// thumbnail's pixel. The host's HUD mask ([`super::Mask`]) is what the client holds still, so
+/// it takes only cells that are HUD all over and textured, and leaves out a HUD's rim and its
+/// plain parts; and a client may want none. Left in the measurement, a minimap's frame or a
+/// health bar's edge in a corner cell holds that cell's shift back, and the corners are where
+/// a lens shows most ([`super::lens`]).
+///
+/// A pixel is told by what the moves should have done to it: each brings it what its cell's
+/// shift says lay that far away, and what that would change it by adds up, one way or the
+/// other, for as long as the pixel stays what it was. One that should have changed by
+/// [`STILL_TOTAL`] and has not stands still, until it changes. A pixel the moves bring more of
+/// the same (a sky, a horizon while the camera pans, the middle of a plain panel) is not told
+/// and not marked.
+#[derive(Debug, Default)]
+pub struct Still {
+    size: (usize, usize),
+    /// Per pixel: what it was when it last changed, and what the moves since should have
+    /// changed it by.
+    pixels: Vec<(u8, f32)>,
+    /// Per pixel: whether it or a neighbour stands still (a pixel on a HUD's rim is part HUD).
+    mask: Vec<bool>,
+    marked: usize,
+}
+
+impl Still {
+    /// Takes the move `motion` from `prev` to `cur`. Returns whether the mask changed.
+    pub fn observe(&mut self, prev: &Thumbnail, cur: &Thumbnail, motion: &Motion) -> bool {
+        let (w, h) = (cur.width, cur.height);
+        if !prev.valid() || !cur.valid() || prev.width != w || prev.height != h {
+            return false;
+        }
+        if self.size != (w, h) {
+            self.size = (w, h);
+            self.pixels.clear();
+            self.pixels
+                .extend(prev.luma.iter().map(|value| (*value, 0.0)));
+            self.mask.clear();
+            self.mask.resize(w * h, false);
+            self.marked = 0;
+        }
+        let (x_edges, y_edges) = (edges(w), edges(h));
+        // A cell's pixels, and the margin beside an outer cell with it.
+        let span = |edges: &[usize; GRID + 1], cell: usize, len: usize| {
+            let from = if cell == 0 { 0 } else { edges[cell] };
+            let to = if cell + 1 == GRID {
+                len
+            } else {
+                edges[cell + 1]
+            };
+            from..to
+        };
+        let mut changed = false;
+        for row in 0..GRID {
+            for column in 0..GRID {
+                // The cell's own shift while it goes with the picture's: a lens moves a corner
+                // up to half again as far as the median cell. A cell that is mostly HUD finds
+                // no shift, or the HUD's, which is none.
+                let whole = motion.dx.hypot(motion.dy);
+                let (dx, dy) = match motion.cells[row * GRID + column] {
+                    Some(cell)
+                        if (cell.dx - motion.dx).hypot(cell.dy - motion.dy)
+                            <= 0.5 + 0.6 * whole =>
+                    {
+                        (cell.dx, cell.dy)
+                    }
+                    _ => (motion.dx, motion.dy),
+                };
+                let moved = dx.hypot(dy) >= STILL_MIN_MOVE;
+                for y in span(&y_edges, row, h) {
+                    for x in span(&x_edges, column, w) {
+                        let at = y * w + x;
+                        let (was, should) = &mut self.pixels[at];
+                        let stood = should.abs() >= STILL_TOTAL;
+                        if was.abs_diff(cur.luma[at]) > STILL_CHANGE {
+                            (*was, *should) = (cur.luma[at], 0.0);
+                        } else if moved
+                            && let Some(brought) = sample(prev, x as f32 - dx, y as f32 - dy)
+                        {
+                            let step = brought - f32::from(prev.luma[at]);
+                            if step.abs() >= STILL_STEP {
+                                let most = STILL_TOTAL * 0.25;
+                                *should += step.clamp(-most, most);
+                            }
+                        }
+                        changed |= stood != (should.abs() >= STILL_TOTAL);
+                    }
+                }
+            }
+        }
+        if changed {
+            self.mask.fill(false);
+            self.marked = 0;
+            for y in 0..h {
+                for x in 0..w {
+                    if self.pixels[y * w + x].1.abs() >= STILL_TOTAL {
+                        self.marked += 1;
+                        for row in y.saturating_sub(1)..=(y + 1).min(h - 1) {
+                            let row = row * w;
+                            self.mask[row + x.saturating_sub(1)..=row + (x + 1).min(w - 1)]
+                                .fill(true);
+                        }
+                    }
+                }
+            }
+        }
+        changed
+    }
+
+    /// Per thumbnail pixel, row by row, whether it stands still; `None` while none does.
+    pub fn mask(&self) -> Option<&[bool]> {
+        (self.marked > 0).then_some(&self.mask[..])
+    }
+
+    /// Forgets what stood still.
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+}
+
+/// The thumbnail at a place between its pixels; `None` outside it.
+fn sample(t: &Thumbnail, x: f32, y: f32) -> Option<f32> {
+    if x < 0.0 || y < 0.0 || x > (t.width - 1) as f32 || y > (t.height - 1) as f32 {
+        return None;
+    }
+    let (x0, y0) = (x as usize, y as usize);
+    let (x1, y1) = ((x0 + 1).min(t.width - 1), (y0 + 1).min(t.height - 1));
+    let (fx, fy) = (x - x0 as f32, y - y0 as f32);
+    let top = t.at(x0, y0) * (1.0 - fx) + t.at(x1, y0) * fx;
+    let bottom = t.at(x0, y1) * (1.0 - fx) + t.at(x1, y1) * fx;
+    Some(top * (1.0 - fy) + bottom * fy)
 }
 
 /// Where the cells are and how far each searches.
@@ -146,6 +352,7 @@ fn measure<S: Fn(usize, usize) -> bool + Copy>(
             dx: 0.0,
             dy: 0.0,
             confidence: still as f32 / (GRID * GRID) as f32,
+            cells: [None; CELLS],
         });
     }
 
@@ -155,14 +362,18 @@ fn measure<S: Fn(usize, usize) -> bool + Copy>(
     // column band taken that band's horizontal shift across, so a fast pan does not blur it.
     let Scratch {
         before_rows,
+        before_across,
         buffers,
     } = scratch;
-    for (band, before) in before_rows.iter_mut().enumerate() {
-        profile_rows(prev, x_edges[band], x_edges[band + 1], 0, scene, before);
-        detrend(before, &mut buffers.prefix, &mut buffers.count);
+    for (band, (before, across)) in before_rows.iter_mut().zip(&mut *before_across).enumerate() {
+        let (x0, x1) = (x_edges[band], x_edges[band + 1]);
+        profile_rows(prev, x0, x1, 0, scene, &mut buffers.lines, before);
+        buffers.lines.across(across);
     }
+    let before_rows: [(&[f32], &[f32]); GRID] =
+        core::array::from_fn(|band| (&before_rows[band][..], &before_across[band][..]));
     let first: [[Option<Shift>; GRID]; GRID] = core::array::from_fn(|band| {
-        vertical_band(cur, scene, &grid, band, &before_rows[band], 0, buffers)
+        vertical_band(cur, scene, &grid, band, before_rows[band], 0, buffers)
     });
     let mut horizontal = [[None; GRID]; GRID];
     for cell in 0..GRID {
@@ -173,19 +384,17 @@ fn measure<S: Fn(usize, usize) -> bool + Copy>(
         let shift_y = median(&shifts).unwrap_or(0.0).round() as isize;
         let Buffers {
             before,
+            across,
             after,
-            sums,
-            prefix,
-            count,
             scores,
+            lines,
         } = &mut *buffers;
-        profile_columns(prev, y0, y1, 0, scene, sums, before);
-        detrend(before, prefix, count);
-        profile_columns(cur, y0, y1, shift_y, scene, sums, after);
-        detrend(after, prefix, count);
+        profile_columns(prev, y0, y1, 0, scene, lines, before);
+        lines.across(across);
+        profile_columns(cur, y0, y1, shift_y, scene, lines, after);
         for (band, column) in horizontal.iter_mut().enumerate() {
             column[cell] = best_shift(
-                before,
+                (before, across),
                 after,
                 x_edges[band],
                 x_edges[band + 1],
@@ -207,17 +416,25 @@ fn measure<S: Fn(usize, usize) -> bool + Copy>(
                 scene,
                 &grid,
                 band,
-                &before_rows[band],
+                before_rows[band],
                 column_shift[band],
                 buffers,
             );
         }
     }
     let mut cells = Vec::with_capacity(GRID * GRID);
+    let mut each = [None; CELLS];
     for band in 0..GRID {
         for cell in 0..GRID {
             if let (Some(x), Some(y)) = (horizontal[band][cell], vertical[band][cell]) {
-                cells.push((x.at, y.at, x.correlation.min(y.correlation)));
+                let correlation = x.correlation.min(y.correlation);
+                cells.push((x.at, y.at, correlation));
+                each[cell * GRID + band] = Some(CellShift {
+                    dx: x.at,
+                    dy: y.at,
+                    correlation,
+                    place: x.place.zip(y.place).map(|(x, y)| [x, y]),
+                });
             }
         }
     }
@@ -240,7 +457,15 @@ fn measure<S: Fn(usize, usize) -> bool + Copy>(
         dx,
         dy,
         confidence: confidence.clamp(0.0, 1.0),
+        cells: each,
     })
+}
+
+/// Where the grid's cells are along an edge of `len` thumbnail pixels: each cell's first pixel
+/// and the one past its last.
+pub fn cell_spans(len: usize) -> [(usize, usize); GRID] {
+    let edges = edges(len);
+    core::array::from_fn(|i| (edges[i], edges[i + 1]))
 }
 
 /// The vertical shift of each cell in column band `band`: `before` (the previous thumbnail's
@@ -251,20 +476,18 @@ fn vertical_band<S: Fn(usize, usize) -> bool + Copy>(
     scene: S,
     grid: &Grid,
     band: usize,
-    before: &[f32],
+    before: (&[f32], &[f32]),
     column_shift: isize,
     buffers: &mut Buffers,
 ) -> [Option<Shift>; GRID] {
     let Buffers {
         after,
-        prefix,
-        count,
         scores,
+        lines,
         ..
     } = buffers;
     let (x0, x1) = (grid.x_edges[band], grid.x_edges[band + 1]);
-    profile_rows(cur, x0, x1, column_shift, scene, after);
-    detrend(after, prefix, count);
+    profile_rows(cur, x0, x1, column_shift, scene, lines, after);
     core::array::from_fn(|cell| {
         best_shift(
             before,
@@ -324,64 +547,110 @@ fn still_cells<S: Fn(usize, usize) -> bool>(
     still
 }
 
-/// Into `out`: the mean of each row over columns `x0..x1` where `scene` (not the HUD), the
-/// columns taken `shift` to the right (clamped at the edges); NaN for a row of HUD only.
+/// Into `out`: each row's profile over columns `x0..x1`, the columns taken `shift` to the right
+/// (clamped at the edges): the mean of its pixels where `scene` (not the HUD), each less its
+/// own column's moving average ([`detrend`]); NaN for a row of HUD only. Taking the average out
+/// column by column leaves the profile of a whole picture as taking it out of the rows' means
+/// would, and keeps a HUD from marking it: rows that a HUD covers half of are the mean of other
+/// columns than their neighbours, at another level, and that step, standing where the HUD
+/// stands in every capture, would hold the measured shift back.
 fn profile_rows<S: Fn(usize, usize) -> bool>(
     t: &Thumbnail,
     x0: usize,
     x1: usize,
     shift: isize,
     scene: S,
+    lines: &mut Lines,
     out: &mut Vec<f32>,
 ) {
     let last = t.width as isize - 1;
-    out.clear();
-    out.extend((0..t.height).map(|y| {
-        let (mut sum, mut n) = (0.0f32, 0u32);
-        for x in x0..x1 {
-            let x = (x as isize + shift).clamp(0, last) as usize;
-            if scene(x, y) {
-                sum += t.at(x, y);
-                n += 1;
-            }
-        }
-        if n == 0 { f32::NAN } else { sum / n as f32 }
-    }));
+    let Lines {
+        line,
+        sums,
+        prefix,
+        count,
+    } = lines;
+    sums.clear();
+    sums.resize(t.height, (0.0, 0, 0.0));
+    for x in x0..x1 {
+        let x = (x as isize + shift).clamp(0, last) as usize;
+        line.clear();
+        line.extend((0..t.height).map(|y| if scene(x, y) { t.at(x, y) } else { f32::NAN }));
+        detrend(line, prefix, count);
+        gather(line, x as f32 + 0.5 - t.width as f32 * 0.5, sums);
+    }
+    means(sums, out);
 }
 
-/// Into `out`: the mean of each column over rows `y0..y1` where `scene` (not the HUD), rows
-/// taken `shift` lower (clamped at the edges); NaN for a column of HUD only. `sums` is
-/// scratch.
+/// Into `out`: each column's profile over rows `y0..y1`, the rows taken `shift` lower (clamped
+/// at the edges), as [`profile_rows`] with each pixel less its own row's moving average; NaN
+/// for a column of HUD only.
 fn profile_columns<S: Fn(usize, usize) -> bool>(
     t: &Thumbnail,
     y0: usize,
     y1: usize,
     shift: isize,
     scene: S,
-    sums: &mut Vec<(f32, u32)>,
+    lines: &mut Lines,
     out: &mut Vec<f32>,
 ) {
+    let Lines {
+        line,
+        sums,
+        prefix,
+        count,
+    } = lines;
     sums.clear();
-    sums.resize(t.width, (0.0, 0));
+    sums.resize(t.width, (0.0, 0, 0.0));
     for y in y0..y1 {
         let y = (y as isize + shift).clamp(0, t.height as isize - 1) as usize;
-        for (x, (sum, n)) in sums.iter_mut().enumerate() {
-            if scene(x, y) {
-                *sum += t.at(x, y);
-                *n += 1;
-            }
+        line.clear();
+        line.extend((0..t.width).map(|x| if scene(x, y) { t.at(x, y) } else { f32::NAN }));
+        detrend(line, prefix, count);
+        gather(line, y as f32 + 0.5 - t.height as f32 * 0.5, sums);
+    }
+    means(sums, out);
+}
+
+/// Adds a detrended line's known samples to the profile's sums; `at` is the line's place
+/// across the profile, from the thumbnail's centre.
+fn gather(line: &[f32], at: f32, sums: &mut [(f32, u32, f32)]) {
+    for (value, (sum, n, across)) in line.iter().zip(sums) {
+        if !value.is_nan() {
+            *sum += value;
+            *n += 1;
+            *across += at;
         }
     }
+}
+
+fn means(sums: &[(f32, u32, f32)], out: &mut Vec<f32>) {
     out.clear();
     out.extend(
         sums.iter()
-            .map(|&(sum, n)| if n == 0 { f32::NAN } else { sum / n as f32 }),
+            .map(|&(sum, n, _)| if n == 0 { f32::NAN } else { sum / n as f32 }),
     );
 }
 
-/// The profile, in place, less its moving average over 13 samples: lighting and slow
-/// gradients out, edges and texture kept. NaN samples (HUD only) stay NaN and are left out of
-/// the averages. `prefix` and `count` are scratch.
+impl Lines {
+    /// Into `out`: where across the profile built last each sample's pixels lie on average,
+    /// from the thumbnail's centre; NaN for a sample of HUD only.
+    fn across(&self, out: &mut Vec<f32>) {
+        out.clear();
+        out.extend(self.sums.iter().map(
+            |&(_, n, across)| {
+                if n == 0 { f32::NAN } else { across / n as f32 }
+            },
+        ));
+    }
+}
+
+/// A line of the picture, in place, less its moving average over 13 samples: lighting and slow
+/// gradients out, edges and texture kept. NaN samples (HUD) stay NaN, and so does a sample with
+/// one among those 13: its average would lean to the side away from the HUD, and what a slow
+/// gradient leaves of itself there stands where the HUD stands in every capture, holding the
+/// measured shift back as the HUD itself would. (At the picture's own edge the average leans
+/// too; the cells keep a margin from it.) `prefix` and `count` are scratch.
 fn detrend(profile: &mut [f32], prefix: &mut Vec<f32>, count: &mut Vec<u32>) {
     const RADIUS: usize = 6;
     let n = profile.len();
@@ -400,10 +669,10 @@ fn detrend(profile: &mut [f32], prefix: &mut Vec<f32>, count: &mut Vec<u32>) {
         let a = i.saturating_sub(RADIUS);
         let b = (i + RADIUS + 1).min(n);
         let known = count[b] - count[a];
-        *value = if value.is_nan() || known == 0 {
-            f32::NAN
-        } else {
+        *value = if known as usize == b - a {
             *value - (prefix[b] - prefix[a]) / known as f32
+        } else {
+            f32::NAN
         };
     }
 }
@@ -413,13 +682,16 @@ struct Shift {
     /// Sub-pixel shift: `after[i + at] ~ before[i]`.
     at: f32,
     correlation: f32,
+    /// Where the shift was measured.
+    place: Option<Place>,
 }
 
 /// The shift of `before[from..to]` within `after`, searched over `-search..=search`, by
 /// normalised correlation and refined to sub-pixel by a parabola through the peak. `None` for
-/// a flat cell, a weak or an ambiguous peak. `scores` is scratch.
+/// a flat cell, a weak or an ambiguous peak. `before` comes with where across it its samples'
+/// pixels lie ([`Lines::across`]); `scores` is scratch.
 fn best_shift(
-    before: &[f32],
+    (before, across): (&[f32], &[f32]),
     after: &[f32],
     from: usize,
     to: usize,
@@ -474,6 +746,37 @@ fn best_shift(
     Some(Shift {
         at: refine(before, after, from, to, whole + offset, whole),
         correlation: peak,
+        place: place(before, across, from, to),
+    })
+}
+
+/// Where `refine` measures the shift of `before[from..to]`: its steps weigh each sample with its
+/// squared slope, so the place is those weights' mean, along the profile from its middle and
+/// across it as `across` has each sample. `None` for a profile without slopes.
+fn place(before: &[f32], across: &[f32], from: usize, to: usize) -> Option<Place> {
+    let middle = before.len() as f32 * 0.5;
+    let mut sums = [0.0f64; 5];
+    for i in from.max(1)..to.min(before.len().saturating_sub(1)) {
+        let slope = before[i + 1] - before[i - 1];
+        let beside = across.get(i).copied().unwrap_or(f32::NAN);
+        if slope.is_nan() || beside.is_nan() {
+            continue;
+        }
+        let (weight, at, beside) = (
+            f64::from(slope * slope),
+            f64::from(i as f32 + 0.5 - middle),
+            f64::from(beside),
+        );
+        for (sum, term) in sums.iter_mut().zip([1.0, at, at * at, beside, at * beside]) {
+            *sum += weight * term;
+        }
+    }
+    let [weight, along, squared, beside, cross] = sums;
+    (weight > f64::from(f32::EPSILON)).then(|| Place {
+        along: (along / weight) as f32,
+        squared: (squared / weight) as f32,
+        across: (beside / weight) as f32,
+        cross: (cross / weight) as f32,
     })
 }
 
@@ -590,7 +893,7 @@ pub(crate) mod tests {
     use super::*;
 
     /// Value noise: a hashed lattice every `cell` pixels, bilinear between, 0 to 1.
-    fn noise(u: f32, v: f32, cell: f32, seed: u32) -> f32 {
+    pub(crate) fn noise(u: f32, v: f32, cell: f32, seed: u32) -> f32 {
         let lattice = |x: i32, y: i32| {
             let mut h = (x as u32).wrapping_mul(0x8da6_b343)
                 ^ (y as u32).wrapping_mul(0xd816_3841)
@@ -609,18 +912,22 @@ pub(crate) mod tests {
         top * (1.0 - ty) + bottom * ty
     }
 
+    /// The textured world's luma at `(u, v)`.
+    pub(crate) fn world(u: f32, v: f32) -> u8 {
+        let value = 128.0
+            + 70.0 * (noise(u, v, 4.0, 1) - 0.5)
+            + 60.0 * (noise(u, v, 9.0, 2) - 0.5)
+            + 50.0 * (noise(u, v, 23.0, 3) - 0.5);
+        value.clamp(0.0, 255.0) as u8
+    }
+
     /// A textured scene without repeats, sampled at `(x + ox, y + oy)` so the content moves
     /// by `(-ox, -oy)`.
     pub(crate) fn scene(width: usize, height: usize, ox: f32, oy: f32, at_us: u64) -> Thumbnail {
         let mut luma = Vec::with_capacity(width * height);
         for y in 0..height {
             for x in 0..width {
-                let (u, v) = (x as f32 + ox, y as f32 + oy);
-                let value = 128.0
-                    + 70.0 * (noise(u, v, 4.0, 1) - 0.5)
-                    + 60.0 * (noise(u, v, 9.0, 2) - 0.5)
-                    + 50.0 * (noise(u, v, 23.0, 3) - 0.5);
-                luma.push(value.clamp(0.0, 255.0) as u8);
+                luma.push(world(x as f32 + ox, y as f32 + oy));
             }
         }
         Thumbnail {
@@ -684,6 +991,48 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_cell_is_measured_where_its_texture_is() {
+        // A profile flat but for one ramp: its slopes, and so its shift, are the ramp's.
+        let mut profile = vec![0.0f32; 100];
+        for (i, value) in profile.iter_mut().enumerate().take(70).skip(60) {
+            *value = (i - 60) as f32;
+        }
+        for value in profile.iter_mut().skip(70) {
+            *value = 10.0;
+        }
+        let beside = [7.0f32; 100];
+        let found = place(&profile, &beside, 40, 90).unwrap();
+        let (mean, squared) = (found.along, found.squared);
+        assert!((found.across - 7.0).abs() < 1e-4 && (found.cross - 7.0 * mean).abs() < 1e-2);
+        // The ramp runs from sample 60 to 70, 10 to 20 past the middle.
+        assert!((mean - 15.0).abs() < 0.6, "{mean}");
+        assert!((squared - 15.0 * 15.0).abs() < 25.0, "{squared}");
+        // Textured alike all over, it is the cell's middle; unknown samples are left out.
+        let even: Vec<f32> = (0..100)
+            .map(|i| if i % 2 == 0 { 1.0 } else { -1.0 } * (i % 4) as f32)
+            .collect();
+        let mean = place(&even, &beside, 40, 90).unwrap().along;
+        assert!((mean - 15.0).abs() < 1.5, "{mean}");
+        let mut holed = profile.clone();
+        holed[65] = f32::NAN;
+        assert!(place(&holed, &beside, 40, 90).is_some());
+        assert_eq!(place(&[0.0; 100], &beside, 40, 90), None);
+        // A measured move carries each cell's place.
+        let motion =
+            estimate(&scene(256, 144, 0.0, 0.0, 0), &scene(256, 144, 3.0, 0.0, 1)).unwrap();
+        let [x, y] = motion.cells[0].unwrap().place.unwrap();
+        assert!(
+            x.along < -40.0 && y.along < -20.0 && x.squared > x.along * x.along * 0.9,
+            "{x:?} {y:?}"
+        );
+        // Each across the other's axis in the cell's middle: all of it is scene.
+        assert!(
+            (x.across + 44.0).abs() < 3.0 && (y.across + 78.0).abs() < 3.0,
+            "{x:?} {y:?}"
+        );
+    }
+
+    #[test]
     fn still_pictures_have_no_motion() {
         let a = scene(256, 144, 0.0, 0.0, 0);
         let m = estimate(&a, &a.clone()).unwrap();
@@ -742,6 +1091,108 @@ pub(crate) mod tests {
             assert!((m.dy + oy).abs() < 0.35, "dy {m:?} for {oy}");
             assert!((m.dx + 4.0).abs() < 0.35, "dx {m:?} for {oy}");
         }
+    }
+
+    #[test]
+    fn what_stands_still_while_the_picture_moves_is_found_and_let_go() {
+        let near_hud = |x: usize, y: usize| {
+            (y.saturating_sub(2)..=y + 2)
+                .any(|y| (x.saturating_sub(2)..=x + 2).any(|x| hud_at(x, y)))
+        };
+        let mut still = Still::default();
+        let (mut ox, mut oy) = (0.0f32, 0.0f32);
+        let mut previous = with_hud(scene(256, 144, ox, oy, 0));
+        // Pans with a little tilt, to and fro; then the HUD goes (a menu closes).
+        for i in 1..=60u64 {
+            ox += if (i / 10) % 2 == 0 { 3.3 } else { -2.7 };
+            oy += if (i / 7) % 2 == 0 { 0.8 } else { -0.6 };
+            let current = scene(256, 144, ox, oy, i);
+            let current = if i <= 40 { with_hud(current) } else { current };
+            let motion = estimate_around(&previous, &current, still.mask()).expect("a move");
+            still.observe(&previous, &current, &motion);
+            if i == 40 {
+                let mask = still.mask().expect("a HUD");
+                let marked = |wanted: bool| {
+                    (0..256 * 144)
+                        .filter(|i| hud_at(i % 256, i / 256) == wanted && mask[*i])
+                        .count()
+                };
+                let hud = (0..256 * 144).filter(|i| hud_at(i % 256, i / 256)).count();
+                // Its rims and its pattern; the middle of its plain bar says nothing.
+                assert!(marked(true) * 10 >= hud * 8, "{} of {hud}", marked(true));
+                // Of the scene, only the pixels at its rim.
+                let astray = (0..256 * 144)
+                    .filter(|i| mask[*i] && !near_hud(i % 256, i / 256))
+                    .count();
+                assert!(astray <= 8, "{astray} of the scene");
+                // And the shift is the scene's, though the host was told of no HUD.
+                assert!(
+                    (motion.dx + 3.3).abs() < 0.35 && (motion.dy - 0.6).abs() < 0.35,
+                    "{motion:?}"
+                );
+            }
+            previous = current;
+        }
+        let left = still
+            .mask()
+            .map_or(0, |mask| mask.iter().filter(|m| **m).count());
+        assert!(left <= 8, "{left} still marked");
+    }
+
+    #[test]
+    fn a_pan_tells_nothing_of_a_horizon_or_a_sky() {
+        // A plain sky over a plain strip of ground with a straight horizon between, texture
+        // below: the pan brings every pixel of the upper two more of the same.
+        let seen = |ox: f32, at_us: u64| {
+            let mut t = scene(256, 144, ox, 0.0, at_us);
+            for (i, value) in t.luma.iter_mut().enumerate().take(256 * 70) {
+                *value = if i / 256 < 60 { 200 } else { 90 };
+            }
+            t
+        };
+        let mut still = Still::default();
+        let mut previous = seen(0.0, 0);
+        for i in 1..=60u64 {
+            let current = seen(i as f32 * 3.5, i);
+            let motion = estimate(&previous, &current).expect("a move");
+            assert!(!still.observe(&previous, &current, &motion));
+            previous = current;
+        }
+        assert_eq!(still.mask(), None);
+    }
+
+    #[test]
+    fn a_line_is_not_measured_beside_a_hud() {
+        // A slow gradient: all of it goes, but where the average would lean away from the HUD.
+        let mut line: Vec<f32> = (0..40).map(|i| 3.0 * i as f32).collect();
+        line[20] = f32::NAN;
+        detrend(&mut line, &mut Vec::new(), &mut Vec::new());
+        assert!(line[14..=26].iter().all(|v| v.is_nan()), "{line:?}");
+        assert!(line[13].abs() < 1e-3 && line[27].abs() < 1e-3, "{line:?}");
+        // At the picture's edge it leans and stays: the cells keep their margin from it.
+        assert!((line[0] + 9.0).abs() < 1e-3, "{line:?}");
+
+        // Rows half under a HUD are the mean of other columns than their neighbours, here
+        // darker ones: no step for that in the profile.
+        let t = Thumbnail {
+            width: 64,
+            height: 64,
+            luma: (0..64 * 64)
+                .map(|i| if i % 64 < 32 { 200 } else { 50 })
+                .collect(),
+            at_us: 0,
+        };
+        let hud = |x: usize, y: usize| x < 32 && (24..40).contains(&y);
+        let (mut lines, mut profile) = (Lines::default(), Vec::new());
+        profile_rows(&t, 0, 64, 0, |x, y| !hud(x, y), &mut lines, &mut profile);
+        assert!(profile.iter().all(|v| v.abs() < 1e-3), "{profile:?}");
+        // And those rows lie where their columns do.
+        let mut across = Vec::new();
+        lines.across(&mut across);
+        assert!(
+            (across[10] - 0.0).abs() < 1e-3 && (across[30] - 16.0).abs() < 1e-3,
+            "{across:?}"
+        );
     }
 
     #[test]

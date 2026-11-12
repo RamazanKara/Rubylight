@@ -7,6 +7,7 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | Find a result | Recorded evidence |
 | --- | --- |
 | Frame Warp: how much of a turn's input-to-picture gap it removes on a test game with known response, the learned gain and lag, lock time, a real game (Black Flag Resynced), GPU pass cost at 1080p to 4K, host processing on and off | [November 12, Frame Warp](#november-12-frame-warp) |
+| Frame Warp's lens: what a turn leaves at the picture's centre, over the whole picture and at its edge at 70, 90 and 110 degrees against 4.0.0, the learned field of view and how soon it settles, Nightjar 5.0 with the new host, what the pitch roll leaves, the host's measurement cost | [November 12, Frame Warp lens](#november-12-frame-warp-lens) |
 | Optimizations left after a full review: H.264 keyframe header scan, pooled rewrite buffers, a per-block send pool, FEC 16/8-byte tails (kernel restructure slower, dropped), a short first FEC block (no gain, dropped), Nightjar desktop drawing Windows planes straight to the back buffer and sampling Linux VA-API pictures in place, D3D11 bind on AMD (no gain), Linux V-Sync queueing (none), and what was dropped unbuilt | [November 11, what a full optimization review left](#november-11-what-a-full-optimization-review-left) |
 | Sending a large frame block by block (`video_send_early_blocks`) on PyroWave, HEVC and AV1 at 1080p and 4K, AMF output prediction and output thread under GPU load (both kept off), fixed-rate pacing without a blocking output query, GFNI parity (`fec_gfni`) on the 8845HS against a no-GFNI control, and the whole build against 3.9.0 | [November 8, sending, FEC and AMF output after 3.9.0](#november-8-sending-fec-and-amf-output-after-390) |
 | Rumble forwarding on ViGEm and VHF pads at 500 changes a second, idle and under HIGHEST CPU load, fast feedback poll (kept off), touch pinch frames per pass, keyboard and mouse behind a controller state, the new input fields of the stream timings line, the VHF feedback stall under load (also in the old build) | [November 8, gamepad feedback, touch and input under load](#november-8-gamepad-feedback-touch-and-input-under-load) |
@@ -9357,6 +9358,83 @@ turns swiped or moved by script, mid-turn screenshots taken on the client:
   the wheel's selection bracket and the end of a bar, still ghost when the picture shifts.
 
 Not measured here: NVIDIA (no hardware) and receivers other than nightjar-cli.
+
+## November 12: Frame Warp lens
+
+What Frame Warp leaves away from the picture's centre, and what the
+[lens](../docs/frame-warp.md) takes off it. The rig is the one above, with two changes:
+`look_probe --fov DEGREES` draws its world through a perspective camera of that horizontal field
+of view (at 90 degrees a turn left or right moves the picture's left and right edge twice as far
+as its centre), and `frame_warp_accuracy.py` compares 49 points (a 7 by 7 grid) of every
+shown picture with where the turned camera shows them. "Centre" is the middle point, "whole
+picture" the mean over all 49 and "edge" the mean over the outer ring of 24, per picture. The 4.0.0 host is the released package; its client
+is the nightjar-cli built with it. One 60 s run each, seed 7, 2560x1440, H.264 at 60 fps.
+
+At 90 degrees:
+
+| Measure | 4.0.0 host, 5.0 client | This build, host and client | This host, 5.0 client |
+|---|---|---|---|
+| Learned gain x, y (true -1.0 at the centre) | -1.173, -1.172 | -0.988, -0.984 | -0.995, -0.995 |
+| Learned field of view | none | 88.9 degrees (96.7% of locked pictures with a lens) | not sent |
+| Model locked, after the first picture | 0.60 s | 0.63 s | 0.62 s |
+| Centre: without Frame Warp | median 66.8 px, p95 194.4 px | median 67.7 px, p95 195.5 px | median 66.1 px, p95 193.7 px |
+| Centre: left with Frame Warp | median 10.7 px, p95 38.8 px | median 2.2 px, p95 12.4 px | median 1.9 px, p95 11.6 px |
+| Centre: removed | 84.2% | 96.0% | 96.2% |
+| Whole picture: without Frame Warp | median 91.6 px, p95 269.4 px | median 91.9 px, p95 270.7 px | median 90.0 px, p95 268.5 px |
+| Whole picture: left with Frame Warp | median 23.9 px, p95 73.9 px | median 8.0 px, p95 27.4 px | median 29.7 px, p95 91.5 px |
+| Whole picture: removed | 73.6% | 91.8% | 67.9% |
+| Edge: without Frame Warp | median 104.2 px, p95 309.3 px | median 105.0 px, p95 310.7 px | median 102.7 px, p95 308.2 px |
+| Edge: left with Frame Warp | median 36.5 px, p95 112.3 px | median 10.2 px, p95 35.7 px | median 43.1 px, p95 133.7 px |
+| Edge: removed | 65.4% | 90.8% | 58.5% |
+
+4.0.0 slides the whole picture by one shift, and takes its gain from the median cell of a
+picture that moves more toward its edge: 17% too long at the centre, still too short at the
+edge. A client that draws the lens gets the centre's gain and the field of view, and the edge is
+as right as the centre was. Nightjar 5.0 with this host is the trade in the last column: the
+host sends it the centre's gain too, so its centre goes from 84.2 to 96.2%, and the edge, which
+4.0.0's longer gain happened to serve, from 65.4 to 58.5%.
+
+Other fields of view and a flat picture (the probe without `--fov`), this build on both sides:
+
+| Measure | 70 degrees | 90 degrees | 110 degrees | Flat picture |
+|---|---|---|---|---|
+| Learned gain x, y (true -1.0) | -1.001, -1.001 | -0.988, -0.984 | -0.984, -0.984 | -0.996, -0.996 |
+| Learned field of view | 67.8 degrees | 88.9 degrees | 107.6 degrees | none |
+| Centre: left with Frame Warp | median 2.0 px, p95 12.6 px | median 2.2 px, p95 12.4 px | median 2.6 px, p95 13.3 px | median 1.1 px, p95 10.7 px |
+| Centre: removed | 95.8% | 96.0% | 95.6% | 96.4% |
+| Whole picture: without Frame Warp | median 78.6 px, p95 228.3 px | median 91.9 px, p95 270.7 px | median 116.1 px, p95 362.6 px | - |
+| Whole picture: left with Frame Warp | median 4.9 px, p95 17.0 px | median 8.0 px, p95 27.4 px | median 15.4 px, p95 55.4 px | - |
+| Whole picture: removed | 93.7% | 91.8% | 87.5% | - |
+| Edge: without Frame Warp | median 84.9 px, p95 246.8 px | median 105.0 px, p95 310.7 px | median 142.7 px, p95 454.1 px | - |
+| Edge: left with Frame Warp | median 6.1 px, p95 20.6 px | median 10.2 px, p95 35.7 px | median 20.5 px, p95 75.2 px | - |
+| Edge: removed | 93.0% | 90.8% | 86.3% | - |
+
+The flat picture gets no lens and the result it had before (95.8 and 96.4% above). A first run
+at 110 degrees is left out: another build on this PC ran during it, the input-to-picture gap's
+p95 went from about 190 to 434 px between its 20th and 50th second, and the repeat without that
+load is the one in the table.
+
+How the field of view settles, from the models the client logged. At 90 degrees: no lens until
+2.6 s (the first lock, 0.63 s in, is 4.0.0's flat model with a gain of -1.14), then 82.6 degrees,
+85.2 at 4.0 s, 87.4 at 5.9 s, 88.9 from 7.2 s to 54.8 s and 86.6 for the last five seconds. At
+70: 64.6 at 2.5 s, 67.8 at 5.9 s, 69.3 from 35 s. At 110: 107.6 at 1.2 s, kept to the end.
+
+How the estimate got here, on the 90 degree picture. The first build read 78 degrees: it fitted
+each cell's shift at the cell's centre, and a profile measures where its slopes are, which in a
+picture stretched toward its edge is nearer the middle. Counting each shift where it was
+measured read 84 and 70 by turns. What pulled it down was the probe's HUD: the mask the client
+holds still covered the ammo box alone, and the minimap, the health bar and the barcode stayed
+in the profiles of the corner cells, holding back the shifts a lens is read from. Leaving out
+every pixel that stays put while its surroundings move, and taking the moving average out of
+each picture line so rows half under a HUD leave no step, read 86; capping what one cell can
+cost a field of view, and estimating between the 2 degree steps, 88.9.
+
+What is left at the edge of the 90 degree run (median 10.2 px), recomputed from its log: with
+the true 90 degrees in place of the learned values, 8.6 px; with the ideal centre shift as well,
+6.4 px; and with the camera level besides, 0.15 px. The 6.4 px is the roll a turn left or right
+puts into a picture that looks up or down (the probe's camera was pitched by a median of 6.8
+degrees, p95 11.0), which the lens does not draw.
+
 
 ## Hardware covered
 

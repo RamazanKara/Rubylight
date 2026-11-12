@@ -91,6 +91,8 @@ parser.add_argument('--ffplay', default='ffplay', help='the ffplay that plays --
 parser.add_argument('--quiet-wait', type=pathlib.Path, metavar='JSON',
                     help="machine_load.py's verdict before this stream (check.ps1), recorded as quiet_wait")
 args = parser.parse_args()
+# Absolute: the host and the receiver run with the case folder as their working folder.
+args.package, args.work, args.client = args.package.resolve(), args.work.resolve(), args.client.resolve()
 quiet_wait = json.loads(args.quiet_wait.read_text()) if args.quiet_wait else None
 RECOVERY_INTERVAL_MS = 500
 MOTION_SCRIPT_EXTRA = 30  # seconds the strip runs beyond the stream when a script is set
@@ -202,7 +204,9 @@ try:
     load_start = snapshot()
     # Every run streams the clip from its start: it plays once the stream's capture opens.
     opened = demo_content.stream_starts(log.read_text(errors='replace')) if player else 0
-    receiver = spawn([sys.executable, str(interop), str(case / 'receiver'), args.codec, width, height, fps, args.seconds, args.bitrate, '4'], 'client.log', env=client_env)
+    # Files the receiver writes without a configured path (the keyframe probe's
+    # idr-probe.csv) stay with the case, not in the folder the check started in.
+    receiver = spawn([sys.executable, str(interop), str(case / 'receiver'), args.codec, width, height, fps, args.seconds, args.bitrate, '4'], 'client.log', cwd=case / 'receiver', env=client_env)
     deadline = time.monotonic() + int(args.seconds) + 120
     while receiver.poll() is None:
         watch()

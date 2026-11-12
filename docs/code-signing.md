@@ -8,7 +8,7 @@ This page is for the maintainer. It describes what the workflow does, then lists
 
 ## What the workflow does
 
-[rust-windows.yml](../.github/workflows/rust-windows.yml) signs only release runs: a pushed `v2.*` or `v3.*` tag, or **Run workflow** on `main` with **publish**. It signs nothing while the `SIGNPATH_PROJECT_SLUG` variable is empty. Pull requests and ordinary pushes to `main` are never signed, because the Foundation's release policy asks an approver to approve every signing request.
+[rust-windows.yml](../.github/workflows/rust-windows.yml) signs only release runs: a pushed version tag (`v2.*` to `v9.*`), or **Run workflow** on `main` with **publish**. It signs nothing while the `SIGNPATH_PROJECT_SLUG` variable is empty. Pull requests and ordinary pushes to `main` are never signed, because the Foundation's release policy asks an approver to approve every signing request.
 
 A signed release:
 

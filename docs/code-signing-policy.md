@@ -44,7 +44,7 @@ Drivers from other projects that setup installs come with their own install scri
 
 ## How a release is signed
 
-1. Pushing a version tag (`v2.*` or `v3.*`), or the maintainer starting the workflow's release on `main`, runs the Windows workflow on GitHub-hosted runners. It builds everything that ships from that commit, without caches from earlier runs, and tests and lints the same commit in jobs of the same run. Nothing is sent for signing until those pass.
+1. Pushing a version tag (`v2.*` to `v9.*`), or the maintainer starting the workflow's release on `main`, runs the Windows workflow on GitHub-hosted runners. It builds everything that ships from that commit, without caches from earlier runs, and tests and lints the same commit in jobs of the same run. Nothing is sent for signing until those pass.
 2. The workflow uploads Rubylight's own binaries to SignPath, and then the display driver's catalog, made from the signed driver DLL. SignPath checks with GitHub that the build came from this repository's workflow and commit, then waits for an approver.
 3. The approver checks that the request belongs to the release being published and approves it, for each request. The workflow puts the signed files in the package, builds the installer, and sends the installer for signing the same way.
 4. The workflow checks every signature and timestamp before it publishes the release. If any signing step fails, nothing is published, signed or unsigned.

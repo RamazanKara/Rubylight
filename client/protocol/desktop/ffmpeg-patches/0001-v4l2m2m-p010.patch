@@ -1,5 +1,5 @@
 V4L2 M2M: P010 capture, for 10-bit streams on stateful decoders such as Qualcomm Iris
-(Linux 7.2 and later). FFmpeg 8.1 and its master have no P010 in v4l2_fmt.c, and keep the
+(Linux 7.2 and later). FFmpeg 8.1 and 9.0 have no P010 in v4l2_fmt.c, and keep the
 capture format at a source change that leaves the size alone.
 
 --- a/libavcodec/v4l2_buffers.c

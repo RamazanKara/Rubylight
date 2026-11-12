@@ -251,7 +251,7 @@ copy (client/protocol/desktop/src/vulkan_video.rs).
 The FFmpeg that Nightjar desktop ships on Windows carries Moonlight's FFmpeg patch for
 D3D11VA, D3D12VA and DXVA2 decoding of HEVC Range Extension profiles (HEVC 4:4:4), by
 Cameron Gutman, from https://github.com/moonlight-stream/moonlight-qt-deps
-(patches/ffmpeg_dxva_hevc_rext.patch), adapted to FFmpeg 8.1
+(patches/ffmpeg_dxva_hevc_rext.patch), adapted to FFmpeg 9.0
 (client/protocol/desktop/ffmpeg-patches/windows/). It is part of FFmpeg (LGPL-2.1 or
 later) and ships with FFmpeg's licence and source note.
 

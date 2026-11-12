@@ -1,7 +1,7 @@
 Ported from Moonlight's moonlight-qt-deps (GPL-3.0 repository), patches/ffmpeg_dxva_hevc_rext.patch,
 by Cameron Gutman: D3D11VA, D3D12VA and DXVA2 decoding of HEVC Range Extension profiles (4:4:4 into
-AYUV and Y410). FFmpeg 8.1 and 9.0 have none. Adapted to FFmpeg 8.1.3: one context line of the
-hevcdec.c hunk (8.1 writes /* NOTE: fallthrough */ where master writes av_fallthrough;).
+AYUV and Y410). FFmpeg 8.1 and 9.0 have none. Applies to FFmpeg 9.0.2 as written (FFmpeg 8.1 had
+/* NOTE: fallthrough */ where 9.0 writes av_fallthrough; in one context line of the hevcdec.c hunk).
 
 From 07967817e3e717dc92b764fbc547c3f57fd6aabb Mon Sep 17 00:00:00 2001
 From: Cameron Gutman <aicommander@gmail.com>
@@ -650,7 +650,7 @@ index 18e22f697e..a33e9f2e69 100644
         *fmt++ = AV_PIX_FMT_VAAPI;
  #endif
 @@ -672,6 +686,13 @@ static enum AVPixelFormat get_format(HEVCContext *s, const HEVCSPS *sps)
-     /* NOTE: fallthrough */
+         av_fallthrough;
      case AV_PIX_FMT_YUV420P12:
      case AV_PIX_FMT_YUV444P12:
 +#if CONFIG_HEVC_DXVA2_HWACCEL

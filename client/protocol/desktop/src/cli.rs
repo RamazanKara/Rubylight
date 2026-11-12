@@ -14,6 +14,10 @@
 //! `--no-vsync` and the others in [`StreamOptions`]). They change the settings of this run's
 //! streams only and are never saved.
 //!
+//! `nightjar list <host> [--verbose]` prints the PC's apps, one name a line, as moonlight-qt's
+//! `list` does (MoonDeck reads it), with its exit codes: 0, -1 for a PC that is not saved, not
+//! paired or cannot be reached, and 1 when the app list cannot be read ([`run_list`]).
+//!
 //! `nightjar <pairing link>` is how the system opens a `rubylight:` link (see `link_channel`).
 
 use std::ffi::OsString;
@@ -29,7 +33,7 @@ const START_LIMIT: Duration = Duration::from_secs(60);
 /// sooner.
 const LAUNCH_LIMIT: Duration = Duration::from_secs(180);
 
-pub const USAGE: &str = "usage: nightjar [--version | --host <name|uuid> [--app <name|uuid>] [--quit-on-exit] [stream options] | [stream options] stream <host> <app> | <pairing link>]
+pub const USAGE: &str = "usage: nightjar [--version | --host <name|uuid> [--app <name|uuid>] [--quit-on-exit] [stream options] | [stream options] stream <host> <app> | list <host> [--verbose] | <pairing link>]
 stream options, as moonlight-qt's: --resolution <W>x<H>, --720, --1080, --1440, --4K, --fps <n>, --bitrate <Kbps>,
   --video-codec auto|H.264|HEVC|AV1, --video-decoder auto|software|hardware, --audio-config stereo|5.1-surround|7.1-surround,
   --display-mode fullscreen|windowed|borderless, --capture-system-keys never|fullscreen|always, and these with their --no- forms:
@@ -41,6 +45,20 @@ const LINK_NOT_ALONE: &str = "a pairing link is the only argument";
 
 /// moonlight-qt's form needs both.
 const STREAM_NEEDS: &str = "stream needs a host and an app: stream <host> <app>";
+
+/// moonlight-qt's exit code for a PC it cannot find, reach or use (`QCoreApplication::exit(-1)`):
+/// 255 on Linux.
+pub const LIST_NO_PC: i32 = -1;
+/// moonlight-qt's exit code for an app list the PC did not give.
+pub const LIST_FAILED: i32 = 1;
+
+/// moonlight-qt's `list <host>`: the PC's apps, one name a line.
+#[derive(Debug, PartialEq, Eq)]
+pub struct List {
+    pub host: String,
+    /// `--verbose`: moonlight-qt's progress lines before the list, on stdout.
+    pub verbose: bool,
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Launch {
@@ -276,6 +294,8 @@ pub enum Parsed {
     /// `--version`: print the version and exit, without a window (the packages' install checks).
     Version,
     Launch(Launch),
+    /// moonlight-qt's `list <host>`: print the PC's apps and exit, without a window.
+    List(List),
     /// A link the system opened with Nightjar, as it came: the window asks before it pairs, or
     /// refuses it. Text that is not valid is empty here, and refused the same way.
     Link(String),
@@ -293,8 +313,10 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Parsed, String
     let mut app = None;
     let mut quit_on_exit = false;
     let mut options = StreamOptions::default();
-    // moonlight-qt's `stream <host> <app>`, as its words come.
+    // moonlight-qt's `stream <host> <app>` or `list <host>`, as its words come.
     let mut words: Vec<String> = Vec::new();
+    // `list`'s own options.
+    let mut list_flags: Vec<String> = Vec::new();
     let mut first = true;
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
@@ -337,6 +359,7 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Parsed, String
             "--help" | "-h" if inline.is_none() => return Ok(Parsed::Help),
             "--version" if inline.is_none() => return Ok(Parsed::Version),
             "--quit-on-exit" if inline.is_none() => quit_on_exit = true,
+            "--verbose" | "--csv" if inline.is_none() => list_flags.push(flag.clone()),
             "--host" | "--app" => {
                 let value = value_of(inline)?;
                 let slot = if flag == "--host" {
@@ -365,11 +388,29 @@ pub fn parse<I: IntoIterator<Item = OsString>>(args: I) -> Result<Parsed, String
                 options.value(name, &value)?;
             }
             // moonlight-qt finds its action anywhere among the words.
-            _ if !flag.starts_with('-') && (!words.is_empty() || flag.eq_ignore_ascii_case("stream")) => {
+            _ if !flag.starts_with('-')
+                && (!words.is_empty() || flag.eq_ignore_ascii_case("stream") || flag.eq_ignore_ascii_case("list")) =>
+            {
                 words.push(flag.clone());
             }
             _ => return Err(format!("unknown argument {flag}")),
         }
+    }
+    if words.first().is_some_and(|w| w.eq_ignore_ascii_case("list")) {
+        if host.is_some() || app.is_some() || quit_on_exit || options.any() {
+            return Err("list takes only a host and --verbose: list <host> [--verbose]".into());
+        }
+        if list_flags.iter().any(|f| f == "--csv") {
+            return Err("list --csv is not available; list prints one app name a line".into());
+        }
+        // moonlight-qt reads the host and leaves any word after it.
+        let Some(host) = words.get(1).map(|h| h.trim().to_owned()).filter(|h| !h.is_empty()) else {
+            return Err("list needs a host: list <host>".into());
+        };
+        return Ok(Parsed::List(List { host, verbose: !list_flags.is_empty() }));
+    }
+    if let Some(flag) = list_flags.first() {
+        return Err(format!("unknown argument {flag}"));
     }
     if !words.is_empty() {
         let [_, stream_host, stream_app] = <[String; 3]>::try_from(words).map_err(|_| STREAM_NEEDS.to_owned())?;
@@ -442,14 +483,93 @@ pub fn use_parent_console() {
 
 /// Whether the usage text (`--help`, or a wrong command line) is shown in a box too: only by a
 /// build without a console, where printing it shows nothing, and never for a command line that
-/// names a PC (`--host`, or moonlight-qt's `stream`): that is a frontend's start, where a box
+/// names a PC (`--host`, or moonlight-qt's `stream` and `list`): that is a frontend's start, where a box
 /// could open behind it and keep Nightjar open (see [`shows_error_box`]).
 pub fn shows_usage_box<S: AsRef<std::ffi::OsStr>>(has_console: bool, args: &[S]) -> bool {
     let names_a_host = args.iter().any(|arg| {
         let arg = arg.as_ref().to_string_lossy();
-        arg == "--host" || arg.starts_with("--host=") || arg.eq_ignore_ascii_case("stream")
+        arg == "--host" || arg.starts_with("--host=") || arg.eq_ignore_ascii_case("stream") || arg.eq_ignore_ascii_case("list")
     });
     !has_console && !names_a_host
+}
+
+/// `list`'s output: the name of each app to stream, one a line, as moonlight-qt prints it. Host
+/// actions (disconnect, terminate) are no apps to stream and are left out.
+pub fn app_names(apps: &[App]) -> String {
+    apps.iter().filter(|app| !app.is_control_action()).map(|app| format!("{}\n", app.name)).collect()
+}
+
+/// What `list` says and exits with when the app list could not be read.
+fn list_error(error: &nightjar_core::http::Error, host: &str) -> (String, i32) {
+    use nightjar_core::http::Error;
+    match error {
+        Error::Io(_) => (format!("Failed to connect to {host}"), LIST_NO_PC),
+        Error::NotPaired | Error::Status { code: 401, .. } => (
+            format!("Computer {host} has not been paired. Please open Nightjar to pair before retrieving games list."),
+            LIST_NO_PC,
+        ),
+        other => (crate::hosts::describe(other), LIST_FAILED),
+    }
+}
+
+/// Runs moonlight-qt's `list` against the saved PCs: the app names go to stdout, an error to
+/// stderr, and the exit code is moonlight-qt's.
+pub fn run_list(list: &List, store: &crate::config::Store) -> i32 {
+    use std::io::Write;
+    let records = store.hosts();
+    let entries = records.iter().enumerate().map(|(index, record)| HostEntry {
+        id: index as u64,
+        unique_id: &record.unique_id,
+        name: &record.name,
+        alias: record.alias.as_deref().filter(|a| !a.is_empty()),
+        paired: record.server_certificate.is_some(),
+    });
+    let record = match find_host(entries, &list.host) {
+        Ok(index) => &records[index as usize],
+        Err(why) => {
+            eprintln!("{why}");
+            return LIST_NO_PC;
+        }
+    };
+    let identity = match store.identity() {
+        Some(saved) => match nightjar_core::http::ClientIdentity::from_pem(saved.unique_id, &saved.certificate_pem, &saved.private_key_pem) {
+            Ok(identity) => std::sync::Arc::new(identity),
+            Err(e) => {
+                eprintln!("this device's pairing key cannot be read ({e}); open Nightjar once");
+                return LIST_NO_PC;
+            }
+        },
+        None => {
+            eprintln!("this device has no pairing key yet; pair the PC in Nightjar first");
+            return LIST_NO_PC;
+        }
+    };
+    let mut out = std::io::stdout();
+    if list.verbose {
+        let _ = out.write_all(b"Establishing connection to PC...\n");
+    }
+    let client = match crate::hosts::client_for(&identity, record, &record.address) {
+        Ok(client) => client,
+        Err(why) => {
+            eprintln!("{why}");
+            return LIST_NO_PC;
+        }
+    };
+    if list.verbose {
+        let _ = out.write_all(b"Loading app list...\n");
+    }
+    match client.app_list(&nightjar_core::http::HostCapabilities::UNKNOWN) {
+        Ok(apps) => {
+            let _ = out.write_all(app_names(&apps).as_bytes());
+            let _ = out.flush();
+            0
+        }
+        Err(e) => {
+            let (why, code) = list_error(&e, &list.host);
+            eprintln!("{why}");
+            code
+        }
+    }
 }
 
 /// A saved PC as `find_host` sees it.
@@ -966,6 +1086,46 @@ mod tests {
         }
     }
 
+    #[test]
+    fn moonlight_qts_list_names_a_host_and_takes_only_verbose() {
+        // MoonDeck's call (its moonlightproxy.py `get_apps`).
+        assert_eq!(args(&["list", "Gaming PC"]), Ok(Parsed::List(List { host: "Gaming PC".into(), verbose: false })));
+        assert_eq!(args(&["--verbose", "LIST", "pc"]), Ok(Parsed::List(List { host: "pc".into(), verbose: true })));
+        assert_eq!(args(&["list", "pc", "extra"]), Ok(Parsed::List(List { host: "pc".into(), verbose: false })));
+        for wrong in [
+            &["list"][..],
+            &["list", " "],
+            &["list", "pc", "--csv"],
+            &["list", "pc", "--hdr"],
+            &["--host", "pc", "list", "pc"],
+            &["list", "pc", "--quit-on-exit"],
+            &["--verbose", "stream", "pc", "app"],
+            &["--verbose", "--host", "pc"],
+            &["--verbose=1", "list", "pc"],
+        ] {
+            assert!(args(wrong).is_err(), "{wrong:?}");
+        }
+        assert!(!shows_usage_box(false, &["list", "pc", "--bogus"]));
+    }
+
+    #[test]
+    fn list_prints_one_app_name_a_line_without_host_actions() {
+        let terminate = App { control: AppControl::Terminate, ..app(3, "E16C", "Terminate") };
+        let apps = vec![app(1, "", "Desktop"), app(2, "5E1F-77", "Steam Big Picture"), terminate];
+        assert_eq!(app_names(&apps), "Desktop\nSteam Big Picture\n");
+        assert_eq!(app_names(&[]), "");
+    }
+
+    #[test]
+    fn list_errors_carry_moonlight_qts_exit_codes() {
+        use nightjar_core::http::Error;
+        let refused = Error::Io(std::io::Error::from(std::io::ErrorKind::ConnectionRefused));
+        assert_eq!(list_error(&refused, "pc"), ("Failed to connect to pc".to_owned(), LIST_NO_PC));
+        assert_eq!(list_error(&Error::NotPaired, "pc").1, LIST_NO_PC);
+        assert!(list_error(&Error::NotPaired, "pc").0.starts_with("Computer pc has not been paired."));
+        assert_eq!(list_error(&Error::CertificateMismatch, "pc").1, LIST_FAILED);
+    }
+
     fn launch_of(host: &str, app: &str) -> Launch {
         Launch { host: host.into(), app: Some(app.into()), quit_on_exit: true, join: None, options: StreamOptions::default() }
     }
@@ -978,7 +1138,6 @@ mod tests {
             &["stream", "pc", "app", "more"],
             &["stream", " ", "app"],
             &["--host", "pc", "stream", "pc", "app"],
-            &["list", "pc"],
             &["--fps", "sixty", "stream", "pc", "app"],
             &["--fps", "0", "stream", "pc", "app"],
             &["--bitrate", "stream", "pc", "app"],

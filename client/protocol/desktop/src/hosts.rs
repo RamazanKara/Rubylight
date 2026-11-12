@@ -825,7 +825,7 @@ fn pair_error(error: &nightjar_core::http::Error) -> String {
     }
 }
 
-fn describe(error: &nightjar_core::http::Error) -> String {
+pub(crate) fn describe(error: &nightjar_core::http::Error) -> String {
     use nightjar_core::http::Error;
     match error {
         Error::Io(e) if e.kind() == std::io::ErrorKind::TimedOut => en("The PC did not answer.").into(),

@@ -141,6 +141,8 @@ It starts the app and closes Nightjar when the stream ends. moonlight-qt's strea
 - On/off options, each with a `--no-` form: `--hdr`, `--vsync`, `--frame-pacing` (Smoothest video; `--no-frame-pacing` is Lowest latency), `--performance-overlay`, `--quit-after` (leaving the stream quits the game on the PC), `--yuv444` (Sharper colored text), `--audio-on-host`, `--absolute-mouse`, `--game-optimization`, `--multi-controller`, `--swap-gamepad-buttons` and `--background-gamepad`.
 - `--packet-size`, `--mouse-buttons-swap`, `--touchscreen-trackpad`, `--mute-on-focus-loss`, `--reverse-scroll-direction` and `--keep-awake` are accepted and change nothing.
 
+`nightjar list <PC name or UUID> [--verbose]` prints the PC's apps, one name a line, without opening a window, as moonlight-qt's `list` does; MoonDeck reads it to add the PC's apps to Steam. It exits with 0, with -1 (255 on Linux) when the PC is not saved, not paired or cannot be reached, and with 1 when the PC does not give its app list. moonlight-qt's `list --csv` is not available.
+
 ## Fix an integration
 
 | Symptom | Cause | Fix |

@@ -436,6 +436,18 @@ fn main() {
     let (mut launch, link) = match cli::parse(args) {
         Ok(cli::Parsed::Gui) => (None, None),
         Ok(cli::Parsed::Launch(launch)) => (Some(launch), None),
+        // moonlight-qt's `list`: the app names on stdout, then out, without a window or the log.
+        Ok(cli::Parsed::List(list)) => {
+            cli::use_parent_console();
+            let code = match Store::open() {
+                Ok(store) => cli::run_list(&list, &store),
+                Err(e) => {
+                    eprintln!("nightjar: no config directory: {e}");
+                    cli::LIST_NO_PC
+                }
+            };
+            std::process::exit(code);
+        }
         // An open window takes the link; this start ends here, before it touches the log.
         Ok(cli::Parsed::Link(link)) => {
             if link_channel::send(&link) {

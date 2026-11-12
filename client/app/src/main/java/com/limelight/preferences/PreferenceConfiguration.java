@@ -106,6 +106,7 @@ public class PreferenceConfiguration {
     private static final String ONSCREEN_OWN_PLAYER_PREF_STRING = "checkbox_onscreen_own_player";
     private static final String SHOW_GUIDE_BUTTON_PREF_STRING = "checkbox_show_guide_button";
     private static final String SHOW_TOUCHPAD_BUTTON_PREF_STRING = "checkbox_show_touchpad_button";
+    public static final String OSC_STEAM_CONTROLS_PREF_STRING = "checkbox_osc_steam_controls";
     private static final String LEGACY_DISABLE_FRAME_DROP_PREF_STRING = "checkbox_disable_frame_drop";
     private static final String ENABLE_HDR_PREF_STRING = "checkbox_enable_hdr";
     static final String THERMAL_PROTECTION_PREF_STRING = "checkbox_thermal_protection";
@@ -255,6 +256,7 @@ public class PreferenceConfiguration {
     private static final boolean ONSCREEN_OWN_PLAYER_DEFAULT = false;
     private static final boolean SHOW_GUIDE_BUTTON_DEFAULT = true;
     private static final boolean SHOW_TOUCHPAD_BUTTON_DEFAULT = false;
+    private static final boolean OSC_STEAM_CONTROLS_DEFAULT = false;
     private static final boolean DEFAULT_ENABLE_HDR = false;
     private static final boolean DEFAULT_ENABLE_SDR10 = false;
     private static final boolean DEFAULT_ENABLE_PIP = false;
@@ -339,6 +341,8 @@ public class PreferenceConfiguration {
     public boolean showGuideButton;
     /** The on-screen controller's Touchpad button: a PlayStation pad's touchpad click. */
     public boolean showTouchpadButton;
+    /** The classic on-screen controls add a Steam Controller's trackpads, back buttons and grip touch. */
+    public boolean oscSteamControls;
     public boolean enableHdr;
     /** Ask for 10-bit SDR when HDR is not streamed (see Sdr10Policy). Global only: not part of a PC's profile. */
     public boolean enableSdr10Bit;
@@ -1612,6 +1616,7 @@ public class PreferenceConfiguration {
         config.onscreenOwnPlayer = prefs.getBoolean(ONSCREEN_OWN_PLAYER_PREF_STRING, ONSCREEN_OWN_PLAYER_DEFAULT);
         config.showGuideButton = prefs.getBoolean(SHOW_GUIDE_BUTTON_PREF_STRING, SHOW_GUIDE_BUTTON_DEFAULT);
         config.showTouchpadButton = prefs.getBoolean(SHOW_TOUCHPAD_BUTTON_PREF_STRING, SHOW_TOUCHPAD_BUTTON_DEFAULT);
+        config.oscSteamControls = prefs.getBoolean(OSC_STEAM_CONTROLS_PREF_STRING, OSC_STEAM_CONTROLS_DEFAULT);
         config.enableHdr = prefs.getBoolean(ENABLE_HDR_PREF_STRING, DEFAULT_ENABLE_HDR) && !isShieldAtvFirmwareWithBrokenHdr();
         config.enableSdr10Bit = prefs.getBoolean(ENABLE_SDR10_PREF_STRING, DEFAULT_ENABLE_SDR10);
         config.enablePip = prefs.getBoolean(ENABLE_PIP_PREF_STRING, DEFAULT_ENABLE_PIP);

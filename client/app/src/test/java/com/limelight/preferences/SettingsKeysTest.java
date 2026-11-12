@@ -354,6 +354,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_onscreen_own_player", new Read(false, true, c -> c.onscreenOwnPlayer));
         reads.put("checkbox_show_guide_button", new Read(true, false, c -> c.showGuideButton));
         reads.put("checkbox_show_touchpad_button", new Read(false, true, c -> c.showTouchpadButton));
+        reads.put("checkbox_osc_steam_controls", new Read(false, true, c -> c.oscSteamControls));
         reads.put("seekbar_osc_opacity", new Read(90, 50, c -> c.oscOpacity));
         // list_audio_config is checked by everyStoredSettingIsReadByTheStreamConfiguration only: the
         // MoonBridge audio constants it maps to are not created under the test shadow.

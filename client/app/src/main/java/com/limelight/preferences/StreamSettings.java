@@ -1670,6 +1670,8 @@ public class StreamSettings extends NightjarActivity {
             boolean modern = onScreen && SettingRules.modernControllerApplies(prefs);
             setShown(PreferenceConfiguration.OSC_STICK_MODE_PREF_STRING, modern);
             setShown(PreferenceConfiguration.OSC_STICK_DEADZONE_PREF_STRING, modern);
+            // The Steam Controller controls belong to the classic controller only.
+            setShown(PreferenceConfiguration.OSC_STEAM_CONTROLS_PREF_STRING, onScreen && !modern);
             placeRows();
         }
 

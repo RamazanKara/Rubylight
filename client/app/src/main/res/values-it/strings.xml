@@ -204,6 +204,8 @@
     <string name="title_show_guide_button">Mostra pulsante Guide</string>
     <string name="title_show_touchpad_button">Mostra pulsante Touchpad</string>
     <string name="summary_show_touchpad_button">Aggiunge un pulsante touchpad PlayStation ai controlli a schermo.</string>
+    <string name="title_osc_steam_controls">Controlli Steam Controller</string>
+    <string name="summary_osc_steam_controls">Aggiunge ai controlli a schermo entrambi i trackpad, i tasti posteriori L4, R4, L5 e R5 e il tocco delle impugnature, per un PC il cui tipo di controller è Steam Controller.</string>
     <string name="title_reset_osc">Ripristina layout dei controlli</string>
     <string name="dialog_title_reset_osc">Ripristina layout</string>
     <string name="dialog_text_reset_osc">Riportare ogni pulsante a schermo alle dimensioni e alla posizione predefinite?</string>

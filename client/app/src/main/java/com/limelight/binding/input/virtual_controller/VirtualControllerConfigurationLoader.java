@@ -191,6 +191,20 @@ public class VirtualControllerConfigurationLoader {
     // Between Guide and Start, where nothing else sits.
     private static final int TOUCHPAD_X = 66;
 
+    // The Steam Controller controls: back buttons and grips beside the inner edge of each
+    // stick's and face buttons' column, trackpads between the D-pad and the right stick.
+    private static final int STEAM_L_X = 34;
+    private static final int STEAM_R_X = 84;
+    private static final int STEAM_BUTTON_WIDTH = 10;
+    private static final int STEAM_BUTTON_HEIGHT = 7;
+    private static final int STEAM_ROW_1 = 2;
+    private static final int STEAM_ROW_2 = 11;
+    private static final int STEAM_ROW_3 = 20;
+    private static final int TRACKPAD_L_X = 37;
+    private static final int TRACKPAD_R_X = 69;
+    private static final int TRACKPAD_Y = 40;
+    private static final int TRACKPAD_SIZE = 22;
+
     public static void createDefaultLayout(final VirtualController controller, final Context context) {
         createDefaultLayout(controller, context, PreferenceConfiguration.readPreferences(context));
     }
@@ -363,7 +377,99 @@ public class VirtualControllerConfigurationLoader {
             );
         }
 
+        if (config.oscSteamControls) {
+            addSteamControls(controller, context, height, rightDisplacement);
+        }
+
         controller.setOpacity(config.oscOpacity);
+    }
+
+    private static void addSteamControls(final VirtualController controller, final Context context,
+                                         int height, int rightDisplacement) {
+        int[][] backButtons = {
+                {VirtualControllerElement.EID_L4, SteamControls.L4_FLAG, STEAM_L_X, STEAM_ROW_1, 0},
+                {VirtualControllerElement.EID_L5, SteamControls.L5_FLAG, STEAM_L_X, STEAM_ROW_2, 0},
+                {VirtualControllerElement.EID_R4, SteamControls.R4_FLAG, STEAM_R_X, STEAM_ROW_1, 1},
+                {VirtualControllerElement.EID_R5, SteamControls.R5_FLAG, STEAM_R_X, STEAM_ROW_2, 1},
+        };
+        String[] backLabels = {"L4", "L5", "R4", "R5"};
+        for (int i = 0; i < backButtons.length; i++) {
+            int[] b = backButtons[i];
+            controller.addElement(createDigitalButton(b[0], b[1], 0, 1, backLabels[i], -1, controller, context),
+                    screenScale(b[2], height) + (b[4] != 0 ? rightDisplacement : 0),
+                    screenScale(b[3], height),
+                    screenScale(STEAM_BUTTON_WIDTH, height),
+                    screenScale(STEAM_BUTTON_HEIGHT, height));
+        }
+
+        LatchingButton leftGrip = new LatchingButton(controller, VirtualControllerElement.EID_LEFT_GRIP,
+                SteamControls.LEFT_GRIP_TOUCH_FLAG, context);
+        leftGrip.setText("L GRIP");
+        controller.addElement(leftGrip,
+                screenScale(STEAM_L_X, height),
+                screenScale(STEAM_ROW_3, height),
+                screenScale(STEAM_BUTTON_WIDTH, height),
+                screenScale(STEAM_BUTTON_HEIGHT, height));
+        LatchingButton rightGrip = new LatchingButton(controller, VirtualControllerElement.EID_RIGHT_GRIP,
+                SteamControls.RIGHT_GRIP_TOUCH_FLAG, context);
+        rightGrip.setText("R GRIP");
+        controller.addElement(rightGrip,
+                screenScale(STEAM_R_X, height) + rightDisplacement,
+                screenScale(STEAM_ROW_3, height),
+                screenScale(STEAM_BUTTON_WIDTH, height),
+                screenScale(STEAM_BUTTON_HEIGHT, height));
+
+        controller.addElement(new Trackpad(controller, VirtualControllerElement.EID_LEFT_TRACKPAD,
+                        SteamControls.LEFT_PAD, "L PAD", context),
+                screenScale(TRACKPAD_L_X, height),
+                screenScale(TRACKPAD_Y, height),
+                screenScale(TRACKPAD_SIZE, height),
+                screenScale(TRACKPAD_SIZE, height));
+        controller.addElement(new Trackpad(controller, VirtualControllerElement.EID_RIGHT_TRACKPAD,
+                        SteamControls.RIGHT_PAD, "R PAD", context),
+                screenScale(TRACKPAD_R_X, height) + rightDisplacement,
+                screenScale(TRACKPAD_Y, height),
+                screenScale(TRACKPAD_SIZE, height),
+                screenScale(TRACKPAD_SIZE, height));
+
+        // A finger on an on-screen stick touches the Steam Controller's stick.
+        for (VirtualControllerElement element : controller.getElements()) {
+            if (element instanceof AnalogStick) {
+                ((AnalogStick) element).addAnalogStickListener(stickTouch(controller,
+                        element.elementId == VirtualControllerElement.EID_LS ?
+                                SteamControls.LEFT_STICK_TOUCH_FLAG : SteamControls.RIGHT_STICK_TOUCH_FLAG));
+            }
+        }
+    }
+
+    private static AnalogStick.AnalogStickListener stickTouch(final VirtualController controller, final int flag) {
+        return new AnalogStick.AnalogStickListener() {
+            private void set(boolean touched) {
+                VirtualController.ControllerInputContext inputContext = controller.getControllerInputContext();
+                int before = inputContext.inputMap;
+                inputContext.inputMap = touched ? before | flag : before & ~flag;
+                if (inputContext.inputMap != before) controller.sendControllerInputContext();
+            }
+
+            @Override
+            public void onMovement(float x, float y) {
+            }
+
+            @Override
+            public void onClick() {
+                set(true);
+            }
+
+            @Override
+            public void onDoubleClick() {
+                set(true);
+            }
+
+            @Override
+            public void onRevoke() {
+                set(false);
+            }
+        };
     }
 
     public static void saveProfile(final VirtualController controller,

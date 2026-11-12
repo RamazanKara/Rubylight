@@ -627,6 +627,11 @@
             android:title="@string/title_show_touchpad_button"
             android:dialogMessage="@string/summary_show_touchpad_button"
             android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_osc_steam_controls"
+            android:title="@string/title_osc_steam_controls"
+            android:dialogMessage="@string/summary_osc_steam_controls"
+            android:defaultValue="false" />
         <com.limelight.preferences.SeekBarPreference
             android:key="seekbar_osc_opacity"
             android:dialogMessage="@string/summary_osc_opacity"

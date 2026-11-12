@@ -204,6 +204,8 @@
     <string name="title_show_guide_button">Guide ボタンを表示</string>
     <string name="title_show_touchpad_button">タッチパッドボタンを表示</string>
     <string name="summary_show_touchpad_button">オンスクリーンコントロールに PlayStation のタッチパッドボタンを追加します。</string>
+    <string name="title_osc_steam_controls">Steam Controller の操作</string>
+    <string name="summary_osc_steam_controls">画面上のコントロールに両方のトラックパッド、背面ボタン L4、R4、L5、R5、グリップのタッチを追加します。PC のコントローラーの種類が Steam Controller の場合に使います。</string>
     <string name="title_reset_osc">コントロールのレイアウトをリセット</string>
     <string name="dialog_title_reset_osc">レイアウトをリセット</string>
     <string name="dialog_text_reset_osc">すべてのオンスクリーン ボタンをデフォルトのサイズと位置に戻しますか？</string>

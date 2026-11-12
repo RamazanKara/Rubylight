@@ -204,6 +204,8 @@
     <string name="title_show_guide_button">Guide-Taste anzeigen</string>
     <string name="title_show_touchpad_button">Touchpad-Taste anzeigen</string>
     <string name="summary_show_touchpad_button">Fügt den Bildschirmtasten eine PlayStation-Touchpad-Taste hinzu.</string>
+    <string name="title_osc_steam_controls">Steam-Controller-Tasten</string>
+    <string name="summary_osc_steam_controls">Fügt den Bildschirmtasten beide Trackpads, die Rücktasten L4, R4, L5 und R5 sowie Griffberührung hinzu, für einen PC mit dem Controllertyp Steam Controller.</string>
     <string name="title_reset_osc">Tastenlayout zurücksetzen</string>
     <string name="dialog_title_reset_osc">Layout zurücksetzen</string>
     <string name="dialog_text_reset_osc">Alle Bildschirmtasten auf Standardgröße und -position zurücksetzen?</string>

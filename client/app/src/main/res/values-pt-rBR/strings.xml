@@ -204,6 +204,8 @@
     <string name="title_show_guide_button">Mostrar botão Guide</string>
     <string name="title_show_touchpad_button">Mostrar botão Touchpad</string>
     <string name="summary_show_touchpad_button">Adiciona um botão de touchpad do PlayStation aos controles na tela.</string>
+    <string name="title_osc_steam_controls">Controles do Steam Controller</string>
+    <string name="summary_osc_steam_controls">Adiciona aos controles na tela os dois trackpads, os botões traseiros L4, R4, L5 e R5 e o toque nas empunhaduras, para um PC cujo tipo de controle é o Steam Controller.</string>
     <string name="title_reset_osc">Redefinir layout dos controles</string>
     <string name="dialog_title_reset_osc">Redefinir layout</string>
     <string name="dialog_text_reset_osc">Retornar todos os botões na tela ao tamanho e posição padrão?</string>

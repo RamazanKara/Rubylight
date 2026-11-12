@@ -204,6 +204,8 @@
     <string name="title_show_guide_button">Afficher le bouton Guide</string>
     <string name="title_show_touchpad_button">Afficher le bouton Pavé tactile</string>
     <string name="summary_show_touchpad_button">Ajoute un bouton de pavé tactile PlayStation aux commandes à l’écran.</string>
+    <string name="title_osc_steam_controls">Commandes Steam Controller</string>
+    <string name="summary_osc_steam_controls">Ajoute aux commandes à l’écran les deux pavés tactiles, les boutons arrière L4, R4, L5 et R5 et le toucher des poignées, pour un PC dont le type de manette est Steam Controller.</string>
     <string name="title_reset_osc">Réinitialiser la disposition</string>
     <string name="dialog_title_reset_osc">Réinitialiser la disposition</string>
     <string name="dialog_text_reset_osc">Rétablir la taille et la position par défaut de tous les boutons à l’écran ?</string>

@@ -204,6 +204,8 @@
     <string name="title_show_guide_button">Guide düğmesini göster</string>
     <string name="title_show_touchpad_button">Dokunmatik yüzey düğmesini göster</string>
     <string name="summary_show_touchpad_button">Ekran kontrollerine bir PlayStation dokunmatik yüzey düğmesi ekler.</string>
+    <string name="title_osc_steam_controls">Steam Controller kontrolleri</string>
+    <string name="summary_osc_steam_controls">Ekran kontrollerine iki dokunmatik yüzeyi, L4, R4, L5 ve R5 arka düğmelerini ve tutamak dokunuşunu ekler; denetleyici türü Steam Controller olan bir bilgisayar için.</string>
     <string name="title_reset_osc">Kontrol düzenini sıfırla</string>
     <string name="dialog_title_reset_osc">Düzeni sıfırla</string>
     <string name="dialog_text_reset_osc">Tüm ekran düğmeleri varsayılan boyut ve konumlarına döndürülsün mü?</string>

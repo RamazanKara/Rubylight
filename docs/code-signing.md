@@ -8,7 +8,7 @@ This page is for the maintainer. It describes what the workflow does, then lists
 
 ## What the workflow does
 
-[rust-windows.yml](../.github/workflows/rust-windows.yml) signs only release runs: a pushed version tag (`v2.*` to `v9.*`), or **Run workflow** on `main` with **publish**. It signs nothing while the `SIGNPATH_PROJECT_SLUG` variable is empty. Pull requests and ordinary pushes to `main` are never signed, because the Foundation's release policy asks an approver to approve every signing request.
+[rust-windows.yml](../.github/workflows/rust-windows.yml) signs only release runs: a pushed `v2.*` or `v3.*` tag, or **Run workflow** on `main` with **publish**. It signs nothing while the `SIGNPATH_PROJECT_SLUG` variable is empty. Pull requests and ordinary pushes to `main` are never signed, because the Foundation's release policy asks an approver to approve every signing request.
 
 A signed release:
 
@@ -80,7 +80,7 @@ Do these in order. Steps 1 to 5 can happen before applying; steps 7 to 18 need t
 
 ### First signed release
 
-15. **Release a candidate.** Bump to a release candidate (`python rust/release/bump.py <version>-rc.1`), fill in its notes and push to `main`. Then use Actions, **Rubylight Windows**, **Run workflow** on `main` with **publish**. A failed signing run publishes nothing and creates no tag, so you can fix SignPath's settings and run it again.
+15. **Release a candidate.** Bump to a release candidate (`python rust/release/bump.py 3.0.1-rc.1`), fill in its notes and push to `main`. Then use Actions, **Rubylight Windows**, **Run workflow** on `main` with **publish**. A failed signing run publishes nothing and creates no tag, so you can fix SignPath's settings and run it again.
 16. **Approve the requests.** SignPath e-mails you for each request: first the binaries, then the driver catalog, then the installer. Approve each one that came from this run; its page shows the repository, commit and workflow run. Each request waits up to an hour.
 17. **Check the result.** Download both release files and run `Get-AuthenticodeSignature` on the installer and on the executables and DLLs in the ZIP: each must be `Valid`, signed by SignPath Foundation, with a timestamp. Install, update and uninstall on a clean Windows PC, check the installed `uninstall.exe` the same way, and note what SmartScreen shows.
 18. **Record it.** Name the first signed version in the [code signing policy](code-signing-policy.md) and add the change to the release notes.
@@ -122,7 +122,7 @@ The form at [signpath.org/apply](https://signpath.org/apply) asks for these fiel
 
 > Rubylight streams games and the Windows desktop from a gaming PC to phones, tablets, TVs and other PCs running Moonlight, the open-source GameStream client. It is a GPL-3.0 host written in Rust that began as a fork of Vibepollo, from the Sunshine and Apollo family, and is built around the GPU frame path: screen capture, colour conversion and the hardware encoder of AMD Radeon and NVIDIA GPUs, with HDR, per-device virtual displays, controller and haptics support, and PyroWave for very low latency on local networks. It runs as a Windows service with a web console on the local PC. Releases are built from tagged commits by GitHub Actions on GitHub-hosted runners, with no manual build steps.
 >
-> We would like to sign because Windows warns about the unsigned installer: SmartScreen stops it with a "Windows protected your PC" warning and Smart App Control can block it outright, which pushes users to turn off protections they should keep. The installer also sets up a Windows service and drivers, so users should be able to see who published what they run. Rubylight's own virtual display driver (user-mode, IddCx) also needs a trusted signature on its catalog to install without a prompt. Rubylight already ships the gamepad driver your Foundation signed for Vibepollo, unchanged, with its original signature.
+> We would like to sign because Windows warns about the unsigned installer: SmartScreen stops it with a "Windows protected your PC" warning and Smart App Control can block it outright, which pushes users to turn off protections they should keep. The installer also sets up a Windows service and drivers, so users should be able to see who published what they run. Microsoft Defender's cloud model has quarantined our unsigned service as Trojan:Win32/Bearfoos.A!ml, a false positive we reported to Microsoft, and every new release starts again with no reputation. Rubylight's own virtual display driver (user-mode, IddCx) also needs a trusted signature on its catalog: until it has one, the installer signs the catalog on the user's PC with a self-signed certificate that it adds to the machine's Root store, a trust change we would rather not make and one that fails under Smart App Control and in S mode. A signed catalog removes that step. Rubylight already ships the gamepad driver your Foundation signed for Vibepollo, unchanged, with its original signature.
 >
 > Rubylight has one maintainer, Ramazan Kara (GitHub: RamazanKara), who writes, reviews and releases the code and will approve every signing request. GitHub and SignPath access use multi-factor authentication. The code signing policy is at https://ramazankara.github.io/Rubylight/docs/code-signing-policy.html.
 

@@ -3,8 +3,14 @@
 #
 #   .\package-windows.ps1 [-FfmpegDir <prefix from ffmpeg-decode-only.sh>] [-PyrowaveSdkDir <folder from
 #       scripts\build-pyrowave-sdk.ps1>] [-Out <folder>] [-TargetDirectory <dir>] [-Version <version>]
+#       [-Msys <MSYS2 folder>] [-Target <Rust target>]
 #
-# Needs the toolchain from README.md ("Building", Windows). The DLLs are found by reading the
+# Needs the toolchain from README.md ("Building", Windows): on an x86_64 PC the GNU Rust toolchain
+# and MSYS2 UCRT64, on an ARM64 PC the gnullvm one and MSYS2 CLANGARM64 (-Msys, default C:\msys64,
+# names the MSYS2 installation). -Target builds for another architecture than this PC's
+# (aarch64-pc-windows-gnullvm on an x86_64 PC, with an aarch64 cross compiler and CLANGARM64's
+# libraries set up by the caller); such an exe cannot start here, so the start checks are skipped
+# and the result is for inspection, never for release. The DLLs are found by reading the
 # import tables (objdump) of the exe and of every DLL copied, down to the system ones, which are
 # left out. With -FfmpegDir the exe is built against that decode-only FFmpeg and its DLLs are
 # preferred; without it the package carries MSYS2's FFmpeg and everything that drags in.
@@ -18,21 +24,33 @@
 # Windows folders on PATH): the package must find and load the DLL (always checked) and, with
 # -RequireGpuProbe, build a decoder on this PC's GPU (CI runners have none).
 # -Version names the package after a release version instead of the crate's (the release workflow
-# passes the app version): nightjar-desktop-<version>-windows-x86_64.zip.
+# passes the app version): nightjar-desktop-<version>-windows-<x86_64 or arm64>.zip.
 param(
     [string]$FfmpegDir = '',
     [string]$PyrowaveSdkDir = '',
     [string]$Out = (Join-Path $PSScriptRoot '..\..\dist'),
     [string]$TargetDirectory = '',
     [string]$Version = '',
+    [string]$Msys = 'C:\msys64',
+    [ValidateSet('', 'x86_64-pc-windows-gnu', 'aarch64-pc-windows-gnullvm')]
+    [string]$Target = '',
     [switch]$RequireGpuProbe
 )
 $ErrorActionPreference = 'Stop'
 
-$msys = 'C:\msys64\ucrt64\bin'
+# The package is named after Windows' own word for each architecture (x86_64 as before, arm64).
+$native = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq 'Arm64') { 'arm64' } else { 'x86_64' }
+$arch = switch -Wildcard ($Target) { '' { $native } 'aarch64-*' { 'arm64' } default { 'x86_64' } }
+$runs = $arch -eq $native -or $native -eq 'arm64'
+# $msys holds the target's DLLs and, in a native build, the tools. A cross build leaves PATH and
+# LIBCLANG_PATH to its caller: the other architecture's MSYS2 programs may not run on this PC.
+$msys = Join-Path $Msys $(if ($arch -eq 'arm64') { 'clangarm64\bin' } else { 'ucrt64\bin' })
+$cross = $arch -ne $native
 $workspace = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$env:PATH = "$msys;$env:USERPROFILE\.cargo\bin;" + $env:PATH
-if (-not $env:LIBCLANG_PATH) { $env:LIBCLANG_PATH = $msys }
+if (-not $cross) {
+    $env:PATH = "$msys;$env:USERPROFILE\.cargo\bin;" + $env:PATH
+    if (-not $env:LIBCLANG_PATH) { $env:LIBCLANG_PATH = $msys }
+}
 $search = @($msys)
 if ($FfmpegDir) {
     $FfmpegDir = (Resolve-Path $FfmpegDir).Path
@@ -74,10 +92,28 @@ if ($PyrowaveSdkDir) {
 
 Push-Location $workspace
 try {
-    cargo build --release -p nightjar-desktop --locked --target-dir $TargetDirectory
+    $targetArgs = if ($Target) { @('--target', $Target) } else { @() }
+    cargo build --release -p nightjar-desktop --locked --target-dir $TargetDirectory @targetArgs
     if ($LASTEXITCODE -ne 0) { throw 'cargo build failed' }
 } finally { Pop-Location }
-$exe = Join-Path $TargetDirectory 'release\nightjar.exe'
+$exe = Join-Path $TargetDirectory $(if ($Target) { "$Target\release\nightjar.exe" } else { 'release\nightjar.exe' })
+# An x86_64 exe or DLL must not end up in the arm64 package or the other way round: the PE header's
+# machine field of each one (the exe here, every shipped file before zipping).
+function Get-Machine([string]$path) {
+    $stream = [IO.File]::OpenRead($path)
+    try {
+        $reader = [IO.BinaryReader]::new($stream)
+        $stream.Position = 0x3C
+        $stream.Position = $reader.ReadInt32() + 4
+        $reader.ReadUInt16()
+    } finally { $stream.Dispose() }
+}
+$expectedMachine = if ($arch -eq 'arm64') { 0xAA64 } else { 0x8664 }
+function Assert-Machine([string]$path) {
+    $machine = Get-Machine $path
+    if ($machine -ne $expectedMachine) { throw ('{0} is built for machine 0x{1:X4}, not {2}' -f $path, $machine, $arch) }
+}
+Assert-Machine $exe
 
 # build.rs embeds packaging/icons/nightjar.ico; Explorer, the taskbar and the window all take it from here.
 if (-not ('NightjarPackage.Shell' -as [type])) {
@@ -85,9 +121,12 @@ if (-not ('NightjarPackage.Shell' -as [type])) {
 }
 if ([NightjarPackage.Shell]::ExtractIconEx($exe, -1, $null, $null, 0) -lt 1) { throw "$exe has no icon resource" }
 
-# What a DLL or exe imports, by name.
+# What a DLL or exe imports, by name. MSYS2's objdump is GNU binutils on UCRT64 and LLVM's on
+# CLANGARM64; a cross build takes llvm-objdump from its caller's PATH (it reads both machines).
+# Both print the import table's "DLL Name:" lines.
+$objdump = if ($cross) { (Get-Command llvm-objdump.exe -ErrorAction Stop).Source } else { "$msys\objdump.exe" }
 function Get-Imports([string]$path) {
-    & "$msys\objdump.exe" -p $path | ForEach-Object {
+    & $objdump -p $path | ForEach-Object {
         if ($_ -match 'DLL Name:\s*(\S+)') { $Matches[1] }
     }
 }
@@ -114,7 +153,7 @@ while ($queue.Count -gt 0) {
 
 $version = $Version
 if (-not $version) { $version = (Select-String -Path (Join-Path $workspace 'Cargo.toml') -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value }
-$name = "nightjar-desktop-$version-windows-x86_64"
+$name = "nightjar-desktop-$version-windows-$arch"
 $stage = Join-Path $Out $name
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Force $stage | Out-Null
@@ -144,6 +183,7 @@ if ($FfmpegDir) {
 $shipped = @{}
 Get-ChildItem $stage -File | ForEach-Object { $shipped[$_.Name.ToLowerInvariant()] = $true }
 $missing = foreach ($file in Get-ChildItem $stage -File | Where-Object { $_.Extension -in '.exe', '.dll' }) {
+    Assert-Machine $file.FullName
     foreach ($import in Get-Imports $file.FullName) {
         if ($shipped.ContainsKey($import.ToLowerInvariant())) { continue }
         if ((Test-System $import) -and ($import -notmatch '^(vcruntime|msvcp|vcomp|concrt|msvcr|ucrtbased|vccorlib)')) { continue }
@@ -154,6 +194,11 @@ if ($missing) { throw "the package would not start on a clean Windows PC:`n$($mi
 $zip = Join-Path $Out "$name.zip"
 if (Test-Path $zip) { Remove-Item -Force $zip }
 Compress-Archive -Path "$stage\*" -DestinationPath $zip -CompressionLevel Optimal
+
+if (-not $runs) {
+    Write-Warning "an $arch exe cannot start on this $native PC: the start checks are skipped, and $zip is for inspection only"
+    return
+}
 
 # Start the unpacked zip with only Windows' own folders on PATH (so a DLL it forgot cannot come
 # from MSYS2) and an empty config folder. The exe has no command line, so it opens its window;

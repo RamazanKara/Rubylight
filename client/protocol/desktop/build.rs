@@ -34,9 +34,14 @@ fn main() {
             .manifest_required()
             .unwrap_or_else(|e| panic!("embed the icon and manifest (needs windres or rc.exe on PATH): {e}"));
     }
+    // MSYS2's UCRT64 on x86_64 PCs; ARM64 Windows has CLANGARM64 (clang, libc++, the UCRT).
+    let msys = match std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
+        Ok("aarch64") => r"C:\msys64\clangarm64",
+        _ => r"C:\msys64\ucrt64",
+    };
     let prefix = std::env::var("NIGHTJAR_FFMPEG_DIR")
         .ok()
-        .or_else(|| windows.then(|| r"C:\msys64\ucrt64".to_owned()));
+        .or_else(|| windows.then(|| msys.to_owned()));
     let mut bindings = bindgen::Builder::default()
         .header_contents("nightjar-media.h", if windows {
             "#include <libavcodec/avcodec.h>\n#include <libavutil/hwcontext.h>\n#include <libavutil/pixdesc.h>\n#include <libavutil/hwcontext_d3d11va.h>\n#include <libavutil/hdr_dynamic_metadata.h>\n#include <libavutil/dovi_meta.h>\n"
@@ -52,6 +57,11 @@ fn main() {
         .layout_tests(false)
         .generate_comments(false)
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()));
+    // clang has no "gnullvm" environment, which bindgen passes on when it cross-compiles (an ARM64
+    // build from an x86_64 PC): the MinGW triple clang knows stands for the same ABI.
+    if let Some(arch) = std::env::var("TARGET").ok().and_then(|t| t.strip_suffix("-pc-windows-gnullvm").map(str::to_owned)) {
+        bindings = bindings.clang_arg(format!("--target={arch}-w64-windows-gnu"));
+    }
     if windows {
         for name in [
             "ID3D11Device",

@@ -95,18 +95,75 @@ impl CopyKind {
     }
 
     /// The release asset that updates this copy, for a version.
+    #[cfg(test)]
     pub fn asset_name(&self, version: &str) -> Option<String> {
+        self.asset_names(version).into_iter().next()
+    }
+
+    /// The release assets that update this copy, best first: an install takes the setup of the
+    /// PC's own architecture, and this build's when a release has none for the PC.
+    pub fn asset_names(&self, version: &str) -> Vec<String> {
         match self {
-            Self::Installed => Some(format!("nightjar-desktop-{version}-windows-x86_64-setup.exe")),
-            Self::AppImage(_) => Some(appimage_asset(version, std::env::consts::ARCH)),
-            Self::Portable | Self::Managed => None,
+            Self::Installed => windows_setup_assets(version, windows_machine(), BUILD_ARCH),
+            Self::AppImage(_) => vec![appimage_asset(version, std::env::consts::ARCH)],
+            Self::Portable | Self::Managed => Vec::new(),
         }
     }
+}
+
+/// This build's architecture in the Windows package names.
+const BUILD_ARCH: &str = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+
+/// The setups an install on a `machine` PC running a `build` build takes, best first.
+fn windows_setup_assets(version: &str, machine: &str, build: &str) -> Vec<String> {
+    let mut names = vec![windows_setup_asset(version, machine)];
+    if build != machine {
+        names.push(windows_setup_asset(version, build));
+    }
+    names
 }
 
 /// The AppImage of one architecture (the names of `std::env::consts::ARCH`): an update stays on it.
 fn appimage_asset(version: &str, arch: &str) -> String {
     format!("nightjar-desktop-{version}-{arch}.AppImage")
+}
+
+/// The Windows setup of one architecture, `x86_64` or `arm64`.
+fn windows_setup_asset(version: &str, arch: &str) -> String {
+    format!("nightjar-desktop-{version}-windows-{arch}-setup.exe")
+}
+
+/// The architecture of the PC's own Windows rather than of this program: the x86_64 build that
+/// an ARM64 PC runs under emulation updates to the ARM64 setup, which installs into the same
+/// folder (same AppId; the setup removes the DLLs it does not ship) and runs natively from then on.
+fn windows_machine() -> &'static str {
+    #[cfg(windows)]
+    if native_machine() == Some(windows::Win32::System::SystemInformation::IMAGE_FILE_MACHINE_ARM64.0) {
+        return "arm64";
+    }
+    BUILD_ARCH
+}
+
+/// IsWow64Process2's native machine (IMAGE_FILE_MACHINE_*). It is looked up at run time: Windows 10
+/// before 1709 lacks it, and a static import would stop the exe from starting there. An x86_64
+/// process under emulation is not WOW64, and only this call names the ARM64 machine underneath;
+/// GetNativeSystemInfo says AMD64 to it.
+#[cfg(windows)]
+fn native_machine() -> Option<u16> {
+    use windows::core::{s, w, BOOL};
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
+    use windows::Win32::System::Threading::GetCurrentProcess;
+
+    type IsWow64Process2 = unsafe extern "system" fn(HANDLE, *mut u16, *mut u16) -> BOOL;
+    // SAFETY: kernel32 is loaded in every process; the pointer is IsWow64Process2, whose signature
+    // the type above spells out (USHORT for IMAGE_FILE_MACHINE), and both out-pointers are valid.
+    unsafe {
+        let kernel = GetModuleHandleW(w!("kernel32.dll")).ok()?;
+        let function = std::mem::transmute::<unsafe extern "system" fn() -> isize, IsWow64Process2>(GetProcAddress(kernel, s!("IsWow64Process2"))?);
+        let (mut process, mut native) = (0u16, 0u16);
+        function(GetCurrentProcess(), &mut process, &mut native).as_bool().then_some(native)
+    }
 }
 
 /// This process's kind of copy, decided once.
@@ -593,8 +650,32 @@ mod tests {
     }
 
     #[test]
+    fn an_install_updates_to_the_setup_of_the_pcs_own_architecture() {
+        let machine = windows_machine();
+        assert!(["x86_64", "arm64"].contains(&machine), "{machine}");
+        if cfg!(target_arch = "aarch64") {
+            assert_eq!(machine, "arm64", "an ARM64 build never offers the x86_64 setup");
+        }
+        #[cfg(windows)]
+        {
+            let native = native_machine().expect("IsWow64Process2 exists on every Windows this test runs on");
+            let expected = if native == windows::Win32::System::SystemInformation::IMAGE_FILE_MACHINE_ARM64.0 { "arm64" } else { "x86_64" };
+            assert_eq!(machine, expected, "native machine {native:#06x}");
+        }
+    }
+
+    #[test]
     fn the_asset_names_are_the_ones_the_release_publishes() {
-        assert_eq!(CopyKind::Installed.asset_name("4.7.0").unwrap(), "nightjar-desktop-4.7.0-windows-x86_64-setup.exe");
+        assert_eq!(windows_setup_asset("4.7.0", "x86_64"), "nightjar-desktop-4.7.0-windows-x86_64-setup.exe");
+        assert_eq!(windows_setup_asset("4.7.0", "arm64"), "nightjar-desktop-4.7.0-windows-arm64-setup.exe");
+        assert_eq!(CopyKind::Installed.asset_name("4.7.0").unwrap(), windows_setup_asset("4.7.0", windows_machine()));
+        assert_eq!(windows_setup_assets("4.7.0", "x86_64", "x86_64"), ["nightjar-desktop-4.7.0-windows-x86_64-setup.exe"]);
+        assert_eq!(windows_setup_assets("4.7.0", "arm64", "arm64"), ["nightjar-desktop-4.7.0-windows-arm64-setup.exe"]);
+        assert_eq!(
+            windows_setup_assets("4.7.0", "arm64", "x86_64"),
+            ["nightjar-desktop-4.7.0-windows-arm64-setup.exe", "nightjar-desktop-4.7.0-windows-x86_64-setup.exe"],
+            "the emulated x86_64 build moves to the native setup, and stays on its own when a release lacks it"
+        );
         assert_eq!(appimage_asset("4.7.0", "x86_64"), "nightjar-desktop-4.7.0-x86_64.AppImage");
         assert_eq!(appimage_asset("4.7.0", "aarch64"), "nightjar-desktop-4.7.0-aarch64.AppImage", "an ARM handheld must not update to the x86_64 image");
         assert_eq!(CopyKind::AppImage("x".into()).asset_name("4.7.0").unwrap(), appimage_asset("4.7.0", std::env::consts::ARCH));

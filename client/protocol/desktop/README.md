@@ -121,6 +121,7 @@ Every release carries these files. The installer and the packages contain the sa
 | --- | --- | --- |
 | `nightjar-desktop-<version>-windows-x86_64-setup.exe` | Run it. It installs for the current user, without an administrator prompt, into `%LOCALAPPDATA%\Programs\Nightjar`, with a Start menu shortcut, an optional desktop shortcut and an entry in Apps & features. A newer setup updates in place and closes a running Nightjar first. | **Apps & features → Nightjar → Uninstall** removes the program folder, the shortcuts and the entry. |
 | `nightjar-desktop-<version>-windows-x86_64.zip` | Unzip it anywhere and run `nightjar.exe`. | Delete the folder. |
+| `nightjar-desktop-<version>-windows-arm64-setup.exe`, `…-windows-arm64.zip` | The same for ARM64 Windows (Snapdragon X and other Windows on Arm PCs), built natively for it. On such a PC the ARM64 setup replaces an x86_64 install in place, and an installed x86_64 Nightjar updates to it. | As above. |
 | `nightjar-desktop-<version>-linux-x86_64.deb` | `sudo apt install ./nightjar-desktop-<version>-linux-x86_64.deb` (Debian 12, Ubuntu 22.04 and later) | `sudo apt remove nightjar` |
 | `nightjar-desktop-<version>-linux-x86_64.rpm` | `sudo dnf install ./nightjar-desktop-<version>-linux-x86_64.rpm` (Fedora 36 and later) | `sudo dnf remove nightjar` |
 | `nightjar-desktop-<version>-x86_64.flatpak` | `flatpak install --user nightjar-desktop-<version>-x86_64.flatpak` (the runtime comes from Flathub); to update, the same with `--reinstall`. For the Steam Deck, see [Steam Deck and Linux handhelds](../../docs/steam-deck.md). | `flatpak uninstall io.github.ramazankara.nightjar` |
@@ -252,6 +253,8 @@ $env:LIBCLANG_PATH = "C:\msys64\ucrt64\bin"      # only if another LLVM is insta
 cargo run --release -p nightjar-desktop      # in protocol/
 ```
 
+On an ARM64 PC, the same with MSYS2's CLANGARM64 environment (`mingw-w64-clang-aarch64-*` packages plus `-llvm-tools`, `C:\msys64\clangarm64\bin`: clang, LLVM's `windres` and libc++ instead of gcc and binutils) and Rust's `stable-aarch64-pc-windows-gnullvm` toolchain. There `build.rs` looks for FFmpeg in `C:\msys64\clangarm64`.
+
 GNU rather than MSVC: the binary needs only the system UCRT (no Visual C++ runtime to redistribute), every native dependency comes from one package manager with matching import libraries, and the build matches `nightjar-cli`'s. The executable links four DLLs directly: `SDL3.dll`, `libopus-0.dll`, `avcodec-63.dll` and `avutil-61.dll` (FFmpeg 9; MSYS2's FFmpeg 8 has `avcodec-62.dll` and `avutil-60.dll`). MSYS2's FFmpeg pulls in every codec library it was built with (82 DLLs, 120 MB), so packages ship a decode-only FFmpeg build instead (see [Packaging for Windows](#packaging-for-windows)).
 
 `NIGHTJAR_FFMPEG_DIR` points the build at another FFmpeg prefix (`include/`, `lib/`). On Windows the prefix also provides Opus; on Linux Opus comes from pkg-config. On Linux the executable then has the run path `$ORIGIN/lib` only, so `cargo run` and `cargo test` binaries need the prefix's `lib` on `LD_LIBRARY_PATH`.
@@ -283,7 +286,7 @@ On Linux with a GPU that has Vulkan video, the ignored tests `cargo test -p nigh
 
 ### Packaging for Windows
 
-`package-windows.ps1` builds the release executable and zips it into `dist/` with the DLLs it imports (found from the import tables, system libraries excluded), so it runs on a PC without MSYS2. With `-FfmpegDir <prefix>`, the executable is built against the decode-only FFmpeg that `ffmpeg-decode-only.sh <ffmpeg 9 source> <prefix>` builds in an MSYS2 UCRT64 shell: libavcodec and libavutil with the H.264, HEVC and AV1 decoders, their D3D11VA paths and dav1d. The script fails if an import is satisfied neither by the zip nor by Windows itself (the Visual C++ runtime counts as missing), then starts the unpacked executable with only the Windows folders on `PATH`. `-Version` names the zip after a release version, as the release workflow does.
+`package-windows.ps1` builds the release executable and zips it into `dist/` with the DLLs it imports (found from the import tables, system libraries excluded), so it runs on a PC without MSYS2. With `-FfmpegDir <prefix>`, the executable is built against the decode-only FFmpeg that `ffmpeg-decode-only.sh <ffmpeg 9 source> <prefix>` builds in an MSYS2 UCRT64 shell (CLANGARM64 on an ARM64 PC, with FFmpeg's and dav1d's NEON code): libavcodec and libavutil with the H.264, HEVC and AV1 decoders, their D3D11VA paths and dav1d. The script fails if an import is satisfied neither by the zip nor by Windows itself (the Visual C++ runtime counts as missing), then starts the unpacked executable with only the Windows folders on `PATH`. `-Version` names the zip after a release version, as the release workflow does. The package is for the PC's own architecture (`-windows-x86_64` or `-windows-arm64`), and the script checks the executable's machine type against that name.
 
 ### Packaging for Linux
 

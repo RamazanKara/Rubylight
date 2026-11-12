@@ -1,7 +1,7 @@
 name: Release
 
 # A pushed v* tag builds the signed release APKs and bundle and the desktop client
-# (Windows zip and installer; Linux tar.gz, .deb, .rpm, AppImage and Flatpak for x86_64 and aarch64;
+# (Windows zip and installer for x86_64 and ARM64; Linux tar.gz, .deb, .rpm, AppImage and Flatpak for x86_64 and aarch64;
 # macOS zip for Apple Silicon and Intel) and attaches them to the
 # GitHub release for that tag
 # (created here when it does not exist yet). The desktop jobs and the signed Android build run
@@ -358,9 +358,24 @@ jobs:
     # non-system DLL would be missing from the zip, and starts the unpacked exe once.
     # packaging/windows/build-installer.ps1 makes the installer from the zip, installs it, starts
     # it and uninstalls it again.
+    # Each architecture builds natively on its own runner, so everything above also runs on it:
+    # x86_64 with the runner's MSYS2 (UCRT64, gcc) and Rust's GNU toolchain, ARM64 (Snapdragon X
+    # and other Windows on Arm PCs) with MSYS2's CLANGARM64 (clang, libc++) and Rust's gnullvm.
     needs: preflight
-    runs-on: windows-latest
-    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: windows-latest
+            msystem: UCRT64
+            rust: stable-x86_64-pc-windows-gnu
+          - arch: arm64
+            runner: windows-11-arm
+            msystem: CLANGARM64
+            rust: stable-aarch64-pc-windows-gnullvm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
     permissions:
       contents: read
     env:
@@ -395,11 +410,12 @@ jobs:
             rust/codec-patches/pyrowave
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      - name: Rust GNU toolchain
+      - name: Rust toolchain
         run: |
-          rustup toolchain install stable-x86_64-pc-windows-gnu --profile minimal
-          rustup default stable-x86_64-pc-windows-gnu
+          rustup toolchain install ${{ matrix.rust }} --profile minimal
+          rustup default ${{ matrix.rust }}
       - name: MSYS2 packages
+        if: matrix.arch == 'x86_64'
         # The runner image's own MSYS2: package-windows.ps1 looks in C:\msys64\ucrt64\bin.
         # A full upgrade (never -Sy alone, which mixes new package lists with old libraries);
         # the first run can stop after updating pacman itself, so it runs twice.
@@ -410,6 +426,35 @@ jobs:
             mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-nasm mingw-w64-ucrt-x86_64-pkgconf \
             mingw-w64-ucrt-x86_64-sdl3 mingw-w64-ucrt-x86_64-opus mingw-w64-ucrt-x86_64-dav1d \
             mingw-w64-ucrt-x86_64-winpthreads
+          echo "MSYS_ROOT=C:\msys64" >> "$GITHUB_ENV"
+      # The ARM64 image has no MSYS2: a fresh, current one with CLANGARM64. llvm-tools has the
+      # objdump package-windows.ps1 reads import tables with; libc++ and winpthreads carry the
+      # licences of the runtime the PyroWave SDK links statically.
+      - name: MSYS2 packages (ARM64)
+        if: matrix.arch == 'arm64'
+        id: msys
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2.33.0
+        with:
+          msystem: CLANGARM64
+          update: true
+          install: >-
+            make
+            git
+            patch
+            mingw-w64-clang-aarch64-clang
+            mingw-w64-clang-aarch64-llvm-tools
+            mingw-w64-clang-aarch64-cmake
+            mingw-w64-clang-aarch64-ninja
+            mingw-w64-clang-aarch64-pkgconf
+            mingw-w64-clang-aarch64-sdl3
+            mingw-w64-clang-aarch64-opus
+            mingw-w64-clang-aarch64-dav1d
+            mingw-w64-clang-aarch64-libc++
+            mingw-w64-clang-aarch64-winpthreads
+      - name: MSYS2 location (ARM64)
+        if: matrix.arch == 'arm64'
+        shell: pwsh
+        run: '"MSYS_ROOT=${{ steps.msys.outputs.msys2-location }}" >> $env:GITHUB_ENV'
       # Dry runs on main use and save the build caches. A tag run (the release itself) neither
       # restores nor saves the target, FFmpeg or SDK caches: it rebuilds them, so nothing a
       # branch run cached can end up in a published package. Only the downloaded crates
@@ -420,18 +465,19 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ffprefix
-          key: ffmpeg-decode-only-${{ env.FFMPEG_VERSION }}-${{ env.FFMPEG_SHA256 }}-${{ hashFiles('protocol/desktop/ffmpeg-decode-only.sh', 'protocol/desktop/ffmpeg-patches/windows/*.patch') }}
+          key: ffmpeg-decode-only-${{ matrix.arch }}-${{ env.FFMPEG_VERSION }}-${{ env.FFMPEG_SHA256 }}-${{ hashFiles('protocol/desktop/ffmpeg-decode-only.sh', 'protocol/desktop/ffmpeg-patches/windows/*.patch') }}
       - name: Build the decode-only FFmpeg
         if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
         run: |
           curl -sSLf --retry 10 --retry-delay 30 --retry-all-errors -o ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
           echo "$FFMPEG_SHA256  ffmpeg.tar.xz" | sha256sum -c -
           tar -xf ffmpeg.tar.xz
-          # The script needs an MSYS2 UCRT64 shell; a login shell sets its PATH up.
+          # The script needs an MSYS2 UCRT64 (or CLANGARM64) shell; a login shell sets its PATH up.
           # Git Bash does not hand its environment to MSYS2's runtime: set it with MSYS2's own env
           # (FFMPEG_SHA256 too, for licenses-ffmpeg/SOURCE.txt), and pass the workspace as an
           # argument, or the login shell starts in its home directory.
-          /c/msys64/usr/bin/env.exe MSYSTEM=UCRT64 CHERE_INVOKING=1 FFMPEG_SHA256="$FFMPEG_SHA256" /c/msys64/usr/bin/bash.exe -l -c \
+          msys=$(cygpath -u "$MSYS_ROOT")
+          "$msys/usr/bin/env.exe" MSYSTEM=${{ matrix.msystem }} CHERE_INVOKING=1 FFMPEG_SHA256="$FFMPEG_SHA256" "$msys/usr/bin/bash.exe" -l -c \
             'cd "$(cygpath -u "$1")" && bash protocol/desktop/ffmpeg-decode-only.sh "$PWD/ffmpeg-$2" "$PWD/ffprefix"' \
             _ "$(cygpath -w "$PWD")" "$FFMPEG_VERSION"
       # A cached prefix from before the hash reached the script would ship a source note without it.
@@ -448,7 +494,7 @@ jobs:
             pyrowave-sdk/libpyrowave-shared-1.dll
             pyrowave-sdk/build-info.txt
             pyrowave-sdk/licenses
-          key: pyrowave-sdk-windows-${{ env.RUBYLIGHT_SHA }}-${{ hashFiles('protocol/desktop/pyrowave-sdk.pin', 'scripts/build-pyrowave-sdk.ps1', 'app/src/main/jni/pyrowave-renderer/patches/*.patch') }}
+          key: pyrowave-sdk-windows-${{ matrix.arch }}-${{ env.RUBYLIGHT_SHA }}-${{ hashFiles('protocol/desktop/pyrowave-sdk.pin', 'scripts/build-pyrowave-sdk.ps1', 'app/src/main/jni/pyrowave-renderer/patches/*.patch') }}
       - name: Build the PyroWave SDK
         if: steps.sdk-cache.outputs.cache-hit != 'true'
         shell: pwsh
@@ -456,6 +502,7 @@ jobs:
           ./scripts/build-pyrowave-sdk.ps1
           -Out "$env:GITHUB_WORKSPACE\pyrowave-sdk"
           -HostRepo "$env:GITHUB_WORKSPACE\rubylight-host"
+          -Msys $env:MSYS_ROOT
       - name: Rust version
         id: rustc
         run: echo "version=$(rustc -V | tr ' ()' '---')" >> "$GITHUB_OUTPUT"
@@ -465,15 +512,15 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: cargo-registry-windows-${{ hashFiles('protocol/Cargo.lock') }}
-          restore-keys: cargo-registry-windows-
+          key: cargo-registry-windows-${{ matrix.arch }}-${{ hashFiles('protocol/Cargo.lock') }}
+          restore-keys: cargo-registry-windows-${{ matrix.arch }}-
       - name: Cargo target cache
         if: github.ref_type != 'tag'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: protocol/target
-          key: desktop-windows-${{ steps.rustc.outputs.version }}-${{ hashFiles('protocol/Cargo.lock') }}
-          restore-keys: desktop-windows-${{ steps.rustc.outputs.version }}-
+          key: desktop-windows-${{ matrix.arch }}-${{ steps.rustc.outputs.version }}-${{ hashFiles('protocol/Cargo.lock') }}
+          restore-keys: desktop-windows-${{ matrix.arch }}-${{ steps.rustc.outputs.version }}-
       # package-windows.ps1 checks the SDK against the pin, adds its DLL to the import walk, and
       # runs the unpacked exe as `nightjar.exe --check-pyrowave` with only the Windows folders on
       # PATH: the DLL must load (a runner has no GPU, so building a decoder is not required).
@@ -486,9 +533,10 @@ jobs:
           -Out "$env:GITHUB_WORKSPACE\dist"
           -TargetDirectory "$env:GITHUB_WORKSPACE\protocol\target"
           -Version $env:VERSION
+          -Msys $env:MSYS_ROOT
       - name: Check the package
         run: |
-          zip="dist/nightjar-desktop-$VERSION-windows-x86_64.zip"
+          zip="dist/nightjar-desktop-$VERSION-windows-${{ matrix.arch }}.zip"
           test -f "$zip" || { echo "::error::$zip was not built"; exit 1; }
           unzip -l "$zip"
           for file in nightjar.exe libpyrowave-shared-1.dll pyrowave-sdk-build-info.txt; do
@@ -517,12 +565,12 @@ jobs:
         shell: pwsh
         run: >
           ./protocol/desktop/packaging/windows/build-installer.ps1
-          -Zip "$env:GITHUB_WORKSPACE\dist\nightjar-desktop-$env:VERSION-windows-x86_64.zip"
+          -Zip "$env:GITHUB_WORKSPACE\dist\nightjar-desktop-$env:VERSION-windows-${{ matrix.arch }}.zip"
           -Iscc $env:ISCC
           -Smoke
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: desktop-windows
+          name: desktop-windows-${{ matrix.arch }}
           path: |
             dist/*.zip
             dist/*-setup.exe
@@ -758,7 +806,7 @@ jobs:
             file="desktop/nightjar-desktop-$VERSION-macos-$arch.zip"
             test -s "$file" || echo "::warning::$file is missing: the macOS $arch leg failed, this release goes out without it"
           done
-          for file in "desktop/nightjar-desktop-$VERSION-linux-x86_64."{tar.gz,deb,rpm} "desktop/nightjar-desktop-$VERSION-x86_64."{AppImage,flatpak}               "desktop/nightjar-desktop-$VERSION-windows-x86_64.zip" "desktop/nightjar-desktop-$VERSION-windows-x86_64-setup.exe"; do
+          for file in "desktop/nightjar-desktop-$VERSION-linux-x86_64."{tar.gz,deb,rpm} "desktop/nightjar-desktop-$VERSION-x86_64."{AppImage,flatpak}               "desktop/nightjar-desktop-$VERSION-windows-"{x86_64,arm64}.zip "desktop/nightjar-desktop-$VERSION-windows-"{x86_64,arm64}-setup.exe; do
             test -s "$file" || { echo "::error::$file is missing from the desktop artifacts"; exit 1; }
           done
           ls -l desktop android

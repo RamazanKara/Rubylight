@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Build and install the PyroWave C API (libpyrowave-shared-1.dll) with MSYS2 UCRT64 MinGW-w64.
+# Build and install the PyroWave C API (libpyrowave-shared-1.dll) with MSYS2 UCRT64 MinGW-w64
+# (gcc, x86_64), or CLANGARM64 (clang and libc++, ARM64) for Nightjar's Windows ARM64 client.
 #
-# Usage (MSYS2 UCRT64 shell):
+# Usage (MSYS2 UCRT64 or CLANGARM64 shell):
 #   rust/tools/build_pyrowave.sh [commit] [prefix]
 #     commit  full SHA of https://github.com/Themaister/pyrowave
 #             (default: the commit pinned below; API 1.0, wire-compatible with
@@ -14,7 +15,8 @@
 #   PYROWAVE_STRIP=0  keep debug symbols in the installed DLL (default: strip)
 #   PYROWAVE_JOBS     parallel jobs (default: ninja's default)
 #
-# Needs git, gcc, cmake (>= 3.27) and ninja from UCRT64. Consumers of pyrowave.h
+# Needs git, gcc, cmake (>= 3.27) and ninja from UCRT64 (clang in place of gcc on
+# CLANGARM64). Consumers of pyrowave.h
 # also need Vulkan headers >= 1.4 (mingw-w64-ucrt-x86_64-vulkan-headers). The DLL
 # loads vulkan-1.dll at runtime through volk, so no Vulkan loader is linked.
 #
@@ -32,13 +34,30 @@ PREFIX=${2:-$PWD/pyrowave-install}
 WORKDIR=${PYROWAVE_WORKDIR:-$PWD/pyrowave-work}
 REPO=${PYROWAVE_REPO:-https://github.com/Themaister/pyrowave.git}
 
-if [[ "${MSYSTEM:-}" != "UCRT64" ]]; then
-	echo "error: run this from an MSYS2 UCRT64 shell (MSYSTEM=UCRT64), got '${MSYSTEM:-unset}'" >&2
+# Upstream links the GNU runtime statically only for gcc (CMAKE_COMPILER_IS_GNUCXX);
+# with clang the same is asked of the driver here, so neither build needs a
+# runtime DLL next to it (step 6 checks). Upstream's yuv4mpeg.cpp calls strtol
+# without <cstdlib>, which libstdc++'s headers bring in and libc++'s do not, so
+# clang gets it included up front.
+case "${MSYSTEM:-}" in
+UCRT64)
+	COMPILER=gcc
+	TOOLCHAIN=()
+	;;
+CLANGARM64)
+	COMPILER=clang
+	TOOLCHAIN=(-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+		"-DCMAKE_CXX_FLAGS=-include cstdlib"
+		"-DCMAKE_SHARED_LINKER_FLAGS=-static-libstdc++ -static-libgcc -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic")
+	;;
+*)
+	echo "error: run this from an MSYS2 UCRT64 or CLANGARM64 shell, got MSYSTEM='${MSYSTEM:-unset}'" >&2
 	exit 1
-fi
+	;;
+esac
 # PowerShell and Visual Studio developer shells can put Windows find.exe and
 # link.exe ahead of MSYS utilities. Use this MSYS installation's tools first.
-export PATH="/ucrt64/bin:/usr/bin:$PATH"
+export PATH="/${MSYSTEM,,}/bin:/usr/bin:$PATH"
 if [[ ! "$COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
 	echo "error: commit must be a full 40-character SHA, got '$COMMIT'" >&2
 	exit 1
@@ -92,7 +111,8 @@ cmake -S "$SRC" -B "$BUILD" -G Ninja \
 	-DCMAKE_BUILD_TYPE=Release \
 	-DCMAKE_INSTALL_PREFIX="$PREFIX" \
 	-DPYROWAVE_DEVEL=OFF \
-	-DPYROWAVE_UTILS=OFF
+	-DPYROWAVE_UTILS=OFF \
+	"${TOOLCHAIN[@]}"
 
 # 4. Build and install.
 cmake --build "$BUILD" ${PYROWAVE_JOBS:+--parallel "$PYROWAVE_JOBS"}
@@ -117,13 +137,13 @@ pyrowave_commit=$PYROWAVE_SHA
 granite_commit=$GRANITE_SHA
 api_version=$API_VERSION
 patches=$PATCHES
-compiler=$(gcc --version | head -n1)
+compiler=$("$COMPILER" --version | head -n1)
 cmake=$(cmake --version | head -n1)
 EOF
 
 # 6. The DLL may only depend on Windows system DLLs and the UCRT: no Vulkan
 #    loader link (volk loads it) and no MinGW runtime DLLs (upstream links
-#    libstdc++/libgcc/winpthread statically).
+#    libstdc++/libgcc/winpthread statically; libc++ and libunwind with clang).
 shopt -s nullglob
 dlls=("$PREFIX"/bin/libpyrowave-shared-*.dll)
 if (( ${#dlls[@]} != 1 )); then
@@ -134,7 +154,7 @@ DLL=${dlls[0]}
 imports=$(objdump -p "$DLL" | sed -n 's/^[[:space:]]*DLL Name: //p')
 echo "Imports of $(basename "$DLL"):"
 sed 's/^/  /' <<<"$imports"
-if grep -Eiq '^(vulkan-1|libstdc\+\+-6|libgcc_s_.*|libwinpthread-1)\.dll$' <<<"$imports"; then
+if grep -Eiq '^(vulkan-1|libstdc\+\+-6|libgcc_s_.*|libwinpthread-1|libc\+\+|libunwind)\.dll$' <<<"$imports"; then
 	echo "error: $(basename "$DLL") links a DLL that must not be a hard dependency" >&2
 	exit 1
 fi

@@ -3,7 +3,8 @@
 #
 #   protocol/desktop/ffmpeg-decode-only.sh <ffmpeg source dir> <prefix>
 #
-# Windows: run it in an MSYS2 UCRT64 shell (gcc, make, nasm, pkgconf, mingw-w64-ucrt-x86_64-dav1d).
+# Windows: run it in an MSYS2 UCRT64 shell (gcc, make, nasm, pkgconf, mingw-w64-ucrt-x86_64-dav1d), or
+# for ARM64 in a CLANGARM64 one (clang, make, pkgconf, mingw-w64-clang-aarch64-dav1d).
 # Linux: gcc, make, nasm, pkg-config, libdav1d-dev, libva-dev, libdrm-dev, libffmpeg-nvenc-dev and
 # libvulkan-dev 1.3.277 or newer (Debian and Ubuntu names; nv-codec-headers and vulkan-headers
 # elsewhere). Where dav1d or the NVIDIA or Vulkan headers are older than FFmpeg 9 accepts
@@ -53,6 +54,12 @@ else
     --enable-hwaccel=h264_d3d11va,h264_d3d11va2,hevc_d3d11va,hevc_d3d11va2,av1_d3d11va,av1_d3d11va2
     --enable-hwaccel=h264_dxva2,hevc_dxva2,av1_dxva2
   )
+  # MSYS2's own tools are x86_64 programs, emulated on an ARM64 PC, so `uname -m` would have
+  # configure build for x86_64: name the architecture and CLANGARM64's compiler (it has no gcc).
+  # The NEON assembly stays on, as the x86_64 build keeps its nasm code.
+  if [[ ${MSYSTEM:-} == CLANGARM64 ]]; then
+    platform+=(--arch=aarch64 --cc=clang --cxx=clang++)
+  fi
 fi
 
 # Nightjar's changes to FFmpeg: ffmpeg-patches/ on Linux (the V4L2 decoders), ffmpeg-patches/windows/

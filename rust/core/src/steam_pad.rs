@@ -122,6 +122,24 @@ pub fn driver_settings(controller: u16, payload: &[u8]) -> Option<SteamSettings>
     SteamSettings::new(controller, payload[0], &triples).ok()
 }
 
+/// The firmware build time a virtual Steam Controller reports when its client
+/// has no real one to read: 2036-01-01 UTC, later than any firmware Steam
+/// ships. The driver's own default is the firmware of the unit it was captured
+/// from, which Steam offers to update once it ships newer firmware, and an
+/// update cannot reach a virtual controller.
+pub const VIRTUAL_FIRMWARE_BUILD_TIME: u32 = 0x7c24_5f00;
+
+/// The attributes for a virtual Steam Controller whose client sent none: only
+/// the firmware build time, so the driver keeps its other defaults.
+pub fn virtual_attributes(controller: u8) -> SteamAttributes {
+    SteamAttributes {
+        controller,
+        valid_mask: LI_SCATTR_FIRMWARE_BUILD_TIME,
+        firmware_build_time: VIRTUAL_FIRMWARE_BUILD_TIME,
+        ..Default::default()
+    }
+}
+
 /// The `steam_controller_attributes_request` for driver slot `slot`. The
 /// strings go verbatim: the driver keeps one only when it is printable ASCII
 /// and terminates it at 15 characters.
@@ -321,6 +339,19 @@ mod tests {
         assert_eq!(&b[64..66], b"BX");
         attributes.valid_mask = LI_SCATTR_SERIALS;
         assert_eq!(word_at(&attributes_request(0, &attributes), 12), 0x80);
+    }
+
+    #[test]
+    fn a_virtual_controller_without_a_real_one_reports_firmware_steam_will_not_update() {
+        // Issue 90: the driver's captured firmware (2026-07-07) is older than what Steam
+        // ships, so Steam kept offering an update the virtual controller cannot take.
+        const { assert!(VIRTUAL_FIRMWARE_BUILD_TIME > 0x6a4d_85e3) };
+        let b = attributes_request(3, &virtual_attributes(2));
+        assert_eq!(word_at(&b, 8), 3);
+        // Only the firmware build time: the driver keeps its other captured values.
+        assert_eq!(word_at(&b, 12), u32::from(LI_SCATTR_FIRMWARE_BUILD_TIME));
+        assert_eq!(word_at(&b, 16), VIRTUAL_FIRMWARE_BUILD_TIME);
+        assert!(b[32..].iter().all(|&byte| byte == 0));
     }
 
     fn word_at(b: &[u8], at: usize) -> u32 {

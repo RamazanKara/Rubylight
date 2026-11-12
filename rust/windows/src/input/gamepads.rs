@@ -367,17 +367,18 @@ impl Gamepads {
     }
     /// Hands the client's real firmware attributes to its virtual Steam
     /// Controller, so Steam judges the real firmware, not the driver's
-    /// captured defaults. A driver that predates the request keeps them.
+    /// captured defaults. A client without a real one gets a firmware build
+    /// time Steam does not offer to update, since no update can reach a
+    /// virtual controller. A driver that predates the request keeps its defaults.
     fn send_steam_attributes(&mut self, id: u16) {
-        let (Some(attributes), Some(global)) = (
-            self.steam_attributes.get(&id).copied(),
-            self.active.get(&id).copied(),
-        ) else {
+        let Some(global) = self.active.get(&id).copied() else {
             return;
         };
         if self.profiles.get(&id) != Some(&VHF_STEAM_CONTROLLER) {
             return;
         }
+        let real = self.steam_attributes.get(&id).copied();
+        let attributes = real.unwrap_or_else(|| steam_pad::virtual_attributes(id as u8));
         match self
             .backend
             .steam_attributes(u32::from(global), &attributes)
@@ -389,7 +390,12 @@ impl Gamepads {
                 board_revision = attributes.board_revision,
                 fields = format!("{:#x}", attributes.valid_mask),
                 transport = attributes.transport,
-                "virtual Steam Controller reports the real controller's firmware"
+                source = if real.is_some() {
+                    "the client's controller"
+                } else {
+                    "the host: no real Steam Controller, so Steam offers no firmware update"
+                },
+                "virtual Steam Controller firmware attributes set"
             ),
             Err(error)
                 if error

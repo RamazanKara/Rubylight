@@ -449,6 +449,9 @@ pub struct Settings {
     /// USB forwarding (Experimental): attach USB devices plugged in here to the PC from the
     /// stream controls (src/usb.rs). Off by default.
     pub usb_forwarding: bool,
+    /// The USB devices (vendor:product, `usb::auto_key`) attached to the PC whenever they are
+    /// plugged in during a stream; ticked per device in the stream controls. Empty by default.
+    pub usb_auto: Vec<String>,
     /// Clipboard sync: what is copied here goes on the PC's clipboard and the PC's copies come
     /// here, as text, with a Rubylight PC that allows this device its clipboard (0x5508,
     /// stream/clipboard_sync.rs). Off by default.
@@ -1066,6 +1069,7 @@ impl Default for Settings {
             roaming_metered: false,
             receive_coalescing: true,
             usb_forwarding: false,
+            usb_auto: Vec::new(),
             clipboard_sync: false,
             dual_screen: false,
             second_screen_width: 0,
@@ -3092,6 +3096,9 @@ mod tests {
         assert!(!Settings::default().usb_forwarding);
         assert!(!serde_json::from_str::<Settings>("{}").unwrap().usb_forwarding);
         assert!(serde_json::from_str::<Settings>(r#"{"usb_forwarding":true}"#).unwrap().usb_forwarding);
+        assert!(Settings::default().usb_auto.is_empty());
+        assert!(serde_json::from_str::<Settings>("{}").unwrap().usb_auto.is_empty());
+        assert_eq!(serde_json::from_str::<Settings>(r#"{"usb_auto":["28de:1304"]}"#).unwrap().usb_auto, ["28de:1304"]);
     }
 
     #[test]

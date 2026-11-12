@@ -1359,7 +1359,7 @@ final class GameConnection {
 
                 game.connected = true;
                 startHostLossWatch();
-                game.conn.refreshNativeHostControl();
+                game.conn.refreshNativeHostControl(() -> game.runOnUiThread(game.menuActions::startUsbAutoForwarding));
                 game.getIntent().removeExtra(Game.EXTRA_RECOVERY_MEDIA_FAILURE);
                 game.bitrateHandler.removeCallbacks(game.adaptation.sampleStreamHealth);
                 game.bitrateHandler.postDelayed(game.adaptation.sampleStreamHealth, 1000);

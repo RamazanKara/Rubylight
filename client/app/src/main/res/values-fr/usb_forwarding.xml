@@ -4,6 +4,8 @@
     <string name="summary_usb_forwarding">Les périphériques USB branchés ici peuvent être reliés au PC depuis le menu du stream.</string>
     <string name="stream_usb_devices">Périphériques USB</string>
     <string name="usb_forwarding_pick_title">Rediriger un périphérique USB</string>
+    <string name="usb_forwarding_auto_button">Automatique</string>
+    <string name="usb_forwarding_auto_title">Transférer dès qu\'il est branché</string>
     <string name="usb_forwarding_none">Aucun périphérique USB à rediriger. Les hubs et les manettes que cette app gère elle-même ne sont pas listés.</string>
     <string name="usb_forwarding_detach">Déconnecter %1$s</string>
     <string name="usb_forwarding_asking">Demande au PC de connecter %1$s…</string>

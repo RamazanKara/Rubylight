@@ -45,6 +45,9 @@ public final class UsbForwarding {
     // Not the input drivers' "com.limelight.USB_PERMISSION": their receiver would open the device too.
     static final String ACTION_PERMISSION = "com.limelight.USB_FORWARDING_PERMISSION";
     private static final int PENDING = -1;
+    // The devices forwarded whenever they are plugged in during a stream, by autoKey.
+    static final String AUTO_PREFS = "usb_forwarding";
+    static final String AUTO_KEY = "auto";
 
     /** The Rust engine's forwarder; MoonBridge outside tests. */
     interface Bridge {
@@ -134,8 +137,11 @@ public final class UsbForwarding {
     // By usbfs path, while it is forwarded or being attached.
     private final Map<String, Forwarded> forwarded = new LinkedHashMap<>();
     private final Set<String> asking = new HashSet<>();
+    private final Set<String> auto;
     private boolean started;
     private boolean stopped;
+    // Once the PC is known to take USB devices: auto's devices are attached as they are plugged in.
+    private boolean autoActive;
 
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         @Override
@@ -144,6 +150,8 @@ public final class UsbForwarding {
             if (device == null || stopped) return;
             if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(intent.getAction())) {
                 unplugged(device);
+            } else if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(intent.getAction())) {
+                if (autoActive && isAuto(device) && forwardable(device)) attachIfIdle(device);
             } else if (ACTION_PERMISSION.equals(intent.getAction()) && asking.remove(device.getDeviceName())) {
                 if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
                     open(device);
@@ -180,6 +188,60 @@ public final class UsbForwarding {
         this.opener = opener != null ? opener : this::openConnection;
         this.worker = worker;
         this.messages = messages;
+        this.auto = new HashSet<>(context.getSharedPreferences(AUTO_PREFS, Context.MODE_PRIVATE)
+                .getStringSet(AUTO_KEY, Collections.emptySet()));
+    }
+
+    /** What the automatic list remembers a device by: its vendor and product id, on any port (desktop's usb::auto_key). */
+    static String autoKey(UsbDevice device) {
+        return String.format(Locale.ROOT, "%04x:%04x", device.getVendorId(), device.getProductId());
+    }
+
+    /** Whether the device is attached to the PC whenever it is plugged in during a stream. */
+    public boolean isAuto(UsbDevice device) {
+        return auto.contains(autoKey(device));
+    }
+
+    /**
+     * The user ticked the devices to forward automatically among {@code devices}; the ones newly ticked are attached
+     * now too. Devices not plugged in keep their place on the list.
+     */
+    public void setAuto(List<UsbDevice> devices, boolean[] ticked) {
+        if (stopped) return;
+        List<UsbDevice> added = new ArrayList<>();
+        for (int i = 0; i < devices.size(); i++) {
+            String key = autoKey(devices.get(i));
+            if (ticked[i] ? auto.add(key) : auto.remove(key)) {
+                if (ticked[i]) added.add(devices.get(i));
+            }
+        }
+        context.getSharedPreferences(AUTO_PREFS, Context.MODE_PRIVATE).edit()
+                .putStringSet(AUTO_KEY, new HashSet<>(auto)).apply();
+        if (!added.isEmpty()) autoActive = true;
+        for (UsbDevice device : added) attachIfIdle(device);
+    }
+
+    /**
+     * The PC takes USB devices: attaches the automatic list's devices plugged in now, and those plugged in later
+     * until the stream ends.
+     */
+    public void startAuto() {
+        if (stopped || autoActive || auto.isEmpty()) return;
+        autoActive = true;
+        start();
+        for (UsbDevice device : candidates()) {
+            if (isAuto(device)) attachIfIdle(device);
+        }
+    }
+
+    private void attachIfIdle(UsbDevice device) {
+        if (forwarded.containsKey(device.getDeviceName()) || asking.contains(device.getDeviceName())) return;
+        LimeLog.info("USB: forwarding " + device.getDeviceName() + " automatically");
+        choose(device);
+    }
+
+    private boolean forwardable(UsbDevice device) {
+        return device.getDeviceClass() != UsbConstants.USB_CLASS_HUB && !UsbDriverService.shouldClaimDevice(device, prefConfig);
     }
 
     /** What the user may forward: no hubs, nothing the input drivers take. */
@@ -187,9 +249,7 @@ public final class UsbForwarding {
         List<UsbDevice> devices = new ArrayList<>();
         if (usbManager == null) return devices;
         for (UsbDevice device : usbManager.getDeviceList().values()) {
-            if (device.getDeviceClass() == UsbConstants.USB_CLASS_HUB) continue;
-            if (UsbDriverService.shouldClaimDevice(device, prefConfig)) continue;
-            devices.add(device);
+            if (forwardable(device)) devices.add(device);
         }
         Collections.sort(devices, (a, b) -> a.getDeviceName().compareTo(b.getDeviceName()));
         return devices;
@@ -265,6 +325,7 @@ public final class UsbForwarding {
         started = true;
         IntentFilter filter = new IntentFilter();
         filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
+        filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
         filter.addAction(ACTION_PERMISSION);
         ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
         bridge.setListener(() -> main.post(this::refresh));

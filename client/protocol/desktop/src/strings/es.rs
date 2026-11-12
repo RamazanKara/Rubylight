@@ -844,6 +844,8 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Another driver or program holds the device.", "Otro controlador o programa tiene el dispositivo."),
     ("The device could not be opened: {}", "No se pudo abrir el dispositivo: {}"),
     ("The device was no longer attached.", "El dispositivo ya no estaba conectado."),
+    ("Attach this device to the PC whenever it is plugged in during a stream.", "Conecta este dispositivo al PC siempre que se enchufe durante una transmisión."),
+    ("USB devices can't be attached automatically: {}", "Los dispositivos USB no se pueden conectar automáticamente: {}"),
     ("The stream ended.", "La transmisión terminó."),
     ("The device is attached already.", "El dispositivo ya está conectado."),
     ("The device’s name or bus ID can’t be sent to the PC.", "El nombre o el ID de bus del dispositivo no se puede enviar al PC."),

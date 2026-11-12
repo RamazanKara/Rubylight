@@ -4,6 +4,8 @@
     <string name="summary_usb_forwarding">插在這部裝置上的 USB 裝置可從串流選單連接到電腦。</string>
     <string name="stream_usb_devices">USB 裝置</string>
     <string name="usb_forwarding_pick_title">轉送 USB 裝置</string>
+    <string name="usb_forwarding_auto_button">自動</string>
+    <string name="usb_forwarding_auto_title">插入時一律轉送</string>
     <string name="usb_forwarding_none">沒有可轉送的 USB 裝置。集線器和本應用程式自行驅動的控制器不會列出。</string>
     <string name="usb_forwarding_detach">中斷 %1$s</string>
     <string name="usb_forwarding_asking">正在要求電腦連線 %1$s…</string>

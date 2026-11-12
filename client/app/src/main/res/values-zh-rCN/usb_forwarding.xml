@@ -4,6 +4,8 @@
     <string name="summary_usb_forwarding">插在此设备上的 USB 设备可从串流菜单连接到电脑。</string>
     <string name="stream_usb_devices">USB 设备</string>
     <string name="usb_forwarding_pick_title">转发 USB 设备</string>
+    <string name="usb_forwarding_auto_button">自动</string>
+    <string name="usb_forwarding_auto_title">插入时始终转发</string>
     <string name="usb_forwarding_none">没有可转发的 USB 设备。集线器和本应用自行驱动的手柄不会列出。</string>
     <string name="usb_forwarding_detach">断开 %1$s</string>
     <string name="usb_forwarding_asking">正在请求电脑连接 %1$s…</string>

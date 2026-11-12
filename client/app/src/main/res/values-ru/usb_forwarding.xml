@@ -4,6 +4,8 @@
     <string name="summary_usb_forwarding">USB-устройства, подключённые сюда, можно передать на ПК из меню трансляции.</string>
     <string name="stream_usb_devices">USB-устройства</string>
     <string name="usb_forwarding_pick_title">Перенаправить USB-устройство</string>
+    <string name="usb_forwarding_auto_button">Автоматически</string>
+    <string name="usb_forwarding_auto_title">Передавать при каждом подключении</string>
     <string name="usb_forwarding_none">Нет USB-устройств для перенаправления. Хабы и контроллеры, которыми это приложение управляет само, не показываются.</string>
     <string name="usb_forwarding_detach">Отключить %1$s</string>
     <string name="usb_forwarding_asking">Запрос к ПК на подключение %1$s…</string>

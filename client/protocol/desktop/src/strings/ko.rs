@@ -844,6 +844,8 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Another driver or program holds the device.", "다른 드라이버나 프로그램이 기기를 사용 중입니다."),
     ("The device could not be opened: {}", "기기를 열 수 없습니다: {}"),
     ("The device was no longer attached.", "기기가 더 이상 연결되어 있지 않았습니다."),
+    ("Attach this device to the PC whenever it is plugged in during a stream.", "스트리밍 중 이 장치가 연결될 때마다 PC에 연결합니다."),
+    ("USB devices can't be attached automatically: {}", "USB 장치를 자동으로 연결할 수 없습니다: {}"),
     ("The stream ended.", "스트림이 끝났습니다."),
     ("The device is attached already.", "기기가 이미 연결되어 있습니다."),
     ("The device’s name or bus ID can’t be sent to the PC.", "기기 이름이나 버스 ID를 PC로 보낼 수 없습니다."),

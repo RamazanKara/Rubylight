@@ -4,6 +4,8 @@
     <string name="summary_usb_forwarding">Los dispositivos USB enchufados aquí pueden conectarse al PC desde el menú de la transmisión.</string>
     <string name="stream_usb_devices">Dispositivos USB</string>
     <string name="usb_forwarding_pick_title">Redirigir un dispositivo USB</string>
+    <string name="usb_forwarding_auto_button">Automático</string>
+    <string name="usb_forwarding_auto_title">Reenviar siempre que se conecte</string>
     <string name="usb_forwarding_none">No hay ningún dispositivo USB para redirigir. No se muestran los hubs ni los mandos que esta app controla por sí misma.</string>
     <string name="usb_forwarding_detach">Desconectar %1$s</string>
     <string name="usb_forwarding_asking">Pidiendo al PC que conecte %1$s…</string>

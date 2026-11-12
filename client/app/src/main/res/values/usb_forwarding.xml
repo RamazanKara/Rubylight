@@ -4,6 +4,8 @@
     <string name="summary_usb_forwarding">USB devices plugged in here can be attached to the PC from the stream menu.</string>
     <string name="stream_usb_devices">USB devices</string>
     <string name="usb_forwarding_pick_title">Forward a USB device</string>
+    <string name="usb_forwarding_auto_button">Automatic</string>
+    <string name="usb_forwarding_auto_title">Forward whenever plugged in</string>
     <string name="usb_forwarding_none">No USB device to forward. Hubs and the controllers this app drives itself are not listed.</string>
     <string name="usb_forwarding_detach">Detach %1$s</string>
     <string name="usb_forwarding_asking">Asking the PC to attach %1$s…</string>

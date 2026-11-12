@@ -450,6 +450,7 @@ jobs:
             mingw-w64-clang-aarch64-opus
             mingw-w64-clang-aarch64-dav1d
             mingw-w64-clang-aarch64-libc++
+            mingw-w64-clang-aarch64-libunwind
             mingw-w64-clang-aarch64-winpthreads
       - name: MSYS2 location (ARM64)
         if: matrix.arch == 'arm64'
@@ -543,7 +544,10 @@ jobs:
             unzip -Z1 "$zip" | grep -qx "$file" || { echo "::error::$zip has no $file"; exit 1; }
           done
           # FFmpeg's and dav1d's licences (Compress-Archive may write the folder separator as \).
-          for file in licenses-ffmpeg/COPYING.LGPLv2.1 licenses-ffmpeg/SOURCE.txt licenses-dav1d/COPYING; do
+          # The ARM64 exe imports LLVM's libunwind.dll, which ships with its licence.
+          licences="licenses-ffmpeg/COPYING.LGPLv2.1 licenses-ffmpeg/SOURCE.txt licenses-dav1d/COPYING"
+          if unzip -Z1 "$zip" | grep -qix libunwind.dll; then licences="$licences licenses-llvm/LICENSE.libunwind"; fi
+          for file in $licences; do
             unzip -Z1 "$zip" | grep -Eqx "${file%%/*}[/\\]${file#*/}" || { echo "::error::$zip has no $file"; exit 1; }
           done
       - name: Inno Setup

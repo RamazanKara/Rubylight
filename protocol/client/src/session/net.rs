@@ -348,6 +348,11 @@ pub struct BatchReceiver {
     /// The datagrams of the last coalesced read that the receives so far have not taken.
     #[cfg(windows)]
     pending: Segments,
+    /// Windows: the reader's own maximum. A coalesced read that its size leaves with a
+    /// datagram longer than this came from an adapter that lost the size (see
+    /// [`BatchReceiver::receive_coalesced`]).
+    #[cfg(windows)]
+    max_datagram: usize,
     /// Why batching stopped, until the caller takes it.
     fallback: Option<io::Error>,
 }
@@ -356,17 +361,24 @@ impl BatchReceiver {
     /// A receiver for `socket` and the sockets that replace it. With `recvmmsg` batches, a
     /// datagram longer than `max_datagram` (the reader's own maximum) is cut to it; its length
     /// still counts in full. Otherwise, coalesced or not, datagrams are read whole.
-    pub fn new(socket: &UdpSocket, max_datagram: usize) -> Self {
-        Self::with_batches(socket, max_datagram, true)
+    /// `coalescing` is the setting for the stack's coalescing (UDP_GRO on Linux and Android,
+    /// receive coalescing on Windows); off, Linux and Android still take `recvmmsg` batches.
+    pub fn new(socket: &UdpSocket, max_datagram: usize, coalescing: bool) -> Self {
+        Self::with_batches(socket, max_datagram, true, coalescing)
     }
 
     /// One datagram per receive, as where the kernel refuses batches.
     #[cfg(test)]
     pub fn unbatched(socket: &UdpSocket, max_datagram: usize) -> Self {
-        Self::with_batches(socket, max_datagram, false)
+        Self::with_batches(socket, max_datagram, false, false)
     }
 
-    fn with_batches(socket: &UdpSocket, max_datagram: usize, batches: bool) -> Self {
+    fn with_batches(
+        socket: &UdpSocket,
+        max_datagram: usize,
+        batches: bool,
+        coalescing: bool,
+    ) -> Self {
         #[cfg(any(target_os = "linux", target_os = "android"))]
         {
             let (probed, fallback) = match mmsg::probe(socket) {
@@ -374,7 +386,7 @@ impl BatchReceiver {
                 Err(e) => (false, Some(e)),
             };
             // A coalesced message is split only by batches, so UDP_GRO is asked for with them.
-            let (coalescing, refused) = if probed && batches {
+            let (coalescing, refused) = if probed && batches && coalescing {
                 match gro::set(socket, true) {
                     Ok(()) => (true, None),
                     Err(e) => (false, Some(e)),
@@ -407,7 +419,8 @@ impl BatchReceiver {
         }
         #[cfg(windows)]
         {
-            let (coalesce, fallback) = if batches {
+            // Batches on Windows are coalesced reads, so they come only with the setting.
+            let (coalesce, fallback) = if batches && coalescing {
                 match uro::Coalesce::new(socket, max_datagram) {
                     Ok(coalesce) => (Some(coalesce), None),
                     Err(e) => (None, Some(e)),
@@ -423,12 +436,13 @@ impl BatchReceiver {
                 stride: WHOLE_DATAGRAM,
                 coalesce,
                 pending: Segments::default(),
+                max_datagram: max_datagram.max(1),
                 fallback,
             }
         }
         #[cfg(not(any(target_os = "linux", target_os = "android", windows)))]
         {
-            let _ = (socket, max_datagram, batches);
+            let _ = (socket, max_datagram, batches, coalescing);
             Self {
                 slot: WHOLE_DATAGRAM,
                 buffer: vec![0u8; WHOLE_DATAGRAM],
@@ -445,7 +459,7 @@ impl BatchReceiver {
         #[cfg(any(target_os = "linux", target_os = "android"))]
         return self.batch.is_some();
         #[cfg(windows)]
-        return self.coalesce.is_some();
+        return self.coalesce.as_ref().is_some_and(uro::Coalesce::on);
         #[cfg(not(any(target_os = "linux", target_os = "android", windows)))]
         false
     }
@@ -540,6 +554,13 @@ impl BatchReceiver {
     /// The next datagrams of a coalesced read: those the last receive left, or a new read's.
     /// None when the roam's new socket refused coalescing, which leaves the receive to the
     /// one-datagram path from now on.
+    ///
+    /// A read that its size (`UDP_COALESCED_INFO`) leaves with a datagram longer than the
+    /// reader's maximum held several datagrams whose size the stack did not report: some
+    /// network adapters' receive segment coalescing (RSC) loses it (quinn-rs/quinn#2041).
+    /// Split by guesswork, a read could come apart wrongly, so it is passed on as before (the
+    /// video receiver keeps its first datagram's worth), and coalescing goes off on the socket
+    /// for the rest of the stream; the reads already queued are still read with their size.
     #[cfg(windows)]
     fn receive_coalesced(&mut self, socket: &UdpSocket) -> io::Result<Option<usize>> {
         if self.pending.left() == 0 {
@@ -555,6 +576,10 @@ impl BatchReceiver {
                 match coalesce.receive(socket, &mut self.buffer).map_err(failure) {
                     Ok((total, segment)) => {
                         self.pending = Segments::new(total, segment);
+                        if coalesce.on() && self.pending.segment() > self.max_datagram {
+                            self.fallback =
+                                Some(unsized_read(coalesce.turn_off(), total, segment, self.max_datagram));
+                        }
                         break;
                     }
                     Err(Failure::Timeout) => return Ok(Some(0)),
@@ -936,6 +961,33 @@ fn push_segments(
     }
 }
 
+/// Why receive coalescing went off for the stream: a read of `total` bytes whose size
+/// (`segment`, from `UDP_COALESCED_INFO`) left a datagram longer than `max_datagram`, and
+/// whether turning it off worked (`turned_off`).
+#[cfg(any(windows, test))]
+fn unsized_read(
+    turned_off: io::Result<()>,
+    total: usize,
+    segment: Option<usize>,
+    max_datagram: usize,
+) -> io::Error {
+    let size = match segment {
+        Some(segment) => format!("a datagram size of {segment}"),
+        None => "no datagram size".to_owned(),
+    };
+    let read = format!(
+        "a {total}-byte read of datagrams of at most {max_datagram} bytes came with {size}: \
+         this network adapter loses the size of coalesced reads"
+    );
+    match turned_off {
+        Ok(()) => io::Error::other(format!("receive coalescing is off for this stream, {read}")),
+        Err(e) => io::Error::new(
+            e.kind(),
+            format!("turning receive coalescing off failed ({e}), {read}"),
+        ),
+    }
+}
+
 /// UDP receive coalescing on Windows.
 #[cfg(windows)]
 mod uro {
@@ -983,10 +1035,13 @@ mod uro {
     /// the roam's replacements.
     pub struct Coalesce {
         recv_msg: LPFN_WSARECVMSG,
-        /// The socket coalescing is on for.
+        /// The socket the reads are on.
         socket: SOCKET,
         /// The option's value: a call's worth of the reader's datagrams.
         size: u32,
+        /// Whether coalescing is on: until [`Coalesce::turn_off`], which also keeps it off on a
+        /// roam's new socket.
+        on: bool,
         /// The control messages of a read: one `UDP_COALESCED_INFO` takes 24 bytes.
         control: [u64; 16],
     }
@@ -997,23 +1052,36 @@ mod uro {
         /// system refused it.
         pub fn new(socket: &UdpSocket, max_datagram: usize) -> io::Result<Self> {
             let size = (max_datagram.max(1) * RECEIVE_BATCH).min(MAX_COALESCED) as u32;
-            let recv_msg = enable(raw(socket), size)?;
+            let recv_msg = enable(raw(socket), Some(size))?;
             Ok(Self {
                 recv_msg,
                 socket: raw(socket),
                 size,
+                on: true,
                 control: [0; 16],
             })
         }
 
-        /// Turns coalescing on for `socket` when it is not the one it is on for (a roam's new
-        /// socket), or says why the system refused it there.
+        /// Whether coalescing is on.
+        pub fn on(&self) -> bool {
+            self.on
+        }
+
+        /// Moves the reads to `socket` when it is not the one they are on (a roam's new
+        /// socket), with coalescing on there while it is on, or says why the system refused it.
         pub fn follow(&mut self, socket: &UdpSocket) -> io::Result<()> {
             if raw(socket) != self.socket {
-                self.recv_msg = enable(raw(socket), self.size)?;
+                self.recv_msg = enable(raw(socket), self.on.then_some(self.size))?;
                 self.socket = raw(socket);
             }
             Ok(())
+        }
+
+        /// Turns coalescing off on the socket and for the roam's next ones. The reads go on
+        /// through `WSARecvMsg`: those coalesced before still come with their size.
+        pub fn turn_off(&mut self) -> io::Result<()> {
+            self.on = false;
+            set_size(self.socket, 0)
         }
 
         /// One read into `buffer`: its bytes and the datagram size of a coalesced read. The
@@ -1059,9 +1127,9 @@ mod uro {
         }
     }
 
-    /// `socket`'s `WSARecvMsg`, then coalescing up to `size` bytes on it: in this order, so a
-    /// socket without the function never coalesces.
-    fn enable(socket: SOCKET, size: u32) -> io::Result<LPFN_WSARECVMSG> {
+    /// `socket`'s `WSARecvMsg`, then coalescing up to `size` bytes on it when that is Some: in
+    /// this order, so a socket without the function never coalesces.
+    fn enable(socket: SOCKET, size: Option<u32>) -> io::Result<LPFN_WSARECVMSG> {
         #[cfg(test)]
         if REFUSED.get() {
             return Err(io::Error::from_raw_os_error(
@@ -1090,6 +1158,14 @@ mod uro {
         if recv_msg.is_none() {
             return Err(io::Error::new(io::ErrorKind::Unsupported, "no WSARecvMsg"));
         }
+        if let Some(size) = size {
+            set_size(socket, size)?;
+        }
+        Ok(recv_msg)
+    }
+
+    /// The coalesced reads' maximum on `socket`: 0 turns coalescing off.
+    fn set_size(socket: SOCKET, size: u32) -> io::Result<()> {
         // SAFETY: a DWORD option of its size.
         let result = unsafe {
             setsockopt(
@@ -1103,7 +1179,29 @@ mod uro {
         if result == SOCKET_ERROR {
             return Err(last_error());
         }
-        Ok(recv_msg)
+        Ok(())
+    }
+
+    /// The socket's coalesced reads' maximum, 0 while coalescing is off.
+    #[cfg(test)]
+    pub fn size_on(socket: SOCKET) -> io::Result<u32> {
+        use windows_sys::Win32::Networking::WinSock::getsockopt;
+        let mut size = 0u32;
+        let mut length = size_of::<u32>() as i32;
+        // SAFETY: a DWORD option into a DWORD of its size.
+        let result = unsafe {
+            getsockopt(
+                socket,
+                IPPROTO_UDP,
+                UDP_RECV_MAX_COALESCED_SIZE,
+                (&mut size as *mut u32).cast(),
+                &mut length,
+            )
+        };
+        if result == SOCKET_ERROR {
+            return Err(last_error());
+        }
+        Ok(size)
     }
 
     #[cfg(test)]
@@ -1637,7 +1735,7 @@ mod tests {
     #[test]
     fn a_batch_delivers_every_queued_datagram_in_order() {
         let socket = media_socket();
-        let mut batch = BatchReceiver::new(&socket, 1500);
+        let mut batch = BatchReceiver::new(&socket, 1500, true);
         assert!(batch.take_fallback().is_none());
         // More than a batch, all queued before the first receive, the last one short.
         let sent = send_numbered(&socket, RECEIVE_BATCH as u16 * 2 + 5, 1392, 77);
@@ -1663,7 +1761,7 @@ mod tests {
     fn a_kernel_without_batches_takes_one_datagram_per_call() {
         let socket = media_socket();
         mmsg::REFUSED.set(true);
-        let mut batch = BatchReceiver::new(&socket, 1500);
+        let mut batch = BatchReceiver::new(&socket, 1500, true);
         assert!(!batch.batched());
         let refusal = batch.take_fallback().expect("the refusal");
         assert_eq!(refusal.raw_os_error(), Some(libc::ENOSYS));
@@ -1679,7 +1777,7 @@ mod tests {
     #[test]
     fn a_refusal_mid_stream_is_reported_once_and_receives_go_on_one_at_a_time() {
         let socket = media_socket();
-        let mut batch = BatchReceiver::new(&socket, 1500);
+        let mut batch = BatchReceiver::new(&socket, 1500, true);
         assert!(batch.batched());
         let sent = send_numbered(&socket, 3, 1392, 10);
         assert_eq!(receive_all(&mut batch, &socket, sent.len()).0, sent);
@@ -1720,7 +1818,7 @@ mod tests {
             let (tx, rx) = std::sync::mpsc::channel();
             let receiver = std::thread::spawn(move || {
                 let mut batch = if batched {
-                    BatchReceiver::new(&socket, 1500)
+                    BatchReceiver::new(&socket, 1500, true)
                 } else {
                     BatchReceiver::unbatched(&socket, 1500)
                 };
@@ -1747,7 +1845,7 @@ mod tests {
     #[test]
     fn a_long_datagram_counts_in_full() {
         let socket = media_socket();
-        let mut batch = BatchReceiver::new(&socket, 100);
+        let mut batch = BatchReceiver::new(&socket, 100, true);
         send_numbered(&socket, 2, 1000, 50);
         let mut seen = Vec::new();
         while seen.len() < 2 {
@@ -1789,7 +1887,7 @@ mod tests {
         for batched in [true, false] {
             let socket = refused();
             let mut batch = if batched {
-                BatchReceiver::new(&socket, 1500)
+                BatchReceiver::new(&socket, 1500, true)
             } else {
                 BatchReceiver::unbatched(&socket, 1500)
             };
@@ -1932,7 +2030,7 @@ mod tests {
     fn a_system_without_coalescing_takes_one_datagram_per_call() {
         let socket = media_socket();
         uro::REFUSED.set(true);
-        let mut batch = BatchReceiver::new(&socket, 1500);
+        let mut batch = BatchReceiver::new(&socket, 1500, true);
         uro::REFUSED.set(false);
         assert!(!batch.batched());
         let refusal = batch.take_fallback().expect("the refusal");
@@ -1948,7 +2046,7 @@ mod tests {
     #[test]
     fn a_roams_new_socket_coalesces_too_or_falls_back_once() {
         let first = media_socket();
-        let mut batch = BatchReceiver::new(&first, 1500);
+        let mut batch = BatchReceiver::new(&first, 1500, true);
         if batch.take_fallback().is_some() {
             return; // This Windows has no coalescing.
         }
@@ -1970,6 +2068,87 @@ mod tests {
         assert_eq!(batch.take_fallback().unwrap().raw_os_error(), Some(10042));
     }
 
+    #[test]
+    fn with_the_setting_off_nothing_is_coalesced() {
+        let socket = media_socket();
+        let mut batch = BatchReceiver::new(&socket, 1500, false);
+        assert!(batch.take_fallback().is_none(), "the setting is no refusal");
+        assert!(!batch.gro());
+        assert!(batch.take_gro_refusal().is_none());
+        // Linux and Android still take recvmmsg batches; Windows' batches are coalesced reads.
+        assert_eq!(batch.batched(), cfg!(any(target_os = "linux", target_os = "android")));
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsRawSocket;
+            assert_eq!(uro::size_on(socket.as_raw_socket() as usize).unwrap(), 0);
+        }
+        let sent = send_numbered(&socket, RECEIVE_BATCH as u16 + 3, 1392, 77);
+        let (received, counts) = receive_all(&mut batch, &socket, sent.len());
+        assert_eq!(received, sent);
+        assert!(counts.iter().all(|&count| count <= RECEIVE_BATCH), "{counts:?}");
+        if cfg!(windows) {
+            assert!(counts.iter().all(|&count| count == 1), "{counts:?}");
+        }
+    }
+
+    /// What a network adapter that loses the size of coalesced reads hands over (quinn-rs/quinn
+    /// #2041): a read longer than any datagram of the stream, without its size. A datagram
+    /// longer than the reader's maximum is read the same way.
+    #[cfg(windows)]
+    #[test]
+    fn a_read_without_its_size_turns_coalescing_off_for_the_stream() {
+        use std::os::windows::io::AsRawSocket;
+        let socket = media_socket();
+        let raw = socket.as_raw_socket() as usize;
+        let mut batch = BatchReceiver::new(&socket, 100, true);
+        if batch.take_fallback().is_some() {
+            return; // This Windows has no coalescing.
+        }
+        assert!(batch.batched());
+        assert_eq!(uro::size_on(raw).unwrap(), 100 * RECEIVE_BATCH as u32);
+        // Within the maximum, coalescing stays on.
+        let sent = send_numbered(&socket, 3, 100, 60);
+        assert_eq!(receive_all(&mut batch, &socket, sent.len()).0, sent);
+        assert!(batch.take_fallback().is_none());
+        // Past it: passed on whole, as before, and coalescing goes off on the socket.
+        let sent = send_numbered(&socket, 1, 1000, 1000);
+        assert_eq!(receive_all(&mut batch, &socket, 1).0, sent);
+        let reason = batch.take_fallback().expect("coalescing went off");
+        assert!(reason.to_string().contains("off for this stream"), "{reason}");
+        assert!(reason.to_string().contains("a 1000-byte read"), "{reason}");
+        assert!(!batch.batched());
+        assert_eq!(uro::size_on(raw).unwrap(), 0);
+        // The stream goes on one datagram per read, and another long read is not reported.
+        let sent = send_numbered(&socket, 5, 90, 1000);
+        let (received, counts) = receive_all(&mut batch, &socket, sent.len());
+        assert_eq!(received, sent);
+        assert_eq!(counts, [1; 5]);
+        assert!(batch.take_fallback().is_none(), "reported once");
+        // A roam's new socket stays without it.
+        let second = media_socket();
+        let sent = send_numbered(&second, 3, 90, 90);
+        assert_eq!(receive_all(&mut batch, &second, sent.len()).0, sent);
+        assert_eq!(uro::size_on(second.as_raw_socket() as usize).unwrap(), 0);
+        assert!(!batch.batched());
+        assert!(batch.take_fallback().is_none());
+    }
+
+    #[test]
+    fn a_lost_size_says_what_the_adapter_did_and_whether_coalescing_went_off() {
+        let off = unsized_read(Ok(()), 2848, None, 1424);
+        assert_eq!(
+            off.to_string(),
+            "receive coalescing is off for this stream, a 2848-byte read of datagrams of at \
+             most 1424 bytes came with no datagram size: this network adapter loses the size of \
+             coalesced reads"
+        );
+        let refused = io::Error::from(io::ErrorKind::PermissionDenied);
+        let failed = unsized_read(Err(refused), 2848, Some(2848), 1424);
+        assert_eq!(failed.kind(), io::ErrorKind::PermissionDenied);
+        assert!(failed.to_string().starts_with("turning receive coalescing off failed ("));
+        assert!(failed.to_string().contains("came with a datagram size of 2848"));
+    }
+
     /// Whether this Windows coalesces loopback datagrams, and that a coalesced stream comes
     /// back as it was sent. Loopback coalesces on some Windows versions only, so it reports
     /// what it saw rather than requiring it:
@@ -1981,7 +2160,7 @@ mod tests {
     fn coalescing_on_loopback_splits_back_into_the_sent_datagrams() {
         let local = (Ipv4Addr::LOCALHOST, 0).into();
         let socket = bind_udp(local, 8 << 20, Qos::Video, false, |_| {}).unwrap();
-        let mut batch = BatchReceiver::new(&socket, 1408);
+        let mut batch = BatchReceiver::new(&socket, 1408, true);
         if let Some(e) = batch.take_fallback() {
             println!("coalescing refused: {e}");
             return;

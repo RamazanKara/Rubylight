@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_receive_coalescing">Agrupar paquetes de vídeo entrantes</string>
+    <string name="summary_receive_coalescing">Recibe varios paquetes de vídeo de la red a la vez. Desactívalo si la imagen se ve en bloques o en negro.</string>
+</resources>

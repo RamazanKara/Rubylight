@@ -629,6 +629,7 @@ pub(super) fn session_config(settings: &Settings, role: AppRole, stream: StreamC
         network_priority: settings.network_priority,
         // On for the desktop; NIGHTJAR_DECODE_PRIORITY=0 turns it off for A/B runs.
         receive_decode_priority: true,
+        receive_coalescing: settings.receive_coalescing,
         roaming: roaming_config(settings, watching),
         // Set by the start for a PC that offers it (`frame_warp_for`).
         frame_warp: None,

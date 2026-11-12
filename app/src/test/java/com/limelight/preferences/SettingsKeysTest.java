@@ -408,6 +408,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_receive_decode_priority", new Read(false, true, c -> c.receiveDecodePriority));
         reads.put("checkbox_client_roaming", new Read(true, false, c -> c.clientRoaming));
         reads.put("checkbox_roaming_metered", new Read(false, true, c -> c.roamingMetered));
+        reads.put("checkbox_receive_coalescing", new Read(true, false, c -> c.receiveCoalescing));
         reads.put("checkbox_enable_post_stream_toast", new Read(false, true, c -> c.enableLatencyToast));
         reads.put("checkbox_rust_engine", new Read(false, true, c -> c.rustEngine));
         reads.put("experimental_packed_444", new Read(false, true, c -> c.experimentalPacked444));

@@ -1421,6 +1421,8 @@ sudo sysctl -w net.core.rmem_max={}", "수신 버퍼: 시스템이 요청한 {1}
     ("The stream carries on when this device switches networks.", "이 기기가 네트워크를 전환해도 스트림이 계속됩니다."),
     ("Lets the stream move onto mobile data or another metered network.", "스트림이 모바일 데이터나 다른 데이터 요금제 네트워크로 이동하도록 허용합니다."),
     ("How long a silent network is waited out before the stream ends.", "네트워크가 응답하지 않을 때 스트림을 종료하기 전까지 기다리는 시간입니다."),
+    ("Group incoming video packets", "들어오는 영상 패킷 묶기"),
+    ("Takes several video packets from the network at once. Turn it off if the picture turns blocky or black.", "네트워크에서 여러 영상 패킷을 한 번에 받습니다. 화면이 깨지거나 검게 나오면 끄세요."),
     ("Hide connection warnings", "연결 경고 숨기기"),
     ("No warnings about a poor connection during streams.", "스트리밍 중 연결 불량 경고를 표시하지 않습니다."),
     ("A second stream of the same game on a second screen.", "두 번째 화면에 같은 게임의 두 번째 스트림을 표시합니다."),

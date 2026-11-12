@@ -1421,6 +1421,8 @@ sudo sysctl -w net.core.rmem_max={}", "受信バッファー：システムは�
     ("The stream carries on when this device switches networks.", "このデバイスがネットワークを切り替えても、ストリームは続きます。"),
     ("Lets the stream move onto mobile data or another metered network.", "ストリームがモバイルデータや他の従量制ネットワークに移ることを許可します。"),
     ("How long a silent network is waited out before the stream ends.", "ネットワークが応答しなくなったとき、ストリームを終了するまで待つ時間。"),
+    ("Group incoming video packets", "受信する映像パケットをまとめる"),
+    ("Takes several video packets from the network at once. Turn it off if the picture turns blocky or black.", "ネットワークから複数の映像パケットを一度に受け取ります。映像がブロック状になったり黒くなったりする場合はオフにしてください。"),
     ("Hide connection warnings", "接続の警告を非表示"),
     ("No warnings about a poor connection during streams.", "ストリーム中に接続品質の低下に関する警告を表示しません。"),
     ("A second stream of the same game on a second screen.", "2 つ目の画面に、同じゲームの 2 つ目のストリームを表示します。"),

@@ -1421,6 +1421,8 @@ sudo sysctl -w net.core.rmem_max={}", "Буфер приймання: систе
     ("The stream carries on when this device switches networks.", "Трансляція триває, коли цей пристрій змінює мережу."),
     ("Lets the stream move onto mobile data or another metered network.", "Дозволяє трансляції переходити на мобільні дані або іншу лімітну мережу."),
     ("How long a silent network is waited out before the stream ends.", "Скільки трансляція чекає на мережу, що замовкла, перш ніж завершитися."),
+    ("Group incoming video packets", "Групувати вхідні відеопакети"),
+    ("Takes several video packets from the network at once. Turn it off if the picture turns blocky or black.", "Приймає з мережі кілька відеопакетів за раз. Вимкніть, якщо зображення розсипається на блоки або стає чорним."),
     ("Hide connection warnings", "Сховати попередження про з’єднання"),
     ("No warnings about a poor connection during streams.", "Без попереджень про погане з’єднання під час трансляції."),
     ("A second stream of the same game on a second screen.", "Друга трансляція тієї ж гри на другому екрані."),

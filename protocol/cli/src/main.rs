@@ -1226,6 +1226,8 @@ fn run() -> i32 {
             stream,
             location: Location::Local,
             receive_decode_priority: true,
+            // As the apps' default.
+            receive_coalescing: true,
             frame_warp: frame_warp.clone(),
             ..Default::default()
         },

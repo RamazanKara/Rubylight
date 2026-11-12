@@ -156,7 +156,7 @@ fn arm_socket(arm: Arm) -> (UdpSocket, usize, Box<dyn Take>) {
     let take: Box<dyn Take> = match arm {
         Arm::PerDatagram => Box::new(PerDatagram(vec![0; 65536])),
         Arm::Unbatched => Box::new(BatchReceiver::unbatched(&socket, DATAGRAM)),
-        Arm::Batched => Box::new(BatchReceiver::new(&socket, DATAGRAM)),
+        Arm::Batched => Box::new(BatchReceiver::new(&socket, DATAGRAM, true)),
     };
     (socket, buffer.unwrap().granted, take)
 }
@@ -277,7 +277,7 @@ fn receive_bench() {
     );
     {
         let (socket, _, _) = arm_socket(Arm::Unbatched);
-        let mut batch = BatchReceiver::new(&socket, DATAGRAM);
+        let mut batch = BatchReceiver::new(&socket, DATAGRAM, true);
         match batch.take_fallback() {
             Some(e) => println!("Batched takes one datagram per call here: {e}"),
             None => println!("Batched takes batches: {}", batch.batched()),

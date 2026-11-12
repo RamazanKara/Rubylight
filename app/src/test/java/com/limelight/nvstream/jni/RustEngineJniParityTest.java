@@ -256,6 +256,7 @@ public class RustEngineJniParityTest {
         passedAs.put("pyrowaveEarlyRequested", "pyrowaveEarly");
         passedAs.put("codecDirectRequested", "codecDirect");
         passedAs.put("receiveDecodePriorityRequested", "receiveDecodePriority");
+        passedAs.put("receiveCoalescingRequested", "receiveCoalescing");
         List<String> declared = new ArrayList<>();
         for (String parameter : splitParameters(declaration.group(1))) {
             String[] words = parameter.trim().split("\\s+");

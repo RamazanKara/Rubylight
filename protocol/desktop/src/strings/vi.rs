@@ -1421,6 +1421,8 @@ sudo sysctl -w net.core.rmem_max={}", "Bộ đệm nhận: hệ thống chỉ c�
     ("The stream carries on when this device switches networks.", "Luồng vẫn tiếp tục khi thiết bị này chuyển mạng."),
     ("Lets the stream move onto mobile data or another metered network.", "Cho phép luồng chuyển sang dữ liệu di động hoặc mạng tính phí theo lưu lượng khác."),
     ("How long a silent network is waited out before the stream ends.", "Thời gian chờ khi mạng ngừng phản hồi trước khi luồng kết thúc."),
+    ("Group incoming video packets", "Gom các gói video nhận được"),
+    ("Takes several video packets from the network at once. Turn it off if the picture turns blocky or black.", "Nhận nhiều gói video từ mạng cùng lúc. Tắt nếu hình bị vỡ khối hoặc đen."),
     ("Hide connection warnings", "Ẩn cảnh báo kết nối"),
     ("No warnings about a poor connection during streams.", "Không có cảnh báo về kết nối kém trong khi stream."),
     ("A second stream of the same game on a second screen.", "Luồng thứ hai của cùng trò chơi trên màn hình thứ hai."),

@@ -1421,6 +1421,8 @@ sudo sysctl -w net.core.rmem_max={}", "Alma arabelleği: sistem istenen {1} KiB'
     ("The stream carries on when this device switches networks.", "Bu cihaz ağ değiştirdiğinde yayın devam eder."),
     ("Lets the stream move onto mobile data or another metered network.", "Yayının mobil veriye veya başka bir ölçülü ağa geçmesine izin verir."),
     ("How long a silent network is waited out before the stream ends.", "Yayın sona ermeden önce yanıt vermeyen ağın ne kadar bekleneceği."),
+    ("Group incoming video packets", "Gelen video paketlerini grupla"),
+    ("Takes several video packets from the network at once. Turn it off if the picture turns blocky or black.", "Ağdan birkaç video paketini tek seferde alır. Görüntü bloklaşır veya kararırsa kapatın."),
     ("Hide connection warnings", "Bağlantı uyarılarını gizle"),
     ("No warnings about a poor connection during streams.", "Yayın sırasında zayıf bağlantı uyarısı gösterilmez."),
     ("A second stream of the same game on a second screen.", "Aynı oyunun ikinci bir yayını, ikinci bir ekranda."),

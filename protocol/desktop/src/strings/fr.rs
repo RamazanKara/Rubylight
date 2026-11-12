@@ -1421,6 +1421,8 @@ sudo sysctl -w net.core.rmem_max={}", "Tampon de réception : le système a acco
     ("The stream carries on when this device switches networks.", "Le stream continue quand cet appareil change de réseau."),
     ("Lets the stream move onto mobile data or another metered network.", "Laisse le stream passer sur les données mobiles ou un autre réseau limité."),
     ("How long a silent network is waited out before the stream ends.", "La durée d’attente d’un réseau silencieux avant la fin du stream."),
+    ("Group incoming video packets", "Regrouper les paquets vidéo entrants"),
+    ("Takes several video packets from the network at once. Turn it off if the picture turns blocky or black.", "Reçoit plusieurs paquets vidéo du réseau à la fois. Désactivez-le si l’image se pixelise ou devient noire."),
     ("Hide connection warnings", "Masquer les avertissements de connexion"),
     ("No warnings about a poor connection during streams.", "Aucun avertissement de connexion faible pendant les streams."),
     ("A second stream of the same game on a second screen.", "Un second stream du même jeu sur un second écran."),

@@ -156,6 +156,12 @@ pub struct SessionConfig {
     /// Windows the session threads are raised. On for the desktop; Android's Debug setting
     /// "Decoder priority for receiving", off by default.
     pub receive_decode_priority: bool,
+    /// Nightjar's "Group incoming video packets": the network stack may hand over several
+    /// video datagrams in one read (UDP_GRO on Linux and Android, receive coalescing on
+    /// Windows). On by default in the apps; off, each datagram is read on its own (Linux and
+    /// Android still take `recvmmsg` batches). A Windows adapter that loses the size of a
+    /// coalesced read turns it off for the stream by itself (`net::BatchReceiver`).
+    pub receive_coalescing: bool,
     /// Client roaming (Experimental), with hosts that advertise it.
     pub roaming: RoamingConfig,
     /// Frame Warp: the session counts input for it, asks a host that lists 0x5543 for its
@@ -1347,6 +1353,7 @@ fn start(
             target: net::with_port(remote, outcome.video_port),
             ping_payload: outcome.video_ping_payload,
             direct_submit: outcome.video_capabilities & sdp::CAPABILITY_DIRECT_SUBMIT != 0,
+            receive_coalescing: config.receive_coalescing,
             next_socket: parts.video_next_socket.clone(),
         };
         parts.video = Some(

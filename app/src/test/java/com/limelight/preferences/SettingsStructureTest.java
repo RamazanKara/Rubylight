@@ -336,6 +336,26 @@ public class SettingsStructureTest {
     }
 
     @Test
+    public void groupingIncomingVideoPacketsIsOnInConnectionWithTheRustEngineOnly() {
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            StreamSettings screen = controller.get();
+            assertNotNull(resultGroup(search(screen, "Group incoming video packets"), "checkbox_receive_coalescing"));
+            ((SearchView) screen.findViewById(R.id.settings_search)).setQuery("", false);
+            settle(screen);
+            PreferenceGroup connection = (PreferenceGroup) open(screen, "streaming").getPreferenceScreen()
+                    .findPreference("category_streaming_connection");
+            assertTrue(keys(connection).contains("checkbox_receive_coalescing"));
+            assertTrue(((SwitchPreference) connection.findPreference("checkbox_receive_coalescing")).isChecked());
+        }
+        // The C engine has its own receive path: the row is hidden.
+        prefs().edit().putBoolean("checkbox_rust_engine", false).commit();
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            PreferenceScreen streaming = open(controller.get(), "streaming").getPreferenceScreen();
+            assertNull(streaming.findPreference("checkbox_receive_coalescing"));
+        }
+    }
+
+    @Test
     public void usbForwardingIsOffAndShowsOnlyWithTheRustEngine() {
         shadowOf(RuntimeEnvironment.getApplication().getPackageManager())
                 .setSystemFeature(PackageManager.FEATURE_USB_HOST, true);

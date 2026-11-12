@@ -54,6 +54,8 @@ Turn the camera and the picture turns on your screen's next refresh, instead of 
 - **Costs almost nothing.** 0.14 to 0.16 ms of GPU time a frame on the RX 7900 XT, from 1080p to 4K.
 - **One switch.** Nightjar › Settings › Video › Frame Warp. Rubylight is ready for it out of the box.
 
+<p align="center"><img src="docs/media/frame-warp/black-flag-retroid.webp" width="640" alt="Black Flag Resynced on a Retroid Pocket 6 in the middle of a camera turn with Frame Warp on: the quest text, compass and icon wheel stay in place."></p>
+
 [How Frame Warp works](docs/frame-warp.md) · [Measurements](rust/PERFORMANCE.md#november-12-frame-warp)
 
 <table>

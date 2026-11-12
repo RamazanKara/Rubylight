@@ -45,6 +45,8 @@ Turn the camera and the picture turns on your screen's next refresh, instead of 
 - **Costs almost nothing.** 0.14 to 0.16 ms of GPU time a frame on the RX 7900 XT, from 1080p to 4K.
 - **One switch.** Settings › Video › Frame Warp, with a Rubylight PC.
 
+<p align="center"><img src="docs/assets/frame-warp/black-flag-retroid.webp" width="640" alt="Black Flag Resynced on a Retroid Pocket 6 in the middle of a camera turn with Frame Warp on: the quest text, compass and icon wheel stay in place."></p>
+
 [How Frame Warp works](docs/protocol/frame-warp.md) · [The host side](https://github.com/RamazanKara/Rubylight/blob/main/docs/frame-warp.md) · [Measurements](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#november-12-frame-warp)
 
 Nightjar streams games from your PC to Android phones, tablets and handhelds, Android TV and Fire TV, Windows, Linux and macOS. It speaks the Moonlight protocol, so it works with the host you already run, and it is built to make the stream feel local: hardware decoding tuned for each chip, frame pacing that follows your display, and recovery that keeps you in the game when the network hiccups.

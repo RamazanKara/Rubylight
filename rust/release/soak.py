@@ -168,13 +168,15 @@ def main():
             raise ctypes.WinError(ctypes.get_last_error())
         return process
 
-    def stop(process):
+    def stop(process, must_exit=False):
         if process is not None and process.poll() is None:
             process.terminate()
             # One held in the GPU driver during a hang does not exit: the case's
-            # cancel, drain and result still have to run.
+            # cancel, drain and result still have to run. A host that stays would
+            # share its config directory and ports with the one started next.
             try: process.wait(timeout=10)
-            except subprocess.TimeoutExpired: pass
+            except subprocess.TimeoutExpired:
+                if must_exit: raise
 
     admin = requests.Session(); admin.verify = False; admin.trust_env = False
     client = requests.Session(); client.verify = False; client.trust_env = False
@@ -243,7 +245,7 @@ def main():
                     write(run / 'result.json', report)
                     continue
                 debug_host = stage_fault_host(args.package, debug_host, run / 'fault-host')
-                stop(host)
+                stop(host, must_exit=True)
                 fault_dir.mkdir()
                 host = start_host(debug_host, dict(env, BUTTERPOLLO_TEST_FAULT_DIR=str(fault_dir)), 'fault-host.stdout.log')
                 report['fault_host_sha256'] = hashlib.sha256(debug_host.read_bytes()).hexdigest()

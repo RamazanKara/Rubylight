@@ -590,7 +590,9 @@ async fn remove<P: Provider>(
 ) -> Result<()> {
     let (entries, complete) = entries(gateway).await;
     // A mapping the router would not remove must not keep the later ones open:
-    // all are tried, and the first failure is the one reported.
+    // all are tried, and the first failure is the one reported. A router that
+    // stopped answering ends it: the next removal would wait as long, and the
+    // host's shutdown gives this task ten seconds.
     let mut failed = None;
     for mapping in applied {
         let entry = entries.iter().find(|entry| {
@@ -611,7 +613,10 @@ async fn remove<P: Provider>(
             let error = match removed {
                 Ok(Ok(())) => continue,
                 Ok(Err(error)) => anyhow::Error::from(error),
-                Err(error) => anyhow::Error::from(error),
+                Err(error) => {
+                    failed.get_or_insert(anyhow::Error::from(error));
+                    break;
+                }
             };
             if failed.is_none() {
                 failed = Some(error);

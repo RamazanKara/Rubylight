@@ -356,6 +356,8 @@ private:
     bool hasColorspaceExt_ = false;
     bool hasHdrMetadataExt_ = false;
     bool hasDisplayTimingExt_ = false;
+    // VkPhysicalDeviceProperties::vendorID of the device in use, for ycbcrComponents
+    uint32_t vendorId_ = 0;
     // Front-buffer rendering, asked for with adb shell setprop debug.moonlight.front_buffer 1: a
     // single swapchain image the display reads from as we draw into it
     // (VK_KHR_shared_presentable_image), shown on arrival without waiting for the compositor to

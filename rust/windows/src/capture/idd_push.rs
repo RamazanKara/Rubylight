@@ -6,10 +6,10 @@
 //! GPU copy in the driver.
 //!
 //! The default fence ring uses `CAP_FENCE_RING`: its textures and fences
-//! are created on the capture GPU's D3D12 compute device. On AMD the compute conversion reads
+//! are created on the capture GPU's D3D12 compute device. The compute conversion reads
 //! the ring texture in place, waiting on the GPU for the driver's written fence, and the
 //! compute queue signals the released fence once the conversion is done; no D3D11 work runs
-//! for it. Elsewhere (and with `idd_push_zero_copy = false`) the capture's D3D11 device waits
+//! for it. Without a compute queue (and with `idd_push_zero_copy = false`) the capture's D3D11 device waits
 //! for the written fence, copies the texture into the owned pool as every other capture's
 //! frames are, and signals the released fence after its copy.
 //!
@@ -749,10 +749,10 @@ pub struct Session {
     compute: Option<Arc<crate::compute::Compute>>,
     consumer: Consumer,
     pool: GpuPool,
-    /// Lends keyed-mutex ring textures to the compute conversion instead of copying them
-    /// (AMD). A fence ring lends without it.
+    /// Lends keyed-mutex ring textures to the compute conversion instead of copying them.
+    /// A fence ring lends without it.
     lender: Option<Arc<Mutex<crate::compute::Returns>>>,
-    /// The compute conversion reads ring textures in place (AMD, `idd_push_zero_copy`).
+    /// The compute conversion reads ring textures in place (`idd_push_zero_copy`).
     zero_copy: bool,
     frame: Arc<crate::timing::Signal>,
     staging: Option<ID3D11Texture2D>,
@@ -1330,7 +1330,7 @@ impl Session {
     }
 }
 
-/// The fence transport is the default, and is limited to AMD's in-place compute path. A
+/// The fence transport is the default, and is limited to the in-place compute path. A
 /// capture without it and an old installed driver use the keyed-mutex transport.
 fn ring_kind(caps: u32, requested: bool, zero_copy: bool) -> Kind {
     if requested && zero_copy && caps & CAP_FENCE_RING != 0 {
@@ -1362,7 +1362,7 @@ fn choose_ring(caps: u32, requested: bool, rejected: bool, zero_copy: bool) -> R
         )
     } else {
         Some(
-            "The GPU fence transport needs AMD compute capture with in-place reads, so capture uses the keyed-mutex ring. Enable gpu_compute_conversion and idd_push_zero_copy, or set idd_push_fence_ring = false to use the keyed-mutex ring without this warning.",
+            "The GPU fence transport needs compute capture with in-place reads, so capture uses the keyed-mutex ring. Enable gpu_compute_conversion and idd_push_zero_copy, or set idd_push_fence_ring = false to use the keyed-mutex ring without this warning.",
         )
     };
     RingChoice { kind, warning }

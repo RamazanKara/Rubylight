@@ -2,7 +2,7 @@
 
 [Documentation](README.md) · [Configuration](configuration.md) · [Performance](performance.md) · [Developer guide](../rust/README.md)
 
-Rubylight turns a Windows display into a Moonlight stream. On Radeon, captured pixels stay on the GPU, are prepared on D3D12 compute queues and go straight to AMD's native encoder. The host bounds outstanding work, so a busy encoder or network cannot turn into a growing queue of old pictures.
+Rubylight turns a Windows display into a Moonlight stream. On Radeon and NVIDIA, captured pixels stay on the GPU, are prepared on D3D12 compute queues and go straight to the card's own encoder, AMF or NVENC. The host bounds outstanding work, so a busy encoder or network cannot turn into a growing queue of old pictures.
 
 Rubylight encodes on AMD and NVIDIA GPUs: AMF for H.264, HEVC and AV1 on AMD, NVENC for the same codecs on NVIDIA ([NVENC](nvenc.md)), and PyroWave's own encoder. The Quick Sync and software encoders were removed in 3.0; PCs with Intel graphics use [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). Physical displays, WGC, Desktop Duplication and the D3D11 fallback remain supported.
 

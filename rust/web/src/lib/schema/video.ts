@@ -154,7 +154,7 @@ const video: Setting[] = [
     description:
       'On by default. Turn it off to use the keyed-mutex ring for frames from the Rubylight display driver.',
     details:
-      'Needs a compatible Rubylight display driver and compute conversion on AMD. Without them, capture uses the keyed-mutex ring and the console shows a warning. Physical displays and other capture methods are unaffected. End all streams before changing it.',
+      'Needs a compatible Rubylight display driver and Copy and convert on a compute queue. Without them, capture uses the keyed-mutex ring and the console shows a warning. Physical displays and other capture methods are unaffected. End all streams before changing it.',
     category: 'video',
     group: 'Capture troubleshooting',
     control: { kind: 'toggle' },

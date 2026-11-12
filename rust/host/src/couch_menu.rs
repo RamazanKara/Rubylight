@@ -452,7 +452,7 @@ fn act(h: &Shared, s: &Session, action: &Action) -> Result<(), Failure> {
         }
         Action::Change { .. } | Action::RestoreRadeon { .. } => Err(Failure::new(
             ErrorCode::TemporarilyUnavailable,
-            "Radeon settings are not in the menu yet.",
+            "Graphics card settings are not in this menu.",
         )),
     }
 }

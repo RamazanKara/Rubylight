@@ -2650,6 +2650,7 @@ Redacted logs, oldest line first; addresses, PC names, PINs and credentials are 
                     settings = overrides.apply(&settings);
                 }
             }
+            if let Some(cli) = self.cli.as_ref().filter(|cli| cli.host == host_id) { cli.launch.options.apply(&mut settings); }
             Some(stream::stream_mode(&settings, display_of(self.window)))
         });
         let view = ConnectingView {
@@ -2763,6 +2764,8 @@ Redacted logs, oldest line first; addresses, PC names, PINs and credentials are 
         let listed = matches!(&host.apps, Apps::Loaded(apps) if apps.contains(&app));
         let mut settings = host.record.settings(&self.launcher.profiles.settings(&self.launcher.settings, self.launcher.network.kind(&self.launcher.profiles.home_wifi)));
         if let Some(overrides) = host.record.app_settings(&app.uuid, app.id) { settings = overrides.apply(&settings); }
+        // moonlight-qt's stream options from the command line, for this run's streams from its PC.
+        if let Some(cli) = self.cli.as_ref().filter(|cli| cli.host == host_id) { cli.launch.options.apply(&mut settings); }
         if settings.codec.is_pyrowave() { settings.experimental_packed_444 = false; }
         if mic_only || app.role(small) == nightjar_core::http::AppRole::InputOnly {
             input_only_settings(&mut settings);
@@ -3254,7 +3257,9 @@ Redacted logs, oldest line first; addresses, PC names, PINs and credentials are 
         if matches!(exit, Exit::User) && !second_screen::this_process() {
             let app = streaming.app();
             // Quit game confirmed in the stream menu, or the launch's own choice to quit on leaving.
-            let chosen = streaming.quit_on_leave || self.hosts.get(host).is_some_and(|h| h.record.quits_on_leave(&app.uuid, app.id));
+            // moonlight-qt's --quit-after or --no-quit-after on the command line stands for the game's own choice.
+            let given = self.cli.as_ref().filter(|cli| cli.host == host).and_then(|cli| cli.launch.options.quit_after);
+            let chosen = streaming.quit_on_leave || given.unwrap_or_else(|| self.hosts.get(host).is_some_and(|h| h.record.quits_on_leave(&app.uuid, app.id)));
             if nightjar_policy::launch::quits_on_leave(chosen, ui::policy_role(streaming.facts.role), true) {
                 eprintln!("nightjar: quitting {} on the PC, as chosen for leaving its stream", app.name);
                 self.launcher.toast(trf("Quitting {} on the PC…", &[&app.name]));

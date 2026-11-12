@@ -1,0 +1,2 @@
+## desktop
+- Windows and Linux: Nightjar takes moonlight-qt's command line, `stream <PC> <app>` with its stream options such as `--resolution`, `--fps`, `--bitrate`, `--hdr`, `--video-codec`, `--vsync`, `--frame-pacing`, `--performance-overlay`, `--audio-config` and `--quit-after`, so tools written for moonlight-qt, such as MoonDeck, can start and set up a stream. The options change only that run's streams, never the saved settings.

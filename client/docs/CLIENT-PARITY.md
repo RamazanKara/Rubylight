@@ -47,7 +47,7 @@ The tables below have no macOS column. The Mac client shares the desktop library
 | Settings search | Yes | Yes | Yes | Desktop: the search field or Ctrl+F. |
 | Settings presets (Native, Battery saver) | Yes | No | No | |
 | PIN lock | Yes | Yes | Yes | Android can also lock individual PCs. |
-| Launching from a launcher or frontend | Yes | Yes | Yes | Android: TV home screen, Beacon, ES-DE, Daijisho, Pegasus and shortcuts. Desktop: `nightjar --host … [--app …] [--quit-on-exit]`. |
+| Launching from a launcher or frontend | Yes | Yes | Yes | Android: TV home screen, Beacon, ES-DE, Daijisho, Pegasus and shortcuts. Desktop: `nightjar --host … [--app …] [--quit-on-exit]`, or moonlight-qt's `nightjar stream … …` with its stream options. |
 | Host software in the PC's details, host web UI button | Yes | Yes | Yes | |
 | Text and button size, high contrast, reduced motion | Yes | Yes | Yes | On Linux, **Follow system** leaves motion on, since there is no system setting to read. |
 | Screen reader | Yes | Yes | Yes | Android: TalkBack. Desktop: the platform accessibility API (UI Automation on Windows, AT-SPI on Linux). |

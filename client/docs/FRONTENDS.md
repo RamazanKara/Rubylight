@@ -128,6 +128,19 @@ nightjar --host <PC name or UUID> [--app <app name or UUID>] [--quit-on-exit]
 - `--quit-on-exit` closes Nightjar when the stream ends.
 - Exit codes: 0 when you cancel the start, 1 when the PC or app is unknown, ambiguous or unreachable or the stream cannot start (the reason goes to stderr and the log), and 64 for a wrong command line.
 
+Tools written for moonlight-qt, such as MoonDeck, can use its form instead:
+
+```text
+nightjar [options] stream <PC name or UUID> <app name or UUID>
+```
+
+It starts the app and closes Nightjar when the stream ends. moonlight-qt's stream options work in both forms and change only the streams of that run, never the saved settings:
+
+- `--resolution <width>x<height>` (or `--720`, `--1080`, `--1440`, `--4K`), `--fps <n>` and `--bitrate <Kbps>`. A resolution or frame rate without a bitrate gets the automatic bitrate for it.
+- `--video-codec auto|H.264|HEVC|AV1`, `--video-decoder auto|software|hardware`, `--audio-config stereo|5.1-surround|7.1-surround`, `--display-mode fullscreen|windowed|borderless` and `--capture-system-keys never|fullscreen|always`.
+- On/off options, each with a `--no-` form: `--hdr`, `--vsync`, `--frame-pacing` (Smoothest video; `--no-frame-pacing` is Lowest latency), `--performance-overlay`, `--quit-after` (leaving the stream quits the game on the PC), `--yuv444` (Sharper colored text), `--audio-on-host`, `--absolute-mouse`, `--game-optimization`, `--multi-controller`, `--swap-gamepad-buttons` and `--background-gamepad`.
+- `--packet-size`, `--mouse-buttons-swap`, `--touchscreen-trackpad`, `--mute-on-focus-loss`, `--reverse-scroll-direction` and `--keep-awake` are accepted and change nothing.
+
 ## Fix an integration
 
 | Symptom | Cause | Fix |

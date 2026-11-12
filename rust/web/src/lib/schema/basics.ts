@@ -764,6 +764,20 @@ const audio: Setting[] = [
     visibleWhen: systemAudio,
   },
   {
+    key: 'hold_sink_while_paused',
+    label: 'Keep virtual speakers while paused',
+    description:
+      'When a device disconnects and its game keeps running, leave the virtual speakers as the Windows default so the PC stays silent until a device reconnects.',
+    details:
+      'The device you picked is restored when the game closes or you choose End session.',
+    category: 'audio',
+    group: 'Virtual speakers',
+    control: { kind: 'toggle' },
+    default: false,
+    inactiveHint: "Turn on Stream audio and choose System audio under Audio to stream to use this setting.",
+    visibleWhen: systemAudio,
+  },
+  {
     key: 'install_steam_audio_drivers',
     label: 'Install Steam audio drivers',
     description:

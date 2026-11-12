@@ -1124,6 +1124,7 @@ Every setting in the console, by the console's tabs and groups, with its key and
 | Audio devices: Capture without switching | `audio_sink_capture_only` | `false` | Capture the audio device without changing the Windows default output. You then send the apps you want to hear to that device yourself. |
 | Audio devices: Follow the default device | `auto_capture_sink` | `true` | Capture whichever device is the Windows default, even if it changes during a stream. Turn it off to stay on the device chosen when the stream started. |
 | Virtual speakers: Keep virtual speakers as default | `keep_sink_default` | `true` | If another device becomes the Windows default during a stream, switch back to the virtual speakers. The device you picked is still restored when the stream ends. |
+| Virtual speakers: Keep virtual speakers while paused | `hold_sink_while_paused` | `false` | When a device disconnects and its game keeps running, leave the virtual speakers as the Windows default so the PC stays silent until a device reconnects. |
 | Virtual speakers: Install Steam audio drivers | `install_steam_audio_drivers` | `true` | When Steam is installed, install its streaming speakers and microphone when a stream needs them. |
 | **Microphone: Use the device microphone** | `stream_mic` | `true` | Let a streaming device that sends its microphone talk through the PC. Only clients with microphone support send one. |
 | Input devices: Keyboard | `keyboard` | `true` | Let devices type on this PC. |

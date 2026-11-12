@@ -628,11 +628,19 @@ impl Host {
     }
     pub fn reap_paused_display(&self) {
         self.settle_move();
+        // With `hold_sink_while_paused` a game left running keeps the virtual
+        // speakers as the default until a device returns, End session or the
+        // game stops, so the PC's own speakers stay silent meanwhile.
+        let hold_audio = {
+            let config = self.config.read().unwrap();
+            config.boolean("hold_sink_while_paused", false)
+        } && self.current_app.lock().unwrap().is_some();
         let audio = {
             let mut audio = self.app_audio.lock().unwrap();
-            if audio
-                .as_ref()
-                .is_some_and(|route| Arc::strong_count(route) == 1)
+            if !hold_audio
+                && audio
+                    .as_ref()
+                    .is_some_and(|route| Arc::strong_count(route) == 1)
             {
                 audio.take()
             } else {

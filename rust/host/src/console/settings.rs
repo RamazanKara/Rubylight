@@ -50,6 +50,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "audio_sink_capture_only", "Capture selected audio without changing defaults", Bool;
         "auto_capture_sink", "Follow audio device changes", Bool;
         "keep_sink_default", "Keep virtual speakers as the default during streaming", Bool;
+        "hold_sink_while_paused", "Keep virtual speakers as the default while paused", Bool;
         "install_steam_audio_drivers", "Install Steam streaming speakers and microphone when needed", Bool;
         "stream_mic", "Use the device microphone (Steam Streaming Microphone)", Bool;
     ]

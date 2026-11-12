@@ -231,8 +231,13 @@ static void startPollForDevice(char* deviceName) {
         currentEntry = currentEntry->next;
     }
 
+    // A name that does not fit the entry is no device of ours (they are eventN)
+    if (strlen(deviceName) >= sizeof(currentEntry->devName)) {
+        goto unlock;
+    }
+
     // Open the device
-    sprintf(fullPath, "/dev/input/%s", deviceName);
+    snprintf(fullPath, sizeof(fullPath), "/dev/input/%s", deviceName);
     fd = open(fullPath, O_RDWR);
     if (fd < 0) {
         __android_log_print(ANDROID_LOG_ERROR, "EvdevReader", "Couldn't open %s: %d", fullPath, errno);

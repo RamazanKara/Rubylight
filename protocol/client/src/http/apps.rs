@@ -106,7 +106,7 @@ pub fn app_control(id: i32, uuid: &str, caps: &HostCapabilities) -> AppControl {
         if id == 2_147_483_500 + offset
             || id == 2_147_483_600 + offset
             || (matches!(offset, 1 | 4 | 5 | 6) && id == 2_147_483_510 + offset)
-            || uuid == format!("9a1c5a25-58fe-40e0-b9aa-7d3f0000000{offset}")
+            || uuid.eq_ignore_ascii_case(&format!("9a1c5a25-58fe-40e0-b9aa-7d3f0000000{offset}"))
         {
             return CONTROLS[offset as usize];
         }
@@ -227,6 +227,15 @@ mod tests {
         );
         assert_eq!(
             app_control(2_147_483_606, "", &HostCapabilities::UNKNOWN),
+            AppControl::Input
+        );
+        // A control tile's UUID matches in either case, as the Apollo ones do.
+        assert_eq!(
+            app_control(
+                1,
+                "9A1C5A25-58FE-40E0-B9AA-7D3F00000006",
+                &HostCapabilities::UNKNOWN
+            ),
             AppControl::Input
         );
         assert!(parse_app_list("<root status_code=\"200\"><App>", &caps).is_err());

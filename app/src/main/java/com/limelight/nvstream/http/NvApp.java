@@ -108,7 +108,7 @@ public class NvApp {
         for (int offset = 1; offset <= 7; offset++) {
             if (appId == 2147483500 + offset || appId == 2147483600 + offset ||
                     ((offset == 1 || offset == 4 || offset == 5 || offset == 6) && appId == 2147483510 + offset) ||
-                    appUuid.equals("9a1c5a25-58fe-40e0-b9aa-7d3f0000000" + offset)) {
+                    appUuid.equalsIgnoreCase("9a1c5a25-58fe-40e0-b9aa-7d3f0000000" + offset)) {
                 return Control.values()[offset];
             }
         }

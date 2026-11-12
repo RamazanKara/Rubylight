@@ -9452,6 +9452,17 @@ the true 90 degrees in place of the learned values, 8.6 px; with the ideal centr
 puts into a picture that looks up or down (the probe's camera was pitched by a median of 6.8
 degrees, p95 11.0), which the lens does not draw.
 
+Cost on the host. The motion measurement runs on Frame Warp's worker thread, off the frame's
+path. `Measurer` alone over the 1,790 thumbnails one 60 s run captured (release build, five
+passes each, no build running): 0.47 ms median and 0.50 ms p95 per compared capture with
+4.0.2's code, 1.57 ms and 1.65 ms with this build's per-line profiles and still pixels. Present
+to send, the median of the ten 5 s stream timing windows after the first: 3.54 ms on 4.0.0 at 90
+degrees; on this build 3.48 ms (70 degrees), 3.61 ms (flat), 3.63 ms (110 degrees) and, in the
+two 90 degree runs, 4.20 and 3.88 ms with the encode at 3.74 and 3.38 ms where every other run
+of either build reads 2.98 to 3.12 ms. Those two ran minutes before the same build's other runs
+while other sessions used this PC, and were not repeated on a quiet one, so what the longer
+measurement costs a frame is not separated from that load here.
+
 
 ## Hardware covered
 

@@ -1,25 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Controller and keyboard options -->
-    <string name="title_checkbox_disable_rumble">Desativar vibração</string>
-    <string name="summary_checkbox_disable_rumble">Interrompe toda vibração que um jogo pede: vibração do controle e dos gatilhos, háptico do DualSense via USB e a vibração deste dispositivo no lugar do controle.</string>
-    <string name="title_checkbox_mouse_emulation_fixed_step">Movimento do mouse em passos fixos</string>
-    <string name="summary_checkbox_mouse_emulation_fixed_step">No modo mouse do controle, segure X enquanto move o analógico para mover o ponteiro um número fixo de pixels por vez. Pressione Y para dobrar o passo, de 1 até 128 pixels e depois de volta a 1.</string>
+    <string name="title_checkbox_disable_rumble">Desativar a vibração</string>
+    <string name="summary_checkbox_disable_rumble">Interrompe toda vibração, a vibração dos gatilhos e o háptico.</string>
+    <string name="title_checkbox_mouse_emulation_fixed_step">Mouse preciso no controle</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">Move o ponteiro em passos fixos de pixels enquanto X fica pressionado.</string>
     <string name="stream_mouse_step">Passo do mouse: %1$d px</string>
     <string name="title_checkbox_capture_system_keys">Enviar teclas do sistema</string>
-    <string name="summary_checkbox_capture_system_keys">Esc, Alt+Tab, a tecla Windows e similares vão para o PC enquanto a entrada está capturada, assim como a tecla Voltar que muitos teclados para Android têm no lugar do Esc. O Android só libera Alt+Tab e a tecla Windows a partir do Android 16 QPR2 (dezembro de 2025) e em muitos aparelhos Samsung; nos demais, ele as mantém. Início, liga/desliga e volume ficam sempre com o Android. Abra o menu do stream com seu atalho ou o gesto ou botão Voltar do Android. Vale no próximo stream.</string>
+    <string name="summary_checkbox_capture_system_keys">Alt+Tab, a tecla Windows e similares vão para o PC.</string>
     <string name="title_checkbox_system_keys_fullscreen_only">Teclas do sistema só em tela cheia</string>
-    <string name="summary_checkbox_system_keys_fullscreen_only">Em janela, Alt+Tab, a tecla Windows e similares ficam neste dispositivo.</string>
+    <string name="summary_checkbox_system_keys_fullscreen_only">Em janela, as teclas do sistema ficam neste dispositivo.</string>
     <string name="title_checkbox_back_as_meta">Voltar do teclado envia a tecla Windows</string>
-    <string name="summary_checkbox_back_as_meta">A tecla Voltar de um teclado físico envia a tecla Windows (Command no Mac). Abra o menu da transmissão com seu atalho, o gesto ou botão Voltar do Android ou a combinação de botões do controle.</string>
-    <string name="title_checkbox_right_alt_as_meta">Alt direito como Command</string>
-    <string name="summary_checkbox_right_alt_as_meta">O Alt direito envia a tecla Windows, que o Mac usa como Command, então Alt direito+C copia. O Alt esquerdo não muda. Deixe desativado se você digita caracteres com AltGr.</string>
+    <string name="summary_checkbox_back_as_meta">A tecla Voltar de um teclado físico envia a tecla Windows.</string>
+    <string name="title_checkbox_right_alt_as_meta">Alt direito como tecla Windows</string>
+    <string name="summary_checkbox_right_alt_as_meta">O Alt direito envia a tecla Windows, que o Mac usa como Command.</string>
     <string name="title_checkbox_keyboard_follows_text_fields">Teclado acompanha campos de texto</string>
-    <string name="summary_checkbox_keyboard_follows_text_fields">O teclado na tela abre quando um campo de texto do stream recebe o foco, ajustado a ele: números para um campo numérico, sem sugestões para uma senha. Ele fecha de novo quando o campo perde o foco. Com um teclado físico conectado, você continua digitando nele.</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">O teclado na tela abre quando um campo de texto do PC está em foco.</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">Teste do controle</string>
-    <string name="controller_test_summary">Verifique botões, analógicos, gatilhos, vibração, luzes e movimento</string>
+    <string name="controller_test_summary">Mostra os botões, analógicos, gatilhos, vibração, luzes e movimento que um controle envia.</string>
     <string name="controller_test_open">Testar controle</string>
     <string name="controller_test_hint">Pressione botões e mova os analógicos. O direcional e o A também navegam por esta página; segure B ou Back por um segundo para sair.</string>
     <string name="controller_test_waiting">Conecte um controle e pressione qualquer botão.</string>
@@ -57,6 +57,6 @@
 
     <!-- USB Switch Pro driver -->
     <string name="title_usb_switch_pro">Driver USB do Switch Pro</string>
-    <string name="summary_usb_switch_pro">Lê diretamente um Nintendo Switch Pro Controller conectado por cabo, com sensores de movimento, vibração, Home e Capture.</string>
+    <string name="summary_usb_switch_pro">Lê um Switch Pro Controller com fio, incluindo movimento, vibração, Home e Capture.</string>
     <string name="usb_switch_pro_denied">Sem acesso USB; o Switch Pro Controller continua usando a entrada do Android.\nReconecte o cabo para tentar novamente.</string>
 </resources>

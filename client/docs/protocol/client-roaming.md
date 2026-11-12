@@ -8,7 +8,7 @@ A Moonlight-protocol session is tied to the client's address. When a phone leave
 
 Roaming lets the client prove its new address to the host, QUIC-style: the host moves the session only after the new address has shown that it holds the session key and that it can receive. Any host can implement it; a client checks the advertisement below, never the host's name.
 
-What already works without it: a VPN that keeps the client's address (Tailscale) is covered by **Ride out network drops**, a media port change on the same IP is followed by the host's pings, and **Recover interrupted streams** reconnects after an address change in seconds. Roaming aims to cut that to under a second, without a new connection.
+What already works without it: a VPN that keeps the client's address (Tailscale) is covered by **Wait through network dropouts**, a media port change on the same IP is followed by the host's pings, and **Recover interrupted streams** reconnects after an address change in seconds. Roaming aims to cut that to under a second, without a new connection.
 
 ## Advertising support
 

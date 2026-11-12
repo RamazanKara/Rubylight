@@ -31,6 +31,10 @@
   let refusal = $state<{ title: string; text: string } | null>(null);
   /** A folder was just kept in place of the earlier install, whose games stay in it. */
   let replaced = $state(false);
+  /** The field holds the folder Nucleus Co-op already runs from: nothing to use, only to forget. */
+  const inUse = $derived(
+    !!status.install.chosen && path.trim() === status.install.chosen && status.install.state === 'configured' && !status.install.notice,
+  );
 
   async function choose() {
     busy = 'choose';
@@ -85,13 +89,20 @@
         bind:value={path}
       />
     </PathPicker>
-    <Button variant="primary" busy={busy === 'choose'} disabled={!path.trim() || busy !== ''} onclick={choose}>Use this folder</Button>
+    {#if inUse}
+      <Button busy={busy === 'forget'} disabled={busy !== ''} onclick={forget}>Forget this folder</Button>
+    {:else}
+      <Button variant="primary" busy={busy === 'choose'} disabled={!path.trim() || busy !== ''} onclick={choose}>Use this folder</Button>
+    {/if}
   </div>
-  {#if status.install.chosen || replaced || earlierCopyRuns(status.install)}
+  <!-- Forget sits right under the field's button, its edge on the field's edge, never indented off it. -->
+  {#if (status.install.chosen && !inUse) || replaced || earlierCopyRuns(status.install)}
     <div class="after">
       {#if replaced || earlierCopyRuns(status.install)}<span class="muted">{EARLIER_COPY_GAMES}</span>{/if}
-      {#if status.install.chosen}
-        <Button variant="ghost" size="sm" busy={busy === 'forget'} disabled={busy !== ''} onclick={forget}>Forget this folder</Button>
+      {#if status.install.chosen && !inUse}
+        <span class="forget">
+          <Button size="sm" busy={busy === 'forget'} disabled={busy !== ''} onclick={forget}>Forget this folder</Button>
+        </span>
       {/if}
     </div>
   {/if}
@@ -120,10 +131,17 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    justify-content: space-between;
     gap: var(--space-2) var(--space-3);
     font-size: var(--text-sm);
     line-height: var(--leading-snug);
+  }
+  .forget {
+    margin-left: auto;
+  }
+  @media (max-width: 520px) {
+    .forget {
+      margin-left: 0;
+    }
   }
   .choose {
     display: grid;

@@ -667,11 +667,11 @@ public class HostCapabilitiesTest {
     public void familyLabelsNameTheHostOnlyForIdentification() {
         Context context = RuntimeEnvironment.getApplication();
         assertEquals("Rubylight 2.2.21", TestHosts.rubylight().familyLabel(context));
-        assertEquals("Apollo-compatible host", TestHosts.fixture("apollo-serverinfo.xml").familyLabel(context));
-        assertEquals("Vibepollo-compatible host", TestHosts.fixture("vibepollo-serverinfo.xml").familyLabel(context));
-        assertEquals("Sunshine-compatible host", TestHosts.fixture("sunshine-serverinfo.xml").familyLabel(context));
+        assertEquals("Apollo-compatible streaming app", TestHosts.fixture("apollo-serverinfo.xml").familyLabel(context));
+        assertEquals("Vibepollo-compatible streaming app", TestHosts.fixture("vibepollo-serverinfo.xml").familyLabel(context));
+        assertEquals("Sunshine-compatible streaming app", TestHosts.fixture("sunshine-serverinfo.xml").familyLabel(context));
         assertEquals("NVIDIA GameStream", TestHosts.fixture("gamestream-serverinfo.xml").familyLabel(context));
-        assertEquals("Moonlight-compatible host", HostCapabilities.UNKNOWN.familyLabel(context));
+        assertEquals("Moonlight-compatible streaming app", HostCapabilities.UNKNOWN.familyLabel(context));
     }
 
     @Test

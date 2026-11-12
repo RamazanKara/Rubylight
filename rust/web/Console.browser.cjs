@@ -18,7 +18,7 @@ before(async () => {
   browser = await chromium.launch({ headless: true,
     ...(process.env.CHROMIUM_EXECUTABLE ? { executablePath: process.env.CHROMIUM_EXECUTABLE } : {}),
   });
-  await warmUp(browser, base, ['/', '/devices', '/maintenance']);
+  await warmUp(browser, base, ['/', '/devices', '/help']);
 });
 after(async () => { await browser?.close(); await server?.close(); });
 
@@ -116,37 +116,41 @@ test('settings drafts survive category changes and canceled navigation', async t
   await page.goto(base + '/logs');
   await nav(page, 'Settings');
   await page.locator('main').getByRole('link', { name: 'All settings', exact: true }).click();
-  await page.getByLabel('Host name', { exact: true }).fill('Unsaved name');
+  await page.getByLabel('PC name', { exact: true }).fill('Unsaved name');
   await page.getByRole('link', { name: /^Network/ }).click();
   await nav(page, 'Games');
   await cancel(page);
   assert.equal(new URL(page.url()).pathname, '/settings/network');
   await unloadProtected(page);
   await page.goBack();
-  assert.equal(await page.getByLabel('Host name', { exact: true }).inputValue(), 'Unsaved name');
+  assert.equal(await page.getByLabel('PC name', { exact: true }).inputValue(), 'Unsaved name');
   await page.goBack();
   await cancel(page);
-  await page.waitForURL(base + '/settings/general');
-  assert.equal(await page.getByLabel('Host name', { exact: true }).inputValue(), 'Unsaved name');
+  await page.waitForURL(base + '/settings/pc');
+  assert.equal(await page.getByLabel('PC name', { exact: true }).inputValue(), 'Unsaved name');
   await page.goBack();
   await page.getByRole('dialog').getByRole('button', { name: 'Leave', exact: true }).click();
   await page.getByRole('heading', { name: 'Settings', exact: true, level: 1 }).waitFor();
   await page.goForward();
-  assert.equal(await page.getByLabel('Host name', { exact: true }).inputValue(), 'Fixture host');
+  assert.equal(await page.getByLabel('PC name', { exact: true }).inputValue(), 'Fixture host');
 });
 
 test('hardware metrics stay off until enabled and save the interval and selection', async t => {
   const { page } = await fixture(t);
   const consoleErrors = [];
   page.on('console', message => { if (['error', 'warning'].includes(message.type())) consoleErrors.push(message.text()); });
-  await page.goto(base + '/settings/general');
+  await page.goto(base + '/settings/pc');
   assert.equal(await page.title(), 'Rubylight');
   const enabled = page.getByRole('switch', { name: /^Send hardware metrics to client/ });
   await enabled.waitFor();
   assert.equal(await enabled.isChecked(), false);
   assert.equal(await page.getByLabel('Hardware metrics interval', { exact: true }).count(), 0);
   await page.getByText('Send hardware metrics to client', { exact: true }).click();
-  const interval = page.getByLabel('Hardware metrics interval', { exact: true });
+  // Named intervals are menu choices; Custom opens a field for any other.
+  const menu = page.getByLabel('Hardware metrics interval', { exact: true });
+  assert.equal(await menu.inputValue(), '1000');
+  await menu.selectOption({ label: 'Custom' });
+  const interval = page.getByLabel('Hardware metrics interval, custom value', { exact: true });
   assert.equal(await interval.inputValue(), '1000');
   await interval.fill('499');
   assert.equal(await interval.getAttribute('aria-invalid'), 'true');
@@ -224,7 +228,8 @@ test('an unavailable host retries automatically and recovers with a usable navig
   await page.getByRole('heading', { name: 'Cannot connect to Rubylight' }).waitFor();
   await page.getByRole('button', { name: 'Retry now' }).click();
   await page.getByRole('navigation', { name: 'Main' }).waitFor();
-  assert.equal(new URL(page.url()).pathname, '/settings/general');
+  // The older address opens the tab under its own.
+  await page.waitForURL(base + '/settings/pc');
   await page.getByLabel('Fallback console language').waitFor();
   await page.getByText('This console is currently available in English only.', { exact: false }).waitFor();
 });
@@ -232,7 +237,7 @@ test('an unavailable host retries automatically and recovers with a usable navig
 test('Install now needs confirmation and disabled update checks disable automatic installation', async t => {
   const { page, writes } = await fixture(t);
   await page.goto(base + '/settings');
-  await page.locator('summary', { hasText: 'about updates' }).click();
+  await page.locator('summary', { hasText: 'Schedule and release notes' }).click();
   await page.getByText('Off — automatic update checks are disabled', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Install now', exact: true }).click();
   await page.getByText(/Save your game progress before continuing/).waitFor();
@@ -259,31 +264,31 @@ test('the next update check says when it runs, and that a stream holds it back',
   const scheduled = { checked_at: now - 600, update_check_interval: 86400, next_check_at: now + 85800, deferred: false };
   const normal = await fixture(t, { updates: scheduled });
   await normal.page.goto(base + '/settings');
-  await normal.page.locator('summary', { hasText: 'about updates' }).click();
+  await normal.page.locator('summary', { hasText: 'Schedule and release notes' }).click();
   await normal.page.getByText('Next check', { exact: true }).waitFor();
   assert.equal(await normal.page.getByText('After the stream').count(), 0);
   assert.equal(await normal.page.getByText('Shortly').count(), 0);
   await shot(normal.page, 'updates-panel-scheduled.png');
   const held = await fixture(t, { updates: { ...scheduled, checked_at: now - 90000, next_check_at: now - 3600, deferred: true } });
   await held.page.goto(base + '/settings');
-  await held.page.locator('summary', { hasText: 'about updates' }).click();
+  await held.page.locator('summary', { hasText: 'Schedule and release notes' }).click();
   await held.page.getByText('After the stream', { exact: true }).waitFor();
   assert.equal(await held.page.getByText('Shortly').count(), 0);
   await shot(held.page, 'updates-panel-deferred.png');
   const overdue = await fixture(t, { updates: { ...scheduled, checked_at: now - 90000, next_check_at: now - 3600 } });
   await overdue.page.goto(base + '/settings');
-  await overdue.page.locator('summary', { hasText: 'about updates' }).click();
+  await overdue.page.locator('summary', { hasText: 'Schedule and release notes' }).click();
   await overdue.page.getByText('Shortly', { exact: true }).waitFor();
 });
 
 test('signing out respects unsaved settings and only logs out after confirmation', async t => {
   const { page, writes } = await fixture(t);
-  await page.goto(base + '/settings/general');
-  await page.getByLabel('Host name', { exact: true }).fill('Keep this draft');
+  await page.goto(base + '/settings/pc');
+  await page.getByLabel('PC name', { exact: true }).fill('Keep this draft');
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
   await cancel(page);
   assert(!writes.includes('/api/auth/logout'));
-  assert.equal(await page.getByLabel('Host name', { exact: true }).inputValue(), 'Keep this draft');
+  assert.equal(await page.getByLabel('PC name', { exact: true }).inputValue(), 'Keep this draft');
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Leave', exact: true }).click();
   await page.getByRole('heading', { name: 'Sign in', exact: true }).waitFor();
@@ -292,12 +297,12 @@ test('signing out respects unsaved settings and only logs out after confirmation
 
 test('a failed sign out retains the draft and allows a retry', async t => {
   const { page } = await fixture(t, { logoutFailure: true });
-  await page.goto(base + '/settings/general');
-  await page.getByLabel('Host name', { exact: true }).fill('Still editing');
+  await page.goto(base + '/settings/pc');
+  await page.getByLabel('PC name', { exact: true }).fill('Still editing');
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Leave', exact: true }).click();
   await page.getByText(/Signing out failed: Host temporarily unavailable/).waitFor();
-  assert.equal(await page.getByLabel('Host name', { exact: true }).inputValue(), 'Still editing');
+  assert.equal(await page.getByLabel('PC name', { exact: true }).inputValue(), 'Still editing');
   assert.equal(await page.getByRole('button', { name: 'Sign out', exact: true }).isEnabled(), true);
 });
 
@@ -316,7 +321,7 @@ test('small-screen navigation scrolls, supports Escape, and moves focus to the d
   assert.equal(await menu.evaluate(element => element === document.activeElement), true);
   await menu.click();
   await nav(page, 'Settings');
-  await page.getByLabel('Host name', { exact: true }).waitFor();
+  await page.getByLabel('PC name', { exact: true }).waitFor();
   assert.equal(await menu.getAttribute('aria-expanded'), 'false');
   assert.equal(await page.locator('main').evaluate(element => element === document.activeElement), true);
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
@@ -337,7 +342,7 @@ test('keyboard users can skip navigation and malformed URLs keep the console usa
   });
   await page.getByRole('heading', { name: 'Page not found', exact: true }).waitFor();
   await nav(page, 'Settings');
-  await page.getByLabel('Host name', { exact: true }).waitFor();
+  await page.getByLabel('PC name', { exact: true }).waitFor();
 });
 
 test('the sidebar groups tools, names each theme choice and copies the host address', async t => {
@@ -390,7 +395,7 @@ test('the sidebar groups tools, names each theme choice and copies the host addr
 });
 
 test('notice links stay in the sentence, disclosures share one chevron, header actions sit on the title line', async t => {
-  const { page } = await fixture(t);
+  const { page } = await fixture(t, { apps: [{ uuid: 'portal', name: 'Portal 2' }, { uuid: 'hades', name: 'Hades II' }] });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(base + '/devices');
   const summary = page.locator('summary', { hasText: 'Other ways to pair' });
@@ -411,10 +416,14 @@ test('notice links stay in the sentence, disclosures share one chevron, header a
   });
   assert.equal(height.display, 'block');
   assert(height.link < height.line * 1.5, `link ${height.link}px on ${height.line}px lines`);
-  // Actions are centred on the h1 with the subtitle below, also without a subtitle.
-  for (const [width, route] of [[1440, '/settings'], [1440, '/']]) {
+  // Actions are centred on the h1 with the subtitle below, also without a subtitle (a game's editor).
+  const editor = async () => {
+    await page.goto(base + '/library/portal');
+    await page.getByRole('button', { name: 'Move later' }).waitFor();
+  };
+  for (const [width, route] of [[1440, '/settings'], [1440, '/library/portal']]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.goto(base + route);
+    if (route === '/library/portal') await editor(); else await page.goto(base + route);
     const header = page.locator('.page-header');
     const [title, actions] = await Promise.all([header.locator('h1').boundingBox(), header.locator('.actions').boundingBox()]);
     assert(Math.abs(title.y + title.height / 2 - (actions.y + actions.height / 2)) <= 2, `${route} at ${width}px`);
@@ -424,9 +433,13 @@ test('notice links stay in the sentence, disclosures share one chevron, header a
   await page.goto(base + '/settings');
   const [subtitle, actions] = await Promise.all([page.locator('.page-header .subtitle').boundingBox(), page.locator('.page-header .actions').boundingBox()]);
   assert(actions.y >= subtitle.y + subtitle.height);
+  await editor();
+  const [title, editorActions] = await Promise.all([page.locator('.page-header h1').boundingBox(), page.locator('.page-header .actions').boundingBox()]);
+  assert(editorActions.y >= title.y + title.height, 'actions under the title on a phone');
+  // Home has none: launchers add their games by themselves.
   await page.goto(base + '/');
-  const [title, homeActions] = await Promise.all([page.locator('.page-header h1').boundingBox(), page.locator('.page-header .actions').boundingBox()]);
-  assert(homeActions.y >= title.y + title.height, 'Home actions under the title on a phone');
+  await page.getByRole('heading', { name: 'Home', level: 1 }).waitFor();
+  assert.equal(await page.locator('.page-header .actions').count(), 0);
 });
 
 for (const [playnite, expected] of [
@@ -538,7 +551,8 @@ test('the first panel sits the same distance below the page header on every page
   };
   const devices = await gap('/devices', 'Devices');
   // Help had an empty anchor that added a second grid gap above its first panel.
-  assert.equal(await gap('/maintenance', 'Help'), devices);
+  assert.equal(await gap('/help', 'Help'), devices);
+  assert.equal(await gap('/troubleshoot', 'Troubleshoot'), devices);
 });
 
 test('on a phone, webhook rows line up with their panel title and the header name stays whole', async t => {
@@ -595,9 +609,9 @@ test('a device already waiting for a PIN shows as soon as the console loads', as
   await page.getByLabel('PIN for Waiting phone', { exact: true }).waitFor({ timeout: 2000 });
 });
 
-test('choosing a settings category from the keyboard keeps focus on that category', async t => {
+test('choosing a settings tab from the keyboard keeps focus on that tab', async t => {
   const { page } = await fixture(t);
-  await page.goto(base + '/settings/general');
+  await page.goto(base + '/settings/pc');
   const network = page.getByRole('link', { name: /^Network/ });
   await network.focus();
   await page.keyboard.press('Enter');
@@ -650,43 +664,65 @@ test('the stream card shows present to sent across the metrics, also on a phone'
 
 
 test('Home keeps loading, readiness, host errors and the library order distinct', async t => {
-  const options = { metadata: { paired_devices: 0, encoder_status: { state: 'checking' } },
+  const monitor = { virtual_display_configured: false, displays: [{ active: true, display_name: 'Monitor', width: 1920, height: 1080 }] };
+  const options = { metadata: { paired_devices: 0, encoder_status: { state: 'checking' }, capture_status: monitor },
     apps: ['Fourth', 'First', 'Second', 'Third', 'Fifth'].map((name, index) => ({ name, uuid: String(index) })) };
   const { page, metadata } = await fixture(t, options);
   await page.clock.install();
   await page.goto(base + '/');
-  await page.getByRole('heading', { name: 'Checking this PC…', exact: true }).waitFor();
+  // Pairing needs no encoder: an unpaired PC leads with its two ways while the check runs.
+  const hero = page.getByRole('region', { name: 'PC status' });
+  await hero.getByRole('heading', { name: 'Let’s connect your device', exact: true }).waitFor();
+  await hero.getByRole('heading', { name: 'Scan with Nightjar', exact: true }).waitFor();
+  await hero.getByRole('heading', { name: 'Moonlight and other apps', exact: true }).waitFor();
   assert.equal(await page.getByRole('heading', { name: 'Ready to play', exact: true }).count(), 0);
-  metadata.encoder_status = { state: 'ready', h264: true };
-  metadata.capture_status = { virtual_display_configured: false, displays: [{ active: true, display_name: 'Monitor', width: 1920, height: 1080 }] };
-  await page.clock.runFor(30_100);
-  await page.getByRole('heading', { name: 'Let’s connect your device', exact: true }).waitFor();
-  await page.getByRole('heading', { name: 'Get started', exact: true }).waitFor();
-  assert.deepEqual(await page.locator('.game-shelf strong').allTextContents(), ['Fourth', 'First', 'Second', 'Third']);
+  assert.deepEqual(await page.locator('.game-shelf strong').allTextContents(), ['Fourth', 'First', 'Second', 'Third', 'Fifth']);
   metadata.paired_devices = 1;
   await page.clock.runFor(30_100);
+  await page.getByRole('heading', { name: 'Checking this PC…', exact: true }).waitFor();
+  assert.equal(await page.getByRole('heading', { name: 'Scan with Nightjar', exact: true }).count(), 0);
+  metadata.encoder_status = { state: 'ready', h264: true };
+  await page.clock.runFor(30_100);
   await page.getByRole('heading', { name: 'Ready to play', exact: true }).waitFor();
-  assert.equal(await page.getByRole('heading', { name: 'Get started', exact: true }).count(), 0);
   options.metadataError = true;
   await page.clock.runFor(30_100);
-  await page.getByRole('heading', { name: 'Cannot check the host', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Can’t reach this PC', exact: true }).waitFor();
   assert.equal(await page.getByRole('heading', { name: 'Ready to play', exact: true }).count(), 0);
   options.metadataError = false;
   metadata.encoder_status = { state: 'failed', h264: false };
   await page.getByRole('button', { name: 'Retry', exact: true }).click();
-  await page.getByRole('heading', { name: 'This PC needs attention', exact: true }).waitFor();
-  // The checks are already on the page: the hero's one View checks scrolls to them, and
-  // the footer toggle offers the PC's details instead of a second View checks.
-  const hero = page.getByRole('region', { name: 'Host status' });
-  assert.equal(await hero.getByRole('button', { name: 'View checks', exact: true }).count(), 1);
+  await page.getByRole('heading', { name: 'No video encoder', exact: true }).waitFor();
+  // The hero names the one problem and leads to its settings; no second list repeats it.
+  assert.equal(await hero.getByRole('link', { name: 'Encoder settings', exact: true }).getAttribute('href'), '/settings/picture');
+  assert.equal(await page.getByRole('heading', { name: 'Needs attention', exact: true }).count(), 0);
   const details = hero.getByRole('button', { name: 'PC details', exact: true });
   assert.equal(await details.getAttribute('aria-expanded'), 'false');
-  await hero.getByRole('button', { name: 'View checks', exact: true }).click();
-  await page.getByRole('heading', { name: 'Needs attention', exact: true }).waitFor();
-  assert.equal(await details.getAttribute('aria-expanded'), 'false', 'View checks must not toggle the details');
   await details.click();
   await page.getByRole('heading', { name: 'This PC', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Needs attention', exact: true }).waitFor();
   await hero.getByRole('button', { name: 'Hide PC details', exact: true }).waitFor();
+});
+
+test('a device that pairs while Home shows the code becomes its card, and Home is ready to play', async t => {
+  const clients = [];
+  const { page, metadata } = await fixture(t, { clients,
+    metadata: { paired_devices: 0, capture_status: { virtual_display_configured: false, displays: [{ active: true, display_name: 'Monitor' }] } } });
+  await page.clock.install();
+  await page.goto(base + '/');
+  const hero = page.getByRole('region', { name: 'PC status' });
+  await hero.getByRole('heading', { name: 'Let’s connect your device', exact: true }).waitFor();
+  // The first device gets everything, so there is nothing to choose yet.
+  assert.equal(await page.getByRole('group', { name: 'This device can' }).count(), 0);
+  clients.push({ uuid: 'pixel', name: 'Pixel 9', enabled: true, perm: 0x071f1f00 });
+  metadata.paired_devices = 1;
+  await page.clock.runFor(5_100);
+  await hero.getByRole('heading', { name: 'Pixel 9 is ready', exact: true }).waitFor();
+  await hero.getByRole('heading', { name: 'Ready to play', exact: true }).waitFor();
+  assert.equal(await hero.getByRole('heading', { name: 'Scan with Nightjar', exact: true }).count(), 0);
+  assert.equal(await page.getByRole('group', { name: 'This device can' }).count(), 0, 'the choice waits while the card shows');
+  await hero.getByRole('button', { name: 'Pair another device', exact: true }).click();
+  await hero.getByRole('heading', { name: 'Scan with Nightjar', exact: true }).waitFor();
+  await page.getByRole('group', { name: 'This device can' }).waitFor();
 });
 
 test('PIN submission waits for actual paired-device confirmation and keeps view-only permissions', async t => {
@@ -725,7 +761,7 @@ test('the host control checkbox drives the saved flag and keeps its section open
   await page.goto(base + '/devices');
   await page.getByRole('button', { name: 'Settings Phone', exact: true }).click();
   await page.getByText('Custom permissions', { exact: true }).click();
-  const box = page.getByLabel('Host control: change Radeon settings and close games from this device', { exact: true });
+  const box = page.getByLabel('Host control: change graphics driver settings and close games from this device', { exact: true });
   assert.equal(await box.isChecked(), false);
   const section = page.locator('details').filter({ has: page.locator('summary', { hasText: 'Custom permissions' }) });
   await box.check();
@@ -752,7 +788,7 @@ test('console journeys reflow across themes and screen sizes with usable buttons
     await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' });
     for (const viewport of [{ width: 1440, height: 900 }, { width: 834, height: 1112 }, { width: 390, height: 844 }, { width: 720, height: 450 }]) {
       await page.setViewportSize(viewport);
-      for (const [route, heading] of [['/', 'Home'], ['/devices', 'Devices'], ['/settings/display', 'All settings'], ['/settings', 'Settings'], ['/library/new', 'New app'], ['/maintenance', 'Help']]) {
+      for (const [route, heading] of [['/', 'Home'], ['/devices', 'Devices'], ['/settings/picture', 'All settings'], ['/settings/advanced', 'All settings'], ['/settings', 'Settings'], ['/library/new', 'New app'], ['/help', 'Help'], ['/troubleshoot', 'Troubleshoot']]) {
         await page.goto(base + route);
         await page.getByRole('heading', { name: heading, exact: true, level: 1 }).waitFor();
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), colorScheme + ' ' + viewport.width + ' ' + route);
@@ -776,7 +812,7 @@ test('login and account setup remain readable on mobile in both themes', async t
     for (const colorScheme of ['light', 'dark']) {
       await page.emulateMedia({ colorScheme });
       await page.goto(base + '/');
-      await page.getByRole('heading', { name: credentials ? 'Sign in' : 'Set up this host', exact: true }).waitFor();
+      await page.getByRole('heading', { name: credentials ? 'Sign in' : 'Set up Rubylight', exact: true }).waitFor();
       await page.getByLabel('Username', { exact: true }).fill('fixture-user');
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       for (const input of await page.locator('input:not([type=checkbox])').all()) {

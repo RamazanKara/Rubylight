@@ -99,7 +99,7 @@ impl Canvas {
             ((clip.max.x * ppp).round().max(0.0) as usize).min(self.width),
             ((clip.max.y * ppp).round().max(0.0) as usize).min(self.height),
         ];
-        for tri in mesh.indices.chunks_exact(3) {
+        for tri in mesh.indices.as_chunks::<3>().0 {
             let v = [0, 1, 2].map(|k| mesh.vertices[tri[k] as usize]);
             fill_triangle(&mut self.pixels, self.width, clip, texture, v, ppp);
         }

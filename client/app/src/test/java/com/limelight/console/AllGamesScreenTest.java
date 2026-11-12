@@ -479,4 +479,93 @@ public class AllGamesScreenTest {
         assertTrue(grid.isFinishing());
         assertFalse(shadowOf(grid).getNextStartedActivity() != null);
     }
+
+    /** Home's top row on a TV: the tabs in glass, then the PC capsule naming the PC and Search, which a remote reaches along it. */
+    @Test
+    public void onATelevisionTheTopRowHasHomesPcCapsuleAndSearch() {
+        tower(DOOM, HADES, PORTAL);
+        Grid grid = open(null);
+        View row = grid.findViewById(R.id.all_games_top_row);
+        View capsule = grid.findViewById(R.id.all_games_pc);
+        View search = grid.findViewById(R.id.all_games_search);
+        assertEquals(View.VISIBLE, capsule.getVisibility());
+        assertEquals("Tower", ((android.widget.TextView) capsule.findViewById(R.id.home_pc_name)).getText().toString());
+        assertEquals("Tower", capsule.getContentDescription().toString());
+        assertTrue(isInside(row, capsule));
+        assertTrue(isInside(row, search));
+        assertTrue("the tabs stand in glass, as on Home", isInside(grid.findViewById(R.id.all_games_tabs), grid.findViewById(R.id.shell_bar)));
+        ViewGroup tabs = grid.findViewById(R.id.shell_bar_items);
+        assertEquals("right past the last tab is the capsule", R.id.all_games_pc,
+                tabs.getChildAt(tabs.getChildCount() - 1).getNextFocusRightId());
+        assertEquals(R.id.all_games_search, capsule.getNextFocusRightId());
+
+        // One PC: the capsule opens its options, the PCs page's list.
+        capsule.performClick();
+        shadowOf(Looper.getMainLooper()).idle();
+        android.app.Dialog options = org.robolectric.shadows.ShadowDialog.getLatestDialog();
+        assertTrue("the PC's options", options instanceof com.limelight.ui.ActionSheet && options.isShowing());
+        options.dismiss();
+    }
+
+    /** Search on the page: the field takes the top row's place, the grid narrows as one types, and Back brings every game back. */
+    @Test
+    public void searchNarrowsTheGridAndBackBringsEveryGameBack() {
+        tower(DOOM, HADES, PORTAL);
+        Grid grid = open(null);
+        RecyclerView list = list(grid);
+        View search = grid.findViewById(R.id.all_games_search);
+        View bar = grid.findViewById(R.id.home_search_bar);
+        android.widget.EditText field = grid.findViewById(R.id.home_search_field);
+        assertEquals(View.GONE, bar.getVisibility());
+
+        search.performClick();
+        assertEquals(View.VISIBLE, bar.getVisibility());
+        assertEquals("the field takes the row's place", View.INVISIBLE, grid.findViewById(R.id.all_games_top_row).getVisibility());
+        assertTrue(field.hasFocus());
+
+        field.setText("por");
+        shadowOf(Looper.getMainLooper()).idle();
+        assertEquals(1, list.getAdapter().getItemCount());
+        assertEquals("Portal", ((ShelfAdapter) list.getAdapter()).item(0).game.title);
+        field.setText("zelda");
+        shadowOf(Looper.getMainLooper()).idle();
+        assertEquals(0, list.getAdapter().getItemCount());
+        android.widget.TextView empty = grid.findViewById(R.id.all_games_empty);
+        assertEquals(View.VISIBLE, empty.getVisibility());
+        assertEquals(grid.getString(R.string.library_no_matches), empty.getText().toString());
+
+        // A search keeps to the chosen filter.
+        field.setText("");
+        grid.findViewById(R.id.all_games_filters).findViewWithTag("store:steam").performClick();
+        field.setText("o");
+        shadowOf(Looper.getMainLooper()).idle();
+        assertEquals("Doom and Portal are on Steam", 2, list.getAdapter().getItemCount());
+
+        grid.getOnBackPressedDispatcher().onBackPressed();
+        shadowOf(Looper.getMainLooper()).idle();
+        assertEquals(View.GONE, bar.getVisibility());
+        assertEquals(View.VISIBLE, grid.findViewById(R.id.all_games_top_row).getVisibility());
+        assertEquals("every Steam game again", 2, list.getAdapter().getItemCount());
+        assertFalse("Back closed the search, not the screen", grid.isFinishing());
+        assertEquals(View.GONE, grid.findViewById(R.id.all_games_empty).getVisibility());
+    }
+
+    /** A phone keeps its tabs across the top; the capsule and Search stand at the end of the title's line. */
+    @Test
+    @Config(qualifiers = "w411dp-h891dp-xxhdpi")
+    public void onAPhoneTheCapsuleAndSearchStandOnTheTitlesLine() {
+        tower(DOOM, HADES);
+        Grid grid = open(null);
+        View titleRow = grid.findViewById(R.id.all_games_title_row);
+        assertTrue(isInside(titleRow, grid.findViewById(R.id.all_games_pc)));
+        assertTrue(isInside(titleRow, grid.findViewById(R.id.all_games_search)));
+        assertTrue(isInside(grid.findViewById(R.id.all_games_top_row), grid.findViewById(R.id.shell_bar)));
+        assertEquals(View.VISIBLE, grid.findViewById(R.id.all_games_pc).getVisibility());
+
+        grid.findViewById(R.id.all_games_search).performClick();
+        assertEquals("the title's line keeps its title", View.INVISIBLE, grid.findViewById(R.id.all_games_tools).getVisibility());
+        assertEquals(View.VISIBLE, grid.findViewById(R.id.all_games_title).getVisibility());
+        grid.getOnBackPressedDispatcher().onBackPressed();
+        assertEquals(View.VISIBLE, grid.findViewById(R.id.all_games_tools).getVisibility());
+    }
 }

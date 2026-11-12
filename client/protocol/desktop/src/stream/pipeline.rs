@@ -803,7 +803,7 @@ fn packed_map_dropped(setup: &VideoSetup, was_mapped: bool, still_mapped: bool) 
 
 /// The toast for NVDEC pictures that go through memory to the GPU renderer because CUDA's copy into
 /// its Vulkan images could not be set up or failed; the reason, in English, is in the log.
-const CUDA_FALLBACK_TOAST: &str = crate::strings::en("NVDEC pictures can't be copied into the renderer's images on the graphics card, so each one goes through memory, which takes longer. The log says why.");
+const CUDA_FALLBACK_TOAST: &str = crate::strings::en("NVDEC pictures can’t be copied into the renderer’s images on the graphics card, so each one goes through memory, which takes longer. The log says why.");
 
 /// Says once in a toast when `decoder`'s NVDEC pictures went through memory instead of CUDA's copy.
 fn say_cuda_fallback(shared: &Shared, decoder: &mut media::VideoDecoder) {

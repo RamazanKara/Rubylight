@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, type Snippet } from 'svelte';
   import Button from '../Button.svelte';
   import Icon, { type IconName } from '../Icon.svelte';
   import Panel from '../Panel.svelte';
@@ -7,13 +7,15 @@
   import StatusPill from '../StatusPill.svelte';
   import Toggle from '../Toggle.svelte';
   import { api, ApiError, type PowerStatus } from '../../lib/api';
-  import { confirm, failed, notify } from '../../lib/feedback.svelte';
+  import { failed, notify } from '../../lib/feedback.svelte';
   import { ago, marked } from '../../lib/format';
-  import { link } from '../../lib/router.svelte';
   import {
     adapterKind, checkName, checkPowerStatus, checkState, fastStartup, idleSleep, readiness, sleepState, systemNotes, targetState, type Tone,
   } from '../../lib/power';
   import { reason } from './util';
+
+  /** `settings`: the sleep settings, shown above the status (All settings › This PC). */
+  let { title = 'Wake-on-LAN and sleep', id, settings }: { title?: string; id?: string; settings?: Snippet } = $props();
 
   let power = $state<PowerStatus | null>(null);
   let loadError = $state('');
@@ -48,8 +50,8 @@
       if (awaiting && !power.fix.running) {
         const lost = !done || done.at === awaiting.previous;
         awaiting = null;
-        if (lost) notify('The host restarted before it reported the Wake-on-LAN changes. Check again to see the settings now.', 'danger');
-        else if (done.errors.length) notify('Some Wake-on-LAN changes failed. See Wake-on-LAN and sleep.', 'danger');
+        if (lost) notify('Rubylight restarted before it reported the Wake-on-LAN changes. Check again to see the settings now.', 'danger');
+        else if (done.errors.length) notify('Some Wake-on-LAN changes failed. The wake status lists them.', 'danger');
         else notify('Wake-on-LAN changes applied.', 'ok');
       }
     } catch (error) {
@@ -71,12 +73,9 @@
     if (!power || applying || pending) return;
     const turnOff = offered && fastStartupOff;
     const count = changes.length + (turnOff ? 1 : 0);
+    // One click, no confirmation: the host refuses while a stream runs, and
+    // the notice below says the network drops for a few seconds.
     if (!count) return;
-    if (!(await confirm({
-      title: 'Change the wake settings?',
-      message: `Rubylight makes ${count === 1 ? 'this change' : `these ${count} changes`} to Windows. Adapters whose settings change restart, so the network drops for a few seconds and this page may lose the host briefly. Changes are refused while a stream is active or starting.`,
-      confirm: 'Apply changes',
-    }))) return;
     applying = true;
     const previous = power.fix.last?.at ?? null;
     let refresh = false;
@@ -104,10 +103,11 @@
   });
 </script>
 
-<Panel title="Wake-on-LAN and sleep" level={3} description="Wake this PC from a device, and let it sleep when nobody uses it.">
+<Panel {title} {id} level={3} description="Wake this PC from a device, and let it sleep when nobody uses it.">
   {#snippet actions()}
     {#if ready}<StatusPill status={ready.status} label={ready.label} />{/if}
   {/snippet}
+  {#if settings}<div class="settings">{@render settings()}</div>{/if}
   {#if power && ready && idle}
     <div class="stack">
       {#if loadError}<LoadState error={loadError} stale what="the wake status" onretry={() => load(true)} />{/if}
@@ -187,7 +187,6 @@
         <dd>
           <span class="tone-{idle.tone}">{idle.title}</span>
           {#if idle.text}<span class="sub">{idle.text}</span>{/if}
-          <a class="sub" href="/settings/general?setting=sleep_after_idle_minutes" use:link>Change sleep after idle</a>
         </dd>
         <dt>Last sleep</dt>
         <dd>
@@ -202,6 +201,16 @@
 </Panel>
 
 <style>
+  /* Setting rows reach the panel's edges, above the status. */
+  .settings {
+    margin: calc(-1 * var(--space-5)) calc(-1 * var(--space-5)) var(--space-4);
+    border-bottom: 1px solid var(--line);
+  }
+  @media (max-width: 520px) {
+    .settings {
+      margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-4)) var(--space-4);
+    }
+  }
   .fix {
     display: grid;
     gap: var(--space-3);
@@ -264,9 +273,6 @@
     width: fit-content;
     margin-top: 2px;
     color: var(--muted);
-  }
-  a.sub {
-    color: var(--ink-2);
   }
   .lead {
     margin: 0;

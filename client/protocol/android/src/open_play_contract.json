@@ -33,5 +33,50 @@
     "name": "a stream that died young",
     "request": {"op": "stream_end", "connected_ms": 4000, "left_by_player": false},
     "response": {"ok": {"disarm": false}}
+  },
+  {
+    "name": "start screen: Home",
+    "request": {"op": "start_screen", "open": "pcs", "console_home": true},
+    "response": {"ok": {"screen": "home"}}
+  },
+  {
+    "name": "start screen: Show my PCs",
+    "request": {"op": "start_screen", "open": "pcs", "console_home": false},
+    "response": {"ok": {"screen": "pcs"}}
+  },
+  {
+    "name": "start screen: the last game, whatever Home holds",
+    "request": {"op": "start_screen", "open": "last", "console_home": false},
+    "response": {"ok": {"screen": "last"}}
+  },
+  {
+    "name": "start screen: a chosen game",
+    "request": {"op": "start_screen", "open": "chosen", "console_home": true},
+    "response": {"ok": {"screen": "chosen"}}
+  },
+  {
+    "name": "start screen: an unknown value reads as Home",
+    "request": {"op": "start_screen", "open": "tv", "console_home": true},
+    "response": {"ok": {"screen": "home"}}
+  },
+  {
+    "name": "save Home",
+    "request": {"op": "save_start_screen", "screen": "home", "console_home": false},
+    "response": {"ok": {"open": "pcs", "console_home": true}}
+  },
+  {
+    "name": "save Show my PCs",
+    "request": {"op": "save_start_screen", "screen": "pcs", "console_home": true},
+    "response": {"ok": {"open": "pcs", "console_home": false}}
+  },
+  {
+    "name": "save the last game keeps Home",
+    "request": {"op": "save_start_screen", "screen": "last", "console_home": true},
+    "response": {"ok": {"open": "last", "console_home": true}}
+  },
+  {
+    "name": "save a chosen game keeps Home off",
+    "request": {"op": "save_start_screen", "screen": "chosen", "console_home": false},
+    "response": {"ok": {"open": "chosen", "console_home": false}}
   }
 ]

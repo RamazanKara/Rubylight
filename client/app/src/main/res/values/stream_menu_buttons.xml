@@ -4,7 +4,7 @@
     <string name="title_stream_menu_button_x">X in the stream menu</string>
     <string name="title_stream_menu_button_lb">LB in the stream menu</string>
     <string name="title_stream_menu_button_rb">RB in the stream menu</string>
-    <string name="summary_stream_menu_button">What this button runs while the stream menu is open. A selects and B closes the menu.</string>
+    <string name="summary_stream_menu_button">What this button runs while the stream menu is open.</string>
     <string name="stream_menu_button_default">Default</string>
     <string name="stream_menu_button_none">Off</string>
     <!-- The stream menu's first page, in its order (protocol/policy stream_menu::assignable, which a test holds this to). -->
@@ -28,7 +28,6 @@
         <item>@string/stream_tile_diagnostics</item>
         <item>@string/stream_tile_session_graphics</item>
         <item>@string/stream_tile_disconnect</item>
-        <item>@string/stream_tile_end_session</item>
         <item>@string/stream_tile_quit_game</item>
     </string-array>
     <string-array name="stream_menu_button_values" translatable="false">
@@ -51,7 +50,6 @@
         <item>overlay_page</item>
         <item>native_page</item>
         <item>disconnect</item>
-        <item>end_host_session</item>
         <item>quit_game</item>
     </string-array>
 </resources>

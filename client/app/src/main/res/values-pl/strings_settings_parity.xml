@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings shared with desktop Nightjar: Sharper colored text, Controllers, Mouse mode, When Nightjar
+     opens, group names, row hints and notices. -->
+<resources>
+    <string name="title_sharp_color">Ostrzejszy kolorowy tekst</string>
+    <string name="summary_sharp_color">Pełna szczegółowość kolorów, dzięki której kolorowy tekst i cienkie linie pozostają wyraźne.</string>
+    <string-array name="sharp_color_names">
+        <item>Wyłączone</item>
+        <item>Automatycznie</item>
+    </string-array>
+    <string name="title_controllers">Kontrolery</string>
+    <string name="summary_controllers">Wyłączone, wszystkie kontrolery jako jeden gracz albo każdy kontroler jako osobny gracz.</string>
+    <string-array name="controllers_names">
+        <item>Wyłączone</item>
+        <item>Jeden gracz</item>
+        <item>Osobni gracze</item>
+    </string-array>
+    <string-array name="mouse_mode_names">
+        <item>Przechwytywanie</item>
+        <item>Wskaźnik pulpitu</item>
+    </string-array>
+    <string-array name="start_screen_names">
+        <item>Start</item>
+        <item>Pokaż moje komputery</item>
+        <item>Kontynuuj ostatnią grę</item>
+        <item>Wybrana gra</item>
+    </string-array>
+    <string name="summary_host_display_location">Jak komputer umieszcza strumieniowany ekran obok własnych ekranów.</string>
+    <string name="summary_pace_calibration_row">Ustala najszybsze tempo, w jakim klatki PyroWave z komputera docierają w całości.</string>
+    <string name="summary_network_tests">Mierzy ping, jitter i straty pakietów oraz prędkość pobierania, jeśli komputer to obsługuje.</string>
+    <string name="settings_category_touch_mouse">Dotyk i mysz</string>
+    <string name="settings_category_connection">Połączenie</string>
+    <string name="sharp_color_unavailable_pc">Ostrzejszy kolorowy tekst nie jest dostępny z tym komputerem.</string>
+    <string name="sharp_color_unavailable_device">Ostrzejszy kolorowy tekst nie jest dostępny na tym urządzeniu.</string>
+    <string name="sharp_color_stopped">Ostrzejszy kolorowy tekst przestał działać. Ponowne łączenie bez niego.</string>
+    <string name="sharp_color_hdr_dropped">Ten strumień jest w SDR: na tym komputerze HDR nie działa razem z ostrzejszym kolorowym tekstem.</string>
+    <string name="hint_show_onscreen_controls">Dotykowy gamepad nad strumieniem.</string>
+    <string name="hint_mouse_speed">Jak szybko porusza się wskaźnik.</string>
+    <string name="hint_trackpad_speed">Szybkość wskaźnika w trybie dotyku „Touchpad”.</string>
+    <string name="hint_local_cursor_speed">Szybkość wskaźnika w trybie dotyku „Kursor lokalny”.</string>
+    <string name="hint_trackpad_acceleration_curve">O ile dalej sięgają szybkie przesunięcia.</string>
+    <string name="hint_trackpad_momentum_glide">Jak daleko ślizga się wskaźnik.</string>
+    <string name="hint_pc_keyboard_size">Rozmiar ekranowej klawiatury PC.</string>
+    <string name="hint_pc_keyboard_opacity">Jak przezroczysta jest ekranowa klawiatura PC.</string>
+    <string name="hint_vibrate_osc">Urządzenie wibruje po naciśnięciu przycisku ekranowego.</string>
+    <string name="hint_show_guide_button">Dodaje przycisk Guide do sterowania ekranowego.</string>
+    <string name="hint_host_audio">Dźwięk podczas strumieniowania zostaje też w głośnikach komputera.</string>
+    <string name="hint_overlay_position">Róg, w którym znajduje się nakładka wydajności.</string>
+    <string name="summary_reset_all">Przywraca domyślne wartości wszystkich ustawień; komputery, gry, profile i język zostają.</string>
+</resources>

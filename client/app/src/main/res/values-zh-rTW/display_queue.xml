@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_display_queue_recovery">收回顯示佇列延遲</string>
-    <string name="summary_display_queue_recovery">影格節奏為「最低延遲」或「平衡」時：如果螢幕讓某一影格比本串流所需多等待一整次更新，就略過一個影格來消除這段延遲。每次略過都會檢查效果，若略過沒有變化，本次串流中便停止。僅適用於會回報影格顯示時間的裝置。</string>
+    <string name="summary_display_queue_recovery">螢幕讓影格比所需多停留一次更新時，略過一個影格。</string>
 </resources>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="pin_lock_title">PIN 鎖</string>
-    <string name="pin_lock_summary">開啟 Nightjar 或開始串流時要求輸入 PIN。忘記的 PIN 只能透過在 Android 設定中清除 Nightjar 的應用程式資料來重設，這也會移除已配對的電腦。</string>
+    <string name="pin_lock_summary">開啟 Nightjar 或開始串流時要求輸入 PIN。</string>
     <string name="pin_set">設定 PIN</string>
     <string name="pin_change">變更 PIN</string>
     <string name="pin_remove">移除 PIN</string>

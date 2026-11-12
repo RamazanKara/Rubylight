@@ -50,6 +50,7 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             // renames or removes it again.
             app.extra.remove(butterpollo_core::library::SYNCED_BY);
             app.extra.remove(butterpollo_core::native::NOT_INSTALLED);
+            app.extra.remove(LAST_PLAYED);
             if let Some(sync) = next
                 .iter()
                 .find(|a| a.extra.get("uuid") == Some(&uuid))
@@ -662,8 +663,13 @@ pub(super) async fn library(h: &Shared, method: &Method, action: &str, data: &Va
     }
 }
 
+/// When the stores (Steam, Playnite) last saw an app's game played, in seconds since
+/// the epoch: Home's last-played game. Sent with the list, never stored.
+const LAST_PLAYED: &str = "last-played";
+
 /// The apps, each whose launcher game the last scan read and did not find marked
-/// `not-installed`, so the console can offer to remove it.
+/// `not-installed`, so the console can offer to remove it, and each the stores saw
+/// played with its `last-played` time.
 fn apps_with_install_state(h: &Shared) -> anyhow::Result<Value> {
     let scan = crate::library::installed(h);
     let apps = h.apps.read().unwrap();
@@ -676,6 +682,14 @@ fn apps_with_install_state(h: &Shared) -> anyhow::Result<Value> {
             == Some(false)
         {
             value[butterpollo_core::native::NOT_INSTALLED] = json!(true);
+        }
+        // `0` is the stores' never played.
+        if let Some(at) = scan
+            .as_ref()
+            .and_then(|scan| scan.last_played(app))
+            .filter(|at| *at > 0)
+        {
+            value[LAST_PLAYED] = json!(at);
         }
         values.push(value);
     }
@@ -768,6 +782,45 @@ mod tests {
             .find(|app| app.name == "Gone (renamed)")
             .unwrap();
         assert!(!renamed.extra.contains_key("not-installed"));
+    }
+
+    #[test]
+    fn apps_list_says_when_the_stores_last_played_a_game_and_never_stores_it() {
+        let f = Fixture::new();
+        for app in [
+            json!({"name": "Dota 2", "uuid": "dota", "steam-id": "570"}),
+            json!({"name": "Never played", "uuid": "never", "steam-id": "440"}),
+            json!({"name": "Desktop", "uuid": "desktop"}),
+        ] {
+            handle(&f.host, "POST", "/api/apps", &app).unwrap();
+        }
+        crate::library::seed(
+            &f.host,
+            butterpollo_core::native::Scan::new(["steam:570".into(), "steam:440".into()]).playing(
+                [
+                    ("steam:570".to_owned(), 1_700_000_000),
+                    ("steam:440".to_owned(), 0),
+                ],
+            ),
+        );
+        let list = handle(&f.host, "GET", "/api/apps", &json!({})).unwrap();
+        let app = |name: &str| {
+            list["apps"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|app| app["name"] == name)
+                .unwrap()
+                .clone()
+        };
+        assert_eq!(app("Dota 2")["last-played"], json!(1_700_000_000u64));
+        // Never played and no store at all: no time, rather than 0.
+        assert!(app("Never played").get("last-played").is_none());
+        assert!(app("Desktop").get("last-played").is_none());
+        handle(&f.host, "POST", "/api/apps", &app("Dota 2")).unwrap();
+        let stored = f.host.apps.read().unwrap();
+        let dota = stored.iter().find(|app| app.name == "Dota 2").unwrap();
+        assert!(!dota.extra.contains_key("last-played"));
     }
 
     #[test]

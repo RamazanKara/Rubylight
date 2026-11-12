@@ -14,6 +14,7 @@ use egui::{
 use super::design_tokens as t;
 use super::{glass, spring};
 use crate::ambient;
+use crate::theme::{look, shade, Look};
 
 /// Where a page's moon hangs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,6 +74,10 @@ const OVERSCAN: f32 = 0.14;
 const FADE_FROM: f32 = 0.30;
 const FADE_NEAR: f32 = 0.58;
 const FADE_NEAR_ALPHA: f32 = 0.95;
+/// By day the page's light colour lies this strong over a game's ambient: the ambient is baked dark
+/// for white text, and dark text by day needs it light (with it its luminance is 0.5 or more,
+/// Android's `MIN_LUMA_DAY`), the cover's colour still showing through as a tint.
+const DAY_WASH: f32 = 0.65;
 /// How far the moon's glow reaches, in moon radii.
 const MOON_GLOW: f32 = 6.0;
 const RING_FACTORS: [f32; 4] = [ORBIT, 2.5, 3.3, 4.1];
@@ -105,13 +110,15 @@ const MOVE_TUNE: spring::Tune = spring::Tune {
     stiffness: t::MOTION_SHEET_STIFFNESS,
     ratio: t::MOTION_SHEET_RATIO,
 };
-/// The veil where the page passes beneath the chrome: how far it reaches down the window, how much
-/// of the backdrop it brings at the top and behind the brand, how far past the brand its pool goes
-/// and how far the page has scrolled when it is whole.
+/// The veil where the page passes beneath the chrome: how far it reaches down the window, how far
+/// below the capsules it stays whole (the frosted band), how much of the backdrop it brings behind
+/// the brand, how far past the brand its pool goes and how far the page has scrolled when it is
+/// whole. The least reach leaves the band an ease of 48 px under it.
 const VEIL_FRACTION: f32 = 0.19;
-const VEIL_LEAST: f32 = 88.0;
+const VEIL_LEAST: f32 = 126.0;
 const VEIL_MOST: f32 = 190.0;
-const VEIL_TOP_ALPHA: f32 = 0.82;
+const BAND_BELOW: f32 = 10.0;
+const BAND_ROWS: u32 = 4;
 const VEIL_BRAND_ALPHA: f32 = 0.96;
 const VEIL_BRAND_REACH: f32 = 54.0;
 const VEIL_WHOLE_AT: f32 = 40.0;
@@ -265,7 +272,7 @@ impl Ambient {
             }
             _ => ([x, y], 1.0),
         };
-        let key = hash_of(("sky", moon.index(), at.map(f32::to_bits), scale.to_bits()));
+        let key = hash_of(("sky", look(), moon.index(), at.map(f32::to_bits), scale.to_bits()));
         if self.skies.len() > SKY_BAKES_KEPT {
             self.skies.clear();
         }
@@ -596,7 +603,7 @@ impl Ambient {
             return out;
         }
         self.place_pending(ctx, screen);
-        out.push(Shape::rect_filled(screen, 0.0, t::COLOR_CANVAS));
+        out.push(Shape::rect_filled(screen, 0.0, shade::COLOR_CANVAS.get()));
         let backdrop = self.layers(ctx, screen);
         let along = backdrop.top.map_or(1.0, |top| top.alpha);
         let fading = backdrop.base.is_some();
@@ -614,6 +621,9 @@ impl Ambient {
             is_art(self.shows)
         };
         if art > 0.0 {
+            if let Some(wash) = day_wash(screen, art) {
+                out.push(wash);
+            }
             out.push(fade_over(screen, art));
         }
         // The stars stay from sky to sky and come and go with the sky from and to art.
@@ -625,7 +635,7 @@ impl Ambient {
             (false, false) => 0.0,
         };
         if stars_alpha > 0.0 {
-            out.extend(stars(screen, stars_alpha));
+            out.extend(clear_of_tints(stars(screen, stars_alpha), &glass::tinted(ctx)));
         }
         #[cfg(test)]
         let mut moons = Vec::new();
@@ -903,11 +913,18 @@ fn smoothstep(from: f32, to: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-/// How much of the backdrop lies over the page at `p`, with the page fully scrolled: a long ease from
-/// the window's top, and a soft pool behind the brand, which has no glass of its own.
+/// Where the frosted band under the chrome ends: a little below the capsules. Down to here the page
+/// never shows, so nothing reads between the capsules or behind the brand.
+pub(super) fn band_foot(screen: Rect) -> f32 {
+    screen.top() + super::chrome::BAR_TOP + super::chrome::BAR_H + BAND_BELOW
+}
+
+/// How much of the backdrop lies over the page at `p`, with the page fully scrolled: all of it in
+/// the band behind the chrome, then a soft ease to nothing, and a pool behind the brand, which has
+/// no glass of its own.
 fn veil_at(screen: Rect, brand: Rect, p: Pos2) -> f32 {
     let foot = screen.top() + veil_height(screen);
-    let ramp = VEIL_TOP_ALPHA * (1.0 - smoothstep(screen.top(), foot, p.y));
+    let ramp = 1.0 - smoothstep(band_foot(screen), foot, p.y);
     let reach = brand.size() / 2.0 + vec2(VEIL_BRAND_REACH, VEIL_BRAND_REACH * 0.7);
     let away = (p - brand.center()) / reach;
     let pool = VEIL_BRAND_ALPHA * (1.0 - smoothstep(0.5, 1.0, away.length()));
@@ -921,9 +938,10 @@ fn veil_height(screen: Rect) -> f32 {
 
 impl Ambient {
     /// Where the page passes beneath the chrome it dissolves into the backdrop: the same textures in
-    /// the same place, laid over the page, so with nothing passing there it cannot be seen at all and
-    /// over a bright cover it is a long soft ramp, never a bar. `brand` keeps its words readable.
-    /// None with the page at its start.
+    /// the same place, laid over the page, so with nothing passing there it cannot be seen at all.
+    /// Behind the capsules it is whole, a frosted band, so nothing shows between them; below them it
+    /// eases away, never a hard edge. `brand` keeps its words readable. None with the page at its
+    /// start.
     pub(super) fn veil(
         &self,
         ctx: &Context,
@@ -937,9 +955,12 @@ impl Ambient {
         }
         let alpha = |p: Pos2| veil_at(screen, brand, p) * strength;
         let foot = screen.top() + veil_height(screen).max(brand.bottom() + VEIL_BRAND_REACH);
-        // Rows close enough for the ease; columns only where the pool bends, the ramp is level.
-        let rows: Vec<f32> = (0..=VEIL_ROWS)
-            .map(|i| egui::lerp(screen.top()..=foot, i as f32 / VEIL_ROWS as f32))
+        // A few rows through the band, which is level, and rows close enough for the ease below it;
+        // columns only where the pool bends.
+        let band = band_foot(screen).min(foot);
+        let rows: Vec<f32> = (0..BAND_ROWS)
+            .map(|i| egui::lerp(screen.top()..=band, i as f32 / BAND_ROWS as f32))
+            .chain((0..=VEIL_ROWS).map(|i| egui::lerp(band..=foot, i as f32 / VEIL_ROWS as f32)))
             .collect();
         let mut columns: Vec<f32> = (0..=VEIL_COLUMNS)
             .map(|i| {
@@ -982,7 +1003,7 @@ impl Ambient {
         let behind = self.fade.layers(ctx);
         let mut out = Vec::new();
         if behind.base.is_none() && behind.top.is_none() {
-            out.push(grid(TextureId::default(), None, 1.0, t::COLOR_CANVAS));
+            out.push(grid(TextureId::default(), None, 1.0, shade::COLOR_CANVAS.get()));
         }
         for layer in [behind.base, behind.top].into_iter().flatten() {
             out.push(grid(
@@ -992,10 +1013,19 @@ impl Ambient {
                 Color32::WHITE,
             ));
         }
+        // The page's wash over art by day, as the backdrop has it under the page.
+        if look() == Look::Day {
+            let along = behind.top.map_or(1.0, |top| top.alpha);
+            let is_art = |shows: Option<Shows>| f32::from(u8::from(shows == Some(Shows::Art)));
+            let art = if behind.base.is_some() { egui::lerp(is_art(self.before)..=is_art(self.shows), along) } else { is_art(self.shows) };
+            if art > 0.0 {
+                out.push(grid(TextureId::default(), None, DAY_WASH * art, shade::COLOR_CANVAS.get()));
+            }
+        }
         // What the sky has over its texture comes back with it.
         if let Some(Shows::Sky(_)) = self.shows {
             let along = behind.top.map_or(1.0, |top| top.alpha);
-            sky_through_veil(&mut out, screen, self.disc, along, foot, &alpha);
+            sky_through_veil(&mut out, screen, self.disc, along, foot, &alpha, &glass::tinted(ctx));
         }
         out
     }
@@ -1011,8 +1041,9 @@ fn sky_through_veil(
     along: f32,
     foot: f32,
     alpha: &dyn Fn(Pos2) -> f32,
+    tinted: &[Rect],
 ) {
-    for star in stars(screen, along) {
+    for star in clear_of_tints(stars(screen, along), tinted) {
         if let Shape::Circle(mut circle) = star {
             if circle.center.y < foot {
                 let over = alpha(circle.center);
@@ -1024,7 +1055,7 @@ fn sky_through_veil(
     let Some((center, r)) = disc else {
         return;
     };
-    let ink = t::SKY_RING.gamma_multiply(along);
+    let ink = shade::SKY_RING.get().gamma_multiply(along);
     let mut mesh = Mesh::default();
     for factor in RING_FACTORS {
         let radius = r * factor;
@@ -1082,7 +1113,7 @@ fn paint_moon(out: &mut Vec<Shape>, ctx: &Context, center: Pos2, r: f32, alpha: 
         out.push(Shape::circle_stroke(
             center,
             r * factor,
-            Stroke::new(1.0, t::SKY_RING.gamma_multiply(alpha)),
+            Stroke::new(1.0, shade::SKY_RING.get().gamma_multiply(alpha)),
         ));
     }
     let disc = Rect::from_center_size(center, Vec2::splat(r * 2.0));
@@ -1095,6 +1126,12 @@ fn paint_moon(out: &mut Vec<Shape>, ctx: &Context, center: Pos2, r: f32, alpha: 
         ],
     );
     glass::shaded(out, ctx, disc, r, &[0.25, 0.5, 0.75], &lit);
+}
+
+/// By day, the page's light colour over a game's ambient, as strong as the art shows
+/// ([`DAY_WASH`]); none in the other looks.
+fn day_wash(screen: Rect, strength: f32) -> Option<Shape> {
+    (look() == Look::Day).then(|| Shape::rect_filled(screen, 0.0, shade::COLOR_CANVAS.get().gamma_multiply(DAY_WASH * strength)))
 }
 
 /// The page's colour rising over the ambient, so shelves sit on a calm ground.
@@ -1114,9 +1151,9 @@ fn fade_over(screen: Rect, strength: f32) -> Shape {
     row(
         &mut mesh,
         at(FADE_NEAR),
-        t::TINT_FADE.gamma_multiply(FADE_NEAR_ALPHA),
+        shade::TINT_FADE.get().gamma_multiply(FADE_NEAR_ALPHA),
     );
-    row(&mut mesh, at(1.0), t::TINT_FADE);
+    row(&mut mesh, at(1.0), shade::TINT_FADE.get());
     for r in 0..2u32 {
         let a = r * 2;
         mesh.indices.extend([a, a + 1, a + 3, a, a + 3, a + 2]);
@@ -1124,8 +1161,25 @@ fn fade_over(screen: Rect, strength: f32) -> Shape {
     Shape::mesh(mesh)
 }
 
-/// A few faint stars, the same every frame.
+/// The stars that no see-through tint lies over: a tint blurs nothing, so a star under a card or a
+/// button would read as a speck on it rather than the sky behind glass.
+fn clear_of_tints(stars: Vec<Shape>, tinted: &[Rect]) -> Vec<Shape> {
+    stars
+        .into_iter()
+        .filter(|star| match star {
+            Shape::Circle(circle) => !tinted
+                .iter()
+                .any(|rect| rect.expand(circle.radius + 1.0).contains(circle.center)),
+            _ => true,
+        })
+        .collect()
+}
+
+/// A few faint stars, the same every frame; none by day, whose sky has a low sun instead.
 fn stars(screen: Rect, strength: f32) -> Vec<Shape> {
+    if look() == Look::Day {
+        return Vec::new();
+    }
     let mut seed = 0x2F6E_2B1Du32;
     let mut next = move || {
         seed ^= seed << 13;
@@ -1177,6 +1231,50 @@ mod tests {
             texture: texture.clone(),
             glow: Color32::from_rgba_premultiplied(60, 20, 20, 60),
         }
+    }
+
+    fn star_heights(shapes: &[Shape]) -> Vec<f32> {
+        shapes
+            .iter()
+            .filter_map(|shape| match shape {
+                Shape::Circle(circle) if circle.radius < 2.0 && circle.fill.a() > 0 => {
+                    Some(circle.center.y)
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// pcs-1280x800 had a star by the S of a PC's name and game-1280x800 one inside Favourite: a
+    /// tint blurs nothing, so no star is painted under one, and the open sky keeps its stars.
+    #[test]
+    fn no_star_shows_through_a_see_through_tint() {
+        crate::theme::own_palette();
+        let ctx = Context::default();
+        let mut ambient = Ambient::default();
+        frame(&ctx, &mut ambient, Want::Sky(Moon::High), 0.0);
+        let bare = frame(&ctx, &mut ambient, Want::Sky(Moon::High), 5.0);
+        assert!(star_heights(&bare).len() > 10, "the sky has its stars");
+        let mut shapes = Vec::new();
+        let mut half = 0.0;
+        let output = ctx.run_ui(
+            egui::RawInput {
+                time: Some(5.1),
+                ..Default::default()
+            },
+            |ui| {
+                let screen = ui.ctx().content_rect();
+                half = screen.center().y;
+                let card = Rect::from_min_max(screen.min, pos2(screen.right(), half));
+                glass::group(&mut Vec::new(), ui.ctx(), card, 12.0, Color32::from_black_alpha(80));
+                shapes = ambient.paint(ui.ctx(), Want::Sky(Moon::High));
+            },
+        );
+        let mut delta = output.textures_delta;
+        delta.clear();
+        let left = star_heights(&shapes);
+        assert!(left.len() < star_heights(&bare).len(), "the tint hid some");
+        assert!(left.iter().all(|y| *y > half), "none under the tint: {left:?}");
     }
 
     /// The orbit is the only thing that asks for frames at rest, and only while discovery runs.
@@ -1391,28 +1489,29 @@ mod tests {
         delta.clear();
     }
 
-    /// A long ramp, not a bar: no step between rows anywhere, half gone by the foot of the top bar.
+    /// The audit's flaw: a settings row and a cover read between the capsules and behind the logo.
+    /// Behind the chrome the band is whole, then it eases away with no step anywhere.
     #[test]
-    fn the_veil_eases_away_and_stays_deepest_behind_the_brand() {
-        let screen = Rect::from_min_size(Pos2::ZERO, vec2(1280.0, 800.0));
-        let brand = Rect::from_min_size(pos2(48.0, 29.0), vec2(118.0, 30.0));
-        let at = |x: f32, y: f32| veil_at(screen, brand, pos2(x, y));
-        let mut last = at(800.0, 0.0);
-        for y in 1..200 {
-            let here = at(800.0, y as f32);
-            assert!(
-                here <= last && last - here < 0.02,
-                "at {y}: {last} to {here}"
-            );
-            last = here;
+    fn the_band_behind_the_chrome_is_whole_and_then_eases_away() {
+        for height in [600.0, 800.0, 1080.0] {
+            let screen = Rect::from_min_size(Pos2::ZERO, vec2(1280.0, height));
+            let brand = Rect::from_min_size(pos2(48.0, 29.0), vec2(118.0, 30.0));
+            let at = |x: f32, y: f32| veil_at(screen, brand, pos2(x, y));
+            let bar_bottom = super::super::chrome::BAR_TOP + super::super::chrome::BAR_H;
+            for y in 0..=bar_bottom as i32 {
+                for x in [0.0, 400.0, 800.0, 1279.0] {
+                    assert_eq!(at(x, y as f32), 1.0, "{height}: nothing shows at {x}, {y}");
+                }
+            }
+            let mut last = at(800.0, 0.0);
+            for y in 1..250 {
+                let here = at(800.0, y as f32);
+                assert!(here <= last && last - here < 0.035, "{height} at {y}: {last} to {here}");
+                last = here;
+            }
+            assert_eq!(at(800.0, veil_height(screen)), 0.0);
+            assert!(band_foot(screen) + 40.0 <= veil_height(screen), "{height}: an ease, not an edge");
         }
-        assert!(at(800.0, 68.0) < 0.6, "{}", at(800.0, 68.0));
-        assert_eq!(at(800.0, veil_height(screen)), 0.0);
-        assert!(at(100.0, 44.0) > 0.9, "the wordmark stands on the backdrop");
-        assert!(
-            at(800.0, 44.0) < 0.75,
-            "what passes under the glass still shows"
-        );
     }
 
     #[test]

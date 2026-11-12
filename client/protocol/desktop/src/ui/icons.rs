@@ -40,9 +40,9 @@ pub enum Icon {
     Mic,
     Lock,
     Video,
-    Sun,
     Speaker,
-    Wifi,
+    Network,
+    Terminal,
     App,
     Close,
     Check,
@@ -75,22 +75,23 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             painter.rect_stroke(Rect::from_min_max(p(2.8, 6.2), p(15.4, 17.8)), CornerRadius::same((3.0 * s) as u8), stroke, StrokeKind::Middle);
             closed(vec![p(15.4, 11.0), p(21.2, 7.4), p(21.2, 16.6), p(15.4, 13.0)]);
         }
-        Icon::Sun => {
-            ring(12.0, 12.0, 4.2);
-            for i in 0..8 {
-                let a = i as f32 * TAU / 8.0;
-                line(vec![p(12.0 + 7.0 * a.cos(), 12.0 + 7.0 * a.sin()), p(12.0 + 9.6 * a.cos(), 12.0 + 9.6 * a.sin())]);
-            }
+        // Android's ic_terminal: a window with a prompt.
+        Icon::Terminal => {
+            closed(vec![p(3.0, 4.0), p(21.0, 4.0), p(21.0, 20.0), p(3.0, 20.0)]);
+            line(vec![p(6.0, 8.0), p(10.0, 12.0), p(6.0, 16.0)]);
+            line(vec![p(13.0, 16.0), p(18.0, 16.0)]);
         }
         Icon::Speaker => {
             closed(vec![p(3.4, 9.4), p(7.4, 9.4), p(12.2, 5.2), p(12.2, 18.8), p(7.4, 14.6), p(3.4, 14.6)]);
             line(arc(12.2, 12.0, 4.4, -0.8, 0.8));
             line(arc(12.2, 12.0, 8.2, -0.8, 0.8));
         }
-        Icon::Wifi => {
-            line(arc(12.0, 19.2, 7.2, -2.4, -0.74));
-            line(arc(12.0, 19.2, 12.8, -2.4, -0.74));
-            dot(12.0, 19.0, 1.5);
+        // Android's ic_network: bars rising from a baseline, for Ethernet as much as Wi-Fi.
+        Icon::Network => {
+            line(vec![p(3.0, 18.0), p(6.0, 18.0)]);
+            closed(vec![p(8.0, 14.0), p(11.0, 14.0), p(11.0, 18.0), p(8.0, 18.0)]);
+            closed(vec![p(13.0, 10.0), p(16.0, 10.0), p(16.0, 18.0), p(13.0, 18.0)]);
+            closed(vec![p(18.0, 5.0), p(21.0, 5.0), p(21.0, 18.0), p(18.0, 18.0)]);
         }
         Icon::App => {
             painter.rect_stroke(Rect::from_min_max(p(3.6, 3.6), p(20.4, 20.4)), CornerRadius::same((5.0 * s) as u8), stroke, StrokeKind::Middle);
@@ -159,11 +160,14 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
         }
         Icon::Moon => closed(crescent(&p)),
         Icon::Folder => closed(vec![p(3.0, 6.0), p(9.5, 6.0), p(11.5, 8.5), p(21.0, 8.5), p(21.0, 19.0), p(3.0, 19.0)]),
+        // Android's ic_tune: two tracks, each broken by its knob.
         Icon::Sliders => {
-            for (y, knob) in [(6.5, 15.5), (12.0, 8.5), (17.5, 14.0)] {
-                line(vec![p(3.5, y), p(20.5, y)]);
-                dot(knob, y, 2.6);
-            }
+            line(vec![p(4.0, 7.0), p(13.0, 7.0)]);
+            line(vec![p(17.0, 7.0), p(20.0, 7.0)]);
+            line(vec![p(15.0, 5.0), p(15.0, 9.0)]);
+            line(vec![p(4.0, 17.0), p(7.0, 17.0)]);
+            line(vec![p(11.0, 17.0), p(20.0, 17.0)]);
+            line(vec![p(9.0, 15.0), p(9.0, 19.0)]);
         }
         Icon::Info => {
             ring(12.0, 12.0, 9.0);
@@ -371,7 +375,7 @@ fn gear(p: &impl Fn(f32, f32) -> Pos2) -> Vec<Pos2> {
 mod tests {
     use super::*;
 
-    const ALL: [Icon; 27] = [
+    const ALL: [Icon; 29] = [
         Icon::Search,
         Icon::Down,
         Icon::Gamepad,
@@ -399,6 +403,8 @@ mod tests {
         Icon::Dots,
         Icon::Back,
         Icon::Lock,
+        Icon::Network,
+        Icon::Terminal,
     ];
 
     #[test]

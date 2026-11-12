@@ -249,7 +249,7 @@ public class PcViewLifecycleTest {
             }
             assertEquals(java.util.List.of("Zen", "Office", "PC", "Attic", "Basement"), order);
             assertEquals(java.util.List.of(screen.getString(R.string.pc_status_playing_unknown),
-                    screen.getString(R.string.pc_status_ready), screen.getString(R.string.pc_needs_pairing),
+                    screen.getString(R.string.pc_status_online), screen.getString(R.string.pc_status_not_paired),
                     screen.getString(R.string.pc_offline), screen.getString(R.string.pc_offline)), status);
 
             // The running game is named once the PC's app list has it.
@@ -390,7 +390,7 @@ public class PcViewLifecycleTest {
             ComputerDetails awake = new ComputerDetails(asleep);
             awake.state = ComputerDetails.State.ONLINE;
             report(awake);
-            assertEquals(screen.getString(R.string.pc_status_ready),
+            assertEquals(screen.getString(R.string.pc_status_online),
                     com.limelight.grid.PcGridAdapter.statusText(screen, computer));
             report(asleep);
             assertEquals(screen.getString(R.string.pc_offline),

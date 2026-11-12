@@ -66,7 +66,7 @@
 
     <!-- Bitrate on mobile data (Settings → Video) -->
     <string name="title_mobile_bitrate">移动数据码率</string>
-    <string name="summary_mobile_bitrate">在移动数据或被 Android 标记为按流量计费的 Wi-Fi（例如手机热点）上开始串流时限制码率。配置、电脑和游戏的值也同样受此限制。关闭时使用与其他网络相同的码率。</string>
+    <string name="summary_mobile_bitrate">串流在移动数据或按流量计费的网络上使用的最高码率。</string>
     <string name="mobile_bitrate_off">关闭</string>
 
     <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->
@@ -95,7 +95,7 @@
     <string name="layers_from_pc">为此电脑设置</string>
     <string name="layers_from_game">为此游戏设置</string>
     <string name="layers_from_mobile_limit">移动数据限制</string>
-    <string name="layers_pacing_vrr">自适应刷新已开启，因此串流使用“最低延迟”。</string>
+    <string name="layers_pacing_vrr">可变刷新率已开启，因此串流使用“最低延迟”。</string>
 
     <!-- In the stream -->
     <string name="layers_applied">设置：%1$s</string>
@@ -117,7 +117,7 @@
     <string name="game_preset_smoothness">流畅</string>
     <string name="game_preset_smoothness_summary">将帧调度设为最流畅（会暂存帧并增加延迟），并为这个游戏关闭自适应刷新率。码率不变。</string>
     <string name="game_preset_quality">画质</string>
-    <string name="game_preset_quality_summary" formatted="false">将码率设为电脑码率的 150%（电脑未设置时取主设置的码率），上限为主机限制。帧调度和自适应刷新率不变；连接较弱时，更大的帧可能增加延迟。</string>
+    <string name="game_preset_quality_summary" formatted="false">将码率设为电脑码率的 150%（电脑未设置时取主设置的码率），上限为电脑的限制。帧调度和自适应刷新率不变；连接较弱时，更大的帧可能增加延迟。</string>
     <string name="game_preset_custom">自定义</string>
     <string name="game_preset_custom_summary">你在下方设置的自定义值。</string>
 </resources>

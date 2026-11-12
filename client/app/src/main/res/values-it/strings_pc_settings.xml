@@ -3,7 +3,7 @@
     <string name="pc_settings_title">Impostazioni PC</string>
     <string name="pc_settings_display">Display sul PC</string>
     <string name="pc_settings_connection">Connessione</string>
-    <string name="pc_settings_host">Host</string>
+    <string name="pc_settings_host">PC</string>
     <string name="pc_settings_needs_online">Disponibile quando il PC è online</string>
     <string name="pc_settings_test_speed">Ping, jitter, perdita e velocità di download</string>
     <string name="pc_settings_test_delay">Ping, jitter e perdita</string>
@@ -11,7 +11,7 @@
     <string name="pc_settings_wake">Wake-on-LAN</string>
     <string name="pc_settings_wake_ready">Questo dispositivo può riattivare il PC dal relativo menu</string>
     <string name="pc_settings_wake_unknown">Accoppia mentre il PC è acceso, poi attiva Wake-on-LAN sul PC</string>
-    <string name="pc_settings_details_summary">Software host, funzionalità e indirizzi</string>
+    <string name="pc_settings_details_summary">App di streaming, funzionalità e indirizzi</string>
     <string name="pc_settings_export_summary">Beacon · ES-DE · Daijisho · Pegasus</string>
     <string name="pc_settings_shortcut">Aggiungi alla schermata Home</string>
     <string name="pc_settings_shortcut_summary">Apre la libreria di questo PC</string>
@@ -20,5 +20,5 @@
     <string name="connection_test_speed">Velocità %1$.1f Mbps</string>
     <string name="connection_test_speed_needs_pairing">Velocità non misurata: prima accoppia questo PC</string>
     <string name="connection_test_speed_no_answer">Velocità non misurata: il PC non ha risposto</string>
-    <string name="connection_test_speed_unsupported">Velocità non misurata: questo host non ha un test di velocità</string>
+    <string name="connection_test_speed_unsupported">Velocità non misurata: questo PC non ha un test di velocità</string>
 </resources>

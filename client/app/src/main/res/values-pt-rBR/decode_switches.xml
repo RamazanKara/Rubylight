@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_submit_hint">Acelerar a entrega de quadros</string>
-    <string name="summary_submit_hint">As dicas de desempenho também incluem a thread que entrega os quadros ao decodificador.</string>
+    <string name="summary_submit_hint">A dica de desempenho também inclui a thread que alimenta o decodificador.</string>
     <string name="title_covering_decoder_size">Preparar o decodificador para dobrar</string>
-    <string name="summary_covering_decoder_size">Dimensiona o decodificador desde o início para a outra tela e para girar, assim dobrar ou girar não exige reinício.</string>
+    <string name="summary_covering_decoder_size">Dimensiona o decodificador para a outra tela, assim dobrar não exige reinício.</string>
     <string name="title_pyrowave_preacquire">PyroWave: imagem de tela antecipada</string>
-    <string name="summary_pyrowave_preacquire">Pega a próxima imagem de tela antes de cada quadro PyroWave chegar, com o ritmo de quadros desligado.</string>
+    <string name="summary_pyrowave_preacquire">Pega a próxima imagem de tela antes de cada quadro PyroWave chegar.</string>
     <string name="title_codec_direct">Dados de vídeo direto ao decodificador</string>
-    <string name="summary_codec_direct">Copia cada quadro uma única vez para o decodificador, sem cópia intermediária. Só com o novo mecanismo de transmissão.</string>
+    <string name="summary_codec_direct">Copia cada quadro uma única vez para o decodificador.</string>
     <string name="title_receive_decode_priority">Prioridade de decodificador ao receber</string>
-    <string name="summary_receive_decode_priority">Novo mecanismo de transmissão: a thread que recebe o vídeo e alimenta o decodificador roda com a prioridade do decodificador.</string>
+    <string name="summary_receive_decode_priority">A thread que recebe o vídeo roda com a prioridade do decodificador.</string>
 </resources>

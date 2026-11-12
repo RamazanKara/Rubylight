@@ -32,7 +32,7 @@ Yes, when this device can reach the host's streaming ports. Pair on the local ne
 
 ## Where do I set device permissions?
 
-In the host's web UI, on hosts with per-device permissions such as Apollo, Vibepollo and Rubylight. Nightjar opens it from an online PC's settings (**Open host web UI** on Android, **Host web UI** on the desktop); sign in with the web UI's own account. Listing apps, viewing, launching, each input type, each clipboard direction and commands are separate permissions. See [pairing](pairing.md#per-device-permissions).
+In the host's web UI, on hosts with per-device permissions such as Apollo, Vibepollo and Rubylight. Nightjar opens it from an online PC's settings (**Open host web UI** on Android, **The PC’s web UI** on the desktop); sign in with the web UI's own account. Listing apps, viewing, launching, each input type, each clipboard direction and commands are separate permissions. See [pairing](pairing.md#per-device-permissions).
 
 ## Does Disconnect close my game?
 
@@ -48,7 +48,7 @@ Start with the automatic codec and the default upscaling. Change them only after
 
 ## Why do I see banding in gradients and skies?
 
-8-bit video can show visible steps in smooth gradients. If the screen has no HDR, or you keep HDR off, turn on **10-bit color (SDR)** in the stream settings. It needs a Main10 HEVC or AV1 decoder on this device and a PC that offers 10-bit; otherwise the stream stays 8-bit and Nightjar says so. The PC's display must be in SDR. See [HDR and color](video-and-latency.md#hdr-and-color).
+8-bit video can show visible steps in smooth gradients. If the screen has no HDR, or you keep HDR off, turn on **Less color banding** (**Settings → Video**). It needs a Main10 HEVC or AV1 decoder on this device and a PC that offers 10-bit; otherwise the stream stays 8-bit and Nightjar says so. The PC's display must be in SDR. See [HDR and color](video-and-latency.md#hdr-and-color).
 
 ## Is the overlay latency the delay I feel?
 

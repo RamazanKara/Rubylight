@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="stream_rate_change">Change bitrate / frame rate</string>
-    <string name="stream_rate_change_help">The host changes the running stream. A value left as it is stays.</string>
+    <string name="stream_rate_change_help">電腦會變更正在執行的串流。未變更的值會維持不變。</string>
     <string name="stream_rate_change_fps">Frame rate (fps)</string>
     <string name="stream_rate_change_fps_invalid">Enter a frame rate from 10 to 500 fps</string>
     <string name="stream_rate_change_nothing">Change the bitrate or the frame rate first</string>
-    <string name="stream_rate_change_not_sent">The change could not be sent to the host.</string>
+    <string name="stream_rate_change_not_sent">無法將變更傳送至電腦。</string>
     <string name="stream_rate_change_stream_ended">The stream ended before the change was sent. Nothing was changed.</string>
     <string name="stream_rate_change_bitrate_applied">Bitrate: %1$.1f Mbps</string>
     <string name="stream_rate_change_bitrate_clamped">Bitrate: %1$.1f Mbps, lower than asked. %2$s</string>
@@ -13,19 +13,19 @@
     <string name="stream_rate_change_fps_applied">Frame rate: %1$s fps</string>
     <string name="stream_rate_change_fps_clamped">Frame rate: %1$s fps, lower than asked. %2$s</string>
     <string name="stream_rate_change_fps_refused">Frame rate not changed, still %1$s fps. %2$s</string>
-    <string name="stream_rate_change_reason_invalid">The host did not accept the value.</string>
-    <string name="stream_rate_change_reason_disabled">The host has these changes turned off.</string>
+    <string name="stream_rate_change_reason_invalid">電腦不接受該值。</string>
+    <string name="stream_rate_change_reason_disabled">電腦已關閉這些變更。</string>
     <string name="stream_rate_change_reason_codec">This stream\'s video format cannot change it while streaming.</string>
-    <string name="stream_rate_change_reason_host_limit">That is the most the host or this device allows.</string>
-    <string name="stream_rate_change_reason_encoder_limit">That is the most the host\'s encoder manages at this resolution.</string>
-    <string name="stream_rate_change_reason_encoder_failed">The host\'s encoder could not run at it, so the stream stayed as it was.</string>
+    <string name="stream_rate_change_reason_host_limit">這已是電腦或此裝置允許的最大值。</string>
+    <string name="stream_rate_change_reason_encoder_limit">這已是電腦的編碼器在此解析度下能達到的最大值。</string>
+    <string name="stream_rate_change_reason_encoder_failed">電腦的編碼器無法以此值執行，因此串流維持原狀。</string>
     <string name="stream_rate_change_reason_superseded">A newer change replaced it.</string>
-    <string name="stream_rate_change_reason_other">The host could not apply it.</string>
-    <string name="stream_rate_change_auto_stopped">Loss-based bitrate stopped for this stream: the host refused a change. %1$s</string>
-    <string name="stream_rate_change_auto_not_sent">Loss-based bitrate stopped for this stream: a change could not be sent to the host.</string>
-    <string name="stream_rate_change_no_answer">The host did not answer the change.</string>
-    <string name="stream_rate_change_auto_no_answer">Loss-based bitrate stopped for this stream: the host did not answer a change.</string>
-    <string name="title_rate_change_bitrate">Loss-based bitrate (Rust engine)</string>
-    <string name="summary_short_rate_change_bitrate">Off: uses Device controls bitrate. On: this device adjusts from frame loss and network delay.</string>
-    <string name="summary_rate_change_bitrate">Nightjar watches frame loss and network delay and asks the host for a lower or higher bitrate, in place of Device controls bitrate. Needs the Rust engine and a host that offers bitrate changes; other streams use Device controls bitrate.</string>
+    <string name="stream_rate_change_reason_other">電腦無法套用此變更。</string>
+    <string name="stream_rate_change_auto_stopped">此串流已停止依封包遺失調整位元速率：電腦拒絕了一項變更。%1$s</string>
+    <string name="stream_rate_change_auto_not_sent">此串流已停止依封包遺失調整位元速率：無法將變更傳送至電腦。</string>
+    <string name="stream_rate_change_no_answer">電腦沒有回應此變更。</string>
+    <string name="stream_rate_change_auto_no_answer">此串流已停止依封包遺失調整位元速率：電腦沒有回應一項變更。</string>
+    <string name="title_rate_change_bitrate">遺失影格時降低位元速率</string>
+    <string name="summary_short_rate_change_bitrate">關閉：套用「網路忙碌時降低位元速率」。開啟：這部裝置依遺失影格和網路延遲調整位元速率。</string>
+    <string name="summary_rate_change_bitrate">一出現遺失影格就降低位元速率。</string>
 </resources>

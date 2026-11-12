@@ -44,7 +44,8 @@
   onMount(load);
 </script>
 
-<Panel title="Crash reports and support bundle" level={3} description="The support bundle has the host logs and the latest crash report. Attach it to a bug report.">
+<!-- Troubleshoot's crash reports. The support bundle carries the latest one; Help offers it too. -->
+<Panel title="Crash reports" level={3}>
   {#snippet actions()}
     {#if crash?.available && !crash.dismissed}<Badge tone="warn">New crash report</Badge>{/if}
   {/snippet}

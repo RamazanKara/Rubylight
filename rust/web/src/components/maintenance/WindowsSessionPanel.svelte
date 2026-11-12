@@ -52,13 +52,13 @@
   onMount(refresh);
 </script>
 
-<Panel title="Windows session" level={3} description="After using Remote Desktop, return this PC's desktop to its screen before reconnecting Moonlight.">
+<Panel title="Windows session" level={3} description="Brings this PC’s desktop back to its own screen after Remote Desktop, so Moonlight can stream it again.">
   <div class="stack">
     {#if error}
       <p class="notice danger" role="alert">Could not check the Windows session: {error}</p>
     {/if}
     {#if requested}
-      <p class="notice" role="status">Return requested. Windows may restart the host while switching sessions. Refresh the status once the host is back, then reconnect Moonlight.</p>
+      <p class="notice" role="status">Return requested. Windows may restart Rubylight while it switches sessions.</p>
     {/if}
     <div class="line">
       <p class="state" class:muted={!recovery?.can_reattach} role="status">{recovery ? recovery.reason : checking ? 'Checking the Windows session…' : ''}</p>

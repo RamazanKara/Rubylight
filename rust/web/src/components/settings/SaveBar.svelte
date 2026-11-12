@@ -45,7 +45,7 @@
         <Button variant="primary" busy={saving} disabled={invalid > 0} onclick={onsave}>Save changes</Button>
       </div>
     {:else}
-      <p class="status" role="status">Saved. Some changes apply after the host restarts.</p>
+      <p class="status" role="status">Saved. Some changes apply after Rubylight restarts.</p>
       <div class="actions">
         <Button icon="refresh" busy={restarting} onclick={onrestart}>Restart now</Button>
         <Button variant="ghost" icon="x" title="Dismiss" onclick={ondismiss}>

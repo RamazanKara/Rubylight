@@ -1,0 +1,62 @@
+[
+  {
+    "name": "off",
+    "request": {"op": "decide", "auto": false, "hdr": false, "sdr10": false, "pyrowave": false, "packed_engine": true, "base": 257, "decodable": 28164, "decoder_reason": "", "host_scm": 1835777, "host_packed": 3, "packed_refused_before": false, "device_modes": null},
+    "response": {"ok": {"pick": "without", "why": "off", "detail": "", "tell": false}}
+  },
+  {
+    "name": "PyroWave",
+    "request": {"op": "decide", "auto": true, "hdr": false, "sdr10": false, "pyrowave": true, "packed_engine": true, "base": 257, "decodable": 28164, "decoder_reason": "", "host_scm": 1835777, "host_packed": 3, "packed_refused_before": false, "device_modes": null},
+    "response": {"ok": {"pick": "without", "why": "pyrowave", "detail": "", "tell": false}}
+  },
+  {
+    "name": "native 4:4:4, no packed check",
+    "request": {"op": "decide", "auto": true, "hdr": false, "sdr10": false, "pyrowave": false, "packed_engine": true, "base": 257, "decodable": 28164, "decoder_reason": "", "host_scm": 1835777, "host_packed": 3, "packed_refused_before": false, "device_modes": null},
+    "response": {"ok": {"pick": "native", "formats": 1281}}
+  },
+  {
+    "name": "native refused by the decoder: the packed check is needed",
+    "request": {"op": "decide", "auto": true, "hdr": false, "sdr10": false, "pyrowave": false, "packed_engine": true, "base": 257, "decodable": 8704, "decoder_reason": "no 4:4:4 profile", "host_scm": 1835777, "host_packed": 3, "packed_refused_before": false, "device_modes": null},
+    "response": {"ok": {"need_device_modes": true}}
+  },
+  {
+    "name": "native refused by the decoder, then packed with the verified modes",
+    "request": {"op": "decide", "auto": true, "hdr": false, "sdr10": false, "pyrowave": false, "packed_engine": true, "base": 257, "decodable": 8704, "decoder_reason": "no 4:4:4 profile", "host_scm": 1835777, "host_packed": 3, "packed_refused_before": false, "device_modes": 1},
+    "response": {"ok": {"pick": "packed", "modes": 1}}
+  },
+  {
+    "name": "HDR packs with a 10-bit mode both sides have",
+    "request": {"op": "decide", "auto": true, "hdr": true, "sdr10": false, "pyrowave": false, "packed_engine": true, "base": 257, "decodable": 28164, "decoder_reason": "", "host_scm": 1835777, "host_packed": 3, "packed_refused_before": false, "device_modes": 3},
+    "response": {"ok": {"pick": "packed", "modes": 2}}
+  },
+  {
+    "name": "HDR without a 10-bit mode in common keeps HDR",
+    "request": {"op": "decide", "auto": true, "hdr": true, "sdr10": false, "pyrowave": false, "packed_engine": true, "base": 257, "decodable": 28164, "decoder_reason": "", "host_scm": 1835777, "host_packed": 3, "packed_refused_before": false, "device_modes": 1},
+    "response": {"ok": {"pick": "without", "why": "hdr", "detail": "", "tell": false}}
+  },
+  {
+    "name": "neither side: the PC encodes no 4:4:4 and offers no packed mode",
+    "request": {"op": "decide", "auto": true, "hdr": false, "sdr10": false, "pyrowave": false, "packed_engine": true, "base": 257, "decodable": 28164, "decoder_reason": "", "host_scm": 769, "host_packed": 0, "packed_refused_before": false, "device_modes": null},
+    "response": {"ok": {"pick": "without", "why": "host", "detail": "", "tell": true}}
+  },
+  {
+    "name": "a decoder without 4:4:4 and a PC without a packed mode: the PC is the limit, no packed check",
+    "request": {"op": "decide", "auto": true, "hdr": false, "sdr10": false, "pyrowave": false, "packed_engine": true, "base": 257, "decodable": 8704, "decoder_reason": "no 4:4:4 profile", "host_scm": 1835777, "host_packed": 0, "packed_refused_before": false, "device_modes": null},
+    "response": {"ok": {"pick": "without", "why": "host", "detail": "", "tell": true}}
+  },
+  {
+    "name": "a decoder without 4:4:4 and a PC that refused packed before: the PC is the limit",
+    "request": {"op": "decide", "auto": true, "hdr": false, "sdr10": false, "pyrowave": false, "packed_engine": true, "base": 257, "decodable": 8704, "decoder_reason": "no 4:4:4 profile", "host_scm": 1835777, "host_packed": null, "packed_refused_before": true, "device_modes": null},
+    "response": {"ok": {"pick": "without", "why": "host", "detail": "", "tell": true}}
+  },
+  {
+    "name": "a PC that packs and a device that takes neither way: the device is the limit",
+    "request": {"op": "decide", "auto": true, "hdr": false, "sdr10": false, "pyrowave": false, "packed_engine": true, "base": 257, "decodable": 8704, "decoder_reason": "no 4:4:4 profile", "host_scm": 1835777, "host_packed": 3, "packed_refused_before": false, "device_modes": 0},
+    "response": {"ok": {"pick": "without", "why": "decoder", "detail": "no 4:4:4 profile", "tell": true}}
+  },
+  {
+    "name": "the classic engine, a decoder without 4:4:4",
+    "request": {"op": "decide", "auto": true, "hdr": false, "sdr10": false, "pyrowave": false, "packed_engine": false, "base": 257, "decodable": 8704, "decoder_reason": "no 4:4:4 profile", "host_scm": 1835777, "host_packed": 3, "packed_refused_before": false, "device_modes": null},
+    "response": {"ok": {"pick": "without", "why": "decoder", "detail": "no 4:4:4 profile", "tell": true}}
+  }
+]

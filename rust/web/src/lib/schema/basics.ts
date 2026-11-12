@@ -53,20 +53,21 @@ const locales: Option[] = [
 const general: Setting[] = [
   {
     key: 'sunshine_name',
-    label: 'Host name',
+    label: 'PC name',
     description:
-      "The name Moonlight shows for this host. Leave it empty to use the PC's name; local network discovery picks up a change after a restart.",
+      'The name your devices show for this PC. Empty uses its Windows name; local network discovery picks up a change after a restart.',
     category: 'general',
-    group: 'Host',
+    group: 'Name and language',
     control: { kind: 'text', placeholder: "This PC's name" },
     default: '',
+    defaultText: 'Its Windows name',
   },
   {
     key: 'locale',
     label: 'Fallback console language',
     description: 'Language used by the fallback console and reported to connected tools. This console is currently available in English only.',
     category: 'general',
-    group: 'Host',
+    group: 'Name and language',
     control: { kind: 'select', options: locales },
     // console/i18n.rs locale: any case, - for _.
     aliases: { match: 'dash' },
@@ -75,10 +76,9 @@ const general: Setting[] = [
   {
     key: 'enable_pairing',
     label: 'Allow pairing',
-    description:
-      'Let new devices pair with this host. Turn it off once your devices are paired; devices already paired keep working.',
-    category: 'general',
-    group: 'Host',
+    description: 'Let new devices pair with this PC. Devices already paired keep working either way.',
+    category: 'network',
+    group: 'Pairing',
     control: { kind: 'toggle' },
     default: true,
   },
@@ -96,7 +96,7 @@ const general: Setting[] = [
     key: 'hide_tray_controls',
     label: 'Hide tray controls',
     description:
-      "Remove the disconnect, restart and quit actions from the tray icon's menu, so people at the PC cannot stop the host from there.",
+      "Remove the disconnect, restart and quit actions from the tray icon's menu, so people at the PC cannot stop Rubylight from there.",
     category: 'general',
     group: 'Tray',
     control: { kind: 'toggle' },
@@ -107,23 +107,33 @@ const general: Setting[] = [
   },
   {
     key: 'update_check_interval',
-    label: 'Update check interval',
-    description:
-      'How often the host looks for a new Rubylight release. Set it to 0 to turn off automatic checks.',
+    label: 'Check for updates',
+    description: 'How often Rubylight looks for a new release. Off also turns off automatic installation.',
     details:
-      'The minimum is 3600 seconds (one hour). 0 also turns off automatic installation; you can still check and install from Updates on the Settings page.',
+      'A custom interval is in seconds, at least 3600 (one hour). Check now under Updates works at any time, even with checks off.',
     category: 'general',
     group: 'Updates',
-    control: { kind: 'number', min: 0, step: 1, unit: 's' },
+    control: {
+      kind: 'number',
+      min: 0,
+      step: 1,
+      unit: 's',
+      presets: [
+        { value: 21600, label: 'Every 6 hours' },
+        { value: 86400, label: 'Daily' },
+        { value: 604800, label: 'Weekly' },
+        { value: 0, label: 'Off' },
+      ],
+    },
     default: 86400,
   },
   {
     key: 'update_check_time',
     label: 'Update check time',
     description:
-      "Look for a new Rubylight release once a day at this time on this PC's clock, in place of the interval. Leave it empty to use the interval.",
+      "Look for a new release once a day at this time on this PC's clock, in place of the interval. Empty uses the interval.",
     details:
-      "With Install updates automatically on, a new release installs after that check, once nothing is streaming. If this PC is off, asleep or streaming at that time, the check runs as soon as it can afterwards. The time follows this PC's time zone and daylight saving time. An Update check interval of 0 still turns off automatic checks; otherwise the interval is not used while a time is set. Check now under Updates on the Settings page works at any time.",
+      "With Install updates automatically on, a new release installs after that check, once nothing is streaming. If this PC is off, asleep or streaming at that time, the check runs as soon as it can afterwards. The time follows this PC's time zone and daylight saving time. Check for updates set to Off still turns off automatic checks; otherwise the interval is not used while a time is set.",
     category: 'general',
     group: 'Updates',
     control: { kind: 'text', time: true },
@@ -133,7 +143,7 @@ const general: Setting[] = [
     key: 'auto_update',
     label: 'Install updates automatically',
     description: 'Download and install new releases on their own while nothing is streaming.',
-    details: 'Only verified releases are downloaded. They install after one minute without streams, pending connections or running host apps. Requires the Windows service and an update check interval above 0. Off by default.',
+    details: 'Only verified releases are downloaded. They install after one minute without streams, pending connections or running apps. Requires the Windows service, and Check for updates on. Off by default.',
     category: 'general',
     group: 'Updates',
     control: { kind: 'toggle' },
@@ -151,12 +161,26 @@ const general: Setting[] = [
   {
     key: 'sleep_after_idle_minutes',
     label: 'Sleep after idle',
-    description: 'Put this PC to sleep when nobody has streamed or used it for this many minutes. 0 turns it off.',
+    description: 'Put this PC to sleep when nobody has streamed or used it for a while.',
     details:
-      'Allowed: 0, or 5 to 1440 minutes. Streams, launches, updates, this console, the keyboard and mouse, and apps that keep Windows awake all count as use. The Settings home shows the countdown and Wake-on-LAN readiness.',
+      'A custom time is 5 to 1440 minutes. Streams, launches, updates, this console, the keyboard and mouse, and apps that keep Windows awake all count as use.',
     category: 'general',
-    group: 'Power',
-    control: { kind: 'number', min: 0, max: 1440, step: 1, unit: 'min' },
+    group: 'Sleep and wake',
+    control: {
+      kind: 'number',
+      min: 0,
+      max: 1440,
+      step: 1,
+      unit: 'min',
+      presets: [
+        { value: 0, label: 'Never' },
+        { value: 15, label: 'After 15 minutes' },
+        { value: 30, label: 'After 30 minutes' },
+        { value: 60, label: 'After 1 hour' },
+        { value: 120, label: 'After 2 hours' },
+        { value: 240, label: 'After 4 hours' },
+      ],
+    },
     default: 0,
   },
   {
@@ -164,20 +188,20 @@ const general: Setting[] = [
     label: 'Sleep with a suspended stream',
     description: 'Let the PC sleep after idle while a stream is suspended or an app launched from a device is still running.',
     category: 'general',
-    group: 'Power',
+    group: 'Sleep and wake',
     control: { kind: 'toggle' },
     default: false,
-    inactiveHint: 'Set Sleep after idle above 0 to use this setting.',
+    inactiveHint: 'Choose a time for Sleep after idle to use this setting.',
     visibleWhen: (values) => Number(values.sleep_after_idle_minutes ?? 0) > 0,
   },
   {
     key: 'min_log_level',
     label: 'Log level',
     description:
-      'How much detail the host writes to its log; changes apply right away. Use Debug when you are preparing a problem report.',
+      'How much detail Rubylight writes to its log; changes apply right away. Debug suits a problem report.',
     details:
       'Information includes encoder settings, display setup and timing lines every 5 seconds. Debug adds GPU scheduling, discovery and probe details; Verbose adds everything.',
-    category: 'general',
+    category: 'advanced',
     group: 'Logging',
     control: {
       kind: 'select',
@@ -221,10 +245,23 @@ const general: Setting[] = [
   {
     key: 'hardware_metrics_interval',
     label: 'Hardware metrics interval',
-    description: 'Minimum time between samples requested by a streaming client, from 500 to 10000 milliseconds.',
+    description: 'The shortest time between two readings a streaming device asks for.',
+    details: 'A custom time is 500 to 10000 milliseconds.',
     category: 'general',
     group: 'Hardware metrics',
-    control: { kind: 'number', min: 500, max: 10000, step: 1, unit: 'ms' },
+    control: {
+      kind: 'number',
+      min: 500,
+      max: 10000,
+      step: 1,
+      unit: 'ms',
+      presets: [
+        { value: 500, label: 'Twice a second' },
+        { value: 1000, label: 'Every second' },
+        { value: 2000, label: 'Every 2 seconds' },
+        { value: 5000, label: 'Every 5 seconds' },
+      ],
+    },
     default: 1000,
     inactiveHint: "Turn on Send hardware metrics to client to use this setting.",
     visibleWhen: (values) => on(values, 'hardware_metrics', false),
@@ -244,11 +281,13 @@ const general: Setting[] = [
   {
     key: 'log_path',
     label: 'Log file',
-    description: "Where the host writes its log. A relative path is inside the host's configuration folder.",
-    category: 'general',
+    description: "Where Rubylight writes its log. A relative path is inside Rubylight's configuration folder.",
+    category: 'advanced',
     group: 'Logging',
-    control: { kind: 'text', placeholder: 'logs/butterpollo.log', mono: true },
-    default: 'logs/butterpollo.log',
+    control: { kind: 'text', placeholder: 'Standard log file', mono: true },
+    // Unset is the standard file in the logs folder: the host names it, the console doesn't.
+    default: '',
+    defaultText: 'The standard log file',
     restart: true,
   },
   {
@@ -256,7 +295,7 @@ const general: Setting[] = [
     label: 'App order for older devices',
     description:
       'Add invisible characters to app names so older versions of Moonlight list apps in your order. This can break scripts and tools that match app names exactly.',
-    category: 'general',
+    category: 'advanced',
     group: 'Compatibility',
     control: { kind: 'toggle' },
     default: false,
@@ -266,7 +305,7 @@ const general: Setting[] = [
     label: 'Whole-number frame rate for commands',
     description:
       'Give commands SUNSHINE_CLIENT_FPS as a whole number, such as 60 instead of 59.940. Turn it on if a script cannot read fractional frame rates.',
-    category: 'general',
+    category: 'advanced',
     group: 'Compatibility',
     control: { kind: 'toggle' },
     default: false,
@@ -277,7 +316,7 @@ const general: Setting[] = [
     description:
       'Let the devices you allow attach their USB devices to this PC during a stream. Each device also needs Allow USB devices.',
     details: 'Needs the usbip-win2 driver on this PC. A device is detached when its stream ends, and every device when this is turned off.',
-    category: 'general',
+    category: 'input',
     group: 'USB devices',
     control: { kind: 'toggle' },
     default: false,
@@ -286,7 +325,7 @@ const general: Setting[] = [
     key: 'usb_max_devices',
     label: 'USB devices at once',
     description: 'How many USB devices this PC takes from devices at the same time.',
-    category: 'general',
+    category: 'input',
     group: 'USB devices',
     control: { kind: 'number', min: 1, max: 16, step: 1 },
     default: 4,
@@ -305,7 +344,7 @@ const network: Setting[] = [
     key: 'port',
     label: 'Base port',
     description:
-      "Moonlight connects on this port, and the host's other ports are counted from it. Change it only if another program needs these ports.",
+      "Moonlight connects on this port, and Rubylight's other ports are counted from it. Change it only if another program needs these ports.",
     details:
       'Moonlight also connects on the port 5 below it, this console uses the next port up, and streams use ports 9, 10, 11 and 21 above it.',
     category: 'network',
@@ -317,7 +356,7 @@ const network: Setting[] = [
   {
     key: 'address_family',
     label: 'IP versions',
-    description: 'Whether the host also accepts connections over IPv6. Ignored when a listen address is set.',
+    description: 'Whether this PC also accepts connections over IPv6. Ignored when a listen address is set.',
     category: 'network',
     group: 'Ports and addresses',
     control: {
@@ -344,7 +383,7 @@ const network: Setting[] = [
   {
     key: 'enable_discovery',
     label: 'Local network discovery',
-    description: 'Announce this host on the local network so Moonlight finds it without typing an address.',
+    description: 'Announce this PC on the local network so Moonlight finds it without typing an address.',
     category: 'network',
     group: 'Discovery and internet',
     control: { kind: 'toggle' },
@@ -452,7 +491,7 @@ const network: Setting[] = [
     label: 'Copy images',
     description: 'Let devices with clipboard permission copy images to and from this PC, besides text.',
     details: 'Images travel as PNG. Windows programs get a bitmap and a PNG to paste.',
-    category: 'general',
+    category: 'network',
     group: 'Clipboard',
     control: { kind: 'toggle' },
     default: true,
@@ -461,7 +500,7 @@ const network: Setting[] = [
     key: 'clipboard_image_max_mb',
     label: 'Largest image',
     description: 'Images larger than this, as PNG, are refused in both directions.',
-    category: 'general',
+    category: 'network',
     group: 'Clipboard',
     control: { kind: 'number', min: 1, max: 64, step: 1, unit: 'MiB' },
     default: 16,
@@ -492,10 +531,24 @@ const network: Setting[] = [
     key: 'ping_timeout',
     label: 'Device timeout',
     description:
-      'How long the host waits without hearing from a device before it ends the stream. Raise it if streams drop on an unreliable network.',
+      'How long this PC waits without hearing from a device before it ends the stream. Longer suits an unreliable network.',
+    details: 'A custom time is 1000 to 300000 milliseconds.',
     category: 'network',
     group: 'Streams',
-    control: { kind: 'number', min: 1000, max: 300000, step: 1, unit: 'ms' },
+    control: {
+      kind: 'number',
+      min: 1000,
+      max: 300000,
+      step: 1,
+      unit: 'ms',
+      presets: [
+        { value: 5000, label: '5 seconds' },
+        { value: 10000, label: '10 seconds' },
+        { value: 30000, label: '30 seconds' },
+        { value: 60000, label: '1 minute' },
+        { value: 300000, label: '5 minutes' },
+      ],
+    },
     default: 10000,
   },
   {
@@ -504,7 +557,7 @@ const network: Setting[] = [
     description:
       'Let a device whose network address changes, such as a phone moving from Wi-Fi to mobile data, keep its stream instead of reconnecting.',
     details:
-      'Only devices that support it, such as Nightjar, use it. The device proves the new address with the stream key before the host sends anything there, and the host then drops what still arrives from the old one. Moonlight clients that do not support it stream as before. Turning it off stops roaming at once; turning it on applies from the next stream.',
+      'Only devices that support it, such as Nightjar, use it. The device proves the new address with the stream key before this PC sends anything there, and this PC then drops what still arrives from the old one. Moonlight clients that do not support it stream as before. Turning it off stops roaming at once; turning it on applies from the next stream.',
     category: 'network',
     group: 'Streams',
     control: { kind: 'toggle' },
@@ -526,7 +579,7 @@ const network: Setting[] = [
       'Which addresses may open this console and use its API.',
     details:
       'Local network includes private addresses and Tailscale (100.64.0.0/10). With Any network and UPnP on, the console port is forwarded too.',
-    category: 'network',
+    category: 'advanced',
     group: 'Console',
     control: {
       kind: 'select',
@@ -544,7 +597,7 @@ const network: Setting[] = [
     description:
       'Other web addresses allowed to make changes through this console. Add one only when you reach the console through a reverse proxy.',
     details: 'Write each one as scheme and host, such as https://stream.example.com.',
-    category: 'network',
+    category: 'advanced',
     group: 'Console',
     control: { kind: 'list', placeholder: 'https://stream.example.com' },
     default: [],
@@ -555,10 +608,23 @@ const network: Setting[] = [
     description:
       'How long a console sign-in lasts before the browser must renew it.',
     details:
-      'From 60 to 604800 seconds. Without "Keep me signed in", a sign-in ends after this time or one day, whichever is longer.',
-    category: 'network',
+      'A custom time is 60 to 604800 seconds. Without "Keep me signed in", a sign-in ends after this time or one day, whichever is longer.',
+    category: 'advanced',
     group: 'Console',
-    control: { kind: 'number', min: 60, max: 604800, step: 1, unit: 's' },
+    control: {
+      kind: 'number',
+      min: 60,
+      max: 604800,
+      step: 1,
+      unit: 's',
+      presets: [
+        { value: 3600, label: '1 hour' },
+        { value: 7200, label: '2 hours' },
+        { value: 28800, label: '8 hours' },
+        { value: 86400, label: '1 day' },
+        { value: 604800, label: '1 week' },
+      ],
+    },
     default: 7200,
   },
   {
@@ -566,9 +632,23 @@ const network: Setting[] = [
     label: 'Remembered sign-in lifetime',
     description:
       'How long a browser signed in with "Keep me signed in" stays signed in, up to 366 days. Lower it on shared computers.',
-    category: 'network',
+    details: 'A custom time is 60 to 31622400 seconds.',
+    category: 'advanced',
     group: 'Console',
-    control: { kind: 'number', min: 60, max: 31622400, step: 1, unit: 's' },
+    control: {
+      kind: 'number',
+      min: 60,
+      max: 31622400,
+      step: 1,
+      unit: 's',
+      presets: [
+        { value: 86400, label: '1 day' },
+        { value: 604800, label: '1 week' },
+        { value: 2592000, label: '30 days' },
+        { value: 7776000, label: '90 days' },
+        { value: 31622400, label: '366 days' },
+      ],
+    },
     default: 604800,
   },
 ];
@@ -581,7 +661,7 @@ const audio: Setting[] = [
     key: 'stream_audio',
     label: 'Stream audio',
     description:
-      "Send the host's sound to the device. Turn it off when a stream is only used as an extra monitor and should stay silent.",
+      "Send this PC's sound to the device. Turn it off when a stream is only used as an extra monitor and should stay silent.",
     category: 'audio',
     group: 'Sound',
     control: { kind: 'toggle' },
@@ -622,9 +702,9 @@ const audio: Setting[] = [
     key: 'audio_sink',
     label: 'Audio device',
     description:
-      'The audio output captured when the streaming device keeps sound playing on the host, or when no virtual speakers exist. Leave it empty to use the Windows default output.',
+      'The audio output captured when the streaming device keeps sound playing on this PC, or when no virtual speakers exist. Leave it empty to use the Windows default output.',
     category: 'audio',
-    group: 'Devices',
+    group: 'Audio devices',
     control: { kind: 'audio' },
     default: '',
     inactiveHint: "Turn on Stream audio and choose System audio under Audio to stream to use this setting.",
@@ -636,9 +716,9 @@ const audio: Setting[] = [
     description:
       "The audio output made the Windows default during a stream, so sound goes to the streaming device instead of the PC's speakers.",
     details:
-      'Leave it empty to use Steam Streaming Speakers when installed. An output chosen here is used even when the streaming device keeps sound on the host.',
+      'Leave it empty to use Steam Streaming Speakers when installed. An output chosen here is used even when the streaming device keeps sound on this PC.',
     category: 'audio',
-    group: 'Devices',
+    group: 'Audio devices',
     control: { kind: 'audio' },
     default: '',
     inactiveHint: "Turn on Stream audio and choose System audio under Audio to stream to use this setting.",
@@ -651,7 +731,7 @@ const audio: Setting[] = [
       'Capture the audio device without changing the Windows default output. You then send the apps you want to hear to that device yourself.',
     details: 'Applies only when an audio device is set and virtual speakers are not.',
     category: 'audio',
-    group: 'Devices',
+    group: 'Audio devices',
     control: { kind: 'toggle' },
     default: false,
     inactiveHint: "Choose System audio, set an Audio device and leave Virtual speakers empty to use this setting.",
@@ -665,7 +745,7 @@ const audio: Setting[] = [
       'Capture whichever device is the Windows default, even if it changes during a stream. Turn it off to stay on the device chosen when the stream started.',
     details: 'Applies only without virtual speakers. When on, capture is also retried when it fails.',
     category: 'audio',
-    group: 'Devices',
+    group: 'Audio devices',
     control: { kind: 'toggle' },
     default: true,
     inactiveHint: "Turn on Stream audio and choose System audio under Audio to stream to use this setting.",
@@ -760,27 +840,27 @@ const input: Setting[] = [
   {
     key: 'keyboard',
     label: 'Keyboard',
-    description: 'Let devices type on the host.',
+    description: 'Let devices type on this PC.',
     category: 'input',
-    group: 'Devices',
+    group: 'Input devices',
     control: { kind: 'toggle' },
     default: true,
   },
   {
     key: 'mouse',
     label: 'Mouse',
-    description: 'Let devices use the mouse on the host. Pen and touch input need this too.',
+    description: 'Let devices use the mouse on this PC. Pen and touch input need this too.',
     category: 'input',
-    group: 'Devices',
+    group: 'Input devices',
     control: { kind: 'toggle' },
     default: true,
   },
   {
     key: 'controller',
     label: 'Controllers',
-    description: 'Let devices use game controllers on the host.',
+    description: 'Let devices use game controllers on this PC.',
     category: 'input',
-    group: 'Devices',
+    group: 'Input devices',
     control: { kind: 'toggle' },
     default: true,
   },
@@ -788,9 +868,9 @@ const input: Setting[] = [
     key: 'enable_input_only_mode',
     label: 'Remote input entry',
     description:
-      "Add a Remote Input entry to every device's app list. It sends keyboard, mouse and controller input to the host without video, for example from a second device.",
+      "Add a Remote Input entry to every device's app list. It sends keyboard, mouse and controller input to this PC without video, for example from a second device.",
     category: 'input',
-    group: 'Devices',
+    group: 'Input devices',
     control: { kind: 'toggle' },
     default: false,
   },
@@ -822,7 +902,7 @@ const input: Setting[] = [
   {
     key: 'key_repeat_delay',
     label: 'Key repeat delay',
-    description: 'How long a held key waits before it starts repeating. 0 turns key repeat off on the host.',
+    description: 'How long a held key waits before it starts repeating. 0 turns key repeat off on this PC.',
     category: 'input',
     group: 'Keyboard',
     control: { kind: 'number', min: 0, max: 60000, step: 1, unit: 'ms' },
@@ -843,13 +923,12 @@ const input: Setting[] = [
   },
   {
     key: 'keybindings',
-    label: 'Key remapping',
-    description:
-      'Make a key from the device press a different key on the host, as pairs of Windows virtual-key codes such as ["0x10", "0xA0"].',
+    label: 'Key remapping (JSON)',
+    description: 'Makes a key from the device press a different key on this PC.',
     details:
-      'All pairs go in one list, each key from the device followed by the key the host presses instead. Shift, Ctrl and Alt already map to their left-hand keys.',
+      'One list of Windows virtual-key codes in pairs, each key from the device followed by the key this PC presses instead, such as ["0x10", "0xA0"]. Shift, Ctrl and Alt already map to their left-hand keys.',
     category: 'input',
-    group: 'Keyboard',
+    group: 'Key remapping',
     control: { kind: 'json' },
     default: [],
     inactiveHint: "Turn on Keyboard under Input to use this setting. Paired devices also need the Keyboard permission.",
@@ -858,7 +937,7 @@ const input: Setting[] = [
   {
     key: 'keyboard_follows_focus',
     label: 'Keyboard follows text fields',
-    description: "Show the device's keyboard when a text field on the host gets the focus, and hide it after.",
+    description: "Show the device's keyboard when a text field on this PC gets the focus, and hide it after.",
     category: 'input',
     group: 'Keyboard',
     control: { kind: 'toggle' },
@@ -918,7 +997,7 @@ const input: Setting[] = [
     key: 'gamepad',
     label: 'Controller type',
     description:
-      "The virtual controller the host uses. Automatic matches each device's controller; choosing a type here uses it for all connected controllers.",
+      "The virtual controller this PC uses. Automatic matches each device's controller; choosing a type here uses it for all connected controllers.",
     details:
       'A device can set its own type in Devices, which wins over this one. Automatic picks DualSense, with adaptive triggers, for PlayStation, Switch Pro for Nintendo, and Xbox Series otherwise, or DualSense when the motion or touchpad options below select it. Waveform-capable DualSense clients use native USB audio haptics when usbip-win2 is installed on the host. The USB/IP option requires that driver and exposes a DualSense audio device. Steam Controller presents a 2026 Steam Controller with both trackpads, grip and stick touch, motion and a battery; a client that has the real controller also gets Steam\'s pad haptics and settings, and others get rumble. Xbox 360 (ViGEmBus) needs ViGEmBus installed separately, for tools such as reWASD that may not see the other types; without it controllers stop working and the stream says why. Steam stable can list a virtual Xbox controller twice; the Steam beta lists it once.',
     category: 'input',
@@ -1047,7 +1126,7 @@ const input: Setting[] = [
     key: 'steam_deck_controller',
     label: 'Steam Deck controller',
     description:
-      "How a Steam Deck's controls reach the host. Steam Deck lets Steam on the host see a real Steam Deck and apply its Steam Input layout.",
+      "How a Steam Deck's controls reach this PC. Steam Deck lets Steam on this PC see a real Steam Deck and apply its Steam Input layout.",
     details:
       'Steam Deck attaches a real Steam Deck controller through usbip-win2, with its trackpads, motion sensors and back grips; it needs usbip-win2 installed. Automatic does that while Steam is running on the host. Virtual controller always uses the virtual DualSense or Xbox controller.',
     category: 'input',
@@ -1077,7 +1156,7 @@ const commands: Setting[] = [
     description:
       'Commands run before every app starts (do) and after it closes (undo). If a do command fails, the app does not start; apps can opt out in their settings.',
     category: 'commands',
-    group: 'Around every app',
+    group: 'Commands around every app',
     control: { kind: 'commands' },
     default: [],
   },
@@ -1087,17 +1166,17 @@ const commands: Setting[] = [
     description:
       "Commands run when any app's stream resumes (do) and when it pauses (undo), before the app's own state commands. Apps can opt out in their settings.",
     category: 'commands',
-    group: 'Around every app',
+    group: 'Commands around every app',
     control: { kind: 'commands' },
     default: [],
   },
   {
     key: 'server_cmd',
-    label: 'Host commands',
+    label: 'PC commands',
     description:
-      'Commands a device can run on the host from its stream menu, in streaming apps that support it. Only devices with the Host commands permission see them.',
+      'Commands a device can run on this PC from its stream menu, in streaming apps that support it. Only devices with the PC commands permission see them.',
     category: 'commands',
-    group: 'From devices',
+    group: 'Commands from devices',
     control: { kind: 'server-commands' },
     default: [],
   },

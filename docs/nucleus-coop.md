@@ -51,7 +51,7 @@ the [hardware matrix](hardware-matrix.md) records the tested configurations.
 
 Nucleus Co-op is the only background mode: there is nothing to choose. A
 device asks for a background stream as before: **Devices → (device) → Play in
-the background** (`background_stream`) or **Library → (app) → Behavior →
+the background** (`background_stream`) or **Games → (game) → Behavior →
 Stream in the background** (`background-stream`). Either one runs the app as a
 Nucleus Co-op session of its own with one player, and the host log says once
 that background streams run through Nucleus Co-op. Only the device that
@@ -254,14 +254,14 @@ Background streaming in a Windows child session was removed: Windows signs a
 child session in only with a Windows password, and a Microsoft account that
 uses only Windows Hello has none. On a PC where a development build set it
 up, the host puts the Windows settings back at its start and deletes the
-password that build saved; if that fails, **Maintenance** says why and offers
-**Restore again**.
+password that build saved; if that fails, **Troubleshoot** (under **Advanced**
+in the console's sidebar) says why and offers **Restore again**.
 
 ## Installing Nucleus Co-op
 
 Rubylight downloads nothing. Download Nucleus Co-op 2.4.2 (`NucleusApp.zip`)
 from [its release page](https://github.com/SplitScreen-Me/splitscreenme-nucleus/releases/tag/v2.4.2), which a game's **Play together** panel and
-the Nucleus Co-op panel under **Help** link to. Setting it up needs an
+the Nucleus Co-op panel under **Advanced → Troubleshoot** link to. Setting it up needs an
 administrator at the PC:
 
 1. Unblock the zip before extracting it: right-click `NucleusApp.zip`, choose
@@ -431,7 +431,7 @@ Ending a session stops Nucleus Co-op and every instance, and ends each
 player's stream. A session also ends when every player has left, when an
 instance crashes, or when its start fails. For a minute after, Home says
 which ended last and why, and the log keeps it. Nucleus Co-op's folder and
-why it can't run from it are in the Nucleus Co-op panel under **Help**.
+why it can't run from it are in the Nucleus Co-op panel under **Advanced → Troubleshoot**.
 
 ## Limits
 

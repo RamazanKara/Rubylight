@@ -64,7 +64,7 @@
 <section class="unknown" aria-labelledby="{uid}-title">
   <div class="intro">
     <h3 id="{uid}-title">Custom settings</h3>
-    <p>Keys from the host's settings file that have no control here. Values are saved as text without surrounding spaces; clear one to remove its key when you save.</p>
+    <p>Keys from Rubylight's settings file that have no control here. Values are saved as text without surrounding spaces; clear one to remove its key when you save.</p>
   </div>
 
   {#if keys.length}

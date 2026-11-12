@@ -30,11 +30,11 @@
     <string name="files_no_upload_permission">To urządzenie nie może wysyłać plików do tego komputera. Na komputerze otwórz stronę „Devices” w interfejsie WWW i zezwól mu na „Upload files”.</string>
     <string name="files_no_download_permission">To urządzenie nie może pobierać plików z tego komputera. Na komputerze otwórz stronę „Devices” w interfejsie WWW i zezwól mu na „Download files”.</string>
     <string name="files_off">Przesyłanie plików jest wyłączone na tym komputerze. Włącz je w interfejsie WWW komputera, w sekcji „File transfer”.</string>
-    <string name="files_unavailable">Host tego komputera nie obsługuje przesyłania plików.</string>
+    <string name="files_unavailable">Aplikacja do strumieniowania na tym komputerze nie obsługuje przesyłania plików.</string>
     <string name="files_no_library">Ta wersja Nightjar nie może przesyłać plików.</string>
     <string name="files_offline">Komputer nie jest online.</string>
     <string name="files_pick_pc">Do którego komputera wysłać?</string>
-    <string name="files_no_pc">Żaden sparowany komputer nie jest online. Najpierw wybudź lub sparuj jeden na liście komputerów.</string>
+    <string name="files_no_pc">Żaden sparowany komputer nie jest online. Najpierw wybudź jeden przyciskiem „Wybudź” lub sparuj go na liście komputerów.</string>
     <string name="files_waiting_to_send">Pliki czekające na wysłanie: %1$d. Zostaną wysłane, gdy to urządzenie będzie mogło wysyłać pliki.</string>
     <plurals name="files_share_refused">
         <item quantity="one">%1$d udostępniony element nie został wysłany: można wysyłać tylko pliki innej aplikacji.</item>

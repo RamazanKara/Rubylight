@@ -34,7 +34,7 @@ export const PERMISSION_GROUPS: { name: string; items: { bit: number; label: str
       { bit: PERM.CLIPBOARD_READ, label: 'Read the clipboard' },
       { bit: PERM.FILE_UPLOAD, label: 'Upload files' },
       { bit: PERM.FILE_DOWNLOAD, label: 'Download files' },
-      { bit: PERM.SERVER_CMD, label: 'Host commands' },
+      { bit: PERM.SERVER_CMD, label: 'PC commands' },
     ],
   },
 ];

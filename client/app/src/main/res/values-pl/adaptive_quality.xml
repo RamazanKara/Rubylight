@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_adaptive_quality">Automatyczna jakość strumienia</string>
-    <string name="summary_adaptive_quality">Obniża rozdzielczość lub FPS przy długotrwałym przeciążeniu, wolnym dekodowaniu lub przegrzaniu, a potem stopniowo je przywraca. Używa automatycznej szybkości transmisji, gdy jest obsługiwana. Wymaga obsługi rekonfiguracji przez host i adaptacyjnego dekodera; niedostępne z PyroWave.</string>
-    <string name="title_adaptive_quality_min_resolution">Minimalna automatyczna rozdzielczość</string>
-    <string name="summary_adaptive_quality_min_resolution">Najmniejsza krótsza krawędź, z zachowaniem proporcji. Wybrana rozdzielczość strumienia pozostaje maksymalną. Niższa rozdzielczość początkowa nigdy nie jest podnoszona przez ten limit.</string>
-    <string name="title_adaptive_quality_min_fps">Minimalna automatyczna liczba klatek</string>
-    <string name="summary_adaptive_quality_min_fps">Najniższa dozwolona liczba FPS. Wybrana liczba klatek strumienia pozostaje maksymalną. Dotyczy automatycznej jakości, w tym trybu baterii.</string>
+    <string name="summary_adaptive_quality">Obniża rozdzielczość lub FPS przy długotrwałym przeciążeniu, wolnym dekodowaniu lub przegrzaniu, a potem stopniowo je przywraca. Używa automatycznej szybkości transmisji, gdy jest obsługiwana. Wymaga komputera, który potrafi zmienić trwający strumień, i adaptacyjnego dekodera; niedostępne z PyroWave.</string>
+    <string name="title_adaptive_quality_min_resolution">Minimalna rozdzielczość</string>
+    <string name="summary_adaptive_quality_min_resolution">Najniższa rozdzielczość, do której schodzi „Automatyczna jakość”.</string>
+    <string name="title_adaptive_quality_min_fps">Minimalna liczba klatek</string>
+    <string name="summary_adaptive_quality_min_fps">Najniższa liczba klatek, do której schodzi „Automatyczna jakość”.</string>
     <string name="quality_off">Wyłączone</string>
     <string name="quality_motion">Zachowaj płynność</string>
     <string name="quality_detail">Zachowaj szczegóły</string>

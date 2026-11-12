@@ -1655,6 +1655,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "skrifa",
+ "sonora",
  "system-configuration",
  "ureq",
  "windows",

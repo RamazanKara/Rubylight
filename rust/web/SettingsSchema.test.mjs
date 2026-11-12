@@ -34,7 +34,7 @@ test('HDR dynamic metadata defaults on and ships HDR Vivid as a normal feature',
   const setting = settings.get('hdr_dynamic_metadata');
   assert.equal(setting.default, true);
   assert.equal(setting.control.kind, 'toggle');
-  assert.equal(setting.category, 'video');
+  assert.deepEqual([setting.category, setting.group], ['hdr', 'HDR']);
   assert.match(setting.details, /HEVC streams also carry HDR Vivid/);
   // Stock Moonlight strips HEVC SEI, so the reach is stated, not implied.
   assert.match(setting.details, /Moonlight drops them from HEVC before the decoder; Nightjar keeps them/);
@@ -47,7 +47,7 @@ test('Dolby Vision is a live setting, without an Experimental label, that says w
   const setting = settings.get('hdr_dolby_vision');
   assert.equal(setting.default, true);
   assert.equal(setting.control.kind, 'toggle');
-  assert.equal(setting.category, 'video');
+  assert.deepEqual([setting.category, setting.group], ['hdr', 'HDR']);
   assert.equal(setting.label, 'Dolby Vision');
   assert.doesNotMatch(`${setting.label} ${setting.description}`, /Experimental/i);
   assert.match(setting.description, /profile 10\.1 on AV1 HDR streams/);
@@ -61,7 +61,7 @@ test('HLG is a live, normal setting that leaves packed 4:4:4 streams on HDR10', 
   const setting = settings.get('hdr_hlg');
   assert.equal(setting.default, true);
   assert.equal(setting.control.kind, 'toggle');
-  assert.equal(setting.category, 'video');
+  assert.deepEqual([setting.category, setting.group], ['hdr', 'HDR']);
   assert.equal(setting.label, 'HLG');
   assert.match(setting.details, /Packed 4:4:4 streams stay HDR10/);
   assert.doesNotMatch(`${setting.label} ${setting.description} ${setting.details}`, /experimental|Foundation/i);
@@ -429,11 +429,11 @@ test('the troubleshooting fold counts customized and unsaved settings and opens 
 test('bitrate and pacing controllers say which one wins', () => {
   // The finer points live behind More; descriptions are capped at two short sentences.
   const says = (key, pattern) => assert.match(settings.get(key).details, pattern, key);
-  says('link_rate_adaptation', /Adapt bitrate on the host wins[^.]*sets its own bitrate takes over/);
+  says('link_rate_adaptation', /Adapt bitrate on this PC wins[^.]*sets its own bitrate takes over/);
   says('host_adaptive_bitrate', /replaces Lower the bitrate when the link cannot carry it/);
   says('pacing_max_bitrate_kbps', /turns off Adaptive packet pacing and Slow down after video loss/);
-  says('host_adaptive_pacing', /manual pacing rate or Adapt bitrate on the host turns it off/);
-  says('keyframe_loss_pacing', /manual pacing rate, Adaptive packet pacing or Adapt bitrate on the host turns it off/);
+  says('host_adaptive_pacing', /manual pacing rate or Adapt bitrate on this PC turns it off/);
+  says('keyframe_loss_pacing', /manual pacing rate, Adaptive packet pacing or Adapt bitrate on this PC turns it off/);
 });
 
 test('the still-picture resend rate is not named like a floor on game frame rate', () => {
@@ -491,23 +491,54 @@ test('Epic and GOG scans default on, game folders default empty and their exclus
   }
 });
 
-test('every launcher has the same on switch and sync as Steam, all on by default', () => {
-  // The host's defaults: core/src/library.rs Settings::from_config and core/src/steam.rs.
-  const launchers = ['epic', 'battlenet', 'ea', 'ubisoft', 'gog', 'microsoft'].map(id => `library_${id}_enabled`);
-  for (const key of [...launchers, 'library_auto_sync', 'library_autosync_remove_uninstalled', 'steam_enabled', 'steam_auto_sync']) {
+test('every launcher has Steam’s options in a group of its own, with Steam’s defaults', () => {
+  // The host's defaults: library::Options::from_config (core/src/library.rs) and core/src/steam.rs.
+  const names = { epic: 'Epic Games', battlenet: 'Battle.net', microsoft: 'Microsoft Store and Xbox', ea: 'EA app', ubisoft: 'Ubisoft Connect', gog: 'GOG' };
+  const steam = (key) => settings.get(`steam_${key}`);
+  for (const [id, name] of Object.entries(names)) {
+    const group = `${name} options`;
+    const enabled = settings.get(`library_${id}_enabled`);
+    assert.equal(enabled.label, `${name} library`);
+    assert.match(enabled.description, /^Adds the games installed with .+ to the library/, id);
+    for (const option of ['auto_sync', 'autosync_remove_uninstalled', 'exclude_games']) {
+      const setting = settings.get(`${id}_${option}`);
+      assert.ok(setting, `${id}_${option}`);
+      assert.equal(setting.group, group, setting.key);
+      assert.equal(setting.label, steam(option).label, setting.key);
+      assert.deepEqual(setting.default, steam(option).default, setting.key);
+      assert.equal(setting.control.kind, steam(option).control.kind, setting.key);
+      // Shown while the launcher is on, as Steam's options are while Steam is.
+      assert.equal(setting.visibleWhen({}), true, setting.key);
+      assert.equal(setting.visibleWhen({ [`library_${id}_enabled`]: false }), false, setting.key);
+    }
+    assert.equal(enabled.group, group, id);
+    assert.equal(enabled.default, true, id);
+    // Only Battle.net records when its games were played, so only it can keep the recent ones.
+    const recent = ['sync_all_installed', 'recent_games', 'recent_max_age_days'];
+    for (const option of recent) {
+      const setting = settings.get(`${id}_${option}`);
+      if (id !== 'battlenet') {
+        assert.equal(setting, undefined, `${id}_${option}`);
+        continue;
+      }
+      assert.equal(setting.label, steam(option).label, setting.key);
+      assert.deepEqual(setting.default, steam(option).default, setting.key);
+    }
+  }
+  const recent = settings.get('battlenet_recent_games');
+  assert.equal(recent.visibleWhen({}), false);
+  assert.equal(recent.visibleWhen({ battlenet_sync_all_installed: false }), true);
+  // The shared switches of earlier releases are each launcher's now (config/retired.rs SPLIT_KEYS).
+  assert.equal(settings.get('library_auto_sync'), undefined);
+  assert.equal(settings.get('library_autosync_remove_uninstalled'), undefined);
+  for (const key of ['library_local_auto_sync', 'library_local_autosync_remove_uninstalled']) {
     const setting = settings.get(key);
+    assert.equal(setting.group, 'Game folders', key);
     assert.equal(setting.default, true, key);
-    assert.equal(setting.control.kind, 'toggle', key);
-    assert.equal(setting.category, 'library', key);
+    assert.equal(setting.visibleWhen({}), false, key);
+    assert.equal(setting.visibleWhen({ library_local_folders: ['D:\\Games'] }), true, key);
   }
-  for (const key of launchers) {
-    assert.equal(settings.get(key).group, 'Launchers', key);
-    assert.match(settings.get(key).description, /^Adds the games installed with .+ to the library, with their covers/, key);
-  }
-  const remove = settings.get('library_autosync_remove_uninstalled');
-  assert.equal(remove.visibleWhen({}), true);
-  assert.equal(remove.visibleWhen({ library_auto_sync: false }), false);
-  assert.equal(settings.get('steam_auto_sync').visibleWhen({}), true);
+  for (const key of ['steam_enabled', 'steam_auto_sync']) assert.equal(settings.get(key).default, true, key);
 });
 
 test('integer tuning steps reject fractions without forcing multiples of the arrow increment', () => {
@@ -553,11 +584,11 @@ test('file transfer is off by default, its options show once it is on, and the d
 
 test('USB forwarding is live, unlabelled and off, and takes 1 to 16 devices once it is on', () => {
   const forwarding = settings.get('usb_forwarding');
-  assert.deepEqual([forwarding.category, forwarding.group, forwarding.default, forwarding.advanced], ['general', 'USB devices', false, false]);
+  assert.deepEqual([forwarding.category, forwarding.group, forwarding.default, forwarding.advanced], ['input', 'USB devices', false, false]);
   assert.doesNotMatch(forwarding.label, /Experimental/);
   assert.equal(pending.some(setting => setting.key.startsWith('usb_')), false);
   const devices = settings.get('usb_max_devices');
-  assert.deepEqual([devices.category, devices.group, devices.default], ['general', 'USB devices', 4]);
+  assert.deepEqual([devices.category, devices.group, devices.default], ['input', 'USB devices', 4]);
   assert.equal(devices.visibleWhen({}), false);
   assert.equal(devices.visibleWhen({ usb_forwarding: 'enabled' }), true);
   // core/src/config.rs: 1 to 16.
@@ -567,7 +598,7 @@ test('USB forwarding is live, unlabelled and off, and takes 1 to 16 devices once
 
 test('sleep after idle takes 0 or 5 to 1440 minutes, as the host does, and its suspended option follows it', () => {
   const minutes = settings.get('sleep_after_idle_minutes');
-  assert.deepEqual([minutes.category, minutes.group, minutes.default, minutes.advanced], ['general', 'Power', 0, false]);
+  assert.deepEqual([minutes.category, minutes.group, minutes.default, minutes.advanced], ['general', 'Sleep and wake', 0, false]);
   // core/src/config.rs: 0 (off) or between 5 and 1440.
   for (const ok of ['0', '5', '30', '1440', '']) assert.equal(numberError(minutes, ok), '', ok);
   for (const bad of ['3', '4']) assert.equal(numberError(minutes, bad), 'Enter 0 (off) or 5 to 1440 minutes.', bad);
@@ -601,7 +632,7 @@ test('image clipboard is on by default, unlabelled, and its limit follows it as 
   assert.equal(images.default, true);
   assert.doesNotMatch(images.label, /Experimental/);
   const limit = settings.get('clipboard_image_max_mb');
-  assert.deepEqual([limit.category, limit.group, limit.default], ['general', 'Clipboard', 16]);
+  assert.deepEqual([limit.category, limit.group, limit.default], ['network', 'Clipboard', 16]);
   assert.equal(limit.visibleWhen({}), true);
   assert.equal(limit.visibleWhen({ clipboard_image: 'disabled' }), false);
   // core/src/config.rs: 1 to 64 MiB.

@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_fec_choice">Korekcja błędów</string>
-    <string name="summary_fec_choice">Ile danych naprawczych komputer dodaje do obrazu. Automatycznie dopasowuje się do strat tego urządzenia. Komputery, które nie obsługują tego wyboru, używają własnych ustawień.</string>
+    <string name="summary_fec_choice">Dane naprawcze dodawane przez komputer, aby utracone pakiety nie psuły obrazu.</string>
     <string name="fec_choice_host">Ustawienie komputera</string>
     <string name="fec_choice_auto">Automatycznie</string>
-    <string name="title_link_probe">Test łącza przed pierwszą przepływnością</string>
-    <string name="summary_link_probe">Nowa transmisja z automatyczną przepływnością najpierw testuje łącze z komputerem z Rubylight i nie zaczyna powyżej tego, co ono wytrzyma.</string>
+    <string name="title_link_probe">Testuj łącze przed startem</string>
+    <string name="summary_link_probe">Nowy strumień z automatyczną szybkością transmisji najpierw mierzy połączenie i nie startuje wyżej, niż ono pozwala.</string>
 </resources>

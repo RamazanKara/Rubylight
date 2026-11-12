@@ -1,26 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_enable_mic">Mikrofon an den PC senden</string>
-    <string name="summary_checkbox_enable_mic">Spiele und Chat-Apps auf dem PC hören das Mikrofon dieses Geräts, wenn der Host eines annimmt</string>
+    <string name="summary_checkbox_enable_mic">Sendet das Mikrofon dieses Geräts an den PC.</string>
     <string name="mic_permission_denied">Der Mikrofonzugriff wurde nicht erlaubt, daher bleibt das Mikrofon aus. Erlaube ihn in den Android-Einstellungen, um über den PC zu sprechen.</string>
     <string name="mic_status_sending">Mikrofon: wird gesendet</string>
     <string name="mic_status_muted">Mikrofon: stumm</string>
-    <string name="mic_status_not_offered">Mikrofon: vom Host nicht angeboten</string>
+    <string name="mic_status_not_offered">Mikrofon: vom PC nicht angeboten</string>
     <string name="mic_status_unavailable">Mikrofon: nicht verfügbar</string>
     <string name="mic_status_no_permission">Mikrofon: Berechtigung fehlt</string>
     <string name="title_list_mic_echo_cancel">Echounterdrückung</string>
-    <string name="summary_list_mic_echo_cancel">Hält den Spielton aus dem Lautsprecher vom Mikrofon fern. Automatisch schaltet sie beim Lautsprecher ein und bei Kopfhörern und Bluetooth-Headsets aus und folgt einem Wechsel während des Streams.</string>
+    <string name="summary_list_mic_echo_cancel">Hält den Ton des Streams aus den Lautsprechern vom Mikrofon fern.</string>
     <string name="mic_echo_auto">Automatisch</string>
     <string name="mic_echo_on">An</string>
     <string name="mic_echo_off">Aus</string>
     <string name="title_checkbox_mic_noise_suppression">Rauschunterdrückung</string>
-    <string name="summary_checkbox_mic_noise_suppression">Filtert gleichmäßige Hintergrundgeräusche wie einen Lüfter aus dem Mikrofon</string>
+    <string name="summary_checkbox_mic_noise_suppression">Filtert gleichmäßige Hintergrundgeräusche aus dem Mikrofon.</string>
     <string name="title_checkbox_mic_auto_gain">Automatische Verstärkung</string>
-    <string name="summary_checkbox_mic_auto_gain">Lässt das Gerät leise und laute Sprache angleichen. Die Mikrofonverstärkung darunter wirkt zusätzlich.</string>
+    <string name="summary_checkbox_mic_auto_gain">Gleicht leise und laute Sprache an.</string>
     <string name="title_seekbar_mic_gain">Mikrofonverstärkung</string>
-    <string name="summary_seekbar_mic_gain">Macht das Mikrofon vor dem Senden leiser oder lauter. Laute Spitzen werden abgerundet statt übersteuert.</string>
+    <string name="summary_seekbar_mic_gain">Macht das Mikrofon vor dem Senden leiser oder lauter.</string>
     <string name="title_checkbox_mic_button">Mikrofontaste</string>
-    <string name="summary_checkbox_mic_button">Zeigt im Stream eine Taste, die das Mikrofon stumm- und wieder einschaltet. Zum Verschieben ziehen.</string>
+    <string name="summary_checkbox_mic_button">Eine Taste im Stream, die das Mikrofon stumm- und wieder einschaltet.</string>
     <string name="mic_button_mute">Mikrofon stummschalten</string>
     <string name="mic_button_unmute">Mikrofon einschalten</string>
     <string name="stream_mic_button_show">Mikrofontaste einblenden</string>

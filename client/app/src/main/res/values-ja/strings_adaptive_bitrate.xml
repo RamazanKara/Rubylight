@@ -1,18 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_auto_bitrate_enable">「デバイスがビットレートを制御」を有効にする</string>
-    <string name="stream_auto_bitrate_disable">「デバイスがビットレートを制御」を無効にする</string>
     <string name="stream_auto_bitrate_help">接続状況に合わせてビットレートを調整します。\nこの PC 用に保存され、手動で変更するとオフになります。</string>
     <string name="stream_pyrowave_bitrate_help">この PC の PyroWave を自動調整します。\nビットレートを手動で設定するとオフになります。</string>
     <string name="stream_auto_bitrate_failed">ビットレートを一時的に更新できませんでした。自動的に再試行しています。</string>
-    <string name="stream_auto_bitrate_unavailable">この PC はストリームのビットレートを報告しません。このストリームでは「デバイスがビットレートを制御」はオフです。</string>
-    <string name="stream_auto_bitrate_status">デバイスがビットレートを制御: %1$.1f Mbps</string>
-    <string name="stream_bitrate_busy">ホストがビジー状態です。しばらくしてからもう一度お試しください。</string>
+    <string name="stream_auto_bitrate_unavailable">この PC はストリームのビットレートを報告しません。このストリームでは「ネットワーク混雑時にビットレートを下げる」はオフです。</string>
+    <string name="stream_auto_bitrate_status">現在のビットレート: %1$.1f Mbps</string>
+    <string name="stream_bitrate_busy">PC がビジー状態です。しばらくしてからもう一度お試しください。</string>
     <string name="stream_host_abr_failed">PC が自動ビットレートを開始しませんでした: %1$s</string>
-    <string name="title_auto_bitrate">デバイスがビットレートを制御</string>
-    <string name="dialog_auto_bitrate">回線や端末が追いつかないときはビットレートを下げ、安定したら元に戻します。ストリームのビットレートを超えることはありません。これはすべての PC の既定値で、ストリームメニューから PC ごとに変更できます。</string>
+    <string name="title_auto_bitrate">ネットワーク混雑時にビットレートを下げる</string>
+    <string name="dialog_auto_bitrate">接続が追いつかない間はビットレートを下げ、回復すると元に戻します。</string>
     <string name="title_thermal_protection">温度保護</string>
-    <string name="dialog_thermal_protection">端末が熱いあいだ、ビットレートと解像度を下げます。スマホやTVスティックはストリーミング中に熱くなりやすいため、初期設定はオフです。ビットレートが下がると画質が甘くなります。</string>
+    <string name="dialog_thermal_protection">デバイスが熱い間、ビットレートと解像度を下げます。</string>
     <string name="title_automatic_bitrate">自動ビットレート</string>
-    <string name="dialog_automatic_bitrate">Nightjarが解像度、フレームレート、コーデックに合わせてビットレートを選び、それらが変わると合わせて変更します。ビットレートのスライダーを動かすとオフになります。</string>
+    <string name="dialog_automatic_bitrate">Nightjar が解像度、フレームレート、コーデックに合わせてビットレートを選びます。</string>
 </resources>

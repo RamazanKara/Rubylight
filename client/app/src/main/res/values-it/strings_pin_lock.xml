@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="pin_lock_title">Blocco con PIN</string>
-    <string name="pin_lock_summary">Chiede un PIN per aprire Nightjar o avviare uno stream. Un PIN dimenticato si può reimpostare solo cancellando i dati di Nightjar nelle impostazioni di Android, il che rimuove anche i tuoi PC associati.</string>
+    <string name="pin_lock_summary">Chiede un PIN per aprire Nightjar o avviare uno stream.</string>
     <string name="pin_set">Imposta PIN</string>
     <string name="pin_change">Cambia PIN</string>
     <string name="pin_remove">Rimuovi PIN</string>

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings shared with desktop Nightjar: Sharper colored text, Controllers, Mouse mode, When Nightjar
+     opens, group names, row hints and notices. -->
+<resources>
+    <string name="title_sharp_color">Chữ màu sắc nét hơn</string>
+    <string name="summary_sharp_color">Đầy đủ chi tiết màu, giúp chữ màu và đường mảnh luôn rõ nét.</string>
+    <string-array name="sharp_color_names">
+        <item>Tắt</item>
+        <item>Tự động</item>
+    </string-array>
+    <string name="title_controllers">Tay cầm điều khiển</string>
+    <string name="summary_controllers">Tắt, mọi tay cầm là một người chơi, hoặc mỗi tay cầm là một người chơi riêng.</string>
+    <string-array name="controllers_names">
+        <item>Tắt</item>
+        <item>Một người chơi</item>
+        <item>Mỗi tay cầm một người chơi</item>
+    </string-array>
+    <string-array name="mouse_mode_names">
+        <item>Bắt giữ</item>
+        <item>Con trỏ desktop</item>
+    </string-array>
+    <string-array name="start_screen_names">
+        <item>Trang chủ</item>
+        <item>Hiện các PC của tôi</item>
+        <item>Tiếp tục trò chơi gần nhất</item>
+        <item>Một trò chơi đã chọn</item>
+    </string-array>
+    <string name="summary_host_display_location">Cách PC đặt màn hình được stream bên cạnh các màn hình của chính nó.</string>
+    <string name="summary_pace_calibration_row">Tìm nhịp nhanh nhất mà khung hình PyroWave của PC vẫn đến trọn vẹn.</string>
+    <string name="summary_network_tests">Đo ping, độ dao động và mất gói, cùng tốc độ tải xuống nếu PC hỗ trợ.</string>
+    <string name="settings_category_touch_mouse">Cảm ứng &amp; chuột</string>
+    <string name="settings_category_connection">Kết nối</string>
+    <string name="sharp_color_unavailable_pc">Chữ màu sắc nét hơn không khả dụng với PC này.</string>
+    <string name="sharp_color_unavailable_device">Chữ màu sắc nét hơn không khả dụng trên thiết bị này.</string>
+    <string name="sharp_color_stopped">Chữ màu sắc nét hơn đã dừng. Đang kết nối lại mà không dùng tính năng này.</string>
+    <string name="sharp_color_hdr_dropped">Stream này ở SDR: trên PC này, HDR không dùng được cùng chữ màu sắc nét hơn.</string>
+    <string name="hint_show_onscreen_controls">Tay cầm cảm ứng nằm trên stream.</string>
+    <string name="hint_mouse_speed">Tốc độ di chuyển của con trỏ.</string>
+    <string name="hint_trackpad_speed">Tốc độ con trỏ ở chế độ cảm ứng Bàn di chuột.</string>
+    <string name="hint_local_cursor_speed">Tốc độ con trỏ ở chế độ cảm ứng Con trỏ cục bộ.</string>
+    <string name="hint_trackpad_acceleration_curve">Mức vuốt nhanh đưa con trỏ đi xa hơn.</string>
+    <string name="hint_trackpad_momentum_glide">Quãng đường con trỏ trượt tiếp.</string>
+    <string name="hint_pc_keyboard_size">Kích thước bàn phím PC trên màn hình.</string>
+    <string name="hint_pc_keyboard_opacity">Độ trong suốt của bàn phím PC trên màn hình.</string>
+    <string name="hint_vibrate_osc">Thiết bị rung khi nhấn một nút trên màn hình.</string>
+    <string name="hint_show_guide_button">Thêm nút Guide vào điều khiển trên màn hình.</string>
+    <string name="hint_host_audio">Vẫn phát âm thanh trên loa của PC khi stream.</string>
+    <string name="hint_overlay_position">Góc đặt lớp phủ hiệu năng.</string>
+    <string name="summary_reset_all">Đưa mọi cài đặt về mặc định; PC, trò chơi, hồ sơ và ngôn ngữ được giữ nguyên.</string>
+</resources>

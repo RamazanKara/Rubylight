@@ -1,6 +1,8 @@
 //! "When Nightjar opens" for the app's `OpenPlayModel` (`com.limelight.console.OpenPlayModel`): the
 //! decision comes from nightjar-policy, the same code desktop Nightjar asks. One call takes a JSON
-//! request and answers JSON (`nightjar_policy::open_play::json`).
+//! request and answers JSON (`nightjar_policy::open_play::json`), including the start screen's two
+//! stored keys (`StartScreen`), so the app's "When Nightjar opens" picker is held to the same mapping
+//! as desktop's row by the shared contract file.
 
 use jni::objects::{JClass, JString};
 use jni::sys::jstring;
@@ -39,7 +41,7 @@ mod tests {
     #[test]
     fn answers_each_request_of_the_shared_contract_exactly() {
         let cases: Vec<serde_json::Value> = serde_json::from_str(include_str!("open_play_contract.json")).unwrap();
-        assert!(cases.len() >= 6);
+        assert!(cases.len() >= 14);
         for case in cases {
             let request = case["request"].to_string();
             let answer: serde_json::Value = serde_json::from_str(&call(Some(&request))).unwrap();

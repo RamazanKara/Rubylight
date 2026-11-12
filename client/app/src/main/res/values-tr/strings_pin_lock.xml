@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="pin_lock_title">PIN kilidi</string>
-    <string name="pin_lock_summary">Nightjar\'ı açarken veya bir yayın başlatırken PIN ister. Unutulan bir PIN yalnızca Android ayarlarından Nightjar uygulama verilerini silerek sıfırlanabilir; bu işlem eşleştirilmiş bilgisayarları da kaldırır.</string>
+    <string name="pin_lock_summary">Nightjar’ı açmak veya yayın başlatmak için PIN ister.</string>
     <string name="pin_set">PIN belirle</string>
     <string name="pin_change">PIN\'i değiştir</string>
     <string name="pin_remove">PIN\'i kaldır</string>

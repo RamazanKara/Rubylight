@@ -38,6 +38,8 @@ const STEPPED_DOWN_H: f32 = 48.0;
 const LINE_H: f32 = 20.0;
 /// How to connect under Add PC.
 const LINK_GAP: f32 = 8.0;
+/// Search again under Add PC, when the search could not start.
+const SEARCH_AGAIN_GAP: f32 = 14.0;
 const LINK_H: f32 = 32.0;
 const TIGHT_UNDER_MOON: f32 = 16.0;
 const TIGHT_GAP: f32 = 10.0;
@@ -117,14 +119,15 @@ impl Launcher {
         ));
     }
 
-    /// What is happening, in as few words as say so.
+    /// What is happening, in as few words as say so, and whether the search runs. A search that
+    /// could not start is said in the page's own ink: Add PC is the way on, and Search again the fix.
     fn search_words(&self, view: &View<'_>) -> (&'static str, bool) {
         if !self.identity_ready {
-            (tr("Creating this device's pairing key…"), true)
+            (tr("Creating this device’s pairing key…"), true)
         } else if view.hosts.discovering {
             (tr("Searching for PCs…"), true)
         } else {
-            (tr("Can't search this network for PCs"), false)
+            (tr("Can’t search this network for PCs"), false)
         }
     }
 
@@ -152,8 +155,8 @@ impl Launcher {
     ) -> f32 {
         let (center, r) = backdrop::moon_disc(ui.ctx().content_rect(), Moon::Searching);
         let dy = -self.page_scrolled;
-        let (words, fine) = self.search_words(view);
-        let ink = if fine { *ON_SURFACE } else { *ERROR };
+        let (words, searching) = self.search_words(view);
+        let ink = *ON_SURFACE;
         let middle = center.x;
         let head = ui.painter().layout(
             words.to_owned(),
@@ -186,7 +189,20 @@ impl Launcher {
         if add.clicked() {
             self.add_host_dialog();
         }
-        self.first_run_link(ui, rect.bottom() + LINK_GAP, commands)
+        // The search could not start (no network yet, or its port held): it can be tried again.
+        let mut foot = rect.bottom();
+        if !searching && self.identity_ready {
+            let label = tr("Search again");
+            let w = capsule_width(ui, label);
+            let again = Rect::from_min_size(pos2(middle - w / 2.0, foot + SEARCH_AGAIN_GAP), vec2(w, STEPPED_DOWN_H));
+            let r = control_capsule(ui, again, Id::unique("first-run-search-again"), Icon::Refresh, label, label, true);
+            self.focus_item(&r, "first-run-search-again", false);
+            if r.clicked() {
+                commands.push(Command::SearchAgain);
+            }
+            foot = again.bottom();
+        }
+        self.first_run_link(ui, foot + LINK_GAP, commands)
     }
 
     fn first_run_found(
@@ -234,15 +250,15 @@ impl Launcher {
         }
         y += still_gap - CARD_GAP;
         // The search goes on, under what it found.
-        let (words, fine) = self.search_words(view);
-        let ink = if fine { *ON_SURFACE_VARIANT } else { *ERROR };
+        let (words, _) = self.search_words(view);
+        let ink = *ON_SURFACE_VARIANT;
         let line = ui
             .painter()
             .layout_no_wrap(words.to_owned(), regular(t::TYPE_SUB_SIZE), ink);
         let line_w = 8.0 + 8.0 + line.size().x;
         let line_h = line.size().y;
         let dot = pos2(middle - line_w / 2.0 + 4.0, y + line_h / 2.0);
-        ui.painter().circle_filled(dot, 4.0, t::COLOR_OFFLINE);
+        ui.painter().circle_filled(dot, 4.0, shade::COLOR_OFFLINE.get());
         ui.painter().galley(pos2(dot.x + 12.0, y), line, ink);
         y += line_h + step_gap;
         let label = tr("Add PC");
@@ -303,11 +319,12 @@ impl Launcher {
                     &ctx,
                     rect,
                     r,
-                    t::COLOR_CANVAS.gamma_multiply(OVER_RINGS),
+                    shade::COLOR_CANVAS.get().gamma_multiply(OVER_RINGS),
                 );
             }
             glass::group(&mut out, &ctx, rect, r, group_fill());
-            monitor(ui, &mut out, host, face, id.with("art-in"));
+            // Found just now: nothing played there from this device yet, only what it runs.
+            monitor(ui, &mut out, host, super::pcs::card_game(host, &[]), face, id.with("art-in"));
             let mut job = egui::text::LayoutJob::simple_singleline(
                 name.to_owned(),
                 semibold(t::TYPE_SECTION_SIZE),

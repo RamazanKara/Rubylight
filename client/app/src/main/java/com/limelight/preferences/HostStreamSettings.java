@@ -826,7 +826,7 @@ public class HostStreamSettings extends NightjarActivity {
             row(stream, "hdr", R.string.title_enable_hdr, () -> showSwitch("hdr", R.string.title_enable_hdr));
             row(stream, "vrr", R.string.title_vrr, () -> showSwitch("vrr", R.string.title_vrr));
             row(stream, "pacing", R.string.title_frame_pacing, this::showPacing);
-            row(stream, "yuv444", R.string.title_yuv444, () -> showSwitch("yuv444", R.string.title_yuv444));
+            row(stream, "yuv444", R.string.title_sharp_color, () -> showSwitch("yuv444", R.string.title_sharp_color));
             boolean pc = activity.mode == Mode.PC;
             int reset = pc ? R.string.host_profile_reset : R.string.layers_reset;
             row(stream, "reset", reset, () -> UiHelper.showDialog(activity,
@@ -989,6 +989,14 @@ public class HostStreamSettings extends NightjarActivity {
             return getString(value ? R.string.host_profile_on : R.string.host_profile_off);
         }
 
+        /** On or Off; Sharper colored text reads Automatic or Off, as in Settings. */
+        private String switchText(String key, boolean value) {
+            if ("yuv444".equals(key)) {
+                return getResources().getStringArray(R.array.sharp_color_names)[value ? 1 : 0];
+            }
+            return onOff(value);
+        }
+
         /** The value, marked with where it comes from when it is not set here. */
         private String summary(HostStreamProfile.Field field, boolean own, String value) {
             if (own) return value;
@@ -1102,7 +1110,7 @@ public class HostStreamSettings extends NightjarActivity {
             findPreference("sharpness").setEnabled(config.upscalingMode == UpscalingPolicy.Mode.FSR1 ||
                     config.upscalingMode == UpscalingPolicy.Mode.SGSR1);
             for (String key : new String[] {"hdr", "vrr", "yuv444", "full_range"}) {
-                findPreference(key).setSummary(summary(switchField(key), switchOverride(key) != null, onOff(switchValue(config, key))));
+                findPreference(key).setSummary(summary(switchField(key), switchOverride(key) != null, switchText(key, switchValue(config, key))));
             }
             String pacing = summary(HostStreamProfile.Field.PACING, own.pacing != null, pacingText(config));
             findPreference("pacing").setSummary(config.vrr ? pacing + "\n" + getString(R.string.layers_pacing_vrr) : pacing);
@@ -1176,9 +1184,9 @@ public class HostStreamSettings extends NightjarActivity {
             boolean allPcs = switchValue(activity.global, key);
             Boolean own = switchOverride(key);
             CharSequence[] items = {
-                    sameAs(onOff(allPcs)),
-                    getString(R.string.host_profile_on),
-                    getString(R.string.host_profile_off)};
+                    sameAs(switchText(key, allPcs)),
+                    switchText(key, true),
+                    switchText(key, false)};
             int checked = own == null ? 0 : own ? 1 : 2;
             new NavigationDialogBuilder(activity).setTitle(title)
                     .setSingleChoiceItems(items, checked, (dialog, which) -> {

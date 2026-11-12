@@ -130,7 +130,7 @@
         : 'Cover removed. Save to keep the change.'}
     </p>
   {:else if !path}
-    <p class="muted change">No cover. Devices show the host’s default image.</p>
+    <p class="muted change">No cover. Devices show their default image.</p>
   {/if}
 
   <div class="actions">

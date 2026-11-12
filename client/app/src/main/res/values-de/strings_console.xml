@@ -16,7 +16,7 @@
     <string name="console_badge_running">Läuft</string>
     <string name="console_badge_suspended">Pausiert</string>
     <string name="console_card_on_host">Auf %1$s</string>
-    <string name="console_card_on_hosts">Auf %1$d Hosts</string>
+    <string name="console_card_on_hosts">Auf %1$d PCs</string>
     <string name="console_host_games">Spiele: %1$d</string>
     <string name="console_host_saved_games">Offline. Gespeicherte Spiele: %1$d</string>
     <string name="console_host_offline">Offline</string>

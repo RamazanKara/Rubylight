@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_enable_sdr10">Màu 10 bit (SDR)</string>
-    <string name="summary_enable_sdr10">Truyền SDR bằng HEVC hoặc AV1 10 bit để giảm hiện tượng sọc màu. Cần bộ giải mã Main10 trên thiết bị này; màn hình của PC phải ở chế độ SDR.</string>
+    <string name="title_enable_sdr10">Giảm sọc màu</string>
+    <string name="summary_enable_sdr10">Stream video không HDR ở 10 bit để dải chuyển màu ít bị sọc hơn.</string>
     <string name="startup_sdr10_not_accepted">PC này không chấp nhận 10 bit nên luồng là 8 bit.</string>
     <string name="stream_sdr10_host_hdr">PC đang gửi HDR. Hãy chuyển màn hình của PC sang SDR để dùng SDR 10 bit.</string>
     <string name="stream_sdr10_unavailable">SDR 10 bit không được dùng nên luồng là 8 bit: %1$s</string>

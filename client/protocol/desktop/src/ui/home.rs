@@ -2,7 +2,7 @@
 //! favourites, recents, the library's rows and the PCs. All of it scrolls beneath the chrome.
 
 use super::backdrop::Want;
-use super::chrome::{capsule_width, control_capsule, info_chip, play_button, play_width};
+use super::chrome::{capsule_width, control_capsule, icon_capsule, info_chip, play_button, play_width};
 use super::design_tokens as t;
 use super::glass;
 use super::*;
@@ -324,7 +324,8 @@ impl Launcher {
                     if entries.is_empty() {
                         this.shelf_head(ui, tr("Library"), None, &mut actions_shown);
                         if loading {
-                            loading_games(ui);
+                            ui.add_space(space::S);
+                            loading_covers(ui, tr("Loading the games…"), 1, true, this.cover_widest());
                         } else {
                             ui.label(RichText::new(tr("No games to show yet. They appear here once a PC that shares its game library is online.")).color(ON_SURFACE_VARIANT));
                         }
@@ -701,22 +702,20 @@ impl Launcher {
         }
         let star = console::favourite_of(source, game);
         let starred = console::is_starred(source, game, &self.favourites);
-        let star_rect = Rect::from_min_size(
-            pos2(next_x, buttons_y),
-            vec2(capsule_width(ui, tr("Favourite")), BUTTON_H),
-        );
-        let said = if starred {
-            tr("Remove from favourites")
+        // The star alone, as on Android's Home: the row keeps its room in the smallest window. Its
+        // words, the game menu's, are its tooltip, its hint and what a screen reader says.
+        let (said, going) = if starred {
+            (tr("Remove from favourites"), en("Remove from favourites"))
         } else {
-            tr("Add to favourites")
+            (tr("Add to favourites"), en("Add to favourites"))
         };
+        let star_rect = Rect::from_min_size(pos2(next_x, buttons_y), Vec2::splat(BUTTON_H));
         let glyph = if starred { Icon::StarOn } else { Icon::Star };
-        let r = control_capsule(
+        let r = icon_capsule(
             ui,
             star_rect,
             Id::unique("hero-star"),
             glyph,
-            tr("Favourite"),
             said,
             star.is_some(),
         );
@@ -725,7 +724,7 @@ impl Launcher {
             *first = false;
         }
         self.focus_item(&r, "hero-star", star_first);
-        if let Some(anchor) = menu_request_going(ui, &r, None, en("Favourite")) {
+        if let Some(anchor) = menu_request_going(ui, &r, None, going) {
             self.open_menu(
                 Dialog::GameMenu {
                     host: host.id,
@@ -790,7 +789,7 @@ impl Launcher {
             &ctx,
             rect,
             t::RADIUS_GROUP,
-            t::TINT_GROUP_ON_ART_FILL,
+            shade::TINT_GROUP_ON_ART_FILL.get(),
         );
         ui.painter().extend(out);
         let head = ui.painter().layout_no_wrap(
@@ -818,9 +817,9 @@ impl Launcher {
             let feel = glass::feel(&ctx, &response, 1.0, 1.0);
             if feel.hovered || feel.pressed {
                 let lift = if feel.pressed {
-                    t::PRESS_FILL_LIFT
+                    shade::PRESS_FILL_LIFT.get()
                 } else {
-                    t::HOVER_FILL_LIFT
+                    shade::HOVER_FILL_LIFT.get()
                 };
                 let mut out = Vec::new();
                 glass::solid(&mut out, &ctx, row.shrink2(vec2(4.0, 1.0)), 14.0, lift);
@@ -830,7 +829,7 @@ impl Launcher {
                 ui.painter().hline(
                     rect.left() + 16.0..=rect.right(),
                     y,
-                    Stroke::new(1.0, t::TINT_SEPARATOR),
+                    Stroke::new(1.0, shade::TINT_SEPARATOR.get()),
                 );
             }
             let cover =

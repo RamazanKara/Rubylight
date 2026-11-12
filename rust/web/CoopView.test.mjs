@@ -104,7 +104,7 @@ test('not set up: a link to the release’s page and its folder to choose, nothi
   assert.match(out, /Play together/);
   // The release page opens in a new tab; Rubylight downloads nothing itself.
   assert.ok(out.includes(`href="${PAGE}" target="_blank" rel="noreferrer">Download Nucleus Co-op 2.4.2`), out);
-  assert.match(out, /Unpack it into a folder under C:\\Program Files, then choose that folder\./);
+  assert.match(out, /Unpacked in a folder under C:\\Program Files, which only administrators can change\./);
   assert.match(out, /aria-label="Nucleus Co-op’s folder"/);
   assert.match(out, /Use this folder/);
   assert.doesNotMatch(out, /Set up co-op|progressbar|\u00a0MB/);
@@ -116,6 +116,23 @@ test('not set up: a link to the release’s page and its folder to choose, nothi
 test('a folder chosen earlier fills the field', () => {
   const out = html(status({ install: install({ state: 'missing', chosen: 'D:\\Tools\\Nucleus' }) }, { status: 'unknown' }));
   assert.match(out, /value="D:\\Tools\\Nucleus"/);
+});
+
+test('the folder Nucleus Co-op already runs from offers Forget, not a second Use; another offers Use', async () => {
+  const NucleusFolder = (await server.ssrLoadModule('/src/components/library/NucleusFolder.svelte')).default;
+  const folder = (fields) => render(NucleusFolder, { props: { status: status({ install: install(fields) }), onchosen: () => {} } }).body;
+  const inUse = folder({ state: 'configured', path: 'C:\\Program Files\\Nucleus Co-op', chosen: 'C:\\Program Files\\Nucleus Co-op', version: '2.4.2' });
+  assert.match(inUse, /Forget this folder/);
+  assert.doesNotMatch(inUse, /Use this folder/);
+  assert.doesNotMatch(inUse, /class="button primary/);
+  // Forget is the field's own button then, not a second row indented under it.
+  assert.doesNotMatch(inUse, /class="forget/);
+  // A kept folder that can't run: Use checks it (or another) again, and Forget sits under it, flush right.
+  const broken = folder({ state: 'failed', chosen: 'D:\\Nucleus', problem: 'version', error: 'why' });
+  assert.match(broken, /class="button primary[^"]*"[^>]*>(?:<!--[^>]*-->|\s)*Use this folder/);
+  assert.match(broken, /class="forget[^"]*"[\s\S]*Forget this folder/);
+  // Nothing kept: nothing to forget.
+  assert.doesNotMatch(folder({ state: 'missing', chosen: '' }), /Forget this folder/);
 });
 
 test('a folder Nucleus Co-op can’t run from is loud, says why, and another can be chosen', () => {
@@ -162,7 +179,7 @@ test('a kept folder that isn’t 2.4.2 runs the earlier copy, says why, and keep
   const out = html(fallback);
   assert.match(out, /Rubylight runs the earlier copy/);
   assert.match(out, /an earlier Rubylight installed, in C:\\Nucleus\./);
-  assert.match(out, /Games added in the earlier copy stay there/);
+  assert.match(out, /Games added in the earlier copy stay in it; this folder starts without them\./);
   assert.match(out, /value="D:\\Old"/);
   assert.match(out, /Forget this folder/);
   // Without a notice the ready card has no folder picker and no note.

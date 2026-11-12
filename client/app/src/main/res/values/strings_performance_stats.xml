@@ -10,10 +10,10 @@
     <string name="stats_host">Host processing: %1$s ms</string>
     <string name="stats_host_network">Host incl. send: %1$s ms</string>
     <string name="stats_client">Decode: %1$s ms · Display wait: %2$s ms</string>
-    <string name="hardware_title">Host hardware (all GPUs)</string>
-    <string name="hardware_cpu">Host CPU: %1$s%%</string>
-    <string name="hardware_gpu_summary">Host GPU %1$d: %2$s%% · %3$s °C · %4$s W</string>
-    <string name="hardware_sample">Host sample: %1$d ms since Unix epoch · Interval: %2$d ms</string>
+    <string name="hardware_title">PC hardware (all GPUs)</string>
+    <string name="hardware_cpu">PC CPU: %1$s%%</string>
+    <string name="hardware_gpu_summary">PC GPU %1$d: %2$s%% · %3$s °C · %4$s W</string>
+    <string name="hardware_sample">PC sample: %1$d ms since Unix epoch · Interval: %2$d ms</string>
     <string name="hardware_gpu_name">GPU %1$d · %2$s</string>
     <string name="hardware_gpu_unnamed">Unnamed GPU</string>
     <string name="hardware_gpu_clocks">Usage: %1$s%% · GPU clock: %2$s MHz · Memory clock: %3$s MHz</string>

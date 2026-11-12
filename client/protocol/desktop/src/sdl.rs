@@ -40,6 +40,14 @@ pub fn error() -> String {
         .into_owned()
 }
 
+/// Whether the system asks apps to be light (`SDL_GetSystemTheme`: Windows' app mode, macOS'
+/// appearance, the desktop portal's colour scheme): the System theme's day look. An unknown answer
+/// is dark, the look Nightjar always had.
+pub fn system_light() -> bool {
+    // SAFETY: a query without arguments, on the main thread after SDL_Init.
+    unsafe { SDL_GetSystemTheme() == SDL_SYSTEM_THEME_LIGHT }
+}
+
 /// Opens `url` in the default browser.
 pub fn open_url(url: &str) -> Result<(), String> {
     let url = std::ffi::CString::new(url).map_err(|e| e.to_string())?;
@@ -82,6 +90,30 @@ pub fn choose_json_file(window: *mut SDL_Window, save: bool) -> FileChoice {
         } else {
             SDL_ShowOpenFileDialog(Some(chosen), request.cast(), window, &(*request).filter, 1, std::ptr::null(), false);
         }
+    }
+    receiver
+}
+
+/// Where to save the latency CSV (Settings → Advanced → Export latency CSV), Android's
+/// `nightjar-latency.csv` offered by name.
+pub fn choose_csv_file(window: *mut SDL_Window) -> FileChoice {
+    struct Request {
+        sender: std::sync::mpsc::Sender<Result<Option<std::path::PathBuf>, String>>,
+        filter: SDL_DialogFileFilter,
+    }
+    unsafe extern "C" fn chosen(userdata: *mut std::ffi::c_void, files: *const *const c_char, _: i32) {
+        // SDL calls once; the request keeps the filter alive until this callback.
+        let request = unsafe { Box::from_raw(userdata.cast::<Request>()) };
+        let _ = request.sender.send(unsafe { chosen_path(files) });
+    }
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let request = Box::into_raw(Box::new(Request {
+        sender,
+        filter: SDL_DialogFileFilter { name: c"CSV files".as_ptr(), pattern: c"csv".as_ptr() },
+    }));
+    // SAFETY: invoked on the UI thread; SDL owns the callback's lifetime.
+    unsafe {
+        SDL_ShowSaveFileDialog(Some(chosen), request.cast(), window, &(*request).filter, 1, c"nightjar-latency.csv".as_ptr());
     }
     receiver
 }

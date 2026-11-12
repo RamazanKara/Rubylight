@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_open_on_start">Khi Nightjar mở</string>
-    <string name="summary_open_on_start">Các PC của bạn, hoặc đếm ngược 3 giây vào trò chơi.</string>
+    <string name="summary_open_on_start">Trang chủ, các PC của bạn, hoặc đếm ngược ngắn vào trò chơi.</string>
     <string name="open_play_menu">Mở mục này khi Nightjar khởi động</string>
     <string name="open_play_menu_stop">Không mở mục này khi Nightjar khởi động nữa</string>
     <string name="open_play_countdown">Bắt đầu trên %1$s sau %2$d</string>

@@ -2,6 +2,7 @@
   import { onDestroy, onMount, type Snippet } from 'svelte';
   import Badge from '../Badge.svelte';
   import Button from '../Button.svelte';
+  import Disclosure from '../Disclosure.svelte';
   import Icon from '../Icon.svelte';
   import Panel from '../Panel.svelte';
   import LoadState from '../LoadState.svelte';
@@ -12,8 +13,11 @@
   import { refreshMetadata, session } from '../../lib/session.svelte';
   import { localTime, reason } from './util';
 
-  /** `settings`: update settings shown above the status (the Settings home). */
-  let { title = 'Updates', settings }: { title?: string; settings?: Snippet } = $props();
+  /**
+   * `settings`: update settings shown above the status. `more`: where the
+   * other update settings are, for the Settings home.
+   */
+  let { title = 'Updates', id, settings, more }: { title?: string; id?: string; settings?: Snippet; more?: string } = $props();
 
   let updates = $state<UpdatesState | null>(null);
   let loadError = $state('');
@@ -78,7 +82,7 @@
   });
 </script>
 
-<Panel {title} level={3}>
+<Panel {title} {id} level={3}>
   {#snippet actions()}
     {#if available}<Badge tone="accent">Update available</Badge>
     {:else if latest && !updates?.check_failed}<Badge tone="ok">Up to date</Badge>{/if}
@@ -86,7 +90,7 @@
   {#if settings}<div class="settings">{@render settings()}</div>{/if}
   {#if updates}
     <div class="stack">
-      <!-- The versions and Check now stay in view; schedule, notes and links fold under More. -->
+      <!-- The versions and Check now stay in view; schedule, notes and links fold below. -->
       <dl class="facts">
         <dt>Installed</dt><dd class="num">{installed || '…'}</dd>
         <dt>Latest release</dt>
@@ -104,7 +108,7 @@
       {:else if (updates.phase === 'waiting' || updates.phase === 'ready') && updates.now}
         <p class="notice" role="status">Installing {updates.queued_version} now…</p>
       {:else if updates.phase === 'waiting' || updates.phase === 'ready'}
-        <p class="notice" role="status">{updates.queued_version} is queued. Waiting for the host to be idle. Disconnect devices and close the running app to continue, or choose Install now.</p>
+        <p class="notice" role="status">{updates.queued_version} is queued. Waiting for the PC to be idle. Disconnect devices and close the running app to continue, or choose Install now.</p>
       {:else if updates.phase === 'downloading'}
         <p class="notice" role="status">Downloading {updates.queued_version}: {progress}%</p>
         <progress max="100" value={progress} aria-label="Update download">{progress}%</progress>
@@ -130,8 +134,7 @@
           <Button variant="danger" busy={acting === 'installNow'} disabled={acting !== null} onclick={() => act('installNow')}>Install now</Button>
         {/if}
       </div>
-      <details class="more">
-        <summary>More<span class="visually-hidden"> about updates</span></summary>
+      <Disclosure variant="inline" title="Schedule and release notes">
         <div class="links">
         <dl class="facts">
           <dt>Last checked</dt><dd>{updates.checked_at ? `${ago(updates.checked_at)}${updates.check_failed ? ' (failed)' : ''}` : updates.previous_check_at ? ago(updates.previous_check_at) : 'Never'}</dd>
@@ -141,17 +144,16 @@
           <dt>Automatic installation</dt><dd>{!updates.install_supported ? 'Unavailable — requires the Windows service' : updates.update_check_interval <= 0 ? 'Off — automatic update checks are disabled' : updates.auto_update ? 'On — installs when idle' : 'Off — notify me first'}</dd>
         </dl>
         {#if !updates.install_supported}<p class="notice">In-app installation requires the installed Windows service. Use the release page for portable builds.</p>{/if}
-        <details>
-          <summary>How installing works</summary>
-          <p><strong>Install when idle</strong> waits for streams, pending connections and host apps to stop, then installs after one minute of idle time. <strong>Install now</strong> installs right away: the stream ends, games started from Moonlight close, and you can connect again once Rubylight has restarted. Settings and paired devices stay in place.</p>
-        </details>
-        {#if latest && notes}<details><summary>Release notes for {latest.name || latest.tag_name}</summary><pre class="notes">{notes}</pre></details>{/if}
+        <Disclosure variant="inline" title="How installing works">
+          <p class="about"><strong>Install when idle</strong> waits for streams, pending connections and running apps to stop, then installs after one minute of idle time. <strong>Install now</strong> installs right away: the stream ends, games started from Moonlight close, and you can connect again once Rubylight has restarted. Settings and paired devices stay in place.</p>
+        </Disclosure>
+        {#if latest && notes}<Disclosure variant="inline" title="Release notes for {latest.name || latest.tag_name}"><pre class="notes">{notes}</pre></Disclosure>{/if}
         <div class="row small">
-          <a href="/settings/general?setting=update_check_interval" use:link>Change update settings</a>
+          {#if more}<a href={more} use:link>Update settings</a>{/if}
           {#if latest}<a class="release" href={latest.html_url} target="_blank" rel="noreferrer">Open the release page<Icon name="external" size={14} /></a>{/if}
         </div>
         </div>
-      </details>
+      </Disclosure>
     </div>
   {:else}<LoadState error={loadError} what="the update status" onretry={load} />{/if}
 </Panel>
@@ -172,62 +174,15 @@
     gap: var(--space-3);
     margin-top: var(--space-2);
   }
-  /* The same More as a setting row's. */
-  .more > summary {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-1);
-    width: fit-content;
-    padding: 2px 0;
-    /* A 44 px target that takes no more room than its line of text. */
-    min-height: var(--control-height);
-    margin-block: calc((20px - var(--control-height)) / 2);
-    border: 0;
+  .about {
     color: var(--ink-2);
-    font-size: var(--text-xs);
-    font-weight: var(--weight-medium);
-    cursor: pointer;
-    list-style: none;
-  }
-  .more > summary::-webkit-details-marker {
-    display: none;
-  }
-  .more > summary::after {
-    content: '';
-    width: 5px;
-    height: 5px;
-    margin-left: 2px;
-    border-right: 1.5px solid currentColor;
-    border-bottom: 1.5px solid currentColor;
-    transform: translateY(-2px) rotate(45deg);
-    transition: transform var(--duration-fast);
-  }
-  .more[open] > summary::after {
-    transform: translateY(1px) rotate(225deg);
-  }
-  .more > summary:hover {
-    color: var(--ink);
-    text-decoration: underline;
-    text-underline-offset: 2px;
-  }
-  .links details {
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
     font-size: var(--text-sm);
-  }
-  .links summary {
-    padding: var(--space-2) var(--space-3);
-    cursor: pointer;
-    font-weight: var(--weight-medium);
-  }
-  .links details p {
-    padding: 0 var(--space-3) var(--space-3);
-    color: var(--ink-2);
   }
   .notes {
     margin: 0;
     padding: var(--space-3);
-    border-top: 1px solid var(--line);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
     background: var(--sunken);
     max-height: 320px;
     overflow: auto;

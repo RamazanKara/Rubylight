@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="pin_lock_title">Bloqueo con PIN</string>
-    <string name="pin_lock_summary">Pide un PIN para abrir Nightjar o iniciar una transmisión. Un PIN olvidado solo se puede restablecer borrando los datos de Nightjar en los ajustes de Android, lo que también elimina tus PCs vinculados.</string>
+    <string name="pin_lock_summary">Pide un PIN para abrir Nightjar o iniciar una transmisión.</string>
     <string name="pin_set">Establecer PIN</string>
     <string name="pin_change">Cambiar PIN</string>
     <string name="pin_remove">Quitar PIN</string>

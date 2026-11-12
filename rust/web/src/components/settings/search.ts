@@ -1,4 +1,10 @@
-import type { Category, Setting } from '../../lib/settings-types';
+import type { Setting } from '../../lib/settings-types';
+
+/** A tab or topic a setting shows under: search matches its name and id. */
+export interface Topic {
+  id: string;
+  label: string;
+}
 
 export function searchWords(query: string): string[] {
   return query.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -15,7 +21,7 @@ export function matchesWords(text: string, words: readonly string[]): boolean {
  */
 export function searchSettings(
   settings: readonly Setting[],
-  categoriesOf: (setting: Setting) => readonly Category[],
+  categoriesOf: (setting: Setting) => readonly Topic[],
   query: string,
 ): Setting[] {
   const words = searchWords(query);
@@ -24,7 +30,7 @@ export function searchSettings(
 }
 
 /** Search what users see, including choices inside menus and category context. */
-export function matchesSetting(setting: Setting, category: Category, words: readonly string[]): boolean {
+export function matchesSetting(setting: Setting, category: Topic, words: readonly string[]): boolean {
   const options = setting.control.kind === 'select'
     ? setting.control.options.flatMap((option) => [option.label, option.value])
     : [];

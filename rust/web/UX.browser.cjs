@@ -15,7 +15,7 @@ before(async () => {
   base = `http://127.0.0.1:${server.httpServer.address().port}`;
   browser = await chromium.launch({ headless: true,
     ...(process.env.CHROMIUM_EXECUTABLE ? { executablePath: process.env.CHROMIUM_EXECUTABLE } : {}) });
-  await warmUp(browser, base, ['/', '/library', '/maintenance']);
+  await warmUp(browser, base, ['/', '/library', '/troubleshoot']);
 });
 after(async () => { await browser?.close(); await server?.close(); });
 
@@ -86,7 +86,7 @@ async function fixture(t, intercept = async () => false) {
   return { page, writes };
 }
 
-test('maintenance panels recover failed loads without reloading the console', async t => {
+test('Troubleshoot panels recover failed loads without reloading the console', async t => {
   const failures = new Set(['/api/display/golden_status', '/api/health/crashdump', '/api/health/vulkan-hdr-layer',
     '/api/frame-limiter/status', '/api/auth/sessions', '/api/updates', '/api/power']);
   const { page } = await fixture(t, async (route, url) => {
@@ -94,29 +94,33 @@ test('maintenance panels recover failed loads without reloading the console', as
     await route.fulfill({ status: 503, body: 'Temporarily unavailable' });
     return true;
   });
-  await page.goto(base + '/maintenance');
+  await page.goto(base + '/troubleshoot');
   for (const what of ['the display layout', 'crash reports']) {
     const retry = page.getByRole('button', { name: `Retry ${what}`, exact: true });
     await retry.click();
     await retry.waitFor({ state: 'detached' });
   }
-  // The Vulkan layer and RTSS live under All settings › Display & HDR › Integrations.
-  await page.goto(base + '/settings/display');
+  // The Vulkan layer and RTSS live under All settings › Picture › Integrations.
+  await page.goto(base + '/settings/picture');
   await page.locator('summary', { hasText: 'Integrations' }).click();
   for (const what of ['the Vulkan layer status', 'the frame limiter status']) {
     const retry = page.getByRole('button', { name: `Retry ${what}`, exact: true });
     await retry.click();
     await retry.waitFor({ state: 'detached' });
   }
-  // Updates, power and signed-in browsers live on the Settings home.
+  // Updates and wake are on the Settings home; signed-in browsers in All settings › Advanced.
   await page.goto(base + '/settings');
-  for (const what of ['signed-in browsers', 'the update status', 'the wake status']) {
+  for (const what of ['the update status', 'the wake status']) {
     const retry = page.getByRole('button', { name: `Retry ${what}`, exact: true });
     await retry.click();
     await retry.waitFor({ state: 'detached' });
   }
-  await page.goto(base + '/maintenance');
-  await page.getByText('A layout is saved. The host could not compare it with the current displays.', { exact: true }).waitFor();
+  await page.goto(base + '/settings/advanced');
+  const retry = page.getByRole('button', { name: 'Retry signed-in browsers', exact: true });
+  await retry.click();
+  await retry.waitFor({ state: 'detached' });
+  await page.goto(base + '/troubleshoot');
+  await page.getByText('A layout is saved. Rubylight couldn’t compare it with the displays as they are now.', { exact: true }).waitFor();
   assert.equal(await page.getByText('A layout is saved and matches the displays as they are now.', { exact: true }).count(), 0);
   await page.setViewportSize({ width: 390, height: 844 });
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
@@ -132,7 +136,7 @@ test('host actions are disabled while the restart request is pending and recover
     await route.fulfill({ status: 503, body: 'Restart unavailable' });
     return true;
   });
-  await page.goto(base + '/maintenance');
+  await page.goto(base + '/troubleshoot');
   const restart = page.getByRole('button', { name: 'Restart', exact: true });
   const quit = page.getByRole('button', { name: 'Quit', exact: true });
   await restart.click();
@@ -157,7 +161,7 @@ test('failed layout refresh keeps the last state visible and offers retry', asyn
     await route.fulfill({ status: 503, body: 'Layout temporarily unavailable' });
     return true;
   });
-  await page.goto(base + '/maintenance');
+  await page.goto(base + '/troubleshoot');
   await page.getByRole('button', { name: 'Save current layout', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Replace', exact: true }).click();
   await page.getByText(/Could not refresh the display layout.*Showing the last known state/).waitFor();
@@ -277,19 +281,19 @@ test('the global close-on-disconnect default saves and survives a reload', async
   page.on('console', message => { if (['error', 'warning'].includes(message.type())) messages.push(message.text()); });
   t.after(() => assert.deepEqual(messages, []));
   const label = 'Close the app when the last device disconnects';
-  await page.goto(base + '/settings/library');
+  await page.goto(base + '/settings/games');
   const toggle = page.getByRole('switch', { name: label, exact: true });
   await toggle.waitFor();
   assert.equal(await toggle.isChecked(), false);
   await toggle.check();
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
-  await page.getByText('Saved. Some changes apply after the host restarts.', { exact: true }).waitFor();
+  await page.getByText('Saved. Some changes apply after Rubylight restarts.', { exact: true }).waitFor();
   assert.equal(writes.at(-1).body.terminate_on_pause, true);
   await page.reload();
   await toggle.waitFor();
   assert.equal(await toggle.isChecked(), true);
   assert.equal(await page.title(), 'Rubylight');
-  assert.equal(page.url(), base + '/settings/library');
+  assert.equal(page.url(), base + '/settings/games');
   if (process.env.BUTTERPOLLO_TEST_ARTIFACTS) {
     await page.screenshot({ path: path.join(process.env.BUTTERPOLLO_TEST_ARTIFACTS, 'disconnect-global-desktop.png') });
   }
@@ -501,9 +505,15 @@ test('the Settings home shows the main settings as outcomes, saves only changed 
   await page.goto(base + '/settings');
   await page.getByRole('heading', { name: 'Settings', exact: true, level: 1 }).waitFor();
   assert.deepEqual(await page.locator('main').getByRole('heading', { level: 2 }).allInnerTexts(),
-    ['This PC', 'Picture', 'Sound and controls', 'Games', 'Updates', 'Sign-in and security']);
+    ['This PC', 'Picture', 'Sound & controls', 'Games']);
   await page.locator('[data-setting="sunshine_name"]').waitFor();
-  assert.equal(await page.locator('main [data-setting]').count(), 10);
+  assert.equal(await page.locator('main [data-setting]').count(), 9);
+  // Wake is one row; its detail, sign-in and pairing are in All settings.
+  await page.locator('[data-wake]').waitFor();
+  assert.equal(await page.locator('main [data-setting="enable_pairing"]').count(), 0);
+  assert.equal(await page.getByRole('heading', { name: 'Sign-in and security' }).count(), 0);
+  // Each section links to its All settings tab.
+  assert.equal(await page.getByRole('link', { name: 'More settings for Picture', exact: true }).getAttribute('href'), '/settings/picture');
   const monitors = page.getByLabel('While streaming, your monitors', { exact: true });
   assert.deepEqual(await monitors.locator('option').allInnerTexts(), ['Turn off', 'Stay on']);
   await monitors.selectOption('extended');
@@ -513,8 +523,8 @@ test('the Settings home shows the main settings as outcomes, saves only changed 
   // Search covers every key and opens it in All settings, its folded group open.
   await page.getByRole('searchbox', { name: 'Search all settings' }).fill('qr_pairing');
   await page.getByRole('link', { name: /Pair with a QR code/ }).click();
-  await page.waitForURL(base + '/settings/general?setting=qr_pairing');
-  const debug = page.locator('details.fold', { has: page.locator(':scope > summary', { hasText: 'Debug switches' }) });
+  await page.waitForURL(base + '/settings/advanced?setting=qr_pairing');
+  const debug = page.locator('details.disclosure', { has: page.locator(':scope > summary', { hasText: 'Debug switches' }) });
   assert.equal(await debug.evaluate(node => node.open), true);
   await page.locator('[data-setting="qr_pairing"]').waitFor();
   await page.setViewportSize({ width: 390, height: 844 });
@@ -523,12 +533,12 @@ test('the Settings home shows the main settings as outcomes, saves only changed 
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
 });
 
-test('maintenance is grouped into sections and every destructive action looks and confirms the same', async t => {
+test('Troubleshoot is grouped into sections and every destructive action looks and confirms the same', async t => {
   const { page, writes } = await fixture(t);
-  await page.goto(base + '/maintenance');
+  await page.goto(base + '/troubleshoot');
   await page.getByRole('button', { name: 'Restore saved layout', exact: true }).waitFor();
   assert.deepEqual(await page.locator('main').getByRole('heading', { level: 2 }).allInnerTexts(),
-    ['Host', 'Displays and Windows session', 'Co-op', 'Logs', 'Crashes and support bundle']);
+    ['Rubylight', 'Displays and Windows session', 'Co-op', 'Crash reports']);
   for (const [name, title, confirmName] of [
     ['Quit', 'Quit Rubylight?', 'Quit'],
     ['Delete saved layout', 'Delete the saved layout?', 'Delete'],
@@ -547,7 +557,7 @@ test('maintenance is grouped into sections and every destructive action looks an
   assert.deepEqual(writes, []);
 });
 
-test('Wake-on-LAN changes apply only after confirmation, exactly as listed, and a stale list is checked again', async t => {
+test('Wake-on-LAN changes apply in one click, exactly as listed, and a stale list is checked again', async t => {
   const first = ['Realtek PCIe GbE: allow this device to wake the computer'];
   const now = [...first, 'Realtek PCIe GbE: turn on Wake on magic packet'];
   const needs = { wake: { targets: [{ mac: 'aa:bb:cc:dd:ee:01', kind: 'ethernet', connected: true, route: true, broadcasts: [],
@@ -574,22 +584,20 @@ test('Wake-on-LAN changes apply only after confirmation, exactly as listed, and 
     }
     return true;
   });
-  await page.goto(base + '/settings');
-  const panel = page.locator('section.panel', { has: page.getByRole('heading', { name: 'Wake-on-LAN and sleep', exact: true }) });
+  await page.goto(base + '/settings/pc');
+  const panel = page.locator('section.panel', { has: page.getByRole('heading', { name: 'Sleep and wake', exact: true }) });
   await panel.getByText(/A wake setting of the wired adapter aa:bb:cc:dd:ee:01 is off/).waitFor();
   await panel.getByText('Sleeps in 12 min if nothing changes (counted from the last use of this console).', { exact: true }).waitFor();
   await panel.getByText(/Fast Startup is on: Shut down hibernates the PC/).waitFor();
+  // The sleep settings sit above the wake status they go with.
+  await panel.locator('[data-setting="sleep_after_idle_minutes"]').waitFor();
   const apply = panel.getByRole('button', { name: 'Apply changes', exact: true });
   await apply.click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
-  assert.deepEqual(writes, []);
-  await apply.click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Apply changes', exact: true }).click();
+  assert.equal(await page.getByRole('dialog').count(), 0, 'no second question');
   await page.getByText(/Wake-on-LAN changes not applied: not applied: the adapters' settings changed since you checked/).waitFor();
   await panel.getByText(now[1], { exact: true }).waitFor();
   await panel.getByText('Also turn off Fast Startup', { exact: true }).click();
   await apply.click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Apply changes', exact: true }).click();
   await page.getByText('Wake-on-LAN changes applied.', { exact: true }).waitFor();
   await panel.getByText(/Applied 2 changes just now\.\s+Restarted: Realtek PCIe GbE\./).waitFor();
   // What the administrator saw, the first time and after checking again.
@@ -613,7 +621,7 @@ test('refreshing the Windows session status spins only its own button', async t 
       reason: 'The desktop is in a Remote Desktop session.' } } });
     return true;
   });
-  await page.goto(base + '/maintenance');
+  await page.goto(base + '/troubleshoot');
   await page.getByText('The desktop is in a Remote Desktop session.', { exact: true }).waitFor();
   const refresh = page.getByRole('button', { name: 'Refresh status', exact: true });
   const back = page.getByRole('button', { name: 'Return to console', exact: true });
@@ -651,9 +659,10 @@ test('an update action spins only its own button, and update settings open insid
   held.resolve();
   await page.waitForFunction(() => [...document.querySelectorAll('button')].every(button => button.getAttribute('aria-busy') !== 'true'));
   await page.evaluate(() => { window.consoleStayedLoaded = true; });
-  await page.locator('summary', { hasText: 'about updates' }).click();
-  await page.getByRole('link', { name: 'Change update settings', exact: true }).click();
-  await page.waitForURL(base + '/settings/general?setting=update_check_interval');
+  await page.locator('summary', { hasText: 'Schedule and release notes' }).click();
+  await page.getByRole('link', { name: 'Update settings', exact: true }).click();
+  await page.waitForURL(base + '/settings/pc#updates');
+  await page.locator('[data-setting="update_check_interval"]').waitFor();
   assert.equal(await page.evaluate(() => window.consoleStayedLoaded), true);
 });
 
@@ -790,7 +799,7 @@ test('a long list of signed-in browsers starts short, with this browser first', 
     await route.fulfill({ json: { status: true, sessions } });
     return true;
   });
-  await page.goto(base + '/settings');
+  await page.goto(base + '/settings/advanced');
   const list = page.locator('main').getByRole('list').filter({ hasText: 'Browser 4' });
   await list.waitFor();
   assert.equal(await list.getByRole('listitem').count(), 5);
@@ -891,21 +900,100 @@ test('Return to console is offered only when Windows allows it, and the reason s
   const { page } = await fixture(t, async (route, url) => {
     if (url.pathname !== '/api/session/console') return false;
     await route.fulfill({ json: { status: true, recovery: { session_id: 1, console_session_id: 1, can_reattach: false,
-      reason: 'This host is already attached to the physical console.' } } });
+      reason: 'Rubylight already runs on the physical console.' } } });
     return true;
   });
-  await page.goto(base + '/maintenance');
-  await page.getByText('This host is already attached to the physical console.', { exact: true }).waitFor();
+  await page.goto(base + '/troubleshoot');
+  await page.getByText('Rubylight already runs on the physical console.', { exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: 'Return to console', exact: true }).count(), 0);
   await page.getByRole('button', { name: 'Refresh status', exact: true }).waitFor();
 });
 
-test('Stream with the WebRTC server off fills its panel and links straight to the setting', async t => {
-  const { page } = await fixture(t);
+test('Stream with the WebRTC server off turns it on in one click and restarts Rubylight', async t => {
+  let config = { sunshine_name: 'Fixture host' }, restarted = false, away = false;
+  const { page, writes } = await fixture(t, async (route, url, request) => {
+    // Rubylight is away for one answer after the restart, then back.
+    if (url.pathname === '/api/metadata' && restarted && !away) {
+      away = true;
+      await route.fulfill({ status: 503, body: 'Restarting' });
+      return true;
+    }
+    if (url.pathname === '/api/config') {
+      if (request.method() === 'PATCH') {
+        Object.assign(config, request.postDataJSON());
+        await route.fulfill({ json: { status: true, restart_required: true } });
+      } else {
+        await route.fulfill({ json: config });
+      }
+      return true;
+    }
+    if (url.pathname === '/api/restart') {
+      restarted = true;
+      await route.fulfill({ json: { status: true } });
+      return true;
+    }
+    return false;
+  });
   await page.goto(base + '/stream');
-  await page.getByRole('heading', { name: 'The WebRTC server is off', exact: true }).waitFor();
-  const open = page.getByRole('link', { name: 'Open the WebRTC setting', exact: true });
-  assert.equal(await open.getAttribute('href'), '/settings/network?setting=webrtc_server');
-  await open.click();
-  await page.waitForURL(base + '/settings/network?setting=webrtc_server');
+  await page.getByRole('heading', { name: 'Streaming in this tab is off', exact: true }).waitFor();
+  assert.equal(await page.getByRole('link', { name: /WebRTC setting/ }).count(), 0);
+  await page.getByRole('button', { name: 'Turn on', exact: true }).click();
+  // No stream runs, so no question: the setting, then the restart that starts it.
+  assert.equal(await page.getByRole('dialog').count(), 0);
+  await page.getByRole('button', { name: 'Connect', exact: true }).waitFor();
+  assert.equal(restarted, true);
+  assert.deepEqual(writes.filter(write => write.path === '/api/config').map(write => write.body), [{ webrtc_server: true }]);
+});
+
+test('Ctrl+K finds a game, a device and an action from any page, and the old Help address still opens Help', async t => {
+  const { page, writes } = await fixture(t);
+  // The old address lands on Help, and the address bar says so.
+  await page.goto(base + '/maintenance');
+  await page.getByRole('heading', { level: 1, name: 'Help' }).waitFor();
+  assert.equal(new URL(page.url()).pathname, '/help');
+  const dialog = page.getByRole('dialog', { name: 'Search' });
+  const search = page.getByRole('combobox', { name: 'Search games, devices, settings and actions' });
+  // The keyboard opens it; typing filters; Enter opens the first result.
+  await page.keyboard.press('Control+k');
+  await dialog.waitFor();
+  assert.equal(await search.evaluate(element => element === document.activeElement), true);
+  await search.fill('two');
+  const first = dialog.getByRole('option', { name: /^Two/ });
+  await first.waitFor();
+  assert.equal(await first.getAttribute('aria-selected'), 'true');
+  await page.keyboard.press('Enter');
+  await page.waitForURL(url => url.pathname === '/library/two');
+  await dialog.waitFor({ state: 'hidden' });
+  // The sidebar's Search button opens it too; arrows move the choice, Escape closes it.
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  await search.fill('device');
+  await dialog.getByRole('option', { name: /^Second device/ }).waitFor();
+  const options = dialog.getByRole('option');
+  assert.equal(await options.nth(0).getAttribute('aria-selected'), 'true');
+  await search.press('ArrowDown');
+  assert.equal(await options.nth(0).getAttribute('aria-selected'), 'false');
+  assert.equal(await options.nth(1).getAttribute('aria-selected'), 'true');
+  assert.equal(await search.getAttribute('aria-activedescendant'), await options.nth(1).getAttribute('id'));
+  await search.press('Escape');
+  await dialog.waitFor({ state: 'hidden' });
+  // A device opens Devices with its row in view and focused.
+  await page.keyboard.press('Control+k');
+  await search.fill('second');
+  await page.keyboard.press('Enter');
+  await page.waitForURL(url => url.pathname === '/devices');
+  await page.waitForFunction(() => document.activeElement?.closest('li')?.textContent?.includes('Second device'));
+  // An action runs in place: Sync games now asks every launcher, once.
+  await page.keyboard.press('Control+k');
+  await search.fill('sync games');
+  await page.keyboard.press('Enter');
+  await page.getByText('Nothing new: your library already has every game.').first().waitFor();
+  assert.deepEqual(writes.map(write => write.path).filter(path => path.endsWith('sync')).sort(), ['/api/library/sync', '/api/steam/force_sync']);
+  assert.equal(new URL(page.url()).pathname, '/devices');
+  // On a phone the button keeps a 44 px target and the dialog fits.
+  await page.setViewportSize({ width: 390, height: 844 });
+  const button = await page.getByRole('button', { name: 'Search', exact: true }).boundingBox();
+  assert.ok(button.width >= 44 && button.height >= 44, JSON.stringify(button));
+  await page.keyboard.press('Control+k');
+  await search.fill('a');
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
 });

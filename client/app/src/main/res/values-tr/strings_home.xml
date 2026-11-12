@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="pc_status_ready">Hazır</string>
     <string name="pc_status_playing">%1$s oynanıyor</string>
     <string name="pc_status_playing_unknown">Oyun oynanıyor</string>
     <string name="pc_status_waking">Uyandırılıyor…</string>

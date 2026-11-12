@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="fps_show_supported">対応するフレームレートのみ表示</string>
-    <string name="title_adaptive_quality_setting">必要に応じて解像度やフレームレートを下げる</string>
-    <string name="summary_adaptive_quality_setting">ネットワーク、デコードの遅れ、発熱でストリームが乱れるときに、解像度またはフレームレートを下げ、回復すると元に戻します。PyroWave には適用されません。</string>
+    <string name="title_adaptive_quality_setting">自動画質</string>
+    <string name="summary_adaptive_quality_setting">PC、ネットワーク、デバイスが追いつかない間、解像度やフレームレートを下げます。</string>
     <string name="title_low_latency_customize">カスタマイズ</string>
     <string name="low_latency_customize_closed">低遅延の各項目のオンとオフを選択</string>
     <string name="low_latency_customize_open">個別のスイッチを隠す</string>

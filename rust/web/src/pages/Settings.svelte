@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import Button from '../components/Button.svelte';
+  import Disclosure from '../components/Disclosure.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import Icon from '../components/Icon.svelte';
   import PageHeader from '../components/PageHeader.svelte';
@@ -9,7 +10,12 @@
   import Switch from '../components/settings/Switch.svelte';
   import UnknownKeys from '../components/settings/UnknownKeys.svelte';
   import LimiterPanel from '../components/maintenance/LimiterPanel.svelte';
+  import PasswordPanel from '../components/maintenance/PasswordPanel.svelte';
+  import PowerPanel from '../components/maintenance/PowerPanel.svelte';
+  import SessionsPanel from '../components/maintenance/SessionsPanel.svelte';
+  import UpdatesPanel from '../components/maintenance/UpdatesPanel.svelte';
   import VulkanPanel from '../components/maintenance/VulkanPanel.svelte';
+  import { reason } from '../components/maintenance/util';
   import { matchesSetting, matchesWords, searchWords } from '../components/settings/search';
   import {
     applyChanges,
@@ -28,26 +34,45 @@
     settingsOnly,
     type Edits,
   } from '../components/settings/values';
-  import { api, type Config, type ConfigValue } from '../lib/api';
+  import { api, type Config, type ConfigValue, type WebSession } from '../lib/api';
   import { confirm, failed, notify } from '../lib/feedback.svelte';
   import { guardNavigation, match, navigate, query as queryParam, route } from '../lib/router.svelte';
   import { refreshMetadata, session } from '../lib/session.svelte';
-  import { categoriesOf, schema, settingGroups, settingsGroup } from '../lib/settings-schema';
-  import { DEBUG_GROUP, EXPERT_GROUPS } from '../lib/schema/main';
+  import {
+    categoriesOf,
+    groupAnchor,
+    groupRank,
+    schema,
+    settingGroups,
+    settingsGroup,
+    tabOf,
+    type SettingsTab,
+    type TabId,
+  } from '../lib/settings-schema';
+  import { EXPERT_GROUPS } from '../lib/schema/main';
   import SaveBar from '../components/settings/SaveBar.svelte';
   import { SETTING as PRESET, covered, presetById, presetId, presetNotice, withPreset } from '../lib/stream-presets';
-  import { NATIVE_ENCODERS, type Category, type CategoryId, type Setting } from '../lib/settings-types';
+  import { NATIVE_ENCODERS, type Setting } from '../lib/settings-types';
 
-  const categories = settingGroups;
+  const tabs = settingGroups;
   const byKey: ReadonlyMap<string, Setting> = new Map(schema.settings.map((setting) => [setting.key, setting]));
   const isDescribed = (key: string) => byKey.has(key);
 
-  const section = $derived(match('/settings/:section')?.section ?? 'general');
-  const active = $derived<Category | undefined>(
-    categories.find((category) => category.id === settingsGroup(section)) ??
-      categories.find((category) => category.id === 'general') ??
-      categories[0],
-  );
+  // Panels that are not settings keys, each a section of its tab like a group.
+  const SECURITY = 'Sign-in and security';
+  const INTEGRATIONS = 'Integrations';
+  const CUSTOM_KEYS = 'Custom configuration keys';
+
+  const section = $derived(match('/settings/:section')?.section ?? 'pc');
+  /** A link to one setting opens the tab that holds it, whatever tab the link names. */
+  const linked = $derived(byKey.get(new URLSearchParams(route.search).get('setting') ?? ''));
+  const active = $derived<SettingsTab>(linked ? tabOf(linked.category) : tabOf(section));
+
+  // Older links name a topic or a former tab (/settings/general, /settings/display):
+  // show the tab under its own address, keeping the query and the anchor.
+  $effect(() => {
+    if (section !== active.id) navigate(`/settings/${active.id}${route.search}${location.hash}`, { replace: true });
+  });
 
   /** What the host has stored; null until loaded. */
   let stored = $state<Config | null>(null);
@@ -116,7 +141,7 @@
   const invalidCount = $derived(Object.keys(invalid).length);
 
   const changedIn = $derived.by(() => {
-    const counts: Partial<Record<CategoryId, number>> = {};
+    const counts: Partial<Record<TabId, number>> = {};
     for (const key of pending) {
       const id = settingsGroup(byKey.get(key)?.category ?? 'advanced');
       counts[id] = (counts[id] ?? 0) + 1;
@@ -159,11 +184,8 @@
   // Every setting shows; only the expert groups start collapsed (EXPERT_GROUPS).
   let foldOpen = $state<Record<string, boolean>>({});
 
-  /** Expert groups after the others, Debug switches last. */
-  const rank = (name: string) => (name === DEBUG_GROUP ? 2 : EXPERT_GROUPS.has(name) ? 1 : 0);
-
-  /** Settings under their group headings, groups in order of first use, expert groups last. */
-  function grouped(list: Setting[]): Group[] {
+  /** Settings under their group headings, in the tab's order (groupRank), expert groups last. */
+  function grouped(list: Setting[], tab: TabId): Group[] {
     const groups: Group[] = [];
     for (const setting of list) {
       const name = setting.group ?? '';
@@ -174,22 +196,136 @@
       }
       group.settings.push(setting);
     }
-    return groups.sort((a, b) => rank(a.name) - rank(b.name));
+    return groups.sort((a, b) => groupRank(tab, a.name) - groupRank(tab, b.name));
   }
 
-  const inCategory = $derived(described.filter((setting) => settingsGroup(setting.category) === active?.id));
+  const inTab = $derived(described.filter((setting) => settingsGroup(setting.category) === active.id));
   // Keep a pending control reachable if editing its parent makes it inactive.
-  const shown = $derived(inCategory.filter((setting) => visible(setting) || pending.has(setting.key)));
-  const shownGroups = $derived(grouped(shown));
+  const shown = $derived(inTab.filter((setting) => visible(setting) || pending.has(setting.key)));
+  const shownGroups = $derived(grouped(shown, active.id));
+
+  /** The tab's sections in page order, for its sticky contents: groups, and the panels that are not settings. */
+  const sections = $derived([
+    ...(active.id === 'advanced' ? [SECURITY] : []),
+    ...shownGroups.map((group) => group.name || active.label),
+    ...(active.id === 'picture' ? [INTEGRATIONS] : []),
+    ...(active.id === 'advanced' ? [CUSTOM_KEYS] : []),
+  ]);
+
+  // ---------- the sticky contents: where the page is, and jumps to a section ----------
+
+  let frame = $state<HTMLDivElement>();
+  let track = $state<HTMLElement>();
+  /** The height of the console's own sticky header above the page (on narrow windows), and of the contents bar. */
+  let headerHeight = $state(0);
+  let contentsHeight = $state(0);
+  let current = $state('');
+
+  function measure() {
+    // The console's navigation sticks to the top of narrow windows; the contents stick below it.
+    const aside = document.querySelector('aside');
+    headerHeight = aside && getComputedStyle(aside).position === 'sticky' ? Math.round(aside.getBoundingClientRect().height) : 0;
+  }
+
+  /** The section at the top of the window, under the sticky bars. */
+  function spy() {
+    if (!frame) return;
+    const line = headerHeight + contentsHeight + 24;
+    let found = sections[0] ?? '';
+    for (const name of sections) {
+      const element = document.getElementById(groupAnchor(name));
+      if (element && element.getBoundingClientRect().top <= line) found = name;
+    }
+    current = found;
+  }
+
+  // Keep the current section's link in view in a contents bar that scrolls sideways.
+  $effect(() => {
+    const link = current && track?.querySelector<HTMLElement>(`[data-section="${CSS.escape(current)}"]`);
+    if (!link || !track) return;
+    const { left, right } = link.getBoundingClientRect();
+    const bar = track.getBoundingClientRect();
+    if (left < bar.left || right > bar.right - 32) track.scrollLeft += left - bar.left - 16;
+  });
+
+  onMount(() => {
+    measure();
+    // The header grows while its menu is open on a narrow window.
+    const aside = document.querySelector('aside');
+    const observer = typeof ResizeObserver === 'function' && aside ? new ResizeObserver(() => measure()) : null;
+    if (aside) observer?.observe(aside);
+    let frameRequest = 0;
+    const onScroll = () => {
+      cancelAnimationFrame(frameRequest);
+      frameRequest = requestAnimationFrame(spy);
+    };
+    const onResize = () => {
+      measure();
+      onScroll();
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onResize);
+    return () => {
+      cancelAnimationFrame(frameRequest);
+      observer?.disconnect();
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onResize);
+    };
+  });
+
+  const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /** Show a section: open it if it folds, then bring it under the sticky bars. */
+  async function reveal(name: string, smooth = true) {
+    if (EXPERT_GROUPS.has(name)) foldOpen[name] = true;
+    if (name === INTEGRATIONS) integrationsOpen = true;
+    if (name === CUSTOM_KEYS) customOpen = true;
+    await tick();
+    const element = document.getElementById(groupAnchor(name));
+    if (!element) return;
+    element.scrollIntoView({ block: 'start', behavior: smooth && !reducedMotion() ? 'smooth' : 'auto' });
+    current = name;
+    if (!smooth) hold(element);
+  }
+
+  /** On arrival, keep a section in place while the panels above it finish loading, until the user scrolls. */
+  function hold(element: HTMLElement) {
+    if (typeof ResizeObserver !== 'function' || !frame) return;
+    const observer = new ResizeObserver(() => element.scrollIntoView({ block: 'start' }));
+    const events = ['wheel', 'touchstart', 'keydown', 'pointerdown'] as const;
+    const stop = () => {
+      observer.disconnect();
+      clearTimeout(timer);
+      for (const name of events) window.removeEventListener(name, stop, true);
+    };
+    const timer = setTimeout(stop, 2000);
+    for (const name of events) window.addEventListener(name, stop, { capture: true, passive: true });
+    observer.observe(frame);
+  }
+
+  function jump(event: MouseEvent, name: string) {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    history.replaceState(history.state, '', `#${groupAnchor(name)}`);
+    void reveal(name);
+  }
 
   // A link to one setting (?setting=key, from the Settings home's search)
-  // opens its group, then brings the row into view and marks it.
+  // opens its group, then brings the row into view and marks it. A link to a
+  // section (#updates) opens and shows that section.
   // A setting the current choices hide is shown through search instead.
   let jumped = '';
   $effect(() => {
+    const target = route.path + route.search;
+    if (stored === null || section !== active.id || jumped === target) return;
+    jumped = target;
     const key = new URLSearchParams(route.search).get('setting');
-    if (!key || stored === null || jumped === route.path + route.search) return;
-    jumped = route.path + route.search;
+    if (!key) {
+      const anchor = location.hash.slice(1);
+      const name = anchor && sections.find((candidate) => groupAnchor(candidate) === anchor);
+      if (name) void reveal(name, false);
+      return;
+    }
     const group = byKey.get(key)?.group;
     if (group) foldOpen[group] = true;
     void tick().then(() => {
@@ -201,8 +337,33 @@
       row.scrollIntoView({ block: 'center' });
       row.querySelector<HTMLElement>('input, select, textarea, button')?.focus({ preventScroll: true });
       const mark = getComputedStyle(row).getPropertyValue('--accent-soft').trim();
-      if (mark) row.animate([{ backgroundColor: mark }, { backgroundColor: 'transparent' }], { duration: 1800, easing: 'ease-out' });
+      if (mark && !reducedMotion()) row.animate([{ backgroundColor: mark }, { backgroundColor: 'transparent' }], { duration: 1800, easing: 'ease-out' });
     });
+  });
+
+  // ---------- panels that are not settings ----------
+
+  let integrationsOpen = $state(false);
+  let customOpen = $state<boolean | null>(null);
+  // Custom keys open by themselves while there are any.
+  const customShown = $derived(customOpen ?? unknownKeys.length > 0);
+
+  let sessions = $state<WebSession[] | null>(null);
+  let sessionsError = $state('');
+  let sessionsAsked = false;
+  const username = $derived(sessions?.find((item) => item.current)?.username ?? '');
+  async function loadSessions() {
+    try {
+      sessions = (await api.auth.sessions()).sessions;
+      sessionsError = '';
+    } catch (error) {
+      sessionsError = reason(error);
+    }
+  }
+  $effect(() => {
+    if (active.id !== 'advanced' || sessionsAsked) return;
+    sessionsAsked = true;
+    void loadSessions();
   });
 
   // ---------- search ----------
@@ -214,15 +375,15 @@
 
   const results = $derived.by(() => {
     if (!browsingResults) return [];
-    return categories
-      .map((category) => ({
-        category,
+    return tabs
+      .map((tab) => ({
+        tab,
         settings: described.filter(
           (setting) =>
-            settingsGroup(setting.category) === category.id &&
+            settingsGroup(setting.category) === tab.id &&
             inReview(setting.key) && categoriesOf(setting).some((shownUnder) => matchesSetting(setting, shownUnder, words)),
         ),
-        unknown: category.id === 'general' ? unknownKeys.filter((key) => inReview(key) && matchesWords(key, words)) : [],
+        unknown: tab.id === 'advanced' ? unknownKeys.filter((key) => inReview(key) && matchesWords(key, words)) : [],
       }))
       .filter((result) => result.settings.length > 0 || result.unknown.length > 0);
   });
@@ -283,7 +444,7 @@
     const count = pending.size;
     const ok = await confirm({
       title: 'Discard unsaved changes?',
-      message: `${count} unsaved ${count === 1 ? 'change is' : 'changes are'} lost. The host keeps its current settings.`,
+      message: `${count} unsaved ${count === 1 ? 'change is' : 'changes are'} lost. Rubylight keeps its current settings.`,
       confirm: 'Discard',
       danger: true,
     });
@@ -331,7 +492,7 @@
   async function restart() {
     const ok = await confirm({
       title: 'Restart Rubylight?',
-      message: 'Streams in progress disconnect. This console reconnects by itself when the host is back.',
+      message: 'Streams in progress disconnect. This console reconnects by itself when Rubylight is back.',
       confirm: 'Restart',
     });
     if (!ok) return;
@@ -339,7 +500,7 @@
     try {
       await api.host.restart();
       saved = false;
-      notify('Rubylight is restarting. This console reconnects when the host is back.', 'info', 8000);
+      notify('Rubylight is restarting. This console reconnects when it is back.', 'info', 8000);
     } catch (error) {
       failed('Restart failed', error);
     } finally {
@@ -347,14 +508,14 @@
     }
   }
 
-  // Leaving the page with unsaved changes asks first; switching categories
+  // Leaving the page with unsaved changes asks first; switching tabs
   // keeps the edits.
   $effect(() => {
     if (pending.size === 0) return;
     const warn = (event: BeforeUnloadEvent) => event.preventDefault();
     window.addEventListener('beforeunload', warn);
     const unguard = guardNavigation((to) =>
-      // Other categories keep the edits; the Settings home is another page.
+      // Other tabs keep the edits; the Settings home is another page.
       to.startsWith('/settings/')
         ? true
         : confirm({
@@ -402,39 +563,13 @@
   {/if}
 {/snippet}
 
-{#snippet groups(list: Group[])}
-  {#each list as group (group.name)}
-    {#if EXPERT_GROUPS.has(group.name)}
-      {@const fold = foldStatus(group.settings, edits, config, pending)}
-      <!-- Opened by the user. A customized value opens it until the user closes it; an unsaved one keeps it open. -->
-      <details
-        class="group fold"
-        open={(foldOpen[group.name] ?? fold.customized > 0) || fold.mustOpen}
-        ontoggle={(event) => {
-          foldOpen[group.name] = event.currentTarget.open;
-        }}
-      >
-        <summary>
-          <Icon name="chevron" size={15} />
-          {group.name}
-          <span class="count">
-            {group.settings.length} {group.settings.length === 1 ? 'setting' : 'settings'}{fold.customized ? `, ${fold.customized} customized` : ''}{fold.unsaved ? `, ${fold.unsaved} unsaved` : ''}
-          </span>
-        </summary>
-        {#each group.settings as setting (setting)}
-          {@render row(setting, !visible(setting))}
-        {/each}
-      </details>
-    {:else}
-      <section class="group">
-        {#if group.name}<h3 class="group-title">{group.name}</h3>{/if}
-        <!-- Keyed by object: a key may be listed in two categories. -->
-        {#each group.settings as setting (setting)}
-          {@render row(setting, !visible(setting))}
-        {/each}
-      </section>
-    {/if}
-  {/each}
+{#snippet rows(group: Group)}
+  <div class="rows">
+    <!-- Keyed by object: a key may be listed in two categories. -->
+    {#each group.settings as setting (setting)}
+      {@render row(setting, !visible(setting))}
+    {/each}
+  </div>
 {/snippet}
 
 {#snippet otherKeys(keys: string[], adding: boolean)}
@@ -451,7 +586,42 @@
   />
 {/snippet}
 
-<PageHeader title="All settings" subtitle="Every setting this host reads, by topic. The few most people change are on the Settings page.">
+{#snippet viewLogs()}<Button size="sm" href="/logs" icon="logs">View logs</Button>{/snippet}
+
+{#snippet group(item: Group)}
+  {@const name = item.name || active.label}
+  {@const anchor = groupAnchor(name)}
+  {#if active.id === 'pc' && item.name === 'Updates'}
+    <!-- The update settings above the release status they act on, as on the Settings home. -->
+    <UpdatesPanel id={anchor} title={name}>
+      {#snippet settings()}{@render rows(item)}{/snippet}
+    </UpdatesPanel>
+  {:else if active.id === 'pc' && item.name === 'Sleep and wake'}
+    <PowerPanel id={anchor} title={name}>
+      {#snippet settings()}{@render rows(item)}{/snippet}
+    </PowerPanel>
+  {:else if EXPERT_GROUPS.has(item.name)}
+    {@const fold = foldStatus(item.settings, edits, config, pending)}
+    <!-- Opened by the user. A customized value opens it until the user closes it; an unsaved one keeps it open. -->
+    <Disclosure
+      id={anchor}
+      title={name}
+      level={3}
+      flush
+      meta={`${item.settings.length} ${item.settings.length === 1 ? 'setting' : 'settings'}${fold.customized ? `, ${fold.customized} customized` : ''}${fold.unsaved ? `, ${fold.unsaved} unsaved` : ''}`}
+      open={(foldOpen[item.name] ?? fold.customized > 0) || fold.mustOpen}
+      ontoggle={(open) => (foldOpen[item.name] = open)}
+    >
+      {@render rows(item)}
+    </Disclosure>
+  {:else}
+    <Panel id={anchor} title={name} level={3} flush actions={item.name === 'Logging' ? viewLogs : undefined}>
+      {@render rows(item)}
+    </Panel>
+  {/if}
+{/snippet}
+
+<PageHeader title="All settings" subtitle="Every setting Rubylight reads, by topic.">
   {#snippet actions()}
     <label class="show-keys">
       <span>Show config keys</span>
@@ -460,7 +630,12 @@
   {/snippet}
 </PageHeader>
 
-<div class="frame">
+<div
+  class="frame"
+  bind:this={frame}
+  style:--sticky-top="{headerHeight}px"
+  style:--sticky-offset="{headerHeight + contentsHeight + 16}px"
+>
   <div class="layout">
     <div class="side">
       <div class="search">
@@ -478,36 +653,35 @@
       </div>
 
       <label class="picker">
-        <span>Settings group</span>
-        <select aria-label="Settings group" class="select" onchange={(event) => open(event.currentTarget.value)}>
-          {#if browsingResults}<option value="" disabled selected>All categories</option>{/if}
-          {#each categories as category (category.id)}
-            {@const count = changedIn[category.id] ?? 0}
-            <option value={category.id} selected={!browsingResults && category.id === active?.id}>
-              {category.label}{count ? ` (${count} unsaved)` : ''}
+        <span>Settings tab</span>
+        <select aria-label="Settings tab" class="select" onchange={(event) => open(event.currentTarget.value)}>
+          {#if browsingResults}<option value="" disabled selected>All tabs</option>{/if}
+          {#each tabs as tab (tab.id)}
+            {@const count = changedIn[tab.id] ?? 0}
+            <option value={tab.id} selected={!browsingResults && tab.id === active.id}>
+              {tab.label}{count ? ` (${count} unsaved)` : ''}
             </option>
           {/each}
         </select>
       </label>
 
-      <nav aria-label="Settings categories">
+      <nav class="tabs" aria-label="Settings tabs">
         <ul>
-          {#each categories as category (category.id)}
-            {@const count = changedIn[category.id] ?? 0}
+          {#each tabs as tab (tab.id)}
+            {@const count = changedIn[tab.id] ?? 0}
             <li>
               <a
-                href="/settings/{category.id}"
-                aria-current={!browsingResults && category.id === active?.id ? 'page' : undefined}
-                onclick={(event) => open(category.id, event)}
+                href="/settings/{tab.id}"
+                aria-current={!browsingResults && tab.id === active.id ? 'page' : undefined}
+                onclick={(event) => open(tab.id, event)}
               >
                 <span class="name">
-                  {category.label}
+                  {tab.label}
                   {#if count}
                     <span class="dot" aria-hidden="true"></span>
                     <span class="visually-hidden">, {count} unsaved</span>
                   {/if}
                 </span>
-
               </a>
             </li>
           {/each}
@@ -535,24 +709,24 @@
               {:else if review === 'invalid' && invalidCount === 0}
                 All errors corrected. Review your values, then save your changes.
               {:else}
-                {resultCount} {resultCount === 1 ? 'setting' : 'settings'}{searching ? ` matching “${query.trim()}”` : ' across all categories'}
+                {resultCount} {resultCount === 1 ? 'setting' : 'settings'}{searching ? ` matching “${query.trim()}”` : ' across all tabs'}
               {/if}
             </p>
           </div>
-          <Button size="sm" variant="ghost" onclick={() => open(active?.id ?? 'general')}>All settings</Button>
+          <Button size="sm" variant="ghost" onclick={() => open(active.id)}>All settings</Button>
         </div>
         {#if results.length === 0}
           <Panel>
             <EmptyState icon="search" title={review === 'invalid' ? 'All corrections complete' : review === 'changed' ? 'No unsaved changes' : 'No settings match'}>
-              <p>{review === 'invalid' ? 'You can save your changes now.' : review === 'changed' ? 'Your settings are up to date.' : 'Search looks at names, config keys, descriptions, categories and menu choices.'}</p>
+              <p>{review === 'invalid' ? 'You can save your changes now.' : review === 'changed' ? 'Your settings are up to date.' : 'Search looks at names, config keys, descriptions, topics and menu choices.'}</p>
             </EmptyState>
           </Panel>
         {:else}
-          {#each results as result (result.category.id)}
-            <Panel title={result.category.label} flush>
+          {#each results as result (result.tab.id)}
+            <Panel title={result.tab.label} flush>
               {#snippet actions()}
-                <Button size="sm" variant="ghost" onclick={() => open(result.category.id)}>
-                  Open<span class="visually-hidden">{` ${result.category.label}`}</span>
+                <Button size="sm" variant="ghost" onclick={() => open(result.tab.id)}>
+                  Open<span class="visually-hidden">{` ${result.tab.label}`}</span>
                 </Button>
               {/snippet}
               <div class="rows">
@@ -566,41 +740,72 @@
             </Panel>
           {/each}
         {/if}
-      {:else if active}
-        <Panel title={active.label} description={active.description} flush>
-          {#if inCategory.length === 0}
-            {#if active.id !== 'advanced'}
-              <EmptyState icon="settings" title="No settings in this category">
-                <p>There are no {active.label.toLowerCase()} settings available.</p>
-              </EmptyState>
-            {/if}
-          {:else}
-            <div class="rows">
-              {@render groups(shownGroups)}
-              {#if shown.length === 0}
-                <p class="placeholder muted">None of these settings apply with the current choices.</p>
-              {/if}
+      {:else}
+        <h2 class="visually-hidden">{active.label}</h2>
+        {#if sections.length > 1}
+          <nav class="contents" aria-label="{active.label} sections" bind:clientHeight={contentsHeight}>
+            <div class="track" bind:this={track}>
+              {#each sections as name (name)}
+                <a
+                  href="#{groupAnchor(name)}"
+                  data-section={name}
+                  aria-current={current === name ? 'location' : undefined}
+                  onclick={(event) => jump(event, name)}
+                >{name}</a>
+              {/each}
             </div>
-          {/if}
-          {#if active.id === 'display'}
-            <!-- Collapsed like the expert groups: installs and status, not settings keys. -->
-            <details class="fold integrations">
-              <summary><Icon name="chevron" size={15} />Integrations <span class="count">Vulkan HDR layer and RTSS</span></summary>
-              <div class="integration-panels">
-                <VulkanPanel />
-                <LimiterPanel />
-              </div>
-            </details>
-          {/if}
-          {#if active.id === 'general'}
-            <details class="fold custom-config" open={section === 'advanced'}>
-              <summary><Icon name="chevron" size={15} />Custom configuration keys <span class="count">{unknownKeys.length} stored</span></summary>
-              {@render otherKeys(unknownKeys, true)}
-            </details>
-          {/if}
-        </Panel>
-        {#if active.id === 'network'}<div class="row"><Button href="/tokens" icon="key">API tokens</Button><Button href="/webhooks" icon="link">Webhooks</Button><Button href="/settings#security">Sign-in and security</Button></div>{/if}
-        {#if active.id === 'general'}<div class="row"><Button href="/settings#updates">Updates</Button><Button href="/logs" icon="logs">View logs</Button></div>{/if}
+          </nav>
+        {/if}
+
+        {#if active.id === 'advanced'}
+          <section class="security" id={groupAnchor(SECURITY)} aria-label={SECURITY}>
+            <div class="pair">
+              <SessionsPanel {sessions} error={sessionsError} onchange={loadSessions} />
+              <PasswordPanel {username} />
+            </div>
+            <div class="row links">
+              <Button href="/tokens" icon="key">API tokens</Button>
+              <Button href="/webhooks" icon="link">Webhooks</Button>
+            </div>
+          </section>
+        {/if}
+
+        {#if inTab.length > 0 && shown.length === 0}
+          <Panel><p class="muted">None of these settings apply with the current choices.</p></Panel>
+        {/if}
+        {#each shownGroups as item (item.name)}
+          {@render group(item)}
+        {/each}
+
+        {#if active.id === 'picture'}
+          <!-- Installs and status, not settings keys. -->
+          <Disclosure
+            id={groupAnchor(INTEGRATIONS)}
+            title={INTEGRATIONS}
+            meta="Vulkan HDR layer and RTSS"
+            level={3}
+            open={integrationsOpen}
+            ontoggle={(open) => (integrationsOpen = open)}
+          >
+            <div class="integration-panels">
+              <VulkanPanel />
+              <LimiterPanel />
+            </div>
+          </Disclosure>
+        {/if}
+        {#if active.id === 'advanced'}
+          <Disclosure
+            id={groupAnchor(CUSTOM_KEYS)}
+            title={CUSTOM_KEYS}
+            meta="{unknownKeys.length} stored"
+            level={3}
+            flush
+            open={customShown}
+            ontoggle={(open) => (customOpen = open)}
+          >
+            {@render otherKeys(unknownKeys, true)}
+          </Disclosure>
+        {/if}
       {/if}
     </div>
   </div>
@@ -630,7 +835,6 @@
   }
   .preset-note strong { color: var(--ink); }
   .preset-error, .preset-error strong { color: var(--danger); }
-  .custom-config { border-top: 1px solid var(--line); }
   .frame {
     /* The layout follows the room the page has, whatever the shell around it. */
     container-type: inline-size;
@@ -669,7 +873,7 @@
     font-size: var(--text-sm);
     font-weight: var(--weight-medium);
   }
-  nav ul {
+  .tabs ul {
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-1);
@@ -677,7 +881,7 @@
     padding: 0;
     list-style: none;
   }
-  nav a {
+  .tabs a {
     display: grid;
     gap: 1px;
     padding: var(--space-3) 14px;
@@ -686,11 +890,11 @@
     color: var(--ink-2);
     text-decoration: none;
   }
-  nav a:hover {
+  .tabs a:hover {
     background: var(--panel);
     color: var(--ink);
   }
-  nav a[aria-current='page'] {
+  .tabs a[aria-current='page'] {
     background: var(--panel);
     color: var(--ink);
     box-shadow: inset 0 -3px 0 var(--accent);
@@ -719,6 +923,70 @@
   .content:focus {
     outline: none;
   }
+  /* The tab's sections, under the console's own sticky header on narrow windows.
+     Wrapped on wide pages; one row that scrolls sideways on narrow ones. */
+  .contents {
+    position: sticky;
+    top: var(--sticky-top, 0px);
+    z-index: var(--z-sticky);
+    /* The row scrolls inside; it never widens the page. */
+    min-width: 0;
+    margin-inline: calc(-1 * var(--space-2));
+    padding: var(--space-2);
+    background: var(--bg);
+    border-bottom: 1px solid var(--line);
+  }
+  .track {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px var(--space-1);
+  }
+  .track::-webkit-scrollbar {
+    display: none;
+  }
+  .contents a {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    min-height: var(--control-height);
+    padding: 0 14px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-pill);
+    color: var(--ink-2);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background var(--duration-fast), color var(--duration-fast);
+  }
+  .contents a:hover {
+    background: var(--panel);
+    color: var(--ink);
+  }
+  .contents a[aria-current='location'] {
+    border-color: var(--line-strong);
+    background: var(--panel);
+    color: var(--ink);
+  }
+  .security {
+    display: grid;
+    gap: var(--space-3);
+    min-width: 0;
+    scroll-margin-top: var(--sticky-offset, var(--space-4));
+    container-type: inline-size;
+  }
+  /* Two panels side by side on wide screens, each as tall as its content. */
+  .pair {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+    align-items: start;
+  }
+  @container (min-width: 900px) {
+    .pair {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
   .results-heading {
     display: flex;
     justify-content: space-between;
@@ -744,62 +1012,12 @@
   .rows {
     display: grid;
   }
-  /* Section headings with hairlines between the rows under them. */
-  .group-title {
-    padding: var(--space-5) var(--space-5) var(--space-2);
-    font-size: var(--text);
-    font-weight: var(--weight-semibold);
-    color: var(--ink);
-  }
-  .group:first-child .group-title {
-    padding-top: var(--space-4);
-  }
-  .group-title + :global(.setting),
-  .group :global(.setting + .setting),
   .rows > :global(.setting + .setting) {
-    border-top: 1px solid var(--line);
-  }
-  .group + .group:not(:has(.group-title)) {
-    border-top: 1px solid var(--line);
-  }
-  .count {
-    font-weight: var(--weight-regular);
-    font-size: var(--text-sm);
-    color: var(--muted);
-  }
-  .fold {
-    border-top: 1px solid var(--line);
-  }
-  .fold > summary {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-4) var(--space-5);
-    font-size: var(--text);
-    font-weight: var(--weight-semibold);
-    cursor: pointer;
-    list-style: none;
-  }
-  .fold > summary::-webkit-details-marker {
-    display: none;
-  }
-  .fold > summary:hover {
-    background: var(--sunken);
-  }
-  .fold > summary :global(svg) {
-    color: var(--muted);
-    transition: transform var(--duration-fast);
-  }
-  .fold[open] > summary :global(svg) {
-    transform: rotate(90deg);
-  }
-  .fold > :global(.setting) {
     border-top: 1px solid var(--line);
   }
   .integration-panels {
     display: grid;
     gap: var(--space-4);
-    padding: 0 var(--space-5) var(--space-5);
     min-width: 0;
   }
   .show-keys {
@@ -825,23 +1043,28 @@
     .picker {
       display: grid;
     }
-    nav {
+    .tabs {
       display: none;
+    }
+    /* The names that do not fit fade out at the edge, a sign that the row scrolls. */
+    .track {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      scrollbar-width: none;
+      padding-right: var(--space-6);
+      mask-image: linear-gradient(to left, transparent, #000 var(--space-6));
     }
   }
   @media (max-width: 520px) {
     .side {
       grid-template-columns: minmax(0, 1fr);
     }
-    .group-title,
-    .integration-panels,
-    .fold > summary {
-      padding-left: var(--space-4);
-      padding-right: var(--space-4);
-    }
-    .show-keys,
-    .fold > summary {
+    .show-keys {
       min-height: var(--control-height);
+    }
+    .contents {
+      margin-inline: calc(-1 * var(--space-4));
+      padding-inline: var(--space-4);
     }
   }
 </style>

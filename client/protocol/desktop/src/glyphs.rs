@@ -195,8 +195,8 @@ impl Style {
         }
     }
 
-    /// A stream binding's pieces: its press and, with "Back opens stream controls" on
-    /// (`back_opens`), Select besides for the stream controls. The shortcut sheet and the Help
+    /// A stream binding's pieces: its press and, with "Back opens the stream menu" on
+    /// (`back_opens`), Select besides for the stream menu. The shortcut sheet and the Help
     /// page both list it so.
     pub fn stream_press(self, binding: &PadBinding, quit: GamepadQuitCombo, back_opens: bool) -> Vec<Piece> {
         let mut pieces = self.press(binding.press, quit);

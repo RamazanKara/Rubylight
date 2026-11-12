@@ -57,13 +57,12 @@
     return list;
   });
 
+  // Only a state the grid is in; how to drag needs no sentence (a cover under the pointer says it
+  // can be moved, and a game's page has Move earlier and Move later).
   const hint = $derived.by(() => {
-    if (selecting) return 'Select the apps to remove, one by one or by launcher.';
     if (reordering) return 'Saving the library order…';
-    if (apps.length < 2) return '';
-    if (missingIds) return 'Restart the host to enable reordering for all apps.';
-    if (canReorder) return 'Drag a cover to reorder, or open a game to move it.';
-    return 'Clear the search and sort by library order to drag apps into place.';
+    if (missingIds && apps.length > 1 && !selecting) return 'The order is fixed until Rubylight restarts.';
+    return '';
   });
 
   async function launch(app: App) {
@@ -78,7 +77,7 @@
 
   async function remove(app: App) {
     if (!app.uuid) return;
-    const name = app.name || 'this app';
+    const name = app.name || 'this game';
     const ok = await confirm({
       title: `Remove ${name}?`,
       message: 'Its game is not installed on this PC. It leaves the library, and no sync adds it back.',
@@ -92,7 +91,7 @@
       notify(`Removed ${name}.`, 'ok');
       onremoved?.();
     } catch (error) {
-      failed('Removing the app failed', error);
+      failed('Removing the game failed', error);
     } finally {
       busy = '';
     }
@@ -101,7 +100,7 @@
   async function removeSelected() {
     const list = chosen;
     if (list.length === 0) return;
-    const what = list.length === 1 ? list[0]?.name || 'this app' : counted(list.length, 'app');
+    const what = list.length === 1 ? list[0]?.name || 'this game' : counted(list.length, 'game');
     const ok = await confirm({
       title: `Remove ${what}?`,
       message: `${list.length === 1 ? 'It leaves the library, and no sync adds it back' : 'They leave the library, and no sync adds them back'}. A removed game can be restored under Where your games come from.`,
@@ -114,7 +113,7 @@
       const message = await selection.remove(apps, api.apps.removeMany);
       notify(message.text, message.tone);
     } catch (error) {
-      failed('Removing the apps failed', error);
+      failed('Removing the games failed', error);
     } finally {
       busy = '';
       // Also after a failure: the host may have removed some before it gave up.
@@ -190,7 +189,7 @@
 <div class="library">
   <div class="toolbar">
     <div class="search">
-      <label class="visually-hidden" for="{uid}-search">Search apps by name</label>
+      <label class="visually-hidden" for="{uid}-search">Search games by name</label>
       <span class="search-icon"><Icon name="search" size={16} /></span>
       <input
         id="{uid}-search"
@@ -216,12 +215,12 @@
     {/if}
   </div>
   {#if selecting}
-    <div class="selectbar" role="group" aria-label="Selected apps">
+    <div class="selectbar" role="group" aria-label="Selected games">
       <span class="picked-count" role="status">{chosen.length} selected</span>
       <Button size="sm" variant="ghost" onclick={() => selection.add(shown)}>Select all</Button>
       <Button size="sm" variant="ghost" disabled={chosen.length === 0} onclick={() => selection.clear()}>Select none</Button>
       {#if launchers.length > 0}
-        <label class="visually-hidden" for="{uid}-launcher">Select every app of a launcher</label>
+        <label class="visually-hidden" for="{uid}-launcher">Select every game of a launcher</label>
         <select
           id="{uid}-launcher"
           class="select"
@@ -245,20 +244,20 @@
           busy={busy === 'remove-selected'}
           disabled={chosen.length === 0 || busy !== ''}
           onclick={removeSelected}
-        >Remove{chosen.length > 0 ? ` ${counted(chosen.length, 'app')}` : ''}</Button>
+        >Remove{chosen.length > 0 ? ` ${counted(chosen.length, 'game')}` : ''}</Button>
         <Button size="sm" disabled={busy === 'remove-selected'} onclick={() => selection.stop()}>Done</Button>
       </span>
     </div>
   {/if}
   <p class="muted summary" role="status">
-    <span class="count">{needle ? `${shown.length} of ${apps.length}` : apps.length} {apps.length === 1 ? 'app' : 'apps'}</span>
+    <span class="count">{needle ? `${shown.length} of ${apps.length}` : apps.length} {apps.length === 1 ? 'game' : 'games'}</span>
     {#if hint}<span class="dot" aria-hidden="true">·</span> <span>{hint}</span>{/if}
   </p>
 
   {#if shown.length === 0}
-    <p class="muted none">No apps match “{query.trim()}”.</p>
+    <p class="muted none">No games match “{query.trim()}”.</p>
   {:else}
-    <ul class="grid" aria-label="Apps" {@attach sortable}>
+    <ul class="grid" aria-label="Games" {@attach sortable}>
       {#each shown as app (app)}
         {@const isRunning = isRunningApp(status, app)}
         <li
@@ -274,7 +273,7 @@
                 <AppCover name={app.name} {uuid} path={coverPath(app)} />
                 <input class="tick" type="checkbox" checked={selection.selected.has(uuid)} onchange={() => selection.toggle(uuid)} />
               </span>
-              <span class="name">{app.name || 'Unnamed app'}</span>
+              <span class="name">{app.name || 'Unnamed game'}</span>
             </label>
           {:else if app.uuid}
             <a class="open" href="/library/{encodeURIComponent(app.uuid)}" use:link draggable="false">
@@ -288,13 +287,13 @@
                   <span class="state"><Badge>Not installed</Badge></span>
                 {/if}
               </div>
-              <span class="name">{app.name || 'Unnamed app'}</span>
+              <span class="name">{app.name || 'Unnamed game'}</span>
             </a>
           {:else}
-            <div class="open" title="Restart the host to edit this app.">
+            <div class="open" title="Editable once Rubylight restarts.">
               <div class="art"><AppCover name={app.name} /></div>
-              <span class="name">{app.name || 'Unnamed app'}</span>
-              <span class="muted note">Restart the host to edit</span>
+              <span class="name">{app.name || 'Unnamed game'}</span>
+              <span class="muted note">Editable after a restart</span>
             </div>
           {/if}
           <div class="actions">
@@ -470,12 +469,13 @@
       transform var(--duration-fast) var(--ease-standard),
       box-shadow var(--duration-fast) var(--ease-standard);
   }
-  a.open:hover .art,
+  /* A cover's one hover, as AppCover draws it on Home: the frame rises (the badges ride along). */
+  a.open:is(:hover, :focus-visible) .art,
   .pick:hover .art {
     transform: translateY(-2px);
     box-shadow: var(--shadow-raised);
   }
-  a.open:hover .name {
+  a.open:is(:hover, :focus-visible) .name {
     color: var(--accent-text);
   }
   .pick {

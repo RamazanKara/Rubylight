@@ -29,6 +29,12 @@ public abstract class VideoDecoderRenderer {
      */
     public void setHostPacked444Modes(int modes) {}
 
+    /** Sharper colored text's pick before the launch: whether this stream is packed full chroma. */
+    public void setPacked444(boolean packed) {}
+
+    /** Sharper colored text's pick before the launch: whether this stream offers native 4:4:4. */
+    public void setNative444(boolean native444) {}
+
     /**
      * The one HdrFormatPolicy bit an HDR stream asks for among the PC's HdrFormats (0 when it
      * lists none), or 0 for stock HDR10. Called after prepareVideoFormats with the negotiated

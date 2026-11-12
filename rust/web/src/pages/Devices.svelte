@@ -253,9 +253,10 @@
 <details class="more" use:menu><summary>Manage<Icon name="chevron" size={14} /></summary><div class="menu-list"><Button variant="danger" size="sm" disabled={acting} busy={busy === 'unpair-all'} onclick={unpairAll}>Unpair all</Button></div></details>
 {/snippet}
 
-<PageHeader title="Devices" subtitle="Connect a device, then choose what it can do." />
+<PageHeader title="Devices" subtitle="Phones, tablets, TVs and PCs that play from this PC." />
 
-<PairPanel />
+<!-- The list polled below tells the pairing panel when a device pairs. -->
+<PairPanel {clients} />
 
 <Panel
   title="Paired devices"
@@ -275,7 +276,7 @@
     {#if !loadError}<p class="placeholder muted">Loading devices…</p>{/if}
   {:else if clients.length === 0}
     <EmptyState icon="devices" title="No paired devices">
-      <p>Pair a device above. It shows up here once pairing finishes.</p>
+      <p>A device shows up here once it pairs.</p>
     </EmptyState>
   {:else}
     <ul class="devices">

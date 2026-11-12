@@ -27,7 +27,7 @@
   import { commandFor, coverKey } from '../../lib/paths';
   import { closeApp, confirmClose, coverPath, isRunningApp, launchApp, runningName } from './app';
   import { AppDraft, type FlagKey } from './draft.svelte';
-  import { deleteMessage } from './selection.svelte';
+  import { LAUNCHER_NAMES, deleteMessage, launcherOf } from './selection.svelte';
 
   let {
     app,
@@ -53,6 +53,8 @@
   } = $props();
 
   const uid = $props.id();
+  /** Where every app's behavior defaults are: All settings › Games, App behavior. */
+  const APP_BEHAVIOR = '/settings/games#app-behavior';
   const draft = new AppDraft(untrack(() => app));
 
   let saving = $state(false);
@@ -63,9 +65,19 @@
   const savedName = $derived(draft.saved.name.trim());
   const running = $derived(runningName(status));
   const isRunning = $derived(!isNew && isRunningApp(status, draft.saved));
-  /** The sync that added this app and still owns it: saving makes the app the user's. */
-  const syncNames: Record<string, string> = { steam: 'Steam', launcher: 'launcher', playnite: 'Playnite' };
-  const syncName = $derived(syncNames[String(app?.['synced-by'] ?? '')] ?? '');
+  /** The launcher that starts this game, by the marks its sync or import left; null for the user's own programs. */
+  const launcher = $derived(app ? launcherOf(app) : null);
+  const launcherName = $derived(launcher ? LAUNCHER_NAMES[launcher] : '');
+  /** The launcher that starts the game through its own command; a game folder's program starts itself. */
+  const startedBy = $derived(launcher && launcher !== 'local' ? launcherName : '');
+  /** The sync that added this app and still owns it, by its launcher's name: saving makes the app the user's. */
+  const syncName = $derived.by(() => {
+    const sync = String(app?.['synced-by'] ?? '');
+    if (sync === 'steam') return 'Steam';
+    if (sync === 'playnite') return 'Playnite';
+    if (sync === 'launcher') return launcher === 'local' ? 'game folder' : launcherName || 'launcher';
+    return '';
+  });
 
   // Follow a reload of the library while this form has no edits of its own.
   $effect(() => {
@@ -101,11 +113,18 @@
     // would bring back the old one.
     const playniteId = record['playnite-id'];
     const key = coverPath(record) !== coverPath(draft.saved) ? coverKey(coverPath(record)) : '';
+    // Saving hands a synced game over to the user: its sync no longer renames or removes it.
+    const handedOver = syncName;
     try {
       const result = await api.apps.save(record);
       const id = record.uuid ?? result.uuid;
       draft.markSaved({ ...record, uuid: id });
-      notify(`Saved ${record.name.trim()}.`, 'ok');
+      notify(
+        handedOver
+          ? `Saved ${record.name.trim()}. The ${handedOver} sync keeps it as you saved it.`
+          : `Saved ${record.name.trim()}.`,
+        'ok',
+      );
       if (typeof playniteId === 'string' && playniteId && key) {
         try {
           await api.playnite.setCover(playniteId, key);
@@ -209,16 +228,6 @@
     {/snippet}
   </PageHeader>
 
-  {#if syncName}
-    <p class="notice">
-      Saving keeps this game in your list for good: the {syncName} sync will no longer rename or remove it.
-    </p>
-  {/if}
-  {#if typeof app?.['playnite-id'] === 'string' && app['playnite-id'] !== ''}
-    <p class="notice">
-      Playnite starts this game. Leave the command empty; a command here replaces the Playnite launch.
-    </p>
-  {/if}
 
   <form class="sections" onsubmit={save} aria-label={isNew ? 'New app' : `Edit ${savedName}`}>
     <div class="top">
@@ -234,8 +243,8 @@
           <Field
             label="Program or command"
             id="{uid}-cmd"
-            hint={typeof app?.['playnite-id'] === 'string' && app['playnite-id'] !== ''
-              ? 'Empty: Playnite starts the game.'
+            hint={startedBy
+              ? `Started by ${startedBy}. A command of your own replaces that.`
               : 'Browse for a program, or leave this empty to stream the Desktop.'}
           >
             <PathPicker kind="executable" value={draft.app.cmd} onpick={(path) => (draft.app.cmd = commandFor(path))}>
@@ -296,7 +305,7 @@
       </div>
     </Panel>
 
-    <Panel collapsible title="Behavior" description="What the host does while the app runs.">
+    <Panel collapsible title="Behavior" description="What the PC does while the app runs.">
       <div class="toggles">
         {@render flag('elevated', 'Run as administrator', 'Detached commands run as administrator too.')}
         {@render flag(
@@ -326,26 +335,27 @@
         )}
       </div>
       <div class="form-grid behaviour-numbers">
-        <Field
-          label="Close the app when the last device disconnects"
-          id="{uid}-terminate"
-          hint="The global default is set in Settings → Games & automation. Closing the app may lose unsaved progress."
-        >
+        <Field label="Close the app when the last device disconnects" id="{uid}-terminate">
           <select
             id="{uid}-terminate"
             class="select"
+            aria-describedby="{uid}-terminate-hint"
             bind:value={() => draft.tristate('terminate-on-pause'), (value) => draft.setTristate('terminate-on-pause', value)}
           >
             <option value="">Use global default</option>
             <option value="on">On</option>
             <option value="off">Off</option>
           </select>
+          <p class="hint" id="{uid}-terminate-hint">
+            Closing the app may lose unsaved progress. Global default:
+            <a href={APP_BEHAVIOR} use:link>All settings › Games</a>.
+          </p>
         </Field>
         <NumberField
           {draft}
           key="exit-timeout"
           label="Exit timeout"
-          hint="How long to wait for the app to close before ending it, 0 to 300. Empty uses the default in Settings → Library."
+          hint="How long to wait for the app to close before ending it, 0 to 300. Empty uses the default in All settings › Games."
           placeholder="Default"
           unit="s"
         />
@@ -483,6 +493,11 @@
   .prep {
     display: grid;
     gap: var(--space-5);
+  }
+  .hint {
+    font-size: var(--text-xs);
+    color: var(--muted);
+    line-height: 1.45;
   }
   .note {
     font-size: var(--text-xs);

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings shared with desktop Nightjar: Sharper colored text, Controllers, Mouse mode, When Nightjar
+     opens, group names, row hints and notices. -->
+<resources>
+    <string name="title_sharp_color">Более чёткий цветной текст</string>
+    <string name="summary_sharp_color">Полная детализация цвета, чтобы цветной текст и тонкие линии оставались чёткими.</string>
+    <string-array name="sharp_color_names">
+        <item>Выкл.</item>
+        <item>Автоматически</item>
+    </string-array>
+    <string name="title_controllers">Контроллеры</string>
+    <string name="summary_controllers">Выкл., все контроллеры как один игрок или каждый контроллер — отдельный игрок.</string>
+    <string-array name="controllers_names">
+        <item>Выкл.</item>
+        <item>Один игрок</item>
+        <item>Каждый — отдельный игрок</item>
+    </string-array>
+    <string-array name="mouse_mode_names">
+        <item>Захват</item>
+        <item>Указатель рабочего стола</item>
+    </string-array>
+    <string-array name="start_screen_names">
+        <item>Главная</item>
+        <item>Показать мои ПК</item>
+        <item>Продолжить последнюю игру</item>
+        <item>Выбранная игра</item>
+    </string-array>
+    <string name="summary_host_display_location">Как ПК располагает дисплей трансляции рядом со своими экранами.</string>
+    <string name="summary_pace_calibration_row">Находит самый быстрый темп, при котором кадры PyroWave с ПК приходят целиком.</string>
+    <string name="summary_network_tests">Измеряет пинг, джиттер и потери, а также скорость загрузки, если ПК это поддерживает.</string>
+    <string name="settings_category_touch_mouse">Сенсор и мышь</string>
+    <string name="settings_category_connection">Подключение</string>
+    <string name="sharp_color_unavailable_pc">Более чёткий цветной текст недоступен с этим ПК.</string>
+    <string name="sharp_color_unavailable_device">Более чёткий цветной текст недоступен на этом устройстве.</string>
+    <string name="sharp_color_stopped">Более чёткий цветной текст перестал работать. Переподключение без него.</string>
+    <string name="sharp_color_hdr_dropped">Эта трансляция в SDR: на этом ПК HDR недоступен вместе с более чётким цветным текстом.</string>
+    <string name="hint_show_onscreen_controls">Сенсорный геймпад поверх трансляции.</string>
+    <string name="hint_mouse_speed">Насколько быстро движется указатель.</string>
+    <string name="hint_trackpad_speed">Скорость указателя в сенсорном режиме «Трекпад».</string>
+    <string name="hint_local_cursor_speed">Скорость указателя в сенсорном режиме «Локальный курсор».</string>
+    <string name="hint_trackpad_acceleration_curve">Насколько дальше быстрые движения пальцем перемещают указатель.</string>
+    <string name="hint_trackpad_momentum_glide">Как далеко указатель скользит по инерции.</string>
+    <string name="hint_pc_keyboard_size">Размер экранной клавиатуры ПК.</string>
+    <string name="hint_pc_keyboard_opacity">Насколько прозрачна экранная клавиатура ПК.</string>
+    <string name="hint_vibrate_osc">Устройство вибрирует при нажатии экранной кнопки.</string>
+    <string name="hint_show_guide_button">Добавляет кнопку Guide к экранным кнопкам.</string>
+    <string name="hint_host_audio">Оставляет звук в динамиках ПК во время трансляции.</string>
+    <string name="hint_overlay_position">Угол, в котором находится оверлей производительности.</string>
+    <string name="summary_reset_all">Возвращает все настройки к значениям по умолчанию; ПК, игры, профили и язык сохраняются.</string>
+</resources>

@@ -64,10 +64,13 @@ public class SettingsKeysTest {
     };
     // Rows that open a screen or a dialog and store nothing under their key.
     private static final Set<String> ACTIONS = new HashSet<>(Arrays.asList(
-            "gpu_driver", "host_display_location", "keyboard_shortcuts_editor", "stream_hotkeys", "controller_button_mapping",
+            "gpu_driver", "keyboard_shortcuts_editor", "stream_hotkeys", "controller_button_mapping",
             "controller_test", "stream_profiles", "reset_osc", "check_updates_now", "help", "latency_benchmark", "report_problem", "about_app", "reset_all", "export_latency_csv",
             "pin_lock", // opens its own screen; the PIN lives in the pin_lock prefs file
             "network_tests", // opens a saved PC's connection tests
+            StreamSettings.PACE_CALIBRATION_KEY, // opens a saved PC's tests, where its PyroWave frame pace is measured
+            // Pickers that write older switches and store nothing under their own key.
+            StreamSettings.SHARP_COLOR_KEY, StreamSettings.CONTROLLERS_KEY,
             // The merged switch writes the three decoder switches and stores nothing itself.
             StreamSettings.LOW_LATENCY_DECODING_KEY, StreamSettings.LOW_LATENCY_CUSTOMIZE_KEY,
             // Automatic bitrate shows and sets bitrate_user_set and the bitrate; it stores nothing itself.
@@ -79,7 +82,10 @@ public class SettingsKeysTest {
     private static final Set<String> WRITTEN_BY_PICKERS = new HashSet<>(Arrays.asList(
             "checkbox_unlock_fps", // the frame rate picker's button
             "performance_overlay_mode", // the performance overlay picker
-            com.limelight.ui.AppTheme.OLED_BLACK)); // the theme picker
+            com.limelight.ui.AppTheme.OLED_BLACK, // the theme picker
+            "checkbox_yuv444", "experimental_packed_444", // Sharper colored text
+            "checkbox_multi_controller", "checkbox_send_controllers", // Controllers
+            com.limelight.console.HomeSettings.PREF_KEY)); // When Nightjar opens
     // Stored settings that are read outside PreferenceConfiguration.
     private static final Set<String> READ_ELSEWHERE = new HashSet<>(Arrays.asList(
             "performance_overlay_mode", // Game and the overlay
@@ -92,6 +98,7 @@ public class SettingsKeysTest {
             com.limelight.ui.AppTheme.UI_MODE, // NightjarActivity.attachBaseContext
             com.limelight.ui.Motion.REDUCE_MOTION, // Motion
             com.limelight.update.UpdatePrefs.AUTO_CHECK_PREF_STRING, // UpdatePrefs
+            HostDisplayChoice.MAIN_PREF, // HostDisplayChoice, under each PC's own choice
             com.limelight.console.HomeSettings.PREF_KEY)); // PcView and the console Home
 
     private static SharedPreferences prefs() {
@@ -290,6 +297,7 @@ public class SettingsKeysTest {
         reads.put("seekbar_virtual_display_scale", new Read(100, 150, c -> c.virtualDisplayScale));
         reads.put("list_virtual_display_dpi", new Read("0", "150", c -> c.virtualDisplayDpi));
         reads.put("checkbox_multi_controller", new Read(true, false, c -> c.multiController));
+        reads.put("checkbox_send_controllers", new Read(true, false, c -> c.sendControllers));
         reads.put("seekbar_deadzone", new Read(7, 12, c -> c.deadzonePercentage));
         reads.put("seekbar_trigger_deadzone", new Read(2, 10, c -> c.triggerDeadzonePercentage));
         reads.put("checkbox_flip_face_buttons", new Read(false, true, c -> c.flipFaceButtons));
@@ -570,6 +578,121 @@ public class SettingsKeysTest {
         // A value from a newer version falls back to the long-standing behaviour.
         prefs().edit().putString("stream_orientation", "upside_down").commit();
         assertEquals(com.limelight.ui.StreamOrientation.AUTO, PreferenceConfiguration.readPreferences(app).streamOrientation);
+    }
+
+    /** Sharper colored text: one choice over the two switches it replaced; either one on reads as Automatic. */
+    @Test
+    public void sharperColoredTextReadsEitherOldSwitchAsAutomatic() {
+        Application app = RuntimeEnvironment.getApplication();
+        Boolean[][] cases = {
+                // checkbox_yuv444, experimental_packed_444 (null: never set), Automatic
+                {null, null, false}, {false, null, false}, {null, false, false}, {false, false, false},
+                {true, null, true}, {null, true, true}, {true, false, true}, {false, true, true}, {true, true, true},
+        };
+        for (Boolean[] c : cases) {
+            SharedPreferences.Editor editor = prefs().edit().clear();
+            if (c[0] != null) editor.putBoolean("checkbox_yuv444", c[0]);
+            if (c[1] != null) editor.putBoolean("experimental_packed_444", c[1]);
+            editor.commit();
+            PreferenceConfiguration config = PreferenceConfiguration.readPreferences(app);
+            String name = c[0] + "/" + c[1];
+            assertEquals(name, c[2], config.enableYuv444);
+            assertEquals(name, c[2], config.experimentalPacked444);
+            assertEquals(name, c[2], PreferenceConfiguration.sharpColor(prefs()));
+            // Nothing is rewritten on load, so an older version reads its own switch as before.
+            assertEquals(name, c[0], prefs().contains("checkbox_yuv444") ? prefs().getBoolean("checkbox_yuv444", false) : null);
+        }
+        // Choosing sets both, so older versions read the same choice.
+        SharedPreferences.Editor editor = prefs().edit().clear();
+        PreferenceConfiguration.saveSharpColor(editor, true);
+        editor.commit();
+        assertTrue(prefs().getBoolean("checkbox_yuv444", false) && prefs().getBoolean("experimental_packed_444", false));
+        editor = prefs().edit();
+        PreferenceConfiguration.saveSharpColor(editor, false);
+        editor.commit();
+        assertFalse(prefs().getBoolean("checkbox_yuv444", true) || prefs().getBoolean("experimental_packed_444", true));
+        // A PC's, profile's or game's layer holds one value for both.
+        PreferenceConfiguration layered = PreferenceConfiguration.readPreferences(app);
+        HostStreamProfile.deserialize("v2;yuv444=true").applyTo(layered);
+        assertTrue(layered.enableYuv444 && layered.experimentalPacked444);
+        HostStreamProfile.deserialize("v2;yuv444=false").applyTo(layered);
+        assertFalse(layered.enableYuv444 || layered.experimentalPacked444);
+    }
+
+    /** Controllers: Off, One player or A player each; an older store reads as it streamed. */
+    @Test
+    public void controllersReadTheOlderSwitchAsItStreamed() {
+        Application app = RuntimeEnvironment.getApplication();
+        assertEquals(ControllersChoice.PLAYER_EACH, ControllersChoice.read(prefs()));
+        prefs().edit().putBoolean("checkbox_multi_controller", false).commit();
+        assertEquals("an older off reads as One player", ControllersChoice.ONE_PLAYER, ControllersChoice.read(prefs()));
+        assertTrue(PreferenceConfiguration.readPreferences(app).sendControllers);
+        assertFalse(PreferenceConfiguration.readPreferences(app).multiController);
+
+        SharedPreferences.Editor editor = prefs().edit();
+        ControllersChoice.save(editor, ControllersChoice.OFF);
+        editor.commit();
+        assertEquals(ControllersChoice.OFF, ControllersChoice.read(prefs()));
+        assertFalse(PreferenceConfiguration.readPreferences(app).sendControllers);
+        assertFalse("Off keeps the player choice for when controllers come back",
+                prefs().getBoolean("checkbox_multi_controller", true));
+
+        editor = prefs().edit();
+        ControllersChoice.save(editor, ControllersChoice.PLAYER_EACH);
+        editor.commit();
+        assertEquals(ControllersChoice.PLAYER_EACH, ControllersChoice.read(prefs()));
+        assertTrue(PreferenceConfiguration.readPreferences(app).multiController);
+        editor = prefs().edit();
+        ControllersChoice.save(editor, ControllersChoice.ONE_PLAYER);
+        editor.commit();
+        assertEquals(ControllersChoice.ONE_PLAYER, ControllersChoice.read(prefs()));
+    }
+
+    /** When Nightjar opens: the stored pair reads as one choice, and nothing is rewritten on load. */
+    @Test
+    public void whenNightjarOpensReadsTheStoredPairAsOneChoice() {
+        String[][] cases = {
+                // list_open_on_start, checkbox_console_home (null: never set), choice
+                {null, null, StartScreenChoice.HOME}, {"pcs", "true", StartScreenChoice.HOME},
+                {"pcs", "false", StartScreenChoice.PCS}, {null, "false", StartScreenChoice.PCS},
+                {"last", "true", StartScreenChoice.LAST}, {"last", "false", StartScreenChoice.LAST},
+                {"chosen", "true", StartScreenChoice.CHOSEN}, {"chosen", "false", StartScreenChoice.CHOSEN},
+                {"a newer screen", "false", StartScreenChoice.PCS}, {"a newer screen", "true", StartScreenChoice.HOME},
+        };
+        for (String[] c : cases) {
+            SharedPreferences.Editor editor = prefs().edit().clear();
+            if (c[0] != null) editor.putString("list_open_on_start", c[0]);
+            if (c[1] != null) editor.putBoolean("checkbox_console_home", Boolean.parseBoolean(c[1]));
+            editor.commit();
+            String name = c[0] + "/" + c[1];
+            assertEquals(name, c[2], StartScreenChoice.read(prefs()));
+            PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication());
+            assertEquals(name, c[0], prefs().getString("list_open_on_start", null));
+        }
+        prefs().edit().clear().putBoolean("checkbox_console_home", true).commit();
+        SharedPreferences.Editor editor = prefs().edit();
+        StartScreenChoice.save(prefs(), editor, StartScreenChoice.LAST);
+        editor.commit();
+        assertEquals("last", prefs().getString("list_open_on_start", null));
+        assertTrue("a game choice keeps Home as it was", prefs().getBoolean("checkbox_console_home", false));
+        editor = prefs().edit();
+        StartScreenChoice.save(prefs(), editor, StartScreenChoice.PCS);
+        editor.commit();
+        assertEquals("pcs", prefs().getString("list_open_on_start", null));
+        assertFalse(prefs().getBoolean("checkbox_console_home", true));
+        assertEquals(StartScreenChoice.PCS, StartScreenChoice.read(prefs()));
+    }
+
+    /** The three pickers store under keys that have no row of their own; Reset all settings clears them too. */
+    @Test
+    public void resetAllPutsThePickerChoicesBack() {
+        prefs().edit().putBoolean("checkbox_yuv444", true).putBoolean("experimental_packed_444", true)
+                .putBoolean("checkbox_send_controllers", false).putBoolean("checkbox_multi_controller", false)
+                .putBoolean("checkbox_console_home", false).putString("list_open_on_start", "last").commit();
+        StreamSettings.resetAllSettings(RuntimeEnvironment.getApplication());
+        assertFalse(PreferenceConfiguration.sharpColor(prefs()));
+        assertEquals(ControllersChoice.PLAYER_EACH, ControllersChoice.read(prefs()));
+        assertEquals(StartScreenChoice.HOME, StartScreenChoice.read(prefs()));
     }
 
     @Test

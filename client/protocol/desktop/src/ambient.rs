@@ -4,6 +4,7 @@
 
 use egui::{Color32, ColorImage};
 
+use crate::theme::shade;
 use crate::ui::design_tokens as t;
 
 const LUMA: [f32; 3] = [0.2126, 0.7152, 0.0722];
@@ -232,10 +233,10 @@ pub fn bake_sky(moon: [f32; 2], glow_radius: [f32; 2]) -> ColorImage {
     let [w, h] = SIZE;
     let channel = |c: Color32| [c.r(), c.g(), c.b(), c.a()].map(|v| f32::from(v) / 255.0);
     let (top, mid, bottom, glow) = (
-        channel(t::SKY_TOP),
-        channel(t::SKY_MID),
-        channel(t::SKY_BOTTOM),
-        channel(t::SKY_GLOW),
+        channel(shade::SKY_TOP.get()),
+        channel(shade::SKY_MID.get()),
+        channel(shade::SKY_BOTTOM.get()),
+        channel(shade::SKY_GLOW.get()),
     );
     let mut pixels = vec![[0.0f32; 3]; w * h];
     for y in 0..h {

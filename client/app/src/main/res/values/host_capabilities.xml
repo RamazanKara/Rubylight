@@ -10,11 +10,11 @@
     <string name="host_feature_display_modes">PC display modes</string>
     <string name="host_feature_display_scale">PC display scaling</string>
     <string name="host_feature_fractional_refresh">Fractional refresh rates</string>
-    <string name="host_feature_vrr">Host-side VRR</string>
+    <string name="host_feature_vrr">VRR on the PC</string>
     <string name="host_feature_runtime_bitrate">Bitrate changes during a stream</string>
     <string name="host_feature_pyrowave">PyroWave</string>
     <string name="host_feature_speed_test">Connection speed test</string>
-    <string name="host_feature_hardware_metrics">Host CPU and GPU readings</string>
+    <string name="host_feature_hardware_metrics">PC CPU and GPU readings</string>
     <string name="host_feature_network_path">Network route check</string>
     <string name="host_feature_frame_limiter">Frame limiter status</string>
     <string name="host_feature_controller_preparation">Controller reconnects</string>
@@ -22,26 +22,26 @@
     <string name="host_feature_web_ui">Web UI</string>
 
     <!-- Why a PC can't use a feature yet; at most 60 characters each -->
-    <string name="host_feature_reason_update">Update the host software to use this</string>
+    <string name="host_feature_reason_update">Update the PC’s streaming app to use this</string>
     <string name="host_feature_reason_pair">Pair with this PC first</string>
-    <string name="host_feature_reason_view_permission">Allow viewing streams for this device on the host</string>
-    <string name="host_feature_reason_clipboard_permission">Allow the clipboard for this device on the host</string>
-    <string name="host_feature_reason_command_permission">Allow server commands for this device on the host</string>
-    <string name="host_feature_reason_no_commands">Add commands in the host’s web UI</string>
-    <string name="host_feature_reason_virtual_display_off">Turn on the virtual display in the host’s settings</string>
-    <string name="host_feature_reason_virtual_display_driver">The host’s virtual display driver isn’t ready</string>
-    <string name="host_feature_reason_hardware_metrics_off">Turn on hardware metrics in the host’s settings</string>
+    <string name="host_feature_reason_view_permission">Allow viewing streams for this device on the PC</string>
+    <string name="host_feature_reason_clipboard_permission">Allow the clipboard for this device on the PC</string>
+    <string name="host_feature_reason_command_permission">Allow server commands for this device on the PC</string>
+    <string name="host_feature_reason_no_commands">Add commands in the PC’s web UI</string>
+    <string name="host_feature_reason_virtual_display_off">Turn on the virtual display in the PC’s web UI</string>
+    <string name="host_feature_reason_virtual_display_driver">The PC’s virtual display driver isn’t ready</string>
+    <string name="host_feature_reason_hardware_metrics_off">Turn on hardware metrics in the PC’s web UI</string>
     <string name="host_feature_reason_sleep_permission">This device isn’t allowed to put the PC to sleep</string>
     <string name="host_feature_reason_restart_shutdown_permission">This device isn’t allowed to restart or shut down the PC</string>
-    <string name="host_feature_reason_pairing_approve_permission">Needs “Approve new devices” on the host’s Devices page</string>
-    <string name="host_feature_reason_file_permission">This device lacks file access; allow it in the host’s web UI</string>
-    <string name="host_feature_reason_usb_permission">This device lacks USB access; allow it in the host’s web UI</string>
+    <string name="host_feature_reason_pairing_approve_permission">Needs “Approve new devices” on the PC’s Devices page</string>
+    <string name="host_feature_reason_file_permission">This device lacks file access; allow it in the PC’s web UI</string>
+    <string name="host_feature_reason_usb_permission">This device lacks USB access; allow it in the PC’s web UI</string>
     <string name="host_feature_reason_folder_permission">This device lacks shared folders; allow them in the web UI</string>
-    <string name="host_feature_unknown">Applies if the host supports it</string>
+    <string name="host_feature_unknown">Applies if the PC supports it</string>
 
-    <string name="host_details_software_apollo">Apollo-compatible host</string>
-    <string name="host_details_software_vibepollo">Vibepollo-compatible host</string>
-    <string name="host_details_software_unknown">Moonlight-compatible host</string>
+    <string name="host_details_software_apollo">Apollo-compatible streaming app</string>
+    <string name="host_details_software_vibepollo">Vibepollo-compatible streaming app</string>
+    <string name="host_details_software_unknown">Moonlight-compatible streaming app</string>
     <string name="host_details_features">Features</string>
     <string name="host_details_features_unknown">Connect to this PC once to see what it supports.</string>
     <string name="host_details_features_none">No extra features reported</string>

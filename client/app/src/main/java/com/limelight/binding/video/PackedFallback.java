@@ -31,65 +31,22 @@ public final class PackedFallback {
     }
 
     /**
-     * Whether a start refused full chroma is made again as it was, without it: always when it was
-     * ruled out before the launch, since nothing runs on the PC yet; after the launch (refused in
-     * the handshake) when repeating the launch resumes the game it started. A start that launches
-     * beside the PC's game (a control action, Microphone only) would run again, so it reconnects to
-     * the running game instead.
+     * Whether a start refused full chroma in the handshake is made again as it was, without it: when
+     * repeating the launch resumes the game it started. A start that launches beside the PC's game
+     * (a control action, Microphone only) would run again, so it reconnects to the running game
+     * instead.
      */
-    public static boolean restartsAsTheSameStart(boolean refusedBeforeLaunch, boolean launchesBesideRunningGame) {
-        return refusedBeforeLaunch || !launchesBesideRunningGame;
+    public static boolean restartsAsTheSameStart(boolean launchesBesideRunningGame) {
+        return !launchesBesideRunningGame;
     }
 
     /** Short on purpose: the reason goes to the log, a long toast is cut off. */
-    public static String toast() {
-        return "Full chroma stopped. Reconnecting without it.";
+    public static int toast() {
+        return com.limelight.R.string.sharp_color_stopped;
     }
 
     /** The stage that failed when this device found, before the stream started, that it cannot show full chroma. */
     public static final String CHECK_STAGE = "full chroma check";
-
-    /** The stage that failed when the PC is known, before the launch, not to stream full chroma to this device. */
-    public static final String HOST_STAGE = "full chroma offer";
-
-    /** Why a stream cannot use full chroma, known before anything is launched on the PC. */
-    public enum Unavailable {
-        /** Only the New streaming engine carries it. */
-        ENGINE(CHECK_STAGE),
-        /** The PC says it offers no packed mode, or refused the last stream that asked and has not said otherwise. */
-        HOST(HOST_STAGE),
-        /** No decoder path on this device passed the check for this size and rate. */
-        DEVICE(CHECK_STAGE),
-        /** The PC and this device each have modes, none of them the same. */
-        NO_COMMON_MODE(HOST_STAGE);
-
-        /** What the failed stage is called, which picks {@link #refusedToast}'s wording. */
-        public final String stage;
-
-        Unavailable(String stage) {
-            this.stage = stage;
-        }
-    }
-
-    /**
-     * Decided before the launch, so a stream that cannot have full chroma starts without it instead
-     * of launching, being refused in the handshake and reconnecting.
-     *
-     * @param hostModes     the PC's packed modes: its serverinfo, else its last DESCRIBE, else -1
-     * @param refusedBefore the PC does not say its modes and refused the last stream that asked
-     * @param deviceModes   the modes this device verified; asked only when the PC does not rule it
-     *                      out, since verifying costs a decode
-     * @return why not, or null: the stream asks for full chroma
-     */
-    public static Unavailable beforeLaunch(boolean rustEngine, int hostModes, boolean refusedBefore,
-                                           java.util.function.IntSupplier deviceModes) {
-        if (!rustEngine) return Unavailable.ENGINE;
-        if (hostModes == 0 || (hostModes < 0 && refusedBefore)) return Unavailable.HOST;
-        int device = deviceModes.getAsInt();
-        if (device == 0) return Unavailable.DEVICE;
-        if (hostModes > 0 && (hostModes & device) == 0) return Unavailable.NO_COMMON_MODE;
-        return null;
-    }
 
     /**
      * Runs {@code check} on a thread of its own and waits at most {@code timeoutMs} for it: a
@@ -125,9 +82,9 @@ public final class PackedFallback {
      * Full chroma was refused at stream start, at {@code stage}: by the PC (or no mode is in common),
      * or by this device's own check ({@link #CHECK_STAGE}). The reason goes to the log.
      */
-    public static String refusedToast(String stage) {
-        return CHECK_STAGE.equals(stage) ? "Full chroma isn't available for this stream. Starting without it."
-                : "PC can't stream full chroma. Starting without it.";
+    public static int refusedToast(String stage) {
+        return CHECK_STAGE.equals(stage) ? com.limelight.R.string.sharp_color_unavailable_device
+                : com.limelight.R.string.sharp_color_unavailable_pc;
     }
 
     /** How long one mode's check may take before it counts as failed. Its own waits add up to about six seconds. */

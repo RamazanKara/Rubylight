@@ -195,7 +195,7 @@ public class HostMenuPcPowerTest {
                 assertNotNull(entry);
                 assertEquals(1f, entry.getAlpha(), 0f);
             }
-            assertEquals("Update the PC’s host", entries[2].getText().toString());
+            assertEquals("Update the PC’s streaming app", entries[2].getText().toString());
             for (MaterialButton entry : entries) {
                 entry.performClick();
             }

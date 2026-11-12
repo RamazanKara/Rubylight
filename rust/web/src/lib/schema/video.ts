@@ -1,4 +1,4 @@
-// Settings for the categories named in settings-schema.ts: video and encoders.
+// Settings for the categories named in settings-schema.ts: video, encoders and the HDR of the video.
 import type { ConfigValue } from '../api';
 import { NATIVE_ENCODERS, type Aliases, type Setting } from '../settings-types';
 import { SETTING, defaultPreset, presets } from '../stream-presets';
@@ -105,7 +105,7 @@ const video: Setting[] = [
     description:
       'Fills in the AMD and NVIDIA encoder settings you have not set yourself. Settings you change below always win.',
     details:
-      'Balanced is the host\'s defaults. Lowest latency limits every frame, recovery keyframes included, to one frame\'s share of the bitrate. Reference quality leaves recovery keyframes unlimited, which suits a fast, steady link. No preset changes the rate control. Each value comes from our own measurements in PERFORMANCE.md. A device or an app can choose its own preset.',
+      'Balanced is Rubylight\'s defaults. Lowest latency limits every frame, recovery keyframes included, to one frame\'s share of the bitrate. Reference quality leaves recovery keyframes unlimited, which suits a fast, steady link. No preset changes the rate control. Each value comes from our own measurements in PERFORMANCE.md. A device or an app can choose its own preset.',
     category: 'video',
     group: 'Preset',
     control: {
@@ -229,7 +229,7 @@ const video: Setting[] = [
     key: 'hevc_mode',
     label: 'HEVC support',
     description:
-      'Which HEVC profiles devices may request. A profile the encoder fails when the host starts is never offered.',
+      'Which HEVC profiles devices may request. A profile the encoder fails when Rubylight starts is never offered.',
     category: 'video',
     group: 'Codecs',
     control: {
@@ -248,7 +248,7 @@ const video: Setting[] = [
     key: 'av1_mode',
     label: 'AV1 support',
     description:
-      'Which AV1 profiles devices may request. A profile the encoder fails when the host starts is never offered.',
+      'Which AV1 profiles devices may request. A profile the encoder fails when Rubylight starts is never offered.',
     category: 'video',
     group: 'Codecs',
     control: {
@@ -297,8 +297,8 @@ const video: Setting[] = [
     description:
       'When a device asks for HDR, keeps the display in standard dynamic range (SDR) and sends 10-bit SDR video. Reduces banding without switching to HDR.',
     details: 'Devices and apps can override it.',
-    category: 'video',
-    group: 'Codecs',
+    category: 'hdr',
+    group: 'HDR',
     control: { kind: 'toggle' },
     default: false,
   },
@@ -309,8 +309,8 @@ const video: Setting[] = [
       'Adds HDR10+ brightness statistics to HDR video so compatible displays can tone-map scene by scene. Devices without HDR10+ ignore them.',
     details:
       'HDR10+ goes into HEVC and AV1 streams. HEVC streams also carry HDR Vivid (CUVA 005.1) statistics. Moonlight drops them from HEVC before the decoder; Nightjar keeps them. In AV1 they reach any client whose decoder reads them. Packed 4:4:4 streams carry static HDR10 only: the device unpacks the picture itself, so no decoder would read them. Turn this off if a display handles brightness worse with it.',
-    category: 'video',
-    group: 'Codecs',
+    category: 'hdr',
+    group: 'HDR',
     control: { kind: 'toggle' },
     default: true,
   },
@@ -321,8 +321,8 @@ const video: Setting[] = [
       'Offers Dolby Vision profile 8.1, and profile 8.4 while HLG is on, on HEVC HDR streams and profile 10.1 on AV1 HDR streams, to devices that ask for it.',
     details:
       'Each frame carries its brightness statistics for the device’s Dolby Vision engine, and devices without Dolby Vision see HDR10 (8.1 and 10.1) or HLG (8.4). Packed 4:4:4 streams carry static HDR10 instead: the device unpacks the packed picture itself, so a Dolby Vision decoder would tone-map the packed layout instead of the picture.',
-    category: 'video',
-    group: 'Codecs',
+    category: 'hdr',
+    group: 'HDR',
     control: { kind: 'toggle' },
     default: true,
   },
@@ -332,8 +332,8 @@ const video: Setting[] = [
     description: 'Offers HLG HDR to devices that ask for it on HEVC and AV1 HDR streams.',
     details:
       'The picture is graded for a 1000-nit display, and the device’s screen tone-maps it from there. HEVC HLG streams carry HDR Vivid statistics while HDR dynamic metadata is on; HDR10+ only describes HDR10 streams. Packed 4:4:4 streams stay HDR10.',
-    category: 'video',
-    group: 'Codecs',
+    category: 'hdr',
+    group: 'HDR',
     control: { kind: 'toggle' },
     default: true,
   },
@@ -398,7 +398,7 @@ const video: Setting[] = [
     description:
       'Lets a Rubylight client change the stream resolution and frame rate without reconnecting, for example when a foldable phone opens its inner screen.',
     details:
-      'The encoder restarts at the new size with a keyframe. The host display keeps its mode and the picture is scaled to fit. Clients that never ask see no change.',
+      'The encoder restarts at the new size with a keyframe. This PC\'s display keeps its mode and the picture is scaled to fit. Clients that never ask see no change.',
     category: 'video',
     group: 'Frame pacing',
     control: { kind: 'toggle' },
@@ -439,7 +439,7 @@ const video: Setting[] = [
   },
   {
     key: 'host_adaptive_bitrate',
-    label: 'Adapt bitrate on the host',
+    label: 'Adapt bitrate on this PC',
     description:
       'Lowers the bitrate when a Moonlight device reports video loss, then slowly raises it again while traffic is sustained and latency is stable.',
     details:
@@ -465,7 +465,7 @@ const video: Setting[] = [
     key: 'fec_max_percentage',
     label: 'Most error correction a device may ask for',
     description: 'The largest share of recovery packets a device may choose, as a percentage of the video packets.',
-    details: 'Devices that choose their own error correction, or let the host follow their loss reports, stay at or below it. Others use Error correction above.',
+    details: 'Devices that choose their own error correction, or let this PC follow their loss reports, stay at or below it. Others use Error correction above.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'number', min: 0, max: 255, step: 1, unit: '%' },
@@ -510,7 +510,7 @@ const video: Setting[] = [
     description:
       'Spaces out video packets without changing the picture bitrate. 0 paces automatically; reconnect after saving.',
     details:
-      'Automatic pacing lets conventional codecs send up to 800 Mbps on wired routes, or twice the bitrate with FEC headroom on host Wi-Fi. PyroWave starts unmeasured paths near the stream budget and respects the client’s calibrated pace. Positive values are hard limits for PyroWave; conventional codecs retain a 1.1-times-bitrate floor. 120000 means 120 Mbps. A value here turns off Adaptive packet pacing and Slow down after video loss.',
+      'Automatic pacing lets conventional codecs send up to 800 Mbps on wired routes, or twice the bitrate with FEC headroom when this PC is on Wi-Fi. PyroWave starts unmeasured paths near the stream budget and respects the client’s calibrated pace. Positive values are hard limits for PyroWave; conventional codecs retain a 1.1-times-bitrate floor. 120000 means 120 Mbps. A value here turns off Adaptive packet pacing and Slow down after video loss.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'number', min: 0, step: 1, unit: 'Kbps' },
@@ -523,7 +523,7 @@ const video: Setting[] = [
     description:
       'Starts with slower packet delivery, then tries faster rates and backs off when the device reports loss.',
     details:
-      'Adds startup delay without changing picture bitrate or FPS; probing can still lose packets. Off by default, including for PyroWave. Changes apply on the next connection. A manual pacing rate or Adapt bitrate on the host turns it off.',
+      'Adds startup delay without changing picture bitrate or FPS; probing can still lose packets. Off by default, including for PyroWave. Changes apply on the next connection. A manual pacing rate or Adapt bitrate on this PC turns it off.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'toggle' },
@@ -536,7 +536,7 @@ const video: Setting[] = [
     description:
       'When a client says its connection is Wi-Fi or cellular, paces its video adaptively from the first frame instead of after the first lost frames.',
     details:
-      'Applies to H.264, HEVC and AV1 for clients that report a wireless route, such as Nightjar. Starts at twice the encoder bitrate, probes up in small steps while the link stays clean, up to the route limit, and backs off on loss, without changing picture bitrate or FPS. Slow down after video loss does not run on such a stream. PyroWave keeps its own pacing. Changes apply on the next connection. A manual pacing rate or Adapt bitrate on the host turns it off. With Adapt bitrate on the host or this setting off, H.264, HEVC and AV1 are still paced with the Wi-Fi route policy (twice the encoder bitrate, no probing) from the first frame; a manual pacing rate always wins.',
+      'Applies to H.264, HEVC and AV1 for clients that report a wireless route, such as Nightjar. Starts at twice the encoder bitrate, probes up in small steps while the link stays clean, up to the route limit, and backs off on loss, without changing picture bitrate or FPS. Slow down after video loss does not run on such a stream. PyroWave keeps its own pacing. Changes apply on the next connection. A manual pacing rate or Adapt bitrate on this PC turns it off. With Adapt bitrate on this PC or this setting off, H.264, HEVC and AV1 are still paced with the Wi-Fi route policy (twice the encoder bitrate, no probing) from the first frame; a manual pacing rate always wins.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'toggle' },
@@ -549,7 +549,7 @@ const video: Setting[] = [
     description:
       'After a lost keyframe or repeated unrecoverable frames, spaces video packets more evenly for the rest of the stream without changing picture bitrate.',
     details:
-      'Activates after a keyframe the client could not rebuild, a repeated request for the keyframe it was just sent (only from clients that do not report their own losses; a decoder that asks twice is not network loss), or three distinct unrecoverable frames within two seconds. Changes the host makes itself (Alt+Tab, a bitrate change, a restarted capture or encoder) do not count. Frames the host could not send whole, such as when the network send buffer fills at a high pacing rate, do: three within two seconds, or one keyframe; when only the host saw that loss, it is lifted after 10 clean seconds, unless the stream already slowed down once (an earlier lift, or a remembered route), and it is never remembered. Loss the client reported is remembered for this device, address and network adapter for 24 hours, with a fast-rate retry every second eligible reconnect; a lost first keyframe alone is lifted after 10 clean seconds and not remembered. Reset remembered routes in Devices. Paces at twice the encoder bitrate, with room for error correction. Isolated ordinary-frame losses and fully repaired frames keep the fast rate. A manual pacing rate, Adaptive packet pacing or Adapt bitrate on the host turns it off. It also stays off on a stream that Adaptive packet pacing for Wi-Fi clients paces.',
+      'Activates after a keyframe the client could not rebuild, a repeated request for the keyframe it was just sent (only from clients that do not report their own losses; a decoder that asks twice is not network loss), or three distinct unrecoverable frames within two seconds. Changes Rubylight makes itself (Alt+Tab, a bitrate change, a restarted capture or encoder) do not count. Frames this PC could not send whole, such as when the network send buffer fills at a high pacing rate, do: three within two seconds, or one keyframe; when only this PC saw that loss, it is lifted after 10 clean seconds, unless the stream already slowed down once (an earlier lift, or a remembered route), and it is never remembered. Loss the client reported is remembered for this device, address and network adapter for 24 hours, with a fast-rate retry every second eligible reconnect; a lost first keyframe alone is lifted after 10 clean seconds and not remembered. Reset remembered routes in Devices. Paces at twice the encoder bitrate, with room for error correction. Isolated ordinary-frame losses and fully repaired frames keep the fast rate. A manual pacing rate, Adaptive packet pacing or Adapt bitrate on this PC turns it off. It also stays off on a stream that Adaptive packet pacing for Wi-Fi clients paces.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'toggle' },
@@ -562,7 +562,7 @@ const video: Setting[] = [
     description:
       'Cuts the picture bitrate when the network loses more than error correction can repair, then probes back up. Does nothing on a healthy link.',
     details:
-      'Acts on three unrecoverable frames in two seconds, 5% of packets reported missing for two half-second windows, three frames lost on send, or three network keyframe requests from a client that sends no error-correction status. Each cut aims at 85% of what the link delivered, then the host probes back up in small steps and returns to the requested bitrate after ten clean seconds. Reports for frames sent before a cut took effect are ignored. On PyroWave, client-loss cuts stop at its severe-loss floor. Host send losses can cut a stream below that floor, down to half its bitrate ceiling (at least 1 Mbps). Adapt bitrate on the host wins when both are on, and a device that sets its own bitrate takes over bitrate control.',
+      'Acts on three unrecoverable frames in two seconds, 5% of packets reported missing for two half-second windows, three frames lost on send, or three network keyframe requests from a client that sends no error-correction status. Each cut aims at 85% of what the link delivered, then this PC probes back up in small steps and returns to the requested bitrate after ten clean seconds. Reports for frames sent before a cut took effect are ignored. On PyroWave, client-loss cuts stop at its severe-loss floor. Send losses on this PC can cut a stream below that floor, down to half its bitrate ceiling (at least 1 Mbps). Adapt bitrate on this PC wins when both are on, and a device that sets its own bitrate takes over bitrate control.',
     category: 'video',
     group: 'Bitrate and network',
     control: { kind: 'toggle' },
@@ -910,7 +910,7 @@ const amd: Setting[] = [
     description:
       'How many frames may wait for the encoder. 0 uses the driver default, VRR streams included.',
     details:
-      'The host sets a queue size only when you choose one: forcing a queue of one for every VRR stream exposed an RDNA4 driver freeze, with video stalling while audio plays.',
+      'Rubylight sets a queue size only when you choose one: forcing a queue of one for every VRR stream exposed an RDNA4 driver freeze, with video stalling while audio plays.',
     category: 'encoders',
     group: 'AMD AMF',
     control: { kind: 'number', min: 0, max: 32, step: 1, unit: 'frames' },
@@ -923,7 +923,7 @@ const amd: Setting[] = [
     label: 'Long-term reference frames',
     description:
       'Frames the encoder keeps as long-term references, so a client that lost packets recovers with a small frame instead of a full keyframe. H.264, HEVC and AV1.',
-    details: 'The host still sends a keyframe when that would be the smaller frame. 0 turns it off.',
+    details: 'Rubylight still sends a keyframe when that would be the smaller frame. 0 turns it off.',
     category: 'encoders',
     group: 'AMD AMF',
     control: { kind: 'number', min: 0, max: 4, step: 1, unit: 'frames' },
@@ -1230,9 +1230,9 @@ const nvidia: Setting[] = [
     key: 'nvenc_realtime_hags',
     label: 'Realtime GPU priority with hardware scheduling',
     description:
-      'Keeps the host at realtime GPU priority while hardware-accelerated GPU scheduling is on, so NVENC keeps up with a game that fills the GPU.',
+      'Keeps Rubylight at realtime GPU priority while hardware-accelerated GPU scheduling is on, so NVENC keeps up with a game that fills the GPU.',
     details:
-      'Without hardware-accelerated GPU scheduling, NVIDIA always runs at realtime. Off uses high priority under it. Realtime needs administrator rights; without them the host runs at high and the log warns.',
+      'Without hardware-accelerated GPU scheduling, NVIDIA always runs at realtime. Off uses high priority under it. Realtime needs administrator rights; without them Rubylight runs at high and the log warns.',
     category: 'encoders',
     group: 'NVIDIA NVENC',
     control: { kind: 'toggle' },
@@ -1245,9 +1245,9 @@ const nvidia: Setting[] = [
     key: 'nvenc_latency_over_power',
     label: 'Full GPU clocks while streaming',
     description:
-      "Sets NVIDIA's power management to prefer maximum performance for the host, so NVENC encodes at full clocks when a game or the desktop barely loads the GPU.",
+      "Sets NVIDIA's power management to prefer maximum performance for Rubylight, so NVENC encodes at full clocks when a game or the desktop barely loads the GPU.",
     details:
-      'The driver profile is named Rubylight and covers the host only; an idle host uses no GPU, so the clocks rise only while it streams.',
+      'The driver profile is named Rubylight and covers Rubylight only, which uses no GPU while idle, so the clocks rise only while it streams.',
     category: 'encoders',
     restart: true,
     group: 'NVIDIA NVENC',

@@ -675,7 +675,7 @@ unsafe fn fill_planes(info: &crate::media::FrameInfo, sizes: [(u32, u32); 3], sa
                 if high_bits {
                     let source = std::slice::from_raw_parts(source, row);
                     let target = std::slice::from_raw_parts_mut(target, row);
-                    for (target, source) in target.chunks_exact_mut(2).zip(source.chunks_exact(2)) {
+                    for (target, source) in target.as_chunks_mut::<2>().0.iter_mut().zip(source.as_chunks::<2>().0) {
                         target.copy_from_slice(&(u16::from_le_bytes([source[0], source[1]]) >> 6).to_le_bytes());
                     }
                 } else {
@@ -699,7 +699,7 @@ unsafe fn fill_planes(info: &crate::media::FrameInfo, sizes: [(u32, u32); 3], sa
         let source = std::slice::from_raw_parts(info.data[0].add(y * info.linesize[0] as usize), row);
         let target = std::slice::from_raw_parts_mut(mapped.add(offsets[0] + y * row), row);
         if p010 {
-            target.chunks_exact_mut(2).zip(source.chunks_exact(2)).for_each(|(target, source)| put(target, source));
+            target.as_chunks_mut::<2>().0.iter_mut().zip(source.as_chunks::<2>().0).for_each(|(target, source)| put(target, source));
         } else {
             target.copy_from_slice(source);
         }
@@ -935,7 +935,7 @@ mod tests {
         let mut buffer = vec![0xaau8; (6 + 2 + 2) * 2];
         // SAFETY: the planes above hold `sizes` samples; the buffer holds the three planes.
         unsafe { fill_planes(&info, sizes, 2, buffer.as_mut_ptr(), [0, 12, 16]) };
-        let samples: Vec<u16> = buffer.chunks_exact(2).map(|s| u16::from_le_bytes([s[0], s[1]])).collect();
+        let samples: Vec<u16> = buffer.as_chunks::<2>().0.iter().map(|s| u16::from_le_bytes(*s)).collect();
         assert_eq!(samples, [64, 512, 940, 1, 2, 1023, 100, 512, 900, 513]);
     }
 
@@ -961,7 +961,7 @@ mod tests {
             let mut buffer = vec![0xaau8; 9 * 2];
             // SAFETY: the planes above hold `sizes` samples; the buffer holds the three planes.
             unsafe { fill_planes(info, sizes, 2, buffer.as_mut_ptr(), [0, 6, 12]) };
-            buffer.chunks_exact(2).map(|s| u16::from_le_bytes([s[0], s[1]])).collect::<Vec<u16>>()
+            buffer.as_chunks::<2>().0.iter().map(|s| u16::from_le_bytes(*s)).collect::<Vec<u16>>()
         };
         assert_eq!(fill(&info), [64, 940, 1023, 512, 1, 0, 960, 513, 2]);
         // FFmpeg's software 10-bit 4:4:4 is already in the low bits: copied as it is.
@@ -1180,7 +1180,7 @@ mod tests {
             SDL_DestroySurface(readback);
             SDL_SetRenderTarget(renderer, ptr::null_mut());
             let mut worst = 0.0f32;
-            for (pixel, drawn) in linear.chunks_exact(4).zip(&codes) {
+            for (pixel, drawn) in linear.as_chunks::<4>().0.iter().zip(&codes) {
                 let expected = pq_of_scrgb([pixel[0], pixel[1], pixel[2]]);
                 for (want, got) in expected.iter().zip(drawn) {
                     worst = worst.max((want * 1023.0 - *got as f32).abs());
@@ -1206,7 +1206,7 @@ mod tests {
             SDL_DestroySurface(readback);
             SDL_SetRenderTarget(renderer, ptr::null_mut());
             let mut worst = 0.0f32;
-            for (pixel, drawn) in linear.chunks_exact(4).zip(&codes) {
+            for (pixel, drawn) in linear.as_chunks::<4>().0.iter().zip(&codes) {
                 let expected = gamma22_of_scrgb([pixel[0], pixel[1], pixel[2]], [encoding[1], encoding[2], 0.0, 0.0]);
                 for (want, got) in expected.iter().zip(drawn) {
                     worst = worst.max((want * 1023.0 - *got as f32).abs());

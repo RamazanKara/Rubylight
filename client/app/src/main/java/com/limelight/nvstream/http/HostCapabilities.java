@@ -324,7 +324,7 @@ public final class HostCapabilities {
         return has(Feature.PYROWAVE) ? serverCodecModeSupport : serverCodecModeSupport & ~PYROWAVE_CODEC_BITS;
     }
 
-    /** "Rubylight 2.2.21", "Apollo-compatible host" and so on, for identification only. */
+    /** "Rubylight 2.2.21", "Apollo-compatible streaming app" and so on, for identification only. */
     public String familyLabel(Context context) {
         switch (family) {
             case RUBYLIGHT:

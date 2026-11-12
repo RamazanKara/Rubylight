@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings shared with desktop Nightjar: Sharper colored text, Controllers, Mouse mode, When Nightjar
+     opens, group names, row hints and notices. -->
+<resources>
+    <string name="title_sharp_color">Sharper colored text</string>
+    <string name="summary_sharp_color">Full color detail, so colored text and thin lines stay crisp.</string>
+    <string-array name="sharp_color_names">
+        <item>Off</item>
+        <item>Automatic</item>
+    </string-array>
+    <string name="title_controllers">Controllers</string>
+    <string name="summary_controllers">Off, every controller as one player, or each controller its own player.</string>
+    <string-array name="controllers_names">
+        <item>Off</item>
+        <item>One player</item>
+        <item>A player each</item>
+    </string-array>
+    <string-array name="mouse_mode_names">
+        <item>Captured</item>
+        <item>Desktop pointer</item>
+    </string-array>
+    <string-array name="start_screen_names">
+        <item>Home</item>
+        <item>Show my PCs</item>
+        <item>Continue my last game</item>
+        <item>A chosen game</item>
+    </string-array>
+    <string name="summary_host_display_location">How the PC places the streamed display beside its own screens.</string>
+    <string name="summary_pace_calibration_row">Finds the fastest pace at which a PC’s PyroWave frames arrive whole.</string>
+    <string name="summary_network_tests">Measures ping, jitter and loss, and download speed where the PC supports it.</string>
+    <string name="settings_category_touch_mouse">Touch &amp; mouse</string>
+    <string name="settings_category_connection">Connection</string>
+    <string name="sharp_color_unavailable_pc">Sharper colored text isn’t available with this PC.</string>
+    <string name="sharp_color_unavailable_device">Sharper colored text isn’t available on this device.</string>
+    <string name="sharp_color_stopped">Sharper colored text stopped. Reconnecting without it.</string>
+    <string name="sharp_color_hdr_dropped">This stream is in SDR: HDR isn’t available with sharper colored text on this PC.</string>
+    <string name="hint_show_onscreen_controls">A touch gamepad over the stream.</string>
+    <string name="hint_mouse_speed">How fast the pointer moves.</string>
+    <string name="hint_trackpad_speed">Pointer speed in the Trackpad touch mode.</string>
+    <string name="hint_local_cursor_speed">Pointer speed in the Local cursor touch mode.</string>
+    <string name="hint_trackpad_acceleration_curve">How much farther fast swipes go.</string>
+    <string name="hint_trackpad_momentum_glide">How far the pointer glides.</string>
+    <string name="hint_pc_keyboard_size">The size of the on-screen PC keyboard.</string>
+    <string name="hint_pc_keyboard_opacity">How see-through the on-screen PC keyboard is.</string>
+    <string name="hint_vibrate_osc">The device vibrates when an on-screen button is pressed.</string>
+    <string name="hint_show_guide_button">Adds a Guide button to the on-screen controls.</string>
+    <string name="hint_host_audio">Keeps sound on the PC’s speakers while streaming.</string>
+    <string name="hint_overlay_position">The corner the performance overlay sits in.</string>
+    <string name="summary_reset_all">Puts every setting back to its default; PCs, games, profiles and language stay.</string>
+    <string name="settings_category_pyrowave" translatable="false">PyroWave</string>
+</resources>

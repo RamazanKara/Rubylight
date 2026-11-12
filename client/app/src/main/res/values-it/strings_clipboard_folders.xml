@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_clipboard_image_send">Invia immagine degli appunti all’host</string>
-    <string name="stream_clipboard_image_receive">Copia immagine degli appunti dell’host</string>
+    <string name="stream_clipboard_image_send">Invia immagine degli appunti al PC</string>
+    <string name="stream_clipboard_image_receive">Copia immagine degli appunti del PC</string>
     <string name="stream_clipboard_image_empty">Gli appunti non contengono immagini</string>
-    <string name="stream_clipboard_image_sent">Immagine degli appunti inviata all’host</string>
-    <string name="stream_clipboard_image_none">Gli appunti dell’host non contengono immagini</string>
-    <string name="stream_clipboard_image_received">Immagine dell’host copiata negli appunti</string>
-    <string name="clipboard_image_too_large">L’immagine è troppo grande per gli appunti dell’host</string>
-    <string name="clipboard_image_too_large_here">L’immagine dell’host è troppo grande per essere copiata su questo dispositivo</string>
+    <string name="stream_clipboard_image_sent">Immagine degli appunti inviata al PC</string>
+    <string name="stream_clipboard_image_none">Gli appunti del PC non contengono immagini</string>
+    <string name="stream_clipboard_image_received">Immagine del PC copiata negli appunti</string>
+    <string name="clipboard_image_too_large">L’immagine è troppo grande per gli appunti del PC</string>
+    <string name="clipboard_image_too_large_here">L’immagine del PC è troppo grande per essere copiata su questo dispositivo</string>
     <string name="clipboard_image_not_png">Impossibile leggere l’immagine</string>
-    <string name="clipboard_image_no_host">Questo host non può condividere immagini degli appunti</string>
-    <string name="clipboard_image_forbidden">L’host non consente a questo dispositivo di usare i suoi appunti</string>
-    <string name="clipboard_image_unsupported">L’host non è riuscito a convertire questa immagine</string>
+    <string name="clipboard_image_no_host">Questo PC non può condividere immagini degli appunti</string>
+    <string name="clipboard_image_forbidden">Il PC non consente a questo dispositivo di usare i suoi appunti</string>
+    <string name="clipboard_image_unsupported">Il PC non è riuscito a convertire questa immagine</string>
     <string name="stream_clipboard_not_copied">Testo non copiato: lo streaming si è chiuso</string>
     <string name="stream_clipboard_image_not_copied">Immagine non copiata: lo streaming si è chiuso</string>
     <string name="folders_title">Cartelle condivise</string>
@@ -48,7 +48,7 @@
     <string name="folders_no_console_user">Nessuno ha effettuato l’accesso sul PC.</string>
     <string name="folders_busy">È in corso un altro trasferimento da questo dispositivo. Riprova quando termina.</string>
     <string name="folders_size_unknown">La dimensione del file è sconosciuta, quindi non può essere caricato.</string>
-    <string name="folders_unsupported">Questo PC non offre cartelle condivise: il suo host è troppo vecchio o non ne condivide ancora nessuna. Condividine una nell’interfaccia web del PC.</string>
+    <string name="folders_unsupported">Questo PC non offre cartelle condivise: la sua app di streaming è troppo vecchia o non ne condivide ancora nessuna. Condividine una nell’interfaccia web del PC.</string>
     <string name="folders_save_lost">Il file da salvare è andato perso mentre la finestra di salvataggio era aperta. Non è stato salvato nulla.</string>
     <string name="folders_partial_left">%1$s Rimane un file parziale in %2$s.</string>
     <string name="folders_bad_path">Nightjar non può aprire questo percorso: %1$s</string>

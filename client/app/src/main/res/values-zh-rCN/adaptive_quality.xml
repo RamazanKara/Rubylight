@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_adaptive_quality">自动串流画质</string>
-    <string name="summary_adaptive_quality">在持续拥塞、解码缓慢或发热时降低分辨率或 FPS，然后逐步恢复。支持时会使用自动码率。需要主机支持重新配置并使用自适应解码器；PyroWave 下不可用。</string>
-    <string name="title_adaptive_quality_min_resolution">最低自动分辨率</string>
-    <string name="summary_adaptive_quality_min_resolution">最小短边长度，保持宽高比。所选的串流分辨率仍为上限。较低的起始分辨率不会因此限制而提高。</string>
-    <string name="title_adaptive_quality_min_fps">最低自动帧率</string>
-    <string name="summary_adaptive_quality_min_fps">允许的最低 FPS。所选的串流帧率仍为上限。适用于自动画质，包括省电模式。</string>
+    <string name="summary_adaptive_quality">在持续拥塞、解码缓慢或发热时降低分辨率或 FPS，然后逐步恢复。支持时会使用自动码率。需要能更改运行中串流的电脑和自适应解码器；PyroWave 下不可用。</string>
+    <string name="title_adaptive_quality_min_resolution">最低分辨率</string>
+    <string name="summary_adaptive_quality_min_resolution">“自动画质”可降到的最低分辨率。</string>
+    <string name="title_adaptive_quality_min_fps">最低帧率</string>
+    <string name="summary_adaptive_quality_min_fps">“自动画质”可降到的最低帧率。</string>
     <string name="quality_off">关闭</string>
     <string name="quality_motion">保持流畅</string>
     <string name="quality_detail">保持细节</string>

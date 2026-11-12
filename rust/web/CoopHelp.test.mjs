@@ -27,25 +27,33 @@ const status = (overrides) => ({
 });
 const html = (value) => render(Panel, { props: { initial: value } }).body;
 
-test('Help keeps co-op troubleshooting: the folder and its check, the service, handlers and the build', () => {
+test('Troubleshoot shows where co-op runs from and links to the folder’s one home, its setting', async () => {
+  const { settingLink } = await server.ssrLoadModule('/src/lib/quick-switch.ts');
+  const { schema } = await server.ssrLoadModule('/src/lib/settings-schema.ts');
   const out = html(status({}));
   assert.match(out, /Nucleus Co-op/);
   // An earlier Rubylight's install keeps working.
   assert.match(out, /Earlier install/);
   assert.match(out, /2\.4\.2/);
   assert.match(out, /nucleus\\2\.4\.2/);
-  // The release's page and the folder to choose; Rubylight downloads nothing.
-  assert.ok(out.includes(`href="${PAGE}" target="_blank" rel="noreferrer">Download Nucleus Co-op 2.4.2`), out);
-  assert.match(out, /Use this folder/);
-  assert.match(out, /Rubylight downloads nothing: it runs only Nucleus Co-op 2\.4\.2, checks its NucleusCoop\.exe/);
+  // No second folder picker: the folder is set in its setting (or in place on a game's page).
+  assert.doesNotMatch(out, /Use this folder|Forget this folder|aria-label="Nucleus Co-op’s folder"/);
+  assert.ok(schema.settings.some((setting) => setting.key === 'nucleus_path'), 'the folder setting exists');
+  const link = settingLink('nucleus_path');
+  assert.match(link, /^\/settings\/[a-z]+\?setting=nucleus_path$/);
+  assert.ok(out.includes(`href="${link}"`), out);
+  assert.match(out, /Choose folder/);
+  // Something runs, so no download link; no sentences explain what the host says for itself.
+  assert.doesNotMatch(out, /Download Nucleus Co-op|Rubylight downloads nothing|handler hub|build 20348/);
   assert.doesNotMatch(out, /SHA-256|Try again|Downloading/);
-  assert.match(out, /Windows service/);
-  assert.match(out, /handler hub/);
-  assert.match(out, /a background stream of one player works\s+without one/);
-  assert.match(out, /build 20348/);
-  // Live games are on Home now, and nothing here says Experimental or names child sessions.
+  // Live games are on Home, and nothing here says Experimental or names child sessions.
   assert.doesNotMatch(out, /End session|>Remove<|No session runs/);
   assert.doesNotMatch(out, /Experimental|untested|Expected|child session/i);
+  // Not set up yet: the release's page, and choosing the folder is the main action.
+  const missing = html(status({ install: { state: 'missing', path: null, chosen: '', version: null, problem: null, error: null, release } }));
+  assert.ok(missing.includes(`href="${PAGE}" target="_blank" rel="noreferrer">Download Nucleus Co-op 2.4.2`), missing);
+  assert.match(missing, /Not set up yet/);
+  assert.match(missing, /class="button primary[^"]*"[^>]*href="\/settings\/[a-z]+\?setting=nucleus_path"/);
 });
 
 test('the panel loads with a skeleton', () => {
@@ -71,7 +79,9 @@ test('a PC that can’t run co-op, a folder it can’t run from and handlers tha
   assert.match(out, /Rubylight won’t run Nucleus Co-op from the folder chosen/);
   assert.match(out, /Folder refused/);
   assert.match(out, /only administrators may change its folder/);
-  assert.match(out, /value="D:\\Nucleus"/);
+  assert.match(out, /Folder chosen[\s\S]*D:\\Nucleus/);
+  assert.match(out, /Change folder/);
+  assert.ok(out.includes(`href="${PAGE}"`), 'a folder that can’t run links the release again');
   assert.match(out, /role="alert"/);
   assert.match(out, /handlers didn’t load/);
 });
@@ -96,23 +106,26 @@ test('every install state is spelled out: found, wrong version and missing apart
   });
 });
 
-test('Help says when the earlier copy runs instead of the folder kept, and the folder can be forgotten', () => {
+test('Troubleshoot says when the earlier copy runs instead of the folder kept, and where the folder changes', () => {
   const notice = 'The NucleusCoop.exe in D:\\Old isn\'t Nucleus Co-op 2.4.2\'s. Until then Rubylight runs the Nucleus Co-op 2.4.2 an earlier Rubylight installed';
   const out = html(status({ install: { state: 'configured', path: 'C:\\Nucleus', chosen: 'D:\\Old', version: '2.4.2', problem: null, error: null, notice, release } }));
   assert.match(out, /Rubylight runs the earlier copy/);
   assert.match(out, /an earlier Rubylight installed\./);
-  assert.match(out, /Games added in the earlier copy stay there/);
-  assert.match(out, /Forget this folder/);
-  // An earlier install with no folder kept has nothing to forget.
+  assert.match(out, /Games added in the earlier copy stay in it; this folder starts without them\./);
+  assert.match(out, /Runs from[\s\S]*C:\\Nucleus/);
+  assert.match(out, /Folder chosen[\s\S]*D:\\Old/);
+  assert.match(out, /Change folder/);
+  // An earlier install with no folder kept: no other copy to speak of.
   const earlier = html(status({}));
-  assert.doesNotMatch(earlier, /Forget this folder|Rubylight runs the earlier copy/);
-  assert.match(earlier, /Games added in the earlier copy stay there/);
+  assert.doesNotMatch(earlier, /Rubylight runs the earlier copy|Folder chosen/);
 });
 
-test('Help shows the co-op panel and no longer the sessions panel', async () => {
-  const help = await readFile(new URL('./src/pages/Maintenance.svelte', import.meta.url), 'utf8');
-  assert.match(help, /<CoopHelpPanel \/>/);
-  assert.doesNotMatch(help, /NucleusPanel/);
+test('Troubleshoot shows the co-op panel, Help no longer does, and neither has the sessions panel', async () => {
+  const page = (name) => readFile(new URL(`./src/pages/${name}`, import.meta.url), 'utf8');
+  const troubleshoot = await page('Troubleshoot.svelte');
+  assert.match(troubleshoot, /<CoopHelpPanel \/>/);
+  assert.doesNotMatch(troubleshoot, /NucleusPanel/);
+  assert.doesNotMatch(await page('Help.svelte'), /CoopHelpPanel|NucleusFolder/);
 });
 
 test('“Can join co-op games” follows Launch apps until set, reads as the host does, and clears with null', () => {

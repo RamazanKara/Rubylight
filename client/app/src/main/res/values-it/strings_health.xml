@@ -4,7 +4,7 @@
     <string name="health_intro">Campioni attivi: %1$d. I dati coprono gli ultimi 30 secondi. Più fasi possono essere lente contemporaneamente; queste osservazioni suggeriscono delle cause, non una diagnosi certa. Non vengono registrati video né dati personali.</string>
     <string name="health_insufficient">Video recente insufficiente per una valutazione. Gioca per qualche secondo con il menu chiuso, poi torna qui subito dopo uno scatto.</string>
     <string name="health_no_issue">Nelle misurazioni disponibili non è stato osservato alcun collo di bottiglia ricorrente. Picchi brevi e fasi non misurate possono comunque causare uno scatto.</string>
-    <string name="health_network">Rete: perdita di frame o variazioni del tempo di andata e ritorno ripetute. Prova un bitrate più basso, un host collegato via cavo o una connessione Wi-Fi meno congestionata.</string>
+    <string name="health_network">Rete: perdita di frame o variazioni del tempo di andata e ritorno ripetute. Prova un bitrate più basso, un PC collegato via cavo o una connessione Wi-Fi meno congestionata.</string>
     <string name="health_decoder">Decodifica: l’output ha richiesto ripetutamente almeno un intervallo di frame. Prova una risoluzione o un frame rate più bassi; ridurre solo il bitrate potrebbe non bastare.</string>
     <string name="health_host">Host: i campioni di elaborazione più lenti hanno superato l’intervallo di frame. Confronta il carico di gioco/GPU e un limite di frame del gioco più basso. Questa misurazione include più della sola codifica.</string>
     <string name="health_presentation">Presentazione: i frame sono stati rilasciati più velocemente di quanto venissero mostrati, e sono arrivati tardi sullo schermo. Confronta le modalità di frame pacing e la frequenza di aggiornamento dello schermo.</string>
@@ -14,9 +14,9 @@
     <string name="health_trial_help">Una prova di bitrate modifica solo questa sessione. Confronta altri 30 secondi di gioco simile, poi torna qui per annullarla. Le modifiche manuali o automatiche del bitrate sostituiscono la prova.</string>
     <string name="health_try">Prova un bitrate più basso</string>
     <string name="health_undo">Annulla prova di bitrate</string>
-    <string name="health_bitrate_unavailable">L’host non ha comunicato il bitrate attuale dell’encoder. La prova non è stata applicata.</string>
-    <string name="health_trial_replaced">Il bitrate dell’host è cambiato dopo la prova. L’annullamento è stato cancellato per mantenere quella modifica.</string>
+    <string name="health_bitrate_unavailable">Il PC non ha comunicato il bitrate attuale dell’encoder. La prova non è stata applicata.</string>
+    <string name="health_trial_replaced">Il bitrate del PC è cambiato dopo la prova. L’annullamento è stato cancellato per mantenere quella modifica.</string>
     <string name="health_bitrate_minimum">L’encoder è già al bitrate minimo di prova. Nessuna modifica effettuata.</string>
     <string name="health_periodic">Scatti ricorrenti: %2$d blocchi di rete negli ultimi 20 minuti, iniziati circa ogni %1$s. Un ritmo così regolare di solito deriva dalle ricerche Wi-Fi in background su questo dispositivo o sul PC. Per ridurle:\n• Android: Impostazioni → Posizione → Servizi di localizzazione, disattiva Ricerca di reti Wi-Fi e Ricerca di dispositivi Bluetooth.\n• Android: lascia attivo Opzioni sviluppatore → Limitazione ricerca Wi-Fi.\n• Durante lo stream chiudi le app che cercano reti o dispositivi nelle vicinanze.\n• PC: collegalo via cavo o interrompi gli strumenti che cercano reti Wi-Fi.\nNightjar mantiene già il blocco Wi-Fi a bassa latenza di Android durante lo stream, che chiede al sistema di ritardare le ricerche; alcuni dispositivi le eseguono comunque.</string>
-    <string name="health_bursts">Raffiche: in %1$d degli ultimi %2$d secondi la rete ha trattenuto i fotogrammi e poi ne ha consegnati diversi insieme, anche se l’host li ha inviati in tempo; aiuta un cavo o un canale Wi-Fi a 5 o 6 GHz meno affollato.</string>
+    <string name="health_bursts">Raffiche: in %1$d degli ultimi %2$d secondi la rete ha trattenuto i fotogrammi e poi ne ha consegnati diversi insieme, anche se il PC li ha inviati in tempo; aiuta un cavo o un canale Wi-Fi a 5 o 6 GHz meno affollato.</string>
 </resources>

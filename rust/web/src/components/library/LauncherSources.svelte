@@ -1,5 +1,7 @@
 <script lang="ts" module>
   import type { LibraryDiscovery, LibrarySource } from '../../lib/api';
+  import { LAUNCHER_GROUPS } from '../../lib/schema/library';
+  import { groupAnchor } from '../../lib/settings-schema';
 
   /** The setting that turns each launcher on, the same switch for every launcher. */
   export const LAUNCHER_KEYS: Record<LibrarySource, string | null> = {
@@ -13,15 +15,29 @@
     // Game folders are on when there are folders to read.
     local: null,
   };
+  /** The setting that keeps each launcher in step by itself, as Steam's does. */
+  export const AUTO_SYNC_KEYS: Record<LibrarySource, string> = {
+    steam: 'steam_auto_sync',
+    epic: 'epic_auto_sync',
+    battlenet: 'battlenet_auto_sync',
+    ea: 'ea_auto_sync',
+    ubisoft: 'ubisoft_auto_sync',
+    gog: 'gog_auto_sync',
+    microsoft: 'microsoft_auto_sync',
+    local: 'library_local_auto_sync',
+  };
   /** Shown order: the big launchers first, game folders last. */
   export const LAUNCHER_ORDER: LibrarySource[] = ['steam', 'epic', 'battlenet', 'microsoft', 'ea', 'ubisoft', 'gog', 'local'];
-  /** Short monograms for the launcher tiles. */
-  const MONOGRAM: Record<LibrarySource, string> = {
-    steam: 'St', epic: 'Ep', battlenet: 'Bn', ea: 'EA', ubisoft: 'Ub', gog: 'GOG', microsoft: 'Xb', local: '',
-  };
-  export const monogram = (source: LibrarySource) => MONOGRAM[source];
+  /** All settings › Games, where the games' settings are. */
+  export const GAMES_SETTINGS = '/settings/games';
+  /** A launcher's options: its own group on All settings › Games, as Steam's. */
+  export const optionsHref = (source: LibrarySource | 'playnite') =>
+    `${GAMES_SETTINGS}#${groupAnchor(LAUNCHER_GROUPS[source] ?? 'Steam options')}`;
 
   export type Source = LibraryDiscovery['sources'][number];
+  /** A launcher the PC does not have: read, and found with no games. Its switch can do nothing. */
+  export const notInstalled = (source: Source, games: LibraryDiscovery['games']) =>
+    source.state === 'unavailable' && !games.some((game) => game.source === source.source);
   /** One line for a launcher, in the same words for every launcher. */
   export function describe(source: Source, games: LibraryDiscovery['games']): { text: string; tone: 'ok' | 'muted' | 'warn' } {
     const mine = games.filter((game) => game.source === source.source);
@@ -29,7 +45,7 @@
     if (source.state === 'disabled') {
       return { text: source.source === 'local' ? 'No game folders chosen' : 'Off', tone: 'muted' };
     }
-    if (source.state === 'unavailable' && mine.length === 0) return { text: 'Not installed on this PC', tone: 'muted' };
+    if (notInstalled(source, games)) return { text: 'Not installed on this PC', tone: 'muted' };
     if (source.state === 'error') {
       return { text: `Some games could not be read${mine.length ? `; ${added} of ${mine.length} in your library` : ''}`, tone: 'warn' };
     }
@@ -48,6 +64,7 @@
   import Icon from '../Icon.svelte';
   import Panel from '../Panel.svelte';
   import Switch from '../settings/Switch.svelte';
+  import LauncherMark from './LauncherMark.svelte';
   import { api, type Config, type PlayniteStatus } from '../../lib/api';
   import { failed, notify } from '../../lib/feedback.svelte';
   import { link } from '../../lib/router.svelte';
@@ -78,7 +95,10 @@
     if (value === undefined || value === null || value === '') return fallback;
     return !['false', 'no', '0', 'off', 'disabled'].includes(String(value).trim().toLowerCase());
   };
-  const automatic = $derived(flag('library_auto_sync', true) && flag('steam_auto_sync', true));
+  /** Every launcher that is on keeps itself in step; one that does not syncs with Sync now. */
+  const automatic = $derived(
+    rows.every((source) => source.state === 'disabled' || flag(AUTO_SYNC_KEYS[source.source], true)),
+  );
 
   async function load() {
     loading = true;
@@ -138,7 +158,7 @@
       const synced = await syncAll(false);
       // The removed list is shorter now, whatever the sync did.
       if (!synced) onsynced?.();
-      const message = restoreMessage(restored, synced, automatic);
+      const message = restoreMessage(restored, synced);
       notify(message.text, message.tone);
     } catch (reason) {
       failed('Restoring the games failed', reason);
@@ -207,7 +227,7 @@
   }
 </script>
 
-<Panel title="Where your games come from" description="Games installed with these launchers join your library by themselves, with their covers.">
+<Panel title="Where your games come from" description="Games installed with these launchers join your library by themselves.">
   {#snippet actions()}
     <Button size="sm" icon="refresh" busy={syncing} disabled={loading && !catalog} onclick={() => syncAll()}>Sync now</Button>
   {/snippet}
@@ -223,34 +243,44 @@
       {#each rows as source (source.source)}
         {@const state = describe(source, catalog.games)}
         {@const key = LAUNCHER_KEYS[source.source]}
-        <li class="source" class:off={source.state === 'disabled'}>
-          <span class="tile" aria-hidden="true">{#if source.source === 'local'}<Icon name="folder" size={18} />{:else}{monogram(source.source)}{/if}</span>
+        {@const absent = notInstalled(source, catalog.games)}
+        <li class="source" class:off={source.state === 'disabled' || absent}>
+          <span class="tile" aria-hidden="true"><LauncherMark source={source.source} /></span>
           <span class="text">
-            <!-- Steam's link sits by its name so the status line keeps the row's width. -->
+            <!-- The options link sits by the name so the status line keeps the row's width. -->
             <span class="name">
               <strong id="launcher-{source.source}">{source.name}</strong>
-              {#if source.source === 'steam'}<a class="choose" href="/settings/library" use:link>Steam options</a>{/if}
+              {#if key}<a class="choose" href={optionsHref(source.source)} use:link aria-label="{source.name} options">Options</a>{/if}
             </span>
             <span class="state {state.tone}">{#if state.tone === 'warn'}<Icon name="alert" size={14} />{/if}{state.text}</span>
           </span>
           {#if key}
-            <label class="switch-label" title="{source.name}: {source.state === 'disabled' ? 'off' : 'on'}">
+            <label
+              class="switch-label"
+              class:disabled={absent}
+              title={absent ? `${source.name} is not installed on this PC` : `${source.name}: ${source.state === 'disabled' ? 'off' : 'on'}`}
+            >
               <span class="visually-hidden">Add games from {source.name}</span>
-              <Switch checked={source.state !== 'disabled'} describedby="launcher-{source.source}" onchange={(on) => toggle(key, on)} />
+              <Switch
+                checked={source.state !== 'disabled' && !absent}
+                disabled={absent}
+                describedby="launcher-{source.source}"
+                onchange={(on) => toggle(key, on)}
+              />
             </label>
           {:else}
-            <a class="choose" href="/settings/library" use:link>Choose folders</a>
+            <a class="choose" href={optionsHref(source.source)} use:link>Choose folders</a>
           {/if}
           {#if saving === key && key}<span class="visually-hidden" role="status">Saving…</span>{/if}
         </li>
       {/each}
       {#if playnite?.available || playnite?.installed}
         <li class="source" class:off={!playnite.enabled}>
-          <span class="tile" aria-hidden="true">Pn</span>
+          <span class="tile" aria-hidden="true"><LauncherMark source="playnite" /></span>
           <span class="text">
             <span class="name">
               <strong id="launcher-playnite">Playnite</strong>
-              <a class="choose" href="/settings/library" use:link>Playnite options</a>
+              <a class="choose" href={optionsHref('playnite')} use:link aria-label="Playnite options">Options</a>
             </span>
             <span class="state {playnite.enabled ? (playnite.installed ? 'ok' : 'warn') : 'muted'}">
               {playniteState}
@@ -271,9 +301,9 @@
       {/if}
     </ul>
     <p class="foot muted">
-      {automatic ? 'Every installed game is added by itself and removed when you uninstall it.' : 'Automatic sync is off: select Sync now after installing a game.'}
+      {automatic ? 'Every installed game is added by itself and removed when you uninstall it.' : 'Launchers that do not sync automatically are synced with Sync now.'}
       {#if playnite?.active}While Playnite runs, it adds the games of every launcher.{/if}
-      Pick single games with <a href="/library/import" use:link>Add games</a>; more choices are in <a href="/settings/library" use:link>All settings › Games</a>.
+      <span class="links"><a href="/library/import" use:link>Add games</a> · <a href={GAMES_SETTINGS} use:link>All settings › Games</a></span>
     </p>
     {#if removed.length > 0}
       <p class="foot muted removed">
@@ -287,9 +317,7 @@
 <Dialog
   bind:open={restoreOpen}
   title="Restore removed games"
-  description={automatic
-    ? 'The games you pick join your library again if they are still installed.'
-    : 'Automatic sync is off: the games you pick can be added again with Add games.'}
+  description="The games you pick join your library again if they are still installed."
   dismissible={!restoring}
 >
   <div class="pick-all">
@@ -340,9 +368,6 @@
     border-radius: var(--radius-sm);
     background: var(--accent-soft);
     color: var(--accent-text);
-    font-weight: var(--weight-bold);
-    font-size: var(--text-xs);
-    letter-spacing: 0.02em;
   }
   .off .tile {
     background: var(--sunken);
@@ -385,6 +410,12 @@
     align-items: center;
     min-height: var(--control-height);
     cursor: pointer;
+  }
+  .switch-label.disabled {
+    cursor: not-allowed;
+  }
+  .links {
+    white-space: nowrap;
   }
   .choose {
     font-size: var(--text-sm);

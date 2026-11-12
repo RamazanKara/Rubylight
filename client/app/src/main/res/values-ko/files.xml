@@ -30,11 +30,11 @@
     <string name="files_no_upload_permission">이 기기는 이 PC로 파일을 보낼 수 없습니다. PC에서 웹 UI의 “Devices” 페이지를 열고 이 기기에 “Upload files”를 허용하세요.</string>
     <string name="files_no_download_permission">이 기기는 이 PC의 파일을 다운로드할 수 없습니다. PC에서 웹 UI의 “Devices” 페이지를 열고 이 기기에 “Download files”를 허용하세요.</string>
     <string name="files_off">이 PC에서 파일 전송이 꺼져 있습니다. PC 웹 UI의 “File transfer”에서 켜세요.</string>
-    <string name="files_unavailable">이 PC의 호스트에는 파일 전송 기능이 없습니다.</string>
+    <string name="files_unavailable">이 PC의 스트리밍 앱에는 파일 전송 기능이 없습니다.</string>
     <string name="files_no_library">이 Nightjar 빌드는 파일을 전송할 수 없습니다.</string>
     <string name="files_offline">PC가 온라인이 아닙니다.</string>
     <string name="files_pick_pc">어느 PC로 보낼까요?</string>
-    <string name="files_no_pc">온라인인 페어링된 PC가 없습니다. 먼저 PC 목록에서 하나를 깨우거나 페어링하세요.</string>
+    <string name="files_no_pc">온라인인 페어링된 PC가 없습니다. 먼저 PC 목록에서 하나를 ‘절전 해제’하거나 페어링하세요.</string>
     <string name="files_waiting_to_send">보내기 대기 중인 파일: %1$d. 이 기기가 파일을 보낼 수 있게 되면 전송됩니다.</string>
     <plurals name="files_share_refused">
         <item quantity="other">공유된 항목 %1$d개를 보내지 않았습니다. 다른 앱의 파일만 보낼 수 있습니다.</item>

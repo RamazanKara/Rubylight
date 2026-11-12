@@ -14,14 +14,17 @@ export interface MainSection {
 
 /**
  * The Settings home: what a typical player changes in week one, phrased as
- * an outcome, with every option safe. At most 12 keys in all.
+ * an outcome, with every option safe. At most 12 keys in all. Its sections
+ * are the first All settings tabs, with the same ids and names
+ * (settings-schema.ts settingGroups), so each links to the rest of its topic.
  */
 export const MAIN_SECTIONS: readonly MainSection[] = [
   {
     id: 'pc',
     title: 'This PC',
-    description: 'How devices find this PC and whether new ones may pair.',
-    keys: ['sunshine_name', 'enable_pairing'],
+    description: 'Its name, waking it from a device, and updates.',
+    // Install updates automatically shows in the Updates panel, above the release status.
+    keys: ['sunshine_name', 'auto_update'],
   },
   {
     id: 'picture',
@@ -31,7 +34,7 @@ export const MAIN_SECTIONS: readonly MainSection[] = [
   },
   {
     id: 'sound',
-    title: 'Sound and controls',
+    title: 'Sound & controls',
     description: 'What your devices can hear and use on this PC.',
     keys: ['stream_audio', 'stream_mic', 'controller'],
   },
@@ -41,13 +44,10 @@ export const MAIN_SECTIONS: readonly MainSection[] = [
     description: 'What happens to a game when you stop playing.',
     keys: ['terminate_on_pause'],
   },
-  {
-    id: 'updates',
-    title: 'Updates',
-    description: 'New Rubylight releases.',
-    keys: ['auto_update'],
-  },
 ];
+
+/** The main keys the home shows in its Updates panel rather than among its section's rows. */
+export const UPDATE_KEYS: readonly string[] = ['auto_update'];
 
 export const MAIN_KEYS: readonly string[] = MAIN_SECTIONS.flatMap((section) => section.keys);
 export const MAIN_BUDGET = 12;
@@ -55,13 +55,16 @@ export const MAIN_BUDGET = 12;
 /**
  * Right for everyone, no added latency, no PC side effect, stock Moonlight
  * unaffected and verified: on with no switch of their own. Their keys stay
- * readable and show only in All settings, General, Debug switches.
+ * readable and show only in All settings, Advanced, Debug switches.
  */
 export const ALWAYS_ON: readonly string[] = ['qr_pairing', 'link_rate_adaptation'];
 export const DEBUG_GROUP = 'Debug switches';
 
 /** The only groups All settings starts collapsed. */
 export const EXPERT_GROUPS: ReadonlySet<string> = new Set([
+  // Settings written as JSON, each folded under its own name.
+  'Mode substitutions',
+  'Key remapping',
   'Capture troubleshooting',
   'AMD AMF',
   'NVIDIA NVENC',

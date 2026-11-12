@@ -28,12 +28,12 @@ final class SettingsRail implements ViewTreeObserver.OnPreDrawListener {
     static int iconOf(String key) {
         switch (key) {
             case StreamSettings.PROFILES_KEY: return R.drawable.ic_folder;
-            case "video": return R.drawable.ic_play;
+            case "video": return R.drawable.ic_video;
             case "display": return R.drawable.ic_monitor;
             case "input": return R.drawable.ic_gamepad;
             case "audio": return R.drawable.ic_speaker;
             case "streaming": return R.drawable.ic_network;
-            case "app": return R.drawable.ic_info;
+            case "app": return R.drawable.ic_app;
             case "advanced": return R.drawable.ic_tune;
             case "debug": return R.drawable.ic_terminal;
             default: return 0;

@@ -3,6 +3,7 @@
   // the host writes into Lossless Scaling while the app runs.
   import Field from '../Field.svelte';
   import Toggle from '../Toggle.svelte';
+  import { link } from '../../lib/router.svelte';
   import ChoiceField, { type Choice } from './ChoiceField.svelte';
   import NumberField from './NumberField.svelte';
   import type { AppDraft } from './draft.svelte';
@@ -146,21 +147,22 @@
         placeholder="8"
         unit="s"
       />
-      <Field
-        label="Let Lossless Scaling start by itself"
-        id="{uid}-auto-detect"
-        hint="Uses Lossless Scaling's auto scale instead of pressing its hotkey. The host setting is in Settings → Games & automation."
-      >
+      <Field label="Let Lossless Scaling start by itself" id="{uid}-auto-detect">
         <select
           id="{uid}-auto-detect"
           class="select"
+          aria-describedby="{uid}-auto-detect-hint"
           bind:value={() => draft.tristate('lossless-scaling-legacy-auto-detect'),
           (value) => draft.setTristate('lossless-scaling-legacy-auto-detect', value)}
         >
-          <option value="">Use the host setting</option>
+          <option value="">Use the PC setting</option>
           <option value="on">On</option>
           <option value="off">Off</option>
         </select>
+        <p class="hint" id="{uid}-auto-detect-hint">
+          Uses Lossless Scaling's auto scale instead of pressing its hotkey. PC setting:
+          <a href="/settings/games#lossless-scaling" use:link>All settings › Games</a>.
+        </p>
       </Field>
     </div>
     <div class="toggles">
@@ -174,6 +176,11 @@
 </div>
 
 <style>
+  .hint {
+    font-size: var(--text-xs);
+    color: var(--muted);
+    line-height: 1.45;
+  }
   .lossless {
     display: grid;
     gap: var(--space-5);

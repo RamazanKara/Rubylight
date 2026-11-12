@@ -631,6 +631,8 @@ final class ConsoleHomeAdapter extends RecyclerView.Adapter<ConsoleHomeAdapter.S
             layout.setRecycleChildrenOnDetach(true);
             layout.setItemPrefetchEnabled(true);
             cards.setLayoutManager(layout);
+            // As Home's list: a finger leaves the keys' focus nowhere, never on a strip whose shelf would scroll under the tap.
+            cards.setFocusableInTouchMode(false);
             if (type == HERO_WIDE) cards.addItemDecoration(new HomeHeroViews.PanelLines(view.getContext()));
             hero = type == HERO_PHONE ? HomeHeroViews.phone(view, cards, layout, adapter, listener, ConsoleHomeAdapter.this::onCarouselMiddle)
                     : type == HERO_WIDE ? HomeHeroViews.wide(view, env.context, listener, () -> heroEnv.covers, env.hosts) : null;

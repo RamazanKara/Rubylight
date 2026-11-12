@@ -220,6 +220,10 @@ public class SettingsRailTest {
         settle(screen);
         android.preference.PreferenceFragment pane =
                 (android.preference.PreferenceFragment) screen.getFragmentManager().findFragmentById(R.id.stream_settings);
+        // The headed groups follow the section's main rows, behind its More row.
+        android.preference.Preference more = pane.findPreference("more_display");
+        more.getOnPreferenceClickListener().onPreferenceClick(more);
+        settle(screen);
         java.util.List<Integer> layouts = headingLayouts(pane.getPreferenceScreen(), new java.util.ArrayList<>());
         assertTrue("the display section has headed groups", !layouts.isEmpty());
         for (int layout : layouts) assertEquals(R.layout.settings_category_tv, layout);

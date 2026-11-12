@@ -69,7 +69,7 @@
 
     <!-- Bitrate on mobile data (Settings → Video) -->
     <string name="title_mobile_bitrate">Бітрейт у мобільному інтернеті</string>
-    <string name="summary_mobile_bitrate">Обмежує бітрейт, коли трансляція запускається в мобільному інтернеті або в мережі Wi-Fi, яку Android позначає як лімітну, наприклад у точці доступу телефона. Обмеження діє й на значення профілів, ПК та ігор. «Вимкнено» — той самий бітрейт, що й в інших мережах.</string>
+    <string name="summary_mobile_bitrate">Найбільший бітрейт трансляції в мобільному інтернеті або лімітній мережі.</string>
     <string name="mobile_bitrate_off">Вимкнено</string>
 
     <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->
@@ -101,7 +101,7 @@
     <string name="layers_from_pc">задано для цього ПК</string>
     <string name="layers_from_game">задано для цієї гри</string>
     <string name="layers_from_mobile_limit">ліміт для мобільного інтернету</string>
-    <string name="layers_pacing_vrr">Адаптивну частоту ввімкнено, тому трансляція використовує режим «Найменша затримка».</string>
+    <string name="layers_pacing_vrr">Змінна частота оновлення ввімкнена, тому трансляція використовує режим «Найменша затримка».</string>
 
     <!-- In the stream -->
     <string name="layers_applied">Налаштування: %1$s</string>
@@ -123,7 +123,7 @@
     <string name="game_preset_smoothness">Плавність</string>
     <string name="game_preset_smoothness_summary">Встановлює найплавніший pacing кадрів, який утримує кадри й додає затримку, і вимикає адаптивну частоту оновлення для цієї гри. Бітрейт не змінюється.</string>
     <string name="game_preset_quality">Якість</string>
-    <string name="game_preset_quality_summary" formatted="false">Встановлює бітрейт на 150% від значення ПК (або основних налаштувань, якщо в ПК його немає) у межах ліміту хоста. Pacing кадрів і адаптивна частота оновлення не змінюються; за слабкого з’єднання більші кадри можуть додати затримку.</string>
+    <string name="game_preset_quality_summary" formatted="false">Встановлює бітрейт на 150% від значення ПК (або основних налаштувань, якщо в ПК його немає) у межах ліміту ПК. Pacing кадрів і адаптивна частота оновлення не змінюються; за слабкого з’єднання більші кадри можуть додати затримку.</string>
     <string name="game_preset_custom">Власний</string>
     <string name="game_preset_custom_summary">Ваші власні значення, задані нижче.</string>
 </resources>

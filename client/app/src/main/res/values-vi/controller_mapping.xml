@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="controller_mapping_title">Nút tay cầm điều khiển</string>
-    <string name="controller_mapping_summary">Gán lại nút cho từng mẫu tay cầm điều khiển</string>
+    <string name="controller_mapping_summary">Gán lại nút và cần của một mẫu tay cầm.</string>
     <string name="controller_mapping_intro">Nhấn “Gán một nút”, rồi nhấn nút trên tay cầm điều khiển cần gán lại.\nThay đổi áp dụng cho stream tiếp theo.</string>
     <string name="controller_mapping_waiting">Hãy kết nối tay cầm điều khiển rồi nhấn “Gán một nút”.</string>
     <string name="controller_mapping_unnamed">Tay cầm điều khiển</string>

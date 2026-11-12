@@ -6,7 +6,7 @@
     <string name="overlay_compact_rtt">RTT %1$s ms</string>
     <string name="overlay_compact_loss">Utrata %1$s%%</string>
     <string name="overlay_compact_waiting">Oczekiwanie na wideo</string>
-    <string name="link_notice_lowered">Host obniżył przepływność do %1$s Mb/s: sieć</string>
+    <string name="link_notice_lowered">Komputer obniżył przepływność do %1$s Mb/s: sieć</string>
     <string name="overlay_health_good">Strumień dobry</string>
     <string name="overlay_health_fair">Strumień ma problemy</string>
     <string name="overlay_health_poor">Strumień słaby</string>
@@ -14,7 +14,7 @@
     <string name="stream_section_input">Sterowanie</string>
     <string name="stream_section_display">Ekran</string>
     <string name="stream_section_quality">Jakość</string>
-    <string name="stream_section_host">Host</string>
+    <string name="stream_section_host">Komputer</string>
     <string name="stream_microphone">Mikrofon</string>
     <string name="stream_cursor_show">Pokaż kursor myszy</string>
     <string name="stream_cursor_hide">Ukryj kursor myszy</string>
@@ -24,8 +24,7 @@
     <string name="stream_quit_game">Zamknij grę</string>
     <string name="stream_quit_game_confirm">Zamknąć grę na komputerze?\nNiezapisany postęp zostanie utracony.</string>
     <string name="stream_end_session">Zakończ sesję</string>
-    <string name="stream_end_session_confirm">Zakończyć sesję strumieniowania na PC?
-Gra nadal działa.</string>
+    <string name="stream_end_session_confirm">Zakończyć sesję na PC?\nPC odzyskuje swój ekran i dźwięk. Gra nadal na nim działa.</string>
     <string name="stream_close_game">Zamknij grę</string>
     <string name="stream_close_game_confirm">Zamknąć grę na PC?
 Niezapisany postęp zostanie utracony.</string>
@@ -55,7 +54,7 @@ Niezapisany postęp zostanie utracony.</string>
     <string name="stream_menu_button_hide">Ukryj przycisk menu</string>
     <string name="stream_menu_settings">Menu strumienia</string>
     <string name="title_floating_menu_button">Pływający przycisk menu</string>
-    <string name="summary_floating_menu_button">Okrągły przycisk nad strumieniem, który otwiera menu</string>
+    <string name="summary_floating_menu_button">Okrągły przycisk nad strumieniem, który otwiera menu.</string>
     <string name="stream_tile_keyboard">Klawiatura</string>
     <string name="stream_tile_pc_keyboard">Klawiatura PC</string>
     <string name="stream_tile_mouse">Mysz</string>

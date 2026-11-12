@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings shared with desktop Nightjar: Sharper colored text, Controllers, Mouse mode, When Nightjar
+     opens, group names, row hints and notices. -->
+<resources>
+    <string name="title_sharp_color">Texto en color más nítido</string>
+    <string name="summary_sharp_color">Detalle de color completo, para que el texto en color y las líneas finas se vean nítidos.</string>
+    <string-array name="sharp_color_names">
+        <item>Desactivado</item>
+        <item>Automático</item>
+    </string-array>
+    <string name="title_controllers">Mandos</string>
+    <string name="summary_controllers">Desactivado, todos los mandos como un solo jugador o cada mando como un jugador propio.</string>
+    <string-array name="controllers_names">
+        <item>Desactivado</item>
+        <item>Un jugador</item>
+        <item>Un jugador por mando</item>
+    </string-array>
+    <string-array name="mouse_mode_names">
+        <item>Capturado</item>
+        <item>Puntero de escritorio</item>
+    </string-array>
+    <string-array name="start_screen_names">
+        <item>Inicio</item>
+        <item>Mostrar mis PC</item>
+        <item>Continuar mi último juego</item>
+        <item>Un juego elegido</item>
+    </string-array>
+    <string name="summary_host_display_location">Cómo coloca el PC la pantalla transmitida junto a sus propias pantallas.</string>
+    <string name="summary_pace_calibration_row">Busca el ritmo más rápido al que los fotogramas PyroWave de un PC llegan completos.</string>
+    <string name="summary_network_tests">Mide ping, jitter y pérdida, y la velocidad de descarga si el PC lo admite.</string>
+    <string name="settings_category_touch_mouse">Táctil y ratón</string>
+    <string name="settings_category_connection">Conexión</string>
+    <string name="sharp_color_unavailable_pc">El texto en color más nítido no está disponible con este PC.</string>
+    <string name="sharp_color_unavailable_device">El texto en color más nítido no está disponible en este dispositivo.</string>
+    <string name="sharp_color_stopped">El texto en color más nítido se ha detenido. Reconectando sin él.</string>
+    <string name="sharp_color_hdr_dropped">Esta transmisión está en SDR: en este PC, HDR no está disponible con el texto en color más nítido.</string>
+    <string name="hint_show_onscreen_controls">Un mando táctil sobre la transmisión.</string>
+    <string name="hint_mouse_speed">La velocidad a la que se mueve el puntero.</string>
+    <string name="hint_trackpad_speed">Velocidad del puntero en el modo táctil Trackpad.</string>
+    <string name="hint_local_cursor_speed">Velocidad del puntero en el modo táctil Cursor local.</string>
+    <string name="hint_trackpad_acceleration_curve">Cuánto más lejos llegan los deslizamientos rápidos.</string>
+    <string name="hint_trackpad_momentum_glide">Cuánto se desliza el puntero.</string>
+    <string name="hint_pc_keyboard_size">El tamaño del teclado de PC en pantalla.</string>
+    <string name="hint_pc_keyboard_opacity">La transparencia del teclado de PC en pantalla.</string>
+    <string name="hint_vibrate_osc">El dispositivo vibra al pulsar un botón en pantalla.</string>
+    <string name="hint_show_guide_button">Añade un botón Guide a los controles en pantalla.</string>
+    <string name="hint_host_audio">Mantiene el sonido en los altavoces del PC durante la transmisión.</string>
+    <string name="hint_overlay_position">La esquina en la que se muestra la superposición de rendimiento.</string>
+    <string name="summary_reset_all">Devuelve todos los ajustes a su valor predeterminado; se conservan los PC, juegos, perfiles e idioma.</string>
+</resources>

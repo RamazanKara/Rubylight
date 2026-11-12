@@ -66,6 +66,33 @@ pub fn open_folder() -> Result<(), String> {
         .map_err(|e| format!("{opener}: {e}"))
 }
 
+/// Settings → App → Report a problem's file, beside the logs (Android's `ProblemReport`).
+pub const REPORT: &str = "nightjar-problem.txt";
+
+/// Write `header`, then this run's log and the run before's, to [`REPORT`] in `dir`, and return
+/// its path. The logs are redacted as they are written; the report is scrubbed once more for a
+/// PC's name or address learned after its line was written. A missing log is left out.
+pub fn write_report(dir: &Path, header: &str) -> io::Result<PathBuf> {
+    let mut text = String::from(header);
+    for (title, name) in [("This run's log", CURRENT), ("The run before's log", PREV)] {
+        match std::fs::read(dir.join(name)) {
+            Ok(bytes) => {
+                text.push_str(&format!("
+
+{title} ({name}):
+"));
+                text.push_str(&String::from_utf8_lossy(&bytes));
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(io::Error::new(e.kind(), format!("{name}: {e}"))),
+        }
+    }
+    let path = dir.join(REPORT);
+    std::fs::create_dir_all(dir)?;
+    std::fs::write(&path, nightjar_core::report::redact::scrub(&text))?;
+    Ok(path)
+}
+
 /// Move `nightjar.log` to `nightjar.prev.log`, replacing the old prev.
 fn move_current(dir: &Path) -> io::Result<()> {
     let current = dir.join(CURRENT);
@@ -1051,6 +1078,36 @@ mod tests {
         log.note("noted", UNIX_EPOCH).unwrap();
         log.flush().unwrap();
         assert_eq!(std::fs::read_to_string(dir.join(CURRENT)).unwrap(), "1970-01-01T00:00:00.000Z half a li\n1970-01-01T00:00:00.000Z noted\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_problem_report_holds_both_logs_scrubbed_after_the_header() {
+        let dir = temp("report");
+        std::fs::write(dir.join(CURRENT), "now: streaming to Report test PC
+").unwrap();
+        std::fs::write(dir.join(PREV), "before: crashed
+").unwrap();
+        nightjar_core::report::redact::add_secret("Report test PC");
+        let path = write_report(&dir, "Nightjar 9.9.9 / windows x86_64").unwrap();
+        assert_eq!(path, dir.join(REPORT));
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.starts_with("Nightjar 9.9.9 / windows x86_64
+
+This run's log (nightjar.log):
+now: streaming to "), "{text}");
+        assert!(!text.contains("Report test PC"), "{text}");
+        assert!(text.ends_with("The run before's log (nightjar.prev.log):
+before: crashed
+"), "{text}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_problem_report_without_logs_is_its_header() {
+        let dir = temp("report-empty");
+        let text = std::fs::read_to_string(write_report(&dir, "Nightjar 9.9.9").unwrap()).unwrap();
+        assert_eq!(text, "Nightjar 9.9.9");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

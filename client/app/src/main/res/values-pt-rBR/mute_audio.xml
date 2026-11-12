@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_mute_audio">Silenciar áudio</string>
-    <string name="summary_checkbox_mute_audio">Não reproduz o áudio da transmissão neste dispositivo. O microfone e o áudio do PC não mudam.</string>
+    <string name="summary_checkbox_mute_audio">Não reproduz o som da transmissão neste dispositivo.</string>
 </resources>

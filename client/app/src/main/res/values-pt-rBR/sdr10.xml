@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_enable_sdr10">Cor de 10 bits (SDR)</string>
-    <string name="summary_enable_sdr10">Transmite SDR em HEVC ou AV1 de 10 bits para reduzir o banding. Requer um decodificador Main10 neste dispositivo; a tela do PC precisa estar em SDR.</string>
+    <string name="title_enable_sdr10">Menos faixas de cor</string>
+    <string name="summary_enable_sdr10">Transmite vídeo não HDR em 10 bits, para que os degradês mostrem menos faixas.</string>
     <string name="startup_sdr10_not_accepted">Este PC não aceitou 10 bits, então a transmissão é de 8 bits.</string>
     <string name="stream_sdr10_host_hdr">O PC está enviando HDR. Mude a tela dele para SDR para usar SDR de 10 bits.</string>
     <string name="stream_sdr10_unavailable">O SDR de 10 bits não é usado, então a transmissão é de 8 bits: %1$s</string>

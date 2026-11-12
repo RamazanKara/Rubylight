@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_adaptive_quality">Автоматическое качество трансляции</string>
-    <string name="summary_adaptive_quality">Снижать разрешение или FPS при длительной перегрузке сети, медленном декодировании или нагреве, затем постепенно восстанавливать. Использует автоматический битрейт, если он поддерживается. Требует поддержки перенастройки на хосте и адаптивного декодера; недоступно с PyroWave.</string>
-    <string name="title_adaptive_quality_min_resolution">Минимальное автоматическое разрешение</string>
-    <string name="summary_adaptive_quality_min_resolution">Наименьшая короткая сторона с сохранением соотношения сторон. Выбранное разрешение трансляции остаётся максимальным. Более низкое начальное разрешение этот предел не повышает.</string>
-    <string name="title_adaptive_quality_min_fps">Минимальная автоматическая частота кадров</string>
-    <string name="summary_adaptive_quality_min_fps">Наименьший допустимый FPS. Выбранная частота кадров трансляции остаётся максимальной. Действует для автоматического качества, включая режим экономии заряда.</string>
+    <string name="summary_adaptive_quality">Снижать разрешение или FPS при длительной перегрузке сети, медленном декодировании или нагреве, затем постепенно восстанавливать. Использует автоматический битрейт, если он поддерживается. Требует ПК, способного менять идущую трансляцию, и адаптивного декодера; недоступно с PyroWave.</string>
+    <string name="title_adaptive_quality_min_resolution">Минимальное разрешение</string>
+    <string name="summary_adaptive_quality_min_resolution">Наименьшее разрешение, до которого снижает «Автоматическое качество».</string>
+    <string name="title_adaptive_quality_min_fps">Минимальная частота кадров</string>
+    <string name="summary_adaptive_quality_min_fps">Наименьшая частота кадров, до которой снижает «Автоматическое качество».</string>
     <string name="quality_off">Выкл.</string>
     <string name="quality_motion">Сохранять плавность</string>
     <string name="quality_detail">Сохранять детализацию</string>

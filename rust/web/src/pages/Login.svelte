@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import Button from '../components/Button.svelte';
   import AuthLayout from '../components/AuthLayout.svelte';
+  import Disclosure from '../components/Disclosure.svelte';
   import Field from '../components/Field.svelte';
   import { api } from '../lib/api';
   import { navigate, query } from '../lib/router.svelte';
@@ -44,9 +45,7 @@
 <AuthLayout>
   <form onsubmit={submit}>
     <h1>Sign in</h1>
-    <p class="muted">
-      Use this host's username and password. A profile imported from Apollo, Vibepollo or Sunshine keeps that host's sign-in.
-    </p>
+    <p class="muted">Rubylight's username and password on this PC. A profile imported from another streaming app keeps its sign-in.</p>
     <Field label="Username" id="username">
       <input id="username" name="username" class="input" autocomplete="username" required />
     </Field>
@@ -57,14 +56,15 @@
     {#if error}<p class="notice danger" role="alert">{error}</p>{/if}
     <Button type="submit" variant="primary" {busy}>Sign in</Button>
     {#if program}
-      <details class="forgot">
-        <summary>Forgot your sign-in?</summary>
-        <p>
-          On this PC, open PowerShell as administrator and run this with a new username and a password of at least 8
-          characters. Then sign in here with them.
-        </p>
-        <code>&amp; "{program}" --creds NAME PASSWORD</code>
-      </details>
+      <div class="forgot">
+        <Disclosure variant="inline" title="Forgot your sign-in?">
+          <p>
+            On this PC, open PowerShell as administrator and run this with a new username and a password of at least 8
+            characters. Then sign in here with them.
+          </p>
+          <code>&amp; "{program}" --creds NAME PASSWORD</code>
+        </Disclosure>
+      </div>
     {/if}
   </form>
 </AuthLayout>
@@ -86,10 +86,6 @@
   .forgot {
     font-size: var(--text-sm);
     color: var(--ink-2);
-  }
-  .forgot summary {
-    width: fit-content;
-    color: var(--muted);
   }
   .forgot p {
     margin-bottom: var(--space-2);

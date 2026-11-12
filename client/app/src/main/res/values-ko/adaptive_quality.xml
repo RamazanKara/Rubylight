@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_adaptive_quality">자동 스트림 품질</string>
-    <string name="summary_adaptive_quality">혼잡, 느린 디코딩, 발열이 지속되면 해상도나 FPS를 낮춘 후 점차 복구합니다. 지원되면 자동 비트레이트를 사용합니다. 호스트의 재구성 지원과 적응형 디코더가 필요하며, PyroWave에서는 사용할 수 없습니다.</string>
-    <string name="title_adaptive_quality_min_resolution">최소 자동 해상도</string>
-    <string name="summary_adaptive_quality_min_resolution">화면비를 유지한 가장 작은 짧은 변 길이입니다. 선택한 스트림 해상도가 최대값으로 유지됩니다. 시작 해상도가 더 낮으면 이 제한 때문에 높아지지 않습니다.</string>
-    <string name="title_adaptive_quality_min_fps">최소 자동 프레임 속도</string>
-    <string name="summary_adaptive_quality_min_fps">허용되는 최저 FPS입니다. 선택한 스트림 프레임 속도가 최대값으로 유지됩니다. 배터리 모드를 포함한 자동 품질에 적용됩니다.</string>
+    <string name="summary_adaptive_quality">혼잡, 느린 디코딩, 발열이 지속되면 해상도나 FPS를 낮춘 후 점차 복구합니다. 지원되면 자동 비트레이트를 사용합니다. 실행 중인 스트림을 바꿀 수 있는 PC와 적응형 디코더가 필요하며, PyroWave에서는 사용할 수 없습니다.</string>
+    <string name="title_adaptive_quality_min_resolution">최소 해상도</string>
+    <string name="summary_adaptive_quality_min_resolution">자동 품질이 낮출 수 있는 최저 해상도입니다.</string>
+    <string name="title_adaptive_quality_min_fps">최소 프레임 속도</string>
+    <string name="summary_adaptive_quality_min_fps">자동 품질이 낮출 수 있는 최저 프레임 속도입니다.</string>
     <string name="quality_off">사용 안함</string>
     <string name="quality_motion">움직임 우선</string>
     <string name="quality_detail">디테일 우선</string>

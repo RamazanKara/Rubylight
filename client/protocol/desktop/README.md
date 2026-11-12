@@ -79,11 +79,12 @@ Allow Local Network access when macOS asks. Select a discovered PC or use **Add 
 address. Enter the displayed PIN on the host. If the library loads but launching returns HTTP 401,
 open the host's device permissions and enable **Launch applications** for the paired Mac. Nightjar stores the pairing identity and settings in
 `~/Library/Application Support/Nightjar/`. Microphone forwarding requires microphone access.
-**Control + Option + Shift + Tab** opens the stream controls. **Control + Option + Shift + Q** leaves it.
+**Control + Option + Shift + Tab** opens the stream menu. **Control + Option + Shift + Q** leaves it.
 
 FSR1, SGSR1, planar conversion, packed full chroma and PyroWave's Rust decoder use Metal fragment
 shaders. PyroWave defaults to the CPU decoder on macOS. Its upstream Vulkan SDK backend is available
-on Windows and Linux. HDR requires an HDR display and a compatible host. The Metal and VideoToolbox
+on Windows and Linux. HDR requires an HDR display and a compatible host. Live streaming has been
+verified on Apple Silicon. The Metal and VideoToolbox
 checks passed on Apple Silicon and on an Intel MacBook Pro with a Radeon Pro 560 running Ventura
 13.7.8. The Intel Mac decoded HEVC Main and Main10. Its hardware probe declined AV1. Live HDR and
 physical controllers still need hardware verification.
@@ -114,7 +115,7 @@ alongside their inputs and run the hardware check.
 
 ## Installing
 
-Every release carries these files. The installer and the packages contain the same build as the archives.
+Every release carries these files. The installer and the packages contain the same build as the archives. The Windows and Linux release packages are unsigned; the macOS app has an ad-hoc signature and is not notarized, so macOS asks once before the first start ([Install](#install)).
 
 | File | Install | Uninstall |
 | --- | --- | --- |
@@ -139,7 +140,14 @@ Settings, paired PCs, controller layouts, app lists, cover art, logs, screenshot
 
 1. Start Nightjar on the same network as the PC. PCs found on the network appear automatically; otherwise choose **Add PC** and enter the address (`host`, `host:port` or an IPv6 address), or paste the pairing link from a Rubylight PC's QR code to add and pair it in one step.
 2. Select the PC, choose **Pair** and enter the PIN that Nightjar shows in the host's web UI.
-3. Choose a game. **Ctrl+Alt+Shift+Tab**, or **Start+Back** on a controller, opens the stream controls; **Ctrl+Alt+Shift+Q**, or **Start+Select+LB+RB**, leaves the stream.
+3. Choose a game. **Ctrl+Alt+Shift+Tab**, or **Start+Back** on a controller, opens the stream menu; **Ctrl+Alt+Shift+Q**, or **Start+Select+LB+RB**, leaves the stream.
+
+<table>
+<tr>
+<td width="50%" valign="top"><img src="../../docs/assets/shots/desktop-settings.png" alt="Nightjar for Windows: Settings with sections on the left, a search field, and every video setting with a one-line explanation and a Reset beside each change (demo data)"><br><sub><b>Settings you can find.</b> Sections on the left, a search that works with a controller, and every setting in plain words with a Reset beside each change.</sub></td>
+<td width="50%" valign="top"><img src="../../docs/assets/shots/desktop-help.png" alt="Nightjar for Windows: the Help page with getting started in three steps and every keyboard shortcut in the launcher and in a stream (demo data)"><br><sub><b>Help built in.</b> F1 opens getting started, every keyboard shortcut, your controller's buttons and fixes for common problems.</sub></td>
+</tr>
+</table>
 
 | Topic | Reference |
 | --- | --- |
@@ -174,9 +182,10 @@ Everything below works on Windows and Linux unless a platform is named; the [mac
 **Library**
 
 - Library with cached cover art; launch, resume, quit, and quit-and-start another app. Remote Monitor and Input-only entries start in their role where the host publishes them.
-- Home and the game page on hosts with the native API (Rubylight 3.0): games to continue, the library of all PCs merged by title, the PCs and what each knows, recently played games, and a page per game with Play or Resume, the stream settings that will apply, game settings and Close game. The last library of each PC is kept, so Home works while a PC is away. **Open on Home** (on by default) chooses between Home and the PC list. Home can group by collection, and a game can be hidden on this device.
+- Home and the game page on hosts with the native API (Rubylight 3.0): games to continue, the library of all PCs merged by title, the PCs and what each knows, recently played games, and a page per game with Play or Resume, the stream settings that will apply, game settings and Close game. The last library of each PC is kept, so Home works while a PC is away. Home can group by collection, and a game can be hidden on this device.
+- While a stream connects, the whole window shows the game's cover, the PC and the current step, with **Cancel**. A start that fails turns into a card that says why, with **Try again**, **Stream settings** and **Test the network**, which asks Moonlight's port-test server whether a firewall blocks the streaming ports.
 - **Continue here** moves a game another device is playing to this one; **Stream here too** streams beside it.
-- **When Nightjar opens** shows the PCs, continues the last game or starts a chosen game, and **Start Nightjar when I sign in** starts it with the desktop session (also in the Flatpak).
+- **When Nightjar opens** shows Home (the default) or the PCs, continues the last game or starts a chosen game, and **Start Nightjar when I sign in** starts it with the desktop session (also in the Flatpak).
 - **Co-op sessions** join or start a Nucleus Co-op session on hosts that offer it, and **Microphone only** sends just this device's microphone.
 - The session and graphics page in the stream menu (Rubylight 3.0): Resume, Disconnect, End session and Close game with confirmation, the connection facts, and the Radeon panel.
 - **Quick resume**, per-game quit on leave, and **Input-only on any PC**.
@@ -185,19 +194,19 @@ Everything below works on Windows and Linux unless a platform is named; the [mac
 
 - H.264, HEVC and AV1 with hardware decoding: D3D11VA on Windows (HEVC 4:4:4 too, through Moonlight's FFmpeg patch in `ffmpeg-patches/windows/`, which FFmpeg 8 lacks); on Linux VA-API, then Vulkan video, then V4L2 M2M (ARM handhelds and boards; 10-bit HEVC where the driver offers P010, through `ffmpeg-patches/`, tested with a fake decoder by `test-v4l2-p010.sh`), then NVDEC. Before a stream, each format is decoded once on the hardware decoder, and only what decodes is offered to the PC; a decoder that gives up mid-stream hands over to the next, with a notice.
 - PyroWave decodes on the GPU or the CPU, with a bandwidth test and a frame-pace calibration per network, and skips to the newest frame when the decoder falls behind.
-- HDR: HDR10 and HLG, plus Dolby Vision profiles 8.1 and 10.1 on Windows from hosts that send them. On Linux, HDR streams present as HDR10 PQ where the compositor offers it, else scRGB. 10-bit SDR, YUV 4:4:4 and full chroma where the host and decoder support them; Windows decodes HEVC 4:4:4 in hardware on GPUs whose decoder has it.
+- HDR: HDR10 and HLG, plus Dolby Vision profiles 8.1 and 10.1 on Windows from hosts that send them. On Linux, HDR streams present as HDR10 PQ where the compositor offers it, else scRGB. **Less color banding** (10-bit SDR) and **Sharper colored text** (YUV 4:4:4, native or packed full chroma) where the host and decoder support them; Windows decodes HEVC 4:4:4 in hardware on GPUs whose decoder has it.
 - Upscaling with bilinear, FSR 1, SGSR 1 or AI enhancement (the GPU vendor's video super resolution).
-- Variable refresh rate with frames shown at the PC's frame times, frame pacing modes and V-Sync without VRR, fractional refresh rates, virtual displays and PC display modes.
+- Variable refresh rate with frames shown at the PC's frame times, frame pacing modes and V-Sync without VRR, fractional refresh rates, virtual displays and the PC's display arrangement.
 - **Dual screen mode**: with a second monitor and a host that supports it, a second stream of the same game opens full screen on it.
 
 **Sound**
 
-- Opus in stereo, 5.1 and 7.1; 7.1.4 on Windows. Uncompressed PCM passthrough from hosts that offer it. Microphone with echo cancellation. The PC's night mode and headphone surround from the stream menu.
+- Opus in stereo, 5.1 and 7.1; 7.1.4 on Windows. Uncompressed PCM passthrough from hosts that offer it. Microphone with echo cancellation, noise suppression and automatic gain. The PC's night mode and headphone surround from the stream menu.
 
 **Input**
 
 - Keyboard with system-key capture (optionally only in full screen), captured and desktop-pointer mouse modes with a locally drawn cursor, high-resolution scrolling, native touch and pen, touchpad gestures.
-- Controllers through SDL: rumble, trigger rumble, LEDs, motion, touchpad and battery; DualSense adaptive triggers, and DualSense USB audio and waveform haptics. Controller mouse mode, button mapping, stick dead zones, and saved keyboard shortcuts that import and export in the Android app's format. Stream hotkeys can be changed.
+- Controllers through SDL: rumble, trigger rumble, LEDs, motion, touchpad and battery; DualSense adaptive triggers, and USB DualSense audio and waveform haptics. Controller mouse mode, button mapping, stick dead zones, and saved keyboard shortcuts that import and export in the Android app's format. Stream hotkeys can be changed.
 
 **Sharing**
 
@@ -206,7 +215,7 @@ Everything below works on Windows and Linux unless a platform is named; the [mac
 **Network and quality**
 
 - Recovery of interrupted streams (up to five attempts within one minute), network interruption grace, client roaming, stream traffic priority. On Windows, video packets are received several at a time where the network adapter supports UDP receive coalescing.
-- Automatic bitrate, device controls bitrate (with PyroWave's own controller), automatic quality (resolution and frame rate), loss-based bitrate, a link test before the first bitrate, error correction choices, and the network speed test in **Settings → Streaming**.
+- **Automatic bitrate**, **Lower bitrate when the network is busy** (with PyroWave's own controller), **Automatic quality** (resolution and frame rate), **Lower bitrate when frames are lost**, **Test the link before starting**, error correction choices, and the **Connection test** speed test in **Settings → Streaming**.
 
 **Diagnostics and interface**
 
@@ -222,13 +231,13 @@ Not available on the desktop:
 - On-screen controls and the touch modes (trackpad, direct, multi-touch); the desktop sends native touch.
 - A problem-report export; the logs folder serves that purpose.
 - The latency benchmark, the decoder benchmark, and the network path and delay test of the connection test.
-- HDR10+, noise suppression and microphone gain, and Dolby passthrough.
+- HDR10+ and Dolby passthrough.
 
 Platform limits:
 
 - On Linux, 7.1.4 is unavailable (SDL opens at most eight channels) and Dolby Vision is not shown. Phase-lock frame timing needs X11 with the OpenGL renderer.
 - On Linux, 8-bit 4:2:0 VA-API pictures reach the OpenGL renderer without crossing memory (DMA-BUF), and VA-API and Vulkan video pictures, packed full chroma included, are mapped into the GPU renderer's Vulkan images; NVDEC's are copied into them by CUDA. Other pictures on the OpenGL renderer, and any picture whose mapping fails (the log says why), go through memory.
-- On Windows, D3D11VA's 4:4:4 surfaces (AYUV, Y410, Y416), which NVIDIA and Intel decoders make for HEVC 4:4:4, are copied on the GPU and drawn by the plane shader. AMD's decoders have no 4:4:4: the decoder check says so and the stream uses 4:2:0, while the software decoder draws 4:4:4. D3D11VA has no H.264 4:4:4. With **Prefer YUV 4:4:4** and 10-bit SDR both on, HEVC 4:4:4 10-bit is asked for where the decoder check passes it and the PC encodes it. On Linux, Intel's VA-API decodes 4:4:4 on the GPU renderer, and NVDEC's 10-bit 4:4:4 (its samples in the high bits) is drawn by the plane shader too.
+- On Windows, D3D11VA's 4:4:4 surfaces (AYUV, Y410, Y416), which NVIDIA and Intel decoders make for HEVC 4:4:4, are copied on the GPU and drawn by the plane shader. AMD's decoders have no 4:4:4: the decoder check says so and the stream uses 4:2:0, while the software decoder draws 4:4:4. D3D11VA has no H.264 4:4:4. With **Sharper colored text** on **Automatic** and **Less color banding** on, HEVC 4:4:4 10-bit is asked for where the decoder check passes it and the PC encodes it. On Linux, Intel's VA-API decodes 4:4:4 on the GPU renderer, and NVDEC's 10-bit 4:4:4 (its samples in the high bits) is drawn by the plane shader too.
 
 ## Building
 
@@ -362,7 +371,8 @@ All are off unless set, but for the A/B switches that say otherwise.
 | `src/gui.rs`, `src/a11y.rs` | egui input from SDL events and painting with `SDL_RenderGeometryRaw`; screen reader access |
 | `src/theme.rs` | Palette, Figtree type, the brand mark rasterized from its vector path |
 | `src/ui.rs` | The launcher: screens, navigation and focus, the header |
-| `src/ui/library.rs`, `src/ui/pages.rs`, `src/ui/settings.rs`, `src/ui/dialogs.rs` | PCs, Home, libraries and a game's page; a PC's pages, profiles, shortcuts and controllers; settings; dialogs, pairing and the connecting card |
+| `src/ui/library.rs`, `src/ui/pages.rs`, `src/ui/settings.rs`, `src/ui/dialogs.rs` | PCs, Home, libraries and a game's page; a PC's pages, profiles, shortcuts and controllers; settings; dialogs, pairing and the waking card |
+| `src/ui/launch_scene.rs`, `src/conn_test.rs` | The full-window connecting scene from Play until the stream takes the window; the card of a start that failed, with Try again, Stream settings and Test the network; the network test against Moonlight's port-test server |
 | `src/ui/widgets.rs`, `src/ui/cards.rs`, `src/ui/files.rs` | Buttons, switches, rows and scroll areas; PC cards and covers; the shared folder browser |
 | `src/console.rs` | What Home and the game page show, derived from what the PCs reported (no egui; unit-tested) |
 | `src/hosts.rs`, `src/wol.rs` | Host list, mDNS discovery, serverinfo polling, pairing, app lists, cover art, the native library and session; Wake-on-LAN |
@@ -416,3 +426,8 @@ Nightjar's desktop client ports logic and approaches from:
 
 [Figtree](https://github.com/erikdkennedy/figtree) is under the SIL Open Font License 1.1
 (`assets/Figtree-OFL.txt`).
+
+[sonora](https://github.com/dignifiedquire/sonora), a Rust port of WebRTC's audio processing
+(BSD-3-Clause; the WebRTC project authors, Arun Raghavan and contributors, and dignifiedquire),
+runs the microphone's noise suppression and automatic gain (`src/stream/mic_dsp.rs`). Its notice,
+`assets/NOTICE-SONORA.txt`, ships in every package.

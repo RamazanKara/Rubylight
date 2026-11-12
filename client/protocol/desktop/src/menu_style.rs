@@ -12,7 +12,7 @@ use crate::config::GamepadQuitCombo;
 use crate::glyphs::{self, icon, Icon, Piece, Style};
 use crate::shortcuts::{self, Action, Chord, Scope};
 use crate::strings::tr;
-use crate::theme::{high_contrast, radius, regular, semibold, space, text, ERROR, MOON, ON_MOON, ON_MOON_CONTAINER, ON_SURFACE, ON_SURFACE_VARIANT};
+use crate::theme::{high_contrast, radius, regular, semibold, shade, space, text, ERROR, MOON, ON_MOON, ON_MOON_CONTAINER, ON_SURFACE, ON_SURFACE_VARIANT};
 use crate::ui::{design_tokens as t, focus_ring, glass, lift_shapes, name_for_readers, round_button, toggle, Tone};
 
 /// The menus' width with their margin.
@@ -148,7 +148,7 @@ pub fn group<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
         add(ui)
     });
     let mut shapes = Vec::new();
-    glass::group(&mut shapes, ui.ctx(), shown.response.rect, GROUP_CORNER, t::TINT_GROUP_FILL);
+    glass::group(&mut shapes, ui.ctx(), shown.response.rect, GROUP_CORNER, shade::TINT_GROUP_FILL.get());
     ui.painter().set(place, Shape::Vec(shapes));
     shown.inner
 }
@@ -160,9 +160,9 @@ fn fill(ui: &Ui, response: &Response) -> Color32 {
     if !ui.is_enabled() {
         Color32::TRANSPARENT
     } else if response.is_pointer_button_down_on() {
-        t::TINT_SEG_ON_FILL
+        shade::TINT_SEG_ON_FILL.get()
     } else if response.hovered() {
-        t::TINT_CONTROL_FILL
+        shade::TINT_CONTROL_FILL.get()
     } else {
         Color32::TRANSPARENT
     }
@@ -382,8 +382,8 @@ pub fn tile(ui: &mut Ui, width: f32, glyph: Icon, label: &str, detail: Option<&s
         glass::solid(&mut shapes, ui.ctx(), rect, TILE_CORNER, t::SOLID_CONTROL_FILL);
         glass::rim(&mut shapes, ui.ctx(), rect, TILE_CORNER, 2.0, &|_| *MOON);
     } else if lit {
-        glass::solid(&mut shapes, ui.ctx(), rect, TILE_CORNER, t::TINT_SELECTED_FILL);
-        let rim = glass::gradient(rect, 180.0, &[(0.0, t::TINT_SELECTED_RIM_TOP), (0.5, Color32::TRANSPARENT)]);
+        glass::solid(&mut shapes, ui.ctx(), rect, TILE_CORNER, shade::TINT_SELECTED_FILL.get());
+        let rim = glass::gradient(rect, 180.0, &[(0.0, shade::TINT_SELECTED_RIM_TOP.get()), (0.5, Color32::TRANSPARENT)]);
         glass::rim(&mut shapes, ui.ctx(), rect, TILE_CORNER, 1.0, &rim);
     } else {
         glass::control(&mut shapes, ui.ctx(), rect, TILE_CORNER);
@@ -476,7 +476,7 @@ pub fn divider(ui: &mut Ui) {
     ui.add_space(space::S);
     let width = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(vec2(width, 1.0), Sense::hover());
-    ui.painter().rect_filled(rect, 0.0, t::TINT_SEPARATOR);
+    ui.painter().rect_filled(rect, 0.0, shade::TINT_SEPARATOR.get());
     ui.add_space(space::S);
 }
 
@@ -519,7 +519,7 @@ fn shortcut(ui: &mut Ui, label: &str, pieces: &[Piece], spoken: &str) {
 /// `controller_mouse` lists holding Start for the mouse when the stream offers it, `back_opens`
 /// Select for the controls as the Help page does. Returns true when the back row was chosen.
 pub fn sheet(ui: &mut Ui, style: Style, quit: GamepadQuitCombo, back_opens: bool, controller_mouse: bool, from_menu: bool) -> bool {
-    let back_label = if from_menu { tr("Back to stream controls") } else { tr("Return to stream") };
+    let back_label = if from_menu { tr("Back to stream menu") } else { tr("Return to stream") };
     let back = action_row(ui, if from_menu { Icon::Sliders } else { Icon::Play }, back_label, Trail::Keys(shortcuts::Key::Escape.cap().as_ref()), *ON_SURFACE);
     back.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, back_label));
     if ui.ctx().memory(|m| m.focused().is_none()) {
@@ -578,7 +578,7 @@ mod tests {
         };
         let mut add = add;
         let mut output = ctx.run_ui(input, |ui| {
-            show(ui.ctx(), "Stream controls", "menu-test", |ui| add(ui));
+            show(ui.ctx(), "Stream menu", "menu-test", |ui| add(ui));
         });
         output.textures_delta.clear();
         output
@@ -588,7 +588,7 @@ mod tests {
     fn sample(ctx: &egui::Context, events: Vec<egui::Event>, on: &mut bool) -> (egui::Rect, egui::Rect, bool) {
         let mut out = (egui::Rect::NOTHING, egui::Rect::NOTHING, false);
         run(ctx, events, |ui| {
-            header(ui, "Stream controls", "Game · PC");
+            header(ui, "Stream menu", "Game · PC");
             out.0 = primary(ui, "Return to stream", None).rect;
             let r = switch(ui, Icon::Microphone, "Mute microphone", on);
             out.1 = r.rect;
@@ -740,7 +740,7 @@ mod tests {
         assert!(wide.iter().any(|(text, _)| text == "Ctrl + Shift + Esc"), "room enough keeps the spaces: {wide:?}");
     }
 
-    /// With "Back opens stream controls" on, the sheet lists Select for the controls as the Help
+    /// With "Back opens the stream menu" on, the sheet lists Select for the menu as the Help
     /// page does (both through `Style::stream_press`); with it off, it doesn't.
     #[test]
     fn the_sheet_lists_select_for_the_controls_when_back_opens_them() {
@@ -971,7 +971,7 @@ fn ").unwrap_or(main.len() - start)];
                 }
                 let available = crate::stream_menu::Available {
                     mouse: Some(false), overlay: true, shortcuts: true, microphone: Some(true), quality: true, clipboard: true,
-                    commands: true, session: true, exits: vec![crate::session_page::HostExit::QuitApp], ..Default::default()
+                    commands: true, session: true, exits: vec![crate::session_page::HostExit::End, crate::session_page::HostExit::QuitApp], ..Default::default()
                 };
                 let layout = crate::stream_menu::layout(&available, saved.data.len(), &Default::default());
                 let page = match what {
@@ -979,7 +979,7 @@ fn ").unwrap_or(main.len() - start)];
                     "editor" => crate::stream_menu::Page::Editor(draft.clone()),
                     _ => crate::stream_menu::Page::Grid,
                 };
-                show(ui.ctx(), tr("Stream controls"), "stream-controls", |ui| {
+                show(ui.ctx(), tr("Stream menu"), "stream-controls", |ui| {
                     if what == "menu" {
                         // As main.rs draws the grid page: the game over its mode, the grid scrolling, the ways out pinned.
                         header(ui, "Open World", "1440p · 144 FPS · HEVC HDR");

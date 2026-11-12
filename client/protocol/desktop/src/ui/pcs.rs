@@ -50,7 +50,7 @@ impl PcAction {
         match self {
             Self::Resume(_) => tr("Resume"),
             Self::Open => tr("Open"),
-            Self::Wake => tr("Wake"),
+            Self::Wake => tr("Wake up"),
             Self::TryAgain => tr("Try again"),
             Self::Pair => tr("Pair"),
         }
@@ -151,13 +151,32 @@ pub(super) fn over_moon((center, r): (Pos2, f32), card: Rect) -> f32 {
 pub(super) fn canvas_on_moon(out: &mut Vec<Shape>, ctx: &egui::Context, card: Rect, r: f32) {
     let over = backdrop::disc_of(ctx).map_or(0.0, |disc| over_moon(disc, card));
     if over > 0.0 && !high_contrast() {
-        glass::solid(out, ctx, card, r, t::COLOR_CANVAS.gamma_multiply(OVER_MOON * over));
+        glass::solid(out, ctx, card, r, shade::COLOR_CANVAS.get().gamma_multiply(OVER_MOON * over));
     }
 }
 
-/// A small screen on a stand, in the state of its PC. `face` is the screen's rect; the stand hangs
-/// below it.
-pub(super) fn monitor(ui: &Ui, out: &mut Vec<Shape>, host: &Host, face: Rect, reveal_id: Id) {
+/// The game a PC's card shows on its screen, as Android's PC tile does: the one it runs, else the
+/// last this device played there. None for a PC that is away or not paired. The id its cover is
+/// kept under: a library game is found again by its install id, which outlasts a changed app id.
+pub(super) fn card_game(host: &Host, recents: &[crate::config::Recent]) -> Option<i32> {
+    if host.reach == Reach::Offline || !host.paired() {
+        return None;
+    }
+    if let Some(app) = host.running_app() {
+        return Some(app);
+    }
+    let unique = host.record.unique_id.as_str();
+    let last = recents.iter().filter(|r| !unique.is_empty() && r.host == unique).max_by_key(|r| r.at)?;
+    let listed = host
+        .library()
+        .and_then(|l| l.games.iter().find(|g| !last.install_id.is_empty() && g.install_id == last.install_id))
+        .map(|g| g.app_id as i32);
+    Some(listed.unwrap_or(last.app_id as i32))
+}
+
+/// A small screen on a stand, in the state of its PC, showing `game`'s cover once it is here
+/// ([`card_game`]). `face` is the screen's rect; the stand hangs below it.
+pub(super) fn monitor(ui: &Ui, out: &mut Vec<Shape>, host: &Host, game: Option<i32>, face: Rect, reveal_id: Id) {
     use nightjar_core::tile::{tile_pair, title_hash};
     let ctx = ui.ctx();
     let w = face.width();
@@ -174,8 +193,7 @@ pub(super) fn monitor(ui: &Ui, out: &mut Vec<Shape>, host: &Host, face: Rect, re
             Color32::from_black_alpha(71),
         );
     }
-    let art = host
-        .running_app()
+    let art = game
         .filter(|_| !offline && host.paired())
         .and_then(|app| host.art.get(&app))
         .and_then(|art| match art {
@@ -250,7 +268,7 @@ pub(super) fn monitor(ui: &Ui, out: &mut Vec<Shape>, host: &Host, face: Rect, re
         glass::rim(out, ctx, face, r, 1.5, &|_| t::HC_COLOR_RIM);
     } else {
         let rim = if offline {
-            t::TINT_CONTROL_RIM_BOTTOM
+            shade::TINT_CONTROL_RIM_BOTTOM.get()
         } else {
             Color32::WHITE.gamma_multiply(0.2)
         };
@@ -264,7 +282,7 @@ pub(super) fn monitor(ui: &Ui, out: &mut Vec<Shape>, host: &Host, face: Rect, re
     out.push(Shape::rect_filled(
         neck,
         CornerRadius::ZERO,
-        t::TINT_TRACK_FILL,
+        shade::TINT_TRACK_FILL.get(),
     ));
     let base = Rect::from_min_size(
         pos2(face.center().x - 0.15 * w, neck.bottom()),
@@ -349,9 +367,9 @@ pub(super) fn action_button(ui: &mut Ui, rect: Rect, id: Id, action: PcAction, s
     }
     lift_shapes(&mut out, &ctx, shown, r, feel.hovered, feel.pressed);
     let ink = match action {
-        PcAction::Resume(_) => *ON_MOON,
+        PcAction::Resume(_) => glass::on_play(),
         // The one PC action in the moon's colour, on a tint: never a second moon button.
-        PcAction::Pair if !high_contrast() => t::COLOR_MOON_INK,
+        PcAction::Pair if !high_contrast() => shade::COLOR_MOON_INK.get(),
         PcAction::Pair => *MOON,
         _ => *ON_SURFACE,
     };
@@ -420,7 +438,7 @@ pub(super) fn status_line(ui: &Ui, out: &mut Vec<Shape>, at: Pos2, room: f32, li
                     Rect::from_center_size(dot, Vec2::splat(9.0)),
                     4.5,
                     8.0,
-                    t::COLOR_OK,
+                    shade::COLOR_OK.get(),
                 );
             }
             out.push(Shape::circle_filled(dot, 4.5, *OK));
@@ -430,7 +448,7 @@ pub(super) fn status_line(ui: &Ui, out: &mut Vec<Shape>, at: Pos2, room: f32, li
             out.push(Shape::circle_filled(
                 pos2(at.x + 4.5, at.y),
                 4.5,
-                t::COLOR_OFFLINE,
+                shade::COLOR_OFFLINE.get(),
             ));
             9.0
         }
@@ -529,6 +547,11 @@ impl Launcher {
         };
         let rect = slot.translate(vec2(0.0, -rise));
         let r = t::RADIUS_PANEL;
+        // The game on its screen: its cover is asked for although no page of it is open.
+        let game = card_game(host, &self.recents);
+        if let Some(app) = game {
+            request_cover_unseen(ui, view, host.id, app as u32, commands);
+        }
         let inner = rect.shrink(PC_CARD_PAD);
         let face = Rect::from_min_size(inner.min, vec2(SCREEN_W, (0.62 * SCREEN_W).round()));
         let stand = 0.07 * SCREEN_W + (0.028 * SCREEN_W).max(2.0);
@@ -560,7 +583,7 @@ impl Launcher {
                 hovered,
                 card.is_pointer_button_down_on(),
             );
-            monitor(ui, &mut out, host, face, id.with("art-in"));
+            monitor(ui, &mut out, host, game, face, id.with("art-in"));
             let mut job = egui::text::LayoutJob::simple_singleline(
                 name.to_owned(),
                 semibold(t::TYPE_SECTION_SIZE),

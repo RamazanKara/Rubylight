@@ -26,7 +26,7 @@
   onMount(load);
 </script>
 
-<Panel title="Log analysis" level={3} description="Known failures in the latest host log, explained on this PC. Nothing is sent anywhere.">
+<Panel title="Log analysis" level={3} description="Known failures in Rubylight’s latest log, explained on this PC. Nothing is sent anywhere.">
   <div class="stack">
     {#if analysis && loadError}
       <LoadState error={loadError} what="the log analysis" stale onretry={load} />

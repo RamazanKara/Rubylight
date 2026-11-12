@@ -5,11 +5,14 @@
     id,
     checked,
     describedby,
+    disabled = false,
     onchange,
   }: {
     id?: string;
     checked: boolean;
     describedby?: string;
+    /** Shown but not changeable, as for a launcher this PC does not have. */
+    disabled?: boolean;
     onchange: (checked: boolean) => void;
   } = $props();
 </script>
@@ -20,6 +23,7 @@
     type="checkbox"
     role="switch"
     {checked}
+    {disabled}
     aria-describedby={describedby}
     onchange={(event) => onchange(event.currentTarget.checked)}
   />
@@ -66,8 +70,14 @@
       transform var(--duration-fast),
       width var(--duration-fast);
   }
-  input:hover + .track {
+  input:hover:not(:disabled) + .track {
     border-color: var(--ink-2);
+  }
+  input:disabled {
+    cursor: not-allowed;
+  }
+  input:disabled + .track {
+    opacity: 0.45;
   }
   input:checked + .track {
     background: var(--accent);

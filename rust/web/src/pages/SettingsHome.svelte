@@ -5,14 +5,12 @@
   import Icon from '../components/Icon.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import Panel from '../components/Panel.svelte';
-  import PasswordPanel from '../components/maintenance/PasswordPanel.svelte';
-  import PowerPanel from '../components/maintenance/PowerPanel.svelte';
   import Section from '../components/maintenance/Section.svelte';
-  import SessionsPanel from '../components/maintenance/SessionsPanel.svelte';
   import UpdatesPanel from '../components/maintenance/UpdatesPanel.svelte';
   import { reason } from '../components/maintenance/util';
   import SaveBar from '../components/settings/SaveBar.svelte';
   import SettingRow from '../components/settings/SettingRow.svelte';
+  import WakeRow from '../components/settings/WakeRow.svelte';
   import { matchesWords, searchSettings, searchWords } from '../components/settings/search';
   import {
     applyChanges,
@@ -31,11 +29,11 @@
     settingsOnly,
     type Edits,
   } from '../components/settings/values';
-  import { api, type Config, type ConfigValue, type WebSession } from '../lib/api';
+  import { api, type Config, type ConfigValue } from '../lib/api';
   import { confirm, failed, notify } from '../lib/feedback.svelte';
-  import { guardNavigation, link, route } from '../lib/router.svelte';
-  import { MAIN_SECTIONS, onHome } from '../lib/schema/main';
-  import { categoriesOf, schema, settingGroups, settingsGroup } from '../lib/settings-schema';
+  import { guardNavigation, link, navigate, route } from '../lib/router.svelte';
+  import { MAIN_SECTIONS, UPDATE_KEYS, onHome } from '../lib/schema/main';
+  import { categoriesOf, groupAnchor, schema, settingGroups, settingsGroup } from '../lib/settings-schema';
   import { session as host } from '../lib/session.svelte';
   import { NATIVE_ENCODERS, type Setting } from '../lib/settings-types';
   import { SETTING as PRESET, covered, presetById, presetId, presetNotice, withPreset } from '../lib/stream-presets';
@@ -129,19 +127,11 @@
   const target = (setting: Setting) =>
     `/settings/${settingsGroup(setting.category)}?setting=${encodeURIComponent(setting.key)}`;
 
-  // ---------- signed-in browsers and password ----------
+  /** Where a tab's group is in All settings, such as This PC › Sleep and wake. */
+  const inAllSettings = (tab: string, group: string) => `/settings/${tab}#${groupAnchor(group)}`;
 
-  let sessions = $state<WebSession[] | null>(null);
-  let sessionsError = $state('');
-  const username = $derived(sessions?.find((session) => session.current)?.username ?? '');
-  async function loadSessions() {
-    try {
-      sessions = (await api.auth.sessions()).sessions;
-      sessionsError = '';
-    } catch (error) {
-      sessionsError = reason(error);
-    }
-  }
+  // Sign-in and security moved to All settings › Advanced; older links to it go there.
+  const MOVED: Record<string, string> = { security: inAllSettings('advanced', 'Sign-in and security') };
 
   // ---------- loading and saving: the same PATCH of changed keys as All settings ----------
 
@@ -158,8 +148,12 @@
   }
 
   onMount(() => {
+    const moved = MOVED[location.hash.slice(1)];
+    if (moved) {
+      navigate(moved, { replace: true });
+      return;
+    }
     void load();
-    void loadSessions();
   });
 
   // The page fills in after the first load, so a link to a section scrolls once it is there.
@@ -191,7 +185,7 @@
     const count = pending.size;
     const ok = await confirm({
       title: 'Discard unsaved changes?',
-      message: `${count} unsaved ${count === 1 ? 'change is' : 'changes are'} lost. The host keeps its current settings.`,
+      message: `${count} unsaved ${count === 1 ? 'change is' : 'changes are'} lost. Rubylight keeps its current settings.`,
       confirm: 'Discard',
       danger: true,
     });
@@ -227,7 +221,7 @@
   async function restart() {
     const ok = await confirm({
       title: 'Restart Rubylight?',
-      message: 'Streams in progress disconnect. This console reconnects by itself when the host is back.',
+      message: 'Streams in progress disconnect. This console reconnects by itself when Rubylight is back.',
       confirm: 'Restart',
     });
     if (!ok) return;
@@ -235,7 +229,7 @@
     try {
       await api.host.restart();
       saved = false;
-      notify('Rubylight is restarting. This console reconnects when the host is back.', 'info', 8000);
+      notify('Rubylight is restarting. This console reconnects when Rubylight is back.', 'info', 8000);
     } catch (error) {
       failed('Restart failed', error);
     } finally {
@@ -293,7 +287,8 @@
       {#if !loadError}<p class="placeholder muted">Loading settings…</p>{/if}
     {:else}
       <div class="rows">
-        {#each section.settings as setting (setting.key)}{@render row(setting)}{/each}
+        {#each section.settings.filter((setting) => !UPDATE_KEYS.includes(setting.key)) as setting (setting.key)}{@render row(setting)}{/each}
+        {#if section.id === 'pc'}<WakeRow details={inAllSettings('pc', 'Sleep and wake')} />{/if}
       </div>
     {/if}
     {#if section.id === 'games'}
@@ -306,8 +301,8 @@
 {/snippet}
 
 <div class="page">
-  <PageHeader title="Settings" subtitle="The few things most people change. Everything else, with search, is in All settings.">
-    {#snippet actions()}<Button href="/settings/general" icon="maintenance">All settings</Button>{/snippet}
+  <PageHeader title="Settings" subtitle="The few things most people change.">
+    {#snippet actions()}<Button href="/settings/pc" icon="maintenance">All settings</Button>{/snippet}
   </PageHeader>
 
   <div class="finder">
@@ -341,7 +336,7 @@
             {/each}
           </ul>
           {#if results.length > RESULTS}
-            <a class="more" href="/settings/general?q={encodeURIComponent(query.trim())}" use:link>
+            <a class="more" href="/settings/pc?q={encodeURIComponent(query.trim())}" use:link>
               Show all {results.length} in All settings<Icon name="chevron" size={14} />
             </a>
           {/if}
@@ -374,29 +369,25 @@
   {/if}
 
   {#each sections as section (section.id)}
+    {@const tab = settingGroups.find((group) => group.id === section.id)}
     <div id={section.id} class="anchor">
-      <Section title={section.title}>
-        {#if section.id === 'updates'}
-          <!-- One panel: the switch above the release status it acts on. -->
-          <UpdatesPanel title="Releases">
+      <Section title={section.title} more={tab && { href: `/settings/${tab.id}`, label: 'More settings' }}>
+        {@render rows(section)}
+        {#if section.id === 'pc'}
+          <!-- The switch above the release status it acts on. -->
+          <UpdatesPanel id="updates" more={inAllSettings('pc', 'Updates')}>
             {#snippet settings()}
-              {#if stored}<div class="rows">{#each section.settings as setting (setting.key)}{@render row(setting)}{/each}</div>{/if}
+              {#if stored}
+                <div class="rows">
+                  {#each section.settings.filter((setting) => UPDATE_KEYS.includes(setting.key)) as setting (setting.key)}{@render row(setting)}{/each}
+                </div>
+              {/if}
             {/snippet}
           </UpdatesPanel>
-        {:else}
-          {@render rows(section)}
         {/if}
-        {#if section.id === 'pc'}<PowerPanel />{/if}
       </Section>
     </div>
   {/each}
-
-  <div id="security" class="anchor">
-    <Section title="Sign-in and security" columns={2}>
-      <SessionsPanel {sessions} error={sessionsError} onchange={loadSessions} />
-      <PasswordPanel {username} />
-    </Section>
-  </div>
 
   {#if stored}
     <SaveBar

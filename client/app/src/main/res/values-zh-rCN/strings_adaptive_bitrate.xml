@@ -1,18 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_auto_bitrate_enable">启用“由设备控制码率”</string>
-    <string name="stream_auto_bitrate_disable">停用“由设备控制码率”</string>
     <string name="stream_auto_bitrate_help">根据你的网络连接调整码率。\n按此电脑保存；手动更改会将其关闭。</string>
     <string name="stream_pyrowave_bitrate_help">为此电脑自动调整 PyroWave。\n手动设置码率会将其关闭。</string>
     <string name="stream_auto_bitrate_failed">码率暂时更新失败。正在自动重试。</string>
-    <string name="stream_auto_bitrate_unavailable">此电脑不报告串流码率。此串流的“由设备控制码率”已关闭。</string>
-    <string name="stream_auto_bitrate_status">由设备控制码率：%1$.1f Mbps</string>
-    <string name="stream_bitrate_busy">主机繁忙。请稍后重试。</string>
+    <string name="stream_auto_bitrate_unavailable">此电脑不报告串流码率。此串流的“网络繁忙时降低码率”已关闭。</string>
+    <string name="stream_auto_bitrate_status">当前码率：%1$.1f Mbps</string>
+    <string name="stream_bitrate_busy">电脑繁忙。请稍后重试。</string>
     <string name="stream_host_abr_failed">电脑未启动其自动码率：%1$s</string>
-    <string name="title_auto_bitrate">由设备控制码率</string>
-    <string name="dialog_auto_bitrate">连接或设备跟不上时降低码率，恢复后再提高。不会超过串流码率。这是所有电脑的默认设置；可在串流菜单中为单台电脑更改。</string>
+    <string name="title_auto_bitrate">网络繁忙时降低码率</string>
+    <string name="dialog_auto_bitrate">连接跟不上时降低码率，恢复后再调回。</string>
     <string name="title_thermal_protection">过热保护</string>
-    <string name="dialog_thermal_protection">设备发热时降低码率和分辨率。手机和电视棒在串流时常会发热，因此默认关闭：码率降低会让画面变糊。</string>
+    <string name="dialog_thermal_protection">设备发热时降低码率和分辨率。</string>
     <string name="title_automatic_bitrate">自动码率</string>
-    <string name="dialog_automatic_bitrate">Nightjar 会根据分辨率、帧率和编解码器选择码率，并随它们一起调整。拖动码率滑块会关闭此项。</string>
+    <string name="dialog_automatic_bitrate">Nightjar 根据分辨率、帧率和编解码器选择码率。</string>
 </resources>

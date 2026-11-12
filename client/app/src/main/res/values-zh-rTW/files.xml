@@ -30,7 +30,7 @@
     <string name="files_no_upload_permission">本裝置不能傳送檔案到這台電腦。請在電腦上開啟網頁 UI 的「Devices」頁面，為本裝置允許「Upload files」。</string>
     <string name="files_no_download_permission">本裝置不能下載這台電腦的檔案。請在電腦上開啟網頁 UI 的「Devices」頁面，為本裝置允許「Download files」。</string>
     <string name="files_off">這台電腦已關閉檔案傳輸。請在電腦的網頁 UI 中「File transfer」下開啟。</string>
-    <string name="files_unavailable">這台電腦的主機不支援檔案傳輸。</string>
+    <string name="files_unavailable">這台電腦的串流應用程式不支援檔案傳輸。</string>
     <string name="files_no_library">此版本的 Nightjar 無法傳輸檔案。</string>
     <string name="files_offline">電腦不在線上。</string>
     <string name="files_pick_pc">要傳送到哪台電腦？</string>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_usb_forwarding">Przekazuj urządzenia USB</string>
-    <string name="summary_usb_forwarding">Dodaje urządzenia USB do menu streamu: urządzenie podłączone do tego, np. tablet graficzny lub klucz bezpieczeństwa, działa wtedy na PC. Wymaga PC, który oferuje przekazywanie USB.</string>
+    <string name="summary_usb_forwarding">Urządzenia USB podłączone tutaj można przyłączyć do komputera z menu strumienia.</string>
     <string name="stream_usb_devices">Urządzenia USB</string>
     <string name="usb_forwarding_pick_title">Przekaż urządzenie USB</string>
     <string name="usb_forwarding_none">Brak urządzeń USB do przekazania. Huby i kontrolery obsługiwane przez tę aplikację nie są wyświetlane.</string>

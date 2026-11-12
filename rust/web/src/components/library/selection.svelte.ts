@@ -64,13 +64,13 @@ export function toggled(selected: ReadonlySet<string>, key: string): Set<string>
   return next;
 }
 
-/** "1 app" or "3 apps". */
+/** "1 game" or "3 games". */
 export const counted = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
 
 /** What to tell the user after a restore, by whether the sync after it ran. */
-export function restoreMessage(restored: number, synced: boolean, automatic: boolean): { text: string; tone: 'ok' | 'warn' } {
+export function restoreMessage(restored: number, synced: boolean): { text: string; tone: 'ok' | 'warn' } {
   const games = counted(restored, 'game');
-  if (!automatic) return { text: `Restored ${games}: pick them again in Add games.`, tone: 'ok' };
+  // The sync after a restore adds them back whether or not the launchers sync automatically.
   if (!synced) return { text: `Restored ${games}: they join your library with the next sync.`, tone: 'warn' };
   return { text: `Restored ${games}: the installed ones are back in your library.`, tone: 'ok' };
 }
@@ -87,12 +87,12 @@ export function removalMessage(total: number, what: string, removal: Removal): {
   if (kept.length > 0) {
     const names = kept.map((app) => app.name).join(', ');
     return {
-      text: `Removed ${removal.deleted} of ${counted(total, 'app')}. Kept ${names}: ${kept[0]?.error ?? ''}`,
+      text: `Removed ${removal.deleted} of ${counted(total, 'game')}. Kept ${names}: ${kept[0]?.error ?? ''}`,
       tone: 'warn',
     };
   }
   if (removal.deleted < total) {
-    return { text: `Removed ${removal.deleted} of ${counted(total, 'app')}; the others were already gone.`, tone: 'ok' };
+    return { text: `Removed ${removal.deleted} of ${counted(total, 'game')}; the others were already gone.`, tone: 'ok' };
   }
   return { text: `Removed ${what}.`, tone: 'ok' };
 }
@@ -132,7 +132,7 @@ export class AppSelection {
    */
   async remove(apps: App[], removeMany: (uuids: string[]) => Promise<Removal>) {
     const list = this.chosen(apps);
-    const what = list.length === 1 ? list[0]?.name || 'this app' : counted(list.length, 'app');
+    const what = list.length === 1 ? list[0]?.name || 'this game' : counted(list.length, 'game');
     const removal = await removeMany(list.flatMap((app) => (app.uuid ? [app.uuid] : [])));
     this.stop();
     return removalMessage(list.length, what, removal);

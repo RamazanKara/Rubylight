@@ -437,7 +437,7 @@ impl Host {
         if self.may_approve_pairing() { &self.native.pairing_requests } else { &[] }
     }
 
-    /// The version "Update the PC's host" installs: only where the PC lists `update`, has one
+    /// The version "Update the PC’s streaming app" installs: only where the PC lists `update`, has one
     /// to install, and lets this device control it. Not while it installs or is queued as an
     /// Install now already; an automatic update waiting for an idle PC still takes one.
     pub fn update_offer(&self) -> Option<&str> {
@@ -453,31 +453,31 @@ impl Host {
 }
 
 // The pairing and unpairing errors, worded like Nightjar Android's.
-pub const PAIR_OFFLINE: &str = en("Wake the PC and start the host app. Use the same network, then retry.");
-pub const PAIR_IN_GAME: &str = en("Stop the host's stream, then pair again.");
+pub const PAIR_OFFLINE: &str = en("Wake the PC and start its streaming app. Use the same network, then retry.");
+pub const PAIR_IN_GAME: &str = en("Stop the stream on the PC, then pair again.");
 pub const PAIR_PIN_WRONG: &str =
-    en("PIN rejected. Try pairing again and enter the new PIN shown on this device in your host's settings or web UI.");
+    en("PIN rejected. Try pairing again and enter the new PIN shown on this device in the PC’s settings or web UI.");
 pub const PAIR_OTP_PIN_WRONG: &str =
-    en("PIN rejected. Generate a new one-time PIN in your host's web UI and check the passphrase.");
-pub const PAIR_IN_PROGRESS: &str = en("Finish or cancel the pending request on the host.");
-pub const PAIR_DECLINED: &str = en("Cancel the old request in your host's settings or web UI, then retry.");
-pub const PAIR_NETWORK: &str = en("Use the same network and start the host. Check its firewall, then retry.");
+    en("PIN rejected. Generate a new one-time PIN in the PC’s web UI and check the passphrase.");
+pub const PAIR_IN_PROGRESS: &str = en("Finish or cancel the pending request on the PC.");
+pub const PAIR_DECLINED: &str = en("Cancel the old request in the PC’s settings or web UI, then retry.");
+pub const PAIR_NETWORK: &str = en("Use the same network and start the PC’s streaming app. Check its firewall, then retry.");
 pub const PAIR_LINK_MISMATCH: &str =
-    en("This PC's certificate does not match the pairing link, so Nightjar did not pair. Pair only with a link or QR code from your own PC.");
+    en("This PC’s certificate does not match the pairing link, so Nightjar did not pair. Pair only with a link or QR code from your own PC.");
 pub const LINK_INVALID: &str = en("That pairing link is not valid. Show a new QR code on the PC and copy its link again.");
 pub const ADDRESS_INVALID: &str = en("That address is not valid");
-pub const CLIPBOARD_NO_LINK: &str = en("Copy the link under the QR code on the PC's Devices page, then paste it here.");
+pub const CLIPBOARD_NO_LINK: &str = en("Copy the link under the QR code on the PC’s Devices page, then paste it here.");
 pub const UNPAIR_FAILED: &str = en("Failed to unpair. The PC may still list this device.");
 pub const UNPAIR_NOT_PAIRED: &str = en("Device was not paired.");
 // Why the PC handed out no sleep token. A refusal shows the host's own words instead.
-pub const SLEEP_NOT_ALLOWED: &str = en("The PC does not let this device put it to sleep. Allow it in the host's device settings.");
+pub const SLEEP_NOT_ALLOWED: &str = en("The PC does not let this device put it to sleep. Allow it in the PC’s device settings.");
 pub const SLEEP_UNSUPPORTED: &str = en("The PC cannot sleep.");
 pub const SLEEP_BUSY: &str = en("The PC cannot sleep right now. Close games and streams on it, then try again.");
 // Restart and shut down. A refusal shows the host's own words instead.
-pub const PC_POWER_NOT_ALLOWED: &str = en("The PC does not let this device restart or shut it down. Allow it in the host's device settings.");
+pub const PC_POWER_NOT_ALLOWED: &str = en("The PC does not let this device restart or shut it down. Allow it in the PC’s device settings.");
 pub const PC_POWER_BUSY: &str = en("The PC cannot do this right now. Close games and streams on it, then try again.");
 // Approving a new device, without the permission for it. The console's own names, in every language.
-pub const PAIRING_NOT_ALLOWED: &str = en("Needs Approve new devices on the host's Devices page.");
+pub const PAIRING_NOT_ALLOWED: &str = en("Needs Approve new devices on the PC’s Devices page.");
 
 /// How long selecting a game waits to learn who plays it, before it starts the stream as it always did.
 const SELECT_READ_WAIT: Duration = Duration::from_millis(1500);
@@ -830,7 +830,7 @@ fn describe(error: &nightjar_core::http::Error) -> String {
     match error {
         Error::Io(e) if e.kind() == std::io::ErrorKind::TimedOut => en("The PC did not answer.").into(),
         Error::Io(e) if e.kind() == std::io::ErrorKind::ConnectionRefused => {
-            en("The PC refused the connection. Is the host running?").into()
+            en("The PC refused the connection. Is its streaming app running?").into()
         }
         Error::Status { code: 401, .. } | Error::NotPaired => en("This PC is not paired.").into(),
         Error::CertificateMismatch => {
@@ -1238,6 +1238,16 @@ impl Hosts {
                 waker();
             }
         });
+    }
+
+    /// Starts looking for PCs on the network again, when it could not start (a network not up yet,
+    /// or its port held). True when it runs now.
+    pub fn search_again(&mut self) -> bool {
+        if self._mdns.is_none() {
+            self._mdns = self.start_discovery();
+            self.discovering = self._mdns.is_some();
+        }
+        self.discovering
     }
 
     fn start_discovery(&self) -> Option<mdns_sd::ServiceDaemon> {

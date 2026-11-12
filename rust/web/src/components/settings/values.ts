@@ -304,10 +304,13 @@ export function describeDefault(setting: Setting): DefaultText {
     case 'number': {
       const number = toNumber(value);
       if (number === null) return word('Not set');
-      return literal(withUnit(number, control.unit), 'Not set');
+      const preset = control.presets?.find((candidate) => candidate.value === number);
+      return preset ? word(preset.label) : literal(withUnit(number, control.unit), 'Not set');
     }
-    case 'text':
-      return literal(toText(value), 'Not set');
+    case 'text': {
+      const preset = control.presets?.find((candidate) => candidate.value === toText(value));
+      return preset ? word(preset.label) : literal(toText(value), 'Not set');
+    }
     case 'display':
     case 'adapter':
       return literal(toText(value), 'Automatic');

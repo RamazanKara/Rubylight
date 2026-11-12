@@ -306,15 +306,28 @@ pub fn stamp_synced(h: &Shared) -> Result<()> {
     Ok(())
 }
 
-/// A launcher's PNG cover in the profile's covers folder, converted once.
+/// A launcher's PNG cover in the profile's covers folder, converted once: the launcher's own
+/// file, or the box art on its image server (`cover_url`, Epic's), downloaded once as Steam's
+/// store portrait is.
 fn launcher_cover(h: &Shared, game: &mut library::Game) {
-    let Some(source) = game.cover.take() else {
-        return;
+    let folder = h.directory.join("covers");
+    let destination = folder.join(format!("launcher_{}.png", game.uuid()));
+    let source = match game.cover.take() {
+        Some(source) => source,
+        None => {
+            let Some(url) = game.cover_url.as_deref() else {
+                return;
+            };
+            if destination.is_file() {
+                game.cover = Some(destination);
+                return;
+            }
+            match downloaded_cover(&folder, &game.uuid(), url) {
+                Some(file) => file,
+                None => return,
+            }
+        }
     };
-    let destination = h
-        .directory
-        .join("covers")
-        .join(format!("launcher_{}.png", game.uuid()));
     if destination.is_file() {
         game.cover = Some(destination);
         return;
@@ -327,11 +340,55 @@ fn launcher_cover(h: &Shared, game: &mut library::Game) {
     }
 }
 
-/// `POST /api/library/sync` and the automatic sync: every installed game of the launchers that
-/// are on joins the library, as Steam's sync does (see `library::reconcile`). While Playnite
-/// syncs the library, it is Playnite's job and nothing changes here.
+/// The launcher's box art at `url`, downloaded into `folder` for the game `uuid`. A failed
+/// download waits as long as a failed Steam store portrait before the next try.
+fn downloaded_cover(folder: &Path, uuid: &str, url: &str) -> Option<PathBuf> {
+    let file = folder.join(format!("launcher_{uuid}.download"));
+    if file.is_file() {
+        return Some(file);
+    }
+    let failed = folder.join(format!("launcher_{uuid}.download.failed"));
+    let failures =
+        std::fs::read(&failed).map_or(0, |marker| crate::steam::portrait_failures(&marker));
+    let waiting = failures > 0
+        && std::fs::metadata(&failed)
+            .and_then(|marker| marker.modified())
+            .is_ok_and(|at| {
+                at.elapsed()
+                    .is_ok_and(|age| age < crate::steam::portrait_retry_after(failures))
+            });
+    if waiting {
+        return None;
+    }
+    let saved = crate::steam::download_artwork(url).and_then(|bytes| {
+        std::fs::create_dir_all(folder)?;
+        butterpollo_core::state::atomic_write(&file, &bytes)
+    });
+    match saved {
+        Ok(()) => {
+            let _ = std::fs::remove_file(&failed);
+            Some(file)
+        }
+        Err(error) => {
+            tracing::debug!(error = %format!("{error:#}"), url, "Launcher box art unavailable");
+            let _ = std::fs::create_dir_all(folder);
+            let _ = std::fs::write(&failed, failures.saturating_add(1).to_string());
+            None
+        }
+    }
+}
+
+/// `POST /api/library/sync` (Sync now): every installed game of the launchers that are on joins
+/// the library as each launcher's options choose, as Steam's Sync now does whether or not it
+/// syncs automatically (see `library::reconcile`). While Playnite syncs the library, it is
+/// Playnite's job and nothing changes here.
 pub fn sync(h: &Shared) -> Result<Value> {
-    sync_discovering(h, |settings| {
+    sync_with(h, false)
+}
+/// [`sync`], or with `automatic` the automatic sync, which keeps only the launchers that sync
+/// automatically (`<launcher>_auto_sync`).
+fn sync_with(h: &Shared, automatic: bool) -> Result<Value> {
+    sync_discovering(h, automatic, |settings| {
         let discovery = butterpollo_windows::library::in_background(|| {
             butterpollo_windows::library::discover(settings)
         });
@@ -349,6 +406,7 @@ pub fn sync(h: &Shared) -> Result<Value> {
 static SYNC: Mutex<()> = Mutex::new(());
 fn sync_discovering(
     h: &Shared,
+    automatic: bool,
     discover: impl FnOnce(&library::Settings) -> (Vec<library::Game>, Vec<library::Source>),
 ) -> Result<Value> {
     let _one = SYNC.lock().unwrap_or_else(PoisonError::into_inner);
@@ -357,10 +415,56 @@ fn sync_discovering(
         return Ok(json!({ "status": true, "added": 0, "removed": 0, "playnite": true }));
     }
     let (games, read) = discover(&settings);
-    let change = sync_games(h, &settings, games, &read)?;
+    let keeping = if automatic {
+        settings.automatic()
+    } else {
+        settings
+    };
+    let change = sync_games(h, &keeping, games, &read)?;
     Ok(
         json!({ "status": true, "added": change.added, "removed": change.removed, "playnite": false }),
     )
+}
+
+/// Each game's cover made ready where the sync may use it: for a game no app has yet, and for
+/// one whose own app (by `launcher-source` and `launcher-id`) has no cover. Any other game's
+/// cover is dropped, so only a converted cover reaches the library.
+fn prepare_covers(h: &Shared, games: &mut [library::Game]) -> Result<()> {
+    let apps: Vec<Value> = h
+        .apps
+        .read()
+        .unwrap()
+        .iter()
+        .map(serde_json::to_value)
+        .collect::<Result<_, _>>()?;
+    let index = library::AppIndex::new(&apps);
+    let own: HashMap<(&str, &str), bool> = apps
+        .iter()
+        .filter_map(|app| {
+            let covered = app["image-path"]
+                .as_str()
+                .is_some_and(|path| !path.is_empty());
+            Some((
+                (
+                    app["launcher-source"].as_str()?,
+                    app["launcher-id"].as_str()?,
+                ),
+                covered,
+            ))
+        })
+        .collect();
+    for game in games {
+        let wants_cover = match own.get(&(game.source.key(), game.id.as_str())) {
+            Some(covered) => !covered,
+            None => !index.matches(&apps, game),
+        };
+        if wants_cover {
+            launcher_cover(h, game);
+        } else {
+            game.cover = None;
+        }
+    }
+    Ok(())
 }
 
 fn sync_games(
@@ -369,24 +473,9 @@ fn sync_games(
     mut games: Vec<library::Game>,
     read: &[library::Source],
 ) -> Result<library::SyncChange> {
-    if !settings.auto_sync {
-        return Ok(library::SyncChange::default());
-    }
-    {
-        let apps: Vec<Value> = h
-            .apps
-            .read()
-            .unwrap()
-            .iter()
-            .map(serde_json::to_value)
-            .collect::<Result<_, _>>()?;
-        let index = library::AppIndex::new(&apps);
-        for game in &mut games {
-            if !index.matches(&apps, game) {
-                launcher_cover(h, game);
-            }
-        }
-    }
+    // Only what the sync keeps needs a cover.
+    games.retain(|game| settings.options(game.source).is_some_and(|o| o.enabled));
+    prepare_covers(h, &mut games)?;
     let mut change = library::SyncChange::default();
     crate::steam::update_library(h, |apps, document| {
         change = library::reconcile(apps, &games, settings, read, &dismissed(document));
@@ -396,6 +485,7 @@ fn sync_games(
         tracing::info!(
             added = change.added,
             removed = change.removed,
+            covered = change.covered,
             "launcher library synced"
         );
         invalidate(h);
@@ -441,7 +531,7 @@ fn watch_stamp(h: &Shared, stamp: u64) {
         invalidate(h);
     }
     let settings = settings(h);
-    if !settings.auto_sync {
+    if !settings.any_automatic() {
         return;
     }
     let key = format!("{settings:?}");
@@ -456,7 +546,7 @@ fn watch_stamp(h: &Shared, stamp: u64) {
         }
         synced.insert(h.directory.clone(), (Instant::now(), key));
     }
-    if let Err(error) = sync(h) {
+    if let Err(error) = sync_with(h, true) {
         tracing::warn!(error = %format!("{error:#}"), "the launcher library sync failed");
     }
 }
@@ -557,7 +647,7 @@ mod tests {
         let second = {
             let (h, discovered) = (f.host.clone(), discovered.clone());
             std::thread::spawn(move || {
-                sync_discovering(&h, |_| {
+                sync_discovering(&h, false, |_| {
                     discovered.store(true, Ordering::SeqCst);
                     (Vec::new(), Vec::new())
                 })
@@ -575,13 +665,11 @@ mod tests {
     #[test]
     fn a_moved_steam_library_rescans_on_the_next_tick_with_the_sync_off() {
         let f = Fixture::new();
-        // Off: the tick never reaches the sync, which would read the launchers' folders.
-        f.host
-            .config
-            .write()
-            .unwrap()
-            .values
-            .insert("library_auto_sync".into(), "false".into());
+        // Off for every launcher (the earlier shared switch, read as each launcher's): the tick
+        // never reaches the sync, which would read the launchers' folders.
+        let off = butterpollo_core::config::Config::parse("library_auto_sync = false\n").unwrap();
+        f.host.config.write().unwrap().values.extend(off.values);
+        assert!(!settings(&f.host).any_automatic());
         seed(&f.host, Scan::new(["steam:570".to_owned()]));
         let found = |h: &Shared| installed(h).is_some_and(|scan| scan.contains("steam:570"));
         watch_stamp(&f.host, 1);
@@ -707,17 +795,94 @@ mod tests {
             f.host.app_document.read().unwrap()["launcher-dismissed"],
             json!([])
         );
-        // Off: nothing is synced.
-        let off = library::Settings {
-            auto_sync: false,
-            ..settings
-        };
+        // Ubisoft not synced automatically: the automatic sync leaves its new game out, Sync now
+        // adds it, as Steam's does.
+        let by_hand = library::Settings::from_config(
+            &butterpollo_core::config::Config::parse("ubisoft_auto_sync = false\n").unwrap(),
+        );
         let other = library::ubisoft("1", Path::new("F:/Games/Other"), "Other").unwrap();
         assert!(
-            !sync_games(&f.host, &off, vec![other], &all)
+            !sync_games(&f.host, &by_hand.automatic(), vec![other.clone()], &all)
                 .unwrap()
                 .changed()
         );
+        assert_eq!(
+            sync_games(&f.host, &by_hand, vec![other], &all)
+                .unwrap()
+                .added,
+            1
+        );
+    }
+
+    #[test]
+    fn a_launchers_cover_reaches_a_new_app_and_an_app_without_one_but_never_replaces_one() {
+        let f = Fixture::new();
+        let all = library::Source::ALL;
+        let settings = library::Settings::default();
+        // Synced before its cover was read, and one of the user's with their own cover.
+        let bare = library::ubisoft("13504", Path::new("F:/Games/Mirage"), "Mirage").unwrap();
+        sync_games(&f.host, &settings, vec![bare.clone()], &all).unwrap();
+        crate::steam::update_apps(&f.host, |apps| {
+            apps.push(
+                json!({"name": "Mine", "uuid": "mine", "launcher-source": "ubisoft",
+                "launcher-id": "2", "cmd": "uplay://launch/2", "image-path": "D:/mine.png"}),
+            );
+            true
+        })
+        .unwrap();
+        let mut epic = bare.clone();
+        epic.source = library::Source::Epic;
+        epic.id = "ns:item:App".into();
+        epic.name = "Fresh".into();
+        // The converted covers are there already: no conversion and no download.
+        let covers = f.host.directory.join("covers");
+        std::fs::create_dir_all(&covers).unwrap();
+        let mut games = vec![];
+        for (mut game, id) in [
+            (bare, "13504"),
+            (epic, "ns:item:App"),
+            (bare_with("2"), "2"),
+        ] {
+            game.id = id.into();
+            let converted = covers.join(format!("launcher_{}.png", game.uuid()));
+            std::fs::write(&converted, b"png").unwrap();
+            if game.source == library::Source::Epic {
+                game.cover_url = Some("https://cdn1.epicgames.com/tall.jpg".into());
+            } else {
+                game.cover = Some(PathBuf::from(r"F:\Games\cover.jpg"));
+            }
+            games.push(game);
+        }
+        let change = sync_games(&f.host, &settings, games.clone(), &all).unwrap();
+        assert_eq!((change.added, change.covered), (1, 1));
+        let apps: Vec<Value> = f
+            .host
+            .apps
+            .read()
+            .unwrap()
+            .iter()
+            .map(|app| serde_json::to_value(app).unwrap())
+            .collect();
+        let image = |name: &str| {
+            apps.iter()
+                .find(|app| app["name"] == name)
+                .map(|app| app["image-path"].clone())
+                .unwrap()
+        };
+        let png = |game: &library::Game| {
+            json!(
+                covers
+                    .join(format!("launcher_{}.png", game.uuid()))
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            )
+        };
+        assert_eq!(image("Mirage"), png(&games[0]));
+        assert_eq!(image("Fresh"), png(&games[1]));
+        assert_eq!(image("Mine"), "D:/mine.png");
+    }
+    fn bare_with(id: &str) -> library::Game {
+        library::ubisoft(id, Path::new("F:/Games/Mine"), "Mine").unwrap()
     }
 
     #[test]

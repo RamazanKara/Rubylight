@@ -1,7 +1,8 @@
-//! Nightjar's look on the desktop: the Android app's night palette (blue-black surfaces,
-//! the amber of the brand moon), Figtree type, and the brand mark drawn from its vector path.
+//! Nightjar's look on the desktop: the Android app's palettes (the night one's blue-black
+//! surfaces and the amber of the brand moon, the day one's light glass, OLED black and high
+//! contrast; Android's `AppTheme.Look`), Figtree type, and the brand mark drawn from its vector path.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Instant;
 
@@ -10,16 +11,16 @@ use egui::{Color32, FontData, FontDefinitions, FontFamily, FontId, Stroke, TextS
 use crate::strings::Lang;
 use crate::ui::design_tokens as t;
 
-/// A colour role. The palette behind it is the normal night one or the high-contrast one, chosen
-/// by [`set_high_contrast`], so drawing code names a role and never a colour. It derefs to the
-/// current `Color32` (`*MOON`) and converts into one where egui takes `impl Into<Color32>`.
+/// A colour role. The palette behind it is the one of the [`Look`] in use (night, day, OLED black
+/// or high contrast), so drawing code names a role and never a colour. It derefs to the current
+/// `Color32` (`*MOON`) and converts into one where egui takes `impl Into<Color32>`.
 #[derive(Clone, Copy, Debug)]
 pub struct Role(u8);
 
 impl std::ops::Deref for Role {
     type Target = Color32;
     fn deref(&self) -> &Color32 {
-        &palette(high_contrast())[usize::from(self.0)]
+        &palette(look())[usize::from(self.0)]
     }
 }
 
@@ -30,12 +31,13 @@ impl From<Role> for Color32 {
 }
 
 macro_rules! roles {
-    ($($name:ident: $normal:expr, $high:expr;)*) => {
+    ($($name:ident: $normal:expr, $high:expr, $day:expr;)*) => {
         #[allow(non_camel_case_types, clippy::upper_case_acronyms)]
         enum Index { $($name),* }
         const COUNT: usize = [$(Index::$name),*].len();
         const NORMAL: [Color32; COUNT] = [$($normal),*];
         const HIGH: [Color32; COUNT] = [$($high),*];
+        const DAY: [Color32; COUNT] = [$($day),*];
         // The whole Android and console role set; a role no page draws yet still has its
         // contrast checked by the tests.
         $(#[allow(dead_code)] pub const $name: Role = Role(Index::$name as u8);)*
@@ -46,40 +48,59 @@ const fn rgb(hex: u32) -> Color32 {
     Color32::from_rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
 }
 
-// The design's roles, from `tokens.json` through [`t`]; the second colour is the high-contrast one:
+// The design's roles, from `tokens.json` through [`t`]. The second colour is the high-contrast one:
 // black surfaces, white text, and no grey text at all (the variant and outline roles are on-surface).
+// The third is the day one, Android's `values-notnight` roles (`palette.xml`): white and pale grey
+// containers, the moon's dark ink for the action with white on it, and dark text throughout. OLED
+// black is the night palette with black surfaces ([`OLED`]).
 roles! {
-    NIGHT: t::COLOR_NIGHT, t::HC_COLOR_NIGHT;
-    SURFACE_LOWEST: t::COLOR_SURFACE_LOWEST, rgb(0x000000);
-    SURFACE_LOW: t::COLOR_SURFACE_LOW, rgb(0x0A0A0C);
-    SURFACE: t::COLOR_SURFACE, rgb(0x101114);
-    SURFACE_HIGH: t::COLOR_SURFACE_HIGH, rgb(0x1C1D22);
-    SURFACE_HIGHEST: t::COLOR_SURFACE_HIGHEST, rgb(0x2A2C33);
+    NIGHT: t::COLOR_NIGHT, t::HC_COLOR_NIGHT, t::DAY_COLOR_NIGHT;
+    SURFACE_LOWEST: t::COLOR_SURFACE_LOWEST, rgb(0x000000), rgb(0xFFFFFF);
+    SURFACE_LOW: t::COLOR_SURFACE_LOW, rgb(0x0A0A0C), rgb(0xF2F3F8);
+    SURFACE: t::COLOR_SURFACE, rgb(0x101114), rgb(0xECEDF2);
+    SURFACE_HIGH: t::COLOR_SURFACE_HIGH, rgb(0x1C1D22), rgb(0xE6E7EC);
+    SURFACE_HIGHEST: t::COLOR_SURFACE_HIGHEST, rgb(0x2A2C33), rgb(0xE1E2E8);
     // One step past the highest: a hovered or pressed control that already sits on SURFACE_HIGHEST.
-    SURFACE_BRIGHT: t::COLOR_SURFACE_BRIGHT, rgb(0x383A42);
-    ON_SURFACE: t::COLOR_LABEL, t::HC_COLOR_LABEL;
-    ON_SURFACE_VARIANT: t::COLOR_LABEL_SECONDARY, t::HC_COLOR_LABEL_SECONDARY;
-    // Text on hovered cards and buttons too (4.5:1 on SURFACE_HIGHEST), lighter than Android's.
-    OUTLINE: rgb(0xA0A3B1), rgb(0xFFFFFF);
-    OUTLINE_VARIANT: rgb(0x3F4250), t::HC_COLOR_RIM;
-    MOON: t::COLOR_MOON, t::HC_COLOR_MOON;
-    ON_MOON: t::COLOR_ON_MOON, t::HC_COLOR_ON_MOON;
-    MOON_CONTAINER: rgb(0x5C3E00), rgb(0x5C3E00);
-    ON_MOON_CONTAINER: t::COLOR_ON_SELECTED, rgb(0xFFFFFF);
-    TERTIARY: rgb(0xAFC8E9), rgb(0xCFE2FF);
-    ERROR: t::COLOR_ERROR, t::HC_COLOR_ERROR;
+    // By day the ladder climbs toward grey, so a hover darkens a surface a little.
+    SURFACE_BRIGHT: t::COLOR_SURFACE_BRIGHT, rgb(0x383A42), rgb(0xD8D9DF);
+    ON_SURFACE: t::COLOR_LABEL, t::HC_COLOR_LABEL, t::DAY_COLOR_LABEL;
+    ON_SURFACE_VARIANT: t::COLOR_LABEL_SECONDARY, t::HC_COLOR_LABEL_SECONDARY, t::DAY_COLOR_LABEL_SECONDARY;
+    // Text on hovered cards and buttons too (4.5:1 on SURFACE_HIGHEST), lighter than Android's at
+    // night and darker by day.
+    OUTLINE: rgb(0xA0A3B1), rgb(0xFFFFFF), rgb(0x5B5F6E);
+    OUTLINE_VARIANT: rgb(0x3F4250), t::HC_COLOR_RIM, rgb(0xC5C7D3);
+    MOON: t::COLOR_MOON, t::HC_COLOR_MOON, t::DAY_COLOR_MOON_INK;
+    ON_MOON: t::COLOR_ON_MOON, t::HC_COLOR_ON_MOON, rgb(0xFFFFFF);
+    MOON_CONTAINER: rgb(0x5C3E00), rgb(0x5C3E00), rgb(0xFFDDB3);
+    ON_MOON_CONTAINER: t::COLOR_ON_SELECTED, rgb(0xFFFFFF), t::DAY_COLOR_ON_SELECTED;
+    TERTIARY: rgb(0xAFC8E9), rgb(0xCFE2FF), rgb(0x3F5F80);
+    ERROR: t::COLOR_ERROR, t::HC_COLOR_ERROR, t::DAY_COLOR_ERROR;
     // A failure that fills a shape and its text.
-    ERROR_CONTAINER: t::COLOR_DANGER_FILL, rgb(0x93000A);
-    ON_ERROR_CONTAINER: t::COLOR_ON_DANGER_FILL, rgb(0xFFFFFF);
+    ERROR_CONTAINER: t::COLOR_DANGER_FILL, rgb(0x93000A), t::DAY_COLOR_DANGER_FILL;
+    ON_ERROR_CONTAINER: t::COLOR_ON_DANGER_FILL, rgb(0xFFFFFF), t::DAY_COLOR_ON_DANGER_FILL;
     // Status: up, ready, running; and something to look at. Warn is yellow because amber is the
     // action, and it is never a filled shape: an icon and a word.
-    OK: t::COLOR_OK, t::HC_COLOR_OK;
-    WARN: t::COLOR_WARN, t::HC_COLOR_WARN;
+    OK: t::COLOR_OK, t::HC_COLOR_OK, t::DAY_COLOR_OK;
+    WARN: t::COLOR_WARN, t::HC_COLOR_WARN, t::DAY_COLOR_WARN;
     // The orbit rings of the site banner.
-    ORBIT: t::COLOR_ORBIT, rgb(0x2A2D3A);
-    // Paper white of the wordmark.
-    PAPER: t::COLOR_PAPER, rgb(0xFFFFFF);
+    ORBIT: t::COLOR_ORBIT, rgb(0x2A2D3A), rgb(0xD3D6E0);
+    // Paper white of the wordmark; its ink by day.
+    PAPER: t::COLOR_PAPER, rgb(0xFFFFFF), t::DAY_COLOR_PAPER;
 }
+
+/// OLED black: the night palette on black, as Android's `OledBlackTheme` makes every surface
+/// black. The steps a hover and a press climb to stay grey enough to see.
+const OLED: [Color32; COUNT] = {
+    let mut p = NORMAL;
+    p[Index::NIGHT as usize] = t::OLED_COLOR_NIGHT;
+    p[Index::SURFACE_LOWEST as usize] = rgb(0x000000);
+    p[Index::SURFACE_LOW as usize] = rgb(0x000000);
+    p[Index::SURFACE as usize] = rgb(0x000000);
+    p[Index::SURFACE_HIGH as usize] = t::OLED_COVER_PLACEHOLDER;
+    p[Index::SURFACE_HIGHEST as usize] = rgb(0x24252B);
+    p[Index::SURFACE_BRIGHT as usize] = rgb(0x31333A);
+    p
+};
 
 /// What text over game art sits on (the console's --media-bg, Android's `tv_chip_scrim`), the same
 /// in every palette: white on it over a white frame is still 9:1.
@@ -124,16 +145,70 @@ pub mod radius {
 /// keep `interact_size.y`.
 pub const CONTROL_HEIGHT: f32 = 44.0;
 
-fn palette(high: bool) -> &'static [Color32; COUNT] {
-    if high { &HIGH } else { &NORMAL }
+fn palette(look: Look) -> &'static [Color32; COUNT] {
+    match look {
+        Look::Night => &NORMAL,
+        Look::Day => &DAY,
+        Look::Oled => &OLED,
+        Look::HighContrast => &HIGH,
+    }
+}
+
+/// The look of the launcher's pages, Android's `AppTheme.Look`: the design's tokens come in these
+/// sets. High contrast wins over the others.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Look {
+    /// The night palette and sky: the look Nightjar always had.
+    #[default]
+    Night,
+    /// Light glass on a pale sky with a low sun and no stars.
+    Day,
+    /// The night look on black: black canvas, sky and surfaces.
+    Oled,
+    /// Black surfaces, white text, solid glass and thick focus rings.
+    HighContrast,
+}
+
+impl Look {
+    /// The look for the Theme setting: System follows the system's light or dark setting
+    /// (`system_light`), as Android's `AppTheme.look`; high contrast wins over every theme.
+    pub fn of(theme: crate::config::Theme, system_light: bool, high: bool) -> Self {
+        use crate::config::Theme;
+        match theme {
+            _ if high => Self::HighContrast,
+            Theme::System if system_light => Self::Day,
+            Theme::System | Theme::Dark => Self::Night,
+            Theme::Oled => Self::Oled,
+        }
+    }
+
+    fn from_u8(value: u8) -> Self {
+        match value {
+            1 => Self::Day,
+            2 => Self::Oled,
+            3 => Self::HighContrast,
+            _ => Self::Night,
+        }
+    }
 }
 
 static HIGH_CONTRAST: AtomicBool = AtomicBool::new(false);
+/// The theme's look under high contrast: night, day or OLED black.
+static BASE_LOOK: AtomicU8 = AtomicU8::new(Look::Night as u8);
+/// The coming frames draw over a stream's video ([`set_over_video`]).
+static OVER_VIDEO: AtomicBool = AtomicBool::new(false);
+/// Whether reduced motion was asked for at the last [`set_look`], for the style a change of
+/// [`set_over_video`] sets again.
+static STILL: AtomicBool = AtomicBool::new(false);
 
 #[cfg(test)]
 thread_local! {
     /// A test's own palette, so a test looking at high contrast does not recolour the others.
     static TEST_HIGH: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+    /// The same for the theme's look.
+    static TEST_BASE: std::cell::Cell<Option<Look>> = const { std::cell::Cell::new(None) };
+    /// And for drawing over video.
+    static TEST_OVER: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
 }
 
 pub fn high_contrast() -> bool {
@@ -154,10 +229,180 @@ pub fn set_high_contrast(on: bool) {
     HIGH_CONTRAST.store(on, Ordering::Relaxed);
 }
 
-/// Test only: gives this thread its own palette setting, off at first.
+/// The theme's look, high contrast aside.
+fn base_look() -> Look {
+    #[cfg(test)]
+    if let Some(look) = TEST_BASE.with(std::cell::Cell::get) {
+        return look;
+    }
+    Look::from_u8(BASE_LOOK.load(Ordering::Relaxed))
+}
+
+fn set_base_look(look: Look) {
+    let look = if look == Look::HighContrast { Look::Night } else { look };
+    #[cfg(test)]
+    if TEST_BASE.with(|b| b.get().is_some()) {
+        TEST_BASE.with(|b| b.set(Some(look)));
+        return;
+    }
+    BASE_LOOK.store(look as u8, Ordering::Relaxed);
+}
+
+/// The look drawing uses now. Over a stream's video the stream menu and overlay keep the night
+/// look whatever the theme (Android's stream is always dark); high contrast stays high contrast.
+pub fn look() -> Look {
+    if high_contrast() {
+        Look::HighContrast
+    } else if over_video() {
+        Look::Night
+    } else {
+        base_look()
+    }
+}
+
+fn over_video() -> bool {
+    #[cfg(test)]
+    if let Some(over) = TEST_OVER.with(std::cell::Cell::get) {
+        return over;
+    }
+    OVER_VIDEO.load(Ordering::Relaxed)
+}
+
+/// Sets whether frames draw over video; answers whether they did.
+fn swap_over_video(over_video: bool) -> bool {
+    #[cfg(test)]
+    if TEST_OVER.with(|o| o.get().is_some()) {
+        return TEST_OVER.with(|o| o.replace(Some(over_video))).unwrap_or(false);
+    }
+    OVER_VIDEO.swap(over_video, Ordering::Relaxed)
+}
+
+/// Test only: gives this thread its own palette setting, night, not high contrast and not over
+/// video at first.
 #[cfg(test)]
 pub fn own_palette() {
     TEST_HIGH.with(|h| h.set(Some(false)));
+    TEST_BASE.with(|b| b.set(Some(Look::Night)));
+    TEST_OVER.with(|o| o.set(Some(false)));
+}
+
+/// Test only: this thread's palette (see [`own_palette`]) in `look`.
+#[cfg(test)]
+pub fn own_look(look: Look) {
+    own_palette();
+    set_high_contrast(look == Look::HighContrast);
+    set_base_look(look);
+}
+
+/// Whether the coming frames draw over a stream's video (`Gui::set_over_video`): they take the
+/// night look, and the launcher's comes back with its frames. The style egui draws its own widgets
+/// with is set again only when the colours change.
+pub fn set_over_video(ctx: &egui::Context, over_video: bool) {
+    let before = look();
+    if swap_over_video(over_video) != over_video && look() != before {
+        apply_style(ctx, look(), STILL.load(Ordering::Relaxed));
+    }
+}
+
+/// A design token with its own value by day and on OLED black (`DAY_*` and `OLED_*` in
+/// `tokens.json`): [`Shade::get`] gives the one of the look in use. High contrast, which draws its
+/// own solid look where it differs, and frames over video get the night value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Shade {
+    night: Color32,
+    day: Color32,
+    oled: Color32,
+}
+
+impl Shade {
+    /// A token whose OLED value is the night one.
+    pub const fn new(night: Color32, day: Color32) -> Self {
+        Self { night, day, oled: night }
+    }
+
+    /// A token with an OLED value of its own.
+    pub const fn with_oled(night: Color32, day: Color32, oled: Color32) -> Self {
+        Self { night, day, oled }
+    }
+
+    pub fn get(self) -> Color32 {
+        self.of(look())
+    }
+
+    pub fn of(self, look: Look) -> Color32 {
+        match look {
+            Look::Day => self.day,
+            Look::Oled => self.oled,
+            Look::Night | Look::HighContrast => self.night,
+        }
+    }
+}
+
+impl From<Shade> for Color32 {
+    fn from(shade: Shade) -> Self {
+        shade.get()
+    }
+}
+
+/// The design tokens that change with the look, named as in [`t`]; the other tokens are the same
+/// in every look and stay there.
+#[allow(dead_code, reason = "the whole set of tokens that change by day, so a page picks one up")]
+pub mod shade {
+    use super::{rgb, Shade};
+    use crate::ui::design_tokens as t;
+
+    pub const COLOR_CANVAS: Shade = Shade::with_oled(t::COLOR_CANVAS, t::DAY_COLOR_CANVAS, t::OLED_COLOR_CANVAS);
+    pub const COLOR_ON_SELECTED: Shade = Shade::new(t::COLOR_ON_SELECTED, t::DAY_COLOR_ON_SELECTED);
+    pub const COLOR_MOON_INK: Shade = Shade::new(t::COLOR_MOON_INK, t::DAY_COLOR_MOON_INK);
+    pub const COLOR_OK: Shade = Shade::new(t::COLOR_OK, t::DAY_COLOR_OK);
+    pub const COLOR_WARN: Shade = Shade::new(t::COLOR_WARN, t::DAY_COLOR_WARN);
+    pub const COLOR_ERROR: Shade = Shade::new(t::COLOR_ERROR, t::DAY_COLOR_ERROR);
+    pub const COLOR_OFFLINE: Shade = Shade::new(t::COLOR_OFFLINE, t::DAY_COLOR_OFFLINE);
+    pub const COLOR_DANGER_FILL: Shade = Shade::new(t::COLOR_DANGER_FILL, t::DAY_COLOR_DANGER_FILL);
+    pub const COLOR_ON_DANGER_FILL: Shade = Shade::new(t::COLOR_ON_DANGER_FILL, t::DAY_COLOR_ON_DANGER_FILL);
+    pub const COLOR_PAGE_DIM: Shade = Shade::new(t::COLOR_PAGE_DIM, t::DAY_COLOR_PAGE_DIM);
+    /// The rows' ground, Android's `surface_container_low`: black on OLED.
+    pub const COLOR_SURFACE_LOW: Shade = Shade::with_oled(t::COLOR_SURFACE_LOW, rgb(0xF2F3F8), rgb(0x000000));
+    pub const SKY_TOP: Shade = Shade::with_oled(t::SKY_TOP, t::DAY_SKY_TOP, t::OLED_SKY_TOP);
+    pub const SKY_MID: Shade = Shade::with_oled(t::SKY_MID, t::DAY_SKY_MID, t::OLED_SKY_MID);
+    pub const SKY_BOTTOM: Shade = Shade::with_oled(t::SKY_BOTTOM, t::DAY_SKY_BOTTOM, t::OLED_SKY_BOTTOM);
+    pub const SKY_GLOW: Shade = Shade::new(t::SKY_GLOW, t::DAY_SKY_GLOW);
+    pub const SKY_RING: Shade = Shade::new(t::SKY_RING, t::DAY_SKY_RING);
+    pub const FOCUS_RING_COLOR: Shade = Shade::new(t::FOCUS_RING_COLOR, t::DAY_FOCUS_RING_COLOR);
+    pub const FOCUS_RING_COLOR_ON_MOON: Shade = Shade::new(t::FOCUS_RING_COLOR_ON_MOON, t::DAY_FOCUS_RING_COLOR_ON_MOON);
+    pub const FOCUS_GAP_COLOR: Shade = Shade::new(t::FOCUS_GAP_COLOR, t::DAY_FOCUS_GAP_COLOR);
+    pub const FOCUS_HALO_COLOR: Shade = Shade::new(t::FOCUS_HALO_COLOR, t::DAY_FOCUS_HALO_COLOR);
+    pub const FOCUS_FILL_LIFT: Shade = Shade::new(t::FOCUS_FILL_LIFT, t::DAY_FOCUS_FILL_LIFT);
+    pub const HOVER_FILL_LIFT: Shade = Shade::new(t::HOVER_FILL_LIFT, t::DAY_HOVER_FILL_LIFT);
+    pub const PRESS_FILL_LIFT: Shade = Shade::new(t::PRESS_FILL_LIFT, t::DAY_PRESS_FILL_LIFT);
+    pub const TINT_GROUP_FILL: Shade = Shade::with_oled(t::TINT_GROUP_FILL, t::DAY_TINT_GROUP_FILL, t::OLED_TINT_GROUP_FILL);
+    pub const TINT_GROUP_RIM_TOP: Shade = Shade::new(t::TINT_GROUP_RIM_TOP, t::DAY_TINT_GROUP_RIM_TOP);
+    pub const TINT_GROUP_RIM_MID: Shade = Shade::new(t::TINT_GROUP_RIM_MID, t::DAY_TINT_GROUP_RIM_MID);
+    pub const TINT_GROUP_RIM_BOTTOM: Shade = Shade::new(t::TINT_GROUP_RIM_BOTTOM, t::DAY_TINT_GROUP_RIM_BOTTOM);
+    pub const TINT_CONTROL_FILL: Shade = Shade::new(t::TINT_CONTROL_FILL, t::DAY_TINT_CONTROL_FILL);
+    pub const TINT_CONTROL_RIM_TOP: Shade = Shade::new(t::TINT_CONTROL_RIM_TOP, t::DAY_TINT_CONTROL_RIM_TOP);
+    pub const TINT_CONTROL_RIM_MID: Shade = Shade::new(t::TINT_CONTROL_RIM_MID, t::DAY_TINT_CONTROL_RIM_MID);
+    pub const TINT_CONTROL_RIM_BOTTOM: Shade = Shade::new(t::TINT_CONTROL_RIM_BOTTOM, t::DAY_TINT_CONTROL_RIM_BOTTOM);
+    pub const TINT_SELECTED_FILL: Shade = Shade::new(t::TINT_SELECTED_FILL, t::DAY_TINT_SELECTED_FILL);
+    pub const TINT_SELECTED_RIM_TOP: Shade = Shade::new(t::TINT_SELECTED_RIM_TOP, t::DAY_TINT_SELECTED_RIM_TOP);
+    pub const TINT_GROUP_ON_ART_FILL: Shade = Shade::new(t::TINT_GROUP_ON_ART_FILL, t::DAY_TINT_GROUP_ON_ART_FILL);
+    pub const TINT_GROUP_ON_SKY_FILL: Shade = Shade::with_oled(t::TINT_GROUP_ON_SKY_FILL, t::DAY_TINT_GROUP_ON_SKY_FILL, t::OLED_TINT_GROUP_ON_SKY_FILL);
+    pub const TINT_SEPARATOR: Shade = Shade::new(t::TINT_SEPARATOR, t::DAY_TINT_SEPARATOR);
+    pub const TINT_TRACK_FILL: Shade = Shade::new(t::TINT_TRACK_FILL, t::DAY_TINT_TRACK_FILL);
+    pub const TINT_SEG_ON_FILL: Shade = Shade::new(t::TINT_SEG_ON_FILL, t::DAY_TINT_SEG_ON_FILL);
+    pub const TINT_FADE: Shade = Shade::with_oled(t::TINT_FADE, t::DAY_TINT_FADE, t::OLED_TINT_FADE);
+    pub const PLAY_GLOW: Shade = Shade::new(t::PLAY_GLOW, t::DAY_PLAY_GLOW);
+    pub const PLAY_RIM_BOTTOM: Shade = Shade::new(t::PLAY_RIM_BOTTOM, t::DAY_PLAY_RIM_BOTTOM);
+    pub const COVER_RIM_TOP: Shade = Shade::new(t::COVER_RIM_TOP, t::DAY_COVER_RIM_TOP);
+    pub const COVER_RIM_BOTTOM: Shade = Shade::new(t::COVER_RIM_BOTTOM, t::DAY_COVER_RIM_BOTTOM);
+    pub const COVER_SHADOW: Shade = Shade::new(t::COVER_SHADOW, t::DAY_COVER_SHADOW);
+    pub const COVER_PLACEHOLDER: Shade = Shade::with_oled(t::COVER_PLACEHOLDER, t::DAY_COVER_PLACEHOLDER, t::OLED_COVER_PLACEHOLDER);
+}
+
+/// The thumb of a switch or slider: paper white, white by day too (where the paper role is the
+/// wordmark's dark ink).
+pub fn knob() -> Color32 {
+    if look() == Look::Day { Color32::WHITE } else { *PAPER }
 }
 
 /// The stroke of the focus ring: thick enough to find from across a room, thicker still in high
@@ -597,10 +842,30 @@ fn face_data(bytes: Vec<u8>, index: u32) -> Option<FontData> {
     Some(data)
 }
 
-/// Sets the palette and the style that goes with it. `still` turns egui's animations off
-/// (reduced motion): focus and hover fades, collapsing and scrolling jump instead of glide.
+/// Sets the palette and the style that goes with it: high contrast or the theme's look as it was.
+/// `still` turns egui's animations off (reduced motion): focus and hover fades, collapsing and
+/// scrolling jump instead of glide.
 pub fn set_look(ctx: &egui::Context, high: bool, still: bool) {
     set_high_contrast(high);
+    STILL.store(still, Ordering::Relaxed);
+    apply_style(ctx, look(), still);
+}
+
+/// Sets the look ([`Look::of`] the Theme setting) and the style that goes with it. A change of
+/// look is a cut, never a fade, so it needs nothing for reduced motion.
+pub fn set_theme_look(ctx: &egui::Context, look: Look, still: bool) {
+    set_high_contrast(look == Look::HighContrast);
+    if look != Look::HighContrast {
+        set_base_look(look);
+    }
+    STILL.store(still, Ordering::Relaxed);
+    apply_style(ctx, self::look(), still);
+}
+
+/// egui's style for `look`, which the roles already have.
+fn apply_style(ctx: &egui::Context, look: Look, still: bool) {
+    let high = look == Look::HighContrast;
+    let day = look == Look::Day;
     let mut style = (*ctx.global_style()).clone();
     style.text_styles = [
         (TextStyle::Heading, semibold(text::TITLE)),
@@ -618,9 +883,15 @@ pub fn set_look(ctx: &egui::Context, high: bool, still: bool) {
     style.animation_time = if still { 0.0 } else { egui::Style::default().animation_time };
     style.scroll_animation = if still { egui::style::ScrollAnimation::none() } else { egui::style::ScrollAnimation::default() };
     let v = &mut style.visuals;
-    *v = egui::Visuals::dark();
+    // egui's own defaults (text cursor, scroll bars, code) for a light page by day.
+    *v = if day { egui::Visuals::light() } else { egui::Visuals::dark() };
     v.panel_fill = *NIGHT;
-    v.window_fill = *SURFACE_HIGH;
+    // By day a window is white over the pale page, Android's dialogs on `surface_container_lowest`;
+    // on OLED black it is black with its outline, as Android's `outlineOnBlack`.
+    v.window_fill = match look {
+        Look::Day | Look::Oled => *SURFACE_LOWEST,
+        Look::Night | Look::HighContrast => *SURFACE_HIGH,
+    };
     v.window_stroke = Stroke::new(if high { 2.0 } else { 1.0 }, *OUTLINE_VARIANT);
     v.extreme_bg_color = *SURFACE_LOWEST;
     v.faint_bg_color = *SURFACE_LOW;
@@ -636,8 +907,12 @@ pub fn set_look(ctx: &egui::Context, high: bool, still: bool) {
     v.menu_corner_radius = radius::CONTROL.into();
     v.window_shadow = egui::Shadow::NONE;
     // Menus float over the page: a soft shadow lifts them off it (none in high contrast, where
-    // their outline does it).
-    v.popup_shadow = if high { egui::Shadow::NONE } else { egui::Shadow { offset: [0, 10], blur: 28, spread: 0, color: Color32::from_black_alpha(120) } };
+    // their outline does it); a lighter one by day, as the day glass's.
+    v.popup_shadow = if high {
+        egui::Shadow::NONE
+    } else {
+        egui::Shadow { offset: [0, 10], blur: 28, spread: 0, color: Color32::from_black_alpha(if day { 46 } else { 120 }) }
+    };
     let radius = egui::CornerRadius::same(radius::CONTROL);
     for (w, fill) in [
         (&mut v.widgets.noninteractive, *SURFACE),
@@ -691,7 +966,7 @@ pub fn bird_mask(size: usize) -> egui::ColorImage {
             }
         }
         crossings.sort_by(f32::total_cmp);
-        for span in crossings.chunks_exact(2) {
+        for span in crossings.as_chunks::<2>().0 {
             let (from, to) = (span[0].clamp(0.0, size as f32), span[1].clamp(0.0, size as f32));
             let line = row / SUB;
             for x in from as usize..(to.ceil() as usize).min(size) {
@@ -962,7 +1237,7 @@ fn paint_rail(ui: &egui::Ui, slid: &egui::Response, along: f32) -> egui::Pos2 {
     let round = egui::CornerRadius::same((t::SIZE_SLIDER_TRACK / 2.0) as u8);
     let high = high_contrast();
     let painter = ui.painter();
-    painter.rect_filled(bar, round, if high { *SURFACE_HIGHEST } else { t::TINT_TRACK_FILL });
+    painter.rect_filled(bar, round, if high { *SURFACE_HIGHEST } else { shade::TINT_TRACK_FILL.get() });
     if high {
         painter.rect_stroke(bar, round, Stroke::new(1.0, t::HC_COLOR_RIM), egui::StrokeKind::Outside);
     }
@@ -970,7 +1245,7 @@ fn paint_rail(ui: &egui::Ui, slid: &egui::Response, along: f32) -> egui::Pos2 {
     painter.rect_filled(filled, round, *MOON);
     let center = egui::pos2(thumb_x, middle);
     painter.circle_filled(center + egui::vec2(0.0, 1.0), t::SIZE_SLIDER_THUMB / 2.0, Color32::from_black_alpha(70));
-    painter.circle_filled(center, t::SIZE_SLIDER_THUMB / 2.0, *PAPER);
+    painter.circle_filled(center, t::SIZE_SLIDER_THUMB / 2.0, knob());
     if slid.has_focus() {
         let spot = egui::Rect::from_center_size(center, egui::Vec2::splat(t::SIZE_SLIDER_THUMB));
         crate::ui::focus_ring_around(ui, spot, (t::SIZE_SLIDER_THUMB / 2.0) as u8);
@@ -1234,28 +1509,131 @@ mod tests {
         (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
     }
 
-    fn color(high: bool, role: Role) -> Color32 {
-        palette(high)[usize::from(role.0)]
+    fn color(look: Look, role: Role) -> Color32 {
+        palette(look)[usize::from(role.0)]
     }
 
     const GROUNDS: [Role; 4] = [NIGHT, SURFACE, SURFACE_HIGH, SURFACE_HIGHEST];
 
+    /// Every look and the contrast its text needs: WCAG AA, 7:1 in high contrast.
+    const LOOKS: [(Look, f64); 4] = [(Look::Night, 4.5), (Look::Day, 4.5), (Look::Oled, 4.5), (Look::HighContrast, 7.0)];
+
     #[test]
-    fn text_meets_wcag_aa_normally_and_seven_to_one_in_high_contrast() {
-        for (high, floor) in [(false, 4.5), (true, 7.0)] {
+    fn text_meets_wcag_aa_in_every_look_and_seven_to_one_in_high_contrast() {
+        for (look, floor) in LOOKS {
             for text in [ON_SURFACE, ON_SURFACE_VARIANT, OUTLINE, MOON, TERTIARY, ERROR, OK, WARN] {
                 for ground in GROUNDS {
-                    let ratio = contrast(color(high, text), color(high, ground));
-                    assert!(ratio >= floor, "high={high}: text {text:?} on {ground:?} is {ratio:.2}:1, wants {floor}");
+                    let ratio = contrast(color(look, text), color(look, ground));
+                    assert!(ratio >= floor, "{look:?}: text {text:?} on {ground:?} is {ratio:.2}:1, wants {floor}");
                 }
             }
-            let on_moon = contrast(color(high, ON_MOON), color(high, MOON));
-            assert!(on_moon >= floor, "high={high}: button text on the moon is {on_moon:.2}:1");
-            let on_container = contrast(color(high, ON_MOON_CONTAINER), color(high, MOON_CONTAINER));
-            assert!(on_container >= floor, "high={high}: text on a selection is {on_container:.2}:1");
-            let on_error = contrast(color(high, ON_ERROR_CONTAINER), color(high, ERROR_CONTAINER));
-            assert!(on_error >= floor, "high={high}: text on a failure is {on_error:.2}:1");
+            let on_moon = contrast(color(look, ON_MOON), color(look, MOON));
+            assert!(on_moon >= floor, "{look:?}: button text on the moon is {on_moon:.2}:1");
+            let on_container = contrast(color(look, ON_MOON_CONTAINER), color(look, MOON_CONTAINER));
+            assert!(on_container >= floor, "{look:?}: text on a selection is {on_container:.2}:1");
+            let on_error = contrast(color(look, ON_ERROR_CONTAINER), color(look, ERROR_CONTAINER));
+            assert!(on_error >= floor, "{look:?}: text on a failure is {on_error:.2}:1");
         }
+    }
+
+    #[test]
+    fn the_theme_picks_the_look_and_high_contrast_wins() {
+        use crate::config::Theme;
+        for system_light in [false, true] {
+            assert_eq!(Look::of(Theme::Dark, system_light, false), Look::Night, "Dark whatever the system says");
+            assert_eq!(Look::of(Theme::Oled, system_light, false), Look::Oled, "OLED black whatever the system says");
+            for theme in Theme::ALL {
+                assert_eq!(Look::of(theme, system_light, true), Look::HighContrast, "{theme:?}: high contrast wins");
+            }
+        }
+        assert_eq!(Look::of(Theme::System, false, false), Look::Night, "System on a dark system");
+        assert_eq!(Look::of(Theme::System, true, false), Look::Day, "System on a light system");
+        assert_eq!(Look::of(Theme::default(), false, false), Look::Night, "Dark is the default");
+    }
+
+    #[test]
+    fn the_theme_look_sets_the_roles_and_egui_light_or_dark() {
+        let ctx = egui::Context::default();
+        own_palette();
+        for look in [Look::Day, Look::Oled, Look::HighContrast, Look::Night] {
+            set_theme_look(&ctx, look, false);
+            assert_eq!(self::look(), look);
+            assert_eq!(*ON_SURFACE, color(look, ON_SURFACE), "{look:?}");
+            let v = ctx.global_style().visuals.clone();
+            assert_eq!(v.dark_mode, look != Look::Day, "{look:?}: egui's own widgets match the page");
+            assert_eq!(v.panel_fill, color(look, NIGHT), "{look:?}");
+        }
+        // High contrast keeps the theme's look under it, and turning it off brings that back.
+        set_theme_look(&ctx, Look::Day, false);
+        set_look(&ctx, true, false);
+        assert_eq!(look(), Look::HighContrast);
+        set_look(&ctx, false, false);
+        assert_eq!(look(), Look::Day);
+        assert!(!ctx.global_style().visuals.dark_mode);
+    }
+
+    #[test]
+    fn over_video_draws_the_night_look_and_keeps_high_contrast() {
+        let ctx = egui::Context::default();
+        own_palette();
+        for base in [Look::Day, Look::Oled] {
+            set_theme_look(&ctx, base, false);
+            set_over_video(&ctx, true);
+            assert_eq!(look(), Look::Night, "{base:?}: the stream menu and overlay keep the night look");
+            assert_eq!(*SURFACE, color(Look::Night, SURFACE));
+            assert!(ctx.global_style().visuals.dark_mode, "{base:?}: egui's style follows");
+            set_over_video(&ctx, false);
+            assert_eq!(look(), base, "the launcher's look comes back with its frames");
+            assert_eq!(ctx.global_style().visuals.panel_fill, color(base, NIGHT));
+        }
+        set_theme_look(&ctx, Look::HighContrast, false);
+        set_over_video(&ctx, true);
+        assert_eq!(look(), Look::HighContrast, "high contrast over video too");
+        set_over_video(&ctx, false);
+    }
+
+    #[test]
+    fn oled_is_the_night_palette_on_black() {
+        let surfaces = [NIGHT, SURFACE_LOWEST, SURFACE_LOW, SURFACE, SURFACE_HIGH, SURFACE_HIGHEST, SURFACE_BRIGHT].map(|role| usize::from(role.0));
+        for i in (0..COUNT).filter(|i| !surfaces.contains(i)) {
+            assert_eq!(OLED[i], NORMAL[i], "role {i} is the night one on OLED black");
+        }
+        for role in [NIGHT, SURFACE_LOWEST, SURFACE_LOW, SURFACE] {
+            assert_eq!(color(Look::Oled, role), Color32::BLACK, "{role:?}");
+        }
+        // The steps a hover and a press climb to stay apart from black and from each other.
+        assert_ne!(color(Look::Oled, SURFACE_HIGH), Color32::BLACK);
+        assert_ne!(color(Look::Oled, SURFACE_HIGH), color(Look::Oled, SURFACE_HIGHEST));
+    }
+
+    #[test]
+    fn by_day_every_role_has_its_own_colour_and_text_is_dark_on_light() {
+        for i in 0..COUNT {
+            assert_ne!(DAY[i], NORMAL[i], "role {i} has a day colour of its own");
+        }
+        for ground in [NIGHT, SURFACE_LOWEST, SURFACE, SURFACE_HIGHEST] {
+            for text in [ON_SURFACE, ON_SURFACE_VARIANT, MOON] {
+                assert!(luminance(color(Look::Day, text)) < luminance(color(Look::Day, ground)), "{text:?} on {ground:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_shade_gives_the_value_of_the_look() {
+        let (night, day, oled) = (Color32::RED, Color32::GREEN, Color32::BLUE);
+        let three = Shade::with_oled(night, day, oled);
+        assert_eq!([Look::Night, Look::Day, Look::Oled, Look::HighContrast].map(|look| three.of(look)), [night, day, oled, night]);
+        assert_eq!(Shade::new(night, day).of(Look::Oled), night, "OLED takes the night value unless it has one");
+        own_look(Look::Day);
+        assert_eq!(three.get(), day);
+        assert_eq!(knob(), Color32::WHITE, "a switch's thumb stays white by day");
+        own_look(Look::Oled);
+        assert_eq!(three.get(), oled);
+        assert_eq!(shade::COLOR_CANVAS.get(), Color32::BLACK);
+        own_look(Look::HighContrast);
+        assert_eq!(three.get(), night, "high contrast draws the night value where it has no look of its own");
+        own_palette();
+        assert_eq!(knob(), color(Look::Night, PAPER));
     }
 
     #[test]
@@ -1264,18 +1642,22 @@ mod tests {
         let ground = over(SCRIM, Color32::WHITE);
         let white = contrast(Color32::WHITE, ground);
         assert!(white >= 7.0, "white on the scrim is {white:.2}:1");
-        for high in [false, true] {
-            let ok = contrast(color(high, OK), ground);
-            assert!(ok >= 4.5, "high={high}: the running dot on the scrim is {ok:.2}:1");
+        // By day the dot over art keeps the night green (`cards::running_dot`); the day one is for
+        // light pages.
+        for look in [Look::Night, Look::Oled, Look::HighContrast] {
+            let ok = contrast(color(look, OK), ground);
+            assert!(ok >= 4.5, "{look:?}: the running dot on the scrim is {ok:.2}:1");
         }
     }
 
     #[test]
     fn warn_stays_apart_from_the_amber_of_the_action() {
         // They are close (the rule keeps warn out of filled shapes), but never the same colour.
-        for high in [false, true] {
-            assert_ne!(color(high, WARN), color(high, MOON), "high={high}");
-            assert!(color(high, WARN).g() > color(high, MOON).g(), "high={high}: warn is the yellower one");
+        // Yellower is more green for its red; by day both are dark inks.
+        let yellow = |c: Color32| f32::from(c.g()) / f32::from(c.r()).max(1.0);
+        for (look, _) in LOOKS {
+            assert_ne!(color(look, WARN), color(look, MOON), "{look:?}");
+            assert!(yellow(color(look, WARN)) > yellow(color(look, MOON)), "{look:?}: warn is the yellower one");
         }
     }
 
@@ -1303,19 +1685,19 @@ mod tests {
     fn an_unchecked_box_shows_on_a_window_and_on_a_page() {
         let ctx = egui::Context::default();
         own_palette();
-        for high in [false, true] {
-            set_look(&ctx, high, false);
+        for (look, _) in LOOKS {
+            set_theme_look(&ctx, look, false);
             let v = ctx.global_style().visuals.clone();
             let box_ = &v.widgets.inactive;
-            if high {
+            if look == Look::HighContrast {
                 assert!(box_.bg_stroke.width > 0.0, "high contrast outlines the box");
             } else {
                 for ground in [v.window_fill, v.panel_fill] {
                     let ratio = contrast(box_.bg_fill, ground);
-                    assert!(ratio >= 1.3, "box on {ground:?} is {ratio:.2}:1");
+                    assert!(ratio >= 1.3, "{look:?}: box on {ground:?} is {ratio:.2}:1");
                 }
                 // Buttons keep their own fill.
-                assert_eq!(box_.weak_bg_fill, color(false, SURFACE_HIGH));
+                assert_eq!(box_.weak_bg_fill, color(look, SURFACE_HIGH), "{look:?}");
             }
         }
     }
@@ -1332,29 +1714,30 @@ mod tests {
         // What `ui.weak` and a disabled control draw come from the style, not from a role of
         // ours, so read them from the style the app sets. Disabled text is exempt from WCAG; it
         // still has to be read, so it gets 3:1 (4.5:1 in high contrast).
-        for (high, weak_floor, disabled_floor) in [(false, 4.5, 3.0), (true, 7.0, 4.5)] {
+        for (look, weak_floor) in LOOKS {
+            let disabled_floor = if look == Look::HighContrast { 4.5 } else { 3.0 };
             let ctx = egui::Context::default();
             own_palette();
-            set_look(&ctx, high, false);
+            set_theme_look(&ctx, look, false);
             let visuals = ctx.global_style().visuals.clone();
             for ground in GROUNDS {
-                let ground = color(high, ground);
+                let ground = color(look, ground);
                 let weak = over(visuals.weak_text_color(), ground);
                 let ratio = contrast(weak, ground);
-                assert!(ratio >= weak_floor, "high={high}: weak text on {ground:?} is {ratio:.2}:1, wants {weak_floor}");
+                assert!(ratio >= weak_floor, "{look:?}: weak text on {ground:?} is {ratio:.2}:1, wants {weak_floor}");
                 let disabled = over(visuals.disable(visuals.text_color()), ground);
                 let ratio = contrast(disabled, ground);
-                assert!(ratio >= disabled_floor, "high={high}: disabled text on {ground:?} is {ratio:.2}:1, wants {disabled_floor}");
+                assert!(ratio >= disabled_floor, "{look:?}: disabled text on {ground:?} is {ratio:.2}:1, wants {disabled_floor}");
             }
         }
     }
 
     #[test]
-    fn the_focus_ring_stands_out_from_every_surface_in_both_palettes() {
-        for high in [false, true] {
+    fn the_focus_ring_stands_out_from_every_surface_in_every_look() {
+        for (look, _) in LOOKS {
             for ground in GROUNDS {
-                let ratio = contrast(color(high, MOON), color(high, ground));
-                assert!(ratio >= 3.0, "high={high}: ring on {ground:?} is {ratio:.2}:1, wants 3");
+                let ratio = contrast(color(look, MOON), color(look, ground));
+                assert!(ratio >= 3.0, "{look:?}: ring on {ground:?} is {ratio:.2}:1, wants 3");
             }
         }
         // The ring is also thicker in high contrast.
@@ -1387,14 +1770,18 @@ mod tests {
         assert_eq!(state_fill(SURFACE, true, false).0, SURFACE_HIGH.0);
         assert_eq!(state_fill(SURFACE, true, true).0, SURFACE_HIGHEST.0);
         // Every step is a visible change and text stays readable on the brightest.
-        for high in [false, true] {
+        for (look, floor) in LOOKS {
             for pair in LADDER.windows(2) {
-                assert_ne!(color(high, pair[0]), color(high, pair[1]), "high={high}: {:?} and {:?}", pair[0], pair[1]);
+                let (low, high) = (color(look, pair[0]), color(look, pair[1]));
+                // OLED black's lower steps are all black; from there up each step shows.
+                if look == Look::Oled && high == Color32::BLACK {
+                    continue;
+                }
+                assert_ne!(low, high, "{look:?}: {:?} and {:?}", pair[0], pair[1]);
             }
-            let floor = if high { 7.0 } else { 4.5 };
             for text in [ON_SURFACE, ON_SURFACE_VARIANT] {
-                let ratio = contrast(color(high, text), color(high, SURFACE_BRIGHT));
-                assert!(ratio >= floor, "high={high}: {text:?} on the brightest surface is {ratio:.2}:1");
+                let ratio = contrast(color(look, text), color(look, SURFACE_BRIGHT));
+                assert!(ratio >= floor, "{look:?}: {text:?} on the brightest surface is {ratio:.2}:1");
             }
         }
     }
@@ -1403,10 +1790,12 @@ mod tests {
     fn hover_draws_no_outline_and_focus_stays_the_amber_ring() {
         let ctx = egui::Context::default();
         own_palette();
-        set_look(&ctx, false, false);
-        let v = ctx.global_style().visuals.clone();
-        assert_eq!(v.widgets.hovered.bg_stroke, Stroke::NONE, "no white outline on hover");
-        assert_eq!(v.widgets.active.bg_stroke.color, color(false, MOON));
+        for look in [Look::Night, Look::Day, Look::Oled] {
+            set_theme_look(&ctx, look, false);
+            let v = ctx.global_style().visuals.clone();
+            assert_eq!(v.widgets.hovered.bg_stroke, Stroke::NONE, "{look:?}: no outline on hover");
+            assert_eq!(v.widgets.active.bg_stroke.color, color(look, MOON), "{look:?}");
+        }
         set_look(&ctx, true, false);
         let v = ctx.global_style().visuals.clone();
         assert_eq!(v.widgets.hovered.bg_stroke, v.widgets.inactive.bg_stroke, "high contrast keeps the outline every control has, no brighter one");
@@ -1415,7 +1804,7 @@ mod tests {
     #[test]
     fn high_contrast_outlines_are_visible_against_the_surfaces() {
         for ground in [NIGHT, SURFACE, SURFACE_HIGH] {
-            let ratio = contrast(color(true, OUTLINE_VARIANT), color(true, ground));
+            let ratio = contrast(color(Look::HighContrast, OUTLINE_VARIANT), color(Look::HighContrast, ground));
             assert!(ratio >= 3.0, "outline on {ground:?} is {ratio:.2}:1, wants 3");
         }
     }

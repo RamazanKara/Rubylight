@@ -7,7 +7,7 @@
     <string name="overlay_compact_rtt">%1$s ms RTT</string>
     <string name="overlay_compact_loss">%1$s%% loss</string>
     <string name="overlay_compact_waiting">Waiting for video</string>
-    <string name="link_notice_lowered">Host lowered the bitrate to %1$s Mbps: network</string>
+    <string name="link_notice_lowered">PC lowered the bitrate to %1$s Mbps: network</string>
     <string name="overlay_health_good">Stream good</string>
     <string name="overlay_health_fair">Stream struggling</string>
     <string name="overlay_health_poor">Stream poor</string>
@@ -17,7 +17,7 @@
     <string name="stream_section_input">Input</string>
     <string name="stream_section_display">Display</string>
     <string name="stream_section_quality">Quality</string>
-    <string name="stream_section_host">Host</string>
+    <string name="stream_section_host">PC</string>
     <string name="stream_microphone">Microphone</string>
     <string name="stream_cursor_show">Show mouse cursor</string>
     <string name="stream_cursor_hide">Hide mouse cursor</string>
@@ -27,8 +27,7 @@
     <string name="stream_quit_game">Quit game</string>
     <string name="stream_quit_game_confirm">Quit the game on the PC?\nUnsaved progress will be lost.</string>
     <string name="stream_end_session">End session</string>
-    <string name="stream_end_session_confirm">End the stream session on the PC?
-The game keeps running.</string>
+    <string name="stream_end_session_confirm">End the session on the PC?\nThe PC gets its screen and sound back. The game keeps running there.</string>
     <string name="stream_close_game">Quit game</string>
     <string name="stream_close_game_confirm">Close the game on the PC?
 Unsaved progress will be lost.</string>
@@ -63,7 +62,7 @@ Unsaved progress will be lost.</string>
     <string name="stream_menu_button_hide">Hide menu button</string>
     <string name="stream_menu_settings">Stream menu</string>
     <string name="title_floating_menu_button">Floating menu button</string>
-    <string name="summary_floating_menu_button">A round button over the stream that opens the menu</string>
+    <string name="summary_floating_menu_button">A round button over the stream that opens the menu.</string>
     <!-- A stream menu tile's short name, the same on desktop Nightjar (nightjar-policy's stream_menu::label); two lines at most in a compact tile. -->
     <string name="stream_tile_keyboard">Keyboard</string>
     <string name="stream_tile_pc_keyboard">PC keyboard</string>

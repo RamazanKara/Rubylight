@@ -37,7 +37,7 @@ The text is JSON with these parts:
 | `inputDispatchAgeMs` | Age of touch, mouse and controller events when the app receives them. `null` if you gave no input during the test. |
 | `timerWakeupDelayMs` | How late a 100 ms timer wakes up. High values point to aggressive power saving. |
 
-Each latency metric has `samples`, `mean`, `p95` and `p99` in milliseconds (`p95` is the value the slowest 5% exceed). The latency test measures this device only, without the network, the host or the panel's own delay. For a full stream, use **Measure input latency** and **Why did my stream stutter?** in the stream menu (see [video and latency](video-and-latency.md#device-controls-bitrate-and-diagnostics) and [stream health](stream-health.md)).
+Each latency metric has `samples`, `mean`, `p95` and `p99` in milliseconds (`p95` is the value the slowest 5% exceed). The latency test measures this device only, without the network, the host or the panel's own delay. For a full stream, use **Measure input latency** and **Why did my stream stutter?** in the stream menu (see [video and latency](video-and-latency.md#lower-bitrate-when-the-network-is-busy) and [stream health](stream-health.md)).
 
 ## What is left out
 

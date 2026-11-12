@@ -67,7 +67,7 @@
 
     <!-- Bitrate on mobile data (Settings → Video) -->
     <string name="title_mobile_bitrate">Bitrate bei mobilen Daten</string>
-    <string name="summary_mobile_bitrate">Begrenzt die Bitrate, wenn ein Stream über mobile Daten oder ein WLAN startet, das Android als getaktet markiert, etwa ein Handy-Hotspot. Die Grenze gilt auch für alle Profil-, PC- und Spielwerte. Aus nutzt dieselbe Bitrate wie in anderen Netzwerken.</string>
+    <string name="summary_mobile_bitrate">Die höchste Bitrate, die ein Stream über mobile Daten oder ein getaktetes Netzwerk nutzt.</string>
     <string name="mobile_bitrate_off">Aus</string>
 
     <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->
@@ -97,7 +97,7 @@
     <string name="layers_from_pc">für diesen PC gesetzt</string>
     <string name="layers_from_game">für dieses Spiel gesetzt</string>
     <string name="layers_from_mobile_limit">Grenze für mobile Daten</string>
-    <string name="layers_pacing_vrr">Adaptive Bildwiederholrate ist an, daher nutzt der Stream Niedrigste Latenz.</string>
+    <string name="layers_pacing_vrr">„Variable Bildwiederholrate“ ist an, daher nutzt der Stream „Niedrigste Latenz“.</string>
 
     <!-- In the stream -->
     <string name="layers_applied">Einstellungen: %1$s</string>
@@ -119,7 +119,7 @@
     <string name="game_preset_smoothness">Flüssigkeit</string>
     <string name="game_preset_smoothness_summary">Setzt das flüssigste Frame-Pacing, das Bilder zurückhält und die Verzögerung erhöht, und schaltet die adaptive Bildwiederholrate für dieses Spiel aus. Die Bitrate bleibt unverändert.</string>
     <string name="game_preset_quality">Qualität</string>
-    <string name="game_preset_quality_summary" formatted="false">Setzt die Bitrate auf 150 % der Bitrate des PCs, oder der Haupteinstellungen, wenn der PC keine hat, höchstens bis zum Host-Limit. Frame-Pacing und adaptive Bildwiederholrate bleiben unverändert; bei schwacher Verbindung können die größeren Bilder die Verzögerung erhöhen.</string>
+    <string name="game_preset_quality_summary" formatted="false">Setzt die Bitrate auf 150 % der Bitrate des PCs, oder der Haupteinstellungen, wenn der PC keine hat, höchstens bis zum Limit des PCs. Frame-Pacing und adaptive Bildwiederholrate bleiben unverändert; bei schwacher Verbindung können die größeren Bilder die Verzögerung erhöhen.</string>
     <string name="game_preset_custom">Benutzerdefiniert</string>
     <string name="game_preset_custom_summary">Deine eigenen Werte, unten eingestellt.</string>
 </resources>

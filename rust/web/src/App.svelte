@@ -8,9 +8,11 @@
   import ConfirmHost from './components/ConfirmHost.svelte';
   import Toaster from './components/Toaster.svelte';
   import PairingBanner from './components/PairingBanner.svelte';
+  import QuickSwitcher from './components/QuickSwitcher.svelte';
   import { api, setSignedOutHandler } from './lib/api';
   import { failed } from './lib/feedback.svelte';
   import { poll } from './lib/format';
+  import { advanced, isCurrent, primary, type NavItem } from './lib/navigation';
   import { link, match, mayLeave, route } from './lib/router.svelte';
   import { checkSession, refreshPending, session, signedOut } from './lib/session.svelte';
   import { applyTheme, storedTheme, type Theme } from './lib/theme';
@@ -22,29 +24,15 @@
   import Settings from './pages/Settings.svelte';
   import SettingsHome from './pages/SettingsHome.svelte';
   import Logs from './pages/Logs.svelte';
-  import Maintenance from './pages/Maintenance.svelte';
+  import Help from './pages/Help.svelte';
+  import Troubleshoot from './pages/Troubleshoot.svelte';
   import Tokens from './pages/Tokens.svelte';
   import Webhooks from './pages/Webhooks.svelte';
   import Login from './pages/Login.svelte';
   import Setup from './pages/Setup.svelte';
   import NotFound from './pages/NotFound.svelte';
 
-  type NavItem = { path: string; label: string; icon: IconName; match?: (path: string) => boolean };
-  // The everyday pages; Help below them; everything else in Advanced, folded.
-  const primary: NavItem[] = [
-    { path: '/', label: 'Home', icon: 'overview' },
-    { path: '/library', label: 'Games', icon: 'library' },
-    { path: '/devices', label: 'Devices', icon: 'devices' },
-    { path: '/settings', label: 'Settings', icon: 'settings', match: (path) => path === '/settings' },
-    { path: '/maintenance', label: 'Help', icon: 'help' },
-  ];
-  const advanced: NavItem[] = [
-    { path: '/settings/general', label: 'All settings', icon: 'maintenance', match: (path) => path.startsWith('/settings/') },
-    { path: '/stream', label: 'Stream in the browser', icon: 'play' },
-    { path: '/logs', label: 'Logs', icon: 'logs' },
-    { path: '/tokens', label: 'API tokens', icon: 'key' },
-    { path: '/webhooks', label: 'Webhooks', icon: 'link' },
-  ];
+  // The sidebar: the everyday pages, Help last; everything else in Advanced, folded (lib/navigation.ts).
   const themes: { value: Theme; label: string; icon: IconName }[] = [
     { value: 'system', label: 'System', icon: 'monitor' },
     { value: 'light', label: 'Light', icon: 'sun' },
@@ -57,13 +45,13 @@
   let menuButton = $state<HTMLButtonElement>();
   let content = $state<HTMLElement>();
   let lastPath = route.path;
+  /** The quick switcher (Ctrl+K or ⌘K). */
+  let switcherOpen = $state(false);
+  /** Bumped to draw the page again after the switcher synced the games the Games page lists. */
+  let pageKey = $state(0);
+  const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent);
 
-  const current = (item: NavItem) =>
-    item.match
-      ? item.match(route.path)
-      : item.path === '/'
-        ? route.path === '/'
-        : route.path === item.path || route.path.startsWith(`${item.path}/`);
+  const current = (item: NavItem) => isCurrent(item, route.path);
   const inAdvanced = $derived(advanced.some(current));
   let advancedOpen = $state(false);
 
@@ -78,7 +66,8 @@
     if (route.path === '/settings') return SettingsHome;
     if (match('/settings/:section')) return Settings;
     if (route.path === '/logs') return Logs;
-    if (route.path === '/maintenance') return Maintenance;
+    if (route.path === '/help') return Help;
+    if (route.path === '/troubleshoot') return Troubleshoot;
     if (route.path === '/tokens') return Tokens;
     if (route.path === '/webhooks') return Webhooks;
     return NotFound;
@@ -109,6 +98,22 @@
     menuButton?.focus();
   }
 
+  /** Ctrl+K, or ⌘K on a Mac, opens the quick switcher anywhere in the console and closes it again. */
+  function shortcut(event: KeyboardEvent) {
+    if (event.defaultPrevented || event.altKey || event.shiftKey || !(event.ctrlKey || event.metaKey)) return;
+    if (event.code !== 'KeyK' && event.key.toLowerCase() !== 'k') return;
+    // A confirmation keeps the keyboard until it is answered.
+    if (!switcherOpen && document.querySelector('dialog[open]')) return;
+    event.preventDefault();
+    if (!switcherOpen) menuOpen = false;
+    switcherOpen = !switcherOpen;
+  }
+
+  function openSwitcher() {
+    menuOpen = false;
+    switcherOpen = true;
+  }
+
   onMount(() => {
     applyTheme(theme);
     setSignedOutHandler(signedOut);
@@ -130,7 +135,12 @@
   });
 </script>
 
-<svelte:window onkeydown={closeMenu} />
+<svelte:window
+  onkeydown={(event) => {
+    closeMenu(event);
+    if (!bare && session.state === 'signed-in') shortcut(event);
+  }}
+/>
 
 {#if session.state === 'checking'}
   <div class="loading" aria-busy="true"></div>
@@ -153,6 +163,19 @@
             <BrandMark size={32} />
             <span>Rubylight</span>
           </a>
+          <button
+            type="button"
+            class="find"
+            aria-label="Search"
+            aria-haspopup="dialog"
+            aria-keyshortcuts="Control+K Meta+K"
+            title="Search ({mac ? '⌘K' : 'Ctrl+K'})"
+            onclick={openSwitcher}
+          >
+            <Icon name="search" size={16} />
+            <span class="find-label">Search</span>
+            <kbd aria-hidden="true">{mac ? '⌘K' : 'Ctrl K'}</kbd>
+          </button>
           <button bind:this={menuButton} class="menu" aria-label="Menu" aria-controls="main-navigation" aria-expanded={menuOpen} onclick={() => (menuOpen = !menuOpen)}>
             <Icon name="menu" />
           </button>
@@ -207,9 +230,10 @@
       {#if session.pending.length && route.path !== '/devices'}
         <PairingBanner requests={session.pending} />
       {/if}
-      <Page />
+      {#key pageKey}<Page />{/key}
     </main>
   </div>
+  <QuickSwitcher bind:open={switcherOpen} onlibrarychanged={() => route.path === '/library' && pageKey++} />
 {/if}
 
 <ConfirmHost />
@@ -277,6 +301,42 @@
     font-size: var(--text-lg);
     text-decoration: none;
     letter-spacing: -0.01em;
+  }
+  /* Search: a field-like button across the sidebar, under the name. It opens the quick switcher. */
+  .brand-row {
+    flex-wrap: wrap;
+  }
+  .find {
+    order: 1;
+    flex: 1 0 100%;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin: var(--space-3) calc(var(--space-2) * -1) 0;
+    padding: 0 var(--space-2) 0 var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel);
+    color: var(--muted);
+    font-size: var(--text-sm);
+    text-align: left;
+    cursor: pointer;
+    transition: background var(--duration-fast), color var(--duration-fast), border-color var(--duration-fast);
+  }
+  .find:hover {
+    background: var(--sunken);
+    color: var(--ink);
+  }
+  .find-label {
+    flex: 1 1 auto;
+  }
+  .find kbd {
+    padding: 1px 6px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--sunken);
+    font-size: var(--text-xs);
+    line-height: 1.4;
   }
   .menu {
     display: none;
@@ -474,6 +534,48 @@
     display: grid;
     align-content: start;
     gap: var(--space-5);
+    view-transition-name: page;
+  }
+  /* Page changes (lib/router.svelte.ts starts them; none under reduced motion): the sidebar and
+     the rest of the shell switch at once and stay on top, the page fades up, and a game's cover
+     morphs into its page and back. */
+  aside {
+    view-transition-name: shell;
+  }
+  :global(::view-transition-old(root)),
+  :global(::view-transition-old(shell)) {
+    display: none;
+  }
+  :global(::view-transition-new(root)),
+  :global(::view-transition-new(shell)),
+  :global(::view-transition-group(page)) {
+    animation: none;
+  }
+  :global(::view-transition-group(shell)) {
+    z-index: 1;
+  }
+  :global(::view-transition-old(page)) {
+    animation: var(--duration-fast) var(--ease-exit) both rubylight-page-out;
+    mix-blend-mode: normal;
+  }
+  :global(::view-transition-new(page)) {
+    animation: var(--duration-slow) var(--ease-enter) both rubylight-page-in;
+    mix-blend-mode: normal;
+  }
+  :global(::view-transition-group(game-cover)) {
+    animation-duration: var(--duration-slow);
+    animation-timing-function: var(--ease-standard);
+  }
+  @keyframes -global-rubylight-page-out {
+    to {
+      opacity: 0;
+    }
+  }
+  @keyframes -global-rubylight-page-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
   }
   @media (max-width: 860px) {
     .shell {
@@ -497,7 +599,27 @@
       gap: var(--space-3);
     }
     .brand-row {
+      flex-wrap: nowrap;
+      gap: var(--space-1);
       padding-right: 0;
+    }
+    .brand {
+      margin-right: auto;
+    }
+    /* In the phone's top bar Search is an icon beside the menu, always in reach. */
+    .find {
+      order: 0;
+      flex: none;
+      justify-content: center;
+      margin: 0;
+      padding: 0;
+      border-color: transparent;
+      background: none;
+      color: var(--ink-2);
+    }
+    .find-label,
+    .find kbd {
+      display: none;
     }
     .menu {
       display: grid;

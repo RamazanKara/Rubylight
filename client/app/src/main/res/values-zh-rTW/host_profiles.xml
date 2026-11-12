@@ -13,10 +13,8 @@
     <string name="host_profile_bitrate">位元速率 (Mbps)</string>
     <string name="host_profile_scale">電腦轉譯解析度 (%)</string>
     <string name="host_profile_codec">視訊轉碼器</string>
-    <string name="host_profile_virtual_display">主機虛擬顯示器</string>
     <string name="host_profile_hdr">HDR</string>
     <string name="host_profile_full_range">全範圍視訊</string>
-    <string name="host_profile_yuv444">優先使用 YUV 4:4:4</string>
     <string name="host_profile_save">儲存</string>
     <string name="host_profile_reset">全部與所有電腦相同</string>
     <string name="host_profile_saved">已儲存電腦串流設定</string>

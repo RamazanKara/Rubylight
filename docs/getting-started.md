@@ -4,7 +4,7 @@
 
 Rubylight runs on the Windows PC that has the games; a Moonlight-compatible client runs on the device you play from. This guide installs the host, pairs one device and starts a desktop stream. Get a 1080p60 SDR stream working first, then add HDR, higher frame rates or other devices.
 
-**On this page:** [Before you start](#before-you-start) · [Install](#install-or-run-portable) · [Open the console](#open-the-console) · [Pair a device](#pair-a-device-and-start-desktop) · [Stream formats](#choose-your-stream-format) · [Displays and updates](#virtual-displays-and-updates) · [Import a profile](#bring-an-existing-profile) · [Upgrading](#upgrading)
+**On this page:** [Before you start](#before-you-start) · [Install](#install-or-run-portable) · [Coming from another host](#coming-from-another-host) · [Open the console](#open-the-console) · [Pair a device](#pair-a-device-and-start-desktop) · [Stream formats](#choose-your-stream-format) · [Displays and updates](#virtual-displays-and-updates) · [Import a profile](#bring-an-existing-profile) · [Upgrading](#upgrading)
 
 ## Before you start
 
@@ -47,6 +47,10 @@ The installer sets up the host, the Windows service, Rubylight's virtual display
 
 The portable package installs no service. Virtual displays and virtual controllers need their Windows drivers, and the bundled virtual display driver is reached through the installed service. Keep the extracted libraries and the `assets` folder next to the executables. If Sunshine, Apollo or Vibepollo is serving the default ports, close it first or run Rubylight with [its own profile and ports](configuration.md#multiple-instances).
 
+### Coming from another host
+
+The installer brings an existing Apollo, Vibepollo or Sunshine installation's settings, paired devices, host identity, console sign-in, apps and covers along, so your devices see the same PC and stay paired. Or [install alongside it](#keep-another-host-and-install-alongside), with Rubylight's own service, ports and settings. A portable Apollo or Vibepollo profile is imported on the first portable launch instead ([Bring an existing profile](#bring-an-existing-profile)).
+
 ### Keep another host and install alongside
 
 Choose **Keep … and install alongside** in setup, or run `rubylight-setup-<version>.exe --quiet --side-by-side`, to try Rubylight while another host stays installed. Setup does not stop, change or uninstall that host: its services, packages, firewall rules, Start menu entries, HDR layers, profile and libvirtualdisplay (SudoVDA) stay as they are.
@@ -71,11 +75,11 @@ Create the administrator account when asked; the first account must be created o
 
 Use a password of at least 8 characters. Browsers that are signed in must sign in again. A host upgraded from Butterpollo keeps its original install folder.
 
-**Home** leads through three steps: pair a device, see your games, play. Its readiness check (**View checks**) covers the video encoder, virtual display, audio and screen capture. An encoder and an active monitor are enough for a first desktop stream; a virtual display showing **Off** is normal when you stream a monitor.
+**Home** starts with pairing: until a device is paired it shows the QR code and the PIN entry side by side, with **Connection help**. After that it shows whether the PC is ready to play, the current stream and your games. **PC details** opens the checks of the video encoder, virtual display, audio, screen capture and wake from a device; a check that fails shows without it. An encoder and an active monitor are enough for a first desktop stream; a virtual display showing **Off** is normal when you stream a monitor.
 
 A new installation gives each device its own virtual display on Windows 11 23H2 and later. To stream a monitor instead, set **Settings → Picture → Virtual display** to **Off, stream a monitor**. With a virtual display, **While streaming, your monitors** decides whether the other monitors turn off (the default) or stay on.
 
-Leave **All settings → Streaming → Capture method** on **Automatic**. It uses direct driver push on Rubylight's virtual displays and Windows Graphics Capture on other displays, and falls back to Desktop Duplication where needed. A capture method imported from another host is kept as it was.
+Leave **All settings → Picture → Capture method** on **Automatic**. It uses direct driver push on Rubylight's virtual displays and Windows Graphics Capture on other displays, and falls back to Desktop Duplication where needed. A capture method imported from another host is kept as it was.
 
 ## Pair a device and start Desktop
 
@@ -107,15 +111,15 @@ H.264, HEVC and AV1 use the standard Moonlight stream; which of them you get dep
 
 PyroWave's recommended rates, from desktop and game test scenes on AMD, are **277 Mbps at 720p60, 399 Mbps at 1080p60 and 1593 Mbps at 4K60**. The stream card warns below those rates, and more strongly below **139, 187 and 747 Mbps**, where loss becomes severe. Leave headroom for packet overhead and recovery data: 4K60 needs more than gigabit Ethernet. Use HEVC or AV1 when the client or network cannot carry the rate ([Capture and video](configuration.md#capture-and-video)).
 
-**Full-resolution colour (YUV 4:4:4).** Moonlight's **YUV 4:4:4** option needs an encoder that produces 4:4:4. On an NVIDIA GPU whose encoder reports it, the host streams 4:4:4 in H.264 and HEVC (not AV1); **Home → Host readiness** lists the modes it offers. AMD's hardware encoders produce 4:2:0 only, so on a Radeon Moonlight streams 4:2:0 and warns that the host does not support YUV 4:4:4. There, use PyroWave, or Nightjar, which receives 4:4:4 packed into an ordinary HEVC or AV1 picture (**Full chroma**).
+**Full-resolution colour (YUV 4:4:4).** Moonlight's **YUV 4:4:4** option needs an encoder that produces 4:4:4. On an NVIDIA GPU whose encoder reports it, the host streams 4:4:4 in H.264 and HEVC (not AV1); the checks under **PC details** on **Home** list the modes it offers. AMD's hardware encoders produce 4:2:0 only, so on a Radeon Moonlight streams 4:2:0 and warns that the host does not support YUV 4:4:4. There, use PyroWave, or Nightjar, which receives 4:4:4 packed into an ordinary HEVC or AV1 picture (**Full chroma** in the console, **Sharper colored text** in Nightjar).
 
-**HDR.** Turn on HDR in the client and make sure the **streamed display** supports HDR in Windows. Under **All settings → Display & HDR**, the defaults **Display HDR: Match the stream** and **HDR request: Follow the device** are the right starting point. Forcing display HDR does not turn an SDR stream into HDR. Turn on the game's own HDR mode where it has one. Devices that ask for them also get Dolby Vision (HEVC and AV1), HDR10+ scene data or HLG on the same stream; other devices get HDR10. The stream card shows the codec and an **HDR** badge; check the picture on the client's own screen as well ([HDR troubleshooting](troubleshooting.md#hdr-looks-washed-out-too-bright-or-different-between-clients)).
+**HDR.** Turn on HDR in the client and make sure the **streamed display** supports HDR in Windows. Under **All settings → Picture → HDR**, the defaults **Display HDR: Match the stream** and **HDR request: Follow the device** are the right starting point. Forcing display HDR does not turn an SDR stream into HDR. Turn on the game's own HDR mode where it has one. Devices that ask for them also get Dolby Vision (HEVC and AV1), HDR10+ scene data or HLG on the same stream; other devices get HDR10. The stream card shows the codec and an **HDR** badge; check the picture on the client's own screen as well ([HDR troubleshooting](troubleshooting.md#hdr-looks-washed-out-too-bright-or-different-between-clients)).
 
 ## Virtual displays and updates
 
-**Settings → Picture → Virtual display** chooses **One for each device**, **One shared by all devices**, or **Off, stream a monitor**. **All settings → Display & HDR → Virtual display layout** can also make the virtual display primary or isolate it from the other monitors. Settings for one app or one device can override the choice ([Displays and RTSS](configuration.md#displays-and-rtss)).
+**Settings → Picture → Virtual display** chooses **One for each device**, **One shared by all devices**, or **Off, stream a monitor**. **All settings → Picture → Streamed display → Virtual display layout** can also make the virtual display primary or isolate it from the other monitors. Settings for one app or one device can override the choice ([Displays and RTSS](configuration.md#displays-and-rtss)).
 
-Updates are offered, never forced. **Settings → Updates** has **Check now** and, for the installed service, **Install when idle** and **Install now**; the tray menu has **Check for updates**. **Install updates automatically** is off by default. Under **All settings → General → Updates**, **Update check time** checks once a day at a time you choose instead of the interval, and **Include pre-releases** also offers release candidates ([Updates](configuration.md#updates)).
+Updates are offered, never forced. **Settings → Updates** has **Check now** and, for the installed service, **Install when idle** and **Install now**; the tray menu has **Check for updates**. **Install updates automatically** is off by default. Under **All settings → This PC → Updates**, **Update check time** checks once a day at a time you choose instead of the interval, and **Include pre-releases** also offers release candidates ([Updates](configuration.md#updates)).
 
 **Install when idle** and automatic updates wait until no stream, pending connection, remote monitor or host-launched app is running, then for one further minute of idle time. A disconnected Desktop session can still hold an app open; close it from the client or the console if an update stays queued. **Install now** installs immediately: the stream ends, games started from a client close while Rubylight restarts, and you reconnect once it is back. A device with **Host control** can install a pending update from Nightjar. Portable users download the new archive from the release page.
 

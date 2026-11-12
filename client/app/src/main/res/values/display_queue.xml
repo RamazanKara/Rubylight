@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_display_queue_recovery">Take back display queue delay</string>
-    <string name="summary_display_queue_recovery">With Lowest latency or Balanced frame pacing: when the screen keeps a frame waiting a whole refresh longer than this stream needs, one frame is skipped so that refresh of delay goes away. Each skip is checked, and it stops for the stream when skips change nothing. Only where the device reports when frames are shown.</string>
+    <string name="summary_display_queue_recovery">Skips one frame when the screen holds frames a refresh longer than needed.</string>
 </resources>

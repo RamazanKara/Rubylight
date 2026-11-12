@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="host_update_available">Mise à jour Rubylight %1$s disponible</string>
-    <string name="host_update_stream_notice">Rubylight %1$s est disponible. Mettez-le à jour dans l’onglet Maintenance de l’hôte.</string>
+    <string name="host_update_stream_notice">Rubylight %1$s est disponible. Mettez-le à jour dans l’onglet Maintenance de Rubylight.</string>
     <string name="update_stream_notice">Nightjar %1$s est disponible. Ouvrez les paramètres de Nightjar pour mettre à jour.</string>
     <string name="title_check_updates">Rechercher les mises à jour automatiquement</string>
-    <string name="summary_check_updates">Cherche une nouvelle version à l’ouverture de l’app, au plus deux fois par jour. Rien n’est installé sans votre accord.</string>
+    <string name="summary_check_updates">Cherche une version plus récente à l’ouverture de Nightjar ; rien ne s’installe tout seul.</string>
     <string name="title_check_updates_now">Rechercher les mises à jour maintenant</string>
-    <string name="summary_check_updates_now">Chercher une version plus récente</string>
+    <string name="summary_check_updates_now">Cherche dès maintenant une version plus récente.</string>
     <string name="update_checking">Recherche de mises à jour…</string>
     <string name="update_up_to_date">La version installée est la plus récente</string>
     <string name="update_check_failed">Impossible de rechercher les mises à jour</string>

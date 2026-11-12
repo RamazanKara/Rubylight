@@ -66,7 +66,7 @@
 
     <!-- Bitrate on mobile data (Settings → Video) -->
     <string name="title_mobile_bitrate">モバイルデータのビットレート</string>
-    <string name="summary_mobile_bitrate">モバイルデータ、または Android で従量制として扱われる Wi-Fi（スマートフォンのテザリングなど）でストリームを開始したときのビットレートを制限します。プロファイル、PC、ゲームの値もこの上限を超えません。オフにすると、他のネットワークと同じビットレートを使用します。</string>
+    <string name="summary_mobile_bitrate">モバイルデータや従量制ネットワークでストリームが使う最大ビットレートです。</string>
     <string name="mobile_bitrate_off">オフ</string>
 
     <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->
@@ -117,7 +117,7 @@
     <string name="game_preset_smoothness">滑らかさ重視</string>
     <string name="game_preset_smoothness_summary">最もなめらかなフレームペーシング（フレームを保持するため遅延が増えます）に設定し、このゲームの可変リフレッシュをオフにします。ビットレートは変わりません。</string>
     <string name="game_preset_quality">画質重視</string>
-    <string name="game_preset_quality_summary" formatted="false">ビットレートを PC の値（PC に値がなければメイン設定の値）の 150% に設定します。上限はホストの上限です。フレームペーシングと可変リフレッシュは変わりません。回線が弱いと、大きくなったフレームで遅延が増えることがあります。</string>
+    <string name="game_preset_quality_summary" formatted="false">ビットレートを PC の値（PC に値がなければメイン設定の値）の 150% に設定します。上限は PC の上限です。フレームペーシングと可変リフレッシュは変わりません。回線が弱いと、大きくなったフレームで遅延が増えることがあります。</string>
     <string name="game_preset_custom">カスタム</string>
     <string name="game_preset_custom_summary">下で設定した独自の値です。</string>
 </resources>

@@ -199,21 +199,37 @@ public class SettingsStructureTest {
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             StreamSettings screen = controller.get();
             PreferenceScreen controls = open(screen, "input").getPreferenceScreen();
-            assertEquals(Arrays.asList("category_gamepad_settings", "category_stream_menu", "category_usb_controllers",
-                    "category_input_settings", "category_onscreen_controls", "category_keyboard_shortcuts", "category_more_input"),
-                    keys(controls));
+            // The main rows in an untitled first group, then the More row (open here), then the groups behind it.
+            assertEquals(Arrays.asList("category_input_main", "category_more_input"), keys(controls).subList(0, 2));
+            assertEquals(Arrays.asList("checkbox_touchscreen_trackpad", "checkbox_absolute_mouse_mode",
+                    StreamSettings.CONTROLLERS_KEY, "controller_button_mapping", "controller_test",
+                    "checkbox_show_onscreen_controls", "checkbox_keyboard_follows_text_fields", "checkbox_clipboard_sync"),
+                    keys((PreferenceGroup) controls.getPreference(0)));
+            assertEquals(Arrays.asList("category_input_main", "category_more_input", "category_gamepad_settings",
+                    "category_stream_menu", "category_input_settings", "category_keyboard_shortcuts",
+                    "category_onscreen_controls", "category_usb_controllers"), Arrays.asList(StreamSettings.SECTIONS.get("input")));
             // How the menu opens and what it holds, in one place.
+            PreferenceGroup menu = (PreferenceGroup) open(screen, "input").findPreference("category_stream_menu");
             assertEquals(Arrays.asList("list_guide_menu_hold", "checkbox_back_opens_menu", "checkbox_back_as_guide",
-                    "checkbox_floating_menu_button", "keyboard_shortcuts_editor"), keys((PreferenceGroup) controls.getPreference(1)));
+                    "checkbox_floating_menu_button", "list_stream_menu_button_y", "list_stream_menu_button_x",
+                    "list_stream_menu_button_lb", "list_stream_menu_button_rb", "keyboard_shortcuts_editor"), keys(menu));
+            PreferenceGroup usb = (PreferenceGroup) open(screen, "input").findPreference("category_usb_controllers");
             assertEquals(Arrays.asList("checkbox_usb_driver", "checkbox_usb_bind_all", "checkbox_usb_dualsense",
-                    "checkbox_usb_dualsense_haptics", "checkbox_usb_switch_pro", "checkbox_usb_forwarding"),
-                    keys((PreferenceGroup) controls.getPreference(2)));
-            PreferenceGroup image = (PreferenceGroup) open(screen, "display").getPreferenceScreen().findPreference("category_upscaling");
-            assertTrue(keys(image).contains("checkbox_yuv444"));
+                    "checkbox_usb_switch_pro", "checkbox_usb_forwarding"), keys(usb));
+            // DualSense haptics shows under the DualSense switch while that is on.
+            prefs().edit().putBoolean("checkbox_usb_dualsense", true).commit();
+            usb = (PreferenceGroup) open(screen, "input").findPreference("category_usb_controllers");
+            assertEquals(Arrays.asList("checkbox_usb_driver", "checkbox_usb_bind_all", "checkbox_usb_dualsense",
+                    "checkbox_usb_dualsense_haptics", "checkbox_usb_switch_pro", "checkbox_usb_forwarding"), keys(usb));
+            // Sharper colored text is Video's one row for 4:4:4, native or packed.
+            PreferenceGroup video = (PreferenceGroup) open(screen, "video").findPreference("category_basic_settings");
+            assertTrue(keys(video).contains(StreamSettings.SHARP_COLOR_KEY));
+            assertNull(open(screen, "display").findPreference("checkbox_yuv444"));
             PreferenceScreen advanced = open(screen, "advanced").getPreferenceScreen();
-            // The engine leads Advanced, then the decoding switches.
+            // The engine leads Advanced's main rows, then the decoding switches; the GPU rows show only on a GPU that has them.
             assertEquals(Arrays.asList(PreferenceConfiguration.RUST_ENGINE_PREF_STRING, StreamSettings.LOW_LATENCY_DECODING_KEY,
-                    StreamSettings.LOW_LATENCY_CUSTOMIZE_KEY), keys((PreferenceGroup) advanced.getPreference(0)));
+                    StreamSettings.LOW_LATENCY_CUSTOMIZE_KEY, "checkbox_texture_view", "checkbox_vulkan_render"),
+                    keys((PreferenceGroup) advanced.getPreference(0)));
         }
     }
 
@@ -355,16 +371,19 @@ public class SettingsStructureTest {
     }
 
     @Test
-    public void adaptiveRefreshDisablesFramePacingAndTheLowerRefreshRate() {
+    public void adaptiveRefreshHidesFramePacingAndTheLowerRefreshRate() {
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
-            StreamSettings.SettingsFragment display = open(controller.get(), "display");
+            // Rows that do not apply are hidden, not greyed (SettingRules), and come back in place.
+            PreferenceScreen display = open(controller.get(), "display").getPreferenceScreen();
             SwitchPreference vrr = (SwitchPreference) display.findPreference("checkbox_vrr");
-            assertTrue(display.findPreference("frame_pacing").isEnabled());
+            assertNotNull(display.findPreference("frame_pacing"));
+            assertNotNull(display.findPreference("checkbox_reduce_refresh_rate"));
             vrr.setChecked(true);
-            assertFalse(display.findPreference("frame_pacing").isEnabled());
-            assertFalse(display.findPreference("checkbox_reduce_refresh_rate").isEnabled());
+            assertNull(display.findPreference("frame_pacing"));
+            assertNull(display.findPreference("checkbox_reduce_refresh_rate"));
             vrr.setChecked(false);
-            assertTrue(display.findPreference("checkbox_reduce_refresh_rate").isEnabled());
+            assertNotNull(display.findPreference("frame_pacing"));
+            assertNotNull(display.findPreference("checkbox_reduce_refresh_rate"));
         }
     }
 
@@ -482,14 +501,15 @@ public class SettingsStructureTest {
             StreamSettings screen = controller.get();
             StreamSettings.SettingsFragment display = open(screen, "display");
             FrameLayout parent = new FrameLayout(screen);
-            SwitchPreference color = (SwitchPreference) display.findPreference("checkbox_yuv444");
+            SwitchPreference color = (SwitchPreference) open(screen, "video").findPreference("checkbox_enable_sdr_10bit");
             View row = color.getView(null, parent);
             assertEquals(View.GONE, row.findViewById(android.R.id.summary).getVisibility());
             assertEquals(View.VISIBLE, row.findViewById(R.id.preference_info).getVisibility());
             int enabledTitle = ((TextView) row.findViewById(android.R.id.title)).getCurrentTextColor();
 
-            ((SwitchPreference) display.findPreference("checkbox_vrr")).setChecked(true);
+            // Rows that do not apply are hidden now; a row greyed for another reason (old SHIELD HDR) looks disabled.
             Preference lower = display.findPreference("checkbox_reduce_refresh_rate");
+            lower.setEnabled(false);
             View disabled = lower.getView(null, parent);
             assertFalse(disabled.isEnabled());
             assertNotEquals(enabledTitle, ((TextView) disabled.findViewById(android.R.id.title)).getCurrentTextColor());
@@ -501,13 +521,11 @@ public class SettingsStructureTest {
             assertTrue(explanation.isShowing());
             explanation.dismiss();
 
-            // A switch without an explanation has no info button, and a host-dependent one says so briefly.
+            // A host-dependent switch says so briefly.
             TextView hostLine = display.findPreference("checkbox_virtual_display").getView(null, parent)
                     .findViewById(android.R.id.summary);
             assertEquals(View.VISIBLE, hostLine.getVisibility());
             assertEquals(screen.getString(R.string.settings_needs_host_support), hostLine.getText().toString());
-            View guide = open(screen, "input").findPreference("checkbox_show_guide_button").getView(null, parent);
-            assertEquals(View.GONE, guide.findViewById(R.id.preference_info).getVisibility());
         }
     }
 

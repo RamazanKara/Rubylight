@@ -1398,6 +1398,40 @@ fn settings_under_an_earlier_name_are_read_under_the_current_one() {
     assert_eq!(current_name("port"), "port");
 }
 #[test]
+fn the_launcher_syncs_shared_switches_become_each_launchers_own() {
+    // An earlier profile turned the sync off for every launcher at once: each
+    // launcher and the game folders keep that, and a launcher's own value wins.
+    let c = Config::parse(
+        "library_auto_sync = false\nlibrary_autosync_remove_uninstalled = false\nepic_auto_sync = true\n",
+    )
+    .unwrap();
+    for (old, split) in SPLIT_KEYS {
+        assert!(!c.values.contains_key(*old), "{old}");
+        for key in *split {
+            // Off from the shared key, except Epic's own `true`. The default
+            // passed is the opposite, so only a stored value passes.
+            let expected = *key == "epic_auto_sync";
+            assert_eq!(c.boolean(key, !expected), expected, "{key}");
+            assert!(c.values.contains_key(*key), "{key}");
+        }
+    }
+    assert_eq!(c.get("epic_auto_sync", ""), "true");
+    // Saved, the file holds each launcher's own keys.
+    let text = c.text();
+    assert!(!text.contains("library_auto_sync ="), "{text}");
+    assert!(text.contains("gog_auto_sync = false"), "{text}");
+    // A client sending the earlier key sets every launcher's, but not one sent too.
+    let mut config = Config::default();
+    let mut object = serde_json::Map::new();
+    object.insert("library_auto_sync".into(), false.into());
+    object.insert("ea_auto_sync".into(), true.into());
+    config.update(&object).unwrap();
+    assert_eq!(config.get("ubisoft_auto_sync", ""), "false");
+    assert_eq!(config.get("library_local_auto_sync", ""), "false");
+    assert_eq!(config.get("ea_auto_sync", ""), "true");
+    assert!(!config.values.contains_key("library_auto_sync"));
+}
+#[test]
 fn a_saved_configuration_holds_settings_under_their_current_names() {
     // The console saves every setting as held after parsing, so the
     // first save after an upgrade retires the earlier names.

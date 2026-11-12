@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_dual_screen">Modo de tela dupla</string>
-    <string name="summary_checkbox_dual_screen">Em um dispositivo com uma segunda tela, inicia nela uma segunda transmissão do mesmo jogo, na resolução própria dessa tela. A segunda transmissão é o mesmo dispositivo que a primeira, então o PC é pareado uma vez só. A primeira tela fica com o som, os controles e o microfone, e uma mudança de modo de toque em qualquer uma das telas vale para as duas. O PC precisa ser um host Rubylight compatível, e decide qual das telas dele cada uma mostra. Vale a partir da próxima transmissão.</string>
+    <string name="summary_checkbox_dual_screen">Uma segunda transmissão do mesmo jogo em uma segunda tela.</string>
     <string name="title_resolution_screen2">Resolução da segunda tela</string>
-    <string name="summary_resolution_screen2">A resolução da transmissão da segunda tela, separada da primeira. Com o tamanho próprio, a transmissão usa a resolução total dessa tela.</string>
+    <string name="summary_resolution_screen2">A resolução da transmissão da segunda tela.</string>
     <string name="resolution_screen2_native">Tamanho próprio da segunda tela</string>
     <string name="dual_screen_unavailable">Não foi possível abrir a segunda tela.</string>
 </resources>

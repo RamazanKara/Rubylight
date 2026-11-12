@@ -302,6 +302,8 @@ export interface App {
   'game-files'?: { path: string; section: string; key: string; value: string | number | boolean }[];
   /** The app's settings on one device, by device uuid: the keys above for that device. */
   'device-overrides'?: Record<string, Record<string, unknown>>;
+  /** When Steam or Playnite last saw its game played, in seconds since the epoch; listed, never saved. */
+  'last-played'?: number;
   [extra: string]: unknown;
 }
 export interface AppsDocument {

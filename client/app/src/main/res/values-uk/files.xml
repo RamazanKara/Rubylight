@@ -30,7 +30,7 @@
     <string name="files_no_upload_permission">Цьому пристрою не можна надсилати файли на цей ПК. На ПК відкрийте сторінку «Devices» у вебінтерфейсі та дозвольте йому «Upload files».</string>
     <string name="files_no_download_permission">Цьому пристрою не можна завантажувати файли цього ПК. На ПК відкрийте сторінку «Devices» у вебінтерфейсі та дозвольте йому «Download files».</string>
     <string name="files_off">Передавання файлів на цьому ПК вимкнено. Увімкніть його у вебінтерфейсі ПК, у розділі «File transfer».</string>
-    <string name="files_unavailable">Хост цього ПК не підтримує передавання файлів.</string>
+    <string name="files_unavailable">Застосунок для трансляції на цьому ПК не підтримує передавання файлів.</string>
     <string name="files_no_library">Ця збірка Nightjar не може передавати файли.</string>
     <string name="files_offline">ПК не в мережі.</string>
     <string name="files_pick_pc">На який ПК надіслати?</string>

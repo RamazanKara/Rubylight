@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_adaptive_quality">Chất lượng stream tự động</string>
-    <string name="summary_adaptive_quality">Giảm độ phân giải hoặc FPS khi mạng tắc nghẽn kéo dài, giải mã chậm hoặc máy nóng, sau đó khôi phục dần. Dùng tốc độ bit tự động khi được hỗ trợ. Cần máy chủ hỗ trợ cấu hình lại và trình giải mã thích ứng; không khả dụng với PyroWave.</string>
-    <string name="title_adaptive_quality_min_resolution">Độ phân giải tự động tối thiểu</string>
-    <string name="summary_adaptive_quality_min_resolution">Cạnh ngắn nhỏ nhất, giữ nguyên tỷ lệ khung hình. Độ phân giải stream đã chọn vẫn là mức tối đa. Giới hạn này không bao giờ làm tăng độ phân giải ban đầu thấp hơn.</string>
-    <string name="title_adaptive_quality_min_fps">Tốc độ khung hình tự động tối thiểu</string>
-    <string name="summary_adaptive_quality_min_fps">FPS thấp nhất cho phép. Tốc độ khung hình stream đã chọn vẫn là mức tối đa. Áp dụng cho chất lượng tự động, kể cả chế độ pin.</string>
+    <string name="summary_adaptive_quality">Giảm độ phân giải hoặc FPS khi mạng tắc nghẽn kéo dài, giải mã chậm hoặc máy nóng, sau đó khôi phục dần. Dùng tốc độ bit tự động khi được hỗ trợ. Cần PC có thể thay đổi stream đang chạy và trình giải mã thích ứng; không khả dụng với PyroWave.</string>
+    <string name="title_adaptive_quality_min_resolution">Độ phân giải tối thiểu</string>
+    <string name="summary_adaptive_quality_min_resolution">Độ phân giải thấp nhất mà Chất lượng tự động có thể giảm xuống.</string>
+    <string name="title_adaptive_quality_min_fps">Tốc độ khung hình tối thiểu</string>
+    <string name="summary_adaptive_quality_min_fps">Tốc độ khung hình thấp nhất mà Chất lượng tự động có thể giảm xuống.</string>
     <string name="quality_off">Tắt</string>
     <string name="quality_motion">Ưu tiên chuyển động</string>
     <string name="quality_detail">Ưu tiên chi tiết</string>

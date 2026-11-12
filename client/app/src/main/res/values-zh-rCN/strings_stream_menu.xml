@@ -6,7 +6,7 @@
     <string name="overlay_compact_rtt">RTT %1$s ms</string>
     <string name="overlay_compact_loss">丢包 %1$s%%</string>
     <string name="overlay_compact_waiting">正在等待视频</string>
-    <string name="link_notice_lowered">主机已将码率降至 %1$s Mbps：网络</string>
+    <string name="link_notice_lowered">电脑已将码率降至 %1$s Mbps：网络</string>
     <string name="overlay_health_good">串流良好</string>
     <string name="overlay_health_fair">串流不稳定</string>
     <string name="overlay_health_poor">串流较差</string>
@@ -14,7 +14,7 @@
     <string name="stream_section_input">输入</string>
     <string name="stream_section_display">显示</string>
     <string name="stream_section_quality">画质</string>
-    <string name="stream_section_host">主机</string>
+    <string name="stream_section_host">电脑</string>
     <string name="stream_microphone">麦克风</string>
     <string name="stream_cursor_show">显示鼠标光标</string>
     <string name="stream_cursor_hide">隐藏鼠标光标</string>
@@ -24,8 +24,7 @@
     <string name="stream_quit_game">退出游戏</string>
     <string name="stream_quit_game_confirm">要退出电脑上的游戏吗？\n未保存的进度将会丢失。</string>
     <string name="stream_end_session">结束会话</string>
-    <string name="stream_end_session_confirm">要结束电脑上的串流会话吗？
-游戏将继续运行。</string>
+    <string name="stream_end_session_confirm">要结束电脑上的会话吗？\n电脑会恢复自己的屏幕和声音，游戏仍在电脑上运行。</string>
     <string name="stream_close_game">退出游戏</string>
     <string name="stream_close_game_confirm">要关闭电脑上的游戏吗？
 未保存的进度将会丢失。</string>
@@ -55,7 +54,7 @@
     <string name="stream_menu_button_hide">隐藏菜单按钮</string>
     <string name="stream_menu_settings">串流菜单</string>
     <string name="title_floating_menu_button">悬浮菜单按钮</string>
-    <string name="summary_floating_menu_button">串流画面上打开菜单的圆形按钮</string>
+    <string name="summary_floating_menu_button">串流画面上用于打开菜单的圆形按钮。</string>
     <string name="stream_tile_keyboard">键盘</string>
     <string name="stream_tile_pc_keyboard">PC 键盘</string>
     <string name="stream_tile_mouse">鼠标</string>

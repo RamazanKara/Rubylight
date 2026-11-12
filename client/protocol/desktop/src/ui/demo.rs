@@ -609,7 +609,7 @@ impl Launcher {
                         busy: false,
                     },
                     DemoDialog::QuitGame => Dialog::ConfirmClose { host: id, name: "Racing Game".to_owned() },
-                    DemoDialog::Message => Dialog::Message { title: "Can't reach this PC".to_owned(), body: "It didn't answer on the network.".to_owned() },
+                    DemoDialog::Message => Dialog::Message { title: "Can’t reach this PC".to_owned(), body: "It didn’t answer on the network.".to_owned() },
                     DemoDialog::PcMenu => Dialog::HostOptions { host: id },
                 };
             }
@@ -676,14 +676,15 @@ impl Launcher {
             clipboard: true,
             image_clipboard: true,
             host_audio: true,
-            exits: vec![HostExit::QuitApp],
+            // Disconnect and Quit game in the footer; End session is More's last row.
+            exits: vec![HostExit::End, HostExit::QuitApp],
             ..Default::default()
         };
         let layout = stream_menu::layout(&available, self.shortcuts.data.len(), &Default::default());
         let saved = &self.shortcuts;
         let focus_first = ctx.memory(|m| m.focused().is_none());
         let line = "Racing Game · Living Room PC";
-        style::show(&ctx, tr("Stream controls"), "stream-controls", |ui| match menu {
+        style::show(&ctx, tr("Stream menu"), "stream-controls", |ui| match menu {
             DemoMenu::Grid | DemoMenu::White => {
                 style::head(ui, "Racing Game", "1080p · 120 FPS · HEVC HDR");
                 let reserve = style::pinned_room(ui.ctx(), "stream-menu-footer");
@@ -694,7 +695,7 @@ impl Launcher {
                 style::header(ui, MenuPage::Quality.title(), line);
                 style::group(ui, |ui| {
                     let mut on = false;
-                    style::switch(ui, Glyph::Gauge, tr("Device controls bitrate"), &mut on);
+                    style::switch(ui, Glyph::Gauge, tr("Lower bitrate when the network is busy"), &mut on);
                     let mut kbps = 80_000;
                     crate::stream::menu_extras::bitrate_slider(ui, &mut kbps, true);
                     style::fold(ui, "demo-health", Glyph::Pulse, tr("Why did my stream stutter?"), |_| {});
@@ -718,6 +719,7 @@ impl Launcher {
                     style::action(ui, Glyph::Download, tr("Export statistics (last hour)"), None);
                     style::action(ui, Glyph::Help, tr("Shortcuts & help"), Some(crate::shortcuts::Action::StreamShortcuts));
                     style::action(ui, Glyph::Reconnect, tr("Reconnect"), None);
+                    style::action(ui, Glyph::Power, tr(HostExit::End.label()), None);
                 });
                 ui.add_space(crate::theme::space::M);
                 style::action_keys(ui, Glyph::Back, tr("Back"), Some(crate::shortcuts::Key::Escape.cap().as_ref()));

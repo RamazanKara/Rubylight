@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_display_queue_recovery">表示キューの遅延を取り戻す</string>
-    <string name="summary_display_queue_recovery">フレームペーシングが「最小遅延」または「バランス」のとき、このストリームに必要な分より 1 リフレッシュ長く画面がフレームを待たせている場合、1 フレームをスキップしてその遅延をなくします。スキップごとに効果を確認し、変化がなければそのストリームでは停止します。フレームの表示時刻を報告するデバイスでのみ動作します。</string>
+    <string name="summary_display_queue_recovery">画面がフレームを必要より 1 リフレッシュ長く保持しているときに、1 フレームをスキップします。</string>
 </resources>

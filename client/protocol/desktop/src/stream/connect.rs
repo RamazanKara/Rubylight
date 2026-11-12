@@ -90,6 +90,11 @@ pub fn end_before(connecting: Option<Connecting>, wait: Duration, teardown: impl
 }
 
 impl Connecting {
+    /// What this start was asked to do: a failed start's card makes it again.
+    pub fn plan(&self) -> &LaunchPlan {
+        &self.plan
+    }
+
     /// The game this stream plays, for the recent list; None when the PC has no unique id yet
     /// or the stream is not a game (a remote monitor, input only, Microphone only).
     pub fn recent_game(&self) -> Option<config::Recent> {
@@ -280,7 +285,7 @@ fn resume_refused(join: bool, code: i32, message: &str) -> Option<String> {
     use nightjar_policy::continue_here::{resume_refusal, ResumeRefusal};
     Some(match resume_refusal(join, code, message)? {
         ResumeRefusal::SessionChanged => APP_GONE.to_string(),
-        ResumeRefusal::BrowserStream => tr("Another device is playing this game in a browser, and this stream can't run beside it. End that stream first.").to_string(),
+        ResumeRefusal::BrowserStream => tr("Another device is playing this game in a browser, and this stream can’t run beside it. End that stream first.").to_string(),
     })
 }
 
@@ -821,7 +826,10 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
         ri_key,
         ri_key_id,
         play_local_audio: settings.play_audio_on_host,
+        sops: settings.sops,
         gamepad_mask: plan.gamepad_mask,
+        // "Controllers" One player keeps player 1 on the PC without a controller, as Android does.
+        persist_gamepads: crate::gamepad::one_player(settings),
         confirm_replace: plan.confirm_replace,
         prepared_controllers: if role != AppRole::RemoteMonitor && plan.info.capabilities.has(Feature::ControllerPreparation) {
             plan.prepared_controllers.clone()
@@ -931,7 +939,7 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
     // A host that takes one stream at a time refuses the small stream while another one runs.
     let refused = |why: String| -> ConnectError {
         if plan.small_stream_input_only {
-            format!("{why} {}", tr("Input-only on this PC uses a small ordinary stream, and the host refused it. Some hosts allow only one stream at a time: end the other stream or allow more in the host’s settings.")).into()
+            format!("{why} {}", tr("Input-only on this PC uses a small ordinary stream, and the PC refused it. Some PCs allow only one stream at a time: end the other stream or allow more in the PC’s settings.")).into()
         } else { why.into() }
     };
     let launched = match launched {

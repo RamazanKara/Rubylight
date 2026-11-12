@@ -67,7 +67,7 @@
 
     <!-- Bitrate on mobile data (Settings → Video) -->
     <string name="title_mobile_bitrate">Taxa de bits em dados móveis</string>
-    <string name="summary_mobile_bitrate">Limita a taxa de bits quando uma transmissão começa em dados móveis ou em um Wi-Fi que o Android marca como limitado, como o ponto de acesso de um celular. O limite também vale para os valores de perfis, PCs e jogos. Desativado usa a mesma taxa de bits das outras redes.</string>
+    <string name="summary_mobile_bitrate">A taxa de bits mais alta que uma transmissão usa em dados móveis ou em uma rede limitada.</string>
     <string name="mobile_bitrate_off">Desativado</string>
 
     <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->
@@ -97,7 +97,7 @@
     <string name="layers_from_pc">definido para este PC</string>
     <string name="layers_from_game">definido para este jogo</string>
     <string name="layers_from_mobile_limit">limite de dados móveis</string>
-    <string name="layers_pacing_vrr">A atualização adaptável está ativada, então a transmissão usa Menor latência.</string>
+    <string name="layers_pacing_vrr">A taxa de atualização variável está ativada, então a transmissão usa Menor latência.</string>
 
     <!-- In the stream -->
     <string name="layers_applied">Configurações: %1$s</string>
@@ -119,7 +119,7 @@
     <string name="game_preset_smoothness">Fluidez</string>
     <string name="game_preset_smoothness_summary">Define o frame pacing mais suave, que retém quadros e adiciona atraso, e desativa a taxa de atualização adaptável para este jogo. A taxa de bits não muda.</string>
     <string name="game_preset_quality">Qualidade</string>
-    <string name="game_preset_quality_summary" formatted="false">Define a taxa de bits em 150% da do PC, ou das configurações principais se o PC não tiver uma, até o limite do host. O frame pacing e a taxa de atualização adaptável não mudam; em uma conexão fraca, os quadros maiores podem adicionar atraso.</string>
+    <string name="game_preset_quality_summary" formatted="false">Define a taxa de bits em 150% da do PC, ou das configurações principais se o PC não tiver uma, até o limite do PC. O frame pacing e a taxa de atualização adaptável não mudam; em uma conexão fraca, os quadros maiores podem adicionar atraso.</string>
     <string name="game_preset_custom">Personalizado</string>
     <string name="game_preset_custom_summary">Seus próprios valores, definidos abaixo.</string>
 </resources>

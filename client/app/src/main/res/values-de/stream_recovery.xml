@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_auto_reconnect">Unterbrochene Streams wiederherstellen</string>
-    <string name="summary_auto_reconnect">Setzt dasselbe laufende Spiel nach einem vorübergehenden Verbindungsfehler automatisch fort. Bis zu fünf Versuche innerhalb einer Minute; mit Zurück abbrechen.</string>
+    <string name="summary_auto_reconnect">Verbindet nach einem Verbindungsabbruch erneut mit demselben Spiel, bis zu fünfmal pro Minute.</string>
     <string name="stream_recovery_attempt">Verbindung zum Spiel wird wiederhergestellt… Versuch %1$d von %2$d. Mit Zurück abbrechen.</string>
     <string name="stream_recovery_session_changed">Die vorherige Spielsitzung ist nicht mehr verfügbar. Die automatische Wiederherstellung wurde angehalten, damit kein Spiel gestartet oder ersetzt wird.</string>
     <string name="continue_here_browser_stream">Ein anderes Gerät spielt dieses Spiel im Browser, und dieser Stream kann nicht daneben laufen. Beende zuerst den anderen Stream.</string>

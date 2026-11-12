@@ -20,7 +20,7 @@
     <string name="console_badge_running">Running</string>
     <string name="console_badge_suspended">Suspended</string>
     <string name="console_card_on_host">On %1$s</string>
-    <string name="console_card_on_hosts">On %1$d hosts</string>
+    <string name="console_card_on_hosts">On %1$d PCs</string>
     <string name="console_host_games">Games: %1$d</string>
     <string name="console_host_saved_games">Offline. Saved games: %1$d</string>
     <string name="console_host_offline">Offline</string>
@@ -42,9 +42,9 @@
     <string name="console_chip_not_added">Not added</string>
     <string name="console_add_on_pc">Add it on the PC</string>
     <string name="console_adding">Adding %1$s…</string>
-    <string name="console_add_failed">Couldn\'t add %1$s</string>
+    <string name="console_add_failed">Couldn’t add %1$s</string>
     <string name="console_detail_not_installed">Not installed on %1$s</string>
-    <string name="console_detail_not_launchable">%1$s can\'t start this game</string>
+    <string name="console_detail_not_launchable">%1$s can’t start this game</string>
     <string name="console_filter_all">All</string>
     <string name="console_filter_installed">Installed</string>
     <string name="console_all_games_title">All games</string>
@@ -65,12 +65,12 @@
     <string name="console_detail_installed">Installed</string>
     <!-- On a PC that is away the card is dimmed and says so. %1$s is the card's second line, e.g. "On Tower". -->
     <string name="console_card_asleep">%1$s, PC asleep</string>
-    <string name="console_wake_and_play">Wake PC and play</string>
+    <string name="console_wake_and_play">Wake up the PC and play</string>
     <string name="console_wake_waiting">Waiting for %1$s to wake up…</string>
     <string name="console_wake_timeout">%1$s did not wake up in time. Check that Wake-on-LAN is set up, then try again.</string>
     <string name="console_choose_pc">Play on which PC?</string>
     <string name="console_badge_asleep">PC asleep</string>
     <string name="pc_status_online">Online</string>
     <string name="pc_status_not_paired">Not paired</string>
-    <string name="pc_action_wake">Wake</string>
+    <string name="pc_action_wake">Wake up</string>
 </resources>

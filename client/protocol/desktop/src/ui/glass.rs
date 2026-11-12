@@ -15,7 +15,7 @@ pub use crate::live_glass::{tier, Boundary, Tier, LIVE_BACKDROP};
 
 use super::design_tokens as t;
 use super::spring;
-use crate::theme::high_contrast;
+use crate::theme::{high_contrast, look, shade, Look};
 
 /// A glass material of the spec.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,6 +40,8 @@ pub struct Recipe {
     pub shadow: Color32,
     pub shadow_y: f32,
     pub shadow_blur: f32,
+    /// The day glass's thin dark edge, where its light rim would vanish on a pale page; none at night.
+    pub hairline: Color32,
 }
 
 macro_rules! recipe {
@@ -56,11 +58,48 @@ macro_rules! recipe {
             shadow: t::$sc,
             shadow_y: t::$sy,
             shadow_blur: t::$sb,
+            hairline: Color32::TRANSPARENT,
         }
+    };
+    ($b:ident $f:ident $st:ident $se:ident $rt:ident $rm:ident $rb:ident $rw:ident $sc:ident $sy:ident $sb:ident $h:ident) => {
+        Recipe { hairline: t::$h, ..recipe!($b $f $st $se $rt $rm $rb $rw $sc $sy $sb) }
     };
 }
 
+/// `material` on `tier`, in the look in use: by day the day glass (Android's `GlassSpec` with day
+/// tokens; the menus take the panel's), at night and on OLED black the night glass. Solid is the
+/// same in every look: it is high contrast's.
 pub fn recipe(material: Material, tier: Tier) -> Recipe {
+    if look() == Look::Day && tier != Tier::Solid {
+        return day_recipe(material, tier);
+    }
+    night_recipe(material, tier)
+}
+
+fn day_recipe(material: Material, tier: Tier) -> Recipe {
+    match (material, tier) {
+        (Material::Chrome, Tier::Live) => {
+            recipe!(DAY_GLASS_CHROME_LIVE_BRIGHTNESS DAY_GLASS_CHROME_LIVE_FILL DAY_GLASS_CHROME_LIVE_SHEEN_TOP DAY_GLASS_CHROME_LIVE_SHEEN_END DAY_GLASS_CHROME_LIVE_RIM_TOP DAY_GLASS_CHROME_LIVE_RIM_MID DAY_GLASS_CHROME_LIVE_RIM_BOTTOM DAY_GLASS_CHROME_LIVE_RIM_WIDTH DAY_GLASS_CHROME_LIVE_SHADOW_COLOR DAY_GLASS_CHROME_LIVE_SHADOW_Y DAY_GLASS_CHROME_LIVE_SHADOW_BLUR DAY_GLASS_CHROME_LIVE_HAIRLINE)
+        }
+        (Material::Chrome, _) => {
+            recipe!(DAY_GLASS_CHROME_BAKED_BRIGHTNESS DAY_GLASS_CHROME_BAKED_FILL DAY_GLASS_CHROME_BAKED_SHEEN_TOP DAY_GLASS_CHROME_BAKED_SHEEN_END DAY_GLASS_CHROME_BAKED_RIM_TOP DAY_GLASS_CHROME_BAKED_RIM_MID DAY_GLASS_CHROME_BAKED_RIM_BOTTOM DAY_GLASS_CHROME_BAKED_RIM_WIDTH DAY_GLASS_CHROME_BAKED_SHADOW_COLOR DAY_GLASS_CHROME_BAKED_SHADOW_Y DAY_GLASS_CHROME_BAKED_SHADOW_BLUR DAY_GLASS_CHROME_BAKED_HAIRLINE)
+        }
+        (Material::Panel | Material::Menu, Tier::Live) => {
+            recipe!(DAY_GLASS_PANEL_LIVE_BRIGHTNESS DAY_GLASS_PANEL_LIVE_FILL DAY_GLASS_PANEL_LIVE_SHEEN_TOP DAY_GLASS_PANEL_LIVE_SHEEN_END DAY_GLASS_PANEL_LIVE_RIM_TOP DAY_GLASS_PANEL_LIVE_RIM_MID DAY_GLASS_PANEL_LIVE_RIM_BOTTOM DAY_GLASS_PANEL_LIVE_RIM_WIDTH DAY_GLASS_PANEL_LIVE_SHADOW_COLOR DAY_GLASS_PANEL_LIVE_SHADOW_Y DAY_GLASS_PANEL_LIVE_SHADOW_BLUR DAY_GLASS_PANEL_LIVE_HAIRLINE)
+        }
+        (Material::Panel | Material::Menu, _) => {
+            recipe!(DAY_GLASS_PANEL_BAKED_BRIGHTNESS DAY_GLASS_PANEL_BAKED_FILL DAY_GLASS_PANEL_BAKED_SHEEN_TOP DAY_GLASS_PANEL_BAKED_SHEEN_END DAY_GLASS_PANEL_BAKED_RIM_TOP DAY_GLASS_PANEL_BAKED_RIM_MID DAY_GLASS_PANEL_BAKED_RIM_BOTTOM DAY_GLASS_PANEL_BAKED_RIM_WIDTH DAY_GLASS_PANEL_BAKED_SHADOW_COLOR DAY_GLASS_PANEL_BAKED_SHADOW_Y DAY_GLASS_PANEL_BAKED_SHADOW_BLUR DAY_GLASS_PANEL_BAKED_HAIRLINE)
+        }
+        (Material::Chip, Tier::Live) => {
+            recipe!(DAY_GLASS_CHIP_LIVE_BRIGHTNESS DAY_GLASS_CHIP_LIVE_FILL DAY_GLASS_CHIP_LIVE_SHEEN_TOP DAY_GLASS_CHIP_LIVE_SHEEN_END DAY_GLASS_CHIP_LIVE_RIM_TOP DAY_GLASS_CHIP_LIVE_RIM_MID DAY_GLASS_CHIP_LIVE_RIM_BOTTOM DAY_GLASS_CHIP_LIVE_RIM_WIDTH DAY_GLASS_CHIP_LIVE_SHADOW_COLOR DAY_GLASS_CHIP_LIVE_SHADOW_Y DAY_GLASS_CHIP_LIVE_SHADOW_BLUR DAY_GLASS_CHIP_LIVE_HAIRLINE)
+        }
+        (Material::Chip, _) => {
+            recipe!(DAY_GLASS_CHIP_BAKED_BRIGHTNESS DAY_GLASS_CHIP_BAKED_FILL DAY_GLASS_CHIP_BAKED_SHEEN_TOP DAY_GLASS_CHIP_BAKED_SHEEN_END DAY_GLASS_CHIP_BAKED_RIM_TOP DAY_GLASS_CHIP_BAKED_RIM_MID DAY_GLASS_CHIP_BAKED_RIM_BOTTOM DAY_GLASS_CHIP_BAKED_RIM_WIDTH DAY_GLASS_CHIP_BAKED_SHADOW_COLOR DAY_GLASS_CHIP_BAKED_SHADOW_Y DAY_GLASS_CHIP_BAKED_SHADOW_BLUR DAY_GLASS_CHIP_BAKED_HAIRLINE)
+        }
+    }
+}
+
+fn night_recipe(material: Material, tier: Tier) -> Recipe {
     match (material, tier) {
         (Material::Chrome, Tier::Live) => {
             recipe!(GLASS_CHROME_LIVE_BRIGHTNESS GLASS_CHROME_LIVE_FILL GLASS_CHROME_LIVE_SHEEN_TOP GLASS_CHROME_LIVE_SHEEN_END GLASS_CHROME_LIVE_RIM_TOP GLASS_CHROME_LIVE_RIM_MID GLASS_CHROME_LIVE_RIM_BOTTOM GLASS_CHROME_LIVE_RIM_WIDTH GLASS_CHROME_LIVE_SHADOW_COLOR GLASS_CHROME_LIVE_SHADOW_Y GLASS_CHROME_LIVE_SHADOW_BLUR)
@@ -819,12 +858,12 @@ pub fn focus(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32, on_moon: b
         )
     } else if on_moon {
         (
-            t::FOCUS_RING_COLOR_ON_MOON,
+            shade::FOCUS_RING_COLOR_ON_MOON.get(),
             t::FOCUS_RING_WIDTH,
             t::FOCUS_GAP,
         )
     } else {
-        (t::FOCUS_RING_COLOR, t::FOCUS_RING_WIDTH, t::FOCUS_GAP)
+        (shade::FOCUS_RING_COLOR.get(), t::FOCUS_RING_WIDTH, t::FOCUS_GAP)
     };
     if !high {
         let spread = gap + width;
@@ -835,11 +874,12 @@ pub fn focus(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32, on_moon: b
             r + spread,
             ctx.data(|d| d.get_temp(halo_reach_id()))
                 .unwrap_or(t::FOCUS_HALO_BLUR),
-            t::FOCUS_HALO_COLOR,
+            shade::FOCUS_HALO_COLOR.get(),
         );
     }
     let gap_rect = rect.expand(gap);
-    rim(out, ctx, gap_rect, r + gap, gap, &|_| t::FOCUS_GAP_COLOR);
+    let gap_color = shade::FOCUS_GAP_COLOR.get();
+    rim(out, ctx, gap_rect, r + gap, gap, &|_| gap_color);
     let ring_rect = rect.expand(gap + width);
     rim(out, ctx, ring_rect, r + gap + width, width, &|_| ring);
 }
@@ -882,7 +922,7 @@ pub fn surface(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32, material
                 ctx,
                 rect,
                 r,
-                scale_rgb(t::COLOR_CANVAS, recipe.brightness),
+                scale_rgb(shade::COLOR_CANVAS.get(), recipe.brightness),
             );
             for layer in [behind.base, behind.top].into_iter().flatten() {
                 let tint = shade.gamma_multiply(layer.alpha);
@@ -957,6 +997,10 @@ fn finish(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32, recipe: &Reci
         ],
     );
     rim(out, ctx, rect, r, recipe.rim_width, &rim_color);
+    if recipe.hairline.a() > 0 {
+        let hairline = recipe.hairline;
+        rim(out, ctx, rect, r, 1.0, &|_| hairline);
+    }
 }
 
 fn scale_rgb(color: Color32, by: f32) -> Color32 {
@@ -1008,6 +1052,33 @@ pub fn cover_glow(
     );
 }
 
+fn tinted_id() -> Id {
+    Id::unique("nightjar-glass-tinted")
+}
+
+/// Notes where a see-through tint went this pass. A tint blurs nothing, so the sky's stars, which
+/// are sharp dots over its texture, would read through it as specks on a card or a button: the
+/// backdrop leaves them out there ([`tinted`]).
+fn note_tint(ctx: &Context, rect: Rect) {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| {
+        let noted = d.get_temp_mut_or_default::<(u64, Vec<Rect>)>(tinted_id());
+        if noted.0 != pass {
+            *noted = (pass, Vec::new());
+        }
+        noted.1.push(rect);
+    });
+}
+
+/// Where see-through tints went this pass, so far.
+pub fn tinted(ctx: &Context) -> Vec<Rect> {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data(|d| d.get_temp::<(u64, Vec<Rect>)>(tinted_id()))
+        .filter(|(at, _)| *at == pass)
+        .map(|(_, rects)| rects)
+        .unwrap_or_default()
+}
+
 /// A flat tint inside glass or on art: the rim of a group. No blur, no nesting.
 pub fn group(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32, fill: Color32) {
     if high_contrast() {
@@ -1015,14 +1086,15 @@ pub fn group(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32, fill: Colo
         rim(out, ctx, rect, r, 1.5, &|_| t::HC_COLOR_RIM);
         return;
     }
+    note_tint(ctx, rect);
     solid(out, ctx, rect, r, fill);
     let color = gradient(
         rect,
         168.0,
         &[
-            (0.0, t::TINT_GROUP_RIM_TOP),
-            (0.4, t::TINT_GROUP_RIM_MID),
-            (1.0, t::TINT_GROUP_RIM_BOTTOM),
+            (0.0, shade::TINT_GROUP_RIM_TOP.get()),
+            (0.4, shade::TINT_GROUP_RIM_MID.get()),
+            (1.0, shade::TINT_GROUP_RIM_BOTTOM.get()),
         ],
     );
     rim(out, ctx, rect, r, 1.0, &color);
@@ -1035,17 +1107,24 @@ pub fn control(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32) {
         rim(out, ctx, rect, r, 1.5, &|_| t::HC_COLOR_RIM);
         return;
     }
-    solid(out, ctx, rect, r, t::TINT_CONTROL_FILL);
+    note_tint(ctx, rect);
+    solid(out, ctx, rect, r, shade::TINT_CONTROL_FILL.get());
     let color = gradient(
         rect,
         168.0,
         &[
-            (0.0, t::TINT_CONTROL_RIM_TOP),
-            (0.4, t::TINT_CONTROL_RIM_MID),
-            (1.0, t::TINT_CONTROL_RIM_BOTTOM),
+            (0.0, shade::TINT_CONTROL_RIM_TOP.get()),
+            (0.4, shade::TINT_CONTROL_RIM_MID.get()),
+            (1.0, shade::TINT_CONTROL_RIM_BOTTOM.get()),
         ],
     );
     rim(out, ctx, rect, r, 1.0, &color);
+}
+
+/// The ink on [`play`]: its amber is the same in every look, so its dark ink is too (black on high
+/// contrast's moon).
+pub fn on_play() -> Color32 {
+    if high_contrast() { t::HC_COLOR_ON_MOON } else { t::COLOR_ON_MOON }
 }
 
 /// The solid amber of Play, the one thing lit from inside.
@@ -1060,7 +1139,7 @@ pub fn play(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32) {
         rect.translate(vec2(0.0, 8.0)),
         r,
         t::PLAY_GLOW_BLUR,
-        t::PLAY_GLOW,
+        shade::PLAY_GLOW.get(),
     );
     soft(
         out,
@@ -1082,7 +1161,7 @@ pub fn play(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32) {
         &[
             (0.0, t::PLAY_RIM_TOP),
             (0.45, Color32::TRANSPARENT),
-            (1.0, t::PLAY_RIM_BOTTOM),
+            (1.0, shade::PLAY_RIM_BOTTOM.get()),
         ],
     );
     rim(out, ctx, rect, r, 1.0, &edge);
@@ -1100,17 +1179,19 @@ pub fn cover_finish(out: &mut Vec<Shape>, ctx: &Context, rect: Rect, r: f32, hov
         &[(0.0, t::COVER_SHEEN_TOP), (0.26, Color32::TRANSPARENT)],
     );
     shaded(out, ctx, rect, r, &[0.1, 0.2, 0.3], &sheen);
+    // Every channel, as the colour is premultiplied: the night rim is white, the day one's foot dark.
     let boost = |c: Color32| {
-        let a = (f32::from(c.a()) * hover_boost).min(255.0) as u8;
-        Color32::from_rgba_premultiplied(a, a, a, a)
+        let up = |v: u8| (f32::from(v) * hover_boost).min(255.0) as u8;
+        let a = up(c.a());
+        Color32::from_rgba_premultiplied(up(c.r()).min(a), up(c.g()).min(a), up(c.b()).min(a), a)
     };
     let color = gradient(
         rect,
         168.0,
         &[
-            (0.0, boost(t::COVER_RIM_TOP)),
-            (0.3, boost(t::COVER_RIM_BOTTOM)),
-            (1.0, boost(t::COVER_RIM_BOTTOM)),
+            (0.0, boost(shade::COVER_RIM_TOP.get())),
+            (0.3, boost(shade::COVER_RIM_BOTTOM.get())),
+            (1.0, boost(shade::COVER_RIM_BOTTOM.get())),
         ],
     );
     rim(out, ctx, rect, r, 1.0, &color);
@@ -1466,6 +1547,29 @@ mod tests {
         crate::theme::own_palette();
         assert_eq!(count(Tier::Baked), 0);
         assert_eq!(count(Tier::Live), 1);
+    }
+
+    #[test]
+    fn day_glass_has_its_own_recipe_and_solid_stays_the_same_in_every_look() {
+        use crate::theme::{own_look, Look};
+        let materials = [Material::Chrome, Material::Panel, Material::Menu, Material::Chip];
+        let all = |look: Look, tier: Tier| {
+            own_look(look);
+            materials.map(|material| recipe(material, tier))
+        };
+        for tier in [Tier::Live, Tier::Baked] {
+            let (night, day, oled) = (all(Look::Night, tier), all(Look::Day, tier), all(Look::Oled, tier));
+            assert_eq!(oled, night, "{tier:?}: OLED black has the night glass");
+            for (material, (day, night)) in materials.iter().zip(day.iter().zip(&night)) {
+                assert_ne!(day, night, "{material:?} on {tier:?} has a day recipe");
+                assert!(day.hairline.a() > 0, "{material:?} on {tier:?}: the day glass's edge shows on a pale page");
+                assert_eq!(night.hairline, Color32::TRANSPARENT, "{material:?} on {tier:?}: no edge at night");
+            }
+            // The menus take the panel's glass by day.
+            assert_eq!(day[2], day[1], "{tier:?}");
+        }
+        assert_eq!(all(Look::Day, Tier::Solid), all(Look::Night, Tier::Solid), "solid glass is high contrast's");
+        crate::theme::own_palette();
     }
 
     #[test]

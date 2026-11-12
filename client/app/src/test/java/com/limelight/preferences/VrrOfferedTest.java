@@ -28,6 +28,7 @@ import org.robolectric.shadows.ShadowDisplay;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /** Adaptive refresh is offered only where a screen has ARR; elsewhere it is greyed and reads as off. */
@@ -78,19 +79,22 @@ public class VrrOfferedTest {
     }
 
     @Test
-    public void withoutArrTheSettingIsGreyedOffAndSaysWhy() {
+    public void withoutArrTheSettingIsHiddenAndPacingShows() {
         prefs().edit().putBoolean(PreferenceConfiguration.VRR_PREF_STRING, true).commit();
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             StreamSettings.SettingsFragment display = SettingsStructureTest.open(controller.get(), "display");
-            SwitchPreference vrr = (SwitchPreference) display.findPreference(PreferenceConfiguration.VRR_PREF_STRING);
-            assertFalse(vrr.isEnabled());
-            assertFalse(vrr.isChecked());
-            assertEquals(controller.get().getString(R.string.summary_vrr_unavailable), String.valueOf(vrr.getSummary()));
-            assertTrue("frame pacing applies again", display.findPreference("frame_pacing").isEnabled());
-            assertTrue("so does the lower refresh rate", display.findPreference("checkbox_reduce_refresh_rate").isEnabled());
-            // Another setting's change reruns the rules; the stored VRR choice still doesn't grey pacing.
+            // Shown only where it works: no greyed row and no sentence.
+            assertNull(display.findPreference(PreferenceConfiguration.VRR_PREF_STRING));
+            java.util.List<String> shown = new java.util.ArrayList<>();
+            android.preference.PreferenceScreen screen = display.getPreferenceScreen();
+            for (int i = 0; i < screen.getPreferenceCount(); i++) {
+                shown.addAll(SettingsStructureTest.keys((android.preference.PreferenceGroup) screen.getPreference(i)));
+            }
+            assertTrue("frame pacing applies again", shown.contains("frame_pacing"));
+            assertTrue("so does the lower refresh rate", shown.contains("checkbox_reduce_refresh_rate"));
+            // Another setting's change reruns the rules; the stored VRR choice still doesn't hide pacing.
             prefs().edit().putBoolean(PreferenceConfiguration.HOST_FRAME_TIMES_PREF_STRING, false).commit();
-            assertTrue(display.findPreference("frame_pacing").isEnabled());
+            assertTrue(SettingRules.framePacingApplies(controller.get(), prefs()));
         }
         assertTrue("opening Settings keeps the saved choice for a screen that gains ARR",
                 prefs().getBoolean(PreferenceConfiguration.VRR_PREF_STRING, false));

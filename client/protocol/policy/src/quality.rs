@@ -16,6 +16,22 @@ pub const DOWN_INTERVAL_MS: u64 = 15_000;
 pub const RECOVER_MS: u64 = 30_000;
 const STEP_RATES: [u32; 5] = [120, 90, 60, 45, 30];
 
+/// "Minimum resolution": the floors both clients offer, as the picture's shorter side in pixels
+/// (Android's `adaptive_quality_min_resolution`, desktop's `quality_min_short_edge`).
+pub const MIN_SHORT_EDGE_CHOICES: [u32; 5] = [360, 540, 720, 1080, 1440];
+/// "Minimum frame rate": the floors both clients offer (Android's `adaptive_quality_min_fps`,
+/// desktop's `quality_min_fps`).
+pub const MIN_FPS_CHOICES: [u32; 5] = [30, 45, 60, 90, 120];
+/// Both clients' defaults.
+pub const DEFAULT_MIN_SHORT_EDGE: u32 = 720;
+pub const DEFAULT_MIN_FPS: u32 = 30;
+
+/// The choice a stored floor reads as: the nearest one offered, a tie taking the lower floor,
+/// which leaves Automatic quality more room.
+pub fn nearest_floor(choices: &[u32], stored: u32) -> u32 {
+    choices.iter().copied().min_by_key(|&c| (c.abs_diff(stored), c)).unwrap_or(stored)
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Mode {
     #[default]
@@ -591,6 +607,25 @@ impl Subject for Traced {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stored_floor_reads_as_the_nearest_choice() {
+        assert!(MIN_SHORT_EDGE_CHOICES.contains(&DEFAULT_MIN_SHORT_EDGE) && MIN_FPS_CHOICES.contains(&DEFAULT_MIN_FPS));
+        // Desktop's old steppers (256-2160 px, 15-240 fps) and Android's lists.
+        assert_eq!(nearest_floor(&MIN_SHORT_EDGE_CHOICES, 256), 360);
+        assert_eq!(nearest_floor(&MIN_SHORT_EDGE_CHOICES, 480), 540);
+        assert_eq!(nearest_floor(&MIN_SHORT_EDGE_CHOICES, 630), 540, "a tie takes the lower floor");
+        assert_eq!(nearest_floor(&MIN_SHORT_EDGE_CHOICES, 2160), 1440);
+        assert_eq!(nearest_floor(&MIN_FPS_CHOICES, 15), 30);
+        assert_eq!(nearest_floor(&MIN_FPS_CHOICES, 50), 45);
+        assert_eq!(nearest_floor(&MIN_FPS_CHOICES, 75), 60);
+        assert_eq!(nearest_floor(&MIN_FPS_CHOICES, 240), 120);
+        for choices in [&MIN_SHORT_EDGE_CHOICES[..], &MIN_FPS_CHOICES[..]] {
+            for &c in choices {
+                assert_eq!(nearest_floor(choices, c), c);
+            }
+        }
+    }
 
     const BOUNDS: Bounds = Bounds {
         min_short_edge: 720,

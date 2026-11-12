@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_list_gamepad_quit_combo">Controller quit combo</string>
-    <string name="summary_list_gamepad_quit_combo">Hold these buttons to leave the stream; it ends once they are all let go. Off leaves it to the stream menu, which Start+Select+LB+RB opens. Applies to the next stream.</string>
+    <string name="title_list_gamepad_quit_combo">Buttons to leave the stream</string>
+    <string name="summary_list_gamepad_quit_combo">The buttons held together to leave the stream.</string>
     <string name="gamepad_quit_combo_off">Off</string>
     <string name="stream_controller_mouse">Controller mouse</string>
     <string-array name="gamepad_quit_combo_names" translatable="false">
@@ -21,7 +21,7 @@
         <item>lb_rb_a_b</item>
     </string-array>
     <string name="title_list_guide_menu_hold">Hold Guide to open the stream menu</string>
-    <string name="summary_list_guide_menu_hold">A short press still goes to the PC as Guide. Applies to the next stream.</string>
+    <string name="summary_list_guide_menu_hold">How long Guide is held to open the menu; a short press goes to the PC.</string>
     <string-array name="guide_menu_hold_names" translatable="false">
         <item>@string/gamepad_quit_combo_off</item>
         <item>0.5 s</item>

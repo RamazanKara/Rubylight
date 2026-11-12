@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_list_gamepad_quit_combo">Kombinacja wyjścia na kontrolerze</string>
-    <string name="summary_list_gamepad_quit_combo">Przytrzymaj te przyciski, aby opuścić strumień; kończy się po puszczeniu wszystkich. Wyłączone zostawia to menu strumienia, które otwiera Start+Select+LB+RB. Od następnego strumienia.</string>
+    <string name="title_list_gamepad_quit_combo">Przyciski wyjścia ze strumienia</string>
+    <string name="summary_list_gamepad_quit_combo">Przyciski przytrzymywane razem, aby opuścić strumień.</string>
     <string name="gamepad_quit_combo_off">Wyłączone</string>
     <string name="stream_controller_mouse">Mysz z kontrolera</string>
     <string name="title_list_guide_menu_hold">Przytrzymaj Guide, aby otworzyć menu strumienia</string>
-    <string name="summary_list_guide_menu_hold">Krótkie naciśnięcie nadal trafia do PC jako Guide. Od następnego strumienia.</string>
+    <string name="summary_list_guide_menu_hold">Jak długo trzeba przytrzymać Guide, aby otworzyć menu; krótkie naciśnięcie trafia do komputera.</string>
 </resources>

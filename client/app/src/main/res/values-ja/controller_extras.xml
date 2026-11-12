@@ -1,25 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Controller and keyboard options -->
-    <string name="title_checkbox_disable_rumble">振動を無効化</string>
-    <string name="summary_checkbox_disable_rumble">ゲームが要求するすべての振動を止めます: コントローラとトリガーの振動、USB DualSense のハプティクス、コントローラの代わりにこのデバイスが振動する機能。</string>
-    <string name="title_checkbox_mouse_emulation_fixed_step">固定ステップでマウスを移動</string>
-    <string name="summary_checkbox_mouse_emulation_fixed_step">コントローラのマウスモードで X を押しながらスティックを動かすと、ポインタが一定のピクセル数ずつ移動します。Y を押すとステップが 2 倍になり、1 から 128 ピクセルまで増えた後 1 に戻ります。</string>
+    <string name="title_checkbox_disable_rumble">振動をオフにする</string>
+    <string name="summary_checkbox_disable_rumble">すべての振動、トリガーの振動、ハプティクスを止めます。</string>
+    <string name="title_checkbox_mouse_emulation_fixed_step">コントローラマウスの精密移動</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">X を押している間、ポインタを一定のピクセル数ずつ動かします。</string>
     <string name="stream_mouse_step">マウスのステップ: %1$d px</string>
     <string name="title_checkbox_capture_system_keys">システムキーを送信</string>
-    <string name="summary_checkbox_capture_system_keys">入力のキャプチャ中は、Esc、Alt+Tab、Windows キーなどを PC に送ります。多くの Android 向けキーボードで Esc の代わりにある戻るキーも Esc として送ります。Alt+Tab と Windows キーを Android がアプリに渡すのは Android 16 QPR2 (2025 年 12 月) 以降と多くの Samsung 端末だけで、それ以外では Android が使います。ホーム、電源、音量キーは常に Android が使います。ストリームメニューは専用のショートカットキー、Android の戻るジェスチャーまたはボタンで開きます。次のストリームから適用されます。</string>
+    <string name="summary_checkbox_capture_system_keys">Alt+Tab、Windows キーなどを PC に送ります。</string>
     <string name="title_checkbox_system_keys_fullscreen_only">システムキーは全画面のときのみ</string>
-    <string name="summary_checkbox_system_keys_fullscreen_only">ウィンドウ表示では、Alt+Tab、Windowsキーなどはこのデバイスに残ります。</string>
+    <string name="summary_checkbox_system_keys_fullscreen_only">ウィンドウ表示では、システムキーはこのデバイスで処理されます。</string>
     <string name="title_checkbox_back_as_meta">キーボードの戻るキーで Windows キーを送信</string>
-    <string name="summary_checkbox_back_as_meta">物理キーボードの戻るキーで Windows キー (Mac では Command) を送信します。ストリームメニューは専用のショートカットキー、Android の戻るジェスチャーまたはボタン、コントローラのボタン同時押しで開きます。</string>
-    <string name="title_checkbox_right_alt_as_meta">右 Alt を Command として使用</string>
-    <string name="summary_checkbox_right_alt_as_meta">右 Alt で Windows キーを送信します。Mac ではこれが Command として使われるため、右 Alt+C でコピーできます。左 Alt は変わりません。AltGr で文字を入力する場合はオフのままにしてください。</string>
+    <string name="summary_checkbox_back_as_meta">物理キーボードの戻るキーで Windows キーを送ります。</string>
+    <string name="title_checkbox_right_alt_as_meta">右 Alt を Windows キーとして使用</string>
+    <string name="summary_checkbox_right_alt_as_meta">右 Alt で Windows キーを送ります。Mac ではこれが Command として使われます。</string>
     <string name="title_checkbox_keyboard_follows_text_fields">テキスト欄に合わせてキーボードを表示</string>
-    <string name="summary_checkbox_keyboard_follows_text_fields">ストリーム内のテキスト欄にフォーカスが移ると、その欄に合わせたスクリーンキーボードが開きます（数値欄には数字、パスワードには候補なし）。フォーカスが外れると閉じます。物理キーボードを接続している場合はそちらで入力を続けます。</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">PC のテキスト欄にフォーカスがあるとスクリーンキーボードが開きます。</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">コントローラのテスト</string>
-    <string name="controller_test_summary">ボタン、スティック、トリガー、振動、ライト、モーションを確認</string>
+    <string name="controller_test_summary">コントローラのボタン、スティック、トリガー、振動、ライト、モーションを表示します。</string>
     <string name="controller_test_open">コントローラをテスト</string>
     <string name="controller_test_hint">ボタンを押したりスティックを動かしたりしてください。十字キーと A でもこのページ内を移動できます。終了するには B か Back を 1 秒間長押しします。</string>
     <string name="controller_test_waiting">コントローラを接続して、いずれかのボタンを押してください。</string>
@@ -57,6 +57,6 @@
 
     <!-- USB Switch Pro driver -->
     <string name="title_usb_switch_pro">USB Switch Pro ドライバ</string>
-    <string name="summary_usb_switch_pro">有線接続した Nintendo Switch Pro Controller を直接読み取り、モーション、振動、Home、Capture を使用します。</string>
+    <string name="summary_usb_switch_pro">有線接続の Switch Pro Controller を、モーション、振動、Home、Capture を含めて読み取ります。</string>
     <string name="usb_switch_pro_denied">USB にアクセスできないため、Switch Pro Controller は Android の入力を使用します。\n再試行するにはケーブルを接続し直してください。</string>
 </resources>

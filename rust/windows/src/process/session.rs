@@ -258,7 +258,7 @@ pub(super) fn reattach_blocker(
             "This host runs in the PC's console session, which is at the Windows sign-in screen. Return to console only moves a host that was started inside a Remote Desktop session. Sign in through Moonlight or at the PC. If your desktop is in a disconnected Remote Desktop session, Windows reconnects it after sign-in, which ends that stream; then reconnect Moonlight.",
         )
     } else if session == console && protocol == 0 {
-        Some("This host is already attached to the physical console.")
+        Some("Rubylight already runs on the physical console.")
     } else if console == u32::MAX || console == 0 || session == 0 || session == console {
         Some(
             "The physical console is changing or unavailable. Retry after Windows finishes switching sessions.",

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_mute_audio">靜音</string>
-    <string name="summary_checkbox_mute_audio">不在此裝置上播放串流音訊。麥克風和電腦上的音訊不受影響。</string>
+    <string name="summary_checkbox_mute_audio">不在這部裝置上播放串流聲音。</string>
 </resources>

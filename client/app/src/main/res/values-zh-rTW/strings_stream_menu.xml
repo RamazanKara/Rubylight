@@ -6,7 +6,7 @@
     <string name="overlay_compact_rtt">RTT %1$s ms</string>
     <string name="overlay_compact_loss">遺失 %1$s%%</string>
     <string name="overlay_compact_waiting">正在等待影像</string>
-    <string name="link_notice_lowered">主機已將位元率降至 %1$s Mbps：網路</string>
+    <string name="link_notice_lowered">電腦已將位元率降至 %1$s Mbps：網路</string>
     <string name="overlay_health_good">串流良好</string>
     <string name="overlay_health_fair">串流不穩</string>
     <string name="overlay_health_poor">串流不佳</string>
@@ -14,7 +14,7 @@
     <string name="stream_section_input">輸入</string>
     <string name="stream_section_display">顯示</string>
     <string name="stream_section_quality">品質</string>
-    <string name="stream_section_host">主機</string>
+    <string name="stream_section_host">電腦</string>
     <string name="stream_microphone">麥克風</string>
     <string name="stream_cursor_show">顯示滑鼠游標</string>
     <string name="stream_cursor_hide">隱藏滑鼠游標</string>
@@ -24,8 +24,7 @@
     <string name="stream_quit_game">結束遊戲</string>
     <string name="stream_quit_game_confirm">要結束電腦上的遊戲嗎？\n未儲存的進度將會遺失。</string>
     <string name="stream_end_session">結束工作階段</string>
-    <string name="stream_end_session_confirm">要結束電腦上的串流工作階段嗎？
-遊戲會繼續執行。</string>
+    <string name="stream_end_session_confirm">要結束電腦上的工作階段嗎？\n電腦會恢復原本的螢幕和聲音，遊戲仍在電腦上執行。</string>
     <string name="stream_close_game">結束遊戲</string>
     <string name="stream_close_game_confirm">要關閉電腦上的遊戲嗎？
 未儲存的進度將會遺失。</string>
@@ -55,7 +54,7 @@
     <string name="stream_menu_button_hide">隱藏選單按鈕</string>
     <string name="stream_menu_settings">串流選單</string>
     <string name="title_floating_menu_button">浮動選單按鈕</string>
-    <string name="summary_floating_menu_button">串流畫面上開啟選單的圓形按鈕</string>
+    <string name="summary_floating_menu_button">串流畫面上用來開啟選單的圓形按鈕。</string>
     <string name="stream_tile_keyboard">鍵盤</string>
     <string name="stream_tile_pc_keyboard">PC 鍵盤</string>
     <string name="stream_tile_mouse">滑鼠</string>

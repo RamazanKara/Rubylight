@@ -1,26 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_enable_mic">マイクの音声を PC に送信</string>
-    <string name="summary_checkbox_enable_mic">ホストが対応している場合、PC のゲームやチャットアプリにこのデバイスのマイク音声が届きます</string>
+    <string name="summary_checkbox_enable_mic">このデバイスのマイク音声を PC に送ります。</string>
     <string name="mic_permission_denied">マイクへのアクセスが許可されていないため、マイクはオフのままです。PC 経由で話すには Android の設定で許可してください。</string>
     <string name="mic_status_sending">マイク: 送信中</string>
     <string name="mic_status_muted">マイク: ミュート中</string>
-    <string name="mic_status_not_offered">マイク: ホストが非対応</string>
+    <string name="mic_status_not_offered">マイク: PC が非対応</string>
     <string name="mic_status_unavailable">マイク: 使用不可</string>
     <string name="mic_status_no_permission">マイク: 権限が必要</string>
     <string name="title_list_mic_echo_cancel">エコーキャンセル</string>
-    <string name="summary_list_mic_echo_cancel">スピーカーのゲーム音がマイクに入らないようにします。自動ではスピーカー使用時にオン、ヘッドホンや Bluetooth ヘッドセットではオフになり、ストリーム中の切り替えにも追従します。</string>
+    <string name="summary_list_mic_echo_cancel">スピーカーから出るストリームの音がマイクに入らないようにします。</string>
     <string name="mic_echo_auto">自動</string>
     <string name="mic_echo_on">オン</string>
     <string name="mic_echo_off">オフ</string>
     <string name="title_checkbox_mic_noise_suppression">ノイズ抑制</string>
-    <string name="summary_checkbox_mic_noise_suppression">ファンのような一定の背景ノイズをマイクから除去します</string>
+    <string name="summary_checkbox_mic_noise_suppression">一定の背景ノイズをマイクから除去します。</string>
     <string name="title_checkbox_mic_auto_gain">自動ゲイン</string>
-    <string name="summary_checkbox_mic_auto_gain">小さい声と大きい声をデバイスがそろえます。下のマイクゲインはその上に適用されます。</string>
+    <string name="summary_checkbox_mic_auto_gain">小さい声と大きい声の音量をそろえます。</string>
     <string name="title_seekbar_mic_gain">マイクゲイン</string>
-    <string name="summary_seekbar_mic_gain">送信前にマイクを小さくまたは大きくします。大きなピークは音割れせず丸められます。</string>
+    <string name="summary_seekbar_mic_gain">送信前にマイクの音量を小さくまたは大きくします。</string>
     <string name="title_checkbox_mic_button">マイクボタン</string>
-    <string name="summary_checkbox_mic_button">ストリーム上にマイクのミュートと解除を切り替えるボタンを表示します。ドラッグで移動できます。</string>
+    <string name="summary_checkbox_mic_button">ストリーム上でマイクのミュートと解除を切り替えるボタンです。</string>
     <string name="mic_button_mute">マイクをミュート</string>
     <string name="mic_button_unmute">マイクのミュートを解除</string>
     <string name="stream_mic_button_show">マイクボタンを表示</string>

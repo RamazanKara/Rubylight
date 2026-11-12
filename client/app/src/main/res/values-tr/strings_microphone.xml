@@ -1,26 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_enable_mic">Mikrofonu bilgisayara gönder</string>
-    <string name="summary_checkbox_enable_mic">Ana bilgisayar destekliyorsa bilgisayardaki oyunlar ve sohbet uygulamaları bu cihazın mikrofonunu duyar</string>
+    <string name="summary_checkbox_enable_mic">Bu cihazın mikrofonunu bilgisayara gönderir.</string>
     <string name="mic_permission_denied">Mikrofon erişimine izin verilmediği için mikrofon kapalı kalıyor. Bilgisayar üzerinden konuşmak için Android ayarlarından izin verin.</string>
     <string name="mic_status_sending">Mikrofon: gönderiliyor</string>
     <string name="mic_status_muted">Mikrofon: sessizde</string>
-    <string name="mic_status_not_offered">Mikrofon: ana bilgisayar sunmuyor</string>
+    <string name="mic_status_not_offered">Mikrofon: bilgisayar sunmuyor</string>
     <string name="mic_status_unavailable">Mikrofon: kullanılamıyor</string>
     <string name="mic_status_no_permission">Mikrofon: izin gerekli</string>
     <string name="title_list_mic_echo_cancel">Yankı giderme</string>
-    <string name="summary_list_mic_echo_cancel">Hoparlördeki oyun sesinin mikrofona girmesini önler. Otomatik, hoparlörde açar, kulaklık ve Bluetooth kulaklık setlerinde kapatır ve yayın sırasındaki geçişleri izler.</string>
+    <string name="summary_list_mic_echo_cancel">Hoparlörlerden gelen yayın sesinin mikrofona girmesini önler.</string>
     <string name="mic_echo_auto">Otomatik</string>
     <string name="mic_echo_on">Açık</string>
     <string name="mic_echo_off">Kapalı</string>
     <string name="title_checkbox_mic_noise_suppression">Gürültü bastırma</string>
-    <string name="summary_checkbox_mic_noise_suppression">Fan gibi sabit arka plan gürültüsünü mikrofondan süzer</string>
+    <string name="summary_checkbox_mic_noise_suppression">Sabit arka plan gürültüsünü mikrofondan süzer.</string>
     <string name="title_checkbox_mic_auto_gain">Otomatik kazanç</string>
-    <string name="summary_checkbox_mic_auto_gain">Cihaz alçak ve yüksek sesli konuşmayı dengeler. Aşağıdaki mikrofon kazancı buna ek olarak uygulanır.</string>
+    <string name="summary_checkbox_mic_auto_gain">Alçak ve yüksek sesli konuşmayı dengeler.</string>
     <string name="title_seekbar_mic_gain">Mikrofon kazancı</string>
-    <string name="summary_seekbar_mic_gain">Mikrofonu göndermeden önce kısar veya yükseltir. Yüksek tepeler bozulmak yerine yumuşatılır.</string>
+    <string name="summary_seekbar_mic_gain">Mikrofon sesini gönderilmeden önce kısar veya yükseltir.</string>
     <string name="title_checkbox_mic_button">Mikrofon düğmesi</string>
-    <string name="summary_checkbox_mic_button">Yayında mikrofonu susturan ve açan bir düğme gösterir. Taşımak için sürükleyin.</string>
+    <string name="summary_checkbox_mic_button">Yayında mikrofonu susturan ve açan bir düğme.</string>
     <string name="mic_button_mute">Mikrofonu sustur</string>
     <string name="mic_button_unmute">Mikrofonu aç</string>
     <string name="stream_mic_button_show">Mikrofon düğmesini göster</string>

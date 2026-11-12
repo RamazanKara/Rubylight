@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_adaptive_quality">Calidad de transmisión automática</string>
-    <string name="summary_adaptive_quality">Reduce la resolución o los FPS si hay congestión continuada, decodificación lenta o calor, y luego los recupera poco a poco. Usa la tasa de bits automática si es compatible. Requiere que el servidor admita reconfiguración y un decodificador adaptativo; no disponible con PyroWave.</string>
-    <string name="title_adaptive_quality_min_resolution">Resolución automática mínima</string>
-    <string name="summary_adaptive_quality_min_resolution">Lado corto más pequeño, manteniendo la relación de aspecto. La resolución de transmisión seleccionada sigue siendo el máximo. Este límite nunca aumenta una resolución inicial más baja.</string>
-    <string name="title_adaptive_quality_min_fps">Velocidad de fotogramas automática mínima</string>
-    <string name="summary_adaptive_quality_min_fps">FPS mínimos permitidos. La velocidad de fotogramas de transmisión seleccionada sigue siendo el máximo. Se aplica a la calidad automática, incluido el modo batería.</string>
+    <string name="summary_adaptive_quality">Reduce la resolución o los FPS si hay congestión continuada, decodificación lenta o calor, y luego los recupera poco a poco. Usa la tasa de bits automática si es compatible. Requiere un PC que pueda cambiar una transmisión en curso y un decodificador adaptativo; no disponible con PyroWave.</string>
+    <string name="title_adaptive_quality_min_resolution">Resolución mínima</string>
+    <string name="summary_adaptive_quality_min_resolution">La resolución más baja a la que puede bajar Calidad automática.</string>
+    <string name="title_adaptive_quality_min_fps">Velocidad de fotogramas mínima</string>
+    <string name="summary_adaptive_quality_min_fps">La velocidad de fotogramas más baja a la que puede bajar Calidad automática.</string>
     <string name="quality_off">Desactivada</string>
     <string name="quality_motion">Priorizar fluidez</string>
     <string name="quality_detail">Priorizar detalle</string>

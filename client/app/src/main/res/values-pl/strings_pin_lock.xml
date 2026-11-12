@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="pin_lock_title">Blokada PIN-em</string>
-    <string name="pin_lock_summary">Prosi o PIN przy otwieraniu Nightjar lub uruchamianiu streamu. Zapomniany PIN można zresetować tylko przez wyczyszczenie danych aplikacji Nightjar w ustawieniach Androida, co usuwa też sparowane komputery.</string>
+    <string name="pin_lock_summary">Prosi o PIN przy otwieraniu Nightjar lub uruchamianiu strumienia.</string>
     <string name="pin_set">Ustaw PIN</string>
     <string name="pin_change">Zmień PIN</string>
     <string name="pin_remove">Usuń PIN</string>

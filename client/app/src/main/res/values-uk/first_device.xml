@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="report_problem">Повідомити про проблему</string>
-    <string name="report_problem_summary">Поділитися звітом без особистих даних</string>
+    <string name="report_problem_summary">Надсилає звіт без особистих даних.</string>
     <string name="report_problem_details">Поділіться звітом без особистих даних.\nВи самі вибираєте, куди його надіслати.</string>
     <string name="report_problem_share">Поділитися звітом</string>
     <string name="report_problem_failed">Не вдалося поділитися звітом.\nПеревірте сховище й установіть застосунок для обміну файлами.</string>
@@ -13,7 +13,7 @@
     <string name="stream_presets">Пресети</string>
     <string name="stream_presets_help">«Рідна» транслює з роздільною здатністю й частотою оновлення цього екрана з усіма налаштуваннями затримки ввімкненими.\n«Економія заряду» зберігає цю роздільну здатність при 30 FPS.\nПрофілі ПК усе одно мають пріоритет.</string>
     <string name="summary_frame_pacing">Баланс між часом відгуку й плавністю, коли VRR вимкнено.</string>
-    <string name="summary_language">Виберіть мову застосунку.</string>
+    <string name="summary_language">Мова меню Nightjar.</string>
     <string name="overlay_mode_help">«Вимкнено» приховує оверлей. «Компактний» показує один рядок: відрендерений FPS, час двобічної передачі мережею (RTT) і втрати кадрів, поруч із крапкою, що стає жовтою або червоною, коли трансляція має проблеми. «Статистика» показує поточні вимірювання трансляції. «Налагодження» додає процентилі таймінгів і діагностику декодера; прокрутіть, щоб побачити все. Це можна змінити й у меню трансляції.</string>
     <string name="overlay_statistics">Статистика</string>
     <string name="overlay_debug">Налагодження</string>
@@ -53,11 +53,11 @@
     <string name="connection_test_stats">Пінг %1$s · Джитер %2$s · Втрати %3$s</string>
     <string name="connection_test_unavailable">–</string>
     <string name="connection_test_failed">Швидкість не виміряно: тест не вдався</string>
-    <string name="pair_connection_fix">Підключіться до тієї самої мережі й запустіть хост.\nПеревірте брандмауер і спробуйте ще раз.</string>
+    <string name="pair_connection_fix">Підключіться до тієї самої мережі й запустіть на ПК застосунок для трансляції.\nПеревірте брандмауер ПК і спробуйте ще раз.</string>
     <string name="pair_try_again">Спробувати ще раз</string>
     <string name="discovery_add">Додати ПК вручну</string>
     <string name="discovery_help">Довідка зі сполучення</string>
     <string name="wol_help_title">Налаштування Wake-on-LAN</string>
-    <string name="summary_wol_help">Дізнайтеся, як пробудити ПК зі сну із застосунку.</string>
-    <string name="wol_help_text">1. Сполучіть, поки ПК не спить.\n2. Увімкніть Wake-on-LAN на ПК.\n3. Підключіться до локальної мережі й виберіть «Пробудити ПК».</string>
+    <string name="summary_wol_help">Дізнайтеся, як розбудити сплячий ПК із застосунку.</string>
+    <string name="wol_help_text">1. Сполучіть, поки ПК не спить.\n2. Увімкніть Wake-on-LAN на ПК.\n3. Підключіться до локальної мережі й виберіть «Розбудити».</string>
 </resources>

@@ -7,7 +7,7 @@
     <string name="frontend_export_esde_message">Add %1$s and game covers to ES-DE?\nSkip for other frontends.</string>
     <string name="frontend_export_pick">Pick folder</string>
     <string name="frontend_export_skip">Skip</string>
-    <string name="frontend_export_no_apps">Open this PC\'s games once, then try again.</string>
+    <string name="frontend_export_no_apps">Open this PC’s games once, then try again.</string>
     <string name="frontend_export_no_picker">No folder picker is available on this device.</string>
     <string name="frontend_export_working">Adding games…</string>
     <plurals name="frontend_export_done">
@@ -26,9 +26,9 @@
     <string name="frontend_sync_title">%1$s · Kept in sync</string>
     <string name="frontend_sync_stop">Stop syncing</string>
     <string name="frontend_sync_summary">Kept in sync: %1$s</string>
-    <string name="frontend_sync_note">%1$s keeps this folder up to date when the PC\'s games change.</string>
-    <string name="frontend_sync_failed">%1$s games for %2$s are no longer kept in sync: the folder is unavailable. Pick it again in the PC\'s settings.</string>
+    <string name="frontend_sync_note">%1$s keeps this folder up to date when the PC’s games change.</string>
+    <string name="frontend_sync_failed">%1$s games for %2$s are no longer kept in sync: the folder is unavailable. Pick it again in the PC’s settings.</string>
     <string name="frontend_sync_failed_message">The folder is unavailable, so these games are no longer kept in sync. Pick it again, or stop syncing.</string>
     <string name="frontend_sync_failed_summary">Syncing stopped, folder unavailable: %1$s</string>
-    <string name="frontend_sync_unavailable">%1$s can\'t keep this folder in sync because it only allowed access this once. Pick a local or SD card folder to keep it up to date.</string>
+    <string name="frontend_sync_unavailable">%1$s can’t keep this folder in sync because it only allowed access this once. Pick a local or SD card folder to keep it up to date.</string>
 </resources>

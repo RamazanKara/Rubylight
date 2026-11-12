@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_mute_audio">Couper l’audio</string>
-    <string name="summary_checkbox_mute_audio">Ne lit pas l’audio du stream sur cet appareil. Le micro et l’audio du PC ne changent pas.</string>
+    <string name="summary_checkbox_mute_audio">Ne lit aucun son du stream sur cet appareil.</string>
 </resources>

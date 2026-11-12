@@ -126,6 +126,9 @@ if ($sdkDll) {
     Copy-Item (Join-Path $PyrowaveSdkDir 'licenses') (Join-Path $stage 'licenses-pyrowave') -Recurse
 }
 Copy-Item (Join-Path $PSScriptRoot 'README.md') $stage
+# sonora's BSD notice: the microphone's noise suppression and automatic gain are built in.
+New-Item -ItemType Directory -Force (Join-Path $stage 'licenses-sonora') | Out-Null
+Copy-Item (Join-Path $PSScriptRoot 'assets\NOTICE-SONORA.txt') (Join-Path $stage 'licenses-sonora')
 # The decode-only FFmpeg's (LGPL, with the source offer) and dav1d's (BSD) licences, from the prefix.
 if ($FfmpegDir) {
     foreach ($licences in 'licenses-ffmpeg', 'licenses-dav1d') {

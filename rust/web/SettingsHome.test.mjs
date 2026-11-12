@@ -29,7 +29,9 @@ test('every main key is a live schema setting, listed once', () => {
 test('the Settings home stays within its budget of 12 settings', () => {
   assert.equal(MAIN_BUDGET, 12);
   assert.ok(MAIN_KEYS.length <= MAIN_BUDGET, `${MAIN_KEYS.length} main settings`);
-  assert.deepEqual(MAIN_SECTIONS.map(section => section.title), ['This PC', 'Picture', 'Sound and controls', 'Games', 'Updates']);
+  assert.deepEqual(MAIN_SECTIONS.map(section => section.title), ['This PC', 'Picture', 'Sound & controls', 'Games']);
+  // Each home section is an All settings tab of the same name, which its "More settings" link opens.
+  for (const section of MAIN_SECTIONS) assert.equal(settingsGroup(section.id), section.id, section.id);
 });
 
 test('main settings are safe in every option: nothing Experimental on the home', () => {
@@ -72,7 +74,7 @@ test('always-on keys appear only in Debug switches, described as for troubleshoo
     const setting = settings.get(key);
     assert.ok(setting, `${key} stays readable in All settings`);
     assert.equal(setting.group, DEBUG_GROUP, key);
-    assert.equal(settingsGroup(setting.category), 'general', key);
+    assert.equal(settingsGroup(setting.category), 'advanced', key);
     assert.match(setting.description, /only for troubleshooting/, key);
     assert.equal(setting.default, true, key);
     assert.equal(MAIN_KEYS.includes(key), false, key);
@@ -84,23 +86,30 @@ test('always-on keys appear only in Debug switches, described as for troubleshoo
 });
 
 test('only the expert groups start collapsed, and each one exists', () => {
-  assert.deepEqual([...EXPERT_GROUPS].sort(), ['AMD AMF', 'Capture troubleshooting', 'Console', DEBUG_GROUP, 'NVIDIA NVENC', 'Ports and addresses', 'RTSS'].sort());
+  assert.deepEqual([...EXPERT_GROUPS].sort(), ['AMD AMF', 'Capture troubleshooting', 'Console', DEBUG_GROUP, 'Key remapping', 'Mode substitutions', 'NVIDIA NVENC', 'Ports and addresses', 'RTSS'].sort());
   const groups = new Set(schema.settings.map(setting => setting.group));
   for (const group of EXPERT_GROUPS) assert.ok(groups.has(group), group);
 });
 
-test('All settings has no second Advanced fold, and the home owns updates, power and sign-in', async () => {
+test('All settings has no second Advanced fold; the home owns updates and wake, All settings the detail and sign-in', async () => {
   const page = await source('pages/Settings.svelte');
   assert.doesNotMatch(page, /class="advanced"/);
   assert.doesNotMatch(page, /setting\.advanced/);
-  assert.match(page, /EXPERT_GROUPS\.has\(group\.name\)/);
-  const help = await source('pages/Maintenance.svelte');
+  assert.match(page, /EXPERT_GROUPS\.has\(item\.name\)/);
+  // Wake detail, sign-in and the update schedule moved off the home into All settings.
+  for (const panel of ['UpdatesPanel', 'PowerPanel', 'SessionsPanel', 'PasswordPanel']) {
+    assert.match(page, new RegExp(`<${panel}`), panel);
+  }
+  const help = (await source('pages/Help.svelte')) + (await source('pages/Troubleshoot.svelte'));
   for (const panel of ['UpdatesPanel', 'PowerPanel', 'SessionsPanel', 'PasswordPanel']) {
     assert.doesNotMatch(help, new RegExp(`<${panel}`), panel);
   }
   const home = await source('pages/SettingsHome.svelte');
-  for (const panel of ['UpdatesPanel', 'PowerPanel', 'SessionsPanel', 'PasswordPanel', 'SaveBar']) {
+  for (const panel of ['UpdatesPanel', 'WakeRow', 'SaveBar']) {
     assert.match(home, new RegExp(`<${panel}`), panel);
+  }
+  for (const panel of ['PowerPanel', 'SessionsPanel', 'PasswordPanel']) {
+    assert.doesNotMatch(home, new RegExp(`<${panel}`), panel);
   }
   // The home saves through the same PATCH of changed keys as All settings.
   assert.match(home, /computeChanges\(defaults, edits, stored, new Set\(covered\)\)/);
@@ -108,7 +117,7 @@ test('All settings has no second Advanced fold, and the home owns updates, power
   const app = await source('App.svelte');
   assert.match(app, /route\.path === '\/settings'\) return SettingsHome/);
   assert.match(app, /match\('\/settings\/:section'\)\) return Settings/);
-  for (const name of ['pages/Settings.svelte', 'pages/Maintenance.svelte', 'components/devices/PairPanel.svelte']) {
+  for (const name of ['pages/Settings.svelte', 'pages/Help.svelte', 'pages/Troubleshoot.svelte', 'components/devices/PairPanel.svelte']) {
     assert.doesNotMatch(await source(name), /maintenance#account/, name);
   }
 });

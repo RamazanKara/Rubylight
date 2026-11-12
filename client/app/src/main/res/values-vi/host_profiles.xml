@@ -13,10 +13,8 @@
     <string name="host_profile_bitrate">Tốc độ bit (Mbps)</string>
     <string name="host_profile_scale">Độ phân giải kết xuất trên PC (%)</string>
     <string name="host_profile_codec">Codec video</string>
-    <string name="host_profile_virtual_display">Màn hình ảo trên máy chủ</string>
     <string name="host_profile_hdr">HDR</string>
     <string name="host_profile_full_range">Video dải màu đầy đủ</string>
-    <string name="host_profile_yuv444">Ưu tiên YUV 4:4:4</string>
     <string name="host_profile_save">Lưu</string>
     <string name="host_profile_reset">Giống tất cả PC cho mọi mục</string>
     <string name="host_profile_saved">Đã lưu cài đặt stream của PC</string>

@@ -30,7 +30,7 @@
     <string name="files_no_upload_permission">本设备不能向这台电脑发送文件。请在电脑上打开网页界面的“Devices”页面，为本设备允许“Upload files”。</string>
     <string name="files_no_download_permission">本设备不能下载这台电脑的文件。请在电脑上打开网页界面的“Devices”页面，为本设备允许“Download files”。</string>
     <string name="files_off">这台电脑已关闭文件传输。请在电脑的网页界面中“File transfer”下开启。</string>
-    <string name="files_unavailable">这台电脑的主机不支持文件传输。</string>
+    <string name="files_unavailable">这台电脑的串流应用不支持文件传输。</string>
     <string name="files_no_library">此版本的 Nightjar 无法传输文件。</string>
     <string name="files_offline">电脑不在线。</string>
     <string name="files_pick_pc">发送到哪台电脑？</string>

@@ -27,7 +27,7 @@ When the network disappears (Wi-Fi turned off or dropped), the stream shows "Net
 
 When a network returns, the stream continues in place where it can: after a [client roam](protocol/client-roaming.md), on the same address, or while there is no route yet, in which case the connection's own timeout decides. If the route to the PC now leaves from a different address that the connection cannot continue on, Nightjar reconnects to the same game immediately rather than waiting for the timeout; the immediate attempt still counts toward the budget. A network whose address arrives late, such as IPv6 before DHCP, is checked again each time its addresses change, up to the 10-second timeout.
 
-Immediate reconnects do not happen on mobile data without **Continue on mobile data**, or when **Ride out network drops** is set above the 10-second timeout, since the tolerance then decides. Every attempt first waits while the PC has no route, checking every half second, instead of failing and backing off. If the minute ends without a route, the reconnect dialog says so.
+Immediate reconnects do not happen on mobile data without **Continue on mobile data**, or when **Wait through network dropouts** is set above the 10-second timeout, since the tolerance then decides. Every attempt first waits while the PC has no route, checking every half second, instead of failing and backing off. If the minute ends without a route, the reconnect dialog says so.
 
 Nightjar for Windows and Linux follows the same rules, checking the route to the PC once a second. With **Wait through network dropouts** at its default of 3 seconds, it also reconnects immediately, while its window is not minimized.
 
@@ -44,7 +44,7 @@ The microphone's mute state carries over automatic recovery, screen-lock resume,
 
 ## Choosing automatic quality
 
-**Settings → Video → Lower resolution or frame rate when needed** is off by default (**Automatic quality** on Windows and Linux). When it is on, choose a mode and the minimum short edge and frame rate. The stream's resolution and frame rate are the upper bounds; a minimum above them is clamped. Aspect ratio and decoder alignment are preserved, and a stream that follows the native display follows fold, window and panel changes.
+**Settings → Video → Automatic quality** is off by default, on Android and on Windows and Linux. When it is on, choose a mode, **Minimum resolution** (the short edge) and **Minimum frame rate**. The stream's resolution and frame rate are the upper bounds; a minimum above them is clamped. Aspect ratio and decoder alignment are preserved, and a stream that follows the native display follows fold, window and panel changes.
 
 | Mode | Behavior |
 | --- | --- |
@@ -62,7 +62,7 @@ The change keeps the negotiated codec, HDR and color mode, and the host's displa
 
 ### How it decides
 
-With a host that supports bitrate changes during a stream, automatic quality first turns on **Device controls bitrate**. It reads the encoder's actual bitrate, takes control from the host's own adaptation, and asks for a lower resolution or frame rate only after network trouble persists at a substantially reduced bitrate. Slow decoding and thermal pressure lower quality directly, since a lower bitrate may not reduce those loads.
+With a host that supports bitrate changes during a stream, automatic quality first turns on **Lower bitrate when the network is busy**. It reads the encoder's actual bitrate, takes control from the host's own adaptation, and asks for a lower resolution or frame rate only after network trouble persists at a substantially reduced bitrate. Slow decoding and thermal pressure lower quality directly, since a lower bitrate may not reduce those loads.
 
 | Rule | Value |
 | --- | --- |
@@ -74,9 +74,9 @@ With a host that supports bitrate changes during a stream, automatic quality fir
 
 Missing video, unknown metrics, open menus, background time and picture-in-picture do not count as healthy time. Each timing window needs at least 12 fresh frames spread over half a second, the newest no more than half a second old, so pauses and short bursts cannot count as recovery.
 
-## Device controls bitrate
+## Lower bitrate when the network is busy
 
-**Device controls bitrate** sends one bitrate request per change, through the same path as a manual change; the host's own controller stands down while it is on.
+**Lower bitrate when the network is busy** sends one bitrate request per change, through the same path as a manual change; the host's own controller stands down while it is on.
 
 - **Cuts must help.** Loss of 3% or more, or the connection's own warning, cuts the bitrate by 20% every 3 seconds. Jitter or queueing alone also cuts, but if two cuts in a row did not lower jitter or queueing by at least 15%, the rate is held instead of cut further. Holding ends after 5 healthy seconds; loss ends it at once. Wi-Fi jitter that does not depend on the bitrate therefore stops above the floor, while loss still cuts to the floor.
 - **Fast recovery.** A rate with no poor sample for 10 seconds is remembered as stable. After trouble, once the link has been healthy for 5 seconds, the rate climbs back toward the stable rate by half the remaining gap (at least 250 kbps) every 3 seconds, so 2 to 50 Mbps takes about 30 seconds. Above the stable rate it probes up by 5% every 15 seconds. If a step brings poor samples back within 10 seconds, the rate returns to the previous one, the stable rate drops halfway between the two, and the next attempt waits for 15 healthy seconds.

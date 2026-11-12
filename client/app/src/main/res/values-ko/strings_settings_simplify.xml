@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="fps_show_supported">지원되는 프레임 속도만 표시</string>
-    <string name="title_adaptive_quality_setting">필요할 때 해상도나 프레임 속도 낮추기</string>
-    <string name="summary_adaptive_quality_setting">네트워크, 느린 디코딩, 발열 때문에 스트림이 원활하지 않으면 해상도나 프레임 속도를 낮추고, 상태가 나아지면 다시 올립니다. PyroWave에는 적용되지 않습니다.</string>
+    <string name="title_adaptive_quality_setting">자동 품질</string>
+    <string name="summary_adaptive_quality_setting">PC, 네트워크 또는 기기가 따라가지 못하는 동안 해상도나 프레임 속도를 낮춥니다.</string>
     <string name="title_low_latency_customize">사용자 지정</string>
     <string name="low_latency_customize_closed">저지연 구성 요소별로 켜고 끄기</string>
     <string name="low_latency_customize_open">개별 스위치 숨기기</string>

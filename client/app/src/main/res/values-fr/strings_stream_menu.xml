@@ -6,7 +6,7 @@
     <string name="overlay_compact_rtt">RTT %1$s ms</string>
     <string name="overlay_compact_loss">Perte %1$s %%</string>
     <string name="overlay_compact_waiting">En attente de la vidéo</string>
-    <string name="link_notice_lowered">L\'hôte a réduit le débit à %1$s Mbit/s : réseau</string>
+    <string name="link_notice_lowered">Le PC a réduit le débit à %1$s Mbit/s : réseau</string>
     <string name="overlay_health_good">Stream correct</string>
     <string name="overlay_health_fair">Stream en difficulté</string>
     <string name="overlay_health_poor">Stream médiocre</string>
@@ -14,7 +14,7 @@
     <string name="stream_section_input">Saisie</string>
     <string name="stream_section_display">Affichage</string>
     <string name="stream_section_quality">Qualité</string>
-    <string name="stream_section_host">Hôte</string>
+    <string name="stream_section_host">PC</string>
     <string name="stream_microphone">Micro</string>
     <string name="stream_cursor_show">Afficher le curseur de la souris</string>
     <string name="stream_cursor_hide">Masquer le curseur de la souris</string>
@@ -24,8 +24,7 @@
     <string name="stream_quit_game">Quitter le jeu</string>
     <string name="stream_quit_game_confirm">Quitter le jeu sur le PC ?\nLa progression non sauvegardée sera perdue.</string>
     <string name="stream_end_session">Terminer la session</string>
-    <string name="stream_end_session_confirm">Terminer la session de streaming sur le PC ?
-Le jeu continue de tourner.</string>
+    <string name="stream_end_session_confirm">Terminer la session sur le PC ?\nLe PC retrouve son affichage et son audio. Le jeu continue de tourner dessus.</string>
     <string name="stream_close_game">Quitter le jeu</string>
     <string name="stream_close_game_confirm">Fermer le jeu sur le PC ?
 La progression non enregistrée sera perdue.</string>
@@ -55,7 +54,7 @@ La progression non enregistrée sera perdue.</string>
     <string name="stream_menu_button_hide">Masquer le bouton du menu</string>
     <string name="stream_menu_settings">Menu du stream</string>
     <string name="title_floating_menu_button">Bouton de menu flottant</string>
-    <string name="summary_floating_menu_button">Un bouton rond au-dessus du stream qui ouvre le menu</string>
+    <string name="summary_floating_menu_button">Un bouton rond au-dessus du stream qui ouvre le menu.</string>
     <string name="stream_tile_keyboard">Clavier</string>
     <string name="stream_tile_pc_keyboard">Clavier PC</string>
     <string name="stream_tile_mouse">Souris</string>

@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_dual_screen">Chế độ hai màn hình</string>
-    <string name="summary_checkbox_dual_screen">Trên thiết bị có màn hình thứ hai, bắt đầu một stream thứ hai của cùng trò chơi trên màn hình đó, ở độ phân giải gốc của màn hình đó. Stream thứ hai là cùng thiết bị với stream thứ nhất nên PC chỉ cần ghép đôi một lần. Màn hình thứ nhất giữ âm thanh, tay cầm và micrô, và việc đổi chế độ cảm ứng trên màn hình nào cũng áp dụng cho cả hai. PC phải là máy chủ Rubylight có hỗ trợ tính năng này và sẽ quyết định mỗi màn hình hiển thị màn hình nào của PC. Áp dụng từ stream tiếp theo.</string>
+    <string name="summary_checkbox_dual_screen">Stream thứ hai của cùng trò chơi trên màn hình thứ hai.</string>
     <string name="title_resolution_screen2">Độ phân giải màn hình thứ hai</string>
-    <string name="summary_resolution_screen2">Độ phân giải của stream trên màn hình thứ hai, riêng với màn hình thứ nhất. Với kích thước gốc, stream dùng độ phân giải đầy đủ của màn hình đó.</string>
+    <string name="summary_resolution_screen2">Độ phân giải của stream trên màn hình thứ hai.</string>
     <string name="resolution_screen2_native">Kích thước gốc của màn hình thứ hai</string>
     <string name="dual_screen_unavailable">Không thể mở màn hình thứ hai.</string>
 </resources>

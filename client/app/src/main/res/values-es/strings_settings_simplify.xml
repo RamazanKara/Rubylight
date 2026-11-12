@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="fps_show_supported">Mostrar solo las velocidades de fotogramas compatibles</string>
-    <string name="title_adaptive_quality_setting">Reducir la resolución o la velocidad de fotogramas si hace falta</string>
-    <string name="summary_adaptive_quality_setting">Cuando la red, una decodificación lenta o el calor impiden que la transmisión vaya bien, reduce la resolución o la velocidad de fotogramas y las vuelve a subir al recuperarse. No se aplica a PyroWave.</string>
+    <string name="title_adaptive_quality_setting">Calidad automática</string>
+    <string name="summary_adaptive_quality_setting">Reduce la resolución o la velocidad de fotogramas mientras el PC, la red o el dispositivo no dan abasto.</string>
     <string name="title_low_latency_customize">Personalizar</string>
     <string name="low_latency_customize_closed">Elige qué partes de la baja latencia están activas</string>
     <string name="low_latency_customize_open">Ocultar los interruptores individuales</string>

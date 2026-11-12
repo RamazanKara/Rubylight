@@ -319,7 +319,7 @@ impl Run {
                     in_time(Step::Wait)
                 }
                 AppsSeen::Failed(why) => Step::Failed(Some(trf("The app list could not be loaded. {}", &[why]))),
-                AppsSeen::Loaded(None) => Step::Failed(Some(tr("The PC's app list has no entry for this game.").to_owned())),
+                AppsSeen::Loaded(None) => Step::Failed(Some(tr("The PC’s app list has no entry for this game.").to_owned())),
                 AppsSeen::Loaded(Some(app)) => {
                     self.phase = Phase::Launched;
                     Step::Start(*app)
@@ -357,7 +357,7 @@ pub fn at_start(store: &Store, settings: &Settings, recents: &[Recent], launcher
         Action::Countdown(game) => (target(game).map(Run::new), None),
         Action::Skip(game) => {
             let title = target(game).map_or(String::new(), |t| t.game.title);
-            (None, Some((tr("Automatic start skipped").to_owned(), trf("{} didn't start last time, so Nightjar opened as usual.", &[&title]))))
+            (None, Some((tr("Automatic start skipped").to_owned(), trf("{} didn’t start last time, so Nightjar opened as usual.", &[&title]))))
         }
     }
 }
@@ -558,7 +558,7 @@ impl crate::App {
             pin_screen: self.launcher.pin.as_ref().is_some_and(crate::pin_ui::PinLock::app_locked),
             no_dialog: matches!(dialog, Dialog::None),
             countdown: matches!(dialog, Dialog::OpenPlay { .. }),
-            message: matches!(dialog, Dialog::Message { .. }),
+            message: matches!(dialog, Dialog::Message { .. } | Dialog::ConnectFailed { .. }),
             identity: self.hosts.identity().is_some(),
             host: host.map(|h| HostSeen {
                 reach: h.reach,

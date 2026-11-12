@@ -17,6 +17,7 @@ function on(values: Values, key: string, fallback: boolean): boolean {
 
 const steam = (values: Values) => on(values, 'steam_enabled', true);
 const recent = (values: Values) => steam(values) && !on(values, 'steam_sync_all_installed', true);
+const folders = (values: Values) => toList(values.library_local_folders).some((folder) => folder.trim() !== '');
 const playnite = (values: Values) => on(values, 'playnite_enabled', true);
 const playniteSync = (values: Values) => playnite(values) && on(values, 'playnite_auto_sync', true);
 const playniteRecent = (values: Values) => playniteSync(values) && !on(values, 'playnite_sync_all_installed', true);
@@ -241,6 +242,133 @@ const playniteSettings: Setting[] = [
   },
 ];
 
+/** A launcher the host syncs as it does Steam, with Steam's options under its own keys. */
+interface Launcher {
+  /** The host's source key: `library_<id>_enabled`, `<id>_auto_sync`, … */
+  id: 'epic' | 'battlenet' | 'microsoft' | 'ea' | 'ubisoft' | 'gog';
+  name: string;
+  /** "the games installed with …" */
+  installer: string;
+  /** What art the host takes from the launcher, if any. */
+  art: string;
+  /** A game of the launcher, for the leave-out example. */
+  example: string;
+  /** The launcher records when each game was last played (core/src/library.rs keeps_play_history). */
+  history?: boolean;
+}
+
+/** In the order of the Library's launcher list. */
+const LAUNCHERS: Launcher[] = [
+  { id: 'epic', name: 'Epic Games', installer: 'the Epic Games Launcher', art: ', with their covers', example: 'Fortnite' },
+  { id: 'battlenet', name: 'Battle.net', installer: 'Battle.net', art: '', example: 'Overwatch 2', history: true },
+  { id: 'microsoft', name: 'Microsoft Store and Xbox', installer: 'the Xbox app or the Microsoft Store', art: ', with their icons', example: 'Halo Infinite' },
+  { id: 'ea', name: 'EA app', installer: 'the EA app', art: '', example: 'Apex Legends' },
+  { id: 'ubisoft', name: 'Ubisoft Connect', installer: 'Ubisoft Connect', art: '', example: "Assassin's Creed Mirage" },
+  { id: 'gog', name: 'GOG', installer: 'GOG Galaxy or the GOG installer', art: ', with their icons', example: 'Cyberpunk 2077' },
+];
+
+/** Each source's settings group, where the Library's options links land. */
+export const LAUNCHER_GROUPS: Record<string, string> = {
+  steam: 'Steam options',
+  ...Object.fromEntries(LAUNCHERS.map((launcher) => [launcher.id, `${launcher.name} options`])),
+  local: 'Game folders',
+  playnite: 'Playnite',
+};
+
+/** Steam's options for one launcher: its switch, automatic sync, removal, recent games where it keeps a play history, and games to leave out. */
+function launcherSettings(launcher: Launcher): Setting[] {
+  const { id, name } = launcher;
+  const group = LAUNCHER_GROUPS[id]!;
+  const enabled = (values: Values) => on(values, `library_${id}_enabled`, true);
+  const recentOnly = (values: Values) => enabled(values) && !on(values, `${id}_sync_all_installed`, true);
+  const inactiveHint = `Turn on ${name} library to use this setting.`;
+  const recentHint = `Turn on ${name} library and turn off Every installed game to configure the recent-games list.`;
+  const rows: Setting[] = [
+    {
+      key: `library_${id}_enabled`,
+      label: `${name} library`,
+      description: `Adds the games installed with ${launcher.installer} to the library${launcher.art}, and ends a stream when the game exits.`,
+      category: 'library',
+      group,
+      control: { kind: 'toggle' },
+      default: true,
+    },
+    {
+      key: `${id}_auto_sync`,
+      label: 'Sync automatically',
+      description: `Checks every five minutes for games installed${launcher.history ? ', removed or played' : ' or removed'}, and updates the library.`,
+      category: 'library',
+      group,
+      control: { kind: 'toggle' },
+      default: true,
+      inactiveHint,
+      visibleWhen: enabled,
+    },
+  ];
+  if (launcher.history) {
+    rows.push(
+      {
+        key: `${id}_sync_all_installed`,
+        label: 'Every installed game',
+        description: 'Adds every installed game, as every launcher does. When off, only the games played most recently are added.',
+        category: 'library',
+        group,
+        control: { kind: 'toggle' },
+        default: true,
+        inactiveHint,
+        visibleWhen: enabled,
+      },
+      {
+        key: `${id}_recent_games`,
+        label: 'Recent games',
+        description: 'How many of the most recently played games to add.',
+        category: 'library',
+        group,
+        control: { kind: 'number', min: 0, max: 100, step: 1 },
+        default: 10,
+        inactiveHint: recentHint,
+        visibleWhen: recentOnly,
+      },
+      {
+        key: `${id}_recent_max_age_days`,
+        label: 'Played within',
+        description: 'Leaves out games not played for this many days. 0 adds them however long ago they were played.',
+        category: 'library',
+        group,
+        control: { kind: 'number', min: 0, max: 3650, step: 1, unit: 'days' },
+        default: 30,
+        inactiveHint: recentHint,
+        visibleWhen: recentOnly,
+      },
+    );
+  }
+  rows.push(
+    {
+      key: `${id}_autosync_remove_uninstalled`,
+      label: 'Remove uninstalled games',
+      description: `Removes a game’s app when the game is uninstalled.${launcher.history ? ' With recent games only, apps that fall out of the list are always removed.' : ' Games you added by hand stay.'}`,
+      category: 'library',
+      group,
+      control: { kind: 'toggle' },
+      default: true,
+      inactiveHint,
+      visibleWhen: enabled,
+    },
+    {
+      key: `${id}_exclude_games`,
+      label: 'Games to leave out',
+      description: `A JSON list of games the sync never adds, by name or ${name} ID: [{"name": "${launcher.example}"}]. Apps already added for them are removed.`,
+      category: 'library',
+      group,
+      control: { kind: 'json' },
+      default: [],
+      inactiveHint,
+      visibleWhen: enabled,
+    },
+  );
+  return rows;
+}
+
 export const settings: Setting[] = [
   {
     key: 'terminate_on_pause',
@@ -267,7 +395,7 @@ export const settings: Setting[] = [
     key: 'steam_enabled',
     label: 'Steam library',
     description:
-      'Adds your Steam games to the library, with their covers, and ends a stream when the game it started exits. In Library, select Sync now beside Steam to add them now.',
+      'Adds your Steam games to the library, with their covers, and ends a stream when the game it started exits.',
     category: 'library',
     group: 'Steam options',
     control: { kind: 'toggle' },
@@ -353,91 +481,41 @@ export const settings: Setting[] = [
     inactiveHint: "Turn on Steam library to use this setting. Sync now in Library applies it without automatic syncing.",
     visibleWhen: steam,
   },
+  // Every other launcher has Steam's options, in its own group beside Steam's.
+  ...LAUNCHERS.flatMap(launcherSettings),
   ...playniteSettings,
-  {
-    key: 'library_epic_enabled',
-    label: 'Epic Games',
-    description: 'Adds the games installed with the Epic Games Launcher to the library, with their covers, and ends a stream when the game exits.',
-    category: 'library',
-    group: 'Launchers',
-    control: { kind: 'toggle' },
-    default: true,
-  },
-  {
-    key: 'library_battlenet_enabled',
-    label: 'Battle.net',
-    description: 'Adds the games installed with Battle.net to the library, with their covers, and ends a stream when the game exits.',
-    category: 'library',
-    group: 'Launchers',
-    control: { kind: 'toggle' },
-    default: true,
-  },
-  {
-    key: 'library_ea_enabled',
-    label: 'EA app',
-    description: 'Adds the games installed with the EA app to the library, with their covers, and ends a stream when the game exits.',
-    category: 'library',
-    group: 'Launchers',
-    control: { kind: 'toggle' },
-    default: true,
-  },
-  {
-    key: 'library_ubisoft_enabled',
-    label: 'Ubisoft Connect',
-    description: 'Adds the games installed with Ubisoft Connect to the library, with their covers, and ends a stream when the game exits.',
-    category: 'library',
-    group: 'Launchers',
-    control: { kind: 'toggle' },
-    default: true,
-  },
-  {
-    key: 'library_gog_enabled',
-    label: 'GOG',
-    description: 'Adds the games installed with GOG Galaxy or the GOG installer to the library, with their covers, and ends a stream when the game exits.',
-    category: 'library',
-    group: 'Launchers',
-    control: { kind: 'toggle' },
-    default: true,
-  },
-  {
-    key: 'library_microsoft_enabled',
-    label: 'Xbox and Microsoft Store',
-    description: 'Adds the games installed with the Xbox app or the Microsoft Store to the library, with their covers, and ends a stream when the game exits.',
-    category: 'library',
-    group: 'Launchers',
-    control: { kind: 'toggle' },
-    default: true,
-  },
-  {
-    key: 'library_auto_sync',
-    label: 'Sync automatically',
-    description: 'Keeps every installed game of the launchers above in the library, like the Steam sync. Games you delete from the library stay deleted.',
-    details: 'Checked every five minutes and when these settings change. While Playnite syncs your library, Playnite adds these games instead.',
-    category: 'library',
-    group: 'Launchers',
-    control: { kind: 'toggle' },
-    default: true,
-  },
-  {
-    key: 'library_autosync_remove_uninstalled',
-    label: 'Remove uninstalled games',
-    description: 'Removes a synced game once its launcher no longer lists it. Games you added by hand stay.',
-    category: 'library',
-    group: 'Launchers',
-    control: { kind: 'toggle' },
-    default: true,
-    visibleWhen: (values) => on(values, 'library_auto_sync', true),
-  },
   {
     key: 'library_local_folders',
     label: 'Game folders',
-    description: 'Folders that hold one game per subfolder, such as D:\\Games. Add games then lists each subfolder with the program that starts it.',
+    description: 'Folders that hold one game per subfolder, such as D:\\Games. Each subfolder joins the library with the program that starts it.',
     details:
       'Installers, uninstallers, redistributables, crash reporters and updaters are skipped, and programs more than two folders down are not read. A game a launcher already lists is shown under that launcher.',
     category: 'library',
     group: 'Game folders',
     control: { kind: 'list', placeholder: 'D:\\Games' },
     default: [],
+  },
+  {
+    key: 'library_local_auto_sync',
+    label: 'Sync automatically',
+    description: 'Checks the game folders every five minutes and updates their games when they are added or removed.',
+    category: 'library',
+    group: 'Game folders',
+    control: { kind: 'toggle' },
+    default: true,
+    inactiveHint: 'Add a game folder to use this setting.',
+    visibleWhen: folders,
+  },
+  {
+    key: 'library_local_autosync_remove_uninstalled',
+    label: 'Remove deleted games',
+    description: 'Removes a game folder’s app when its folder is deleted. Games you added by hand stay.',
+    category: 'library',
+    group: 'Game folders',
+    control: { kind: 'toggle' },
+    default: true,
+    inactiveHint: 'Add a game folder to use this setting.',
+    visibleWhen: folders,
   },
   {
     key: 'library_local_exclude',
@@ -448,7 +526,7 @@ export const settings: Setting[] = [
     control: { kind: 'list', placeholder: 'Tools' },
     default: [],
     inactiveHint: 'Add a game folder to use this setting.',
-    visibleWhen: (values) => toList(values.library_local_folders).some((folder) => folder.trim() !== ''),
+    visibleWhen: folders,
   },
   {
     key: 'lossless_scaling_path',

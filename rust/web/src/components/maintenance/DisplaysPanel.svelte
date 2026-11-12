@@ -110,11 +110,11 @@
           <h4>Saved layout</h4>
           <p class="text">
             {#if !golden.exists}
-              No layout is saved. Arrange your displays the way you want them between streams, then save.
+              No layout is saved.
             {:else if !golden.comparison_available}
-              A layout is saved. The host could not compare it with the current displays.
+              A layout is saved. Rubylight couldn’t compare it with the displays as they are now.
             {:else if golden.current_mismatch_reason}
-              A layout is saved. The displays are arranged differently right now; restore it to go back.
+              A layout is saved. The displays are arranged differently right now.
             {:else}
               A layout is saved and matches the displays as they are now.
             {/if}
@@ -143,7 +143,7 @@
           <div class="action">
             <div>
               <p class="text">Reset display settings memory</p>
-              <p class="muted hint">Use it when displays keep returning to an old setup after streams.</p>
+              <p class="muted hint">For displays that keep returning to an old setup after streams.</p>
             </div>
             <Button variant="danger" disabled={running !== null} busy={running === 'reset'} onclick={reset}>Reset</Button>
           </div>

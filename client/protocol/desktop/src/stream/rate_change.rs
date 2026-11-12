@@ -246,16 +246,16 @@ impl RateChange {
 
 fn fps_text(fps_millihz: u32) -> String {
     let fps = f64::from(fps_millihz) / 1000.0;
-    if fps_millihz % 1000 == 0 { format!("{fps:.0}") } else { format!("{fps:.3}") }
+    if fps_millihz.is_multiple_of(1000) { format!("{fps:.0}") } else { format!("{fps:.3}") }
 }
 
 fn reason_text(reason: Reason) -> &'static str {
     match reason {
         Reason::Invalid => tr("the request was not valid"),
-        Reason::Disabled => tr("the PC does not change this stream's rates"),
-        Reason::Codec => tr("this stream's codec keeps its rates"),
-        Reason::HostLimit => tr("the PC's limit"),
-        Reason::EncoderLimit => tr("the encoder's limit"),
+        Reason::Disabled => tr("the PC does not change this stream’s rates"),
+        Reason::Codec => tr("this stream’s codec keeps its rates"),
+        Reason::HostLimit => tr("the PC’s limit"),
+        Reason::EncoderLimit => tr("the encoder’s limit"),
         Reason::EncoderFailed => tr("the encoder could not run at it"),
         Reason::Superseded => tr("a later change replaced it"),
         Reason::None | Reason::Other => tr("the PC gave no reason"),
@@ -341,7 +341,7 @@ mod tests {
         assert_eq!((request.bitrate_kbps, request.fps_millihz), (40_000, 0));
         assert!(rates.menu_busy());
         let answer = rates.result(&result(&request, 30_000, 60_000, Outcome::clamped(Reason::HostLimit), Outcome::UNCHANGED), 1000);
-        assert_eq!(answer.toast.as_deref(), Some("Bitrate limited to 30000 kbps: the PC's limit."));
+        assert_eq!(answer.toast.as_deref(), Some("Bitrate limited to 30000 kbps: the PC’s limit."));
         assert_eq!((answer.bitrate_kbps, answer.fps_millihz), (Some(30_000), None));
         assert!(!rates.menu_busy());
         assert_eq!(rates.menu_kbps, 30_000, "the field shows what the stream runs at");
@@ -359,7 +359,7 @@ mod tests {
         let request = rates.menu_request(0).unwrap();
         assert_eq!((request.bitrate_kbps, request.fps_millihz), (0, 144_000));
         let answer = rates.result(&result(&request, 50_000, 119_880, Outcome::UNCHANGED, Outcome::refused(Reason::Disabled)), 3000);
-        assert_eq!(answer.toast.as_deref(), Some("Frame rate not changed: the PC does not change this stream's rates."));
+        assert_eq!(answer.toast.as_deref(), Some("Frame rate not changed: the PC does not change this stream’s rates."));
         assert_eq!(answer.fps_millihz, None);
         assert_eq!(rates.menu_fps, 119.88, "the field goes back to the stream's rate");
 
@@ -410,7 +410,7 @@ mod tests {
 
         // A refusal stops it, loudly.
         let answer = rates.result(&result(&request, 30_000, 60_000, Outcome::refused(Reason::Codec), Outcome::UNCHANGED), 10_000);
-        assert_eq!(answer.toast.as_deref(), Some("Loss-based bitrate stopped: this stream's codec keeps its rates"));
+        assert_eq!(answer.toast.as_deref(), Some("Loss-based bitrate stopped: this stream’s codec keeps its rates"));
         assert!(!rates.hint_active() && !rates.hint_has_room());
         assert!((11..60).all(|s| rates.tick(&stats(s, 10.0)).is_none()));
     }

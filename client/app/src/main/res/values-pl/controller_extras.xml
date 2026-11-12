@@ -2,24 +2,24 @@
 <resources>
     <!-- Controller and keyboard options -->
     <string name="title_checkbox_disable_rumble">Wyłącz wibracje</string>
-    <string name="summary_checkbox_disable_rumble">Zatrzymuje wszystkie wibracje, o które prosi gra: wibracje kontrolera i spustów, haptykę DualSense przez USB oraz wibracje tego urządzenia zamiast kontrolera.</string>
-    <string name="title_checkbox_mouse_emulation_fixed_step">Ruch myszy o stały krok</string>
-    <string name="summary_checkbox_mouse_emulation_fixed_step">W trybie myszy kontrolera przytrzymaj X podczas ruchu gałką, aby przesuwać wskaźnik o stałą liczbę pikseli naraz. Naciśnij Y, aby podwoić krok, od 1 do 128 pikseli, a potem znów od 1.</string>
+    <string name="summary_checkbox_disable_rumble">Wyłącza wszystkie wibracje, wibracje spustów i haptykę.</string>
+    <string name="title_checkbox_mouse_emulation_fixed_step">Precyzyjna mysz kontrolera</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">Przesuwa wskaźnik o stałe kroki w pikselach, gdy X jest przytrzymany.</string>
     <string name="stream_mouse_step">Krok myszy: %1$d px</string>
     <string name="title_checkbox_capture_system_keys">Wysyłaj klawisze systemowe</string>
-    <string name="summary_checkbox_capture_system_keys">Esc, Alt+Tab, klawisz Windows i podobne trafiają do komputera, gdy wejście jest przechwytywane, podobnie jak klawisz Wstecz, który wiele klawiatur do Androida ma zamiast Esc. Android oddaje Alt+Tab i klawisz Windows tylko od Androida 16 QPR2 (grudzień 2025) i na wielu urządzeniach Samsung; gdzie indziej zatrzymuje je dla siebie. Ekran główny, zasilanie i głośność zawsze zostają przy Androidzie. Menu strumienia otworzysz własnym skrótem albo gestem lub przyciskiem Wstecz Androida. Od następnego strumienia.</string>
+    <string name="summary_checkbox_capture_system_keys">Alt+Tab, klawisz Windows i podobne trafiają do komputera.</string>
     <string name="title_checkbox_system_keys_fullscreen_only">Klawisze systemowe tylko na pełnym ekranie</string>
-    <string name="summary_checkbox_system_keys_fullscreen_only">W oknie Alt+Tab, klawisz Windows i podobne zostają na tym urządzeniu.</string>
+    <string name="summary_checkbox_system_keys_fullscreen_only">W oknie klawisze systemowe zostają na tym urządzeniu.</string>
     <string name="title_checkbox_back_as_meta">Wstecz na klawiaturze jako klawisz Windows</string>
-    <string name="summary_checkbox_back_as_meta">Klawisz Wstecz na fizycznej klawiaturze wysyła klawisz Windows (Command na Macu). Menu strumienia otworzysz własnym skrótem, gestem lub przyciskiem Wstecz Androida albo kombinacją przycisków kontrolera.</string>
-    <string name="title_checkbox_right_alt_as_meta">Prawy Alt jako Command</string>
-    <string name="summary_checkbox_right_alt_as_meta">Prawy Alt wysyła klawisz Windows, którego Mac używa jako Command, więc prawy Alt+C kopiuje. Lewy Alt działa bez zmian. Zostaw wyłączone, jeśli wpisujesz znaki za pomocą AltGr.</string>
+    <string name="summary_checkbox_back_as_meta">Klawisz Wstecz fizycznej klawiatury wysyła klawisz Windows.</string>
+    <string name="title_checkbox_right_alt_as_meta">Prawy Alt jako klawisz Windows</string>
+    <string name="summary_checkbox_right_alt_as_meta">Prawy Alt wysyła klawisz Windows, którego Mac używa jako Command.</string>
     <string name="title_checkbox_keyboard_follows_text_fields">Klawiatura podąża za polami tekstowymi</string>
-    <string name="summary_checkbox_keyboard_follows_text_fields">Klawiatura ekranowa otwiera się, gdy pole tekstowe w streamie otrzyma fokus, dopasowana do pola: cyfry dla pola liczbowego, bez podpowiedzi dla hasła. Zamyka się, gdy pole traci fokus. Z podłączoną klawiaturą fizyczną nadal piszesz na niej.</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">Klawiatura ekranowa otwiera się, gdy pole tekstowe na komputerze ma fokus.</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">Test kontrolera</string>
-    <string name="controller_test_summary">Sprawdź przyciski, gałki, spusty, wibracje, podświetlenie i ruch</string>
+    <string name="controller_test_summary">Pokazuje przyciski, gałki, spusty, wibracje, podświetlenie i ruch, które wysyła kontroler.</string>
     <string name="controller_test_open">Testuj kontroler</string>
     <string name="controller_test_hint">Naciskaj przyciski i poruszaj gałkami. Krzyżak i A także służą do poruszania się po tej stronie; aby wyjść, przytrzymaj B lub Back przez sekundę.</string>
     <string name="controller_test_waiting">Podłącz kontroler i naciśnij dowolny przycisk.</string>
@@ -57,6 +57,6 @@
 
     <!-- USB Switch Pro driver -->
     <string name="title_usb_switch_pro">Sterownik Switch Pro USB</string>
-    <string name="summary_usb_switch_pro">Odczytuje bezpośrednio przewodowy Nintendo Switch Pro Controller z czujnikami ruchu, wibracjami oraz przyciskami Home i Capture.</string>
+    <string name="summary_usb_switch_pro">Odczytuje przewodowy Switch Pro Controller z czujnikami ruchu, wibracjami oraz przyciskami Home i Capture.</string>
     <string name="usb_switch_pro_denied">Brak dostępu do USB; Switch Pro Controller nadal używa wejścia Androida.\nPodłącz kabel ponownie, aby spróbować jeszcze raz.</string>
 </resources>

@@ -1056,7 +1056,9 @@ mod wayland {
                 if map != libc::MAP_FAILED {
                     let bytes = std::slice::from_raw_parts(map.cast::<u8>(), size);
                     data.table = bytes
-                        .chunks_exact(16)
+                        .as_chunks::<16>()
+                        .0
+                        .iter()
                         .map(|entry| (u32::from_ne_bytes(entry[..4].try_into().unwrap()), u64::from_ne_bytes(entry[8..].try_into().unwrap())))
                         .collect();
                     libc::munmap(map, size);
@@ -1483,7 +1485,7 @@ mod wayland {
         /// stream's brightness; a line for the log when ours changed or could not.
         fn pump(&mut self) -> Option<String> {
             self.pumps = self.pumps.wrapping_add(1);
-            if self.pumps % 8 != 0 {
+            if !self.pumps.is_multiple_of(8) {
                 return None;
             }
             self.conn.pump();
@@ -1640,7 +1642,7 @@ mod wayland {
         /// Reads what arrived, every 16th call (a poll per call would be wasted).
         pub fn poll(&mut self) {
             self.polls = self.polls.wrapping_add(1);
-            if self.polls % 16 == 0 {
+            if self.polls.is_multiple_of(16) {
                 self.conn.pump();
                 self.sync();
             }

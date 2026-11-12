@@ -43,16 +43,17 @@ The tables below have no macOS column. The Mac client shares the desktop library
 | Remote Monitor and Input-only entries | Yes | Yes | Yes | Remote Monitor sends no input, microphone, clipboard or commands. |
 | Input-only on any PC | Yes | Yes | Yes | Off by default. A 640×360, 30 fps, 500 kbps stream that is neither shown nor played. |
 | Settings per PC and per game, profiles by network, mobile data cap | Yes | Yes | Yes | |
-| Settings that open on the main rows, with "More … settings" | Yes | Yes | Yes | Rarely needed settings sit in a Debug section at the end on both. |
+| Settings that open on the main rows, with "More … settings" | Yes | Yes | Yes | The same sections (Video, Display & image, Controls, Audio, Streaming, App, Advanced, Debug), groups and labels on both; rarely needed settings sit in Debug at the end. |
 | Settings search | Yes | Yes | Yes | Desktop: the search field or Ctrl+F. |
 | Settings presets (Native, Battery saver) | Yes | No | No | |
 | PIN lock | Yes | Yes | Yes | Android can also lock individual PCs. |
 | Launching from a launcher or frontend | Yes | Yes | Yes | Android: TV home screen, Beacon, ES-DE, Daijisho, Pegasus and shortcuts. Desktop: `nightjar --host … [--app …] [--quit-on-exit]`. |
 | Host software in the PC's details, host web UI button | Yes | Yes | Yes | |
-| Interface size, high contrast, reduced motion | Yes | Yes | Yes | On Linux, **Follow system** leaves motion on, since there is no system setting to read. |
+| Text and button size, high contrast, reduced motion | Yes | Yes | Yes | On Linux, **Follow system** leaves motion on, since there is no system setting to read. |
 | Screen reader | Yes | Yes | Yes | Android: TalkBack. Desktop: the platform accessibility API (UI Automation on Windows, AT-SPI on Linux). |
 | Languages | Yes | Yes | Yes | The same 15 languages everywhere. Desktop CJK, Cyrillic, Polish, Turkish and Vietnamese text uses a system font ([Translations](TRANSLATIONS.md#desktop)). |
-| Update check | Yes | Yes | Partial | Android outside Google Play; Windows and the AppImage once per launch. deb, rpm and Flatpak update through their package manager. |
+| Theme (System, Dark, OLED black) | Yes | No | No | The desktop has one dark theme. |
+| Update check | Yes | Yes | Partial | Android outside Google Play, automatically or with **Check for updates now**; Windows and the AppImage once per launch with **Check for updates automatically**, and no check on request. deb, rpm and Flatpak update through their package manager. |
 | One-click update | Yes | Yes | Partial | Android outside Google Play; the installed Windows copy runs the new setup with its progress window and restarts, the AppImage replaces its file and restarts. Size and SHA-256 are checked first. A portable Windows copy keeps the link to the release page; deb, rpm and Flatpak update through their package manager. |
 | Problem reports and crash records | Yes | Partial | Partial | The desktop writes redacted logs to its logs folder, and on Windows a minidump for each crash; it has no problem-report export. |
 
@@ -66,37 +67,37 @@ The tables below have no macOS column. The Mac client shares the desktop library
 | HDR10+ | Yes | No | No | |
 | HLG | Yes | Yes | Yes | The desktop draws HLG through the BT.2100 inverse OETF and OOTF for the display's peak; on Linux for hardware-decoded pictures. |
 | Dolby Vision | Yes | Yes | No | Profiles 8.1 (HEVC) and 10.1 (AV1). Windows draws them on the HDR10 base layer, with the tone map's peak from the Dolby Vision metadata. |
-| 10-bit SDR | Yes | Yes | Yes | Offered only when this device's decoder outputs 10-bit pictures. |
-| YUV 4:4:4 | Yes | Yes | Yes | See [YUV 4:4:4](#yuv-444). |
+| Less color banding (10-bit SDR) | Yes | Yes | Yes | Offered only when this device's decoder outputs 10-bit pictures. |
+| Sharper colored text (YUV 4:4:4) | Yes | Yes | Yes | See [Sharper colored text](#sharper-colored-text-yuv-444). |
 | PyroWave | Yes | Yes | Yes | Decoding, the bandwidth test, pace calibration and PyroWave's own automatic bitrate (`nightjar-policy`). When the decoder falls behind, the desktop skips to the newest frame. |
 | Decode PyroWave on a compute queue (setting) | N/A | Yes | Yes | Off by default. Android's renderer has no separate compute queue ([PyroWave decoding](pyrowave-decode.md)). |
 | Upscaling (FSR 1, SGSR 1) | Yes | Yes | Yes | Windows also offers the GPU's video upscaler (**AI enhancement**). |
 | Render through Vulkan | Yes | N/A | N/A | |
-| Renderer choice (Debug) | N/A | N/A | Yes | Automatic starts on OpenGL and switches to the GPU (Vulkan) renderer when a stream needs it; OpenGL and GPU force one. |
+| Renderer choice (**Settings → Advanced**) | N/A | N/A | Yes | Automatic starts on OpenGL and switches to the GPU (Vulkan) renderer when a stream needs it; OpenGL and GPU force one. |
 | Snapdragon GPU drivers | Yes | N/A | N/A | |
-| Resolution, fractional refresh, virtual display, PC display mode | Yes | Yes | Yes | |
+| Resolution, fractional refresh, virtual display, display arrangement | Yes | Yes | Yes | |
 | Dual screen mode | Yes | Yes | Yes | Off by default. A second stream of the same game on a second screen (the desktop: full screen on another monitor), with sound, controllers and the microphone on the first. Needs a host with `SecondScreenVersion` (Rubylight 3.11). |
 | Ready the decoder for folding | Yes | N/A | N/A | Foldables: a fold or turn needs no decoder restart. Off by default. |
-| Adaptive refresh and VRR | Yes | Yes | Yes | See [Adaptive refresh and VRR](#adaptive-refresh-and-vrr). |
+| Variable refresh rate | Yes | Yes | Yes | See [Variable refresh rate](#variable-refresh-rate). |
 | Frame pacing modes | Yes | Yes | Yes | Lowest latency, Balanced, Balanced with FPS limit, Smoothest video. |
 | Take back display queue delay | Yes | N/A | N/A | Lowest latency and Balanced. Desktop has no compositor display queue to watch. |
 | Phase-lock frame timing | Yes | Yes | Partial | Linux: X11 with the OpenGL renderer only. |
 | Beam racing and early decode (PyroWave, wired) | N/A | Yes | Yes | Both off by default; see [beam racing](beam-racing.md). |
 | Rotation, picture-in-picture, external displays | Yes | N/A | N/A | |
 
-### YUV 4:4:4
+### Sharper colored text (YUV 4:4:4)
 
-Android supports packed 4:4:4 on the Rust engine and PyroWave's chroma modes. The desktop offers two settings: **Full chroma** packs 4:4:4 into a stream that any HEVC or AV1 hardware decoder handles, and **Prefer YUV 4:4:4** sends true 4:4:4, which needs a 4:4:4 decoder; the software decoder has one, few hardware decoders do. Before a stream starts, the desktop checks the PC's modes and each codec against this device's decoder and offers only those whose pictures come out as 4:4:4; otherwise the stream starts in 4:2:0 and states the reason, and a PC that refuses full chroma after the launch gets the stream again without it.
+Both clients have one setting, **Sharper colored text** (Off or Automatic), decided the same way in `nightjar-core`: **Automatic** asks for true 4:4:4 where this device decodes it and the PC encodes it, else full chroma packed into a stream that any HEVC or AV1 hardware decoder handles (on Android with the New streaming engine). True 4:4:4 needs a 4:4:4 decoder; the software decoder has one, few hardware decoders do. PyroWave has its own chroma modes. Before a stream starts, the desktop checks the PC's modes and each codec against this device's decoder and offers only those whose pictures come out as 4:4:4; otherwise the stream starts in 4:2:0 and states the reason, and a PC that refuses full chroma after the launch gets the stream again without it.
 
 - **Windows.** GPUs whose decoder supports HEVC 4:4:4 (8- and 10-bit; NVIDIA and Intel, as AYUV, Y410 and Y416 surfaces) decode it in hardware, drawn by the plane shader. AMD decoders have no 4:4:4.
 - **Linux.** Packed full chroma from VA-API and Vulkan video is rebuilt on the GPU. On the GPU renderer, Intel's VA-API decodes true 4:4:4 in hardware, and NVDEC's 10-bit 4:4:4 is drawn by the plane shader.
-- **Both settings on.** A PC that encodes HEVC 4:4:4 10-bit streams both at once where the decoder check passes it; otherwise the PC provides either 4:4:4 or 10-bit SDR, not both. When HDR takes priority over YUV 4:4:4, the notice says so.
+- **With Less color banding.** With **Sharper colored text** on **Automatic** and **Less color banding** on, a PC that encodes HEVC 4:4:4 10-bit streams both at once where the decoder check passes it; otherwise the PC provides either 4:4:4 or 10-bit SDR, not both. When HDR takes priority over YUV 4:4:4, the notice says so.
 - **Android** asks only for 8-bit 4:4:4: its media API lists no 10-bit 4:4:4 profile.
 
-### Adaptive refresh and VRR
+### Variable refresh rate
 
 - **Desktop.** Frames are presented on decode with tearing for VRR, with host-time pacing, or with V-Sync. On a display that keeps its own refresh rate, the stream waits for each refresh: on Windows in fullscreen when it runs below about 70% of that rate (a faster stream there still tears), on Linux when the graphics driver reports that the display is not running VRR.
-- **Android.** Adaptive refresh can be turned on only on Android 16 with a screen that supports adaptive refresh (ARR); elsewhere the setting is greyed out, also in PC and game settings, and a saved choice is kept for later. The stream votes for its own frame rate instead of 0, which would leave a game at Android's 60 Hz default. The overlay flags a screen that presents only half the rendered frames for 3 seconds.
+- **Android.** **Variable refresh rate** can be turned on only on Android 16 with a screen that supports adaptive refresh rate (ARR); elsewhere the setting is greyed out, also in PC and game settings, and a saved choice is kept for later. The stream votes for its own frame rate instead of 0, which would leave a game at Android's 60 Hz default. The overlay flags a screen that presents only half the rendered frames for 3 seconds.
 
 Android needs no scan-line check: SurfaceFlinger never flips mid-scan.
 
@@ -105,18 +106,19 @@ Android needs no scan-line check: SurfaceFlinger never flips mid-scan.
 | Feature | Android | Windows | Linux | Notes |
 | --- | --- | --- | --- | --- |
 | Automatic bitrate (follows resolution, frame rate and codec) | Yes | Yes | Yes | On until the bitrate is set by hand. |
-| Device controls bitrate | Yes | Yes | Yes | The same controllers, PyroWave's included: Rust `nightjar-policy` on the desktop, the Java originals it is kept equal to on Android. |
+| Lower bitrate when the network is busy | Yes | Yes | Yes | The same controllers, PyroWave's included: Rust `nightjar-policy` on the desktop, the Java originals it is kept equal to on Android. |
 | Automatic resolution and frame rate | Yes | Yes | Yes | |
 | Change bitrate / frame rate during a stream | Yes | Yes | Yes | |
-| Loss-based bitrate | Yes | Yes | Yes | Off by default. |
+| Lower bitrate when frames are lost | Yes | Yes | Yes | Off by default. |
 | Error correction choice and the loss report | Yes | Yes | Yes | Under **Settings → Debug** on both; the PC's setting by default. |
-| Link test before the first bitrate | Yes | Yes | Yes | Off by default. |
+| Test the link before starting | Yes | Yes | Yes | Off by default. |
 | Recover interrupted streams | Yes | Yes | Yes | On by default. |
-| Ride out network drops | Yes | Yes | Yes | |
+| Wait through network dropouts | Yes | Yes | Yes | |
 | Wi-Fi and link speed reported to the PC | Yes | Yes | Yes | |
 | Stream health report and bitrate trial | Yes | Yes | Yes | |
-| Network speed test and PyroWave frame pace calibration | Yes | Yes | Yes | In **Settings → Streaming** and in each PC's settings; with several paired PCs you choose the PC. |
-| Connection test | Yes | Partial | Partial | The desktop's **Remote access** check verifies the paired PC over HTTPS; it has no network path or delay test. |
+| Speed test and PyroWave frame pace | Yes | Yes | Yes | **Settings → Streaming → Connection test** and **Settings → Advanced → PyroWave frame pace**, and both in each PC's settings; with several paired PCs you choose the PC. |
+| Connection test | Yes | Partial | Partial | The desktop's **Connection test** measures the download speed only, on PCs that offer the test; it has no ping, jitter, loss, network path or delay test. Its **Remote access** check verifies the paired PC over HTTPS. |
+| Test the network after a failed start | Yes | Yes | Yes | Moonlight's port-test server checks whether a firewall blocks the streaming ports. Android also runs the check by itself after some failed connections; the desktop runs it only when you choose it. |
 | Play away from home | Yes | Partial | Partial | Android has the Tailscale setup guide; the desktop has the **Remote access** check only. |
 | Stream traffic priority | Yes | Yes | Yes | The engine sets socket and thread priorities on Android and Linux, and thread priorities on Windows. |
 
@@ -129,7 +131,8 @@ Android needs no scan-line check: SurfaceFlinger never flips mid-scan.
 | Audio passthrough | Yes | Partial | Partial | Android: PCM, Dolby Digital and Dolby Digital Plus. Desktop: PCM. |
 | Microphone | Yes | Yes | Yes | |
 | Echo cancellation | Yes | Yes | Yes | **Automatic**, **On** or **Off**. Automatic turns it off with headphones. Linux needs the PipeWire or PulseAudio echo-cancel module. |
-| Noise suppression, gain, mute button | Yes | No | No | |
+| Microphone gain | Yes | Yes | Yes | |
+| Noise suppression, automatic gain, microphone button | Yes | No | No | |
 | The PC's night mode and headphone surround | Yes | Yes | Yes | In the stream menu, on hosts that offer them. |
 
 ## Controls
@@ -137,6 +140,7 @@ Android needs no scan-line check: SurfaceFlinger never flips mid-scan.
 | Feature | Android | Windows | Linux | Notes |
 | --- | --- | --- | --- | --- |
 | Controllers and per-model mapping | Yes | Yes | Yes | The desktop drives rumble, motion, touchpads, LEDs, battery and DualSense features through SDL's gamepad API. |
+| Controller test, stick and trigger dead zones, Back button as Guide | Yes | Yes | Yes | The desktop's **Controller buttons** page can also set dead zones per controller. |
 | Steam Deck Game Mode (gamescope) | N/A | N/A | Yes | Under gamescope the Flatpak opens fullscreen without a border; the pointer hides while the controller is used, and Start+Back opens the stream menu since Steam keeps the Guide button. [Steam Deck](steam-deck.md) |
 | Extra buttons: touchpad click, Share / Capture, paddles | Yes | Yes | Yes | The desktop maps every SDL button. |
 | DualSense, Xbox and Switch Pro USB drivers | Yes | N/A | N/A | SDL handles these controllers on the desktop. |
@@ -192,7 +196,7 @@ Our test devices are a Retroid Pocket 6 (Snapdragon, Android 13), a Galaxy Z Fol
 | VRR on the desktop | Windows PC and laptop, 2026-10-29 | On a 240 Hz FreeSync panel the stream stays on decode, and 12% of a 60 fps stream's presents land mid-scan. The laptop's fixed 120 Hz panel switches to V-Sync 2.2 s into the stream ([measurement](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#october-29-nightjar-desktop-on-a-vrr-panel-and-a-fixed-one)). |
 | Refresh rate on Android | Retroid, 2026-10-29 | HEVC 1080p120 with a 60 Hz test pattern: the game's rate (59.959 Hz) was detected 7 s after the stream started, with one vote in 70 s. |
 | Error correction and the loss report | Retroid, 2026-10-28; NUC, 2026-10-27 | Automatic asked the PC to follow, one loss report a second, none refused. NUC on shaped links ([measurement](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#october-27-client-error-correction-and-a-link-test-before-the-first-bitrate-nuc)). |
-| Link test before the first bitrate | NUC, 2026-10-27 | Measured worse than without it, so it stays off by default (same measurement). |
+| Test the link before starting | NUC, 2026-10-27 | Measured worse than without it, so it stays off by default (same measurement). |
 | Audio passthrough | Retroid, 2026-10-28; Windows, 2026-10-27 and 2026-10-28 | PCM stereo to the AAudio output; PCM stereo and 5.1 on Windows. |
 | Microphone, echo cancellation | Retroid, 2026-10-28 | The PC received the voice; **Automatic** follows a headphone plug. |
 | Microphone gain and mute | Retroid, 2026-10-28 | 400% and 25% gain differ by 24 dB at the PC without clipping; a missing effect is named; the mute button mutes and keeps its position. |

@@ -409,5 +409,5 @@ test('the page carries no Experimental badge and has the stream video the e2e pr
   assert.doesNotMatch(body, />Experimental</);
   assert.match(body, /<video id="stream-video"/);
   // The socket opens on Connect, not with the page.
-  assert.match(body, /Checking the host/);
+  assert.match(body, /Checking this PC/);
 });

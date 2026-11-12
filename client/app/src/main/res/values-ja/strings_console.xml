@@ -16,7 +16,7 @@
     <string name="console_badge_running">実行中</string>
     <string name="console_badge_suspended">一時停止中</string>
     <string name="console_card_on_host">%1$s 上</string>
-    <string name="console_card_on_hosts">%1$d 台のホスト</string>
+    <string name="console_card_on_hosts">%1$d 台の PC</string>
     <string name="console_host_games">ゲーム: %1$d</string>
     <string name="console_host_saved_games">オフライン。保存済みのゲーム: %1$d</string>
     <string name="console_host_offline">オフライン</string>
@@ -57,12 +57,12 @@
     <!-- tv-redesign-5 -->
     <string name="console_detail_installed">インストール済み</string>
     <string name="console_card_asleep">%1$s、PC はスリープ中</string>
-    <string name="console_wake_and_play">PC を起動してプレイ</string>
-    <string name="console_wake_waiting">%1$s の起動を待っています…</string>
-    <string name="console_wake_timeout">%1$s が時間内に起動しませんでした。Wake-on-LAN が設定されているか確認して、もう一度お試しください。</string>
+    <string name="console_wake_and_play">PC をウェイクしてプレイ</string>
+    <string name="console_wake_waiting">%1$s のウェイクを待っています…</string>
+    <string name="console_wake_timeout">%1$s が時間内にウェイクしませんでした。Wake-on-LAN が設定されているか確認して、もう一度お試しください。</string>
     <string name="console_choose_pc">どの PC でプレイしますか？</string>
     <string name="console_badge_asleep">PC はスリープ中</string>
     <string name="pc_status_online">オンライン</string>
     <string name="pc_status_not_paired">未ペアリング</string>
-    <string name="pc_action_wake">起動</string>
+    <string name="pc_action_wake">ウェイク</string>
 </resources>

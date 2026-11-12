@@ -1,4 +1,5 @@
 <script lang="ts">
+  import InfoTip from '../InfoTip.svelte';
   import SettingControl from './SettingControl.svelte';
   import type { ConfigValue } from '../../lib/api';
   import type { Setting } from '../../lib/settings-types';
@@ -73,20 +74,17 @@
   <div class="layout" class:has-meta={hasMeta}>
     <div class="text">
       <div class="head" title={showKey ? undefined : `Config key: ${setting.key}`}>
-        {#if grouped}
-          <span class="label" id="{uid}-label">{setting.label}</span>
-        {:else}
-          <label class="label" for={id}>{setting.label}</label>
-        {/if}
+        <!-- The finer points beside the name's last word, never a fold of their own. -->
+        <span class="name">
+          {#if grouped}
+            <span class="label" id="{uid}-label">{setting.label}</span>
+          {:else}
+            <label class="label" for={id}>{setting.label}</label>
+          {/if}{#if setting.details}<InfoTip label={setting.label} text={setting.details} />{/if}
+        </span>
         {#if setting.restart}<span class="tag">Applies after a restart</span>{/if}
       </div>
       {#if setting.description}<p class="description" id="{uid}-description">{setting.description}</p>{/if}
-      {#if setting.details}
-        <details class="more">
-          <summary>More<span class="visually-hidden">{` about ${setting.label}`}</span></summary>
-          <p>{setting.details}</p>
-        </details>
-      {/if}
       {#if inactive}
         <p class="dependency">{setting.inactiveHint ?? 'This setting is conditional. Review the related choices in this category.'}</p>
       {/if}
@@ -182,6 +180,9 @@
     gap: var(--space-1) var(--space-2);
     min-height: 22px;
   }
+  .name {
+    min-width: 0;
+  }
   .label {
     font-weight: var(--weight-medium);
     font-size: var(--text);
@@ -204,53 +205,6 @@
     color: var(--muted);
     line-height: 1.45;
     max-width: 68ch;
-  }
-  .more {
-    font-size: var(--text-sm);
-    color: var(--muted);
-    max-width: 68ch;
-  }
-  .more summary {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-1);
-    width: fit-content;
-    padding: 2px 0;
-    /* A 44 px target that takes no more room than its line of text. */
-    min-height: var(--control-height);
-    margin-block: calc((20px - var(--control-height)) / 2);
-    color: var(--ink-2);
-    font-size: var(--text-xs);
-    font-weight: var(--weight-medium);
-    cursor: pointer;
-    list-style: none;
-  }
-  .more summary::-webkit-details-marker {
-    display: none;
-  }
-  .more summary::after {
-    content: '';
-    width: 5px;
-    height: 5px;
-    margin-left: 2px;
-    border-right: 1.5px solid currentColor;
-    border-bottom: 1.5px solid currentColor;
-    transform: translateY(-2px) rotate(45deg);
-    transition: transform var(--duration-fast);
-  }
-  .more[open] summary::after {
-    transform: translateY(1px) rotate(225deg);
-  }
-  .more summary:hover {
-    color: var(--ink);
-    text-decoration: underline;
-    text-underline-offset: 2px;
-  }
-  .more p {
-    margin-top: var(--space-1);
-    padding-left: var(--space-3);
-    border-left: 2px solid var(--line);
-    line-height: var(--leading);
   }
   .dependency {
     margin-top: 2px;
@@ -362,7 +316,6 @@
     }
   }
   @media (max-width: 520px) {
-    .more summary,
     .link {
       min-height: var(--control-height);
     }

@@ -9,7 +9,7 @@
     <string name="stream_presets_help_title">Giới thiệu về cấu hình sẵn</string>
     <string name="settings_version">Phiên bản %1$s</string>
     <string name="settings_source">Mã nguồn và giấy phép</string>
-    <string name="settings_csv_summary">Lưu các kết quả đo độ trễ mới nhất</string>
+    <string name="settings_csv_summary">Lưu các kết quả đo độ trễ mới nhất.</string>
     <string name="host_profile_footer">Hãy lưu cài đặt stream trước khi rời đi. Chế độ hiển thị được lưu riêng bằng nút Lưu chế độ hiển thị trong hộp thoại của nó. Thay đổi áp dụng cho stream tiếp theo.</string>
     <string name="stream_overlay_menu">Lớp phủ</string>
     <string name="stream_bitrate_manual">Đặt tốc độ bit</string>

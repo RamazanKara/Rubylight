@@ -69,22 +69,103 @@ impl Source {
     }
 }
 
-/// Which launchers the scan reads (`library_*` keys). Steam, Playnite and the
-/// other launchers have their own settings; these are the ones added with the
+/// The sources the launcher sync keeps in step, each with Steam's options under its own keys
+/// ([`Options`]): every launcher but Steam, which keeps its own sync (`crate::steam`), and the
 /// game folders.
+pub const SYNCED: [Source; 7] = [
+    Source::Epic,
+    Source::Battlenet,
+    Source::Ea,
+    Source::Ubisoft,
+    Source::Gog,
+    Source::Microsoft,
+    Source::Local,
+];
+impl Source {
+    /// Whether the launcher records when each game was last played in a file the scan reads,
+    /// which its recent-games options need ([`Game::last_played`]). Battle.net keeps it in
+    /// `Battle.net.config`; Epic, EA, Ubisoft and the Microsoft Store keep none on the PC, GOG
+    /// Galaxy only in its own database, and a game folder none at all.
+    pub fn keeps_play_history(self) -> bool {
+        matches!(self, Self::Steam | Self::Battlenet)
+    }
+    /// What the source's sync options are named after: `epic_auto_sync`, …, and
+    /// `library_local_auto_sync` for the game folders, beside `library_local_folders`.
+    fn option_prefix(self) -> &'static str {
+        match self {
+            Self::Local => "library_local",
+            _ => self.key(),
+        }
+    }
+}
+
+/// One source's sync options, Steam's (`steam_*`) under the launcher's own key: a launcher's
+/// switch is `library_<launcher>_enabled` and the rest are `<launcher>_auto_sync`,
+/// `<launcher>_autosync_remove_uninstalled`, `<launcher>_exclude_games` and, for a launcher that
+/// keeps a play history, `<launcher>_sync_all_installed`, `<launcher>_recent_games` and
+/// `<launcher>_recent_max_age_days`. Defaults are Steam's. The game folders are on while there
+/// are some and leave folders out with `library_local_exclude` instead.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Options {
+    /// The scan reads the launcher and the sync keeps its games.
+    pub enabled: bool,
+    /// The automatic sync keeps its games in step; Sync now does either way, as for Steam.
+    pub auto_sync: bool,
+    /// A synced game that is no longer installed leaves.
+    pub remove_uninstalled: bool,
+    /// Every installed game; off, only the most recently played (launchers that keep a play
+    /// history, [`Source::keeps_play_history`]; always on for the others).
+    pub sync_all_installed: bool,
+    /// How many recently played games, when not every installed one.
+    pub recent_games: usize,
+    /// Recent games played longer ago than this many days are left out; 0 keeps them all.
+    pub recent_max_age_days: u64,
+    /// Games the sync never adds, by launcher id or name, as `steam_exclude_games`.
+    pub exclusions: Vec<(String, String)>,
+}
+impl Options {
+    fn from_config(config: &crate::config::Config, source: Source) -> Self {
+        let prefix = source.option_prefix();
+        let name = |option: &str| format!("{prefix}_{option}");
+        let count =
+            |option: &str, default: i64| config.integer(&name(option), default).max(0) as u64;
+        let local = source == Source::Local;
+        Self {
+            // Game folders: on while there are some ([`Settings::from_config`]).
+            enabled: local || config.boolean(&format!("library_{prefix}_enabled"), true),
+            auto_sync: config.boolean(&name("auto_sync"), true),
+            remove_uninstalled: config.boolean(&name("autosync_remove_uninstalled"), true),
+            sync_all_installed: !source.keeps_play_history()
+                || config.boolean(&name("sync_all_installed"), true),
+            recent_games: count("recent_games", 10) as usize,
+            recent_max_age_days: count("recent_max_age_days", 30),
+            exclusions: if local {
+                vec![]
+            } else {
+                crate::steam::id_names(config.get(&name("exclude_games"), ""))
+            },
+        }
+    }
+    /// Whether the sync leaves out the game `id` named `name`: an entry with its id, or its name
+    /// as [`name_key`] compares names. A plain entry is either.
+    pub fn excludes(&self, id: &str, name: &str) -> bool {
+        let same_name = |entry: &str| {
+            let entry = name_key(entry);
+            !entry.is_empty() && entry == name_key(name)
+        };
+        self.exclusions.iter().any(|(entry_id, entry_name)| {
+            (!entry_id.is_empty() && (entry_id.eq_ignore_ascii_case(id) || same_name(entry_id)))
+                || same_name(entry_name)
+        })
+    }
+}
+
+/// Which launchers the scan reads and how the launcher sync keeps each one (`library_*` and
+/// `<launcher>_*` keys, [`Options`]), and the game folders Add games lists.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Settings {
-    pub epic: bool,
-    pub gog: bool,
-    pub battlenet: bool,
-    pub ea: bool,
-    pub ubisoft: bool,
-    pub microsoft: bool,
-    /// `library_auto_sync`: keep every installed game of the launchers that are on in the
-    /// library, as `steam_auto_sync` does for Steam.
-    pub auto_sync: bool,
-    /// `library_autosync_remove_uninstalled`: a synced game that is no longer installed leaves.
-    pub remove_uninstalled: bool,
+    /// The options of each of [`SYNCED`].
+    pub sources: BTreeMap<Source, Options>,
     /// Folders whose subfolders are games, one game per subfolder.
     pub local_folders: Vec<PathBuf>,
     /// Game folders the folder scan leaves out, by folder name or full path.
@@ -97,20 +178,21 @@ impl Default for Settings {
 }
 impl Settings {
     pub fn from_config(config: &crate::config::Config) -> Self {
+        let local_folders: Vec<PathBuf> = config
+            .list("library_local_folders")
+            .into_iter()
+            .map(|folder| PathBuf::from(folder.trim()))
+            .collect();
+        let mut sources: BTreeMap<Source, Options> = SYNCED
+            .into_iter()
+            .map(|source| (source, Options::from_config(config, source)))
+            .collect();
+        if let Some(local) = sources.get_mut(&Source::Local) {
+            local.enabled = !local_folders.is_empty();
+        }
         Self {
-            epic: config.boolean("library_epic_enabled", true),
-            gog: config.boolean("library_gog_enabled", true),
-            battlenet: config.boolean("library_battlenet_enabled", true),
-            ea: config.boolean("library_ea_enabled", true),
-            ubisoft: config.boolean("library_ubisoft_enabled", true),
-            microsoft: config.boolean("library_microsoft_enabled", true),
-            auto_sync: config.boolean("library_auto_sync", true),
-            remove_uninstalled: config.boolean("library_autosync_remove_uninstalled", true),
-            local_folders: config
-                .list("library_local_folders")
-                .into_iter()
-                .map(|folder| PathBuf::from(folder.trim()))
-                .collect(),
+            sources,
+            local_folders,
             local_exclude: config
                 .list("library_local_exclude")
                 .into_iter()
@@ -118,18 +200,36 @@ impl Settings {
                 .collect(),
         }
     }
+    /// A synced source's options; `None` for Steam.
+    pub fn options(&self, source: Source) -> Option<&Options> {
+        self.sources.get(&source)
+    }
     /// Whether the scan reads `source`. Game folders are read when there are some.
     pub fn enabled(&self, source: Source) -> bool {
         match source {
-            Source::Epic => self.epic,
-            Source::Gog => self.gog,
-            Source::Battlenet => self.battlenet,
-            Source::Ea => self.ea,
-            Source::Ubisoft => self.ubisoft,
-            Source::Microsoft => self.microsoft,
             Source::Local => !self.local_folders.is_empty(),
             Source::Steam => true,
+            _ => self.options(source).is_some_and(|options| options.enabled),
         }
+    }
+    /// What the automatic sync keeps: the sources that are on and sync automatically. One it
+    /// skips keeps its apps as they are, as one that is off does. Sync now keeps them all.
+    pub fn automatic(&self) -> Self {
+        let mut automatic = self.clone();
+        for options in automatic.sources.values_mut() {
+            options.enabled &= options.auto_sync;
+        }
+        automatic
+    }
+    /// Whether any source is on and syncs automatically.
+    pub fn any_automatic(&self) -> bool {
+        self.sources
+            .values()
+            .any(|options| options.enabled && options.auto_sync)
+    }
+    /// Whether the sync keeps `source`'s games: it is on, and not Steam, which syncs itself.
+    fn syncs(&self, source: Source) -> Option<&Options> {
+        self.options(source).filter(|options| options.enabled)
     }
     /// Whether the folder scan leaves out the game folder `folder`.
     pub fn excluded(&self, folder: &Path) -> bool {
@@ -224,6 +324,14 @@ pub struct Game {
     pub cover: Option<PathBuf>,
     #[serde(skip)]
     pub working_dir: PathBuf,
+    /// The launcher's cover on its own image server, when it names one and the PC has none:
+    /// Epic's portrait box art. The host downloads it once, as Steam's store portrait.
+    #[serde(skip)]
+    pub cover_url: Option<String>,
+    /// When the game was last played (Unix seconds), for a launcher that records it
+    /// ([`Source::keeps_play_history`]); `None` for one never played or not known.
+    #[serde(skip)]
+    pub last_played: Option<u64>,
 }
 impl Game {
     pub fn new(
@@ -245,6 +353,8 @@ impl Game {
             launch,
             cover: None,
             working_dir: folder.into(),
+            cover_url: None,
+            last_played: None,
         }
     }
     pub fn uuid(&self) -> String {
@@ -497,20 +607,68 @@ pub fn managed_key(app: &Value) -> Option<String> {
 pub struct SyncChange {
     pub added: usize,
     pub removed: usize,
+    /// Apps of a launcher's game that had no cover and got the launcher's.
+    pub covered: usize,
 }
 impl SyncChange {
     pub fn changed(&self) -> bool {
-        self.added + self.removed > 0
+        self.added + self.removed + self.covered > 0
     }
 }
 
-/// The launcher sync (`library_auto_sync`): Steam's sync for every other launcher. Each
-/// installed game of a launcher that is on becomes an app marked `launcher-managed: auto`,
-/// unless an app already has the game (an import, or Playnite's or Steam's copy), the
-/// launcher cannot start it, or it was deleted from the library (`dismissed`). With
-/// `remove_uninstalled`, an app this sync owns ([`SYNCED_BY`]) whose game a clean read of its
-/// launcher (`read`) no longer finds leaves. Apps added by hand, imported or edited are never
-/// changed. Steam keeps its own sync and is skipped here.
+/// The source an app's `launcher-source` names.
+fn source_of(app: &Value) -> Option<Source> {
+    app["launcher-source"]
+        .as_str()
+        .and_then(|key| Source::ALL.into_iter().find(|source| source.key() == key))
+}
+
+/// The games the sync keeps of each source that is on, by source and id: every installed game
+/// it can start, less the ones its options leave out, or, with `sync_all_installed` off, the
+/// `recent_games` most recently played within `recent_max_age_days` of `now`, as Steam's sync
+/// chooses them.
+pub fn chosen<'a>(games: &'a [Game], settings: &Settings, now: u64) -> HashSet<(Source, &'a str)> {
+    let mut chosen = HashSet::new();
+    for (&source, options) in &settings.sources {
+        if !options.enabled {
+            continue;
+        }
+        let mut candidates: Vec<&Game> = games
+            .iter()
+            .filter(|game| {
+                game.source == source
+                    && game.unavailable_reason.is_none()
+                    && !options.excludes(&game.id, &game.name)
+            })
+            .collect();
+        if !options.sync_all_installed {
+            let age = options.recent_max_age_days.saturating_mul(86_400);
+            candidates.retain(|game| {
+                game.last_played
+                    .is_some_and(|at| at > 0 && (age == 0 || (at <= now && now - at <= age)))
+            });
+            candidates.sort_by(|a, b| b.last_played.cmp(&a.last_played).then(a.id.cmp(&b.id)));
+            candidates.truncate(options.recent_games);
+        }
+        chosen.extend(
+            candidates
+                .into_iter()
+                .map(|game| (source, game.id.as_str())),
+        );
+    }
+    chosen
+}
+
+/// The launcher sync: Steam's sync for every other launcher and the game folders, each by its
+/// own [`Options`]. Each game the options keep ([`chosen`]) becomes an app marked
+/// `launcher-managed: auto`, unless an app already has the game (an import, or Playnite's or
+/// Steam's copy), or it was deleted from the library (`dismissed`). An app this sync owns
+/// ([`SYNCED_BY`]) leaves when its game is left out (`<launcher>_exclude_games`), and, after a
+/// clean read of its launcher (`read`), when the game is no longer installed (with
+/// `remove_uninstalled`) or no longer among the recent games. An app of a launcher's game with
+/// no cover gets the launcher's, the one thing filled in on an app the user owns. Apps added by
+/// hand, imported or edited are never otherwise changed. Steam keeps its own sync and is
+/// skipped here. Sync now passes the settings; the automatic sync [`Settings::automatic`].
 pub fn reconcile(
     apps: &mut Vec<Value>,
     games: &[Game],
@@ -518,39 +676,56 @@ pub fn reconcile(
     read: &[Source],
     dismissed: &[String],
 ) -> SyncChange {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs());
+    reconcile_at(apps, games, settings, read, dismissed, now)
+}
+
+/// [`reconcile`] at `now` (Unix seconds), which the recent games are counted back from.
+pub fn reconcile_at(
+    apps: &mut Vec<Value>,
+    games: &[Game],
+    settings: &Settings,
+    read: &[Source],
+    dismissed: &[String],
+    now: u64,
+) -> SyncChange {
     let mut change = SyncChange::default();
-    if !settings.auto_sync {
-        return change;
-    }
-    if settings.remove_uninstalled {
-        let installed: HashSet<(Source, &str)> = games
-            .iter()
-            .map(|game| (game.source, game.id.as_str()))
-            .collect();
-        let before = apps.len();
-        apps.retain(|app| {
-            let Some(source) = app["launcher-source"]
-                .as_str()
-                .and_then(|key| Source::ALL.into_iter().find(|source| source.key() == key))
-            else {
-                return true;
-            };
-            !synced_by(app, "launcher")
-                || source == Source::Steam
-                || !read.contains(&source)
-                || !settings.enabled(source)
-                || app["launcher-id"]
-                    .as_str()
-                    .is_some_and(|id| installed.contains(&(source, id)))
-        });
-        change.removed = before - apps.len();
-    }
+    let installed: HashSet<(Source, &str)> = games
+        .iter()
+        .map(|game| (game.source, game.id.as_str()))
+        .collect();
+    let wanted = chosen(games, settings, now);
+    let before = apps.len();
+    apps.retain(|app| {
+        let Some((source, options)) =
+            source_of(app).and_then(|source| Some((source, settings.syncs(source)?)))
+        else {
+            return true;
+        };
+        if !synced_by(app, "launcher") {
+            return true;
+        }
+        let id = app["launcher-id"].as_str().unwrap_or("");
+        if options.excludes(id, app["name"].as_str().unwrap_or("")) {
+            return false;
+        }
+        if !read.contains(&source) {
+            return true;
+        }
+        if installed.contains(&(source, id)) {
+            // Out of the recent games: it leaves, as Steam's does.
+            options.sync_all_installed || wanted.contains(&(source, id))
+        } else {
+            !(options.remove_uninstalled || !options.sync_all_installed)
+        }
+    });
+    change.removed = before - apps.len();
     let dismissed: HashSet<&str> = dismissed.iter().map(String::as_str).collect();
     let mut index = AppIndex::new(apps);
     for game in games {
-        if game.source == Source::Steam
-            || !settings.enabled(game.source)
-            || game.unavailable_reason.is_some()
+        if !wanted.contains(&(game.source, game.id.as_str()))
             || dismissed.contains(dismissed_key(game.source, &game.id).as_str())
             || index.matches(apps, game)
         {
@@ -563,6 +738,29 @@ pub fn reconcile(
             index.add(apps.len(), &app);
             apps.push(app);
             change.added += 1;
+        }
+    }
+    // A cover the launcher has now, for its games' apps that have none: an app synced before
+    // the launcher's covers were read, or an import without one. A cover of the user's stays.
+    let covers: HashMap<(Source, &str), &Path> = games
+        .iter()
+        .filter(|game| settings.syncs(game.source).is_some())
+        .filter_map(|game| Some(((game.source, game.id.as_str()), game.cover.as_deref()?)))
+        .collect();
+    for app in apps.iter_mut() {
+        let Some(source) = source_of(app) else {
+            continue;
+        };
+        let id = app["launcher-id"].as_str().unwrap_or("");
+        if app["image-path"]
+            .as_str()
+            .is_some_and(|path| !path.is_empty())
+        {
+            continue;
+        }
+        if let Some(cover) = covers.get(&(source, id)) {
+            app["image-path"] = json!(cover.to_string_lossy().replace('\\', "/"));
+            change.covered += 1;
         }
     }
     change
@@ -1050,6 +1248,101 @@ pub fn battlenet(uid: &str, folder: &Path, launcher: Option<&Path>) -> Option<Ga
         }),
     ))
 }
+/// When each Battle.net game was last played, from the user's `Battle.net.config`: JSON whose
+/// `Games` object holds each product's `LastPlayed`, Unix seconds as text, by product uid in
+/// lower case, as [`battlenet`] names a game. A product never played has none.
+pub fn battlenet_last_played(bytes: &[u8]) -> Result<HashMap<String, u64>> {
+    let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
+    let config: Value = serde_json::from_slice(bytes).context("Battle.net.config is not JSON.")?;
+    Ok(config["Games"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter_map(|(uid, game)| {
+            let at = match &game["LastPlayed"] {
+                Value::String(text) => text.trim().parse().ok()?,
+                Value::Number(number) => number.as_u64()?,
+                _ => return None,
+            };
+            (at > 0).then(|| (uid.to_ascii_lowercase(), at))
+        })
+        .collect())
+}
+
+/// Standard base64, as the Epic launcher writes its catalog cache. Line breaks are skipped.
+fn base64(text: &[u8]) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(text.len() / 4 * 3);
+    let (mut buffer, mut bits) = (0u32, 0u32);
+    for &byte in text {
+        let value = match byte {
+            b'A'..=b'Z' => byte - b'A',
+            b'a'..=b'z' => byte - b'a' + 26,
+            b'0'..=b'9' => byte - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            b'=' => break,
+            b'\r' | b'\n' | b' ' | b'\t' => continue,
+            _ => return None,
+        };
+        buffer = (buffer << 6) | u32::from(value);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((buffer >> bits) as u8);
+            buffer &= (1 << bits) - 1;
+        }
+    }
+    Some(out)
+}
+/// An https address on Epic's own image servers (`cdn1.epicgames.com`), the only covers the
+/// host downloads for Epic games.
+fn epic_image(url: &str) -> bool {
+    url.strip_prefix("https://")
+        .and_then(|rest| rest.split('/').next())
+        .is_some_and(|host| {
+            let host = host.to_ascii_lowercase();
+            host.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+                && host.ends_with(".epicgames.com")
+        })
+        && !url.contains(|c: char| c.is_whitespace() || matches!(c, '"' | '\\' | '<' | '>'))
+}
+/// Epic's portrait box art for the items in the launcher's catalog cache
+/// (`Data\Catalog\catcache.bin`, base64 of a JSON list of catalog items), by
+/// `namespace:item`, how an [`epic`] game's id begins. The tall box art the launcher shows
+/// (`DieselGameBoxTall`) is taken, else the store's tall offer image.
+pub fn epic_covers(bytes: &[u8]) -> Result<HashMap<String, String>> {
+    let json = base64(bytes).context("The Epic catalog cache is not base64.")?;
+    let items: Vec<Value> = serde_json::from_slice(&json)
+        .context("The Epic catalog cache is not a list of catalog items.")?;
+    let mut covers = HashMap::new();
+    for item in &items {
+        let (Some(namespace), Some(id)) = (item["namespace"].as_str(), item["id"].as_str()) else {
+            continue;
+        };
+        let images = item["keyImages"].as_array().map_or(&[][..], Vec::as_slice);
+        let url = ["DieselGameBoxTall", "OfferImageTall"]
+            .iter()
+            .find_map(|kind| {
+                images
+                    .iter()
+                    .filter(|image| image["type"] == *kind)
+                    .find_map(|image| image["url"].as_str().filter(|url| epic_image(url)))
+            });
+        if let Some(url) = url {
+            covers.insert(format!("{namespace}:{id}"), url.to_owned());
+        }
+    }
+    Ok(covers)
+}
+/// The [`epic_covers`] key of an Epic game id (`namespace:item:app`).
+pub fn epic_cover_key(id: &str) -> Option<String> {
+    let mut parts = id.splitn(3, ':');
+    let (namespace, item) = (parts.next()?, parts.next()?);
+    parts.next()?;
+    Some(format!("{namespace}:{item}"))
+}
+
 pub fn ubisoft(id: &str, folder: &Path, name: &str) -> Result<Game> {
     ensure!(
         !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()),

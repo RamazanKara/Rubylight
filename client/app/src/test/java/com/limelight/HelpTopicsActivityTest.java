@@ -97,7 +97,7 @@ public class HelpTopicsActivityTest {
                 name.matches("values(-[a-z]{2}(-r[A-Z]{2})?)?") && new File(dir, name + "/strings_help.xml").isFile());
         assertNotNull(locales);
         assertEquals(15, locales.length);
-        int[] taps = {R.string.help_connect_body, R.string.help_pairing_body, R.string.host_details_not_paired};
+        int[] taps = {R.string.help_connect_body, R.string.help_pairing_body};
         for (File dir : locales) {
             String locale = dir.getName().equals("values") ? "en" : dir.getName().substring(7).replace("-r", "-");
             for (int id : taps) {

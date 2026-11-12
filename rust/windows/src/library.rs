@@ -220,6 +220,14 @@ fn program_folders() -> Vec<PathBuf> {
         })
         .collect()
 }
+/// The signed-in user's `Battle.net.config`, in their roaming application data.
+fn battlenet_config() -> Option<PathBuf> {
+    crate::process::user_environment()
+        .ok()
+        .and_then(|user| user.get("APPDATA").map(PathBuf::from))
+        .or_else(|| std::env::var_os("APPDATA").map(PathBuf::from))
+        .map(|roaming| roaming.join(r"Battle.net\Battle.net.config"))
+}
 fn launcher(installs: &[Installed], name: &str, relative: &[&str]) -> Option<PathBuf> {
     let paths = installs
         .iter()
@@ -474,6 +482,20 @@ pub fn discover(settings: &library::Settings) -> Discovery {
             Source::Epic => {
                 let folder = program_data.join(r"Epic\EpicGamesLauncher\Data\Manifests");
                 let can_launch = protocol("com.epicgames.launcher");
+                // The launcher's box art, from its catalog cache. Covers are a nicety: a cache
+                // that cannot be read leaves the games without, and the scan is not incomplete.
+                let catalog =
+                    program_data.join(r"Epic\EpicGamesLauncher\Data\Catalog\catcache.bin");
+                let covers = if catalog.is_file() {
+                    bytes(&catalog)
+                        .and_then(|data| library::epic_covers(&data))
+                        .unwrap_or_else(|error| {
+                            tracing::debug!(error = %format!("{error:#}"), "Epic box art unavailable");
+                            Default::default()
+                        })
+                } else {
+                    Default::default()
+                };
                 for path in files(&folder, &mut errors)
                     .into_iter()
                     .filter(|path| path.extension().is_some_and(|ext| ext == "item"))
@@ -483,6 +505,8 @@ pub fn discover(settings: &library::Settings) -> Discovery {
                         .with_context(|| path.display().to_string());
                     add(result.map(|game| game.map(|mut game| {
                         if !can_launch { game.unavailable_reason = Some("Install or repair Epic Games Launcher to launch this game.".into()); }
+                        game.cover_url = library::epic_cover_key(&game.id)
+                            .and_then(|key| covers.get(&key).cloned());
                         game
                     })), &mut games, &mut errors);
                 }
@@ -526,12 +550,25 @@ pub fn discover(settings: &library::Settings) -> Discovery {
                         }
                     }
                 }
+                // When each game was last played, for the recent-games options: the signed-in
+                // user's Battle.net.config. Without one no game counts as played.
+                let played = battlenet_config()
+                    .filter(|path| path.is_file())
+                    .and_then(|path| {
+                        bytes(&path)
+                            .and_then(|data| library::battlenet_last_played(&data))
+                            .map_err(|error| {
+                                tracing::debug!(error = %format!("{error:#}"), "Battle.net play history unavailable")
+                            })
+                            .ok()
+                    })
+                    .unwrap_or_default();
                 for (uid, folder) in entries {
-                    add(
-                        Ok(library::battlenet(&uid, &folder, executable.as_deref())),
-                        &mut games,
-                        &mut errors,
-                    );
+                    let mut game = library::battlenet(&uid, &folder, executable.as_deref());
+                    if let Some(game) = &mut game {
+                        game.last_played = played.get(&game.id).copied();
+                    }
+                    add(Ok(game), &mut games, &mut errors);
                 }
                 executable.is_some()
             }

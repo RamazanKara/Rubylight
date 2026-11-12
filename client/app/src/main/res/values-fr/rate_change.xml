@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="stream_rate_change">Change bitrate / frame rate</string>
-    <string name="stream_rate_change_help">The host changes the running stream. A value left as it is stays.</string>
+    <string name="stream_rate_change_help">Le PC modifie le stream en cours. Une valeur laissée telle quelle reste inchangée.</string>
     <string name="stream_rate_change_fps">Frame rate (fps)</string>
     <string name="stream_rate_change_fps_invalid">Enter a frame rate from 10 to 500 fps</string>
     <string name="stream_rate_change_nothing">Change the bitrate or the frame rate first</string>
-    <string name="stream_rate_change_not_sent">The change could not be sent to the host.</string>
+    <string name="stream_rate_change_not_sent">La modification n’a pas pu être envoyée au PC.</string>
     <string name="stream_rate_change_stream_ended">The stream ended before the change was sent. Nothing was changed.</string>
     <string name="stream_rate_change_bitrate_applied">Bitrate: %1$.1f Mbps</string>
     <string name="stream_rate_change_bitrate_clamped">Bitrate: %1$.1f Mbps, lower than asked. %2$s</string>
@@ -13,19 +13,19 @@
     <string name="stream_rate_change_fps_applied">Frame rate: %1$s fps</string>
     <string name="stream_rate_change_fps_clamped">Frame rate: %1$s fps, lower than asked. %2$s</string>
     <string name="stream_rate_change_fps_refused">Frame rate not changed, still %1$s fps. %2$s</string>
-    <string name="stream_rate_change_reason_invalid">The host did not accept the value.</string>
-    <string name="stream_rate_change_reason_disabled">The host has these changes turned off.</string>
+    <string name="stream_rate_change_reason_invalid">Le PC n’a pas accepté la valeur.</string>
+    <string name="stream_rate_change_reason_disabled">Le PC a désactivé ces modifications.</string>
     <string name="stream_rate_change_reason_codec">This stream\'s video format cannot change it while streaming.</string>
-    <string name="stream_rate_change_reason_host_limit">That is the most the host or this device allows.</string>
-    <string name="stream_rate_change_reason_encoder_limit">That is the most the host\'s encoder manages at this resolution.</string>
-    <string name="stream_rate_change_reason_encoder_failed">The host\'s encoder could not run at it, so the stream stayed as it was.</string>
+    <string name="stream_rate_change_reason_host_limit">C’est le maximum que permettent le PC ou cet appareil.</string>
+    <string name="stream_rate_change_reason_encoder_limit">C’est le maximum que l’encodeur du PC atteint à cette résolution.</string>
+    <string name="stream_rate_change_reason_encoder_failed">L’encodeur du PC n’a pas pu fonctionner ainsi, le stream est donc resté tel quel.</string>
     <string name="stream_rate_change_reason_superseded">A newer change replaced it.</string>
-    <string name="stream_rate_change_reason_other">The host could not apply it.</string>
-    <string name="stream_rate_change_auto_stopped">Loss-based bitrate stopped for this stream: the host refused a change. %1$s</string>
-    <string name="stream_rate_change_auto_not_sent">Loss-based bitrate stopped for this stream: a change could not be sent to the host.</string>
-    <string name="stream_rate_change_no_answer">The host did not answer the change.</string>
-    <string name="stream_rate_change_auto_no_answer">Loss-based bitrate stopped for this stream: the host did not answer a change.</string>
-    <string name="title_rate_change_bitrate">Loss-based bitrate (Rust engine)</string>
-    <string name="summary_short_rate_change_bitrate">Off: uses Device controls bitrate. On: this device adjusts from frame loss and network delay.</string>
-    <string name="summary_rate_change_bitrate">Nightjar watches frame loss and network delay and asks the host for a lower or higher bitrate, in place of Device controls bitrate. Needs the Rust engine and a host that offers bitrate changes; other streams use Device controls bitrate.</string>
+    <string name="stream_rate_change_reason_other">Le PC n’a pas pu l’appliquer.</string>
+    <string name="stream_rate_change_auto_stopped">Débit selon les pertes arrêté pour ce stream : le PC a refusé une modification. %1$s</string>
+    <string name="stream_rate_change_auto_not_sent">Débit selon les pertes arrêté pour ce stream : une modification n’a pas pu être envoyée au PC.</string>
+    <string name="stream_rate_change_no_answer">Le PC n’a pas répondu à la modification.</string>
+    <string name="stream_rate_change_auto_no_answer">Débit selon les pertes arrêté pour ce stream : le PC n’a pas répondu à une modification.</string>
+    <string name="title_rate_change_bitrate">Baisser le débit en cas d’images perdues</string>
+    <string name="summary_short_rate_change_bitrate">Désactivé : « Baisser le débit si le réseau est chargé » s’applique. Activé : cet appareil s’ajuste selon les pertes d’images et le délai réseau.</string>
+    <string name="summary_rate_change_bitrate">Baisse le débit dès que des images manquent.</string>
 </resources>

@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_adaptive_quality">Otomatik yayın kalitesi</string>
-    <string name="summary_adaptive_quality">Süregelen ağ tıkanıklığı, yavaş kod çözme veya ısınma sırasında çözünürlüğü ya da FPS’yi düşürür, ardından kademeli olarak geri yükseltir. Destekleniyorsa otomatik bit hızını kullanır. Ana bilgisayarın yeniden yapılandırma desteği ve uyarlanabilir bir kod çözücü gerektirir; PyroWave ile kullanılamaz.</string>
-    <string name="title_adaptive_quality_min_resolution">En düşük otomatik çözünürlük</string>
-    <string name="summary_adaptive_quality_min_resolution">En boy oranı korunarak en küçük kısa kenar. Seçilen yayın çözünürlüğü üst sınır olarak kalır. Daha düşük bir başlangıç çözünürlüğü bu sınır nedeniyle asla yükseltilmez.</string>
-    <string name="title_adaptive_quality_min_fps">En düşük otomatik kare hızı</string>
-    <string name="summary_adaptive_quality_min_fps">İzin verilen en düşük FPS. Seçilen yayın kare hızı üst sınır olarak kalır. Pil modu dahil otomatik kalite için geçerlidir.</string>
+    <string name="summary_adaptive_quality">Süregelen ağ tıkanıklığı, yavaş kod çözme veya ısınma sırasında çözünürlüğü ya da FPS’yi düşürür, ardından kademeli olarak geri yükseltir. Destekleniyorsa otomatik bit hızını kullanır. Çalışan bir yayını değiştirebilen bir bilgisayar ve uyarlanabilir bir kod çözücü gerektirir; PyroWave ile kullanılamaz.</string>
+    <string name="title_adaptive_quality_min_resolution">En düşük çözünürlük</string>
+    <string name="summary_adaptive_quality_min_resolution">“Otomatik kalite” ayarının inebileceği en düşük çözünürlük.</string>
+    <string name="title_adaptive_quality_min_fps">En düşük kare hızı</string>
+    <string name="summary_adaptive_quality_min_fps">“Otomatik kalite” ayarının inebileceği en düşük kare hızı.</string>
     <string name="quality_off">Kapalı</string>
     <string name="quality_motion">Hareketi koru</string>
     <string name="quality_detail">Ayrıntıyı koru</string>

@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="host_update_available">Доступно обновление Rubylight %1$s</string>
-    <string name="host_update_stream_notice">Доступен Rubylight %1$s. Обновите его на вкладке обслуживания хоста.</string>
+    <string name="host_update_stream_notice">Доступен Rubylight %1$s. Обновите его на вкладке обслуживания в Rubylight.</string>
     <string name="update_stream_notice">Доступен Nightjar %1$s. Откройте настройки Nightjar для обновления.</string>
     <string name="title_check_updates">Автоматически проверять обновления</string>
-    <string name="summary_check_updates">Ищет новую версию при открытии приложения, не чаще двух раз в день. Ничего не устанавливается без вашего решения.</string>
+    <string name="summary_check_updates">Ищет новую версию при открытии Nightjar; ничего не устанавливается автоматически.</string>
     <string name="title_check_updates_now">Проверить обновления сейчас</string>
-    <string name="summary_check_updates_now">Поиск более новой версии</string>
+    <string name="summary_check_updates_now">Ищет более новую версию прямо сейчас.</string>
     <string name="update_checking">Проверка обновлений…</string>
     <string name="update_up_to_date">Установлена последняя версия</string>
     <string name="update_check_failed">Не удалось проверить обновления</string>

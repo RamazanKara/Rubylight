@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_checkbox_back_opens_menu">Retour physique ouvre le menu du flux</string>
-    <string name="summary_checkbox_back_opens_menu">La touche Retour dédiée de la console portable ou manette ouvre le menu du flux. Select et Start gardent leur affectation. L’option Retour envoie Windows est prioritaire sur les claviers physiques. Au prochain flux.</string>
+    <string name="title_checkbox_back_opens_menu">Retour ouvre le menu du stream</string>
+    <string name="summary_checkbox_back_opens_menu">Le bouton Retour de la manette ou de la console portable ouvre le menu du stream.</string>
     <string name="title_checkbox_back_as_guide">Bouton Retour en Guide</string>
-    <string name="summary_checkbox_back_as_guide">Retour sur n’importe quelle manette, ainsi que le bouton système d’une console portable qui sert de Retour, envoient Guide (Home/PS). Une manette dont Select est Retour envoie Guide à la place. « Retour physique ouvre le menu du flux » a la priorité. Ouvrez le menu du stream avec la combinaison de la manette ou le geste Retour d’Android. S’applique au prochain stream.</string>
+    <string name="summary_checkbox_back_as_guide">Retour envoie Guide (Home ou PS) au PC.</string>
 </resources>

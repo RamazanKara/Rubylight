@@ -1,23 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_disable_rumble">Vibration ausschalten</string>
-    <string name="summary_checkbox_disable_rumble">Unterdrückt jede Vibration, die ein Spiel anfordert: Controller- und Trigger-Vibration, USB-DualSense-Haptik und die Vibration dieses Geräts anstelle des Controllers.</string>
-    <string name="title_checkbox_mouse_emulation_fixed_step">Mausbewegung in festen Schritten</string>
-    <string name="summary_checkbox_mouse_emulation_fixed_step">Halte im Controller-Mausmodus X gedrückt, während du den Stick bewegst, damit sich der Zeiger jeweils um eine feste Pixelzahl bewegt. Y verdoppelt den Schritt von 1 bis 128 Pixel und beginnt dann wieder bei 1.</string>
+    <string name="summary_checkbox_disable_rumble">Stoppt jede Vibration, Trigger-Vibration und Haptik.</string>
+    <string name="title_checkbox_mouse_emulation_fixed_step">Präzise Controller-Maus</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">Bewegt den Zeiger in festen Pixelschritten, solange X gehalten wird.</string>
     <string name="stream_mouse_step">Mausschritt: %1$d px</string>
     <string name="title_checkbox_capture_system_keys">Systemtasten senden</string>
-    <string name="summary_checkbox_capture_system_keys">Esc, Alt+Tab, die Windows-Taste und Ähnliches gehen an den PC, solange die Eingabe erfasst ist, ebenso die Zurück-Taste, die viele Android-Tastaturen anstelle von Esc haben. Alt+Tab und die Windows-Taste gibt Android nur ab Android 16 QPR2 (Dezember 2025) und auf vielen Samsung-Geräten ab; sonst behält Android sie. Home, Ein/Aus und Lautstärke bleiben immer bei Android. Das Stream-Menü öffnest du mit seinem Tastenkürzel oder der Zurück-Geste oder -Taste von Android. Gilt ab dem nächsten Stream.</string>
+    <string name="summary_checkbox_capture_system_keys">Alt+Tab, die Windows-Taste und Ähnliches gehen an den PC.</string>
     <string name="title_checkbox_system_keys_fullscreen_only">Systemtasten nur im Vollbild</string>
-    <string name="summary_checkbox_system_keys_fullscreen_only">Im Fenster bleiben Alt+Tab, die Windows-Taste und Ähnliches bei diesem Gerät.</string>
+    <string name="summary_checkbox_system_keys_fullscreen_only">Im Fenster bleiben Systemtasten bei diesem Gerät.</string>
     <string name="title_checkbox_back_as_meta">Tastatur-Zurück sendet Windows-Taste</string>
-    <string name="summary_checkbox_back_as_meta">Die Zurück-Taste einer echten Tastatur sendet die Windows-Taste (Befehlstaste auf einem Mac). Das Stream-Menü öffnest du dann mit seinem Tastenkürzel, der Zurück-Geste oder -Taste von Android oder der Controller-Tastenkombination.</string>
-    <string name="title_checkbox_right_alt_as_meta">Rechte Alt-Taste als Befehlstaste</string>
-    <string name="summary_checkbox_right_alt_as_meta">Die rechte Alt-Taste sendet die Windows-Taste, die ein Mac als Befehlstaste nutzt, sodass Alt rechts+C kopiert. Die linke Alt-Taste bleibt unverändert. Lass die Option aus, wenn du Zeichen mit AltGr tippst.</string>
+    <string name="summary_checkbox_back_as_meta">Die Zurück-Taste einer physischen Tastatur sendet die Windows-Taste.</string>
+    <string name="title_checkbox_right_alt_as_meta">Rechte Alt-Taste als Windows-Taste</string>
+    <string name="summary_checkbox_right_alt_as_meta">Die rechte Alt-Taste sendet die Windows-Taste, die ein Mac als Befehlstaste nutzt.</string>
     <string name="title_checkbox_keyboard_follows_text_fields">Tastatur folgt Textfeldern</string>
-    <string name="summary_checkbox_keyboard_follows_text_fields">Die Bildschirmtastatur öffnet sich, wenn ein Textfeld im Stream den Fokus bekommt, passend zum Feld: Ziffern für ein Zahlenfeld, keine Vorschläge für ein Passwort. Sie schließt sich wieder, wenn das Feld den Fokus verliert. Mit einer angeschlossenen Hardware-Tastatur tippst du weiter wie bisher.</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">Die Bildschirmtastatur öffnet sich, wenn ein Textfeld auf dem PC den Fokus hat.</string>
 
     <string name="controller_test_title">Controller-Test</string>
-    <string name="controller_test_summary">Tasten, Sticks, Trigger, Vibration, Leuchten und Bewegung prüfen</string>
+    <string name="controller_test_summary">Zeigt Tasten, Sticks, Trigger, Vibration, Leuchten und Bewegung, die ein Controller sendet.</string>
     <string name="controller_test_open">Controller testen</string>
     <string name="controller_test_hint">Drücke Tasten und bewege die Sticks. Mit dem Steuerkreuz und A bewegst du dich auch auf dieser Seite; halte B oder Zurück eine Sekunde lang, um sie zu verlassen.</string>
     <string name="controller_test_waiting">Verbinde einen Controller und drücke eine beliebige Taste.</string>
@@ -55,6 +55,6 @@
 
     <!-- USB Switch Pro driver -->
     <string name="title_usb_switch_pro">Switch Pro per USB</string>
-    <string name="summary_usb_switch_pro">Liest einen per Kabel verbundenen Nintendo Switch Pro Controller direkt, mit Bewegungssensoren, Vibration, Home und Capture.</string>
+    <string name="summary_usb_switch_pro">Liest einen per Kabel verbundenen Switch Pro Controller mit Bewegungssensoren, Vibration, Home und Capture.</string>
     <string name="usb_switch_pro_denied">Kein USB-Zugriff; der Switch Pro Controller nutzt weiter Androids Eingabe.\nVerbinde das Kabel erneut.</string>
 </resources>

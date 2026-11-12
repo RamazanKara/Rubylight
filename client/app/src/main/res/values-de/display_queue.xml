@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_display_queue_recovery">Verzögerung der Anzeige-Warteschlange zurückholen</string>
-    <string name="summary_display_queue_recovery">Mit dem Frame-Pacing „Niedrigste Latenz“ oder „Ausgewogen“: Hält der Bildschirm ein Frame eine ganze Bildwiederholung länger zurück, als dieser Stream braucht, wird ein Frame übersprungen, damit diese Verzögerung wegfällt. Jedes Überspringen wird geprüft und endet für den Stream, wenn es nichts ändert. Nur auf Geräten, die melden, wann Frames angezeigt werden.</string>
+    <string name="summary_display_queue_recovery">Überspringt ein Frame, wenn der Bildschirm Frames eine Bildwiederholung länger als nötig zurückhält.</string>
 </resources>

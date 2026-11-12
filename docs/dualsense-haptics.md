@@ -9,8 +9,8 @@ Controller speaker and headset audio, microphone input and controller preparatio
 ## Setup
 
 1. In the Windows installer, select **Install USB audio and haptics support** on the **Steam Deck and DualSense USB audio and haptics** page. Setup bundles the signed usbip-win2 0.9.8.1 installer; it is optional and off by default. Setup remembers your choice for updates and reuses an existing shared USB/IP installation. Installing it can reconnect USB devices and require a Windows restart; setup never restarts Windows automatically.
-2. Use a client that implements Nonary's PCM haptics extension. For [Nightjar](https://github.com/RamazanKara/nightjar/blob/main/docs/dualsense-haptics.md), connect a DualSense or DualSense Edge by USB and enable **USB DualSense driver** and **USB DualSense audio and haptics** under **Settings → Controls** before reconnecting.
-3. Leave **All settings → Audio & controls → Controller type** on **Automatic**, or choose **DualSense with waveform haptics (USB/IP)**. The same choice is available in an app's controller override.
+2. Use a client that implements Nonary's PCM haptics extension. For [Nightjar](https://github.com/RamazanKara/nightjar/blob/main/docs/dualsense-haptics.md), connect a DualSense or DualSense Edge by USB and enable **USB DualSense driver** and **USB DualSense audio and haptics** under **Settings → Controls → USB** before reconnecting.
+3. Leave **All settings → Sound & controls → Controllers → Controller type** on **Automatic**, or choose **DualSense with waveform haptics (USB/IP)**. The same choice is available in an app's controller override.
 4. With Nightjar, controllers that are ready when the connection starts are attached before Rubylight launches the game. With other clients, connect to Desktop first and wait for the controller/audio device before starting the game. Disable host-side Steam Input for games that need native DualSense effects. For Steam gyro aiming and radial menus, enable Steam Input and configure those in the game’s controller layout; Rubylight forwards the controller motion and touchpad input.
 
 Automatic selects the composite controller only when the chosen profile is DualSense and the client controller advertises waveform playback. If USB/IP is unavailable or fails to attach, Automatic keeps the VHF controller and shows a warning; native waveform haptics are unavailable in that fallback. The explicit USB/IP choice requires usbip-win2 and reports an error if it cannot attach.
@@ -36,7 +36,7 @@ See the [Android audio and fallback guide](https://github.com/RamazanKara/nightj
 
 ## Haptics from game audio
 
-Most games send a DualSense rumble at best and often nothing. With **All settings → Audio & controls → Haptics from game audio** (`audio_haptics`, off by default) the host makes waveform haptics from the stream's own sound for each client DualSense that has waveform haptics but gets none from the game:
+Most games send a DualSense rumble at best and often nothing. With **All settings → Sound & controls → Controllers → Haptics from game audio** (`audio_haptics`, off by default) the host makes waveform haptics from the stream's own sound for each client DualSense that has waveform haptics but gets none from the game:
 
 - The bass below 150 Hz drives the left and right actuators from the left and right channels; in 5.1 and 7.1 the LFE drives both, and the rear and side channels add to their side.
 - Sharp transients such as shots and impacts add a short 100 Hz thump on their side, as strong as the transient, even when they carry no bass.

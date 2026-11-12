@@ -492,7 +492,7 @@ fn console_sign_in_host_explains_why_return_to_console_is_unavailable() {
     // A signed-in console host keeps the existing explanation.
     assert_eq!(
         reattach_blocker(1, 1, WTSActive, 0, true, true, false),
-        Some("This host is already attached to the physical console.")
+        Some("Rubylight already runs on the physical console.")
     );
 }
 #[test]

@@ -70,7 +70,7 @@ Capture direction:
 2. `14-pc-settings` opens Living-room PC's real PC settings: its name as the title, the
    host family (Rubylight 2.2.21) as the subtitle and the Video group. One fling brings
    up Display on the PC and Connection (the stroke is rehearsed before recording and
-   lands within a few dozen pixels every take), then a tap on PC display mode opens the
+   lands within a few dozen pixels every take), then a tap on Display arrangement opens the
    picker: the PC's own setting, exclusive, extend (two ways), extended and separated (two
    ways) and physical. The demo PC reports the capabilities of a paired Rubylight host
    with every permission (a debug fixture; nothing is read from a host), so the page
@@ -90,10 +90,10 @@ Capture direction:
    then the host's CPU and GPU (usage, temperature and power). Every value is scripted,
    the stream carries the DEMO label and the callout says so.
 6. `17-pyrowave-arr` opens Video codec in the real Video settings, whose list includes
-   PyroWave (host support required), then goes back to Display & image, where Adaptive
-   refresh (ARR / VRR) is on. The take does not choose PyroWave, so the emulator's
+   PyroWave (host support required), then goes back to Display & image, where Variable
+   refresh rate (ARR / VRR) is on. The take does not choose PyroWave, so the emulator's
    readiness check (it has no Adreno GPU) never shows.
-7. `09-upscaling` taps Client-side upscaling on the same page: Off, Smooth, Sharp (FSR)
+7. `09-upscaling` taps Upscaling on the same page: Off, Smooth, Sharp (FSR)
    and Sharp, Snapdragon (SGSR, Snapdragon Game Super Resolution).
 8. `18-gpu-driver` taps Snapdragon GPU driver in Advanced. The emulator is x86_64, so
    the release app hides this row and screen there; the debug demo shows them as on an

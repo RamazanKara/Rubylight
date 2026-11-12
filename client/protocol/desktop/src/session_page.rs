@@ -87,7 +87,7 @@ impl HostExit {
 
     pub fn confirm(self) -> &'static str {
         match self {
-            HostExit::End => en("End the stream session on the PC?\nThe game keeps running."),
+            HostExit::End => en("End the session on the PC?\nThe PC gets its screen and sound back. The game keeps running there."),
             HostExit::CloseGame => en("Close the game on the PC?\nUnsaved progress will be lost."),
             HostExit::QuitApp => en("Quit the game on the PC?\nUnsaved progress will be lost."),
         }
@@ -128,10 +128,10 @@ fn blocked(exit: HostExit, session: &Session) -> Option<&'static str> {
         return None;
     }
     Some(match action.reason {
-        Some(ErrorCode::SessionBusy) | Some(ErrorCode::TemporarilyUnavailable) => en("The host is busy. Try again in a moment."),
+        Some(ErrorCode::SessionBusy) | Some(ErrorCode::TemporarilyUnavailable) => en("The PC is busy. Try again in a moment."),
         Some(ErrorCode::NotSessionOwner) => en("This session belongs to another device."),
         Some(ErrorCode::NoSession) => en("There is no session to end."),
-        Some(ErrorCode::HostControlRequired) => en("Turn on Host control for this device on the host."),
+        Some(ErrorCode::HostControlRequired) => en("Turn on Host control for this device in the PC’s web UI."),
         _ if session.state == SessionState::Stopping => en("The session is already ending."),
         _ => en("Not available right now."),
     })
@@ -140,13 +140,13 @@ fn blocked(exit: HostExit, session: &Session) -> Option<&'static str> {
 /// Why an exit action failed, as the page shows it.
 pub fn exit_failure_text(failure: &Failure) -> String {
     match failure.kind {
-        FailureKind::HostControl => tr("Turn on Host control for this device on the host to close games.").into(),
+        FailureKind::HostControl => tr("Turn on Host control for this device in the PC’s web UI to close games.").into(),
         FailureKind::NoSession => tr("This device does not own the session on the PC.").into(),
-        FailureKind::Busy => tr("The host is busy. Try again in a moment.").into(),
-        FailureKind::Unreachable => tr("Cannot reach the host.").into(),
+        FailureKind::Busy => tr("The PC is busy. Try again in a moment.").into(),
+        FailureKind::Unreachable => tr("Cannot reach the PC.").into(),
         _ => match &failure.host_message {
             Some(message) if !message.is_empty() => message.clone(),
-            _ => tr("The host did not do it.").into(),
+            _ => tr("The PC did not do it.").into(),
         },
     }
 }
@@ -157,8 +157,8 @@ pub fn exit_failure_text(failure: &Failure) -> String {
 pub fn host_menu_result(answer: Result<CouchMenu, Error>) -> Result<(), String> {
     match answer {
         Ok(CouchMenu { open: true }) => Ok(()),
-        Ok(CouchMenu { open: false }) => Err(tr("The host did not open its menu.").into()),
-        Err(error) => Err(trf("The host menu did not open: {}", &[&error])),
+        Ok(CouchMenu { open: false }) => Err(tr("The PC did not open its menu.").into()),
+        Err(error) => Err(trf("The PC’s menu did not open: {}", &[&error])),
     }
 }
 
@@ -173,7 +173,7 @@ pub fn connection_lines(
 ) -> Vec<(&'static str, String)> {
     let mbps = f64::from(bitrate_kbps) / 1000.0;
     let mut lines = vec![
-        (en("Host"), host.to_owned()),
+        (en("PC"), host.to_owned()),
         (en("Codec"), codec.to_owned()),
         (en("Resolution"), trf("{} × {} at {} fps", &[&size.0, &size.1, &size.2])),
         (en("Bitrate"), if bitrate_kbps % 1000 == 0 { format!("{mbps:.0} Mbps") } else { format!("{mbps:.1} Mbps") }),
@@ -601,7 +601,7 @@ mod tests {
             &[(ActionId::End, false, Some(ErrorCode::SessionBusy)), (ActionId::CloseGame, false, Some(ErrorCode::SessionBusy))],
         );
         let entries = actions(true, true, Some(&busy));
-        assert!(entries.iter().all(|e| e.blocked == Some("The host is busy. Try again in a moment.")));
+        assert!(entries.iter().all(|e| e.blocked == Some("The PC is busy. Try again in a moment.")));
         let other = session(SessionState::Streaming, &[(ActionId::End, false, Some(ErrorCode::NotSessionOwner))]);
         assert_eq!(actions(true, false, Some(&other))[0].blocked, Some("This session belongs to another device."));
         // The classic quit is not a native action: the session's list never blocks it.
@@ -613,6 +613,8 @@ mod tests {
     #[test]
     fn what_each_exit_keeps_is_said_before_it_runs() {
         assert!(HostExit::End.confirm().contains("The game keeps running"));
+        // Unlike Disconnect, which leaves the PC as the stream had it: End gives it back.
+        assert!(HostExit::End.confirm().contains("gets its screen and sound back"));
         assert!(HostExit::CloseGame.confirm().contains("Unsaved progress will be lost"));
         assert!(HostExit::QuitApp.confirm().contains("Quit the game"));
         assert_eq!(HostExit::End.label(), "End session");
@@ -621,7 +623,7 @@ mod tests {
     #[test]
     fn connection_facts_read_like_android() {
         let lines = connection_lines("GAMING-PC", "HEVC", (1920, 1080, 60), 20_000, "Home Wi-Fi", Some("4.0 ms RTT (±1.0), 0.0% frames lost"));
-        assert_eq!(lines[0], ("Host", "GAMING-PC".to_owned()));
+        assert_eq!(lines[0], ("PC", "GAMING-PC".to_owned()));
         assert_eq!(lines[2].1, "1920 × 1080 at 60 fps");
         assert_eq!(lines[3].1, "20 Mbps");
         assert_eq!(lines[4], ("Link", "Home Wi-Fi".to_owned()));
@@ -950,7 +952,7 @@ mod tests {
         until("failed", || matches!(page.state().exit, ExitState::Failed(..)));
         let ExitState::Failed(exit, failure) = page.state().exit else { unreachable!() };
         assert_eq!(exit, HostExit::CloseGame);
-        assert_eq!(exit_failure_text(&failure), "Turn on Host control for this device on the host to close games.");
+        assert_eq!(exit_failure_text(&failure), "Turn on Host control for this device in the PC’s web UI to close games.");
 
         let (mut fake, _counters) = self::fake(true);
         fake.quit = Err(599);
@@ -1051,7 +1053,7 @@ mod tests {
             names.extend(tree.nodes.iter().filter_map(|(_, n)| n.label().or(n.value()).map(str::to_owned)));
         }
         let esc = crate::shortcuts::Key::Escape.cap();
-        assert!(names.iter().any(|n| *n == format!("{}, {esc}", tr("Back to stream controls"))), "{names:#?}");
+        assert!(names.iter().any(|n| *n == format!("{}, {esc}", tr("Back to stream menu"))), "{names:#?}");
         assert!(names.iter().any(|n| n == tr("Resume")), "Resume without a key: {names:#?}");
         assert!(!names.iter().any(|n| n.starts_with(tr("Resume")) && n.contains(esc.as_ref())), "{names:#?}");
     }

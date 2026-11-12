@@ -161,6 +161,48 @@
   const numberDefault = $derived(toNumber(setting.default));
   const numberPlaceholder = $derived(numberDefault === null ? 'Not set' : `Default: ${numberDefault}`);
 
+  // ---------- presets: named values in a menu, Custom for any other ----------
+
+  const CUSTOM = '\u0000custom';
+  const presets = $derived.by((): Option[] => {
+    if (control.kind === 'number') return (control.presets ?? []).map((preset) => ({ value: String(preset.value), label: preset.label }));
+    if (control.kind === 'text') return control.presets ?? [];
+    return [];
+  });
+  /** Custom was chosen in the menu, so its field stays open whatever is typed. */
+  let customChosen = $state(false);
+  /** The preset the current value is, or '' when it is none of them. */
+  const presetValue = $derived.by(() => {
+    if (!presets.length || invalidText !== undefined) return '';
+    if (control.kind === 'number') {
+      const number = toNumber(value);
+      return number === null ? '' : (presets.find((preset) => Number(preset.value) === number)?.value ?? '');
+    }
+    return presets.find((preset) => preset.value === current.trim())?.value ?? '';
+  });
+  const hasValue = $derived(invalidText !== undefined || (control.kind === 'number' ? toNumber(value) !== null : current.trim() !== ''));
+  /** The field for a value of one's own shows. */
+  const custom = $derived(presets.length > 0 && (customChosen || (presetValue === '' && hasValue)));
+  /** The id of the field that edits the value: the menu has the row's own id when there are presets. */
+  const fieldId = $derived(presets.length ? `${id}-custom` : id);
+
+  async function choosePreset(choice: string) {
+    if (choice === CUSTOM) {
+      customChosen = true;
+      await tick();
+      document.getElementById(fieldId)?.focus();
+      return;
+    }
+    customChosen = false;
+    oninvalid?.(null);
+    if (control.kind === 'number') {
+      numberText = choice;
+      onchange(Number(choice));
+    } else {
+      onchange(choice);
+    }
+  }
+
   // ---------- text ----------
 
   const textShown = $derived(invalidText ?? current);
@@ -276,10 +318,31 @@
     {/if}
   </select>
   {#if hostError}<p class="note" id="{id}-host">{hostError}</p>{/if}
-{:else if control.kind === 'number'}
+{:else if control.kind === 'number' || control.kind === 'text'}
+  {#if presets.length}
+    <select
+      {id}
+      class="select"
+      aria-describedby={describe()}
+      onchange={(event) => void choosePreset(event.currentTarget.value)}
+    >
+      {#if !custom && presetValue === ''}<option value="" selected>Not set</option>{/if}
+      {#each presets as option (option.value)}
+        <option value={option.value} selected={!custom && option.value === presetValue}>{option.label}</option>
+      {/each}
+      <option value={CUSTOM} selected={custom}>Custom</option>
+    </select>
+  {/if}
+  {#if !presets.length || custom}
+    {@render field()}
+  {/if}
+{/if}
+
+{#snippet field()}
+{#if control.kind === 'number'}
   <div class="number" style:--unit-width={control.unit ? `${control.unit.length + 1}ch` : undefined}>
     <input
-      {id}
+      id={fieldId}
       class="input num"
       type="number"
       inputmode="decimal"
@@ -287,6 +350,7 @@
       max={control.max}
       step={control.step ?? 'any'}
       placeholder={numberPlaceholder}
+      aria-label={presets.length ? `${label}, custom value` : undefined}
       aria-invalid={rangeError ? 'true' : undefined}
       aria-describedby={describe(!!control.unit && `${id}-unit`, !!rangeError && `${id}-range`)}
       value={numberText}
@@ -298,13 +362,14 @@
 {:else if control.kind === 'text'}
   {#snippet text()}
     <input
-      {id}
+      id={fieldId}
       class="input"
       class:mono={control.mono}
       type={isTime ? 'time' : 'text'}
       autocomplete="off"
       spellcheck={control.mono ? 'false' : undefined}
       placeholder={control.placeholder ?? (toText(setting.default) || undefined)}
+      aria-label={presets.length ? `${label}, custom value` : undefined}
       aria-invalid={textProblem ? 'true' : undefined}
       aria-describedby={describe(!!textProblem && `${id}-text`)}
       value={fieldValue}
@@ -317,7 +382,10 @@
     {@render text()}
   {/if}
   {#if textProblem}<p class="error" id="{id}-text">{textProblem}</p>{/if}
-{:else if control.kind === 'list'}
+{/if}
+{/snippet}
+
+{#if control.kind === 'list'}
   <div class="rows" {id} bind:this={rowsElement}>
     {#each items as item, index}
       <div class="item" data-row>
@@ -442,7 +510,7 @@
         </div>
       </div>
     {:else}
-      <p class="none">No host commands.</p>
+      <p class="none">No PC commands.</p>
     {/each}
     <div>
       <Button size="sm" icon="plus" onclick={() => addRow([...serverCommands, { name: '', cmd: '', elevated: false }])}>

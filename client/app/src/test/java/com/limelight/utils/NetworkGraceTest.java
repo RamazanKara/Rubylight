@@ -18,7 +18,9 @@ public class NetworkGraceTest {
         // A hand-edited or future value must not stretch the timeout without bound.
         assertEquals(0, NetworkGrace.parseSeconds("3600"));
         assertEquals(0, NetworkGrace.parseSeconds("-20"));
-        assertEquals(0, NetworkGrace.parseSeconds("15"));
+        assertEquals(0, NetworkGrace.parseSeconds("25"));
+        // 15 s is one of the waits both clients offer (nightjar-policy).
+        assertEquals(15, NetworkGrace.parseSeconds("15"));
     }
 
     @Test public void offAndShortValuesKeepTheNativeDefault() {

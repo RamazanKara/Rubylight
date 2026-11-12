@@ -128,7 +128,7 @@
   {/if}
 </Panel>
 <div class="import-bar" class:has-selection={selected.length > 0}><p>{selected.length ? selected.length + ' selected' : 'Choose the games you want to add.'}<span class="muted">You can change names and covers later.</span></p><Button variant="primary" disabled={scanning || !selected.length || !catalog} busy={importing} onclick={importGames}>{importing ? 'Adding games…' : 'Add selected games'}</Button></div>
-<p class="muted source-help">Launchers can add every installed game by themselves: turn them on under <a href="/library" use:link>Where your games come from</a>. Game folders are chosen in <a href="/settings/library" use:link>All settings › Games</a>.</p>
+<p class="muted source-help">Launchers add every installed game by themselves: <a href="/library" use:link>Where your games come from</a>. Game folders and each launcher's options: <a href="/settings/games#game-folders" use:link>All settings › Games</a>.</p>
 
 <style>
   .back { justify-self: start; width: fit-content; min-height: var(--control-height); display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-sm); color: var(--ink-2); text-decoration: none; }

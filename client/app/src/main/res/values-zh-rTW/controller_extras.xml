@@ -1,25 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Controller and keyboard options -->
-    <string name="title_checkbox_disable_rumble">停用震動</string>
-    <string name="summary_checkbox_disable_rumble">停止遊戲要求的所有震動：控制器與扳機震動、USB DualSense 觸覺回饋，以及這部裝置代替控制器的震動。</string>
-    <string name="title_checkbox_mouse_emulation_fixed_step">以固定步距移動滑鼠</string>
-    <string name="summary_checkbox_mouse_emulation_fixed_step">在控制器滑鼠模式下，移動搖桿時按住 X，指標每次會移動固定的像素數。按 Y 可將步距加倍，從 1 增加到 128 像素，然後回到 1。</string>
+    <string name="title_checkbox_disable_rumble">關閉震動</string>
+    <string name="summary_checkbox_disable_rumble">停止所有震動、扳機震動和觸覺回饋。</string>
+    <string name="title_checkbox_mouse_emulation_fixed_step">精確控制器滑鼠</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">按住 X 時，指標以固定的像素步距移動。</string>
     <string name="stream_mouse_step">滑鼠步距：%1$d 像素</string>
     <string name="title_checkbox_capture_system_keys">傳送系統按鍵</string>
-    <string name="summary_checkbox_capture_system_keys">擷取輸入時，Esc、Alt+Tab、Windows 鍵等會傳送到電腦，許多 Android 鍵盤上取代 Esc 的返回鍵也會當作 Esc 傳送。只有 Android 16 QPR2（2025 年 12 月）及更新版本和許多三星裝置會把 Alt+Tab 和 Windows 鍵交給應用程式，其他裝置上由 Android 處理。主畫面、電源和音量鍵一律由 Android 處理。請使用專用快速鍵或 Android 的返回手勢或按鈕開啟串流選單。下次串流生效。</string>
+    <string name="summary_checkbox_capture_system_keys">Alt+Tab、Windows 鍵等會傳送到電腦。</string>
     <string name="title_checkbox_system_keys_fullscreen_only">僅全屏時傳送系統按鍵</string>
-    <string name="summary_checkbox_system_keys_fullscreen_only">視窗模式下，Alt+Tab、Windows 鍵等留在這台裝置上。</string>
+    <string name="summary_checkbox_system_keys_fullscreen_only">視窗模式下，系統按鍵會留在這部裝置上。</string>
     <string name="title_checkbox_back_as_meta">鍵盤返回鍵傳送 Windows 鍵</string>
-    <string name="summary_checkbox_back_as_meta">實體鍵盤上的返回鍵會傳送 Windows 鍵（在 Mac 上為 Command）。請使用專用快速鍵、Android 的返回手勢或按鈕，或控制器組合鍵開啟串流選單。</string>
-    <string name="title_checkbox_right_alt_as_meta">右 Alt 作為 Command</string>
-    <string name="summary_checkbox_right_alt_as_meta">右 Alt 會傳送 Windows 鍵，Mac 會將其當作 Command，因此右 Alt+C 即可複製。左 Alt 不變。如果你用 AltGr 輸入字元，請保持關閉。</string>
+    <string name="summary_checkbox_back_as_meta">實體鍵盤的返回鍵會傳送 Windows 鍵。</string>
+    <string name="title_checkbox_right_alt_as_meta">右 Alt 作為 Windows 鍵</string>
+    <string name="summary_checkbox_right_alt_as_meta">右 Alt 會傳送 Windows 鍵，Mac 會將其當作 Command。</string>
     <string name="title_checkbox_keyboard_follows_text_fields">鍵盤跟隨文字欄位</string>
-    <string name="summary_checkbox_keyboard_follows_text_fields">串流中的文字欄位取得焦點時，螢幕鍵盤會依該欄位開啟：數字欄位顯示數字鍵盤，密碼欄位不顯示建議字詞。文字欄位失去焦點時鍵盤會關閉。連接實體鍵盤時，仍以實體鍵盤輸入。</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">電腦上的文字欄位取得焦點時，螢幕鍵盤會開啟。</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">控制器測試</string>
-    <string name="controller_test_summary">檢查按鈕、搖桿、扳機、震動、燈光和動作感應</string>
+    <string name="controller_test_summary">顯示控制器的按鈕、搖桿、扳機、震動、燈光和動作感應。</string>
     <string name="controller_test_open">測試控制器</string>
     <string name="controller_test_hint">按下按鈕並移動搖桿。方向鍵和 A 也能在此頁面中移動；按住 B 或 Back 一秒即可離開。</string>
     <string name="controller_test_waiting">連接控制器並按任一按鈕。</string>
@@ -57,6 +57,6 @@
 
     <!-- USB Switch Pro driver -->
     <string name="title_usb_switch_pro">USB Switch Pro 驅動程式</string>
-    <string name="summary_usb_switch_pro">直接讀取有線連接的 Nintendo Switch Pro Controller，支援體感、震動、Home 和 Capture 鍵。</string>
+    <string name="summary_usb_switch_pro">讀取有線連接的 Switch Pro Controller，支援體感、震動、Home 和 Capture。</string>
     <string name="usb_switch_pro_denied">沒有 USB 存取權；Switch Pro Controller 繼續使用 Android 輸入。\n請重新連接傳輸線以重試。</string>
 </resources>

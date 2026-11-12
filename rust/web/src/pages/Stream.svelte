@@ -8,7 +8,9 @@
   import Panel from '../components/Panel.svelte';
   import Select from '../components/Select.svelte';
   import GuestPanel from '../components/stream/GuestPanel.svelte';
+  import { backAfterRestart, confirmRestart } from '../components/maintenance/host';
   import { api, sessionCsrfToken } from '../lib/api';
+  import { failed } from '../lib/feedback.svelte';
   import { link } from '../lib/router.svelte';
   import { on } from '../lib/schema/basics';
   import {
@@ -33,6 +35,10 @@
   type Phase = 'checking' | 'off' | 'idle' | 'connecting' | 'ready' | 'starting' | 'streaming' | 'failed';
 
   let phase = $state<Phase>('checking');
+  /** Turning the WebRTC server on: saving it, then while Rubylight restarts to start it. */
+  let turning = $state<'saving' | 'restarting' | null>(null);
+  /** Rubylight did not answer within 90 seconds of the restart. */
+  let late = $state(false);
   let error = $state('');
   let refused = $state(false);
   let signedOut = $state(false);
@@ -110,6 +116,31 @@
     }
   }
 
+  /** One step: the setting on, and the restart that starts it. A restart ends streams, so it asks only while one runs. */
+  async function turnOn() {
+    if (turning) return;
+    turning = 'saving';
+    late = false;
+    try {
+      const sessions = await api.sessions.status().catch(() => null);
+      if ((sessions?.activeSessions ?? 0) > 0 && !(await confirmRestart())) return;
+      const result = await api.config.patch({ webrtc_server: true });
+      if (result.restart_required !== false) {
+        turning = 'restarting';
+        await api.host.restart();
+        if (!(await backAfterRestart(() => !gone))) {
+          late = !gone;
+          return;
+        }
+      }
+      await check();
+    } catch (cause) {
+      failed('Streaming in this tab was not turned on', cause);
+    } finally {
+      turning = null;
+    }
+  }
+
   async function connect() {
     stream?.close();
     stream = null;
@@ -126,7 +157,7 @@
       const offered = streamOptions(opened.capabilities, receivable);
       if (!offered.length) {
         const names = receivable.map(codecName).join(', ') || 'none';
-        throw new Error(`The host offers no format this browser receives over WebRTC (this browser: ${names}).`);
+        throw new Error(`This PC offers no format this browser receives over WebRTC (this browser: ${names}).`);
       }
       const preferred = await hardwareCodecs(receivable);
       apps = await opened.apps();
@@ -295,14 +326,22 @@
   {/if}
 
   {#if phase === 'checking'}
-    <p class="muted" role="status">Checking the host…</p>
+    <p class="muted" role="status">Checking this PC…</p>
   {:else if phase === 'connecting'}
-    <p class="muted" role="status">Connecting to the host…</p>
+    <p class="muted" role="status">Connecting to this PC…</p>
   {:else if phase === 'off'}
     <Panel>
-      <EmptyState icon="play" title="The WebRTC server is off">
-        <p>Streaming in this tab needs it. Turn on <strong>WebRTC server</strong> in Network &amp; access, save, then restart Rubylight when the console asks.</p>
-        <Button variant="primary" href="/settings/network?setting=webrtc_server" icon="settings">Open the WebRTC setting</Button>
+      <EmptyState icon="play" title="Streaming in this tab is off">
+        <p role="status">
+          {#if turning === 'restarting'}
+            Rubylight is restarting to start it.
+          {:else if late}
+            Rubylight has not come back after 90 seconds. Reload this page when the PC answers.
+          {:else}
+            Turning it on starts the WebRTC server and restarts Rubylight.
+          {/if}
+        </p>
+        <Button variant="primary" icon="play" busy={turning !== null} onclick={turnOn}>Turn on</Button>
       </EmptyState>
     </Panel>
   {:else if phase === 'failed'}
@@ -312,10 +351,10 @@
           <strong>This tab is no longer signed in.</strong>
           <span><a href="/login?next=%2Fstream">Sign in again</a> to stream.</span>
         {:else if refused}
-          <strong>The host refused the stream connection.</strong>
+          <strong>This PC refused the stream connection.</strong>
           <span>The browser does not say why. One of these is the cause:</span>
           <ul>
-            <li>This tab is not signed in, or it opened the console from an address the host does not list as its own (see <code>csrf_allowed_origins</code>).</li>
+            <li>This tab is not signed in, or it opened the console from an address this PC does not list as its own (see <code>csrf_allowed_origins</code>).</li>
             <li>This device is not on the local network or Tailscale.</li>
             <li>The WebRTC server is off, or was turned on without restarting Rubylight.</li>
             <li>Your console device, “Console ({'<'}your user{'>'})”, is disabled on <a href="/devices" use:link>Devices</a>.</li>
@@ -323,7 +362,7 @@
         {:else if checked}
           <span>The stream connection failed: {error}</span>
         {:else}
-          <span>The host's settings did not load: {error}</span>
+          <span>This PC's settings did not load: {error}</span>
         {/if}
       </div>
       <Button size="sm" icon="refresh" onclick={checked ? connect : check}>Try again</Button>
@@ -391,7 +430,7 @@
       bind:this={surface}
       tabindex="0"
       role="application"
-      aria-label="Stream picture. Keys and the mouse go to the host while it has the focus; Ctrl+Alt+Shift+Z gives the keyboard back."
+      aria-label="Stream picture. Keys and the mouse go to the PC while it has the focus; Ctrl+Alt+Shift+Z gives the keyboard back."
       onkeydown={(event) => key(event, true)}
       onkeyup={(event) => key(event, false)}
       onpointermove={pointer}
@@ -404,7 +443,7 @@
     >
       <video id="stream-video" bind:this={video} autoplay playsinline></video>
     </div>
-    <p class="muted hint">Click the picture to play. Keys and the mouse go to the host while it has the focus; click outside it or press Ctrl+Alt+Shift+Z to get them back.</p>
+    <p class="muted hint">Click the picture to play. Keys and the mouse go to the PC while it has the focus; click outside it or press Ctrl+Alt+Shift+Z to get them back.</p>
   </section>
 
   {#if phase !== 'checking' && phase !== 'off' && phase !== 'failed'}

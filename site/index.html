@@ -3,29 +3,39 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Rubylight · Moonlight host for AMD Radeon and NVIDIA</title>
-<meta name="description" content="A Windows game-streaming host for Moonlight, written in Rust, for AMD Radeon and NVIDIA: native AMF and NVENC encoding, D3D12 compute conversion, HEVC and AV1 10-bit HDR, PyroWave HDR 4:4:4, link-rate adaptation and a console on your phone.">
+<title>Rubylight · Game-streaming host for AMD Radeon and NVIDIA</title>
+<meta name="description" content="A free Windows game-streaming host for Moonlight clients, written in Rust, for AMD Radeon and NVIDIA: native AMF and NVENC encoding, D3D12 compute conversion, HDR10, HDR10+, Dolby Vision and HLG, full-colour 4:4:4, co-op on one PC and streaming to browsers.">
 <meta name="color-scheme" content="dark light">
+<link rel="canonical" href="https://ramazankara.github.io/Rubylight/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Rubylight">
 <meta property="og:title" content="Rubylight">
 <meta property="og:description" content="Written in Rust. Built for Radeon and NVIDIA. Made for Moonlight.">
-<meta property="og:image" content="poster.jpg">
+<meta property="og:url" content="https://ramazankara.github.io/Rubylight/">
+<meta property="og:image" content="https://ramazankara.github.io/Rubylight/poster.jpg">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="720">
+<meta property="og:image:alt" content="The game-streaming host for Radeon and NVIDIA: one PC streaming to a laptop, a phone, a TV, a Steam Deck and a browser.">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
 </head>
 <body class="landing">
 <!--
-  Every number on this page comes from rust/PERFORMANCE.md or
-  docs/performance.md and links to its section. When a newer measurement
-  replaces one, update it here in the same commit.
+  Every number on this page comes from docs/performance.md (its 3.0 results
+  table) or rust/PERFORMANCE.md, links to its run, and matches README.md.
+  When a newer measurement replaces one, update all three in the same commit.
+  site/build.py checks every link and #fragment on this page.
 -->
 <header class="topbar">
   <div class="topbar-inner">
     <a class="brand" href="index.html"><span class="mark" aria-hidden="true">R</span>Rubylight</a>
     <nav class="topnav" aria-label="Site">
-      <a href="#performance">Performance</a>
       <a href="#features">Features</a>
+      <a href="#performance">Performance</a>
       <a href="#install">Install</a>
       <a href="docs/index.html">Docs</a>
+      <a href="https://ramazankara.github.io/nightjar/">Nightjar</a>
       <a href="https://github.com/RamazanKara/Rubylight">GitHub</a>
     </nav>
     <a class="button small" href="{{download_url}}">Download {{download_label}}</a>
@@ -35,92 +45,97 @@
 <main>
 <section class="hero">
   <div class="wrap">
-    <p class="eyebrow">Rubylight 3.0 · Windows game-streaming host for Moonlight · formerly Butterpollo</p>
+    <p class="eyebrow">Rubylight {{download_label}} · Windows game-streaming host for Moonlight · formerly Butterpollo</p>
     <h1>Written in Rust.<br><span class="accent">Built for Radeon and NVIDIA.</span><br>Made for Moonlight.</h1>
-    <p class="lede">Stream your games from a Radeon or NVIDIA PC to a laptop, TV, phone, handheld or another PC. Rubylight drives AMF and NVENC natively, prepares every frame on D3D12 compute queues, and carries HEVC and AV1 in 10-bit HDR, or full-colour HDR 4:4:4 through PyroWave. It lowers the bitrate when your link cannot carry it, waits for your game's next frame under VRR, and times every frame from capture to screen. It works with Moonlight and every other Sunshine-compatible client, and with Nightjar it adds a console on your phone with your library, a session menu and, on Radeon, driver controls.</p>
+    <p class="lede">Stream your games from a Radeon or NVIDIA PC to a laptop, TV, phone, handheld, browser or another PC. Rubylight drives AMF and NVENC natively, prepares every frame on D3D12 compute queues, and carries HEVC and AV1 in 10-bit HDR, with HDR10+, Dolby Vision and HLG for screens that show them, or full-colour 4:4:4 through PyroWave. It lowers the bitrate when your link cannot carry it, waits for your game's next frame under VRR, and times every frame from capture to screen.</p>
     <div class="actions">
       <a class="button" href="{{download_url}}">Download {{download_label}}</a>
       <a class="button ghost" href="docs/getting-started.html">Get started</a>
     </div>
-    <p class="fine">Windows x64 · AMD Radeon with AMF or NVIDIA with NVENC · free and open source (GPL-3.0) · Intel stays on <a href="https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0">Rubylight 2.6.x</a></p>
+    <p class="fine">Windows 10 and 11, x64 · AMD Radeon with AMF or NVIDIA with NVENC · free and open source (GPL-3.0) · Intel stays on <a href="https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0">Rubylight 2.6.x</a></p>
 
     <div class="stats">
       <div class="stat">
         <p class="stat-value">2.35<span> ms</span></p>
-        <p class="stat-label">median from capture to client present, PyroWave 1080p60</p>
-        <p class="stat-note">wired pace · AV1 5.89 ms · H.264 6.92 ms · HEVC 8.37 ms · loopback</p>
+        <p class="stat-label">median from capture to client present</p>
+        <p class="stat-note">PyroWave 1080p60 at 20 Mbps, wired pace, loopback · 7.05 ms at 400 Mbps · <a href="rust/PERFORMANCE.html#november-1-pyrowave-send-spread-with-and-without-a-link-hint">run</a></p>
       </div>
       <div class="stat">
         <p class="stat-value">0.25<span> ms</span></p>
-        <p class="stat-label">median age of the picture at the encoder with VRR</p>
-        <p class="stat-note">down from 4.68 ms · 120 Hz game in a 60 fps stream</p>
+        <p class="stat-label">median picture age at the encoder with VRR</p>
+        <p class="stat-note">120 Hz game in a 60 fps stream · 4.68 ms without the wait · <a href="rust/PERFORMANCE.html#october-26-300-rc2-against-the-published-numbers">run</a></p>
       </div>
       <div class="stat">
-        <p class="stat-value">&lt;2<span> %</span></p>
-        <p class="stat-label">of frames lost when 75 Mbps is asked of a 50 Mbit/s link</p>
-        <p class="stat-note">after the start-up, down from 6.7 %</p>
+        <p class="stat-value">15 → 0</p>
+        <p class="stat-label">freezes after scene cuts on a lossy link</p>
+        <p class="stat-note">HEVC 1440p60 at 250 Mbps, 0.3 % loss · <a href="rust/PERFORMANCE.html#october-28-oversize-scene-cuts-encoded-again-as-keyframes">run</a></p>
+      </div>
+      <div class="stat">
+        <p class="stat-value">17<span> ms</span></p>
+        <p class="stat-label">glass to glass in a web browser</p>
+        <p class="stat-note">WebRTC, AV1 1080p60, Edge, loopback · <a href="rust/PERFORMANCE.html#october-25-webrtc-on-the-real-host-pacing-rtx-90-and-120-fps-4k-and-hdr-b5b">run</a></p>
       </div>
     </div>
-    <p class="fine">Rubylight 3.0 builds, October 2026 · RX 7900 XT · release builds, our own runs. <a href="#performance">How these were measured</a></p>
+    <p class="fine">Our own runs on an RX 7900 XT, October and November 2026. <a href="#performance">All results and how they were measured</a></p>
   </div>
 </section>
 
 <section id="film" class="film">
   <div class="wrap">
-    <video controls preload="none" playsinline poster="poster.jpg" aria-label="Rubylight feature tour, 94 seconds">
+    <video controls preload="none" playsinline width="1280" height="720" poster="poster.jpg" aria-label="Rubylight feature tour, 94 seconds">
       <source src="docs/media/demo.mp4" type="video/mp4">
     </video>
     <p class="caption">A tour of Rubylight, one feature at a time: moving in, pairing, your library, per-game settings, displays, HDR, co-op, Nightjar and our measured numbers. 94 seconds, original soundtrack.</p>
   </div>
 </section>
 
-<section id="performance" class="section">
+<section id="tour" class="section">
   <div class="wrap">
-    <p class="eyebrow">Measured, not claimed</p>
-    <h2>Every number has a run behind it</h2>
-    <p class="section-lede">Rubylight records the time of each frame at every stage and keeps the method and the raw results next to each number. All of these were measured on an RX 7900 XT.</p>
-
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr><th>What</th><th>Result</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>Frame timing record, 1080p60, loopback</td><td><b>5.89 ms</b> median from capture to client present with AV1, <b>6.92 ms</b> with H.264, <b>8.37 ms</b> with HEVC and <b>11.14 ms</b> with PyroWave on 3.0.0-rc.2. <a href="rust/PERFORMANCE.html#october-26-300-rc2-against-the-published-numbers">rc.2 record</a>, <a href="rust/PERFORMANCE.html#october-23-per-frame-timing-record-baselines">baselines</a></td></tr>
-          <tr><td>VRR-aware capture</td><td>A 120 Hz game in a 60 fps stream: median age at the encoder <b>4.68 to 0.25 ms</b>, present to sent <b>7.27 to 3.50 ms</b> on 3.0.0-rc.2, shown frame rate unchanged. <a href="rust/PERFORMANCE.html#october-26-300-rc2-against-the-published-numbers">rc.2 record</a>, <a href="rust/PERFORMANCE.html#october-24-predictive-claim-waits-under-vrr">VRR</a></td></tr>
-          <tr><td>Link-rate adaptation</td><td>75 Mbps asked of a 50 Mbit/s link: <b>under 2 %</b> of frames lost after the start-up, against 6.7 % before the fix, and no change on an emulated 150 Mbit/s Wi-Fi link with 0.5 % loss. <a href="rust/PERFORMANCE.html#october-24-link-rate-false-cuts-and-the-knee-hold-link-fix">Link-rate fix</a></td></tr>
-          <tr><td>Stream presets</td><td>Lowest latency makes the first keyframe <b>29 %</b> smaller on HEVC and <b>38 to 40 %</b> smaller on H.264. The median end to end time of the three presets stayed within <b>0.15 ms</b>. <a href="rust/PERFORMANCE.html#october-23-stream-presets-b3">Presets</a></td></tr>
-          <tr><td>Slice delivery (off by default)</td><td>On the Nightjar desktop client, 4K60 HEVC at 80 Mbps arrives <b>1.3 to 1.5 ms</b> sooner on loopback and <b>1.2 to 1.4 ms</b> sooner over Wi-Fi 6E. <a href="rust/PERFORMANCE.html#october-23-slice-delivery-b2-step-2f">Slice delivery</a></td></tr>
-          <tr><td>Beam-raced PyroWave (opt-in)</td><td>Opt-in on the Nightjar desktop client: the picture's middle row is on screen <b>1.4 ms</b> sooner, median age 5.32 to 3.93 ms, loopback on one PC, PyroWave 1080p60 4:2:0 at 399 Mbps. <a href="rust/PERFORMANCE.html#october-24-beam-raced-pyrowave-gate-b10-step-4-opt-in-missed-its-default-on-gate">Beam racing</a></td></tr>
-          <tr><td>Rust engine in Nightjar on Android</td><td>Retroid Pocket 6, HEVC 1080p60 at 40 Mbps: median end to end <b>6.92 ms</b> against 7.04 ms for the classic engine. <a href="rust/PERFORMANCE.html#october-23-rust-engine-against-the-c-engine-on-android-b8">Rust engine</a></td></tr>
-          <tr><td>Against 2.6.0</td><td>56 streams on physical and virtual displays: every mean picture age within <b>0.15 ms</b> of 2.6.0. Wired LAN to a second PC: mean host processing <b>0.45 ms</b>. <a href="rust/PERFORMANCE.html#october-22-30-alpha1-hardware-gate">Hardware gate</a></td></tr>
-        </tbody>
-      </table>
+    <p class="eyebrow">A closer look</p>
+    <h2>From the couch, not the desk</h2>
+    <div class="spotlights">
+      <article class="spotlight">
+        <div class="spotlight-copy">
+          <h3>Ready to play in minutes</h3>
+          <p>Open <code>https://localhost:47990</code> on the PC and Home walks you through pairing and your first game: Nightjar scans a QR code, Moonlight enters a PIN. While you play, Home shows the stream's frame rate, bitrate and encoder timing, and what the host changed and why.</p>
+          <p>When something goes wrong, <b>Help</b> reads the host log and explains what it found, such as an AMD encoder hang, lost capture, a port in use or network loss, with the fix for each.</p>
+        </div>
+        <figure class="shot">
+          <img src="docs/media/showcase/console-home.png" width="1192" height="900" loading="lazy" decoding="async" alt="The Rubylight console's Home page: Ready to play, the host name and paired devices, the running app and the first games of the library.">
+        </figure>
+      </article>
+      <article class="spotlight">
+        <div class="spotlight-copy">
+          <h3>Every launcher, one library</h3>
+          <p>Steam, Epic Games, Battle.net, EA app, Ubisoft Connect, GOG, Microsoft Store, Xbox and Playnite games join one list with their covers: one switch per launcher, nothing to type in.</p>
+          <p>Each game can carry its own stream, display and encoder settings, RTSS frame limits, a Lossless Scaling profile and a Radeon profile. They apply when the game starts and are reverted when the session ends.</p>
+        </div>
+        <figure class="shot">
+          <img src="docs/media/showcase/console-games.png" width="1184" height="890" loading="lazy" decoding="async" alt="Games: the library with covers from Steam and other launchers, each with Launch on PC.">
+        </figure>
+      </article>
+      <article class="spotlight">
+        <div class="spotlight-copy">
+          <h3>Co-op on one PC</h3>
+          <p>A game that Nucleus Co-op supports gets a “(Co-op)” entry. Each device that starts it joins as the next player, up to four, each in its own instance with its own picture, sound and virtual controller. A player who steps away keeps their slot for two minutes.</p>
+          <p>Or play in the background while someone else keeps using the PC. <a href="docs/nucleus-coop.html">Co-op and background streaming</a></p>
+        </div>
+        <figure class="shot">
+          <img src="docs/media/showcase/coop-home.png" width="1440" height="619" loading="lazy" decoding="async" alt="A live co-op game on Home: Player 1 playing on the living room PC, Player 2 on a Retroid Pocket 5 away and keeping the slot, two free slots and one click to let another device join.">
+        </figure>
+      </article>
+      <article class="spotlight">
+        <div class="spotlight-copy">
+          <h3>Your library on every screen</h3>
+          <p><a href="https://ramazankara.github.io/nightjar/">Nightjar</a>, the client built alongside Rubylight, runs on Android phones and handhelds, Android TV, Fire TV, Windows, Linux and macOS. With Rubylight it adds QR pairing, every launcher's games with their covers, a session menu with Radeon controls, Dolby Vision, HDR10+ and HLG, clipboard, files, USB forwarding and co-op.</p>
+          <p>Moonlight and every other Moonlight-compatible client work too, unmodified.</p>
+        </div>
+        <figure class="shot">
+          <img src="client/docs/assets/shots/tv-home.png" width="1280" height="720" loading="lazy" decoding="async" alt="Nightjar's Home on a TV: a game in the hero and a Recently played row of posters with store badges (demo library).">
+          <figcaption>Nightjar on a TV, with its demo library.</figcaption>
+        </figure>
+      </article>
     </div>
-
-    <h3 class="table-title">Next to Vibepollo 2.0</h3>
-    <p>Rubylight 2.0.0-rc.2 and Vibepollo 2.0 alternated in one batch on the same PC and settings: HEVC 10-bit HDR at 1080p60, 20 Mbps, Desktop Duplication, a 120 Hz virtual display, three runs each. Picture age is the time from a rendered picture to an independent decoder on the same PC, so it leaves out remote network and display time. The figures are means of the three runs.</p>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr><th>Case</th><th>Vibepollo 2.0</th><th>Rubylight 2.0.0-rc.2</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>Idle, picture age mean / p95</td><td>15.96 / 16.65 ms</td><td><b>13.77 / 14.51 ms</b></td></tr>
-          <tr><td>Under game-like load, picture age mean / p95</td><td>96.44 / 136.98 ms</td><td><b>42.43 / 56.49 ms</b></td></tr>
-          <tr><td>Under game-like load, new pictures per second</td><td>23.9</td><td><b>51.4</b></td></tr>
-        </tbody>
-      </table>
-    </div>
-    <p class="note"><a href="rust/PERFORMANCE.html#against-vibepollo-20">Setup, per-run values and artifacts</a></p>
-
-    <h3 class="sub-title">Works with</h3>
-    <ul class="results">
-      <li><b>Every Moonlight and Sunshine-compatible client</b>, on Windows, macOS, Linux, Android, iOS, TVs, consoles and handhelds.</li>
-      <li><b>Any AMD Radeon GPU with AMF or NVIDIA GPU with NVENC</b>, desktop and mobile, as the host, on Windows 10 and 11.</li>
-      <li><b>Locked Windows</b>, so you can sign in from the couch, <b>headless machines and VMs</b> with no monitor, and <b>Kubernetes pods with GPUs</b>.</li>
-    </ul>
-    <p><a class="more" href="docs/performance.html">All performance results and what each number means</a></p>
   </div>
 </section>
 
@@ -135,51 +150,55 @@
       </article>
       <article class="card">
         <h3>GPU compute</h3>
-        <p>Frame copies and colour conversion run on D3D12 compute queues beside the game's graphics work, so your game and your stream stop waiting on each other.</p>
+        <p>Frame copies, colour conversion and scaling run on D3D12 compute queues beside the game's graphics work, so your game and your stream stop waiting on each other.</p>
       </article>
       <article class="card">
-        <h3>HEVC and AV1 HDR</h3>
-        <p>Ten-bit BT.2020/PQ from capture to the encoder, with HDR metadata in the keyframes, checked by a test. H.264 is there too.</p>
+        <h3>HDR10, HDR10+, Dolby Vision and HLG</h3>
+        <p>Ten-bit BT.2020 from capture to the encoder, with per-scene brightness measured on the GPU. Devices that ask get HDR10+, Dolby Vision or HLG on the same stream; others get HDR10.</p>
       </article>
       <article class="card">
-        <h3>PyroWave HDR 4:4:4</h3>
-        <p>A colour sample for every pixel keeps coloured text and edges crisp over a fast local network, with <a href="https://github.com/RamazanKara/nightjar">Nightjar</a> or any other PyroWave-capable Moonlight client.</p>
+        <h3>Full colour, 4:4:4</h3>
+        <p>A colour sample for every pixel keeps small text and red-on-black HUDs sharp: PyroWave HDR 4:4:4 on a fast local network, or 4:4:4 packed into HEVC and AV1 for Nightjar.</p>
       </article>
       <article class="card">
-        <h3>Beam racing and slices (opt-in)</h3>
-        <p>PyroWave frames arrive in display order so the top of the picture can be drawn while the bottom is still on the wire, and H.264 and HEVC frames can leave the host slice by slice.</p>
+        <h3>Slices and beam racing</h3>
+        <p>H.264 and HEVC pictures of 4K size leave the host slice by slice, by default. PyroWave frames arrive in display order, so a client that asks can draw the top of the picture while the bottom is still on the wire.</p>
       </article>
       <article class="card">
         <h3>Link-rate adaptation</h3>
         <p>When your link cannot carry the bitrate you asked for, the host steps down to what it delivers, probes back up, and tells the client what it did.</p>
       </article>
       <article class="card">
-        <h3>Stream presets</h3>
-        <p>Lowest latency, Balanced or Reference quality, for the whole host, one device or one app.</p>
-      </article>
-      <article class="card">
         <h3>VRR-aware capture</h3>
         <p>With variable refresh, the host waits for the game's next frame when it is close, so the encoder gets a fresh picture.</p>
+      </article>
+      <article class="card">
+        <h3>Virtual displays</h3>
+        <p>A display per device at its own resolution, refresh rate and HDR mode, shared or off, with exclusive, extended, primary and isolated layouts. Your own layout comes back after the stream.</p>
+      </article>
+      <article class="card">
+        <h3>Play in a browser</h3>
+        <p>A WebRTC server streams H.264, HEVC and AV1 with HDR, surround and gamepads to browsers and Samsung TVs, paired with a PIN, with guest links for friends.</p>
+      </article>
+      <article class="card">
+        <h3>Controllers</h3>
+        <p>A matching virtual pad for each player: DualSense with adaptive triggers, Switch Pro, Xbox or the Steam Controller with trackpads, back grips and motion, plus Xbox 360 (ViGEmBus) for tools such as reWASD.</p>
+      </article>
+      <article class="card">
+        <h3>Clipboard, files and USB</h3>
+        <p>Clipboard in both directions, shared folders, file transfer and USB forwarding to the PC, each enabled per device.</p>
+      </article>
+      <article class="card">
+        <h3>Sound</h3>
+        <p>Surround up to 7.1.4, uncompressed PCM or Dolby Digital for an AV receiver, night mode and headphone surround, game-only audio, and the client's microphone on the PC.</p>
       </article>
       <article class="card">
         <h3>Radeon controls</h3>
         <p>Turn on Host control for a device and it can change Anti-Lag, Radeon Chill and more during a stream. Each change is undone when the session ends. Give a game its own Radeon profile and it is set when the game starts.</p>
       </article>
       <article class="card">
-        <h3>A console on your phone</h3>
-        <p>With <a href="https://github.com/RamazanKara/nightjar">Nightjar</a>, Home shows favourites, what is running and your library across PCs. A session menu closes the game or changes Radeon settings without leaving the stream.</p>
-      </article>
-      <article class="card">
-        <h3>Your library</h3>
-        <p>Steam, Epic Games, Battle.net, EA app, Ubisoft Connect, GOG, Microsoft Store and Xbox PC games in one scan, plus Playnite sync, per-app settings, RTSS frame limits and Lossless Scaling.</p>
-      </article>
-      <article class="card">
-        <h3>Virtual displays</h3>
-        <p>A display per device, shared or off, with exclusive, extended, primary and isolated layouts, HDR, and your own layout restored after the stream. Physical displays work too.</p>
-      </article>
-      <article class="card">
-        <h3>Controllers</h3>
-        <p>Xbox, DualSense with adaptive triggers and Switch Pro pads from one signed driver. With usbip-win2 installed, a Steam Deck can show up on the host as a real Steam Deck controller.</p>
+        <h3>Stream presets</h3>
+        <p>Lowest latency, Balanced or Reference quality, for the whole host, one device or one app.</p>
       </article>
       <article class="card">
         <h3>A timing record for every frame</h3>
@@ -194,32 +213,69 @@
   </div>
 </section>
 
-<section id="install" class="section">
+<section id="performance" class="section">
   <div class="wrap">
-    <p class="eyebrow">Install. Pair Moonlight. Play.</p>
+    <p class="eyebrow">Measured, not claimed</p>
+    <h2>Every number has a run behind it</h2>
+    <p class="section-lede">Rubylight records the time of each frame at every stage and keeps the method and the raw results next to each number. All of these were measured on an RX 7900 XT.</p>
+
+    <div class="table-wrap">
+      <table class="perf">
+        <thead>
+          <tr><th>What</th><th>Result</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Frame timing record, 1080p60, loopback</td><td><b>5.89&nbsp;ms</b> median from capture to client present with AV1, <b>6.92&nbsp;ms</b> with H.264 and <b>8.37&nbsp;ms</b> with HEVC on 3.0.0-rc.2. <a href="rust/PERFORMANCE.html#october-26-300-rc2-against-the-published-numbers">rc.2 record</a>, <a href="rust/PERFORMANCE.html#october-23-per-frame-timing-record-baselines">baselines</a></td></tr>
+          <tr><td>PyroWave with a link hint</td><td>PyroWave 1080p60 at 20 Mbps over loopback, paced as for a wired client that reports its link (as Nightjar does): <b>2.35&nbsp;ms</b> median from capture to client present; 7.05 ms at 400 Mbps. <a href="rust/PERFORMANCE.html#november-1-pyrowave-send-spread-with-and-without-a-link-hint">November 1</a></td></tr>
+          <tr><td>VRR-aware capture</td><td>A 120 Hz game in a 60 fps stream: median age at the encoder <b>4.68 to 0.25&nbsp;ms</b>, present to sent <b>7.27 to 3.50&nbsp;ms</b> on 3.0.0-rc.2, shown frame rate unchanged. <a href="rust/PERFORMANCE.html#october-26-300-rc2-against-the-published-numbers">rc.2 record</a>, <a href="rust/PERFORMANCE.html#october-24-predictive-claim-waits-under-vrr">VRR</a></td></tr>
+          <tr><td>Scene cuts encoded again</td><td>HEVC 1440p60 at 250 Mbps with 0.3 % random loss, 45 s, two runs per arm: freezes after scene cuts fell <b>from 15 to 0</b>. <a href="rust/PERFORMANCE.html#october-28-oversize-scene-cuts-encoded-again-as-keyframes">October 28</a></td></tr>
+          <tr><td>Wi-Fi pacing from the first frame</td><td>HEVC 1080p60 at 47 Mbit/s on 2.4 GHz Wi-Fi, three runs per arm: unrecoverable frames per run <b>61 to 15.7</b>; median unchanged at 4.7 ms on 5 GHz. <a href="rust/PERFORMANCE.html#october-25-wi-fi-pacing-hint-on-a-real-laptop">October 25</a></td></tr>
+          <tr><td>Client error correction</td><td>Retroid Pocket 6 on real Wi-Fi, HEVC 1080p60 at 150 Mbps: Automatic error correction lost 14 frames over six runs without its 10 % floor and <b>none</b> over four runs with it. <a href="rust/PERFORMANCE.html#november-1-client-error-correction-on-real-wi-fi-retroid">November 1</a></td></tr>
+          <tr><td>Link-rate adaptation</td><td>75 Mbps asked of a 50 Mbit/s link: <b>under 2&nbsp;%</b> of frames lost after the start-up, against 6.7 % before the fix, and 1.17 % and 1.08 % in two runs with the standing-queue signal added after it. <a href="rust/PERFORMANCE.html#october-24-link-rate-false-cuts-and-the-knee-hold-link-fix">Link-rate fix</a>, <a href="rust/PERFORMANCE.html#october-24-a-lossless-standing-queue-link-fix-delay-signal">standing queue</a></td></tr>
+          <tr><td>Slice delivery (on for 4K-size pictures)</td><td>4K60 HEVC at 80 Mbps arrives <b>1.2 to 1.3&nbsp;ms</b> sooner over loopback and 0.5 to 1.0 ms sooner paced as for a Wi-Fi client; 1440p and 1080p pictures go out whole. <a href="rust/PERFORMANCE.html#november-1-slice-delivery-by-picture-size">By picture size</a></td></tr>
+          <tr><td>Beam-raced PyroWave (when the client asks)</td><td>Nightjar desktop, PyroWave 1080p60 at 399 Mbps, loopback: the picture's middle row is on screen <b>1.4&nbsp;ms</b> sooner, median age 5.32 to 3.93 ms. <a href="rust/PERFORMANCE.html#october-24-beam-raced-pyrowave-gate-b10-step-4-opt-in-missed-its-default-on-gate">Beam racing</a></td></tr>
+          <tr><td>WebRTC</td><td>AV1 1080p60, Microsoft Edge on the same PC over loopback: <b>17&nbsp;ms</b> median glass to glass. From a frame to its last packet with a game running: 185 µs for P frames (402 µs on 3.1.0). <a href="rust/PERFORMANCE.html#october-25-webrtc-on-the-real-host-pacing-rtx-90-and-120-fps-4k-and-hdr-b5b">WebRTC run</a></td></tr>
+          <tr><td>Rust engine in Nightjar on Android</td><td>Retroid Pocket 6, HEVC 1080p60 at 40 Mbps: median end to end <b>6.92&nbsp;ms</b> against 7.04 ms for the classic engine. <a href="rust/PERFORMANCE.html#october-23-rust-engine-against-the-c-engine-on-android-b8">Rust engine</a></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="sub-title">Works with</h3>
+    <ul class="results">
+      <li><b>Every Moonlight-compatible client</b>, on Windows, macOS, Linux, Android, iOS, TVs, consoles and handhelds, and browsers through WebRTC.</li>
+      <li><b>Any AMD Radeon GPU with AMF or NVIDIA GPU with NVENC</b>, desktop and mobile, as the host, on Windows 10 and 11.</li>
+      <li><b>Locked Windows</b>, so you can sign in from the couch, <b>headless machines and VMs</b> with no monitor, and <b>Kubernetes pods with GPUs</b>.</li>
+    </ul>
+    <p><a class="more" href="docs/performance.html">All performance results and what each number means</a></p>
+  </div>
+</section>
+
+<section id="install" class="section alt">
+  <div class="wrap">
+    <p class="eyebrow">Install. Pair. Play.</p>
     <h2>Three steps to your first stream</h2>
     <ol class="steps">
-      <li><h3>Install</h3><p>Run the installer from the <a href="{{download_url}}">release</a>. Installing over Apollo, Vibepollo or Butterpollo keeps your settings, paired devices, app library and covers.</p></li>
+      <li><h3>Install</h3><p>Run the installer from the <a href="{{download_url}}">release</a>. Moving from another host? Setup can bring its settings, paired devices, app library and covers along, or install beside it.</p></li>
       <li><h3>Open the console</h3><p>Go to <code>https://localhost:47990</code> on the host PC and create your local account.</p></li>
-      <li><h3>Pair and play</h3><p>Add your PC in Moonlight or any Sunshine-compatible client, enter its PIN under <b>Devices</b>, then launch <b>Desktop</b>. Start at 1080p60, then raise resolution, frame rate and HDR.</p></li>
+      <li><h3>Pair and play</h3><p>Nightjar scans the QR code on <b>Home</b>; Moonlight shows a PIN you enter under <b>Devices</b>. Launch <b>Desktop</b> at 1080p60, then raise resolution, frame rate and HDR.</p></li>
     </ol>
-    <p><a class="more" href="docs/getting-started.html">First-stream walkthrough, portable setup and migration</a></p>
+    <p><a class="more" href="docs/getting-started.html">First-stream walkthrough, portable setup and moving from another host</a></p>
     <p class="note">Free code signing provided by <a href="https://signpath.io">SignPath.io</a>, certificate by <a href="https://signpath.org">SignPath Foundation</a>. <a href="docs/code-signing-policy.html">Code signing policy</a> · <a href="docs/privacy.html">Privacy</a></p>
   </div>
 </section>
 
 <section id="users" class="section">
   <div class="wrap">
-    <p class="eyebrow">What users say</p>
-    <h2>From people running it on Radeon</h2>
+    <p class="eyebrow">What players say</p>
+    <h2>From people playing on it</h2>
     <div class="quotes">
-      <figure class="quote">
-        <blockquote>Dude... What the fuck is this host? I could not believe it. It's the lowest latency I got after testing a ton of hosts. Congratulations, dude.</blockquote>
-        <figcaption>u/LukasSTM on Reddit</figcaption>
-      </figure>
       <figure class="quote">
         <blockquote>From 10 ms encoding to 5 ms in 4K 60 fps, btw :) I tried it with PyroWave and it was close to native. Really impressive.</blockquote>
         <figcaption>u/3stwie4 on Reddit</figcaption>
+      </figure>
+      <figure class="quote">
+        <blockquote>My Xbox Series X streaming at 4K120 HEVC HDR has been extremely stable.</blockquote>
+        <figcaption>j-scrizz on GitHub</figcaption>
       </figure>
       <figure class="quote">
         <blockquote>Switched to PyroWave on RC19. I honestly see no difference between host and client. Amazing work!</blockquote>
@@ -230,16 +286,16 @@
         <figcaption>u/Short_Dimension7967 on Reddit</figcaption>
       </figure>
     </div>
-    <p class="note">Quotes from Reddit, lightly edited for typos.</p>
+    <p class="note">Quotes from Reddit and GitHub, lightly edited for typos.</p>
   </div>
 </section>
 
 <section class="section alt">
   <div class="wrap narrow">
     <p class="eyebrow">Why it exists</p>
-    <h2>AMD rarely gets any love in this space</h2>
-    <p>The protocol started as NVIDIA's GameStream, and the hosts that replaced it kept NVIDIA first. Upstream Sunshine has had a native NVENC encoder since 2023, while AMD still goes through FFmpeg's generic AMF wrapper. So Radeon owners have spent years hearing their cards are just worse at streaming. Most of the time the card was never the problem. Nobody had sat down with it.</p>
-    <p>Rubylight began as a host rebuilt in Rust around the Radeon frame path, from capture to the encoder, for every Radeon owner who wants to play away from the desk. It now encodes with NVENC on NVIDIA GPUs too, with the same host around it.</p>
+    <h2>The card was rarely the problem</h2>
+    <p>Radeon owners have long been told their cards are simply worse at streaming. Most of the time the card was never the problem: the path around the encoder was. Rubylight began as a host rebuilt in Rust around that path, from capture through conversion to the encoder, timed at every step, for everyone who wants to play away from the desk.</p>
+    <p>The same host now drives NVENC on NVIDIA GPUs, with the same capture, compute queues, displays, library and console around it. Whichever card is in your PC, the stream gets the same care.</p>
   </div>
 </section>
 
@@ -248,15 +304,15 @@
     <p class="eyebrow">Documentation</p>
     <h2>Find what you need</h2>
     <div class="links">
-      <a href="docs/getting-started.html"><b>Getting started</b><span>Install, pair, first stream, choosing a client</span></a>
+      <a href="docs/getting-started.html"><b>Getting started</b><span>Install, pair, first stream, moving from another host</span></a>
       <a href="docs/configuration.html"><b>Configuration</b><span>Capture, codecs, HDR, displays, frame limits, updates</span></a>
       <a href="docs/troubleshooting.html"><b>Troubleshooting</b><span>Pairing, black screens, HDR colour, smoothness</span></a>
-      <a href="docs/architecture.html"><b>Architecture</b><span>The frame path, HDR and PyroWave</span></a>
-      <a href="docs/performance.html"><b>Performance</b><span>Comparisons and what each number means</span></a>
       <a href="docs/features.html"><b>Features</b><span>Video, capture, displays, input, library and clients</span></a>
+      <a href="docs/performance.html"><b>Performance</b><span>Measured results and what each number means</span></a>
+      <a href="docs/architecture.html"><b>Architecture</b><span>The frame path, HDR and PyroWave</span></a>
       <a href="rust/RELEASE_NOTES.html"><b>Release notes</b><span>Every release, with what was tested</span></a>
-      <a href="docs/building.html"><b>Build guide</b><span>Toolchain, dependencies, packaging and CI</span></a>
       <a href="docs/api.html"><b>HTTP API</b><span>Authentication, permissions and endpoints</span></a>
+      <a href="https://ramazankara.github.io/nightjar/"><b>Nightjar</b><span>The client built alongside Rubylight, for Android, TVs, Windows, Linux and macOS</span></a>
     </div>
   </div>
 </section>
@@ -265,7 +321,7 @@
 <footer class="footer">
   <div class="footer-inner">
     <p>Rubylight is GPL-3.0 and began as a fork of Vibepollo. Thanks to Nonary for Vibepollo, ClassicOldSong for Apollo, and LizardByte and the Sunshine contributors. The AMD encoder's low-latency defaults draw on qiin2333's work in AlkaidLab's Foundation Sunshine. PyroWave and Granite are by Themaister; the PyroWave Moonlight protocol and clients are joemossjr16's work.</p>
-    <p>The name came from a tester's verdict: “smooth as butter.” · <a href="https://github.com/RamazanKara/Rubylight">GitHub</a> · <a href="https://github.com/RamazanKara/Rubylight/issues">Issues</a> · <a href="rust/THIRD_PARTY.html">Third-party components</a> · <a href="docs/code-signing-policy.html">Code signing policy</a> · <a href="docs/privacy.html">Privacy</a></p>
+    <p>The name came from a tester's verdict: “smooth as butter.” · <a href="https://github.com/RamazanKara/Rubylight">GitHub</a> · <a href="https://github.com/RamazanKara/Rubylight/issues">Issues</a> · <a href="https://ramazankara.github.io/nightjar/">Nightjar</a> · <a href="rust/THIRD_PARTY.html">Third-party components</a> · <a href="docs/code-signing-policy.html">Code signing policy</a> · <a href="docs/privacy.html">Privacy</a></p>
   </div>
 </footer>
 </body>

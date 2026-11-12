@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="host_update_available">Có bản cập nhật Rubylight %1$s</string>
-    <string name="host_update_stream_notice">Đã có Rubylight %1$s. Hãy cập nhật trong thẻ Bảo trì của máy chủ.</string>
+    <string name="host_update_stream_notice">Đã có Rubylight %1$s. Hãy cập nhật trong thẻ Bảo trì của Rubylight.</string>
     <string name="update_stream_notice">Đã có Nightjar %1$s. Mở phần cài đặt Nightjar để cập nhật.</string>
     <string name="title_check_updates">Tự động kiểm tra bản cập nhật</string>
-    <string name="summary_check_updates">Tìm phiên bản mới khi mở ứng dụng, tối đa hai lần mỗi ngày. Không có gì được cài đặt nếu bạn không chọn.</string>
+    <string name="summary_check_updates">Tìm phiên bản mới hơn khi Nightjar mở; không có gì tự cài đặt.</string>
     <string name="title_check_updates_now">Kiểm tra bản cập nhật ngay</string>
-    <string name="summary_check_updates_now">Tìm phiên bản mới hơn</string>
+    <string name="summary_check_updates_now">Tìm phiên bản mới hơn ngay bây giờ.</string>
     <string name="update_checking">Đang kiểm tra bản cập nhật…</string>
     <string name="update_up_to_date">Bạn đang dùng phiên bản mới nhất</string>
     <string name="update_check_failed">Không thể kiểm tra bản cập nhật</string>

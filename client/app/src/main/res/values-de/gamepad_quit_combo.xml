@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_list_gamepad_quit_combo">Controller-Tastenkombination zum Beenden</string>
-    <string name="summary_list_gamepad_quit_combo">Diese Tasten zusammen halten, um den Stream zu verlassen; er endet, sobald alle losgelassen sind. Aus überlässt das dem Stream-Menü, das Start+Select+LB+RB öffnet. Gilt ab dem nächsten Stream.</string>
+    <string name="title_list_gamepad_quit_combo">Tasten zum Verlassen des Streams</string>
+    <string name="summary_list_gamepad_quit_combo">Die Tasten, die gleichzeitig gehalten werden, um den Stream zu verlassen.</string>
     <string name="gamepad_quit_combo_off">Aus</string>
     <string name="stream_controller_mouse">Controller-Maus</string>
     <string name="title_list_guide_menu_hold">Guide halten öffnet das Stream-Menü</string>
-    <string name="summary_list_guide_menu_hold">Ein kurzer Druck geht weiter als Guide an den PC. Gilt ab dem nächsten Stream.</string>
+    <string name="summary_list_guide_menu_hold">Wie lange Guide gehalten wird, um das Menü zu öffnen; ein kurzer Druck geht an den PC.</string>
 </resources>

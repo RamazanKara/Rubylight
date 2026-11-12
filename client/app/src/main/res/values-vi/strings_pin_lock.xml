@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="pin_lock_title">Khóa bằng PIN</string>
-    <string name="pin_lock_summary">Yêu cầu mã PIN khi mở Nightjar hoặc bắt đầu một luồng phát. Mã PIN đã quên chỉ có thể đặt lại bằng cách xóa dữ liệu ứng dụng Nightjar trong phần cài đặt Android, thao tác này cũng xóa các PC đã ghép nối.</string>
+    <string name="pin_lock_summary">Yêu cầu mã PIN để mở Nightjar hoặc bắt đầu stream.</string>
     <string name="pin_set">Đặt mã PIN</string>
     <string name="pin_change">Đổi mã PIN</string>
     <string name="pin_remove">Xóa mã PIN</string>

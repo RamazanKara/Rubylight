@@ -26,7 +26,7 @@ Rubylight 3 encodes on an AMD Radeon GPU through the AMF video encoder in AMD's 
 | "...its driver has no NVENC video encoder (nvEncodeAPI64.dll is missing...)" | The NVIDIA GPU is there, but its driver lacks the encoder. Install the latest NVIDIA graphics driver from nvidia.com/drivers, restart Windows if it asks, then run setup again. |
 | "AMF could not start on ..." in the console | The AMD driver is present but AMF did not start. Update the Radeon driver. At the sign-in screen, or after a disconnected Remote Desktop session, sign in at the PC first. |
 | "NVENC could not start on ..." in the console | The NVIDIA driver is present but NVENC did not start. Update the NVIDIA driver. At the sign-in screen, or after a disconnected Remote Desktop session, sign in at the PC first. |
-| "... is neither an AMD nor an NVIDIA graphics card ... This PC also has ..." | A monitor or the **Graphics card** setting points at the Intel GPU of a PC that also has an AMD or NVIDIA GPU. Connect the monitor to that GPU, choose it under **All settings → Streaming → Graphics card**, or switch to WGC capture (Desktop Duplication captures on the GPU that drives the monitor), and reconnect. |
+| "... is neither an AMD nor an NVIDIA graphics card ... This PC also has ..." | A monitor or the **Graphics card** setting points at the Intel GPU of a PC that also has an AMD or NVIDIA GPU. Connect the monitor to that GPU, choose it under **All settings → Picture → Encoder → Graphics card**, or switch to WGC capture (Desktop Duplication captures on the GPU that drives the monitor), and reconnect. |
 
 A Moonlight client that cannot start a stream on such a PC shows "No video encoder is ready" with the same advice. The console's warnings and `butterpollo.log` hold the specific reason.
 
@@ -57,7 +57,7 @@ The Rubylight service runs as SYSTEM from the install folder, so setup only upda
 
 Under **Settings → Updates**, read the current phase and any error; the panel names the stream an update waits for, and **Install now** installs without waiting. Installation needs the installed Windows service and one minute without streams, pending connections, remote monitors or host apps. Quit a retained desktop or game session as well as disconnecting its video. A new connection defers the update.
 
-**Install updates automatically** (**Settings → Updates**) is opt-in. **Include pre-releases** (**All settings → General → Updates**) controls whether release candidates are offered, and an update-check interval of `0` disables automatic checks and installation. Manual checks remain available. Portable builds update through the release page.
+**Install updates automatically** (**Settings → Updates**) is opt-in. **Include pre-releases** (**All settings → This PC → Updates**) controls whether release candidates are offered, and an update-check interval of `0` disables automatic checks and installation. Manual checks remain available. Portable builds update through the release page.
 
 ## A driver is missing or out of date
 
@@ -68,8 +68,8 @@ Under **Settings → Updates**, read the current phase and any error; the panel 
 
 - Open **https://localhost:47990** on the host. If it does not open, check the host or service first.
 - Confirm both devices are on the same local network, then try adding the host's local IP address in Moonlight. Guest networks and access-point isolation can keep devices from reaching each other.
-- Check **All settings → General → Allow pairing**. Enter the four-digit PIN **shown by Moonlight** into the matching pending request on **Devices**.
-- If discovery alone fails, check the discovery and bind-address settings in **All settings → Network & access**. An address restricted to `127.0.0.1` is reachable only from the host itself.
+- Check **All settings → Network → Pairing → Allow pairing**. Enter the four-digit PIN **shown by Moonlight** into the matching pending request on **Devices**.
+- If discovery alone fails, check the discovery and listen-address settings in **All settings → Network** (**Discovery and internet**, and the collapsed **Ports and addresses**). An address restricted to `127.0.0.1` is reachable only from the host itself.
 - If Home in the console warns that a Windows Firewall rule blocks Rubylight, a block rule for `butterpollo.exe` (left when Windows asked whether to allow it and the prompt was closed) overrides setup's allow rule. Open Windows Defender Firewall, **Advanced settings**, **Inbound Rules**, and allow `butterpollo.exe` or delete the rule that blocks it.
 - If setup reported a firewall-rule failure, read the setup log for the exact error and check that Windows Firewall allows the installed `butterpollo.exe` on your local network. Do not disable the whole firewall to diagnose one application.
 
@@ -120,21 +120,21 @@ The stream card shows the active encoder and warnings for the current session. E
 
 ## The client asks for a codec this GPU cannot encode
 
-`AMF_CODEC_NOT_SUPPORTED`, `AMF_ENCODER_NOT_PRESENT` or "this GPU or driver has no encoder for the request" in the log means the device asked for something this GPU's video encoder does not have: a codec (AV1 on a Radeon without an AV1 encoder, for example), HDR with H.264, a YUV 4:4:4 mode the host did not offer, or a size or frame rate beyond the encoder's limit. **Home → Host readiness** lists the codecs, and on NVIDIA the 4:4:4 modes, this GPU encodes. Choose one of those in the client's video settings, or a lower resolution or frame rate, and reconnect. If a codec the GPU should have is missing, update the graphics driver.
+`AMF_CODEC_NOT_SUPPORTED`, `AMF_ENCODER_NOT_PRESENT` or "this GPU or driver has no encoder for the request" in the log means the device asked for something this GPU's video encoder does not have: a codec (AV1 on a Radeon without an AV1 encoder, for example), HDR with H.264, a YUV 4:4:4 mode the host did not offer, or a size or frame rate beyond the encoder's limit. The checks under **PC details** on **Home** list the codecs, and on NVIDIA the 4:4:4 modes, this GPU encodes. Choose one of those in the client's video settings, or a lower resolution or frame rate, and reconnect. If a codec the GPU should have is missing, update the graphics driver.
 
 ## Black picture, no display, or WGC fails
 
-1. On **Home → Host readiness**, inspect **Screen capture**, **Video encoder** and **Virtual display**. A physical monitor must be active, or the configured virtual display must be available.
-2. Check **All settings → Display & HDR → Display** and any app or device override. Confirm that the selected display is the one showing the desktop or game.
+1. In the checks under **PC details** on **Home**, inspect **Screen capture**, **Video encoder** and **Virtual display**. A physical monitor must be active, or the configured virtual display must be available.
+2. Check **All settings → Picture → Streamed display → Display** and any app or device override. Confirm that the selected display is the one showing the desktop or game.
 3. For WGC under the installed service, keep a Windows user signed in. Rubylight starts its WGC capture worker in that user's session. A locked or UAC desktop uses the Desktop Duplication recovery path; WGC is retried when the normal desktop returns. A stream started while Windows is locked sets up its display on the lock screen; if the virtual display cannot be set up there, the stream shows the physical display and the stream card says so. Start the stream again after signing in.
 4. Read the `capture backend opened` log entry for the backend that actually opened. `requested_capture=wgc` describes the request and can appear even when capture falls back.
 5. If the virtual-display status reports access denied, use the installed Windows service and check that the bundled driver is ready. A portable host with administrator rights does not have the service's access to the driver.
 
-For a controlled comparison, disconnect first, set **All settings → Streaming → Capture method** to **Desktop Duplication**, reconnect at the same resolution and rate, and record whether the symptom changes. Return to **Automatic** afterwards unless you need the explicit choice. Keep the original failure log so a successful fallback does not hide the WGC error.
+For a controlled comparison, disconnect first, set **All settings → Picture → Capture method** to **Desktop Duplication**, reconnect at the same resolution and rate, and record whether the symptom changes. Return to **Automatic** afterwards unless you need the explicit choice. Keep the original failure log so a successful fallback does not hide the WGC error.
 
 The installed service always runs the host in the session attached to the physical console. When Remote Desktop takes over a signed-in desktop, Windows gives the console a new session at the sign-in screen, and the host moves there. Closing the Remote Desktop window leaves that desktop disconnected, and a Moonlight stream then shows the console's sign-in screen. Signing in there as the same user makes Windows reconnect the disconnected desktop to the console and end the sign-in session, which also ends that stream. Reconnect Moonlight once the desktop is back; the host restarts in that session within a few seconds. The host logs a warning naming the disconnected session when a stream starts in this state.
 
-For a host started inside the Remote Desktop session (not the installed service), open **Help → Windows session → Return to console**. With the installed service the host already runs on the console, so this action is unavailable and its status explains why. The action returns only the Windows session running this host to the physical console: its desktop becomes visible at the PC and an active RDP connection disconnects. Disconnect Moonlight streams first. The console must have no signed-in user, or hold a disconnected session whose Windows user SID matches the host session's user. Active sessions, different users and unverified identities stay protected. The host may restart while Windows switches sessions; refresh the status once it returns, then reconnect Moonlight. If Windows cannot verify both users or refuses the operation, use the installed service or sign in at the PC. The action never asks for a Windows password.
+For a host started inside the Remote Desktop session (not the installed service), open **Advanced → Troubleshoot → Windows session → Return to console**. With the installed service the host already runs on the console, so this action is unavailable and its status explains why. The action returns only the Windows session running this host to the physical console: its desktop becomes visible at the PC and an active RDP connection disconnects. Disconnect Moonlight streams first. The console must have no signed-in user, or hold a disconnected session whose Windows user SID matches the host session's user. Active sessions, different users and unverified identities stay protected. The host may restart while Windows switches sessions; refresh the status once it returns, then reconnect Moonlight. If Windows cannot verify both users or refuses the operation, use the installed service or sign in at the PC. The action never asks for a Windows password.
 
 Launch requests check the host's own Windows session before and after preparation, and again before RTSP playback, so a disconnect during display or app preparation returns a retry error instead of accepting the pending stream. The log records the session ID, console ID, connection state, protocol and acceptance reason, so a Windows classification problem can be told apart from a transition during preparation; a refused check is logged as a warning. These checks cannot prevent Windows from switching sessions after playback has started.
 
@@ -144,7 +144,7 @@ Separate the host's HDR source, the negotiated stream and the client's display o
 
 - Check **Windows Settings → System → Display** for the **streamed display**. HDR on another monitor does not mean HDR on this one, and wide-gamut SDR is not HDR.
 - Check the client's HDR option and the Home stream card's **HDR** badge. In the host log, `hdr=true`, the codec and `source_pixel=RgbaF16` identify a negotiated HDR stream with floating-point capture. FP16 capture alone does not prove that the game produces HDR highlights.
-- Start with **All settings → Display & HDR → Display HDR: Match the stream** and **HDR request: Follow the device**. A display-only override does not change what the client negotiated. Check app and device overrides too.
+- Start with **All settings → Picture → HDR → Display HDR: Match the stream** and **HDR request: Follow the device**. A display-only override does not change what the client negotiated. Check app and device overrides too.
 - Confirm the game's HDR setting and the receiving display's HDR mode. To compare two clients, keep the codec, scene and host display the same; AV1 HDR on one device against HEVC SDR on another is not an equivalent check.
 - Report whether black levels, mid-grey menus, bright highlights or colour saturation are wrong. Include the client app and version, device and display model, codec, stream resolution and rate, and the host log time.
 
@@ -211,7 +211,7 @@ If it happens on your PC:
 
 ## Monitors stay on, or the display layout does not return
 
-Check **All settings → Display & HDR** and app or device overrides first. The **Extend** layouts intentionally keep physical displays alongside the virtual display; exclusive and isolated layouts behave differently. A client may also request its own virtual-display arrangement.
+Check **All settings → Picture → Streamed display** and app or device overrides first. The **Extend** layouts intentionally keep physical displays alongside the virtual display; exclusive and isolated layouts behave differently. A client may also request its own virtual-display arrangement.
 
 Check **Restore displays on disconnect**, **Restore delay** and **Keep a disconnected display for** against how long you want displays kept. An app or a retained remote-monitor session may still own a display after video disconnects.
 
@@ -219,7 +219,7 @@ Check **Restore displays on disconnect**, **Restore delay** and **Keep a disconn
 
 After sleep, the virtual-display driver keeps its adapter and monitor identities and recreates capture resources. If Windows marks the Rubylight driver as failed, a new stream or an active display's recovery can request a device restart. Recovery is limited to this driver, uses bounded connection retries, and allows three restarts with a one-minute cooldown. It does not enable a manually disabled device or restart Windows.
 
-When all streams have ended, use **Help → Displays** to see whether the current layout matches the saved one. **Restore saved layout** applies the saved layout; **Save current layout** replaces it with the arrangement you have now. Saving, restoring and resetting are unavailable during a stream.
+When all streams have ended, use **Advanced → Troubleshoot → Displays** to see whether the current layout matches the saved one. **Restore saved layout** applies the saved layout; **Save current layout** replaces it with the arrangement you have now. Saving, restoring and resetting are unavailable during a stream.
 
 **Disconnect virtual displays** stops every stream and removes the virtual displays Rubylight created. **Reset display settings memory** forgets pending display changes that Rubylight would otherwise undo; it is not the same as restoring a layout. Record the problem before using either.
 
@@ -290,14 +290,14 @@ The host only follows what Moonlight announces when a controller connects. With 
 
 - **Steam on the host doesn't show a Steam Deck:** the host attaches one only with usbip-win2 installed and, with **Automatic**, only while Steam is running on the host when the controller connects; otherwise the log says `Steam is not running` and the Deck gets a virtual DualSense. The log line `Steam Deck controller attached through usbip-win2` names the usbip-win2 port, and `usbip.exe port` lists it. If the stream card says the attach failed, its message is usbip.exe's own.
 - **No trackpads with Steam Input off:** Moonlight builds whose SDL predates SDL 3 do not read the Deck's trackpads, so they send none.
-- **Back grips do nothing on the virtual pad:** choose what each grip presses under **All settings → Audio & controls → Steam Deck and back grips**; the virtual pads have no back buttons of their own. A Deck attached as a Steam Deck keeps its own grips, and Steam Input on the host decides what they do.
+- **Back grips do nothing on the virtual pad:** choose what each grip presses under **All settings → Sound & controls → Steam Deck and back grips**; the virtual pads have no back buttons of their own. A Deck attached as a Steam Deck keeps its own grips, and Steam Input on the host decides what they do.
 - **A Steam Deck controller left behind after a crash:** usbip-win2 detaches it when Rubylight's connection closes, then keeps trying to attach it again. `usbip.exe attach --stop-all` stops that. Attaching the controller needs a working loopback connection on the host.
 
 See [Steam Deck](configuration.md#steam-deck).
 
 ## Playnite does not launch
 
-Keep a Windows user signed in, turn on **All settings → Games & automation → Playnite**, and check that the game starts in Playnite locally. If Rubylight cannot find a portable copy, leave Playnite open in that user's session when starting the stream.
+Keep a Windows user signed in, turn on **All settings → Games → Playnite**, and check that the game starts in Playnite locally. If Rubylight cannot find a portable copy, leave Playnite open in that user's session when starting the stream.
 
 On **Games**, check Playnite's plugin status. Use **Install plugin** or **Update plugin** if offered, fully exit and reopen Playnite, then try **Sync now**. Use the plugin bundled with Rubylight; a plugin taken from another streaming host may expect different host support. A `Playnite CLI fallback requested` warning means automatic game-exit tracking is unavailable; quit that stream manually.
 
@@ -305,9 +305,9 @@ Set **Log level** to **Debug** before reproducing so the log includes `Playnite 
 
 ## RTSS does not start, or the game ignores the cap
 
-Open **All settings → Display & HDR → Integrations → Frame limiter** during the affected stream. Record **Configured**, **Active now**, the RTSS detection and running state, and **RTSS folder**. A missing tray icon alone does not show whether the limiter is active.
+Open **All settings → Picture → Integrations → Frame limiter** during the affected stream. Record **Configured**, **Active now**, the RTSS detection and running state, and **RTSS folder**. A missing tray icon alone does not show whether the limiter is active.
 
-In **All settings → Streaming**, check **Limiter**, **Frame limit**, **Virtual display refresh** and **RTSS folder**. **None** turns limiting off. Physical-monitor streams need **Limit every stream** for a cap on every stream; virtual-display policy can apply its own cap. A frame limit of `0` follows the stream rate, including fractional values such as 59.94.
+In **All settings → Picture**, check **Limiter**, **Frame limit** and **Virtual display refresh** in the **Frame limiter** group, and **RTSS folder** in the collapsed **RTSS** group. **None** turns limiting off. Physical-monitor streams need **Limit every stream** for a cap on every stream; virtual-display policy can apply its own cap. A frame limit of `0` follows the stream rate, including fractional values such as 59.94.
 
 The folder must contain the RTSS executable and its hook library, not just a shortcut. If the log says RTSS requires administrator privileges, start RTSS as administrator before streaming or use Rubylight's installed service. If it is found and running but one game ignores the limit, check that game's RTSS profile and include the game and graphics API in the report. If RTSS's window keeps your own limit during a stream, Rubylight could not reach the elevated RTSS: use the installed service, or run a portable copy as administrator. RTSS 7.3.7 ignores edits of its settings file and takes a new limit only through its own interface, which Rubylight uses; the log line `RTSS frame limit applied and verified` names the RTSS version.
 
@@ -323,7 +323,7 @@ If a Radeon setting is greyed out, its state says why: some need a one-time setu
 
 **Help → Log analysis** reads the newest part of the host log on the host itself and explains the encoder, capture, network and driver failures it recognises, each with how often and when it last happened and a link to its section here. It sends nothing anywhere.
 
-Use **Logs → Download log** for the host log, or **Download support bundle** for a ZIP with logs, configuration diagnostics and any crash dump. Review the contents before posting them publicly.
+Use **Logs → Download log** for the host log, or **Download support bundle** (on **Help** and **Logs**) for a ZIP with logs, configuration diagnostics and any crash dump. Review the contents before posting them publicly.
 
 | File | Default location |
 | --- | --- |

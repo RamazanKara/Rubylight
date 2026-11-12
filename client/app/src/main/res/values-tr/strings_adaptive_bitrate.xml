@@ -1,18 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_auto_bitrate_enable">“Bit hızını cihaz yönetir” seçeneğini etkinleştir</string>
-    <string name="stream_auto_bitrate_disable">“Bit hızını cihaz yönetir” seçeneğini devre dışı bırak</string>
     <string name="stream_auto_bitrate_help">Bit hızını bağlantınıza göre ayarlar.\nBu bilgisayar için kaydedilir; elle yapılan değişiklikler bunu kapatır.</string>
     <string name="stream_pyrowave_bitrate_help">PyroWave’i bu bilgisayar için otomatik ayarlar.\nElle bit hızı seçmek bunu kapatır.</string>
     <string name="stream_auto_bitrate_failed">Bit hızı geçici olarak güncellenemedi. Otomatik olarak yeniden deneniyor.</string>
-    <string name="stream_auto_bitrate_unavailable">Bu bilgisayar yayın bit hızını bildirmiyor. Bu yayın için “Bit hızını cihaz yönetir” kapalı.</string>
-    <string name="stream_auto_bitrate_status">Bit hızını cihaz yönetir: %1$.1f Mbps</string>
-    <string name="stream_bitrate_busy">Ana bilgisayar meşgul. Birazdan tekrar deneyin.</string>
+    <string name="stream_auto_bitrate_unavailable">Bu bilgisayar yayın bit hızını bildirmiyor. Bu yayın için “Ağ yoğunken bit hızını düşür” kapalı.</string>
+    <string name="stream_auto_bitrate_status">Geçerli bit hızı: %1$.1f Mbps</string>
+    <string name="stream_bitrate_busy">Bilgisayar meşgul. Birazdan tekrar deneyin.</string>
     <string name="stream_host_abr_failed">Bilgisayar otomatik bit hızını başlatmadı: %1$s</string>
-    <string name="title_auto_bitrate">Bit hızını cihaz yönetir</string>
-    <string name="dialog_auto_bitrate">Bağlantı veya cihaz yetişemediğinde bit hızını düşürür, durum düzelince tekrar yükseltir. Yayının bit hızını asla aşmaz. Tüm bilgisayarlar için varsayılandır; yayın menüsünden tek bir bilgisayar için değiştirilebilir.</string>
+    <string name="title_auto_bitrate">Ağ yoğunken bit hızını düşür</string>
+    <string name="dialog_auto_bitrate">Bağlantı yetişemediği sürece bit hızını düşürür, düzelince yeniden yükseltir.</string>
     <string name="title_thermal_protection">Isı koruması</string>
-    <string name="dialog_thermal_protection">Cihaz sıcakken bit hızını ve çözünürlüğü düşürür. Telefonlar ve TV çubukları yayın sırasında sık sık ısınır, bu yüzden varsayılan olarak kapalıdır: düşük bit hızı görüntüyü yumuşatır.</string>
+    <string name="dialog_thermal_protection">Cihaz sıcakken bit hızını ve çözünürlüğü düşürür.</string>
     <string name="title_automatic_bitrate">Otomatik bit hızı</string>
-    <string name="dialog_automatic_bitrate">Nightjar bit hızını çözünürlüğe, kare hızına ve codec\'e göre seçer ve bunlar değişince onu da değiştirir. Bit hızı kaydırıcısını oynatmak bunu kapatır.</string>
+    <string name="dialog_automatic_bitrate">Nightjar bit hızını çözünürlüğe, kare hızına ve codec’e göre seçer.</string>
 </resources>

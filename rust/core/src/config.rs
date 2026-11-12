@@ -22,8 +22,8 @@ pub use overrides::override_allowed;
 use retired::retirement;
 pub use retired::{
     REMOVED_KEYS, REMOVED_PREFIXES, RENAMED_KEYS, RETIRED_SETTINGS, RETIRED_VALUES, Retired,
-    RetiredSetting, current_name, removed, replace_retired, replace_retired_in_app, replacement,
-    retired_warning,
+    RetiredSetting, SPLIT_KEYS, current_name, removed, replace_retired, replace_retired_in_app,
+    replacement, retired_warning,
 };
 use text::{bracket_depth, decode, strip_comment};
 pub use values::{
@@ -162,6 +162,15 @@ impl Config {
                 && !self.values.contains_key(new)
             {
                 self.values.insert(new.to_owned(), value);
+            }
+        }
+        for &(old, split) in SPLIT_KEYS {
+            if let Some(value) = self.values.remove(old) {
+                for key in split {
+                    self.values
+                        .entry((*key).to_owned())
+                        .or_insert_with(|| value.clone());
+                }
             }
         }
     }
@@ -613,6 +622,15 @@ impl Config {
                 && !object.contains_key(new)
             {
                 object.insert(new.to_owned(), value);
+            }
+        }
+        for &(old, split) in SPLIT_KEYS {
+            if let Some(value) = object.remove(old) {
+                for key in split {
+                    object
+                        .entry((*key).to_owned())
+                        .or_insert_with(|| value.clone());
+                }
             }
         }
         object.retain(|key, _| !removed(key));

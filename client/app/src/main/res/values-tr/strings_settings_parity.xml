@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings shared with desktop Nightjar: Sharper colored text, Controllers, Mouse mode, When Nightjar
+     opens, group names, row hints and notices. -->
+<resources>
+    <string name="title_sharp_color">Daha net renkli metin</string>
+    <string name="summary_sharp_color">Tam renk ayrıntısı; renkli metin ve ince çizgiler net kalır.</string>
+    <string-array name="sharp_color_names">
+        <item>Kapalı</item>
+        <item>Otomatik</item>
+    </string-array>
+    <string name="title_controllers">Kumandalar</string>
+    <string name="summary_controllers">Kapalı, tüm kumandalar tek oyuncu ya da her kumanda ayrı bir oyuncu.</string>
+    <string-array name="controllers_names">
+        <item>Kapalı</item>
+        <item>Tek oyuncu</item>
+        <item>Her biri ayrı oyuncu</item>
+    </string-array>
+    <string-array name="mouse_mode_names">
+        <item>Yakalanmış</item>
+        <item>Masaüstü imleci</item>
+    </string-array>
+    <string-array name="start_screen_names">
+        <item>Ana sayfa</item>
+        <item>Bilgisayarlarımı göster</item>
+        <item>Son oyunuma devam et</item>
+        <item>Seçilen bir oyun</item>
+    </string-array>
+    <string name="summary_host_display_location">Bilgisayarın, yayınlanan ekranı kendi ekranlarının yanına nasıl yerleştirdiği.</string>
+    <string name="summary_pace_calibration_row">Bir bilgisayarın PyroWave karelerinin eksiksiz ulaştığı en yüksek tempoyu bulur.</string>
+    <string name="summary_network_tests">Ping, jitter ve kaybı, bilgisayar destekliyorsa indirme hızını da ölçer.</string>
+    <string name="settings_category_touch_mouse">Dokunma ve fare</string>
+    <string name="settings_category_connection">Bağlantı</string>
+    <string name="sharp_color_unavailable_pc">Daha net renkli metin bu bilgisayarla kullanılamıyor.</string>
+    <string name="sharp_color_unavailable_device">Daha net renkli metin bu cihazda kullanılamıyor.</string>
+    <string name="sharp_color_stopped">Daha net renkli metin durdu. Onsuz yeniden bağlanılıyor.</string>
+    <string name="sharp_color_hdr_dropped">Bu yayın SDR’de: bu bilgisayarda daha net renkli metinle HDR kullanılamıyor.</string>
+    <string name="hint_show_onscreen_controls">Yayının üzerinde dokunmatik bir oyun kumandası.</string>
+    <string name="hint_mouse_speed">İmlecin ne kadar hızlı hareket ettiği.</string>
+    <string name="hint_trackpad_speed">Trackpad dokunma modunda imleç hızı.</string>
+    <string name="hint_local_cursor_speed">Yerel imleç dokunma modunda imleç hızı.</string>
+    <string name="hint_trackpad_acceleration_curve">Hızlı kaydırmaların ne kadar daha uzağa gittiği.</string>
+    <string name="hint_trackpad_momentum_glide">İmlecin ne kadar uzağa süzüldüğü.</string>
+    <string name="hint_pc_keyboard_size">Ekrandaki PC klavyesinin boyutu.</string>
+    <string name="hint_pc_keyboard_opacity">Ekrandaki PC klavyesinin ne kadar saydam olduğu.</string>
+    <string name="hint_vibrate_osc">Ekrandaki bir düğmeye basılınca cihaz titrer.</string>
+    <string name="hint_show_guide_button">Ekran kontrollerine bir Guide düğmesi ekler.</string>
+    <string name="hint_host_audio">Yayın sırasında ses bilgisayarın hoparlörlerinde de çalar.</string>
+    <string name="hint_overlay_position">Performans katmanının bulunduğu köşe.</string>
+    <string name="summary_reset_all">Tüm ayarları varsayılanlarına döndürür; bilgisayarlar, oyunlar, profiller ve dil korunur.</string>
+</resources>

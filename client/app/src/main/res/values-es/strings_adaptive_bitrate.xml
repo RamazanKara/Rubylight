@@ -1,18 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="stream_auto_bitrate_enable">Activar «El dispositivo controla la tasa de bits»</string>
-    <string name="stream_auto_bitrate_disable">Desactivar «El dispositivo controla la tasa de bits»</string>
     <string name="stream_auto_bitrate_help">Ajusta la tasa de bits a tu conexión.\nSe guarda para este PC; los cambios manuales la desactivan.</string>
     <string name="stream_pyrowave_bitrate_help">Ajusta PyroWave automáticamente para este PC.\nUna tasa de bits manual lo desactiva.</string>
     <string name="stream_auto_bitrate_failed">Error temporal al actualizar la tasa de bits. Reintentando automáticamente.</string>
-    <string name="stream_auto_bitrate_unavailable">Este PC no informa de la tasa de bits de la transmisión. «El dispositivo controla la tasa de bits» está desactivado en esta transmisión.</string>
-    <string name="stream_auto_bitrate_status">El dispositivo controla la tasa de bits: %1$.1f Mbps</string>
-    <string name="stream_bitrate_busy">El servidor está ocupado. Vuelve a intentarlo en un momento.</string>
+    <string name="stream_auto_bitrate_unavailable">Este PC no informa de la tasa de bits de la transmisión. «Bajar la tasa de bits si la red está saturada» está desactivado en esta transmisión.</string>
+    <string name="stream_auto_bitrate_status">Tasa de bits actual: %1$.1f Mbps</string>
+    <string name="stream_bitrate_busy">El PC está ocupado. Vuelve a intentarlo en un momento.</string>
     <string name="stream_host_abr_failed">El PC no inició su tasa de bits automática: %1$s</string>
-    <string name="title_auto_bitrate">El dispositivo controla la tasa de bits</string>
-    <string name="dialog_auto_bitrate">Baja la tasa de bits cuando la conexión o el dispositivo no dan abasto y la vuelve a subir cuando mejora. Nunca supera la tasa de bits de la transmisión. Es el valor predeterminado para todos los PC; el menú de la transmisión puede cambiarlo para un solo PC.</string>
+    <string name="title_auto_bitrate">Bajar la tasa de bits si la red está saturada</string>
+    <string name="dialog_auto_bitrate">Baja la tasa de bits mientras la conexión no da abasto y la vuelve a subir cuando se recupera.</string>
     <string name="title_thermal_protection">Protección térmica</string>
-    <string name="dialog_thermal_protection">Reduce la tasa de bits y la resolución mientras el dispositivo está caliente. Los teléfonos y los sticks de TV suelen calentarse al transmitir, así que viene desactivada: una tasa de bits más baja suaviza la imagen.</string>
+    <string name="dialog_thermal_protection">Reduce la tasa de bits y la resolución mientras el dispositivo está caliente.</string>
     <string name="title_automatic_bitrate">Tasa de bits automática</string>
-    <string name="dialog_automatic_bitrate">Nightjar elige la tasa de bits según la resolución, la frecuencia de fotogramas y el códec, y la cambia con ellos. Al mover el control de la tasa de bits se desactiva.</string>
+    <string name="dialog_automatic_bitrate">Nightjar elige la tasa de bits según la resolución, la velocidad de fotogramas y el códec.</string>
 </resources>

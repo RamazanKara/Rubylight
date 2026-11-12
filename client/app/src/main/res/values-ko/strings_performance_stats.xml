@@ -11,10 +11,10 @@
     <string name="stats_host">호스트 처리: %1$s ms</string>
     <string name="stats_host_network">호스트(전송 포함): %1$s ms</string>
     <string name="stats_client">디코딩: %1$s ms · 표시 대기: %2$s ms</string>
-    <string name="hardware_title">호스트 하드웨어(모든 GPU)</string>
-    <string name="hardware_cpu">호스트 CPU: %1$s%%</string>
-    <string name="hardware_gpu_summary">호스트 GPU %1$d: %2$s%% · %3$s °C · %4$s W</string>
-    <string name="hardware_sample">호스트 샘플: Unix epoch 이후 %1$d ms · 간격: %2$d ms</string>
+    <string name="hardware_title">PC 하드웨어(모든 GPU)</string>
+    <string name="hardware_cpu">PC CPU: %1$s%%</string>
+    <string name="hardware_gpu_summary">PC GPU %1$d: %2$s%% · %3$s °C · %4$s W</string>
+    <string name="hardware_sample">PC 샘플: Unix epoch 이후 %1$d ms · 간격: %2$d ms</string>
     <string name="hardware_gpu_name">GPU %1$d · %2$s</string>
     <string name="hardware_gpu_unnamed">이름 없는 GPU</string>
     <string name="hardware_gpu_clocks">사용률: %1$s%% · GPU 클럭: %2$s MHz · 메모리 클럭: %3$s MHz</string>

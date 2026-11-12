@@ -273,13 +273,13 @@ fn reserved_byte_alpha(bmp: &[u8], image: &mut RgbaImage) {
     else {
         return;
     };
-    if stride == 0 || pixels.chunks_exact(4).all(|p| p[3] == 0) {
+    if stride == 0 || pixels.as_chunks::<4>().0.iter().all(|p| p[3] == 0) {
         return;
     }
     let top_down = (height as i32) < 0;
     for (n, row) in pixels.chunks_exact(stride).enumerate() {
         let y = if top_down { n } else { rows as usize - 1 - n };
-        for (x, p) in row.chunks_exact(4).enumerate() {
+        for (x, p) in row.as_chunks::<4>().0.iter().enumerate() {
             image.get_pixel_mut(x as u32, y as u32)[3] = p[3];
         }
     }

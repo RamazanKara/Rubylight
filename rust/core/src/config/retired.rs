@@ -84,6 +84,36 @@ pub const RENAMED_KEYS: &[(&str, &str)] = &[
     // that stays.
     ("rtx_hdr_peak_brightness", "hdr_peak_brightness"),
 ];
+/// Settings that earlier releases kept once for several things and that became
+/// one setting for each, which takes the earlier value unless it is set itself:
+/// the launcher sync's two switches, now each launcher's own as Steam's are,
+/// and the game folders'.
+pub const SPLIT_KEYS: &[(&str, &[&str])] = &[
+    (
+        "library_auto_sync",
+        &[
+            "epic_auto_sync",
+            "battlenet_auto_sync",
+            "ea_auto_sync",
+            "ubisoft_auto_sync",
+            "gog_auto_sync",
+            "microsoft_auto_sync",
+            "library_local_auto_sync",
+        ],
+    ),
+    (
+        "library_autosync_remove_uninstalled",
+        &[
+            "epic_autosync_remove_uninstalled",
+            "battlenet_autosync_remove_uninstalled",
+            "ea_autosync_remove_uninstalled",
+            "ubisoft_autosync_remove_uninstalled",
+            "gog_autosync_remove_uninstalled",
+            "microsoft_autosync_remove_uninstalled",
+            "library_local_autosync_remove_uninstalled",
+        ],
+    ),
+];
 /// Settings of features Rubylight removed: NVIDIA RTX HDR (TrueHDR), the
 /// NVIDIA driver's VSYNC override (all the dummy plug workaround still
 /// did), and the software encoders' settings. Saved profiles, apps and

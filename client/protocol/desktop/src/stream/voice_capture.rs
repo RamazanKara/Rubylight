@@ -2,6 +2,11 @@
 //! source mode records the default microphone and takes the default speakers' output out of it,
 //! the system echo canceller Windows has had since Vista. Its output is 16 kHz mono PCM, which the
 //! stream's Opus encoder takes as it is (an Opus decoder at 48 kHz decodes it like any packet).
+//!
+//! After its echo cancellation the DSP has its own noise suppression (on by default) and automatic
+//! gain (off by default): Noise suppression and Automatic gain turn those on and off ([`features`])
+//! instead of running sonora's on the same frames (`mic_dsp`). They run inside the DSP's own 10 ms
+//! frames, so Nightjar buffers nothing more for them.
 
 use std::cell::{Cell, UnsafeCell};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -22,6 +27,8 @@ use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CoTaskMemFre
 use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
 use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
 
+use super::mic_dsp::Choice;
+
 /// The DSP's output rate; it gives 8, 11.025, 16 or 22.05 kHz.
 pub const RATE: u32 = 16_000;
 const CLSID_CWMAUDIOAEC: GUID = GUID::from_u128(0x745057c7_f353_4f2d_a7ee_58434477730e);
@@ -34,6 +41,20 @@ const SYSTEM_MODE: PROPERTYKEY = PROPERTYKEY { fmtid: WMAAECMA, pid: 2 };
 const DEVICE_INDEXES: PROPERTYKEY = PROPERTYKEY { fmtid: WMAAECMA, pid: 4 };
 /// AEC_SYSTEM_MODE's SINGLE_CHANNEL_AEC: one microphone, echo cancellation on.
 const SINGLE_CHANNEL_AEC: i32 = 0;
+/// MFPKEY_WMAAECMA_FEATURE_MODE (VT_BOOL): the DSP takes the FEATR_* properties only with it on.
+const FEATURE_MODE: PROPERTYKEY = PROPERTYKEY { fmtid: WMAAECMA, pid: 5 };
+/// MFPKEY_WMAAECMA_FEATR_NS (VT_I4): the DSP's noise suppression, 1 on (its default) or 0 off.
+const FEATR_NS: PROPERTYKEY = PROPERTYKEY { fmtid: WMAAECMA, pid: 8 };
+/// MFPKEY_WMAAECMA_FEATR_AGC (VT_BOOL): the DSP's automatic gain, off by default.
+const FEATR_AGC: PROPERTYKEY = PROPERTYKEY { fmtid: WMAAECMA, pid: 9 };
+/// What the DSP does without feature mode.
+const DEFAULT_FEATURES: Choice = Choice { noise_suppression: true, auto_gain: false };
+
+/// FEATR_NS's and FEATR_AGC's values for `choice`, or none when it is what the DSP does anyway,
+/// so that a microphone with the DSP's own defaults opens exactly as it did before the settings.
+pub fn features(choice: Choice) -> Option<(i32, bool)> {
+    (choice != DEFAULT_FEATURES).then_some((i32::from(choice.noise_suppression), choice.auto_gain))
+}
 
 /// MFPKEY_WMAAECMA_DEVICE_INDEXES's value: the speakers' index in the high word, the
 /// microphone's in the low word, each in `EnumAudioEndpoints`'s order of active endpoints.
@@ -141,8 +162,9 @@ unsafe fn keep_other_sounds(device: &IMMDevice) -> windows::core::Result<()> {
     manager.GetAudioSessionControl(None, 0)?.cast::<IAudioSessionControl2>()?.SetDuckingPreference(true)
 }
 
-/// Sets up the DSP for the default microphone and speakers, 16 kHz mono 16-bit output.
-unsafe fn open_dsp() -> windows::core::Result<IMediaObject> {
+/// Sets up the DSP for the default microphone and speakers, 16 kHz mono 16-bit output, with its
+/// noise suppression and automatic gain as `choice` says.
+unsafe fn open_dsp(choice: Choice) -> windows::core::Result<IMediaObject> {
     let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
     let (capture, _) = default_index(&enumerator, eCapture)?;
     let (render, speakers) = default_index(&enumerator, eRender)?;
@@ -153,6 +175,12 @@ unsafe fn open_dsp() -> windows::core::Result<IMediaObject> {
     let properties: IPropertyStore = dsp.cast()?;
     properties.SetValue(&SYSTEM_MODE, &PROPVARIANT::from(SINGLE_CHANNEL_AEC))?;
     properties.SetValue(&DEVICE_INDEXES, &PROPVARIANT::from(device_indexes(render, capture)))?;
+    // Before the output type, as the DSP reads them when it sets up its processing.
+    if let Some((noise_suppression, auto_gain)) = features(choice) {
+        properties.SetValue(&FEATURE_MODE, &PROPVARIANT::from(true))?;
+        properties.SetValue(&FEATR_NS, &PROPVARIANT::from(noise_suppression))?;
+        properties.SetValue(&FEATR_AGC, &PROPVARIANT::from(auto_gain))?;
+    }
     let mut format = WAVEFORMATEX {
         wFormatTag: WAVE_FORMAT_PCM as u16,
         nChannels: 1,
@@ -185,9 +213,11 @@ pub struct VoiceCapture {
 }
 
 impl VoiceCapture {
-    /// Starts capturing; `frames` gets the DSP's output in 10 ms frames until it returns false,
-    /// and `failed` once if the DSP fails while running.
+    /// Starts capturing with the DSP's noise suppression and automatic gain as `choice` says;
+    /// `frames` gets the DSP's output in 10 ms frames until it returns false, and `failed` once if
+    /// the DSP fails while running.
     pub fn start(
+        choice: Choice,
         mut frames: impl FnMut(&[f32]) -> bool + Send + 'static,
         failed: impl FnOnce(String) + Send + 'static,
     ) -> Result<Self, String> {
@@ -199,7 +229,7 @@ impl VoiceCapture {
             .spawn(move || {
                 let _com = Com::init();
                 // SAFETY: the DSP lives and is used on this thread only.
-                let dsp = match unsafe { open_dsp() } {
+                let dsp = match unsafe { open_dsp(choice) } {
                     Ok(dsp) => {
                         let _ = ready_tx.send(Ok(()));
                         dsp
@@ -289,6 +319,18 @@ impl Drop for VoiceCapture {
 mod tests {
     use super::*;
 
+    /// The DSP's defaults (noise suppression on, automatic gain off) leave its properties as they
+    /// were; anything else sets both, with feature mode, in the types wmcodecdsp.h gives.
+    #[test]
+    fn noise_suppression_and_automatic_gain_go_to_the_dsp_only_when_they_differ_from_its_defaults() {
+        let choice = |noise_suppression, auto_gain| Choice { noise_suppression, auto_gain };
+        assert_eq!(features(choice(true, false)), None);
+        assert_eq!(features(choice(false, false)), Some((0, false)));
+        assert_eq!(features(choice(true, true)), Some((1, true)));
+        assert_eq!(features(choice(false, true)), Some((0, true)));
+        assert_eq!((FEATURE_MODE.pid, FEATR_NS.pid, FEATR_AGC.pid), (5, 8, 9), "PID_FIRST_USABLE + 3, + 6 and + 7");
+    }
+
     #[test]
     fn device_indexes_put_the_speakers_high_and_the_microphone_low() {
         assert_eq!(device_indexes(0, 0), 0);
@@ -302,7 +344,7 @@ mod tests {
     #[ignore]
     fn the_voice_capture_dsp_opens_and_gives_ten_millisecond_frames() {
         let (tx, rx) = std::sync::mpsc::channel();
-        let capture = VoiceCapture::start(move |frame| tx.send(frame.len()).is_ok(), |error| panic!("{error}")).unwrap();
+        let capture = VoiceCapture::start(DEFAULT_FEATURES, move |frame| tx.send(frame.len()).is_ok(), |error| panic!("{error}")).unwrap();
         std::thread::sleep(Duration::from_millis(500));
         drop(capture);
         let lengths: Vec<usize> = rx.try_iter().collect();

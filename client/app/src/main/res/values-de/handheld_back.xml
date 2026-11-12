@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="title_checkbox_back_opens_menu">Physische Zurücktaste öffnet Stream-Menü</string>
-    <string name="summary_checkbox_back_opens_menu">Die eigene Zurücktaste eines Handhelds oder Controllers öffnet das Stream-Menü. Select und Start behalten ihre Belegung. „Tastatur-Zurück sendet Windows-Taste“ hat bei physischen Tastaturen Vorrang. Gilt ab dem nächsten Stream.</string>
+    <string name="title_checkbox_back_opens_menu">Zurück öffnet das Stream-Menü</string>
+    <string name="summary_checkbox_back_opens_menu">Die Zurücktaste des Controllers oder Handhelds öffnet das Stream-Menü.</string>
     <string name="title_checkbox_back_as_guide">Zurücktaste als Guide</string>
-    <string name="summary_checkbox_back_as_guide">Zurück an jedem Controller und die Systemtaste eines Handhelds, die als Zurück dient, senden Guide (Home/PS). Ein Controller, dessen Select Zurück ist, sendet stattdessen Guide. „Physische Zurücktaste öffnet Stream-Menü“ hat Vorrang. Öffne das Stream-Menü mit der Controller-Tastenkombination oder der Zurück-Geste von Android. Gilt ab dem nächsten Stream.</string>
+    <string name="summary_checkbox_back_as_guide">Zurück sendet Guide (Home oder PS) an den PC.</string>
 </resources>

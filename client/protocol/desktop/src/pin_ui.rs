@@ -584,7 +584,7 @@ impl PinLock {
                 if view.has_pin {
                     self.lock_rows(ui, &view, pcs);
                     ui.add_space(space::M);
-                    ui.label(RichText::new(tr("If you forget the PIN, the only way to reset it is to delete pin_lock.json in Nightjar's settings folder, next to settings.json.")).font(regular(text::CAPTION)).color(ON_SURFACE_VARIANT));
+                    ui.label(RichText::new(tr("If you forget the PIN, the only way to reset it is to delete pin_lock.json in Nightjar’s settings folder, next to settings.json.")).font(regular(text::CAPTION)).color(ON_SURFACE_VARIANT));
                 }
             });
         });

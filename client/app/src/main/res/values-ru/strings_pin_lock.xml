@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="pin_lock_title">Блокировка PIN-кодом</string>
-    <string name="pin_lock_summary">Запрашивает PIN-код при открытии Nightjar или запуске трансляции. Забытый PIN-код можно сбросить только очисткой данных Nightjar в настройках Android, при этом также удаляются сопряжённые ПК.</string>
+    <string name="pin_lock_summary">Запрашивает PIN-код при открытии Nightjar или запуске трансляции.</string>
     <string name="pin_set">Задать PIN-код</string>
     <string name="pin_change">Изменить PIN-код</string>
     <string name="pin_remove">Удалить PIN-код</string>

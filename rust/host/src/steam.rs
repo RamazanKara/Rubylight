@@ -160,7 +160,7 @@ fn cover(h: &Shared, game: &Game) -> Option<PathBuf> {
 /// How long a store portrait whose download failed `failures` times in a row is left alone.
 /// Steam has none for many tools and older games, so asking every ten minutes finds nothing
 /// for as long as the game is installed: ten minutes, an hour, then a day.
-fn portrait_retry_after(failures: u32) -> Duration {
+pub(crate) fn portrait_retry_after(failures: u32) -> Duration {
     Duration::from_secs(match failures {
         0 | 1 => 600,
         2 => 3600,
@@ -168,7 +168,7 @@ fn portrait_retry_after(failures: u32) -> Duration {
     })
 }
 /// The failures a `.failed` marker counts. One written before the count was kept is empty: one.
-fn portrait_failures(marker: &[u8]) -> u32 {
+pub(crate) fn portrait_failures(marker: &[u8]) -> u32 {
     std::str::from_utf8(marker)
         .ok()
         .and_then(|text| text.trim().parse().ok())
@@ -185,6 +185,27 @@ static ARTWORK_CLIENT: std::sync::LazyLock<Result<reqwest::Client, String>> =
             .build()
             .map_err(|error| error.to_string())
     });
+/// One artwork download of at most 16 MiB, from a blocking thread of the host's runtime (the
+/// syncs run on one), with the shared client: no redirects, three seconds to connect and ten
+/// in all.
+pub(crate) fn download_artwork(url: &str) -> Result<Vec<u8>> {
+    let client = ARTWORK_CLIENT
+        .as_ref()
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
+    let runtime = tokio::runtime::Handle::try_current()
+        .map_err(|_| anyhow::anyhow!("artwork downloads need the host's runtime"))?;
+    runtime.block_on(async {
+        let response = client.get(url).send().await?.error_for_status()?;
+        if response.content_length().is_some_and(|n| n > 16 << 20) {
+            bail!("The artwork is too large");
+        }
+        let bytes = response.bytes().await?;
+        if bytes.len() > 16 << 20 {
+            bail!("The artwork is too large");
+        }
+        Ok(bytes.to_vec())
+    })
+}
 /// Steam's portrait store image, downloaded once into the covers folder. When
 /// the fixed CDN path fails, the hashed folder of the local cover is tried. A
 /// failed download is retried after [`portrait_retry_after`].
@@ -208,22 +229,7 @@ fn store_portrait(folder: &Path, appid: u32, local: Option<&Path>) -> Option<Pat
     {
         return None;
     }
-    let download = |url: &str| -> Result<Vec<u8>> {
-        let client = ARTWORK_CLIENT
-            .as_ref()
-            .map_err(|error| anyhow::anyhow!("{error}"))?;
-        tokio::runtime::Handle::current().block_on(async {
-            let response = client.get(url).send().await?.error_for_status()?;
-            if response.content_length().is_some_and(|n| n > 16 << 20) {
-                bail!("Steam artwork is too large");
-            }
-            let bytes = response.bytes().await?;
-            if bytes.len() > 16 << 20 {
-                bail!("Steam artwork is too large");
-            }
-            Ok(bytes.to_vec())
-        })
-    };
+    let download = download_artwork;
     let hashed = local.and_then(|path| steam::hashed_store_portrait_url(appid, path));
     let bytes = download(&steam::store_portrait_url(appid)).or_else(|error| match &hashed {
         Some(url) => download(url),

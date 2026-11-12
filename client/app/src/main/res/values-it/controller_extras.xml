@@ -2,24 +2,24 @@
 <resources>
     <!-- Controller and keyboard options -->
     <string name="title_checkbox_disable_rumble">Disattiva vibrazione</string>
-    <string name="summary_checkbox_disable_rumble">Blocca ogni vibrazione richiesta da un gioco: vibrazione del controller e dei grilletti, feedback aptico del DualSense via USB e la vibrazione di questo dispositivo al posto del controller.</string>
-    <string name="title_checkbox_mouse_emulation_fixed_step">Movimento del mouse a passi fissi</string>
-    <string name="summary_checkbox_mouse_emulation_fixed_step">Nella modalità mouse del controller, tieni premuto X mentre muovi la levetta per spostare il puntatore di un numero fisso di pixel alla volta. Premi Y per raddoppiare il passo, da 1 fino a 128 pixel e poi di nuovo a 1.</string>
+    <string name="summary_checkbox_disable_rumble">Blocca ogni vibrazione, la vibrazione dei grilletti e il feedback aptico.</string>
+    <string name="title_checkbox_mouse_emulation_fixed_step">Mouse del controller preciso</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">Muove il puntatore a passi fissi di pixel mentre X è premuto.</string>
     <string name="stream_mouse_step">Passo del mouse: %1$d px</string>
     <string name="title_checkbox_capture_system_keys">Invia i tasti di sistema</string>
-    <string name="summary_checkbox_capture_system_keys">Esc, Alt+Tab, il tasto Windows e simili vanno al PC mentre l’input è acquisito, così come il tasto Indietro che molte tastiere per Android hanno al posto di Esc. Android cede Alt+Tab e il tasto Windows solo da Android 16 QPR2 (dicembre 2025) e su molti dispositivi Samsung; altrove li tiene per sé. Home, accensione e volume restano sempre ad Android. Apri il menu dello stream con la sua scorciatoia o con il gesto o il pulsante Indietro di Android. Dal prossimo stream.</string>
+    <string name="summary_checkbox_capture_system_keys">Alt+Tab, il tasto Windows e simili vanno al PC.</string>
     <string name="title_checkbox_system_keys_fullscreen_only">Tasti di sistema solo a schermo intero</string>
-    <string name="summary_checkbox_system_keys_fullscreen_only">In finestra, Alt+Tab, il tasto Windows e simili restano su questo dispositivo.</string>
+    <string name="summary_checkbox_system_keys_fullscreen_only">In finestra, i tasti di sistema restano su questo dispositivo.</string>
     <string name="title_checkbox_back_as_meta">Indietro della tastiera invia il tasto Windows</string>
-    <string name="summary_checkbox_back_as_meta">Il tasto Indietro di una tastiera fisica invia il tasto Windows (Command su Mac). Apri il menu dello stream con la sua scorciatoia, il gesto o il pulsante Indietro di Android, oppure la combinazione di tasti del controller.</string>
-    <string name="title_checkbox_right_alt_as_meta">Alt destro come Command</string>
-    <string name="summary_checkbox_right_alt_as_meta">Alt destro invia il tasto Windows, che un Mac usa come Command, quindi Alt destro+C copia. Alt sinistro non cambia. Lascia disattivato se digiti caratteri con AltGr.</string>
+    <string name="summary_checkbox_back_as_meta">Il tasto Indietro di una tastiera fisica invia il tasto Windows.</string>
+    <string name="title_checkbox_right_alt_as_meta">Alt destro come tasto Windows</string>
+    <string name="summary_checkbox_right_alt_as_meta">Alt destro invia il tasto Windows, che un Mac usa come Command.</string>
     <string name="title_checkbox_keyboard_follows_text_fields">La tastiera segue i campi di testo</string>
-    <string name="summary_checkbox_keyboard_follows_text_fields">La tastiera su schermo si apre quando un campo di testo nello stream riceve il focus, adattata al campo: numeri per un campo numerico, nessun suggerimento per una password. Si richiude quando il campo perde il focus. Con una tastiera fisica collegata si continua a digitare con quella.</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">La tastiera su schermo si apre quando un campo di testo sul PC riceve il focus.</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">Test del controller</string>
-    <string name="controller_test_summary">Verifica pulsanti, levette, grilletti, vibrazione, luci e movimento</string>
+    <string name="controller_test_summary">Mostra pulsanti, levette, grilletti, vibrazione, luci e movimento che un controller invia.</string>
     <string name="controller_test_open">Testa il controller</string>
     <string name="controller_test_hint">Premi i pulsanti e muovi le levette. Anche la croce direzionale e A permettono di spostarti in questa pagina; tieni premuto B o Back per un secondo per uscire.</string>
     <string name="controller_test_waiting">Collega un controller e premi un pulsante qualsiasi.</string>
@@ -57,6 +57,6 @@
 
     <!-- USB Switch Pro driver -->
     <string name="title_usb_switch_pro">Driver Switch Pro USB</string>
-    <string name="summary_usb_switch_pro">Legge direttamente un Nintendo Switch Pro Controller collegato via cavo, con sensori di movimento, vibrazione, Home e Capture.</string>
+    <string name="summary_usb_switch_pro">Legge uno Switch Pro Controller cablato con movimento, vibrazione, Home e Capture.</string>
     <string name="usb_switch_pro_denied">Nessun accesso USB; lo Switch Pro Controller resta sull’input di Android.\nRicollega il cavo per riprovare.</string>
 </resources>

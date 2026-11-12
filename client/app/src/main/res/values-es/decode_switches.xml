@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_submit_hint">Acelerar la entrega de fotogramas</string>
-    <string name="summary_submit_hint">Las indicaciones de rendimiento también cubren el hilo que entrega los fotogramas al decodificador.</string>
+    <string name="summary_submit_hint">La indicación de rendimiento también cubre el hilo que alimenta al decodificador.</string>
     <string name="title_covering_decoder_size">Preparar el decodificador para plegar</string>
-    <string name="summary_covering_decoder_size">Dimensiona el decodificador desde el inicio para la otra pantalla y para girar, así plegar o girar no requiere reinicio.</string>
+    <string name="summary_covering_decoder_size">Dimensiona el decodificador para la otra pantalla, así plegar no requiere reiniciar.</string>
     <string name="title_pyrowave_preacquire">PyroWave: imagen de pantalla anticipada</string>
-    <string name="summary_pyrowave_preacquire">Toma la siguiente imagen de pantalla antes de que llegue cada fotograma PyroWave, con el ritmo de fotogramas desactivado.</string>
+    <string name="summary_pyrowave_preacquire">Toma la siguiente imagen de pantalla antes de que llegue cada fotograma PyroWave.</string>
     <string name="title_codec_direct">Datos de vídeo directos al decodificador</string>
-    <string name="summary_codec_direct">Copia cada fotograma una sola vez al decodificador, sin copia intermedia. Solo con el nuevo motor de transmisión.</string>
+    <string name="summary_codec_direct">Copia cada fotograma una sola vez al decodificador.</string>
     <string name="title_receive_decode_priority">Prioridad de decodificador al recibir</string>
-    <string name="summary_receive_decode_priority">Nuevo motor de transmisión: el hilo que recibe el vídeo y alimenta el decodificador usa la prioridad del decodificador.</string>
+    <string name="summary_receive_decode_priority">El hilo que recibe el vídeo usa la prioridad del decodificador.</string>
 </resources>

@@ -5,26 +5,38 @@ import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.Editable;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.TextPaint;
+import android.text.TextWatcher;
 import android.text.style.CharacterStyle;
+import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.button.MaterialButton;
 import com.limelight.R;
+import com.limelight.computers.ComputerManagerService;
+import com.limelight.computers.HostActions;
 import com.limelight.nativeapi.ConsoleRepository;
 import com.limelight.nativeapi.ConsoleSnapshot;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.ui.AppTheme;
+import com.limelight.ui.GlassForm;
+import com.limelight.ui.GlassSurface;
+import com.limelight.ui.Motion;
 import com.limelight.ui.NightjarActivity;
 import com.limelight.ui.ShellBar;
 import com.limelight.ui.TopAppBar;
@@ -57,6 +69,8 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
     static final int FIT_ROOM_DP = 4;
     private static final long DEBOUNCE_MS = 250;
     private static final String SHELF = "all-games";
+    private static final String STATE_QUERY = "query";
+    private static final int SEARCH_FADE_MS = 150;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
@@ -123,10 +137,52 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
         }
     };
 
+    /** The PC capsule's options act through these, as on Home. */
+    private final HostActions hostActions = new HostActions(this, new HostActions.Callbacks() {
+        @Override public ComputerManagerService.ComputerManagerBinder binder() { return feed == null ? null : feed.binder(); }
+        @Override public boolean isForeground() { return shown; }
+        @Override public void onPaired(ComputerDetails computer) { }
+        @Override public void onRemoved(ComputerDetails computer) {
+            feed.forget(computer.uuid);
+            refreshedSignature = null;
+            scheduleReload();
+        }
+        @Override public void onRenamed(ComputerDetails computer) {
+            refreshedSignature = null;
+            scheduleReload();
+        }
+        @Override public void onWakeSent(ComputerDetails computer) { }
+        // A form change waited for the wake.
+        @Override public void onWakeEnded(ComputerDetails computer) { followFormSoon(); }
+        @Override public void pausePolling() { feed.pause(); }
+        @Override public void resumePolling() { if (shown) feed.resume(); }
+    });
+    private HostCapsule capsule;
+
+    /** The search's words; empty while it is closed. The grid shows the filter's games that match them. */
+    private String query = "";
+    private View topRow;
+    private View tools;
+    private GlassSurface searchBar;
+    private EditText searchField;
+    private View searchClear;
+    private View searchButton;
+    private final OnBackPressedCallback closeSearchOnBack = new OnBackPressedCallback(false) {
+        @Override public void handleOnBackPressed() {
+            closeSearch();
+        }
+    };
+
     /** Its chrome follows the form: a rotation into another form lays it out again. */
     @Override
     protected boolean followsForm() {
         return true;
+    }
+
+    /** A pairing or a wake from the PC capsule keeps this screen until it is done; it then follows the form. */
+    @Override
+    protected boolean holdsForm() {
+        return hostActions.isPairing() || hostActions.isWaking() || hostActions.isShowingError();
     }
 
     @Override
@@ -141,6 +197,7 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
         // All games belongs to Home: Home in the bar is the page it came from, so it closes this one.
         ShellBar.install(this, ShellBar.Destination.HOME);
         findViewById(R.id.shell_home).setOnClickListener(v -> finish());
+        setUpTopRow();
         if (isTelevision()) {
             getWindow().setBackgroundDrawable(new ColorDrawable(AppTheme.tvCanvas(this)));
             // The sky of Home, PCs and Settings; the grid fills the screen, so no moon behind the posters.
@@ -238,7 +295,142 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
         list.setItemAnimator(null);
         list.setAdapter(adapter);
         list.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> fitColumns(r - l, b - t));
+        capsule = new HostCapsule(this, findViewById(android.R.id.content), findViewById(R.id.all_games_pc), new HostCapsule.Screen() {
+            @Override public HomeModel model() { return model; }
+            @Override public ComputerDetails host(String uuid) { return feed.host(uuid); }
+            @Override public ComputerManagerService.ComputerManagerBinder binder() { return feed.binder(); }
+            @Override public HostActions actions() { return hostActions; }
+        });
+        setUpSearch(state != null ? state.getString(STATE_QUERY) : null);
         feed.bind();
+    }
+
+    /**
+     * Home's top row: on a handheld and a TV the tabs in a glass capsule, then the PC capsule and Search at the row's end. A
+     * phone keeps its tabs as the bar across the top, and the capsule and Search stand at the end of the title's line.
+     */
+    private void setUpTopRow() {
+        topRow = findViewById(R.id.all_games_top_row);
+        tools = findViewById(R.id.all_games_tools);
+        GlassForm form = GlassForm.of(this);
+        View bar = findViewById(R.id.shell_bar);
+        if (form == GlassForm.PHONE) {
+            ViewGroup row = (ViewGroup) topRow;
+            ViewGroup glass = findViewById(R.id.all_games_tabs);
+            glass.removeView(bar);
+            row.removeView(glass);
+            row.addView(bar, 0, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            findViewById(R.id.all_games_top_spacer).setVisibility(View.GONE);
+            row.removeView(tools);
+            ((ViewGroup) findViewById(R.id.all_games_title_row)).addView(tools);
+            // The title's line is narrower than a TV's row: a long name leaves the title its room.
+            ((TextView) tools.findViewById(R.id.home_pc_name)).setMaxWidth(
+                    getResources().getDimensionPixelSize(R.dimen.glass_capsule) * 3);
+            return;
+        }
+        HomeChrome.styleTabs(this, form);
+        HomeChrome.keepRingUnclipped(bar, findViewById(R.id.shell_bar_items));
+        ShellBar.linkTopRow(this, R.id.all_games_pc, R.id.all_games_search);
+    }
+
+    /**
+     * Search on the page, as on Home: the field takes the top row's place and the grid narrows to the games whose titles have
+     * every word, under the chosen filter. Back, or clearing it, brings the row and every game back.
+     */
+    private void setUpSearch(String restored) {
+        searchBar = findViewById(R.id.home_search_bar);
+        searchField = findViewById(R.id.home_search_field);
+        searchClear = findViewById(R.id.home_search_clear);
+        searchButton = findViewById(R.id.all_games_search);
+        searchButton.setOnClickListener(v -> openSearch());
+        getOnBackPressedDispatcher().addCallback(this, closeSearchOnBack);
+        searchField.setOnFocusChangeListener((v, focused) -> searchBar.setFocusShown(focused && !v.isInTouchMode()));
+        searchField.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { }
+            @Override public void afterTextChanged(Editable text) {
+                if (!isSearching()) return;
+                query = text.toString();
+                searchClear.setVisibility(query.isEmpty() ? View.GONE : View.VISIBLE);
+                bindGrid(true);
+            }
+        });
+        searchField.setOnEditorActionListener((v, action, event) -> {
+            if (action != EditorInfo.IME_ACTION_SEARCH) return false;
+            keyboard(false);
+            focusFirstMatch();
+            return true;
+        });
+        searchField.setOnKeyListener((v, keyCode, event) -> {
+            if (keyCode != KeyEvent.KEYCODE_DPAD_DOWN || event.getAction() != KeyEvent.ACTION_DOWN) return false;
+            keyboard(false);
+            return focusFirstMatch();
+        });
+        searchClear.setOnClickListener(v -> {
+            searchField.setText("");
+            searchField.requestFocus();
+        });
+        if (restored != null) {
+            openSearch();
+            searchField.setText(restored);
+            searchField.setSelection(restored.length());
+        }
+    }
+
+    boolean isSearching() {
+        return searchBar != null && searchBar.getVisibility() == View.VISIBLE;
+    }
+
+    void openSearch() {
+        if (isSearching()) return;
+        // The field has the keys now: a library that loads later leaves them there.
+        focusPending = false;
+        query = "";
+        searchField.setText("");
+        searchClear.setVisibility(View.GONE);
+        topRow.setVisibility(View.INVISIBLE);
+        tools.setVisibility(View.INVISIBLE);
+        searchBar.setVisibility(View.VISIBLE);
+        closeSearchOnBack.setEnabled(true);
+        comeIn(searchBar);
+        searchField.requestFocus();
+        keyboard(true);
+    }
+
+    /** All the filter's games again, and focus back on Search. */
+    void closeSearch() {
+        if (!isSearching()) return;
+        keyboard(false);
+        closeSearchOnBack.setEnabled(false);
+        searchBar.setVisibility(View.GONE);
+        topRow.setVisibility(View.VISIBLE);
+        tools.setVisibility(View.VISIBLE);
+        query = "";
+        bindGrid(true);
+        if (!searchButton.isInTouchMode()) searchButton.requestFocus();
+    }
+
+    private boolean focusFirstMatch() {
+        if (adapter.getItemCount() == 0) return false;
+        focusCard(0, 0);
+        return true;
+    }
+
+    private void keyboard(boolean show) {
+        InputMethodManager manager = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        if (manager == null) return;
+        if (show) manager.showSoftInput(searchField, InputMethodManager.SHOW_IMPLICIT);
+        else manager.hideSoftInputFromWindow(searchField.getWindowToken(), 0);
+    }
+
+    private void comeIn(View view) {
+        view.animate().cancel();
+        if (Motion.reduced(this)) {
+            view.setAlpha(1f);
+            return;
+        }
+        view.setAlpha(0f);
+        view.animate().alpha(1f).setDuration(SEARCH_FADE_MS).start();
     }
 
     /**
@@ -330,6 +522,7 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
     protected void onSaveInstanceState(@NonNull Bundle out) {
         super.onSaveInstanceState(out);
         out.putString(EXTRA_FILTER, filter);
+        if (isSearching()) out.putString(STATE_QUERY, query);
     }
 
     @Override
@@ -354,6 +547,7 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
     @Override
     protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
+        hostActions.destroy();
         feed.unbind();
         worker.shutdownNow();
         if (covers != null) covers.release();
@@ -432,6 +626,7 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
             }
             // A filter the library no longer has (the last game of a store went) falls back to All once it has loaded.
             if (loaded && !next.filters.isEmpty() && filterOf(next, filter) == null) filter = HomeModel.FILTER_ALL;
+            capsule.show(next);
             bindFilters();
             bindGrid(false);
         });
@@ -447,6 +642,12 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
     /** The cards a filter shows, in the order All games lists them. */
     static List<HomeModel.GameCard> cardsOf(HomeModel model, String filter) {
         return model.cardsUnder(filter);
+    }
+
+    /** The cards a filter shows whose titles have every word of the search, in Home's search's order; all without one. */
+    static List<HomeModel.GameCard> cardsOf(HomeModel model, String filter, String query) {
+        List<HomeModel.GameCard> cards = cardsOf(model, filter);
+        return query.trim().isEmpty() ? cards : HomeSearch.matches(cards, query);
     }
 
     /** A chip's name: All, Installed, Games, the store's or collection's, Other apps, Not added or Hidden. */
@@ -537,9 +738,10 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
         String before = list.hasFocus() ? focusedKey : null;
         int at = focusedAt;
         List<ShelfAdapter.Item> items = new ArrayList<>();
-        for (HomeModel.GameCard card : cardsOf(model, filter)) items.add(new ShelfAdapter.Item(card.key, card, null));
+        for (HomeModel.GameCard card : cardsOf(model, filter, query)) items.add(new ShelfAdapter.Item(card.key, card, null));
         adapter.setItems(SHELF, items);
         boolean none = items.isEmpty();
+        ((TextView) empty).setText(query.trim().isEmpty() ? R.string.console_all_games_empty : R.string.library_no_matches);
         empty.setVisibility(none && loaded ? View.VISIBLE : View.GONE);
         if (newFilter) {
             grid.scrollToPosition(0);

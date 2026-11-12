@@ -125,7 +125,7 @@ fn paint_switch(ui: &Ui, out: &mut Vec<Shape>, rect: Rect, id: Id, on: bool, ena
     let off: Color32 = if high_contrast() {
         *SURFACE
     } else {
-        t::TINT_TRACK_FILL
+        shade::TINT_TRACK_FILL.get()
     };
     let lit: Color32 = *MOON;
     let track = off.lerp_to_gamma(lit, along.clamp(0.0, 1.0));
@@ -144,7 +144,7 @@ fn paint_switch(ui: &Ui, out: &mut Vec<Shape>, rect: Rect, id: Id, on: bool, ena
     out.push(Shape::circle_filled(
         center,
         THUMB_R,
-        (*PAPER).gamma_multiply(dim),
+        knob().gamma_multiply(dim),
     ));
 }
 
@@ -191,7 +191,7 @@ impl Launcher {
             .and_then(|l| l.games.iter().find(|g| g.app_id == app_id))
         else {
             ui.label(
-                RichText::new(tr("This game is no longer in the PC's library."))
+                RichText::new(tr("This game is no longer in the PC’s library."))
                     .font(semibold(t::TYPE_SECTION_SIZE))
                     .color(ON_SURFACE),
             );
@@ -471,13 +471,13 @@ impl Launcher {
         }
         let star = console::favourite_of(source, game);
         let starred = console::is_starred(source, game, &self.favourites);
-        let words = tr("Favourite");
-        let rect = flow.place(capsule_width(ui, words), CAPSULE_H);
-        let said = if starred {
+        // The button says what it does, in the game menu's words (and Android's game page).
+        let words = if starred {
             tr("Remove from favourites")
         } else {
             tr("Add to favourites")
         };
+        let rect = flow.place(capsule_width(ui, words), CAPSULE_H);
         let glyph = if starred { Icon::StarOn } else { Icon::Star };
         let r = control_capsule(
             ui,
@@ -485,7 +485,7 @@ impl Launcher {
             Id::unique("game-star"),
             glyph,
             words,
-            said,
+            words,
             star.is_some(),
         );
         // With Play off and nothing to end, the star takes the focus, so the D-pad has somewhere to start.
@@ -626,8 +626,8 @@ impl Launcher {
             {
                 let (note, ink) = match blocker {
                     Some(InputOnlyBlocker::Pair) => (tr("Pair with this PC first").to_owned(), *ERROR),
-                    Some(InputOnlyBlocker::ViewPermission) => (tr("Allow viewing streams for this device on the host").to_owned(), *ERROR),
-                    Some(InputOnlyBlocker::InputPermission) => (tr("Allow input for this device on the host").to_owned(), *ERROR),
+                    Some(InputOnlyBlocker::ViewPermission) => (tr("Allow viewing streams for this device on the PC").to_owned(), *ERROR),
+                    Some(InputOnlyBlocker::InputPermission) => (tr("Allow input for this device on the PC").to_owned(), *ERROR),
                     None => (
                         trf("Video still streams at the smallest size, about {} Mbit/s ({} MB an hour), but isn’t shown", &[
                             &format!("{:.1}", f64::from(launch::estimated_kbps()) / 1000.0),
@@ -743,7 +743,7 @@ impl Launcher {
             &ctx,
             group,
             t::RADIUS_GROUP,
-            t::TINT_GROUP_ON_ART_FILL,
+            shade::TINT_GROUP_ON_ART_FILL.get(),
         );
         ui.painter().extend(out);
         let mut y = group.top();
@@ -792,7 +792,7 @@ impl Launcher {
                 out.push(Shape::hline(
                     rect.left() + ROW_PAD..=rect.right(),
                     y,
-                    Stroke::new(1.0, t::TINT_SEPARATOR),
+                    Stroke::new(1.0, shade::TINT_SEPARATOR.get()),
                 ));
             }
             let words_h = label.size().y + sub.as_ref().map_or(0.0, |s| s.size().y + 2.0);

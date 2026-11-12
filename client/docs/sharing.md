@@ -53,16 +53,16 @@ A PC can share folders with a device. **Shared folders** opens them:
 - **Android:** in a PC's options. Browse the folders, download files to Downloads and upload files where the PC grants writing.
 - **Windows and Linux:** on the PC's details page. Downloads go into a folder you choose, and with a write grant you can upload a file. Each transfer shows its progress and each refusal its reason.
 
-A PC that shares no folders, or a host without shared folders, says so and points to the web UI. A folder Windows does not let the host read says so and points to that folder's permissions on the PC.
+A PC that shares no folders, or a host without shared folders, says so and points to the web UI (on a Rubylight PC, **Network → Shared folders** in its console). A folder Windows does not let the host read says so and points to that folder's permissions on the PC.
 
 ## USB devices
 
 USB forwarding hands a USB device plugged into this device, such as a drawing tablet or a security key, to the PC until you detach or unplug it or the stream ends.
 
-- **Android:** turn on **Settings → Controls → Forward USB devices** (off by default, under the USB controllers group). It needs the New streaming engine. During a stream, the menu's **More** then shows **USB devices**.
-- **Windows and Linux:** turn on **Settings → Streaming → USB forwarding** (off by default); **USB devices** is then in the stream controls when the PC offers it. On Linux, webcams and USB audio devices go through your distribution's usbip tools, which the Flatpak cannot reach; see [Steam Deck](steam-deck.md#what-the-flatpak-cant-do). On Windows, Nightjar reaches a device only through the WinUSB driver, so the list names the driver of any device that uses another one instead of offering it; install WinUSB for that device (for example with Zadig) to forward it.
+- **Android:** turn on **Settings → Controls → Forward USB devices** (off by default, in its **USB** group). It needs the New streaming engine. During a stream, the menu's **More** then shows **USB devices**.
+- **Windows and Linux:** turn on **Settings → Controls → Forward USB devices** (off by default); **USB devices** is then in the stream menu when the PC offers it. On Linux, webcams and USB audio devices go through your distribution's usbip tools, which the Flatpak cannot reach; see [Steam Deck](steam-deck.md#what-the-flatpak-cant-do). On Windows, Nightjar reaches a device only through the WinUSB driver, so the list names the driver of any device that uses another one instead of offering it; install WinUSB for that device (for example with Zadig) to forward it.
 
-The entry appears only when the PC offers USB forwarding and allows it for this device; otherwise the stream controls say why. Hubs, and controllers that Nightjar's own USB drivers already use, are not listed. A device that can't be attached names the reason: no permission, USB forwarding off on the PC, the PC's limit of attached devices, its USB driver, a timeout or a device that stopped answering.
+The entry appears only when the PC offers USB forwarding (on a Rubylight PC, **Sound & controls → USB devices → USB forwarding** in its console) and allows it for this device; otherwise the stream menu says why. Hubs, and controllers that Nightjar's own USB drivers already use, are not listed. A device that can't be attached names the reason: no permission, USB forwarding off on the PC, the PC's limit of attached devices, its USB driver, a timeout or a device that stopped answering.
 
 ## Privacy
 

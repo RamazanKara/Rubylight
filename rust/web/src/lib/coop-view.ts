@@ -56,7 +56,7 @@ export function nucleusRelease(status: CoopStatus): { version: string; page: str
  * Where to unpack it: Nucleus Co-op runs elevated, so the host runs it only from a folder that just
  * administrators may change, which a folder under Program Files is.
  */
-export const UNPACK_WHERE = 'Unpack it into a folder under C:\\Program Files, then choose that folder.';
+export const UNPACK_WHERE = 'Unpacked in a folder under C:\\Program Files, which only administrators can change.';
 
 /** Why the folder chosen can't run Nucleus Co-op, as a title; the host's reason says more. */
 export function folderTitle(problem: CoopInstall['problem']): string {
@@ -84,7 +84,7 @@ export function refusalTitle(status: number | undefined, forgetting: boolean): s
 }
 
 /** Games are added in a copy of Nucleus Co-op; another copy starts without them. */
-export const EARLIER_COPY_GAMES = 'Games added in the earlier copy stay there; add them again in the new one.';
+export const EARLIER_COPY_GAMES = 'Games added in the earlier copy stay in it; this folder starts without them.';
 
 /** The copy an earlier Rubylight installed runs: none chosen yet, or the one chosen isn't the pinned release. */
 export function earlierCopyRuns(install: CoopInstall): boolean {
@@ -399,4 +399,4 @@ export function endConfirmation(session: CoopSession): Confirmation {
 export const OPEN_ON_PC = 'Nucleus Co-op is still open on the PC’s screen. Co-op closes it when a game starts.';
 
 /** For a console opened away from the PC: what happens where. */
-export const AWAY_FROM_PC = 'Nucleus Co-op opens on the PC’s own screen, not on this device. Do the steps at the PC; this page shows the game as ready once the handler is in.';
+export const AWAY_FROM_PC = 'Nucleus Co-op opens on the PC’s own screen, not on this device. This page shows the game as ready once its handler is in.';

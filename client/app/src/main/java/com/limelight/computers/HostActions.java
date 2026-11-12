@@ -280,7 +280,8 @@ public final class HostActions {
         } else {
             pairingText.append(activity.getString(R.string.pairing));
         }
-        pairingDialog = new NavigationDialogBuilder(activity).setTitle(R.string.pair_pairing_title)
+        // The PIN is a task of its own: it stands on the sky, never over the page's heading or a card's edge.
+        pairingDialog = new NavigationDialogBuilder(activity).ownSurface().setTitle(R.string.pair_pairing_title)
                 .setMessage(pairingText)
                 .setNegativeButton(android.R.string.cancel, (dialog, which) -> {
                     cancelPairing();

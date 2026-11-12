@@ -2027,6 +2027,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     }
 
     private void sendControllerInputPacket(GenericControllerContext originalContext) {
+        // Controllers set to Off: no physical controller reaches the PC (the on-screen gamepad still does).
+        if (!prefConfig.sendControllers) return;
         assignControllerNumberIfNeeded(originalContext);
         if (!originalContext.assignedControllerNumber) {
             return;
@@ -5076,6 +5078,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             // A built-in device sharing player 1 with an external pad stays quiet, so the host
             // keeps the external pad's type, touchpad and motion.
             if (!external && sharesSlotWithExternalPad(this)) return;
+            if (!prefConfig.sendControllers) return;
             conn.sendControllerArrivalEvent((byte)controllerNumber, getActiveControllerMask(),
                     reportedType, supportedButtonFlags, capabilities);
 
@@ -5312,6 +5315,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 capabilities &= ~(MoonBridge.LI_CCAP_ACCEL | MoonBridge.LI_CCAP_GYRO);
             }
             byte type = arrivalType();
+            if (!prefConfig.sendControllers) return;
             int result = conn.sendControllerArrivalEvent((byte)controllerNumber, getActiveControllerMask(),
                     type, device.getSupportedButtonFlags() | buttonMap.targetButtonFlags(), capabilities);
             if (result != 0) {

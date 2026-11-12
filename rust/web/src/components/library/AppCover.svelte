@@ -24,13 +24,14 @@
   const blank = $derived(placeholder(name));
 </script>
 
+<!-- data-cover: the router morphs the cover of the game a navigation enters or leaves (lib/router.svelte.ts). -->
 {#if src && broken !== src}
-  <div class="cover">
+  <div class="cover" data-cover={uuid}>
     <img {src} {alt} loading="lazy" draggable="false" onerror={() => (broken = src)} />
   </div>
 {:else}
   <!-- No art: a tint of its own per game, drawn like a poster so it sits well beside real covers. -->
-  <div class="cover blank" style:--hue={blank.hue}>
+  <div class="cover blank" data-cover={uuid} style:--hue={blank.hue}>
     {#if blank.icon}
       <span class="mark icon"><Icon name={blank.icon} size={48} /></span>
     {:else}
@@ -50,6 +51,15 @@
     background: var(--sunken);
     display: grid;
     place-items: center;
+    transition:
+      transform var(--duration-fast) var(--ease-standard),
+      box-shadow var(--duration-fast) var(--ease-standard);
+  }
+  /* The one hover of a cover that opens its game, on Home's shelf as on the Games grid (whose
+     cover sits in a frame with its badges, so the grid lifts that frame the same way): it rises. */
+  :global(a:is(:hover, :focus-visible)) > .cover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-raised);
   }
   img {
     width: 100%;

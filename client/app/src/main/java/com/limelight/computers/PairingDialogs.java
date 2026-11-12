@@ -124,7 +124,8 @@ final class PairingDialogs {
         final GridLayout pad = content.findViewById(R.id.pairing_pin_pad);
         final StringBuilder pin = new StringBuilder();
 
-        NavigationDialogBuilder builder = new NavigationDialogBuilder(activity);
+        // The pad is a task of its own: it stands on the sky, never over the page's heading.
+        NavigationDialogBuilder builder = new NavigationDialogBuilder(activity).ownSurface();
         // Material leaves 80dp above and below a dialog, more than a handheld in landscape can spare from the pad's rows.
         if (activity.getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE) {
             int inset = activity.getResources().getDimensionPixelSize(R.dimen.space_l);

@@ -3,7 +3,7 @@
     <string name="stream_touch_off_help">Сенсор выключен. Смахните назад или нажмите «Назад», чтобы открыть меню трансляции.</string>
     <string name="title_local_cursor_speed">Скорость локального курсора</string>
     <string name="title_trackpad_acceleration">Ускорение указателя</string>
-    <string name="summary_trackpad_acceleration">Быстрые движения пальцем перемещают указатель дальше, чем медленные, поэтому мелкие движения остаются точными. Для режимов «Трекпад» и «Локальный курсор».</string>
+    <string name="summary_trackpad_acceleration">Быстрые движения пальцем перемещают указатель дальше, чем медленные.</string>
     <string name="title_trackpad_acceleration_curve">Сила ускорения</string>
     <string-array name="trackpad_acceleration_curve_names">
         <item>Слабая</item>
@@ -11,7 +11,7 @@
         <item>Сильная</item>
     </string-array>
     <string name="title_trackpad_momentum">Инерция после быстрого жеста</string>
-    <string name="summary_trackpad_momentum">После быстрого жеста указатель продолжает двигаться и замедляется. Коснитесь экрана, чтобы остановить его. Для режимов «Трекпад» и «Локальный курсор».</string>
+    <string name="summary_trackpad_momentum">Указатель продолжает двигаться после быстрого жеста.</string>
     <string name="title_trackpad_momentum_glide">Дальность инерции</string>
     <string-array name="trackpad_momentum_glide_names">
         <item>Короткая</item>
@@ -19,7 +19,7 @@
         <item>Длинная</item>
     </string-array>
     <string name="title_trackpad_area">Область трекпада</string>
-    <string name="summary_trackpad_area">Жесты режимов «Трекпад» и «Локальный курсор» начинаются только в этой части экрана. Касания, начатые в другом месте, игнорируются.</string>
+    <string name="summary_trackpad_area">Часть экрана, где начинаются жесты трекпада.</string>
     <string-array name="trackpad_area_names">
         <item>Весь экран</item>
         <item>Правая половина</item>
@@ -28,7 +28,7 @@
         <item>Верхняя половина</item>
     </string-array>
     <string name="title_three_finger_tap">Касание тремя пальцами</string>
-    <string name="summary_three_finger_tap">Что делает быстрое касание тремя пальцами в режимах «Трекпад», «Прямое управление мышью» и «Локальный курсор».</string>
+    <string name="summary_three_finger_tap">Что делает быстрое касание тремя пальцами.</string>
     <string-array name="three_finger_tap_names">
         <item>@string/desktop_controls_system_keyboard</item>
         <item>Средний щелчок</item>
@@ -38,7 +38,7 @@
     </string-array>
     <string name="stream_cursor_shape_rejected">Nightjar не может нарисовать форму курсора ПК и показывает стандартную стрелку.</string>
     <string name="title_four_finger_tap">Касание четырьмя пальцами</string>
-    <string name="summary_four_finger_tap">Действие при быстром касании четырьмя пальцами в режимах «Тачпад», «Прямая мышь» и «Локальный курсор».</string>
+    <string name="summary_four_finger_tap">Что делает быстрое касание четырьмя пальцами.</string>
     <string name="title_multi_touch_finger_taps">Касания несколькими пальцами в режиме «Мультитач»</string>
-    <string name="summary_multi_touch_finger_taps">Касания тремя и четырьмя пальцами выполняют своё действие и в режиме «Мультитач», а ПК эти касания не получает. Оставьте выключенным для игр, где нужны три или четыре пальца.</string>
+    <string name="summary_multi_touch_finger_taps">Касания тремя и четырьмя пальцами выполняют свои действия и в режиме «Мультитач».</string>
 </resources>

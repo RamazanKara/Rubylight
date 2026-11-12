@@ -13,6 +13,7 @@ mod playout;
 pub mod present;
 mod hlg;
 mod microphone;
+mod mic_dsp;
 #[cfg(windows)]
 mod voice_capture;
 mod cursor;
@@ -41,7 +42,8 @@ pub mod enhance;
 mod amf_scaler;
 #[cfg(windows)]
 pub(crate) mod direct;
-mod phase;
+// The latency benchmark reads the launcher's vblanks with `phase::timing` too.
+pub(crate) mod phase;
 mod text_field;
 mod clipboard_sync;
 pub mod scanline;
@@ -120,7 +122,7 @@ use negotiate::*;
 use stats::*;
 pub use connect::{end_before, host_ended_stream, offers_714, termination_text, ConnectFailed, Connecting, LEAVE_WAIT};
 pub(crate) use connect::env_flag;
-pub use negotiate::{base_probe_formats, codec_name, color_probe_formats, probes_color, pyrowave_bitrate_warning, pyrowave_notice, stream_mode};
+pub use negotiate::{base_probe_formats, codec_name, color_probe_formats, plain_formats, probes_color, pyrowave_bitrate_warning, pyrowave_notice, stream_mode};
 
 /// What the display offers, for "native" resolution and "display" refresh.
 #[derive(Clone, Copy, Debug)]
@@ -764,7 +766,7 @@ impl Streaming {
         let facts_host = facts.host_name.clone();
         let microphone = if settings.microphone && !connecting.plan.microphone_muted && facts.role != AppRole::RemoteMonitor {
             if session.microphone_available() {
-                match microphone::Microphone::open(connecting.shared.clone(), microphone::echo_for(connecting.plan.mic_only, settings.mic_echo_cancel)) {
+                match microphone::Microphone::open(connecting.shared.clone(), microphone::echo_for(connecting.plan.mic_only, settings.mic_echo_cancel), settings.mic_gain, mic_dsp::Choice::of(&settings)) {
                     Ok(microphone) => Some(microphone),
                     Err(error) => {
                         connecting.shared.notify(Notice::MicrophoneFailed(error));
@@ -829,7 +831,7 @@ impl Streaming {
             session,
             shared: connecting.shared,
             facts,
-            pacer: Pacer::with_backlog(connecting.pacing, min_interval, backlog).with_frame_pacing(settings.frame_pacing, stream_fps),
+            pacer: Pacer::with_backlog(connecting.pacing, min_interval, backlog).with_frame_pacing(settings.frame_pacing, stream_fps).with_drop_late_frames(settings.drop_late_frames),
             texture: VideoTexture::new(connecting.settings.upscaling == config::Upscaling::Bilinear, hdr_stream),
             upscaler: None,
             #[cfg(windows)]
@@ -1257,7 +1259,7 @@ impl Streaming {
         if !permitted || self.microphone_muted || controller_route {
             self.microphone = None;
         } else if self.microphone.is_none() && self.session.microphone_available() {
-            match microphone::Microphone::open(self.shared.clone(), microphone::echo_for(self.plan.mic_only, self.settings.mic_echo_cancel)) {
+            match microphone::Microphone::open(self.shared.clone(), microphone::echo_for(self.plan.mic_only, self.settings.mic_echo_cancel), self.settings.mic_gain, mic_dsp::Choice::of(&self.settings)) {
                 Ok(microphone) => {
                     self.microphone = Some(microphone);
                     self.microphone_unavailable = false;
@@ -1270,8 +1272,10 @@ impl Streaming {
             }
         }
         for pad in &mut pads.pads {
+            // The gamepad number the PC knows the controller as (player 1 for each with One player).
+            let sent_as = u16::from(pad.sent_as());
             let Some(audio) = &mut pad.audio else { continue; };
-            while let Some(packet) = audio.microphone_packet(u16::from(pad.index)) {
+            while let Some(packet) = audio.microphone_packet(sent_as) {
                 if let Err(error) = self.session.send(ClientMessage::ControllerMicrophone(packet)) {
                     self.shared.notify(Notice::MicrophoneFailed(format!("Controller microphone forwarding stopped: {error}")));
                     break;
@@ -1285,12 +1289,33 @@ impl Streaming {
         self.export_statistics = false;
         let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis();
         let path = directory.join(format!("nightjar-{stamp}.csv"));
-        let mut csv = String::from("elapsed_ms,received_fps,decoded_fps,shown_fps,loss_percent,rtt_ms,decode_ms,render_ms,host_to_network_ms,latency_ms,bitrate_kbps\n");
-        for row in &self.statistics { csv.push_str(row); }
+        let csv = statistics_csv(&self.statistics);
         match std::fs::create_dir_all(directory).and_then(|_| std::fs::write(&path, csv)) {
             Ok(()) => self.show_toast(trf("Statistics saved to {}", &[&path.display()])),
             Err(error) => self.show_toast(trf("Could not save statistics: {}", &[&error])),
         }
+    }
+
+    /// Keeps this stream's once-a-second measurements at `path` for Settings → Advanced → Export
+    /// latency CSV, as Android keeps its last stream's latency CSV. Written once as the stream
+    /// ends, from rows the overlay's window collects anyway: no work during the stream. A stream
+    /// without a second of measurements leaves the last one's file. False when nothing was written.
+    pub fn keep_latency_csv(&self, path: &std::path::Path) -> std::io::Result<bool> {
+        if self.statistics.is_empty() {
+            return Ok(false);
+        }
+        if let Some(directory) = path.parent() {
+            std::fs::create_dir_all(directory)?;
+        }
+        std::fs::write(path, statistics_csv(&self.statistics)).map(|()| true)
+    }
+
+    /// Settings → Advanced → Show decode time after streaming: Android's post-stream toast, the
+    /// average decode time of the stream's frames and its codec, from the counters the overlay
+    /// reads. None before a frame was decoded.
+    pub fn decode_time_line(&self) -> Option<String> {
+        let c = &self.shared.counters;
+        decode_time_text(c.decode_us_total.load(Ordering::Relaxed), c.decoded.load(Ordering::Relaxed), negotiate::codec_name(self.facts.format))
     }
 
     /// A stream that opened behind another window captures input (and with it the keyboard
@@ -1426,7 +1451,7 @@ impl Streaming {
                     return;
                 }
                 Err(error) => {
-                    self.show_toast(trf("Could not read the image on this device's clipboard: {}", &[&error]));
+                    self.show_toast(trf("Could not read the image on this device’s clipboard: {}", &[&error]));
                     return;
                 }
             }
@@ -1436,14 +1461,14 @@ impl Streaming {
         std::thread::spawn(move || {
             let result = match local {
                 Some(local) => crate::clipboard::to_png(local)
-                    .map_err(|e| trf("Could not convert the image on this device's clipboard to PNG: {}", &[&e]))
+                    .map_err(|e| trf("Could not convert the image on this device’s clipboard to PNG: {}", &[&e]))
                     .and_then(|png| client.send_clipboard_image(&png).map_err(|e| image_error(e, true)))
                     .map(|()| None),
                 None => match client.clipboard_image() {
                     Ok(Some(png)) => crate::clipboard::from_png(&png)
                         .map(Some)
-                        .map_err(|e| trf("Could not read the PC's image: {}", &[&e])),
-                    Ok(None) => Err(tr("The PC's clipboard holds no image.").to_owned()),
+                        .map_err(|e| trf("Could not read the PC’s image: {}", &[&e])),
+                    Ok(None) => Err(tr("The PC’s clipboard holds no image.").to_owned()),
                     Err(e) => Err(image_error(e, false)),
                 },
             };
@@ -1707,8 +1732,11 @@ impl Streaming {
         if let Some(hint) = &packed {
             eprintln!("nightjar: {hint}");
         }
-        doctor::summary(&report).map(|summary| {
-            [packed, self.doctor.receive_buffer_hint()].into_iter().flatten().fold(summary, |text, hint| format!("{text}\n\n{hint}"))
+        // "Hide connection warnings" leaves the connection out, the receive buffer's note on lost video with it.
+        let hide_connection = self.settings.hide_connection_warnings;
+        let buffer = if hide_connection { None } else { self.doctor.receive_buffer_hint() };
+        doctor::summary(&report, hide_connection).map(|summary| {
+            [packed, buffer].into_iter().flatten().fold(summary, |text, hint| format!("{text}\n\n{hint}"))
         })
     }
 
@@ -1800,7 +1828,7 @@ impl Streaming {
     pub fn menu_header(&self) -> (String, String) {
         let place = format!("{} · {}", self.facts.app_name, self.facts.host_name);
         if self.facts.role != AppRole::Stream || self.facts.app_name.trim().is_empty() {
-            return (tr("Stream controls").to_owned(), place);
+            return (tr("Stream menu").to_owned(), place);
         }
         let size = |v: i32| u32::try_from(v).unwrap_or(0);
         let hdr = present::hdr_negotiated(self.settings.hdr, self.facts.format);
@@ -1819,7 +1847,7 @@ impl Streaming {
             return;
         }
         let Some(client) = lock(&self.shared.host_client).clone() else {
-            self.show_toast(tr("Cannot reach the host."));
+            self.show_toast(tr("Cannot reach the PC."));
             return;
         };
         let shared = self.shared.clone();
@@ -2071,18 +2099,42 @@ impl Streaming {
     }
 }
 
+/// The file Settings → Advanced → Export latency CSV saves, in the statistics folder.
+pub const LATENCY_CSV: &str = "nightjar-latency.csv";
+
+/// The once-a-second measurements as CSV, with their header.
+fn statistics_csv(rows: &VecDeque<String>) -> String {
+    let mut csv = String::from("elapsed_ms,received_fps,decoded_fps,shown_fps,loss_percent,rtt_ms,decode_ms,render_ms,host_to_network_ms,latency_ms,bitrate_kbps\n");
+    for row in rows {
+        csv.push_str(row);
+    }
+    csv
+}
+
+/// Android's post-stream toast: "Average decode time: 3 ms [HEVC]". Whole milliseconds as
+/// Android shows them, a tenth below 10 ms, where a GPU decoder spends under one.
+fn decode_time_text(total_us: u64, frames: u64, codec: &str) -> Option<String> {
+    if frames == 0 {
+        return None;
+    }
+    let ms = total_us as f64 / frames as f64 / 1000.0;
+    let number = if ms < 10.0 { format!("{ms:.1}") } else { format!("{ms:.0}") };
+    let number = if crate::strings::current().decimal_comma() { number.replace('.', ",") } else { number };
+    Some(format!("{} {} [{codec}]", tr("Average decode time:"), trf("{} ms", &[&number])))
+}
+
 /// What the stream menu says when the PC's image clipboard refused or failed (`send`: this
 /// device's image to the PC).
 fn image_error(error: nightjar_core::http::ImageClipboardError, send: bool) -> String {
     use nightjar_core::http::ImageClipboardError as E;
     match error {
-        E::TooLarge(why) => trf("The image is too large for the PC's clipboard: {}", &[&why]),
-        E::NotPng(why) if send => trf("The image on this device's clipboard is no valid PNG: {}", &[&why]),
+        E::TooLarge(why) => trf("The image is too large for the PC’s clipboard: {}", &[&why]),
+        E::NotPng(why) if send => trf("The image on this device’s clipboard is no valid PNG: {}", &[&why]),
         E::NotPng(why) => trf("The PC sent no valid PNG image: {}", &[&why]),
         E::Unsupported if send => tr("The PC could not read this image.").to_owned(),
         E::Unsupported => tr("The PC could not convert the image on its clipboard.").to_owned(),
-        E::Forbidden => tr("The PC refused its image clipboard to this device. Check the device's clipboard permissions on the PC; images move only during a stream of this device.").to_owned(),
-        E::Host(e) => trf("The PC's image clipboard did not answer: {}", &[&e]),
+        E::Forbidden => tr("The PC refused its image clipboard to this device. Check the device’s clipboard permissions on the PC; images move only during a stream of this device.").to_owned(),
+        E::Host(e) => trf("The PC’s image clipboard did not answer: {}", &[&e]),
     }
 }
 
@@ -2096,7 +2148,7 @@ fn bitrate_automatic(adaptive_bitrate: bool, quality_mode: QualityMode, rate_cha
 /// picked while the window had lost focus used to vanish without a word.
 fn shortcut_refusal(ready: bool, system_keys: bool, keys: &[String]) -> Option<&'static str> {
     if !ready {
-        return Some(en("Shortcut was not sent: the stream isn't taking input right now."));
+        return Some(en("Shortcut was not sent: the stream isn’t taking input right now."));
     }
     if !system_keys && keys.iter().any(|key| matches!(crate::shortcuts::key_code(key), Some(0x5B | 0x5C))) {
         return Some(en("Enable Send system keys to use shortcuts with the Windows key."));
@@ -2117,6 +2169,27 @@ fn overlay_change(kept: (bool, OverlayMode, OverlayCorner), now: (bool, OverlayM
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_decode_time_after_streaming_reads_as_androids_toast() {
+        assert_eq!(decode_time_text(0, 0, "HEVC"), None, "nothing decoded, nothing said");
+        assert_eq!(decode_time_text(2_340 * 60, 60, "HEVC").as_deref(), Some("Average decode time: 2.3 ms [HEVC]"));
+        assert_eq!(decode_time_text(12_600 * 10, 10, "AV1 10-bit").as_deref(), Some("Average decode time: 13 ms [AV1 10-bit]"));
+        crate::strings::set(crate::strings::Lang::De);
+        assert_eq!(decode_time_text(2_340 * 60, 60, "H.264").as_deref(), Some("Mittlere Dekodierzeit: 2,3 ms [H.264]"));
+        crate::strings::set(crate::strings::Lang::En);
+    }
+
+    #[test]
+    fn the_latency_csv_has_the_statistics_header_and_rows() {
+        let rows: VecDeque<String> = ["1000,60.000,60.000,60.000,0.000,2.000,1.500,0.200,3.000,9.000,20000\n".to_owned()].into();
+        let csv = statistics_csv(&rows);
+        let mut lines = csv.lines();
+        assert_eq!(lines.next(), Some("elapsed_ms,received_fps,decoded_fps,shown_fps,loss_percent,rtt_ms,decode_ms,render_ms,host_to_network_ms,latency_ms,bitrate_kbps"));
+        assert_eq!(lines.next(), Some("1000,60.000,60.000,60.000,0.000,2.000,1.500,0.200,3.000,9.000,20000"));
+        assert_eq!(lines.next(), None);
+        assert_eq!(LATENCY_CSV, "nightjar-latency.csv");
+    }
 
     #[test]
     fn an_overlay_change_names_only_what_the_user_changed() {
@@ -2197,7 +2270,7 @@ mod tests {
         let keys = |list: &[&str]| list.iter().map(|k| k.to_string()).collect::<Vec<_>>();
         assert_eq!(shortcut_refusal(true, false, &keys(&["ALT", "TAB"])), None);
         assert_eq!(shortcut_refusal(false, true, &keys(&["ALT", "TAB"])),
-            Some("Shortcut was not sent: the stream isn't taking input right now."));
+            Some("Shortcut was not sent: the stream isn’t taking input right now."));
         assert!(shortcut_refusal(true, false, &keys(&["WIN", "D"])).unwrap().contains("Send system keys"));
         assert_eq!(shortcut_refusal(true, true, &keys(&["WIN", "D"])), None);
     }
@@ -2735,7 +2808,7 @@ mod tests {
         let refused = offered_formats(&Settings { prefer_yuv444: true, ..hevc.clone() }, COLOR_SCM, &none);
         assert_eq!(refused.formats, plain.formats);
         assert_eq!(color_notice(&refused, VIDEO_FORMAT_H265).as_deref(),
-            Some("YUV 4:4:4 unavailable; using 4:2:0: this device can’t decode or draw it (HEVC 4:4:4: the decoder failed on the fixture)."));
+            Some("Sharper colored text isn’t available for this stream: this device can’t decode or draw it (HEVC 4:4:4: the decoder failed on the fixture)."));
         // HDR takes the stream and needs no word; packed full chroma keeps its own offer.
         let hdr = offered_formats(&Settings { hdr: true, prefer_yuv444: true, sdr_10bit: true, ..hevc.clone() }, COLOR_SCM, &decodes_all());
         assert_eq!(hdr.formats, video_formats(CodecPreference::Hevc, true, COLOR_SCM));
@@ -2743,11 +2816,11 @@ mod tests {
         let packed = offered_formats(&Settings { experimental_packed_444: true, prefer_yuv444: true, ..hevc.clone() }, COLOR_SCM, &decodes_all());
         assert_eq!(packed.formats, video_formats(CodecPreference::Hevc, false, 0));
         assert_eq!(color_notice(&packed, VIDEO_FORMAT_H265).as_deref(),
-            Some("YUV 4:4:4 unavailable; using 4:2:0: full chroma is on and has its own 4:4:4 and 10-bit handling."));
+            Some("Sharper colored text isn’t available for this stream: sharper colored text is on and has its own 4:4:4 and 10-bit handling."));
         // Both on: 4:4:4 wins and 10-bit says why.
         let both = offered_formats(&Settings { prefer_yuv444: true, sdr_10bit: true, ..hevc }, COLOR_SCM, &decodes_all());
         assert_eq!(color_notice(&both, VIDEO_FORMAT_H265_REXT8_444).as_deref(),
-            Some("Streaming in YUV 4:4:4.\n10-bit SDR isn’t used, so the stream is 8-bit: 4:4:4 is on, and the PC takes 4:4:4 or 10-bit, not both."));
+            Some("Streaming in YUV 4:4:4.\n10-bit SDR isn’t used, so the stream is 8-bit: sharper colored text is on, and the PC takes 4:4:4 or 10-bit, not both."));
     }
 
     #[test]
@@ -2864,18 +2937,18 @@ mod tests {
         let packed = Settings { codec: CodecPreference::Av1, experimental_packed_444: true, ..Default::default() };
         assert_ne!(offered_formats(&packed, 0, &decodes_all()).formats & VIDEO_FORMAT_H265, 0, "HEVC is the packed fallback");
         let (log, notice) = codec_fallback(&packed, 0, 0, 0, VIDEO_FORMAT_H265).expect("told");
-        assert_eq!(notice, "Full chroma can’t run AV1 with this PC and device, so Nightjar uses HEVC.");
+        assert_eq!(notice, "Sharper colored text can’t run AV1 with this PC and device, so Nightjar uses HEVC.");
         assert!(log.contains("full chroma") && log.ends_with("streaming HEVC"), "{log}");
         // HDR: HEVC Main10 packed ranks above AV1 8-bit packed, and says so.
         let hdr = Settings { hdr: true, ..packed.clone() };
         assert_eq!(codec_fallback(&hdr, 0, 0, 0, VIDEO_FORMAT_H265_MAIN10).map(|(_, n)| n).as_deref(),
-            Some("Full chroma can’t run AV1 10-bit with this PC and device, so Nightjar uses HEVC Main10."));
+            Some("Sharper colored text can’t run AV1 10-bit with this PC and device, so Nightjar uses HEVC Main10."));
         // AV1 packed at either depth, and HEVC packed chosen, need no word (8-bit has its own notice).
         assert_eq!(codec_fallback(&packed, 0, 0, 0, VIDEO_FORMAT_AV1_MAIN8), None);
         assert_eq!(codec_fallback(&hdr, 0, 0, 0, VIDEO_FORMAT_AV1_MAIN8), None);
         assert_eq!(codec_fallback(&Settings { codec: CodecPreference::Hevc, ..hdr }, 0, 0, 0, VIDEO_FORMAT_H265), None);
         let german = crate::strings::tests::with_lang(crate::strings::Lang::De, || codec_fallback(&packed, 0, 0, 0, VIDEO_FORMAT_H265));
-        assert_eq!(german.map(|(_, n)| n).as_deref(), Some("Volles Chroma kann AV1 mit diesem PC und Gerät nicht nutzen, daher nutzt Nightjar HEVC."));
+        assert_eq!(german.map(|(_, n)| n).as_deref(), Some("Schärferer farbiger Text kann AV1 mit diesem PC und Gerät nicht nutzen, daher nutzt Nightjar HEVC."));
     }
 
     /// AV1 whose 8-bit decodes but whose Main10 or 4:4:4 doesn't streamed 10-bit SDR and 4:4:4
@@ -3057,10 +3130,10 @@ mod tests {
             ceiling_kbps: 150_000,
             current_kbps,
         };
-        assert_eq!(link_notice_line(&notice(37_500)), "Host lowered the bitrate to 38 Mbps: network");
-        assert_eq!(link_notice_line(&notice(9_900)), "Host lowered the bitrate to 9.9 Mbps: network");
+        assert_eq!(link_notice_line(&notice(37_500)), "PC lowered the bitrate to 38 Mbps: network");
+        assert_eq!(link_notice_line(&notice(9_900)), "PC lowered the bitrate to 9.9 Mbps: network");
         crate::strings::set(crate::strings::Lang::De);
-        assert_eq!(link_notice_line(&notice(4_500)), "Host hat die Bitrate auf 4.5 Mbit/s gesenkt: Netzwerk");
+        assert_eq!(link_notice_line(&notice(4_500)), "PC hat die Bitrate auf 4.5 Mbit/s gesenkt: Netzwerk");
     }
 
     #[test]

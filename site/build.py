@@ -7,6 +7,10 @@ Links between rendered pages stay on the site; links to source files go to
 GitHub. The download link and version come from README.md's "Download"
 link, which every release updates.
 
+The build fails on a broken link in a rendered page, README.md or the
+landing page: a file that doesn't exist, or a #fragment that names no
+heading (by GitHub's rules) or id in its target.
+
     python3 -m pip install -r site/requirements.txt
     python3 site/build.py          # writes _site/
 """
@@ -17,6 +21,7 @@ import re
 import shutil
 import sys
 from pathlib import Path
+from urllib.parse import unquote
 
 from markdown_it import MarkdownIt
 from mdit_py_plugins.anchors import anchors_plugin
@@ -25,11 +30,11 @@ ROOT = Path(__file__).resolve().parent.parent
 SITE = ROOT / "site"
 OUT = ROOT / "_site"
 REPO = "https://github.com/RamazanKara/Rubylight"
+SITE_URL = "https://ramazankara.github.io/Rubylight/"
 
 # Internal planning and design notes: in the repository, not on the site.
 # Links to them from published pages go to GitHub.
 INTERNAL = {
-    "docs/foundation-gap-survey.md",
     "docs/rubylight-3.0-plan.md",
     "docs/couch-menu-design.md",
     "docs/encoder-focus-design.md",
@@ -91,20 +96,78 @@ def copy_media(src):
 
 
 broken = []
+SCHEME = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*:")
+# Raw HTML in Markdown and the landing page: the ids a #fragment can name,
+# and the attributes that link.
+ID_ATTR = re.compile(r"""\b(?:id|name)\s*=\s*["']([^"']+)["']""")
+HTML_LINK = re.compile(r"""\b(?:href|src|poster)\s*=\s*["']([^"']+)["']""")
+
+
+def github_slug(title):
+    """A heading's id as GitHub makes it: lower case, every character but
+    letters, digits, underscores, hyphens and spaces dropped, spaces as hyphens.
+    The anchors plugin adds -1, -2 to repeats, as GitHub does."""
+    return re.sub(r"[^\w\- ]", "", title.strip().lower()).replace(" ", "-")
+
+
+def heading_fragments(text):
+    """The fragments a Markdown text answers to: its headings' ids and the
+    id and name attributes of its raw HTML (code blocks don't count)."""
+    found = set()
+    for token in parser().parse(text):
+        if token.type == "heading_open":
+            found.add(token.attrGet("id"))
+        elif token.type == "html_block":
+            found.update(ID_ATTR.findall(token.content))
+        for child in token.children or []:
+            if child.type == "html_inline":
+                found.update(ID_ATTR.findall(child.content))
+    return found
+
+
+fragment_cache = {}
+
+
+def fragment_missing(target, fragment):
+    """Whether a #fragment names nothing in a repository Markdown or HTML file.
+    GitHub's line anchors (#L12) and other file types are not checked."""
+    fragment = unquote(fragment)
+    if not fragment or re.fullmatch(r"L\d+(-L\d+)?", fragment):
+        return False
+    if target not in fragment_cache:
+        path = ROOT / target
+        if not target.endswith((".md", ".html")) or not path.is_file():
+            return False
+        text = path.read_text(encoding="utf-8")
+        fragment_cache[target] = (
+            heading_fragments(text) if target.endswith(".md") else set(ID_ATTR.findall(text))
+        )
+    found = fragment_cache[target]
+    return fragment not in found and fragment.lower() not in found
+
+
+def check_fragment(src, url, target, fragment):
+    if fragment_missing(target, fragment):
+        broken.append(f"{src}: {url} (no such heading or id)")
 
 
 def rewrite(url, src):
     """Point a link in repository Markdown at the site or at GitHub."""
-    if not url or url.startswith(("#", "//")) or re.match(r"[a-zA-Z][a-zA-Z0-9+.-]*:", url):
+    if url and url.startswith("#"):
+        check_fragment(src, url, src, url[1:])
+        return url
+    if not url or url.startswith("//") or SCHEME.match(url):
         return url
     path, hash_, fragment = url.partition("#")
     target = posixpath.normpath(posixpath.join(posixpath.dirname(src), path))
     page = out_path(src)
     if target == "README.md" or target in PAGES:
+        check_fragment(src, url, target, fragment)
         return rel(out_path(target), page) + hash_ + fragment
     if not (ROOT / target).exists() or target.startswith(".."):
         broken.append(f"{src}: {url}")
         return url
+    check_fragment(src, url, target, fragment)
     if (ROOT / target).is_file() and posixpath.splitext(target)[1].lower() in MEDIA:
         copy_media(target)
         return rel(target, page) + hash_ + fragment
@@ -112,11 +175,123 @@ def rewrite(url, src):
     return f"{REPO}/{kind}/main/{target}" + hash_ + fragment
 
 
+def site_source(path):
+    """The repository file served at a path of the site, or None."""
+    path = path or "index.html"
+    if path == "index.html":
+        return "site/index.html"
+    if path in STATIC:
+        return f"site/{path}"
+    for src in PAGES:
+        if out_path(src) == path:
+            return src
+    if (ROOT / path).is_file() and posixpath.splitext(path)[1].lower() in MEDIA:
+        return path
+    return None
+
+
+def check_site_link(src, url, path, copy=False):
+    """A link to a path on the site; copy=True copies linked media into it."""
+    path, _, fragment = unquote(path).partition("#")
+    target = site_source(path.split("?")[0])
+    if target is None:
+        broken.append(f"{src}: {url}")
+        return
+    if copy and target == path and posixpath.splitext(target)[1].lower() in MEDIA:
+        copy_media(target)
+    check_fragment(src, url, target, fragment)
+
+
+def check_repo_link(src, url):
+    """A link in repository Markdown that the site doesn't render (README.md)."""
+    if url.startswith(SITE_URL):
+        check_site_link(src, url, url[len(SITE_URL):])
+        return
+    if not url or url.startswith("//") or SCHEME.match(url):
+        return
+    path, _, fragment = url.partition("#")
+    target = posixpath.normpath(posixpath.join(posixpath.dirname(src), unquote(path))) if path else src
+    if target.startswith("..") or not (ROOT / target).exists():
+        broken.append(f"{src}: {url}")
+        return
+    check_fragment(src, url, target, fragment)
+
+
+def check_readme():
+    """README.md's Markdown links and the links in its raw HTML."""
+    src = "README.md"
+    for token in parser().parse((ROOT / src).read_text(encoding="utf-8")):
+        if token.type == "html_block":
+            for url in HTML_LINK.findall(token.content):
+                check_repo_link(src, html.unescape(url))
+        for child in token.children or []:
+            if child.type == "link_open":
+                check_repo_link(src, child.attrGet("href"))
+            elif child.type == "image":
+                check_repo_link(src, child.attrGet("src"))
+            elif child.type == "html_inline":
+                for url in HTML_LINK.findall(child.content):
+                    check_repo_link(src, html.unescape(url))
+
+
+def check_landing():
+    """The landing page's links: site paths, its own #ids and our site's URLs.
+    Media it links are copied into the site."""
+    src = "site/index.html"
+    for url in HTML_LINK.findall((ROOT / src).read_text(encoding="utf-8")):
+        url = html.unescape(url)
+        if url.startswith("{{"):
+            continue
+        if url.startswith(SITE_URL):
+            check_site_link(src, url, url[len(SITE_URL):], copy=True)
+        elif not url.startswith("//") and not SCHEME.match(url):
+            check_site_link(src, url, url, copy=True)
+
+
+def self_test():
+    """The link check's own rules on a known sample, so that a change to them
+    cannot quietly let every link pass."""
+    assert github_slug("October 26: 3.0.0-rc.2 against the published numbers") == (
+        "october-26-300-rc2-against-the-published-numbers"
+    )
+    assert github_slug("What's new") == "whats-new"
+    assert github_slug("App × device overrides") == "app--device-overrides"
+    sample = (
+        "# Title\n\n## Same\n\n## Same\n\n## `code` and *emphasis*\n\n"
+        '<a id="kept"></a>\n\n```\n## not a heading\n<a id="code"></a>\n```\n'
+    )
+    found = heading_fragments(sample)
+    assert found == {"title", "same", "same-1", "code-and-emphasis", "kept"}, found
+    fragment_cache["self-test.md"] = found
+    assert not fragment_missing("self-test.md", "same-1")
+    assert not fragment_missing("self-test.md", "L12")
+    assert fragment_missing("self-test.md", "same-2")
+    assert fragment_missing("self-test.md", "not-a-heading")
+    del fragment_cache["self-test.md"]
+
+
+_parser = None
+
+
+def parser():
+    global _parser
+    if _parser is None:
+        _parser = markdown()
+    return _parser
+
+
 def markdown():
     md = MarkdownIt("commonmark", {"html": True, "typographer": False})
     md.enable(["table", "strikethrough"])
     # GitHub's heading ids, so links like performance.md#next-to-vibepollo-20 work.
-    md.use(anchors_plugin, min_level=1, max_level=6, permalink=True, permalinkSymbol="#")
+    md.use(
+        anchors_plugin,
+        min_level=1,
+        max_level=6,
+        slug_func=github_slug,
+        permalink=True,
+        permalinkSymbol="#",
+    )
     md.add_render_rule("table_open", lambda *a: '<div class="table-wrap"><table>\n')
     md.add_render_rule("table_close", lambda *a: "</table></div>\n")
     return md
@@ -180,6 +355,7 @@ def release():
 
 
 def main():
+    self_test()
     if OUT.exists():
         shutil.rmtree(OUT)
     OUT.mkdir()
@@ -192,7 +368,7 @@ def main():
         fill((SITE / "index.html").read_text(encoding="utf-8"), values), encoding="utf-8"
     )
 
-    md = markdown()
+    md = parser()
     template = (SITE / "page.html").read_text(encoding="utf-8")
     for src in PAGES:
         title, toc, body = render(md, src)
@@ -224,8 +400,10 @@ def main():
             encoding="utf-8",
         )
 
+    check_readme()
+    check_landing()
     if broken:
-        print("Links to missing files:\n  " + "\n  ".join(broken), file=sys.stderr)
+        print("Broken links:\n  " + "\n  ".join(broken), file=sys.stderr)
         sys.exit(1)
     print(f"Built {len(PAGES)} pages and the landing page into {OUT.relative_to(ROOT)}/")
 

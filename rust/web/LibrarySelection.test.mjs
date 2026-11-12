@@ -103,7 +103,8 @@ test('a selection drops apps that left the list, and a removal sends only those 
     return { deleted: 2, kept: [] };
   });
   assert.deepEqual(sent, ['portal', 'notepad']);
-  assert.deepEqual(message, { text: 'Removed 2 apps.', tone: 'ok' });
+  // The Games page counts games, the Remove button and the result alike.
+  assert.deepEqual(message, { text: 'Removed 2 games.', tone: 'ok' });
   assert.equal(picks.selecting, false, 'select mode ends after a removal');
   assert.equal(picks.selected.size, 0);
 });
@@ -125,21 +126,21 @@ test('a failed removal keeps select mode and the selection for another try', asy
 test('a partial removal names the apps kept and counts what went', () => {
   const { removalMessage } = selection;
   assert.deepEqual(removalMessage(1, 'Mirage', { deleted: 1 }), { text: 'Removed Mirage.', tone: 'ok' });
-  assert.deepEqual(removalMessage(3, '3 apps', { deleted: 2, kept: [] }), {
-    text: 'Removed 2 of 3 apps; the others were already gone.',
+  assert.deepEqual(removalMessage(3, '3 games', { deleted: 2, kept: [] }), {
+    text: 'Removed 2 of 3 games; the others were already gone.',
     tone: 'ok',
   });
   assert.deepEqual(
-    removalMessage(3, '3 apps', { deleted: 2, kept: [{ name: 'Mirage', error: 'Neural Rendering could not be removed' }] }),
-    { text: 'Removed 2 of 3 apps. Kept Mirage: Neural Rendering could not be removed', tone: 'warn' },
+    removalMessage(3, '3 games', { deleted: 2, kept: [{ name: 'Mirage', error: 'Neural Rendering could not be removed' }] }),
+    { text: 'Removed 2 of 3 games. Kept Mirage: Neural Rendering could not be removed', tone: 'warn' },
   );
 });
 
 test('a restore says what happened, also when the sync after it failed', () => {
   const { restoreMessage } = selection;
-  assert.deepEqual(restoreMessage(2, true, true), { text: 'Restored 2 games: the installed ones are back in your library.', tone: 'ok' });
-  assert.deepEqual(restoreMessage(1, false, true), { text: 'Restored 1 game: they join your library with the next sync.', tone: 'warn' });
-  assert.deepEqual(restoreMessage(2, true, false), { text: 'Restored 2 games: pick them again in Add games.', tone: 'ok' });
+  // The sync after a restore adds them back also where the launchers do not sync automatically.
+  assert.deepEqual(restoreMessage(2, true), { text: 'Restored 2 games: the installed ones are back in your library.', tone: 'ok' });
+  assert.deepEqual(restoreMessage(1, false), { text: 'Restored 1 game: they join your library with the next sync.', tone: 'warn' });
 });
 
 test('the grid and the launcher panel use the selection and restore logic', () => {

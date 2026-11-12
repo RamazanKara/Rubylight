@@ -3,12 +3,23 @@
   // this PC's certificate fingerprint. It is asked for only while it can be seen. The host
   // shows the live code again while it has a minute left, so two tabs show the same code,
   // and it has its own slot: a one-time PIN made for Artemis never replaces it.
-  import { onMount, untrack } from 'svelte';
+  import { onMount, untrack, type Snippet } from 'svelte';
   import Button from '../Button.svelte';
   import CopyButton from '../CopyButton.svelte';
   import { api, type PairingAccess, type PairingCode } from '../../lib/api';
+  import { SAMPLE_QR } from './sample-qr';
 
-  let { access }: { access?: PairingAccess } = $props();
+  let {
+    access,
+    lock,
+    lockNote = '',
+  }: {
+    access?: PairingAccess;
+    /** Pairing can't happen yet: a sample code shows behind this (the one-click way to allow it), and no code is made. */
+    lock?: Snippet;
+    /** Why, beside the code. */
+    lockNote?: string;
+  } = $props();
 
   const uid = $props.id();
   let root = $state<HTMLElement>();
@@ -77,7 +88,7 @@
   // On sight, and when the access choice changes while in sight. An expired code waits for
   // Show a new code, so a code left open in a tab is not renewed for nobody.
   $effect(() => {
-    if (!inView || !pageShown) return;
+    if (!inView || !pageShown || lock) return;
     void access;
     untrack(() => {
       if (!expired) void create();
@@ -86,18 +97,23 @@
 </script>
 
 <div class="qr" bind:this={root}>
-  <div class="frame" class:expired aria-busy={busy && !code}>
-    {#if code}
+  <div class="frame" class:expired={expired || Boolean(lock)} aria-busy={busy && !code}>
+    {#if lock}
+      <img src={SAMPLE_QR} alt="" width="200" height="200" />
+      <div class="again">{@render lock()}</div>
+    {:else if code}
       <img src={image} alt="Pairing QR code for {code.address}" width="200" height="200" />
     {:else}
       <span class="blank" aria-hidden="true"></span>
     {/if}
-    {#if expired}
+    {#if expired && !lock}
       <div class="again"><Button variant="primary" size="sm" {busy} onclick={create}>Show a new code</Button></div>
     {/if}
   </div>
   <div class="details" aria-live="polite">
-    {#if error}
+    {#if lock}
+      <p class="muted">{lockNote}</p>
+    {:else if error}
       <p class="error" role="alert">The QR code could not be made: {error}</p>
       <div><Button size="sm" {busy} onclick={create}>Try again</Button></div>
     {:else if !code}
@@ -111,7 +127,7 @@
         <Button size="sm" href={code.uri}>Open in Nightjar</Button>
       </div>
     {/if}
-    {#if codes.length > 1}
+    {#if codes.length > 1 && !lock}
       <label for="{uid}-address">Address your device reaches</label>
       <select id="{uid}-address" class="input" bind:value={chosen}>
         {#each codes as option (option.address)}<option value={option.address}>{option.address}</option>{/each}
@@ -150,6 +166,12 @@
   }
   .expired img {
     opacity: 0.12;
+  }
+  .frame:not(.expired) img {
+    animation: appear var(--duration-slow) var(--ease-enter);
+  }
+  @keyframes appear {
+    from { opacity: 0; }
   }
   .again {
     position: absolute;

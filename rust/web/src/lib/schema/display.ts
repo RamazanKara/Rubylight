@@ -164,10 +164,21 @@ export const settings: Setting[] = [
   {
     key: 'dd_manual_resolution',
     label: 'Fixed resolution',
-    description: 'WIDTHxHEIGHT, for example 2560x1440. The width can be 320 to 7680 and the height 200 to 4320.',
+    description: 'The resolution the streamed display is set to.',
+    details: 'A custom resolution is WIDTHxHEIGHT, for example 2560x1440. The width can be 320 to 7680 and the height 200 to 4320.',
     category: 'display',
     group: 'Resolution and refresh rate',
-    control: { kind: 'text', placeholder: '2560x1440', mono: true },
+    control: {
+      kind: 'text',
+      placeholder: '2560x1440',
+      mono: true,
+      presets: [
+        { value: '1280x720', label: '1280 × 720' },
+        { value: '1920x1080', label: '1920 × 1080' },
+        { value: '2560x1440', label: '2560 × 1440' },
+        { value: '3840x2160', label: '3840 × 2160' },
+      ],
+    },
     default: '',
     inactiveHint: "Choose Use a fixed resolution under Resolution to apply this value.",
     visibleWhen: (values) => text(values, 'dd_resolution_option', 'auto') === 'manual',
@@ -207,13 +218,13 @@ export const settings: Setting[] = [
   },
   {
     key: 'dd_mode_remapping',
-    label: 'Mode substitutions',
-    description:
-      'Changes a requested mode before it is applied. Each entry matches requested_resolution and requested_fps and sets final_resolution and final_refresh_rate.',
+    label: 'Mode substitutions (JSON)',
+    description: 'Swaps a requested resolution and refresh rate for another before the display changes.',
     details:
-      'The first matching entry is used. The mixed list is used when resolution and refresh rate both match the device, resolution_only or refresh_rate_only when only that one does.',
+      'Each entry matches requested_resolution and requested_fps and sets final_resolution and final_refresh_rate. The first matching entry is used. The mixed list is used when resolution and refresh rate both match the device, resolution_only or refresh_rate_only when only that one does.',
     category: 'display',
-    group: 'Resolution and refresh rate',
+    // JSON: three lists of four-field entries, which no form here writes back exactly.
+    group: 'Mode substitutions',
     control: { kind: 'json' },
     default: { mixed: [], resolution_only: [], refresh_rate_only: [] },
     inactiveHint: "Choose Match the device for Resolution or Match the stream for Refresh rate to apply substitutions.",
@@ -239,19 +250,43 @@ export const settings: Setting[] = [
     description: 'How long to wait after a device disconnects before restoring the displays.',
     category: 'display',
     group: 'After a stream',
-    control: { kind: 'number', min: 0, step: 100, unit: 'ms' },
+    control: {
+      kind: 'number',
+      min: 0,
+      step: 100,
+      unit: 'ms',
+      presets: [
+        { value: 0, label: 'Right away' },
+        { value: 1000, label: '1 second' },
+        { value: 3000, label: '3 seconds' },
+        { value: 10000, label: '10 seconds' },
+        { value: 30000, label: '30 seconds' },
+      ],
+    },
     default: 3000,
-    details: 'Also applies to exclusive layouts when Restore displays on disconnect is turned off.',
+    details: 'Also applies to exclusive layouts when Restore displays on disconnect is turned off. A custom delay is in milliseconds.',
   },
   {
     key: 'dd_paused_virtual_display_timeout_secs',
     label: 'Keep a disconnected display for',
     description:
-      'How long a disconnected device’s non-exclusive display is kept while its app runs. 0 keeps it until the app closes.',
-    details: 'Exclusive layouts always use the restore delay so the physical monitors become usable again.',
+      'How long a disconnected device’s non-exclusive display is kept while its app runs.',
+    details: 'Exclusive layouts always use the restore delay so the physical monitors become usable again. A custom time is in seconds.',
     category: 'display',
     group: 'After a stream',
-    control: { kind: 'number', min: 0, step: 1, unit: 's' },
+    control: {
+      kind: 'number',
+      min: 0,
+      step: 1,
+      unit: 's',
+      presets: [
+        { value: 600, label: '10 minutes' },
+        { value: 1800, label: '30 minutes' },
+        { value: 7200, label: '2 hours' },
+        { value: 28800, label: '8 hours' },
+        { value: 0, label: 'Until the app closes' },
+      ],
+    },
     default: 7200,
     inactiveHint: "Turn off Restore displays on disconnect to keep a disconnected display available for reconnection.",
     visibleWhen: (values) => !on(values, 'dd_config_revert_on_disconnect', true),
@@ -272,7 +307,7 @@ export const settings: Setting[] = [
     key: 'dd_always_restore_from_golden',
     label: 'Restore the saved layout',
     description:
-      'After a stream, return the displays to the layout saved under Help → Displays instead of the layout from before the stream.',
+      'After a stream, return the displays to the layout saved in Troubleshoot instead of the layout from before the stream.',
     details: 'The saved layout is used only while every display it names is connected.',
     category: 'display',
     group: 'After a stream',
@@ -283,10 +318,11 @@ export const settings: Setting[] = [
     key: 'dd_snapshot_exclude_devices',
     label: 'Displays the saved layout skips',
     description:
-      'A list of display device IDs in JSON format (text enclosed in square brackets) that restoring the saved layout leaves as they are, such as a dummy plug.',
+      'Displays that restoring the saved layout leaves as they are, such as a dummy plug, by their device ID.',
     category: 'display',
     group: 'After a stream',
-    control: { kind: 'json' },
+    // A JSON list of strings, which a list stores as it is.
+    control: { kind: 'list', placeholder: 'Display device ID' },
     default: [],
     advanced: true,
   },
@@ -349,8 +385,8 @@ export const settings: Setting[] = [
     label: 'Quit the game on the first request',
     description:
       'Lets another device quit the running game with its first request. When off, it must ask again within 60 seconds; the device that started the game is never asked twice.',
-    category: 'display',
-    group: 'Remote monitors',
+    category: 'library',
+    group: 'App behavior',
     control: { kind: 'toggle' },
     default: false,
   },
@@ -361,8 +397,8 @@ export const settings: Setting[] = [
       'Makes a device ask twice before replacing a running app with a different one, so Moonlight can warn first.',
     details:
       'The first request to start a different app while one runs is refused; starting it again within 60 seconds replaces the app. Remote monitors and remote input still connect without asking.',
-    category: 'display',
-    group: 'Remote monitors',
+    category: 'library',
+    group: 'App behavior',
     control: { kind: 'toggle' },
     default: true,
   },
@@ -460,7 +496,7 @@ export const settings: Setting[] = [
     group: 'RTSS',
     control: { kind: 'text', placeholder: 'C:\\Program Files (x86)\\RivaTuner Statistics Server', mono: true, browse: 'directory' },
     default: '',
-    inactiveHint: "Choose Automatic or RTSS under Limiter to use RTSS settings. RTSS must be installed on the host.",
+    inactiveHint: "Choose Automatic or RTSS under Limiter to use RTSS settings. RTSS must be installed on this PC.",
     visibleWhen: rtss,
   },
   {
@@ -468,7 +504,7 @@ export const settings: Setting[] = [
     label: 'RTSS limit mode',
     description: 'How RTSS paces frames. Some streams choose their own mode instead.',
     details:
-      'Virtual-display streams, unless Virtual display refresh is off, and frame-generation games on a monitor use NVIDIA Reflex when the host streams with an NVIDIA GPU, and front edge sync otherwise. NVIDIA Reflex needs an NVIDIA GPU; on other GPUs it limits with front edge sync.',
+      'Virtual-display streams, unless Virtual display refresh is off, and frame-generation games on a monitor use NVIDIA Reflex when this PC streams with an NVIDIA GPU, and front edge sync otherwise. NVIDIA Reflex needs an NVIDIA GPU; on other GPUs it limits with front edge sync.',
     category: 'frame-limiting',
     group: 'RTSS',
     control: {
@@ -483,7 +519,7 @@ export const settings: Setting[] = [
     // framegen.rs reads letters and digits only, so the fallback console's front-edge-sync is front edge sync.
     aliases: { match: 'letters' },
     default: 'async',
-    inactiveHint: "Choose Automatic or RTSS under Limiter to use RTSS settings. RTSS must be installed on the host.",
+    inactiveHint: "Choose Automatic or RTSS under Limiter to use RTSS settings. RTSS must be installed on this PC.",
     visibleWhen: rtss,
   },
   {
@@ -496,7 +532,7 @@ export const settings: Setting[] = [
     group: 'RTSS',
     control: { kind: 'toggle' },
     default: false,
-    inactiveHint: "Choose Automatic or RTSS under Limiter to use RTSS settings. RTSS must be installed on the host.",
+    inactiveHint: "Choose Automatic or RTSS under Limiter to use RTSS settings. RTSS must be installed on this PC.",
     visibleWhen: rtss,
     advanced: true,
   },
@@ -508,7 +544,7 @@ export const settings: Setting[] = [
     description:
       'Turns HDR on the streamed display on or off to match the stream.',
     category: 'hdr',
-    group: 'Display',
+    group: 'HDR',
     control: {
       kind: 'select',
       options: [
@@ -524,7 +560,7 @@ export const settings: Setting[] = [
     description:
       'Overrides the device’s HDR request for the display, for devices or games that report it wrongly. The stream itself still follows the device.',
     category: 'hdr',
-    group: 'Display',
+    group: 'HDR',
     control: {
       kind: 'select',
       options: [
@@ -543,7 +579,7 @@ export const settings: Setting[] = [
     description:
       'Registers a Vulkan layer so Vulkan games can use HDR on a virtual display. Turn it off if Vulkan games crash.',
     category: 'hdr',
-    group: 'Display',
+    group: 'HDR',
     control: { kind: 'toggle' },
     default: true,
     advanced: true,
@@ -556,7 +592,7 @@ export const settings: Setting[] = [
     details:
       'Off by default: the profile describes your monitor, not the device you stream to. A profile chosen for the device comes first.',
     category: 'hdr',
-    group: 'Display',
+    group: 'HDR',
     control: { kind: 'toggle' },
     default: false,
     advanced: true,
@@ -567,20 +603,32 @@ export const settings: Setting[] = [
     description: 'The brightest the device’s screen can show, which a virtual display reports as its peak.',
     details: 'A device’s HDR color profile replaces it, unless the device or app sets its own.',
     category: 'hdr',
-    group: 'Display',
+    group: 'HDR',
     control: { kind: 'number', min: 400, max: 2000, step: 1, unit: 'nits' },
     default: 1000,
   },
 
-  // Advanced
+  // Used when a launch names no mode.
   {
     key: 'fallback_mode',
     label: 'Default stream mode',
-    description:
-      'The resolution and frame rate used when a launch request names none, as WIDTHxHEIGHTxFPS. Devices normally send their own.',
-    category: 'advanced',
-    group: 'Displays',
-    control: { kind: 'text', placeholder: '1920x1080x60', mono: true },
+    description: 'The resolution and frame rate used when a launch request names none. Devices normally send their own.',
+    details: 'A custom mode is WIDTHxHEIGHTxFPS, for example 1920x1080x60.',
+    category: 'display',
+    group: 'Resolution and refresh rate',
+    control: {
+      kind: 'text',
+      placeholder: '1920x1080x60',
+      mono: true,
+      presets: [
+        { value: '1280x720x60', label: '1280 × 720 at 60 fps' },
+        { value: '1920x1080x60', label: '1920 × 1080 at 60 fps' },
+        { value: '1920x1080x120', label: '1920 × 1080 at 120 fps' },
+        { value: '2560x1440x60', label: '2560 × 1440 at 60 fps' },
+        { value: '2560x1440x120', label: '2560 × 1440 at 120 fps' },
+        { value: '3840x2160x60', label: '3840 × 2160 at 60 fps' },
+      ],
+    },
     default: '1920x1080x60',
     advanced: true,
   },

@@ -23,34 +23,34 @@ ADVICE = {
     "stream_profiles": "Open to create, rename, duplicate or delete named profiles (sets of stream values such as Home 4K120 or Hotel), pick the profile in use, and optionally let the network pick one when a stream starts. A profile sets only the values chosen in it. See [named profiles](#named-profiles-and-game-settings).",
     "list_mobile_bitrate_kbps": "Choose a cap for streams that start on mobile data or on Wi-Fi that Android marks as metered, such as a phone's hotspot. It caps the bitrate from every layer, including profiles, PC and game values; Off uses the same bitrate on every network. Read once at stream start. See [named profiles](#named-profiles-and-game-settings).",
     "list_gamepad_quit_combo": "Off by default: Start+Select+LB+RB opens the stream menu, where Disconnect leaves. Choose a combination to leave the stream straight from the controller, for example on a TV; the stream ends once every button of it is let go, so none stays held on the PC. Pick one a game doesn't use. The stream menu's Controller mouse switch turns the controller mouse on or off whether or not holding Start does.",
-    "checkbox_auto_bitrate": "Off by default. Lowers the bitrate when the connection, decoder or device heat can't keep up and raises it again when things recover, never above Video bitrate and never below a built-in floor (2 Mbps, or more for large streams). The host's own adjustment stands down while it runs. This is the default for every PC; the stream menu's Turn on or Turn off Device controls bitrate saves a choice for one PC, and changing this switch makes every PC follow it again. Needs a host that reports its stream bitrate and accepts bitrate changes (Rubylight). A Sunshine-based PC with its own automatic bitrate runs that instead, following the network reports Nightjar sends every three seconds.",
+    "checkbox_auto_bitrate": "Off by default. Lowers the bitrate when the connection, decoder or device heat can't keep up and raises it again when things recover, never above Bitrate and never below a built-in floor (2 Mbps, or more for large streams). The host's own adjustment stands down while it runs. This is the default for every PC; the stream menu's Turn on or Turn off Lower bitrate when the network is busy saves a choice for one PC, and changing this switch makes every PC follow it again. Needs a host that reports its stream bitrate and accepts bitrate changes (Rubylight). A Sunshine-based PC with its own automatic bitrate runs that instead, following the network reports Nightjar sends every three seconds.",
     "checkbox_vulkan_render": "Presents H.264, HEVC and AV1 through Vulkan with its own frame pacing, for frame-generation overlays that hook Vulkan. It adds a render pass, so some latency, and needs Android 10 and a GPU with Vulkan 1.1. If it cannot be used (PyroWave, Android 9 or older, no Vulkan support, 4:4:4 video, or it fails to start) the stream uses direct output and a message says why. While it is on, client-side upscaling is off. If it stops working during a stream, the stream ends with a message that names it; turn this switch off to go back. Leave it off unless you need such an overlay.",
     "automatic_bitrate": "On until you move the bitrate slider: the bitrate is the default for the resolution, frame rate and codec, and follows them when they change. Turn it on again to go back to that default; turn it off to keep the bitrate shown when those change. Stored as `bitrate_user_set` (inverted) with `seekbar_bitrate_kbps`.",
     "seekbar_bitrate_kbps": "Raise for image quality on a stable link; lower for network loss. The slider is logarithmic; the buttons make fine adjustments.",
-    "checkbox_rate_change_bitrate": "Off by default, under Debug: turn on to let this device lower or raise the bitrate from its own frame loss and network delay readings, in place of Device controls bitrate. Needs the New streaming engine and a host that offers bitrate changes; other streams use Device controls bitrate.",
+    "checkbox_rate_change_bitrate": "Off by default, under Debug: turn on to let this device lower or raise the bitrate from its own frame loss and network delay readings, in place of Lower bitrate when the network is busy. Needs the New streaming engine and a host that offers bitrate changes; other streams use Lower bitrate when the network is busy.",
     "video_format": "Start with Automatic. Choose a specific codec to compare decoder performance; Prefer AV1 and Prefer HEVC fall back when the PC or device lacks them. PyroWave requires a host that supports it (Rubylight, or Vibepollo with PyroWave available) and Vulkan capabilities; on a PC whose host has none, that PC uses the setting for all PCs or Automatic instead.",
     "adaptive_quality_mode": "Off by default. Motion preserves FPS first, Detail preserves resolution first, and Battery also reduces work on healthy links. Lowers resolution or frame rate when the network, slow decoding or heat keep the stream from running well; not available with PyroWave. The stream menu can override the mode per PC.",
-    "adaptive_quality_min_resolution": "Sets the smallest short edge for automatic quality, with the aspect ratio preserved. The selected starting resolution is the ceiling; a minimum above that ceiling is clamped down. Shown while Lower resolution or frame rate when needed is not Off.",
-    "adaptive_quality_min_fps": "Sets the lowest FPS automatic quality may request, including Battery mode. Recovery increases one step after 30 healthy seconds; reductions are at least 15 seconds apart. Shown while Lower resolution or frame rate when needed is not Off.",
-    "checkbox_thermal_protection": "Turn on only if the device throttles or gets uncomfortably hot while streaming. When the device reports heat, Device controls bitrate halves the bitrate in steps and automatic quality lowers the resolution, and PyroWave stops forcing the top clocks. Off by default, because most phones and TV sticks run hot in normal use.",
+    "adaptive_quality_min_resolution": "Sets the smallest short edge for automatic quality, with the aspect ratio preserved. The selected starting resolution is the ceiling; a minimum above that ceiling is clamped down. Shown while Automatic quality is not Off.",
+    "adaptive_quality_min_fps": "Sets the lowest FPS automatic quality may request, including Battery mode. Recovery increases one step after 30 healthy seconds; reductions are at least 15 seconds apart. Shown while Automatic quality is not Off.",
+    "checkbox_thermal_protection": "Turn on only if the device throttles or gets uncomfortably hot while streaming. When the device reports heat, Lower bitrate when the network is busy halves the bitrate in steps and automatic quality lowers the resolution, and PyroWave stops forcing the top clocks. Off by default, because most phones and TV sticks run hot in normal use.",
     "upscaling_mode": "Choose a stream resolution below the screen size for SDR upscaling. Smooth is bilinear; Sharp (FSR) and Sharp, Snapdragon (SGSR) add edge sharpening. PyroWave uses SGSR for both FSR and SGSR selections. HDR and 10-bit streams use direct output; the row says so.",
     "upscaling_sharpness": "Reduce for halos or ringing; raise for soft edges. Applies on the next stream. At 0%, FSR skips extra sharpening; SGSR still reconstructs edges. Shown only with Sharp (FSR) or Sharp, Snapdragon (SGSR).",
     "checkbox_enable_hdr": "Enable with an HDR screen, a compatible decoder and HDR configured on the host display. HDR10 works with any host that streams HDR; HDR10+, HLG and Dolby Vision are used where the screen, the decoder and the PC support them (Rubylight 3.0). Availability is device-filtered.",
     "checkbox_enable_sdr_10bit": "Enable if you see banding in gradients and the screen has no HDR, or HDR is off. Streams SDR in 10-bit HEVC or AV1 and needs a Main10 decoder on this device and a PC that offers 10-bit; otherwise the stream is 8-bit and the app says so. The PC's display must be in SDR: with HDR on it, the stream is HDR. Not used with PyroWave. Takes effect on the next stream.",
     "checkbox_vrr": "Enable Android's automatic ARR policy. Offered only on Android 16 with a screen that has ARR; elsewhere it is greyed and reads as off, here and in PC, game and profile settings, and the saved choice is kept. Hosts that support VRR are asked for it too. Overrides pacing to Lowest latency and disables the lower refresh rate.",
-    "checkbox_host_frame_times": "Enable for even motion when the network or decoder adds jitter, especially with Adaptive refresh on a screen with ARR. Each MediaCodec frame is released at its host timestamp plus a delay covering about 97% of recent frames; later frames are shown at once. Adds that delay (usually a few milliseconds) and replaces Frame pacing. Hosts that announce clock sync (Rubylight) add the host-to-present latency to the performance overlay. PyroWave streams are not affected.",
-    "checkbox_content_rate_frame_rate": "Enable on a screen with several refresh modes, with Allow lower refresh rate (or a Balanced with FPS limit or Smoothest video pacing) on. Once the game's frame rate has held steady for two seconds, Android is told that rate and may move the screen to a mode that divides it evenly, for example 60 Hz for a 60 fps game in a 120 fps stream. Only seamless changes are requested (Android 11 or newer), at most one every two seconds, and never below the rate Allow lower refresh rate off keeps. Needs a host that announces clock sync (Rubylight); has no effect with Adaptive refresh, a TextureView or PyroWave.",
+    "checkbox_host_frame_times": "Enable for even motion when the network or decoder adds jitter, especially with Variable refresh rate on a screen with ARR. Each MediaCodec frame is released at its host timestamp plus a delay covering about 97% of recent frames; later frames are shown at once. Adds that delay (usually a few milliseconds) and replaces Frame pacing. Hosts that announce clock sync (Rubylight) add the host-to-present latency to the performance overlay. PyroWave streams are not affected.",
+    "checkbox_content_rate_frame_rate": "Enable on a screen with several refresh modes, with Allow lower refresh rate (or a Balanced with FPS limit or Smoothest video pacing) on. Once the game's frame rate has held steady for two seconds, Android is told that rate and may move the screen to a mode that divides it evenly, for example 60 Hz for a 60 fps game in a 120 fps stream. Only seamless changes are requested (Android 11 or newer), at most one every two seconds, and never below the rate Allow lower refresh rate off keeps. Needs a host that announces clock sync (Rubylight); has no effect with Variable refresh rate, a TextureView or PyroWave.",
     "checkbox_virtual_display": "Enable to request a host display matching the stream. Requires host support and a ready display driver.",
-    "host_display_location": "Explains where the mode is set: open the PC's menu, choose a mode and confirm Save display mode. Keep PC display primary preserves the monitor's primary role; make virtual display primary moves it to the stream. Saved separately per PC.",
+    "host_display_location": "How the PC places the streamed display beside its own screens, for every PC; a PC's own choice in its menu wins. Keep PC display primary preserves the monitor's primary role; make virtual display primary moves it to the stream. Needs host support. Stored as `host_display_location`, and per PC as before.",
     "seekbar_virtual_display_scale": "Change the PC's render resolution relative to the stream. Desktop text size stays as set on the host.",
     "list_virtual_display_dpi": "Raise for larger text and interface on the virtual display, for example on a small screen; the resolution does not change. PC's own keeps the scale set on the PC. Rubylight PCs read it; other hosts ignore it.",
-    "checkbox_yuv444": "Enable for colored text and desktop detail when both ends support it. Otherwise 4:2:0 is used; HDR takes priority.",
+    "sharp_color": "Off by default. Automatic streams full color detail (4:4:4) so colored text and thin lines stay crisp: native 4:4:4 where this device decodes it and the PC encodes it, else packed full chroma where both offer it (New streaming engine, HEVC or AV1), else neither, and the app says once per PC why not. HDR keeps priority: packed full chroma runs with HDR only where both sides have a 10-bit packed mode. Hidden while the codec is PyroWave, whose own 4:4:4 choice applies. Stored as `checkbox_yuv444` and `experimental_packed_444`, both written; either one on from an older version reads as Automatic. The decision is nightjar-core's, the same as desktop Nightjar's.",
     "checkbox_stretch_video": "How the stream fills a screen of another shape: Fit shows all of it with bars, Fill (crop) fills the screen and cuts off the edges that do not fit, Stretch fills it and distorts shapes, 1:1 pixels shows the stream at its own size, centred. The key is the older Stretch switch, still written (on only for Stretch) so older versions behave sensibly; the mode itself is stored as `video_scaling`. Also in the stream menu. See [video scaling](video-and-latency.md#video-scaling).",
     "video_alignment": "Top places a Fit or 1:1 picture at the top of the screen, leaving the space below for the soft keyboard or the lower half of a half-folded phone. No effect on Fill and Stretch, which cover the whole screen.",
-    "stream_orientation": "Automatic uses landscape on phones and any orientation on tablets, squarish screens, windows and external displays. Landscape and Portrait lock the screen; Rotate with device follows it within the system rotation lock. A host streaming from its virtual display starts the stream in the screen's shape, and with Rotate with device asks for the turned size while the stream runs where the host takes in-stream reconfigure. Other hosts keep the stream's size and Video scaling fits it into the turned screen. Hidden on TVs. See [orientation](video-and-latency.md#orientation).",
+    "stream_orientation": "Automatic uses landscape on phones and any orientation on tablets, squarish screens, windows and external displays. Landscape and Portrait lock the screen; Rotate with device follows it within the system rotation lock. A host streaming from its virtual display starts the stream in the screen's shape, and with Rotate with device asks for the turned size while the stream runs where the host takes in-stream reconfigure. Other hosts keep the stream's size and Video size fits it into the turned screen. Hidden on TVs. See [orientation](video-and-latency.md#orientation).",
     "seekbar_deadzone": "Raise to suppress stick drift; lower for small movements. Games can add their own deadzone on top.",
     "seekbar_trigger_deadzone": "Raise if a resting trigger presses by itself; lower so light presses register. 0% sends every press. Games can add their own deadzone on top.",
-    "checkbox_multi_controller": "Leave on so each controller is its own player and the PC sees controllers as they connect. Turn off to make every controller player 1 and keep one controller present on the PC, for games that need one before any connects.",
+    "controllers": "A player each by default: each controller is its own player and the PC sees controllers as they connect. One player makes every controller player 1 and keeps one controller present on the PC, for games that need one before any connects. Off sends no controller to the PC. Stored as `checkbox_send_controllers` and `checkbox_multi_controller`; an older store with the multiple controllers switch off reads as One player.",
     "controller_button_mapping": "Open Controller buttons, press a digital button and choose its output or Nothing, and choose what the controller connects as (Automatic, Xbox without motion or touchpad, PlayStation or Nintendo). Mappings default to the original button and Connect as to Automatic; both are saved per controller model and apply next stream.",
     "controller_test": "Open Controller test to see buttons, sticks, triggers and the D-pad live and to try rumble, lights, motion sensors and the touchpad where the controller has them. Works with a D-pad or controller alone; hold B or Back for one second to leave. Leaving stops rumble and restores the lights. See [controller test](controls.md#controller-test).",
     "checkbox_flip_face_buttons": "Enable to swap A/B and X/Y on physical and on-screen gamepads.",
@@ -79,16 +79,16 @@ ADVICE = {
     "seekbar_trackpad_scroll_speed": "Adjust how far two fingers scroll on a physical touchpad or in the Trackpad (touchpad gestures) touch mode; 50% is the default. Lower it if scrolling is too sensitive.",
     "checkbox_trackpad_swap_axis": "Enable if a physical touchpad moves the pointer sideways when you swipe up or down. Swaps X and Y before Trackpad Sensitivity applies. Touchscreen modes are not affected.",
     "checkbox_mouse_nav_buttons": "Enable to send mouse Back/Forward buttons. Disable if it interferes with right-click.",
-    "checkbox_absolute_mouse_mode": "Enable for desktop pointer acceleration. Leave off for game mouse look. Available on Android 8+ except devices using the separate raw pointer path.",
+    "checkbox_absolute_mouse_mode": "Captured by default, for game mouse look. Desktop pointer moves the PC's pointer like a desktop mouse, with acceleration. Available on Android 8+ except devices using the separate raw pointer path. Stored as the switch `checkbox_absolute_mouse_mode` (on: Desktop pointer).",
     "checkbox_input_only_any_host": "Enable to add Input-only to a game's menu on PCs whose host has no Input-only mode of its own (Sunshine, GameStream, Apollo with its input-only mode off). The PC still streams video and audio at 640x360, 30 FPS and 500 kbps, about 0.7 Mbit/s with overhead; Nightjar discards both. Hosts with their own mode keep using their Input-only tile. See [Input-only on any PC](controls.md#input-only-on-any-pc).",
     "keyboard_shortcuts_editor": "Create, edit or delete up to 32 named keyboard chords; they show as tiles in the stream menu and on the extra keyboard toolbar. Import/export JSON files to transfer them; importing asks before replacing the saved list. See [custom keyboard shortcuts](controls.md#custom-keyboard-shortcuts).",
     "checkbox_back_as_meta": "Enable to send the Windows key from a physical keyboard's Back key. Android's Back gesture and TV remotes keep their local navigation; the controller menu chord remains available. See [keyboard options](controls.md#keyboard-options).",
     "checkbox_floating_menu_button": "Off by default. Shows a round button over the stream that opens the stream menu with a tap; drag it to move it, and it keeps its place across sessions and rotations. **Show menu button** under the menu's More turns it on or off during a stream. Not shown on TVs. Android only: the desktop client opens the menu from the pointer and keys. See [the stream menu](controls.md#the-stream-menu).",
     "checkbox_back_opens_menu": "Enable for a handheld's dedicated physical Back key, such as on AYN Thor, to open the stream menu instead of being forwarded as a controller button. Off preserves its existing mapping. Select/Start, mouse right-click and Keyboard Back sends Windows key keep their behavior. Applies from the next stream.",
     "list_guide_menu_hold": "1 s by default: holding a controller's Guide (Home/PS) that long opens the stream menu, also with Back button as Guide on. A shorter press still goes to the PC as Guide, and pressing another button while Guide is down sends Guide at once, so chords such as Guide+RB work as before. Turn it off if a game or the PC needs a long Guide press. Desktop has the same setting. Applies from the next stream.",
-    "checkbox_back_as_guide":"Enable so Back on any controller sends Guide (Home/PS), as does a handheld's system button that acts as Back, such as the Retroid Pocket's: a built-in Back key and a Back the firmware injects. A controller whose Select is Back sends Guide instead; only a pad that uses Back as Start keeps it. Physical Back opens stream menu takes priority; Android's Back gesture and the controller menu chord still open the stream menu. Android only: desktop controllers report a real Guide button. Applies from the next stream.",
+    "checkbox_back_as_guide":"Enable so Back on any controller sends Guide (Home/PS), as does a handheld's system button that acts as Back, such as the Retroid Pocket's: a built-in Back key and a Back the firmware injects. A controller whose Select is Back sends Guide instead; only a pad that uses Back as Start keeps it. Back opens the stream menu takes priority; Android's Back gesture and the controller menu chord still open the stream menu. Android only: desktop controllers report a real Guide button. Applies from the next stream.",
     "stream_hotkeys": "Open to change, turn off or reset Nightjar's own key combinations in a stream (the same ones as desktop Nightjar): the stream menu (Ctrl+Alt+Shift+Tab), Disconnect, Release input, the performance overlay, the PC keyboard and the local cursor. Change records 2 to 4 keys, Ctrl, Alt or Shift and one other key; a combination that types, belongs to Windows or another hotkey has is refused. See [stream hotkeys](controls.md#stream-hotkeys).",
-    "checkbox_capture_system_keys": "On by default. Esc, Alt+Tab, the Windows key and similar go to the PC while input is captured, and an external keyboard's Back key (the Esc key of many Android keyboards) sends Esc on Android 10 and newer; a built-in keyboard's Back stays Back. Android hands Alt+Tab and the Windows key to apps only on Android 16 QPR2 and newer (keyboard capture) and on many Samsung devices; elsewhere, and for Home, power and volume, Android keeps them. Keyboard Back sends Windows key and Physical Back opens stream menu take priority for keyboard Back. The stream menu's hotkey (Ctrl+Alt+Shift+Tab by default) and Android's Back gesture open the stream menu. Matches desktop's Send system keys. Applies from the next stream.",
+    "checkbox_capture_system_keys": "On by default. Esc, Alt+Tab, the Windows key and similar go to the PC while input is captured, and an external keyboard's Back key (the Esc key of many Android keyboards) sends Esc on Android 10 and newer; a built-in keyboard's Back stays Back. Android hands Alt+Tab and the Windows key to apps only on Android 16 QPR2 and newer (keyboard capture) and on many Samsung devices; elsewhere, and for Home, power and volume, Android keeps them. Keyboard Back sends Windows key and Back opens the stream menu take priority for keyboard Back. The stream menu's hotkey (Ctrl+Alt+Shift+Tab by default) and Android's Back gesture open the stream menu. Matches desktop's Send system keys. Applies from the next stream.",
     "checkbox_system_keys_fullscreen_only": "Off by default; usable while Send system keys is on. While the stream is in split screen, a freeform window or picture-in-picture, the system keys and a keyboard's Back as Esc stay with Android; in full screen they go to the PC again. Keys held at the change are released. Matches desktop's System keys only in full screen. Applies from the next stream.",
     "checkbox_right_alt_as_meta": "Enable on a Mac host so Right Alt acts as Command (the Windows key). Left Alt is unchanged; leave off if you type with AltGr.",
     "checkbox_keyboard_follows_text_fields": "Opens the on-screen keyboard when a text field in the stream gets focus, with the field's type (numbers, no suggestions for passwords), and closes it when the field loses focus. Needs a host that sends text field notices; an attached hardware keyboard keeps typing instead.",
@@ -106,7 +106,7 @@ ADVICE = {
     "list_stream_menu_button_x": "Default runs Mouse. See Y in the stream menu.",
     "list_stream_menu_button_lb": "Default runs Shortcuts. See Y in the stream menu.",
     "list_stream_menu_button_rb": "Default runs Overlay. See Y in the stream menu.",
-    "checkbox_onscreen_own_player":"Enable to map the on-screen controls apart from physical controllers, for example with a Steam layout: they are controller 1 on the PC and physical controllers, built-in ones too, count from 2. Needs Multiple controllers On, and has no effect with Only show L3 and R3. The gamepad controls of a game's own touch layout follow it only while Show on-screen controls is on; without it they keep sharing controller 1 with the first controller. Read once at stream start.",
+    "checkbox_onscreen_own_player":"Enable to map the on-screen controls apart from physical controllers, for example with a Steam layout: they are controller 1 on the PC and physical controllers, built-in ones too, count from 2. Needs Controllers On, and has no effect with Only show L3 and R3. The gamepad controls of a game's own touch layout follow it only while Show on-screen controls is on; without it they keep sharing controller 1 with the first controller. Read once at stream start.",
     "checkbox_show_touchpad_button": "Off by default. Adds a Touchpad button to the on-screen controller (below Home in Modern, between Guide and Start in Classic) that clicks the touchpad of a PlayStation controller on the PC. While it is on, player 1 (the on-screen controller, or a handheld's built-in controls) connects as a PlayStation controller, so the PC gets a DualSense or DualShock 4 with the host on Automatic.",
     "checkbox_multi_touch_finger_taps": "Off by default. In Multi-touch, three- and four-finger taps normally reach the PC as touches. Turn on to use them for the finger-tap actions instead; a tap counts only when all fingers land together, and the touches the PC already had are cancelled when it starts.",
     "checkbox_show_guide_button": "Enable to expose the virtual Guide/Home button.",
@@ -116,7 +116,7 @@ ADVICE = {
     "gpu_driver": "Import and select a compatible Snapdragon Vulkan driver for PyroWave. Shown on arm64 Adreno devices only. The system driver remains the default; changes apply to the next stream.",
     "list_audio_config": "Choose 5.1, 7.1 or 7.1.4 for a matching audio output and host configuration; use stereo for headphones or two speakers. 7.1.4 needs Android 12L or newer, a 12-channel output and a Rubylight 3.0 PC; it is hidden for an output with fewer channels, and other PCs and outputs get 7.1.",
     "checkbox_host_audio": "Enable to hear audio on the PC as well as Android.",
-    "checkbox_mute_audio": "Enable to stream without sound on this device, for example while the PC plays it (see Play audio on the host PC) or the device sits in a quiet place. Audio passthrough is not asked for. Applies to the next stream.",
+    "checkbox_mute_audio": "Enable to stream without sound on this device, for example while the PC plays it (see Play audio on the PC too) or the device sits in a quiet place. Audio passthrough is not asked for. Applies to the next stream.",
     "checkbox_dual_screen": "Enable on a device with a second screen to stream the same game to both: the second screen gets a stream of its own at its own resolution, while sound, controllers and microphone stay with the first and a touch mode change on either screen applies to both. The second stream is the same device as the first, so the PC pairs once. It needs a Rubylight host that supports it, which decides which of its screens each stream shows. Applies to the next stream.",
     "list_resolution_screen2": "The resolution of the second screen's stream in Dual screen mode, apart from the first screen's: the second screen's own full size, or a standard size. Applies to the next stream.",
     "checkbox_enable_mic": "Enable to talk in games and chat apps on the PC. Asks for microphone access; if it is not allowed, the setting stays off. The PC hears it as its streaming microphone. Mute it from the stream menu; the overlay shows whether it is sending.",
@@ -131,14 +131,14 @@ ADVICE = {
     "checkbox_enable_pip": "Enable to keep a small video window when leaving the app. Input and overlay are hidden there; requires device support.",
     "checkbox_auto_reconnect": "On by default. Resume the same running game after transport failures or returning from screen lock, up to five attempts within one minute. Back or leaving during a retry cancels it. Graceful termination, pairing, permissions and decoder failures stay manual; recovery never launches or replaces a game. Installs that stored the old default (off) were switched on once; turning it off again is kept.",
     "performance_overlay_position": "Choose the corner the performance overlay starts in. It moves to a free corner when on-screen controls would cover it, and always stays inside the camera cutout. Right-hand corners align the text to the right. Can also be changed in the stream menu → Display → Overlay and diagnostics → Position, which takes effect at once.",
-    "list_network_grace": "Off by default: the stream ends after 10 seconds without contact. 20, 30 or 60 seconds keeps it open through a Wi-Fi roam, a short dropout or a VPN moving between Wi-Fi and mobile data; the picture freezes until the network returns. Longer waits only help if the host waits too, so raise its own client timeout. When the wait runs out the stream ends with a message saying so, and Recover interrupted streams, if on, then reconnects. See [network drops](video-and-latency.md#network-drops).",
+    "list_network_grace": "Off by default: the stream ends after 10 seconds without contact. 15, 20, 30 or 60 seconds keeps it open through a Wi-Fi roam, a short dropout or a VPN moving between Wi-Fi and mobile data; the picture freezes until the network returns. Longer waits only help if the host waits too, so raise its own client timeout. When the wait runs out the stream ends with a message saying so, and Recover interrupted streams, if on, then reconnects. See [network drops](video-and-latency.md#network-drops).",
     "checkbox_client_roaming": "On by default. When this device changes networks, the stream moves to the new address instead of waiting for the old one. Needs the New streaming engine and a PC that offers client roaming (Rubylight 3.0); other PCs keep the network grace period.",
     "checkbox_roaming_metered": "Off by default. Lets client roaming move the stream onto mobile data or another metered network. Leave off unless you want streams to keep running on mobile data; streaming uses a lot of data.",
-    "network_tests": "Opens a saved PC's Connection test and, for a PC that offers it, Calibrate frame pacing, on that PC's settings; with several saved PCs it asks which one first, and with none it is greyed out. Matches desktop's Network tests group. Stores nothing.",
+    "network_tests": "Opens a saved PC's Connection test on that PC's settings; with several saved PCs it asks which one first. Hidden until a PC is saved. Desktop has a Connection test row too, which measures the download speed. Stores nothing.",
+    "pace_calibration": "Opens a saved PC's PyroWave frame pace on that PC's settings, where it is measured: the fastest pace at which the PC's PyroWave frames arrive whole. Shown while a paired PC can measure it or has one saved; with several it asks which one first. Stores nothing here.",
     "list_languages": "Choose the interface language. Android 13+ uses the system per-app language setting.",
     "checkbox_small_icon_mode": "Enable to fit more games in the library grid.",
-    "checkbox_console_home": "Enable to open on Home: the games to continue, your library across hosts and the hosts. Off opens the list of PCs. Home appears once a paired PC has supplied its app list; store shelves and the richer game pages need a host with the native library API.",
-    "list_open_on_start": "Choose what a cold start from the launcher or at sign-in does: show your PCs, or count down 3 seconds into your last game or the game chosen from its menu. Cancel, B, Back and Esc stop the countdown; an offline PC is woken. If the last automatic start failed or its stream died within 10 seconds, the next one is skipped and says so. A running game is never replaced without asking; a game playing on another device stops the start, and so does a network still away after a minute.",
+    "list_open_on_start": "Home by default. Home opens the games to continue, your library across PCs and the PCs (it appears once a paired PC has supplied its app list); Show my PCs opens the list of PCs. Continue my last game and A chosen game count down 3 seconds into that game on a cold start from the launcher or at sign-in; A chosen game is offered once a game was chosen from its menu. Cancel, B, Back and Esc stop the countdown; an offline PC is woken. If the last automatic start failed or its stream died within 10 seconds, the next one is skipped and says so. A running game is never replaced without asking; a game playing on another device stops the start, and so does a network still away after a minute. Stored as `list_open_on_start` and `checkbox_console_home`, read as one choice (nightjar-policy's StartScreen).",
     "checkbox_quick_resume": "Enable to go straight back into the running game when you tap its PC, skipping the library. Use the PC's menu for the library while a game runs. Off keeps the tap opening the library.",
     "help": "Open the bundled help: connecting a PC, pairing, controls and the stream menu, common fixes and problem reports. Works offline; each topic links to these documents for detail.",
     "latency_benchmark": "Run a 10-second local frame-callback, timer and input-dispatch benchmark without a host. Use Measure input latency in the stream menu for end-to-end timing.",
@@ -147,7 +147,7 @@ ADVICE = {
     "check_updates_now": "Look for a newer release now, even if the automatic check ran recently. A release you skipped is shown again. Hidden when the app was installed from Google Play.",
     "about_app": "View the installed app version and open Source and licenses.",
     "reset_all": "Confirm to reset global preferences. Keeps pairing, PC profiles, controller mappings, control layout and language.",
-    "frame_pacing": "Use Lowest latency for response, Balanced for cadence, Balanced with FPS limit to cap pacing, or Smoothest video to retain frames at the cost of delay. Greyed out while Host frame times or Adaptive refresh is on.",
+    "frame_pacing": "Use Lowest latency for response, Balanced for cadence, Balanced with FPS limit to cap pacing, or Smoothest video to retain frames at the cost of delay. Greyed out while Host frame times or Variable refresh rate is on.",
     "checkbox_codec_low_latency": "Leave on for supported Android 11+ decoders. Disable when comparing a decoder freeze or artifact.",
     "checkbox_vendor_low_latency": "Leave on for supported chipset decoder keys. Disable to isolate vendor-specific instability.",
     "list_hevc_low_latency_mode": "Auto by default: every HEVC decoder gets the Android and vendor low-latency flags except Amlogic's, which stall the display with them. On gives them to Amlogic decoders too, with a warning in the log. Off omits them on any device and disables HEVC reference-frame invalidation; turn it on if HEVC video stutters or freezes. H.264, AV1 and decoder performance hints keep their own settings. Off is stored in the older switch's key `checkbox_disable_hevc_low_latency` as true, so older saved values and profiles keep their meaning; this key only tells Auto from On. Applies to the next stream and decoder benchmark; changing it invalidates previous benchmark results.",
@@ -158,7 +158,7 @@ ADVICE = {
     "checkbox_drop_late_frames": "Enable with Balanced pacing to discard older queued outputs. Favors response over smoothness. Shown beside Frame pacing only while it is Balanced.",
     "checkbox_unbatched_input": "Enable to bypass display-rate input batching. High-rate input can increase CPU and network load.",
     "checkbox_network_priority": "Enable to compare scheduling under load. Requests streaming thread priority on this device.",
-    "checkbox_texture_view": "Try for black or flickering video or misplaced output. Adds composition work and is disabled for HDR, 10-bit color (SDR) and PyroWave.",
+    "checkbox_texture_view": "Try for black or flickering video or misplaced output. Adds composition work and is disabled for HDR, Less color banding and PyroWave.",
     "checkbox_reduce_refresh_rate": "Enable to allow a lower screen refresh for power savings.",
     "checkbox_display_queue_recovery": "On by default. With Lowest latency or Balanced pacing on a fixed refresh, where the device reports when frames are shown: when the screen keeps frames waiting a whole refresh longer than the stream's own level for 3 s, one frame is skipped and the wait is checked after; skips that change nothing turn it off for the stream. The log's `Display queue:` lines show each step. Turn it off to compare a stray skip against the added wait. Android only: desktop has no compositor display queue.",
     "checkbox_full_range": "Use when the host and display both send full-range color, for full shadow and highlight detail.",
@@ -176,7 +176,6 @@ ADVICE = {
     "checkbox_enable_sops": "Leave on. Tells the PC whether it may optimize a game's settings for this stream. Rubylight only passes the choice on to commands you run on the PC, as SUNSHINE_CLIENT_ENABLE_SOPS; other hosts may change the game's settings themselves.",
     "checkbox_disable_warnings": "Enable to hide stream connection warnings once your connection is tuned.",
     "checkbox_rust_engine": "On by default. Streams with Nightjar's new engine (written in Rust), including PyroWave and remote monitor sessions. Turn it off to use the classic engine (moonlight-common-c) if a stream fails to start or misbehaves, and report the problem. Hosts older than GFE 3.22, and hosts that report no codec support, use the classic engine automatically. Installs that stored the old default were switched on once; turning it off again is kept. Applies from the next stream.",
-    "experimental_packed_444": "Off by default. Requires the new streaming engine, HEVC or AV1, and the PC's Full chroma option. Android must pass the raw YUV sampling probe; HDR also needs a compatible 10-bit output. Unsupported requests fail with a reason instead of falling back.",
     "export_latency_csv": "Choose a destination for the latest local frame-timing CSV. Each row holds the measured stage timings.",
     "low_latency_decoding": "Leave on. Sets Android low-latency mode, Chipset low-latency mode and Phone performance hints together; turn off only to test a decoding problem. The individual switches are behind Customize; the row says when one is off.",
     "more_video": "Shows or hides the Video rows that are not main, such as automatic quality and 10-bit SDR. Settings search and links find them while it is closed.",
@@ -193,6 +192,47 @@ ADVICE = {
     "list_fec_choice": "PC's setting by default: the PC adds the recovery data its own settings call for. Automatic asks it to follow the losses this device reports; 10, 20, 30 or 50 % fixes the share. Rubylight PCs and Sunshine-based PCs that accept it take this choice; other PCs use their own setting either way.",
     "checkbox_link_probe": "Off by default. A new stream at the automatic bitrate first times a short download from a Rubylight PC that offers it and starts at no more than 80 % of the result (never below 2 Mbit/s). Resumes, a bitrate you set and PyroWave are not tested. Off because it started streams lower, with more loss and freezes, in our measurement.",
     "pin_lock": "Off until a PIN is set. Asks for a PIN to open Nightjar or to start a stream. A forgotten PIN can only be reset by clearing Nightjar's app data in Android's settings, which also removes paired PCs.",
+}
+
+
+# Rows hidden while another row says they do not apply (SettingRules; the XML declares no dependencies): the
+# parent row and whether the row shows while the parent is on.
+SHOWN_WHILE = {
+    "frame_pacing": ("checkbox_vrr", False),
+    "checkbox_reduce_refresh_rate": ("checkbox_vrr", False),
+    "checkbox_content_rate_frame_rate": ("checkbox_reduce_refresh_rate", True),
+    "checkbox_display_queue_recovery": ("checkbox_vrr", False),
+    "seekbar_virtual_display_scale": ("checkbox_virtual_display", True),
+    "analog_scrolling": ("checkbox_mouse_emulation", True),
+    "checkbox_mouse_emulation_fixed_step": ("checkbox_mouse_emulation", True),
+    "seekbar_vibrate_fallback_strength": ("checkbox_vibrate_fallback", True),
+    "checkbox_usb_bind_all": ("checkbox_usb_driver", True),
+    "checkbox_usb_dualsense_haptics": ("checkbox_usb_dualsense", True),
+    "list_trackpad_acceleration_curve": ("checkbox_trackpad_acceleration", True),
+    "list_trackpad_momentum_glide": ("checkbox_trackpad_momentum", True),
+    "list_osc_style": ("checkbox_show_onscreen_controls", True),
+    "list_osc_stick_mode": ("checkbox_show_onscreen_controls", True),
+    "seekbar_osc_stick_deadzone": ("checkbox_show_onscreen_controls", True),
+    "checkbox_vibrate_osc": ("checkbox_show_onscreen_controls", True),
+    "checkbox_onscreen_own_player": ("checkbox_show_onscreen_controls", True),
+    "checkbox_show_guide_button": ("checkbox_show_onscreen_controls", True),
+    "checkbox_show_touchpad_button": ("checkbox_show_onscreen_controls", True),
+    "seekbar_osc_opacity": ("checkbox_show_onscreen_controls", True),
+    "checkbox_system_keys_fullscreen_only": ("checkbox_capture_system_keys", True),
+    "checkbox_mic_button": ("checkbox_enable_mic", True),
+    "list_mic_echo_cancel": ("checkbox_enable_mic", True),
+    "checkbox_mic_noise_suppression": ("checkbox_enable_mic", True),
+    "checkbox_mic_auto_gain": ("checkbox_enable_mic", True),
+    "seekbar_mic_gain": ("checkbox_enable_mic", True),
+    "list_resolution_screen2": ("checkbox_dual_screen", True),
+}
+
+# Rows drawn as a choice over older stored switches: their option names and the default's index.
+PICKERS = {
+    "sharp_color": ("@array/sharp_color_names", 0),
+    "controllers": ("@array/controllers_names", 2),
+    "checkbox_absolute_mouse_mode": ("@array/mouse_mode_names", 0),
+    "list_open_on_start": ("@array/start_screen_names", 0),
 }
 
 
@@ -216,6 +256,8 @@ def generate():
     # The overview's rows beside the sections: Presets (its own table below) and Profiles under it.
     overview = ET.parse(RES / "xml/preferences_root.xml").getroot()
     profiles = next(node for node in overview if node.get(ANDROID + "key") == "stream_profiles")
+    if set(SHOWN_WHILE) - set(nodes) or {parent for parent, _ in SHOWN_WHILE.values()} - set(nodes):
+        raise ValueError("Review SHOWN_WHILE: a row it names is gone")
     if set(nodes) | {"stream_profiles"} != set(ADVICE):
         raise ValueError(f"Update usage advice: missing={set(nodes) - set(ADVICE)}, removed={set(ADVICE) - set(nodes) - {'stream_profiles'}}")
     # A key written twice keeps only its last advice, silently.
@@ -318,6 +360,10 @@ def generate():
         elif key == "checkbox_always_dark":
             default = array("@array/theme_choice_names")[0]
             choices = "; ".join(array("@array/theme_choice_names"))
+        elif key in PICKERS:
+            names, default_index = PICKERS[key]
+            default = array(names)[default_index]
+            choices = "; ".join(array(names))
         elif key == "checkbox_enable_perf_overlay":
             default = array("@array/overlay_choice_names")[0]
             choices = "; ".join(array("@array/overlay_choice_names"))
@@ -328,13 +374,9 @@ def generate():
         if key == "checkbox_gamepad_motion_sensors":
             default += "; Off on Android 12 (API 31)"
         advice = ADVICE[key]
-        dependency = node.get(ANDROID + "dependency")
-        if dependency:
-            title = resolve(nodes[dependency].get(ANDROID + "title"))
-            if nodes[dependency].get(ANDROID + "disableDependentsState") == "true":
-                advice += f" Unavailable while {title} is On."
-            else:
-                advice += f" Requires {title} On."
+        if key in SHOWN_WHILE:
+            parent, on = SHOWN_WHILE[key]
+            advice += f" Shown while {resolve(nodes[parent].get(ANDROID + 'title'))} is {'On' if on else 'Off'}."
         tier = "Main" if key in main or key.startswith("more_") else "More"
         return "| " + " | ".join(map(cell, [resolve(node.get(ANDROID + "title")) + f"<br>`{key}`", tier, default, choices, advice])) + " |"
 
@@ -344,12 +386,17 @@ def generate():
              "Tier: Main rows show when a section opens; More rows fold behind the section's last row, More … settings, and search still finds them (`res/values/settings_tiers.xml`).", ""]
     for section, members in sections.items():
         lines += ["### " + section_titles[section], ""]
+        titled = False
         for index, member in enumerate(members):
             category = categories[member]
             if category.get(ANDROID + "title"):
                 lines += ["#### " + resolve(category.get(ANDROID + "title")), ""]
+                titled = True
+            elif index and titled:
+                # Ungrouped rows after a group: their own table, under a heading that says so.
+                lines += ["#### Other " + section_titles[section] + " settings", ""]
             elif index:
-                # A group without a title (the More row's) continues the table above it.
+                # A group without a title (the More row's) continues the section's first table.
                 lines.pop()
                 lines += [row(node) for node in category]
                 lines.append("")
@@ -370,14 +417,14 @@ def generate():
     if constants["GPU_MAX_CLOCKS_PREF_STRING"] in [literal or constants[constant] for literal, constant in switches]:
         raise ValueError("Review the presets table: Native now changes the GPU performance boost")
     lines += ["## Presets", "",
-              "Both presets stream at this screen's own resolution and keep the selected codec, HDR and 4:4:4 choices. Named profiles and saved PC and game values take priority. The selected chip says Custom when values do not match a preset.", "",
+              "Both presets stream at this screen's own resolution and keep the selected codec, HDR and Sharper colored text choices. Named profiles and saved PC and game values take priority. The selected chip says Custom when values do not match a preset.", "",
               "| Setting | " + " | ".join(names) + " |",
               "| --- | --- | --- |",
-              "| Video resolution | This screen's resolution | This screen's resolution |",
-              f"| Video frame rate | Screen maximum (rounded, {bounds[1]}–{bounds[2]} FPS) | 30 FPS |",
-              "| Video bitrate | Default for that resolution, frame rate and codec | Default for that resolution, frame rate and codec |",
-              "| Adaptive refresh (ARR / VRR) | Off | Off |",
-              "| Client-side upscaling | Off | Off |",
+              "| Resolution | This screen's resolution | This screen's resolution |",
+              f"| Frame rate | Screen maximum (rounded, {bounds[1]}–{bounds[2]} FPS) | 30 FPS |",
+              "| Bitrate | Default for that resolution, frame rate and codec | Default for that resolution, frame rate and codec |",
+              "| Variable refresh rate | Off | Off |",
+              "| Upscaling | Off | Off |",
               "| Frame pacing | Lowest latency | Balanced with FPS limit |",
               "| Allow lower refresh rate | Off | On |",
               "| Decoder performance hints | On | Off |",

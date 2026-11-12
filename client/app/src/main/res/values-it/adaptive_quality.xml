@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_adaptive_quality">Qualità dello stream automatica</string>
-    <string name="summary_adaptive_quality">Riduce risoluzione o FPS in caso di congestione prolungata, decodifica lenta o surriscaldamento, poi recupera gradualmente. Usa il bitrate automatico se supportato. Richiede il supporto alla riconfigurazione da parte dell’host e un decoder adattivo; non disponibile con PyroWave.</string>
-    <string name="title_adaptive_quality_min_resolution">Risoluzione automatica minima</string>
-    <string name="summary_adaptive_quality_min_resolution">Lato corto minimo, mantenendo le proporzioni. La risoluzione dello stream selezionata resta il massimo. Una risoluzione iniziale più bassa non viene mai aumentata da questo limite.</string>
-    <string name="title_adaptive_quality_min_fps">Frame rate automatico minimo</string>
-    <string name="summary_adaptive_quality_min_fps">FPS minimi consentiti. Il frame rate dello stream selezionato resta il massimo. Si applica alla qualità automatica, inclusa la modalità batteria.</string>
+    <string name="summary_adaptive_quality">Riduce risoluzione o FPS in caso di congestione prolungata, decodifica lenta o surriscaldamento, poi recupera gradualmente. Usa il bitrate automatico se supportato. Richiede un PC in grado di modificare uno stream in corso e un decoder adattivo; non disponibile con PyroWave.</string>
+    <string name="title_adaptive_quality_min_resolution">Risoluzione minima</string>
+    <string name="summary_adaptive_quality_min_resolution">La risoluzione più bassa a cui scende Qualità automatica.</string>
+    <string name="title_adaptive_quality_min_fps">Frame rate minimo</string>
+    <string name="summary_adaptive_quality_min_fps">Il frame rate più basso a cui scende Qualità automatica.</string>
     <string name="quality_off">Disattivata</string>
     <string name="quality_motion">Privilegia la fluidità</string>
     <string name="quality_detail">Privilegia i dettagli</string>

@@ -11,31 +11,73 @@ const { default: HostReadiness } = await server.ssrLoadModule('/src/components/o
 
 const source = name => readFile(new URL(`./src/${name}`, import.meta.url), 'utf8');
 
-test('Help imports no Updates, Power, Password or Sessions panel, nor the integrations', async () => {
-  const help = await source('pages/Maintenance.svelte');
+const inOrder = (page, order) => {
+  const at = order.map((tag) => page.indexOf(tag));
+  assert.ok(at.every((index) => index > 0), `${order}: ${at}`);
+  assert.deepEqual([...at].sort((a, b) => a - b), at);
+};
+
+test('Help and Troubleshoot import no Updates, Power, Password or Sessions panel, nor the integrations', async () => {
+  const pages = (await source('pages/Help.svelte')) + (await source('pages/Troubleshoot.svelte'));
   for (const panel of ['UpdatesPanel', 'PowerPanel', 'PasswordPanel', 'SessionsPanel', 'VulkanPanel', 'LimiterPanel']) {
-    assert.doesNotMatch(help, new RegExp(`import ${panel}\\b`), panel);
+    assert.doesNotMatch(pages, new RegExp(`import ${panel}\\b`), panel);
   }
 });
 
-test('Help is titled for someone with a problem and keeps the order of the page map', async () => {
-  const help = await source('pages/Maintenance.svelte');
-  assert.match(help, /<PageHeader title="Help" subtitle="Something is wrong\? Start here\.">/);
-  // The host anchor links may point at stays, on the section so it adds no extra gap.
-  assert.match(help, /<Section title="Host" anchor="host" quiet>/);
-  assert.doesNotMatch(help, /<div id="host"><\/div>/);
-  const order = ['<ChildSessionBanner', '<HostPanel', '<DisplaysPanel', '<WindowsSessionPanel', '<CoopHelpPanel', '<LogAnalysisPanel', '<CrashPanel'];
-  const at = order.map((tag) => help.indexOf(tag));
-  assert.ok(at.every((index) => index > 0), `${at}`);
-  assert.deepEqual([...at].sort((a, b) => a - b), at);
+test('Help is connecting, log findings and the support bundle, and links to Troubleshoot', async () => {
+  const help = await source('pages/Help.svelte');
+  assert.match(help, /<PageHeader title="Help" subtitle="Connection, log findings and the support bundle\.">/);
+  assert.match(help, /<Button href="\/troubleshoot" icon="maintenance">Troubleshoot<\/Button>/);
+  inOrder(help, ['<ConnectionHelp', '<LogAnalysisPanel', '<SupportBundlePanel']);
+  // Recovery is Troubleshoot's, and co-op's folder has its own home.
+  for (const tag of ['<HostPanel', '<DisplaysPanel', '<WindowsSessionPanel', '<CoopHelpPanel', '<CrashPanel', '<NucleusFolder']) {
+    assert.doesNotMatch(help, new RegExp(tag), tag);
+  }
 });
 
-test('the Vulkan HDR layer and RTSS live in a collapsed Integrations group under Display', async () => {
+test('Troubleshoot holds the recovery Help had, in the order of the page map, under Advanced', async () => {
+  const page = await source('pages/Troubleshoot.svelte');
+  assert.match(page, /<PageHeader title="Troubleshoot" subtitle="Restart, displays, co-op and crash reports\.">/);
+  // The host anchor links may point at stays, on the section so it adds no extra gap.
+  assert.match(page, /<Section title="Rubylight" anchor="host" quiet>/);
+  assert.doesNotMatch(page, /<div id="host"><\/div>/);
+  inOrder(page, ['<ChildSessionBanner', '<HostPanel', '<DisplaysPanel', '<WindowsSessionPanel', '<CoopHelpPanel', '<CrashPanel']);
+  assert.doesNotMatch(page, /<LogAnalysisPanel|moved/);
+  const nav = await source('lib/navigation.ts');
+  const advanced = nav.slice(nav.indexOf('export const advanced'));
+  assert.match(advanced, /path: '\/troubleshoot',\s*label: 'Troubleshoot'/);
+  assert.match(nav.slice(0, nav.indexOf('export const advanced')), /path: '\/help', label: 'Help'/);
+  const app = await source('App.svelte');
+  assert.match(app, /route\.path === '\/help'\) return Help;/);
+  assert.match(app, /route\.path === '\/troubleshoot'\) return Troubleshoot;/);
+});
+
+test('Help draws this PC’s name and address with a copy button, and pairing one click away', async () => {
+  const { default: ConnectionHelp } = await server.ssrLoadModule('/src/components/help/ConnectionHelp.svelte');
+  const draw = (changes) =>
+    render(ConnectionHelp, { props: { metadata: { host_name: 'Gaming PC', pc_address: '192.168.4.20', pc_addresses: ['192.168.4.20', '10.0.0.7'], paired_devices: 2, ...changes } } }).body;
+  const out = draw({});
+  assert.match(out, /Gaming PC/);
+  assert.match(out, /192\.168\.4\.20/);
+  assert.match(out, /Copy address/);
+  assert.match(out, /Other networks[\s\S]*10\.0\.0\.7/);
+  assert.match(out, /href="\/devices\?pair=qr"/);
+  assert.doesNotMatch(out, /class="button primary/);
+  // Nothing paired yet: Pair a device is the page's main action.
+  const fresh = draw({ paired_devices: 0, pc_addresses: ['192.168.4.20'] });
+  assert.match(fresh, /None yet/);
+  assert.match(fresh, /class="button primary sm[^"]*"[^>]*href="\/devices\?pair=qr"/);
+  assert.doesNotMatch(fresh, /Other networks/);
+  assert.match(render(ConnectionHelp, { props: { metadata: null } }).body, /Loading/);
+});
+
+test('the Vulkan HDR layer and RTSS live in a collapsed Integrations fold under Picture', async () => {
   const page = await source('pages/Settings.svelte');
-  const fold = page.match(/\{#if active\.id === 'display'\}([\s\S]*?)\{\/if\}/)?.[1] ?? '';
-  assert.match(fold, /<details class="fold integrations">/);
-  assert.doesNotMatch(fold, /<details[^>]*\bopen\b/);
-  assert.match(fold, /Integrations/);
+  const fold = page.match(/\{#if active\.id === 'picture'\}([\s\S]*?)\{\/if\}/)?.[1] ?? '';
+  assert.match(fold, /<Disclosure\s[^>]*title=\{INTEGRATIONS\}/);
+  assert.match(fold, /open=\{integrationsOpen\}/);
+  assert.match(page, /let integrationsOpen = \$state\(false\);/);
+  assert.match(page, /const INTEGRATIONS = 'Integrations';/);
   assert.match(fold, /<VulkanPanel \/>/);
   assert.match(fold, /<LimiterPanel \/>/);
 });
@@ -57,10 +99,10 @@ test('a failed readiness check makes Home show Needs attention with a link to He
     warnings: [{ code: 'video_encoder', message: 'No video encoder available.' }],
   });
   assert.match(failed, /Needs attention/);
-  assert.match(failed, /href="\/maintenance"/);
+  assert.match(failed, /href="\/help"/);
   const ready = readiness({});
-  assert.doesNotMatch(ready, /Needs attention|href="\/maintenance"/);
-  assert.match(ready, /Host readiness/);
+  assert.doesNotMatch(ready, /Needs attention|href="\/help"/);
+  assert.match(ready, />Checks</);
 });
 
 test('the log Copy label is one flex item, so no gap doubles the space before "visible lines"', async () => {
@@ -70,7 +112,10 @@ test('the log Copy label is one flex item, so no gap doubles the space before "v
   assert.match(view, /\.placeholder \{[^}]*place-items: center;[^}]*min-height: 100%;/);
 });
 
-test('the Releases More keeps a 44 px target without pushing its neighbours apart', async () => {
+test('the Updates folds keep a 44 px target without pushing their neighbours apart', async () => {
   const updates = await source('components/maintenance/UpdatesPanel.svelte');
-  assert.match(updates, /\.more > summary \{[^}]*min-height: var\(--control-height\);\s*margin-block: calc\(\(20px - var\(--control-height\)\) \/ 2\);/);
+  assert.match(updates, /<Disclosure variant="inline" title="Schedule and release notes">/);
+  assert.doesNotMatch(updates, /<details/);
+  const disclosure = await source('components/Disclosure.svelte');
+  assert.match(disclosure, /\.inline > summary \{[^}]*min-height: var\(--control-height\);\s*margin-block: calc\(\(20px - var\(--control-height\)\) \/ 2\);/);
 });

@@ -253,6 +253,17 @@ public class OpenPlayTest {
                 case "timing":
                     assertArrayEquals(new long[] {ok.getLong("countdown_ms"), ok.getLong("settled_ms")}, OpenPlayModel.timing());
                     break;
+                // Settings' "When Nightjar opens" reads and writes the pair in Java, held here to the shared mapping.
+                case "start_screen":
+                    assertEquals(c.getString("name"), ok.getString("screen"), com.limelight.preferences.StartScreenChoice.fromSaved(
+                            request.getString("open"), request.getBoolean("console_home")));
+                    break;
+                case "save_start_screen":
+                    assertEquals(c.getString("name"), ok.getString("open"),
+                            com.limelight.preferences.StartScreenChoice.openFor(request.getString("screen")));
+                    assertEquals(c.getString("name"), ok.getBoolean("console_home"), com.limelight.preferences.StartScreenChoice
+                            .consoleHomeFor(request.getString("screen"), request.getBoolean("console_home")));
+                    break;
                 default:
                     fail("unknown op " + request);
             }

@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_adaptive_quality">Automatic stream quality</string>
-    <string name="summary_adaptive_quality">Lower resolution or FPS during sustained congestion, slow decoding or heat, then recover gradually. Uses automatic bitrate when supported. Requires host reconfiguration support and an adaptive decoder; unavailable with PyroWave.</string>
-    <string name="title_adaptive_quality_min_resolution">Minimum automatic resolution</string>
-    <string name="summary_adaptive_quality_min_resolution">Smallest short edge, preserving the aspect ratio. The selected stream resolution remains the maximum. A lower starting resolution is never increased by this limit.</string>
-    <string name="title_adaptive_quality_min_fps">Minimum automatic frame rate</string>
-    <string name="summary_adaptive_quality_min_fps">Lowest allowed FPS. The selected stream frame rate remains the maximum. Applies to automatic quality, including battery mode.</string>
+    <string name="summary_adaptive_quality">Lower resolution or FPS during sustained congestion, slow decoding or heat, then recover gradually. Uses automatic bitrate when supported. Needs a PC that can change a running stream and an adaptive decoder; unavailable with PyroWave.</string>
+    <string name="title_adaptive_quality_min_resolution">Minimum resolution</string>
+    <string name="summary_adaptive_quality_min_resolution">The lowest resolution Automatic quality goes to.</string>
+    <string name="title_adaptive_quality_min_fps">Minimum frame rate</string>
+    <string name="summary_adaptive_quality_min_fps">The lowest frame rate Automatic quality goes to.</string>
     <string name="quality_off">Off</string>
     <string name="quality_motion">Preserve motion</string>
     <string name="quality_detail">Preserve detail</string>
@@ -23,15 +23,15 @@
         <item>off</item><item>motion</item><item>detail</item><item>battery</item>
     </string-array>
     <string-array name="adaptive_quality_resolution_names" translatable="false">
-        <item>360p</item><item>540p</item><item>720p</item><item>1080p</item>
+        <item>360p</item><item>540p</item><item>720p</item><item>1080p</item><item>1440p</item>
     </string-array>
     <string-array name="adaptive_quality_resolution_values" translatable="false">
-        <item>360</item><item>540</item><item>720</item><item>1080</item>
+        <item>360</item><item>540</item><item>720</item><item>1080</item><item>1440</item>
     </string-array>
     <string-array name="adaptive_quality_fps_names" translatable="false">
-        <item>30 FPS</item><item>45 FPS</item><item>60 FPS</item>
+        <item>30 FPS</item><item>45 FPS</item><item>60 FPS</item><item>90 FPS</item><item>120 FPS</item>
     </string-array>
     <string-array name="adaptive_quality_fps_values" translatable="false">
-        <item>30</item><item>45</item><item>60</item>
+        <item>30</item><item>45</item><item>60</item><item>90</item><item>120</item>
     </string-array>
 </resources>

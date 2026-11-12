@@ -80,7 +80,7 @@ are preferred, with H.264 fallback. PiP is Android's actual floating video windo
 Some screens need hardware or a host the demo does not have. The debug build shows them as
 they look where they apply, and only in demo mode:
 
-- The demo preferences turn on adaptive refresh (ARR / VRR), the low-latency decoding switches
+- The demo preferences turn on Variable refresh rate (ARR / VRR), the low-latency decoding switches
   and the USB DualSense driver with its audio and haptics.
 - `DemoStreamSettings` shows the Snapdragon GPU driver row and the USB controllers group on any
   device, and the driver row opens `DemoGpuDriverSettings`. That screen reads as on an arm64

@@ -260,8 +260,7 @@ impl Scrub {
     fn step(&mut self, changed: bool, dragging: bool, released: bool, now: Instant) -> bool {
         if changed { self.changed_at = Some(now); }
         let due = released || (!dragging && self.changed_at.is_some_and(|at| now.duration_since(at) >= COMMIT_DELAY));
-        if due && self.changed_at.take().is_some() { return true; }
-        false
+        due && self.changed_at.take().is_some()
     }
 }
 

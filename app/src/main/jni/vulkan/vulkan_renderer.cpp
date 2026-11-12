@@ -1001,12 +1001,6 @@ VulkanRenderer::~VulkanRenderer() {
         if (fragShader_) vk_.vkDestroyShaderModule(device_, fragShader_, nullptr);
         vk_.vkDestroyDevice(device_, nullptr);
     }
-    // A start that failed before the device existed never ran releaseOutput(): its surface goes
-    // before the instance it belongs to
-    if (instance_ && surface_ && vk_.vkDestroySurfaceKHR) {
-        vk_.vkDestroySurfaceKHR(instance_, surface_, nullptr);
-        surface_ = VK_NULL_HANDLE;
-    }
     if (instance_ && vk_.vkDestroyInstance) {
         vk_.vkDestroyInstance(instance_, nullptr);
     }

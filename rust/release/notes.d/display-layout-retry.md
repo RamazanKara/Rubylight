@@ -1,1 +1,0 @@
-- **A stream Windows refused the display layout to now tries again by itself.** The first stream after the PC sat idle could fail with "cannot activate the saved displays … Access is denied" while the next one started (issue #89). The host now waits two seconds and prepares the display once more, and the log names the desktop that had input at that moment.

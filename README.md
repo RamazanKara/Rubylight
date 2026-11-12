@@ -21,7 +21,7 @@
 
 <div align="center">
 
-**[Download 4.0.0](https://github.com/RamazanKara/Rubylight/releases/tag/v4.0.0)** · [Getting started](docs/getting-started.md) · [Documentation](docs/README.md) · [Release notes](rust/RELEASE_NOTES.md) · [Website](https://ramazankara.github.io/Rubylight/)
+**[Download 4.0.1](https://github.com/RamazanKara/Rubylight/releases/tag/v4.0.1)** · [Getting started](docs/getting-started.md) · [Documentation](docs/README.md) · [Release notes](rust/RELEASE_NOTES.md) · [Website](https://ramazankara.github.io/Rubylight/)
 
 </div>
 
@@ -148,7 +148,7 @@ Rubylight speaks the Moonlight protocol and keeps its protocol version, so unmod
 
 ## Get started
 
-1. Download and run `rubylight-setup-4.0.0.exe` from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v4.0.0). It sets up the Windows service, the virtual display driver and controller support. To try Rubylight without installing, extract `rubylight-4.0.0-windows-x64.zip` and run **Start Rubylight.exe**.
+1. Download and run `rubylight-setup-4.0.1.exe` from the [release](https://github.com/RamazanKara/Rubylight/releases/tag/v4.0.1). It sets up the Windows service, the virtual display driver and controller support. To try Rubylight without installing, extract `rubylight-4.0.1-windows-x64.zip` and run **Start Rubylight.exe**.
 2. Open **https://localhost:47990** on the PC and create the console account.
 3. Pair a device: Nightjar scans the QR code on **Home**; for Moonlight, enter the PIN it shows on the console's **Devices** page.
 4. Start **Desktop** at 1080p60, then raise the resolution, frame rate and bitrate and turn on HDR.

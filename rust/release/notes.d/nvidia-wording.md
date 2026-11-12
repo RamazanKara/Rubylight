@@ -1,1 +1,0 @@
-- **Settings that run on NVIDIA no longer say AMD.** Copy and convert on a compute queue and GPU fence transport describe what they do on Radeon and NVIDIA graphics cards, and the PyroWave and couch-menu messages no longer name AMD or Radeon.

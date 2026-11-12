@@ -6,14 +6,14 @@
 # Windows: run it in an MSYS2 UCRT64 shell (gcc, make, nasm, pkgconf, mingw-w64-ucrt-x86_64-dav1d).
 # Linux: gcc, make, nasm, pkg-config, libdav1d-dev, libva-dev, libdrm-dev, libffmpeg-nvenc-dev and
 # libvulkan-dev 1.3.277 or newer (Debian and Ubuntu names; nv-codec-headers and vulkan-headers
-# elsewhere). Where dav1d or the NVIDIA or Vulkan headers are older than FFmpeg 8 accepts
+# elsewhere). Where dav1d or the NVIDIA or Vulkan headers are older than FFmpeg 9 accepts
 # (Ubuntu 22.04), ffmpeg-deps-linux.sh builds or installs them into a prefix: put its
 # lib/pkgconfig on PKG_CONFIG_PATH.
 # The result is libavcodec and libavutil only, with the H.264, HEVC and AV1 decoders, their
 # hardware paths (D3D11VA and DXVA2 on Windows; VAAPI, Vulkan video, NVDEC and the V4L2
 # memory-to-memory decoders on Linux) and dav1d: no encoders, muxers,
 # filters, swscale, swresample, or programs. It has the same sonames as the distributions'
-# FFmpeg 8, so `NIGHTJAR_FFMPEG_DIR=<prefix>` builds nightjar against it. On Windows, Opus (and its
+# FFmpeg 9, so `NIGHTJAR_FFMPEG_DIR=<prefix>` builds nightjar against it. On Windows, Opus (and its
 # header) is copied into the prefix next to it. On Linux the libraries get the run path $ORIGIN, so
 # libavcodec finds libavutil and libdav1d (copied into the prefix) in the folder it is in, and the
 # prefix's lib/ is what the package ships.
@@ -56,7 +56,7 @@ else
 fi
 
 # Nightjar's changes to FFmpeg: ffmpeg-patches/ on Linux (the V4L2 decoders), ffmpeg-patches/windows/
-# on Windows (D3D11VA and DXVA2 HEVC 4:4:4, Moonlight's, which FFmpeg 8 lacks: without it HEVC
+# on Windows (D3D11VA and DXVA2 HEVC 4:4:4, Moonlight's, which FFmpeg 9 lacks: without it HEVC
 # 4:4:4 has no hardware path on Windows, Rubylight issue 84). A second run on the same source finds
 # them applied.
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)

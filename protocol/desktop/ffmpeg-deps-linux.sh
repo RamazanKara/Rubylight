@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds the FFmpeg dependencies that ffmpeg-decode-only.sh needs on Linux where the
-# distribution's are older than FFmpeg 8 accepts (dav1d 1.0, ffnvcodec 11.1.5.3, Vulkan headers
+# distribution's are older than FFmpeg 9 accepts (dav1d 1.0, ffnvcodec 11.1.5.3, Vulkan headers
 # 1.3.204): Ubuntu 22.04,
 # which the release workflow builds on so the packages need only glibc 2.35 (the AppImage catalog
 # tests on the oldest Ubuntu LTS still in standard support).
@@ -21,7 +21,7 @@ dav1d_sha256=686616b7c69eb88d44459391ab25cac13b6647a3b288835c5784e71c1514a5c5
 # The 12.1 headers, as Ubuntu 24.04's libffmpeg-nvenc-dev: NVDEC needs driver 530 or newer.
 nvcodec_version=12.1.14.1
 nvcodec_sha256=043e46265517855f13bcb98b3a225b2761b2a83983b1645fa1d05876f1c3a781
-# FFmpeg 8 wants 1.3.277 or newer for Vulkan video decoding.
+# FFmpeg 9 wants 1.3.277 or newer for Vulkan video decoding.
 vulkan_version=1.4.341
 vulkan_sha256=d73bc5036b6556b741f6985ff600ca720308c5f2850e4a43ceb498bd3de069e7
 

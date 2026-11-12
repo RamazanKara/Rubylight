@@ -206,9 +206,9 @@ const video: Setting[] = [
     key: 'gpu_compute_conversion',
     label: 'Copy and convert on a compute queue',
     description:
-      'On supported AMD GPUs, copies captured frames and converts their colors on compute queues beside a game. Turn off to compare or troubleshoot.',
+      'Copies captured frames and converts their colors on compute queues beside a game, on Radeon and NVIDIA graphics cards whose driver supports it. Turn off to compare or troubleshoot.',
     details:
-      'Covers direct driver push, Desktop Duplication and Windows Graphics Capture. Unsupported capture textures fall back to the graphics queue.',
+      'Covers direct driver push, Desktop Duplication and Windows Graphics Capture. AMD AMF and NVIDIA NVENC then encode from the compute queue’s Direct3D 12 device. Capture textures that cannot be shared, and YUV 4:4:4 streams, convert on the graphics queue.',
     category: 'video',
     group: 'Capture troubleshooting',
     control: { kind: 'toggle' },

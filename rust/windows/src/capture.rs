@@ -1721,8 +1721,8 @@ impl Capture {
             capture.owned.warnings = warnings.clone();
             capture.drain_to_newest = config.boolean("wgc_drain_to_newest", false);
             // The pool's textures can be shared with D3D12 on supported AMD
-            // drivers. The same fenced handoff used by DDX keeps the copy and
-            // AMF conversion off a busy graphics queue. Keep an independent
+            // and NVIDIA drivers. The same fenced handoff used by DDX keeps the
+            // copy and the AMF or NVENC conversion off a busy graphics queue. Keep an independent
             // switch for comparisons and drivers that need the D3D11 path.
             if config.boolean("wgc_compute_copy", true) && crate::compute::enabled(config) {
                 match crate::compute::Compute::for_device(&capture.gpu.device)

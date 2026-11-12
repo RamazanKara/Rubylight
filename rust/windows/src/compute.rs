@@ -35,7 +35,7 @@ include!(concat!(env!("OUT_DIR"), "/shader_bytecode.rs"));
 mod handoff;
 pub use handoff::*;
 
-/// Whether captures and AMF encoders use the compute queue
+/// Whether captures and the AMF and NVENC encoders use the compute queue
 /// (`gpu_compute_conversion`, on unless turned off).
 pub fn enabled(config: &butterpollo_core::config::Config) -> bool {
     config.boolean("gpu_compute_conversion", true)

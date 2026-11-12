@@ -1421,6 +1421,8 @@ sudo sysctl -w net.core.rmem_max={}", "Bufor odbioru: system przydzielił {0} Ki
     ("The stream carries on when this device switches networks.", "Transmisja trwa dalej, gdy to urządzenie zmienia sieć."),
     ("Lets the stream move onto mobile data or another metered network.", "Pozwala transmisji przejść na dane komórkowe lub inną sieć taryfową."),
     ("How long a silent network is waited out before the stream ends.", "Jak długo czekać na milczącą sieć, zanim transmisja się zakończy."),
+    ("Group incoming video packets", "Grupuj przychodzące pakiety wideo"),
+    ("Takes several video packets from the network at once. Turn it off if the picture turns blocky or black.", "Odbiera z sieci kilka pakietów wideo naraz. Wyłącz, jeśli obraz rozpada się na bloki lub robi się czarny."),
     ("Hide connection warnings", "Ukryj ostrzeżenia o połączeniu"),
     ("No warnings about a poor connection during streams.", "Brak ostrzeżeń o słabym połączeniu podczas transmisji."),
     ("A second stream of the same game on a second screen.", "Druga transmisja tej samej gry na drugim ekranie."),

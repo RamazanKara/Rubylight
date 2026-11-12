@@ -112,6 +112,11 @@ final class SettingRules {
                 prefs.getBoolean(PreferenceConfiguration.CLIENT_ROAMING_PREF_STRING, true);
     }
 
+    /** Grouping incoming video packets (UDP_GRO) is the new streaming engine's. */
+    static boolean receiveCoalescingApplies(SharedPreferences prefs) {
+        return prefs.getBoolean(PreferenceConfiguration.RUST_ENGINE_PREF_STRING, true);
+    }
+
     /** The stick settings belong to the modern controller only. */
     static boolean modernControllerApplies(SharedPreferences prefs) {
         return PreferenceConfiguration.OSC_STYLE_MODERN.equals(

@@ -1421,6 +1421,8 @@ sudo sysctl -w net.core.rmem_max={}", "接收緩衝區：系統只分配了所�
     ("The stream carries on when this device switches networks.", "此裝置切換網路時，串流會繼續。"),
     ("Lets the stream move onto mobile data or another metered network.", "允許串流切換到行動數據或其他計量付費的網路。"),
     ("How long a silent network is waited out before the stream ends.", "網路沒有回應時，串流結束前等待的時間。"),
+    ("Group incoming video packets", "合併接收的影片封包"),
+    ("Takes several video packets from the network at once. Turn it off if the picture turns blocky or black.", "一次從網路接收多個影片封包。如果畫面出現方塊或黑畫面，請關閉。"),
     ("Hide connection warnings", "隱藏連線警告"),
     ("No warnings about a poor connection during streams.", "串流期間不顯示連線不佳的警告。"),
     ("A second stream of the same game on a second screen.", "在第二個螢幕上顯示同一遊戲的第二路串流。"),

@@ -132,6 +132,7 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_startConnectio
     codec_direct: jboolean,
     receive_decode_priority: jboolean,
     frame_warp_requested: jboolean,
+    receive_coalescing: jboolean,
 ) -> jint {
     let Some(bridge) = bridge::get() else {
         platform::error("RustBridge.startConnection before init");
@@ -183,6 +184,7 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_startConnectio
         unbatched_input: unbatched_input == JNI_TRUE,
         network_priority: network_priority == JNI_TRUE,
         receive_decode_priority: receive_decode_priority == JNI_TRUE,
+        receive_coalescing: receive_coalescing == JNI_TRUE,
         roaming: extras::roaming_config(roaming == JNI_TRUE, roaming_metered == JNI_TRUE),
         // Shifts pictures, so not for a stream without them or one that sends no input.
         frame_warp: (frame_warp_requested == JNI_TRUE && !input_only && remote_monitor != JNI_TRUE)

@@ -1421,6 +1421,8 @@ sudo sysctl -w net.core.rmem_max={}", "Buffer di ricezione: il sistema ha conces
     ("The stream carries on when this device switches networks.", "Lo stream prosegue quando questo dispositivo cambia rete."),
     ("Lets the stream move onto mobile data or another metered network.", "Consente allo stream di passare ai dati mobili o a un’altra rete a consumo."),
     ("How long a silent network is waited out before the stream ends.", "Quanto attendere una rete silenziosa prima che lo stream termini."),
+    ("Group incoming video packets", "Raggruppa i pacchetti video in arrivo"),
+    ("Takes several video packets from the network at once. Turn it off if the picture turns blocky or black.", "Riceve più pacchetti video dalla rete in una volta. Disattivalo se l’immagine diventa a blocchi o nera."),
     ("Hide connection warnings", "Nascondi avvisi di connessione"),
     ("No warnings about a poor connection during streams.", "Nessun avviso sulla connessione scarsa durante gli stream."),
     ("A second stream of the same game on a second screen.", "Un secondo stream dello stesso gioco su un secondo schermo."),

@@ -725,6 +725,8 @@ fn run_session(direct_submit: bool, packed_format: Option<u32>) {
             ..Default::default()
         },
         location: Location::Auto,
+        // As the apps' default.
+        receive_coalescing: true,
         ..Default::default()
     };
     let session = Session::start(

@@ -218,6 +218,9 @@ public class PreferenceConfiguration {
     // Client roaming (Experimental, Rust engine): on by default; onto mobile data only by choice.
     static final String CLIENT_ROAMING_PREF_STRING = "checkbox_client_roaming";
     static final String ROAMING_METERED_PREF_STRING = "checkbox_roaming_metered";
+    // "Group incoming video packets" (Rust engine): UDP_GRO on the video socket. On by default;
+    // the desktop's receive coalescing on Windows is the same setting.
+    static final String RECEIVE_COALESCING_PREF_STRING = "checkbox_receive_coalescing";
     private static final String VIRTUAL_DISPLAY_PREF_STRING = "checkbox_virtual_display";
     private static final String VIRTUAL_DISPLAY_SCALE_PREF_STRING = "seekbar_virtual_display_scale";
     static final String VIRTUAL_DISPLAY_DPI_PREF_STRING = "list_virtual_display_dpi";
@@ -474,7 +477,7 @@ public class PreferenceConfiguration {
     public boolean dropLateFrames, useTextureView, unbatchedInput, networkPriority;
     public boolean displayQueueRecovery;
     public boolean submitHint, coveringDecoderSize, pyroWavePreacquire, codecDirect, receiveDecodePriority;
-    public boolean clientRoaming, roamingMetered;
+    public boolean clientRoaming, roamingMetered, receiveCoalescing;
     public boolean virtualDisplay, enableYuv444, vrr;
     // Show frames at the host's frame times (HostFrameClock); replaces frame pacing.
     public boolean hostFrameTimes;
@@ -1730,6 +1733,7 @@ public class PreferenceConfiguration {
         config.codecDirect = prefs.getBoolean(CODEC_DIRECT_PREF_STRING, context.getResources().getBoolean(com.limelight.R.bool.default_codec_direct));
         config.clientRoaming = prefs.getBoolean(CLIENT_ROAMING_PREF_STRING, true);
         config.roamingMetered = prefs.getBoolean(ROAMING_METERED_PREF_STRING, false);
+        config.receiveCoalescing = prefs.getBoolean(RECEIVE_COALESCING_PREF_STRING, true);
         config.virtualDisplay = prefs.getBoolean(VIRTUAL_DISPLAY_PREF_STRING, false);
         config.virtualDisplayScale = Math.max(50, Math.min(200, prefs.getInt(VIRTUAL_DISPLAY_SCALE_PREF_STRING, 100)));
         config.virtualDisplayDpi = virtualDisplayDpi(prefs.getString(VIRTUAL_DISPLAY_DPI_PREF_STRING, "0"));

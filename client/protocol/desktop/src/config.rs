@@ -442,6 +442,10 @@ pub struct Settings {
     pub client_roaming: bool,
     /// Let client roaming move the stream onto a metered network. Off by default.
     pub roaming_metered: bool,
+    /// "Group incoming video packets" (Android's `checkbox_receive_coalescing`): the network
+    /// stack may hand over several video packets in one read, receive coalescing on Windows and
+    /// UDP_GRO on Linux (`SessionConfig::receive_coalescing`). On by default.
+    pub receive_coalescing: bool,
     /// USB forwarding (Experimental): attach USB devices plugged in here to the PC from the
     /// stream controls (src/usb.rs). Off by default.
     pub usb_forwarding: bool,
@@ -1060,6 +1064,7 @@ impl Default for Settings {
             hide_connection_warnings: false,
             client_roaming: true,
             roaming_metered: false,
+            receive_coalescing: true,
             usb_forwarding: false,
             clipboard_sync: false,
             dual_screen: false,
@@ -3019,6 +3024,15 @@ mod tests {
         assert!(old.client_roaming && !old.roaming_metered);
         let set: Settings = serde_json::from_str(r#"{"client_roaming":false,"roaming_metered":true}"#).unwrap();
         assert!(!set.client_roaming && set.roaming_metered);
+    }
+
+    #[test]
+    fn grouped_video_packets_are_on_by_default_and_in_old_files() {
+        assert!(Settings::default().receive_coalescing);
+        let old: Settings = serde_json::from_str(r#"{"fps":60,"client_roaming":false}"#).unwrap();
+        assert!(old.receive_coalescing);
+        let off: Settings = serde_json::from_str(r#"{"receive_coalescing":false}"#).unwrap();
+        assert!(!off.receive_coalescing);
     }
 
     #[test]

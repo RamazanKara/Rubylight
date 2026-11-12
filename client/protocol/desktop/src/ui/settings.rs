@@ -39,7 +39,7 @@ pub(super) const SECTION_KEYS: [&[&[&str]]; 8] = [
     &[&["audio"], &["play_audio_on_host"], &["microphone"], &["mic_echo_cancel"], &["mic_noise_suppression"], &["mic_auto_gain"], &["mic_gain"],
         &["mute_audio"], &["audio_passthrough"]],
     &[&["overlay", "overlay_mode"], &["overlay_position"], &["auto_reconnect"],
-        &["client_roaming"], &["roaming_metered"], &["network_grace_ms"], &["hide_connection_warnings"],
+        &["client_roaming"], &["roaming_metered"], &["network_grace_ms"], &["receive_coalescing"], &["hide_connection_warnings"],
         &["dual_screen"], &["second_screen_width", "second_screen_height"], &["input_only_any_host"]],
     &[&["theme"], &["language"], &["open_on_start", "console_home"], &["quick_resume"], &["check_updates"], &["home_card_size"],
         &["ui_zoom"], &["high_contrast"], &["reduce_motion"]],
@@ -1181,6 +1181,12 @@ impl Launcher {
                     }
                 }).response
             });
+            // Receive coalescing on Windows, UDP_GRO on Linux; macOS's engine does neither.
+            if cfg!(any(target_os = "linux", windows)) {
+                setting_row(ui, s, &mut rows, &["receive_coalescing"], "Group incoming video packets", "Takes several video packets from the network at once. Turn it off if the picture turns blocky or black.", |ui, s| {
+                    toggle(ui, &mut s.receive_coalescing)
+                });
+            }
             setting_row(ui, s, &mut rows, &["hide_connection_warnings"], "Hide connection warnings", "No warnings about a poor connection during streams.", |ui, s| {
                 toggle(ui, &mut s.hide_connection_warnings)
             });
@@ -1937,7 +1943,7 @@ pub(super) const MAIN_KEYS: [(&str, &[&str]); 8] = [
 
 /// Every desktop row on both platforms and the Android preference it is: a setting's first key or
 /// an action row's name, then Android's key. A row is main when its match is in `MAIN_KEYS`.
-pub(super) const ANDROID_KEYS: [(&str, &str); 101] = [
+pub(super) const ANDROID_KEYS: [(&str, &str); 102] = [
     // Video
     ("width", "list_resolution"), ("fps", "list_fps"), ("bitrate_kbps", "seekbar_bitrate_kbps"),
     ("adaptive_bitrate", "checkbox_auto_bitrate"), ("mobile_bitrate", "list_mobile_bitrate_kbps"), ("codec", "video_format"),
@@ -1974,6 +1980,7 @@ pub(super) const ANDROID_KEYS: [(&str, &str); 101] = [
     ("overlay", "checkbox_enable_perf_overlay"), ("overlay_position", "performance_overlay_position"),
     ("auto_reconnect", "checkbox_auto_reconnect"), ("connection_test", "network_tests"), ("client_roaming", "checkbox_client_roaming"),
     ("roaming_metered", "checkbox_roaming_metered"), ("network_grace_ms", "list_network_grace"),
+    ("receive_coalescing", "checkbox_receive_coalescing"),
     ("hide_connection_warnings", "checkbox_disable_warnings"), ("dual_screen", "checkbox_dual_screen"),
     ("second_screen_width", "list_resolution_screen2"), ("input_only_any_host", "checkbox_input_only_any_host"),
     // App

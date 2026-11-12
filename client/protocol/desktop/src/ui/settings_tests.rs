@@ -439,7 +439,7 @@ fn the_section_key_table_is_what_the_page_draws() {
     let only_here = |key: &str, vrr: bool| match key {
         "native_touchpad" => cfg!(windows),
         "check_updates" => crate::self_update::current().checks(),
-        "network_priority" => cfg!(any(target_os = "linux", windows)),
+        "network_priority" | "receive_coalescing" => cfg!(any(target_os = "linux", windows)),
         // It needs HDR, which hides Less color banding.
         "hdr_desktop_brightness" => false,
         "present_at_host_times" => vrr,

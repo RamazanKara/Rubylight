@@ -1662,6 +1662,7 @@ public class StreamSettings extends NightjarActivity {
             setShown(SettingRules.ADAPTIVE_QUALITY_MIN_FPS, limits);
             setShown(PreferenceConfiguration.CLIENT_ROAMING_PREF_STRING, SettingRules.clientRoamingApplies(prefs));
             setShown(PreferenceConfiguration.ROAMING_METERED_PREF_STRING, SettingRules.roamingMeteredApplies(prefs));
+            setShown(PreferenceConfiguration.RECEIVE_COALESCING_PREF_STRING, SettingRules.receiveCoalescingApplies(prefs));
             setShown(PreferenceConfiguration.AUDIO_PASSTHROUGH_PREF_STRING,
                     SettingRules.audioPassthroughApplies(prefs, Build.VERSION.SDK_INT));
             setShown(PreferenceConfiguration.USB_FORWARDING_PREF_STRING, SettingRules.usbForwardingApplies(prefs));

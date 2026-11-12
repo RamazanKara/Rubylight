@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_receive_coalescing">Group incoming video packets</string>
+    <string name="summary_receive_coalescing">Takes several video packets from the network at once. Turn it off if the picture turns blocky or black.</string>
+</resources>

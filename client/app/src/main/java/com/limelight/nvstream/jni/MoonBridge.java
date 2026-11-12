@@ -585,6 +585,7 @@ public class MoonBridge {
     private static volatile boolean pyrowaveEarlyRequested;
     private static volatile boolean codecDirectRequested;
     private static volatile boolean receiveDecodePriorityRequested;
+    private static volatile boolean receiveCoalescingRequested = true;
     private static volatile boolean frameWarpWanted;
     private static volatile boolean frameWarpRequested;
 
@@ -633,6 +634,14 @@ public class MoonBridge {
      */
     public static void requestReceiveDecodePriority(boolean requested) {
         receiveDecodePriorityRequested = requested;
+    }
+
+    /**
+     * Call before startConnection(): "Group incoming video packets" for the next stream (UDP_GRO
+     * on the video socket). Only the Rust engine asks the kernel to coalesce.
+     */
+    public static void requestReceiveCoalescing(boolean requested) {
+        receiveCoalescingRequested = requested;
     }
 
     /**
@@ -878,7 +887,8 @@ public class MoonBridge {
                     pyrowaveLinkMbps, pyrowavePaceMbps, clientWireless, networkGracePeriodMs, packed444Requested, packedModes,
                     remoteMonitor, unbatchedInput, networkPriority, roamingRequested, roamingMeteredRequested,
                     audioPassthroughRequested, hdrFormatRequested, videoFecRequested, pyrowaveEarlyRequested,
-                    codecDirectRequested, receiveDecodePriorityRequested, frameWarpRequested);
+                    codecDirectRequested, receiveDecodePriorityRequested, frameWarpRequested,
+                    receiveCoalescingRequested);
         }
         return cStartConnection(address, appVersion, gfeVersion, rtspSessionUrl, serverCodecModeSupport,
                 width, height, fps, bitrate, packetSize, streamingRemotely, audioConfiguration,

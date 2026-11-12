@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_receive_coalescing">合併接收的影片封包</string>
+    <string name="summary_receive_coalescing">一次從網路接收多個影片封包。如果畫面出現方塊或黑畫面，請關閉。</string>
+</resources>

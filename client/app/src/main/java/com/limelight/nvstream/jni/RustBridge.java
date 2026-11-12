@@ -83,7 +83,8 @@ final class RustBridge {
                                       boolean networkPriority, boolean roaming, boolean roamingMetered,
                                       int audioPassthrough, int hdrFormat, int videoFecPercentage,
                                       boolean pyrowaveEarly, boolean codecDirect,
-                                      boolean receiveDecodePriority, boolean frameWarpRequested);
+                                      boolean receiveDecodePriority, boolean frameWarpRequested,
+                                      boolean receiveCoalescing);
     static native void stopConnection();
     static native void interruptConnection();
     static native int networkChanged(boolean metered);

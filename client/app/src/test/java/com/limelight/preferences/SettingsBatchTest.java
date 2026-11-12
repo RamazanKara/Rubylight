@@ -85,9 +85,12 @@ public class SettingsBatchTest {
         p.edit().putBoolean("checkbox_client_roaming", false).commit();
         assertTrue(SettingRules.clientRoamingApplies(p));
         assertFalse(SettingRules.roamingMeteredApplies(p));
+        assertTrue(SettingRules.receiveCoalescingApplies(p));
         p.edit().putBoolean("checkbox_client_roaming", true).putBoolean("checkbox_rust_engine", false).commit();
         assertFalse(SettingRules.clientRoamingApplies(p));
         assertFalse(SettingRules.roamingMeteredApplies(p));
+        // Grouping incoming video packets is the new engine's too.
+        assertFalse(SettingRules.receiveCoalescingApplies(p));
         // Passthrough: the new engine on Android 10 or later.
         assertFalse(SettingRules.audioPassthroughApplies(p, 29));
         p.edit().putBoolean("checkbox_rust_engine", true).commit();

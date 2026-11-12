@@ -627,6 +627,10 @@ pub struct VideoStart {
     pub target: std::net::SocketAddr,
     pub ping_payload: Option<[u8; 16]>,
     pub direct_submit: bool,
+    /// The stack may coalesce received video datagrams ([`SessionConfig::receive_coalescing`]).
+    ///
+    /// [`SessionConfig::receive_coalescing`]: super::SessionConfig::receive_coalescing
+    pub receive_coalescing: bool,
     /// Where a roam's rebind leaves the receive thread's next socket.
     pub next_socket: Arc<NextSocket>,
 }
@@ -670,6 +674,7 @@ impl VideoStream {
         let receive_stop = stop.clone();
         let receive_session = session.clone();
         let direct_submit = start.direct_submit;
+        let coalescing = start.receive_coalescing;
         if !session.decode_priority {
             session.log("Decode priority is off for this stream (setting or switch)");
         }
@@ -684,6 +689,7 @@ impl VideoStream {
                     receive_control,
                     receive_stop,
                     direct,
+                    coalescing,
                 )
             },
         )?);
@@ -725,6 +731,7 @@ impl VideoStream {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn receive_thread(
     mut socket: UdpSocket,
     next_socket: Arc<NextSocket>,
@@ -733,6 +740,7 @@ fn receive_thread(
     control: ControlHandle,
     stop: Arc<AtomicBool>,
     mut direct: Option<Direct>,
+    coalescing: bool,
 ) -> Option<Box<dyn VideoDecoder>> {
     let mut signals = Vec::new();
     let mut waiting = Duration::ZERO;
@@ -742,7 +750,10 @@ fn receive_thread(
         let encrypted = receiver.config().encryption_key.is_some();
         (encrypted, receiver.max_datagram_size())
     };
-    let mut batch = net::BatchReceiver::new(&socket, max_datagram);
+    let mut batch = net::BatchReceiver::new(&socket, max_datagram, coalescing);
+    if !coalescing {
+        session.log("Video receive coalescing is off (setting)");
+    }
     match batch.take_fallback() {
         Some(e) => session.log(&format!("Video receive takes one datagram per call: {e}")),
         None if batch.batched() && cfg!(windows) => session.log(&format!(

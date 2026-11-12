@@ -254,7 +254,7 @@ fn batched_socket_receives_allocate_nothing_per_datagram() {
     .unwrap();
     let sender = UdpSocket::bind("127.0.0.1:0").unwrap();
     let datagram = [7u8; 1408];
-    let mut batch = net::BatchReceiver::new(&socket, 1408);
+    let mut batch = net::BatchReceiver::new(&socket, 1408, true);
     // A batch at a time, which the buffer holds.
     let round = |batch: &mut net::BatchReceiver| {
         for _ in 0..8 {

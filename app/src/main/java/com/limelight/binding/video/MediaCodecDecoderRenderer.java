@@ -185,6 +185,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private long lastScanoutLogNs;
     // The Vulkan notice (why it is unused, or that it replaces the upscaler) is shown once per stream
     private boolean vulkanNoticeShown;
+    // Frame Warp (docs/frame-warp.md): this stream's renderer, Vulkan or the GLES presenter, draws the shift.
+    // False with the setting off, and then none of the Frame Warp code below runs.
+    private volatile boolean frameWarp;
+    private boolean frameWarpNoticeShown;
+    // The decoder's presentation time per output buffer index, for the GLES presenter's Frame Warp.
+    private long[] frameWarpOutputPtsUs = new long[16];
     private volatile boolean stopping;
     private CrashListener crashListener;
     private int consecutiveCrashCount;
@@ -1137,11 +1143,25 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 display.getMode().getRefreshRate() : display.getRefreshRate();
         upscalingPolicy = new UpscalingPolicy(Math.max(1, Math.min(refreshRate, Math.round(panelHz))));
         wantVulkan = false;
+        frameWarp = false;
+        // Only with the setting on: MoonBridge's statics load the native engine.
+        boolean warpOffered = false;
+        if (prefs.frameWarp) {
+            if (MoonBridge.frameWarpNeedsEngine()) notifyFrameWarp(context.getString(R.string.frame_warp_needs_engine));
+            warpOffered = MoonBridge.isFrameWarpStream();
+        }
         VideoRendererChoice choice = VideoRendererChoice.choose(prefs.vulkanRender,
                 (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0, Build.VERSION.SDK_INT,
-                VulkanRendererBridge::isSupported, packing != null, prefs.upscalingMode);
+                VulkanRendererBridge::isSupported, packing != null, prefs.upscalingMode, warpOffered,
+                Boolean.TRUE.equals(currentHdrMode) || (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0);
+        if (choice.frameWarpReason == VideoRendererChoice.FrameWarpReason.HDR) {
+            declineFrameWarp(R.string.frame_warp_reason_hdr);
+        } else if (choice.frameWarpReason == VideoRendererChoice.FrameWarpReason.FULL_CHROMA) {
+            declineFrameWarp(R.string.frame_warp_reason_full_chroma);
+        }
         if (choice.renderer == VideoRendererChoice.Renderer.VULKAN) {
             wantVulkan = true;
+            frameWarp = choice.frameWarp;
             upscalingPolicy.fail(UpscalingPolicy.Reason.DISABLED);
             if (choice.upscalingOverridden) {
                 notifyVulkan(context.getString(R.string.vulkan_overrides_upscaling));
@@ -1150,6 +1170,21 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
         if (choice.reason != VideoRendererChoice.Reason.NONE) {
             notifyVulkanUnused(vulkanUnusedReason(choice.reason));
+        }
+        if (choice.frameWarp && (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
+            // PyroWave's renderer shifts the picture itself, upscaled or not; it takes Frame Warp once the
+            // decoder is set up (PyroWaveDecoderRenderer.setFrameWarp)
+            frameWarp = true;
+        } else if (choice.frameWarp) {
+            // Drawn without upscaling: the GLES presenter shifts the picture instead.
+            frameWarp = true;
+            if (choice.upscalingOverridden) {
+                notifyFrameWarp(context.getString(R.string.frame_warp_replaces_upscaling));
+            }
+            upscaler = new GlesUpscaler(context, renderTarget, UpscalingPolicy.Mode.BILINEAR, initialWidth,
+                    initialHeight, prefs.stretchVideo, 0, upscalingPolicy, null, false, null, true);
+            if (upscalingPolicy.getReason() != UpscalingPolicy.Reason.NONE) closeUpscaler();
+            return;
         }
         if (packing != null) {
             upscaler = new GlesUpscaler(context, renderTarget, UpscalingPolicy.Mode.BILINEAR,
@@ -1211,6 +1246,22 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         });
     }
 
+    private void notifyFrameWarp(String message) {
+        LimeLog.warning("Frame Warp: " + message);
+        if (frameWarpNoticeShown) return;
+        frameWarpNoticeShown = true;
+        activity.runOnUiThread(() -> {
+            if (!stopping) Toast.makeText(context, message, Toast.LENGTH_LONG).show();
+        });
+    }
+
+    /** The stream offers Frame Warp but this renderer cannot draw it: the host stops its work, and the user is told. */
+    private void declineFrameWarp(int reason) {
+        frameWarp = false;
+        MoonBridge.frameWarpDecline();
+        notifyFrameWarp(context.getString(R.string.frame_warp_unavailable, context.getString(reason)));
+    }
+
     private VulkanRendererBridge createVulkanRenderer() {
         VulkanRendererBridge renderer = VulkanRendererBridge.create(renderTarget,
                 initialWidth, initialHeight, refreshRate, prefs.framePacing,
@@ -1220,7 +1271,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 getStreamTransfer() == MediaFormat.COLOR_TRANSFER_HLG,
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
                         outputDisplay.getMode().getRefreshRate() : outputDisplay.getRefreshRate(),
-                vulkanCodecName(), videoDecoder.getName(), null, false);
+                vulkanCodecName(), videoDecoder.getName(), null, false,
+                frameWarp ? MoonBridge.frameWarpApi() : 0);
+        if (renderer != null && frameWarp && !renderer.drawsFrameWarp()) {
+            declineFrameWarp(R.string.frame_warp_reason_renderer);
+        }
         if (renderer != null) {
             vulkanHdr10Plus = HdrFormatPolicy.passesHdr10Plus(HdrPolicy.displayHdrTypes(outputDisplay),
                     getStreamTransfer());
@@ -1244,9 +1299,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     private void closeUpscaler() {
         if (upscaler != null) {
+            boolean warp = upscaler.drawsFrameWarp();
             upscaler.close();
             upscaler = null;
-            notifyUpscalingFallback();
+            if (warp) {
+                declineFrameWarp(upscalingPolicy.getReason() == UpscalingPolicy.Reason.HDR ?
+                        R.string.frame_warp_reason_hdr : R.string.frame_warp_reason_renderer);
+            } else {
+                notifyUpscalingFallback();
+            }
         }
     }
 
@@ -1301,8 +1362,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             String explanation = upscalingReason(reason);
             return explanation.isEmpty() ? text : text + '\n' + explanation;
         }
-        boolean active = upscaler != null;
-        String mode = active ? context.getResources().getStringArray(R.array.upscaling_names)[prefs.upscalingMode.ordinal()] :
+        GlesUpscaler presenter = upscaler;
+        boolean active = presenter != null;
+        String mode = active ? (presenter.drawsFrameWarp() ? context.getString(R.string.title_frame_warp) :
+                context.getResources().getStringArray(R.array.upscaling_names)[prefs.upscalingMode.ordinal()]) :
                 context.getString(R.string.upscaling_direct);
         float addedMs = upscalingPolicy == null ? -1 : upscalingPolicy.getAddedMs();
         String text = context.getString(R.string.perf_overlay_upscaling, mode, metric(active ? addedMs : 0, " ms"));
@@ -1392,7 +1455,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         if (current != null && upscalingPolicy.getReason() != UpscalingPolicy.Reason.NONE) {
             videoDecoder.releaseOutputBuffer(index, false);
         } else {
-            videoDecoder.releaseOutputBuffer(index, current == null ? presentationTimeNs : current.releaseFrame(presentationTimeNs));
+            videoDecoder.releaseOutputBuffer(index, current == null ? presentationTimeNs :
+                    current.drawsFrameWarp() ? current.releaseFrame(presentationTimeNs, frameWarpPtsUs(index)) :
+                            current.releaseFrame(presentationTimeNs));
         }
     }
 
@@ -2418,8 +2483,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if (vulkanRenderer == null) {
                 wantVulkan = false;
                 String detail = VulkanRendererBridge.getLastError();
-                notifyVulkanUnused(context.getString(R.string.vulkan_reason_start) +
-                        (detail == null || detail.isEmpty() ? "" : " (" + detail + ")"));
+                if (frameWarp) declineFrameWarp(R.string.frame_warp_reason_renderer);
+                // Frame Warp chooses Vulkan unasked; only a user who asked for it hears it is unused.
+                if (prefs.vulkanRender) {
+                    notifyVulkanUnused(context.getString(R.string.vulkan_reason_start) +
+                            (detail == null || detail.isEmpty() ? "" : " (" + detail + ")"));
+                }
             }
         }
         Surface surface = vulkanRenderer != null ? vulkanRenderer.getDecoderSurface() :
@@ -2857,6 +2926,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             if ((format & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
                 setupUpscaling();
                 result = pyroWaveRenderer.getFormat() == format ? 0 : -1;
+                // Its renderer was made before the stream said it offers Frame Warp
+                if (result == 0 && frameWarp && !pyroWaveRenderer.setFrameWarp(MoonBridge.frameWarpApi())) {
+                    declineFrameWarp(R.string.frame_warp_reason_renderer);
+                }
                 // The surface was made before the ANNOUNCE, as PQ; an HLG stream switches it now.
                 if (result == 0) pyroWaveRenderer.setTransfer(getStreamTransfer() == MediaFormat.COLOR_TRANSFER_HLG);
                 if (result == 0 && currentHdrMode != null) {
@@ -3568,8 +3641,20 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return milliHz >= 1000 ? 1_000_000_000_000L / milliHz : FramePacingPolicy.frameIntervalNs(streamFrameRateMilliHz);
     }
 
+    /** The decoder time of output index, as noteDecoderOutput() kept it for Frame Warp; -1 unknown. */
+    private long frameWarpPtsUs(int index) {
+        long[] pts = frameWarpOutputPtsUs;
+        return index >= 0 && index < pts.length ? pts[index] : -1;
+    }
+
     /** The output at index just left the decoder: its timing, and the climb watch of erratum 23. */
     private void noteDecoderOutput(int index, long ptsUs, long outputNs) {
+        if (frameWarp && index >= 0) {
+            if (index >= frameWarpOutputPtsUs.length) {
+                frameWarpOutputPtsUs = Arrays.copyOf(frameWarpOutputPtsUs, index + 16);
+            }
+            frameWarpOutputPtsUs[index] = ptsUs;
+        }
         frameLatencyStats.onDecoderOutput(index, ptsUs, outputNs);
         KeyframeSafetyNet safetyNet = keyframeSafetyNet;
         if (safetyNet == null) return;
@@ -5039,6 +5124,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         // The queued timestamp comes back on the decoded image, which is how the renderer finds
         // the frame again
+        // Frame Warp finds each picture's frame number by this time, which comes back with it
+        if (frameWarp) MoonBridge.frameWarpNoteFrame(timestampUs, frameNumber);
         VulkanRendererBridge vulkan = vulkanRenderer;
         if (vulkan != null) {
             vulkan.noteFrameReceived(timestampUs, receiveTimeUs, enqueueTimeUs, frameHostProcessingLatency);
@@ -5220,7 +5307,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 FramePacingPolicy.usesPyroWaveDisplayClock(prefs.framePacing, prefs.vrr, outputVsyncAvailable) ?
                         pyroWaveDisplayClock.snapshot() : PyroWaveDisplayClock.Snapshot.UNAVAILABLE;
         long submissionResult = pyroWaveRenderer.submitFrame(decodeUnitData, directInput, decodeUnitLength, ptsUs,
-                presentationTimeUs, displayClock, frameLatencyStats,
+                frameNumber, presentationTimeUs, displayClock, frameLatencyStats,
                 context, prefs.phonePerformanceHints, refreshRate);
         activeWindowVideoStats.decoderTimeMs += pyroWaveSubmissionTiming.addDurationNs(
                 pyroWaveRenderer.getLastSubmissionDurationNs());

@@ -22,9 +22,8 @@ pub(super) const SETTINGS_SECTIONS: [&str; 8] = [en("Video"), en("Display & imag
 /// rows (a page, a test) store nothing and are not listed. A test keeps this equal to what the
 /// page draws.
 pub(super) const SECTION_KEYS: [&[&[&str]]; 8] = [
-    // V13, Frame Warp (`frame_warp`), comes after Less color banding.
     &[&["width", "height"], &["fps"], &["bitrate_kbps"], &["adaptive_bitrate"], &["codec"], &["hdr"],
-        &["prefer_yuv444", "experimental_packed_444"], &["sdr_10bit"], &["adaptive_quality"], &["quality_min_short_edge"], &["quality_min_fps"],
+        &["prefer_yuv444", "experimental_packed_444"], &["sdr_10bit"], &["frame_warp"], &["adaptive_quality"], &["quality_min_short_edge"], &["quality_min_fps"],
         &["hdr_desktop_brightness"]],
     &[&["window_mode"], &["video_scaling"], &["vrr"],
         &["present_at_host_times"], &["frame_pacing"], &["drop_late_frames"], &["vsync"],
@@ -788,7 +787,9 @@ impl Launcher {
             rows.when(!s.hdr);
             setting_row(ui, s, &mut rows, &["sdr_10bit"], "Less color banding", "Streams non-HDR video in 10-bit, so gradients show fewer bands.", |ui, s| toggle(ui, &mut s.sdr_10bit));
             rows.always();
-            // V13: Frame Warp (`frame_warp`) has its row here.
+            setting_row(ui, s, &mut rows, &["frame_warp"], "Frame Warp",
+                "Shifts the picture with your mouse or right stick until the PC’s next frame shows the turn, and keeps the game’s HUD in place. Needs a PC that supports it.",
+                |ui, s| toggle(ui, &mut s.frame_warp));
             setting_row(ui, s, &mut rows, &["adaptive_quality"], "Automatic quality", "Lowers the resolution or frame rate while the PC, network or device can’t keep up.", |ui, s| {
                 Combo::from_id_salt("quality").selected_text(tr(s.adaptive_quality.label())).show_ui(ui, |ui| {
                     for mode in [crate::config::QualityMode::Off, crate::config::QualityMode::Motion, crate::config::QualityMode::Detail, crate::config::QualityMode::Battery] {
@@ -1936,11 +1937,12 @@ pub(super) const MAIN_KEYS: [(&str, &[&str]); 8] = [
 
 /// Every desktop row on both platforms and the Android preference it is: a setting's first key or
 /// an action row's name, then Android's key. A row is main when its match is in `MAIN_KEYS`.
-pub(super) const ANDROID_KEYS: [(&str, &str); 100] = [
+pub(super) const ANDROID_KEYS: [(&str, &str); 101] = [
     // Video
     ("width", "list_resolution"), ("fps", "list_fps"), ("bitrate_kbps", "seekbar_bitrate_kbps"),
     ("adaptive_bitrate", "checkbox_auto_bitrate"), ("mobile_bitrate", "list_mobile_bitrate_kbps"), ("codec", "video_format"),
     ("hdr", "checkbox_enable_hdr"), ("prefer_yuv444", "sharp_color"), ("sdr_10bit", "checkbox_enable_sdr_10bit"),
+    ("frame_warp", "checkbox_frame_warp"),
     ("adaptive_quality", "adaptive_quality_mode"), ("quality_min_short_edge", "adaptive_quality_min_resolution"),
     ("quality_min_fps", "adaptive_quality_min_fps"),
     // Display & image

@@ -46,6 +46,9 @@ pub enum Feature {
     HostTiming,
     WebUi,
     CursorShape,
+    /// Frame Warp (0x5543 to 0x5546): the host learns each game's camera response and tags
+    /// frames, so the client can shift pictures by input still in flight.
+    FrameWarp,
     /// The Rubylight native API (`/api/native/v1`): library, session actions, Radeon state.
     NativeApi,
     /// Sleep PC (`/power-actions/v1`, Vibepollo's wire format): suspend an idle host.
@@ -100,7 +103,7 @@ pub enum Feature {
 }
 
 impl Feature {
-    pub const ALL: [Feature; 46] = [
+    pub const ALL: [Feature; 47] = [
         Feature::Permissions,
         Feature::OtpPairing,
         Feature::Clipboard,
@@ -126,6 +129,7 @@ impl Feature {
         Feature::HostTiming,
         Feature::WebUi,
         Feature::CursorShape,
+        Feature::FrameWarp,
         Feature::NativeApi,
         Feature::Sleep,
         Feature::FileUpload,
@@ -234,6 +238,7 @@ pub struct Evidence {
     pub controller_preparation: bool,
     pub current_game_uuid: bool,
     pub cursor_shape_version: i32,
+    pub frame_warp_version: i32,
     /// -1 when the host has no native API, 0 when it has one but not for this request (plain
     /// HTTP or an unpaired certificate), 1 or more for the highest version it serves.
     pub native_api_version: i32,
@@ -359,6 +364,7 @@ impl Evidence {
             hardware_metrics_version: -1,
             network_path_version: -1,
             cursor_shape_version: -1,
+            frame_warp_version: -1,
             native_api_version: -1,
             power_action_version: -1,
             hdr_formats: -1,
@@ -406,6 +412,7 @@ impl Evidence {
                 "NetworkPathVersion" => e.network_path_version = i32::from(text.trim() == "1"),
                 "ControllerPreparation" => e.controller_preparation = text.trim() == "1",
                 "CursorShapeVersion" => e.cursor_shape_version = unsigned(&text, 0xFFFF) as i32,
+                "FrameWarpVersion" => e.frame_warp_version = unsigned(&text, 0xFFFF) as i32,
                 "HdrFormats" => e.hdr_formats = unsigned(&text, 0xFF) as i32,
                 "FecControlVersion" => e.fec_control_version = unsigned(&text, 0xFFFF) as i32,
                 "BandwidthProbeVersion" => {
@@ -742,6 +749,13 @@ impl Evidence {
             }
             Feature::CursorShape => {
                 if self.cursor_shape_version >= 1 {
+                    Supported
+                } else {
+                    self.absent(false)
+                }
+            }
+            Feature::FrameWarp => {
+                if self.frame_warp_version >= 1 {
                     Supported
                 } else {
                     self.absent(false)

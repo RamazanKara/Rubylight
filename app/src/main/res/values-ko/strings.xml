@@ -2,6 +2,19 @@
 <resources>
     <string name="title_packed_444">전체 크로마</string>
     <string name="summary_packed_444">Rubylight의 전체 크로마 옵션, 새 스트리밍 엔진, 호환되는 HEVC/AV1 하드웨어 디코더가 필요합니다. PC 또는 이 기기가 지원하지 않으면 스트림은 전체 크로마 없이 시작합니다. HDR에는 호환되는 10비트 HDR 디스플레이 서피스도 필요합니다.</string>
+    <string name="title_frame_warp">Frame Warp</string>
+    <string name="summary_frame_warp">PC의 다음 프레임에 회전이 나타날 때까지 마우스나 오른쪽 스틱에 맞춰 화면을 옮기고, 게임 HUD는 제자리에 둡니다. 이를 지원하는 PC와 새 스트리밍 엔진이 필요합니다.</string>
+    <string name="frame_warp_overlay_mouse">Frame Warp: 고정 %1$s px/카운트, 지연 %2$s ms, 이동 %3$s px (최대 %4$s)</string>
+    <string name="frame_warp_overlay_stick">Frame Warp: 고정 %1$s px/초, 지연 %2$s ms, 이동 %3$s px (최대 %4$s)</string>
+    <string name="frame_warp_overlay_learning">Frame Warp: 학습 중</string>
+    <string name="frame_warp_overlay_not_offered">Frame Warp: PC에서 제공하지 않음</string>
+    <string name="frame_warp_overlay_off">Frame Warp: 이 스트림에서 꺼짐</string>
+    <string name="frame_warp_needs_engine">Frame Warp에는 새 스트리밍 엔진이 필요합니다. 이 스트림은 Frame Warp 없이 실행됩니다.</string>
+    <string name="frame_warp_unavailable">이 스트림에서 Frame Warp가 꺼졌습니다: %1$s</string>
+    <string name="frame_warp_reason_hdr">이 기기는 디코더에서 직접 출력할 때만 HDR을 표시합니다</string>
+    <string name="frame_warp_reason_full_chroma">전체 크로마가 켜져 있습니다</string>
+    <string name="frame_warp_reason_renderer">GPU 경로를 시작하지 못했습니다</string>
+    <string name="frame_warp_replaces_upscaling">Frame Warp는 업스케일링 없이 화면을 그립니다.</string>
     <string name="title_experimental_chipset_tuning">칩셋 튜닝</string>
     <string name="summary_experimental_chipset_tuning">MediaTek Dimensity 및 Samsung Exynos 디코더용 추가 저지연 설정입니다.</string>
     <string name="scut_deleted_pc">PC 삭제됨</string>

@@ -87,6 +87,11 @@ final class SettingRules {
         return prefs.getBoolean(PreferenceConfiguration.RUST_ENGINE_PREF_STRING, true);
     }
 
+    /** Only the new streaming engine knows the shift each picture still needs. */
+    static boolean frameWarpApplies(SharedPreferences prefs) {
+        return prefs.getBoolean(PreferenceConfiguration.RUST_ENGINE_PREF_STRING, true);
+    }
+
     /**
      * Whether this device has mobile data, asked per device at runtime. Rows about mobile data show only there,
      * or where a value set earlier still acts, so it can be seen and undone.

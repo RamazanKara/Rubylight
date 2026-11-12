@@ -2,6 +2,19 @@
 <resources>
     <string name="title_packed_444">Tam kroma</string>
     <string name="summary_packed_444">Rubylight’ın tam kroma seçeneği, yeni akış motoru ve uyumlu bir HEVC/AV1 donanım çözücüsü gerekir. Bilgisayar veya bu cihaz desteklemiyorsa akış onsuz başlar. HDR ayrıca uyumlu bir 10 bit HDR görüntüleme yüzeyi gerektirir.</string>
+    <string name="title_frame_warp">Frame Warp</string>
+    <string name="summary_frame_warp">Bilgisayarın sonraki karesi dönüşü gösterene kadar görüntüyü fare veya sağ çubukla kaydırır ve oyunun HUD’unu yerinde bırakır. Bunu destekleyen bir bilgisayar ve yeni akış motoru gerekir.</string>
+    <string name="frame_warp_overlay_mouse">Frame Warp: kilitli %1$s px/sayım, gecikme %2$s ms, kayma %3$s px (en çok %4$s)</string>
+    <string name="frame_warp_overlay_stick">Frame Warp: kilitli %1$s px/sn, gecikme %2$s ms, kayma %3$s px (en çok %4$s)</string>
+    <string name="frame_warp_overlay_learning">Frame Warp: öğreniyor</string>
+    <string name="frame_warp_overlay_not_offered">Frame Warp: bilgisayar sunmuyor</string>
+    <string name="frame_warp_overlay_off">Frame Warp: bu akışta kapalı</string>
+    <string name="frame_warp_needs_engine">Frame Warp yeni akış motorunu gerektirir. Bu akış onsuz çalışıyor.</string>
+    <string name="frame_warp_unavailable">Frame Warp bu akışta kapalı: %1$s</string>
+    <string name="frame_warp_reason_hdr">bu cihaz HDR’yi yalnızca doğrudan çözücüden gösterir</string>
+    <string name="frame_warp_reason_full_chroma">tam kroma açık</string>
+    <string name="frame_warp_reason_renderer">GPU yolu başlamadı</string>
+    <string name="frame_warp_replaces_upscaling">Frame Warp görüntüyü ölçeklendirme olmadan çizer.</string>
     <string name="title_experimental_chipset_tuning">Yonga seti ayarı</string>
     <string name="summary_experimental_chipset_tuning">MediaTek Dimensity ve Samsung Exynos kod çözücüleri için ek düşük gecikme ayarları.</string>
     <string name="scut_deleted_pc">Bilgisayar silindi</string>

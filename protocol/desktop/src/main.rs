@@ -3048,7 +3048,11 @@ Redacted logs, oldest line first; addresses, PC names, PINs and credentials are 
                 streaming.facts.pyrowave_fallback.as_deref(), streaming.facts.format),
             None => (None, false),
         };
-        if notices_changed {
+        let (frame_warp, frame_warp_changed) = match self.hosts.get_mut(streaming.host_id) {
+            Some(host) => stream::frame_warp_notice(&mut host.record, streaming.facts.frame_warp.is_some(), streaming.facts.frame_warp_refused),
+            None => (None, false),
+        };
+        if notices_changed || frame_warp_changed {
             self.save_hosts();
         }
         let hdr_note = std::mem::take(&mut self.hdr_note).then(|| tr(HDR_OFF_NOTE));
@@ -3058,7 +3062,7 @@ Redacted logs, oldest line first; addresses, PC names, PINs and credentials are 
         let decoder_notes: Vec<String> = Vec::new();
         let packed_note = self.packed_note.take();
         let notices: Vec<&str> = hdr_note.into_iter().chain(packed_note.as_deref()).chain(decoder_notes.iter().map(String::as_str)).chain(pyrowave.as_deref())
-            .chain(streaming.facts.codec_fallback.as_deref()).chain(streaming.facts.color_notice.as_deref()).collect();
+            .chain(streaming.facts.codec_fallback.as_deref()).chain(streaming.facts.color_notice.as_deref()).chain(frame_warp.as_deref()).collect();
         let notices = notices.join("\n");
         let network = &self.launcher.network;
         let profiles = &self.launcher.profiles;
@@ -4172,7 +4176,7 @@ fn input_only_settings(settings: &mut config::Settings) {
     settings.hdr = false;
     settings.experimental_packed_444 = false;
     (settings.prefer_yuv444, settings.sdr_10bit) = (false, false);
-    settings.upscaling = config::Upscaling::Bilinear;
+    (settings.upscaling, settings.frame_warp) = (config::Upscaling::Bilinear, false);
     settings.codec = config::CodecPreference::H264;
     settings.width = 1280;
     settings.height = 720;
@@ -4186,7 +4190,7 @@ fn small_stream(settings: &mut config::Settings) {
     (settings.virtual_display, settings.vrr, settings.play_audio_on_host) = (false, false, true);
     // Nothing is shown, so nothing is offered beyond plain 4:2:0 or said about it, or scaled.
     (settings.prefer_yuv444, settings.sdr_10bit) = (false, false);
-    settings.upscaling = config::Upscaling::Bilinear;
+    (settings.upscaling, settings.frame_warp) = (config::Upscaling::Bilinear, false);
 }
 
 /// `probe`'s answer for `hardware`, from `cache` when it was the last decoder checked.
@@ -4698,9 +4702,11 @@ mod tests {
         settings.prefer_yuv444 = true;
         settings.sdr_10bit = true;
         settings.upscaling = config::Upscaling::Fsr1;
+        settings.frame_warp = true;
         super::small_stream(&mut settings);
         assert!(!settings.prefer_yuv444 && !settings.sdr_10bit, "a stream nobody sees offers no 4:4:4 or 10-bit");
         assert_eq!(settings.upscaling, config::Upscaling::Bilinear, "nor upscaling");
+        assert!(!settings.frame_warp, "nor Frame Warp");
         assert_eq!((settings.width, settings.height, settings.fps, settings.bitrate_kbps), (640, 360, 30, 500));
         assert_eq!(settings.audio, config::AudioChannels::Stereo);
         assert!(!settings.virtual_display && !settings.vrr && settings.play_audio_on_host, "the PC's display and speakers stay as they are");
@@ -4711,10 +4717,11 @@ mod tests {
     #[test]
     fn a_session_nobody_sees_needs_no_gpu_renderer() {
         let mut settings = config::Settings { hdr: true, prefer_yuv444: true, sdr_10bit: true, experimental_packed_444: true,
-            upscaling: config::Upscaling::Fsr1, codec: config::CodecPreference::PyroWave, ..Default::default() };
+            upscaling: config::Upscaling::Fsr1, codec: config::CodecPreference::PyroWave, frame_warp: true, ..Default::default() };
         assert!(settings.needs_gpu());
         super::input_only_settings(&mut settings);
         assert_eq!(settings.gpu_need(), None);
+        assert!(!settings.frame_warp, "no picture to shift");
         assert_eq!((settings.codec, settings.width, settings.height, settings.fps), (config::CodecPreference::H264, 1280, 720, 60));
     }
 

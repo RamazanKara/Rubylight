@@ -199,6 +199,8 @@ struct Constants {
     tonemap: [f32; 2],
     /// The HLG display's peak in nits and system gamma.
     hlg: [f32; 2],
+    /// Frame Warp's row (`WarpDraw::row`).
+    warp: [f32; 4],
 }
 
 fn flags(picture: &Picture, output: &Output, tonemap: bool) -> u32 {
@@ -230,6 +232,8 @@ pub struct Direct {
     /// let go before SDL resizes the buffers (a size change, or a frame the pass does not draw):
     /// ResizeBuffers fails while a buffer is still referenced.
     back_buffer: Option<(usize, (i32, i32), ID3D11RenderTargetView)>,
+    /// Frame Warp's HUD mask (`t2`).
+    mask: super::frame_warp::D3d11Mask,
 }
 
 impl Direct {
@@ -290,6 +294,7 @@ impl Direct {
             tracker: PeakTracker::default(),
             source: None,
             back_buffer: None,
+            mask: Default::default(),
         })
     }
 
@@ -376,6 +381,16 @@ impl Direct {
     /// The picture texture and the target must belong to this pass's device, on this thread.
     pub unsafe fn draw(&mut self, target: &ID3D11RenderTargetView, viewport: [f32; 4], picture: &Picture,
         output: Output, tone: Tone, lock: impl FnOnce(&mut dyn FnMut())) -> Result<(), String> {
+        self.draw_warped(target, viewport, picture, output, tone, &super::frame_warp::WarpDraw::default(), lock)
+    }
+
+    /// `draw` with the picture shifted by Frame Warp's `warp`.
+    ///
+    /// # Safety
+    /// As `draw`.
+    #[allow(clippy::too_many_arguments)] // `draw`'s arguments plus the warp
+    unsafe fn draw_warped(&mut self, target: &ID3D11RenderTargetView, viewport: [f32; 4], picture: &Picture,
+        output: Output, tone: Tone, warp: &super::frame_warp::WarpDraw, lock: impl FnOnce(&mut dyn FnMut())) -> Result<(), String> {
         let planes = self.views(picture)?;
         let mut desc = D3D11_TEXTURE2D_DESC::default();
         ID3D11Texture2D::from_raw_borrowed(&picture.texture).ok_or("no picture texture")?.GetDesc(&mut desc);
@@ -398,6 +413,7 @@ impl Direct {
             self.source = Some(source);
         }
         let factors = peak.and_then(|peak| tonemap_factors(peak, white, output.headroom));
+        let mask = self.mask.view(&self.device, warp);
         let constants = Constants {
             picture: [picture.size.0 as f32, picture.size.1 as f32],
             texture: [texture_size.0 as f32, texture_size.1 as f32],
@@ -407,6 +423,7 @@ impl Direct {
             color_scale: output.color_scale,
             tonemap: factors.map_or([0.0; 2], |(a, b)| [a, b]),
             hlg: [hlg.peak, hlg.gamma],
+            warp: warp.row(mask.is_some()),
         };
         let c = &self.deferred;
         c.ClearState();
@@ -433,6 +450,7 @@ impl Direct {
         c.VSSetConstantBuffers(0, Some(&self.constants));
         c.PSSetShader(&self.pixel, None);
         c.PSSetShaderResources(0, Some(&planes));
+        if mask.is_some() { c.PSSetShaderResources(2, Some(&[mask])); }
         c.PSSetSamplers(0, Some(&self.sampler));
         c.PSSetConstantBuffers(0, Some(&self.constants));
         c.Draw(3, 0);
@@ -450,7 +468,7 @@ impl Direct {
     /// # Safety
     /// `renderer` is the live D3D11 renderer of this thread, whose device made this pass.
     pub unsafe fn present(&mut self, renderer: *mut sdl3_sys::everything::SDL_Renderer, destination: &sdl3_sys::everything::SDL_FRect,
-        picture: &Picture, tone: Tone, lock: impl FnOnce(&mut dyn FnMut())) -> Result<(), String> {
+        picture: &Picture, tone: Tone, warp: &super::frame_warp::WarpDraw, lock: impl FnOnce(&mut dyn FnMut())) -> Result<(), String> {
         use sdl3_sys::everything::*;
         let properties = SDL_GetRendererProperties(renderer);
         let swapchain_raw = SDL_GetPointerProperty(properties, SDL_PROP_RENDERER_D3D11_SWAPCHAIN_POINTER, std::ptr::null_mut());
@@ -478,13 +496,25 @@ impl Direct {
             headroom: SDL_GetFloatProperty(properties, SDL_PROP_RENDERER_HDR_HEADROOM_FLOAT, 1.0),
         };
         let viewport = [destination.x, destination.y, destination.w, destination.h];
-        self.draw(&target, viewport, picture, output, tone, lock)
+        self.draw_warped(&target, viewport, picture, output, tone, warp, lock)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The constants fill the shader's `Draw` block, Frame Warp's row last.
+    #[test]
+    fn the_constants_end_with_frame_warps_row() {
+        assert_eq!(std::mem::size_of::<Constants>(), 64);
+        assert_eq!(std::mem::offset_of!(Constants, warp), 48);
+        let shader = include_str!("../direct.hlsl");
+        let gamma = shader.find("float hlgGamma;").expect("the HLG row");
+        let warp = shader.find("float4 warp;").expect("the warp row");
+        assert!(gamma < warp && !shader[gamma + "float hlgGamma;".len()..warp].contains(';'), "the warp row follows the HLG row");
+        assert!(shader.contains("Texture2D<float> hudMask : register(t2);"));
+    }
 
     #[test]
     fn the_switches_follow_v_plus() {

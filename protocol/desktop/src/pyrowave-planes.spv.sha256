@@ -3,5 +3,5 @@
 # docs/pyrowave-decode.md ("Shader module"). Regenerate the module after any change to the
 # shader and put both SHA-256s here (the shader's with LF line endings): a unit test
 # (`pyrowave_gpu::tests::the_planes_module_was_built_from_the_shader_as_it_is`) compares them.
-pyrowave.hlsl a3cc3dadd758eb2f9155e1cfa686821a6be83d6d047c64da40b6d85c9c61e704
-pyrowave-planes.spv 0156534f2ac201feef77fc3922424748a03ead8d91a9fc49afba7ec309e03e15
+pyrowave.hlsl f8e74a501a6c64af83081bb22b06d885a8e2d791038c4decd8006f309a6b546e
+pyrowave-planes.spv 1d5dd983e6043d008f345b0d068a6778a972aea1f5a9019f4660a0bec22efe6c

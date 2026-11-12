@@ -61,6 +61,8 @@ pub struct Constants {
     pub tonemap: [f32; 2],
     /// Bit 0: the output is sRGB, not scRGB.
     pub flags: u32,
+    /// Frame Warp's row (`WarpDraw::row`); all zero draws the picture where it is.
+    pub warp: [f32; 4],
 }
 
 /// What SDL's draw of the RGBA64F linear picture texture into the back buffer does to it: its
@@ -113,6 +115,7 @@ pub fn constants(destination: &SDL_FRect, visible: (i32, i32), look: Look) -> Co
         output_scale: look.sdr_white * look.color_scale,
         tonemap: [tonemap1, tonemap2],
         flags: u32::from(!look.linear_output),
+        warp: [0.0; 4],
     }
 }
 
@@ -124,15 +127,21 @@ mod tests {
 
     #[test]
     fn the_constants_fill_the_shaders_cbuffer_exactly() {
-        // Three float4 rows: destination, picture, then the scale, the two tone map factors and the flags.
-        assert_eq!(std::mem::size_of::<Constants>(), 48);
+        // Four float4 rows: destination, picture, then the scale, the two tone map factors and the
+        // flags, then Frame Warp's row.
+        assert_eq!(std::mem::size_of::<Constants>(), 64);
         assert_eq!(std::mem::offset_of!(Constants, picture), 16);
         assert_eq!(std::mem::offset_of!(Constants, output_scale), 32);
         assert_eq!(std::mem::offset_of!(Constants, tonemap), 36);
         assert_eq!(std::mem::offset_of!(Constants, flags), 44);
+        assert_eq!(std::mem::offset_of!(Constants, warp), 48);
         let shader = include_str!("../planes_direct.hlsl");
         assert!(shader.contains("float outputScale; float tonemap1; float tonemap2;"), "the shader's row 3 is scale, tonemap1, tonemap2, flags");
-        assert!(shader.contains("uint directFlags;"));
+        let flags = shader.find("uint directFlags;").expect("the flags");
+        let warp = shader.find("float4 warp;").expect("the warp row");
+        assert!(flags < warp && !shader[flags + "uint directFlags;".len()..warp].contains(';'), "the warp row follows the flags");
+        assert!(shader.contains("Texture2D<float> hudMask : register(t6);"));
+        assert_eq!(constants(&SDL_FRect { x: 0.0, y: 0.0, w: 8.0, h: 8.0 }, (8, 8), SDR).warp, [0.0; 4], "no shift unless Frame Warp sets one");
     }
 
     #[test]

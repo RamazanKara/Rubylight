@@ -197,6 +197,8 @@ pub fn start(bridge: &'static Bridge, params: StartParams) -> i32 {
     ENGINE.host_packed444_modes.store(-1, Ordering::SeqCst);
     ENGINE.announced_hdr_format.store(0, Ordering::SeqCst);
     *lock(&ENGINE.clipboard) = None;
+    // Before the session starts: the renderers ask for it as the video starts.
+    crate::frame_warp::begin(params.config.frame_warp.clone());
 
     let microphone_requested = params.config.stream.microphone;
     let audio_passthrough = params.config.stream.audio_passthrough;
@@ -225,6 +227,7 @@ pub fn start(bridge: &'static Bridge, params: StartParams) -> i32 {
         Err(error) => {
             platform::error(&format!("Stream start failed: {error}"));
             set_host_messages(&[]);
+            crate::frame_warp::end();
             bridge.with_env(|env| {
                 let message = env.new_string(format!("Stream start failed: {error}"))?;
                 bridge.void(
@@ -279,6 +282,7 @@ pub fn start(bridge: &'static Bridge, params: StartParams) -> i32 {
     let id = ENGINE.sessions.fetch_add(1, Ordering::SeqCst) + 1;
     *lock(&ENGINE.video_gauges) = session.video_gauges();
     *lock(&ENGINE.session) = Some((id, session));
+    crate::frame_warp::after_start();
     if events.started.load(Ordering::SeqCst) {
         bridge.post(bridge.m.connection_started, &[]);
     }
@@ -291,6 +295,7 @@ pub fn stop() {
     *lock(&ENGINE.video_gauges) = None;
     *lock(&ENGINE.clipboard) = None;
     set_host_messages(&[]);
+    crate::frame_warp::end();
     ENGINE.host_packed444_modes.store(-1, Ordering::SeqCst);
     ENGINE.announced_hdr_format.store(0, Ordering::SeqCst);
     if let Some(microphone) = lock(&ENGINE.microphone).take() {
@@ -592,12 +597,18 @@ pub fn clock_sync(reply: &ClockSyncReply, received_us: u64) {
     }
 }
 
+/// The tests that share the engine's global state (here and in `frame_warp`) run one at a time.
+#[cfg(test)]
+static ENGINE_TESTS: Mutex<()> = Mutex::new(());
+
+#[cfg(test)]
+pub(crate) fn tests_serial() -> MutexGuard<'static, ()> {
+    lock(&ENGINE_TESTS)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The tests below share the engine's global state.
-    static ENGINE_TESTS: Mutex<()> = Mutex::new(());
 
     #[test]
     fn an_interrupted_start_leaves_no_host_messages_behind() {

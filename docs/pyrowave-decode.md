@@ -292,7 +292,9 @@ decode:
 - **Shader module.** `pyrowave-planes.spv` is glslang's output (dxc is not used here):
   `glslangValidator -V -D -e planes -S frag --auto-sampled-textures --target-env vulkan1.0
   protocol/desktop/src/pyrowave.hlsl -o protocol/desktop/src/pyrowave-planes.spv`. `-V` defines
-  `VULKAN`, which selects the sampler slots t0 to t2 in `space2` that SDL's fragment shaders use.
+  `VULKAN`, which selects the sampler slots t0 to t3 in `space2` that SDL's fragment shaders use
+  (t3 is Frame Warp's HUD mask, a fixed 256 by 2048 texture uploaded when the mask changes), and
+  the uniform block ends with Frame Warp's `float4 warp` row (all zero draws unshifted).
   Check the result with `spirv-val`. glslang 16.3.0 (MSYS2's; Ubuntu's `glslang-tools` 15.1.0 gave the
   same module before flag 4096) reproduces the committed module byte for byte; flag 8192 (the
   gamma 2.2 encode for a compositor's blending space, `stream/wl_scanout.rs`) was built with it. `pyrowave-planes.spv.sha256` beside it records the SHA-256 of

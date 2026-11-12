@@ -8,23 +8,29 @@
 //! Video is decoded with libavcodec and audio with libopus (the `ffmpeg` feature), as the C
 //! client does, and every decoded picture is checked: size, luma detail, HDR format and the
 //! motion probe's barcode. PyroWave is not supported.
+//!
+//! Beyond that client, for the host's input and Frame Warp tests: `NIGHTJAR_CLI_MOUSE_HZ` (a
+//! one-count mouse jitter), `NIGHTJAR_CLI_LOOK` (a mouse-look pattern, `LookPattern`) and
+//! `NIGHTJAR_CLI_FRAME_WARP` (a CSV of the shift Frame Warp gives each picture, `WarpLog`).
 
 mod decode;
 mod report;
 
 use std::fs::File;
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::net::IpAddr;
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use nightjar_core::control::{ClientMessage, ControlEvent, HdrMetadata};
+use nightjar_core::frame_warp::FrameWarp;
+use nightjar_core::input::InputError;
 use nightjar_core::roaming::RoamEvent;
 use nightjar_core::sdp::*;
 use nightjar_core::session::{
-    self, AudioRenderer, AudioSetup, DecodeStatus, HostInfo, Interrupt, Listener, Location,
-    Session, SessionConfig, Stage, VideoDecoder, VideoSetup,
+    self, AudioRenderer, AudioSetup, DecodeStatus, HostInfo, InputHandle, Interrupt, Listener,
+    Location, Session, SessionConfig, Stage, VideoDecoder, VideoSetup,
 };
 use nightjar_core::timing_record as record;
 use nightjar_core::video::Frame;
@@ -100,6 +106,17 @@ mod clock {
         unsafe { QueryPerformanceCounter(&mut n) };
         n as f64 * 1000.0 / frequency()
     }
+
+    /// Whole microseconds on the same counter, converted as the probes convert theirs.
+    pub fn us() -> i64 {
+        let (mut n, mut f) = (0i64, 0i64);
+        // SAFETY: valid out pointers.
+        unsafe {
+            QueryPerformanceCounter(&mut n);
+            QueryPerformanceFrequency(&mut f);
+        }
+        (i128::from(n) * 1_000_000 / i128::from(f.max(1))) as i64
+    }
 }
 
 #[cfg(not(windows))]
@@ -111,6 +128,10 @@ mod clock {
             .elapsed()
             .as_secs_f64()
             * 1000.0
+    }
+
+    pub fn us() -> i64 {
+        (ms() * 1000.0) as i64
     }
 }
 
@@ -129,6 +150,7 @@ struct Counters {
     hdr_control_mismatches: AtomicI32,
     hdr_invalid_metadata: AtomicI32,
     roamed: AtomicI32,
+    frame_warp_rows: AtomicU64,
 }
 
 impl Counters {
@@ -183,11 +205,198 @@ fn picture_age(host: Option<&str>, ticks: u64) -> Option<f64> {
     None
 }
 
+/// The relative mouse counts this client has handed to the input queue, x and y packed in one
+/// atomic so a reader never sees one axis moved without the other.
+#[derive(Default)]
+struct SentMouse(AtomicU64);
+
+impl SentMouse {
+    fn get(&self) -> (i32, i32) {
+        let packed = self.0.load(Ordering::SeqCst);
+        (packed as u32 as i32, (packed >> 32) as u32 as i32)
+    }
+
+    /// Adds a move to the counts. One thread sends at a time.
+    fn add(&self, dx: i16, dy: i16) {
+        let (x, y) = self.get();
+        let x = x.wrapping_add(i32::from(dx)) as u32;
+        let y = y.wrapping_add(i32::from(dy)) as u32;
+        self.0
+            .store(u64::from(x) | (u64::from(y) << 32), Ordering::SeqCst);
+    }
+
+    /// Queues a relative move and counts it while the queue is held, so the count is what the
+    /// queue was handed. A full queue still keeps the move in its pending batch (it adds the
+    /// move before offering the flush), so only a stopped one counts nothing.
+    fn send(&self, input: &InputHandle, dx: i16, dy: i16) {
+        input.input(|q| {
+            if q.send_mouse_move(dx, dy) != Err(InputError::Stopped) {
+                self.add(dx, dy);
+            }
+        });
+    }
+}
+
+/// `NIGHTJAR_CLI_FRAME_WARP`'s CSV header: a row per decoded picture.
+const FRAME_WARP_HEADER: &str = "wire_frame,barcode_seq,decode_qpc_us,sent_x,sent_y,active,shift_x,shift_y,locked,mouse_gain_x,mouse_gain_y,lag_ms";
+
+/// `NIGHTJAR_CLI_FRAME_WARP`: the shift Frame Warp gives each decoded picture as if it were
+/// drawn at once, with what this client had sent when it asked. `wire_frame` is the picture's
+/// frame number (the host's, as the timing CSV's), `barcode_seq` the motion or look probe's
+/// sequence (0 without one), `decode_qpc_us` the performance counter in microseconds,
+/// `sent_x`/`sent_y` the counts handed to the input queue so far (`SentMouse`), `shift_x`/
+/// `shift_y` picture pixels, `locked` the host's model present with its mouse fit locked, and
+/// the model's mouse gain and lag empty until it has sent one.
+struct WarpLog {
+    warp: Arc<FrameWarp>,
+    sent: Arc<SentMouse>,
+    csv: BufWriter<File>,
+}
+
+impl WarpLog {
+    fn row(&mut self, frame: u32, sequence: u32) -> std::io::Result<()> {
+        let (sent_x, sent_y) = self.sent.get();
+        let warp = self.warp.warp(frame);
+        let decode_us = clock::us();
+        let model = self.warp.status().model;
+        let locked = model.is_some_and(|m| m.mouse_locked);
+        let (gain_x, gain_y, lag_ms) = match model {
+            Some(m) => (
+                format!("{:.6}", m.mouse_gain[0]),
+                format!("{:.6}", m.mouse_gain[1]),
+                format!("{:.3}", f64::from(m.lag_us) / 1000.0),
+            ),
+            None => Default::default(),
+        };
+        writeln!(
+            self.csv,
+            "{frame},{sequence},{decode_us},{sent_x},{sent_y},{},{:.3},{:.3},{},{gain_x},{gain_y},{lag_ms}",
+            u8::from(warp.active),
+            warp.pixels[0],
+            warp.pixels[1],
+            u8::from(locked)
+        )
+    }
+}
+
+/// How often `NIGHTJAR_CLI_LOOK` sends.
+const LOOK_STEP: Duration = Duration::from_millis(4);
+/// A look segment's x velocities, counts per second.
+const LOOK_X_SPEEDS: [i32; 9] = [-2400, -1500, -800, -300, 0, 300, 800, 1500, 2400];
+/// A look segment's largest y speed, counts per second.
+const LOOK_Y_SPEED: u64 = 300;
+/// How far the cumulative y may go from 0, counts.
+const LOOK_Y_LIMIT: f64 = 250.0;
+
+/// `NIGHTJAR_CLI_LOOK=<seed>`'s mouse-look pattern: segments of 250 to 1200 ms, each at an x
+/// velocity from [`LOOK_X_SPEEDS`] and a y velocity of 0 to ±300 counts/s, every fourth (the
+/// 4th, 8th, ...) a pause, drawn by xorshift from the seed. A segment starting at ±250 counts
+/// of y or past them turns y back toward 0, and none goes past them. The counts sent are the
+/// exact position rounded less what was sent before, so fractions carry over and the sums
+/// track the velocities exactly however late a step comes.
+#[derive(Debug)]
+struct LookPattern {
+    rng: u64,
+    /// Segments begun.
+    segments: u64,
+    start_us: u64,
+    end_us: u64,
+    /// Counts per second.
+    velocity: (f64, f64),
+    /// The position at the segment's start.
+    origin: (f64, f64),
+    sent: (i64, i64),
+}
+
+impl LookPattern {
+    fn new(seed: u64) -> Self {
+        // xorshift never leaves 0.
+        let rng = match seed ^ 0x9E37_79B9_7F4A_7C15 {
+            0 => 1,
+            rng => rng,
+        };
+        let mut pattern = Self {
+            rng,
+            segments: 0,
+            start_us: 0,
+            end_us: 0,
+            velocity: (0.0, 0.0),
+            origin: (0.0, 0.0),
+            sent: (0, 0),
+        };
+        pattern.begin();
+        pattern
+    }
+
+    /// xorshift64.
+    fn random(&mut self) -> u64 {
+        let mut x = self.rng;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.rng = x;
+        x
+    }
+
+    /// The exact position at `at_us` on the current segment.
+    fn position(&self, at_us: u64) -> (f64, f64) {
+        let seconds = at_us.saturating_sub(self.start_us) as f64 / 1e6;
+        (
+            self.origin.0 + self.velocity.0 * seconds,
+            self.origin.1 + self.velocity.1 * seconds,
+        )
+    }
+
+    /// Ends the current segment and begins the next where it ends.
+    fn begin(&mut self) {
+        let start_us = self.end_us;
+        let origin = self.position(start_us);
+        let duration_us = (250 + self.random() % 951) * 1000;
+        let x = LOOK_X_SPEEDS[(self.random() % LOOK_X_SPEEDS.len() as u64) as usize];
+        let speed = (self.random() % (LOOK_Y_SPEED + 1)) as f64;
+        let mut y = if self.random() & 1 == 0 {
+            speed
+        } else {
+            -speed
+        };
+        if origin.1.abs() >= LOOK_Y_LIMIT - 0.5 {
+            y = -origin.1.signum() * speed;
+        }
+        let seconds = duration_us as f64 / 1e6;
+        let end_y = (origin.1 + y * seconds).clamp(-LOOK_Y_LIMIT, LOOK_Y_LIMIT);
+        self.velocity = if self.segments % 4 == 3 {
+            (0.0, 0.0)
+        } else {
+            (f64::from(x), (end_y - origin.1) / seconds)
+        };
+        self.origin = origin;
+        self.start_us = start_us;
+        self.end_us = start_us + duration_us;
+        self.segments += 1;
+    }
+
+    /// The counts to send at `at_us`, microseconds from the pattern's start (never going back).
+    fn step(&mut self, at_us: u64) -> (i16, i16) {
+        while at_us >= self.end_us {
+            self.begin();
+        }
+        let (x, y) = self.position(at_us);
+        let take = |target: f64, sent: &mut i64| {
+            let delta =
+                (target.round() as i64 - *sent).clamp(i64::from(i16::MIN), i64::from(i16::MAX));
+            *sent += delta;
+            delta as i16
+        };
+        (take(x, &mut self.sent.0), take(y, &mut self.sent.1))
+    }
+}
+
 struct Decoder {
     state: Arc<State>,
     decoder: Option<decode::VideoDecoder>,
     timing_csv: Option<File>,
     bitstream: Option<File>,
+    frame_warp: Option<WarpLog>,
 }
 
 impl Decoder {
@@ -396,6 +605,19 @@ impl VideoDecoder for Decoder {
                 c.fail();
             } else {
                 (sequence, ticks, age) = self.check_picture();
+                // The picture's own frame number, which the decoder carries as its timestamp.
+                let picture = self
+                    .decoder
+                    .as_ref()
+                    .and_then(|d| u32::try_from(d.pts()).ok())
+                    .unwrap_or(frame.number);
+                if let Some(log) = &mut self.frame_warp {
+                    if log.row(picture, sequence).is_ok() {
+                        c.frame_warp_rows.fetch_add(1, Ordering::SeqCst);
+                    } else {
+                        c.fail();
+                    }
+                }
             }
             received = self.decoder.as_mut().expect("open decoder").receive();
         }
@@ -471,6 +693,11 @@ impl VideoDecoder for Decoder {
                 }
             }
             let _ = csv.flush();
+        }
+        if let Some(log) = &mut self.frame_warp {
+            if log.csv.flush().is_err() {
+                self.state.counters.fail();
+            }
         }
     }
 }
@@ -856,6 +1083,31 @@ fn run() -> i32 {
             Err(e) => usage_error(&format!("audio CSV: {e}")),
         },
     };
+    // NIGHTJAR_CLI_FRAME_WARP=<csv>: ask the host for Frame Warp and log each picture's shift.
+    let frame_warp_csv = match env("NIGHTJAR_CLI_FRAME_WARP") {
+        None => None,
+        Some(path) => match File::create(&path) {
+            Ok(file) => {
+                let mut csv = BufWriter::new(file);
+                if let Err(e) = writeln!(csv, "{FRAME_WARP_HEADER}") {
+                    usage_error(&format!("Frame Warp CSV: {e}"));
+                }
+                Some(csv)
+            }
+            Err(e) => usage_error(&format!("Frame Warp CSV: {e}")),
+        },
+    };
+    let frame_warp = frame_warp_csv.as_ref().map(|_| FrameWarp::new(None, 256));
+    // NIGHTJAR_CLI_LOOK=<seed>: the mouse-look pattern, in place of NIGHTJAR_CLI_MOUSE_HZ.
+    let look_seed = env("NIGHTJAR_CLI_LOOK").map(|seed| {
+        if env("NIGHTJAR_CLI_MOUSE_HZ").is_some() {
+            usage_error("NIGHTJAR_CLI_LOOK and NIGHTJAR_CLI_MOUSE_HZ cannot be used together");
+        }
+        seed.trim().parse::<u64>().unwrap_or_else(|_| {
+            usage_error("NIGHTJAR_CLI_LOOK must be a whole number, the pattern's seed")
+        })
+    });
+    let sent = Arc::new(SentMouse::default());
     if let Some(v) = arg(3) {
         stream.width = atoi(v) as i32;
     }
@@ -974,6 +1226,7 @@ fn run() -> i32 {
             stream,
             location: Location::Local,
             receive_decode_priority: true,
+            frame_warp: frame_warp.clone(),
             ..Default::default()
         },
         Box::new(Decoder {
@@ -981,6 +1234,14 @@ fn run() -> i32 {
             decoder: None,
             timing_csv,
             bitstream: None,
+            frame_warp: frame_warp
+                .clone()
+                .zip(frame_warp_csv)
+                .map(|(warp, csv)| WarpLog {
+                    warp,
+                    sent: sent.clone(),
+                    csv,
+                }),
         }),
         Box::new(Audio {
             state: state.clone(),
@@ -1036,18 +1297,48 @@ fn run() -> i32 {
         .and_then(|hz| hz.parse::<f64>().ok())
         .filter(|hz| *hz > 0.0 && *hz <= 2000.0)
         .map(|hz| {
-            let (input, stop) = (session.input_handle(), mouse_stop.clone());
+            let (input, stop, sent) = (session.input_handle(), mouse_stop.clone(), sent.clone());
             println!("MOUSE moves at {hz} Hz");
             std::thread::spawn(move || {
                 let period = Duration::from_secs_f64(1.0 / hz);
                 let mut step = 1i16;
                 while !stop.load(Ordering::Relaxed) {
-                    let _ = input.input(|q| q.send_mouse_move(step, 0));
+                    sent.send(&input, step, 0);
                     step = -step;
                     std::thread::sleep(period);
                 }
             })
         });
+    // NIGHTJAR_CLI_LOOK: the look pattern every 4 ms, from the first decoded picture on (the
+    // stream runs and the host counts what arrives), its time counted from then.
+    let look = look_seed.map(|seed| {
+        let (input, stop, sent) = (session.input_handle(), mouse_stop.clone(), sent.clone());
+        let state = state.clone();
+        println!(
+            "MOUSE look pattern seed={seed} every {} ms from the first decoded picture",
+            LOOK_STEP.as_millis()
+        );
+        std::thread::spawn(move || {
+            while state.counters.decoded_frames.load(Ordering::SeqCst) == 0 {
+                if stop.load(Ordering::Relaxed) {
+                    return;
+                }
+                std::thread::sleep(LOOK_STEP);
+            }
+            let mut pattern = LookPattern::new(seed);
+            let start = Instant::now();
+            let mut due = start;
+            while !stop.load(Ordering::Relaxed) {
+                let (dx, dy) = pattern.step(start.elapsed().as_micros() as u64);
+                if dx != 0 || dy != 0 {
+                    sent.send(&input, dx, dy);
+                }
+                // A late step catches up in counts, not in extra steps.
+                due = (due + LOOK_STEP).max(Instant::now());
+                std::thread::sleep(due.saturating_duration_since(Instant::now()));
+            }
+        })
+    });
     let mut last_clock_probe_us = 0u64;
     let started = clock::ms();
     let probe_started = session::now_us();
@@ -1092,6 +1383,9 @@ fn run() -> i32 {
     mouse_stop.store(true, Ordering::Relaxed);
     if let Some(mouse) = mouse {
         let _ = mouse.join();
+    }
+    if let Some(look) = look {
+        let _ = look.join();
     }
     let seconds = (clock::ms() - started) / 1000.0;
     let premature =
@@ -1141,6 +1435,28 @@ fn run() -> i32 {
             eprintln!("The simulated roam did not complete");
             c.fail();
         }
+    }
+    if let Some(warp) = &frame_warp {
+        let status = warp.status();
+        let model = match status.model {
+            None => "none".to_owned(),
+            Some(m) => format!(
+                "{} mouse_gain={:.6},{:.6} lag_ms={:.3}",
+                if m.mouse_locked { "locked" } else { "unlocked" },
+                m.mouse_gain[0],
+                m.mouse_gain[1],
+                f64::from(m.lag_us) / 1000.0
+            ),
+        };
+        let (sent_x, sent_y) = sent.get();
+        let _ = writeln!(
+            out,
+            "FRAME_WARP rows={} warped={} extrapolated={} untagged={} sent={sent_x},{sent_y} model={model}",
+            c.frame_warp_rows.load(Ordering::SeqCst),
+            status.warped,
+            status.extrapolated,
+            status.untagged
+        );
     }
     let frames = c.frames.load(Ordering::SeqCst);
     let decoded = c.decoded_frames.load(Ordering::SeqCst);
@@ -1330,5 +1646,93 @@ mod tests {
             link_notice_line(&full),
             "LINK_NOTICE {\"state\":\"full\",\"reason\":\"none\",\"ceiling_kbps\":150000,\"current_kbps\":150000}"
         );
+    }
+
+    #[test]
+    fn sent_counts_keep_both_signed_axes() {
+        let sent = SentMouse::default();
+        assert_eq!(sent.get(), (0, 0));
+        sent.add(-5, 7);
+        sent.add(2, -20);
+        assert_eq!(sent.get(), (-3, -13));
+        sent.add(i16::MAX, i16::MIN);
+        assert_eq!(sent.get(), (32764, -32781));
+    }
+
+    #[test]
+    fn the_look_pattern_follows_its_segments_exactly_and_keeps_y_bounded() {
+        let mut pattern = LookPattern::new(7);
+        let mut sums = (0i64, 0i64);
+        // (segments begun, start, end, origin, velocity) of each segment as stepped.
+        type Segment = (u64, u64, u64, (f64, f64), (f64, f64));
+        let mut segments: Vec<Segment> = Vec::new();
+        let (mut at, mut last, mut noise) = (0u64, 0u64, 1u64);
+        while at < 600_000_000 {
+            let (dx, dy) = pattern.step(at);
+            sums.0 += i64::from(dx);
+            sums.1 += i64::from(dy);
+            assert_eq!(sums, pattern.sent);
+            assert!(sums.1.abs() <= 250, "y {} at {at}", sums.1);
+            if segments.last().map_or(true, |s| s.0 != pattern.segments) {
+                segments.push((
+                    pattern.segments,
+                    pattern.start_us,
+                    pattern.end_us,
+                    pattern.origin,
+                    pattern.velocity,
+                ));
+            }
+            // Steps 1 to 12 ms apart, as a late or early sleep leaves them.
+            noise = noise
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            last = at;
+            at += 1_000 + (noise >> 33) % 11_000;
+        }
+        // The counts sent are the exact position, rounded: fractions carried over.
+        let (x, y) = pattern.position(last);
+        assert_eq!(sums, (x.round() as i64, y.round() as i64));
+        assert!(segments.len() > 400, "{}", segments.len());
+        let mut speeds = std::collections::BTreeSet::new();
+        for (i, &(begun, start, end, origin, velocity)) in segments.iter().enumerate() {
+            assert_eq!(begun, i as u64 + 1);
+            assert!(
+                (250_000..=1_200_000).contains(&(end - start)),
+                "{}",
+                end - start
+            );
+            if i > 0 {
+                assert_eq!(start, segments[i - 1].2);
+            }
+            if i % 4 == 3 {
+                assert_eq!(velocity, (0.0, 0.0), "segment {i} pauses");
+                continue;
+            }
+            assert!(LOOK_X_SPEEDS.contains(&(velocity.0 as i32)), "{velocity:?}");
+            speeds.insert(velocity.0 as i32);
+            assert!(velocity.1.abs() <= 300.0 + 1e-9, "{velocity:?}");
+            // At the limit, y turns back toward 0.
+            if origin.1.abs() >= LOOK_Y_LIMIT - 0.5 {
+                assert!(velocity.1 * origin.1 <= 0.0, "{origin:?} {velocity:?}");
+            }
+        }
+        assert_eq!(speeds.len(), LOOK_X_SPEEDS.len());
+        assert!(segments.iter().any(|s| s.3 .1.abs() >= LOOK_Y_LIMIT - 0.5));
+    }
+
+    #[test]
+    fn the_look_pattern_is_the_seeds() {
+        let steps = |seed: u64| {
+            let mut pattern = LookPattern::new(seed);
+            (0..2_000u64)
+                .map(|i| pattern.step(i * 4_000))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(steps(3), steps(3));
+        assert_ne!(steps(3), steps(4));
+        // The seed that would leave xorshift at 0 still moves.
+        assert!(steps(0x9E37_79B9_7F4A_7C15)
+            .iter()
+            .any(|&step| step != (0, 0)));
     }
 }

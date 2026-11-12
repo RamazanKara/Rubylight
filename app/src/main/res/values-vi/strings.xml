@@ -2,6 +2,19 @@
 <resources>
     <string name="title_packed_444">Sắc độ đầy đủ</string>
     <string name="summary_packed_444">Cần tùy chọn sắc độ đầy đủ của Rubylight, bộ máy truyền phát mới và bộ giải mã phần cứng HEVC/AV1 tương thích. Nếu PC hoặc thiết bị này không hỗ trợ, luồng sẽ bắt đầu mà không có tùy chọn này. HDR cũng cần bề mặt hiển thị HDR 10 bit tương thích.</string>
+    <string name="title_frame_warp">Frame Warp</string>
+    <string name="summary_frame_warp">Dịch chuyển hình ảnh theo chuột hoặc cần phải cho đến khi khung hình tiếp theo của PC thể hiện cú xoay, và giữ HUD của trò chơi tại chỗ. Cần PC hỗ trợ tính năng này và bộ máy truyền phát mới.</string>
+    <string name="frame_warp_overlay_mouse">Frame Warp: đã khóa %1$s px/đơn vị, độ trễ %2$s ms, dịch %3$s px (đỉnh %4$s)</string>
+    <string name="frame_warp_overlay_stick">Frame Warp: đã khóa %1$s px/giây, độ trễ %2$s ms, dịch %3$s px (đỉnh %4$s)</string>
+    <string name="frame_warp_overlay_learning">Frame Warp: đang học</string>
+    <string name="frame_warp_overlay_not_offered">Frame Warp: PC không cung cấp</string>
+    <string name="frame_warp_overlay_off">Frame Warp: tắt cho luồng này</string>
+    <string name="frame_warp_needs_engine">Frame Warp cần bộ máy truyền phát mới. Luồng này chạy không có nó.</string>
+    <string name="frame_warp_unavailable">Frame Warp đã tắt cho luồng này: %1$s</string>
+    <string name="frame_warp_reason_hdr">thiết bị này chỉ hiển thị HDR trực tiếp từ bộ giải mã</string>
+    <string name="frame_warp_reason_full_chroma">sắc độ đầy đủ đang bật</string>
+    <string name="frame_warp_reason_renderer">đường xử lý GPU không khởi động được</string>
+    <string name="frame_warp_replaces_upscaling">Frame Warp vẽ hình ảnh mà không nâng tỷ lệ.</string>
     <string name="title_experimental_chipset_tuning">Tinh chỉnh chipset</string>
     <string name="summary_experimental_chipset_tuning">Thiết lập độ trễ thấp bổ sung cho bộ giải mã MediaTek Dimensity và Samsung Exynos.</string>
     <string name="scut_deleted_pc">Đã xóa PC</string>

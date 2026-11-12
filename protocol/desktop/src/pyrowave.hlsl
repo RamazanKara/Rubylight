@@ -19,6 +19,9 @@ cbuffer Picture : register(b0) {
     float outputScale; float tonemap1; float tonemap2; float unused;
     // Flag 8192 (with 4096): the gamma 2.2 range, minNits to the peak (invRange = 1 / (peak - minNits)).
     float minNits; float invRange; float2 unusedEncoding;
+    // Flag 512: Frame Warp (stream/frame_warp.rs), the shift in fractions of the picture, then
+    // the HUD mask's size in cells (0 for none). All zero draws the picture where it is.
+    float4 warp;
 #endif
 };
 float4 vertex(uint id : SV_VertexID) : SV_Position {
@@ -125,6 +128,8 @@ float4 fragment(float4 position : SV_Position) : SV_Target {
 Texture2D<float> planeY : register(t0, space2);
 Texture2D<float4> planeCb : register(t1, space2);
 Texture2D<float> planeCr : register(t2, space2);
+// Frame Warp's HUD mask, flag 512 only: byte x / 8 of row y holds cell x in bit x % 8.
+Texture2D<float> hudMask : register(t3, space2);
 #define CB(cb) ((cb).x)
 #define CR(cb, cr) (((flags & 256) != 0) ? (cb).y : (cr))
 #define HIGH_BITS if ((flags & 272) == 272) samples *= 65535.0 / 65472.0;
@@ -183,9 +188,18 @@ float3 gamma22FromScrgb(float3 linear709, float2 position) {
 // result is what drawing the converted texture with SDL gives, in one pass. With flag 4096 instead
 // of 1024 (an HDR10 swapchain image taken in a video-only frame, window-target.patch), the scRGB
 // result is PQ-encoded as the PQ present pass would encode the back buffer.
+// The picture point (pixels) `q` shows under Frame Warp: `q` less the shift, or `q` on a HUD cell.
+float2 frameWarp(float2 q, float2 visible) {
+    if (all(warp == 0)) return q;
+    if (warp.z > 0) {
+        uint2 cell = min(uint2(max(q / visible, 0) * warp.zw), uint2(warp.zw) - 1);
+        if (((uint(hudMask.Load(int3(cell.x >> 3, cell.y, 0)) * 255 + 0.5) >> (cell.x & 7)) & 1) != 0) return q;
+    }
+    return q - warp.xy * visible;
+}
 float4 planesDirect(float2 position) {
     float2 visible = picture.xy;
-    float2 at = clamp((position - destination.xy) * visible / destination.zw, 0.5, visible - 0.5);
+    float2 at = clamp(frameWarp((position - destination.xy) * visible / destination.zw, visible), 0.5, visible - 0.5);
     float3 samples;
     uint2 size;
     planeCb.GetDimensions(size.x, size.y);

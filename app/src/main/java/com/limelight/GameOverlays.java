@@ -12,6 +12,7 @@ import com.limelight.preferences.PreferenceConfiguration;
 import android.content.Context;
 import android.content.ClipData;
 import android.content.ClipboardManager;
+import android.text.TextUtils;
 import android.graphics.Rect;
 import android.os.Build;
 import android.os.SystemClock;
@@ -327,8 +328,13 @@ final class GameOverlays {
                     if (!note.equals(game.qualityStatus)) networkText += "\n" + note;
                 }
                 networkText += "\n" + game.menuActions.wifiText(game.streamHealth.stallPeriodMs());
-                debugPerformanceText = PerformanceOverlay.debugText(game, video + displayLine, networkText, decode);
-                statisticsPerformanceText = statisticsText;
+                float[] warpNumbers = new float[4];
+                String warpLine = PerformanceOverlay.frameWarpText(game, MoonBridge.frameWarpStatus(warpNumbers),
+                        warpNumbers);
+                debugPerformanceText = PerformanceOverlay.debugText(game,
+                        video + displayLine + (warpLine != null ? "\n" + warpLine : ""), networkText, decode);
+                statisticsPerformanceText = warpLine != null ? TextUtils.concat(statisticsText, "\n", warpLine) :
+                        statisticsText;
                 compactPerformanceText = compactText;
                 updatePerformanceOverlay();
             }

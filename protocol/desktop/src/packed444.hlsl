@@ -95,7 +95,24 @@ float4 fragment(float4 position : SV_Position) : SV_Target {
 cbuffer Presentation : register(b1) {
     float4 destination;
     float linearOutput; float colorScale; float2 unused;
+    // Frame Warp (stream/frame_warp.rs): the shift in fractions of the picture, then the HUD
+    // mask's size in cells (0 for none). All zero draws the picture where it is.
+    float4 warp;
 };
+// Frame Warp's HUD mask: byte x / 8 of row y holds cell x in bit x % 8.
+Texture2D<float> hudMask : register(t2);
+
+// The picture point (pixels) output point `q` (pixels of the picture) shows: `q` less the shift,
+// whole pixels when `exact` (the picture drawn at its own size), or `q` on a HUD cell.
+float2 frameWarp(float2 q, float2 size, bool exact) {
+    if (all(warp == 0)) return q;
+    if (warp.z > 0) {
+        uint2 cell = min(uint2(max(q / size, 0) * warp.zw), uint2(warp.zw) - 1);
+        if (((uint(hudMask.Load(int3(cell.x >> 3, cell.y, 0)) * 255 + 0.5) >> (cell.x & 7)) & 1) != 0) return q;
+    }
+    float2 shift = warp.xy * size;
+    return q - (exact ? round(shift) : shift);
+}
 
 float3 reconstructRow(uint2 p, float weight) {
     if (packing == 2) return lerp(reconstruct(p), reconstruct(uint2(min(p.x + 1, width - 1), p.y)), weight);
@@ -109,8 +126,9 @@ float3 reconstructRow(uint2 p, float weight) {
 }
 
 float4 present(float4 position : SV_Position) : SV_Target {
-    float2 at = clamp((position.xy - destination.xy) * (float2(width, height) / destination.zw) - 0.5,
-                      0, float2(width - 1, height - 1));
+    float2 q = frameWarp((position.xy - destination.xy) * (float2(width, height) / destination.zw),
+                         float2(width, height), destination.z == width && destination.w == height);
+    float2 at = clamp(q - 0.5, 0, float2(width - 1, height - 1));
     uint2 p = uint2(at);
     float3 rgb;
     if (destination.z != width || destination.w != height) {

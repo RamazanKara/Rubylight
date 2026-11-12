@@ -304,6 +304,82 @@ public class RustEngineJniParityTest {
                 staleListEntries.isEmpty());
     }
 
+    /** The {@code pub const NAME: i32 = value;} constants of a Rust file whose names start with {@code prefix}. */
+    private static Map<String, Integer> rustConstants(String text, String prefix) {
+        Map<String, Integer> constants = new TreeMap<>();
+        Matcher constant = Pattern.compile("pub const (" + prefix + "\\w+): i32 = (-?\\d+);").matcher(text);
+        while (constant.find()) {
+            assertNull("declared twice: " + constant.group(1),
+                    constants.put(constant.group(1), Integer.parseInt(constant.group(2))));
+        }
+        return constants;
+    }
+
+    @Test public void frameWarpCodesAgreeAcrossRustJavaAndTheNativeRenderers() throws IOException {
+        // A swap would draw an unmasked HUD shifted, or a stale mask; the overlay would name the wrong state.
+        String rust = read("frame_warp.rs");
+        Map<String, Integer> status = rustConstants(rust, "STATUS_");
+        status.remove("STATUS_NUMBERS");
+        Map<String, Integer> expected = new TreeMap<>();
+        expected.put("STATUS_OFF", MoonBridge.FRAME_WARP_OFF);
+        expected.put("STATUS_NOT_OFFERED", MoonBridge.FRAME_WARP_NOT_OFFERED);
+        expected.put("STATUS_LEARNING", MoonBridge.FRAME_WARP_LEARNING);
+        expected.put("STATUS_MOUSE", MoonBridge.FRAME_WARP_MOUSE);
+        expected.put("STATUS_STICK", MoonBridge.FRAME_WARP_STICK);
+        expected.put("STATUS_DECLINED", MoonBridge.FRAME_WARP_OFF_FOR_STREAM);
+        assertEquals(expected, status);
+
+        Map<String, Integer> codes = rustConstants(rust, "(?:WARP|MASK)_");
+        Map<String, Integer> java = new TreeMap<>();
+        java.put("WARP_NO_MASK", MoonBridge.FRAME_WARP_NO_MASK);
+        java.put("WARP_INACTIVE", MoonBridge.FRAME_WARP_INACTIVE);
+        java.put("MASK_UNCHANGED", MoonBridge.FRAME_WARP_MASK_UNCHANGED);
+        java.put("MASK_CLEARED", MoonBridge.FRAME_WARP_MASK_CLEARED);
+        java.put("MASK_TOO_SMALL", MoonBridge.FRAME_WARP_MASK_TOO_SMALL);
+        assertEquals(java, codes);
+
+        String c = new String(Files.readAllBytes(new File("src/main/jni/frame_warp_api.h").toPath()),
+                StandardCharsets.UTF_8);
+        Map<String, Integer> defines = new TreeMap<>();
+        Matcher define = Pattern.compile("#define FRAME_WARP_(\\w+) \\(?(-?\\d+)\\)?").matcher(c);
+        while (define.find()) {
+            defines.put(define.group(1), Integer.parseInt(define.group(2)));
+        }
+        // The header leaves the WARP_ off the warp codes: FRAME_WARP_NO_MASK, FRAME_WARP_INACTIVE.
+        Map<String, Integer> fromRust = new TreeMap<>();
+        for (Map.Entry<String, Integer> code : codes.entrySet()) {
+            String name = code.getKey();
+            fromRust.put(name.startsWith("WARP_") ? name.substring("WARP_".length()) : name, code.getValue());
+        }
+        Matcher version = Pattern.compile("pub const API_VERSION: u32 = (\\d+);").matcher(rust);
+        assertTrue(version.find());
+        fromRust.put("API_VERSION", Integer.parseInt(version.group(1)));
+        assertEquals(fromRust, defines);
+    }
+
+    @Test public void frameWarpTableHasTheSameFieldsInTheSameOrderInRustAndC() throws IOException {
+        // The renderers call through this table by offset: a field out of order calls the wrong function.
+        String rust = read("frame_warp.rs");
+        int rustStart = rust.indexOf("pub struct FrameWarpApi {");
+        assertTrue(rustStart >= 0);
+        String rustBody = rust.substring(rustStart, rust.indexOf("\n}", rustStart));
+        List<String> rustFields = new ArrayList<>();
+        Matcher rustField = Pattern.compile("\\n\\s*pub (\\w+):").matcher(rustBody);
+        while (rustField.find()) rustFields.add(rustField.group(1));
+
+        String c = new String(Files.readAllBytes(new File("src/main/jni/frame_warp_api.h").toPath()),
+                StandardCharsets.UTF_8);
+        int cStart = c.indexOf("typedef struct FrameWarpApi {");
+        assertTrue(cStart >= 0);
+        String cBody = c.substring(cStart, c.indexOf("} FrameWarpApi;", cStart));
+        List<String> cFields = new ArrayList<>();
+        Matcher cField = Pattern.compile("\\n\\s*(?:uint32_t (\\w+);|[\\w ]+\\(\\*(\\w+)\\)\\()").matcher(cBody);
+        while (cField.find()) cFields.add(cField.group(1) != null ? cField.group(1) : cField.group(2));
+
+        assertEquals(Arrays.asList("version", "frame_for_pts", "warp", "mask", "peek"), rustFields);
+        assertEquals(rustFields, cFields);
+    }
+
     @Test public void networkChangedAnswersWithMoonBridgesNetworkCodes() throws IOException {
         // A swap would pass every type check: a stream that roamed would reconnect, or one that
         // cannot carry on would wait for its timeout. The constants are compile-time, so reading

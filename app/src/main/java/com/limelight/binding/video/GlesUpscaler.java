@@ -13,10 +13,12 @@ import android.opengl.GLES30;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Process;
+import android.view.Choreographer;
 import android.view.Surface;
 
 import com.limelight.BuildConfig;
 import com.limelight.LimeLog;
+import com.limelight.nvstream.jni.MoonBridge;
 
 import java.io.IOException;
 import java.io.ByteArrayOutputStream;
@@ -37,7 +39,7 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
     private boolean hdr;
     private byte[] hdrMetadata;
     private final UpscalingFrameQueue frames = new UpscalingFrameQueue();
-    private final long[] frame = new long[3];
+    private final long[] frame = new long[4];
     private final float[] transform = new float[16];
     private final int[] size = new int[2];
     // The stream's part of the decoded picture (UpscalingPolicy.pictureCrop), from the decoder's
@@ -66,6 +68,23 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
     private int drawnFrames;
     private volatile boolean closed;
     private volatile String failureDetail;
+    // Frame Warp (docs/frame-warp.md): the picture drawn without upscaling, shifted by warp.frag. The fields below
+    // are the GL thread's.
+    private final boolean frameWarp;
+    private final int pictureWidth, pictureHeight;
+    private final float[] warpOut = new float[4];
+    private final int[] maskSize = new int[2];
+    private byte[] maskCells = new byte[0];
+    private ByteBuffer maskUpload;
+    private int warpUniform, maskTexture;
+    private int maskGeneration = -1;
+    // The decoder time of the picture on screen (-1 before one), and the shift it was last drawn with, picture px.
+    private long shownPtsUs = -1;
+    private float drawnShiftX, drawnShiftY;
+    private Choreographer choreographer;
+    private final Choreographer.FrameCallback warpRefresh = this::onRefresh;
+    // A redraw between pictures moves the shift by at least this much, picture px.
+    static final float REDRAW_SHIFT_PX = 0.25f;
 
     GlesUpscaler(Context context, Surface output, UpscalingPolicy.Mode mode, int width, int height,
                  boolean stretch, int sharpness, UpscalingPolicy policy) {
@@ -75,7 +94,17 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
     GlesUpscaler(Context context, Surface output, UpscalingPolicy.Mode mode, int width, int height,
                  boolean stretch, int sharpness, UpscalingPolicy policy, Packed444 packing,
                  boolean tenBit, byte[] hdrMetadata) {
-        this.mode = mode;
+        this(context, output, mode, width, height, stretch, sharpness, policy, packing, tenBit, hdrMetadata, false);
+    }
+
+    /** With {@code frameWarp}, an SDR presenter that draws Frame Warp with bilinear sampling and no upscaling. */
+    GlesUpscaler(Context context, Surface output, UpscalingPolicy.Mode mode, int width, int height,
+                 boolean stretch, int sharpness, UpscalingPolicy policy, Packed444 packing,
+                 boolean tenBit, byte[] hdrMetadata, boolean frameWarp) {
+        this.frameWarp = frameWarp && packing == null && !tenBit;
+        this.pictureWidth = width;
+        this.pictureHeight = height;
+        this.mode = this.frameWarp ? UpscalingPolicy.Mode.BILINEAR : mode;
         this.policy = policy;
         this.packing = packing;
         this.tenBit = tenBit;
@@ -122,6 +151,16 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
 
     long releaseFrame(long targetNs) {
         return frames.release(System.nanoTime(), targetNs);
+    }
+
+    /** As releaseFrame(long), with the decoder's presentation time of the frame for Frame Warp. */
+    long releaseFrame(long targetNs, long ptsUs) {
+        return frames.release(System.nanoTime(), targetNs, ptsUs);
+    }
+
+    /** Whether this presenter draws Frame Warp. */
+    boolean drawsFrameWarp() {
+        return frameWarp;
     }
 
     void setFrameRate(int fps) {
@@ -179,17 +218,19 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
         surfaceHeight = size[1];
         viewport = UpscalingPolicy.viewport(packing == null ? width : packing.width,
                 packing == null ? height : packing.height, surfaceWidth, surfaceHeight, stretch);
-        if (packing == null) policy.fail(UpscalingPolicy.unavailableReason(mode, width, height, viewport[2], viewport[3],
-                false, false, true));
+        // Frame Warp draws at any size: it shifts the picture rather than upscaling it.
+        if (packing == null && !frameWarp) policy.fail(UpscalingPolicy.unavailableReason(mode, width, height,
+                viewport[2], viewport[3], false, false, true));
         if (policy.getReason() != UpscalingPolicy.Reason.NONE) return;
 
         String vertex = shaderSource(context, "upscale.vert");
-        upscaleProgram = program(vertex, shaderSource(context,
+        upscaleProgram = program(vertex, shaderSource(context, frameWarp ? "warp.frag" :
                 packing != null ? "packed444.frag" : mode == UpscalingPolicy.Mode.FSR1 ? "easu.frag" :
                         mode == UpscalingPolicy.Mode.SGSR1 ? "sgsr.frag" : "bilinear.frag"));
         GLES30.glUseProgram(upscaleProgram);
         GLES30.glUniform1i(GLES30.glGetUniformLocation(upscaleProgram, "source"), 0);
         transformUniform = GLES30.glGetUniformLocation(upscaleProgram, "textureTransform");
+        if (frameWarp) initializeFrameWarp();
         if (packing != null) {
             GLES30.glUniform1i(GLES30.glGetUniformLocation(upscaleProgram, "packingVersion"), packing.version);
             GLES30.glUniform4i(GLES30.glGetUniformLocation(upscaleProgram, "picture"),
@@ -236,6 +277,95 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
         GLES30.glDisable(GLES30.GL_DITHER);
         GLES30.glClearColor(0f, 0f, 0f, 1f);
         require(GLES30.glGetError() == GLES30.GL_NO_ERROR, "GLES setup");
+        if (frameWarp) {
+            // This thread's looper: the redraws between pictures run here, with the draws.
+            choreographer = Choreographer.getInstance();
+            choreographer.postFrameCallback(warpRefresh);
+        }
+    }
+
+    /** The HUD mask texture on unit 1, empty until the host sends one. */
+    private void initializeFrameWarp() {
+        warpUniform = GLES30.glGetUniformLocation(upscaleProgram, "warp");
+        GLES30.glUniform1i(GLES30.glGetUniformLocation(upscaleProgram, "hudMask"), 1);
+        GLES30.glUniform3f(warpUniform, 0f, 0f, 0f);
+        GLES30.glGenTextures(1, size, 0);
+        maskTexture = size[0];
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE1);
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, maskTexture);
+        textureParameters(GLES30.GL_TEXTURE_2D, GLES30.GL_NEAREST);
+        uploadMask(1, 1, ByteBuffer.allocateDirect(1));
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
+    }
+
+    // To the texture bound on unit 1, which keeps the mask bound.
+    private static void uploadMask(int width, int height, ByteBuffer cells) {
+        GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT, 1);
+        GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_R8, width, height, 0, GLES30.GL_RED,
+                GLES30.GL_UNSIGNED_BYTE, cells);
+    }
+
+    /** Takes a newer HUD mask, if the host sent one, onto the mask texture. */
+    private void refreshMask() {
+        int generation = MoonBridge.frameWarpMask(maskGeneration, maskSize, maskCells);
+        if (generation == MoonBridge.FRAME_WARP_MASK_TOO_SMALL && maskSize[0] > 0 && maskSize[1] > 0) {
+            maskCells = new byte[maskSize[0] * maskSize[1]];
+            generation = MoonBridge.frameWarpMask(maskGeneration, maskSize, maskCells);
+        }
+        if (generation == MoonBridge.FRAME_WARP_MASK_CLEARED) {
+            maskGeneration = -1;
+        } else if (generation >= 0) {
+            int count = maskSize[0] * maskSize[1];
+            if (maskUpload == null || maskUpload.capacity() < count) maskUpload = ByteBuffer.allocateDirect(count);
+            maskUpload.clear();
+            maskUpload.put(maskCells, 0, count);
+            maskUpload.flip();
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE1);
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, maskTexture);
+            uploadMask(maskSize[0], maskSize[1], maskUpload);
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
+            maskGeneration = generation;
+        }
+    }
+
+    /** Sets the shift for the picture with decoder time ptsUs, drawn now; the program is in use. */
+    private void applyWarp(long ptsUs) {
+        refreshMask();
+        int code = MoonBridge.frameWarpForPts(ptsUs, warpOut);
+        boolean active = code != MoonBridge.FRAME_WARP_INACTIVE;
+        drawnShiftX = active ? warpOut[2] : 0f;
+        drawnShiftY = active ? warpOut[3] : 0f;
+        GLES30.glUniform3f(warpUniform, active ? warpOut[0] : 0f, active ? warpOut[1] : 0f,
+                active && code >= 0 && code == maskGeneration ? 1f : 0f);
+    }
+
+    /** Whether a shift that moved from the one on screen to (x, y), picture px, needs drawing again. */
+    static boolean needsRedraw(float drawnX, float drawnY, float x, float y) {
+        return Math.hypot(x - drawnX, y - drawnY) >= REDRAW_SHIFT_PX;
+    }
+
+    /**
+     * Each refresh between pictures: draws the picture on screen again when its shift moved, so a turn shows on every
+     * refresh and not only on the host's frames. Never while a draw is pending or a new picture is on its way.
+     */
+    private void onRefresh(long frameTimeNanos) {
+        if (closed || policy.getReason() != UpscalingPolicy.Reason.NONE) return;
+        choreographer.postFrameCallback(warpRefresh);
+        if (shownPtsUs < 0 || fence != 0 || frameAvailable || frames.oldestReleaseNs() != 0) return;
+        try {
+            // Peeked, so a refresh that draws nothing is not counted; the redraw takes its own shift (applyWarp)
+            int code = MoonBridge.frameWarpPeekForPts(shownPtsUs, warpOut);
+            boolean active = code != MoonBridge.FRAME_WARP_INACTIVE;
+            if (!needsRedraw(drawnShiftX, drawnShiftY, active ? warpOut[2] : 0f, active ? warpOut[3] : 0f)) return;
+            long nowNs = System.nanoTime();
+            workStartNs = nowNs;
+            gpuStartNs = nowNs;
+            pendingDrops = 0;
+            render(shownPtsUs, nowNs);
+        } catch (RuntimeException e) {
+            LimeLog.warning("Frame Warp redraw failed: " + e);
+            failGpu(e);
+        }
     }
 
     static String shaderSource(Context context, String name) throws IOException {
@@ -370,46 +500,54 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
             pendingDrops = (int) frame[2];
             querySurfaceSize();
             if (size[0] != surfaceWidth || size[1] != surfaceHeight) {
-                if (packing == null) {
+                if (packing == null && !frameWarp) {
                     policy.fail(UpscalingPolicy.Reason.SIZE_CHANGED);
                     return;
                 }
                 surfaceWidth = size[0];
                 surfaceHeight = size[1];
-                viewport = UpscalingPolicy.viewport(packing.width, packing.height, surfaceWidth, surfaceHeight, stretch);
+                viewport = UpscalingPolicy.viewport(packing != null ? packing.width : pictureWidth,
+                        packing != null ? packing.height : pictureHeight, surfaceWidth, surfaceHeight, stretch);
             }
             texture.getTransformMatrix(transform);
             // A picture without padding samples SurfaceTexture's transform untouched.
             float[] crop = pictureCrop;
             if (crop[0] != 1f || crop[1] != 1f) UpscalingPolicy.applyCrop(transform, crop);
-            GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
-            GLES30.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, sourceTexture);
-            GLES30.glUseProgram(upscaleProgram);
-            GLES30.glUniformMatrix4fv(transformUniform, 1, false, transform, 0);
-            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, framebuffer);
-            if (mode == UpscalingPolicy.Mode.FSR1) {
-                GLES30.glViewport(0, 0, viewport[2], viewport[3]);
-                GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3);
-                GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0);
-                GLES30.glUseProgram(rcasProgram);
-                GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, intermediateTexture);
-            }
-            GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT);
-            GLES30.glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
-            GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3);
-            if (BuildConfig.DEBUG || ++drawnFrames % ERROR_CHECK_INTERVAL == 0) {
-                require(GLES30.glGetError() == GLES30.GL_NO_ERROR, "Upscaling draw");
-            }
-            fence = GLES30.glFenceSync(GLES30.GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
-            require(fence != 0, "GPU completion fence");
-            require(EGLExt.eglPresentationTimeANDROID(display, window, frame[1]), "EGL presentation time");
-            require(EGL14.eglSwapBuffers(display, window), "EGL swap");
-            GLES30.glFlush();
-            pollCompletion();
+            if (frameWarp) shownPtsUs = frame[3];
+            render(frame[3], frame[1]);
         } catch (RuntimeException e) {
             LimeLog.warning("Upscaling frame failed: " + e);
             failGpu(e);
         }
+    }
+
+    /** Draws the latched picture and presents it at presentNs; ptsUs is its decoder time, for Frame Warp. */
+    private void render(long ptsUs, long presentNs) {
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
+        GLES30.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, sourceTexture);
+        GLES30.glUseProgram(upscaleProgram);
+        GLES30.glUniformMatrix4fv(transformUniform, 1, false, transform, 0);
+        if (frameWarp) applyWarp(ptsUs);
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, framebuffer);
+        if (mode == UpscalingPolicy.Mode.FSR1) {
+            GLES30.glViewport(0, 0, viewport[2], viewport[3]);
+            GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3);
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0);
+            GLES30.glUseProgram(rcasProgram);
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, intermediateTexture);
+        }
+        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT);
+        GLES30.glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+        GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3);
+        if (BuildConfig.DEBUG || ++drawnFrames % ERROR_CHECK_INTERVAL == 0) {
+            require(GLES30.glGetError() == GLES30.GL_NO_ERROR, "Upscaling draw");
+        }
+        fence = GLES30.glFenceSync(GLES30.GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+        require(fence != 0, "GPU completion fence");
+        require(EGLExt.eglPresentationTimeANDROID(display, window, presentNs), "EGL presentation time");
+        require(EGL14.eglSwapBuffers(display, window), "EGL swap");
+        GLES30.glFlush();
+        pollCompletion();
     }
 
     private void pollCompletion() {
@@ -491,6 +629,7 @@ final class GlesUpscaler implements AutoCloseable, SurfaceTexture.OnFrameAvailab
         closed = true;
         handler.post(() -> {
             handler.removeCallbacksAndMessages(null);
+            if (choreographer != null) choreographer.removeFrameCallback(warpRefresh);
             if (inputSurface != null) inputSurface.release();
             if (texture != null) texture.release();
             if (display != EGL14.EGL_NO_DISPLAY) {

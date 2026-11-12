@@ -12,9 +12,14 @@ cbuffer Direct : register(b1) {
     float outputScale; float tonemap1; float tonemap2;
     // Bit 0: the output is sRGB, not scRGB.
     uint directFlags;
+    // Frame Warp (stream/frame_warp.rs): the shift in fractions of the picture, then the HUD
+    // mask's size in cells (0 for none). All zero draws the picture where it is.
+    float4 warp;
 };
 // A D3D11VA 4:4:4 surface of the decoder, read in place (a slice of its texture array).
 Texture2DArray<float4> surfaceArray : register(t5);
+// Frame Warp's HUD mask: byte x / 8 of row y holds cell x in bit x % 8.
+Texture2D<float> hudMask : register(t6);
 static const float3x3 directTo2020 = { 0.627404, 0.329283, 0.043313, 0.069097, 0.919541, 0.011362, 0.016391, 0.088013, 0.895595 };
 static const float3x3 directTo709 = { 1.660496, -0.587656, -0.072840, -0.124547, 1.132895, -0.008348, -0.018154, -0.100597, 1.118751 };
 // SDL's sRGBfromLinear, for an output that is not linear.
@@ -32,9 +37,18 @@ float4 directFinish(float3 rgb) {
     if ((directFlags & 1) != 0) rgb = saturate(directSrgb(rgb));
     return float4(rgb, 1);
 }
+// The picture point (pixels) `q` shows under Frame Warp: `q` less the shift, or `q` on a HUD cell.
+float2 directWarp(float2 q) {
+    if (all(warp == 0)) return q;
+    if (warp.z > 0) {
+        uint2 cell = min(uint2(max(q / picture.xy, 0) * warp.zw), uint2(warp.zw) - 1);
+        if (((uint(hudMask.Load(int3(cell.x >> 3, cell.y, 0)) * 255 + 0.5) >> (cell.x & 7)) & 1) != 0) return q;
+    }
+    return q - warp.xy * picture.xy;
+}
 // Where the target pixel is in the picture: its centre, kept inside the picture's texels.
 float2 directAt(float2 position) {
-    return clamp((position - destination.xy) * picture.xy / destination.zw, 0.5, picture.xy - 0.5);
+    return clamp(directWarp((position - destination.xy) * picture.xy / destination.zw), 0.5, picture.xy - 0.5);
 }
 float3 directSurfaceSamples(float4 texel) {
     float3 samples = (flags & 16) != 0 ? texel.grb : texel.bgr;

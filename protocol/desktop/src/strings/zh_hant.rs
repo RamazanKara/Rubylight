@@ -1526,4 +1526,7 @@ sudo sysctl -w net.core.rmem_max={}", "接收緩衝區：系統只分配了所�
     ("Speed not measured: the PC didn’t answer", "未測量速度：電腦沒有回應"),
     ("Speed not measured: this PC has no speed test", "未測量速度：這部電腦沒有速度測試"),
     ("Speed not measured: the test failed", "未測量速度：測試失敗"),
+    ("Frame Warp", "Frame Warp"),
+    ("Shifts the picture with your mouse or right stick until the PC’s next frame shows the turn, and keeps the game’s HUD in place. Needs a PC that supports it.", "在電腦的下一幀顯示轉向之前，隨滑鼠或右搖桿平移畫面，並讓遊戲的 HUD 保持不動。需要支援此功能的電腦。"),
+    ("This PC doesn’t offer Frame Warp, so Nightjar streams without it.", "此電腦不提供 Frame Warp，因此 Nightjar 不使用它進行串流。"),
 ];

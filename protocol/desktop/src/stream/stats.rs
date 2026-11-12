@@ -294,6 +294,15 @@ impl Streaming {
         if self.facts.phase_lock && self.pacer.mode == PacingMode::Vsync {
             lines.push(("Phase lock".into(), self.phase.lead_us.map_or_else(|| "Waiting for display timing".into(), |lead| format!("{:.2} ms lead", f64::from(lead) / 1000.0))));
         }
+        // With the setting on: what the PC's model learnt and the shift, or that the PC refused it.
+        let frame_warp_line = match (&self.frame_warp, self.facts.frame_warp_refused) {
+            (Some(presenter), _) => Some(frame_warp::status_line(Some(&presenter.status()))),
+            (None, true) => Some(frame_warp::status_line(None)),
+            (None, false) => None,
+        };
+        if let Some(line) = &frame_warp_line {
+            lines.push(("Frame Warp".into(), line.clone()));
+        }
         lines.extend(host_lines(&w));
         if w.latency_n > 0 {
             lines.push((
@@ -359,6 +368,7 @@ impl Streaming {
         self.last_wire_bytes = wire_bytes;
         lines.extend(overlay::wire(&measures));
         let mut statistics = overlay::statistics(&lines[0].1, &measures);
+        statistics.extend(frame_warp_line.map(|line| ("Frame Warp".to_owned(), line)));
         let now_ms = self.started.elapsed().as_millis() as u64;
         let wanted = self.overlay_visible && self.overlay_mode != OverlayMode::Compact && self.facts.role != AppRole::InputOnly;
         if let Some(generation) = self.hardware_poll.due(now_ms, wanted) {

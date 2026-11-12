@@ -110,6 +110,9 @@ pub struct PlanesPass {
     bound: Option<BoundSurface>,
     /// Views of the decoder's readable textures' slices, for the one texture they are of.
     surface_views: Option<(usize, SliceViews)>,
+    /// Frame Warp's HUD mask, and its view for the next `draw_direct` (`t6`, `warp_row`).
+    mask: super::frame_warp::D3d11Mask,
+    mask_view: Option<ID3D11ShaderResourceView>,
 }
 
 /// A decoder texture's slice views by slice and format.
@@ -269,7 +272,16 @@ impl PlanesPass {
         Ok(Self { context, queue, deferred: deferred.unwrap(), device, target: [target_view],
             vertex: vertex.unwrap(), fragment: fragment.unwrap(), constants: [constants], sampler: [sampler],
             raster: raster.unwrap(), size: (desc.Width, desc.Height), views: Default::default(), owner: None, frame: None,
-            surface: None, surface_fragment: None, direct: None, back_buffer: BackBuffer::default(), bound: None, surface_views: None })
+            surface: None, surface_fragment: None, direct: None, back_buffer: BackBuffer::default(), bound: None, surface_views: None,
+            mask: Default::default(), mask_view: None })
+    }
+
+    /// Frame Warp's row of `direct_planes::Constants` for a `draw_direct` shifted by `warp`, with
+    /// its HUD mask made ready for that draw.
+    pub fn warp_row(&mut self, warp: &super::frame_warp::WarpDraw) -> [f32; 4] {
+        // SAFETY: The pass's device, used on the presenting thread.
+        self.mask_view = unsafe { self.mask.view(&self.device, warp) };
+        warp.row(self.mask_view.is_some())
     }
 
     /// Compiles the plane shader for a probe: whether the pass can be built at all.
@@ -657,6 +669,10 @@ impl PlanesPass {
             c.VSSetShader(&self.vertex, None);
             c.PSSetShader(&fragment, None);
             c.PSSetShaderResources(slot, Some(&views));
+            // The HUD mask `warp_row` readied, when the constants say there is one.
+            if constants.warp[2] > 0.0 && self.mask_view.is_some() {
+                c.PSSetShaderResources(6, Some(std::slice::from_ref(&self.mask_view)));
+            }
             c.PSSetSamplers(0, Some(&self.sampler));
             c.PSSetConstantBuffers(0, Some(&[self.constants[0].clone(), Some(buffer.clone())]));
             c.Draw(3, 0);
@@ -779,6 +795,11 @@ pub(crate) fn after_slice_draw(recorded: Result<(), String>, signal: impl FnOnce
     recorded.and(signalled)
 }
 
+/// `packed444.hlsl`'s `Presentation` block: the destination, the output's colour, then Frame
+/// Warp's row.
+const PRESENTATION_FLOATS: usize = 12;
+const PRESENTATION_BYTES: u32 = PRESENTATION_FLOATS as u32 * 4;
+
 pub struct Packed {
     context: ID3D11DeviceContext,
     deferred: ID3D11DeviceContext,
@@ -793,6 +814,9 @@ pub struct Packed {
     height: i32,
     /// SDL's back buffer as a render target, kept across frames (see `BackBuffer`).
     back_buffer: std::cell::RefCell<BackBuffer>,
+    device: ID3D11Device,
+    /// Frame Warp's HUD mask for `present` (`t2`).
+    mask: std::cell::RefCell<super::frame_warp::D3d11Mask>,
 }
 
 pub(crate) unsafe fn compile(source: &[u8], entry: PCSTR, profile: PCSTR) -> windows::core::Result<ID3DBlob> {
@@ -925,7 +949,7 @@ impl Packed {
         let mut presentation = None;
         if target.is_none() {
             device.CreateBuffer(&D3D11_BUFFER_DESC {
-                ByteWidth: 32, Usage: D3D11_USAGE_DEFAULT,
+                ByteWidth: PRESENTATION_BYTES, Usage: D3D11_USAGE_DEFAULT,
                 BindFlags: D3D11_BIND_CONSTANT_BUFFER.0 as u32, ..Default::default()
             }, None, Some(&mut presentation))?;
         }
@@ -942,6 +966,8 @@ impl Packed {
             width,
             height,
             back_buffer: Default::default(),
+            device: device.clone(),
+            mask: Default::default(),
         })
     }
 
@@ -967,17 +993,24 @@ impl Packed {
     /// Draws into the back buffer of `swapchain`, `output` pixels large. The view of it is kept
     /// between frames; the caller calls `keep_back_buffer_if` before SDL's queue runs and
     /// `release_back_buffer` for a frame that does not present here, so SDL can resize.
-    pub unsafe fn present(&self, swapchain: *mut c_void, output: (i32, i32), parameters: &[u32; 12], destination: &[f32; 4], linear: bool, scale: f32) -> bool {
+    /// `warp` is Frame Warp's shift for the draw (`packed444.hlsl`'s `frameWarp`).
+    #[allow(clippy::too_many_arguments)] // the presentation's own values, passed as they are
+    pub unsafe fn present(&self, swapchain: *mut c_void, output: (i32, i32), parameters: &[u32; 12], destination: &[f32; 4], linear: bool, scale: f32,
+        warp: &super::frame_warp::WarpDraw) -> bool {
         let Ok(target) = self.back_buffer.borrow_mut().view(swapchain, output) else { return false; };
-        let presentation = [destination[0], destination[1], destination[2], destination[3], u32::from(linear) as f32, scale, 0.0, 0.0];
+        let mask = self.mask.borrow_mut().view(&self.device, warp);
+        let row = warp.row(mask.is_some());
+        let presentation = [destination[0], destination[1], destination[2], destination[3], u32::from(linear) as f32, scale, 0.0, 0.0,
+            row[0], row[1], row[2], row[3]];
         let x = destination[0].max(0.0);
         let y = destination[1].max(0.0);
         let clipped = [x, y, (destination[0] + destination[2]).min(output.0 as f32) - x,
             (destination[1] + destination[3]).min(output.1 as f32) - y];
-        self.render(&[Some(target)], parameters, &clipped, Some(&presentation))
+        self.render(&[Some(target)], parameters, &clipped, Some((&presentation, mask)))
     }
 
-    fn render(&self, target: &[Option<ID3D11RenderTargetView>; 1], parameters: &[u32; 12], destination: &[f32; 4], presentation: Option<&[f32; 8]>) -> bool {
+    fn render(&self, target: &[Option<ID3D11RenderTargetView>; 1], parameters: &[u32; 12], destination: &[f32; 4],
+        presentation: Option<(&[f32; PRESENTATION_FLOATS], Option<ID3D11ShaderResourceView>)>) -> bool {
         unsafe {
             // Recording on a deferred context preserves SDL's cached immediate-context state.
             let c = &self.deferred;
@@ -1004,9 +1037,10 @@ impl Packed {
             c.PSSetShader(&self.fragment, None);
             c.PSSetShaderResources(0, Some(&self.planes));
             c.PSSetConstantBuffers(0, Some(&self.constants));
-            if let Some(presentation) = presentation {
+            if let Some((presentation, mask)) = presentation {
                 c.UpdateSubresource(self.presentation[0].as_ref().unwrap(), 0, None, presentation.as_ptr().cast(), 0, 0);
                 c.PSSetConstantBuffers(1, Some(&self.presentation));
+                if mask.is_some() { c.PSSetShaderResources(2, Some(&[mask])); }
             }
             c.Draw(3, 0);
             let mut commands = None;
@@ -1030,6 +1064,24 @@ mod tests {
     #[test]
     fn the_plane_shader_compiles_for_direct3d() {
         assert_eq!(super::PlanesPass::compiles(), Ok(()));
+    }
+
+    /// The packed presentation shader, both outputs, compiles with Frame Warp's row and mask, and
+    /// the block `present` fills is the shader's.
+    #[test]
+    fn the_packed_presentation_takes_frame_warps_row() {
+        let shader = include_str!("../packed444.hlsl");
+        let colour = shader.find("float linearOutput; float colorScale; float2 unused;").expect("the colour row");
+        let warp = shader.find("float4 warp;").expect("the warp row");
+        assert!(colour < warp && shader[colour..warp].matches(';').count() == 3, "the warp row follows the colour row");
+        assert!(shader[warp..].trim_start_matches("float4 warp;").trim_start().starts_with("};"), "and ends the block");
+        assert!(shader.contains("Texture2D<float> hudMask : register(t2);"));
+        assert_eq!(super::PRESENTATION_BYTES, 48);
+        let sdr = [b"#define SDR_PRESENT 1\n".as_slice(), include_bytes!("../packed444.hlsl")].concat();
+        for source in [&include_bytes!("../packed444.hlsl")[..], sdr.as_slice()] {
+            // SAFETY: Plain compiler calls on static source.
+            assert!(unsafe { super::compile(source, windows::core::s!("present"), windows::core::s!("ps_5_0")) }.is_ok());
+        }
     }
 
     #[test]

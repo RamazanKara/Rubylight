@@ -67,6 +67,7 @@ public class HostCapabilitiesContractTest {
             case HOST_TIMING: return "host_timing";
             case WEB_UI: return "web_ui";
             case CURSOR_SHAPE: return "cursor_shape";
+            case FRAME_WARP: return "frame_warp";
             case NATIVE_API: return "native_api";
             case SLEEP: return "sleep";
             case FILE_UPLOAD: return "file_upload";

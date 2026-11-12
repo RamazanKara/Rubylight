@@ -2,6 +2,19 @@
 <resources>
     <string name="title_packed_444">Pełna chrominancja</string>
     <string name="summary_packed_444">Wymaga opcji pełnej chrominancji w Rubylight, nowego silnika streamingu i zgodnego sprzętowego dekodera HEVC/AV1. Jeśli komputer lub to urządzenie jej nie obsługuje, strumień startuje bez niej. HDR wymaga też zgodnej 10-bitowej powierzchni wyświetlania HDR.</string>
+    <string name="title_frame_warp">Frame Warp</string>
+    <string name="summary_frame_warp">Przesuwa obraz zgodnie z myszą lub prawym drążkiem, aż następna klatka z komputera pokaże obrót, a HUD gry zostaje na miejscu. Wymaga komputera, który to obsługuje, i nowego silnika streamingu.</string>
+    <string name="frame_warp_overlay_mouse">Frame Warp: dopasowany %1$s px/jednostkę, opóźnienie %2$s ms, przesunięcie %3$s px (szczyt %4$s)</string>
+    <string name="frame_warp_overlay_stick">Frame Warp: dopasowany %1$s px/s, opóźnienie %2$s ms, przesunięcie %3$s px (szczyt %4$s)</string>
+    <string name="frame_warp_overlay_learning">Frame Warp: uczy się</string>
+    <string name="frame_warp_overlay_not_offered">Frame Warp: komputer go nie oferuje</string>
+    <string name="frame_warp_overlay_off">Frame Warp: wyłączony dla tego strumienia</string>
+    <string name="frame_warp_needs_engine">Frame Warp wymaga nowego silnika streamingu. Ten strumień działa bez niego.</string>
+    <string name="frame_warp_unavailable">Frame Warp jest wyłączony dla tego strumienia: %1$s</string>
+    <string name="frame_warp_reason_hdr">to urządzenie pokazuje HDR tylko bezpośrednio z dekodera</string>
+    <string name="frame_warp_reason_full_chroma">pełna chrominancja jest włączona</string>
+    <string name="frame_warp_reason_renderer">ścieżka GPU nie uruchomiła się</string>
+    <string name="frame_warp_replaces_upscaling">Frame Warp rysuje obraz bez skalowania.</string>
     <string name="title_experimental_chipset_tuning">Dostrajanie chipsetu</string>
     <string name="summary_experimental_chipset_tuning">Dodatkowe ustawienia niskich opóźnień dla dekoderów MediaTek Dimensity i Samsung Exynos.</string>
     <string name="scut_deleted_pc">Komputer usunięty</string>

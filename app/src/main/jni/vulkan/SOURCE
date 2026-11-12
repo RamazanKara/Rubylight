@@ -14,6 +14,6 @@ Differences from the fork, so a later sync is a diff against it rather than a co
 - hdr10plus_window.h is Nightjar's: HDR10+ metadata on the output window, tested on the host.
 
 Regenerating shaders_spv.h: it is compiled from shaders/ and checked in. After editing
-video.vert, video.frag, video_common.glsl or hlg.glsl, run shaders/compile_shaders.sh (set GLSLC to the
+video.vert, video.frag, video_warp.frag, video_common.glsl or hlg.glsl, run shaders/compile_shaders.sh (set GLSLC to the
 NDK's shader-tools/<host>/glslc, or have glslc on PATH) and commit the new shaders_spv.h with
 the shader change.

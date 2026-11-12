@@ -158,6 +158,10 @@ pub struct SessionConfig {
     pub receive_decode_priority: bool,
     /// Client roaming (Experimental), with hosts that advertise it.
     pub roaming: RoamingConfig,
+    /// Frame Warp: the session counts input for it, asks a host that lists 0x5543 for its
+    /// model, tags and HUD mask, and feeds them in. The app hands the same state to its
+    /// presenter.
+    pub frame_warp: Option<Arc<crate::frame_warp::FrameWarp>>,
 }
 
 /// The decoder's answer for a frame (`DR_OK`, `DR_NEED_IDR`).
@@ -1185,6 +1189,7 @@ fn start(
     driver_config.network_grace = config.network_grace;
     driver_config.unbatched_input = config.unbatched_input;
     driver_config.input_disabled = config.remote_monitor;
+    driver_config.frame_warp = config.frame_warp.clone().filter(|_| !config.remote_monitor);
     driver_config.warn = driver::Warn::new({
         let shared = parts.shared.clone();
         move |message| shared.warn(message)
@@ -1226,6 +1231,13 @@ fn start(
             },
         )?;
     parts.control = Some(control.clone());
+    if let Some(warp) = config.frame_warp.as_ref().filter(|_| !config.remote_monitor) {
+        let request = warp.request(true);
+        match control.send(ClientMessage::FrameWarpRequest(request)) {
+            Ok(()) => listener.log("Frame Warp: asked the host for its model, tags and HUD mask"),
+            Err(error) => listener.log(&format!("Frame Warp: the host does not offer it ({error:?})")),
+        }
+    }
     let events = parts.shared.clone();
     let hdr_video = video_shared.clone();
     // Set once the streams run. Only the roamer moves sockets, so a roam that commits before

@@ -60,6 +60,8 @@ public final class HostCapabilities {
         HOST_TIMING(0),
         WEB_UI(R.string.host_feature_web_ui),
         CURSOR_SHAPE(R.string.host_feature_cursor_shape),
+        /** Frame Warp (docs/protocol/frame-warp.md): the host learns the camera turn and tags its frames. */
+        FRAME_WARP(R.string.host_feature_frame_warp),
         /** Rubylight's /api/native/v1: library, session actions, Radeon state. The UI shows its results, not its name. */
         NATIVE_API(0),
         /** Sleep PC (/power-actions/v1, Vibepollo's wire format): suspend an idle host. */
@@ -590,6 +592,7 @@ public final class HostCapabilities {
         boolean controllerPreparation;
         boolean currentGameUuid;
         int cursorShapeVersion = -1;
+        int frameWarpVersion = -1;
         /** -1 when the host has no native API, 0 when it has one but not for this request. */
         int nativeApiVersion = -1;
         /** -1 without PowerActionVersion: hosts send it only to paired clients over HTTPS. */
@@ -714,6 +717,9 @@ public final class HostCapabilities {
                         break;
                     case "CursorShapeVersion":
                         evidence.cursorShapeVersion = (int) unsigned(parser.nextText(), 0xFFFF);
+                        break;
+                    case "FrameWarpVersion":
+                        evidence.frameWarpVersion = (int) unsigned(parser.nextText(), 0xFFFF);
                         break;
                     case "HdrFormats":
                         evidence.hdrFormats = (int) unsigned(parser.nextText(), 0xFF);
@@ -934,6 +940,9 @@ public final class HostCapabilities {
                 case CURSOR_SHAPE:
                     // docs/protocol/cursor-shape.md: the highest version the host speaks; it also speaks 1.
                     return cursorShapeVersion >= 1 ? Availability.SUPPORTED : absent(false);
+                case FRAME_WARP:
+                    // docs/protocol/frame-warp.md: the highest version the host speaks; it also speaks 1.
+                    return frameWarpVersion >= 1 ? Availability.SUPPORTED : absent(false);
                 case NATIVE_API:
                     // The host reports 0 over plain HTTP and to an unpaired certificate.
                     if (nativeApiVersion == -1) {
@@ -1051,7 +1060,8 @@ public final class HostCapabilities {
                     .put("pyroWaveCodecs", pyroWaveCodecs).put("encoderBitrate", encoderBitrate)
                     .put("hardwareMetricsVersion", hardwareMetricsVersion).put("networkPathVersion", networkPathVersion)
                     .put("controllerPreparation", controllerPreparation).put("currentGameUuid", currentGameUuid)
-                    .put("cursorShapeVersion", cursorShapeVersion).put("nativeApiVersion", nativeApiVersion)
+                    .put("cursorShapeVersion", cursorShapeVersion).put("frameWarpVersion", frameWarpVersion)
+                    .put("nativeApiVersion", nativeApiVersion)
                     .put("powerActionVersion", powerActionVersion).put("sleepSupported", sleepSupported)
                     .put("sleepAllowed", sleepAllowed).put("nativeCapabilities", nativeCapabilities)
                     .put("filesUpload", filesUpload).put("filesDownload", filesDownload)
@@ -1098,6 +1108,8 @@ public final class HostCapabilities {
             evidence.currentGameUuid = object.getBoolean("currentGameUuid");
             // Absent from capabilities stored before cursor shapes existed.
             evidence.cursorShapeVersion = object.optInt("cursorShapeVersion", -1);
+            // Absent from capabilities stored before Frame Warp existed.
+            evidence.frameWarpVersion = object.optInt("frameWarpVersion", -1);
             evidence.nativeApiVersion = object.optInt("nativeApiVersion", -1);
             evidence.powerActionVersion = object.optInt("powerActionVersion", -1);
             evidence.sleepSupported = object.optBoolean("sleepSupported", false);
@@ -1156,7 +1168,8 @@ public final class HostCapabilities {
                     encoderBitrate == that.encoderBitrate && hardwareMetricsVersion == that.hardwareMetricsVersion &&
                     networkPathVersion == that.networkPathVersion &&
                     controllerPreparation == that.controllerPreparation && currentGameUuid == that.currentGameUuid &&
-                    cursorShapeVersion == that.cursorShapeVersion && nativeApiVersion == that.nativeApiVersion &&
+                    cursorShapeVersion == that.cursorShapeVersion && frameWarpVersion == that.frameWarpVersion &&
+                    nativeApiVersion == that.nativeApiVersion &&
                     powerActionVersion == that.powerActionVersion && sleepSupported == that.sleepSupported &&
                     sleepAllowed == that.sleepAllowed && nativeCapabilities == that.nativeCapabilities &&
                     filesUpload == that.filesUpload && filesDownload == that.filesDownload &&
@@ -1180,7 +1193,7 @@ public final class HostCapabilities {
             return Objects.hash(gameStream, sunshineVersion, paired, rustHostVersion, permission, serverCommands,
                     virtualDisplayCapable, virtualDisplayDriverReady, virtualDisplayHdrCapable, frameLimiter,
                     pyroWaveFields, pyroWaveProbeBytes, pyroWaveCodecs, encoderBitrate, hardwareMetricsVersion,
-                    networkPathVersion, controllerPreparation, currentGameUuid, cursorShapeVersion,
+                    networkPathVersion, controllerPreparation, currentGameUuid, cursorShapeVersion, frameWarpVersion,
                     nativeApiVersion, powerActionVersion, sleepSupported, sleepAllowed, nativeCapabilities, filesUpload,
                     filesDownload, fileUploadPermission, fileDownloadPermission, hdrFormats, fecControlVersion,
                     bandwidthProbeVersion, audioCodecs, audioLayouts, textInputVersion, keyboardLayoutVersion,

@@ -8,9 +8,15 @@ layout(set = 0, binding = 0) uniform sampler2D u_y;
 layout(set = 0, binding = 1) uniform sampler2D u_cb;
 layout(set = 0, binding = 2) uniform sampler2D u_cr;
 layout(push_constant) uniform Color { int ten_bit; int hdr; int full_range; int rotationQuarterTurns; } color;
+#ifdef FRAME_WARP
+#include "frame_warp.glsl"
+#endif
 
 void main() {
     vec2 uv = pyroSourceUv(v_uv, color.rotationQuarterTurns);
+#ifdef FRAME_WARP
+    uv = frameWarpUv(uv);
+#endif
     vec2 cuv = uv;
     // The Rubylight host averages each 2x2 chroma block, so its sampling is centred.
 

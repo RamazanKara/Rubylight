@@ -57,6 +57,12 @@ pub mod ptype {
         rubylight_protocol::clipboard_sync::CLIPBOARD_SYNC_MESSAGE_TYPE;
     pub const CURSOR_SHAPE_REQUEST: u16 = 0x5540;
     pub const CURSOR_SHAPE: u16 = 0x5541;
+    /// Rubylight's Frame Warp: the client's request, then the host's model, tags and mask.
+    pub const FRAME_WARP_REQUEST: u16 =
+        rubylight_protocol::frame_warp::FRAME_WARP_REQUEST_MESSAGE_TYPE;
+    pub const FRAME_WARP_MODEL: u16 = rubylight_protocol::frame_warp::FRAME_WARP_MODEL_MESSAGE_TYPE;
+    pub const FRAME_WARP_TAGS: u16 = rubylight_protocol::frame_warp::FRAME_WARP_TAGS_MESSAGE_TYPE;
+    pub const FRAME_WARP_MASK: u16 = rubylight_protocol::frame_warp::FRAME_WARP_MASK_MESSAGE_TYPE;
     /// Rubylight's USB forwarding (both ways).
     pub const USB: u16 = rubylight_protocol::usb::USB_MESSAGE_TYPE;
 }

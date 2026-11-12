@@ -21,6 +21,8 @@ import java.util.Locale;
 public final class PyroWaveDecoderRenderer {
     private static final boolean LIBRARY_LOADED = loadLibrary();
     private long handle;
+    // Frame Warp for this stream (setFrameWarp), until cleanup
+    private boolean frameWarp;
     private int format;
     private DecoderPerformanceHints performanceHints;
     private Thread submissionThread;
@@ -204,6 +206,16 @@ public final class PyroWaveDecoderRenderer {
         return format;
     }
 
+    /**
+     * Draws Frame Warp (docs/frame-warp.md) with the table at {@code api} (MoonBridge.frameWarpApi()) from the
+     * next picture on. The renderer is set up before the stream says whether it offers Frame Warp, so this comes
+     * after setup(). False when it cannot; the stream then goes without.
+     */
+    synchronized boolean setFrameWarp(long api) {
+        frameWarp = handle != 0 && api != 0 && nativeSetFrameWarp(handle, api);
+        return frameWarp;
+    }
+
     static final int SUBMIT_ACCEPTED = 1;
     static final int SUBMIT_BUSY = 2;
 
@@ -211,9 +223,9 @@ public final class PyroWaveDecoderRenderer {
     // timestamps arrive separately through nativePollRenderedFrames, before release/present events.
     // Exactly one of data and directData is set: directData is the Rust engine's frame in place,
     // read by native code during the call without a copy.
-    synchronized long submitFrame(byte[] data, ByteBuffer directData, int length, long ptsUs, long hostPresentationTimeUs,
-                                  PyroWaveDisplayClock.Snapshot displayClock, FrameLatencyStats stats,
-                                  Context context, boolean enablePerformanceHints, int frameRate) {
+    synchronized long submitFrame(byte[] data, ByteBuffer directData, int length, long ptsUs, int frameNumber,
+                                  long hostPresentationTimeUs, PyroWaveDisplayClock.Snapshot displayClock,
+                                  FrameLatencyStats stats, Context context, boolean enablePerformanceHints, int frameRate) {
         lastSubmissionDurationNs = 0;
         if (handle == 0) return -1;
         // setup() runs on the connection thread; submission runs on the actual decode thread.
@@ -237,6 +249,8 @@ public final class PyroWaveDecoderRenderer {
         // Copy the latest measured display phase before starting the native submission timer.
         long vsyncNs = displayClock.vsyncNs;
         long intervalNs = displayClock.intervalNs;
+        // Frame Warp shifts each picture for the frame the host drew it as
+        if (frameWarp) nativeNoteFrameNumber(handle, frameNumber);
         long workStartNs = Debug.threadCpuTimeNanos();
         long result;
         long submissionStartNs = System.nanoTime();
@@ -408,6 +422,7 @@ public final class PyroWaveDecoderRenderer {
 
     synchronized void cleanup(FrameLatencyStats stats) {
         submissionThread = null;
+        frameWarp = false;
         earlyWork.take(0);
         if (performanceHints != null) {
             performanceHints.close();
@@ -464,5 +479,7 @@ public final class PyroWaveDecoderRenderer {
     private static native float[] nativeGetEarlyRecords(long handle);
     private static native void nativeSetHdrMode(long handle, boolean enabled, byte[] metadata);
     private static native void nativeSetTransfer(long handle, boolean hlg);
+    private static native boolean nativeSetFrameWarp(long handle, long api);
+    private static native void nativeNoteFrameNumber(long handle, int frame);
     private static native void nativeDestroy(long handle, FrameLatencyStats stats);
 }

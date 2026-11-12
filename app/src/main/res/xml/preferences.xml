@@ -93,7 +93,11 @@
             android:title="@string/title_enable_sdr10"
             android:dialogMessage="@string/summary_enable_sdr10"
             android:defaultValue="false" />
-        <!-- Reserved: checkbox_frame_warp (Frame Warp) comes here with its own change. -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_frame_warp"
+            android:title="@string/title_frame_warp"
+            android:dialogMessage="@string/summary_frame_warp"
+            android:defaultValue="false" />
         <!-- The same feature as the stream menu's Automatic quality; the two minimums show only while it is on
              (StreamSettings, SettingRules). -->
         <com.limelight.preferences.MaterialListPreference

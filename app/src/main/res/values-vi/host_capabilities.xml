@@ -47,4 +47,5 @@
     <string name="stream_pyrowave_no_hdr_on_pc">PC này không có PyroWave HDR nên luồng HDR sẽ dùng %1$s.</string>
     <string name="connection_test_intro_delay">Kiểm tra độ trễ đến PC của bạn.</string>
     <string name="host_feature_cursor_shape">Hình dạng con trỏ</string>
+    <string name="host_feature_frame_warp">Frame Warp</string>
 </resources>

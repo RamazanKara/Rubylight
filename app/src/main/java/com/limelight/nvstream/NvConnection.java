@@ -1534,6 +1534,9 @@ public class NvConnection {
                         MoonBridge.requestRoaming(prefs.clientRoaming, prefs.roamingMetered);
                         MoonBridge.requestAudioPassthrough(audioPassthroughCodecs(prefs.audioPassthrough, prefs.muteAudio,
                                 context.streamConfig.getAudioConfiguration().channelCount));
+                        // A setting of the New streaming engine only; the host learns the game once asked.
+                        MoonBridge.requestFrameWarp(prefs.frameWarp && prefs.rustEngine,
+                                hostDetails.caps.has(HostCapabilities.Feature.FRAME_WARP));
                         // Before the start, so a change during the handshake is still reported.
                         Network streamNetwork = RoamingNetworkWatch.defaultNetwork(appContext);
                         int ret = MoonBridge.startConnection(context.serverAddress.address,

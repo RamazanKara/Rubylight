@@ -13,4 +13,13 @@ public class GlesUpscalerCapabilityTest {
         assertFalse(GlesUpscaler.tenBitOutputSupported("EGL_KHR_image", true));
         assertFalse(GlesUpscaler.tenBitOutputSupported(null, true));
     }
+
+    @Test
+    public void frameWarpDrawsThePictureAgainOnceItsShiftMovedAQuarterPixel() {
+        assertFalse(GlesUpscaler.needsRedraw(10f, -4f, 10f, -4f));
+        assertFalse(GlesUpscaler.needsRedraw(10f, -4f, 10.1f, -4.1f));
+        assertTrue(GlesUpscaler.needsRedraw(10f, -4f, 10.25f, -4f));
+        assertTrue(GlesUpscaler.needsRedraw(10f, -4f, 10.2f, -4.2f));
+        assertTrue("a shift that ended is drawn away", GlesUpscaler.needsRedraw(3f, 0f, 0f, 0f));
+    }
 }

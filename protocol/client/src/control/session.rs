@@ -130,6 +130,9 @@ pub struct ControlSession {
     hdr_metadata: HdrMetadata,
     cursor_shapes: bool,
     clock_sync_sequence: u32,
+    /// Frame Warp's shared state, fed the host's model, tags and mask while requested.
+    frame_warp: Option<std::sync::Arc<crate::frame_warp::FrameWarp>>,
+    frame_warp_on: bool,
 }
 
 impl ControlSession {
@@ -165,11 +168,19 @@ impl ControlSession {
             hdr_metadata: HdrMetadata::default(),
             cursor_shapes: false,
             clock_sync_sequence: 0,
+            frame_warp: None,
+            frame_warp_on: false,
         }
     }
 
     pub fn capabilities(&self) -> &HostCapabilities {
         &self.caps
+    }
+
+    /// Where the host's Frame Warp messages go once a [`ClientMessage::FrameWarpRequest`]
+    /// enables them.
+    pub fn set_frame_warp(&mut self, frame_warp: Option<std::sync::Arc<crate::frame_warp::FrameWarp>>) {
+        self.frame_warp = frame_warp;
     }
 
     /// Queues Start A and Start B; the periodic ping starts with the next [`Self::poll`].
@@ -223,9 +234,16 @@ impl ControlSession {
             // answer is not dropped, and refused from just before a disable.
             self.cursor_shapes = enabled;
         }
+        if let ClientMessage::FrameWarpRequest(request) = message {
+            // As for cursor shapes: accepted from just before an enable goes out.
+            self.frame_warp_on = request.enabled;
+        }
         if !self.queue(&message) {
             if matches!(message, ClientMessage::CursorShapeRequest { .. }) {
                 self.cursor_shapes = false;
+            }
+            if matches!(message, ClientMessage::FrameWarpRequest(_)) {
+                self.frame_warp_on = false;
             }
             return Err(SendError::Invalid);
         }
@@ -614,6 +632,11 @@ impl ControlSession {
             ptype::CURSOR_SHAPE if extensions && self.cursor_shapes => {
                 Some(events::cursor_shape(p))
             }
+            ptype::FRAME_WARP_MODEL | ptype::FRAME_WARP_TAGS | ptype::FRAME_WARP_MASK
+                if extensions && self.frame_warp_on =>
+            {
+                self.frame_warp_message(message_type, p)
+            }
             ptype::USB if extensions && self.caps.supports_control_message(ptype::USB) => {
                 events::usb(p)
             }
@@ -626,6 +649,36 @@ impl ControlSession {
         };
         if let Some(event) = event {
             self.events.push(event);
+        }
+    }
+
+    /// Hands a Frame Warp message to the shared state; a model also becomes an event for the
+    /// statistics. Messages that break their format are dropped.
+    fn frame_warp_message(&self, message_type: u16, p: &[u8]) -> Option<ControlEvent> {
+        use rubylight_protocol::frame_warp::{Mask, Model, Tags};
+        let warp = self.frame_warp.as_ref();
+        match message_type {
+            ptype::FRAME_WARP_MODEL => {
+                let model = Model::decode(p)?;
+                if let Some(warp) = warp {
+                    warp.on_model(model);
+                }
+                Some(ControlEvent::FrameWarpModel(model))
+            }
+            ptype::FRAME_WARP_TAGS => {
+                let tags = Tags::decode(p)?;
+                if let Some(warp) = warp {
+                    warp.on_tags(&tags);
+                }
+                None
+            }
+            _ => {
+                let mask = Mask::decode(p)?;
+                if let Some(warp) = warp {
+                    warp.on_mask(mask);
+                }
+                None
+            }
         }
     }
 }

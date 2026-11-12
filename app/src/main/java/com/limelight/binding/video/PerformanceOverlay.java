@@ -11,6 +11,7 @@ import android.text.style.StyleSpan;
 
 import com.limelight.R;
 import com.limelight.nvstream.http.HardwareMetrics;
+import com.limelight.nvstream.jni.MoonBridge;
 
 import java.util.ArrayList;
 import java.util.Locale;
@@ -193,6 +194,30 @@ public final class PerformanceOverlay {
      * engine dropped frames over a full decode queue in the window; unchanged without. Those frames are
      * this device's and never part of the frame loss above (nightjar#80).
      */
+    /**
+     * The Frame Warp line of Statistics and Debug, from MoonBridge.frameWarpStatus(): whether the PC offers it and,
+     * once it has learned the game's camera, the gain, the game's lag, the shift drawn last and the last second's
+     * peak. Null with the setting off.
+     */
+    public static String frameWarpText(Context context, int status, float[] numbers) {
+        Locale locale = context.getResources().getConfiguration().locale;
+        switch (status) {
+            case MoonBridge.FRAME_WARP_NOT_OFFERED: return context.getString(R.string.frame_warp_overlay_not_offered);
+            case MoonBridge.FRAME_WARP_LEARNING: return context.getString(R.string.frame_warp_overlay_learning);
+            case MoonBridge.FRAME_WARP_OFF_FOR_STREAM: return context.getString(R.string.frame_warp_overlay_off);
+            case MoonBridge.FRAME_WARP_MOUSE:
+            case MoonBridge.FRAME_WARP_STICK:
+                boolean mouse = status == MoonBridge.FRAME_WARP_MOUSE;
+                // Pixels per mouse count are a fraction; pixels per second of full stick are hundreds
+                return context.getString(mouse ? R.string.frame_warp_overlay_mouse : R.string.frame_warp_overlay_stick,
+                        measurement(locale, numbers[0], mouse ? "%.2f" : "%.0f"),
+                        measurement(locale, numbers[1], "%.0f"),
+                        measurement(locale, numbers[2], "%.1f"),
+                        measurement(locale, numbers[3], "%.1f"));
+            default: return null;
+        }
+    }
+
     public static CharSequence withDecoderDrops(Context context, CharSequence statistics, int decoderDrops) {
         if (decoderDrops <= 0) return statistics;
         return TextUtils.concat(statistics, "\n", context.getString(R.string.perf_overlay_decoder_drops, decoderDrops));

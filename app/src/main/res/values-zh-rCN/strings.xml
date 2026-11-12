@@ -2,6 +2,19 @@
 <resources>
     <string name="title_packed_444">全色度</string>
     <string name="summary_packed_444">需要启用 Rubylight 的全色度选项和新串流引擎，并使用兼容的 HEVC/AV1 硬件解码器。如果电脑或此设备不支持，串流将以普通色度开始。HDR 还需要兼容的 10 位 HDR 显示表面。</string>
+    <string name="title_frame_warp">Frame Warp</string>
+    <string name="summary_frame_warp">在电脑的下一帧显示转向之前，随鼠标或右摇杆平移画面，并让游戏的 HUD 保持不动。需要支持此功能的电脑和新串流引擎。</string>
+    <string name="frame_warp_overlay_mouse">Frame Warp：已锁定 %1$s px/计数，延迟 %2$s ms，平移 %3$s px（峰值 %4$s）</string>
+    <string name="frame_warp_overlay_stick">Frame Warp：已锁定 %1$s px/秒，延迟 %2$s ms，平移 %3$s px（峰值 %4$s）</string>
+    <string name="frame_warp_overlay_learning">Frame Warp：学习中</string>
+    <string name="frame_warp_overlay_not_offered">Frame Warp：电脑未提供</string>
+    <string name="frame_warp_overlay_off">Frame Warp：此串流中已关闭</string>
+    <string name="frame_warp_needs_engine">Frame Warp 需要新串流引擎。此串流不使用它。</string>
+    <string name="frame_warp_unavailable">此串流中 Frame Warp 已关闭：%1$s</string>
+    <string name="frame_warp_reason_hdr">此设备只能直接从解码器显示 HDR</string>
+    <string name="frame_warp_reason_full_chroma">已开启全色度</string>
+    <string name="frame_warp_reason_renderer">GPU 渲染路径未能启动</string>
+    <string name="frame_warp_replaces_upscaling">Frame Warp 绘制画面时不进行放大。</string>
     <string name="title_experimental_chipset_tuning">芯片组调优</string>
     <string name="summary_experimental_chipset_tuning">为 MediaTek Dimensity 和 Samsung Exynos 解码器提供额外的低延迟设置。</string>
     <string name="scut_deleted_pc">电脑已删除</string>

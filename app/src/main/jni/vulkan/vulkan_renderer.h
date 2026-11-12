@@ -15,6 +15,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "../frame_warp_api.h"
+#include "../frame_warp_mask.h"
 #include "decoder_fence.h"
 #include "frame_pacer.h"
 #include "hdr10plus_window.h"
@@ -42,6 +44,8 @@ struct RendererConfig {
     std::string codec;           // h264, hevc or av1, for pacer traces
     std::string decoderName;     // The MediaCodec decoder, for pacer traces
     std::string traceDirectory;  // Where pacer traces go when enabled (see PacerTrace)
+    // Frame Warp's table (frame_warp_api.h) when the stream draws it, else null
+    const FrameWarpApi* frameWarp = nullptr;
 };
 
 // Decoded frame held until it is replaced on screen and the GPU is done with it: an image from
@@ -71,6 +75,8 @@ struct VideoFrame {
 
     AImageCropRect crop {};
     FrameTiming timing;
+    // Its frame number, which Frame Warp's shift is for; -1 unknown or without Frame Warp
+    int64_t frameNumber = -1;
     // The frame's HDR10+ metadata (the T.35 payload from the country code on), or null without it:
     // the last the decoder side was given for this frame or an earlier one (noteHdr10Plus())
     std::shared_ptr<const std::vector<uint8_t>> hdr10Plus;
@@ -148,6 +154,8 @@ public:
     bool frontBufferActive() const { return frontBuffer_; }
     // The PC sends HDR, but the surface took no HDR format or dataspace, so it is tone mapped to SDR
     bool hdrToneMapped() const { return hdrToneMapped_; }
+    // Frame Warp is drawn: the stream asked for it and its pass was set up (init())
+    bool drawsFrameWarp() const { return warpApi_ != nullptr; }
 
     // Capture latency since the last call: the time from each frame's origin (see
     // VideoFrame::originNs) until it was decoded, and until it reached the screen. Frames measured
@@ -459,6 +467,53 @@ private:
     int64_t lastPresentNs_ = 0;
     static constexpr int64_t kKeepAliveAfterNs = 50'000'000;
     void keepAlive();
+
+    // Frame Warp (docs/frame-warp.md): each picture is drawn by video_warp.frag, shifted by the
+    // turn the host has not drawn yet, with the host's HUD mask left in place. Null without it,
+    // and then none of this runs. The mask is an R8 image per frame in flight, written from a
+    // host-visible buffer when the slot's is behind the newest. Render thread, under renderMutex_.
+    const FrameWarpApi* warpApi_ = nullptr;
+    struct WarpMask {
+        VkImage image = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+        VkImageView view = VK_NULL_HANDLE;
+        VkBuffer staging = VK_NULL_HANDLE;
+        VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
+        void* mapped = nullptr;
+        VkDescriptorSet set = VK_NULL_HANDLE;
+        uint32_t width = 0;
+        uint32_t height = 0;
+        // The mask the image holds: a generation, kWarpMaskEmpty, or kWarpMaskUnwritten
+        int32_t generation = -2;
+        // A write recorded into the slot's commands, the image's once they are submitted
+        int32_t writing = -2;
+    };
+    static constexpr int32_t kWarpMaskEmpty = FrameWarpCells::kEmpty;
+    static constexpr int32_t kWarpMaskUnwritten = -2;
+    WarpMask warpMasks_[kFramesInFlight];
+    VkSampler warpSampler_ = VK_NULL_HANDLE;
+    VkDescriptorSetLayout warpSetLayout_ = VK_NULL_HANDLE;
+    VkDescriptorPool warpPool_ = VK_NULL_HANDLE;
+    VkShaderModule warpFragShader_ = VK_NULL_HANDLE;
+    // The newest mask from the host (frame_warp_mask.h)
+    FrameWarpCells warpCells_;
+    // The shift on screen, picture pixels
+    float warpDrawnPx_[2] = {0.0f, 0.0f};
+    // When the last present asked to reach the screen, if at a vsync still to come (0 for as soon
+    // as it can): no redraw goes ahead of it
+    int64_t warpDueNs_ = 0;
+    // A mask image of the host's size could not be made: the HUD is shifted with the rest
+    bool warpMaskFailed_ = false;
+    bool createWarpResources();
+    void destroyWarpResources();
+    bool createWarpMask(WarpMask& mask, uint32_t width, uint32_t height);
+    void destroyWarpMask(WarpMask& mask);
+    int32_t findMemoryType(uint32_t typeBits, VkMemoryPropertyFlags flags) const;
+    // Records the slot's mask write, if it is behind; returns the generation it will hold
+    int32_t recordWarpMask(int slot, VkCommandBuffer cmd);
+    // Between pictures, at the vsync at vsyncNs: presents the one on screen again if its shift
+    // moved; true if it did
+    bool warpRefresh(int64_t vsyncNs);
 
     // Decoder side
     AImageReader* reader_ = nullptr;

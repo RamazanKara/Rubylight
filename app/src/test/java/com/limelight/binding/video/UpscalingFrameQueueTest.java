@@ -46,4 +46,20 @@ public class UpscalingFrameQueueTest {
             assertArrayEquals(new long[] {timestamp, i * 1000L + 500, 0}, frame);
         }
     }
+
+    @Test
+    public void eachLatchedFrameCarriesTheDecoderTimeFrameWarpLooksItUpBy() {
+        UpscalingFrameQueue queue = new UpscalingFrameQueue();
+        long[] frame = new long[4];
+        queue.release(100, 150, 16_000);
+        long second = queue.release(200, 250, 32_666);
+        assertTrue(queue.consume(second, frame));
+        assertArrayEquals(new long[] {200, 250, 1, 32_666}, frame);
+        assertTrue(queue.consume(queue.release(300, 0), frame));
+        assertEquals("released without one", -1, frame[3]);
+        // Three slots, as the upscaler without Frame Warp passes, are left as they were.
+        long[] three = new long[3];
+        assertTrue(queue.consume(queue.release(400, 450, 48_000), three));
+        assertArrayEquals(new long[] {400, 450, 0}, three);
+    }
 }

@@ -83,7 +83,7 @@ final class RustBridge {
                                       boolean networkPriority, boolean roaming, boolean roamingMetered,
                                       int audioPassthrough, int hdrFormat, int videoFecPercentage,
                                       boolean pyrowaveEarly, boolean codecDirect,
-                                      boolean receiveDecodePriority);
+                                      boolean receiveDecodePriority, boolean frameWarpRequested);
     static native void stopConnection();
     static native void interruptConnection();
     static native int networkChanged(boolean metered);
@@ -119,6 +119,15 @@ final class RustBridge {
     static native void flushPhaseLockReport();
     static native int getPhaseLockLeadUs();
     static native boolean hostSupportsControlMessage(int messageType);
+    // Frame Warp (protocol/android/src/frame_warp.rs); MoonBridge has what they mean.
+    static native boolean frameWarpOffered();
+    static native long frameWarpApi();
+    static native void frameWarpNoteFrame(long ptsUs, int frame);
+    static native int frameWarpForPts(long ptsUs, float[] out);
+    static native int frameWarpPeekForPts(long ptsUs, float[] out);
+    static native int frameWarpMask(int known, int[] size, byte[] cells);
+    static native void frameWarpDecline();
+    static native int frameWarpStatus(float[] out);
     static native boolean sendDisplayCaps(boolean hdr, float maxNits, float maxAverageNits, float minNits);
     static native int getMicrophoneState();
     static native int getHostPacked444Modes();

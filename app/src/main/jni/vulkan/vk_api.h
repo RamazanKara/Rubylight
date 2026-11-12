@@ -115,7 +115,10 @@
     X(vkGetBufferMemoryRequirements) \
     X(vkBindBufferMemory) \
     X(vkCreateComputePipelines) \
-    X(vkCmdDispatch)
+    X(vkCmdDispatch) \
+    X(vkMapMemory) \
+    X(vkUnmapMemory) \
+    X(vkCmdCopyBufferToImage)
 
 #define VK_DECLARE_FUNCTION(name) PFN_##name name = nullptr;
 

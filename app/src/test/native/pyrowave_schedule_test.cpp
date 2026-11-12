@@ -91,7 +91,87 @@ static void warmupAndUnsubmittedFailureDoNotBecomeVisible() {
     assert(schedule.inFlight() == 0);
 }
 
+static void holdsTheShownPictureForRedrawsUntilANewerOneIsReady() {
+    PyroWaveSchedule schedule;
+    auto drawFinished = [](int) { return true; };
+    assert(schedule.held() == -1 && schedule.beginRedraw() == -1);
+
+    const int first = schedule.reserve(drawFinished);
+    assert(schedule.complete(first) == -1);
+    assert(schedule.beginPresent() == first);
+    // Nothing is redrawn while a picture is being drawn
+    assert(schedule.beginRedraw() == -1);
+    schedule.finishPresent();
+    schedule.hold(first);
+    assert(schedule.held() == first);
+
+    // Between pictures the held one is drawn again and decodes keep MAX_IN_FLIGHT around it
+    assert(schedule.beginRedraw() == first);
+    assert(schedule.drawing() == first && schedule.beginRedraw() == -1);
+    const int second = schedule.reserve(drawFinished);
+    const int third = schedule.reserve(drawFinished);
+    assert(second >= 0 && third >= 0 && second != first && third != first);
+    schedule.finishPresent();
+    assert(schedule.held() == first && schedule.beginRedraw() == first);
+    schedule.finishPresent();
+
+    // A newer picture ready: no redraw, and the held slot is free for a decode
+    assert(schedule.complete(second) == -1);
+    assert(schedule.beginRedraw() == -1);
+    assert(schedule.reserve(drawFinished) == first);
+    assert(schedule.held() == -1);
+    assert(schedule.beginPresent() == second);
+    schedule.finishPresent();
+    schedule.hold(second);
+
+    // Presenting a newer picture lets the held one go
+    assert(schedule.complete(third) == -1);
+    assert(schedule.beginPresent() == third);
+    assert(schedule.held() == -1);
+    schedule.finishPresent();
+    assert(schedule.beginRedraw() == -1);
+}
+
+static void protectsTheHeldPictureOnlyBetweenPictures() {
+    PyroWaveSchedule schedule;
+    std::array<bool, PyroWaveSchedule::SLOT_COUNT> fences{true, true, true};
+    auto drawFinished = [&](int index) { return fences[index]; };
+    const int first = schedule.reserve(drawFinished);
+    assert(schedule.complete(first) == -1);
+    assert(schedule.beginPresent() == first);
+    schedule.finishPresent();
+    schedule.hold(first);
+
+    // The one other free slot still finishes an earlier draw: with nothing newer ready, a decode
+    // waits rather than take the held picture
+    const int second = schedule.reserve(drawFinished);
+    const int other = 3 - first - second;
+    fences[other] = false;
+    assert(schedule.reserve(drawFinished) == -1);
+    assert(schedule.held() == first);
+    fences[other] = true;
+    const int third = schedule.reserve(drawFinished);
+    assert(third == other);
+
+    // Once a newer picture is ready, the held one is free for a decode
+    assert(schedule.complete(second) == -1);
+    assert(schedule.reserve(drawFinished) == first);
+    assert(schedule.held() == -1);
+    assert(schedule.complete(third) == second);
+    assert(schedule.complete(first) == third);
+    assert(schedule.ready() == first);
+
+    // A slot that is ready is never held
+    PyroWaveSchedule fresh;
+    const int ready = fresh.reserve(drawFinished);
+    assert(fresh.complete(ready) == -1);
+    fresh.hold(ready);
+    assert(fresh.held() == -1);
+}
+
 int main() {
+    holdsTheShownPictureForRedrawsUntilANewerOneIsReady();
+    protectsTheHeldPictureOnlyBetweenPictures();
     limitsOutstandingGpuWork();
     replacesOnlyCompletedFrames();
     waitsForDrawFenceBeforeReuse();

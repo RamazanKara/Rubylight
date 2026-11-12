@@ -287,6 +287,11 @@ impl Streaming {
                 Some(usb) => usb.on_message(message),
                 None => eprintln!("nightjar: USB: ignored {message:?}: USB forwarding is off here"),
             },
+            ControlEvent::FrameWarpModel(model) => {
+                if let Some(line) = self.frame_warp.as_mut().and_then(|presenter| presenter.model(&model)) {
+                    eprintln!("{line}");
+                }
+            }
             _ => {}
         }
     }

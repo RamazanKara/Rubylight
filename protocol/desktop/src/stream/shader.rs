@@ -64,8 +64,9 @@ impl Shader {
             stage: SDL_GPU_SHADERSTAGE_FRAGMENT,
             num_samplers: match self {
                 Self::Packed => 0,
+                // The three planes and Frame Warp's HUD mask.
                 #[cfg(unix)]
-                Self::Planes => 3,
+                Self::Planes => 4,
                 _ => 1,
             },
             num_uniform_buffers: 1,

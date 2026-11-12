@@ -453,12 +453,24 @@ impl Reconstruction {
             && self.native.as_ref().is_some_and(|native| native.upload(frame))
     }
 
-    #[cfg(windows)]
+    #[cfg(all(windows, test))]
     pub fn present(
         &mut self,
         renderer: *mut SDL_Renderer,
         parameters: &[u32; 12],
         destination: &SDL_FRect,
+    ) -> bool {
+        self.present_warped(renderer, parameters, destination, &super::frame_warp::WarpDraw::default())
+    }
+
+    /// Draws the picture into `destination` of the back buffer, shifted by Frame Warp's `warp`.
+    #[cfg(windows)]
+    pub fn present_warped(
+        &mut self,
+        renderer: *mut SDL_Renderer,
+        parameters: &[u32; 12],
+        destination: &SDL_FRect,
+        warp: &super::frame_warp::WarpDraw,
     ) -> bool {
         // SAFETY: All renderer calls and the native draw run on the presenting thread.
         unsafe {
@@ -497,6 +509,7 @@ impl Reconstruction {
                 &destination,
                 output == i64::from(SDL_COLORSPACE_SRGB_LINEAR.0),
                 scale,
+                warp,
             ))
         }
     }

@@ -28,6 +28,7 @@
     "host_timing": "supported",
     "web_ui": "supported",
     "cursor_shape": "supported",
+    "frame_warp": "unsupported",
     "native_api": "supported",
     "sleep": "unsupported:update_host",
     "file_upload": "unknown",

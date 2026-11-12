@@ -68,16 +68,19 @@ fn moonbridge_names_the_3_0_control_messages_as_rubylight_protocol_defines_them(
             ),
         ])
     );
-    // Every 3.0 and adopted type has a Java name but the host's cursor image, which MoonBridge
-    // does not name.
+    // Every 3.0 and adopted type has a Java name but the host's cursor image and Frame Warp's
+    // messages, which the Rust engine sends and handles itself and MoonBridge does not name.
     let mut listed: Vec<u16> = named.into_values().collect();
     listed.sort_unstable();
+    let frame_warp = rubylight_protocol::frame_warp::FRAME_WARP_REQUEST_MESSAGE_TYPE
+        ..=rubylight_protocol::frame_warp::FRAME_WARP_MASK_MESSAGE_TYPE;
     let mut defined: Vec<u16> = CONTROL_IDS
         .iter()
         .map(|(id, _)| *id)
         .filter(|id| {
             (RUBYLIGHT_3_CONTROL_IDS.contains(id) || ADOPTED_CONTROL_IDS.contains(id))
                 && *id != cursor_shape::CURSOR_SHAPE_MESSAGE_TYPE
+                && !frame_warp.contains(id)
         })
         .collect();
     defined.sort_unstable();

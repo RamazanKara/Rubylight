@@ -6,6 +6,7 @@ import android.content.res.Configuration;
 
 import com.limelight.nvstream.av.video.HostTimingReport;
 import com.limelight.nvstream.http.HardwareMetrics;
+import com.limelight.nvstream.jni.MoonBridge;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -25,6 +26,26 @@ public class PerformanceOverlayTest {
         Configuration config = new Configuration(app.getResources().getConfiguration());
         config.setLocale(locale);
         return app.createConfigurationContext(config);
+    }
+
+    @Test
+    public void frameWarpLineShowsItsStateAndOnceLockedItsNumbers() {
+        Context us = context(Locale.US);
+        float[] none = new float[4];
+        assertNull("no line with the setting off", PerformanceOverlay.frameWarpText(us, MoonBridge.FRAME_WARP_OFF, none));
+        assertEquals("Frame Warp: not offered by the PC",
+                PerformanceOverlay.frameWarpText(us, MoonBridge.FRAME_WARP_NOT_OFFERED, none));
+        assertEquals("Frame Warp: learning", PerformanceOverlay.frameWarpText(us, MoonBridge.FRAME_WARP_LEARNING, none));
+        assertEquals("Frame Warp: off for this stream",
+                PerformanceOverlay.frameWarpText(us, MoonBridge.FRAME_WARP_OFF_FOR_STREAM, none));
+        assertEquals("Frame Warp: locked 0.35 px/count, lag 33 ms, shift 12.3 px (peak 40.0)",
+                PerformanceOverlay.frameWarpText(us, MoonBridge.FRAME_WARP_MOUSE, new float[] {0.346f, 33.4f, 12.3f, 40f}));
+        assertEquals("Frame Warp: locked 1200 px/s, lag 17 ms, shift 0.0 px (peak 8.5)",
+                PerformanceOverlay.frameWarpText(us, MoonBridge.FRAME_WARP_STICK, new float[] {1200f, 16.6f, 0f, 8.5f}));
+        String german = PerformanceOverlay.frameWarpText(context(Locale.GERMANY), MoonBridge.FRAME_WARP_MOUSE,
+                new float[] {0.346f, 33.4f, 12.3f, 40f});
+        assertTrue("numbers follow the language: " + german,
+                german.contains("0,35") && german.contains("12,3") && german.contains("40,0"));
     }
 
     @Test

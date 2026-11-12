@@ -13,7 +13,8 @@ public class UpscalingShaderTest {
 
     @Test
     public void shadersUseTheGles30InterfaceAndBalancedSyntax() throws Exception {
-        for (String name : new String[] {"upscale.vert", "bilinear.frag", "easu.frag", "rcas.frag", "sgsr.frag"}) {
+        for (String name : new String[] {"upscale.vert", "bilinear.frag", "easu.frag", "rcas.frag", "sgsr.frag",
+                "warp.frag"}) {
             String text = source(name);
             assertTrue(name, text.startsWith("#version 300 es\n"));
             assertTrue(name, text.contains("precision highp float;"));
@@ -33,11 +34,24 @@ public class UpscalingShaderTest {
             assertFalse(name, text.contains("gl_FragColor"));
             if (name.endsWith(".frag")) assertTrue(name, text.contains("out vec4 color;"));
         }
-        for (String name : new String[] {"bilinear.frag", "easu.frag", "sgsr.frag"}) {
+        for (String name : new String[] {"bilinear.frag", "easu.frag", "sgsr.frag", "warp.frag"}) {
             assertTrue(source(name).contains("#extension GL_OES_EGL_image_external_essl3 : require"));
             assertTrue(source(name).contains("samplerExternalOES source;"));
             assertTrue(source(name).contains("uniform mat4 textureTransform;"));
         }
+    }
+
+    @Test
+    public void frameWarpReadsTheMaskWhereThePixelIsAndClampsTheShiftedPicture() throws Exception {
+        String warp = source("warp.frag");
+        assertTrue(warp.contains("uniform vec3 warp;"));
+        assertTrue(warp.contains("uniform lowp sampler2D hudMask;"));
+        // The mask is in picture space with rows from the top; upscale.vert's uv has y up.
+        assertTrue(warp.contains("vec2 picture = vec2(uv.x, 1.0 - uv.y);"));
+        assertTrue(warp.contains("texture(hudMask, picture)"));
+        // Sampled at the position less the shift: y down in the shift, up in uv.
+        assertTrue(warp.contains("clamp(uv - vec2(warp.x, -warp.y), 0.0, 1.0)"));
+        assertTrue(warp.contains("textureTransform * vec4(at, 0.0, 1.0)"));
     }
 
     @Test

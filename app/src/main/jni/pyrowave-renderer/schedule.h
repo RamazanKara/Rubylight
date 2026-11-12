@@ -16,6 +16,9 @@ public:
         for (int offset = 1; offset <= SLOT_COUNT; ++offset) {
             const int index = (lastReserved_ + offset) % SLOT_COUNT;
             if (decoding_[index] || index == ready_ || index == drawing_ || !drawFinished(index)) continue;
+            // The picture on screen stays for Frame Warp's redraws until a newer one is ready
+            if (index == held_ && ready_ < 0) continue;
+            if (index == held_) held_ = -1;
             decoding_[index] = true;
             ++inFlight_;
             lastReserved_ = index;
@@ -52,6 +55,7 @@ public:
         if (drawing_ >= 0 || ready_ < 0) return -1;
         drawing_ = ready_;
         ready_ = -1;
+        held_ = -1;
         return drawing_;
     }
 
@@ -69,8 +73,24 @@ public:
     // renderer's draw fence to be signaled before returning the slot for another decode.
     void finishPresent() { drawing_ = -1; }
 
+    // Frame Warp only: keeps the picture just shown, `index`, to draw again with a newer shift
+    // (beginRedraw()) until a newer picture is ready. reserve() takes it for a decode only then,
+    // and beginPresent() lets it go. Without hold() the schedule is as it was.
+    void hold(int index) {
+        if (index >= 0 && index < SLOT_COUNT && !decoding_[index] && index != ready_) held_ = index;
+    }
+
+    // The held picture to draw again, as drawing() until finishPresent(); -1 while a newer picture
+    // is ready, another draw is under way, or nothing is held.
+    int beginRedraw() {
+        if (drawing_ >= 0 || ready_ >= 0 || held_ < 0 || decoding_[held_]) return -1;
+        drawing_ = held_;
+        return drawing_;
+    }
+
     int ready() const { return ready_; }
     int drawing() const { return drawing_; }
+    int held() const { return held_; }
     int inFlight() const { return inFlight_; }
     bool isDecoding(int index) const {
         return index >= 0 && index < SLOT_COUNT && decoding_[index];
@@ -81,5 +101,6 @@ private:
     int inFlight_ = 0;
     int ready_ = -1;
     int drawing_ = -1;
+    int held_ = -1;
     int lastReserved_ = SLOT_COUNT - 1;
 };

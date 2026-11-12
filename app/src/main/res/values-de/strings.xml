@@ -2,6 +2,19 @@
 <resources>
     <string name="title_packed_444">Volle Farbauflösung</string>
     <string name="summary_packed_444">Benötigt Rubylights Option für volle Farbauflösung, die neue Streaming-Engine und einen kompatiblen HEVC/AV1-Hardwaredecoder. Kann der PC oder dieses Gerät das nicht, startet der Stream ohne sie. HDR benötigt zusätzlich eine kompatible 10-Bit-HDR-Anzeigefläche.</string>
+    <string name="title_frame_warp">Frame Warp</string>
+    <string name="summary_frame_warp">Verschiebt das Bild mit deiner Maus oder dem rechten Stick, bis das nächste Bild des PCs die Drehung zeigt, und lässt das HUD des Spiels an seinem Platz. Benötigt einen PC, der das unterstützt, und die neue Streaming-Engine.</string>
+    <string name="frame_warp_overlay_mouse">Frame Warp: erfasst %1$s px/Zähler, Verzögerung %2$s ms, Verschiebung %3$s px (Spitze %4$s)</string>
+    <string name="frame_warp_overlay_stick">Frame Warp: erfasst %1$s px/s, Verzögerung %2$s ms, Verschiebung %3$s px (Spitze %4$s)</string>
+    <string name="frame_warp_overlay_learning">Frame Warp: lernt</string>
+    <string name="frame_warp_overlay_not_offered">Frame Warp: vom PC nicht angeboten</string>
+    <string name="frame_warp_overlay_off">Frame Warp: für diesen Stream aus</string>
+    <string name="frame_warp_needs_engine">Frame Warp benötigt die neue Streaming-Engine. Dieser Stream läuft ohne.</string>
+    <string name="frame_warp_unavailable">Frame Warp ist für diesen Stream aus: %1$s</string>
+    <string name="frame_warp_reason_hdr">dieses Gerät zeigt HDR nur direkt vom Decoder</string>
+    <string name="frame_warp_reason_full_chroma">Volle Farbauflösung ist an</string>
+    <string name="frame_warp_reason_renderer">der GPU-Pfad ist nicht gestartet</string>
+    <string name="frame_warp_replaces_upscaling">Frame Warp zeichnet das Bild ohne Hochskalierung.</string>
     <string name="title_experimental_chipset_tuning">Chipsatz-Optimierung</string>
     <string name="summary_experimental_chipset_tuning">Zusätzliche Low-Latency-Einstellungen für MediaTek-Dimensity- und Samsung-Exynos-Decoder.</string>
     <string name="scut_deleted_pc">PC gelöscht</string>

@@ -20,6 +20,7 @@ pub mod clipboard_sync;
 pub mod control;
 pub mod cursor_shape;
 pub mod fec_report;
+pub mod frame_warp;
 pub mod hdr;
 pub mod ids;
 pub mod keyboard_layout;

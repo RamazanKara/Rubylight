@@ -2,6 +2,19 @@
 <resources>
     <string name="title_packed_444">Полная цветность</string>
     <string name="summary_packed_444">Требуются опция полной цветности в Rubylight, новый движок стриминга и совместимый аппаратный декодер HEVC/AV1. Если ПК или это устройство её не поддерживает, трансляция запускается без неё. Для HDR также нужна совместимая 10-битная поверхность вывода HDR.</string>
+    <string name="title_frame_warp">Frame Warp</string>
+    <string name="summary_frame_warp">Сдвигает изображение вслед за мышью или правым стиком, пока следующий кадр с ПК не покажет поворот, и оставляет HUD игры на месте. Нужен ПК с поддержкой этой функции и новый движок трансляции.</string>
+    <string name="frame_warp_overlay_mouse">Frame Warp: зафиксирован %1$s пикс./отсчёт, задержка %2$s мс, сдвиг %3$s пикс. (пик %4$s)</string>
+    <string name="frame_warp_overlay_stick">Frame Warp: зафиксирован %1$s пикс./с, задержка %2$s мс, сдвиг %3$s пикс. (пик %4$s)</string>
+    <string name="frame_warp_overlay_learning">Frame Warp: обучение</string>
+    <string name="frame_warp_overlay_not_offered">Frame Warp: ПК не предлагает</string>
+    <string name="frame_warp_overlay_off">Frame Warp: выключен для этой трансляции</string>
+    <string name="frame_warp_needs_engine">Для Frame Warp нужен новый движок трансляции. Эта трансляция идёт без него.</string>
+    <string name="frame_warp_unavailable">Frame Warp выключен для этой трансляции: %1$s</string>
+    <string name="frame_warp_reason_hdr">это устройство показывает HDR только напрямую из декодера</string>
+    <string name="frame_warp_reason_full_chroma">включена полная цветность</string>
+    <string name="frame_warp_reason_renderer">не удалось запустить вывод через GPU</string>
+    <string name="frame_warp_replaces_upscaling">Frame Warp выводит изображение без масштабирования.</string>
     <string name="title_experimental_chipset_tuning">Настройка чипсета</string>
     <string name="summary_experimental_chipset_tuning">Дополнительные настройки низкой задержки для декодеров MediaTek Dimensity и Samsung Exynos.</string>
     <string name="scut_deleted_pc">ПК удалён</string>

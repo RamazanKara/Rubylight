@@ -154,18 +154,19 @@ public class HostCapabilitiesTest {
     }
 
     @Test
-    public void currentRubylightSupportsEverythingButCursorShapesTheNativeApiSleepAndFiles() {
+    public void currentRubylightSupportsEverythingButCursorShapesFrameWarpTheNativeApiSleepAndFiles() {
         HostCapabilities caps = TestHosts.rubylight();
         assertEquals(Family.RUBYLIGHT, caps.family());
         assertEquals("2.2.21", caps.hostVersion());
         // Everything up to file transfer; the 3.0 extensions came later.
         Set<Feature> expected = EnumSet.range(PERMISSIONS, FILE_DOWNLOAD);
-        expected.removeAll(EnumSet.of(DISPLAY_SCALE, CURSOR_SHAPE, NATIVE_API, SLEEP, FILE_UPLOAD, FILE_DOWNLOAD));
+        expected.removeAll(EnumSet.of(DISPLAY_SCALE, CURSOR_SHAPE, FRAME_WARP, NATIVE_API, SLEEP, FILE_UPLOAD,
+                FILE_DOWNLOAD));
         assertEquals(expected, caps.supported());
         assertReason(caps, DISPLAY_SCALE, Reason.UPDATE_HOST);
         assertNever(caps, DOLBY_VISION, HLG, CLIENT_FEC, BANDWIDTH_PROBE, AUDIO_PASSTHROUGH, SURROUND_714, TEXT_INPUT,
                 CLIENT_KEYBOARD_LAYOUT, PEN_BARREL_ROLL, PIPELINE_RATES);
-        assertNever(caps, CURSOR_SHAPE);
+        assertNever(caps, CURSOR_SHAPE, FRAME_WARP);
         assertReason(caps, NATIVE_API, Reason.UPDATE_HOST);
         assertReason(caps, SLEEP, Reason.UPDATE_HOST);
         // File transfer rides on the native API, which this version lacks.
@@ -376,6 +377,35 @@ public class HostCapabilitiesTest {
         HostCapabilities older = HostCapabilities.fromJson(olderJson);
         assertTrue(older.isKnown());
         assertFalse(older.has(CURSOR_SHAPE));
+    }
+
+    @Test
+    public void frameWarpNeedsItsVersionFieldFromAnyHost() {
+        for (String host : new String[] {"<appversion>7.1.431.-1</appversion>", "<Permission>0</Permission>",
+                "<FrameLimiterSupported>1</FrameLimiterSupported>", "<RustHostVersion>2.2.21</RustHostVersion>",
+                "<appversion>7.1.431.0</appversion>"}) {
+            assertTrue(host, caps(host + "<FrameWarpVersion>1</FrameWarpVersion>").has(FRAME_WARP));
+            assertTrue(host, caps(host + "<FrameWarpVersion>2</FrameWarpVersion>").has(FRAME_WARP));
+            for (String version : new String[] {"0", "-1", "bad", "", "65536"}) {
+                assertFalse(host + " " + version, caps(host + "<FrameWarpVersion>" + version +
+                        "</FrameWarpVersion>").has(FRAME_WARP));
+            }
+            // Cursor shapes and Frame Warp are separate fields.
+            assertFalse(host, caps(host + "<CursorShapeVersion>1</CursorShapeVersion>").has(FRAME_WARP));
+        }
+        assertNever(caps("<appversion>7.1.431.-1</appversion>"), FRAME_WARP);
+        assertUnknown(caps("<appversion>7.1.431.0</appversion>"), FRAME_WARP);
+        HostCapabilities stored = caps("<RustHostVersion>2.2.21</RustHostVersion><FrameWarpVersion>1</FrameWarpVersion>");
+        assertEquals(stored, HostCapabilities.fromJson(stored.toJson()));
+        assertTrue(HostCapabilities.fromJson(stored.toJson()).has(FRAME_WARP));
+        assertNotEquals(stored, caps("<RustHostVersion>2.2.21</RustHostVersion>"));
+        // Capabilities stored before the field existed still load, without Frame Warp.
+        String olderJson = TestHosts.rubylight().toJson().replace(",\"frameWarpVersion\":-1", "")
+                .replace("\"frameWarpVersion\":-1,", "");
+        assertFalse(olderJson, olderJson.contains("frameWarpVersion"));
+        HostCapabilities older = HostCapabilities.fromJson(olderJson);
+        assertTrue(older.isKnown());
+        assertFalse(older.has(FRAME_WARP));
     }
 
     /**

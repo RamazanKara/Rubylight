@@ -15,6 +15,11 @@ fn setup_size(setup: &session::VideoSetup) -> (i32, i32) {
     if setup.logical_width > 0 && setup.logical_height > 0 { (setup.logical_width, setup.logical_height) } else { (setup.width, setup.height) }
 }
 
+/// One refresh of a display refreshing `refresh_hz` times a second, in microseconds.
+fn refresh_period_us(refresh_hz: f32) -> u64 {
+    (1_000_000.0 / refresh_hz.max(1.0)) as u64
+}
+
 /// How long after a size change is asked for a picture that fits both the old and the new size
 /// plus alignment padding is still taken for the old one: AMD codes a 1920 and a 1904 wide AV1
 /// stream both 1920 wide, and the PC's old pictures are on their way for a while.
@@ -171,6 +176,13 @@ impl Streaming {
             (Some(due), Some(skipped)) => Some(due.min(skipped)),
             (due, skipped) => due.or(skipped),
         };
+        // Frame Warp's next look at whether the held picture goes out again with a new shift.
+        let repeat = self.frame_warp.as_ref()
+            .and_then(|warp| warp.repeat_due_us(refresh_period_us(self.plan.display.refresh_hz), self.pacer.mode == PacingMode::BeamRace));
+        let due = match (due, repeat) {
+            (Some(due), Some(repeat)) => Some(due.min(repeat)),
+            (due, repeat) => due.or(repeat),
+        };
         let wait = match due {
             Some(due) => {
                 let now = session::now_us();
@@ -317,6 +329,8 @@ impl Streaming {
                 return true;
             }
         }
+        // One shift for all of a frame's slices and its own present (`Presenter::draw`).
+        if let Some(warp) = self.frame_warp.as_mut() { self.texture.warp = warp.draw(Some(self.racer.seq())); }
         let flipped = self.render_flip(renderer, draw_overlay, true);
         self.needs_redraw = false;
         self.racer.presented(flipped.issued_us, &scan);
@@ -329,6 +343,25 @@ impl Streaming {
     #[cfg(not(windows))]
     fn present_slices(&mut self, _renderer: *mut SDL_Renderer, _draw_overlay: &mut impl FnMut(&mut Self, *mut SDL_Renderer), _now: u64) -> bool {
         false
+    }
+
+    /// Whether Frame Warp shows the held picture again now, its shift having moved
+    /// (`frame_warp::Repeat`): at most once a refresh, never into the refresh a picture that is
+    /// waiting or expected is due for, and not while slices race the beam (their frame keeps the
+    /// shift of its first slice).
+    fn warp_repeat(&mut self, now: u64) -> bool {
+        if self.frame_warp.is_none() || self.pacer.mode == PacingMode::BeamRace { return false; }
+        let next_picture_us = match (self.pacer.next_due(), self.skipped.due_us()) {
+            (Some(due), Some(skipped)) => Some(due.min(skipped)),
+            (due, skipped) => due.or(skipped),
+        };
+        let timing = frame_warp::Timing {
+            refresh_us: refresh_period_us(self.plan.display.refresh_hz),
+            vsync: self.pacer.mode == PacingMode::Vsync,
+            next_picture_us,
+        };
+        let frame_us = self.pacer.frame_us();
+        self.frame_warp.as_mut().is_some_and(|warp| warp.repeat_now(now, timing, frame_us))
     }
 
     /// The current picture through AI enhancement at `output`, or None to draw the picture itself:
@@ -489,9 +522,13 @@ impl Streaming {
                     if !self.upscaler.as_ref().is_some_and(|u| u.matches(input, output, self.settings.upscaling)) {
                         self.upscaler = upscale::Upscaler::new(renderer, input, output, self.settings.upscaling);
                     }
-                    match self.upscaler.as_ref().and_then(|u| u.draw(renderer, texture, self.settings.upscale_sharpness)) {
+                    // Frame Warp shifts the picture on its way into the upscaler, in the picture's own
+                    // pixels; the upscaled picture is drawn as it is.
+                    let warp = std::mem::take(&mut self.texture.warp);
+                    match self.upscaler.as_ref().and_then(|u| u.draw_warped(renderer, texture, self.settings.upscale_sharpness, &warp)) {
                         Some(upscaled) => texture = upscaled,
                         None => {
+                            self.texture.warp = warp;
                             self.upscaler = None;
                             self.upscale_failed = true;
                             self.show_toast(tr("GPU upscaling is unavailable; using bilinear scaling."));
@@ -502,7 +539,7 @@ impl Streaming {
                     if texture == self.texture.texture { texture = self.texture.sdl_texture(renderer); }
                     // The video texture's alignment padding stays out of the picture.
                     let source = self.texture.source_rect(texture);
-                    SDL_RenderTexture(renderer, texture, source.as_ref().map_or(std::ptr::null(), |rect| rect as *const _), &dst);
+                    frame_warp::render_texture(renderer, texture, source.as_ref(), &dst, &self.texture.warp);
                 }
             } else if !self.texture.draw(renderer, &dst) {
                 self.exit = Some(Exit::Ended(Some("Packed full-chroma presentation failed.".into())));
@@ -557,6 +594,7 @@ impl Streaming {
             done == present::NoWait::Refused
         };
         let returned_us = session::now_us();
+        if let Some(warp) = self.frame_warp.as_mut() { warp.presented(returned_us); }
         #[cfg(target_os = "linux")]
         {
             self.window_target.after_present(crate::sdl::window_target_frames(renderer));
@@ -604,7 +642,8 @@ impl Streaming {
         self.window.dropped_pacing += dropped;
         self.shared.counters.replaced.fetch_add(u64::from(dropped), Ordering::Relaxed);
         let has_picture = picture.is_some();
-        if !has_picture && !self.needs_redraw {
+        // Without a picture or a redraw, Frame Warp may show the held picture again, shifted anew.
+        if !has_picture && !self.needs_redraw && (sliced || !self.warp_repeat(now)) {
             return sliced;
         }
         let begin = session::now_us();
@@ -656,6 +695,11 @@ impl Streaming {
         }
         #[cfg(target_os = "linux")]
         if let Some(p) = &picture { self.glass.next_picture(p.decoded.number, p.decoded.ready_us); }
+        // Frame Warp's shift for the picture, as late before its draw as it can be.
+        if let Some(warp) = self.frame_warp.as_mut() {
+            if let Some(p) = &picture { warp.picture(p.decoded.number, p.decoded.race_seq, p.decoded.ready_us); }
+            self.texture.warp = warp.draw(None);
+        }
         let flipped = self.render_flip(renderer, &mut draw_overlay, has_picture);
         self.needs_redraw = false;
         // The pictures the compositor answered for: the doctor's display time runs to the glass.

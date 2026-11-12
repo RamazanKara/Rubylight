@@ -157,6 +157,8 @@ pub struct InputQueue {
     text_ready_at: Option<Instant>,
     holding: bool,
     held: Held,
+    /// Counts relative mouse motion and controller packets as they leave, for Frame Warp.
+    frame_warp: Option<std::sync::Arc<crate::frame_warp::FrameWarp>>,
 }
 
 impl InputQueue {
@@ -187,6 +189,7 @@ impl InputQueue {
             text_ready_at: None,
             holding: false,
             held: Held::default(),
+            frame_warp: None,
         };
         if caps.version_at_least(7, 1, 0) {
             let _ = queue.offer(Entry::Event(Pending::new(InputEvent::EnableHaptics)));
@@ -232,6 +235,11 @@ impl InputQueue {
     /// roll is dropped and pens go as the stock 0x55000003.
     pub fn set_pen_barrel_roll(&mut self, offered: bool) {
         self.pen_barrel_roll = offered;
+    }
+
+    /// Counts what leaves from now on for Frame Warp (`crate::frame_warp`).
+    pub fn set_frame_warp(&mut self, frame_warp: Option<std::sync::Arc<crate::frame_warp::FrameWarp>>) {
+        self.frame_warp = frame_warp;
     }
 
     fn motion_interval(&self) -> Duration {
@@ -952,6 +960,7 @@ impl InputQueue {
             self.hold(pending);
             return;
         }
+        note_sent(self.frame_warp.as_deref(), &pending.event);
         out.push(InputPacket {
             data: pending.event.encode(self.sunshine),
             channel: pending.channel,
@@ -1028,8 +1037,10 @@ impl InputQueue {
     fn release_held(&mut self, out: &mut Vec<InputPacket>) {
         let held = std::mem::take(&mut self.held);
         self.holding = false;
+        let frame_warp = self.frame_warp.clone();
         let send = |pending: &Option<Pending>, out: &mut Vec<InputPacket>| {
             if let Some(p) = pending {
+                note_sent(frame_warp.as_deref(), &p.event);
                 out.push(InputPacket {
                     data: p.event.encode(self.sunshine),
                     channel: p.channel,
@@ -1074,6 +1085,21 @@ impl InputQueue {
         }
         send(&held.touch, out);
         send(&held.pen, out);
+    }
+}
+
+/// Counts a packet that goes on the wire for Frame Warp: relative mouse motion and controller
+/// state, exactly as sent.
+fn note_sent(frame_warp: Option<&crate::frame_warp::FrameWarp>, event: &InputEvent) {
+    let Some(frame_warp) = frame_warp else { return };
+    match *event {
+        InputEvent::MouseMove { dx, dy } => frame_warp.note_mouse(dx, dy),
+        InputEvent::Controller {
+            number,
+            right_stick,
+            ..
+        } => frame_warp.note_controller(number, right_stick),
+        _ => {}
     }
 }
 

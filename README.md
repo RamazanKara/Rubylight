@@ -29,7 +29,23 @@
   <sub><a href="https://ramazankara.github.io/nightjar/assets/trailer-16x9.mp4"><b>▶ Watch the full trailer</b></a></sub>
 </p>
 
-<!-- frame-warp -->
+## Frame Warp
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/frame-warp/trail-dark.png">
+    <img src="docs/assets/frame-warp/trail-light.png" width="900" alt="Chart of 6 seconds of turns: without Frame Warp the picture trails the mouse by up to 190 pixels; with Frame Warp it stays within about 20.">
+  </picture>
+</p>
+
+Turn the camera and the picture turns on your screen's next refresh, instead of a round trip and the game's own delay later. Nightjar shifts each picture by the turn your mouse or right stick has made since the PC drew it. Rubylight learns, for the game you are playing, how far the picture moves per input and how long the game takes to show it, and keeps the HUD where it is.
+
+- **96% of the trail gone.** A test game with 50 ms of delay, streamed at 1440p and 60 fps, showed the picture a median 64.9 px behind the mouse while turning. With Frame Warp: 1.4 to 2.2 px.
+- **Learns each game by itself.** Sailing in Black Flag Resynced, streamed to a handheld and a laptop, it learned the camera as it turned and kept the quest text, compass and icon wheel in place.
+- **Costs almost nothing.** 0.14 to 0.16 ms of GPU time a frame on the RX 7900 XT, from 1080p to 4K.
+- **One switch.** Settings › Video › Frame Warp, with a Rubylight PC.
+
+[How Frame Warp works](docs/protocol/frame-warp.md) · [The host side](https://github.com/RamazanKara/Rubylight/blob/main/docs/frame-warp.md) · [Measurements](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#november-12-frame-warp)
 
 Nightjar streams games from your PC to Android phones, tablets and handhelds, Android TV and Fire TV, Windows, Linux and macOS. It speaks the Moonlight protocol, so it works with the host you already run, and it is built to make the stream feel local: hardware decoding tuned for each chip, frame pacing that follows your display, and recovery that keeps you in the game when the network hiccups.
 

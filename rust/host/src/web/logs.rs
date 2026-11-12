@@ -164,11 +164,20 @@ pub(super) fn export(h: &Shared, path: &str) -> Response {
         file.take(8 * 1024 * 1024).read_to_end(&mut bytes)?;
         Ok(String::from_utf8_lossy(&bytes).into_owned())
     })();
-    let mut result = (
-        [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-        result.unwrap_or_default(),
-    )
-        .into_response();
+    let text = match result {
+        Ok(text) => text,
+        // No log yet reads as an empty one.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        // A log that cannot be read is an error, not an empty download.
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("the log could not be read: {e}"),
+            )
+                .into_response();
+        }
+    };
+    let mut result = ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], text).into_response();
     if path.ends_with("/export") {
         result.headers_mut().insert(
             header::CONTENT_DISPOSITION,

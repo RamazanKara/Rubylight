@@ -166,7 +166,7 @@ fn filter(folder: Option<&Path>, running: &[String]) -> String {
     let mut names: BTreeSet<String> = running.iter().map(|n| n.to_ascii_lowercase()).collect();
     if let Some(folder) = folder {
         let mut pending = vec![(folder.to_owned(), 0)];
-        while let Some((dir, depth)) = pending.pop() {
+        'walk: while let Some((dir, depth)) = pending.pop() {
             let Ok(entries) = std::fs::read_dir(&dir) else {
                 continue;
             };
@@ -182,7 +182,7 @@ fn filter(folder: Option<&Path>, running: &[String]) -> String {
                     names.insert(name.to_string_lossy().to_ascii_lowercase());
                 }
                 if names.len() >= 256 {
-                    break;
+                    break 'walk;
                 }
             }
         }

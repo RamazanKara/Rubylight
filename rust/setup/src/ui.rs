@@ -256,9 +256,18 @@ pub fn progress<T: Send + 'static>(
     let worker = {
         let state = state.clone();
         std::thread::spawn(move || {
-            let result = work(state.clone());
-            state.done.store(true, std::sync::atomic::Ordering::Release);
-            result
+            // Set on the way out, also when `work` panics: the dialog closes only
+            // on this flag, and the panic is reported by the join below.
+            struct Done(Arc<Progress>);
+            impl Drop for Done {
+                fn drop(&mut self) {
+                    self.0
+                        .done
+                        .store(true, std::sync::atomic::Ordering::Release);
+                }
+            }
+            let done = Done(state);
+            work(done.0.clone())
         })
     };
     if !quiet && let Some(dialog) = task_dialog() {

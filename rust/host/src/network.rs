@@ -589,6 +589,9 @@ async fn remove<P: Provider>(
     description: &str,
 ) -> Result<()> {
     let (entries, complete) = entries(gateway).await;
+    // A mapping the router would not remove must not keep the later ones open:
+    // all are tried, and the first failure is the one reported.
+    let mut failed = None;
     for mapping in applied {
         let entry = entries.iter().find(|entry| {
             entry.protocol == mapping.protocol && entry.external_port == mapping.port
@@ -600,14 +603,22 @@ async fn remove<P: Provider>(
             None => !complete,
         };
         if ours {
-            tokio::time::timeout(
+            let removed = tokio::time::timeout(
                 Duration::from_secs(3),
                 gateway.remove_port(mapping.protocol, mapping.port),
             )
-            .await??;
+            .await;
+            let error = match removed {
+                Ok(Ok(())) => continue,
+                Ok(Err(error)) => anyhow::Error::from(error),
+                Err(error) => anyhow::Error::from(error),
+            };
+            if failed.is_none() {
+                failed = Some(error);
+            }
         }
     }
-    Ok(())
+    failed.map_or(Ok(()), Err)
 }
 /// The UPnP and IPv6 pinhole task, which sleeps until its next renewal or until
 /// it is told that the host stops.

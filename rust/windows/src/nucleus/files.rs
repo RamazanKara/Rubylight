@@ -889,7 +889,8 @@ pub fn write_profile(
     super::unfollowed::write(folder, &path, text.as_bytes())?;
     let after = listed(&profiles)?;
     let place = after.iter().position(|(file, _, _)| *file == name);
-    if place != Some(number as usize - 1) {
+    // A `Profile[0].json` titled as ours has no place Nucleus Co-op loads it from.
+    if place.is_none() || place != (number as usize).checked_sub(1) {
         if !ours {
             // The refusal says what to do; a profile left behind is listed.
             let _ = super::unfollowed::remove(folder, &path);

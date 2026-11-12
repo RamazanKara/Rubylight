@@ -1143,10 +1143,13 @@ fn canonical_prefix(path: &Path) -> PathBuf {
 }
 /// Whether `install` is `root` or inside it.
 fn folder_inside(install: &Path, root: &Path) -> Result<bool> {
+    // A drive root ends in its separator already (`c:\`), a folder does not.
     let root_path = root.to_string_lossy().to_lowercase();
+    let root_path = root_path.trim_end_matches('\\');
     let install_path = system::win32_path(&canonical_prefix(install))?
         .to_string_lossy()
         .to_lowercase();
+    let install_path = install_path.trim_end_matches('\\');
     Ok(install_path == root_path || install_path.starts_with(&format!("{root_path}\\")))
 }
 /// Side by side, no file of another host may be overwritten, whether setup knows

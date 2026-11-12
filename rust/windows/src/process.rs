@@ -454,7 +454,11 @@ impl AttributeList {
             let _ = InitializeProcThreadAttributeList(None, 1, None, &mut size);
             self.0 = vec![0usize; size.div_ceil(size_of::<usize>())];
             let list = LPPROC_THREAD_ATTRIBUTE_LIST(self.0.as_mut_ptr().cast());
-            InitializeProcThreadAttributeList(Some(list), 1, None, &mut size)?;
+            if let Err(e) = InitializeProcThreadAttributeList(Some(list), 1, None, &mut size) {
+                // Nothing was initialized, so drop has nothing to delete.
+                self.0.clear();
+                return Err(e.into());
+            }
             if let Err(e) = UpdateProcThreadAttribute(
                 list,
                 0,

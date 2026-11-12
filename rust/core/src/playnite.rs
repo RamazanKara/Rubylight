@@ -600,7 +600,7 @@ pub fn reconcile(
         if settings.recent_games > 0 {
             let mut ordered = installed.clone();
             ordered.sort_by_key(|game| std::cmp::Reverse(game.last_played));
-            let cutoff = now - settings.recent_max_age_days * 86400;
+            let cutoff = now.saturating_sub(settings.recent_max_age_days.saturating_mul(86400));
             let mut taken = 0;
             for game in ordered {
                 if taken >= settings.recent_games {
@@ -722,7 +722,7 @@ pub fn reconcile(
             }
             let added = parse_time(field(app, "playnite-added-at")).unwrap_or(now);
             let expired = settings.delete_after_days > 0
-                && now >= added + settings.delete_after_days * 86400
+                && now >= added.saturating_add(settings.delete_after_days.saturating_mul(86400))
                 && last_played.get(&id).is_none_or(|played| *played < added);
             let mut remove = (settings.remove_uninstalled && uninstalled.contains(&id)) || expired;
             if !remove && !selected_ids.contains(&id) {

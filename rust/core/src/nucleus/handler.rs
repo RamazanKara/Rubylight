@@ -491,7 +491,14 @@ impl Catalog {
                 })
             })
             .collect();
-        out.sort_by(|a, b| a.handler.name.cmp(&b.handler.name));
+        // By name, then by handler: two handlers of one name would otherwise part a
+        // handler's games, and `dedup_by` drops only neighbours.
+        out.sort_by(|a, b| {
+            a.handler
+                .name
+                .cmp(&b.handler.name)
+                .then_with(|| a.handler.guid.cmp(&b.handler.guid))
+        });
         out.dedup_by(|a, b| a.handler.guid == b.handler.guid);
         out
     }

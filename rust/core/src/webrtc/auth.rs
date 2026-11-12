@@ -276,7 +276,7 @@ impl PendingPins {
         let index = self
             .entries
             .iter()
-            .position(|p| p.request_id == request_id)?;
+            .position(|p| constant_time_eq(&p.request_id, request_id))?;
         Some(self.entries.remove(index))
     }
 }

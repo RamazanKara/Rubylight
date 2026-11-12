@@ -171,7 +171,10 @@ def main():
     def stop(process):
         if process is not None and process.poll() is None:
             process.terminate()
-            process.wait(timeout=10)
+            # One held in the GPU driver during a hang does not exit: the case's
+            # cancel, drain and result still have to run.
+            try: process.wait(timeout=10)
+            except subprocess.TimeoutExpired: pass
 
     admin = requests.Session(); admin.verify = False; admin.trust_env = False
     client = requests.Session(); client.verify = False; client.trust_env = False

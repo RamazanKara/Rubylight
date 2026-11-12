@@ -1090,7 +1090,7 @@ pub fn select<'a>(games: &'a [Game], settings: &Settings, now: u64) -> Vec<&'a G
         return vec![];
     }
     if settings.recent_max_age_days > 0 {
-        let age = settings.recent_max_age_days * 86400;
+        let age = settings.recent_max_age_days.saturating_mul(86400);
         selected.retain(|g| g.last_played <= now && now - g.last_played <= age);
     }
     selected.sort_by(|a, b| {

@@ -2445,7 +2445,25 @@ pub fn prepare_stream(
             Ready::prepare(Prepared::create(h, launch, stream, config, physical_only)?)
         })
     };
-    match prepare(false) {
+    let prepared = match prepare(false) {
+        // The first launch after the PC sat idle can find Windows refusing the
+        // layout to this desktop ("access denied") while the next launch works
+        // (issue #89). Try once more, on whichever desktop takes input then.
+        Err(error)
+            if butterpollo_windows::input::desktop_refused(&error)
+                && !butterpollo_windows::input::secure_desktop_shown() =>
+        {
+            tracing::warn!(
+                error = %format!("{error:#}"),
+                input_desktop = ?butterpollo_windows::input::input_desktop_name(),
+                "Windows refused the stream display's layout to this desktop; trying again"
+            );
+            std::thread::sleep(DESKTOP_REFUSED_RETRY);
+            prepare(false)
+        }
+        result => result,
+    };
+    match prepared {
         Err(error) if butterpollo_windows::input::secure_desktop_shown() => {
             tracing::warn!(error = %format!("{error:#}"), "stream display could not be prepared while Windows is locked; trying the physical display");
             prepare(true).map_err(|fallback| {
@@ -2456,6 +2474,10 @@ pub fn prepare_stream(
         result => result,
     }
 }
+
+/// How long a launch waits before preparing its display again after Windows
+/// refused the layout to this desktop.
+const DESKTOP_REFUSED_RETRY: Duration = Duration::from_secs(2);
 
 /// One window streamed instead of a display: `output_name` set to
 /// `window:<hwnd>/<pid>@<display>`, as the release harness does for its looped

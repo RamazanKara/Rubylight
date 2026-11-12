@@ -36,8 +36,8 @@ mod usbip_pad;
 mod vigem;
 
 pub use desktop::{
-    follow_input_desktop, input_desktop_name, keep_on_input_desktop, on_input_desktop,
-    secure_desktop_shown,
+    desktop_refused, follow_input_desktop, input_desktop_name, keep_on_input_desktop,
+    on_input_desktop, secure_desktop_shown,
 };
 /// Gated fake pads for other modules' tests.
 #[cfg(test)]

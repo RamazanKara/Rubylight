@@ -97,6 +97,20 @@ fn thread_desktop_name() -> Option<String> {
 pub fn secure_desktop_shown() -> bool {
     input_desktop_name().is_some_and(|name| !name.eq_ignore_ascii_case("default"))
 }
+/// Whether Windows refused display configuration to the calling thread's
+/// desktop: SetDisplayConfig and QueryDisplayConfig answer ERROR_ACCESS_DENIED.
+pub fn desktop_refused(error: &anyhow::Error) -> bool {
+    use windows::Win32::Foundation::ERROR_ACCESS_DENIED;
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<std::io::Error>()
+            .and_then(std::io::Error::raw_os_error)
+            == Some(ERROR_ACCESS_DENIED.0 as i32)
+            || cause
+                .downcast_ref::<windows::core::Error>()
+                .is_some_and(|error| error.code() == ERROR_ACCESS_DENIED.to_hresult())
+    })
+}
 /// Whether a thread on desktop `thread` must move to `input` before
 /// configuring displays: Windows refuses QueryDisplayConfig and
 /// SetDisplayConfig ("access denied") to a thread on another desktop. A
@@ -156,6 +170,25 @@ pub fn on_input_desktop<T: Send>(work: impl FnOnce() -> T + Send) -> T {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_refused_desktop_is_told_apart_from_other_display_errors() {
+        // As topology.rs reports it: the os error under the layout's context.
+        let refused = anyhow::Error::from(std::io::Error::from_raw_os_error(5))
+            .context("Windows refused the display layout (with modes: 5; routes: 1:0>1:4352)")
+            .context("cannot activate the saved displays");
+        assert!(desktop_refused(&refused));
+        let hresult = anyhow::Error::from(windows::core::Error::from_hresult(
+            windows::Win32::Foundation::ERROR_ACCESS_DENIED.to_hresult(),
+        ))
+        .context("cannot read the display layout");
+        assert!(desktop_refused(&hresult));
+        let invalid = anyhow::Error::from(std::io::Error::from_raw_os_error(87))
+            .context("Windows refused the display layout");
+        assert!(!desktop_refused(&invalid));
+        assert!(!desktop_refused(&anyhow::anyhow!(
+            "selected display is not connected"
+        )));
+    }
     #[test]
     #[ignore = "requires an unlocked Windows desktop"]
     fn input_desktop_handles_close_on_reattachment_and_thread_exit() {

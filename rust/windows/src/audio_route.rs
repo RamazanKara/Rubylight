@@ -298,6 +298,9 @@ pub struct Route {
     id: u64,
 }
 static NEXT_ROUTE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+/// The id of a route that owns no device ([`Route::detached`]); real routes
+/// start at 1.
+const DETACHED: u64 = 0;
 fn path(directory: &Path) -> PathBuf {
     directory.join("audio-recovery.json")
 }
@@ -1005,6 +1008,20 @@ impl AudioPreparation<Route> for Arc<Route> {
     }
 }
 impl Route {
+    /// A route that owns no device and restores nothing when dropped. Only
+    /// for tests of how long the host keeps a route (the `test-route`
+    /// feature).
+    #[cfg(feature = "test-route")]
+    pub fn detached(directory: &Path) -> Self {
+        Self {
+            sink: String::new(),
+            directory: directory.into(),
+            keep_default: false,
+            capture_only: true,
+            virtual_sink: false,
+            id: DETACHED,
+        }
+    }
     pub fn warning(&self, host_audio: bool) -> Option<&'static str> {
         virtual_sink_warning(host_audio, self.capture_only, self.virtual_sink)
     }
@@ -1267,6 +1284,9 @@ impl Route {
 }
 impl Drop for Route {
     fn drop(&mut self) {
+        if self.id == DETACHED {
+            return;
+        }
         let mut active = ACTIVE.lock().unwrap();
         let Some(shared) = active.as_mut() else {
             return;

@@ -51,6 +51,8 @@ windows = { version = "0.62.2", features = ["Win32_Graphics_Direct3D_Fxc"] }
 [features]
 # `UserFolder::unimpersonated`, for the host's file transfer tests only.
 test-folder = []
+# `Route::detached`, for the host's audio route lifetime tests only.
+test-route = []
 
 [dev-dependencies]
 tempfile = "3.23"

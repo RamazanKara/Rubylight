@@ -55,8 +55,9 @@ str0m = { version = "=0.24.1", default-features = false, features = ["rust-crypt
 embed-resource = "3.0.12"
 
 [dev-dependencies]
-# File transfer tests open their folder as the developer.
-butterpollo-windows = { path = "../windows", features = ["test-folder"] }
+# File transfer tests open their folder as the developer; session tests hold
+# an audio route that owns no device.
+butterpollo-windows = { path = "../windows", features = ["test-folder", "test-route"] }
 # Nightjar's client engine, for the interop tests against this host (stream/reconnect_tests/interop_tests.rs).
 nightjar-core = { path = "../../client/protocol/client" }
 # Property tests over the query fields and bodies peers send.

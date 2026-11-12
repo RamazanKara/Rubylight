@@ -594,6 +594,79 @@ fn when_the_grace_period_runs_out_the_session_ends_as_end_session_does() {
 }
 
 #[test]
+fn hold_sink_while_paused_keeps_the_audio_route_while_the_game_runs() {
+    use butterpollo_windows::audio_route::Route;
+    // The game's audio route, as a stream that ended left it: no stream
+    // shares it any more.
+    let route = |setup: &Setup| {
+        let route = Route::detached(&setup.host().directory);
+        *setup.host().app_audio.lock().unwrap() = Some(Arc::new(route));
+    };
+    let held = |setup: &Setup| setup.host().app_audio.lock().unwrap().is_some();
+    const ON: &str = "hold_sink_while_paused=true";
+
+    // Off: the next reap drops it and Windows gets its device back.
+    let setup = Setup::new("");
+    let _session = setup.suspended();
+    route(&setup);
+    setup.host().reap_paused_display();
+    assert!(!held(&setup));
+    assert!(setup.game_running());
+
+    // On: it stays while the game runs, also after the grace period
+    // released the display.
+    let setup = Setup::new(&format!("{ON}\ndd_config_revert_delay=0"));
+    let _session = setup.suspended();
+    route(&setup);
+    setup.host().reap_paused_display();
+    setup.host().reap_paused_display();
+    assert!(held(&setup));
+    assert_eq!(setup.state(), State::Idle);
+    assert_eq!(setup.displays(), 0);
+    // Turning the setting off releases it at the next reap.
+    *setup.host().config.write().unwrap() = Config::parse("dd_config_revert_delay=0").unwrap();
+    setup.host().reap_paused_display();
+    assert!(!held(&setup));
+
+    // A stream sharing the route keeps it either way.
+    for settings in ["", ON] {
+        let setup = Setup::new(settings);
+        let _session = setup.streaming();
+        route(&setup);
+        let stream = setup.host().app_audio.lock().unwrap().clone();
+        setup.host().reap_paused_display();
+        assert!(held(&setup), "{settings}");
+        drop(stream);
+    }
+
+    // The game stopping releases it, whether it quit or exited by itself
+    // (housekeeping calls stop_app then).
+    let setup = Setup::new(ON);
+    let _session = setup.suspended();
+    route(&setup);
+    setup.host().reap_paused_display();
+    assert!(held(&setup));
+    setup.host().stop_app(crate::state::AppStop::Test);
+    assert!(!held(&setup));
+
+    // Without a game nothing holds it.
+    let setup = Setup::new(ON);
+    route(&setup);
+    setup.host().reap_paused_display();
+    assert!(!held(&setup));
+
+    // End session releases it with the display.
+    let setup = Setup::new(ON);
+    let _session = setup.suspended();
+    route(&setup);
+    setup.host().reap_paused_display();
+    assert!(held(&setup));
+    assert_eq!(setup.host().end_session(None), Ok(Outcome::Done));
+    assert!(!held(&setup));
+    assert!(setup.game_running());
+}
+
+#[test]
 fn a_teardown_shows_stopping_and_settles_when_it_ends() {
     let setup = Setup::new("");
     let session = setup.streaming();

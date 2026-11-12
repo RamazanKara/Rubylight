@@ -1,0 +1,2 @@
+# PyroWave probe
+- **PyroWave no longer drops out after some host starts.** On some PCs, the check that decides whether PyroWave is offered failed on about half of the host starts, and PyroWave then stayed off until the next restart. The check now ends without closing the encoders it tested, so a fault while closing them can no longer fail it, and a failed check runs up to two more times. When it still fails, the log shows how the check ended.

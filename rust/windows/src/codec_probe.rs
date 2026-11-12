@@ -15,6 +15,7 @@ use std::{
     collections::BTreeMap,
     time::{Duration, Instant},
 };
+use windows::Win32::System::Threading::{GetCurrentProcess, TerminateProcess};
 
 const PIPE_PREFIX: &str = r"\\.\pipe\Butterpollo.CodecProbe.";
 const TIMEOUT: Duration = Duration::from_secs(15);
@@ -59,7 +60,26 @@ impl std::fmt::Display for Interrupted {
 }
 impl std::error::Error for Interrupted {}
 
+/// The worker ended before it replied, with the exit code in the message: a
+/// fault in a graphics driver or an injected overlay (0xc0000005) or an error
+/// exit. On one RTX 5070 it came and went between host starts (issue #94),
+/// so a few more tries can find the codec.
+#[derive(Debug)]
+pub struct Crashed(String);
+impl std::fmt::Display for Crashed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+impl std::error::Error for Crashed {}
+
 impl SessionNotReady {
+    /// For a fake probe in tests.
+    pub fn new(message: impl Into<String>) -> Self {
+        Self(message.into())
+    }
+}
+impl Crashed {
     /// For a fake probe in tests.
     pub fn new(message: impl Into<String>) -> Self {
         Self(message.into())
@@ -71,7 +91,16 @@ fn early_exit(code: u32) -> anyhow::Error {
     if code == STATUS_DLL_INIT_FAILED {
         SessionNotReady(message).into()
     } else {
-        anyhow::anyhow!(message)
+        Crashed(message).into()
+    }
+}
+/// A pipe that breaks before the reply means the worker ended. Its exit code
+/// says how; the pipe's own error ("The pipe has been ended") said neither,
+/// which left issue #94 without the code of the fault.
+fn ended(worker: &Process, error: anyhow::Error) -> anyhow::Error {
+    match worker.wait(Duration::from_secs(1)) {
+        Ok(code) => early_exit(code),
+        Err(_) => error,
     }
 }
 /// `requested` is when the worker got a packed request, None for PyroWave
@@ -201,13 +230,15 @@ fn run(config: &Config, packed: Option<&Negotiated>, stop: &dyn Fn() -> bool) ->
         } else {
             BTreeMap::new()
         },
-    })?;
+    })
+    .map_err(|error| ended(&worker, error))?;
     let requested = hang_watch(packed);
     let reply = loop {
-        if let Some(reply) = pipe.receive::<Reply>()? {
-            break reply;
+        match pipe.receive::<Reply>() {
+            Ok(Some(reply)) => break reply,
+            Ok(None) => check(requested)?,
+            Err(error) => return Err(ended(&worker, error)),
         }
-        check(requested)?;
     };
     pipe.send(&())?;
     ensure!(
@@ -255,7 +286,9 @@ fn encoder_options(config: &Config) -> BTreeMap<String, String> {
         .collect()
 }
 
-fn probe(request: &Request) -> Result<Reply> {
+/// Probe what `request` asks for. The PyroWave encoders stay open in `open`
+/// for [`worker`] to end the process with.
+fn probe(request: &Request, open: &mut Vec<Encoder>) -> Result<Reply> {
     let _com = capture::ComGuard::new()?;
     let image = capture::Image {
         width: 640,
@@ -313,19 +346,11 @@ fn probe(request: &Request) -> Result<Reply> {
             yuv444,
             ..Default::default()
         };
-        let result = (|| -> Result<bool> {
-            let mut encoder = Encoder::new_options(&mode, &request.output, &gpu)?;
-            for frame in 0..8 {
-                if !encoder
-                    .encode(&image, frame == 0, mode.bitrate_kbps)?
-                    .is_empty()
-                {
-                    return Ok(true);
-                }
-                std::thread::sleep(Duration::from_millis(5));
-            }
-            Ok(false)
-        })();
+        let result = Encoder::new_options(&mode, &request.output, &gpu).and_then(|mut encoder| {
+            let encoded = first_frame(&mut encoder, &image, mode.bitrate_kbps);
+            open.push(encoder);
+            encoded
+        });
         match result {
             Ok(true) => flags |= bit,
             Ok(false) => errors.push(format!("HDR={hdr} 4:4:4={yuv444}: no encoded frame")),
@@ -338,6 +363,16 @@ fn probe(request: &Request) -> Result<Reply> {
         }
     }
     Ok(Reply::Done { flags, errors })
+}
+/// Whether `encoder` returns a frame within eight tries.
+fn first_frame(encoder: &mut Encoder, image: &capture::Image, bitrate_kbps: u32) -> Result<bool> {
+    for frame in 0..8 {
+        if !encoder.encode(image, frame == 0, bitrate_kbps)?.is_empty() {
+            return Ok(true);
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    Ok(false)
 }
 
 /// How long the driver has to return each packed probe frame once it is
@@ -420,7 +455,8 @@ pub fn worker(name: &str, parent: u32) -> Result<()> {
         );
         std::thread::sleep(Duration::from_millis(5));
     };
-    let reply = probe(&request).unwrap_or_else(|error| Reply::Error {
+    let mut open = Vec::new();
+    let reply = probe(&request, &mut open).unwrap_or_else(|error| Reply::Error {
         message: format!("{error:#}").chars().take(600).collect(),
     });
     pipe.send(&reply)?;
@@ -432,7 +468,26 @@ pub fn worker(name: &str, parent: u32) -> Result<()> {
         );
         std::thread::sleep(Duration::from_millis(5));
     }
+    if !open.is_empty() {
+        end_without_teardown(open);
+    }
     Ok(())
+}
+/// Ends the worker with its PyroWave encoders still open, once the host has
+/// the reply. On one RTX 5070 the worker exited before replying on half of
+/// its host starts, as long into the probe as a probe that passed, so most
+/// likely as the encoders closed (issue #94). A Vulkan driver or an injected
+/// overlay can fault on a device that is being destroyed; closing none of
+/// them leaves nothing to fault on. Windows frees what the process held, and
+/// TerminateProcess runs no DLL detach code either.
+fn end_without_teardown(open: Vec<Encoder>) -> ! {
+    std::mem::forget(open);
+    // SAFETY: Ends this process, whose reply is sent and acknowledged; the
+    // pseudo-handle needs no closing.
+    unsafe {
+        let _ = TerminateProcess(GetCurrentProcess(), 0);
+    }
+    std::process::exit(0)
 }
 
 #[cfg(test)]
@@ -556,9 +611,17 @@ mod tests {
             failed.to_string(),
             "optional codec probe exited before replying (0xc0000142)"
         );
-        // A crashing driver or overlay stays a plain failure.
-        assert!(!early_exit(0xC000_0005).is::<SessionNotReady>());
-        assert!(!early_exit(1).is::<SessionNotReady>());
+        // A crashing driver or overlay, or an error exit, is a crash with its
+        // code, which the host probes again a few times (issue #94).
+        for code in [0xC000_0005, 1] {
+            let crashed = early_exit(code);
+            assert!(!crashed.is::<SessionNotReady>());
+            assert!(crashed.is::<Crashed>());
+        }
+        assert_eq!(
+            early_exit(0xC000_0005).to_string(),
+            "optional codec probe exited before replying (0xc0000005)"
+        );
     }
     /// An encoder whose submissions take `submitting` and whose frames come
     /// back `encoding` after they were submitted.
@@ -685,13 +748,16 @@ mod tests {
                     chroma_packing: butterpollo_core::packed444::VERSION,
                     ..Default::default()
                 };
-                let reply = probe(&Request {
-                    output: String::new(),
-                    adapter_name: String::new(),
-                    adapter_pnp_id: String::new(),
-                    packed: Some(mode),
-                    encoder_options: BTreeMap::new(),
-                });
+                let reply = probe(
+                    &Request {
+                        output: String::new(),
+                        adapter_name: String::new(),
+                        adapter_pnp_id: String::new(),
+                        packed: Some(mode),
+                        encoder_options: BTreeMap::new(),
+                    },
+                    &mut Vec::new(),
+                );
                 let expected = u32::from(butterpollo_core::packed444::mode_bit(codec, sdr_10bit));
                 match reply {
                     Ok(Reply::Done { flags, .. }) => assert_eq!(flags, expected),
@@ -719,13 +785,16 @@ mod tests {
                 chroma_packing: butterpollo_core::packed444::VERSION,
                 ..Default::default()
             };
-            let reply = probe(&Request {
-                output: String::new(),
-                adapter_name: String::new(),
-                adapter_pnp_id: String::new(),
-                packed: Some(mode),
-                encoder_options: BTreeMap::new(),
-            });
+            let reply = probe(
+                &Request {
+                    output: String::new(),
+                    adapter_name: String::new(),
+                    adapter_pnp_id: String::new(),
+                    packed: Some(mode),
+                    encoder_options: BTreeMap::new(),
+                },
+                &mut Vec::new(),
+            );
             match reply {
                 Ok(Reply::Done { flags, .. }) => assert_eq!(
                     flags,
@@ -753,13 +822,16 @@ mod tests {
                 chroma_packing: butterpollo_core::packed444::VERSION,
                 ..Default::default()
             };
-            let reply = probe(&Request {
-                output: String::new(),
-                adapter_name: String::new(),
-                adapter_pnp_id: String::new(),
-                packed: Some(mode),
-                encoder_options: BTreeMap::new(),
-            });
+            let reply = probe(
+                &Request {
+                    output: String::new(),
+                    adapter_name: String::new(),
+                    adapter_pnp_id: String::new(),
+                    packed: Some(mode),
+                    encoder_options: BTreeMap::new(),
+                },
+                &mut Vec::new(),
+            );
             let expected = u32::from(butterpollo_core::packed444::mode_bit(codec, true));
             match reply {
                 Ok(Reply::Done { flags, .. }) => assert_eq!(flags, expected, "codec {codec}"),

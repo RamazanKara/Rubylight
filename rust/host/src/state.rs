@@ -1531,8 +1531,9 @@ impl Host {
     /// Probe PyroWave again when the first probe ran before the signed-in
     /// user's session was ready, as when the host starts with Windows, or
     /// timed out, as under a busy CPU. PyroWave otherwise stayed unavailable
-    /// until the host restarted. The first try waits `delay`; a timeout is
-    /// not tried again, and a stream that starts stops the probe until it has
+    /// until the host restarted. A worker that crashed is tried until
+    /// [`CRASH_ATTEMPTS`] probes have run (issue #94). The first try waits
+    /// `delay`; a timeout is not tried again, and a stream that starts stops the probe until it has
     /// ended, which counts as no attempt. Returns the attempts made.
     fn retry_pyrowave_probe(&self, config: &Config, delay: Duration, probe: PyroWaveProbe) -> u32 {
         use butterpollo_windows::codec_probe;
@@ -1567,6 +1568,12 @@ impl Host {
                 }
                 Err(error) if error.is::<codec_probe::SessionNotReady>() && attempts < 6 => {
                     tracing::debug!(error = %format!("{error:#}"), attempts, "optional PyroWave probe waits for the session");
+                }
+                // The startup probe was the first of these attempts.
+                Err(error)
+                    if error.is::<codec_probe::Crashed>() && attempts < CRASH_ATTEMPTS - 1 =>
+                {
+                    tracing::warn!(error = %format!("{error:#}"), attempts, "optional PyroWave probe failed again; it is probed once more");
                 }
                 Err(error) => {
                     tracing::warn!(error = %format!("{error:#}"), attempts, "optional PyroWave probe failed again; standard codecs remain available");
@@ -1810,13 +1817,19 @@ const PROBE_POLL: Duration = Duration::from_millis(if cfg!(test) { 25 } else { 2
 const PACKED_SESSION_RETRY: Duration = Duration::from_millis(if cfg!(test) { 20 } else { 5000 });
 /// Packed 4:4:4 probes in a row that may find the session not ready.
 const PACKED_SESSION_TRIES: u8 = 6;
+/// PyroWave probes whose worker crashed, counting the startup probe, before
+/// PyroWave stays off until a restart.
+const CRASH_ATTEMPTS: u32 = 3;
 /// When the startup PyroWave probe is worth trying again, and after how
 /// long: it ran before the user's session was ready, or it timed out, as
 /// under a busy CPU, which a game that keeps running would busy again soon
-/// after. A crashing driver or overlay stays a failure.
+/// after. A worker that crashed is probed [`CRASH_ATTEMPTS`] times in all:
+/// on one RTX 5070 half of the host starts found PyroWave and half crashed
+/// (issue #94), and each crash had left it off until a restart. Any other
+/// failure, such as a missing DLL, stays one.
 fn pyrowave_retry_delay(error: &anyhow::Error) -> Option<Duration> {
-    use butterpollo_windows::codec_probe::{SessionNotReady, TimedOut};
-    if error.is::<SessionNotReady>() {
+    use butterpollo_windows::codec_probe::{Crashed, SessionNotReady, TimedOut};
+    if error.is::<SessionNotReady>() || error.is::<Crashed>() {
         Some(Duration::from_secs(5))
     } else if error.is::<TimedOut>() {
         Some(Duration::from_secs(60))
@@ -2052,8 +2065,8 @@ mod tests {
         );
     }
     #[test]
-    fn a_timed_out_or_early_pyrowave_probe_is_probed_again() {
-        use butterpollo_windows::codec_probe::{SessionNotReady, TimedOut};
+    fn a_timed_out_early_or_crashed_pyrowave_probe_is_probed_again() {
+        use butterpollo_windows::codec_probe::{Crashed, SessionNotReady, TimedOut};
         use std::time::Duration;
         // A probe that stalled under a busy CPU left PyroWave unoffered
         // until the host restarted. The load that stalled it, such as a
@@ -2066,10 +2079,15 @@ mod tests {
             super::pyrowave_retry_delay(&SessionNotReady::new("no user").into()),
             Some(Duration::from_secs(5))
         );
+        // Issue #94: a worker that crashed on half of one PC's starts.
         assert_eq!(
-            super::pyrowave_retry_delay(&anyhow::anyhow!(
-                "optional codec probe exited before replying (0xc0000005)"
-            )),
+            super::pyrowave_retry_delay(
+                &Crashed::new("exited before replying (0xc0000005)").into()
+            ),
+            Some(Duration::from_secs(5))
+        );
+        assert_eq!(
+            super::pyrowave_retry_delay(&anyhow::anyhow!("loading libpyrowave-shared-1.dll")),
             None
         );
     }
@@ -2080,7 +2098,7 @@ mod tests {
     mod pyrowave_retry {
         use crate::state::test_support::Fixture;
         use butterpollo_core::config::Config;
-        use butterpollo_windows::codec_probe::{Interrupted, SessionNotReady, TimedOut};
+        use butterpollo_windows::codec_probe::{Crashed, Interrupted, SessionNotReady, TimedOut};
         use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
         use std::time::{Duration, Instant};
 
@@ -2109,6 +2127,41 @@ mod tests {
             );
             assert_eq!(CALLS.load(Ordering::Acquire), 1);
             assert_eq!(f.host.codecs.load(Ordering::Acquire) & PYROWAVE, 0);
+        }
+
+        /// Issue #94: the startup probe and two more before PyroWave stays
+        /// off, and a later one that passes offers it.
+        #[test]
+        fn a_crashed_worker_is_probed_twice_more() {
+            static CALLS: AtomicU32 = AtomicU32::new(0);
+            fn crashes(_: &Config, _: &dyn Fn() -> bool) -> anyhow::Result<u32> {
+                CALLS.fetch_add(1, Ordering::AcqRel);
+                Err(Crashed::new("exited before replying (0xc0000005)").into())
+            }
+            let f = Fixture::new();
+            let config = f.host.config.read().unwrap().clone();
+            assert_eq!(
+                f.host
+                    .retry_pyrowave_probe(&config, Duration::ZERO, crashes),
+                2
+            );
+            assert_eq!(CALLS.load(Ordering::Acquire), 2);
+            assert_eq!(f.host.codecs.load(Ordering::Acquire) & PYROWAVE, 0);
+
+            static SECOND: AtomicU32 = AtomicU32::new(0);
+            fn crashes_once(_: &Config, _: &dyn Fn() -> bool) -> anyhow::Result<u32> {
+                if SECOND.fetch_add(1, Ordering::AcqRel) == 0 {
+                    return Err(Crashed::new("exited before replying (0xc0000005)").into());
+                }
+                Ok(PYROWAVE)
+            }
+            let f = Fixture::new();
+            assert_eq!(
+                f.host
+                    .retry_pyrowave_probe(&config, Duration::ZERO, crashes_once),
+                2
+            );
+            assert_ne!(f.host.codecs.load(Ordering::Acquire) & PYROWAVE, 0);
         }
 
         #[test]

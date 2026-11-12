@@ -35,6 +35,12 @@ pub struct Ioctl {
     pub data: *mut u8,
 }
 
+#[repr(C)]
+pub struct ConnectInfo {
+    pub devnum: u32,
+    pub slow: u8,
+}
+
 pub const UINT: usize = std::mem::size_of::<u32>();
 pub const CONTROL: u32 = ioc(READ | WRITE, 0, std::mem::size_of::<CtrlTransfer>());
 pub const SETINTERFACE: u32 = ioc(READ, 4, std::mem::size_of::<SetInterface>());
@@ -44,6 +50,7 @@ pub const DISCARDURB: u32 = ioc(NONE, 11, 0);
 pub const REAPURBNDELAY: u32 = ioc(WRITE, 13, std::mem::size_of::<*mut u8>());
 pub const CLAIMINTERFACE: u32 = ioc(READ, 15, UINT);
 pub const RELEASEINTERFACE: u32 = ioc(READ, 16, UINT);
+pub const CONNECTINFO: u32 = ioc(WRITE, 17, std::mem::size_of::<ConnectInfo>());
 pub const IOCTL: u32 = ioc(READ | WRITE, 18, std::mem::size_of::<Ioctl>());
 pub const RESET: u32 = ioc(NONE, 20, 0);
 pub const CLEAR_HALT: u32 = ioc(READ, 21, UINT);
@@ -61,6 +68,7 @@ mod tests {
         assert_eq!(CLAIMINTERFACE, 0x8004_550f);
         assert_eq!(DISCARDURB, 0x0000_550b);
         assert_eq!(GET_SPEED, 0x0000_551f);
+        assert_eq!(CONNECTINFO, 0x4008_5511);
         if std::mem::size_of::<usize>() == 8 {
             assert_eq!(SUBMITURB, 0x8038_550a);
             assert_eq!(REAPURBNDELAY, 0x4008_550d);

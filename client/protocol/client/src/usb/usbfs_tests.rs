@@ -73,6 +73,12 @@ struct Machine {
     claimed: Vec<u8>,
     alternate: u8,
     speed: u32,
+    /// What USBDEVFS_GET_SPEED fails with, on a kernel before 4.13.
+    no_speed: Option<Errno>,
+    slow: bool,
+    qualifier: bool,
+    /// Replaces [`descriptors`].
+    raw: Option<Vec<u8>>,
     gone: bool,
     closed: bool,
     /// The interface whose claim fails outright.
@@ -230,7 +236,7 @@ impl FakeKernel {
 
 impl Kernel for FakeKernel {
     fn descriptors(&self) -> Result<Vec<u8>, Errno> {
-        Ok(descriptors())
+        Ok(self.machine().raw.clone().unwrap_or_else(descriptors))
     }
 
     fn configuration(&self) -> Result<u8, Errno> {
@@ -238,7 +244,29 @@ impl Kernel for FakeKernel {
     }
 
     fn speed(&self) -> Result<u32, Errno> {
-        Ok(self.machine().speed)
+        let machine = self.machine();
+        machine.no_speed.map_or(Ok(machine.speed), Err)
+    }
+
+    fn low_speed(&self) -> Result<bool, Errno> {
+        Ok(self.machine().slow)
+    }
+
+    fn control_in(
+        &self,
+        request_type: u8,
+        request: u8,
+        value: u16,
+        _: u16,
+        data: &mut [u8],
+    ) -> Result<usize, Errno> {
+        // Only the device qualifier is asked for this way; a full-speed device stalls it.
+        assert_eq!((request_type, request, value), (0x80, 6, 0x0600));
+        if !self.machine().qualifier {
+            return Err(Errno(32));
+        }
+        data.copy_from_slice(&[10, 6, 0x00, 0x02, 0, 0, 0, 64, 1, 0]);
+        Ok(10)
     }
 
     fn claim(&self, interface: u8) -> Result<(), Errno> {
@@ -498,14 +526,70 @@ fn opening_claims_every_interface_and_closing_gives_them_back_to_their_drivers()
     );
 }
 
+/// What a kernel before Linux 4.13 makes of a device: no USBDEVFS_GET_SPEED (ENOTTY).
+fn speed_on_an_old_kernel(change: impl FnOnce(&mut Machine)) -> u32 {
+    let kernel = FakeKernel::new();
+    kernel.machine().no_speed = Some(Errno(25));
+    change(&mut kernel.machine());
+    let device = UsbfsDevice::open(kernel.clone(), PATH).unwrap();
+    let speed = device.describe().speed;
+    device.close();
+    speed
+}
+
 #[test]
-fn a_device_that_cannot_be_opened_fails_loudly_and_closes() {
+fn a_kernel_that_cannot_say_the_speed_has_it_read_from_the_device() {
+    // An NVIDIA Shield (Linux 4.9) opened nothing: every device failed on its speed.
+    // 64-byte endpoints and no device qualifier: full speed, as a controller's receiver is.
+    assert_eq!(speed_on_an_old_kernel(|_| {}), 2);
+    // The kernel answering "unknown" reads the same.
     let kernel = FakeKernel::new();
     kernel.machine().speed = 0;
-    let error = UsbfsDevice::open(kernel.clone(), PATH).err().unwrap();
-    assert!(error.contains("speed"), "{error}");
-    assert_eq!(kernel.log(), ["close"]);
+    let device = UsbfsDevice::open(kernel.clone(), PATH).unwrap();
+    assert_eq!(device.describe().speed, 2);
+    device.close();
+    // A device qualifier: it can run at high speed, so it does.
+    assert_eq!(speed_on_an_old_kernel(|m| m.qualifier = true), 3);
+    assert_eq!(speed_on_an_old_kernel(|m| m.slow = true), 1);
 
+    // A 512-byte bulk endpoint exists at high speed only; no qualifier is needed.
+    let mut bulk = descriptors();
+    let at = 18 + 9 + 9;
+    assert_eq!(bulk[at..at + 4], [7, 5, 0x01, 2]);
+    bulk[at + 4..at + 6].copy_from_slice(&512u16.to_le_bytes());
+    assert_eq!(speed_on_an_old_kernel(|m| m.raw = Some(bulk.clone())), 3);
+    // So does an interrupt endpoint with three transactions a microframe.
+    let mut interrupt = descriptors();
+    let at = 18 + 9 + 9 + 7 + 7;
+    assert_eq!(interrupt[at..at + 4], [7, 5, 0x82, 3]);
+    interrupt[at + 4..at + 6].copy_from_slice(&(2u16 << 11 | 64).to_le_bytes());
+    assert_eq!(speed_on_an_old_kernel(|m| m.raw = Some(interrupt.clone())), 3);
+
+    // USB 3 with a 512-byte control endpoint is SuperSpeed; USB 1.1 never has a qualifier.
+    let mut usb3 = descriptors();
+    usb3[2..4].copy_from_slice(&0x0300u16.to_le_bytes());
+    usb3[7] = 9;
+    assert_eq!(speed_on_an_old_kernel(|m| m.raw = Some(usb3.clone())), 5);
+    let mut usb1 = descriptors();
+    usb1[2..4].copy_from_slice(&0x0110u16.to_le_bytes());
+    assert_eq!(
+        speed_on_an_old_kernel(|m| {
+            m.raw = Some(usb1.clone());
+            m.qualifier = true;
+        }),
+        2
+    );
+
+    assert_eq!(speed_of_megabits("1.5"), Some(1));
+    assert_eq!(speed_of_megabits("12"), Some(2));
+    assert_eq!(speed_of_megabits("480"), Some(3));
+    assert_eq!(speed_of_megabits("5000"), Some(5));
+    assert_eq!(speed_of_megabits("10000"), Some(6));
+    assert_eq!(speed_of_megabits(""), None);
+}
+
+#[test]
+fn a_device_that_cannot_be_opened_fails_loudly_and_closes() {
     let kernel = FakeKernel::new();
     let error = UsbfsDevice::open(kernel.clone(), "/proc/self/fd/9")
         .err()

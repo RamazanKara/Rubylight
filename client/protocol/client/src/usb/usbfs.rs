@@ -166,7 +166,19 @@ pub trait Kernel: Send + Sync + 'static {
     /// The active configuration's value, 0 when unconfigured (GET_CONFIGURATION).
     fn configuration(&self) -> Result<u8, Errno>;
     /// `enum usb_device_speed`, which USB/IP's speeds follow; 0 when the kernel does not know.
+    /// Kernels before Linux 4.13 (many Android TV boxes) cannot say: `guessed_speed` then.
     fn speed(&self) -> Result<u32, Errno>;
+    /// True for a low-speed device (USBDEVFS_CONNECTINFO, which every kernel answers).
+    fn low_speed(&self) -> Result<bool, Errno>;
+    /// A control read from the device; the bytes it answered.
+    fn control_in(
+        &self,
+        request_type: u8,
+        request: u8,
+        value: u16,
+        index: u16,
+        data: &mut [u8],
+    ) -> Result<usize, Errno>;
     fn claim(&self, interface: u8) -> Result<(), Errno>;
     fn release(&self, interface: u8) -> Result<(), Errno>;
     /// Unbinds the kernel driver that has `interface`.
@@ -299,6 +311,77 @@ fn configuration(body: &[u8]) -> Result<Configuration, String> {
         at += length;
     }
     Ok(parsed)
+}
+
+const SPEED_LOW: u32 = 1;
+const SPEED_FULL: u32 = 2;
+const SPEED_HIGH: u32 = 3;
+const SPEED_SUPER: u32 = 5;
+const SPEED_SUPER_PLUS: u32 = 6;
+
+/// The speed of a device whose kernel cannot say it (USBDEVFS_GET_SPEED is Linux 4.13's),
+/// from `raw`, its descriptors as parsed: low speed from the kernel's connect info, SuperSpeed
+/// from its 512-byte control endpoint, high speed from an endpoint only high speed allows or
+/// from a device qualifier, which a full-speed-only device does not have.
+fn guessed_speed<K: Kernel>(kernel: &K, raw: &[u8]) -> u32 {
+    if kernel.low_speed().unwrap_or(false) {
+        return SPEED_LOW;
+    }
+    let bcd_usb = u16::from_le_bytes([raw[2], raw[3]]);
+    if bcd_usb >= 0x0300 && raw[7] == 9 {
+        return SPEED_SUPER;
+    }
+    if bcd_usb < 0x0200 {
+        return SPEED_FULL;
+    }
+    if has_high_speed_endpoint(raw) {
+        return SPEED_HIGH;
+    }
+    // On a high-speed port a device that can run at high speed does.
+    let mut qualifier = [0u8; 10];
+    match kernel.control_in(0x80, 6, 0x0600, 0, &mut qualifier) {
+        Ok(read) if read >= 2 && qualifier[1] == 6 => SPEED_HIGH,
+        _ => SPEED_FULL,
+    }
+}
+
+/// `enum usb_device_speed` for sysfs's `speed` attribute, megabits a second.
+pub fn speed_of_megabits(megabits: &str) -> Option<u32> {
+    match megabits {
+        "1.5" => Some(SPEED_LOW),
+        "12" => Some(SPEED_FULL),
+        "480" => Some(SPEED_HIGH),
+        "5000" => Some(SPEED_SUPER),
+        "10000" | "20000" => Some(SPEED_SUPER_PLUS),
+        _ => None,
+    }
+}
+
+/// True when an endpoint is larger than full speed allows: bulk or interrupt over 64 bytes,
+/// isochronous over 1023, or more than one transaction a microframe.
+fn has_high_speed_endpoint(raw: &[u8]) -> bool {
+    let mut at = usize::from(raw[0]);
+    while at + 2 <= raw.len() {
+        let length = usize::from(raw[at]);
+        if length < 2 || at + length > raw.len() {
+            return false;
+        }
+        let descriptor = &raw[at..at + length];
+        if descriptor[1] == 5 && length >= 7 {
+            let packet = u16::from_le_bytes([descriptor[4], descriptor[5]]);
+            let size = packet & 0x7ff;
+            let larger = match descriptor[3] & 3 {
+                1 => size > 1023,
+                2 | 3 => size > 64,
+                _ => false,
+            };
+            if larger || (packet >> 11) & 3 != 0 {
+                return true;
+            }
+        }
+        at += length;
+    }
+    false
 }
 
 /// Bus and device number of an Android or Linux device node, `/dev/bus/usb/001/005`.
@@ -479,9 +562,18 @@ impl<K: Kernel> UsbfsDevice<K> {
             .configuration()
             .map_err(|e| format!("its configuration did not read: {e}"))?;
         let speed = match kernel.speed() {
-            Ok(0) => return Err("the kernel does not know its speed".into()),
-            Ok(speed) => speed,
-            Err(e) => return Err(format!("its speed did not read: {e}")),
+            Ok(speed) if speed != 0 => speed,
+            unknown => {
+                let speed = guessed_speed(kernel, &raw);
+                let why = match unknown {
+                    Err(e) => e.to_string(),
+                    Ok(_) => "unknown".into(),
+                };
+                super::warn(&format!(
+                    "USB: the kernel does not say the speed of {path} ({why}); taken as {speed} from its descriptors"
+                ));
+                speed
+            }
         };
         let (busnum, devnum) =
             bus_and_device(path).ok_or_else(|| format!("{path:?} is not a USB device node"))?;

@@ -51,6 +51,20 @@ impl Usbfs {
         }
     }
 
+    /// The speed sysfs has for this descriptor's device node, where it is readable.
+    fn sysfs_speed(&self) -> Option<u32> {
+        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        if unsafe { libc::fstat(self.fd(), &mut stat) } != 0 {
+            return None;
+        }
+        let dev = stat.st_rdev as u64;
+        let major = ((dev >> 8) & 0xfff) | ((dev >> 32) & !0xfff);
+        let minor = (dev & 0xff) | ((dev >> 12) & !0xff);
+        let megabits =
+            std::fs::read_to_string(format!("/sys/dev/char/{major}:{minor}/speed")).ok()?;
+        super::speed_of_megabits(megabits.trim())
+    }
+
     fn with_uint(&self, request: u32, value: u32) -> Result<(), Errno> {
         let mut value = value;
         self.ioctl(request, (&mut value as *mut u32).cast())
@@ -91,25 +105,46 @@ impl Kernel for Usbfs {
     }
 
     fn configuration(&self) -> Result<u8, Errno> {
-        let mut value = 0u8;
-        let mut transfer = CtrlTransfer {
-            request_type: 0x80,
-            request: 8,
-            value: 0,
-            index: 0,
-            length: 1,
-            timeout_ms: 1000,
-            data: &mut value,
-        };
-        match self.ioctl(CONTROL, (&mut transfer as *mut CtrlTransfer).cast())? {
-            1 => Ok(value),
+        let mut value = [0u8];
+        match self.control_in(0x80, 8, 0, 0, &mut value)? {
+            1 => Ok(value[0]),
             _ => Err(super::EINVAL),
         }
     }
 
     fn speed(&self) -> Result<u32, Errno> {
-        self.ioctl(GET_SPEED, std::ptr::null_mut())
-            .map(|speed| speed as u32)
+        match self.ioctl(GET_SPEED, std::ptr::null_mut()) {
+            Ok(speed) => Ok(speed as u32),
+            // Before Linux 4.13: sysfs knows, where this process may read it.
+            Err(e) => self.sysfs_speed().ok_or(e),
+        }
+    }
+
+    fn low_speed(&self) -> Result<bool, Errno> {
+        let mut info = ConnectInfo { devnum: 0, slow: 0 };
+        self.ioctl(CONNECTINFO, (&mut info as *mut ConnectInfo).cast())?;
+        Ok(info.slow != 0)
+    }
+
+    fn control_in(
+        &self,
+        request_type: u8,
+        request: u8,
+        value: u16,
+        index: u16,
+        data: &mut [u8],
+    ) -> Result<usize, Errno> {
+        let mut transfer = CtrlTransfer {
+            request_type,
+            request,
+            value,
+            index,
+            length: u16::try_from(data.len()).map_err(|_| super::EINVAL)?,
+            timeout_ms: 1000,
+            data: data.as_mut_ptr(),
+        };
+        self.ioctl(CONTROL, (&mut transfer as *mut CtrlTransfer).cast())
+            .map(|read| read as usize)
     }
 
     fn claim(&self, interface: u8) -> Result<(), Errno> {

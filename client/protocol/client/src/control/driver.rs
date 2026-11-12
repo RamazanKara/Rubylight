@@ -43,6 +43,9 @@ use crate::roaming::{LaunchSeq, RoamEvent, RoamTrigger, Roaming};
 pub const CONTROL_PEER_TIMEOUT: Duration = Duration::from_secs(10);
 /// With a grace period, input is held back once nothing has come from the host this long.
 pub const INPUT_CONTACT_LOST_AFTER: Duration = Duration::from_millis(1000);
+/// While ENet's reliable window is full, input stays in the [`InputQueue`] (where a controller
+/// state updates in place and motion merges) until it holds this many entries.
+const INPUT_HOLD_LIMIT: usize = crate::input::queue::MAX_QUEUED / 2;
 /// Receives that may still follow a host's disconnect are awaited this long.
 const DISCONNECT_RECEIVE_WAIT: Duration = Duration::from_millis(100);
 /// A disconnect handed back to ENet that ENet ignored (another session's) is forgotten after.
@@ -765,6 +768,8 @@ pub struct ControlClient {
     input: Vec<InputPacket>,
     /// Queued control datagrams, kept for the same reason.
     outgoing: Vec<super::session::Outgoing>,
+    /// Input was left queued because ENet's reliable window was full.
+    input_waits_for_window: bool,
 }
 
 /// When the driver starts, restarts and ends roaming attempts.
@@ -932,6 +937,16 @@ pub fn connect(
     let timeout = config.peer_timeout().as_millis().min(u128::from(u32::MAX)) as u32;
     // Back off at most to twice the round trip, and give up after the (grace) timeout.
     host.peer_mut(peer).set_timeout(2, timeout, timeout);
+    // ENet's packet throttle shrinks the reliable window toward one MTU (and drops unreliable
+    // packets) for every acknowledgement slower than the last round trip plus twice its
+    // variance: jitter on a mobile or VPN link, not congestion. Control traffic is a few kB/s,
+    // so it keeps the full window and input leaves at once instead of after the next
+    // acknowledgement (nightjar#97).
+    host.peer_mut(peer).set_throttle(
+        rusty_enet::consts::PEER_PACKET_THROTTLE_INTERVAL,
+        rusty_enet::consts::PEER_PACKET_THROTTLE_ACCELERATION,
+        0,
+    );
     lock(&shared.session).start(Instant::now());
     let client = ControlClient {
         host,
@@ -946,6 +961,7 @@ pub fn connect(
         roam_events: Vec::new(),
         input: Vec::new(),
         outgoing: Vec::new(),
+        input_waits_for_window: false,
     };
     Ok((client, handle))
 }
@@ -984,10 +1000,22 @@ impl ControlClient {
             .contact_lost
             .store(contact_lost, Ordering::Relaxed);
         self.input.clear();
+        // ENet sends reliable data only while what is in transit fits the throttled window; past
+        // it, every packet handed over waits there unchanged and leaves in a burst at the next
+        // acknowledgement. On a jittery 60 ms link that held about 20 stale controller states
+        // and sent them all late (nightjar#97). Leave input in the queue instead, where a newer
+        // controller state replaces the queued one, as moonlight-common-c waits for its packet to
+        // leave and merges the newer state meanwhile.
+        let window_full = self.host.peer(self.peer).has_unsent_reliable();
         let input_wake = {
             let mut queue = lock(&self.shared.input);
+            self.input_waits_for_window = false;
             if drain_input {
                 queue.drain(now, contact_lost, &mut self.input);
+                None
+            } else if window_full && !contact_lost && queue.len() < INPUT_HOLD_LIMIT {
+                // The acknowledgement that opens the window wakes the loop (see `run`).
+                self.input_waits_for_window = !queue.is_empty();
                 None
             } else {
                 queue.poll(now, contact_lost, &mut self.input)
@@ -1176,6 +1204,10 @@ impl ControlClient {
             let now = Instant::now();
             self.handle_held_disconnect(now, received);
             if received {
+                continue;
+            }
+            if self.input_waits_for_window && !self.host.peer(self.peer).has_unsent_reliable() {
+                // An acknowledgement opened the window: send the input that waited for it.
                 continue;
             }
             if self.shared.wake_pending.swap(false, Ordering::AcqRel) {

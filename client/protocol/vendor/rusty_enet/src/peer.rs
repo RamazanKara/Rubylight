@@ -325,6 +325,16 @@ impl<S: Socket> Peer<S> {
         Duration::from_millis(u64::from(unsafe { (*self.0).round_trip_time }))
     }
 
+    /// Whether reliable packets wait in the peer's queue because the reliable window (data in
+    /// transit, limited by the packet throttle) has no room for them. Nightjar addition.
+    #[must_use]
+    pub fn has_unsent_reliable(&self) -> bool {
+        unsafe {
+            (*self.0).outgoing_send_reliable_commands.sentinel.next
+                != core::ptr::addr_of_mut!((*self.0).outgoing_send_reliable_commands.sentinel)
+        }
+    }
+
     /// Round trip time (RTT) variance. See [`Peer::round_trip_time`].
     #[must_use]
     pub fn round_trip_time_variance(&self) -> Duration {

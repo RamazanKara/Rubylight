@@ -88,6 +88,22 @@ impl TestHost {
     fn address(&self) -> SocketAddr {
         self.host.socket().local_addr().unwrap()
     }
+
+    /// A host whose ENet grants the client its smallest reliable window (4096 bytes).
+    fn with_small_window() -> Self {
+        let mut host = Self::new();
+        host.host = Host::new(
+            UdpSocket::bind("127.0.0.1:0").unwrap(),
+            HostSettings {
+                peer_limit: 4,
+                channel_limit: 255,
+                incoming_bandwidth_limit: Some(1),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        host
+    }
 }
 
 impl TestHost<MultiHomed> {
@@ -426,6 +442,175 @@ fn input_is_held_while_the_host_is_silent_during_a_grace_period() {
         ]
     );
     assert!(!handle.contact_lost());
+    handle.stop();
+    host.until("disconnect", |h| h.disconnected);
+    assert_eq!(running.join().unwrap(), Outcome::Stopped);
+}
+
+/// nightjar#97: while ENet's reliable window is full, controller states merge in the input
+/// queue instead of waiting inside ENet, so the host gets the newest state once the window
+/// opens rather than every stale one in a burst.
+#[test]
+fn controller_states_merge_while_the_reliable_window_is_full() {
+    let mut host = TestHost::with_small_window();
+    let (client, handle) = connect_to(&mut host);
+    let running = thread::spawn(move || client.run(|_| {}));
+    host.until("start and ping", |h| h.has(0x0307) && h.has(0x0200));
+
+    // The host stops acknowledging (a round trip far longer than the input interval) while the
+    // stick moves: each state, sent apart from the last, would be its own reliable packet.
+    const STATES: i16 = 400;
+    for x in 1..=STATES {
+        handle
+            .with_input(|input| input.send_controller(0, 1, 0, 0, 0, (x, 0), (0, 0)))
+            .unwrap();
+        thread::sleep(Duration::from_micros(500));
+    }
+    let sticks = |h: &TestHost| -> Vec<i16> {
+        h.received
+            .iter()
+            .filter(|m| m.1 == 0x0206)
+            .filter_map(|m| match decode(&m.2).unwrap() {
+                Input::Controller { sticks, .. } => Some(sticks[0]),
+                _ => None,
+            })
+            .collect()
+    };
+    host.until("the newest state", |h| sticks(h).last() == Some(&STATES));
+    let sent = sticks(&host);
+    assert!(sent.windows(2).all(|w| w[0] < w[1]), "in order: {sent:?}");
+    // A 4096-byte window carries about 45 states; the rest merged in the queue.
+    assert!(
+        sent.len() < usize::from(STATES as u16) / 2,
+        "{} of {STATES} states went out one by one",
+        sent.len()
+    );
+    handle.stop();
+    host.until("disconnect", |h| h.disconnected);
+    assert_eq!(running.join().unwrap(), Outcome::Stopped);
+}
+
+/// A host socket whose datagrams leave 10 ms late until `loaded` is set, then 40 to 60 ms
+/// late with a 150 ms stall every 400 ms, in order, released while the host services: a
+/// mobile link through a VPN whose round trip rose after the stream started.
+struct Jittery {
+    socket: UdpSocket,
+    seed: u32,
+    loaded: Option<Instant>,
+    queued: std::collections::VecDeque<(Instant, SocketAddr, Vec<u8>)>,
+}
+
+impl rusty_enet::Socket for Jittery {
+    type Address = SocketAddr;
+    type Error = io::Error;
+
+    fn init(&mut self, _: rusty_enet::SocketOptions) -> io::Result<()> {
+        self.socket.set_nonblocking(true)
+    }
+
+    fn send(&mut self, address: SocketAddr, buffer: &[u8]) -> io::Result<usize> {
+        // xorshift32: the same delays every run.
+        self.seed ^= self.seed << 13;
+        self.seed ^= self.seed >> 17;
+        self.seed ^= self.seed << 5;
+        let now = Instant::now();
+        let mut due = now + Duration::from_millis(10);
+        if let Some(since) = self.loaded {
+            due = now + Duration::from_millis(40 + u64::from(self.seed % 21));
+            let phase = now.duration_since(since).as_millis() % 400;
+            if phase < 150 {
+                due = due.max(now + Duration::from_millis((150 - phase) as u64));
+            }
+        }
+        if let Some(back) = self.queued.back() {
+            due = due.max(back.0);
+        }
+        self.queued.push_back((due, address, buffer.to_vec()));
+        Ok(buffer.len())
+    }
+
+    fn receive(
+        &mut self,
+        buffer: &mut [u8; MTU_MAX],
+    ) -> io::Result<Option<(SocketAddr, PacketReceived)>> {
+        let now = Instant::now();
+        while self.queued.front().is_some_and(|q| q.0 <= now) {
+            let (_, to, datagram) = self.queued.pop_front().unwrap();
+            self.socket.send_to(&datagram, to)?;
+        }
+        match self.socket.recv_from(buffer) {
+            Ok((length, from)) => Ok(Some((from, PacketReceived::Complete(length)))),
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+}
+
+/// nightjar#97: round trip jitter does not shrink the reliable window, so on a jittery link
+/// each controller state still leaves on its own instead of waiting for an acknowledgement.
+#[test]
+fn round_trip_jitter_keeps_the_reliable_window_open() {
+    let mut host = TestHost::on(Jittery {
+        socket: UdpSocket::bind("127.0.0.1:0").unwrap(),
+        seed: 0x9E37_79B9,
+        loaded: None,
+        queued: Default::default(),
+    });
+    let config = DriverConfig {
+        connect_data: CONNECT_DATA,
+        ..DriverConfig::new(host.host.socket().socket.local_addr().unwrap())
+    };
+    let connecting =
+        thread::spawn(move || connect(config, caps(), &KEY, SessionOptions::default()).unwrap());
+    while !connecting.is_finished() {
+        host.pump();
+        thread::sleep(Duration::from_millis(1));
+    }
+    let (client, handle) = connecting.join().unwrap();
+    let running = thread::spawn(move || client.run(|_| {}));
+    host.until("start", |h| h.has(0x0307));
+    let mut x = 0i16;
+    let mut state = || {
+        x += 1;
+        handle
+            .with_input(|input| input.send_controller(0, 1, 0, 0, 0, (x, 0), (0, 0)))
+            .unwrap();
+        x
+    };
+    // A state every 2 ms.
+    let mut steer = |host: &mut TestHost<Jittery>, until: Instant| {
+        let mut last = 0;
+        while Instant::now() < until {
+            last = state();
+            host.pump();
+            thread::sleep(Duration::from_millis(2));
+        }
+        last
+    };
+    steer(&mut host, Instant::now() + Duration::from_millis(500));
+    // The round trip rises well past the one ENet's throttle measures against (the lowest of
+    // its first five seconds), and stalls. Stock ENet sinks the throttle, cutting the window
+    // to one MTU (about 15 states) while a stalled round trip carries about 90.
+    host.host.socket_mut().loaded = Some(Instant::now());
+    let first = steer(&mut host, Instant::now() + Duration::from_millis(500)) + 1;
+    let last = steer(&mut host, Instant::now() + Duration::from_millis(2_500));
+    let sticks = |h: &TestHost<Jittery>| -> Vec<i16> {
+        h.received
+            .iter()
+            .filter(|m| m.1 == 0x0206)
+            .filter_map(|m| match decode(&m.2).unwrap() {
+                Input::Controller { sticks, .. } if sticks[0] >= first => Some(sticks[0]),
+                _ => None,
+            })
+            .collect()
+    };
+    host.until("the newest state", |h| sticks(h).last() == Some(&last));
+    let sent = usize::from((last - first + 1) as u16);
+    let arrived = sticks(&host).len();
+    assert!(
+        arrived * 100 >= sent * 85,
+        "only {arrived} of {sent} states left on their own"
+    );
     handle.stop();
     host.until("disconnect", |h| h.disconnected);
     assert_eq!(running.join().unwrap(), Outcome::Stopped);

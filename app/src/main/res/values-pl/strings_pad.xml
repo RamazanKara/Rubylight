@@ -32,4 +32,8 @@
     <string name="pad_home">Home</string>
     <string name="pad_touchpad">Touchpad</string>
     <string name="pad_wasd">Gałka WASD</string>
+    <string name="pad_left_trackpad">Lewy gładzik</string>
+    <string name="pad_right_trackpad">Prawy gładzik</string>
+    <string name="pad_left_grip">Lewy uchwyt</string>
+    <string name="pad_right_grip">Prawy uchwyt</string>
 </resources>

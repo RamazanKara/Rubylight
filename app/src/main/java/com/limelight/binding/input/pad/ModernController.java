@@ -22,7 +22,8 @@ import java.util.Map;
  * shoulders, triggers, stick clicks and View, Menu and Home, and a WASD stick the layout editor can add. Controls
  * are separate views in the stream's frame so touches between them reach the stream. Its input is the on-screen
  * gamepad, the same report the classic controller sends (the WASD stick sends keys), and its layout is kept for
- * all games or for one game.
+ * all games or for one game. With the Steam Controller controls setting it adds that controller's trackpads, back
+ * buttons and grip touch, sent as the classic controller sends them.
  */
 public final class ModernController {
     static final String PREFS = "osc_modern";
@@ -47,6 +48,12 @@ public final class ModernController {
     private boolean perGame, shown = true;
     private PadEditor editor;
     private final float[] box = new float[4];
+    private TouchSink touchSink;
+
+    /** Where the Steam Controller trackpads' touches go: touchpad 0 of the on-screen controls' pad. */
+    public interface TouchSink {
+        void touch(byte eventType, int pointerId, float x, float y, float pressure);
+    }
 
     /**
      * @param gameKey {@link com.limelight.binding.input.TouchLayout#profileKey} of the game, or null when
@@ -75,8 +82,19 @@ public final class ModernController {
         layout = PadLayout.parse(perGame ? game : store.getString(GLOBAL_KEY, null));
     }
 
+    /** Sends the Steam Controller trackpads' touches here; without a sink they send nothing. */
+    public void setTouchSink(TouchSink sink) {
+        touchSink = sink;
+    }
+
+    private void touch(byte eventType, int pointerId, float x, float y, float pressure) {
+        if (touchSink != null) touchSink.touch(eventType, pointerId, x, y, pressure);
+    }
+
     /** Whether the settings keep this control off whatever the layout says. */
     boolean forcedHidden(PadLayout.Control control) {
+        // As on the classic controller, the Steam Controller controls follow their own setting alone.
+        if (control.steam) return !prefs.oscSteamControls;
         if (prefs.onlyL3R3) return control != PadLayout.Control.L3 && control != PadLayout.Control.R3;
         return (control == PadLayout.Control.HOME && !prefs.showGuideButton) ||
                 (control == PadLayout.Control.TOUCHPAD && !prefs.showTouchpadButton);
@@ -96,6 +114,7 @@ public final class ModernController {
             PadControlView view = new PadControlView(context, control, painter, gamepad, this::changed, keys);
             view.configureStick(prefs.oscFloatingSticks, prefs.oscStickDeadzone / 100f);
             view.setHaptics(prefs.vibrateOsc);
+            view.setTouchSink(this::touch);
             views.put(control, view);
             frame.addView(view, new FrameLayout.LayoutParams(0, 0, Gravity.TOP | Gravity.START));
         }

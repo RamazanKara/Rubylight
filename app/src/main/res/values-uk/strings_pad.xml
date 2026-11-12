@@ -32,4 +32,8 @@
     <string name="pad_home">Home</string>
     <string name="pad_touchpad">Тачпад</string>
     <string name="pad_wasd">Стік WASD</string>
+    <string name="pad_left_trackpad">Лівий трекпад</string>
+    <string name="pad_right_trackpad">Правий трекпад</string>
+    <string name="pad_left_grip">Ліве руків’я</string>
+    <string name="pad_right_grip">Праве руків’я</string>
 </resources>

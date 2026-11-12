@@ -32,4 +32,8 @@
     <string name="pad_home">Home</string>
     <string name="pad_touchpad">Touchpad</string>
     <string name="pad_wasd">Levetta WASD</string>
+    <string name="pad_left_trackpad">Trackpad sinistro</string>
+    <string name="pad_right_trackpad">Trackpad destro</string>
+    <string name="pad_left_grip">Impugnatura sinistra</string>
+    <string name="pad_right_grip">Impugnatura destra</string>
 </resources>

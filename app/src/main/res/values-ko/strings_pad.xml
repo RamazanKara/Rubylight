@@ -32,4 +32,8 @@
     <string name="pad_home">Home</string>
     <string name="pad_touchpad">터치패드</string>
     <string name="pad_wasd">WASD 스틱</string>
+    <string name="pad_left_trackpad">왼쪽 트랙패드</string>
+    <string name="pad_right_trackpad">오른쪽 트랙패드</string>
+    <string name="pad_left_grip">왼쪽 그립</string>
+    <string name="pad_right_grip">오른쪽 그립</string>
 </resources>

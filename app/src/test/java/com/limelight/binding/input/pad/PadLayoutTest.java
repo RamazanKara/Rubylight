@@ -158,6 +158,14 @@ public class PadLayoutTest {
         }
     }
 
+    /**
+     * The WASD stick and a Steam Controller control: no default layout shows either, and both take the middle of the
+     * screen, so with both turned on one of them is moved.
+     */
+    private static boolean bothOptional(PadLayout.Control a, PadLayout.Control b) {
+        return (a == PadLayout.Control.WASD && b.steam) || (b == PadLayout.Control.WASD && a.steam);
+    }
+
     @Test public void theDefaultClustersDoNotOverlapOnPhonesInBothOrientations() {
         float[][] surfaces = {{2400, 1080}, {1080, 2400}, {1920, 1200}};
         PadLayout layout = new PadLayout();
@@ -168,6 +176,7 @@ public class PadLayoutTest {
                 for (int j = i + 1; j < controls.length; j++) {
                     layout.bounds(controls[i], surface[0], surface[1], DENSITY, a);
                     layout.bounds(controls[j], surface[0], surface[1], DENSITY, b);
+                    if (bothOptional(controls[i], controls[j])) continue;
                     boolean overlap = a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3];
                     assertFalse(controls[i] + " overlaps " + controls[j] + " on " + surface[0] + "x" + surface[1], overlap);
                 }
@@ -190,7 +199,7 @@ public class PadLayoutTest {
                 assertTrue(where + " is " + a[3] / density + " dp tall", a[3] >= 48 * density - .01f);
                 if (control.shape == PadLayout.Shape.PILL) assertTrue(where + " pill", a[2] >= 72 * density - .01f);
                 for (PadLayout.Control other : controls) {
-                    if (other.ordinal() <= control.ordinal()) continue;
+                    if (other.ordinal() <= control.ordinal() || bothOptional(control, other)) continue;
                     layout.bounds(other, surface[0], surface[1], density, b);
                     boolean overlap = a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3];
                     assertFalse(where + " overlaps " + other, overlap);

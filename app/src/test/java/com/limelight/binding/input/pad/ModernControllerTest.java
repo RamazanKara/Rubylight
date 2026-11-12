@@ -84,8 +84,10 @@ public class ModernControllerTest {
 
     @Test public void everyControlIsItsOwnViewInTheStreamFrame() {
         ModernController controller = controller(GAME);
-        // Every control, plus each stick's knob layer above them (the WASD stick's too, though it starts hidden).
-        assertEquals(PadLayout.Control.values().length + 3, frame.getChildCount());
+        // Every control, plus each stick's knob layer above them (the WASD stick's too, though it starts hidden); the
+        // Steam Controller controls only with their setting.
+        assertEquals(PadLayout.Control.values().length - 8 + 3, frame.getChildCount());
+        assertNull(controller.view(PadLayout.Control.LEFT_PAD));
         assertEquals(View.GONE, controller.view(PadLayout.Control.WASD).getVisibility());
         PadControlView face = controller.view(PadLayout.Control.FACE);
         assertEquals(View.VISIBLE, face.getVisibility());
@@ -546,6 +548,8 @@ public class ModernControllerTest {
         editor.setOpacity(50);
         editor.scaleBy(-.1f);
         for (PadLayout.Control control : PadLayout.Control.values()) {
+            // The Steam Controller controls are off without their setting, so the editor leaves them alone.
+            if (control.steam) continue;
             assertEquals(control.name(), 50, editor.draft().spec(control).opacity);
             assertEquals(control.name(), .9f, editor.draft().spec(control).scale, 1e-3);
         }

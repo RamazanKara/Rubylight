@@ -96,6 +96,16 @@ public class SteamControlsArrivalTest {
     }
 
     @Test
+    public void theModernControllerCarriesTheControlsToo() {
+        // nightjar#106: the modern on-screen controller offers them as well, so the pad arrives with them.
+        Connection connection = arrive(true, PreferenceConfiguration.OSC_STYLE_MODERN);
+        assertEquals(SteamControls.CAPABILITIES, connection.arrivalCaps & SteamControls.CAPABILITIES);
+        assertEquals(ControllerPacket.A_FLAG | ControllerPacket.B_FLAG | SteamControls.BUTTONS, connection.arrivalButtons);
+        Connection without = arrive(false, PreferenceConfiguration.OSC_STYLE_MODERN);
+        assertEquals(0, without.arrivalCaps & SteamControls.CAPABILITIES);
+    }
+
+    @Test
     public void withoutTheSettingThePadArrivesAsItIs() {
         Connection connection = arrive(false);
         assertEquals(0, connection.arrivalCaps & SteamControls.CAPABILITIES);
@@ -103,12 +113,17 @@ public class SteamControlsArrivalTest {
     }
 
     private static Connection arrive(boolean steamControls) {
+        return arrive(steamControls, null);
+    }
+
+    private static Connection arrive(boolean steamControls, String oscStyle) {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
             Connection connection = new Connection();
             PreferenceConfiguration preferences = new PreferenceConfiguration();
             preferences.multiController = true;
             preferences.onscreenController = true;
             preferences.oscSteamControls = steamControls;
+            if (oscStyle != null) preferences.oscStyle = oscStyle;
             ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, preferences);
             try {
                 handler.deviceAdded(new PlainPad());

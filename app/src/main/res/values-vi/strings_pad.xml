@@ -32,4 +32,8 @@
     <string name="pad_home">Home</string>
     <string name="pad_touchpad">Bàn cảm ứng</string>
     <string name="pad_wasd">Cần WASD</string>
+    <string name="pad_left_trackpad">Bàn di chuột trái</string>
+    <string name="pad_right_trackpad">Bàn di chuột phải</string>
+    <string name="pad_left_grip">Tay cầm trái</string>
+    <string name="pad_right_grip">Tay cầm phải</string>
 </resources>

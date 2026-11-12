@@ -254,7 +254,7 @@ Turn on **Settings → Controls → Show on-screen controls**, or use the stream
 
 **Show Touchpad button** (off by default) adds a button that clicks the touchpad of a PlayStation controller on the PC: below Home in Modern, between Guide and Start in Classic. While it is on, player 1 (the on-screen controller, or a handheld's built-in controls) connects as a PlayStation controller, unless **Connect as** chose another type.
 
-**Steam Controller controls** (off by default, Classic only) is for a PC whose controller type is the Steam Controller. It adds that controller's two trackpads, the back buttons L4, R4, L5 and R5, and grip touch to the on-screen controls. A finger on a trackpad touches that pad on the PC; a tap on a grip holds it until the next tap. The controls join player 1's controller as one Steam Controller, or form their own with **On-screen controls as their own player**.
+**Steam Controller controls** (off by default, Classic and Modern) is for a PC whose controller type is the Steam Controller. It adds that controller's two trackpads, the back buttons L4, R4, L5 and R5, and grip touch to the on-screen controls; in the Modern style they move, resize, fade and hide in the layout editor like every other control. A finger on a trackpad touches that pad on the PC; a tap on a grip holds it until the next tap. The controls join player 1's controller as one Steam Controller, or form their own with **On-screen controls as their own player**.
 
 **On-screen controls as their own player** (off by default) makes the on-screen controls controller 1 on the PC and counts physical controllers, built-in ones too, from 2, for example to give them their own Steam layout. It needs **Controllers** set to **A player each**.
 

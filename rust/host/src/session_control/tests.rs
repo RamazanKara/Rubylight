@@ -829,10 +829,20 @@ fn a_clean_shutdown_leaves_no_journal_to_recover() {
 
 #[test]
 fn a_journal_that_could_not_be_deleted_is_deleted_by_a_later_try() {
-    // A directory in the journal's place makes the delete fail.
+    use std::os::windows::fs::OpenOptionsExt;
+    // A stale journal another program holds open without sharing it cannot be
+    // deleted. (A directory in its place, swapped for a file, left a moment
+    // with nothing there: a try in that moment found nothing to delete and
+    // was done, and the stale file stayed.)
     let directory = Fixture::profile();
     let path = directory.join(JOURNAL);
-    std::fs::create_dir_all(path.join("blocker")).unwrap();
+    std::fs::create_dir_all(&directory).unwrap();
+    std::fs::write(&path, b"stale").unwrap();
+    let held = std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .open(&path)
+        .unwrap();
     let (sender, messages) = mpsc::channel();
     let writer = std::thread::spawn({
         let path = path.clone();
@@ -843,10 +853,9 @@ fn a_journal_that_could_not_be_deleted_is_deleted_by_a_later_try() {
     sender.send(Message::Flush(ack)).unwrap();
     done.recv_timeout(Duration::from_secs(5)).unwrap();
     assert!(path.exists(), "the delete failed");
-    // The obstacle goes away and a stale journal is there: the writer must
-    // not have assumed the delete had worked.
-    std::fs::remove_dir_all(&path).unwrap();
-    std::fs::write(&path, b"stale").unwrap();
+    // The other program lets go: the writer must not have assumed the delete
+    // had worked.
+    drop(held);
     let deadline = Instant::now() + Duration::from_secs(5);
     while path.exists() && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(10));

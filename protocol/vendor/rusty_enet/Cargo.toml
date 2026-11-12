@@ -9,6 +9,8 @@
 #   a datagram comes from the peer's address, as in moonlight-common-c's ENet fork (cf38f85,
 #   "Be more lenient with the expected peer address for multi-homed hosts"); the peer follows
 #   the source. A multi-homed host may answer from another address than the one connected to.
+# - src/peer.rs: `Peer::has_unsent_reliable` added (marked "Nightjar addition"), so the driver can
+#   keep input merging in its own queue while the reliable window is full (nightjar#97).
 # - src/lib.rs: `#![allow(warnings)]` added, the upstream lint output is not ours to fix.
 # - src/lib.rs: the `mod test` declaration is dropped together with src/test and src/test.rs, and
 #   the dev-dependencies (rand, rand_chacha) with them.

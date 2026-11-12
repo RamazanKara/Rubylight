@@ -785,12 +785,15 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
 
     private void claimListFocus() {
         if (!focusIsLoose() || pcList.requestFocus()) return;
-        // The list was hidden until now, so it has not been laid out and cannot take focus yet.
+        // The list cannot take focus yet; it tries again after its next layout. Not from inside that layout: the grid asks
+        // for a layout of its own to mark the selected PC, and a request made while its layout runs is lost.
         pcList.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
             @Override
             public void onLayoutChange(View v, int l, int t, int r, int b, int ol, int ot, int or, int ob) {
                 v.removeOnLayoutChangeListener(this);
-                if (!v.isInTouchMode() && focusIsLoose()) v.requestFocus();
+                v.post(() -> {
+                    if (!v.isInTouchMode() && focusIsLoose()) v.requestFocus();
+                });
             }
         });
     }
@@ -1047,6 +1050,7 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
             }
         }
 
+        boolean added = existingEntry == null;
         if (existingEntry != null) {
             // Replace the information in the existing entry
             existingEntry.details = details;
@@ -1055,9 +1059,6 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
             // Add a new entry
             existingEntry = new ComputerObject(details);
             pcGridAdapter.addComputer(existingEntry);
-
-            // Remove the "Discovery in progress" view
-            updateEmptyState();
         }
         if (details.state == ComputerDetails.State.ONLINE) {
             existingEntry.wakeSentAt = 0;
@@ -1073,6 +1074,12 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
         // again by a later bind, so the grid keeps refreshing while one is missing.
         if (existingEntry.changedSinceDrawn() || pcGridAdapter.awaitsCover()) {
             pcGridAdapter.notifyDataSetChanged();
+        }
+        if (added) {
+            // Remove the "Discovery in progress" view only now that the grid has been told of the new PC (a new PC is always
+            // news): a grid given an empty adapter takes no focus until the adapter reports a change, and the first PC's
+            // tile shows its ring only if the grid holds focus when it is laid out.
+            updateEmptyState();
         }
     }
 

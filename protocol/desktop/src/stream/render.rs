@@ -81,6 +81,17 @@ impl StreamSizes {
     }
 }
 
+/// A shown frame's two shares in microseconds: Nightjar's own work on the render thread, from the
+/// first look at the picture (`begin_us`) to the present call (upload or mapping, the draws, the
+/// overlay, a wait for the scan), and the present call itself, where the thread waits on what is
+/// not its own code: SDL's run of the queued draws, the driver, the refresh with V-Sync, the
+/// compositor (gamescope's Vulkan layer takes about 1.15 ms a present on an Iris Plus 655,
+/// rust/PERFORMANCE.md, November 12), and a GPU that is behind, whoever loaded it. The overlay's
+/// Render counts the first only; the second has its own line, Present wait.
+pub(super) fn frame_shares(begin_us: u64, issued_us: u64, returned_us: u64) -> (u64, u64) {
+    (issued_us.saturating_sub(begin_us), returned_us.saturating_sub(issued_us))
+}
+
 /// A present of the texture: when the call was issued and returned (us), and the beam around it.
 struct Flipped {
     issued_us: u64,
@@ -435,7 +446,7 @@ impl Streaming {
     }
 
     /// Clears the window's target for a frame, black. On a PQ output, a frame that will draw only
-    /// the picture with the plane pass (`unscaled`, nothing of the overlay's) asks the patched SDL
+    /// the picture with the plane pass (`unscaled`) and what of the overlay's writes PQ too asks the patched SDL
     /// for a video-only frame (`present::VideoOnly`): SDL settles it on the frame's first run of
     /// commands on the window's target, which the flush of the clear is (a clear takes no swapchain
     /// image, so V-Sync's wait stays at the frame's first draw). The property is true only around
@@ -447,12 +458,16 @@ impl Streaming {
     #[cfg(target_os = "linux")]
     unsafe fn clear_window(&mut self, renderer: *mut SDL_Renderer, unscaled: bool) {
         let props = SDL_GetRendererProperties(renderer);
+        let pq_output = crate::sdl::output_decision() == Some(Ok(crate::handheld::Output::Pq));
+        let planes_direct = unscaled && self.texture.draws_planes_direct();
+        // What `draw_overlay` in main.rs draws: nothing, or egui meshes, which write PQ themselves
+        // (`ui_pq`) where a frame could be video only but for them.
+        let meshes = self.overlay_visible || self.toast.is_some() || self.menu_visible;
         let frame = present::VideoOnlyFrame {
-            pq_output: crate::sdl::output_decision() == Some(Ok(crate::handheld::Output::Pq)),
-            planes_direct: unscaled && self.texture.draws_planes_direct(),
-            // What `draw_overlay` in main.rs draws nothing for.
-            nothing_else: !self.overlay_visible && self.toast.is_none() && !self.menu_visible
-                && self.facts.role != nightjar_core::http::AppRole::InputOnly,
+            pq_output,
+            planes_direct,
+            nothing_else: self.facts.role != nightjar_core::http::AppRole::InputOnly
+                && (!meshes || (pq_output && planes_direct && self.texture.ui_draws_pq(renderer))),
             read_back: SDL_GetBooleanProperty(props, READ_BACK_PROPERTY.as_ptr(), false),
         };
         let (asked, line) = self.texture.video_only().wanted(frame, session::now_us());
@@ -479,6 +494,19 @@ impl Streaming {
     unsafe fn clear_window(&mut self, renderer: *mut SDL_Renderer, _unscaled: bool) {
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderClear(renderer);
+    }
+
+    /// The render state `draw_overlay` in main.rs hands egui's painter for this frame: null unless
+    /// the frame is video only on a PQ output, where SDL would drop its own draws (`ui_pq`).
+    #[cfg(target_os = "linux")]
+    pub fn ui_state(&mut self, renderer: *mut SDL_Renderer) -> *mut SDL_GPURenderState {
+        // SAFETY: the live renderer of the presenting thread.
+        unsafe { self.texture.ui_pq_state(renderer) }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    pub fn ui_state(&mut self, _renderer: *mut SDL_Renderer) -> *mut SDL_GPURenderState {
+        std::ptr::null_mut()
     }
 
     /// After a present: a video-only frame in which SDL dropped draws of its own holds video-only
@@ -744,7 +772,9 @@ impl Streaming {
             let timeline = self.finish_frame(&p.decoded, raced, flipped.issued_us, flipped.returned_us);
             let w = &mut self.window;
             w.shown += 1;
-            w.render_us += presented - begin;
+            let (drawing, present_call) = frame_shares(begin, flipped.issued_us, flipped.returned_us);
+            w.render_us += drawing;
+            w.present_us += present_call;
             w.hold_us += p.hold_us;
             w.late += u32::from(p.late);
             w.network_us += p.decoded.enqueue_us.saturating_sub(p.decoded.receive_us);
@@ -821,6 +851,16 @@ impl Streaming {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The overlay's Render ends where the present call begins: a V-Sync wait or a compositor's
+    /// layer inside the call is the system's share, not Nightjar's drawing.
+    #[test]
+    fn a_frames_drawing_ends_at_the_present_call() {
+        assert_eq!(super::frame_shares(1_000, 1_600, 9_900), (600, 8_300));
+        assert_eq!(super::frame_shares(1_000, 1_000, 1_000), (0, 0));
+        // Clocks that step back count nothing rather than wrap.
+        assert_eq!(super::frame_shares(2_000, 1_500, 1_400), (0, 0));
+    }
 
     /// `pump`'s crop over a stream: pictures of `coded` size arriving at `t0 + ms`, with `asked`
     /// pending since `asked_ms` until a picture confirms it, as `pump` clears it. Returns each

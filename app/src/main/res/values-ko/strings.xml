@@ -204,6 +204,8 @@
     <string name="title_show_guide_button">Guide 버튼 표시</string>
     <string name="title_show_touchpad_button">터치패드 버튼 표시</string>
     <string name="summary_show_touchpad_button">화면 컨트롤에 PlayStation 터치패드 버튼을 추가합니다.</string>
+    <string name="title_osc_steam_controls">Steam Controller 조작</string>
+    <string name="summary_osc_steam_controls">화면 컨트롤에 양쪽 트랙패드, 뒷면 버튼 L4, R4, L5, R5와 그립 터치를 추가합니다. PC의 컨트롤러 종류가 Steam Controller일 때 사용합니다.</string>
     <string name="title_reset_osc">컨트롤 레이아웃 초기화</string>
     <string name="dialog_title_reset_osc">레이아웃 초기화</string>
     <string name="dialog_text_reset_osc">모든 화면 버튼을 기본 크기와 위치로 되돌릴까요?</string>

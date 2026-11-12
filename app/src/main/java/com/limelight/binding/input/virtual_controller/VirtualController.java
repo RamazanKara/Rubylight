@@ -38,6 +38,11 @@ public class VirtualController {
         public short leftStickY = 0x0000;
     }
 
+    /** Where the on-screen trackpads' touches go: the controller handler, or a test. */
+    interface TouchSink {
+        void sendTouch(byte eventType, int pointerId, float x, float y, float pressure);
+    }
+
     public enum ControllerMode {
         Active,
         MoveButtons,
@@ -49,6 +54,7 @@ public class VirtualController {
     private final ControllerHandler controllerHandler;
     private final Context context;
     private final Handler handler;
+    private TouchSink touchSink;
 
     private final Runnable delayedRetransmitRunnable = new Runnable() {
         @Override
@@ -78,6 +84,7 @@ public class VirtualController {
         this.frame_layout = layout;
         this.context = context;
         this.handler = new Handler(Looper.getMainLooper());
+        if (controllerHandler != null) this.touchSink = controllerHandler::reportOscTouch;
 
         buttonConfigure = new Button(context);
         buttonConfigure.setAlpha(0.25f);
@@ -315,6 +322,15 @@ public class VirtualController {
                     inputContext.rightTrigger
             );
         }
+    }
+
+    void setTouchSink(TouchSink touchSink) {
+        this.touchSink = touchSink;
+    }
+
+    /** A touch on one of the on-screen trackpads, for touchpad 0 of the controls' pad. */
+    void sendControllerTouch(byte eventType, int pointerId, float x, float y, float pressure) {
+        if (touchSink != null) touchSink.sendTouch(eventType, pointerId, x, y, pressure);
     }
 
     void sendControllerInputContext() {

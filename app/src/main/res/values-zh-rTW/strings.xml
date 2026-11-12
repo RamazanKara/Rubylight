@@ -204,6 +204,8 @@
     <string name="title_show_guide_button">顯示 Guide 按鈕</string>
     <string name="title_show_touchpad_button">顯示觸控板按鈕</string>
     <string name="summary_show_touchpad_button">在螢幕控制按鈕中加入 PlayStation 觸控板按鈕。</string>
+    <string name="title_osc_steam_controls">Steam Controller 控制項</string>
+    <string name="summary_osc_steam_controls">為螢幕控制項加入兩個觸控板、背鍵 L4、R4、L5、R5 以及握把觸碰，適用於控制器類型為 Steam Controller 的電腦。</string>
     <string name="title_reset_osc">重設控制按鈕版面配置</string>
     <string name="dialog_title_reset_osc">重設版面配置</string>
     <string name="dialog_text_reset_osc">要將所有螢幕按鈕恢復為預設大小和位置嗎？</string>

@@ -38,6 +38,15 @@ public abstract class VirtualControllerElement extends View {
     public static final int EID_RSB = 15;
     public static final int EID_GDB = 16;
     public static final int EID_TOUCHPAD = 17;
+    // The Steam Controller controls.
+    public static final int EID_L4 = 18;
+    public static final int EID_R4 = 19;
+    public static final int EID_L5 = 20;
+    public static final int EID_R5 = 21;
+    public static final int EID_LEFT_TRACKPAD = 22;
+    public static final int EID_RIGHT_TRACKPAD = 23;
+    public static final int EID_LEFT_GRIP = 24;
+    public static final int EID_RIGHT_GRIP = 25;
 
     protected VirtualController virtualController;
     protected final int elementId;

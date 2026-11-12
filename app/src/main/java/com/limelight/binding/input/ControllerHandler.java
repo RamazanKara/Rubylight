@@ -46,6 +46,7 @@ import com.limelight.binding.input.driver.UsbDriverService;
 import com.limelight.binding.input.keyboard.KeyboardFocus;
 import com.limelight.binding.input.keyboard.PcKeyboardController;
 import com.limelight.nvstream.NvConnection;
+import com.limelight.binding.input.virtual_controller.SteamControls;
 import com.limelight.nvstream.input.ControllerPacket;
 import com.limelight.nvstream.input.MouseButtonPacket;
 import com.limelight.nvstream.jni.MoonBridge;
@@ -185,6 +186,12 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
      * above: the stream menu's on and off must not renumber pads mid-game.
      */
     private final boolean onscreenOwnPlayerSession;
+    /**
+     * Whether the on-screen controls have the Steam Controller controls this session, fixed at
+     * launch like {@link #touchpadButtonSession}: their pad arrives with a touchpad, grip and stick
+     * touch, and the back buttons.
+     */
+    private final boolean steamControlsSession;
     /** The slot whose pad may use this device's motors and sensors: the first one a pad can have. */
     private final short deviceFallbackSlot;
     /**
@@ -204,6 +211,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         this.prefConfig = prefConfig;
         this.touchpadButtonSession = prefConfig.showTouchpadButton && !prefConfig.onlyL3R3;
         this.onscreenOwnPlayerSession = onscreenOwnsPlayerOne(prefConfig);
+        this.steamControlsSession = prefConfig.oscSteamControls && !prefConfig.modernOnscreenController();
         this.deviceFallbackSlot = (short) (onscreenOwnPlayerSession ? 1 : 0);
         this.rumbleAllowed = RumblePolicy.allows(prefConfig.disableRumble);
 		
@@ -1735,7 +1743,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
      */
     private boolean announcesOnscreenPad() {
         if (onscreenOwnPlayerSession) return true;
-        if (!showsTouchpadButton()) return false;
+        if (!showsTouchpadButton() && !steamControlsSession) return false;
         for (InputDeviceContext context : inputDeviceContexts.values()) {
             if (context.assignedControllerNumber && context.controllerNumber == 0) return false;
         }
@@ -1747,7 +1755,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
     private void sendOnscreenPadArrival() {
         conn.sendControllerArrivalEvent((byte) 0, getActiveControllerMask(), onscreenPadType(),
-                onscreenPadButtons(), (short) 0);
+                onscreenPadButtons(), onscreenPadCapabilities(steamControlsSession));
     }
 
     // Its own player without the Touchpad button: the host's default pad, announced for its number.
@@ -1756,7 +1764,40 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     }
 
     private int onscreenPadButtons() {
-        return showsTouchpadButton() ? ONSCREEN_PAD_BUTTONS : ONSCREEN_PAD_BUTTONS & ~ControllerPacket.TOUCHPAD_FLAG;
+        return onscreenPadButtons(showsTouchpadButton(), steamControlsSession);
+    }
+
+    /** The on-screen controller's buttons for its arrival: the Touchpad button and the back buttons with their settings. */
+    static int onscreenPadButtons(boolean touchpadButton, boolean steamControls) {
+        int buttons = touchpadButton ? ONSCREEN_PAD_BUTTONS : ONSCREEN_PAD_BUTTONS & ~ControllerPacket.TOUCHPAD_FLAG;
+        return steamControls ? buttons | SteamControls.BUTTONS : buttons;
+    }
+
+    /** The on-screen controller's capabilities for its arrival: none but the Steam Controller controls'. */
+    static short onscreenPadCapabilities(boolean steamControls) {
+        return steamControls ? SteamControls.CAPABILITIES : 0;
+    }
+
+    /**
+     * Whether a pad in this slot carries the on-screen Steam Controller controls in its arrival:
+     * player 1's, when the on-screen controls share it rather than being their own player.
+     */
+    static boolean carriesSteamControls(boolean steamControls, boolean onscreenOwnPlayer, short controllerNumber) {
+        return steamControls && !onscreenOwnPlayer && controllerNumber == 0;
+    }
+
+    private boolean carriesSteamControls(short controllerNumber) {
+        return carriesSteamControls(steamControlsSession, onscreenOwnPlayerSession, controllerNumber);
+    }
+
+    /** A pad's arrival capabilities with the on-screen Steam Controller controls it carries; a pin to Xbox still drops the touchpad. */
+    private short withSteamControls(short controllerNumber, short capabilities, ControllerButtonMap map) {
+        if (!carriesSteamControls(controllerNumber)) return capabilities;
+        return arrivalCapabilities((short) (capabilities | SteamControls.CAPABILITIES), map);
+    }
+
+    private int withSteamControlButtons(short controllerNumber, int buttons) {
+        return carriesSteamControls(controllerNumber) ? buttons | SteamControls.BUTTONS : buttons;
     }
 
     private synchronized short getActiveControllerMask() {
@@ -3150,11 +3191,13 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 short caps = context.capabilities();
                 if (!prefConfig.gamepadMotionSensors) caps &= ~(MoonBridge.LI_CCAP_ACCEL | MoonBridge.LI_CCAP_GYRO);
                 controllers[context.controllerNumber] = launchController(context.controllerNumber,
-                        context.arrivalType(), caps,
-                        context.device.getSupportedButtonFlags() | context.buttonMap.targetButtonFlags());
+                        context.arrivalType(), withSteamControls(context.controllerNumber, caps, context.buttonMap),
+                        withSteamControlButtons(context.controllerNumber,
+                                context.device.getSupportedButtonFlags() | context.buttonMap.targetButtonFlags()));
             }
             if (controllers[0] == null && announcesOnscreenPad()) {
-                controllers[0] = launchController((short) 0, onscreenPadType(), (short) 0, onscreenPadButtons());
+                controllers[0] = launchController((short) 0, onscreenPadType(),
+                        onscreenPadCapabilities(steamControlsSession), onscreenPadButtons());
             }
             StringBuilder result = new StringBuilder();
             for (String controller : controllers) {
@@ -4259,6 +4302,17 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     }
 
     /**
+     * A finger on one of the on-screen Steam Controller trackpads: touchpad 0 of the on-screen
+     * controls' pad, which a PC with the Steam Controller type splits into its two pads.
+     */
+    public void reportOscTouch(byte eventType, int pointerId, float x, float y, float pressure) {
+        if (stopped || !prefConfig.sendControllers) {
+            return;
+        }
+        conn.sendControllerTouchEvent((byte) defaultContext.controllerNumber, eventType, pointerId, x, y, pressure);
+    }
+
+    /**
      * The gamepad controls of the per-game touch layout. They join controller 1 the way the fixed
      * on-screen gamepad does, fused with it and with any pad sharing the slot.
      */
@@ -5074,6 +5128,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             }
 
             capabilities = arrivalCapabilities(capabilities, buttonMap);
+            // The on-screen Steam Controller controls sharing this pad's slot.
+            capabilities = withSteamControls((short) controllerNumber, capabilities, buttonMap);
+            supportedButtonFlags = withSteamControlButtons((short) controllerNumber, supportedButtonFlags);
             reportedCapabilities = capabilities;
             // A built-in device sharing player 1 with an external pad stays quiet, so the host
             // keeps the external pad's type, touchpad and motion.
@@ -5317,7 +5374,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             byte type = arrivalType();
             if (!prefConfig.sendControllers) return;
             int result = conn.sendControllerArrivalEvent((byte)controllerNumber, getActiveControllerMask(),
-                    type, device.getSupportedButtonFlags() | buttonMap.targetButtonFlags(), capabilities);
+                    type, withSteamControlButtons((short) controllerNumber,
+                            device.getSupportedButtonFlags() | buttonMap.targetButtonFlags()),
+                    withSteamControls((short) controllerNumber, capabilities, buttonMap));
             if (result != 0) {
                 if (!arrivalPending) {
                     LimeLog.warning("USB controller announcement deferred: slot=" + controllerNumber + ", rc=" + result);

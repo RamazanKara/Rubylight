@@ -233,6 +233,8 @@
     <string name="title_show_guide_button">Show Guide button</string>
     <string name="title_show_touchpad_button">Show Touchpad button</string>
     <string name="summary_show_touchpad_button">Adds a PlayStation touchpad button to the on-screen controls.</string>
+    <string name="title_osc_steam_controls">Steam Controller controls</string>
+    <string name="summary_osc_steam_controls">Adds both trackpads, the back buttons L4, R4, L5 and R5, and grip touch to the on-screen controls, for a PC whose controller type is the Steam Controller.</string>
     <string name="title_reset_osc">Reset controls layout</string>
     <string name="dialog_title_reset_osc">Reset layout</string>
     <string name="dialog_text_reset_osc">Put every on-screen button back to its default size and position?</string>

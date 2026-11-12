@@ -384,6 +384,13 @@ pub struct Decoder {
     /// A packed full chroma stream's VAAPI pictures are mapped into Vulkan: a failed import in
     /// `receive` drops the map, and the doctor learns the pictures go through memory from then.
     packed_mapped: bool,
+    /// The stream's VAAPI pictures are mapped into the GPU renderer's Vulkan images: a failed
+    /// import in `receive` drops the map, and Vulkan video takes the stream over where it can
+    /// (`vulkan_for_unmapped`).
+    vaapi_mapped: bool,
+    /// The stream format Vulkan video decodes in place of a VAAPI decoder whose pictures could
+    /// not be mapped: should FFmpeg take it to software, VAAPI through memory is next, not software.
+    stands_in: Option<u32>,
     /// The backends FFmpeg took to software for a stream format (`VideoSetup::format`), left
     /// out when the decoder is opened again for it.
     refused: Vec<(Hardware, u32)>,
@@ -556,6 +563,13 @@ fn recovers_with_rfi(backend: Option<Hardware>) -> bool {
     backend.is_none_or(super::connect::takes_rfi)
 }
 
+/// FFmpeg took to software the Vulkan video decoder (`refused`) that stood in for a VAAPI decoder
+/// whose pictures could not be mapped (`stands_in`, the stream format it did so for): VAAPI
+/// decodes that stream, through memory.
+pub(super) fn stood_in_for_vaapi(refused: Hardware, stands_in: Option<u32>, format: u32) -> bool {
+    matches!(refused, Hardware::Vulkan(_)) && stands_in == Some(format)
+}
+
 /// The backends of `order` after `refused`, which FFmpeg took to software: none when it is not
 /// in the order.
 pub(super) fn backends_after(order: Vec<Hardware>, refused: Hardware) -> Vec<Hardware> {
@@ -563,6 +577,40 @@ pub(super) fn backends_after(order: Vec<Hardware>, refused: Hardware) -> Vec<Har
         Some(at) => order[at + 1..].to_vec(),
         None => Vec::new(),
     }
+}
+
+/// A stream's decoder, for whether Vulkan video takes it over ([`vulkan_for_unmapped`]).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Unmapped {
+    /// The stream's decoder is VAAPI's.
+    pub vaapi: bool,
+    /// Its pictures reach the presenter without crossing memory (mapped, or as DMA-BUFs).
+    pub zero_copy: bool,
+    /// Packed full chroma, which Vulkan video leaves to the next decoder.
+    pub packed: bool,
+    /// `NIGHTJAR_VAAPI_VULKAN_MAP` is not 0.
+    pub map_switched_on: bool,
+    /// `NIGHTJAR_UNMAPPED_VULKAN_VIDEO`, where it is set.
+    pub switch: Option<bool>,
+}
+
+/// The Vulkan video backend to open in place of a VAAPI decoder whose pictures would be read back
+/// and uploaded, one by one (nightjar#80: 2.5 GB/s at 4K100 10-bit; on an Iris Plus 655 a 4K
+/// 10-bit picture took 40 ms to decode and map and 9.6 ms to draw that way, against 1.3 ms and
+/// 2.4 ms with Vulkan video, rust/PERFORMANCE.md, November 12):
+/// the GPU renderer's, where the stream's `order` has it after VAAPI (so not where it was tried
+/// first, nor without the GPU renderer, whose device is null) and FFmpeg did not take it to
+/// software for this stream before (`refused`). Vulkan video decodes into images of the renderer's
+/// device, so nothing is copied; it asks for a key frame where VAAPI invalidates reference frames,
+/// unless "Vulkan video recovery" is on. `NIGHTJAR_VAAPI_VULKAN_MAP=0` alone asks for memory.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(super) fn vulkan_for_unmapped(now: Unmapped, order: Vec<Hardware>, refused: impl Fn(Hardware) -> bool) -> Option<Hardware> {
+    let asked_for_memory = now.switch == Some(false) || (!now.map_switched_on && now.switch != Some(true));
+    if !now.vaapi || now.zero_copy || now.packed || asked_for_memory {
+        return None;
+    }
+    backends_after(order, Hardware::Vaapi).into_iter().find(|&backend| matches!(backend, Hardware::Vulkan(gpu) if !gpu.is_null()) && !refused(backend))
 }
 
 /// How long frames may fail with no picture between before the decoder is taken for broken.
@@ -657,6 +705,8 @@ impl Decoder {
             in_flight: VecDeque::new(),
             pictured: false,
             packed_mapped: false,
+            vaapi_mapped: false,
+            stands_in: None,
             refused: Vec::new(),
         }
     }
@@ -1015,14 +1065,56 @@ impl Decoder {
         }
     }
 
+    /// Vulkan video opened for a stream whose VAAPI pictures cannot be mapped into the GPU
+    /// renderer's Vulkan images (`vulkan_for_unmapped`), or None: VAAPI keeps the stream then, its
+    /// pictures through memory. `zero_copy`: they reach the presenter without crossing memory.
+    #[cfg(target_os = "linux")]
+    fn vulkan_instead(&mut self, vaapi: bool, zero_copy: bool, setup: &VideoSetup) -> Option<media::VideoDecoder> {
+        // The order is asked for only where it can matter: it reads the VA driver's name again.
+        if !vaapi || zero_copy || !matches!(self.hardware, Hardware::Auto(gpu, _) if !gpu.is_null()) {
+            return None;
+        }
+        let now = Unmapped {
+            vaapi,
+            zero_copy,
+            packed: setup.chroma_packing != 0,
+            map_switched_on: crate::vulkan_video::map_switched_on(std::env::var_os(crate::vulkan_video::MAP_ENVIRONMENT).as_deref()),
+            switch: super::env_flag(crate::vulkan_video::UNMAPPED_ENVIRONMENT),
+        };
+        let vulkan = vulkan_for_unmapped(now, self.hardware.order(), |backend| self.refused.contains(&(backend, setup.format)))?;
+        match media::VideoDecoder::open_any(codec_of(setup), self.pictures(setup), vec![vulkan], false, log_unavailable) {
+            Ok(decoder) => {
+                eprintln!("nightjar: VAAPI pictures cannot be mapped into the renderer's Vulkan images: Vulkan video decodes the stream on the renderer's device instead, so no picture is copied through memory");
+                self.stands_in = Some(setup.format);
+                Some(decoder)
+            }
+            Err(_) => {
+                eprintln!("nightjar: Vulkan video does not decode this stream either: VAAPI keeps it, each picture copied through memory");
+                None
+            }
+        }
+    }
+
+    /// Only Linux maps VAAPI pictures and decodes with Vulkan video.
+    #[cfg(not(target_os = "linux"))]
+    fn vulkan_instead(&mut self, _vaapi: bool, _zero_copy: bool, _setup: &VideoSetup) -> Option<media::VideoDecoder> {
+        None
+    }
+
     /// Makes `decoder` the stream's FFmpeg decoder.
     fn install(&mut self, mut decoder: media::VideoDecoder, setup: &VideoSetup) {
-        let mapped = if exports_dmabuf(self.dmabuf, setup) && decoder.export_dmabuf() {
+        let exported = exports_dmabuf(self.dmabuf, setup) && decoder.export_dmabuf();
+        let mut mapped = if exported {
             eprintln!("nightjar: VAAPI pictures go to the renderer as DMA-BUFs");
             false
         } else {
             map_to_vulkan(self.hardware, &mut decoder)
         };
+        if let Some(vulkan) = self.vulkan_instead(decoder.hardware == Hardware::Vaapi, exported || mapped, setup) {
+            decoder = vulkan;
+            mapped = false;
+        }
+        self.vaapi_mapped = mapped && decoder.hardware == Hardware::Vaapi;
         say_cuda_fallback(&self.shared, &mut decoder);
         // The overlay's decoder name, in the log for runs nobody watches.
         eprintln!("nightjar: video decoder {}", decoder.name);
@@ -1050,7 +1142,12 @@ impl Decoder {
         let setup = self.setup.expect("decoder setup precedes frames");
         self.refused.push((refused, setup.format));
         let codec = codec_of(&setup);
-        let rest: Vec<_> = backends_after(self.hardware.order(), refused).into_iter().filter(|&backend| !self.refused.contains(&(backend, setup.format))).collect();
+        let mut rest: Vec<_> = backends_after(self.hardware.order(), refused).into_iter().filter(|&backend| !self.refused.contains(&(backend, setup.format))).collect();
+        // Vulkan video stood in for VAAPI, whose pictures could not be mapped: VAAPI decodes the
+        // stream, through memory, before the decoders after both and before software.
+        if stood_in_for_vaapi(refused, self.stands_in.take(), setup.format) && !self.refused.contains(&(Hardware::Vaapi, setup.format)) {
+            rest.insert(0, Hardware::Vaapi);
+        }
         let hardware = if rest.is_empty() {
             Err("no other hardware decoder".to_owned())
         } else {
@@ -1201,10 +1298,21 @@ impl Decoder {
         // FFmpeg took a hardware decoder to software: said, and the next decoder opened, which
         // starts from a key frame.
         let backend = decoder.hardware;
+        let unmapped = self.vaapi_mapped && !decoder.vulkan_mapped();
         if let Some(name) = decoder.renamed().map(str::to_owned) {
             *lock(&self.shared.decoder_name) = name;
             self.replace_refused(backend);
             return DecodeStatus::NeedIdr;
+        }
+        // A picture's import failed and the map is gone: Vulkan video takes the stream over where
+        // it can, from a key frame, before every picture goes through memory.
+        if unmapped {
+            self.vaapi_mapped = false;
+            if let Some(vulkan) = self.vulkan_instead(true, false, &setup) {
+                self.decoder = None;
+                self.install(vulkan, &setup);
+                return DecodeStatus::NeedIdr;
+            }
         }
         status
     }
@@ -2174,6 +2282,44 @@ mod tests {
         assert!(backends_after(order.clone(), Hardware::Cuda).is_empty());
         assert!(backends_after(vec![Hardware::D3d11(gpu)], Hardware::D3d11(gpu)).is_empty(), "D3D11VA goes to software");
         assert!(backends_after(order, Hardware::None).is_empty());
+    }
+
+    /// A VAAPI stream on the GPU renderer whose pictures cannot be mapped into its Vulkan images
+    /// goes to Vulkan video on its device, not through memory picture by picture.
+    #[test]
+    fn unmapped_vaapi_pictures_go_to_vulkan_video_where_the_order_has_it_next() {
+        let gpu = std::ptr::dangling_mut::<c_void>();
+        let order = || vec![Hardware::Vaapi, Hardware::Vulkan(gpu), Hardware::V4l2m2m, Hardware::Cuda];
+        let unmapped = Unmapped { vaapi: true, zero_copy: false, packed: false, map_switched_on: true, switch: None };
+        let never = |_| false;
+        assert_eq!(vulkan_for_unmapped(unmapped, order(), never), Some(Hardware::Vulkan(gpu)));
+        assert_eq!(vulkan_for_unmapped(Unmapped { zero_copy: true, ..unmapped }, order(), never), None, "mapped, or DMA-BUFs: nothing to save");
+        assert_eq!(vulkan_for_unmapped(Unmapped { vaapi: false, ..unmapped }, order(), never), None, "another decoder's pictures");
+        assert_eq!(vulkan_for_unmapped(Unmapped { packed: true, ..unmapped }, order(), never), None, "Vulkan video leaves packed full chroma");
+        // FFmpeg took Vulkan video to software for this stream before: VAAPI keeps it.
+        assert_eq!(vulkan_for_unmapped(unmapped, order(), |backend| backend == Hardware::Vulkan(gpu)), None);
+        // Vulkan video first: it did not open, or was refused, before VAAPI was tried.
+        assert_eq!(vulkan_for_unmapped(unmapped, vec![Hardware::Vulkan(gpu), Hardware::Vaapi, Hardware::V4l2m2m, Hardware::Cuda], never), None);
+        // Another renderer has no device for it, and NIGHTJAR_VULKAN_VIDEO=0 leaves it out.
+        let null = std::ptr::null_mut();
+        assert_eq!(vulkan_for_unmapped(unmapped, vec![Hardware::Vaapi, Hardware::Vulkan(null), Hardware::V4l2m2m, Hardware::Cuda], never), None);
+        assert_eq!(vulkan_for_unmapped(unmapped, vec![Hardware::Vaapi, Hardware::V4l2m2m, Hardware::Cuda], never), None);
+        // The switches: 0 keeps memory; the map's own 0 asks for memory unless this one says 1.
+        assert_eq!(vulkan_for_unmapped(Unmapped { switch: Some(false), ..unmapped }, order(), never), None);
+        let map_off = Unmapped { map_switched_on: false, ..unmapped };
+        assert_eq!(vulkan_for_unmapped(map_off, order(), never), None, "NIGHTJAR_VAAPI_VULKAN_MAP=0 alone is the through-memory A/B");
+        assert_eq!(vulkan_for_unmapped(Unmapped { switch: Some(true), ..map_off }, order(), never), Some(Hardware::Vulkan(gpu)));
+    }
+
+    /// Vulkan video that stood in for unmappable VAAPI and that FFmpeg then took to software
+    /// hands the stream back to VAAPI, for the format it stood in for only.
+    #[test]
+    fn vulkan_video_refused_after_standing_in_hands_the_stream_back_to_vaapi() {
+        let gpu = std::ptr::dangling_mut::<c_void>();
+        assert!(stood_in_for_vaapi(Hardware::Vulkan(gpu), Some(7), 7));
+        assert!(!stood_in_for_vaapi(Hardware::Vulkan(gpu), None, 7), "Vulkan video in its own turn of the order");
+        assert!(!stood_in_for_vaapi(Hardware::Vulkan(gpu), Some(3), 7), "another format's stand-in");
+        assert!(!stood_in_for_vaapi(Hardware::Cuda, Some(7), 7));
     }
 
     /// A frame after which FFmpeg turns out to have taken the decoder to software renames it, says

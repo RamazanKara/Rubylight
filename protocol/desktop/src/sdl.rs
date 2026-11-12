@@ -970,7 +970,8 @@ pub fn window_hdr_levels(window: SDL_WindowID) -> String {
 /// Linux's GPU renderer `renderer`, made from `props` with linear output: the HDR output for its
 /// window (`handheld::plan`) or null for SDR. scRGB keeps it, on a desktop with [`hdr_available`]
 /// following the window's state once the compositor reports it (made again under gamescope, after
-/// the window's HDR state is set); PQ (for an HDR stream's renderer, [`set_hdr_stream`]) makes it
+/// the window's HDR state is set); PQ (for an HDR stream's renderer, [`set_hdr_stream`], under
+/// gamescope too unless `handheld::keeps_scrgb_first`) makes it
 /// again with the PQ present, and once more as scRGB when that fails where scRGB is offered
 /// (`handheld::fallback`), which then stays for the run ([`pq_failed`]). Logs the renderer, the
 /// colour spaces offered and the decision, which [`output_decision`] keeps.
@@ -990,9 +991,12 @@ unsafe fn hdr_output(window: *mut SDL_Window, props: SDL_PropertiesID, renderer:
     let display_hdr = any_display_hdr();
     let hdr_asked = HDR_ASKED.load(std::sync::atomic::Ordering::Relaxed);
     let hdr_stream = HDR_STREAM.load(std::sync::atomic::Ordering::Relaxed);
-    // PQ that failed once this run is not tried again: its fallback serves HDR streams.
-    let pq_failed_before = hdr_stream && !gamescope && offered.hdr10 && pq_failed();
-    let plan = handheld::plan(gamescope, window_hdr, display_hdr, hdr_asked, hdr_stream && !pq_failed_before, offered);
+    // Gamescope kept at scRGB (`NIGHTJAR_GAMESCOPE_PQ=0`) plans as for no HDR stream.
+    let scrgb_first = handheld::keeps_scrgb_first();
+    // PQ that failed once this run is not tried again: its fallback serves HDR streams. Gamescope
+    // offering HDR10 alone has no other, and tries it each time as before.
+    let pq_failed_before = hdr_stream && !scrgb_first && offered.hdr10 && (!gamescope || offered.scrgb) && pq_failed();
+    let plan = handheld::plan(gamescope, window_hdr, display_hdr, hdr_asked, hdr_stream && !scrgb_first && !pq_failed_before, offered);
     let mut decision = plan.decision;
     // The stream asked for HDR and PQ failed before: say that, not that PQ is for HDR streams only.
     if pq_failed_before && decision == Err(handheld::SdrReason::PqWithoutHdrStream) {

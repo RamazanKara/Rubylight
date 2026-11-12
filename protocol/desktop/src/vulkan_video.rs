@@ -91,6 +91,13 @@ impl Choice {
 /// otherwise they are mapped into Vulkan images on the renderer's device (`VaapiMap`).
 pub const MAP_ENVIRONMENT: &str = "NIGHTJAR_VAAPI_VULKAN_MAP";
 
+/// Where a VAAPI stream goes whose pictures cannot be mapped into the GPU renderer's Vulkan images
+/// (`VaapiMap` refused at its start, or an import failed on a picture): unset, to Vulkan video on
+/// the renderer's device where it decodes the stream, instead of each picture being read back and
+/// uploaded; 0 keeps them going through memory as before (A/B runs); 1 also takes
+/// `MAP_ENVIRONMENT=0` for a refusal (test runs: that switch alone asks for memory).
+pub const UNMAPPED_ENVIRONMENT: &str = "NIGHTJAR_UNMAPPED_VULKAN_VIDEO";
+
 /// What `MAP_ENVIRONMENT` asks for: the mapping, unless 0.
 pub fn map_switched_on(value: Option<&std::ffi::OsStr>) -> bool {
     value.and_then(|value| value.to_str()) != Some("0")

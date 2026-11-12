@@ -4,6 +4,8 @@
     <string name="summary_usb_forwarding">Bu cihaza takılan USB aygıtları yayın menüsünden bilgisayara bağlanabilir.</string>
     <string name="stream_usb_devices">USB aygıtları</string>
     <string name="usb_forwarding_pick_title">Bir USB aygıtını yönlendir</string>
+    <string name="usb_forwarding_auto_button">Otomatik</string>
+    <string name="usb_forwarding_auto_title">Her takıldığında aktar</string>
     <string name="usb_forwarding_none">Yönlendirilecek USB aygıtı yok. Hub’lar ve bu uygulamanın kendisinin sürdüğü kumandalar listelenmez.</string>
     <string name="usb_forwarding_detach">%1$s bağlantısını kes</string>
     <string name="usb_forwarding_asking">Bilgisayardan %1$s aygıtını bağlaması isteniyor…</string>

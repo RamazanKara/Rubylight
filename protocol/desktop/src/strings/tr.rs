@@ -844,6 +844,8 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Another driver or program holds the device.", "Cihazı başka bir sürücü veya program tutuyor."),
     ("The device could not be opened: {}", "Cihaz açılamadı: {}"),
     ("The device was no longer attached.", "Cihaz artık bağlı değildi."),
+    ("Attach this device to the PC whenever it is plugged in during a stream.", "Bu cihazı yayın sırasında her takıldığında bilgisayara bağla."),
+    ("USB devices can't be attached automatically: {}", "USB cihazları otomatik olarak bağlanamıyor: {}"),
     ("The stream ended.", "Yayın sona erdi."),
     ("The device is attached already.", "Cihaz zaten bağlı."),
     ("The device’s name or bus ID can’t be sent to the PC.", "Cihazın adı veya veri yolu kimliği bilgisayara gönderilemiyor."),

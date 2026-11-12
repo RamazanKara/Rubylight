@@ -4,6 +4,8 @@
     <string name="summary_usb_forwarding">이 기기에 연결한 USB 장치를 스트림 메뉴에서 PC에 연결할 수 있습니다.</string>
     <string name="stream_usb_devices">USB 장치</string>
     <string name="usb_forwarding_pick_title">USB 장치 전달</string>
+    <string name="usb_forwarding_auto_button">자동</string>
+    <string name="usb_forwarding_auto_title">연결될 때마다 전달</string>
     <string name="usb_forwarding_none">전달할 USB 장치가 없습니다. 허브와 이 앱이 직접 제어하는 컨트롤러는 표시되지 않습니다.</string>
     <string name="usb_forwarding_detach">%1$s 분리</string>
     <string name="usb_forwarding_asking">PC에 %1$s 연결을 요청하는 중…</string>

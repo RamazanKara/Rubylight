@@ -3417,6 +3417,13 @@ Redacted logs, oldest line first; addresses, PC names, PINs and credentials are 
                 eprintln!("nightjar: saving settings failed: {e}");
             }
         }
+        // A device ticked or unticked for automatic USB forwarding in the stream controls.
+        if let Some(auto) = streaming.usb.as_mut().and_then(crate::usb::Panel::take_auto_change) {
+            self.launcher.settings.usb_auto = auto;
+            if let Err(e) = self.store.save_settings(&self.launcher.settings) {
+                eprintln!("nightjar: saving settings failed: {e}");
+            }
+        }
         if let Some((_, at)) = &streaming.toast {
             // The lost-network notice stays until a network returns.
             if at.elapsed() > Duration::from_secs(4) && !streaming.network_lost {

@@ -4,6 +4,8 @@
     <string name="summary_usb_forwarding">Hier angeschlossene USB-Geräte lassen sich über das Stream-Menü mit dem PC verbinden.</string>
     <string name="stream_usb_devices">USB-Geräte</string>
     <string name="usb_forwarding_pick_title">USB-Gerät weiterleiten</string>
+    <string name="usb_forwarding_auto_button">Automatisch</string>
+    <string name="usb_forwarding_auto_title">Immer weiterleiten, wenn angesteckt</string>
     <string name="usb_forwarding_none">Kein USB-Gerät zum Weiterleiten. Hubs und Controller, die diese App selbst steuert, werden nicht angezeigt.</string>
     <string name="usb_forwarding_detach">%1$s trennen</string>
     <string name="usb_forwarding_asking">PC wird gebeten, %1$s zu verbinden …</string>

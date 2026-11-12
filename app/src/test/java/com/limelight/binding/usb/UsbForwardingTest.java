@@ -335,4 +335,71 @@ public class UsbForwardingTest {
         assertEquals(Collections.singletonList(text(R.string.usb_forwarding_permission_denied, "Drawing Tablet")), messages);
         assertTrue(connections.isEmpty());
     }
+
+    private void plugIn(UsbDevice device) {
+        shadowUsb().addOrUpdateUsbDevice(device, true);
+        context.sendBroadcast(new Intent(UsbManager.ACTION_USB_DEVICE_ATTACHED).setPackage(context.getPackageName())
+                .putExtra(UsbManager.EXTRA_DEVICE, device));
+        shadowOf(Looper.getMainLooper()).idle();
+    }
+
+    @Test
+    public void tickedDevicesAreForwardedOnceThePcTakesThemAndWhenPluggedInAgain() {
+        UsbDevice tablet = tablet();
+        UsbDevice other = device("/dev/bus/usb/001/005", "Security Key", 0, 0x1050, 0x0407);
+        shadowUsb().addOrUpdateUsbDevice(tablet, true);
+        shadowUsb().addOrUpdateUsbDevice(other, true);
+        assertEquals("056a:0374", UsbForwarding.autoKey(tablet));
+        // Ticking one attaches it now and remembers it for the next streams.
+        forwarding.setAuto(java.util.Arrays.asList(tablet, other), new boolean[] {true, false});
+        worker.runAll();
+        assertEquals(Collections.singletonList("40 /dev/bus/usb/001/004 Drawing Tablet"), bridge.attached);
+        forwarding.stop();
+
+        // The next stream: nothing before the PC is known to take USB devices, then the ticked one only.
+        forwarding = new UsbForwarding(context, usbManager, prefs, bridge, device -> {
+            FakeConnection connection = new FakeConnection(40 + connections.size());
+            connections.add(connection);
+            return connection;
+        }, new Worker(), text -> messages.add(text.toString()));
+        bridge.attached.clear();
+        bridge.detached.clear();
+        assertTrue(forwarding.isAuto(tablet));
+        assertFalse(forwarding.isAuto(other));
+        plugIn(other);
+        assertTrue(bridge.attached.isEmpty());
+        forwarding.startAuto();
+        assertTrue(forwarding.isForwarded(tablet));
+        assertFalse(forwarding.isForwarded(other));
+        // Starting again doesn't detach it, as choosing it would.
+        forwarding.startAuto();
+        assertTrue(forwarding.isForwarded(tablet));
+        assertTrue(bridge.detached.isEmpty());
+
+        // Unplugged and plugged in again, on another port: attached again.
+        context.sendBroadcast(new Intent(UsbManager.ACTION_USB_DEVICE_DETACHED).setPackage(context.getPackageName())
+                .putExtra(UsbManager.EXTRA_DEVICE, tablet));
+        shadowOf(Looper.getMainLooper()).idle();
+        assertFalse(forwarding.isForwarded(tablet));
+        UsbDevice moved = device("/dev/bus/usb/002/003", "Drawing Tablet", 0, 0x056A, 0x0374);
+        plugIn(moved);
+        assertTrue(forwarding.isForwarded(moved));
+        plugIn(other);
+        assertFalse(forwarding.isForwarded(other));
+
+        // Unticking keeps it attached for now but not next time.
+        forwarding.setAuto(Collections.singletonList(moved), new boolean[] {false});
+        assertTrue(forwarding.isForwarded(moved));
+        assertFalse(forwarding.isAuto(moved));
+    }
+
+    @Test
+    public void nothingIsForwardedAutomaticallyWithoutTickedDevices() {
+        UsbDevice tablet = tablet();
+        shadowUsb().addOrUpdateUsbDevice(tablet, true);
+        forwarding.startAuto();
+        plugIn(tablet);
+        assertFalse(forwarding.isForwarded(tablet));
+        assertNull("not even listening", bridge.listener);
+    }
 }

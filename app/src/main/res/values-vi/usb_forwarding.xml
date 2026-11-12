@@ -4,6 +4,8 @@
     <string name="summary_usb_forwarding">Thiết bị USB cắm vào máy này có thể được gắn vào PC từ menu stream.</string>
     <string name="stream_usb_devices">Thiết bị USB</string>
     <string name="usb_forwarding_pick_title">Chuyển tiếp thiết bị USB</string>
+    <string name="usb_forwarding_auto_button">Tự động</string>
+    <string name="usb_forwarding_auto_title">Chuyển tiếp mỗi khi cắm vào</string>
     <string name="usb_forwarding_none">Không có thiết bị USB để chuyển tiếp. Hub và các tay cầm mà ứng dụng này tự điều khiển không được liệt kê.</string>
     <string name="usb_forwarding_detach">Ngắt %1$s</string>
     <string name="usb_forwarding_asking">Đang yêu cầu PC kết nối %1$s…</string>

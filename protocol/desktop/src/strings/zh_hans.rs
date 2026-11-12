@@ -844,6 +844,8 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Another driver or program holds the device.", "其他驱动或程序占用了该设备。"),
     ("The device could not be opened: {}", "无法打开设备：{}"),
     ("The device was no longer attached.", "设备已不再连接。"),
+    ("Attach this device to the PC whenever it is plugged in during a stream.", "串流期间每次插入此设备时都将其连接到电脑。"),
+    ("USB devices can't be attached automatically: {}", "无法自动连接 USB 设备：{}"),
     ("The stream ended.", "串流已结束。"),
     ("The device is attached already.", "设备已连接。"),
     ("The device’s name or bus ID can’t be sent to the PC.", "无法将设备的名称或总线 ID 发送到电脑。"),

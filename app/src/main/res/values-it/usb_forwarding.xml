@@ -4,6 +4,8 @@
     <string name="summary_usb_forwarding">I dispositivi USB inseriti qui possono essere collegati al PC dal menu dello stream.</string>
     <string name="stream_usb_devices">Dispositivi USB</string>
     <string name="usb_forwarding_pick_title">Inoltra un dispositivo USB</string>
+    <string name="usb_forwarding_auto_button">Automatico</string>
+    <string name="usb_forwarding_auto_title">Inoltra ogni volta che viene collegato</string>
     <string name="usb_forwarding_none">Nessun dispositivo USB da inoltrare. Gli hub e i controller che questa app gestisce da sé non sono elencati.</string>
     <string name="usb_forwarding_detach">Scollega %1$s</string>
     <string name="usb_forwarding_asking">Richiesta al PC di collegare %1$s…</string>

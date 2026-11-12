@@ -810,7 +810,7 @@ impl Streaming {
         let usb_refused = if settings.usb_forwarding { crate::usb::refusal(facts.usb) } else { None };
         if let Some(why) = usb_refused { eprintln!("nightjar: USB forwarding is on, but no USB devices are offered: {why}"); }
         let usb = if settings.usb_forwarding && usb_refused.is_none() { lock(&connecting.shared.host_client).clone() } else { None }
-            .map(|host| crate::usb::Panel::new(session.usb_forwarder(host, || {})));
+            .map(|host| crate::usb::Panel::new(session.usb_forwarder(host, || {}), settings.usb_auto.clone()));
         let hdr_stream = present::hdr_negotiated(settings.hdr, facts.format);
         let vrr_fallback = present::without_vrr(&settings);
         let stream_fps = u32::try_from(facts.fps).unwrap_or(0);

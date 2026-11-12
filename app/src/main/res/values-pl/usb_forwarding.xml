@@ -4,6 +4,8 @@
     <string name="summary_usb_forwarding">Urządzenia USB podłączone tutaj można przyłączyć do komputera z menu strumienia.</string>
     <string name="stream_usb_devices">Urządzenia USB</string>
     <string name="usb_forwarding_pick_title">Przekaż urządzenie USB</string>
+    <string name="usb_forwarding_auto_button">Automatycznie</string>
+    <string name="usb_forwarding_auto_title">Przekazuj po każdym podłączeniu</string>
     <string name="usb_forwarding_none">Brak urządzeń USB do przekazania. Huby i kontrolery obsługiwane przez tę aplikację nie są wyświetlane.</string>
     <string name="usb_forwarding_detach">Odłącz %1$s</string>
     <string name="usb_forwarding_asking">Proszenie PC o podłączenie %1$s…</string>

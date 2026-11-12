@@ -768,11 +768,7 @@ final class GameMenuActions {
     // The devices plugged into this one that may go to the PC; picking a forwarded one detaches it.
     private void showUsbDevices() {
         if (!game.connected) return;
-        if (game.usbForwarding == null) {
-            game.usbForwarding = new com.limelight.binding.usb.UsbForwarding(game, game.prefConfig, game.conn,
-                    text -> game.messages.alert(text, Toast.LENGTH_LONG));
-        }
-        com.limelight.binding.usb.UsbForwarding forwarding = game.usbForwarding;
+        com.limelight.binding.usb.UsbForwarding forwarding = usbForwarding();
         java.util.List<android.hardware.usb.UsbDevice> devices = forwarding.candidates();
         com.google.android.material.dialog.MaterialAlertDialogBuilder builder = new NavigationDialogBuilder(game)
                 .setTitle(R.string.usb_forwarding_pick_title);
@@ -782,9 +778,46 @@ final class GameMenuActions {
             CharSequence[] labels = new CharSequence[devices.size()];
             for (int i = 0; i < labels.length; i++) labels[i] = forwarding.label(devices.get(i));
             builder.setItems(labels, (dialog, which) -> forwarding.choose(devices.get(which)))
+                    .setNeutralButton(R.string.usb_forwarding_auto_button, (dialog, which) -> showUsbAuto(devices))
                     .setNegativeButton(android.R.string.cancel, null);
         }
         showStreamDialog(builder.create());
+    }
+
+    // Ticks the devices that go to the PC whenever they are plugged in during a stream.
+    private void showUsbAuto(java.util.List<android.hardware.usb.UsbDevice> devices) {
+        if (!game.connected) return;
+        com.limelight.binding.usb.UsbForwarding forwarding = usbForwarding();
+        CharSequence[] labels = new CharSequence[devices.size()];
+        boolean[] ticked = new boolean[devices.size()];
+        for (int i = 0; i < labels.length; i++) {
+            labels[i] = com.limelight.binding.usb.UsbForwarding.name(devices.get(i));
+            ticked[i] = forwarding.isAuto(devices.get(i));
+        }
+        showStreamDialog(new NavigationDialogBuilder(game)
+                .setTitle(R.string.usb_forwarding_auto_title)
+                .setMultiChoiceItems(labels, ticked, (dialog, which, on) -> ticked[which] = on)
+                .setPositiveButton(android.R.string.ok, (dialog, which) -> forwarding.setAuto(devices, ticked))
+                .setNegativeButton(android.R.string.cancel, null)
+                .create());
+    }
+
+    /** This stream's USB forwarding, made the first time it is needed. */
+    com.limelight.binding.usb.UsbForwarding usbForwarding() {
+        if (game.usbForwarding == null) {
+            game.usbForwarding = new com.limelight.binding.usb.UsbForwarding(game, game.prefConfig, game.conn,
+                    text -> game.messages.alert(text, Toast.LENGTH_LONG));
+        }
+        return game.usbForwarding;
+    }
+
+    /** Once the PC is known to take this device's USB devices: forwards the ones ticked to go automatically. */
+    void startUsbAutoForwarding() {
+        if (!game.connected || game.isFinishing() || !game.prefConfig.usbForwarding || !MoonBridge.isRustStream()
+                || !game.conn.offersUsbForwarding()) {
+            return;
+        }
+        usbForwarding().startAuto();
     }
 
     private void transferClipboard(boolean send) {

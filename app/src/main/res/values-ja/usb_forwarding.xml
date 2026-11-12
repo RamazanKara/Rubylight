@@ -4,6 +4,8 @@
     <string name="summary_usb_forwarding">このデバイスに接続した USB デバイスを、ストリームメニューから PC に接続できます。</string>
     <string name="stream_usb_devices">USB デバイス</string>
     <string name="usb_forwarding_pick_title">USB デバイスを転送</string>
+    <string name="usb_forwarding_auto_button">自動</string>
+    <string name="usb_forwarding_auto_title">接続時に常に転送</string>
     <string name="usb_forwarding_none">転送できる USB デバイスがありません。ハブと、このアプリが自分で制御するコントローラーは表示されません。</string>
     <string name="usb_forwarding_detach">%1$s を切断</string>
     <string name="usb_forwarding_asking">%1$s の接続を PC に要求しています…</string>

@@ -544,6 +544,12 @@ pub struct Panel {
     /// Devices being opened on their own thread (Linux's usbip-host asks for the password),
     /// and what failed there, until the next draw shows it.
     opening: Arc<Mutex<Opening>>,
+    /// The devices (by [`auto_key`]) attached whenever they are plugged in during a stream.
+    auto: Arc<Mutex<Vec<String>>>,
+    /// Set when the user changed `auto`, until the settings are saved.
+    auto_changed: bool,
+    /// Dropped with the panel, which ends the thread that attaches `auto`'s devices.
+    auto_thread: Option<std::sync::mpsc::Sender<()>>,
 }
 
 #[derive(Default)]
@@ -552,9 +558,106 @@ struct Opening {
     failed: Option<String>,
 }
 
+/// How often the automatic attach looks for newly plugged-in devices.
+const AUTO_POLL: Duration = Duration::from_secs(2);
+
+/// What the automatic list remembers a device by: its vendor and product id, so that it
+/// matches on any port (Android's UsbForwarding.autoKey writes the same).
+pub fn auto_key(vid: u16, pid: u16) -> String {
+    format!("{vid:04x}:{pid:04x}")
+}
+
+/// The devices of `local` to attach automatically now: on the list, forwardable, not attached
+/// or being opened, and not tried since they were plugged in. `tried` forgets the unplugged.
+fn auto_due(local: &[Local], auto: &[String], busy: impl Fn(&str) -> bool, tried: &mut Vec<String>) -> Vec<Local> {
+    tried.retain(|busid| local.iter().any(|l| l.busid == *busid));
+    let mut due = Vec::new();
+    for device in local {
+        if device.blocked.is_some() || !auto.contains(&auto_key(device.vid, device.pid)) { continue; }
+        if tried.contains(&device.busid) || busy(&device.busid) { continue; }
+        tried.push(device.busid.clone());
+        due.push(device.clone());
+    }
+    due
+}
+
+/// Opens and attaches `local`, which the caller marked as being opened; a failure shows on the panel.
+fn attach_tracked(forwarder: &Forwarder, opening: &Mutex<Opening>, local: &Local) {
+    let lock = || opening.lock().unwrap_or_else(PoisonError::into_inner);
+    let attached = attach_now(forwarder, local);
+    let mut opening = lock();
+    opening.busids.retain(|b| *b != local.busid);
+    if let Err(e) = attached { opening.failed = Some(e); }
+}
+
 impl Panel {
-    pub fn new(forwarder: Forwarder) -> Self {
-        Self { forwarder: Arc::new(forwarder), local: None, error: None, opening: Arc::default() }
+    /// `auto`: the devices to attach whenever they are plugged in (the `usb_auto` setting).
+    pub fn new(forwarder: Forwarder, auto: Vec<String>) -> Self {
+        let mut panel = Self {
+            forwarder: Arc::new(forwarder), local: None, error: None, opening: Arc::default(),
+            auto: Arc::new(Mutex::new(auto)), auto_changed: false, auto_thread: None,
+        };
+        panel.start_auto();
+        panel
+    }
+
+    fn auto(&self) -> MutexGuard<'_, Vec<String>> {
+        self.auto.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Whether `local` is attached automatically when it is plugged in.
+    pub fn is_auto(&self, local: &Local) -> bool {
+        self.auto().contains(&auto_key(local.vid, local.pid))
+    }
+
+    /// Adds `local` to the automatic list or takes it off; the thread attaches an added one.
+    pub fn set_auto(&mut self, local: &Local, on: bool) {
+        let key = auto_key(local.vid, local.pid);
+        {
+            let mut auto = self.auto();
+            if on == auto.contains(&key) { return; }
+            if on { auto.push(key); } else { auto.retain(|k| *k != key); }
+        }
+        self.auto_changed = true;
+        if on { self.start_auto(); }
+    }
+
+    /// The automatic list after the user changed it, once, for saving.
+    pub fn take_auto_change(&mut self) -> Option<Vec<String>> {
+        std::mem::take(&mut self.auto_changed).then(|| self.auto().clone())
+    }
+
+    /// Starts the thread that attaches the automatic list's devices, while the list has any.
+    fn start_auto(&mut self) {
+        if self.auto_thread.is_some() || self.auto().is_empty() { return; }
+        let (stop, stopped) = std::sync::mpsc::channel::<()>();
+        let (forwarder, opening, auto) = (self.forwarder.clone(), self.opening.clone(), self.auto.clone());
+        let spawned = std::thread::Builder::new().name("usb-auto".into()).spawn(move || {
+            let mut tried = Vec::new();
+            loop {
+                let wanted = auto.lock().unwrap_or_else(PoisonError::into_inner).clone();
+                match list() {
+                    Ok(local) => {
+                        let busy = |busid: &str| {
+                            opening.lock().unwrap_or_else(PoisonError::into_inner).busids.iter().any(|b| b == busid)
+                                || forwarder.list().iter().any(|a| a.is_active() && a.busid == busid)
+                        };
+                        for device in auto_due(&local, &wanted, busy, &mut tried) {
+                            eprintln!("nightjar: USB {}: attaching {} automatically", device.busid, device.name);
+                            opening.lock().unwrap_or_else(PoisonError::into_inner).busids.push(device.busid.clone());
+                            attach_tracked(&forwarder, &opening, &device);
+                        }
+                    }
+                    Err(e) => eprintln!("nightjar: USB: {e}"),
+                }
+                // The channel closes with the panel: the stream ended.
+                if !matches!(stopped.recv_timeout(AUTO_POLL), Err(std::sync::mpsc::RecvTimeoutError::Timeout)) { return; }
+            }
+        });
+        match spawned {
+            Ok(_) => self.auto_thread = Some(stop),
+            Err(e) => self.error = Some(trf("USB devices can't be attached automatically: {}", &[&e])),
+        }
     }
 
     fn opening(&self) -> MutexGuard<'_, Opening> {
@@ -607,12 +710,7 @@ impl Panel {
         self.opening().busids.push(local.busid.clone());
         let busid = local.busid.clone();
         let (forwarder, opening, local) = (self.forwarder.clone(), self.opening.clone(), local.clone());
-        let spawned = std::thread::Builder::new().name("usb-open".into()).spawn(move || {
-            let attached = attach_now(&forwarder, &local);
-            let mut opening = opening.lock().unwrap_or_else(PoisonError::into_inner);
-            opening.busids.retain(|b| *b != local.busid);
-            if let Err(e) = attached { opening.failed = Some(e); }
-        });
+        let spawned = std::thread::Builder::new().name("usb-open".into()).spawn(move || attach_tracked(&forwarder, &opening, &local));
         if let Err(e) = spawned {
             self.opening().busids.retain(|b| *b != busid);
             self.error = Some(trf("The device could not be opened: {}", &[&e]));
@@ -677,10 +775,17 @@ pub fn show(ui: &mut egui::Ui, panel: &mut Panel) {
     if local.is_empty() { ui.weak(tr("No USB devices are plugged in here.")); }
     let mut attach = None;
     let mut detach = None;
+    let mut auto = None;
     for device in &local {
         ui.horizontal(|ui| {
             let active = panel.active(device);
             ui.label(format!("{} ({:04x}:{:04x}, {})", device.name, device.vid, device.pid, device.busid));
+            if device.blocked.is_none() {
+                let mut on = panel.is_auto(device);
+                if ui.checkbox(&mut on, tr("Automatic")).on_hover_text(tr("Attach this device to the PC whenever it is plugged in during a stream.")).changed() {
+                    auto = Some((device.clone(), on));
+                }
+            }
             if panel.is_opening(device) {
                 ui.weak(tr("Waiting for your password"));
                 return;
@@ -706,6 +811,7 @@ pub fn show(ui: &mut egui::Ui, panel: &mut Panel) {
     if let Some(error) = &panel.error { ui.colored_label(crate::theme::ERROR, error); }
     if let Some(device) = attach { panel.attach(&device); }
     if let Some(request_id) = detach { panel.detach(request_id); }
+    if let Some((device, on)) = auto { panel.set_auto(&device, on); }
 }
 
 impl Drop for Panel {
@@ -772,6 +878,32 @@ mod tests {
         assert_eq!(busid(1, &[2]), "1-2");
         assert_eq!(busid(3, &[1, 4, 2]), "3-1.4.2");
         assert!(wire::valid_busid(&busid(255, &[15, 15, 15, 15, 15, 15, 15])));
+    }
+
+    fn plugged(busid: &str, vid: u16, pid: u16, blocked: Option<Blocked>) -> Local {
+        Local { busid: busid.into(), vid, pid, name: format!("{vid:04x}:{pid:04x}"), blocked, kernel: false }
+    }
+
+    #[test]
+    fn automatic_devices_attach_once_per_plug_in_on_any_port() {
+        assert_eq!(auto_key(0x28de, 0x1304), "28de:1304");
+        let auto = vec![auto_key(0x28de, 0x1304), auto_key(0x045e, 0x0719)];
+        let puck = plugged("1-2", 0x28de, 0x1304, None);
+        let receiver = plugged("1-3", 0x045e, 0x0719, Some(Blocked::NoWinUsb("xusb22".into())));
+        let tablet = plugged("1-4", 0x056a, 0x0374, None);
+        let mut tried = Vec::new();
+        let local = [puck.clone(), receiver, tablet];
+        // Only the listed one that can be forwarded; not the unlisted tablet or the blocked receiver.
+        assert_eq!(auto_due(&local, &auto, |_| false, &mut tried), vec![puck]);
+        // Not again while it stays plugged in, whatever became of it.
+        assert!(auto_due(&local, &auto, |_| false, &mut tried).is_empty());
+        // Unplugged, then plugged into another port: attached again.
+        assert!(auto_due(&[], &auto, |_| false, &mut tried).is_empty());
+        let moved = plugged("2-1", 0x28de, 0x1304, None);
+        assert_eq!(auto_due(std::slice::from_ref(&moved), &auto, |_| false, &mut tried), std::slice::from_ref(&moved));
+        // One the user attached already is left alone.
+        let mut fresh = Vec::new();
+        assert!(auto_due(&[moved], &auto, |busid| busid == "2-1", &mut fresh).is_empty());
     }
 
     /// The native answer with these features and the usb permission.

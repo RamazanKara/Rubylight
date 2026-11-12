@@ -2004,6 +2004,11 @@ public class NvConnection {
      * reads the answers. The host's wake targets are refreshed on the way.
      */
     public void refreshNativeHostControl() {
+        refreshNativeHostControl(null);
+    }
+
+    /** As {@link #refreshNativeHostControl()}, running {@code read} on its thread once the answers are in. */
+    public void refreshNativeHostControl(Runnable read) {
         if (isMonkey || !hasNativeSessionActions()) {
             return;
         }
@@ -2020,6 +2025,7 @@ public class NvConnection {
                 nativeImageClipboard = capabilities.has(NativeCapabilities.CLIPBOARD_IMAGE);
                 nativeNightMode = capabilities.offersAudio(NativeCapabilities.NIGHT_MODE);
                 nativeHeadphoneSurround = capabilities.offersAudio(NativeCapabilities.HEADPHONE_SURROUND);
+                if (read != null) read.run();
                 if (appContext != null) {
                     new WakeTargets(appContext).refresh(hostDetails.uuid, capabilities, client);
                 }

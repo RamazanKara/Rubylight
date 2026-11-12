@@ -57,6 +57,25 @@ public class SettingsBatchTest {
     // Frame pacing and its neighbours
 
     @Test
+    public void displayQueueRecoveryShowsOnlyWhereTheWatchRuns() {
+        SharedPreferences p = prefs();
+        Application app = RuntimeEnvironment.getApplication();
+        for (String pacing : new String[] {"latency", "balanced"}) {
+            p.edit().clear().putString("frame_pacing", pacing).commit();
+            assertTrue(pacing, SettingRules.displayQueueRecoveryApplies(app, p));
+            // The PC's frame times schedule every frame, so the watch never runs (MediaCodecDecoderRenderer).
+            p.edit().putBoolean("checkbox_host_frame_times", true).commit();
+            assertFalse(pacing, SettingRules.displayQueueRecoveryApplies(app, p));
+            p.edit().putBoolean("checkbox_host_frame_times", false).putBoolean("checkbox_vrr", true).commit();
+            assertFalse(pacing, SettingRules.displayQueueRecoveryApplies(app, p));
+        }
+        for (String pacing : new String[] {"cap-fps", "smoothness"}) {
+            p.edit().clear().putString("frame_pacing", pacing).commit();
+            assertFalse(pacing, SettingRules.displayQueueRecoveryApplies(app, p));
+        }
+    }
+
+    @Test
     public void ruleFunctionsFollowTheStoredChoices() {
         SharedPreferences p = prefs();
         p.edit().clear().commit();

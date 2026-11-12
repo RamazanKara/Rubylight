@@ -152,10 +152,14 @@ final class SettingRules {
         return reduceRefreshRateApplies(context, prefs) && prefs.getBoolean("checkbox_reduce_refresh_rate", false);
     }
 
-    /** Display queue recovery works on a fixed refresh with Lowest latency or Balanced pacing (DisplayQueueWatch). */
+    /**
+     * Display queue recovery works on a fixed refresh with Lowest latency or Balanced pacing (DisplayQueueWatch).
+     * With the PC's frame times every frame is scheduled and the watch never runs (MediaCodecDecoderRenderer), as
+     * frame pacing itself does not apply then.
+     */
     static boolean displayQueueRecoveryApplies(Context context, SharedPreferences prefs) {
         String pacing = prefs.getString(FRAME_PACING, PreferenceConfiguration.DEFAULT_FRAME_PACING);
-        return !vrrOn(context, prefs) && ("latency".equals(pacing) || "balanced".equals(pacing));
+        return framePacingApplies(context, prefs) && ("latency".equals(pacing) || "balanced".equals(pacing));
     }
 
     /** Video position moves a picture that leaves room: Fit or 1:1 pixels. */

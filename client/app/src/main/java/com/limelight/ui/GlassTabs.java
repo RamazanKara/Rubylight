@@ -23,9 +23,13 @@ import com.limelight.R;
 public class GlassTabs extends LinearLayout {
     /** The tab the last bar marked, as an index; screens replace each other but the pill carries on. */
     private static int lastSelected = -1;
+    /** The pill's share of its own opacity while another tab holds focus. */
+    static final float PILL_BEHIND_FOCUS = 0.35f;
 
     private final Paint pill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint pillRim = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final int pillAlpha;
+    private final int pillRimAlpha;
     private final float inset;
     private final RectF rect = new RectF();
     private float left = -1f;
@@ -47,6 +51,8 @@ public class GlassTabs extends LinearLayout {
         pillRim.setStyle(Paint.Style.STROKE);
         pillRim.setStrokeWidth(Math.max(1f, context.getResources().getDisplayMetrics().density * 0.75f));
         pillRim.setColor(MaterialColors.getColor(context, R.attr.glassSelectedRim, 0));
+        pillAlpha = pill.getAlpha();
+        pillRimAlpha = pillRim.getAlpha();
     }
 
     /** For tests: forgets the last bar. */
@@ -121,12 +127,26 @@ public class GlassTabs extends LinearLayout {
         spring.animateToFinalPosition(to);
     }
 
+    /**
+     * Whether the pill steps back: another tab than the current one holds focus. A full pill there next to the ring
+     * read as two chosen tabs on a TV (nightjar#7), so only the ring stays strong and the pill stays as a trace of
+     * where the screen is.
+     */
+    boolean pillBehindFocus() {
+        View focused = getFocusedChild();
+        View current = target != null ? target : selectedTab();
+        return focused != null && current != null && focused != current;
+    }
+
     @Override
     protected void dispatchDraw(Canvas canvas) {
         if (left >= 0f && getChildCount() > 0) {
             float top = inset;
             float bottom = getHeight() - inset;
             float r = (bottom - top) / 2f;
+            float share = pillBehindFocus() ? PILL_BEHIND_FOCUS : 1f;
+            pill.setAlpha(Math.round(pillAlpha * share));
+            pillRim.setAlpha(Math.round(pillRimAlpha * share));
             rect.set(left, top, right, bottom);
             canvas.drawRoundRect(rect, r, r, pill);
             float half = pillRim.getStrokeWidth() / 2f;

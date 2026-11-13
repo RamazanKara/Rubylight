@@ -43,6 +43,7 @@
     "text_input": "unsupported",
     "client_keyboard_layout": "unsupported",
     "pen_barrel_roll": "unsupported",
+    "controller_identity": "unsupported",
     "pipeline_rates": "unsupported",
     "second_screen": "unsupported",
     "image_clipboard": "unsupported:update_host",

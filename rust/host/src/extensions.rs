@@ -80,6 +80,9 @@ fn offer(h: &Shared, config: &Config, dolby: u8) -> Offered {
         // `rlSecondScreen` is read on every launch.
         second_screen: true,
         frame_warp: frame_warp(config),
+        // The host reads controller identities and the C button whenever
+        // controllers are on; a client sends them only to a host that says so.
+        controller_identity: config.boolean("controller", true),
         // Per launch: `stream_offered`.
         rate_change: false,
         clipboard_sync: false,

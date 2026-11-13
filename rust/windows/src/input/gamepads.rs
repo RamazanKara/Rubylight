@@ -81,6 +81,14 @@ pub struct Gamepads {
     deck_failed: BTreeSet<u16>,
     pub(super) dualsenses: BTreeMap<u16, dualsense_pad::DualSensePad>,
     dualsense_failed: BTreeSet<u16>,
+    /// Controllers attached as Switch 2 Pro Controllers over usbip-win2.
+    pub(super) switch2s: BTreeMap<u16, switch2_pad::Switch2Pad>,
+    /// Controllers a Switch 2 Pro Controller could not be attached for; they
+    /// keep their VHF pad until they arrive again.
+    switch2_failed: BTreeSet<u16>,
+    /// USB vendor and product of each controller whose client said which it
+    /// is (0x55000080), sent before its arrival.
+    identities: BTreeMap<u16, (u16, u16)>,
     warnings: std::sync::Arc<butterpollo_core::session::Warnings>,
     /// Each Steam Controller client's real firmware attributes, applied
     /// again whenever its pad is plugged anew.
@@ -222,6 +230,9 @@ impl Gamepads {
             deck_failed: BTreeSet::new(),
             dualsenses: BTreeMap::new(),
             dualsense_failed: BTreeSet::new(),
+            switch2s: BTreeMap::new(),
+            switch2_failed: BTreeSet::new(),
+            identities: BTreeMap::new(),
             warnings,
             steam_attributes: BTreeMap::new(),
             steam_haptics: Vec::new(),
@@ -232,11 +243,13 @@ impl Gamepads {
     /// the `steam_deck_controller` setting and the host allow it. Returns
     /// whether controller `id` is one.
     fn ensure_deck(&mut self, id: u16) -> Result<bool> {
-        use butterpollo_core::input_policy::{CTYPE_STEAM, DeckPad, USBIP_DUALSENSE, VIGEM_X360};
+        use butterpollo_core::input_policy::{
+            CTYPE_STEAM, DeckPad, USBIP_DUALSENSE, USBIP_SWITCH2, VIGEM_X360,
+        };
         // A pad chosen by name is the one every client gets.
         if matches!(
             self.profile,
-            USBIP_DUALSENSE | VIGEM_X360 | VHF_STEAM_CONTROLLER
+            USBIP_DUALSENSE | USBIP_SWITCH2 | VIGEM_X360 | VHF_STEAM_CONTROLLER
         ) {
             return Ok(false);
         }
@@ -298,6 +311,71 @@ impl Gamepads {
             SLOTS.lock().unwrap()[global as usize] = false;
         }
         self.decks.insert(id, deck);
+        Ok(true)
+    }
+    /// Attaches a Switch 2 Pro Controller over usbip-win2 for a client's
+    /// Switch 2 Pro Controller, or for every controller when `gamepad =
+    /// usbip_switch2` chose it. Returns whether controller `id` is one.
+    fn ensure_switch2(&mut self, id: u16) -> Result<bool> {
+        use butterpollo_core::input_policy::{USBIP_SWITCH2, wants_switch2};
+        if self.switch2s.contains_key(&id) {
+            return Ok(true);
+        }
+        if !wants_switch2(self.profile, self.identities.get(&id).copied()) {
+            return Ok(false);
+        }
+        let forced = self.profile == USBIP_SWITCH2;
+        if self.switch2_failed.contains(&id) {
+            if forced {
+                bail!(
+                    "Switch 2 Pro Controller USB attachment failed; reconnect after checking usbip-win2"
+                );
+            }
+            return Ok(false);
+        }
+        let attached = (|| -> Result<_> {
+            let exe = steam_deck_pad::usbip_exe().context("usbip-win2 is not installed")?;
+            switch2_pad::Switch2Pad::plug(&exe, Slot::reserve()?)
+        })();
+        let pad = match attached {
+            Ok(pad) => pad,
+            Err(error) => {
+                self.switch2_failed.insert(id);
+                let instead = if forced {
+                    "the controller does not work until it does"
+                } else {
+                    "the controller arrives as a Switch Pro controller instead"
+                };
+                tracing::warn!(
+                    controller = id,
+                    error = format!("{error:#}"),
+                    "Switch 2 Pro Controller attachment failed"
+                );
+                self.warnings.set("input_switch2", format!("Switch 2 Pro Controller unavailable ({error:#}); {instead}. Install usbip-win2 on the host and check that it works, then reconnect."));
+                if forced {
+                    return Err(error);
+                }
+                return Ok(false);
+            }
+        };
+        self.warnings.clear("input_switch2");
+        tracing::info!(
+            controller = id,
+            port = pad.port(),
+            "Switch 2 Pro Controller attached through usbip-win2"
+        );
+        // A VHF pad plugged before the arrival makes way for it, as for a Steam Deck.
+        if let Some(global) = self.active.get(&id).copied() {
+            self.backend.unplug(u32::from(global))?;
+            self.active.remove(&id);
+            self.profiles.remove(&id);
+            self.states.remove(&id);
+            self.last_feedback.remove(&id);
+            self.feedback_failures.remove(&id);
+            self.pointers.retain(|(pad, _), _| u16::from(*pad) != id);
+            SLOTS.lock().unwrap()[global as usize] = false;
+        }
+        self.switch2s.insert(id, pad);
         Ok(true)
     }
     fn ensure(&mut self, id: u16) -> Result<()> {
@@ -486,6 +564,8 @@ impl Gamepads {
                 }
                 self.decks.retain(|i, _| active & (1 << *i) != 0);
                 self.dualsenses.retain(|i, _| active & (1 << *i) != 0);
+                self.switch2s.retain(|i, _| active & (1 << *i) != 0);
+                self.switch2_failed.retain(|i| active & (1 << *i) != 0);
                 self.arrivals.retain(|i, _| active & (1 << *i) != 0);
                 self.steam_attributes.retain(|i, _| active & (1 << *i) != 0);
                 self.dualsense_failed.retain(|i| active & (1 << *i) != 0);
@@ -521,6 +601,11 @@ impl Gamepads {
                 }
                 if let Some(deck) = self.decks.get(id) {
                     deck.apply(event);
+                    return Ok(());
+                }
+                // It has grip buttons of its own: no back grip mapping.
+                if self.ensure_switch2(*id)? {
+                    self.switch2s[id].apply(event);
                     return Ok(());
                 }
                 self.ensure(*id)?;
@@ -568,6 +653,16 @@ impl Gamepads {
                     self.decks.remove(&id);
                     self.dualsenses.remove(&id);
                 }
+                // A controller that is no longer a Switch 2 Pro Controller
+                // (another one in its place) gets its own pad.
+                if self.switch2s.contains_key(&id)
+                    && !butterpollo_core::input_policy::wants_switch2(
+                        self.profile,
+                        self.identities.get(&id).copied(),
+                    )
+                {
+                    self.switch2s.remove(&id);
+                }
                 self.arrivals.insert(id, (*kind, *capabilities));
                 // A Steam Controller sends its attributes after each arrival.
                 self.steam_attributes.remove(&id);
@@ -575,14 +670,20 @@ impl Gamepads {
                 if let Some(pad) = self.dualsenses.get(&id) {
                     pad.capabilities(*capabilities);
                 }
-                // A controller that arrives again may try a Steam Deck again.
+                // A controller that arrives again may try a Steam Deck or a
+                // Switch 2 Pro Controller again.
                 self.deck_failed.remove(&id);
-                if !self.ensure_deck(id)? {
+                self.switch2_failed.remove(&id);
+                if !self.ensure_switch2(id)? && !self.ensure_deck(id)? {
                     self.ensure(id)?;
                 }
             }
             Event::Motion { id, kind, xyz } => {
                 if let Some(pad) = self.dualsenses.get(&u16::from(*id)) {
+                    pad.apply(event);
+                    return Ok(());
+                }
+                if let Some(pad) = self.switch2s.get(&u16::from(*id)) {
                     pad.apply(event);
                     return Ok(());
                 }
@@ -641,6 +742,10 @@ impl Gamepads {
                     pad.apply(event);
                     return Ok(());
                 }
+                if let Some(pad) = self.switch2s.get(&u16::from(*id)) {
+                    pad.apply(event);
+                    return Ok(());
+                }
                 // Only the PlayStation, Switch and Steam Controller profiles
                 // have a battery.
                 if !matches!(
@@ -665,6 +770,19 @@ impl Gamepads {
                 self.steam_attributes.insert(id, *attributes);
                 self.send_steam_attributes(id);
             }
+            Event::ControllerIdentity(identity) => {
+                let id = u16::from(identity.controller);
+                let new = (identity.vendor, identity.product);
+                // Another controller in this slot: the arrival that follows
+                // chooses its pad again.
+                if self
+                    .identities
+                    .insert(id, new)
+                    .is_some_and(|old| old != new)
+                {
+                    self.switch2s.remove(&id);
+                }
+            }
             _ => {}
         }
         Ok(())
@@ -675,6 +793,7 @@ impl Gamepads {
             .keys()
             .chain(self.decks.keys())
             .chain(self.dualsenses.keys())
+            .chain(self.switch2s.keys())
             .copied()
             .collect();
         let active = ids.iter().fold(0, |mask, id| mask | (1 << id));
@@ -778,6 +897,11 @@ impl Gamepads {
                 reports.push((*id, kind, data));
             }
         }
+        for (id, pad) in &mut self.switch2s {
+            if let Some((kind, data)) = pad.feedback() {
+                reports.push((*id, kind, data));
+            }
+        }
         for (id, pad) in &self.dualsenses {
             reports.extend(
                 pad.feedback()
@@ -861,6 +985,8 @@ impl Gamepads {
             });
             return Ok(());
         }
+        // Only the Switch 2 Pro Controller has a C button.
+        let buttons = buttons & !butterpollo_core::switch2::BUTTON_C;
         let buttons = if self.profiles.get(&id) == Some(&VHF_STEAM_CONTROLLER) {
             let (_, capabilities) = self.arrivals.get(&id).copied().unwrap_or_default();
             steam_pad::buttons(buttons, capabilities)
@@ -904,6 +1030,7 @@ impl Gamepads {
     pub fn motion_supported(&self, id: u16) -> bool {
         self.decks.contains_key(&id)
             || self.dualsenses.contains_key(&id)
+            || self.switch2s.contains_key(&id)
             || matches!(
                 self.profiles.get(&id).copied(),
                 Some(5..=7 | VHF_STEAM_CONTROLLER)
@@ -1028,6 +1155,7 @@ fn profile_name(profile: u16) -> &'static str {
         6 => "vhf_ds5",
         7 => "vhf_switch",
         VHF_STEAM_CONTROLLER => "vhf_steam",
+        butterpollo_core::input_policy::USBIP_SWITCH2 => "usbip_switch2",
         _ => "vhf",
     }
 }

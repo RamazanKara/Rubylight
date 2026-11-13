@@ -1,6 +1,7 @@
 //! Decoding Moonlight's input packets (keyboard, mouse, pen, touch, gamepad
 //! and haptics) into [`Input`] events.
 use anyhow::{Result, bail};
+use rubylight_protocol::controller_identity::{CONTROLLER_IDENTITY_MAGIC, ControllerIdentity};
 use rubylight_protocol::steam_controller::{
     STEAM_ATTRIBUTES_BYTES, STEAM_ATTRIBUTES_MAGIC, SteamAttributes, SteamError,
 };
@@ -92,6 +93,10 @@ pub enum Input {
     /// The real Steam Controller's firmware attributes (0x55000008), sent
     /// after its arrival, for the VHF Steam Controller profile.
     SteamAttributes(SteamAttributes),
+    /// Which physical controller a client's gamepad is (0x55000080), sent
+    /// just before its arrival by a client that read the host's
+    /// `ControllerIdentityVersion`.
+    ControllerIdentity(ControllerIdentity),
 }
 /// A Steam Controller attributes packet (0x55000008) the host refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -155,6 +160,11 @@ pub fn decode(b: &[u8]) -> Result<Input> {
     // Before the framing check, so every wrong length is the typed error.
     if le32(b, 4) == STEAM_ATTRIBUTES_MAGIC {
         return steam_attributes(b);
+    }
+    if le32(b, 4) == CONTROLLER_IDENTITY_MAGIC {
+        return ControllerIdentity::decode(b)
+            .map(Input::ControllerIdentity)
+            .map_err(|error| anyhow::anyhow!("controller identity refused: {error:?}"));
     }
     let declared = u32::from_be_bytes(b[..4].try_into().unwrap()) as usize;
     if declared != b.len() - 4 {
@@ -828,6 +838,26 @@ mod tests {
         packet
     }
 
+    #[test]
+    fn a_controller_identity_decodes_and_a_bad_one_is_refused() {
+        let identity = ControllerIdentity {
+            controller: 3,
+            vendor: 0x057E,
+            product: 0x2069,
+        };
+        assert_eq!(
+            decode(&identity.encode()).unwrap(),
+            Input::ControllerIdentity(identity)
+        );
+        assert_eq!(
+            Input::ControllerIdentity(identity).required_permission(),
+            1 << 8
+        );
+        let mut bad = identity.encode();
+        bad[8] = 16;
+        assert!(decode(&bad).is_err());
+        assert!(decode(&identity.encode()[..15]).is_err());
+    }
     fn steam_attributes_error(packet: &[u8]) -> SteamAttributesError {
         *decode(packet)
             .unwrap_err()

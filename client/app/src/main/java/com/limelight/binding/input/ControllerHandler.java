@@ -5137,6 +5137,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             // keeps the external pad's type, touchpad and motion.
             if (!external && sharesSlotWithExternalPad(this)) return;
             if (!prefConfig.sendControllers) return;
+            // Which controller it is goes first, so the host can choose its pad on arrival.
+            conn.sendControllerIdentityEvent((byte)controllerNumber, vendorId, productId);
             conn.sendControllerArrivalEvent((byte)controllerNumber, getActiveControllerMask(),
                     reportedType, supportedButtonFlags, capabilities);
 
@@ -5374,6 +5376,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             }
             byte type = arrivalType();
             if (!prefConfig.sendControllers) return;
+            conn.sendControllerIdentityEvent((byte)controllerNumber, vendorId, productId);
             int result = conn.sendControllerArrivalEvent((byte)controllerNumber, getActiveControllerMask(),
                     type, withSteamControlButtons((short) controllerNumber,
                             device.getSupportedButtonFlags() | buttonMap.targetButtonFlags()),

@@ -97,6 +97,8 @@ public final class HostCapabilities {
         CLIENT_KEYBOARD_LAYOUT(0),
         /** Pen barrel roll (input 0x5500000B). */
         PEN_BARREL_ROLL(0),
+        /** Controller identities (input 0x55000080) and the C button: a Switch 2 Pro Controller gets its own pad. */
+        CONTROLLER_IDENTITY(0),
         /** Pipeline frame rates for the overlay (0x553D). */
         PIPELINE_RATES(0),
         /**
@@ -225,6 +227,8 @@ public final class HostCapabilities {
     public static final int PYROWAVE_CODEC_BITS = 0x00800000 | 0x01000000 | 0x02000000 | 0x04000000;
     /** Bit of {@link #nativeFeatures()}; keep in step with HOST_FEATURE_PYROWAVE_RECORDS in pyrowave_protocol.h. */
     public static final int NATIVE_PYROWAVE_RECORDS = 1;
+    /** Bit of {@link #nativeFeatures()}: the host takes controller identities and the C button. */
+    public static final int NATIVE_CONTROLLER_IDENTITY = 2;
     /** HdrFormats, AudioCodecs and AudioLayouts bits; keep in step with rubylight_protocol::hdr and audio_ext. */
     static final int HDR_HLG = 2;
     static final int HDR_DOLBY_VISION = 4 | 8 | 16;
@@ -315,7 +319,8 @@ public final class HostCapabilities {
 
     /** Feature bits for the native stream, which has no other way to learn them. */
     public int nativeFeatures() {
-        return has(Feature.PYROWAVE_RECORDS) ? NATIVE_PYROWAVE_RECORDS : 0;
+        return (has(Feature.PYROWAVE_RECORDS) ? NATIVE_PYROWAVE_RECORDS : 0)
+                | (has(Feature.CONTROLLER_IDENTITY) ? NATIVE_CONTROLLER_IDENTITY : 0);
     }
 
     /**
@@ -620,6 +625,7 @@ public final class HostCapabilities {
         int textInputVersion = -1;
         int keyboardLayoutVersion = -1;
         int penBarrelRollVersion = -1;
+        int controllerIdentityVersion = -1;
         int pipelineRatesVersion = -1;
         /** -1 without DisplayScaleVersion: the host ignores rlDisplayScale. */
         int displayScaleVersion = -1;
@@ -744,6 +750,9 @@ public final class HostCapabilities {
                         break;
                     case "PenBarrelRollVersion":
                         evidence.penBarrelRollVersion = (int) unsigned(parser.nextText(), 0xFFFF);
+                        break;
+                    case "ControllerIdentityVersion":
+                        evidence.controllerIdentityVersion = (int) unsigned(parser.nextText(), 0xFFFF);
                         break;
                     case "PipelineRatesVersion":
                         evidence.pipelineRatesVersion = (int) unsigned(parser.nextText(), 0xFFFF);
@@ -990,6 +999,8 @@ public final class HostCapabilities {
                     return serverInfoVersion(keyboardLayoutVersion);
                 case PEN_BARREL_ROLL:
                     return serverInfoVersion(penBarrelRollVersion);
+                case CONTROLLER_IDENTITY:
+                    return serverInfoVersion(controllerIdentityVersion);
                 case PIPELINE_RATES:
                     return serverInfoVersion(pipelineRatesVersion);
                 case SECOND_SCREEN:
@@ -1072,6 +1083,7 @@ public final class HostCapabilities {
                     .put("audioLayouts", audioLayouts).put("textInputVersion", textInputVersion)
                     .put("keyboardLayoutVersion", keyboardLayoutVersion)
                     .put("penBarrelRollVersion", penBarrelRollVersion)
+                    .put("controllerIdentityVersion", controllerIdentityVersion)
                     .put("pipelineRatesVersion", pipelineRatesVersion)
                     .put("displayScaleVersion", displayScaleVersion)
                     .put("secondScreenVersion", secondScreenVersion).put("usbOffered", usbOffered)
@@ -1128,6 +1140,7 @@ public final class HostCapabilities {
             evidence.textInputVersion = object.optInt("textInputVersion", -1);
             evidence.keyboardLayoutVersion = object.optInt("keyboardLayoutVersion", -1);
             evidence.penBarrelRollVersion = object.optInt("penBarrelRollVersion", -1);
+            evidence.controllerIdentityVersion = object.optInt("controllerIdentityVersion", -1);
             evidence.pipelineRatesVersion = object.optInt("pipelineRatesVersion", -1);
             evidence.displayScaleVersion = object.optInt("displayScaleVersion", -1);
             evidence.secondScreenVersion = object.optInt("secondScreenVersion", -1);
@@ -1180,6 +1193,7 @@ public final class HostCapabilities {
                     audioCodecs == that.audioCodecs && audioLayouts == that.audioLayouts &&
                     textInputVersion == that.textInputVersion && keyboardLayoutVersion == that.keyboardLayoutVersion &&
                     penBarrelRollVersion == that.penBarrelRollVersion &&
+                    controllerIdentityVersion == that.controllerIdentityVersion &&
                     pipelineRatesVersion == that.pipelineRatesVersion && displayScaleVersion == that.displayScaleVersion &&
                     secondScreenVersion == that.secondScreenVersion &&
                     usbOffered == that.usbOffered &&
@@ -1197,7 +1211,7 @@ public final class HostCapabilities {
                     nativeApiVersion, powerActionVersion, sleepSupported, sleepAllowed, nativeCapabilities, filesUpload,
                     filesDownload, fileUploadPermission, fileDownloadPermission, hdrFormats, fecControlVersion,
                     bandwidthProbeVersion, audioCodecs, audioLayouts, textInputVersion, keyboardLayoutVersion,
-                    penBarrelRollVersion, pipelineRatesVersion, displayScaleVersion, secondScreenVersion, usbOffered, usbPermission,
+                    penBarrelRollVersion, controllerIdentityVersion, pipelineRatesVersion, displayScaleVersion, secondScreenVersion, usbOffered, usbPermission,
                     imageClipboardOffered, foldersOffered, folderPermission, coopOffered, micOnlyOffered);
         }
     }

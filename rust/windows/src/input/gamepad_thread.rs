@@ -143,7 +143,10 @@ impl Pads for Gamepads {
         Gamepads::motion_supported(self, id)
     }
     fn plugged(&self) -> bool {
-        !self.active.is_empty() || !self.decks.is_empty() || !self.dualsenses.is_empty()
+        !self.active.is_empty()
+            || !self.decks.is_empty()
+            || !self.dualsenses.is_empty()
+            || !self.switch2s.is_empty()
     }
     fn release_all(&mut self) -> Result<()> {
         Gamepads::release_all(self)

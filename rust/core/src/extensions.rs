@@ -11,8 +11,8 @@ use std::collections::BTreeMap;
 
 use anyhow::{Result, bail};
 use rubylight_protocol::{
-    audio_ext, clipboard_sync, cursor_shape, fec_report, frame_warp, hdr, keyboard_layout, pen,
-    pipeline_rates, rate_change, text_input, usb,
+    audio_ext, clipboard_sync, controller_identity, cursor_shape, fec_report, frame_warp, hdr,
+    keyboard_layout, pen, pipeline_rates, rate_change, text_input, usb,
 };
 
 pub use rubylight_protocol::fec_report::FecChoice;
@@ -95,6 +95,9 @@ pub struct Offered {
     pub second_screen: bool,
     /// `FrameWarpVersion` and Frame Warp's messages (0x5543-0x5546).
     pub frame_warp: bool,
+    /// `ControllerIdentityVersion`: controller identity packets (0x55000080)
+    /// and the C button flag.
+    pub controller_identity: bool,
     /// Rate changes (0x553C), in the DESCRIBE of a stream whose client launched with
     /// `rlRateChange=1`; no serverinfo element.
     pub rate_change: bool,
@@ -120,6 +123,7 @@ impl Offered {
         display_scale: false,
         second_screen: false,
         frame_warp: false,
+        controller_identity: false,
         rate_change: false,
         clipboard_sync: false,
     };
@@ -171,6 +175,10 @@ impl Offered {
                 crate::display_policy::SECOND_SCREEN_SERVERINFO_FIELD,
             ),
             (self.frame_warp, frame_warp::SERVERINFO_FIELD),
+            (
+                self.controller_identity,
+                controller_identity::SERVERINFO_FIELD,
+            ),
         ] {
             if offered {
                 fields.push((field, version()));
@@ -341,6 +349,7 @@ mod tests {
         display_scale: true,
         second_screen: true,
         frame_warp: true,
+        controller_identity: true,
         rate_change: true,
         clipboard_sync: true,
     };
@@ -380,6 +389,7 @@ mod tests {
                 ("DisplayScaleVersion", "1"),
                 ("SecondScreenVersion", "1"),
                 ("FrameWarpVersion", "1"),
+                ("ControllerIdentityVersion", "1"),
             ]
         );
         assert_eq!(

@@ -80,6 +80,9 @@ pub enum Feature {
     ClientKeyboardLayout,
     /// Pen barrel roll (input 0x5500000B).
     PenBarrelRoll,
+    /// Controller identities (input 0x55000080) and the C button: the host
+    /// can give a Switch 2 Pro Controller its own pad.
+    ControllerIdentity,
     /// Pipeline frame rates for the overlay (0x553D).
     PipelineRates,
     /// Dual screen mode (`SecondScreenVersion`): the host keeps a device's second stream
@@ -103,7 +106,7 @@ pub enum Feature {
 }
 
 impl Feature {
-    pub const ALL: [Feature; 47] = [
+    pub const ALL: [Feature; 48] = [
         Feature::Permissions,
         Feature::OtpPairing,
         Feature::Clipboard,
@@ -144,6 +147,7 @@ impl Feature {
         Feature::TextInput,
         Feature::ClientKeyboardLayout,
         Feature::PenBarrelRoll,
+        Feature::ControllerIdentity,
         Feature::PipelineRates,
         Feature::SecondScreen,
         Feature::ImageClipboard,
@@ -268,6 +272,7 @@ pub struct Evidence {
     pub text_input_version: i32,
     pub keyboard_layout_version: i32,
     pub pen_barrel_roll_version: i32,
+    pub controller_identity_version: i32,
     pub pipeline_rates_version: i32,
     /// -1 without `DisplayScaleVersion`: the host ignores `rlDisplayScale`.
     pub display_scale_version: i32,
@@ -375,6 +380,7 @@ impl Evidence {
             text_input_version: -1,
             keyboard_layout_version: -1,
             pen_barrel_roll_version: -1,
+            controller_identity_version: -1,
             pipeline_rates_version: -1,
             display_scale_version: -1,
             second_screen_version: -1,
@@ -426,6 +432,9 @@ impl Evidence {
                 }
                 "PenBarrelRollVersion" => {
                     e.pen_barrel_roll_version = unsigned(&text, 0xFFFF) as i32
+                }
+                "ControllerIdentityVersion" => {
+                    e.controller_identity_version = unsigned(&text, 0xFFFF) as i32
                 }
                 "PipelineRatesVersion" => e.pipeline_rates_version = unsigned(&text, 0xFFFF) as i32,
                 "DisplayScaleVersion" => e.display_scale_version = unsigned(&text, 0xFFFF) as i32,
@@ -840,6 +849,9 @@ impl Evidence {
             Feature::TextInput => self.serverinfo_version(self.text_input_version),
             Feature::ClientKeyboardLayout => self.serverinfo_version(self.keyboard_layout_version),
             Feature::PenBarrelRoll => self.serverinfo_version(self.pen_barrel_roll_version),
+            Feature::ControllerIdentity => {
+                self.serverinfo_version(self.controller_identity_version)
+            }
             Feature::PipelineRates => self.serverinfo_version(self.pipeline_rates_version),
             Feature::SecondScreen => self.serverinfo_version(self.second_screen_version),
             Feature::UsbForwarding => {

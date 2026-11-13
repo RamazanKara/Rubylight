@@ -374,6 +374,7 @@ impl Filter {
                         | Input::Battery { .. }
                         | Input::Haptics(_)
                         | Input::SteamAttributes(_)
+                        | Input::ControllerIdentity(_)
                 ),
             };
         }

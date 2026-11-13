@@ -105,6 +105,19 @@ pub trait Device: Send + 'static {
     fn output(&mut self, _endpoint: u8, _data: &[u8]) -> bool {
         false
     }
+    /// The next IN transfer of at most `length` bytes on a non-control
+    /// endpoint; by default [`Device::interrupt`]. A device whose replies can
+    /// outgrow one transfer (a bulk endpoint) hands them out a transfer at a
+    /// time. None holds the transfer as [`Device::interrupt`] does.
+    fn transfer_in(&mut self, endpoint: u8, _length: usize) -> Option<Vec<u8>> {
+        self.interrupt(endpoint)
+    }
+    /// Whether held IN transfers are tried again after an accepted OUT
+    /// transfer or [`Export::changed`]: true for a device that answers OUT
+    /// commands on an IN endpoint, or starts reporting when told to.
+    fn retries_held(&self) -> bool {
+        false
+    }
     /// Maximum packet size and frame alignment for a 1 ms isochronous endpoint.
     fn iso_layout(&self, _endpoint: u8, _input: bool) -> Option<(usize, usize)> {
         None
@@ -207,6 +220,12 @@ struct Link {
     changed: bool,
 }
 impl Link {
+    /// Puts held transfers back in line, to be served at once.
+    fn retry_held(&mut self) {
+        let held = std::mem::take(&mut self.held);
+        self.pending.extend(held);
+        self.changed = true;
+    }
     /// Sends a reply; a client that cannot take it is disconnected.
     fn send(&mut self, b: &[u8]) {
         if let Some(stream) = &mut self.stream
@@ -310,7 +329,13 @@ impl<D: Device> Export<D> {
     }
     /// Reports the device's new state without waiting for the period.
     pub fn changed(&self) {
-        self.shared.link.lock().unwrap().changed = true;
+        let retry = self.shared.device.lock().unwrap().retries_held();
+        let mut link = self.shared.link.lock().unwrap();
+        link.changed = true;
+        if retry {
+            link.retry_held();
+        }
+        drop(link);
         self.shared.wake.notify_all();
     }
 }
@@ -619,14 +644,28 @@ fn serve<D: Device>(shared: &Shared<D>, stream: TcpStream) -> io::Result<()> {
                     shared.wake.notify_all();
                     continue;
                 } else {
-                    let accepted = shared.device.lock().unwrap().output(endpoint as u8, &data);
-                    ret(
+                    let (accepted, retry) = {
+                        let mut device = shared.device.lock().unwrap();
+                        let accepted = device.output(endpoint as u8, &data);
+                        (accepted, accepted && device.retries_held())
+                    };
+                    let reply = ret(
                         RET_SUBMIT,
                         seqnum,
                         if accepted { 0 } else { EPIPE },
                         None,
                         if accepted { length } else { 0 },
-                    )
+                    );
+                    // The OUT transfer completes before the IN transfer that
+                    // carries its answer, as on the wire.
+                    let mut link = shared.link.lock().unwrap();
+                    link.send(&reply);
+                    if retry {
+                        link.retry_held();
+                        drop(link);
+                        shared.wake.notify_all();
+                    }
+                    continue;
                 };
                 shared.link.lock().unwrap().send(&reply);
             }
@@ -747,7 +786,7 @@ fn report<D: Device>(shared: &Shared<D>) {
             }
             served |= bit;
             link.pending.remove(i);
-            match device.interrupt(transfer.endpoint) {
+            match device.transfer_in(transfer.endpoint, transfer.length) {
                 Some(mut data) => {
                     data.truncate(transfer.length);
                     let reply = ret(RET_SUBMIT, transfer.seqnum, 0, Some(&data), data.len());
@@ -1081,5 +1120,68 @@ mod tests {
     }
     fn reply_len(client: &mut TcpStream) -> usize {
         reply(client).3.len()
+    }
+
+    /// A bulk IN transfer waiting before its command is answered once the
+    /// command arrives, after the command's own completion, and the held
+    /// HID transfer starts reporting once the command starts the reports.
+    #[test]
+    fn a_held_bulk_read_gets_the_answer_to_the_command_sent_after_it() {
+        use crate::switch2::{REPORT_PERIOD as PERIOD, Switch2Pro};
+        let export = Export::listen(Switch2Pro::new("TEST"), PERIOD).unwrap();
+        let mut client = TcpStream::connect((Ipv4Addr::LOCALHOST, export.port())).unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut request = op_reply(OP_REQ_IMPORT, 0);
+        let mut busid = [0u8; 32];
+        busid[..3].copy_from_slice(b"1-1");
+        request.extend_from_slice(&busid);
+        client.write_all(&request).unwrap();
+        let mut answer = [0u8; 8 + 312];
+        client.read_exact(&mut answer).unwrap();
+        assert_eq!(&answer[8 + 300..8 + 304], &[0x05, 0x7e, 0x20, 0x69]);
+        assert_eq!(answer[8 + 311], 2, "two interfaces");
+        // The HID report and the bulk reply wait: nothing is started yet.
+        submit(&mut client, 1, 1, true, 64, [0; 8], &[]);
+        submit(&mut client, 2, 2, true, 64, [0; 8], &[]);
+        // Select report 0x05, then start the reports.
+        let select = [
+            0x03, 0x91, 0x00, 0x0a, 0x00, 0x04, 0x00, 0x00, 0x05, 0, 0, 0,
+        ];
+        submit(
+            &mut client,
+            3,
+            2,
+            false,
+            select.len() as u32,
+            [0; 8],
+            &select,
+        );
+        // An OUT completion carries no data.
+        let out_reply = |client: &mut TcpStream| {
+            let mut h = [0u8; 48];
+            client.read_exact(&mut h).unwrap();
+            (be32(&h, 0), be32(&h, 4), be32(&h, 20) as i32)
+        };
+        assert_eq!(out_reply(&mut client), (RET_SUBMIT, 3, 0));
+        let (_, seqnum, status, data) = reply(&mut client);
+        assert_eq!((seqnum, status), (2, 0));
+        assert_eq!(&data[..4], &[0x03, 0x01, 0x00, 0x0a]);
+        let start = [
+            0x03, 0x91, 0x00, 0x0d, 0x00, 0x08, 0x00, 0x00, 1, 0, 0xff, 0xff, 0xff, 0xff, 0xff,
+            0xff,
+        ];
+        submit(&mut client, 4, 2, false, start.len() as u32, [0; 8], &start);
+        assert_eq!(out_reply(&mut client), (RET_SUBMIT, 4, 0));
+        submit(&mut client, 5, 2, true, 64, [0; 8], &[]);
+        let mut seen = std::collections::BTreeMap::new();
+        for _ in 0..2 {
+            let (_, seqnum, status, data) = reply(&mut client);
+            assert_eq!(status, 0);
+            seen.insert(seqnum, data);
+        }
+        assert_eq!(seen[&1][0], 0x05, "the held HID read reports");
+        assert_eq!(&seen[&5][..4], &[0x03, 0x01, 0x00, 0x0d]);
     }
 }

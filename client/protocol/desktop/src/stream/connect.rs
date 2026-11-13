@@ -1149,6 +1149,9 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
     // DESCRIBE attribute; other Sunshine-family hosts may send the attribute alone.
     let pen_barrel_roll = plan.info.capabilities.has(Feature::PenBarrelRoll) && session.outcome().host_pen_barrel_roll;
     session.input(|q| q.set_pen_barrel_roll(pen_barrel_roll));
+    // Controller identities and the C button go only to a host with ControllerIdentityVersion.
+    let controller_identity = plan.info.capabilities.has(Feature::ControllerIdentity);
+    session.input(|q| q.set_controller_identity(controller_identity));
     Ok((session, facts))
 }
 

@@ -18,6 +18,7 @@ mod fuzz;
 pub mod audio_ext;
 pub mod clipboard_sync;
 pub mod control;
+pub mod controller_identity;
 pub mod cursor_shape;
 pub mod fec_report;
 pub mod frame_warp;

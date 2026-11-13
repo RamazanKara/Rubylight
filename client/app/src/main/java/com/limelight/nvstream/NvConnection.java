@@ -2350,6 +2350,16 @@ public class NvConnection {
         }
     }
 
+    /**
+     * Tells a host with ControllerIdentityVersion which controller this is (USB vendor and product),
+     * before its arrival. Nothing is sent to other hosts or without the Rust engine.
+     */
+    public int sendControllerIdentityEvent(byte controllerNumber, int vendorId, int productId) {
+        if (vendorId == 0 && productId == 0) return 0;
+        return canSendControllerInput() ? MoonBridge.sendControllerIdentityEvent(controllerNumber, vendorId, productId)
+                : MoonBridge.LI_ERR_UNSUPPORTED;
+    }
+
     public int sendControllerArrivalEvent(byte controllerNumber, short activeGamepadMask, byte type,
                                           int supportedButtonFlags, short capabilities) {
         return canSendControllerInput() ? MoonBridge.sendControllerArrivalEvent(controllerNumber, activeGamepadMask,

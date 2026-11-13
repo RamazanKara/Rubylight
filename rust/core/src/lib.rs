@@ -126,6 +126,7 @@ pub mod state;
 pub mod statistical_fec;
 pub mod steam;
 pub mod steam_deck;
+pub mod switch2;
 pub mod steam_feedback;
 pub mod steam_pad;
 pub mod stream_policy;

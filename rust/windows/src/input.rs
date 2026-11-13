@@ -31,6 +31,7 @@ mod gamepad_thread;
 mod gamepads;
 mod keyboard_mouse;
 mod steam_deck_pad;
+mod switch2_pad;
 mod touch_pen;
 mod usbip_pad;
 mod vigem;
@@ -74,7 +75,7 @@ pub fn capabilities(config: &butterpollo_core::config::Config) -> u32 {
     if config.boolean("controller", true)
         && !matches!(
             config.get("gamepad", "auto"),
-            "vhf_xbox" | "vhf_xbox_one" | "vhf_switch" | "vigem_x360"
+            "vhf_xbox" | "vhf_xbox_one" | "vhf_switch" | "usbip_switch2" | "vigem_x360"
         )
     {
         // Moonlight has one general controller-touch feature bit; there is
@@ -882,6 +883,7 @@ impl Injector {
             // Only the VHF Steam Controller profile takes them.
             Controller { .. }
             | SteamAttributes(_)
+            | ControllerIdentity(_)
             | Arrival { .. }
             | ControllerTouch { .. }
             | Motion { .. }

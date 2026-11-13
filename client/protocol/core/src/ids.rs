@@ -8,8 +8,9 @@
 //! for the messages it takes over from them as they are.
 
 use crate::{
-    clipboard_sync, control, cursor_shape, fec_report, frame_warp, keyboard_layout, pen, phase_lock,
-    pipeline_rates, rate_change, steam_controller, text_input, usb,
+    clipboard_sync, control, controller_identity, cursor_shape, fec_report, frame_warp,
+    keyboard_layout, pen, phase_lock, pipeline_rates, rate_change, steam_controller, text_input,
+    usb,
 };
 use core::ops::RangeInclusive;
 
@@ -131,6 +132,7 @@ pub const INPUT_MAGICS: &[(u32, &str)] = &[
         "Steam Controller attributes",
     ),
     (pen::PEN_BARREL_ROLL_MAGIC, "pen with barrel roll"),
+    (controller_identity::CONTROLLER_IDENTITY_MAGIC, "controller identity"),
 ];
 
 /// Input magics other clients use for touchpad packets.

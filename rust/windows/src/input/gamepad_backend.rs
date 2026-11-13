@@ -1,7 +1,9 @@
 use super::gamepads::{GamepadTouchRequest, request};
 use super::{open_interface, vigem};
 use anyhow::{Context, Result, bail};
-use butterpollo_core::input_policy::{USBIP_DUALSENSE, VHF_AUTO, VIGEM_PROFILES, VIGEM_X360};
+use butterpollo_core::input_policy::{
+    USBIP_DUALSENSE, USBIP_SWITCH2, VHF_AUTO, VHF_SWITCH, VIGEM_PROFILES, VIGEM_X360,
+};
 use windows::{
     Win32::{Foundation::*, System::IO::DeviceIoControl},
     core::GUID,
@@ -57,6 +59,10 @@ impl Backend {
     pub(super) fn open(profile: u16) -> Result<(Self, u32)> {
         if profile == USBIP_DUALSENSE {
             return Ok((Self::Vhf(None), 1 << 5));
+        }
+        // Every controller is a Switch 2 Pro Controller over usbip-win2.
+        if profile == USBIP_SWITCH2 {
+            return Ok((Self::Vhf(None), 1 << (VHF_SWITCH - 1)));
         }
         if profile == VIGEM_X360 {
             return Self::vigem(vigem::Client::open());

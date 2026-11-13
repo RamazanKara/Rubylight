@@ -8,6 +8,10 @@ use std::{collections::BTreeMap, time::Duration};
 pub const VHF_AUTO: u16 = 10;
 /// Composite HID + USB audio through usbip-win2.
 pub const USBIP_DUALSENSE: u16 = 11;
+/// A Switch 2 Pro Controller (057e:2069) through usbip-win2: what automatic
+/// selection gives a client's own Switch 2 Pro Controller, and every
+/// controller when `gamepad = usbip_switch2` chooses it.
+pub const USBIP_SWITCH2: u16 = 12;
 pub const VHF_XBOX_ONE: u16 = 3;
 pub const VHF_XBOX_SERIES: u16 = 4;
 pub const VHF_DS4: u16 = 5;
@@ -132,6 +136,7 @@ pub fn gamepad_profile(value: &str) -> u16 {
         "vhf_ds4" | "ds4" => VHF_DS4,
         "vhf_ds5" | "ds5" => VHF_DUALSENSE,
         "usbip_ds5" => USBIP_DUALSENSE,
+        "usbip_switch2" => USBIP_SWITCH2,
         "vhf_switch" => VHF_SWITCH,
         "vhf_steam" => VHF_STEAM_CONTROLLER,
         "vhf" => VHF_AUTO,
@@ -333,6 +338,19 @@ impl Policy {
     }
 }
 
+/// Whether a controller becomes a Switch 2 Pro Controller over usbip-win2:
+/// `configured` (the host's or the device's `gamepad`) chose it by name, or
+/// it is automatic and the client said the controller is a Switch 2 Pro
+/// Controller (`identity`, USB vendor and product). Every other controller
+/// keeps the pad it had.
+pub fn wants_switch2(configured: u16, identity: Option<(u16, u16)>) -> bool {
+    configured == USBIP_SWITCH2
+        || (matches!(configured, 0 | VHF_AUTO)
+            && identity.is_some_and(|(vendor, product)| {
+                rubylight_protocol::controller_identity::is_switch2_pro(vendor, product)
+            }))
+}
+
 /// `back_button_timeout`: how long Select is held before the host presses
 /// Guide (see [`BackButton`]), `None` when off (any negative value).
 pub fn back_button_timeout(config: &Config) -> Option<Duration> {
@@ -415,6 +433,21 @@ mod tests {
         }
         let config = Config::parse("gamepad=vigem_x360\n").unwrap();
         assert_eq!(Policy::resolve(&config).unwrap().session_pad, VIGEM_X360);
+    }
+    #[test]
+    fn only_a_switch2_pro_or_the_named_choice_gets_the_usb_switch2_pad() {
+        assert_eq!(gamepad_profile("usbip_switch2"), USBIP_SWITCH2);
+        let pro = Some((0x057E, 0x2069));
+        assert!(wants_switch2(0, pro));
+        assert!(wants_switch2(VHF_AUTO, pro));
+        // A Switch 1 Pro Controller and controllers without an identity stay as they were.
+        assert!(!wants_switch2(0, Some((0x057E, 0x2009))));
+        assert!(!wants_switch2(0, None));
+        // A pad chosen by name wins over the identity, and the named Switch 2 pad
+        // is every controller's.
+        assert!(!wants_switch2(VHF_SWITCH, pro));
+        assert!(!wants_switch2(VHF_XBOX_SERIES, pro));
+        assert!(wants_switch2(USBIP_SWITCH2, None));
     }
     #[test]
     fn retired_vigem_choices_select_the_vhf_pad_of_their_family() {

@@ -2168,7 +2168,8 @@ pub(super) fn drop_uninjectable_input(inputs: &mut Vec<input::Input>) {
         let keep = match event {
             input::Input::Arrival { .. }
             | input::Input::Haptics(_)
-            | input::Input::SteamAttributes(_) => true,
+            | input::Input::SteamAttributes(_)
+            | input::Input::ControllerIdentity(_) => true,
             input::Input::Controller { .. } => latest.iter().any(|(_, kept)| *kept == at),
             _ => false,
         };

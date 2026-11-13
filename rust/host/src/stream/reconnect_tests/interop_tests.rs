@@ -932,6 +932,7 @@ const SERVERINFO_FIELDS: &[(&str, Reading)] = &[
     ("PenBarrelRollVersion", Reading::Read),
     ("SecondScreenVersion", Reading::Read),
     ("FrameWarpVersion", Reading::Read),
+    ("ControllerIdentityVersion", Reading::Read),
     (
         "RustHostSessionCount",
         Reading::Ignored("diagnostics for scripts and the release harness"),
@@ -1053,7 +1054,7 @@ fn expected(feature: Feature) -> Availability {
         // `frame_warp` is on by default.
         Feature::FrameWarp => Supported,
         // Keyboard follows focus, the device's layout and pen barrel roll are on by default.
-        Feature::TextInput | Feature::ClientKeyboardLayout | Feature::PenBarrelRoll => Supported,
+        Feature::TextInput | Feature::ClientKeyboardLayout | Feature::PenBarrelRoll | Feature::ControllerIdentity => Supported,
         Feature::ServerCommands => Unsupported(Some(Reason::NoCommands)),
         // Display modes are the virtual display's. Before Windows 11 (CI's Server 2022)
         // the default mode is disabled, so the host says it is off, not missing a driver.

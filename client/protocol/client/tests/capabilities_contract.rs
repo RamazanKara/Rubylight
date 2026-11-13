@@ -100,6 +100,7 @@ fn feature_name(feature: Feature) -> &'static str {
         Feature::TextInput => "text_input",
         Feature::ClientKeyboardLayout => "client_keyboard_layout",
         Feature::PenBarrelRoll => "pen_barrel_roll",
+        Feature::ControllerIdentity => "controller_identity",
         Feature::PipelineRates => "pipeline_rates",
         Feature::SecondScreen => "second_screen",
         Feature::ImageClipboard => "image_clipboard",

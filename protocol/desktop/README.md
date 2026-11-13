@@ -359,6 +359,7 @@ The launcher and the stream share one SDL3 window and one `SDL_Renderer`. egui i
 | `NIGHTJAR_AUTOSTREAM=address[:port]` | Measurement only: starts one stream without the launcher and ends it after `NIGHTJAR_AUTOSTREAM_SECONDS` (default 60), with `NIGHTJAR_AUTOSTREAM_APP` (default "Desktop") and, for an unpaired PC, `NIGHTJAR_AUTOSTREAM_PIN` (default 1234, entered on the PC). `NIGHTJAR_AUTOSTREAM_START_SECONDS` sets the setup timeout including PIN entry (default 90). Exits with 0 after a full run and 2 otherwise. |
 | `NIGHTJAR_BEAM_RACE`, `NIGHTJAR_EARLY_DECODE` | Turn on [beam racing](../../docs/beam-racing.md) and [early decode](../../docs/early-decode.md) for PyroWave, as the `beam_race` and `early_decode` settings keys do. |
 | `NIGHTJAR_D3D11_PASS`, `NIGHTJAR_D3D11_BIND`, `NIGHTJAR_DMABUF`, `NIGHTJAR_VRR_CHECK`, `NIGHTJAR_VRR_SYNC`, `NIGHTJAR_VRR_LFC` | A/B switches for the presentation paths described above. |
+| `NIGHTJAR_MAC_VRR=1` | macOS: Real VRR on a display that reports a refresh range (`src/mac_display.rs`, NSScreen's shortest and longest refresh interval, logged at start). The stream then presents synchronised at the PC's frame times. Built and not measured on a display, so it is off without the switch. |
 | `NIGHTJAR_AMD_LOW_LATENCY_DECODE` | Linux, on unless `0`: asks AMD's Mesa drivers for their low-latency video decode (`lowlatencydec` in `AMD_DEBUG` and `RADV_PERFTEST`), keeping the user's own flags; programs Nightjar starts get the original values (`src/amd_decode.rs`). |
 | `NIGHTJAR_FORCE_VAAPI` | Linux: `1` keeps VA-API in the decoder order on a VA driver that wraps another API (nvidia-vaapi-driver, the VDPAU backend). |
 | `NIGHTJAR_VULKAN_VIDEO` | Linux: `1` tries Vulkan video first and picks the GPU renderer for it, `0` leaves Vulkan video out, and the GPU renderer's device is made without its video extensions. |
@@ -439,8 +440,9 @@ Nightjar's desktop client ports logic and approaches from:
 - Nonary's (Chase Payne) moonlight-qt fork (GPL-3.0): the reference for VRR pacing,
   tearing presentation and D3D11VA rendering that this client's pacing and decoder path
   were checked against. The Linux high-performance GPU power hold (`src/stream/gpu_hold.rs`) is
-  ported from its `app/streaming/gpuperformancehold.{h,cpp}` at commit 19758e5e6, as is the
-  Windows VRR sync switch `blank` (its D3D11 flip protection, `d3d11presentpolicy.h`).
+  ported from its `app/streaming/gpuperformancehold.{h,cpp}` at commit 19758e5e6, as are the
+  Windows VRR sync switch `blank` (its D3D11 flip protection, `d3d11presentpolicy.h`) and what
+  macOS reports about a display's refresh range (`macdisplaytiming.{h,mm}`).
 - [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c) (GPL-3.0),
   through `nightjar-core`.
 

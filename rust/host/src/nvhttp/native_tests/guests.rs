@@ -105,7 +105,12 @@ async fn the_feature_follows_the_setting() {
     let s = Setup::new();
     let listed = |caps: Capabilities| caps.features.iter().any(|f| f == "session.guests");
     let caps: Capabilities = serde_json::from_slice(&s.get("/capabilities").await.body).unwrap();
-    assert!(listed(caps), "asks by default");
+    assert!(!listed(caps), "off by default");
+    for policy in ["ask", "allow"] {
+        set(&s, "guest_join", policy);
+        let caps: Capabilities = serde_json::from_slice(&s.get("/capabilities").await.body).unwrap();
+        assert!(listed(caps), "{policy}");
+    }
     set(&s, "guest_join", "off");
     let caps: Capabilities = serde_json::from_slice(&s.get("/capabilities").await.body).unwrap();
     assert!(!listed(caps));
@@ -114,6 +119,7 @@ async fn the_feature_follows_the_setting() {
 #[tokio::test]
 async fn a_join_waits_until_the_device_playing_lets_it_in() {
     let s = Setup::new();
+    set(&s, "guest_join", "ask");
     let _owner = s.streaming();
     let (phone, phone_connection) = device(&s, "phone", "Phone", ALL);
     let waiting = join(&s, &phone);
@@ -161,6 +167,7 @@ async fn a_join_waits_until_the_device_playing_lets_it_in() {
 #[tokio::test]
 async fn a_denied_join_is_refused_and_the_owners_own_join_is_no_guests() {
     let s = Setup::new();
+    set(&s, "guest_join", "ask");
     let _owner = s.streaming();
     let (phone, _) = device(&s, "phone", "Phone", ALL);
     let waiting = join(&s, &phone);

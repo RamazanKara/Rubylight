@@ -15,9 +15,9 @@ What happens next follows **When another device joins the running game** (`guest
 
 | Value | What happens |
 | --- | --- |
-| **Ask the player** (`ask`, default) | The join waits up to 45 seconds while the owner's Nightjar and the console's Home page show the request. **Let in** starts the guest's stream; **Deny**, or no answer, refuses it with the reason. |
+| **Ask the player** (`ask`) | The join waits up to 45 seconds while the owner's Nightjar and the console's Home page show the request. **Let in** starts the guest's stream; **Deny**, or no answer, refuses it with the reason. |
 | **Let in without asking** (`allow`) | The device joins at once with **What a guest may do**. The owner can still change, kick or block it. |
-| **Off** (`off`) | The device streams beside the game with its own device permissions, as before guests existed. |
+| **Off** (`off`, default) | The device streams beside the game with its own device permissions, as before guests existed. One person moving between their own devices joins or resumes without anyone answering. |
 
 A join is refused with a reason the client shows:
 

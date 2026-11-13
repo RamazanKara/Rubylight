@@ -35,12 +35,15 @@ pub const MIN_LIFETIME: Duration = Duration::from_secs(5 * 60);
 pub const MAX_LIFETIME: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 /// Whether a device joining another device's game becomes a guest (`guest_join`).
+///
+/// Off by default: one person moving between their own devices (phone to TV) joins or resumes
+/// without anyone answering, as before guests, and stock Moonlight would time out waiting.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum JoinPolicy {
     /// A join streams beside the owner with the device's own permissions, as before guests.
+    #[default]
     Off,
     /// A join waits for the owner, or the console, to let it in.
-    #[default]
     Ask,
     /// A join becomes a guest at once, with the default permission.
     Allow,
@@ -64,9 +67,9 @@ impl JoinPolicy {
         }
     }
 
-    /// `guest_join`; an unknown value asks, the safe reading.
+    /// `guest_join`, off when unset; an unknown value asks, the safe reading.
     pub fn from_config(config: &Config) -> Self {
-        Self::parse(config.get(JOIN_SETTING, "ask")).unwrap_or_default()
+        Self::parse(config.get(JOIN_SETTING, "off")).unwrap_or(Self::Ask)
     }
 }
 

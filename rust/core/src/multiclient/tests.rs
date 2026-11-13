@@ -34,7 +34,9 @@ fn the_policy_reads_its_setting_and_asks_when_it_cannot() {
         let config = Config::parse(&format!("{JOIN_SETTING} = {text}\n")).unwrap();
         assert_eq!(JoinPolicy::from_config(&config), policy);
     }
-    assert_eq!(JoinPolicy::from_config(&Config::default()), JoinPolicy::Ask);
+    // Unset is off: a device that resumes another device's game joins as before guests.
+    assert_eq!(JoinPolicy::from_config(&Config::default()), JoinPolicy::Off);
+    assert_eq!(JoinPolicy::default(), JoinPolicy::Off);
     let odd = Config::parse(&format!("{JOIN_SETTING} = maybe\n")).unwrap();
     assert_eq!(JoinPolicy::from_config(&odd), JoinPolicy::Ask);
     assert_eq!(

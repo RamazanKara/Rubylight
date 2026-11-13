@@ -153,7 +153,7 @@ Each default below is what a fresh install uses, checked against the host code. 
 | Close the app when the last device disconnects — `terminate_on_pause` | `false` | The game keeps running so you can reconnect. |
 | Steam library — `steam_enabled` | `true` | Steam games appear with their covers. Every other launcher you install adds its games the same way. |
 | Co-op players — `nucleus_coop_players` | `4` | The game's handler and the free controller slots can allow fewer. |
-| When another device joins the running game — `guest_join` | `ask` | Nobody joins your game without you letting them in. |
+| When another device joins the running game — `guest_join` | `off` | Your own devices join or resume the running game as before; choose Ask the player to let guests in yourself. |
 | What a guest may do — `guest_permission` | `controller` | A guest plays with its own controller; the keyboard and mouse stay yours until you hand them over. |
 | Sleep after idle — `sleep_after_idle_minutes` | `0` (off) | The PC sleeps only when you ask it to. |
 | Lock Windows when the last device leaves — `lock_on_last_disconnect` | `false` | Locking changes what you find at the PC after a stream, so it waits for you to ask, as in Parsec and Apollo. |
@@ -898,7 +898,7 @@ Games with anti-cheat that refuses virtual machines will not start in the VM.
 
 A second paired device that joins the game another device plays (Nightjar's **Join**, or a Moonlight client starting or resuming the running app) becomes that device's guest: the same picture and sound with an encoder of its own, its own controller, and the keyboard and mouse only if granted ([Guests from other devices](multiclient.md)). Two settings under **All settings → Games → Play together** shape it:
 
-- **When another device joins the running game** (`guest_join`, default `ask`). **Ask the player** waits up to 45 seconds for the device playing, or the console's Home, to let it in. **Let in without asking** admits it at once. **Off** streams it beside the game with its device permissions, as before guests.
+- **When another device joins the running game** (`guest_join`, default `off`). **Off** streams it beside the game with its device permissions, as before guests: one person moving between their own devices needs no answer. **Ask the player** waits up to 45 seconds for the device playing, or the console's Home, to let it in. **Let in without asking** admits it at once.
 - **What a guest may do** (`guest_permission`, default `controller`). **View only**, **Controller**, or **Controller, keyboard and mouse**. This is used when nobody chooses for the guest; the player can change it for each guest.
 
 Both apply to the next join. Guests changed in the console or Nightjar take effect at once.
@@ -1397,7 +1397,7 @@ Every setting in the console, by the console's tabs and groups, with its key and
 | Game folders: Folders to leave out | `library_local_exclude` | none | Game folders Add games never lists, by name (Tools) or full path (D:\Games\Tools). |
 | Play together: Nucleus Co-op folder | `nucleus_path` | empty | The folder you unpacked Nucleus Co-op 2.4.2 into, under C:\Program Files. Empty: an earlier Rubylight's install, if any. |
 | Play together: Co-op players | `nucleus_coop_players` | `4` | The most players a Nucleus co-op session gets. The game's handler and the free controller slots can allow fewer. |
-| Play together: When another device joins the running game | `guest_join` | `ask` (Ask the player) | Whether a paired device that resumes the game another device plays joins as a guest, and whether the player lets it in first. Off streams it beside the game, as before guests. |
+| Play together: When another device joins the running game | `guest_join` | `off` (Off, stream beside the game) | Whether a paired device that resumes the game another device plays joins as a guest, and whether the player lets it in first. Off streams it beside the game, as before guests. |
 | Play together: What a guest may do | `guest_permission` | `controller` (Controller) | What a guest from another device may do when it is let in without choosing. The player can change it for each guest. |
 | Lossless Scaling: Lossless Scaling program | `lossless_scaling_path` | empty | LosslessScaling.exe or its folder, for apps that use Lossless Scaling. Empty finds it in Steam libraries and the usual folders. |
 | Lossless Scaling: Let Lossless Scaling start by itself | `lossless_scaling_legacy_auto_detect` | `false` | Uses Lossless Scaling’s auto scale for the game instead of pressing its hotkey, and leaves its window open. An app can choose otherwise. |

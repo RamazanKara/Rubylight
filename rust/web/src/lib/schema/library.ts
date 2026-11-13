@@ -561,12 +561,12 @@ export const settings: Setting[] = [
     control: {
       kind: 'select',
       options: [
+        { value: 'off', label: 'Off, stream beside the game' },
         { value: 'ask', label: 'Ask the player' },
         { value: 'allow', label: 'Let in without asking' },
-        { value: 'off', label: 'Off, stream beside the game' },
       ],
     },
-    default: 'ask',
+    default: 'off',
   },
   {
     key: 'guest_permission',
@@ -585,6 +585,6 @@ export const settings: Setting[] = [
       ],
     },
     default: 'controller',
-    visibleWhen: (values) => String(values.guest_join ?? 'ask').trim() !== 'off',
+    visibleWhen: (values) => String(values.guest_join ?? 'off').trim() !== 'off',
   },
 ];

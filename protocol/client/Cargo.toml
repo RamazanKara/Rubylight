@@ -29,6 +29,8 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 rubylight-native-api = { git = "https://github.com/RamazanKara/Rubylight", rev = "17fc45bb7ab4c7528d4f533916f4ea79eb9653a3", package = "rubylight-native-api" }
 serde = "1"
 serde_json = "1"
+# Internet play: the rendezvous, hole punching and the tunnel, shared with the host.
+rubylight-traverse = { path = "../traverse" }
 # Receive buffer sizes on the media sockets.
 socket2 = "0.5"
 

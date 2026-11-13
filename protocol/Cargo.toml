@@ -1,7 +1,7 @@
 [workspace]
-members = ["core", "client", "ffi", "difftest", "cli", "android", "desktop", "policy"]
+members = ["core", "client", "ffi", "difftest", "cli", "android", "desktop", "policy", "traverse"]
 # The desktop client needs SDL3 and FFmpeg; plain `cargo test` here stays the engine's.
-default-members = ["core", "client", "ffi", "difftest", "cli", "android", "policy"]
+default-members = ["core", "client", "ffi", "difftest", "cli", "android", "policy", "traverse"]
 exclude = ["vendor/sdl3-src"]
 resolver = "2"
 

@@ -15,18 +15,18 @@ pub(super) async fn handle(h: &Shared, method: &Method, path: &str, body: &[u8])
     if method != Method::POST {
         return error(StatusCode::METHOD_NOT_ALLOWED, "use POST");
     }
-    let json = || -> Result<Value, Response> {
+    // None for a body that is not JSON; the caller answers 400 (a Response is too large an Err).
+    let json = || -> Option<Value> {
         if body.is_empty() {
-            return Ok(Value::Object(Default::default()));
+            return Some(Value::Object(Default::default()));
         }
-        serde_json::from_slice(body).map_err(|_| error(StatusCode::BAD_REQUEST, "invalid JSON"))
+        serde_json::from_slice(body).ok()
     };
     let h = h.clone();
     match path {
         "/api/backup/export" => {
-            let data = match json() {
-                Ok(data) => data,
-                Err(response) => return response,
+            let Some(data) = json() else {
+                return error(StatusCode::BAD_REQUEST, "invalid JSON");
             };
             // Secrets only when asked for in so many words.
             let secrets = data.get("secrets").and_then(Value::as_bool) == Some(true);
@@ -71,9 +71,8 @@ pub(super) async fn handle(h: &Shared, method: &Method, path: &str, body: &[u8])
             }
         }
         "/api/backup/restore" => {
-            let data = match json() {
-                Ok(data) => data,
-                Err(response) => return response,
+            let Some(data) = json() else {
+                return error(StatusCode::BAD_REQUEST, "invalid JSON");
             };
             let token = data
                 .get("token")

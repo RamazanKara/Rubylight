@@ -93,15 +93,6 @@ impl<D: Device> Slot<D> {
         matches!(&self.inner.lock().unwrap().state, State::Plugged(pad)
             if pad.export.as_ref().is_some_and(|export| export.imported()))
     }
-    pub fn availability(&self) -> Availability {
-        match &self.inner.lock().unwrap().state {
-            State::Plugged(_) => Availability::Ready,
-            State::Plugging => Availability::Plugging,
-            State::Failed { error, .. } => Availability::Failed(error.clone()),
-            State::Unplugged if usbip_exe().is_none() => Availability::NoDriver,
-            State::Unplugged => Availability::Plugging,
-        }
-    }
     /// Plugs in the device `make` builds, on a thread of its own, unless it is plugged in,
     /// on its way, or failed less than [`RETRY`] ago. Returns where it stands.
     pub fn plug(&'static self, make: impl FnOnce() -> D + Send + 'static) -> Availability {

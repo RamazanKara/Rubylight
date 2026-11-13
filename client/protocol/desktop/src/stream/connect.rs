@@ -856,6 +856,8 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
         rate_change: rate_change::asked_at_launch(role),
         clipboard_sync: settings.clipboard_sync && role != AppRole::RemoteMonitor,
         display_luminance: plan.display_luminance,
+        rtx_hdr: settings.rtx_hdr,
+        rtx_video: settings.rtx_video,
         ..Default::default()
     };
     let port = if plan.record.http_port == 0 {

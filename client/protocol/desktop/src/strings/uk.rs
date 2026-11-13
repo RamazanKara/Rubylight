@@ -1559,4 +1559,8 @@ sudo sysctl -w net.core.rmem_max={}", "Буфер приймання: систе
     ("Nobody has joined your game", "До вашої гри ніхто не приєднався"),
     ("Take back keyboard", "Забрати клавіатуру"),
     ("Give keyboard", "Віддати клавіатуру"),
+    ("RTX HDR", "RTX HDR"),
+    ("RTX Video", "RTX Video"),
+    ("Turns the PC game’s SDR picture into HDR in HDR streams.", "Перетворює SDR-зображення гри на ПК на HDR у HDR-трансляціях."),
+    ("Cleans up and sharpens the picture on the PC before it is encoded.", "Очищує та підвищує різкість зображення на ПК перед кодуванням."),
 ];

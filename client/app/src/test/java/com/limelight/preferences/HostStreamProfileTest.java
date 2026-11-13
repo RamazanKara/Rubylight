@@ -285,10 +285,27 @@ public class HostStreamProfileTest {
     }
 
     @Test
+    public void aPcsImageEnhancementChoicesRoundTripAndOverrideTheAppSetting() {
+        HostStreamProfile profile = HostStreamProfile.deserialize("v2;rtx_hdr=true;rtx_video=false");
+        assertEquals(Boolean.TRUE, profile.rtxHdr);
+        assertEquals(Boolean.FALSE, profile.rtxVideo);
+        assertEquals("v2;rtx_hdr=true;rtx_video=false", profile.serialize());
+        PreferenceConfiguration config = new PreferenceConfiguration();
+        assertNull(config.rtxHdr);
+        assertNull(config.rtxVideo);
+        profile.applyTo(config);
+        assertEquals(Boolean.TRUE, config.rtxHdr);
+        assertEquals(Boolean.FALSE, config.rtxVideo);
+        // Unset, they follow the PC's app setting.
+        assertTrue(HostStreamProfile.deserialize("v2").isEmpty());
+        assertFalse(HostStreamProfile.deserialize("v2;rtx_video=true").isEmpty());
+    }
+
+    @Test
     public void everyFieldCanBeCopiedAloneAndFallsThroughWhenUnset() {
         HostStreamProfile full = HostStreamProfile.deserialize("v2;res=1920x1080;refresh=6000;bitrate=20000;" +
                 "scale=150;dpi=175;codec=FORCE_AV1;virtual=true;hdr=true;full_range=true;yuv444=true;vrr=false;" +
-                "upscaling=FSR1;sharpness=60;pacing=balanced");
+                "upscaling=FSR1;sharpness=60;pacing=balanced;rtx_hdr=true;rtx_video=false");
         assertEquals(HostStreamProfile.Field.values().length, full.count());
         HostStreamProfile copy = new HostStreamProfile();
         for (HostStreamProfile.Field field : HostStreamProfile.Field.values()) {

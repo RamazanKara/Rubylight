@@ -1559,4 +1559,8 @@ sudo sysctl -w net.core.rmem_max={}", "受信バッファー：システムは�
     ("Nobody has joined your game", "まだ誰も参加していません"),
     ("Take back keyboard", "キーボードを戻す"),
     ("Give keyboard", "キーボードを渡す"),
+    ("RTX HDR", "RTX HDR"),
+    ("RTX Video", "RTX Video"),
+    ("Turns the PC game’s SDR picture into HDR in HDR streams.", "HDRストリームでPCのゲームのSDR映像をHDRに変換します。"),
+    ("Cleans up and sharpens the picture on the PC before it is encoded.", "エンコード前にPCで映像のノイズを除去し、鮮明にします。"),
 ];

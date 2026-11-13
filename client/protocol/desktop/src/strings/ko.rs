@@ -1559,4 +1559,8 @@ sudo sysctl -w net.core.rmem_max={}", "수신 버퍼: 시스템이 요청한 {1}
     ("Nobody has joined your game", "아직 참가한 사람이 없습니다"),
     ("Take back keyboard", "키보드 되찾기"),
     ("Give keyboard", "키보드 넘기기"),
+    ("RTX HDR", "RTX HDR"),
+    ("RTX Video", "RTX Video"),
+    ("Turns the PC game’s SDR picture into HDR in HDR streams.", "HDR 스트림에서 PC 게임의 SDR 화면을 HDR로 변환합니다."),
+    ("Cleans up and sharpens the picture on the PC before it is encoded.", "인코딩 전에 PC에서 화면을 정리하고 선명하게 합니다."),
 ];

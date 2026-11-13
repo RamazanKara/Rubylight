@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="summary_rtx_hdr">Chuyển hình ảnh SDR của trò chơi trên PC thành HDR trong luồng HDR.</string>
+    <string name="summary_rtx_video">Làm sạch và làm nét hình ảnh trên PC trước khi mã hóa.</string>
+</resources>

@@ -1559,4 +1559,8 @@ sudo sysctl -w net.core.rmem_max={}", "接收缓冲区：系统只分配了所�
     ("Nobody has joined your game", "还没有人加入你的游戏"),
     ("Take back keyboard", "收回键盘"),
     ("Give keyboard", "交出键盘"),
+    ("RTX HDR", "RTX HDR"),
+    ("RTX Video", "RTX Video"),
+    ("Turns the PC game’s SDR picture into HDR in HDR streams.", "在 HDR 串流中将电脑游戏的 SDR 画面转换为 HDR。"),
+    ("Cleans up and sharpens the picture on the PC before it is encoded.", "在编码前于电脑上清理并锐化画面。"),
 ];

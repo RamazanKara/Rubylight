@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="summary_rtx_hdr">HDR yayınlarda PC’deki oyunun SDR görüntüsünü HDR’ye dönüştürür.</string>
+    <string name="summary_rtx_video">Görüntüyü kodlanmadan önce PC’de temizler ve keskinleştirir.</string>
+</resources>

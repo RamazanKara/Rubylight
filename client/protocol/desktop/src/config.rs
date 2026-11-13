@@ -545,6 +545,12 @@ pub struct Settings {
     pub host_display: HostDisplay,
     /// The video FEC asked for at launch from a PC that lets the client choose it.
     pub error_correction: ErrorCorrection,
+    /// RTX HDR for this PC's streams (`rlRtxHdr`): on or off over the PC's app setting, or
+    /// `None` to follow it. Offered on a PC's own settings when its host reports it
+    /// (`NvidiaEnhancements`).
+    pub rtx_hdr: Option<bool>,
+    /// RTX Video enhancement for this PC's streams (`rlRtxVideo`), as `rtx_hdr`.
+    pub rtx_video: Option<bool>,
     /// Link test before the first bitrate: a new stream at the automatic bitrate
     /// times `GET /bandwidth-probe` first and starts at no more than 80 % of it. Off by default:
     /// on the NUC it started streams lower with more loss and freezes (rust/PERFORMANCE.md).
@@ -1118,6 +1124,8 @@ impl Default for Settings {
             virtual_display_dpi: 0,
             host_display: HostDisplay::HostDefault,
             error_correction: ErrorCorrection::Host,
+            rtx_hdr: None,
+            rtx_video: None,
             link_probe: false,
             sops: true,
             full_range: false,
@@ -3110,6 +3118,18 @@ mod tests {
         std::fs::write(dir.join("settings.json"), r#"{"virtual_display_scale": 150}"#).unwrap();
         assert_eq!((store.settings().virtual_display_dpi, store.settings().virtual_display_scale), (0, 150));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn image_enhancements_follow_the_pcs_app_setting_until_a_pc_chooses() {
+        let old = serde_json::from_str::<Settings>("{}").unwrap();
+        assert_eq!((old.rtx_hdr, old.rtx_video), (None, None));
+        assert_eq!((Settings::default().rtx_hdr, Settings::default().rtx_video), (None, None));
+        let own: Overrides = serde_json::from_str(r#"{"rtx_hdr": true, "rtx_video": false}"#).unwrap();
+        let applied = own.apply(&Settings::default());
+        assert_eq!((applied.rtx_hdr, applied.rtx_video), (Some(true), Some(false)));
+        let follow: Overrides = serde_json::from_str(r#"{"rtx_hdr": null}"#).unwrap();
+        assert_eq!(follow.apply(&Settings { rtx_hdr: Some(true), ..Settings::default() }).rtx_hdr, None);
     }
 
     #[test]

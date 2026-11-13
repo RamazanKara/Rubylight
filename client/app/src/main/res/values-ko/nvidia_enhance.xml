@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="summary_rtx_hdr">HDR 스트림에서 PC 게임의 SDR 화면을 HDR로 변환합니다.</string>
+    <string name="summary_rtx_video">인코딩 전에 PC에서 화면을 정리하고 선명하게 합니다.</string>
+</resources>

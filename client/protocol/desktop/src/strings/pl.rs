@@ -1559,4 +1559,8 @@ sudo sysctl -w net.core.rmem_max={}", "Bufor odbioru: system przydzielił {0} Ki
     ("Nobody has joined your game", "Nikt nie dołączył do twojej gry"),
     ("Take back keyboard", "Odbierz klawiaturę"),
     ("Give keyboard", "Daj klawiaturę"),
+    ("RTX HDR", "RTX HDR"),
+    ("RTX Video", "RTX Video"),
+    ("Turns the PC game’s SDR picture into HDR in HDR streams.", "Zamienia obraz SDR gry na PC na HDR w strumieniach HDR."),
+    ("Cleans up and sharpens the picture on the PC before it is encoded.", "Oczyszcza i wyostrza obraz na PC przed zakodowaniem."),
 ];

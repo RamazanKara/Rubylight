@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="summary_rtx_hdr">Преобразует SDR-изображение игры на ПК в HDR в HDR-трансляциях.</string>
+    <string name="summary_rtx_video">Очищает и повышает резкость изображения на ПК перед кодированием.</string>
+</resources>

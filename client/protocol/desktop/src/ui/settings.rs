@@ -24,7 +24,7 @@ pub(super) const SETTINGS_SECTIONS: [&str; 8] = [en("Video"), en("Display & imag
 pub(super) const SECTION_KEYS: [&[&[&str]]; 8] = [
     &[&["width", "height"], &["fps"], &["bitrate_kbps"], &["adaptive_bitrate"], &["codec"], &["hdr"],
         &["prefer_yuv444", "experimental_packed_444"], &["sdr_10bit"], &["frame_warp"], &["adaptive_quality"], &["quality_min_short_edge"], &["quality_min_fps"],
-        &["hdr_desktop_brightness"]],
+        &["hdr_desktop_brightness"], &["rtx_hdr"], &["rtx_video"]],
     &[&["window_mode"], &["video_scaling"], &["vrr"],
         &["present_at_host_times"], &["frame_pacing"], &["drop_late_frames"], &["vsync"],
         &["upscaling"], &["upscale_sharpness"], &["align_video_top"],
@@ -821,6 +821,20 @@ impl Launcher {
                 });
                 rows.always();
             }
+            // A PC's own settings offer its image enhancements where its host reports them
+            // (NvidiaEnhancements); they override the PC's app setting for this device's streams.
+            let enhancements = if let Screen::HostSettings(id) = screen { view.hosts.get(id) } else { None }
+                .and_then(|h| h.info.as_ref())
+                .map_or(0, |i| i.capabilities.nvidia_enhancements());
+            rows.when(enhancements & rubylight_protocol::nvidia_enhance::RTX_HDR != 0);
+            setting_row(ui, s, &mut rows, &["rtx_hdr"], "RTX HDR", "Turns the PC game’s SDR picture into HDR in HDR streams.", |ui, s| {
+                enhancement_choice(ui, "rtx-hdr", &mut s.rtx_hdr)
+            });
+            rows.when(enhancements & rubylight_protocol::nvidia_enhance::RTX_VIDEO != 0);
+            setting_row(ui, s, &mut rows, &["rtx_video"], "RTX Video", "Cleans up and sharpens the picture on the PC before it is encoded.", |ui, s| {
+                enhancement_choice(ui, "rtx-video", &mut s.rtx_video)
+            });
+            rows.always();
 
             rows.section(en("Display & image"));
             setting_row(ui, s, &mut rows, &["window_mode"], "Window", "Full screen, borderless or a window.", |ui, s| {
@@ -1714,6 +1728,24 @@ pub(super) fn host_display_name(mode: HostDisplay) -> &'static str {
     }
 }
 
+/// An image enhancement's choice: the PC's app setting, on or off.
+pub(super) fn enhancement_name(choice: Option<bool>) -> String {
+    match choice {
+        None => tr("PC’s setting"),
+        Some(true) => tr("On"),
+        Some(false) => tr("Off"),
+    }
+    .to_owned()
+}
+
+fn enhancement_choice(ui: &mut Ui, salt: &str, choice: &mut Option<bool>) -> Response {
+    Combo::from_id_salt(salt).selected_text(enhancement_name(*choice)).show_ui(ui, |ui| {
+        for value in [None, Some(true), Some(false)] {
+            ui.selectable_value(choice, value, enhancement_name(value));
+        }
+    }).response
+}
+
 pub(super) fn error_correction_name(mode: ErrorCorrection) -> String {
     match mode {
         ErrorCorrection::Host => tr("PC’s setting").to_owned(),
@@ -1929,6 +1961,8 @@ pub(super) fn value_text(key: &str, s: &Settings, display: &Display, style: crat
         "second_screen_width" | "second_screen_height" => format!("{}x{}", s.second_screen_width, s.second_screen_height),
         "network_grace_ms" => network_grace_name(nightjar_policy::recovery::network_grace_choice_s(s.network_grace_ms)),
         "error_correction" => error_correction_name(s.error_correction),
+        "rtx_hdr" => enhancement_name(s.rtx_hdr),
+        "rtx_video" => enhancement_name(s.rtx_video),
         "language" => language_name(s.language).to_owned(),
         "ui_zoom" => format!("{}%", crate::config::nearest_zoom(s.ui_zoom)),
         "reduce_motion" => reduce_motion_name(s.reduce_motion).to_owned(),

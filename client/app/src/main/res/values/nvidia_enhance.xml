@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- A PC's own RTX HDR and RTX Video choices, for a host that offers them (NvidiaEnhancements). -->
+    <string name="title_rtx_hdr" translatable="false">RTX HDR</string>
+    <string name="title_rtx_video" translatable="false">RTX Video</string>
+    <string name="summary_rtx_hdr">Turns the PC game’s SDR picture into HDR in HDR streams.</string>
+    <string name="summary_rtx_video">Cleans up and sharpens the picture on the PC before it is encoded.</string>
+</resources>

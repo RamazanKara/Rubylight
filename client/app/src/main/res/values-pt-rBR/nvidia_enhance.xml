@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="summary_rtx_hdr">Converte a imagem SDR do jogo no PC em HDR nas transmissões HDR.</string>
+    <string name="summary_rtx_video">Limpa e deixa a imagem mais nítida no PC antes da codificação.</string>
+</resources>

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="summary_rtx_hdr">HDRストリームでPCのゲームのSDR映像をHDRに変換します。</string>
+    <string name="summary_rtx_video">エンコード前にPCで映像のノイズを除去し、鮮明にします。</string>
+</resources>

@@ -27,6 +27,9 @@ public class StreamConfiguration {
     private int virtualDisplayScale = 100;
     // The virtual display's Windows scale (rlDisplayScale); 0 keeps the PC's own.
     private int virtualDisplayDpi;
+    // RTX HDR and RTX Video enhancement for this stream (rlRtxHdr, rlRtxVideo); null follows the PC's app setting.
+    private Boolean rtxHdr;
+    private Boolean rtxVideo;
     private boolean vrr;
     // Asks a Rubylight PC for clipboard sync (0x5508).
     private boolean clipboardSync;
@@ -219,6 +222,12 @@ public class StreamConfiguration {
 
         public StreamConfiguration.Builder setVirtualDisplayDpi(int percent) {
             config.virtualDisplayDpi = percent;
+            return this;
+        }
+
+        public StreamConfiguration.Builder setImageEnhancements(Boolean rtxHdr, Boolean rtxVideo) {
+            config.rtxHdr = rtxHdr;
+            config.rtxVideo = rtxVideo;
             return this;
         }
 
@@ -443,6 +452,14 @@ public class StreamConfiguration {
 
     public int getVirtualDisplayDpi() {
         return virtualDisplayDpi;
+    }
+
+    public Boolean getRtxHdr() {
+        return rtxHdr;
+    }
+
+    public Boolean getRtxVideo() {
+        return rtxVideo;
     }
 
     public boolean getVrr() {

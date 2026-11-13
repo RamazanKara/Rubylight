@@ -455,10 +455,20 @@ pub struct Tally {
     /// Capture to encoder submission, across both paths.
     pub capture_to_submit_us: u64,
     pub capture_to_submit_worst_us: u64,
-    /// The latest refusal, if any frame was refused.
+    /// The latest refusal, if any frame was refused; it carries into the next window
+    /// ([`Tally::next_window`]).
     pub refused: Option<&'static str>,
 }
 impl Tally {
+    /// The tally of the next report window: the counts start over, the latest refusal stays.
+    /// The converter logs a refusal only when it changes, so a stream refused throughout would
+    /// otherwise report an empty `last_refusal` from its second window on.
+    pub fn next_window(&self) -> Self {
+        Self {
+            refused: self.refused,
+            ..Default::default()
+        }
+    }
     pub fn add(&mut self, vpe: bool, conversion_us: u64, capture_to_submit_us: u64) {
         if vpe {
             self.vpe_frames += 1;

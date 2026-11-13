@@ -210,3 +210,14 @@ fn amf_surface_numbers_match_surface_h() {
     assert_eq!(Format::RgbaF16.amf(), 11);
     assert_eq!(Format::R10G10B10A2.amf(), 13);
 }
+
+#[test]
+fn the_latest_refusal_carries_into_the_next_report_window() {
+    let mut tally = Tally::default();
+    tally.add(false, 140, 900);
+    tally.refused = Some(Refusal::SdrSourceOnHdrStream.code());
+    let next = tally.next_window();
+    assert_eq!(next.frames(), 0, "the counts start over");
+    assert_eq!(next.refused, Some("vpe_sdr_source_on_hdr_stream"));
+    assert_eq!(Tally::default().next_window().refused, None);
+}

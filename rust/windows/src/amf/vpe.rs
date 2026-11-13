@@ -437,7 +437,7 @@ impl Vpe {
         if now.duration_since(self.reported) >= REPORT_EVERY {
             self.report();
             self.reported = now;
-            self.tally = Default::default();
+            self.tally = self.tally.next_window();
         }
     }
     fn report(&self) {

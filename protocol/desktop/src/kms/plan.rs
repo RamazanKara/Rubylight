@@ -400,7 +400,7 @@ pub fn parse_in_formats(blob: &[u8]) -> Result<Vec<(u32, Vec<u64>)>, String> {
 /// metadata data block (extended tag 6) whose EOTFs include SMPTE ST 2084 (bit 2).
 pub fn edid_supports_pq(edid: &[u8]) -> bool {
     const BLOCK: usize = 128;
-    edid.chunks_exact(BLOCK).skip(1).filter(|block| block[0] == 0x02).any(|block| {
+    edid.as_chunks::<BLOCK>().0.iter().skip(1).filter(|block| block[0] == 0x02).any(|block| {
         // Data blocks run from byte 4 to the offset of the detailed timings (byte 2).
         let end = usize::from(block[2]).clamp(4, BLOCK - 1);
         let mut at = 4;

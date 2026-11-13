@@ -3,7 +3,9 @@ param(
     [Parameter(Mandatory)][string]$TargetDirectory,
     [Parameter(Mandatory)][string]$Stub,
     [Parameter(Mandatory)][string]$Version,
-    [ValidateSet('debug', 'release')][string]$ProfileName = 'release'
+    [ValidateSet('debug', 'release')][string]$ProfileName = 'release',
+    # The unsigned NVIDIA build: its archive and installer carry "nvidia" in their names.
+    [switch]$Nvidia
 )
 $ErrorActionPreference = 'Stop'
 $Distribution = (Resolve-Path -LiteralPath $Distribution).ProviderPath
@@ -19,9 +21,10 @@ $manifest = @(Get-ChildItem -LiteralPath $Distribution -File -Recurse |
         }
     })
 ConvertTo-Json -InputObject $manifest | Set-Content -LiteralPath $manifestPath -Encoding utf8
-$zip = Join-Path $TargetDirectory "butterpollo-rust-$ProfileName.zip"
+$flavor = if ($Nvidia) { 'nvidia-' } else { '' }
+$zip = Join-Path $TargetDirectory "butterpollo-rust-$flavor$ProfileName.zip"
 Compress-Archive -LiteralPath $Distribution -DestinationPath $zip -Force
-$installer = Join-Path $TargetDirectory "butterpollo-setup-$Version.exe"
+$installer = Join-Path $TargetDirectory "butterpollo-setup-$flavor$Version.exe"
 $stream = [IO.File]::Create($installer)
 try {
     foreach ($path in @($Stub, $zip)) {

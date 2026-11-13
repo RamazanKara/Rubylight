@@ -465,9 +465,91 @@ jobs:
             ${{ runner.temp }}/butterpollo-rust-target/butterpollo-setup-*.exe
           if-no-files-found: error
           retention-days: 30
+  # The separate, unsigned NVIDIA build (rust/build.ps1 -Nvidia): RTX HDR and RTX
+  # Video enhancement through NVIDIA's RTX Video SDK, whose proprietary NGX
+  # library no signed build may contain (docs/code-signing-policy.md). It is
+  # never sent to SignPath; the release attaches it beside the signed files.
+  nvidia:
+    needs: tag
+    if: ${{ !cancelled() && needs.tag.result != 'failure' && !needs.tag.outputs.run && !inputs.notes }}
+    runs-on: windows-2022
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e
+        id: msys
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-clang
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-vulkan-headers
+            mingw-w64-ucrt-x86_64-opus
+            mingw-w64-ucrt-x86_64-nasm
+            make
+      - name: Rust toolchains
+        run: |
+          rustup toolchain install 1.98.1-x86_64-pc-windows-gnu --profile minimal --component rustfmt --component clippy
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          rustup target add x86_64-pc-windows-msvc --toolchain 1.98.1-x86_64-pc-windows-gnu
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          rustup toolchain install 1.98.1-x86_64-pc-windows-msvc --profile minimal
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Windows Driver Kit
+        run: |
+          $kits = "${env:ProgramFiles(x86)}\Windows Kits\10"
+          $ready = { (Test-Path "$kits\Lib\*\um\x64\iddcx\*\IddCxStub.lib") -and (Test-Path "$kits\bin\*\x86\Inf2Cat.exe") -and (Test-Path "$kits\bin\*\x64\stampinf.exe") }
+          if (& $ready) { exit 0 }
+          winget install --id Microsoft.WindowsWDK.10.0.26100 --exact --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+          if (!(& $ready)) { throw 'The Windows Driver Kit is still missing after installing it' }
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+      # A release builds from this run's downloads, as the signed build does.
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        if: needs.tag.outputs.sign != 'true'
+        with:
+          path: |
+            ~/AppData/Local/ButterpolloRust/sdk
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: rust-sdk-v5-pyro-502a3b52-patched-ffmpeg-8.1.3-nvidia-1.1.0
+      - name: List releases for the NVIDIA build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" > "$env:RUNNER_TEMP\releases.json"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          "BUTTERPOLLO_RELEASES_JSON=$env:RUNNER_TEMP\releases.json" >> $env:GITHUB_ENV
+      # Lint first: the NVIDIA feature's code compiles only in this build.
+      - name: Lint, build and package the NVIDIA build
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
+          $target = "$env:RUNNER_TEMP\butterpollo-rust-target"
+          .\rust\build.ps1 -MsysRoot '${{ steps.msys.outputs.msys2-location }}' -FetchDependencies -Nvidia -Stage Lint -TargetDirectory $target
+          .\rust\build.ps1 -MsysRoot '${{ steps.msys.outputs.msys2-location }}' -FetchDependencies -Nvidia -Stage Build -Package -TargetDirectory $target
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: butterpollo-rust-windows-x64-nvidia
+          path: |
+            ${{ runner.temp }}/butterpollo-rust-target/butterpollo-rust-nvidia-release.zip
+            ${{ runner.temp }}/butterpollo-rust-target/butterpollo-setup-nvidia-*.exe
+          if-no-files-found: error
+          retention-days: 30
   publish:
-    needs: [tag, test, lint, windows]
-    if: ${{ !cancelled() && needs.tag.result == 'success' && (needs.tag.outputs.run || (needs.test.result == 'success' && needs.lint.result == 'success' && needs.windows.result == 'success')) }}
+    needs: [tag, test, lint, windows, nvidia]
+    if: ${{ !cancelled() && needs.tag.result == 'success' && (needs.tag.outputs.run || (needs.test.result == 'success' && needs.lint.result == 'success' && needs.windows.result == 'success' && needs.nvidia.result == 'success')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -491,6 +573,10 @@ jobs:
           mkdir out
           mv "build/butterpollo-setup-$VERSION.exe" "out/rubylight-setup-$VERSION.exe"
           mv build/butterpollo-rust-release.zip "out/rubylight-$VERSION-windows-x64.zip"
+          # The unsigned NVIDIA build, named apart so the updater never mixes the two.
+          gh run download "$BUILD" -n butterpollo-rust-windows-x64-nvidia -D nvidia
+          mv "nvidia/butterpollo-setup-nvidia-$VERSION.exe" "out/rubylight-nvidia-setup-$VERSION.exe"
+          mv nvidia/butterpollo-rust-nvidia-release.zip "out/rubylight-nvidia-$VERSION-windows-x64.zip"
           (cd out && sha256sum * > SHA256SUMS)
           flags=()
           if [[ $VERSION == *-* ]]; then flags+=(--prerelease); else flags+=(--latest); fi

@@ -643,6 +643,27 @@ class Signing(unittest.TestCase):
         self.assertTrue(steps)
         return {re.search(r'artifact-configuration-slug: (\S+)', step)[1]: step for step in steps}
 
+    def test_the_nvidia_build_is_never_signed(self):
+        # NVIDIA's proprietary NGX library and runtime DLLs stay out of every
+        # signed file (docs/code-signing-policy.md): their job never calls
+        # SignPath, and neither sign-artifacts.ps1 nor .signpath names them.
+        job = re.search(r'(?ms)^  nvidia:\n(.*?)(?=^  \S)', self.workflow)[1]
+        self.assertIn('-Nvidia -Stage Build -Package', job)
+        for word in ('SignPath', 'sign-artifacts', 'SIGNPATH'):
+            self.assertNotIn(word, job)
+        script = (ROOT / 'rust/release/sign-artifacts.ps1').read_text(encoding='utf-8')
+        self.assertIn("$distribution = Join-Path $TargetDirectory 'butterpollo-rust-release'", script)
+        for name in ('nvngx', 'truehdr', 'nvidia'):
+            self.assertNotIn(name, script.lower())
+            for slug, root in self.configurations.items():
+                for include in root.iter(f'{NS}include'):
+                    self.assertNotIn(name, include.get('path').lower(), slug)
+        # Its files carry "nvidia" in their names, apart from the signed ones.
+        package = (ROOT / 'rust/release/package.ps1').read_text(encoding='utf-8')
+        self.assertIn("$flavor = if ($Nvidia) { 'nvidia-' } else { '' }", package)
+        self.assertIn('out/rubylight-nvidia-setup-$VERSION.exe', self.workflow)
+        self.assertIn('out/rubylight-nvidia-$VERSION-windows-x64.zip', self.workflow)
+
     def test_only_release_runs_sign(self):
         # Every SignPath request waits for a manual approval, so only the tag
         # job's release decision turns signing on.

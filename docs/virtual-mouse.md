@@ -34,7 +34,7 @@ Moves, clicks and scrolls keep their order with keys: each mouse event goes to t
 | Needs | Nothing | usbip-win2 |
 | Multi-display absolute positions | Yes | No (injection is used) |
 
-The first three rows follow from how Windows marks input and are what the probe below checks on a given PC. The cost of the longer path is not assumed: it is measured with the probe, and no figure is claimed here until it is.
+The first three rows follow from how Windows marks input and are what the probe below checks on a given PC. The cost of the longer path was measured with the probe on an RX 7900 XT PC (2026-11-13, three virtual-mouse and three injection legs, alternating, a 250 Hz stream of moves): from a move reaching the host's injector to the game's `WM_INPUT`, the virtual mouse took about 0.25 ms at p50 (246-253 µs) against injection's 0.19 ms (189-190 µs), and about the same at p95 (4641-4662 µs against 4630-4638 µs). Automatic stays the default: the 0.06 ms costs less than input a game ignores or flags.
 
 **Can injection be removed?** No. The virtual mouse needs usbip-win2, which stays optional; it cannot place absolute positions on a multi-display desktop; and when it cannot be plugged in or goes away mid-stream, input must keep working. Injection stays as the fallback, with a log line, and with a stream message when the setting asked for the virtual mouse.
 

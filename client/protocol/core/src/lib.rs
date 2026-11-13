@@ -26,6 +26,7 @@ pub mod hdr;
 pub mod ids;
 pub mod keyboard_layout;
 pub mod ltr_recovery;
+pub mod nvidia_enhance;
 pub mod packed444;
 pub mod pairing_uri;
 pub mod pen;

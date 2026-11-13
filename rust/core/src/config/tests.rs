@@ -381,25 +381,33 @@ fn direct_driver_push_defaults_to_the_fence_ring_unless_turned_off() {
     assert!(super::Config::default().idd_push_fence_ring());
 }
 #[test]
-fn removed_rtx_hdr_settings_go_quietly_and_its_peak_brightness_is_renamed() {
-    // Profiles, apps and devices saved before RTX HDR was removed.
+fn rtx_hdr_settings_are_kept_and_its_peak_brightness_is_renamed() {
+    // Profiles, apps and devices saved by Vibepollo and earlier Rubylight
+    // releases: the NVIDIA build reads them again, other builds keep them.
     let mut config = super::Config::parse(
-            "rtx_hdr = true\nrtx_hdr_contrast = 14\nrtx_hdr_sdr_brightness = 20\nrtx_hdr_peak_brightness = 1500\nport = 47989\n",
-        )
-        .unwrap();
-    for key in super::REMOVED_KEYS {
-        assert!(!config.values.contains_key(*key), "{key}");
+        "rtx_hdr = true
+rtx_hdr_contrast = 14
+rtx_hdr_sdr_brightness = 20
+rtx_hdr_peak_brightness = 1500
+port = 47989
+",
+    )
+    .unwrap();
+    for key in ["rtx_hdr", "rtx_hdr_contrast", "rtx_hdr_sdr_brightness"] {
+        assert!(!super::removed(key), "{key}");
+        assert!(config.values.contains_key(key), "{key}");
     }
     assert_eq!(config.integer("hdr_peak_brightness", 0), 1500);
     assert_eq!(config.integer("port", 0), 47989);
-    // A console or API save still sending them.
+    // A console or API save sending them.
     let saved = serde_json::json!({"rtx_hdr_saturation": 5, "rtx_hdr_peak_brightness": 900});
     config.update(saved.as_object().unwrap()).unwrap();
-    assert!(!config.values.contains_key("rtx_hdr_saturation"));
+    assert_eq!(config.integer("rtx_hdr_saturation", 0), 5);
     assert_eq!(config.integer("hdr_peak_brightness", 0), 900);
-    // Devices and apps may still choose the peak, under its new name.
+    // Devices and apps may choose them, and the peak under its new name.
     assert!(super::override_allowed("hdr_peak_brightness"));
-    assert!(!super::override_allowed("rtx_hdr"));
+    assert!(super::override_allowed("rtx_hdr"));
+    assert!(super::override_allowed("rtx_video"));
     assert_eq!(
         super::current_name("rtx_hdr_peak_brightness"),
         "hdr_peak_brightness"
@@ -1536,6 +1544,28 @@ fn existing_config_round_trips() {
             expected
         );
     }
+}
+#[test]
+fn rtx_hdr_keeps_the_display_sdr_for_an_hdr_stream_only_where_it_runs() {
+    let mut c = Config::parse(
+        "rtx_hdr=true
+",
+    )
+    .unwrap();
+    c.values
+        .insert(crate::nvidia_enhance::marker("rtx_hdr"), "true".into());
+    let hdr = |c: &Config, stream_hdr| {
+        c.display_request_rate(1920, 1080, crate::framegen::Rate(60000), stream_hdr, false)
+            .unwrap()
+            .hdr
+    };
+    assert_eq!(hdr(&c, true), Some(true));
+    c.values.insert(
+        crate::nvidia_enhance::OFFERED_KEY.into(),
+        crate::nvidia_enhance::ALL.to_string(),
+    );
+    assert_eq!(hdr(&c, true), Some(false));
+    assert_eq!(hdr(&c, false), Some(false));
 }
 #[test]
 fn exact_display_remapping_hdr_override_and_disabled_policy() {

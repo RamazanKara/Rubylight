@@ -3313,6 +3313,27 @@ fn prefer_sdr_10bit_still_turns_an_hdr_launch_into_ten_bit_sdr() {
     assert!(stream.sdr_10bit && !stream.hdr);
 }
 #[test]
+fn an_hdr_launch_stays_hdr_while_rtx_hdr_converts_it() {
+    let mut config = Config::parse(
+        "prefer_sdr_10bit=true
+rtx_hdr=true
+",
+    )
+    .unwrap();
+    config
+        .values
+        .insert(crate::nvidia_enhance::marker("rtx_hdr"), "true".into());
+    // Chosen on a host that does not offer it: ten-bit SDR as before.
+    let stream = negotiate_color(ten_bit_request(), false, &config);
+    assert!(stream.sdr_10bit && !stream.hdr);
+    config.values.insert(
+        crate::nvidia_enhance::OFFERED_KEY.into(),
+        crate::nvidia_enhance::RTX_HDR.to_string(),
+    );
+    let stream = negotiate_color(ten_bit_request(), false, &config);
+    assert!(stream.hdr && !stream.sdr_10bit);
+}
+#[test]
 fn a_stream_turned_into_ten_bit_sdr_drops_its_hdr_format_pick() {
     // An HDR10+ pick the host offered, from a client the host streams as
     // ten-bit SDR: by `prefer_sdr_10bit`, or by `hdrMode=0` at launch.

@@ -146,6 +146,15 @@ pub fn override_allowed(key: &str) -> bool {
         "encoder_focus",
         "frame_warp",
         "hdr_peak_brightness",
+        // The NVIDIA build's image enhancements (`nvidia_enhance`); other
+        // builds keep them and read nothing from them.
+        "rtx_hdr",
+        "rtx_hdr_sdr_brightness",
+        "rtx_hdr_contrast",
+        "rtx_hdr_saturation",
+        "rtx_hdr_middle_gray",
+        "rtx_video",
+        "rtx_video_intensity",
         // 3.0 extensions
         "hdr_dynamic_metadata",
         "hdr_dolby_vision",

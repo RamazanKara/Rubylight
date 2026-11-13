@@ -1388,7 +1388,11 @@ impl SendDrop {
 /// `prefer_sdr_10bit` streams an HDR request as ten-bit SDR, without the HDR
 /// format the client picked.
 pub fn apply_color(stream: &mut Negotiated, config: &Config) {
-    if stream.hdr && config.boolean("prefer_sdr_10bit", false) {
+    // An HDR request stays HDR when RTX HDR converts an SDR source for it.
+    if stream.hdr
+        && config.boolean("prefer_sdr_10bit", false)
+        && !crate::nvidia_enhance::rtx_hdr_runs(config)
+    {
         stream_sdr_10bit(stream);
     }
 }

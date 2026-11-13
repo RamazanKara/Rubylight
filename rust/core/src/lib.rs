@@ -102,6 +102,7 @@ pub mod network_path;
 pub mod neural;
 pub mod nucleus;
 pub mod nvenc;
+pub mod nvidia_enhance;
 pub mod os_gate;
 pub mod packet;
 pub use rubylight_protocol::packed444;

@@ -107,6 +107,10 @@ pub struct Offered {
     /// Per-packet arrival feedback (0x5547) for congestion control, while
     /// `congestion_control` is on; a DESCRIBE id only, no serverinfo element.
     pub transport_feedback: bool,
+    /// `NvidiaEnhancements`: the NVIDIA build's image enhancements the GPU
+    /// and driver offer (`nvidia_enhance` bits), which a launch may ask for
+    /// with `rlRtxHdr` and `rlRtxVideo`. 0 in every other build.
+    pub nvidia_enhancements: u8,
 }
 
 impl Offered {
@@ -130,6 +134,7 @@ impl Offered {
         rate_change: false,
         clipboard_sync: false,
         transport_feedback: false,
+        nvidia_enhancements: 0,
     };
 
     /// The serverinfo elements of what is offered, in a fixed order; none for
@@ -187,6 +192,10 @@ impl Offered {
             if offered {
                 fields.push((field, version()));
             }
+        }
+        let nvidia = self.nvidia_enhancements & crate::nvidia_enhance::ALL;
+        if nvidia != 0 {
+            fields.push((crate::nvidia_enhance::SERVERINFO_FIELD, nvidia.to_string()));
         }
         fields
     }
@@ -361,6 +370,7 @@ mod tests {
         rate_change: true,
         clipboard_sync: true,
         transport_feedback: true,
+        nvidia_enhancements: crate::nvidia_enhance::ALL,
     };
 
     #[test]
@@ -399,6 +409,7 @@ mod tests {
                 ("SecondScreenVersion", "1"),
                 ("FrameWarpVersion", "1"),
                 ("ControllerIdentityVersion", "1"),
+                ("NvidiaEnhancements", "3"),
             ]
         );
         assert_eq!(

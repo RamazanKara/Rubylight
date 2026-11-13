@@ -114,17 +114,12 @@ pub const SPLIT_KEYS: &[(&str, &[&str])] = &[
         ],
     ),
 ];
-/// Settings of features Rubylight removed: NVIDIA RTX HDR (TrueHDR), the
+/// Settings of features Rubylight removed: the
 /// NVIDIA driver's VSYNC override (all the dummy plug workaround still
 /// did), and the software encoders' settings. Saved profiles, apps and
 /// devices can still carry them; the host drops them without a warning,
 /// and the next save leaves them out.
 pub const REMOVED_KEYS: &[&str] = &[
-    "rtx_hdr",
-    "rtx_hdr_sdr_brightness",
-    "rtx_hdr_contrast",
-    "rtx_hdr_saturation",
-    "rtx_hdr_middle_gray",
     "frame_limiter_disable_vsync",
     "rtss_disable_vsync_ullm",
     "dd_wa_dummy_plug_hdr10",

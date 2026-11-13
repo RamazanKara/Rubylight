@@ -941,7 +941,10 @@ impl Config {
             resolution,
             refresh,
             prefer_highest: refresh_option == "prefer_highest",
-            hdr: if self.get("dd_hdr_option", "auto") == "disabled" {
+            // RTX HDR converts an SDR source for the HDR stream.
+            hdr: if hdr && crate::nvidia_enhance::rtx_hdr_runs(self) {
+                Some(false)
+            } else if self.get("dd_hdr_option", "auto") == "disabled" {
                 None
             } else {
                 Some(match self.get("dd_hdr_request_override", "auto") {

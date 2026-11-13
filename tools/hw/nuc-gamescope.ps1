@@ -239,7 +239,22 @@ if ([IO.File]::Exists($script:CheckGpuLock) -and -not (Test-LockOurs $script:Che
 
 Write-Host '== sync and build on the NUC'
 nuc "mkdir -p $Work/src $Work/tools"
-cmd /c "tar -czf - -C `"$repo`" --exclude=client/protocol/vendor/sdl3-src/SDL --exclude=target client/protocol client/app/build.gradle rust-toolchain.toml | ssh nuc `"$SyncExtract -C $Work/src`""
+# The app files the desktop build includes (include_bytes!/include_str! into client/app: bench
+# clips, packed 4:4:4 probes, the settings XML, shared native headers, and the tests' protocol
+# fixtures), or a fresh work folder does not build. Find new ones with
+# git grep -o 'include_\(bytes\|str\)!("[^"]*app/[^"]*")' -- client/protocol
+$appFiles = @(
+    'client/app/build.gradle',
+    'client/app/src/main/assets/bench',
+    'client/app/src/main/assets/packed444',
+    'client/app/src/main/res/values',
+    'client/app/src/main/res/xml/preferences.xml',
+    'client/app/src/main/jni/moonlight-core/cursor_shape.h',
+    'client/app/src/main/jni/moonlight-core/android_microphone.c',
+    'client/app/src/main/java/com/limelight/binding/video/FrameLatencyStats.java',
+    'client/app/src/test/resources/protocol'
+) -join ' '
+cmd /c "tar -czf - -C `"$repo`" --exclude=client/protocol/vendor/sdl3-src/SDL --exclude=target client/protocol $appFiles rust-toolchain.toml | ssh nuc `"$SyncExtract -C $Work/src`""
 if ($LASTEXITCODE -ne 0) { throw 'sync failed' }
 cmd /c "tar -czf - -C `"$repo\tools\hw\nuc-gamescope`" . | ssh nuc `"tar -xzf - -C $Work/tools`""
 if ($LASTEXITCODE -ne 0) { throw 'copying the scripts failed' }

@@ -54,5 +54,5 @@ For the delay, run the host with `RUST_LOG=info,input_timing=trace`: each relati
 cargo run --release -p butterpollo-windows --example input_latency_probe -- pair butterpollo.log vm.csv
 ```
 
-pairs each arrival with the `WM_INPUT` that carried the same motion and prints p50, p95 and p99 per device. Compare one run with `mouse_mode = "virtual_mouse"` and one with `mouse_mode = "injection"`, 30-60 s each, on an isolated test host.
+pairs each `WM_INPUT` with the latest earlier arrival of the same motion delivered on its route (injected `WM_INPUT` with `injection`, the virtual mouse's with `virtual_mouse`), so a move that never reached the probe stays unpaired instead of shifting later pairs, and prints p50, p95 and p99 per device. Compare one run with `mouse_mode = "virtual_mouse"` and one with `mouse_mode = "injection"`, 30-60 s each, on an isolated test host.
 

@@ -9,13 +9,15 @@
 //!
 //! `input_latency_probe pair <host.log> <out.csv>` pairs the host's `input_timing` trace
 //! (run the host with `RUST_LOG=info,input_timing=trace`: each relative move as it reaches the
-//! injector, with its QPC time) with the WM_INPUT that carried the same motion, and prints the
-//! host-side delay from a client's input arriving to the game's WM_INPUT: p50, p95 and p99.
+//! injector, with its QPC time, and the route of the pass that delivered it) with the WM_INPUT
+//! that carried the same motion on that route (injected moves with injected WM_INPUT, the
+//! virtual mouse's with its device), and prints the host-side delay from a client's input
+//! arriving to the game's WM_INPUT: p50, p95 and p99.
 //!
 //! Move the client's mouse in small strokes while it watches. Both sides read the same QPC
 //! clock, so the probe must run on the host PC, in the user's session.
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::BTreeMap,
     io::Write,
     sync::Mutex,
     time::{Duration, Instant},
@@ -205,37 +207,86 @@ fn watch(seconds: u64, out: &str) -> windows::core::Result<()> {
     Ok(())
 }
 
-/// `qpc=`, `x=` and `y=` of an `input_timing` "arrived" line of the host log.
-fn arrival(line: &str) -> Option<(i64, i32, i32)> {
-    if !line.contains("input_timing") || !line.contains("arrived") {
-        return None;
-    }
-    let field = |name: &str| {
-        line.split_whitespace()
-            .find_map(|word| word.strip_prefix(name))
-            .and_then(|v| v.trim_end_matches(',').parse::<i64>().ok())
-    };
-    Some((field("qpc=")?, field("x=")? as i32, field("y=")? as i32))
+/// The host's route for a pass of moves (`route=` of an `input_timing` "delivered" line).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Route {
+    Injection,
+    VirtualMouse,
 }
 
-/// Delays in microseconds from each arrival to the first later WM_INPUT with its motion,
-/// within 100 ms. The host merges moves of one pass, so an arrival may match a WM_INPUT
-/// carrying the sum of several: those are skipped, not guessed.
+/// The route whose moves reach the probe as `device`'s WM_INPUT: injected input has no device,
+/// the virtual mouse is `VID_1209&PID_52B1`; None for any other (a real mouse), never paired.
+fn device_route(device: &str) -> Option<Route> {
+    if device == "injected" {
+        Some(Route::Injection)
+    } else if device.to_ascii_uppercase().contains("VID_1209&PID_52B1") {
+        Some(Route::VirtualMouse)
+    } else {
+        None
+    }
+}
+
+/// The relative moves of the host log as (qpc, x, y, route): each `input_timing` "arrived" move
+/// takes the route of the "delivered" pass after it; moves no pass delivered are left out.
+fn arrivals(log: &str) -> Vec<(i64, i32, i32, Route)> {
+    let mut out = Vec::new();
+    let mut pending = Vec::new();
+    for line in log.lines().filter(|line| line.contains("input_timing")) {
+        let field = |name: &str| {
+            line.split_whitespace()
+                .find_map(|word| word.strip_prefix(name))
+                .map(|v| v.trim_end_matches(',').trim_matches('"'))
+        };
+        let number = |name: &str| field(name).and_then(|v| v.parse::<i64>().ok());
+        if line.contains(" arrived") {
+            if let (Some(at), Some(x), Some(y)) = (number("qpc="), number("x="), number("y=")) {
+                pending.push((at, x as i32, y as i32));
+            }
+        } else if line.contains(" delivered") {
+            let route = match field("route=") {
+                Some("injection") => Route::Injection,
+                Some("virtual_mouse") => Route::VirtualMouse,
+                _ => {
+                    pending.clear();
+                    continue;
+                }
+            };
+            out.extend(pending.drain(..).map(|(at, x, y)| (at, x, y, route)));
+        }
+    }
+    out
+}
+
+/// Delays in microseconds from arrival to WM_INPUT: each WM_INPUT takes the latest arrival of
+/// its motion on its route not yet taken, within 100 ms before it. Pairing from the WM_INPUT
+/// back means an arrival that never reached the probe (a move injected while the virtual mouse
+/// was plugged in, two moves merged into one report) stays unpaired instead of shifting every
+/// later pair, which with a repeating +1, -1 pattern looked like 80 ms.
 fn pair(arrivals: &[(i64, i32, i32)], inputs: &[(i64, i32, i32)], frequency: i64) -> Vec<f64> {
     let window = frequency / 10;
-    let mut pending: VecDeque<(i64, i32, i32)> = inputs.iter().copied().collect();
-    let mut delays = Vec::new();
+    let mut by_motion: BTreeMap<(i32, i32), Vec<i64>> = BTreeMap::new();
     for &(at, x, y) in arrivals {
-        while pending.front().is_some_and(|&(t, ..)| t < at) {
-            pending.pop_front();
+        by_motion.entry((x, y)).or_default().push(at);
+    }
+    for times in by_motion.values_mut() {
+        times.sort_unstable();
+    }
+    let mut taken: BTreeMap<(i32, i32), Vec<bool>> = by_motion
+        .iter()
+        .map(|(key, times)| (*key, vec![false; times.len()]))
+        .collect();
+    let mut delays = Vec::new();
+    for &(t, x, y) in inputs {
+        let (Some(times), Some(used)) = (by_motion.get(&(x, y)), taken.get_mut(&(x, y))) else {
+            continue;
+        };
+        let mut j = times.partition_point(|&at| at <= t);
+        while j > 0 && used[j - 1] {
+            j -= 1;
         }
-        if let Some(index) = pending
-            .iter()
-            .take_while(|&&(t, ..)| t - at <= window)
-            .position(|&(_, dx, dy)| (dx, dy) == (x, y))
-        {
-            let (t, ..) = pending.remove(index).unwrap();
-            delays.push((t - at) as f64 * 1e6 / frequency as f64);
+        if j > 0 && t - times[j - 1] <= window {
+            used[j - 1] = true;
+            delays.push((t - times[j - 1]) as f64 * 1e6 / frequency as f64);
         }
     }
     delays
@@ -250,7 +301,7 @@ fn percentile(sorted: &[f64], p: f64) -> f64 {
 
 fn report(log: &str, csv: &str) {
     let log = std::fs::read_to_string(log).expect("reading the host log");
-    let arrivals: Vec<_> = log.lines().filter_map(arrival).collect();
+    let arrivals = arrivals(&log);
     let csv = std::fs::read_to_string(csv).expect("reading the probe's rows");
     let mut by_device: BTreeMap<String, Vec<(i64, i32, i32)>> = BTreeMap::new();
     for line in csv.lines().skip(1) {
@@ -267,12 +318,22 @@ fn report(log: &str, csv: &str) {
     }
     println!("{} host arrivals", arrivals.len());
     for (device, inputs) in by_device {
-        let mut delays = pair(&arrivals, &inputs, frequency());
+        let Some(route) = device_route(&device) else {
+            println!("{device}: {} WM_INPUT, not the host's", inputs.len());
+            continue;
+        };
+        let mine: Vec<_> = arrivals
+            .iter()
+            .filter(|a| a.3 == route)
+            .map(|&(at, x, y, _)| (at, x, y))
+            .collect();
+        let mut delays = pair(&mine, &inputs, frequency());
         delays.sort_by(f64::total_cmp);
         println!(
-            "{device}: {} paired of {} WM_INPUT; arrival to WM_INPUT p50 {:.0} us, p95 {:.0} us, p99 {:.0} us",
+            "{device}: {} paired of {} WM_INPUT and {} arrivals on its route; arrival to WM_INPUT p50 {:.0} us, p95 {:.0} us, p99 {:.0} us",
             delays.len(),
             inputs.len(),
+            mine.len(),
             percentile(&delays, 0.5),
             percentile(&delays, 0.95),
             percentile(&delays, 0.99)
@@ -306,10 +367,52 @@ mod tests {
     use super::*;
 
     #[test]
+    fn arrivals_take_the_route_of_the_pass_that_delivered_them() {
+        let log = "\
+T TRACE input_timing: arrived qpc=1000 x=3 y=-2
+T TRACE input_timing: delivered qpc=1010 route=\"injection\" inputs=1
+INFO other: arrived qpc=1 x=1 y=1
+T TRACE input_timing: arrived qpc=2000 x=1 y=0
+T TRACE input_timing: arrived qpc=2001 x=-1 y=0
+T TRACE input_timing: delivered qpc=2010 route=virtual_mouse inputs=2
+T TRACE input_timing: arrived qpc=3000 x=1 y=0
+";
+        assert_eq!(
+            arrivals(log),
+            [
+                (1000, 3, -2, Route::Injection),
+                (2000, 1, 0, Route::VirtualMouse),
+                (2001, -1, 0, Route::VirtualMouse)
+            ],
+            "the last was never delivered"
+        );
+        assert_eq!(device_route("injected"), Some(Route::Injection));
+        assert_eq!(
+            device_route(r"\\?\HID#VID_1209&PID_52B1&Col01#1&2#{378de44c}"),
+            Some(Route::VirtualMouse)
+        );
+        assert_eq!(device_route(r"\\?\HID#VID_046D&PID_C08B#1"), None);
+    }
+
+    #[test]
+    fn an_arrival_without_a_wm_input_does_not_shift_later_pairs() {
+        // +1, -1 every 4 ms with 200 us delay; the second +1 never reached the probe.
+        let frequency = 1_000_000;
+        let arrivals: Vec<_> = (0..10)
+            .map(|i| (i * 4000, if i % 2 == 0 { 1 } else { -1 }, 0))
+            .collect();
+        let inputs: Vec<_> = arrivals
+            .iter()
+            .filter(|&&(at, ..)| at != 8000)
+            .map(|&(at, x, y)| (at + 200, x, y))
+            .collect();
+        let delays = pair(&arrivals, &inputs, frequency);
+        assert_eq!(delays.len(), 9);
+        assert!(delays.iter().all(|&d| d == 200.0), "{delays:?}");
+    }
+
+    #[test]
     fn arrivals_pair_with_the_wm_input_of_the_same_motion() {
-        let line = "2026-11-13T01:02:03.456Z TRACE input_timing: arrived qpc=1000 x=3 y=-2";
-        assert_eq!(arrival(line), Some((1000, 3, -2)));
-        assert_eq!(arrival("INFO other: arrived qpc=1 x=1 y=1"), None);
         let frequency = 1_000_000;
         let arrivals = [(1000, 3, -2), (2000, 1, 1), (900_000, 5, 5)];
         let inputs = [

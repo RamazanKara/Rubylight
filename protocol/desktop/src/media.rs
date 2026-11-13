@@ -184,7 +184,7 @@ pub struct Pictures {
     pub chroma444: bool,
     pub packed: bool,
     /// How many pictures the stream may keep waiting to be shown (`pipeline::pool_waiting`): a
-    /// hardware pool gets these and two more beyond FFmpeg's minimum ([`pool_extra`]).
+    /// hardware pool gets these and three more beyond FFmpeg's minimum ([`pool_extra`]).
     pub waiting: usize,
     /// Where VAAPI opens. Linux only.
     pub vaapi_node: VaapiNode,
@@ -431,13 +431,18 @@ struct Format {
 }
 
 /// Surfaces a hardware decoder's pool has at least beyond FFmpeg's minimum, for pictures waiting
-/// to be shown, the one on the screen and the one being drawn.
+/// to be shown, the one on the screen, the one being drawn and one kept after a refused present.
 pub const EXTRA_HW_FRAMES: i32 = 6;
 
+/// Pictures holding pool surfaces outside the presenter's queue and the pacer: the shown one, the
+/// drawn one and the one kept for the next present when a non-blocking present was refused
+/// (`skipped_picture`).
+pub const HELD_BEYOND_WAITING: usize = 3;
+
 /// The pool's surfaces beyond FFmpeg's minimum for `waiting` pictures waiting to be shown, plus
-/// the shown and the drawn one.
+/// the [`HELD_BEYOND_WAITING`] ones.
 pub fn pool_extra(waiting: usize) -> i32 {
-    (waiting.min(64) as i32 + 2).max(EXTRA_HW_FRAMES)
+    (waiting.min(64) as i32 + HELD_BEYOND_WAITING as i32).max(EXTRA_HW_FRAMES)
 }
 
 /// The device VAAPI opens on for `hardware` (`Pictures::vaapi_node`): the GPU renderer's render

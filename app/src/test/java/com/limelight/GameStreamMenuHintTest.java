@@ -106,4 +106,41 @@ public class GameStreamMenuHintTest {
         show(next);
         assertEquals(View.VISIBLE, hint(next).getVisibility());
     }
+
+    private static int topMargin(TextView hint) {
+        return ((android.widget.FrameLayout.LayoutParams) hint.getLayoutParams()).topMargin;
+    }
+
+    /** The performance overlay owns the top corner: the hint steps under it, follows it, and returns to the top. */
+    @Test
+    public void theHintStepsBelowThePerformanceOverlayAndFollowsIt() {
+        Game game = streamingGame();
+        TextView hint = hint(game);
+        View overlay = game.findViewById(R.id.performanceOverlayScroll);
+        game.overlays.attachOverlayPlacement((android.view.ViewGroup) overlay.getParent());
+        show(game);
+        int alone = topMargin(hint);
+
+        overlay.setVisibility(View.VISIBLE);
+        overlay.measure(View.MeasureSpec.makeMeasureSpec(480, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(120, View.MeasureSpec.EXACTLY));
+        overlay.layout(0, 0, 480, 120);
+        int belowOverlay = topMargin(hint);
+        assertTrue("the hint stands below the overlay", belowOverlay > alone);
+        android.widget.FrameLayout.LayoutParams overlayParams =
+                (android.widget.FrameLayout.LayoutParams) overlay.getLayoutParams();
+        assertTrue("below its foot", belowOverlay >= overlayParams.topMargin + overlay.getHeight());
+
+        // Longer statistics make the overlay taller; the hint follows its new foot.
+        overlay.measure(View.MeasureSpec.makeMeasureSpec(480, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(260, View.MeasureSpec.EXACTLY));
+        overlay.layout(0, 0, 480, 260);
+        assertTrue("the hint follows the overlay's height", topMargin(hint) > belowOverlay);
+
+        // Hidden from the menu, the overlay leaves the top to the hint again.
+        game.prefConfig.enablePerfOverlay = true;
+        game.overlays.hidePerformanceOverlay();
+        assertEquals(View.GONE, overlay.getVisibility());
+        assertEquals(alone, topMargin(hint));
+    }
 }

@@ -410,7 +410,7 @@ impl RtpQueue {
             packet.receive_time_us = self.buffer_first_recv_time_us;
             self.completed.push(packet);
         }
-        self.completed[start..].sort_by_key(|p| p.seq.wrapping_sub(lowest));
+        self.completed[start..].sort_unstable_by_key(|p| p.seq.wrapping_sub(lowest));
         if self.early {
             let forwarded = std::mem::take(&mut self.forwarded) as usize;
             for (index, packet) in self.completed.drain(start..).enumerate() {

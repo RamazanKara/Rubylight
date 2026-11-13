@@ -821,9 +821,10 @@ impl Launcher {
                 });
                 rows.always();
             }
-            // A PC's own settings offer its image enhancements where its host reports them
-            // (NvidiaEnhancements); they override the PC's app setting for this device's streams.
-            let enhancements = if let Screen::HostSettings(id) = screen { view.hosts.get(id) } else { None }
+            // A PC's own settings and a game's on it offer its image enhancements where its host
+            // reports them (NvidiaEnhancements); they override the PC's app setting for this
+            // device's streams.
+            let enhancements = if let Screen::HostSettings(id) | Screen::AppSettings(id) = screen { view.hosts.get(id) } else { None }
                 .and_then(|h| h.info.as_ref())
                 .map_or(0, |i| i.capabilities.nvidia_enhancements());
             rows.when(enhancements & rubylight_protocol::nvidia_enhance::RTX_HDR != 0);

@@ -83,6 +83,12 @@ final class GameTouchInput {
     private int nativeTouchpadState;
     // The PC holds fingers or the click of the touchpad.
     private boolean nativeTouchpadHeld;
+    // Reused by every touchpad frame: a touchpad sends 125-250 of them a second, and the host copies each out
+    // before sendTouchpadFrame returns, so one set of buffers serves every event.
+    private int[] nativeTouchpadIds = new int[16];
+    private float[] nativeTouchpadXs = new float[16];
+    private float[] nativeTouchpadYs = new float[16];
+    private float[] nativeTouchpadPressures = new float[16];
 
     private static final int STYLUS_DOWN_DEAD_ZONE_DELAY = 100;
     private static final int STYLUS_DOWN_DEAD_ZONE_RADIUS = 20;
@@ -1313,10 +1319,18 @@ final class GameTouchInput {
         }
         int lifted = action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP ? event.getActionIndex() : -1;
         int pointers = event.getPointerCount();
-        int[] ids = new int[pointers];
-        float[] xs = new float[pointers];
-        float[] ys = new float[pointers];
-        float[] pressures = new float[pointers];
+        // Reused buffers, grown only past their size: this runs for every touchpad event on the main thread.
+        if (nativeTouchpadIds.length < pointers) {
+            int size = Math.max(pointers, nativeTouchpadIds.length * 2);
+            nativeTouchpadIds = new int[size];
+            nativeTouchpadXs = new float[size];
+            nativeTouchpadYs = new float[size];
+            nativeTouchpadPressures = new float[size];
+        }
+        int[] ids = nativeTouchpadIds;
+        float[] xs = nativeTouchpadXs;
+        float[] ys = nativeTouchpadYs;
+        float[] pressures = nativeTouchpadPressures;
         InputDevice device = event.getDevice();
         InputDevice.MotionRange xRange = device != null ? device.getMotionRange(MotionEvent.AXIS_X, InputDevice.SOURCE_TOUCHPAD) : null;
         InputDevice.MotionRange yRange = device != null ? device.getMotionRange(MotionEvent.AXIS_Y, InputDevice.SOURCE_TOUCHPAD) : null;

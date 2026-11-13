@@ -1340,6 +1340,21 @@ public class NvHTTP {
         return pm;
     }
     
+    static String stripLegacyOrderPrefix(String title) {
+        if (title == null) {
+            return "";
+        }
+        int i = 0;
+        while (i < title.length()) {
+            char c = title.charAt(i);
+            if (c != '\u200B' && c != '\u200C') {
+                break;
+            }
+            i++;
+        }
+        return i == 0 ? title : title.substring(i);
+    }
+
     public static LinkedList<NvApp> getAppListByReader(Reader r) throws XmlPullParserException, IOException {
         return getAppListByReader(r, HostCapabilities.UNKNOWN);
     }
@@ -1381,7 +1396,7 @@ public class NvHTTP {
                 }
                 NvApp app = appList.getLast();
                 if (currentTag.peek().equals("AppTitle")) {
-                    app.setAppName(xpp.getText());
+                    app.setAppName(stripLegacyOrderPrefix(xpp.getText()));
                 } else if (currentTag.peek().equals("ID")) {
                     app.setAppId(xpp.getText());
                 } else if (currentTag.peek().equals("IsHdrSupported")) {

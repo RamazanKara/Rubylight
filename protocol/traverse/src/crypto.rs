@@ -99,6 +99,20 @@ impl Aead {
             )
             .expect("a message within ChaCha20-Poly1305's limit");
     }
+    /// Encrypts `out[aad_bytes..]` in place under the AAD `out[..aad_bytes]`, then appends the
+    /// tag: a datagram sealed in the buffer that carries it. Each nonce must be used once per key.
+    pub fn seal_after(&self, nonce: [u8; 12], out: &mut Vec<u8>, aad_bytes: usize) {
+        let (aad, body) = out.split_at_mut(aad_bytes);
+        let tag = self
+            .0
+            .seal_in_place_separate_tag(
+                aead::Nonce::assume_unique_for_key(nonce),
+                aead::Aad::from(&*aad),
+                body,
+            )
+            .expect("a message within ChaCha20-Poly1305's limit");
+        out.extend_from_slice(tag.as_ref());
+    }
     /// Decrypts `data` (ciphertext and tag) in place, leaving the plaintext; false when it
     /// does not authenticate.
     pub fn open(&self, nonce: [u8; 12], aad: &[u8], data: &mut Vec<u8>) -> bool {

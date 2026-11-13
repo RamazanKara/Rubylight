@@ -87,6 +87,10 @@ public class Dialog implements Runnable {
                 .setPositiveButton(android.R.string.ok, (dialog, which) -> complete(false))
                 .setNeutralButton(R.string.help, (dialog, which) -> complete(true))
                 .create();
+        // Whatever dismisses the dialog — a button, Back, or the framework itself — takes this Dialog out of
+        // rundownDialogs, which holds its Activity. complete() sets dismissed before dismiss(), so the callback
+        // a button's own dismiss() runs finds it already done.
+        alert.setOnDismissListener(dialog -> complete(false));
         alert.setCanceledOnTouchOutside(false);
         alert.setOnShowListener(new DialogInterface.OnShowListener(){
 
@@ -111,7 +115,8 @@ public class Dialog implements Runnable {
             dismissed = true;
             rundownDialogs.remove(this);
         }
-        alert.dismiss();
+        // Idempotent, and already dismissed when the framework closed it; isShowing() keeps it to one call.
+        if (alert.isShowing()) alert.dismiss();
         runOnDismiss.run();
         if (help) HelpLauncher.showHelp(activity);
     }

@@ -170,7 +170,7 @@ fn a_hold_spike_with_host_times_keeps_every_picture_and_the_pool_has_a_surface_f
     for fps in [240u32, 144, 60] {
         let (_, shared) = decoder();
         let limit = pool_waiting(true, shared.queue_limit, fps);
-        assert!(media::pool_extra(limit) as usize >= limit + 2, "{fps} FPS: spares for the shown and drawn ones too");
+        assert!(media::pool_extra(limit) as usize >= limit + 3, "{fps} FPS: spares for the shown, drawn and kept ones too");
         // A Wi-Fi hiccup: the clock holds every picture of the last 50 ms the full hold, and the
         // presenter's queue is full besides.
         let frame_us = 1_000_000 / u64::from(fps);
@@ -195,7 +195,7 @@ fn a_hold_spike_with_host_times_keeps_every_picture_and_the_pool_has_a_surface_f
         assert_eq!((pacer[0].present_us, pacer[0].hold_us), (pacer[0].decoded.ready_us, 0), "{fps} FPS: due now");
         assert_eq!(pacer[1].present_us, pacer[1].decoded.ready_us + max_hold_us, "{fps} FPS: one at a time");
     }
-    assert_eq!(pool_waiting(false, 2, 240), media::EXTRA_HW_FRAMES as usize - 2, "other pacing: as before");
+    assert_eq!(pool_waiting(false, 2, 240), media::EXTRA_HW_FRAMES as usize - 3, "other pacing: the same pool as before");
     assert_eq!(media::pool_extra(pool_waiting(false, 2, 240)), media::EXTRA_HW_FRAMES);
 }
 
@@ -209,6 +209,24 @@ fn at_the_pool_limit_with_nothing_in_the_pacer_the_oldest_queued_picture_goes() 
     shared.queue_pooled(decoded(10), 4);
     let left: Vec<u64> = lock(&shared.frames).iter().map(|d| d.ready_us).collect();
     assert_eq!(left, [1, 2, 3, 10]);
+    assert_eq!(shared.counters.replaced.load(Ordering::Relaxed), 1);
+}
+
+#[test]
+fn at_the_pool_limit_with_every_pacer_picture_due_the_oldest_pacer_picture_goes() {
+    use super::super::present::{tests::decoded, Pending};
+    let (_, shared) = decoder();
+    // Already due, waiting for the presenter thread to take them.
+    lock(&shared.pacer_backlog).extend((1..=3u64).map(|ready_us| {
+        Pending { decoded: decoded(ready_us), present_us: ready_us, hold_us: 0, late: false }
+    }));
+    lock(&shared.frames).push_back(decoded(10));
+    shared.queue_pooled(decoded(11), 4);
+    assert_eq!(shared.waiting(), 4, "bounded to the limit");
+    let left: Vec<u64> = lock(&shared.pacer_backlog).iter().map(|p| p.decoded.ready_us).collect();
+    assert_eq!(left, [2, 3], "the oldest due picture freed its surface");
+    let queued: Vec<u64> = lock(&shared.frames).iter().map(|d| d.ready_us).collect();
+    assert_eq!(queued, [10, 11]);
     assert_eq!(shared.counters.replaced.load(Ordering::Relaxed), 1);
 }
 

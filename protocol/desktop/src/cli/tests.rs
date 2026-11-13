@@ -646,3 +646,10 @@ fn quit_on_exit_closes_after_the_stream_and_keeps_its_error() {
         "without --quit-on-exit the launcher stays"
     );
 }
+
+#[test]
+fn an_app_matches_its_name_without_the_legacy_ordering_prefix() {
+    let apps = vec![app(1, "", "\u{200b}\u{200c}MoonDeckStream"), app(2, "", "Desktop")];
+    assert_eq!(found(&apps, "MoonDeckStream"), Ok(1));
+    assert_eq!(found(&apps, "\u{200b}Desktop"), Ok(2));
+}

@@ -115,6 +115,9 @@ pub fn app_control(id: i32, uuid: &str, caps: &HostCapabilities) -> AppControl {
 }
 
 /// Parses an app list reply; incomplete entries (no valid ID) are dropped.
+/// The zero-width characters a host's `legacy_ordering` puts before each app title.
+pub const LEGACY_ORDERING: [char; 2] = ['\u{200b}', '\u{200c}'];
+
 pub fn parse_app_list(text: &str, caps: &HostCapabilities) -> Result<Vec<App>, Error> {
     let root = xml::parse_reply(text)?;
     let mut apps = Vec::new();
@@ -131,7 +134,9 @@ pub fn parse_app_list(text: &str, caps: &HostCapabilities) -> Result<Vec<App>, E
                 continue;
             }
             match field.name.as_str() {
-                "AppTitle" => name = text,
+                // A host with `legacy_ordering` puts zero-width spaces before each title to
+                // order the list in clients that sort by name.
+                "AppTitle" => name = text.trim_start_matches(LEGACY_ORDERING).to_owned(),
                 "ID" => id = text.parse::<i32>().ok().or(id),
                 "IsHdrSupported" => hdr_supported = text == "1",
                 "UUID" => uuid = text.trim().to_owned(),
@@ -174,6 +179,17 @@ pub fn parse_app_list(text: &str, caps: &HostCapabilities) -> Result<Vec<App>, E
 mod tests {
     use super::super::serverinfo::{tests::RUBYLIGHT, ServerInfo};
     use super::*;
+
+    #[test]
+    fn a_legacy_ordering_prefix_is_not_part_of_the_title() {
+        let caps = ServerInfo::parse(RUBYLIGHT, 47989).unwrap().capabilities;
+        let list = "<?xml version=\"1.0\"?><root status_code=\"200\">\
+            <App><AppTitle>&#x200b;&#x200c;MoonDeckStream</AppTitle><ID>5</ID></App>\
+            <App><AppTitle>&#x200b;&#x200b;Desktop</AppTitle><ID>6</ID></App></root>";
+        let apps = parse_app_list(list, &caps).unwrap();
+        assert_eq!(apps[0].name, "MoonDeckStream");
+        assert_eq!(apps[1].name, "Desktop");
+    }
 
     #[test]
     fn rubylight_app_list_with_control_tiles() {

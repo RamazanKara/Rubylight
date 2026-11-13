@@ -267,7 +267,9 @@ impl Reliable {
 
     fn ack(&mut self) -> Vec<u8> {
         let mut sack = 0u64;
-        for (&seq, _) in self.recv.range(self.recv_next.wrapping_add(1)..) {
+        // `recv` holds at most WINDOW segments, all ahead of `recv_next` modulo 2^32: walking
+        // every key finds those past a wrap, which a range would miss.
+        for &seq in self.recv.keys() {
             let offset = seq.wrapping_sub(self.recv_next).wrapping_sub(1);
             if offset < 64 {
                 sack |= 1 << offset;
@@ -323,7 +325,7 @@ impl Reliable {
             .in_flight
             .keys()
             .copied()
-            .filter(|&seq| seq < cum)
+            .filter(|&seq| seq_before(seq, cum))
             .collect();
         let progressed = !acked.is_empty();
         for seq in acked {
@@ -399,6 +401,12 @@ impl Reliable {
         }
         event
     }
+}
+
+/// `a` comes before `b` in sequence order across the u32 wrap: the two are never more than
+/// WINDOW apart.
+fn seq_before(a: u32, b: u32) -> bool {
+    (a.wrapping_sub(b) as i32) < 0
 }
 
 #[cfg(test)]
@@ -550,5 +558,32 @@ mod tests {
                 target: 0
             }]
         );
+    }
+
+    #[test]
+    fn data_and_acks_cross_the_sequence_wrap() {
+        assert!(seq_before(u32::MAX, 0));
+        assert!(!seq_before(0, u32::MAX));
+        assert!(!seq_before(5, 5));
+        let (mut client, mut host) = (Reliable::new(true), Reliable::new(false));
+        // Both ends start 100 segments short of the wrap.
+        let start = u32::MAX - 100;
+        client.next_seq = start;
+        client.last_cum = start;
+        host.recv_next = start;
+        let stream = client.open(2);
+        let data: Vec<u8> = (0..300_000u32).map(|n| (n % 253) as u8).collect();
+        assert_eq!(client.write(stream, &data), data.len());
+        let mut seed = 777u32;
+        let lose = move |_| {
+            seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12345);
+            (seed >> 16) % 7 == 0
+        };
+        let (_, at_host) = run(&mut client, &mut host, lose, 15, 30_000);
+        assert_eq!(received(&at_host, stream), data);
+        assert!(!client.is_dead());
+        assert!(client.is_idle());
+        assert!(client.next_seq < start, "the sequence wrapped");
+        assert_eq!(host.recv_next, client.next_seq);
     }
 }

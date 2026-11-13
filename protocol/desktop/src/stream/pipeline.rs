@@ -292,8 +292,8 @@ impl Shared {
     /// Queues a picture holding a surface of the hardware decoder's fixed pool, which has spares
     /// for `limit` waiting pictures ([`pool_waiting`]). Should more wait all the same, the pacer's
     /// oldest held picture is made due now, so the presenter shows it early and frees its surface
-    /// instead of the decoder failing the next frame; only with no picture in the pacer does the
-    /// oldest queued one go.
+    /// instead of the decoder failing the next frame. With every pacer picture due already, the
+    /// pacer's oldest goes; with none in the pacer, the oldest queued one.
     fn queue_pooled(&self, decoded: Decoded, limit: usize) {
         {
             // Both locks, so a picture moving from one queue to the other is counted once.
@@ -306,6 +306,11 @@ impl Shared {
                 } else if let Some(held) = pacer.iter_mut().find(|p| p.present_us > p.decoded.ready_us) {
                     held.present_us = held.decoded.ready_us;
                     held.hold_us = 0;
+                } else {
+                    // Every pacer picture is due already and the presenter has not caught up:
+                    // making one due frees nothing, so the oldest goes.
+                    pacer.pop_front();
+                    self.counters.replaced.fetch_add(1, Ordering::Relaxed);
                 }
             }
         }
@@ -675,7 +680,7 @@ impl Failing {
 /// and lowers it over about half a second, 13 pictures at 240 FPS, and the presenter's queue
 /// holds up to `queue_limit` more. Otherwise a picture waits a frame at most.
 fn pool_waiting(host_times: bool, queue_limit: usize, fps: u32) -> usize {
-    let usual = media::EXTRA_HW_FRAMES as usize - 2;
+    let usual = media::EXTRA_HW_FRAMES as usize - media::HELD_BEYOND_WAITING;
     if !host_times {
         return usual;
     }
@@ -706,7 +711,7 @@ impl Decoder {
             dump: std::env::var_os("NIGHTJAR_PYROWAVE_DUMP").filter(|dir| !dir.is_empty()).map(|dir| (dir.into(), 0)),
             failing: Failing::default(),
             lost: false,
-            pool_waiting: media::EXTRA_HW_FRAMES as usize - 2,
+            pool_waiting: media::EXTRA_HW_FRAMES as usize - media::HELD_BEYOND_WAITING,
             in_flight: VecDeque::new(),
             pictured: false,
             packed_mapped: false,

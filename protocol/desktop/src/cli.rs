@@ -632,7 +632,11 @@ pub fn find_app<'a>(apps: &'a [App], wanted: &str) -> Result<&'a App, String> {
         None => {
             let named: Vec<&App> = apps
                 .iter()
-                .filter(|a| a.name.eq_ignore_ascii_case(wanted))
+                .filter(|a| {
+                    // A list read before the client stripped `legacy_ordering`'s prefix.
+                    let bare = |s: &str| s.trim_start_matches(['\u{200b}', '\u{200c}']).to_owned();
+                    bare(&a.name).eq_ignore_ascii_case(&bare(wanted))
+                })
                 .collect();
             match named.as_slice() {
                 [] => {

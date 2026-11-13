@@ -1090,6 +1090,71 @@ fn a_sharper_cover_lands_only_on_the_cover_it_was_read_for() {
     end_pass(&ctx);
 }
 
+/// A read asked for at an older scale lands after a newer one, or after the cover was loaded
+/// again: the cover keeps the sharper picture it has.
+#[test]
+fn a_late_sharper_cover_for_an_older_scale_does_not_make_the_cover_blurrier() {
+    let ctx = egui::Context::default();
+    let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], Arc::new(|| {}));
+    let id = hosts.list[0].id;
+    hosts.list[0].art_versions.insert(7, "v1".into());
+    let sharper = |size: [u32; 2], sized: Option<f32>| {
+        let image = decode_image(&png_of(size, [20, 20, 200])).expect("the cover");
+        Event::ArtSharper { id, app: 7, version: "v1".into(), image, sized }
+    };
+    let (image, ambient, _) = art_and_ambient(Some(png([20, 200, 20])), 1.0);
+    hosts.sender.send(Event::Art { id, app: 7, version: "v1".into(), image, ambient, sized: Some(1.0) }).expect("the channel");
+    hosts.drain(&ctx);
+    // 125 % then 150 % asked for before either landed: the 150 % read is the one `art_sized` names.
+    hosts.list[0].art_sized.insert(7, 1.5);
+    hosts.sender.send(sharper([90, 120], Some(1.5))).expect("the channel");
+    hosts.sender.send(sharper([75, 100], Some(1.25))).expect("the channel");
+    hosts.drain(&ctx);
+    assert_eq!(cover_pixels(&hosts.list[0], 7), Some([90, 120]), "the late 125 % read is dropped");
+    assert_eq!(hosts.list[0].art_sized.get(&7), Some(&1.5));
+
+    // Loaded again whole (given up for room and fetched): no smaller read replaces it.
+    let (image, ambient, _) = art_and_ambient(Some(png_of([60, 80], [20, 200, 20])), 1.0);
+    hosts.sender.send(Event::Art { id, app: 7, version: "v1".into(), image, ambient, sized: None }).expect("the channel");
+    hosts.sender.send(sharper([45, 60], Some(1.5))).expect("the channel");
+    hosts.drain(&ctx);
+    assert_eq!(cover_pixels(&hosts.list[0], 7), Some([60, 80]), "all of its file stays");
+    assert!(!hosts.list[0].art_sized.contains_key(&7));
+    end_pass(&ctx);
+}
+
+/// The cover's file is gone when the window shows more pixels: the cover that shows stays, and
+/// it is not looked for again each frame.
+#[test]
+fn a_cover_whose_file_is_gone_keeps_showing_when_the_window_shows_more_pixels() {
+    let ctx = egui::Context::default();
+    let (store, dir) = art_store("sharper-gone");
+    let (waker, woken) = telling_waker();
+    let mut hosts = Hosts::without_discovery(vec![paired_record("uid")], waker);
+    let id = hosts.list[0].id;
+    let bytes = png_of([900, 1350], [20, 200, 20]);
+    let file = cover_file(&store, 7, &bytes);
+    hosts.list[0].art_versions.insert(7, "v1".into());
+    hosts.covers_shown(&ctx, &store);
+    let (image, ambient, sized) = art_and_ambient(Some(bytes), hosts.art_scale);
+    hosts.sender.send(Event::Art { id, app: 7, version: "v1".into(), image, ambient, sized }).expect("the channel");
+    hosts.drain(&ctx);
+    hosts.covers_shown(&ctx, &store);
+    assert_eq!(cover_pixels(&hosts.list[0], 7), Some([630, 945]));
+    std::fs::remove_file(&file).expect("the file");
+
+    ctx.set_pixels_per_point(1.25);
+    end_pass(&ctx);
+    hosts.covers_shown(&ctx, &store);
+    hosts.covers_shown(&ctx, &store);
+    assert!(woken.recv_timeout(Duration::from_millis(300)).is_err(), "nothing to land");
+    hosts.drain(&ctx);
+    assert_eq!(cover_pixels(&hosts.list[0], 7), Some([630, 945]), "the cover that shows stays");
+    assert_eq!(hosts.list[0].art_sized.get(&7), Some(&1.25), "asked for once at this scale");
+    end_pass(&ctx);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 /// The Apps page asked for every cover without a version each pass, and the pages that knew
 /// one asked with it: each dropped the other's cover and fetched it again.
 #[test]

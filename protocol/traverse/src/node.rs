@@ -281,7 +281,7 @@ impl Node {
 }
 
 fn receive(shared: Arc<Shared>) {
-    let mut buffer = vec![0u8; 2048];
+    let mut buffer = vec![0u8; 4096];
     while !shared.stop.load(Ordering::Acquire) {
         let (length, from) = match shared.socket.recv_from(&mut buffer) {
             Ok(received) => received,

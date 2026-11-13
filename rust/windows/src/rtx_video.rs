@@ -102,6 +102,8 @@ impl Filter {
     /// # Safety
     /// The caller holds the device's multithread lock.
     unsafe fn enhance(&mut self, image: &GpuImage) -> Result<GpuImage> {
+        // SAFETY: the caller holds the device's multithread lock, as `vsr` and the HDR passes
+        // require; `image` is a live picture on this device.
         unsafe {
             let texture = if image.pixel == Pixel::Bgra8 {
                 self.vsr(image.texture.as_raw())?
@@ -135,6 +137,8 @@ impl Filter {
     }
     /// NGX's VSR over `input` at its own size.
     unsafe fn vsr(&mut self, input: *mut c_void) -> Result<ID3D11Texture2D> {
+        // SAFETY: `state` is the live NGX state on this device and `input` a live texture on it;
+        // the caller holds the multithread lock. NGX's output is only borrowed while it is read.
         unsafe {
             let mut error = 0;
             let output = (self.convert)(self.state, input, self.quality, &mut error);
@@ -272,6 +276,8 @@ impl HdrPasses {
         width: u32,
         height: u32,
     ) {
+        // SAFETY: the caller holds the device's multithread lock, as `draw` requires; the view
+        // and target are live on `device`.
         unsafe {
             self.draw(
                 device,
@@ -291,6 +297,8 @@ impl HdrPasses {
         width: u32,
         height: u32,
     ) -> Result<()> {
+        // SAFETY: the caller holds the device's multithread lock, as `draw` requires; both
+        // textures are live on `device`.
         unsafe {
             let enhanced = view(device, enhanced)?;
             self.draw(

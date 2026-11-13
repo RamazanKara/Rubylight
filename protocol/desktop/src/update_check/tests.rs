@@ -618,8 +618,8 @@ fn nothing_runs_before_the_caller_has_saved() {
     assert_eq!(installer.ran(), [bytes]);
     assert!(installer.marker().exists());
 
-    let main = include_str!("../main.rs");
-    let frame = main.split("self.updates.step()").nth(1).expect("the main loop steps the update");
+    let launcher = include_str!("../app/launcher.rs");
+    let frame = launcher.split("self.updates.step()").nth(1).expect("the main loop steps the update");
     let (saved, handed) = (frame.find("self.save_for_next_run()").unwrap(), frame.find("self.updates.hand_over(").unwrap());
     assert!(saved < handed, "the main loop saves first");
 }

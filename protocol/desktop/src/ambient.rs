@@ -1,6 +1,6 @@
 //! The ambient backdrop's bake: a cover squashed to a thumbnail, blurred, saturated, its yellows
 //! pulled toward amber and its luminance capped, so white text reads over the brightest cover.
-//! Pure CPU work on small images; hosts.rs runs it off the UI thread beside the cover's decode.
+//! Pure CPU work on small images; hosts/covers.rs runs it off the UI thread beside the cover's decode.
 
 use egui::{Color32, ColorImage};
 

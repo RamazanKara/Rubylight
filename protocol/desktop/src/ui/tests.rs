@@ -270,7 +270,7 @@ struct Frames {
     /// The same text with where it landed and the clip it was drawn in.
     placed: Vec<(String, Rect, Rect)>,
     waking: Option<String>,
-    /// A start under way, as main.rs hands it over: the launch scene covers the launcher.
+    /// A start under way, as app/launch.rs hands it over: the launch scene covers the launcher.
     connecting: Option<ConnectingView>,
     /// Every texture change since the first frame, and the last frame's shapes, for screenshots.
     textures: egui::TexturesDelta,
@@ -6268,7 +6268,7 @@ fn a_menu_stays_inside_the_window_flipping_where_it_would_not_fit() {
     assert_eq!(place(Anchor::Point(Pos2::new(10.0, 10.0)), vec2(280.0, 900.0), screen).y, 8.0);
 }
 
-/// On a PC's library page, F2 (which the controller's X sends, see `main.rs`) or Shift+F10 on a
+/// On a PC's library page, F2 (which the controller's X sends, see `nav_key` in app/launcher.rs) or Shift+F10 on a
 /// game opens its menu with Play (Resume for the running game) and Game settings in it; it no
 /// longer jumps straight to the settings.
 #[test]
@@ -6437,7 +6437,7 @@ fn drop_focus(f: &mut Frames) {
     assert_eq!(f.ctx.memory(|m| m.focused()), None);
 }
 
-/// A controller press as `main.rs` hands it to egui.
+/// A controller press as app/launcher.rs hands it to egui.
 fn pad_press(f: &mut Frames, key: Key) {
     let events = f.l.controller_key(&f.ctx, key);
     f.frame(events);
@@ -6603,8 +6603,8 @@ fn the_hotkey_dialog_records_the_keys_sdl_reports() {
     l.dialog = Dialog::StreamHotkey { id: "overlay", error: None };
     assert!(l.hotkey_key_down(SDL_SCANCODE_F11, SDL_KMOD_NONE, false).is_some());
     assert_eq!(bound("overlay").as_deref(), Some("CTRL+ALT+SHIFT+F11"));
-    let main = include_str!("../main.rs");
-    let at = |s: &str| main.find(s).unwrap_or_else(|| panic!("{s}"));
+    let source = include_str!("../app/launcher.rs");
+    let at = |s: &str| source.find(s).unwrap_or_else(|| panic!("{s}"));
     assert!(at("SDL_EVENT_KEY_DOWN if self.launcher.recording_hotkey()") < at("== Some(Action::Fullscreen)"), "recorded before F11 and F12");
     // Escape alone cancels.
     l.dialog = Dialog::StreamHotkey { id: "minimize", error: None };
@@ -6629,8 +6629,8 @@ fn arrows_and_enter_alone_move_in_the_hotkey_dialog() {
         assert!(matches!(&l.dialog, Dialog::StreamHotkey { error: None, .. }), "{}", key.0);
         assert!(bound("capture").is_none(), "{}", key.0);
     }
-    let main = include_str!("../main.rs");
-    assert!(main.contains("SDL_EVENT_KEY_DOWN if self.launcher.recording_hotkey() && !ui::moves_in_hotkey_dialog("), "egui gets them");
+    let source = include_str!("../app/launcher.rs");
+    assert!(source.contains("SDL_EVENT_KEY_DOWN if self.launcher.recording_hotkey() && !ui::moves_in_hotkey_dialog("), "egui gets them");
     assert!(!moves_in_hotkey_dialog(SDL_SCANCODE_TAB, SDL_KMOD_NONE));
     assert!(!moves_in_hotkey_dialog(SDL_SCANCODE_RETURN, SDL_KMOD_LCTRL));
     assert!(l.hotkey_key_down(SDL_SCANCODE_RETURN, SDL_Keymod(SDL_KMOD_LCTRL.0 | SDL_KMOD_LALT.0), false).is_some());
@@ -8170,7 +8170,7 @@ fn no_page_draws_a_cover_larger_than_covers_are_kept_for() {
     assert!(card <= w, "{card}");
 }
 
-/// A PC with one game in its list, and the launch of that game as main.rs hands it to the scene.
+/// A PC with one game in its list, and the launch of that game as app/launch.rs hands it to the scene.
 fn launching() -> (Frames, ConnectingView) {
     let mut f = Frames::with(record("Living Room PC", true, true), Reach::Online, Some(answer(true, 0)), vec![nightjar_core::http::App { name: "Racing Game".into(), ..game(7) }]);
     let launch = ConnectingView { app: "Racing Game".into(), host: "Living Room PC".into(), stage: "Checking network profile".into(), host_id: f.hosts.list[0].id, app_id: 7 };

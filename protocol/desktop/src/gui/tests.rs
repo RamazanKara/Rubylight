@@ -228,11 +228,12 @@ fn a_streams_frames_lay_out_no_boundary_and_run_no_chain() {
 /// `draw_overlay` returns early while nothing shows, so this has to come before its first return.
 #[test]
 fn a_streams_every_frame_says_it_is_over_video_before_anything_else() {
-    let main = include_str!("../main.rs");
-    let overlay = &main[main.find("fn draw_overlay(").expect("draw_overlay")..];
+    let overlay = include_str!("../app/overlay.rs");
+    let overlay = &overlay[overlay.find("fn draw_overlay(").expect("draw_overlay")..];
     let said = overlay.find("gui.set_over_video(true)").expect("the stream's frames say so");
     assert!(said < overlay.find("return false").expect("the early return"));
-    let launcher = &main[main.find("self.gui.set_readable(true)").expect("the launcher's frame")..];
+    let launcher = include_str!("../app/launcher.rs");
+    let launcher = &launcher[launcher.find("self.gui.set_readable(true)").expect("the launcher's frame")..];
     assert!(launcher.find("self.gui.set_over_video(false)").expect("the launcher's frames say so") < launcher.find("self.gui.run(").expect("its pass"));
 }
 

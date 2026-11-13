@@ -460,7 +460,7 @@ impl Streaming {
         let props = SDL_GetRendererProperties(renderer);
         let pq_output = crate::sdl::output_decision() == Some(Ok(crate::handheld::Output::Pq));
         let planes_direct = unscaled && self.texture.draws_planes_direct();
-        // What `draw_overlay` in main.rs draws: nothing, or egui meshes, which write PQ themselves
+        // What `draw_overlay` in app/overlay.rs draws: nothing, or egui meshes, which write PQ themselves
         // (`ui_pq`) where a frame could be video only but for them.
         let meshes = self.overlay_visible || self.toast.is_some() || self.menu_visible;
         let frame = present::VideoOnlyFrame {
@@ -496,7 +496,7 @@ impl Streaming {
         SDL_RenderClear(renderer);
     }
 
-    /// The render state `draw_overlay` in main.rs hands egui's painter for this frame: null unless
+    /// The render state `draw_overlay` in app/overlay.rs hands egui's painter for this frame: null unless
     /// the frame is video only on a PQ output, where SDL would drop its own draws (`ui_pq`).
     #[cfg(target_os = "linux")]
     pub fn ui_state(&mut self, renderer: *mut SDL_Renderer) -> *mut SDL_GPURenderState {

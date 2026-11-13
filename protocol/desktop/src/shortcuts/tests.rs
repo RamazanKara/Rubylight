@@ -88,12 +88,12 @@ fn code(source: &str) -> String {
 
 /// Every key in the list has a handler that matches on its action, so the help never lists a
 /// key that does nothing: the stream's chords in stream/input.rs, F12 in the stream and the
-/// launcher's F11 and F12 in main.rs, F1 and ? on the Help page. The launcher keys egui's pages
+/// launcher's F11 and F12 in main.rs and app/, F1 and ? on the Help page. The launcher keys egui's pages
 /// handle themselves are pressed in `ui/help/tests.rs`.
 #[test]
 fn every_bound_key_has_a_handler() {
     let input = code(include_str!("../stream/input.rs"));
-    let main = code(include_str!("../main.rs"));
+    let main = code(&[include_str!("../main.rs"), include_str!("../app/launcher.rs"), include_str!("../app/session.rs"), include_str!("../app/overlay.rs")].concat());
     let help = code(include_str!("../ui/help.rs"));
     for binding in KEYS.iter().cloned().chain(keys_in(Scope::Stream)) {
         let name = format!("Action::{:?}", binding.action);

@@ -1,6 +1,6 @@
 //! Settings → Advanced → Latency benchmark: this device's display, input, timer and decoder timing
 //! without a PC, as Android's `LatencyBenchmarkActivity`. The test itself is
-//! `crate::latency_bench`; main.rs starts it, feeds it the launcher's frames and input, and stops
+//! `crate::latency_bench`; app/launcher.rs starts it, feeds it the launcher's frames and input, and stops
 //! it when the page is left.
 
 use super::*;

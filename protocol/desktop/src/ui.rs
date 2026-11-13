@@ -1,5 +1,5 @@
 //! The launcher: PCs, pairing, the app library, settings, and the connecting card. It only
-//! draws and collects [`Command`]s; `main.rs` carries them out.
+//! draws and collects [`Command`]s; `App::command` (app/command.rs) carries them out.
 
 mod about;
 mod backdrop;
@@ -529,7 +529,7 @@ pub struct Launcher {
     pub coop: crate::coop_page::CoopSessions,
     /// The Files page and its transfers.
     pub files: files::Files,
-    /// The latency benchmark page's test and results (`crate::latency_bench`); main.rs feeds it.
+    /// The latency benchmark page's test and results (`crate::latency_bench`); app/launcher.rs feeds it.
     pub latency_bench: crate::latency_bench::Bench,
     /// A short notice over the launcher, such as the game quitting after leaving its stream.
     toast: Option<(String, std::time::Instant)>,

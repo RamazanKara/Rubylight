@@ -40,7 +40,7 @@ fn the_language_setting_follows_the_system_only_on_auto() {
 // ---- The table against the sources. ----
 
 /// The UI sources, up to their test modules.
-const SOURCES: [(&str, &str); 40] = [
+const SOURCES: [(&str, &str); 52] = [
     ("open_play.rs", include_str!("../open_play.rs")),
     ("full_chroma.rs", include_str!("../full_chroma.rs")),
     ("autostart.rs", include_str!("../autostart.rs")),
@@ -65,8 +65,20 @@ const SOURCES: [(&str, &str); 40] = [
     ("session_ui.rs", include_str!("../session_ui.rs")),
     ("session_page.rs", include_str!("../session_page.rs")),
     ("main.rs", include_str!("../main.rs")),
+    ("app.rs", include_str!("../app.rs")),
+    ("app/launcher.rs", include_str!("../app/launcher.rs")),
+    ("app/command.rs", include_str!("../app/command.rs")),
+    ("app/renderer.rs", include_str!("../app/renderer.rs")),
+    ("app/launch.rs", include_str!("../app/launch.rs")),
+    ("app/session.rs", include_str!("../app/session.rs")),
+    ("app/overlay.rs", include_str!("../app/overlay.rs")),
     ("console.rs", include_str!("../console.rs")),
     ("hosts.rs", include_str!("../hosts.rs")),
+    ("hosts/covers.rs", include_str!("../hosts/covers.rs")),
+    ("hosts/events.rs", include_str!("../hosts/events.rs")),
+    ("hosts/native.rs", include_str!("../hosts/native.rs")),
+    ("hosts/pairing.rs", include_str!("../hosts/pairing.rs")),
+    ("hosts/power.rs", include_str!("../hosts/power.rs")),
     ("config.rs", include_str!("../config.rs")),
     ("shortcuts.rs", include_str!("../shortcuts.rs")),
     ("radeon.rs", include_str!("../radeon.rs")),
@@ -516,7 +528,7 @@ fn no_shown_text_says_experimental_in_any_language() {
         assert!(found.is_empty(), "{lang:?} text says Experimental:\n{}", found.join("\n"));
     }
     let shown = |file: &str, text: &str| marked().iter().any(|m| m.file == file && m.text == text);
-    for (file, text) in [("main.rs", "Send image to PC"), ("main.rs", "Copy PC image here"), ("ui/pages.rs", "Shared folders"),
+    for (file, text) in [("app/overlay.rs", "Send image to PC"), ("app/overlay.rs", "Copy PC image here"), ("ui/pages.rs", "Shared folders"),
         ("ui/settings.rs", "Sharper colored text"), ("ui/pages.rs", "Co-op"), ("ui/settings.rs", "Keep streaming when the network changes"), ("ui/settings.rs", "Forward USB devices")]
     {
         assert!(shown(file, text), "{file} shows {text:?}");

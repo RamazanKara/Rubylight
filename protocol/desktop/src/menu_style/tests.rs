@@ -206,13 +206,13 @@ fn the_sheet_lists_select_for_the_controls_when_back_opens_them() {
     }
 }
 
-/// Every action the stream menu had is still in it (main.rs draws it with these pieces), and
+/// Every action the stream menu had is still in it (app/overlay.rs draws it with these pieces), and
 /// the menu lists the sheet of shortcuts.
 #[test]
 fn the_stream_menu_keeps_every_action() {
-    let main = include_str!("../main.rs");
-    let start = main.find("fn draw_overlay(").expect("draw_overlay");
-    let menu = &main[start..start + main[start..].find("\nfn ").unwrap_or(main.len() - start)];
+    let source = include_str!("../app/overlay.rs");
+    let start = source.find("fn draw_overlay(").expect("draw_overlay");
+    let menu = &source[start..start + source[start..].find("\nfn ").unwrap_or(source.len() - start)];
     for action in [
         "s.toggle_menu(window, pads)",
         "s.overlay_visible = false",
@@ -259,9 +259,9 @@ fn the_stream_menu_keeps_every_action() {
 /// down for a controller or remote. Reconnect is one level down, behind More.
 #[test]
 fn a_closed_menu_adds_nothing_to_the_stream() {
-    let main = include_str!("../main.rs");
-    let start = main.find("fn draw_overlay(").expect("draw_overlay");
-    let overlay = &main[start..start + main[start..].find("\nfn ").unwrap_or(main.len() - start)];
+    let source = include_str!("../app/overlay.rs");
+    let start = source.find("fn draw_overlay(").expect("draw_overlay");
+    let overlay = &source[start..start + source[start..].find("\nfn ").unwrap_or(source.len() - start)];
     let run = overlay.find("gui.run(").expect("the pass");
     assert!(overlay[..run].contains("!s.overlay_visible && toast.is_none() && !input_only && !s.menu_visible"), "no pass at all with nothing to show");
     // The menu's glass is menu_style's; the statistics and the toast stand on the HUD's, which reads nothing behind it.
@@ -316,10 +316,10 @@ fn the_heads_close_is_named_and_closes() {
 
 #[test]
 fn leaving_sits_right_under_the_grid() {
-    let main = include_str!("../main.rs");
-    let start = main.find("fn draw_overlay(").expect("draw_overlay");
-    let overlay = &main[start..start + main[start..].find("
-fn ").unwrap_or(main.len() - start)];
+    let source = include_str!("../app/overlay.rs");
+    let start = source.find("fn draw_overlay(").expect("draw_overlay");
+    let overlay = &source[start..start + source[start..].find("
+fn ").unwrap_or(source.len() - start)];
     let at = |needle: &str| overlay.find(needle).unwrap_or_else(|| panic!("{needle} in the stream controls"));
     assert!(at("stream_menu::grid(") < at("stream_menu::footer("), "the grid, then the footer");
     assert_eq!(overlay.matches("Exit::Reconnect").count(), 1, "Reconnect is drawn once");
@@ -376,7 +376,7 @@ fn shoot(dir: &std::path::Path, name: &str, width: f32, height: f32, ppp: f32, h
                 .uv(egui::Rect::from_min_max(egui::pos2(0.0, 0.3), egui::pos2(1.0, 0.75)))
                 .paint_at(ui, screen);
             if what == "stats" {
-                // The statistics as main.rs draws them over the game: the HUD glass under the text, no menu.
+                // The statistics as app/overlay.rs draws them over the game: the HUD glass under the text, no menu.
                 egui::Area::new(egui::Id::unique("overlay")).anchor(egui::Align2::LEFT_TOP, vec2(16.0, 16.0)).show(ui.ctx(), |ui| {
                     let place = ui.painter().add(egui::Shape::Noop);
                     let frame = egui::Frame::new().inner_margin(egui::Margin::symmetric(14, 10)).show(ui, |ui| {
@@ -419,7 +419,7 @@ fn shoot(dir: &std::path::Path, name: &str, width: f32, height: f32, ppp: f32, h
             };
             show(ui.ctx(), tr("Stream menu"), "stream-controls", |ui| {
                 if what == "menu" {
-                    // As main.rs draws the grid page: the game over its mode, the grid scrolling, the ways out pinned.
+                    // As app/overlay.rs draws the grid page: the game over its mode, the grid scrolling, the ways out pinned.
                     header(ui, "Open World", "1440p · 144 FPS · HEVC HDR");
                     let reserve = pinned_room(ui.ctx(), "shot-footer");
                     body_above(ui, reserve, |ui| crate::stream_menu::grid(ui, &layout, &saved, None, n == 0));

@@ -5,7 +5,7 @@ members = ["rust/core", "rust/core/native-api", "rust/windows", "rust/host", "ru
 # releases: see rust/service.
 # Nightjar keeps its own workspace in client/protocol; the host uses its protocol crate by path.
 # rust/vendor holds patched third-party crates, used through [patch.crates-io] below.
-exclude = ["rust/drivers/rubylight-vdisplay", "rust/service", "client", "rust/vendor"]
+exclude = ["rust/truehdr-runtime", "rust/drivers/rubylight-vdisplay", "rust/service", "client", "rust/vendor"]
 resolver = "3"
 
 # The host's ENet, changed as its Cargo.toml lists.

@@ -223,6 +223,8 @@ type GetSetting = unsafe extern "C" fn(Handle, Handle, u32, *mut Setting1) -> i3
 type SetSetting = unsafe extern "C" fn(Handle, Handle, *mut Setting1) -> i32;
 type DeleteSetting = unsafe extern "C" fn(Handle, Handle, u32) -> i32;
 type GlobalProfile = unsafe extern "C" fn(Handle, *mut Handle) -> i32;
+type FindApplication =
+    unsafe extern "C" fn(Handle, *mut u16, *mut Handle, *mut Application1) -> i32;
 type DriverVersion = unsafe extern "C" fn(*mut u32, *mut [u8; 64]) -> i32;
 
 /// NVAPI's DRS entry points, from `nvapi64.dll`'s query interface.
@@ -240,6 +242,9 @@ pub(crate) struct NvApi {
     set_setting: SetSetting,
     delete_setting: DeleteSetting,
     global_profile: Option<GlobalProfile>,
+    /// For RTX HDR's driver profile tuning, in the NVIDIA build only.
+    #[cfg_attr(not(feature = "nvidia-proprietary"), allow(dead_code))]
+    find_application: Option<FindApplication>,
     driver_version: Option<DriverVersion>,
     session: Handle,
 }
@@ -289,6 +294,8 @@ impl NvApi {
                 resolve(query, 0x617B_FF9F, "NvAPI_DRS_GetCurrentGlobalProfile").ok();
             let driver_version: Option<DriverVersion> =
                 resolve(query, 0x2926_AAAD, "NvAPI_SYS_GetDriverAndBranchVersion").ok();
+            let find_application: Option<FindApplication> =
+                resolve(query, 0xEEE5_66B2, "NvAPI_DRS_FindApplicationByName").ok();
             let create: CreateSession = resolve(query, 0x0694_D52E, "NvAPI_DRS_CreateSession")?;
             let load: SessionCall = resolve(query, 0x375D_BD6B, "NvAPI_DRS_LoadSettings")?;
             match initialize() {
@@ -309,6 +316,7 @@ impl NvApi {
                 set_setting,
                 delete_setting,
                 global_profile,
+                find_application,
                 driver_version,
                 session: std::ptr::null_mut(),
                 _library: library,
@@ -348,6 +356,30 @@ impl NvApi {
         let status = unsafe { get(self.session, &mut profile) };
         self.check(status, "NvAPI_DRS_GetCurrentGlobalProfile")?;
         Ok(profile)
+    }
+
+    /// The profile the driver applies to `executable` (a full path or a file
+    /// name), `None` when no profile names it.
+    #[cfg(feature = "nvidia-proprietary")]
+    pub(crate) fn application_profile(&self, executable: &str) -> Result<Option<Handle>> {
+        let find = self
+            .find_application
+            .ok_or_else(|| anyhow!("the NVIDIA driver has no application lookup"))?;
+        let mut name = unicode(executable);
+        let mut profile = std::ptr::null_mut();
+        let mut info = zeroed::<Application1>();
+        info.version = version::<Application1>(1);
+        // SAFETY: `session` is this loaded NVAPI's open DRS session, `name` a full
+        // NvAPI_UnicodeString, `profile` a live out-parameter and `info` a versioned
+        // NVDRS_APPLICATION_V1.
+        let status = unsafe { find(self.session, name.as_mut_ptr(), &mut profile, &mut *info) };
+        match status {
+            OK => Ok(Some(profile)),
+            EXECUTABLE_NOT_FOUND | PROFILE_NOT_FOUND => Ok(None),
+            status => self
+                .check(status, "NvAPI_DRS_FindApplicationByName")
+                .map(|_| None),
+        }
     }
 
     /// The driver version as NVIDIA numbers it, 571.86 as 57186.

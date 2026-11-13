@@ -534,6 +534,11 @@ pub struct Device {
     color: Option<std::sync::Arc<output::Color>>,
 }
 impl Device {
+    /// The D3D11 device's identity, to tell a recreated device from this one.
+    #[cfg(feature = "nvidia-proprietary")]
+    pub fn key(&self) -> usize {
+        self.device.as_raw() as usize
+    }
     /// The monitor this device captures.
     pub fn output(&self) -> Result<&IDXGIOutput1> {
         self.output
@@ -1113,6 +1118,17 @@ impl GpuImage {
             logic: cursor.logic,
             pixels: &cursor.pixels,
         })
+    }
+    /// Take `source`'s timing, pointer and focus for a picture made from it
+    /// (the NVIDIA build's enhancements).
+    #[cfg(feature = "nvidia-proprietary")]
+    pub(crate) fn inherit(&mut self, source: &GpuImage) {
+        self.captured = source.captured;
+        self.wgc_stamp = source.wgc_stamp;
+        self.acquired = source.acquired;
+        self.published = source.published;
+        self.cursor = source.cursor.clone();
+        self.focus = source.focus;
     }
     /// Leave the pointer out of this picture, for a device that draws it itself. Only a
     /// pointer the capture supplies apart can be left out.

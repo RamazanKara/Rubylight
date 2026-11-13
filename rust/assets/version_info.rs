@@ -7,8 +7,8 @@
 // release to release.
 
 /// The release version: the workspace version in the repository's
-/// Cargo.toml. The display driver is outside the workspace and has its own
-/// crate version, so the version comes from here rather than from Cargo. The repository is the nearest folder above
+/// Cargo.toml. The display driver and the NVIDIA build's NGX adapter are
+/// outside the workspace and have their own crate versions, so the version comes from here rather than from Cargo. The repository is the nearest folder above
 /// the crate that holds this file.
 #[allow(dead_code)] // The service's build script names its own version.
 fn release_version() -> String {

@@ -496,12 +496,19 @@ impl Gamepads {
             eprintln!("nightjar: controller {}: could not be opened: {error}", id.0);
             return Err(NotOpened::Failed(error));
         }
-        let name = unsafe {
+        let sdl_name = unsafe {
             let name = SDL_GetGamepadName(handle);
-            if name.is_null() { "Controller".into() } else { std::ffi::CStr::from_ptr(name).to_string_lossy().into_owned() }
+            (!name.is_null()).then(|| std::ffi::CStr::from_ptr(name).to_string_lossy().into_owned())
         };
         let (vendor, product) = unsafe { (SDL_GetGamepadVendor(handle), SDL_GetGamepadProduct(handle)) };
-        let key = if vendor != 0 || product != 0 { format!("usb:{vendor:04x}:{product:04x}") } else { format!("name:{name}") };
+        // A nameless pad's mapping is keyed in English, so it does not follow the language.
+        const UNNAMED: &str = en("Controller");
+        let key = if vendor != 0 || product != 0 {
+            format!("usb:{vendor:04x}:{product:04x}")
+        } else {
+            format!("name:{}", sdl_name.as_deref().unwrap_or(UNNAMED))
+        };
+        let name = sdl_name.unwrap_or_else(|| crate::strings::tr(UNNAMED).to_owned());
         let mapping = self.mappings.get(&key).cloned().unwrap_or_default();
         // SAFETY: the gamepad opened above; read-only queries.
         let has_touchpad_click = unsafe {

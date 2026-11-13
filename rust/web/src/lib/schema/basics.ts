@@ -1063,7 +1063,7 @@ const input: Setting[] = [
     description:
       'How this PC moves its mouse for a device: a virtual USB mouse that games read like a real one, or Windows input, which some games and anti-cheat ignore.',
     details:
-      'Automatic uses the virtual mouse when the USB audio and haptics driver is installed. The virtual mouse needs usbip-win2, the driver the setup installs with USB audio and haptics. Without it, Virtual mouse uses injection and the stream says why. A game or device can choose its own method under Games or Devices.',
+      'Injection is the default. Choose Virtual mouse or Automatic for a game that ignores injected input; Automatic uses the virtual mouse when the USB audio and haptics driver is installed. The virtual mouse needs usbip-win2, the driver the setup installs with USB audio and haptics. Without it, Virtual mouse uses injection and the stream says why. A game or device can choose its own method under Games or Devices.',
     category: 'input',
     group: 'Mouse, pen and touch',
     control: {
@@ -1076,7 +1076,7 @@ const input: Setting[] = [
     },
     // input_policy.rs MouseMode::parse: Foundation Sunshine's names.
     aliases: { spellings: { vmouse: 'virtual_mouse', sendinput: 'injection' } },
-    default: 'auto',
+    default: 'injection',
     inactiveHint: "Turn on Mouse under Input to use this setting. Paired devices also need the Mouse permission.",
     visibleWhen: mouseOn,
   },

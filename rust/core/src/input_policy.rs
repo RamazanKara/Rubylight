@@ -151,30 +151,33 @@ pub fn gamepad_profile(value: &str) -> u16 {
 /// `mouse_mode`: how the host moves the PC's mouse and presses its buttons.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MouseMode {
-    /// The virtual USB mouse while it is plugged in, Windows' injected input otherwise:
-    /// Foundation Sunshine's default ("use the driver if available").
+    /// The virtual USB mouse while it is plugged in, Windows' injected input otherwise
+    /// (Foundation Sunshine's default, "use the driver if available").
     Auto,
     /// The virtual USB mouse; until it is plugged in, and where it cannot be, injected input,
     /// with a warning.
     VirtualMouse,
-    /// Windows' injected input (SendInput) only.
+    /// Windows' injected input (SendInput) only: the default. Measured on the RX 7900 XT host
+    /// (2026-11-13, 3+3 alternating legs), the virtual mouse arrived slightly later at p50
+    /// (246-253 us against 189-190 us) and p95 (4641-4662 against 4630-4638 us), and no default
+    /// adds latency; it stays for games that ignore injected input.
     Injection,
 }
 impl MouseMode {
     /// The setting's value; Foundation Sunshine's `vmouse` and `sendinput` names are read too.
     pub fn parse(value: &str) -> Option<Self> {
         Some(match value.trim().to_ascii_lowercase().as_str() {
-            "auto" | "" => Self::Auto,
+            "auto" => Self::Auto,
             "virtual_mouse" | "vmouse" | "virtual" => Self::VirtualMouse,
-            "injection" | "sendinput" | "send_input" => Self::Injection,
+            "injection" | "sendinput" | "send_input" | "" => Self::Injection,
             _ => return None,
         })
     }
     pub fn resolve(config: &Config) -> Self {
-        let value = config.get("mouse_mode", "auto");
+        let value = config.get("mouse_mode", "injection");
         Self::parse(value).unwrap_or_else(|| {
             crate::config::invalid("mouse_mode", value);
-            Self::Auto
+            Self::Injection
         })
     }
     /// Whether the virtual mouse is wanted at all.
@@ -804,10 +807,10 @@ mod tests {
     }
 
     #[test]
-    fn mouse_mode_defaults_to_auto_and_reads_foundations_names() {
+    fn mouse_mode_defaults_to_injection_and_reads_foundations_names() {
         assert_eq!(
             Policy::resolve(&Config::default()).unwrap().mouse_mode,
-            MouseMode::Auto
+            MouseMode::Injection
         );
         for (value, mode) in [
             ("auto", MouseMode::Auto),
@@ -815,7 +818,7 @@ mod tests {
             ("vmouse", MouseMode::VirtualMouse),
             ("injection", MouseMode::Injection),
             ("SendInput", MouseMode::Injection),
-            ("nonsense", MouseMode::Auto),
+            ("nonsense", MouseMode::Injection),
         ] {
             let config = Config::parse(&format!(
                 "mouse_mode = {value}

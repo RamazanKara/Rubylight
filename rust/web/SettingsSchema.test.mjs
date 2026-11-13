@@ -904,7 +904,7 @@ test('Frame Warp is a live Frame pacing switch, on by default, without an Experi
 
 test('the mouse input method and device touchpads sit with the mouse, on Automatic and on', () => {
   const method = settings.get('mouse_mode');
-  assert.deepEqual([method.category, method.group, method.default], ['input', 'Mouse, pen and touch', 'auto']);
+  assert.deepEqual([method.category, method.group, method.default], ['input', 'Mouse, pen and touch', 'injection']);
   assert.deepEqual(method.control.options.map(option => option.value), ['auto', 'virtual_mouse', 'injection']);
   // input_policy.rs MouseMode::parse reads Foundation Sunshine's spellings.
   assert.deepEqual(method.aliases.spellings, { vmouse: 'virtual_mouse', sendinput: 'injection' });

@@ -314,7 +314,13 @@ try {
         $abortLog = "$dir.abort.log"
         Remove-Item -Force $abortLog -ErrorAction SilentlyContinue
         $abortArguments = @('/NOCLOSEAPPLICATIONS', "/LOG=`"$abortLog`"")
-        $locked = [IO.File]::Open((Join-Path $dir $lockedName), 'Open', 'Read', 'None')
+        # The exe was just rewritten and hashed: a virus scanner may still hold it for a moment
+        # (seen on the ARM64 runner), so the exclusive open is tried for up to ten seconds.
+        $locked = $null
+        foreach ($try in 1..20) {
+            try { $locked = [IO.File]::Open((Join-Path $dir $lockedName), 'Open', 'Read', 'None'); break }
+            catch [IO.IOException] { if ($try -eq 20) { throw }; Start-Sleep -Milliseconds 500 }
+        }
         try {
             $code = if ($lockedName -eq 'nightjar.exe') { Get-SilentExit $setup $abortArguments $updateFlags } else { Get-RelaunchExit $abortArguments }
         } finally {

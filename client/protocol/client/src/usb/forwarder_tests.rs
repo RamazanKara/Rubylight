@@ -63,6 +63,20 @@ impl Rig {
         std::mem::take(&mut *self.sent.lock().unwrap())
     }
 
+    /// What was sent up to `last`. A tunnel's thread tells the host after the list shows the
+    /// attachment's end and the device is closed, so a test that saw those must still wait.
+    fn sent_through(&self, last: &UsbMessage) -> Vec<UsbMessage> {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut sent = Vec::new();
+        loop {
+            sent.append(&mut self.sent());
+            if sent.contains(last) || Instant::now() >= deadline {
+                return sent;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
     fn phase(&self, request_id: u32) -> Phase {
         self.forwarder
             .list()
@@ -207,7 +221,8 @@ fn the_host_closing_the_tunnel_ends_the_attachment() {
     drop(driver);
     rig.wait_for(id, |phase| !matches!(phase, Phase::Attached));
     wait_closed(&device);
-    assert_eq!(rig.sent(), [UsbMessage::Detach { request_id: id }]);
+    let detach = UsbMessage::Detach { request_id: id };
+    assert_eq!(rig.sent_through(&detach), [detach]);
 }
 
 #[test]
@@ -233,10 +248,8 @@ fn a_tunnel_that_does_not_open_fails_and_tells_the_host() {
     };
     assert!(error.contains("usb_disabled"), "{error}");
     wait_closed(&device);
-    assert_eq!(
-        rig.sent().last(),
-        Some(&UsbMessage::Detach { request_id: id })
-    );
+    let detach = UsbMessage::Detach { request_id: id };
+    assert_eq!(rig.sent_through(&detach).last(), Some(&detach));
 }
 
 #[test]

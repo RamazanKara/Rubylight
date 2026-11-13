@@ -307,8 +307,12 @@ pub struct GamepadThread {
     /// [`GamepadThread::stop_within`] timed out: the thread is stuck in the
     /// driver and nothing waits for it again.
     abandoned: AtomicBool,
-    /// The back grips no setting maps; pressing one shows a hint.
+    /// The back grips no setting maps; pressing one the controller's pad lacks shows a hint.
     unmapped_grips: u32,
+    /// The `gamepad` profile and the controllers' identities, for the grips each pad has
+    /// ([`butterpollo_core::input_policy::pad_back_grips`]).
+    profile: u16,
+    identities: Mutex<std::collections::BTreeMap<u16, (u16, u16)>>,
 }
 impl GamepadThread {
     /// The driver is opened with the first controller event, on the thread.
@@ -317,12 +321,7 @@ impl GamepadThread {
         policy: butterpollo_core::input_policy::Policy,
         warnings: Arc<butterpollo_core::session::Warnings>,
     ) -> std::io::Result<Self> {
-        // The virtual Steam Controller has the grips itself.
-        let unmapped_grips = if profile == butterpollo_core::input_policy::VHF_STEAM_CONTROLLER {
-            0
-        } else {
-            policy.unmapped_back_grips()
-        };
+        let unmapped_grips = policy.unmapped_back_grips();
         let pad_warnings = warnings.clone();
         let polling = Polling {
             every: POLL,
@@ -334,6 +333,7 @@ impl GamepadThread {
             polling,
         )?;
         thread.unmapped_grips = unmapped_grips;
+        thread.profile = profile;
         Ok(thread)
     }
     /// Test pads, polled as the VHF pads are by default.
@@ -392,6 +392,8 @@ impl GamepadThread {
             thread: Mutex::new(Some(thread)),
             abandoned: AtomicBool::new(false),
             unmapped_grips: 0,
+            profile: 0,
+            identities: Mutex::default(),
         })
     }
     /// Queue an event for the pads; never waits for the driver.
@@ -404,8 +406,21 @@ impl GamepadThread {
         {
             self.shared.ready.fetch_and(!(1 << *id), Ordering::Release);
         }
-        if let Event::Controller { buttons, .. } = &event
+        if let Event::ControllerIdentity(identity) = &event {
+            self.identities.lock().unwrap().insert(
+                u16::from(identity.controller),
+                (identity.vendor, identity.product),
+            );
+        }
+        if let Event::Controller { id, buttons, .. } = &event
             && buttons & self.unmapped_grips != 0
+            && buttons
+                & self.unmapped_grips
+                & !butterpollo_core::input_policy::pad_back_grips(
+                    self.profile,
+                    self.identities.lock().unwrap().get(id).copied(),
+                )
+                != 0
         {
             self.shared.warnings.lock().unwrap().event(
                 "input_back_grips",
@@ -1782,6 +1797,11 @@ pub(crate) mod tests {
         pads.unmapped_grips = 0x01_0000;
         pads.send(state(0, 1, 0x02_0000, 0));
         assert!(warnings.snapshot().is_empty());
+        // A Switch 2 Pro pad has R4 (GR): no hint for it.
+        pads.profile = butterpollo_core::input_policy::USBIP_SWITCH2;
+        pads.send(state(0, 1, 0x01_0000, 0));
+        assert!(warnings.snapshot().is_empty());
+        pads.profile = 0;
         pads.send(state(0, 1, 0x01_0000, 0));
         let entries = warnings.snapshot();
         assert_eq!(entries.len(), 1);

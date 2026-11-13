@@ -397,6 +397,20 @@ pub fn wants_switch2(configured: u16, identity: Option<(u16, u16)>) -> bool {
             }))
 }
 
+/// The back grips (Moonlight's paddle flags) a controller's virtual pad has itself, so pressing
+/// one unmapped reaches the game: all four on the Steam Controller, the upper two (GR and GL,
+/// `switch2.rs`) on a Switch 2 Pro Controller (`identity` as for [`wants_switch2`]), none on
+/// the other pads.
+pub fn pad_back_grips(profile: u16, identity: Option<(u16, u16)>) -> u32 {
+    if profile == VHF_STEAM_CONTROLLER {
+        PADDLES.iter().fold(0, |mask, flag| mask | flag)
+    } else if wants_switch2(profile, identity) {
+        PADDLES[0] | PADDLES[1]
+    } else {
+        0
+    }
+}
+
 /// `back_button_timeout`: how long Select is held before the host presses
 /// Guide (see [`BackButton`]), `None` when off (any negative value).
 pub fn back_button_timeout(config: &Config) -> Option<Duration> {
@@ -598,6 +612,24 @@ mod tests {
             Some(VHF_DS4)
         );
     }
+    #[test]
+    fn the_steam_controller_and_a_switch2_pro_carry_their_back_grips() {
+        let all = PADDLES.iter().fold(0, |mask, flag| mask | flag);
+        assert_eq!(pad_back_grips(VHF_STEAM_CONTROLLER, None), all);
+        assert_eq!(pad_back_grips(USBIP_SWITCH2, None), PADDLES[0] | PADDLES[1]);
+        use rubylight_protocol::controller_identity::{NINTENDO, SWITCH2_PRO};
+        // Automatic: a client's Switch 2 Pro Controller becomes one.
+        assert_eq!(
+            pad_back_grips(0, Some((NINTENDO, SWITCH2_PRO))),
+            PADDLES[0] | PADDLES[1]
+        );
+        assert_eq!(pad_back_grips(0, None), 0);
+        assert_eq!(
+            pad_back_grips(VHF_XBOX_SERIES, Some((NINTENDO, SWITCH2_PRO))),
+            0
+        );
+    }
+
     #[test]
     fn back_grips_pass_through_until_mapped() {
         let all = PADDLES.iter().fold(0, |mask, flag| mask | flag);

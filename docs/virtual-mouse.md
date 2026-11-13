@@ -9,7 +9,7 @@ Neither device needs a new driver or signature: both are USB devices served by t
 ## Setup
 
 1. Install **USB audio and haptics support** in the setup (optional, off by default; it can reconnect USB devices and may need a restart).
-2. For a game that ignores injected input, set **Mouse input method** (`mouse_mode`) to **Virtual mouse**, which says in the stream when it cannot be used, or **Automatic**, which uses the virtual mouse when the driver is present and injection otherwise. The default, **Injection**, never plugs it in: measured here, the virtual mouse reached a game slightly later (p50 about 250 us against 190 us). A game or device can choose its own method under **Games** or **Devices**.
+2. Leave **Mouse input method** (`mouse_mode`) on **Automatic**: the virtual mouse is used when the driver is present, injection otherwise. **Virtual mouse** asks for it and says in the stream when it cannot be used; **Injection** never plugs it in. A game or device can choose its own method under **Games** or **Devices**.
 3. **Touchpad gestures from devices** (`native_touchpad`, on by default) offers devices the touchpad packets. Turn on **Touchpad gestures on the PC** in Nightjar; the touchpad's fingers then reach Windows' precision touchpad.
 
 ## What the devices are

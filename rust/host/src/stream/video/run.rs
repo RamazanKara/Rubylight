@@ -1022,8 +1022,9 @@ impl SessionThread<'_> {
                     // The capture is being re-created on a new device.
                     // Release everything on the old one so Windows can
                     // give the new capture a current adapter.
-                    if encoder.take().is_some() {
-                        tracing::info!(client = %s.launch.client.name, "releasing the encoder while the capture recovers");
+                    if let Some(released) = encoder.take() {
+                        tracing::info!(client = %s.launch.client.name, in_flight = released.backlog(), "releasing the encoder while the capture recovers");
+                        drop(released);
                     }
                     last_image = None;
                     staging = None;

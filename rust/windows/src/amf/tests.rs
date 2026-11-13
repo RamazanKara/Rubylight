@@ -2414,3 +2414,48 @@ fn native_a_stream_larger_than_the_encoder_takes_fails_as_size_too_large() -> Re
     }
     Ok(())
 }
+
+#[test]
+fn a_released_encoder_drains_until_amf_says_every_frame_is_out() {
+    let far = Instant::now() + Duration::from_secs(5);
+    // Two frames in flight, then EOF.
+    let mut outputs = vec![
+        (AMF_RESULT_AMF_EOF, false),
+        (AMF_RESULT_AMF_OK, true),
+        (AMF_RESULT_AMF_REPEAT, false),
+        (AMF_RESULT_AMF_OK, true),
+    ];
+    let drained = drain_outputs(far, || AMF_RESULT_AMF_OK, || outputs.pop().unwrap());
+    assert_eq!(
+        drained,
+        Drained {
+            outputs: 2,
+            complete: true
+        }
+    );
+
+    // A full queue gives up an output before Drain is taken.
+    let mut answers = vec![AMF_RESULT_AMF_OK, AMF_RESULT_AMF_INPUT_FULL];
+    let mut outputs = vec![(AMF_RESULT_AMF_EOF, false), (AMF_RESULT_AMF_OK, true)];
+    let drained = drain_outputs(far, || answers.pop().unwrap(), || outputs.pop().unwrap());
+    assert_eq!(drained.outputs, 1);
+    assert!(drained.complete);
+
+    // An error ends the drain; so does the deadline.
+    let drained = drain_outputs(far, || AMF_RESULT_AMF_OK, || (AMF_RESULT_AMF_FAIL, false));
+    assert!(!drained.complete);
+    let past = Instant::now();
+    let drained = drain_outputs(past, || unreachable!(), || unreachable!());
+    assert_eq!(drained.outputs, 0);
+    assert!(!drained.complete);
+    let soon = Instant::now() + Duration::from_millis(20);
+    let drained = drain_outputs(
+        soon,
+        || AMF_RESULT_AMF_OK,
+        || (AMF_RESULT_AMF_REPEAT, false),
+    );
+    assert!(
+        !drained.complete,
+        "a frame that never leaves is given up on"
+    );
+}

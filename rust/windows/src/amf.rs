@@ -41,6 +41,8 @@ use windows::core::Interface;
 /// A call this slow held the stream thread: a stalled VCN or compute queue
 /// blocks inside the driver, where nothing can time it out.
 const SLOW_CALL: Duration = Duration::from_millis(50);
+/// How long a released encoder drains its frames in flight before it terminates.
+const DRAIN_WAIT: Duration = Duration::from_millis(100);
 fn timed<T>(call: &'static str, run: impl FnOnce() -> T) -> T {
     let started = Instant::now();
     let result = run();
@@ -414,6 +416,88 @@ fn stats<'a>(
         None => graphics.map(|stats| stats as &mut dyn dynamic::Stats),
     }
 }
+/// What draining a released encoder came to.
+#[derive(Debug, PartialEq, Eq)]
+struct Drained {
+    /// Outputs returned (and discarded) after Drain.
+    outputs: usize,
+    /// AMF said every frame is out (AMF_EOF) within the wait.
+    complete: bool,
+}
+
+/// Drains an encoder: `drain` (AMF's Drain, asked again while AMF answers AMF_INPUT_FULL),
+/// then `query` (QueryOutput: its result and whether it returned a buffer, released by it)
+/// until AMF_EOF, an error or `deadline`.
+fn drain_outputs(
+    deadline: Instant,
+    mut drain: impl FnMut() -> AMF_RESULT,
+    mut query: impl FnMut() -> (AMF_RESULT, bool),
+) -> Drained {
+    let mut drained = Drained {
+        outputs: 0,
+        complete: false,
+    };
+    let mut asked = false;
+    while Instant::now() < deadline {
+        if !asked {
+            match drain() {
+                AMF_RESULT_AMF_OK => asked = true,
+                // Nothing left to drain.
+                AMF_RESULT_AMF_EOF => {
+                    drained.complete = true;
+                    return drained;
+                }
+                // Its queue is full: take an output and ask again.
+                AMF_RESULT_AMF_INPUT_FULL => {}
+                _ => return drained,
+            }
+        }
+        match query() {
+            (_, true) => drained.outputs += 1,
+            (AMF_RESULT_AMF_EOF, false) if asked => {
+                drained.complete = true;
+                return drained;
+            }
+            (
+                AMF_RESULT_AMF_OK
+                | AMF_RESULT_AMF_REPEAT
+                | AMF_RESULT_AMF_NEED_MORE_INPUT
+                | AMF_RESULT_AMF_EOF,
+                false,
+            ) => std::thread::sleep(Duration::from_millis(1)),
+            _ => return drained,
+        }
+    }
+    drained
+}
+impl Encoder {
+    /// Drains the component before it terminates, as AMF's lifecycle asks: the frames in
+    /// flight finish and leave instead of being torn down inside the driver. Bounded by
+    /// [`DRAIN_WAIT`]; never on a lost device, where these calls block for seconds.
+    fn drain_for_release(&self) -> Drained {
+        let component = self.component;
+        drain_outputs(
+            Instant::now() + DRAIN_WAIT,
+            // SAFETY: Self owns the live component; the output thread has been joined, so
+            // nothing else calls into it.
+            || unsafe { ((*(*component).pVtbl).Drain.unwrap())(component) },
+            || {
+                let mut data = ptr::null_mut();
+                // SAFETY: as above; QueryOutput hands over one reference to a returned buffer,
+                // released here unread.
+                unsafe {
+                    let code = ((*(*component).pVtbl).QueryOutput.unwrap())(component, &mut data);
+                    if data.is_null() {
+                        (code, false)
+                    } else {
+                        ((*(*data).pVtbl).Release.unwrap())(data);
+                        (code, true)
+                    }
+                }
+            },
+        )
+    }
+}
 fn scale_rate_control(value: i64, applied_kbps: u32, requested_kbps: u32) -> i64 {
     let scaled = i128::from(value) * i128::from(requested_kbps) / i128::from(applied_kbps.max(1));
     scaled.clamp(i128::from(i64::MIN), i128::from(i64::MAX)) as i64
@@ -422,6 +506,26 @@ impl Drop for Encoder {
     fn drop(&mut self) {
         // Its last query returns before the component terminates.
         self.output_thread.take();
+        let in_flight = self.in_flight.len();
+        let lost = self.device_removed();
+        if !self.component.is_null() {
+            if lost.is_some() {
+                tracing::info!(
+                    in_flight,
+                    "AMF encoder released on a lost device, without draining"
+                );
+            } else {
+                let started = Instant::now();
+                let drained = timed("AMF Drain", || self.drain_for_release());
+                tracing::info!(
+                    in_flight,
+                    outputs = drained.outputs,
+                    complete = drained.complete,
+                    drain_ms = started.elapsed().as_millis() as u64,
+                    "AMF encoder released after draining"
+                );
+            }
+        }
         // Destroy the converter before its context and dynamically loaded runtime.
         self.gpu_convert.take();
         self.graphics_stats.take();

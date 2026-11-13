@@ -510,7 +510,7 @@ fn serverinfo_response(
     // Artemis lists these commands; a client runs one by its index: the
     // host-wide ones, then the running app's own (`menu_commands`).
     let commands: Vec<String> = if permission & 0x0010_0000 != 0 {
-        crate::process::pc_command_names(h)
+        crate::process::pc_command_names(h, config)
     } else {
         Vec::new()
     };

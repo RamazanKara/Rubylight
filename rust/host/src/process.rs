@@ -175,9 +175,13 @@ impl MenuRun {
 /// The PC commands a device with the PC commands permission sees, in index
 /// order: the host-wide `server_cmd` ones (unless the running app hides them),
 /// then the running app's own (`menu-cmd`) while it allows device commands.
-pub fn pc_command_names(h: &crate::state::Shared) -> Vec<String> {
-    let global =
-        butterpollo_core::menu_commands::global(h.config.read().unwrap().get("server_cmd", "[]"));
+/// `config` is the settings the caller answers from (serverinfo's snapshot), so the list and the
+/// rest of its reply agree.
+pub fn pc_command_names(
+    h: &crate::state::Shared,
+    config: &butterpollo_core::config::Config,
+) -> Vec<String> {
+    let global = butterpollo_core::menu_commands::global(config.get("server_cmd", "[]"));
     let app = h.current_app.lock().unwrap();
     let (own, exclude) = app
         .as_ref()

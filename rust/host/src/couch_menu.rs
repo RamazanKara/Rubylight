@@ -495,7 +495,8 @@ fn snapshot(h: &Shared, s: &Session, registry: &[&dyn items::Item], locale: &str
         .is_some_and(butterpollo_core::native::host_control);
     // The same list, in the same order, the device's own stream menu shows.
     let commands = if device.as_ref().is_some_and(|client| client.allows(1 << 20)) {
-        crate::process::pc_command_names(h)
+        let config = h.config.read().unwrap().clone();
+        crate::process::pc_command_names(h, &config)
     } else {
         Vec::new()
     };

@@ -417,9 +417,9 @@ const network: Setting[] = [
     key: 'internet_play',
     label: 'Play over the internet',
     description:
-      'Lets paired devices connect from outside your network without forwarding ports. The PC finds its public address with STUN and meets devices through the BitTorrent DHT; only paired devices can read what it publishes.',
+      'Lets paired devices connect from outside your network without forwarding ports. Only paired devices can read what the PC publishes.',
     details:
-      "A device tries your network first, then the PC's IPv6 address, then a port the router maps (Automatic port forwarding), and last a direct path both sides open through their routers. A device learns what it needs while it is on your network once. The PC contacts public STUN servers and DHT nodes, which see its public address; the Privacy page lists them. Two networks that both change ports for every destination (symmetric NAT) cannot open a direct path: forward the ports there instead.",
+      "The PC finds its public address with STUN and meets devices through the BitTorrent DHT. A device tries your network first, then the PC's IPv6 address, then a port the router maps (Automatic port forwarding), and last a direct path both sides open through their routers. A device learns what it needs while it is on your network once. The PC contacts public STUN servers and DHT nodes, which see its public address; the Privacy page lists them. Two networks that both change ports for every destination (symmetric NAT) cannot open a direct path: forward the ports there instead.",
     category: 'network',
     group: 'Discovery and internet',
     control: { kind: 'toggle' },
@@ -1061,9 +1061,9 @@ const input: Setting[] = [
     key: 'mouse_mode',
     label: 'Mouse input method',
     description:
-      'How this PC moves its mouse for a device. Virtual mouse plugs in a USB mouse that games read like a real one; injection uses Windows input, which some games and anti-cheat ignore. Automatic uses the virtual mouse when the USB audio and haptics driver is installed.',
+      'How this PC moves its mouse for a device: a virtual USB mouse that games read like a real one, or Windows input, which some games and anti-cheat ignore.',
     details:
-      'The virtual mouse needs usbip-win2, the driver the setup installs with USB audio and haptics. Without it, Virtual mouse uses injection and the stream says why. A game or device can choose its own method under Games or Devices.',
+      'Automatic uses the virtual mouse when the USB audio and haptics driver is installed. The virtual mouse needs usbip-win2, the driver the setup installs with USB audio and haptics. Without it, Virtual mouse uses injection and the stream says why. A game or device can choose its own method under Games or Devices.',
     category: 'input',
     group: 'Mouse, pen and touch',
     control: {
@@ -1084,7 +1084,9 @@ const input: Setting[] = [
     key: 'native_touchpad',
     label: 'Touchpad gestures from devices',
     description:
-      "Replay a device's physical touchpad on a virtual Windows precision touchpad, so Windows' scrolling and gestures work. Off, or without the USB audio and haptics driver, the device's touchpad moves the mouse.",
+      "Replays a device's physical touchpad on a virtual Windows precision touchpad, so Windows' scrolling and gestures work.",
+    details:
+      "Off, or without the USB audio and haptics driver, the device's touchpad moves the mouse instead.",
     category: 'input',
     group: 'Mouse, pen and touch',
     control: { kind: 'toggle' },

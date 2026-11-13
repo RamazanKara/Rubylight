@@ -158,43 +158,4 @@ export const settings: Setting[] = [
     control: { kind: 'number', min: 1, max: 4, step: 1 },
     default: 4,
   },
-  // Guests from paired devices: another device joins the game a device plays (docs/multiclient.md).
-  {
-    key: 'guest_join',
-    label: 'When another device joins the running game',
-    description:
-      'Whether a paired device that resumes the game another device plays joins as a guest, and whether the player lets it in first.',
-    details:
-      'A guest gets the same picture and sound with its own stream and controller, and only what its guest permission allows. The device playing, or the console’s stream card, answers within 45 seconds. Off streams it beside the game with the device’s own permissions, as before guests.',
-    category: 'library',
-    group: 'Play together',
-    control: {
-      kind: 'select',
-      options: [
-        { value: 'ask', label: 'Ask the player' },
-        { value: 'allow', label: 'Let in without asking' },
-        { value: 'off', label: 'Off, stream beside the game' },
-      ],
-    },
-    default: 'ask',
-  },
-  {
-    key: 'guest_permission',
-    label: 'What a guest may do',
-    description: 'What a guest from another device may do when it is let in without choosing. The player can change it for each guest.',
-    details:
-      'View only: picture and sound. Controller: a controller of its own, as the next player. Controller, keyboard and mouse: also the keyboard and mouse, one holder at a time, and the clipboard, USB devices and microphone where its device may use them.',
-    category: 'library',
-    group: 'Play together',
-    control: {
-      kind: 'select',
-      options: [
-        { value: 'view', label: 'View only' },
-        { value: 'controller', label: 'Controller' },
-        { value: 'controller-keyboard-mouse', label: 'Controller, keyboard and mouse' },
-      ],
-    },
-    default: 'controller',
-    visibleWhen: (values) => String(values.guest_join ?? 'ask').trim() !== 'off',
-  },
 ];

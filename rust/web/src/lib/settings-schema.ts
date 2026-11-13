@@ -140,8 +140,9 @@ export function categoriesOf(setting: { category: CategoryId }): { id: string; l
 const GROUP_ORDER: Record<TabId, readonly string[]> = {
   pc: ['Name and language', 'Updates', 'Sleep and wake', 'Privacy', 'Tray', 'Hardware metrics'],
   picture: [
-    'Preset', 'Streamed display', 'Resolution and refresh rate', 'HDR', 'Codecs', 'Bitrate and network',
-    'Frame pacing', 'Frame limiter', 'Encoder', 'Capture', 'After a stream', 'Remote monitors',
+    'Preset', 'Streamed display', 'Resolution and refresh rate', 'HDR', 'RTX HDR', 'Codecs', 'Bitrate and network',
+    'Frame pacing', 'Frame limiter', 'Encoder', 'RTX Video enhancement', 'Capture', 'After a stream',
+    'Remote monitors',
   ],
   sound: [
     'Sound', 'Audio devices', 'Virtual speakers', 'Microphone', 'Input devices', 'Keyboard',

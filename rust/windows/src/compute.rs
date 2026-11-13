@@ -84,6 +84,35 @@ unsafe impl Send for RetainedWork {}
 
 static RETAINED: Mutex<Vec<RetainedWork>> = Mutex::new(Vec::new());
 
+/// How long a compute queue made after a GPU reset waits for a fresh D3D12 device. D3D12 hands
+/// out one device per adapter while anything holds it, so until the reset device's last
+/// references are gone (an encoder or capture being released, retained work) it returns the
+/// removed one. On the RX 7900 XT a fresh one came about 400 ms after the reset.
+const FRESH_DEVICE_WAIT: std::time::Duration = std::time::Duration::from_millis(1500);
+const FRESH_DEVICE_RETRY: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// Runs `create` again while it fails with a lost device, until `deadline`: what
+/// [`Compute::new`] does after a reset. The result, and how many times it was asked again.
+fn retry_lost_device<T>(
+    deadline: std::time::Instant,
+    retry: std::time::Duration,
+    mut create: impl FnMut() -> Result<T>,
+) -> (Result<T>, u32) {
+    let mut again = 0;
+    loop {
+        match create() {
+            Err(error)
+                if crate::device_loss::DeviceLost::from_error(&error).is_some()
+                    && std::time::Instant::now() + retry < deadline =>
+            {
+                again += 1;
+                std::thread::sleep(retry);
+            }
+            result => return (result, again),
+        }
+    }
+}
+
 impl RetainedWork {
     fn new(compute: &Compute, queue: &ID3D12CommandQueue) -> Self {
         // SAFETY: Both objects are live and on the same device. This final
@@ -295,8 +324,32 @@ fn compute_queue(device: &ID3D12Device) -> Result<(ID3D12CommandQueue, i32)> {
     bail!("no D3D12 compute queue")
 }
 impl Compute {
-    /// A compute queue on the adapter with `luid`.
+    /// A compute queue on the adapter with `luid`, on a D3D12 device that works: after a GPU
+    /// reset it waits up to [`FRESH_DEVICE_WAIT`] for D3D12 to stop handing out the removed
+    /// device, so compute conversion returns with the first encoder made after the reset
+    /// instead of that encoder (and the capture) converting on the graphics queue.
     pub fn new(luid: LUID) -> Result<Arc<Self>> {
+        let started = std::time::Instant::now();
+        let (result, again) =
+            retry_lost_device(started + FRESH_DEVICE_WAIT, FRESH_DEVICE_RETRY, || {
+                Self::create(luid)
+            });
+        if again > 0 {
+            match &result {
+                Ok(_) => tracing::info!(
+                    waited_ms = started.elapsed().as_millis() as u64,
+                    "compute queue on a fresh D3D12 device after the GPU reset"
+                ),
+                Err(error) => tracing::warn!(
+                    error = %format!("{error:#}"),
+                    waited_ms = started.elapsed().as_millis() as u64,
+                    "D3D12 still hands out the reset device; no compute queue"
+                ),
+            }
+        }
+        result
+    }
+    fn create(luid: LUID) -> Result<Arc<Self>> {
         allow_compute_generation(luid)?;
         // SAFETY: `adapter` comes from a live DXGI factory, the device out-parameter is a live
         // local checked for None, and the queue and fence are created on that device.
@@ -307,6 +360,11 @@ impl Compute {
             D3D12CreateDevice(&adapter, D3D_FEATURE_LEVEL_11_0, &mut device)
                 .context("D3D12 device for compute conversion")?;
             let device = device.context("no D3D12 device")?;
+            // The reset device, still held elsewhere: asked again until it is let go.
+            if let Some(loss) = crate::device_loss::DeviceLost::d3d12(&device) {
+                return Err(anyhow::Error::new(loss)
+                    .context("D3D12 returned the GPU's removed device for compute conversion"));
+            }
             let (queue, priority) = compute_queue(&device)?;
             let fence = device.CreateFence(0, D3D12_FENCE_FLAG_NONE)?;
             tracing::info!(priority, "compute queue ready for colour conversion");

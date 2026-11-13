@@ -96,6 +96,9 @@ impl SessionThread<'_> {
         };
         // Separate encoder failures in this session, each counted once.
         let (mut failures, mut counted_failure) = (0u32, None);
+        // The failure (its start) that was a GPU reset or device loss: not the compute path's
+        // fault, so it does not count towards converting on the graphics queue.
+        let mut device_loss_failure: Option<Instant> = None;
         // AMF's video converter refused a long run of frames for a lasting reason: the rest of
         // the session encodes without it, converting on the compute queue.
         let mut vpe_gave_way = false;
@@ -1229,6 +1232,7 @@ impl SessionThread<'_> {
                     // 6-9 ms a frame beside a GPU-bound game.
                     if let Some(since) = recovery.failing
                         && counted_failure != Some(since)
+                        && device_loss_failure != Some(since)
                     {
                         counted_failure = Some(since);
                         failures += 1;
@@ -1266,7 +1270,7 @@ impl SessionThread<'_> {
                         Err(error) => {
                             if let Some(loss) = DeviceLost::d3d11(&image.gpu.device).or_else(|| DeviceLost::from_error(&error)) {
                                 recovery.device_loss = Some(loss);
-                                recovery.failing.get_or_insert_with(Instant::now);
+                                device_loss_failure = Some(*recovery.failing.get_or_insert_with(Instant::now));
                                 continue;
                             }
                             // The encoder cannot make the size or rate the client
@@ -1549,7 +1553,7 @@ impl SessionThread<'_> {
                             .or_else(|| DeviceLost::from_error(&error))
                         {
                             recovery.device_loss = Some(loss);
-                            recovery.failing.get_or_insert_with(Instant::now);
+                            device_loss_failure = Some(*recovery.failing.get_or_insert_with(Instant::now));
                             continue;
                         }
                         // The first frame at a size the client asked for failed:

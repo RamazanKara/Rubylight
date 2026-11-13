@@ -717,3 +717,29 @@ fn removed_device_fence_never_counts_as_completed_work() {
         Some(crate::device_loss::DeviceLost(DXGI_ERROR_DEVICE_REMOVED.0))
     );
 }
+
+#[test]
+fn compute_after_a_reset_waits_for_a_fresh_device_and_no_longer() {
+    use crate::device_loss::DeviceLost;
+    use std::time::{Duration, Instant};
+    let removed = || anyhow::Error::new(DeviceLost(0x887A0005u32 as i32)).context("D3D12");
+    let far = Instant::now() + Duration::from_secs(5);
+    let mut answers = vec![Ok(7), Err(removed()), Err(removed())];
+    let (result, again) =
+        retry_lost_device(far, Duration::from_millis(1), || answers.pop().unwrap());
+    assert_eq!(result.unwrap(), 7);
+    assert_eq!(again, 2);
+    // Another failure is not waited on.
+    let (result, again) = retry_lost_device(far, Duration::from_millis(1), || -> Result<()> {
+        bail!("no D3D12 compute queue")
+    });
+    assert!(result.is_err());
+    assert_eq!(again, 0);
+    // A device that stays removed is given up at the deadline.
+    let soon = Instant::now() + Duration::from_millis(20);
+    let (result, again) = retry_lost_device(soon, Duration::from_millis(2), || -> Result<()> {
+        Err(removed())
+    });
+    assert!(DeviceLost::from_error(&result.unwrap_err()).is_some());
+    assert!(again < 20);
+}

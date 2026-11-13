@@ -12,6 +12,7 @@
 
 use crate::{
     node::Node,
+    peers,
     punch::{self, Puncher},
     record::{PathKeys, Ports, Role},
     stream::{Event, Reliable, StreamId},
@@ -67,11 +68,13 @@ pub enum Bridge {
     /// The device: bind the host's ports at `local`, a loopback address.
     Device { local: IpAddr, ports: Ports },
     /// The host: reach the host's ports at `service` from `source`, the device's loopback
-    /// address on this PC.
+    /// address on this PC. Every socket it opens is registered in [`crate::peers`] under
+    /// `device` before it sends, so the host never trusts it as a local peer.
     Host {
         service: IpAddr,
         source: IpAddr,
         ports: Ports,
+        device: String,
     },
 }
 
@@ -123,6 +126,8 @@ struct Shared {
 struct MediaEnd {
     socket: UdpSocket,
     client: Mutex<Option<SocketAddr>>,
+    /// The host side's registration of this socket as a tunnelled peer.
+    _mark: Option<peers::Mark>,
 }
 
 #[derive(Clone)]
@@ -154,14 +159,21 @@ impl Tunnel {
                         Some(port) => Some(MediaEnd {
                             socket: UdpSocket::bind((*local, port))?,
                             client: Mutex::new(None),
+                            _mark: None,
                         }),
                         None => None,
                     }
                 }
-                Bridge::Host { source, .. } => Some(MediaEnd {
-                    socket: UdpSocket::bind((*source, 0))?,
-                    client: Mutex::new(None),
-                }),
+                Bridge::Host { source, device, .. } => {
+                    let socket = UdpSocket::bind((*source, 0))?;
+                    // Registered before the first datagram reaches the host's media ports.
+                    let mark = peers::register(socket.local_addr()?, device);
+                    Some(MediaEnd {
+                        socket,
+                        client: Mutex::new(None),
+                        _mark: Some(mark),
+                    })
+                }
             });
         }
         for end in media.iter().flatten() {
@@ -396,6 +408,7 @@ impl Tunnel {
             service,
             source,
             ports,
+            device,
         } = &self.shared.bridge
         else {
             // A host never opens streams towards a device.
@@ -416,11 +429,12 @@ impl Tunnel {
             },
         );
         let (service, source) = (SocketAddr::new(*service, port), *source);
+        let device = device.clone();
         let tunnel = self.clone();
         let spawned = thread::Builder::new()
             .name("internet play connect".into())
-            .spawn(move || match connect_from(source, service) {
-                Ok(tcp) => tunnel.bridge_connection(stream, tcp, writes),
+            .spawn(move || match connect_from(source, service, &device) {
+                Ok((tcp, mark)) => tunnel.bridge_connection(stream, tcp, writes, Arc::new(mark)),
                 Err(_) => {
                     let mut inner = tunnel.shared.inner.lock().unwrap();
                     inner.connections.remove(&stream);
@@ -471,18 +485,25 @@ impl Tunnel {
 
     /// Runs a TCP connection's two directions: a thread reads it into the stream, this one
     /// writes what the stream brings.
+    /// `mark` registers the connection as tunnelled; both directions hold it, so it stays
+    /// registered while either still uses the socket.
     fn bridge_connection(
         &self,
         stream: StreamId,
         tcp: TcpStream,
         writes: mpsc::Receiver<Outgoing>,
+        mark: Arc<peers::Mark>,
     ) {
         let _ = tcp.set_nodelay(true);
         if let Ok(reading) = tcp.try_clone() {
             let tunnel = self.clone();
+            let held = mark.clone();
             let _ = thread::Builder::new()
                 .name("internet play read".into())
-                .spawn(move || tunnel.read_connection(stream, reading));
+                .spawn(move || {
+                    tunnel.read_connection(stream, reading);
+                    drop(held);
+                });
         } else {
             self.shared.inner.lock().unwrap().reliable.reset(stream);
             self.flush();
@@ -650,15 +671,31 @@ impl Tunnel {
     }
 }
 
-/// A TCP connection to `to` from `source`, any port.
-fn connect_from(source: IpAddr, to: SocketAddr) -> io::Result<TcpStream> {
+/// A TCP connection to `to` from `source`, any port, registered as `device`'s tunnelled peer
+/// before it connects, so the host's server finds the registration from its first byte. A source
+/// that can't be bound exactly (unspecified, or another family) is refused: the host would see a
+/// peer address nobody registered, and might trust it.
+fn connect_from(
+    source: IpAddr,
+    to: SocketAddr,
+    device: &str,
+) -> io::Result<(TcpStream, peers::Mark)> {
     use socket2::{Domain, Protocol, SockAddr, Socket, Type};
-    let socket = Socket::new(Domain::for_address(to), Type::STREAM, Some(Protocol::TCP))?;
-    if source.is_ipv4() == to.is_ipv4() && !source.is_unspecified() {
-        socket.bind(&SockAddr::from(SocketAddr::new(source, 0)))?;
+    if source.is_ipv4() != to.is_ipv4() || source.is_unspecified() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a tunnelled connection needs a source address of its own",
+        ));
     }
+    let socket = Socket::new(Domain::for_address(to), Type::STREAM, Some(Protocol::TCP))?;
+    socket.bind(&SockAddr::from(SocketAddr::new(source, 0)))?;
+    let bound = socket
+        .local_addr()?
+        .as_socket()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "no local address"))?;
+    let mark = peers::register(bound, device);
     socket.connect_timeout(&SockAddr::from(to), Duration::from_secs(3))?;
-    Ok(socket.into())
+    Ok((socket.into(), mark))
 }
 
 /// A loopback address of its own for each name: 127.`base`.x.y from a hash of `name`. Every
@@ -697,18 +734,28 @@ mod tests {
             video: video.local_addr().unwrap().port(),
             ..Ports::default()
         };
+        // The services answer only a peer registered as tunnelled: the tunnel connects from
+        // 127.0.0.1 here, as a host bound to one address connects from that address, and must
+        // still never look like a program on this PC.
         thread::spawn(move || {
             for connection in service.incoming() {
                 let mut connection = connection.unwrap();
+                let tunnelled = crate::peers::is_tunnelled(connection.peer_addr().unwrap());
                 let mut request = [0u8; 4];
                 connection.read_exact(&mut request).unwrap();
-                connection.write_all(b"pong").unwrap();
+                connection
+                    .write_all(if tunnelled { b"pong" } else { b"locl" })
+                    .unwrap();
             }
         });
         thread::spawn(move || {
             let mut buffer = [0u8; 64];
             let (length, from) = video.recv_from(&mut buffer).unwrap();
-            video.send_to(&buffer[..length], from).unwrap();
+            if crate::peers::is_tunnelled(from) {
+                video.send_to(&buffer[..length], from).unwrap();
+            } else {
+                video.send_to(b"local", from).unwrap();
+            }
         });
 
         let keys = Keys::new([5; 32]).path(&[1; 16], &[2; 16]);
@@ -724,6 +771,7 @@ mod tests {
                 service: "127.0.0.1".parse().unwrap(),
                 source: "127.0.0.1".parse().unwrap(),
                 ports,
+                device: "test device".into(),
             },
         )
         .unwrap();

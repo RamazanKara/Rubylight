@@ -232,11 +232,27 @@ impl HostService {
                 return Some(tunnel.clone());
             }
         }
+        // Without a source address per device, every tunnel reaches the host from the same
+        // address, and the host keys sessions and launches by address: one device at a time,
+        // so one device can never step into another's session.
+        if !self.shared.config.per_device_source {
+            let busy = tunnels
+                .iter()
+                .any(|(tag, (_, tunnel))| *tag != state.tag && !tunnel.is_closed());
+            if busy {
+                self.shared.status.lock().unwrap().dht_error = Some(format!(
+                    "{} waits: another device is playing over the internet, and the host listens on one address",
+                    state.device.name
+                ));
+                return None;
+            }
+        }
         let keys = state.keys.path(&self.shared.session, &client);
         let bridge = Bridge::Host {
             service: self.shared.config.service,
             source: self.source(&state.device),
             ports: self.shared.config.ports,
+            device: state.device.id.clone(),
         };
         let tunnel = match Tunnel::start(
             self.shared.node.clone(),
@@ -516,6 +532,46 @@ mod tests {
         // Unpairing closes it.
         host.set_devices(Vec::new());
         assert!(host.status().paths.is_empty());
+        host.stop();
+    }
+
+    #[test]
+    fn a_host_on_one_address_serves_one_device_at_a_time() {
+        let host = HostService::start(config()).unwrap();
+        let phone = Device {
+            id: "a".into(),
+            name: "Phone".into(),
+            secret: [3; 32],
+        };
+        let tablet = Device {
+            id: "b".into(),
+            name: "Tablet".into(),
+            secret: [5; 32],
+        };
+        host.set_devices(vec![phone.clone(), tablet.clone()]);
+        let punch = |device: &Device, session: [u8; 16]| {
+            let path = Keys::new(device.secret).path(&host.session(), &session);
+            wire::Sealer::new(&path.client_to_host, path.tag, session).seal(
+                wire::Kind::Punch,
+                0,
+                &[],
+            )
+        };
+        let probe = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let from = probe.local_addr().unwrap();
+
+        host.receive(&punch(&phone, [9; 16]), from);
+        host.receive(&punch(&tablet, [8; 16]), from);
+        let status = host.status();
+        assert_eq!(status.paths.len(), 1);
+        assert_eq!(status.paths[0].device, "Phone");
+
+        // Once the phone's path is gone, the tablet gets one.
+        host.set_devices(vec![tablet.clone()]);
+        host.receive(&punch(&tablet, [8; 16]), from);
+        let status = host.status();
+        assert_eq!(status.paths.len(), 1);
+        assert_eq!(status.paths[0].device, "Tablet");
         host.stop();
     }
 }

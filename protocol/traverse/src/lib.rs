@@ -28,6 +28,7 @@ pub mod natpmp;
 pub mod node;
 pub mod path;
 pub mod pcp;
+pub mod peers;
 pub mod punch;
 pub mod record;
 pub mod stream;

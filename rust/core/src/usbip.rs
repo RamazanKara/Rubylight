@@ -216,10 +216,10 @@ struct Link {
     stream: Option<TcpStream>,
     /// Whether the client imported the device and URBs flow.
     imported: bool,
-    /// Whether the client asked for an IN transfer on a non-control endpoint since it imported
-    /// the device: its driver started and reads reports (a HID mouse is read about 250 ms after
-    /// the import).
-    polled: bool,
+    /// When the client first asked for an IN transfer on a non-control endpoint since it
+    /// imported the device: its driver started and reads reports (a HID mouse is read about
+    /// 250 ms after the import).
+    polled: Option<Instant>,
     /// Transfers on endpoints that report, oldest first.
     pending: VecDeque<Transfer>,
     /// Transfers on endpoints that never report, kept until unlinked.
@@ -248,7 +248,7 @@ impl Link {
             let _ = stream.shutdown(Shutdown::Both);
             self.stream = None;
             self.imported = false;
-            self.polled = false;
+            self.polled = None;
         }
     }
 }
@@ -343,8 +343,13 @@ impl<D: Device> Export<D> {
     /// transfer. Until then a report waits unread, so input meant for the device can go
     /// another way.
     pub fn polled(&self) -> bool {
+        self.polled_for().is_some()
+    }
+    /// How long ago the attached client first asked for an interrupt IN transfer; None until
+    /// it has.
+    pub fn polled_for(&self) -> Option<Duration> {
         let link = self.shared.link.lock().unwrap();
-        link.imported && link.polled
+        link.polled.filter(|_| link.imported).map(|at| at.elapsed())
     }
     pub fn with<R>(&self, f: impl FnOnce(&mut D) -> R) -> R {
         f(&mut self.shared.device.lock().unwrap())
@@ -371,7 +376,7 @@ impl<D: Device> Drop for Export<D> {
                 let _ = stream.shutdown(Shutdown::Both);
             }
             link.imported = false;
-            link.polled = false;
+            link.polled = None;
         }
         self.shared.wake.notify_all();
         // Shutdown must not depend on another loopback connection succeeding.
@@ -409,7 +414,7 @@ fn accept_clients<D: Device>(shared: &Shared<D>, listener: &TcpListener) {
         let mut link = shared.link.lock().unwrap();
         link.stream = None;
         link.imported = false;
-        link.polled = false;
+        link.polled = None;
         link.pending.clear();
         link.held.clear();
         link.iso.clear();
@@ -665,7 +670,7 @@ fn serve<D: Device>(shared: &Shared<D>, stream: TcpStream) -> io::Result<()> {
                         endpoint: endpoint as u8,
                         length,
                     });
-                    link.polled = true;
+                    link.polled.get_or_insert_with(Instant::now);
                     link.idle = false;
                     drop(link);
                     shared.wake.notify_all();

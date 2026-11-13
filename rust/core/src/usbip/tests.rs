@@ -229,6 +229,7 @@ fn a_client_imports_the_deck_reads_its_descriptors_and_gets_reports() {
     assert_eq!((be32(&h, 4), be32(&h, 20), be32(&h, 24)), (3, 0, 64));
     assert!(export.imported());
     assert!(!export.polled(), "control requests are not reading reports");
+    assert_eq!(export.polled_for(), None);
 
     // The mouse endpoint never reports; the controller reports on its own.
     submit(&mut client, 4, 1, true, 8, [0; 8], &[]);
@@ -236,6 +237,8 @@ fn a_client_imports_the_deck_reads_its_descriptors_and_gets_reports() {
     let (_, seqnum, status, data) = reply(&mut client);
     assert_eq!((seqnum, status, data.len()), (5, 0, 64));
     assert!(export.polled(), "an interrupt IN transfer was asked for");
+    // From the first request on: later requests do not move it.
+    let first = export.polled_for().unwrap();
     assert_eq!(&data[..4], &[1, 0, 9, 64]);
 
     // A change goes out at once.
@@ -255,6 +258,7 @@ fn a_client_imports_the_deck_reads_its_descriptors_and_gets_reports() {
     let (_, seqnum, _, data) = reply(&mut client);
     assert_eq!(seqnum, 6);
     assert!(start.elapsed() < Duration::from_secs(1));
+    assert!(export.polled_for().unwrap() >= first);
     // A periodic report may have raced the change; the next has it.
     let pressed = |data: &[u8]| data[8] & 0x80 != 0;
     if !pressed(&data) {
@@ -351,28 +355,38 @@ fn a_held_bulk_read_gets_the_answer_to_the_command_sent_after_it() {
         [0; 8],
         &select,
     );
-    // An OUT completion carries no data.
-    let out_reply = |client: &mut TcpStream| {
-        let mut h = [0u8; 48];
-        client.read_exact(&mut h).unwrap();
-        (be32(&h, 0), be32(&h, 4), be32(&h, 20) as i32)
+    // A command's completion and the answer on a held read go out from different threads,
+    // in either order (a client matches them by seqnum). An OUT completion carries no data.
+    let replies = |client: &mut TcpStream, count: usize, out: &[u32]| {
+        let mut seen = std::collections::BTreeMap::new();
+        for _ in 0..count {
+            let mut h = [0u8; 48];
+            client.read_exact(&mut h).unwrap();
+            assert_eq!((be32(&h, 0), be32(&h, 20)), (RET_SUBMIT, 0));
+            let seqnum = be32(&h, 4);
+            let length = if out.contains(&seqnum) {
+                0
+            } else {
+                be32(&h, 24) as usize
+            };
+            let mut data = vec![0; length];
+            client.read_exact(&mut data).unwrap();
+            seen.insert(seqnum, data);
+        }
+        seen
     };
-    assert_eq!(out_reply(&mut client), (RET_SUBMIT, 3, 0));
-    let (_, seqnum, status, data) = reply(&mut client);
-    assert_eq!((seqnum, status), (2, 0));
-    assert_eq!(&data[..4], &[0x03, 0x01, 0x00, 0x0a]);
+    let seen = replies(&mut client, 2, &[3]);
+    assert_eq!(seen.keys().copied().collect::<Vec<_>>(), [2, 3]);
+    assert_eq!(&seen[&2][..4], &[0x03, 0x01, 0x00, 0x0a]);
     let start = [
         0x03, 0x91, 0x00, 0x0d, 0x00, 0x08, 0x00, 0x00, 1, 0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     ];
     submit(&mut client, 4, 2, false, start.len() as u32, [0; 8], &start);
-    assert_eq!(out_reply(&mut client), (RET_SUBMIT, 4, 0));
     submit(&mut client, 5, 2, true, 64, [0; 8], &[]);
-    let mut seen = std::collections::BTreeMap::new();
-    for _ in 0..2 {
-        let (_, seqnum, status, data) = reply(&mut client);
-        assert_eq!(status, 0);
-        seen.insert(seqnum, data);
-    }
+    // The reports start: the held HID read reports, beside the command's completion and
+    // its answer.
+    let seen = replies(&mut client, 3, &[4]);
+    assert_eq!(seen.keys().copied().collect::<Vec<_>>(), [1, 4, 5]);
     assert_eq!(seen[&1][0], 0x05, "the held HID read reports");
     assert_eq!(&seen[&5][..4], &[0x03, 0x01, 0x00, 0x0d]);
 }

@@ -19,6 +19,16 @@ use windows::Win32::UI::{Input::KeyboardAndMouse::*, WindowsAndMessaging::*};
 /// How long a device that failed to plug waits before a stream may try again.
 const RETRY: Duration = Duration::from_secs(30);
 
+/// How long after Windows first asks for a report the device starts taking input. Raw input
+/// saw the virtual mouse's first report 98-112 ms after that request on the RX 7900 XT PC
+/// (2026-11-13), and moves sent to it in between arrived late and merged.
+const SETTLE: Duration = Duration::from_millis(150);
+
+/// Whether a device Windows first asked for a report `polled_for` ago takes input.
+fn settled(polled_for: Duration) -> bool {
+    polled_for >= SETTLE
+}
+
 /// Where a device stands.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Availability {
@@ -88,12 +98,13 @@ impl<D: Device> Slot<D> {
             }
         }
     }
-    /// Whether the device is plugged in and Windows reads it: its driver asked for a report.
-    /// Imported is not enough: Windows reads a new mouse about 250 ms later, and input routed
-    /// to it before then waited and arrived merged, so until then it is injected.
+    /// Whether the device is plugged in and Windows reads it: its driver asked for a report
+    /// at least [`SETTLE`] ago. Imported is not enough: Windows reads a new mouse about
+    /// 250 ms later and delivers its reports about 100 ms after that, and input routed to it
+    /// before then waited and arrived merged, so until then it is injected.
     pub fn ready(&self) -> bool {
         matches!(&self.inner.lock().unwrap().state, State::Plugged(pad)
-            if pad.export.as_ref().is_some_and(|export| export.polled()))
+            if pad.export.as_ref().and_then(|export| export.polled_for()).is_some_and(settled))
     }
     /// Plugs in the device `make` builds, on a thread of its own, unless it is plugged in,
     /// on its way, or failed less than [`RETRY`] ago. Returns where it stands.
@@ -372,5 +383,14 @@ mod tests {
         UNUSED.release();
         UNUSED.release();
         assert!(!UNUSED.ready());
+    }
+
+    #[test]
+    fn input_waits_until_windows_delivers_the_first_reports() {
+        // Raw input saw the first report 98-112 ms after Windows first asked for one.
+        assert!(!settled(Duration::ZERO));
+        assert!(!settled(Duration::from_millis(112)));
+        assert!(settled(SETTLE));
+        assert!(settled(Duration::from_secs(5)));
     }
 }

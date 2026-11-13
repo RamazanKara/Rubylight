@@ -647,7 +647,8 @@ impl Streaming {
         renderer: *mut SDL_Renderer,
         mut draw_overlay: impl FnMut(&mut Self, *mut SDL_Renderer),
     ) -> bool {
-        if self.texture.needs_hdr_output() && !crate::sdl::hdr_available(renderer) {
+        // A display plane shows HDR itself, whatever the renderer's swapchain takes.
+        if self.texture.needs_hdr_output() && !self.kms_usable() && !crate::sdl::hdr_available(renderer) {
             self.texture.destroy();
             self.exit = Some(Exit::Ended(Some("HDR presentation stopped because the current display/swapchain no longer supports HDR.".into())));
             self.needs_redraw = true;
@@ -655,7 +656,8 @@ impl Streaming {
         self.sync_race(renderer);
         self.sync_vrr(renderer);
         // The slices of a frame still being received go out ahead of the beam.
-        let sliced = self.present_slices(renderer, &mut draw_overlay, session::now_us());
+        // Slices are drawn by the renderer, which a display plane's pictures pass by.
+        let sliced = !self.kms_engaged() && self.present_slices(renderer, &mut draw_overlay, session::now_us());
         let now = session::now_us();
         let overdue = self.skipped.take_due(now);
         let (picture, mut dropped) = self.pacer.take_due(now);
@@ -702,7 +704,7 @@ impl Streaming {
                     rows = race::scissor(first, end, p.decoded.setup.height as u32);
                 }
             }
-            if !self.texture.upload(renderer, &p.decoded, rows) {
+            if !self.scan_out(&p.decoded) && !self.texture.upload(renderer, &p.decoded, rows) {
                 if p.decoded.setup.format & VIDEO_FORMAT_MASK_PYROWAVE != 0 {
                     let reason = self.texture.failure.take().unwrap_or_else(|| "PyroWave GPU reconstruction failed.".into());
                     self.exit = Some(Exit::Ended(Some(reason)));
@@ -728,7 +730,10 @@ impl Streaming {
             if let Some(p) = &picture { warp.picture(p.decoded.number, p.decoded.race_seq, p.decoded.ready_us); }
             self.texture.warp = warp.draw(None);
         }
-        let flipped = self.render_flip(renderer, &mut draw_overlay, has_picture);
+        let flipped = match self.kms_flip(&mut draw_overlay) {
+            Some(flipped) => flipped,
+            None => self.render_flip(renderer, &mut draw_overlay, has_picture),
+        };
         self.needs_redraw = false;
         // The pictures the compositor answered for: the doctor's display time runs to the glass.
         #[cfg(target_os = "linux")]
@@ -815,8 +820,84 @@ impl Streaming {
                     w.latency_n += 1;
                 }
             }
+            // A picture on a display plane stays out of the decoder's pool while it shows.
+            #[cfg(target_os = "linux")]
+            if let Some(kms) = self.kms.as_mut().filter(|kms| kms.engaged()) {
+                kms.keep(p);
+            }
         }
         true
+    }
+
+    /// Whether a display plane may still take the pictures (`kms_scanout`).
+    fn kms_usable(&self) -> bool {
+        #[cfg(target_os = "linux")]
+        return self.kms.as_ref().is_some_and(kms_scanout::Scanout::usable);
+        #[cfg(not(target_os = "linux"))]
+        false
+    }
+
+    /// Readies `decoded` for a display plane instead of the video texture; false leaves it to the
+    /// renderer, as before, with a notice the first time the planes give up.
+    #[cfg(target_os = "linux")]
+    fn scan_out(&mut self, decoded: &pipeline::Decoded) -> bool {
+        let Some(kms) = self.kms.as_mut().filter(|kms| kms.usable()) else { return false };
+        let (scaling, top) = (self.settings.video_scaling, self.settings.align_video_top);
+        let result = match self.texture.scanout_hdr(decoded) {
+            Ok(hdr) => kms.prepare(decoded, hdr, |picture, area| {
+                let r = viewport(picture, area, scaling, top);
+                (r.x, r.y, r.w, r.h)
+            }),
+            Err(why) => {
+                kms.give_up(&why);
+                Err(why)
+            }
+        };
+        if result.is_err() {
+            self.show_toast(tr("Video planes are unavailable; the stream is drawn by the renderer. The log says why."));
+            self.needs_redraw = true;
+        }
+        result.is_ok()
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn scan_out(&mut self, _decoded: &pipeline::Decoded) -> bool {
+        false
+    }
+
+    /// Shows the readied picture on its display plane, the overlay drawn into its own plane above
+    /// it, in one commit; None while the planes do not show the stream, or when they just gave up
+    /// (then the renderer draws this frame).
+    #[cfg(target_os = "linux")]
+    fn kms_flip(&mut self, draw_overlay: &mut impl FnMut(&mut Self, *mut SDL_Renderer)) -> Option<Flipped> {
+        if !self.kms_engaged() {
+            return None;
+        }
+        // What `draw_overlay` in main.rs draws something for.
+        let meshes = self.overlay_visible || self.toast.is_some() || self.menu_visible;
+        match self.kms.as_mut().and_then(|kms| kms.overlay_renderer().filter(|_| meshes)) {
+            Some(overlay) => {
+                draw_overlay(self, overlay);
+                if let Some(kms) = self.kms.as_mut() { kms.overlay_drawn(); }
+            }
+            None => {
+                if let Some(kms) = self.kms.as_mut() { kms.overlay_hidden(); }
+            }
+        }
+        let issued_us = session::now_us();
+        let committed = self.kms.as_mut().map_or(Ok(()), kms_scanout::Scanout::commit);
+        let returned_us = session::now_us();
+        if committed.is_err() {
+            self.show_toast(tr("Video planes are unavailable; the stream is drawn by the renderer. The log says why."));
+            self.needs_redraw = true;
+            return None;
+        }
+        Some(Flipped { issued_us, returned_us, scan: None, refused: false })
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn kms_flip(&mut self, _draw_overlay: &mut impl FnMut(&mut Self, *mut SDL_Renderer)) -> Option<Flipped> {
+        None
     }
 
     /// A frame is on the screen: closes it in the racer, teaches the predictor its slice times and

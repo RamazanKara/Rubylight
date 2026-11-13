@@ -144,6 +144,26 @@ impl Renderer {
     }
 }
 
+/// Where Nightjar shows itself on Linux (`kms`): `Automatic` opens a window on the desktop, or,
+/// with no Wayland or X11 session (a console or kiosk box), draws straight to the display through
+/// DRM KMS; `Desktop` and `Kms` choose one. `--kms` and `--no-kms` choose for one start.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DisplayOutput {
+    #[default]
+    Automatic,
+    Desktop,
+    Kms,
+}
+
+impl DisplayOutput {
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))] // the menu is drawn only on Linux
+    pub const ALL: [Self; 3] = [Self::Automatic, Self::Desktop, Self::Kms];
+
+    pub fn label(self) -> &'static str {
+        match self { Self::Automatic => en("Automatic"), Self::Desktop => en("Desktop"), Self::Kms => en("Straight to the display") }
+    }
+}
+
 /// Which GPU draws and decodes on a Windows PC with two (`gpu_adapters`), for the whole app:
 /// Automatic is Windows' choice, unless YUV 4:4:4 is asked for and only the high-performance GPU
 /// decodes it; the others are Windows' per-app preference, set for Nightjar.
@@ -418,6 +438,11 @@ pub struct Settings {
     pub renderer: Renderer,
     /// The GPU on a Windows PC with two ([`GraphicsCard`]); for the whole app.
     pub graphics_card: GraphicsCard,
+    /// Where Nightjar shows itself on Linux ([`DisplayOutput`]); for the whole app, read at start.
+    pub display_output: DisplayOutput,
+    /// Drawing straight to the display, a stream's decoded pictures go on a display plane
+    /// (`stream::kms_scanout`) instead of being drawn into the window; for the whole app.
+    pub video_planes: bool,
     pub microphone: bool,
     /// Echo cancellation on the microphone (`stream::microphone`), automatic by default.
     pub mic_echo_cancel: MicEcho,
@@ -1058,6 +1083,8 @@ impl Default for Settings {
             pyrowave_decoder: PyroWaveDecoder::default(),
             renderer: Renderer::Auto,
             graphics_card: GraphicsCard::Automatic,
+            display_output: DisplayOutput::Automatic,
+            video_planes: true,
             microphone: false,
             mic_echo_cancel: MicEcho::Auto,
             mic_gain: 100,

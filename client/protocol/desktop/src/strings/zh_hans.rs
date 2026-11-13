@@ -1538,4 +1538,10 @@ sudo sysctl -w net.core.rmem_max={}", "接收缓冲区：系统只分配了所�
     ("Shifts the picture with your mouse or right stick until the PC’s next frame shows the turn, and keeps the game’s HUD in place. Needs a PC that supports it.", "在电脑的下一帧显示转向之前，随鼠标或右摇杆平移画面，并让游戏的 HUD 保持不动。需要支持此功能的电脑。"),
     ("This PC doesn’t offer Frame Warp, so Nightjar streams without it.", "此电脑不提供 Frame Warp，因此 Nightjar 不使用它进行串流。"),
     ("The touchpad stays a mouse: {}", "触控板仍作为鼠标使用：{}"),
+    ("Straight to the display", "直接输出到显示器"),
+    ("Display output", "显示输出"),
+    ("Where Nightjar shows itself. Automatic draws straight to the display when no desktop is running. Applies at the next start.", "Nightjar 的显示位置。自动：没有运行桌面时直接绘制到显示器。下次启动时生效。"),
+    ("Video planes", "视频平面"),
+    ("Drawing straight to the display, shows the stream on its own display plane, with HDR and without a copy.", "直接绘制到显示器时，将串流显示在独立的显示平面上，支持 HDR 且无需复制。"),
+    ("Video planes are unavailable; the stream is drawn by the renderer. The log says why.", "视频平面不可用，串流由渲染器绘制。原因见日志。"),
 ];

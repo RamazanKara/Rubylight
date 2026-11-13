@@ -1538,4 +1538,10 @@ sudo sysctl -w net.core.rmem_max={}", "Alma arabelleği: sistem istenen {1} KiB'
     ("Shifts the picture with your mouse or right stick until the PC’s next frame shows the turn, and keeps the game’s HUD in place. Needs a PC that supports it.", "Bilgisayarın sonraki karesi dönüşü gösterene kadar görüntüyü fare veya sağ çubukla kaydırır ve oyunun HUD’unu yerinde bırakır. Bunu destekleyen bir bilgisayar gerekir."),
     ("This PC doesn’t offer Frame Warp, so Nightjar streams without it.", "Bu bilgisayar Frame Warp sunmuyor, bu yüzden Nightjar onsuz yayın yapıyor."),
     ("The touchpad stays a mouse: {}", "Dokunmatik yüzey fare olarak kalır: {}"),
+    ("Straight to the display", "Doğrudan ekrana"),
+    ("Display output", "Görüntü çıkışı"),
+    ("Where Nightjar shows itself. Automatic draws straight to the display when no desktop is running. Applies at the next start.", "Nightjar'ın nerede görüneceği. Otomatik, çalışan bir masaüstü yokken doğrudan ekrana çizer. Bir sonraki başlatmada uygulanır."),
+    ("Video planes", "Video düzlemleri"),
+    ("Drawing straight to the display, shows the stream on its own display plane, with HDR and without a copy.", "Doğrudan ekrana çizerken yayını kendi ekran düzleminde, HDR ile ve kopyalamadan gösterir."),
+    ("Video planes are unavailable; the stream is drawn by the renderer. The log says why.", "Video düzlemleri kullanılamıyor; yayını işleyici çiziyor. Nedeni günlükte yazıyor."),
 ];

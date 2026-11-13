@@ -51,6 +51,8 @@ pub mod race;
 pub mod race_probe;
 #[cfg(any(target_os = "linux", test))]
 pub mod drm_vrr;
+#[cfg(target_os = "linux")]
+pub mod kms_scanout;
 // The timing CSV names its flags everywhere; the feedback itself is Wayland's.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub mod wl_presentation;
@@ -176,6 +178,9 @@ pub struct LaunchPlan {
     pub hardware: Hardware,
     /// VAAPI pictures go to the renderer as DMA-BUFs (`crate::dmabuf`), not through memory.
     pub dmabuf: bool,
+    /// Pictures go straight onto a display plane (`kms_scanout`): VAAPI exports them as DMA-BUFs
+    /// in 10-bit too, since no renderer has to import them.
+    pub kms_planes: bool,
     /// The renderer's Direct3D 11 device when PyroWave decodes on the GPU (`pyrowave_decoder`).
     pub gpu_decoder: Option<pipeline::GpuDevice>,
     pub packed_modes: u8,
@@ -499,6 +504,9 @@ pub struct Streaming {
     /// The stream's setup as the last frame showed it, which slice draws need before a frame has.
     race_setup: Option<session::VideoSetup>,
     pub overlay_visible: bool,
+    /// The pictures on a display plane when Nightjar draws straight to the display.
+    #[cfg(target_os = "linux")]
+    pub kms: Option<kms_scanout::Scanout>,
     pub overlay_mode: OverlayMode,
     pub overlay_corner: OverlayCorner,
     /// The overlay as last kept in the settings; see `take_overlay_change`.
@@ -753,6 +761,14 @@ fn swapchain_metadata_change<M: Copy + PartialEq>(stream: Option<Option<M>>, sen
 }
 
 impl Streaming {
+    /// Whether the pictures are on a display plane now, so the overlay draws into its own plane.
+    pub fn kms_engaged(&self) -> bool {
+        #[cfg(target_os = "linux")]
+        return self.kms.as_ref().is_some_and(kms_scanout::Scanout::engaged);
+        #[cfg(not(target_os = "linux"))]
+        false
+    }
+
     pub fn new(connecting: Connecting, session: Session, facts: Facts, display: Display) -> Self {
         let min_interval = if display.refresh_hz > 0.0 {
             (1_000_000.0 / display.refresh_hz) as i64
@@ -872,6 +888,8 @@ impl Streaming {
             race_present: env_flag("NIGHTJAR_BEAM_RACE_PRESENT").unwrap_or(true),
             race_setup: None,
             overlay_visible: settings.overlay,
+            #[cfg(target_os = "linux")]
+            kms: None,
             overlay_mode: settings.overlay_mode,
             overlay_corner: settings.overlay_position,
             overlay_kept: (settings.overlay, settings.overlay_mode, settings.overlay_position),

@@ -1214,6 +1214,24 @@ impl VideoTexture {
         self.hdr_metadata.filter(|_| self.hdr_mode == Some(true) && !self.hlg_frame)
     }
 
+    /// What a display plane (`kms_scanout`) shows `decoded` as: None for SDR, the host's mastering
+    /// metadata (empty before it sent any) for an HDR10 picture. HLG and 8-bit HDR pictures stay
+    /// with the renderer, which converts them.
+    #[cfg(target_os = "linux")]
+    pub fn scanout_hdr(&self, decoded: &super::pipeline::Decoded) -> Result<Option<nightjar_core::control::HdrMetadata>, String> {
+        let trc = decoded.picture.frame().map_or(0, |frame| frame.info().color_trc);
+        if !shows_hdr(self.hdr_mode, self.hdr_stream, trc) {
+            return Ok(None);
+        }
+        if trc == TRC_HLG {
+            return Err("HLG pictures are converted by the renderer".into());
+        }
+        if decoded.setup.format & nightjar_core::sdp::VIDEO_FORMAT_MASK_10BIT == 0 {
+            return Err("an 8-bit HDR picture is converted by the renderer".into());
+        }
+        Ok(Some(self.hdr_metadata.filter(|_| self.hdr_mode == Some(true)).unwrap_or_default()))
+    }
+
     /// The picture's size: the texture's, less the alignment padding of a decoded picture.
     pub fn size(&self) -> (i32, i32) {
         self.visible.unwrap_or((self.width, self.height))

@@ -1538,4 +1538,10 @@ sudo sysctl -w net.core.rmem_max={}", "Буфер приймання: систе
     ("Shifts the picture with your mouse or right stick until the PC’s next frame shows the turn, and keeps the game’s HUD in place. Needs a PC that supports it.", "Зсуває зображення слідом за мишею чи правим стиком, доки наступний кадр із ПК не покаже поворот, і залишає HUD гри на місці. Потрібен ПК із підтримкою цієї функції."),
     ("This PC doesn’t offer Frame Warp, so Nightjar streams without it.", "Цей ПК не пропонує Frame Warp, тому Nightjar транслює без нього."),
     ("The touchpad stays a mouse: {}", "Тачпад працює як миша: {}"),
+    ("Straight to the display", "Безпосередньо на екран"),
+    ("Display output", "Виведення зображення"),
+    ("Where Nightjar shows itself. Automatic draws straight to the display when no desktop is running. Applies at the next start.", "Де показується Nightjar. «Автоматично» малює просто на екран, коли робочий стіл не запущено. Застосовується під час наступного запуску."),
+    ("Video planes", "Відеоплощини"),
+    ("Drawing straight to the display, shows the stream on its own display plane, with HDR and without a copy.", "Під час виведення просто на екран показує трансляцію на власній площині дисплея, з HDR і без копіювання."),
+    ("Video planes are unavailable; the stream is drawn by the renderer. The log says why.", "Відеоплощини недоступні; трансляцію малює рендерер. Причину вказано в журналі."),
 ];

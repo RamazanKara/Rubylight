@@ -366,6 +366,8 @@ pub struct Decoder {
     gpu: Option<GpuDevice>,
     /// The presenter imports VAAPI pictures as DMA-BUFs (`crate::dmabuf`).
     dmabuf: bool,
+    /// The pictures go straight onto a display plane (`kms_scanout`), which takes 10-bit too.
+    kms_planes: bool,
     /// Measurement: where the first `PYROWAVE_DUMP_FRAMES` envelopes go (`NIGHTJAR_PYROWAVE_DUMP`),
     /// and how many were written.
     dump: Option<(std::path::PathBuf, u32)>,
@@ -698,6 +700,7 @@ impl Decoder {
             slices: 0,
             gpu: None,
             dmabuf: false,
+            kms_planes: false,
             dump: std::env::var_os("NIGHTJAR_PYROWAVE_DUMP").filter(|dir| !dir.is_empty()).map(|dir| (dir.into(), 0)),
             failing: Failing::default(),
             lost: false,
@@ -826,13 +829,21 @@ impl Decoder {
         self.dmabuf = dmabuf;
         self
     }
+
+    /// VAAPI pictures go straight onto a display plane as DMA-BUFs (`kms_scanout`).
+    pub fn with_kms_planes(mut self, kms_planes: bool) -> Self {
+        self.kms_planes = kms_planes;
+        self
+    }
 }
 
 /// Whether a stream's VAAPI pictures go to the presenter as DMA-BUFs: it imports them, and they
-/// are what its import takes (SDL's NV12 texture: 8-bit 4:2:0, not packed).
-fn exports_dmabuf(presenter_imports: bool, setup: &VideoSetup) -> bool {
-    presenter_imports
-        && setup.format & nightjar_core::sdp::VIDEO_FORMAT_MASK_10BIT == 0
+/// are what its import takes (SDL's NV12 texture: 8-bit 4:2:0, not packed). A display plane
+/// (`kms_planes`) takes them as they are, P010 included.
+fn exports_dmabuf(presenter_imports: bool, kms_planes: bool, setup: &VideoSetup) -> bool {
+    let ten_bit = setup.format & nightjar_core::sdp::VIDEO_FORMAT_MASK_10BIT != 0;
+    (presenter_imports || kms_planes)
+        && (kms_planes || !ten_bit)
         && setup.format & VIDEO_FORMAT_MASK_YUV444 == 0
         && setup.chroma_packing == 0
 }
@@ -1103,7 +1114,7 @@ impl Decoder {
 
     /// Makes `decoder` the stream's FFmpeg decoder.
     fn install(&mut self, mut decoder: media::VideoDecoder, setup: &VideoSetup) {
-        let exported = exports_dmabuf(self.dmabuf, setup) && decoder.export_dmabuf();
+        let exported = exports_dmabuf(self.dmabuf, self.kms_planes, setup) && decoder.export_dmabuf();
         let mut mapped = if exported {
             eprintln!("nightjar: VAAPI pictures go to the renderer as DMA-BUFs");
             false
@@ -2033,11 +2044,16 @@ mod tests {
     fn only_8_bit_4_2_0_unpacked_streams_go_to_an_importing_presenter_as_dmabufs() {
         use nightjar_core::sdp::{VIDEO_FORMAT_H264, VIDEO_FORMAT_MASK_10BIT};
         let setup = VideoSetup { format: VIDEO_FORMAT_H264, width: 1920, height: 1080, fps: 60, chroma_packing: 0, logical_width: 1920, logical_height: 1080, color_space: 1, color_range: 0 };
-        assert!(exports_dmabuf(true, &setup));
-        assert!(!exports_dmabuf(false, &setup), "a presenter that does not import gets mappings");
-        assert!(!exports_dmabuf(true, &VideoSetup { format: VIDEO_FORMAT_H264 | VIDEO_FORMAT_MASK_10BIT, ..setup }), "SDL's GL renderers have no P010 texture");
-        assert!(!exports_dmabuf(true, &VideoSetup { format: VIDEO_FORMAT_H264 | VIDEO_FORMAT_MASK_YUV444, ..setup }));
-        assert!(!exports_dmabuf(true, &VideoSetup { chroma_packing: 1, ..setup }), "packed pictures are rebuilt from memory");
+        assert!(exports_dmabuf(true, false, &setup));
+        assert!(!exports_dmabuf(false, false, &setup), "a presenter that does not import gets mappings");
+        assert!(!exports_dmabuf(true, false, &VideoSetup { format: VIDEO_FORMAT_H264 | VIDEO_FORMAT_MASK_10BIT, ..setup }), "SDL's GL renderers have no P010 texture");
+        assert!(!exports_dmabuf(true, false, &VideoSetup { format: VIDEO_FORMAT_H264 | VIDEO_FORMAT_MASK_YUV444, ..setup }));
+        assert!(!exports_dmabuf(true, false, &VideoSetup { chroma_packing: 1, ..setup }), "packed pictures are rebuilt from memory");
+        // A display plane takes the pictures as they are, P010 too, but not 4:4:4 or packed ones.
+        assert!(exports_dmabuf(false, true, &setup));
+        assert!(exports_dmabuf(false, true, &VideoSetup { format: VIDEO_FORMAT_H264 | VIDEO_FORMAT_MASK_10BIT, ..setup }));
+        assert!(!exports_dmabuf(true, true, &VideoSetup { format: VIDEO_FORMAT_H264 | VIDEO_FORMAT_MASK_YUV444, ..setup }));
+        assert!(!exports_dmabuf(false, true, &VideoSetup { chroma_packing: 1, ..setup }));
         // A software decoder asked for DMA-BUFs decodes as before.
         let (decoder, _shared) = decoder();
         let mut decoder = decoder.with_dmabuf(true);

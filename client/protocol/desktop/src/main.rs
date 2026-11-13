@@ -40,6 +40,7 @@ mod host_page;
 mod hosts;
 mod input_source;
 mod keymap;
+mod kms;
 mod live_glass;
 mod logfile;
 mod link_channel;
@@ -170,6 +171,9 @@ struct App {
     window: *mut SDL_Window,
     renderer: *mut SDL_Renderer,
     gui: Gui,
+    /// The software renderer of a stream's overlay plane (`kms_scanout`) the gui's textures are
+    /// on; null while they are on `renderer`.
+    gui_overlay: *mut SDL_Renderer,
     store: Store,
     hosts: Hosts,
     launcher: Launcher,
@@ -431,6 +435,8 @@ fn main() {
     }
     let (args, at_sign_in) = autostart::split_sign_in(args);
     let (args, second_screen) = second_screen::split_flag(args);
+    let (args, kms_flag) = kms::split_flag(args);
+    kms::set_flag(kms_flag);
     let (args, second_screen_join) = second_screen::split_join(args);
     let usage_box = cli::shows_usage_box(cli::HAS_CONSOLE, &args);
     let (mut launch, link) = match cli::parse(args) {
@@ -662,6 +668,23 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     #[cfg(target_os = "linux")]
     amd_decode::request();
 
+    // Straight to the display (KMS) or through the desktop, decided before SDL picks its video driver.
+    #[cfg(target_os = "linux")]
+    {
+        let setting = Store::open().map(|store| store.read_only().settings().display_output).unwrap_or_default();
+        let session = kms::Session::read(|name| std::env::var_os(name), std::path::Path::exists);
+        let driver = std::env::var("SDL_VIDEO_DRIVER").ok();
+        let decision = kms::decide(kms::flag(), setting, session, driver.as_deref());
+        eprintln!("nightjar: kms: {} ({})", if decision.backend == kms::Backend::Kms { "drawing straight to the display" } else { "drawing through the desktop" }, decision.why);
+        if decision.driver_hint.is_some() {
+            sdl::set_hint(SDL_HINT_VIDEO_DRIVER, c"kmsdrm");
+        }
+        kms::set(decision.backend);
+    }
+    #[cfg(not(target_os = "linux"))]
+    if let Some(flag) = kms::flag() {
+        eprintln!("nightjar: kms: {} is ignored: only Linux draws straight to the display", if flag { kms::KMS_ARG } else { kms::NO_KMS_ARG });
+    }
     // The second screen's stream takes no controllers: they stay with the first.
     let gamepads = if second_screen::this_process() { SDL_InitFlags::default() } else { SDL_INIT_GAMEPAD };
     let subsystems = SDL_INIT_VIDEO | gamepads | SDL_INIT_EVENTS;
@@ -672,6 +695,9 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     // SAFETY: SDL initialisation on the main thread.
     unsafe {
         if !SDL_Init(subsystems) {
+            if kms::active() {
+                return Err(kms::start_failure(&sdl::error()));
+            }
             return Err(format!("SDL could not start: {}", sdl::error()));
         }
     }
@@ -699,6 +725,12 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     // The Renderer setting decides, and at Auto what needs the GPU renderer.
     #[cfg(target_os = "linux")]
     let gpu = handheld::starts_on_gpu(settings.renderer, settings.renderer == config::Renderer::Auto && (gpu || gpu_for_vulkan_video(vulkan_video, vulkan_choice)));
+    // Straight to the display, OpenGL keeps DRM master where the video planes can share it.
+    #[cfg(target_os = "linux")]
+    let gpu = match kms::active().then(|| kms::renderer_for(settings.renderer, settings.video_planes)).flatten() {
+        Some(gpu) => gpu,
+        None => gpu,
+    };
     #[cfg(not(target_os = "linux"))]
     let vulkan_video = false;
 
@@ -898,6 +930,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         window,
         renderer,
         gui,
+        gui_overlay: std::ptr::null_mut(),
         store,
         hosts,
         launcher,
@@ -1039,6 +1072,7 @@ impl App {
             self.second_screen_gone();
         }
         // The PC's automatic bitrate goes off after the window has gone, not with the process.
+        self.gui_back_from_overlay();
         let abr_stop = self.streaming.take().and_then(|(streaming, _)| streaming.finish(self.window, &mut self.pads));
         if let Some(c) = &self.connecting {
             c.cancel();
@@ -2256,6 +2290,16 @@ Redacted logs, oldest line first; addresses, PC names, PINs and credentials are 
             .then(|| trf("{} needs the GPU renderer. Set Renderer to Automatic or GPU (Vulkan).", &[&tr(config::gpu_need_label(need))]))
     }
 
+    /// The gui's textures back on the window's renderer, off a stream's overlay plane renderer
+    /// (`kms_scanout`) before that renderer goes.
+    fn gui_back_from_overlay(&mut self) {
+        if !self.gui_overlay.is_null() {
+            self.gui.release_renderer();
+            self.gui.renderer_changed();
+            self.gui_overlay = std::ptr::null_mut();
+        }
+    }
+
     /// Before a stream's checks on Linux: switches to the GPU renderer when the stream needs it
     /// (`handheld::renderer_switch`). A failure keeps a renderer of the old kind and leaves why in
     /// `gpu_failure`, which the check that refuses the stream then says.
@@ -2281,14 +2325,16 @@ Redacted logs, oldest line first; addresses, PC names, PINs and credentials are 
         let vulkan_video = state.vulkan_video || vulkan_video_possible(settings.decoder != DecoderPreference::Software, vulkan_choice, vaapi_map_switched_on());
         // A stream decoding in hardware where every saved one decoded in software: Vulkan video
         // may need the GPU renderer, as at start.
-        let need = settings.gpu_need().or_else(|| {
+        // A stream on video planes (KMS) shows HDR and 10-bit pictures on the plane, not the renderer.
+        let planes = kms_planned(settings, self.renderer);
+        let need = if planes { None } else { settings.gpu_need() }.or_else(|| {
             (!gpu && !state.vulkan_video && vulkan_video && state.choice == config::Renderer::Auto && gpu_for_vulkan_video(vulkan_video, vulkan_choice))
                 .then_some("Vulkan video")
         });
         let display_hdr = settings.hdr && handheld::hdr_display(handheld::gamescope(), sdl::any_display_hdr());
         // The quit-and-start prompt's plan holds the renderer's device.
         let busy = self.streaming.is_some() || self.connecting.is_some() || self.pending_replace.is_some();
-        let Some(switch) = handheld::renderer_switch(state.choice, now, need, settings.hdr, display_hdr, busy) else { return };
+        let Some(switch) = handheld::renderer_switch(state.choice, now, need, settings.hdr && !planes, display_hdr && !planes, busy) else { return };
         if let Err(why) = self.rebuild_renderer(true, settings.hdr, display_hdr, vulkan_video, switch.reason()) {
             self.renderer_state.gpu_failed = Some(why.clone());
             self.gpu_failure = Some(why);
@@ -2810,7 +2856,10 @@ Redacted logs, oldest line first; addresses, PC names, PINs and credentials are 
         let packed_without_gpu = {
             self.switch_for_stream(&settings);
             // HDR and PyroWave say it in their own checks below, with what they found.
-            match full_chroma::gpu_check(&settings, |need| self.gpu_missing(need)) {
+            // HDR and 10-bit pictures on video planes (KMS) need nothing of the renderer.
+            let planes = kms_planned(&settings, self.renderer);
+            let for_renderer = config::Settings { hdr: settings.hdr && !planes, sdr_10bit: settings.sdr_10bit && !planes, ..settings.clone() };
+            match full_chroma::gpu_check(&for_renderer, |need| self.gpu_missing(need)) {
                 Ok(left_out) => left_out,
                 Err(advice) => {
                     let mode = stream::stream_mode(&settings, display_of(self.window));
@@ -2823,6 +2872,7 @@ Redacted logs, oldest line first; addresses, PC names, PINs and credentials are 
         let packed_without_gpu = false;
         self.hdr_note = false;
         let hdr_output = sdl::hdr_available(self.renderer)
+            || (settings.hdr && kms_planned(&settings, self.renderer) && kms_display_hdr(self.window))
             || (settings.hdr && !handheld::gamescope() && sdl::await_window_hdr(self.renderer));
         match handheld::hdr_stream(settings.hdr, hdr_output, handheld::gamescope()) {
             handheld::HdrStream::Refuse => {
@@ -2958,6 +3008,7 @@ Redacted logs, oldest line first; addresses, PC names, PINs and credentials are 
             display,
             hardware: self.hardware(&settings),
             dmabuf: self.dmabuf_import(),
+            kms_planes: kms_planned(&settings, self.renderer),
             gpu_decoder,
             packed_modes,
             color_decodable,
@@ -3096,6 +3147,12 @@ Redacted logs, oldest line first; addresses, PC names, PINs and credentials are 
         } else { None };
         let toast = start_toast(warning, (!notices.is_empty()).then_some(notices.as_str()), handheld::gamescope());
         streaming.show_toast(toast);
+        // Straight to the display, the pictures go on a display plane from the first one.
+        #[cfg(target_os = "linux")]
+        {
+            let wishes = stream::kms_scanout::Wishes { tearing: pacing != stream::present::PacingMode::Vsync, vrr: settings.vrr, fps: streaming.facts.fps.max(1) as u32 };
+            streaming.kms = stream::kms_scanout::Scanout::open(self.window, &sdl::renderer_name(self.renderer), &settings, wishes);
+        }
         self.streaming = Some((streaming, TimerResolution::begin()));
         self.start_second_screen(&settings);
     }
@@ -3236,6 +3293,8 @@ Redacted logs, oldest line first; addresses, PC names, PINs and credentials are 
     }
 
     fn end_stream(&mut self, exit: Exit) {
+        // Before the overlay plane's renderer goes with the stream.
+        self.gui_back_from_overlay();
         let Some((mut streaming, _timer)) = self.streaming.take() else {
             return;
         };
@@ -3455,7 +3514,17 @@ Redacted logs, oldest line first; addresses, PC names, PINs and credentials are 
         sdl::read_back_frames(renderer, screenshot);
         let dir = self.screenshot_dir.clone();
         let mut shortcuts_changed = false;
+        let main_renderer = self.renderer;
+        let gui_overlay = &mut self.gui_overlay;
         streaming.present(renderer, |s, renderer| {
+            // The overlay draws into a display plane's own renderer while the planes show the
+            // stream (`kms_scanout`): the gui's textures move to the renderer it draws with.
+            let target = if renderer == main_renderer { std::ptr::null_mut() } else { renderer };
+            if target != *gui_overlay {
+                gui.release_renderer();
+                gui.renderer_changed();
+                *gui_overlay = target;
+            }
             // In a video-only frame on a PQ output the overlay's meshes write PQ themselves.
             gui.set_window_state(s.ui_state(renderer));
             shortcuts_changed = draw_overlay(gui, window, renderer, s, &mut pads.pads(), shortcuts);
@@ -3667,6 +3736,35 @@ const MENU_LIST: f32 = 190.0;
 
 /// The overlay and toasts, drawn with egui over the picture.
 /// Returns whether the user's shortcuts changed (saved or deleted in the stream menu) and want writing.
+/// Whether a stream with `settings` goes on video planes, drawing straight to the display
+/// (`kms_scanout::planned`).
+#[cfg(target_os = "linux")]
+fn kms_planned(settings: &config::Settings, renderer: *mut SDL_Renderer) -> bool {
+    stream::kms_scanout::planned(settings, &sdl::renderer_name(renderer)).is_ok()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn kms_planned(_settings: &config::Settings, _renderer: *mut SDL_Renderer) -> bool {
+    false
+}
+
+/// Whether the display Nightjar draws straight to takes HDR10 (`kms_scanout::display_hdr`).
+#[cfg(target_os = "linux")]
+fn kms_display_hdr(window: *mut SDL_Window) -> bool {
+    match stream::kms_scanout::display_hdr(window) {
+        Ok(()) => true,
+        Err(why) => {
+            eprintln!("nightjar: kms: no HDR on video planes: {why}");
+            false
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn kms_display_hdr(_window: *mut SDL_Window) -> bool {
+    false
+}
+
 fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Renderer, s: &mut Streaming, pads: &mut Gamepads, shortcuts: &mut shortcuts::Shortcuts) -> bool {
     // Glass holds nothing while a stream plays, and draws no live blur over its video.
     gui.set_over_video(true);

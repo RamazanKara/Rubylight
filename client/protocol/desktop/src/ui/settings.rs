@@ -43,7 +43,7 @@ pub(super) const SECTION_KEYS: [&[&[&str]]; 8] = [
         &["dual_screen"], &["second_screen_width", "second_screen_height"], &["input_only_any_host"]],
     &[&["theme"], &["language"], &["open_on_start", "console_home"], &["quick_resume"], &["check_updates"], &["home_card_size"],
         &["ui_zoom"], &["high_contrast"], &["reduce_motion"]],
-    &[&["graphics_card"], &["renderer"], &["sops"], &["link_probe"], &["post_stream_decode_time"]],
+    &[&["graphics_card"], &["renderer"], &["display_output"], &["video_planes"], &["sops"], &["link_probe"], &["post_stream_decode_time"]],
     &[&["error_correction"], &["client_hint_bitrate"], &["tell_host_wireless"], &["tell_host_link_speed"],
         &["network_priority"], &["unbatched_input"], &["full_range"],
         &["pyrowave_decoder"], &["pyrowave_async_compute"],
@@ -1397,6 +1397,22 @@ impl Launcher {
                         .response
                 });
             }
+            // Linux only, for the whole app: a console or kiosk box draws straight to the display (`kms`).
+            if cfg!(target_os = "linux") && !layered {
+                setting_row(ui, s, &mut rows, &["display_output"], "Display output", "Where Nightjar shows itself. Automatic draws straight to the display when no desktop is running. Applies at the next start.", |ui, s| {
+                    Combo::from_id_salt("display_output")
+                        .selected_text(tr(s.display_output.label()))
+                        .show_ui(ui, |ui| {
+                            for choice in crate::config::DisplayOutput::ALL {
+                                ui.selectable_value(&mut s.display_output, choice, tr(choice.label()));
+                            }
+                        })
+                        .response
+                });
+                setting_row(ui, s, &mut rows, &["video_planes"], "Video planes", "Drawing straight to the display, shows the stream on its own display plane, with HDR and without a copy.", |ui, s| {
+                    toggle(ui, &mut s.video_planes)
+                });
+            }
             rows.group(en("Compatibility"));
             setting_row(ui, s, &mut rows, &["sops"], "Game optimization hint", "Lets the PC adjust the game’s settings for the stream.", |ui, s| toggle(ui, &mut s.sops));
             rows.group(en("Diagnostics"));
@@ -1886,6 +1902,7 @@ pub(super) fn value_text(key: &str, s: &Settings, display: &Display, style: crat
         "decoder" => decoder_name(s.decoder).to_owned(),
         "renderer" => tr(s.renderer.label()).to_owned(),
         "graphics_card" => tr(s.graphics_card.label()).to_owned(),
+        "display_output" => tr(s.display_output.label()).to_owned(),
         "pyrowave_decoder" => tr(s.pyrowave_decoder.label()).to_owned(),
         "window_mode" => window_name(s.window_mode).to_owned(),
         "video_scaling" => tr(s.video_scaling.label()).to_owned(),

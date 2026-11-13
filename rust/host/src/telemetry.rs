@@ -166,6 +166,12 @@ mod tests {
     fn metrics_require_opt_in_and_the_requesting_clients_active_video_stream() {
         let f = Fixture::new();
         let client = f.client(0x0200_0000);
+        f.host
+            .config
+            .write()
+            .unwrap()
+            .values
+            .insert("hardware_metrics".into(), "false".into());
         assert_eq!(
             options(&f.host, &client.uuid).unwrap_err().0,
             StatusCode::FORBIDDEN

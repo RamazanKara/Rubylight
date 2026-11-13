@@ -151,6 +151,12 @@ async fn describe_offers_packed_444_saved_while_the_host_runs() -> Result<()> {
     h.h.probing_codecs.store(false, Ordering::Release);
     // The startup probe found HEVC and AV1.
     h.h.codecs.fetch_or(0x100 | 0x10000, Ordering::AcqRel);
+    // Full chroma starts off here, so the save below turns it on.
+    h.h.config
+        .write()
+        .unwrap()
+        .values
+        .insert("experimental_packed_444".into(), "false".into());
     let before = h.h.config.read().unwrap().clone();
     h.h.config
         .write()

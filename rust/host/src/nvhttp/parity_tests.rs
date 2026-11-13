@@ -547,7 +547,7 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
         format!(
             "<?xml version=\"1.0\" encoding=\"utf-8\"?><root status_code=\"200\">\
              <NetworkPathVersion>1</NetworkPathVersion>\
-             <HardwareMetricsVersion>0</HardwareMetricsVersion>\
+             <HardwareMetricsVersion>1</HardwareMetricsVersion>\
              <NativeApiVersion>1</NativeApiVersion>\
              <hostname>{hostname}</hostname>\
              <appversion>7.1.431.-1</appversion>\
@@ -591,6 +591,7 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
              <PowerActionVersion>1</PowerActionVersion>\
              <SleepSupported>{sleep}</SleepSupported>\
              <SleepAllowed>0</SleepAllowed>\
+             <Packed444Modes>0</Packed444Modes>\
              <HdrFormats>15</HdrFormats>\
              <FecControlVersion>1</FecControlVersion>\
              <BandwidthProbeVersion>1</BandwidthProbeVersion>\
@@ -653,6 +654,7 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
              <VirtualDisplayDriverReady>false</VirtualDisplayDriverReady>\
              <ControllerPreparation>1</ControllerPreparation>\
              <VirtualDisplayHDRCapable>true</VirtualDisplayHDRCapable>\
+             <Packed444Modes>0</Packed444Modes>\
              <HdrFormats>15</HdrFormats>\
              <FecControlVersion>1</FecControlVersion>\
              <BandwidthProbeVersion>1</BandwidthProbeVersion>\
@@ -712,7 +714,8 @@ async fn serverinfo_carries_the_packed_444_modes_only_when_packed_is_on() {
         Some("9")
     );
     assert_eq!(packed("experimental_packed_444=false").await, None);
-    assert_eq!(packed("").await, None);
+    // On by default: an unset value offers the modes.
+    assert_eq!(packed("").await.as_deref(), Some("9"));
 }
 
 /// Full chroma took a host restart: only the startup probe found its modes.
@@ -730,6 +733,13 @@ async fn saving_packed_444_changes_the_offered_modes_without_a_restart() {
         Ok(())
     }
     let f = Fixture::new();
+    // Full chroma starts off here, so the save below turns it on.
+    f.host
+        .config
+        .write()
+        .unwrap()
+        .values
+        .insert("experimental_packed_444".into(), "false".into());
     // The startup probe found HEVC and AV1.
     f.host.codecs.fetch_or(0x10000 | 0x20000, Ordering::AcqRel);
     let client = f.client(0x071f1f01);

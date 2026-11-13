@@ -131,12 +131,13 @@ test('the update check time is a time field beside the interval that takes only 
   assert.match(render(SettingControl, { props: { setting: name, id: name.key, value: 'PC', onchange: () => {} } }).body, /type="text"/);
 });
 
-test('hardware metrics are opt-in with a bounded interval and an optional selection', () => {
+test('hardware metrics are on by default with a bounded interval and an optional selection', () => {
   const settings = Object.fromEntries(schema.settings.map((setting) => [setting.key, setting]));
   assert.equal(settings.hardware_metrics.default, true);
   const interval = settings.hardware_metrics_interval;
   assert.equal(interval.default, 1000);
-  assert.equal(interval.visibleWhen({}), false);
+  assert.equal(interval.visibleWhen({}), true);
+  assert.equal(interval.visibleWhen({ hardware_metrics: false }), false);
   assert.equal(interval.visibleWhen({ hardware_metrics: true }), true);
   for (const value of [499, 500, 1000, 10000, 10001]) {
     const html = render(SettingControl, { props: { setting: interval, id: interval.key, value, onchange: () => {} } }).body;

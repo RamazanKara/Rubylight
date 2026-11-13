@@ -2302,6 +2302,18 @@ mod tests {
         fn offered(f: &Fixture) -> u8 {
             f.host.packed_modes.load(Ordering::Acquire)
         }
+        /// A host with full chroma saved off: it is on by default, and these
+        /// tests turn it on with a save.
+        fn off() -> Fixture {
+            let f = Fixture::new();
+            f.host
+                .config
+                .write()
+                .unwrap()
+                .values
+                .insert("experimental_packed_444".into(), "false".into());
+            f
+        }
 
         #[test]
         fn a_stream_that_starts_stops_the_probe_and_it_runs_again_after() {
@@ -2322,7 +2334,7 @@ mod tests {
                 }
                 Err(Interrupted.into())
             }
-            let f = Fixture::new();
+            let f = off();
             f.host.codecs.store(CODECS, Ordering::Release);
             save(&f, "experimental_packed_444", "true", probe);
             until("the probe started", || PROBING.load(Ordering::Acquire));
@@ -2366,7 +2378,7 @@ mod tests {
                 }
                 Ok(())
             }
-            let f = Fixture::new();
+            let f = off();
             f.host.codecs.store(CODECS, Ordering::Release);
             f.host
                 .config
@@ -2401,7 +2413,7 @@ mod tests {
                 }
                 Ok(())
             }
-            let f = Fixture::new();
+            let f = off();
             // The startup probe found no AV1.
             f.host.codecs.store(0x1 | 0x100 | 0x200, Ordering::Release);
             save(&f, "experimental_packed_444", "true", probe);
@@ -2433,7 +2445,7 @@ mod tests {
             fn probe(_: &Config, _: &Negotiated, _: &dyn Fn() -> bool) -> anyhow::Result<()> {
                 panic!("nothing to probe")
             }
-            let f = Fixture::new();
+            let f = off();
             // HEVC was off at startup: only AV1 was found and offered.
             f.host
                 .codecs
@@ -2472,7 +2484,7 @@ mod tests {
             fn probe(_: &Config, _: &Negotiated, _: &dyn Fn() -> bool) -> anyhow::Result<()> {
                 panic!("the next codec pass probes them")
             }
-            let f = Fixture::new();
+            let f = off();
             f.host.codecs.store(0, Ordering::Release);
             let path = f.host.directory.join("no-codec.log");
             let log = logged(&path, || save(&f, "experimental_packed_444", "true", probe));
@@ -2508,7 +2520,7 @@ mod tests {
                 }
                 Ok(())
             }
-            let f = Fixture::new();
+            let f = off();
             f.host.codecs.store(CODECS, Ordering::Release);
             {
                 let mut config = f.host.config.write().unwrap();
@@ -2548,7 +2560,7 @@ mod tests {
                 STOPPED.store(true, Ordering::Release);
                 Err(Interrupted.into())
             }
-            let f = Fixture::new();
+            let f = off();
             f.host.codecs.store(CODECS, Ordering::Release);
             save(&f, "experimental_packed_444", "true", probe);
             until("the probe started", || PROBING.load(Ordering::Acquire));
@@ -2584,7 +2596,7 @@ mod tests {
                 anyhow::ensure!(!(stream.codec == 2 && stream.sdr_10bit), "driver refused");
                 Ok(())
             }
-            let f = Fixture::new();
+            let f = off();
             f.host.codecs.store(CODECS, Ordering::Release);
             let config = packed_on(&f);
             f.host.pass_packed_probe(&config, CODECS, &|| false, probe);
@@ -2612,7 +2624,7 @@ mod tests {
                     _ => Ok(()),
                 }
             }
-            let f = Fixture::new();
+            let f = off();
             f.host.codecs.store(CODECS, Ordering::Release);
             let config = packed_on(&f);
             f.host.pass_packed_probe(&config, CODECS, &|| false, probe);
@@ -2632,7 +2644,7 @@ mod tests {
                 CALLS.fetch_add(1, Ordering::AcqRel);
                 Err(SessionNotReady::new("start optional codec probe: no pipe").into())
             }
-            let f = Fixture::new();
+            let f = off();
             f.host.codecs.store(CODECS, Ordering::Release);
             let config = packed_on(&f);
             let path = f.host.directory.join("never-ready.log");

@@ -459,7 +459,7 @@ impl DeviceGuests {
     pub(crate) fn kick(&self, h: &Host, id: u32) -> Result<(), ActionError> {
         let launch = locked(&self.state)
             .kick(id)
-            .map_err(|()| ActionError::NotFound)?;
+            .map_err(|_| ActionError::NotFound)?;
         locked(&self.kbm).forget(id);
         tracing::info!(guest = id, "guest kicked");
         if let Some(launch) = launch {
@@ -471,7 +471,7 @@ impl DeviceGuests {
     pub(crate) fn revoke(&self, h: &Host, id: u32) -> Result<(), ActionError> {
         let launch = locked(&self.state)
             .revoke(id)
-            .map_err(|()| ActionError::NotFound)?;
+            .map_err(|_| ActionError::NotFound)?;
         self.answered.notify_all();
         locked(&self.kbm).forget(id);
         tracing::info!(guest = id, "guest revoked for this game");

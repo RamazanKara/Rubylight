@@ -150,13 +150,13 @@ fn kick_ends_the_place_and_revoke_refuses_the_device_for_the_game() {
     assert!(guests.joined(id, "launch-a"));
     assert_eq!(guests.kick(id), Ok(Some("launch-a".into())));
     assert!(guests.get(id).is_none());
-    assert_eq!(guests.kick(id), Err(()));
+    assert_eq!(guests.kick(id), Err(NoSuchGuest));
     // A kicked device asks again.
     let again = ask(&mut guests, "phone", start);
     assert!(guests.approve(again, Permission::Controller, None, NOW));
     assert!(guests.joined(again, "launch-b"));
     assert_eq!(guests.revoke(again), Ok(Some("launch-b".into())));
-    assert_eq!(guests.revoke(again), Err(()));
+    assert_eq!(guests.revoke(again), Err(NoSuchGuest));
     // A revoked device is refused at once for the rest of the game.
     assert_eq!(
         guests.admit(

@@ -482,10 +482,8 @@ impl Switch2Pro {
                 }
                 reply.extend_from_slice(&[0, 0, 0, 0]);
             }
-            (CMD_PLAYER_LED, 0x07) => {
-                if out.len() >= 9 {
-                    self.player_leds = Some(arg);
-                }
+            (CMD_PLAYER_LED, 0x07) if out.len() >= 9 => {
+                self.player_leds = Some(arg);
             }
             _ => {}
         }

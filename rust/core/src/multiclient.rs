@@ -215,6 +215,18 @@ impl Ended {
     }
 }
 
+/// No guest, or waiting request, has that id.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NoSuchGuest;
+
+impl std::fmt::Display for NoSuchGuest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("no such guest")
+    }
+}
+
+impl std::error::Error for NoSuchGuest {}
+
 /// The guests of the running game, and the joins waiting for its owner.
 #[derive(Debug, Default)]
 pub struct Guests {
@@ -506,9 +518,13 @@ impl Guests {
     }
 
     /// Ends guest `id`'s stream and its place: a new join from that device goes through the
-    /// join policy again. Returns the launch to stop, or `Err(())` when there is no such guest.
-    pub fn kick(&mut self, id: u32) -> Result<Option<String>, ()> {
-        let index = self.guests.iter().position(|g| g.id == id).ok_or(())?;
+    /// join policy again. Returns the launch to stop, or [`NoSuchGuest`].
+    pub fn kick(&mut self, id: u32) -> Result<Option<String>, NoSuchGuest> {
+        let index = self
+            .guests
+            .iter()
+            .position(|g| g.id == id)
+            .ok_or(NoSuchGuest)?;
         let guest = self.guests.remove(index);
         self.changed();
         Ok(guest.launch)
@@ -516,7 +532,7 @@ impl Guests {
 
     /// Ends guest `id`'s stream and place, and refuses that device for the rest of this game. A
     /// waiting request by that id is turned down, and its device refused the same way.
-    pub fn revoke(&mut self, id: u32) -> Result<Option<String>, ()> {
+    pub fn revoke(&mut self, id: u32) -> Result<Option<String>, NoSuchGuest> {
         if let Some(index) = self.guests.iter().position(|g| g.id == id) {
             let guest = self.guests.remove(index);
             self.revoked.push(guest.device);
@@ -533,7 +549,7 @@ impl Guests {
             self.revoked.push(device);
             return Ok(None);
         }
-        Err(())
+        Err(NoSuchGuest)
     }
 
     /// Lets a revoked device ask again.

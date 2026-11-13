@@ -1570,4 +1570,5 @@ sudo sysctl -w net.core.rmem_max={}", "수신 버퍼: 시스템이 요청한 {1}
     ("RTX Video", "RTX Video"),
     ("Turns the PC game’s SDR picture into HDR in HDR streams.", "HDR 스트림에서 PC 게임의 SDR 화면을 HDR로 변환합니다."),
     ("Cleans up and sharpens the picture on the PC before it is encoded.", "인코딩 전에 PC에서 화면을 정리하고 선명하게 합니다."),
+    ("{} is off for this stream: the GPU renderer could not be made while drawing straight to the display.", "이 스트림에서는 {}이(가) 꺼졌습니다: 디스플레이에 직접 그리는 동안 GPU 렌더러를 만들 수 없었습니다."),
 ];

@@ -142,6 +142,31 @@ pub fn start_failure(error: &str, connected: Option<usize>) -> String {
     )
 }
 
+/// Straight to the display the GPU renderer can rarely be made (Vulkan finds no display while
+/// SDL's KMSDRM holds it), and the plain renderer draws no shader passes: what needs them plays
+/// without them, with a notice, instead of refusing the stream. Turns off Upscaling and Sharper
+/// colored text, then Less color banding unless the video planes (`planes`, asked with what is
+/// left) show the 10-bit pictures themselves; returns what it turned off (`Settings::gpu_need`
+/// names). HDR and PyroWave keep their own checks, which say what they found.
+pub fn without_gpu(settings: &mut crate::config::Settings, planes: impl Fn(&crate::config::Settings) -> bool) -> Vec<&'static str> {
+    use crate::config::Upscaling;
+    let mut off = Vec::new();
+    if settings.upscaling != Upscaling::Bilinear {
+        settings.upscaling = Upscaling::Bilinear;
+        off.push("upscaling");
+    }
+    if settings.prefer_yuv444 || settings.experimental_packed_444 {
+        settings.prefer_yuv444 = false;
+        settings.experimental_packed_444 = false;
+        off.push("4:4:4");
+    }
+    if settings.sdr_10bit && !planes(settings) {
+        settings.sdr_10bit = false;
+        off.push("10-bit SDR");
+    }
+    off
+}
+
 /// The process's own decision, made once before SDL starts (`set`), for the rest of the run.
 static BACKEND: std::sync::OnceLock<Backend> = std::sync::OnceLock::new();
 
@@ -236,6 +261,21 @@ mod tests {
         let d = decide(None, DisplayOutput::Desktop, session(true, false), Some("kmsdrm,offscreen"));
         assert_eq!((d.backend, d.driver_hint), (Backend::Kms, None), "SDL tries its list in order");
         assert_eq!(decide(None, DisplayOutput::Automatic, session(false, false), Some("")).backend, Backend::Kms, "an empty variable is unset");
+    }
+
+    #[test]
+    fn without_the_gpu_renderer_a_kms_stream_plays_without_what_needs_it() {
+        use crate::config::{Settings, Upscaling};
+        let mut settings = Settings { upscaling: Upscaling::Fsr1, prefer_yuv444: true, sdr_10bit: true, hdr: true, ..Settings::default() };
+        assert_eq!(without_gpu(&mut settings, |_| false), ["upscaling", "4:4:4", "10-bit SDR"]);
+        assert_eq!((settings.upscaling, settings.prefer_yuv444, settings.sdr_10bit), (Upscaling::Bilinear, false, false));
+        assert!(settings.hdr, "HDR keeps its own check");
+        assert_eq!(settings.gpu_need(), Some("HDR"));
+        // Video planes show 10-bit pictures themselves.
+        let mut planes = Settings { sdr_10bit: true, ..Settings::default() };
+        assert!(without_gpu(&mut planes, |s| s.upscaling == Upscaling::Bilinear).is_empty());
+        assert!(planes.sdr_10bit);
+        assert!(without_gpu(&mut Settings::default(), |_| false).is_empty());
     }
 
     #[test]

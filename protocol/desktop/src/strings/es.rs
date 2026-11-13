@@ -1570,4 +1570,5 @@ sudo sysctl -w net.core.rmem_max={}", "Búfer de recepción: el sistema concedi�
     ("RTX Video", "RTX Video"),
     ("Turns the PC game’s SDR picture into HDR in HDR streams.", "Convierte la imagen SDR del juego del PC en HDR en las transmisiones HDR."),
     ("Cleans up and sharpens the picture on the PC before it is encoded.", "Limpia y enfoca la imagen en el PC antes de codificarla."),
+    ("{} is off for this stream: the GPU renderer could not be made while drawing straight to the display.", "{} está desactivado en esta transmisión: no se pudo crear el renderizador de GPU al dibujar directamente en la pantalla."),
 ];

@@ -1570,4 +1570,5 @@ sudo sysctl -w net.core.rmem_max={}", "接收緩衝區：系統只分配了所�
     ("RTX Video", "RTX Video"),
     ("Turns the PC game’s SDR picture into HDR in HDR streams.", "在 HDR 串流中將電腦遊戲的 SDR 畫面轉換為 HDR。"),
     ("Cleans up and sharpens the picture on the PC before it is encoded.", "在編碼前於電腦上清理並銳化畫面。"),
+    ("{} is off for this stream: the GPU renderer could not be made while drawing straight to the display.", "此串流已關閉{}：直接繪製到顯示器時無法建立 GPU 轉譯器。"),
 ];

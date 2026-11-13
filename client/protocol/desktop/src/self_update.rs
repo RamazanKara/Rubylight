@@ -7,7 +7,7 @@
 //! Update now: a Windows copy the setup didn't install keeps the link to the release page, and a
 //! deb, rpm, Flatpak or archive doesn't check at all, as its package manager or its user updates it.
 //! Either way the next Nightjar can start while this one is still leaving, so what it reads is saved
-//! before the hand-over (save_for_next_run in main.rs).
+//! before the hand-over (save_for_next_run in app.rs).
 //!
 //! The asset's size and SHA-256 come from GitHub's release answer. Nothing runs without both
 //! matching, and only https addresses at GitHub's own hosts are ever connected to, redirects included.

@@ -528,7 +528,7 @@ pub(crate) fn parse(line: &str) -> Result<Step, String> {
 }
 
 impl Launcher {
-    /// Opens a page the way its own control does. A page main.rs opens comes back as its command.
+    /// Opens a page the way its own control does. A page app/command.rs opens comes back as its command.
     pub(crate) fn demo_page(&mut self, page: Page, hosts: &Hosts, waker: Waker) -> Option<Command> {
         self.dialog = Dialog::None;
         self.pin = None;

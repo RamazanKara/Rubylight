@@ -148,7 +148,7 @@ pub fn show(ui: &mut egui::Ui, page: &mut Page, lines: &[(&'static str, String)]
     }
 
     menu_style::divider(ui);
-    // Escape or B on this page goes back to the controls (main.rs), so the key sits here.
+    // Escape or B on this page goes back to the controls (`menu_step` in app/session.rs), so the key sits here.
     let back = ui.add_enabled_ui(!working, |ui| menu_style::action_keys(ui, Icon::Sliders, tr("Back to stream menu"), Some(crate::shortcuts::Key::Escape.cap().as_ref())));
     if back.inner.clicked() && outcome == Outcome::Stay {
         outcome = Outcome::Back;

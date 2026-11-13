@@ -482,7 +482,7 @@ fn a_host_that_cannot_be_reached_is_said_not_hidden() {
     assert_eq!(page.state().setup_error.as_deref(), Some("No client for this PC."));
 }
 
-/// Escape on the page goes back to the stream controls (main.rs), so its key sits on that row,
+/// Escape on the page goes back to the stream controls (`menu_step` in app/session.rs), so its key sits on that row,
 /// not on Resume.
 #[test]
 fn the_escape_key_is_shown_on_the_way_back_to_the_controls() {

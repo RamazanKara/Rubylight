@@ -1,7 +1,7 @@
 //! The stream menu's first page and its shortcut pages: the tile grid and footer as
 //! `nightjar_policy::stream_menu` lays them out (the menu Android draws too), the Shortcuts page
 //! with the built-in chords and the user's own, and the editor that saves a shortcut from the
-//! stream with nothing but a controller. main.rs draws the pages around them (More, Quality, PC
+//! stream with nothing but a controller. app/overlay.rs draws the pages around them (More, Quality, PC
 //! commands) with the rows it always had.
 
 use egui::{vec2, RichText, Ui};
@@ -75,7 +75,7 @@ pub struct Available {
     pub exits: Vec<HostExit>,
 }
 
-/// The tiles for what is offered; main.rs draws More's rows for these same IDs.
+/// The tiles for what is offered; app/overlay.rs draws More's rows for these same IDs.
 pub fn offers(a: &Available) -> Vec<Offer> {
     let mut offers = Vec::new();
     if let Some(on) = a.mouse {

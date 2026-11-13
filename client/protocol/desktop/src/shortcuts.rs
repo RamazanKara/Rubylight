@@ -98,7 +98,7 @@ pub fn release(chord: &mut Held, queue: &mut InputQueue) -> Result<(), InputErro
 // Nightjar's own keys and controller buttons.
 //
 // The one list of what Nightjar's keys and buttons do. The handlers look their keys up here
-// (main.rs: the launcher's F11 and F12 and its controller navigation; stream/input.rs: the
+// (app/launcher.rs: the launcher's F11 and F12 and its controller navigation; stream/input.rs: the
 // stream hotkeys; gamepad.rs: the stream controls combo), and the Help page and the stream's
 // shortcut sheet draw these same entries, so no list names a key that does something else. The
 // stream hotkeys come from nightjar-policy's table, which the Android app shares, with the

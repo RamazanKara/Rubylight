@@ -42,10 +42,11 @@ A feature lands in both apps in one change. What they share goes into `nightjar-
 
 | Part | `protocol/desktop/src/` |
 | --- | --- |
-| Entry, command line | `main.rs` owns the loop and carries out what the UI returns; `cli.rs` |
+| Entry, command line | `main.rs` holds the app's state (`App`) and its loop; `cli.rs` |
+| What the app does | `app.rs` (saving, shutdown), `app/launcher.rs` (the launcher's events and frames), `app/command.rs` (carries out what the UI returns), `app/launch.rs` (starting a stream), `app/session.rs` (a running stream and its end), `app/overlay.rs` (statistics, toasts and the stream menu over the picture), `app/renderer.rs` (the window's renderer) |
 | UI | `gui.rs` (egui on SDL3), `ui.rs` and `ui/`: pages only draw and return commands. Settings page: `ui/settings.rs` |
-| PCs and apps | `hosts.rs`: discovery, pairing and app lists on worker threads, results as events |
-| Stream | `stream/mod.rs` (session worker), `stream/connect.rs` (launch), `stream/negotiate.rs` (mode, bitrate, codecs, HDR), `stream/pipeline.rs` (picture loop, decoder order), `stream/present.rs` (when a picture is shown), `stream/input.rs`, `stream/recovery.rs`, `stream/guests.rs`, `stream/touchpad/` |
+| PCs and apps | `hosts.rs`: discovery and app lists on worker threads, results as events (`hosts/events.rs` applies them); `hosts/pairing.rs`, `hosts/power.rs` (wake, sleep, updates), `hosts/native.rs` (the native API's reads), `hosts/covers.rs` |
+| Stream | `stream/mod.rs` (session worker), `stream/connect.rs` (launch), `stream/negotiate.rs` (mode, bitrate, codecs, HDR), `stream/pipeline.rs` (picture loop, decoder order), `stream/present.rs` and `stream/present/` (the video texture; `stream/present/pacer.rs` decides when a picture is shown), `stream/input.rs`, `stream/recovery.rs`, `stream/guests.rs`, `stream/touchpad/` |
 | Decode | `media.rs` (FFmpeg, Opus), `vulkan_video.rs`, `amd_decode.rs`, `linux_video.rs`, `dmabuf.rs`, `stream/pyrowave.rs`, `stream/pyrowave_gpu.rs` |
 | Windows only | `stream/direct.rs`, `stream/d3d11.rs`, `stream/amf_scaler.rs`, `stream/wasapi.rs`, `stream/microphone.rs` |
 | Linux only | `dmabuf.rs`, `vulkan_video.rs`, `stream/wl_scanout.rs`, `stream/wl_presentation.rs`, `stream/drm_vrr.rs`, `stream/planes_gpu.rs`, `kms/` with `stream/kms_scanout.rs` (DRM/KMS output without a desktop), `stream/touchpad/evdev.rs` |

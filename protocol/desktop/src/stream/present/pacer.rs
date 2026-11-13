@@ -564,10 +564,8 @@ impl Pacer {
     pub fn with_backlog(mode: PacingMode, min_interval_us: i64, pending: std::sync::Arc<std::sync::Mutex<VecDeque<Pending>>>) -> Self {
         Self {
             mode,
-            clock: PresentClock::new(ClockSettings {
-                min_interval_us,
-                ..Default::default()
-            }),
+            // The clock only schedules in HostTimes, which needs a VRR display.
+            clock: PresentClock::new(ClockSettings::adaptive(min_interval_us)),
             pending,
             frame_pacing: FramePacing::Latency,
             drop_late_frames: true,

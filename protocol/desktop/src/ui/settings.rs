@@ -863,7 +863,7 @@ impl Launcher {
             // With Sharper colored text packed on Windows, VRR shows each frame at once.
             let immediate_packed = cfg!(windows) && s.experimental_packed_444 && vrr_offered;
             rows.when(vrr && !immediate_packed);
-            setting_row(ui, s, &mut rows, &["present_at_host_times"], "Show frames at the PC’s frame times", "Holds each frame briefly so it appears when the game drew it, evening out motion. Adds a few milliseconds of latency; turn it on if motion looks uneven.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["present_at_host_times"], "Real VRR", "Holds each frame briefly so it appears when the game drew it, evening out motion. Adds a few milliseconds of latency; turn it on if motion looks uneven.", |ui, s| {
                 toggle(ui, &mut s.present_at_host_times)
             });
             rows.always();

@@ -4248,9 +4248,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         // the clock only with host frame times on.
         trackContentRate = prefs.contentRateFrameRate && hostAnnouncesClockSync();
         hostPhaseLock = MoonBridge.hostSupportsControlMessage(MoonBridge.CONTROL_MESSAGE_PHASE_LOCK);
-        // The content rate also sizes the scheduler's late and residency thresholds.
+        // The content rate also sizes the scheduler's late and residency thresholds. On an
+        // adaptive refresh panel frames are shown at their times rather than on the vsync grid
+        // (ReleasePort.timing), so a frame far behind the others is shown when it is ready.
+        boolean adaptive;
+        synchronized (vsyncMonitor) {
+            adaptive = outputHasArrSupport;
+        }
         hostFrameClock.start(hostFrameTimes ? maxDisplayRefreshRate() : 0, hostFrameTimes,
-                hostAnnouncesClockSync(), trackContentRate || hostFrameTimes);
+                hostAnnouncesClockSync(), trackContentRate || hostFrameTimes, hostFrameTimes && adaptive);
         startRendererThread();
         // The Vulkan renderer follows vsync itself; nothing here needs the display callbacks
         if (vulkanRenderer == null) startChoreographerThread();

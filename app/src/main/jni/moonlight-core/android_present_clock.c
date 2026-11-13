@@ -25,12 +25,15 @@ void BridgeClClockSync(const uint8_t* payload, int length) {
     pthread_mutex_unlock(&presentClockMutex);
 }
 
-// Starts a clock for a new stream; minIntervalUs is the display's shortest refresh interval.
+// Starts a clock for a new stream; minIntervalUs is the display's shortest refresh interval, and
+// adaptive says the display refreshes when a frame comes (rp_present_settings_adaptive).
 JNIEXPORT void JNICALL
-Java_com_limelight_nvstream_jni_MoonBridge_cPresentClockStart(JNIEnv* env, jclass clazz, jint minIntervalUs) {
+Java_com_limelight_nvstream_jni_MoonBridge_cPresentClockStart(JNIEnv* env, jclass clazz, jint minIntervalUs,
+                                                              jboolean adaptive) {
     (void)env; (void)clazz;
     RpPresentSettings settings;
-    rp_present_settings_default(&settings);
+    if (adaptive) rp_present_settings_adaptive(&settings);
+    else rp_present_settings_default(&settings);
     settings.min_interval_us = minIntervalUs > 0 ? minIntervalUs : 0;
     RpPresentClock* created = rp_present_clock_new(&settings);
     pthread_mutex_lock(&presentClockMutex);

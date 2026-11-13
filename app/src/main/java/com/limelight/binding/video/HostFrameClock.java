@@ -32,7 +32,12 @@ final class HostFrameClock {
 
     /** The native side: MoonBridge in the app, a fake in tests (JNI is not available there). */
     interface Bridge {
-        void start(int minIntervalUs);
+        /**
+         * adaptive: the display refreshes when a frame comes (adaptive refresh rate), so a frame
+         * much later than the typical one is shown when ready instead of every frame waiting for
+         * it (present_clock::Settings::adaptive).
+         */
+        void start(int minIntervalUs, boolean adaptive);
         void stop();
         void reset();
         boolean schedule(long hostUs, long readyNs, long[] out);
@@ -75,7 +80,9 @@ final class HostFrameClock {
     }
 
     private static final Bridge NATIVE = new Bridge() {
-        @Override public void start(int minIntervalUs) { MoonBridge.presentClockStart(minIntervalUs); }
+        @Override public void start(int minIntervalUs, boolean adaptive) {
+            MoonBridge.presentClockStart(minIntervalUs, adaptive);
+        }
         @Override public void stop() { MoonBridge.presentClockStop(); }
         @Override public void reset() { MoonBridge.presentClockReset(); }
         @Override public boolean schedule(long hostUs, long readyNs, long[] out) {
@@ -129,11 +136,20 @@ final class HostFrameClock {
 
     /** As above; trackRate also follows the content rate (see [contentRateMilliHz]) on its own. */
     void start(float maxRefreshHz, boolean schedule, boolean probe, boolean trackRate) {
+        start(maxRefreshHz, schedule, probe, trackRate, false);
+    }
+
+    /**
+     * As above, on a display that refreshes when a frame comes when adaptive is true: there a frame
+     * much later than the typical one is shown when it is ready instead of every frame waiting for
+     * it, while on a fixed vsync grid ([presentOnGrid]) every frame keeps the percentile delay.
+     */
+    void start(float maxRefreshHz, boolean schedule, boolean probe, boolean trackRate, boolean adaptive) {
         if (!schedule && !probe && !trackRate) return;
         int minIntervalUs = maxRefreshHz > 0 ? (int) (1_000_000f / maxRefreshHz) : 0;
         scheduling = schedule;
         trackingRate = trackRate;
-        bridge.start(minIntervalUs);
+        bridge.start(minIntervalUs, adaptive);
         started = true;
         clear();
         if (!probe) return;

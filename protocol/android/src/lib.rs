@@ -1015,8 +1015,9 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_presentClockSt
     _: JNIEnv,
     _: JClass,
     min_interval_us: jint,
+    adaptive: jboolean,
 ) {
-    engine::present_clock_start(min_interval_us);
+    engine::present_clock_start(min_interval_us, adaptive != 0);
 }
 
 #[no_mangle]

@@ -533,7 +533,7 @@ fn settings_read_with(changed: Settings) -> Frames {
 /// tear, VRR has no row and works as off.
 #[test]
 fn the_vrr_rows_follow_their_own_gates() {
-    let (vrr_row, pacing, vsync, host_times) = ("Variable refresh rate", "Frame pacing", "V-Sync", "Show frames at the PC’s frame times");
+    let (vrr_row, pacing, vsync, host_times) = ("Variable refresh rate", "Frame pacing", "V-Sync", "Real VRR");
     let display = |s: Settings, tearing: bool| {
         let mut f = settings_with(s);
         f.l.tearing_supported = tearing;

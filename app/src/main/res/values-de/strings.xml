@@ -303,7 +303,7 @@
     <string name="title_vrr">Variable Bildwiederholrate</string>
     <string name="summary_vrr">VRR: Zeigt jedes Bild, sobald es ankommt, auf einem Bildschirm mit G-Sync, FreeSync oder adaptiver Bildwiederholrate, ohne auf die nächste Bildwiederholung zu warten. Solange es an ist, wird Frame-Pacing nicht genutzt.</string>
     <string name="summary_vrr_unavailable">Braucht Android 16 und ein Display mit adaptiver Bildwiederholrate.</string>
-    <string name="title_host_frame_times">Bilder im Takt des PCs zeigen</string>
+    <string name="title_host_frame_times">Echtes VRR</string>
     <string name="summary_host_frame_times">Hält jedes Bild kurz zurück, damit es im Takt des Spiels erscheint und Bewegungen gleichmäßig wirken. Kostet ein paar Millisekunden Latenz; schalte es ein, wenn Bewegungen ungleichmäßig wirken.</string>
     <string name="title_content_rate_frame_rate">Bildwiederholrate an die Spielrate anpassen</string>
     <string name="summary_content_rate_frame_rate">Schaltet den Bildschirm auf eine Bildwiederholrate, die zur echten Bildrate des Spiels passt, etwa 60 Hz für ein Spiel mit 60 FPS in einem Stream mit 120 FPS. Braucht Unterstützung durch den PC.</string>

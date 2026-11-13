@@ -1245,6 +1245,16 @@ fn a_present_without_waiting_is_refused_while_the_last_picture_waits() {
     }
 }
 
+// Real VRR waits at most 2 ms past the typical frame for a late one: on Wi-Fi the unbounded
+// percentile rule held every frame for the lateness tail (ADAPTIVE_SPREAD_US).
+#[test]
+fn host_times_bound_the_wait_for_late_frames() {
+    let pacer = Pacer::new(PacingMode::HostTimes, 6_944);
+    assert_eq!(pacer.clock.settings.max_spread_us, Some(2_000));
+    assert_eq!(pacer.clock.settings.min_interval_us, 6_944);
+    assert_eq!(pacer.clock.settings.max_hold_us, ClockSettings::default().max_hold_us, "the backlog bound is unchanged");
+}
+
 // Regression (nightjar#80): PC's frame times held pictures by the lateness a decoder behind
 // the stream made, up to the longest hold.
 #[test]

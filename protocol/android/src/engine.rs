@@ -452,11 +452,12 @@ pub fn send_microphone(pcm: &[i16]) -> i32 {
     }
 }
 
-pub fn present_clock_start(min_interval_us: i32) {
-    let settings = Settings {
-        min_interval_us: i64::from(min_interval_us.max(0)),
-        ..Settings::default()
-    };
+/// `adaptive`: the display refreshes when a frame comes (adaptive refresh rate), so a frame much
+/// later than the typical one is shown when ready instead of every frame waiting for it
+/// ([`Settings::adaptive`]); on a fixed vsync grid the percentile rule stays as it is.
+pub fn present_clock_start(min_interval_us: i32, adaptive: bool) {
+    let min_interval_us = i64::from(min_interval_us.max(0));
+    let settings = if adaptive { Settings::adaptive(min_interval_us) } else { Settings { min_interval_us, ..Settings::default() } };
     *lock(&ENGINE.present_clock) = Some(PresentClock::new(settings));
 }
 
@@ -765,7 +766,7 @@ mod tests {
     fn present_clock_offset_waits_for_a_clock_sync_exchange() {
         let _serial = lock(&ENGINE_TESTS);
         assert_eq!(present_clock_offset(1_000), None, "no clock running");
-        present_clock_start(0);
+        present_clock_start(0, false);
         assert_eq!(present_clock_offset(1_000), None, "no exchange yet");
         // client = host + offset: sent at 1000, answered at 1100, the host at 5000 and 5010.
         clock_sync(
@@ -783,12 +784,23 @@ mod tests {
     }
 
     #[test]
+    fn an_adaptive_display_bounds_the_wait_for_late_frames_and_a_grid_does_not() {
+        let _serial = lock(&ENGINE_TESTS);
+        present_clock_start(8_333, true);
+        let spread = |clock: &Option<PresentClock>| clock.as_ref().map(|c| (c.settings.max_spread_us, c.settings.min_interval_us));
+        assert_eq!(spread(&lock(&ENGINE.present_clock)), Some((Some(rubylight_protocol::present_clock::ADAPTIVE_SPREAD_US), 8_333)));
+        present_clock_start(8_333, false);
+        assert_eq!(spread(&lock(&ENGINE.present_clock)), Some((None, 8_333)));
+        present_clock_stop();
+    }
+
+    #[test]
     fn the_engine_clock_schedules_on_a_grid_and_follows_the_content_rate() {
         let _serial = lock(&ENGINE_TESTS);
         let grid = Grid { anchor_us: 0, interval_us: 16_667, lead_us: 4_000, slack_us: 0 };
         assert_eq!(present_clock_schedule_on_grid(0, 1_000, grid), None, "no clock running");
         assert_eq!(present_clock_content_rate(), 0);
-        present_clock_start(0);
+        present_clock_start(0, false);
         let s = present_clock_schedule_on_grid(0, 1_000_000, grid).expect("scheduled");
         assert!(s.vsync_us >= 1_000_000 && s.release_us >= 1_000_000);
         for i in 0..400u32 {

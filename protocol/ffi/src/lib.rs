@@ -352,6 +352,8 @@ pub struct RpPresentSettings {
     pub decay_us: i64,
     pub max_hold_us: i64,
     pub min_interval_us: i64,
+    /// `Settings::max_spread_us`; zero or less is `None`.
+    pub max_spread_us: i64,
 }
 
 impl From<&RpPresentSettings> for Settings {
@@ -362,6 +364,7 @@ impl From<&RpPresentSettings> for Settings {
             margin_us: s.margin_us,
             decay_us: s.decay_us,
             max_hold_us: s.max_hold_us,
+            max_spread_us: (s.max_spread_us > 0).then_some(s.max_spread_us),
             min_interval_us: s.min_interval_us,
         }
     }
@@ -373,15 +376,28 @@ impl From<&RpPresentSettings> for Settings {
 /// `out` is writable.
 #[no_mangle]
 pub unsafe extern "C" fn rp_present_settings_default(out: *mut RpPresentSettings) {
-    let s = Settings::default();
-    out.write(RpPresentSettings {
-        window: s.window as u32,
-        percentile: s.percentile,
-        margin_us: s.margin_us,
-        decay_us: s.decay_us,
-        max_hold_us: s.max_hold_us,
-        min_interval_us: s.min_interval_us,
-    });
+    out.write((&Settings::default()).into());
+}
+
+/// # Safety
+/// `out` is writable.
+#[no_mangle]
+pub unsafe extern "C" fn rp_present_settings_adaptive(out: *mut RpPresentSettings) {
+    out.write((&Settings::adaptive(0)).into());
+}
+
+impl From<&Settings> for RpPresentSettings {
+    fn from(s: &Settings) -> Self {
+        RpPresentSettings {
+            window: s.window as u32,
+            percentile: s.percentile,
+            margin_us: s.margin_us,
+            decay_us: s.decay_us,
+            max_hold_us: s.max_hold_us,
+            min_interval_us: s.min_interval_us,
+            max_spread_us: s.max_spread_us.unwrap_or(0),
+        }
+    }
 }
 
 /// # Safety
@@ -650,5 +666,31 @@ mod runtime {
     #[panic_handler]
     fn panic(_: &core::panic::PanicInfo) -> ! {
         unsafe { abort() }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rubylight_protocol::present_clock::ADAPTIVE_SPREAD_US;
+
+    #[test]
+    fn present_settings_carry_the_spread_bound_across_the_c_struct() {
+        let mut out = core::mem::MaybeUninit::<RpPresentSettings>::uninit();
+        // SAFETY: `out` is writable and written before it is read.
+        let adaptive = unsafe {
+            rp_present_settings_adaptive(out.as_mut_ptr());
+            out.assume_init()
+        };
+        let mut out = core::mem::MaybeUninit::<RpPresentSettings>::uninit();
+        assert_eq!(adaptive.max_spread_us, ADAPTIVE_SPREAD_US);
+        assert_eq!(Settings::from(&adaptive), Settings::adaptive(0));
+        // SAFETY: as above.
+        let default = unsafe {
+            rp_present_settings_default(out.as_mut_ptr());
+            out.assume_init()
+        };
+        assert_eq!(default.max_spread_us, 0);
+        assert_eq!(Settings::from(&default), Settings::default());
     }
 }

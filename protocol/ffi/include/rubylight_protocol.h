@@ -113,6 +113,7 @@ typedef struct RpPresentSettings {
     int64_t decay_us;        // how fast the delay may fall per frame
     int64_t max_hold_us;     // longest a ready frame is held
     int64_t min_interval_us; // the display's shortest refresh interval
+    int64_t max_spread_us;   // most a frame is held past the typical one; 0: max_hold_us
 } RpPresentSettings;
 
 typedef struct RpPresentSchedule {
@@ -125,6 +126,9 @@ typedef struct RpPresentSchedule {
 typedef struct RpPresentClock RpPresentClock;
 
 void rp_present_settings_default(RpPresentSettings *out);
+// As rp_present_settings_default, for a display that refreshes when a frame comes (adaptive
+// refresh rate): a frame much later than the typical one is shown when ready.
+void rp_present_settings_adaptive(RpPresentSettings *out);
 RpPresentClock *rp_present_clock_new(const RpPresentSettings *settings);
 void rp_present_clock_free(RpPresentClock *clock);
 // Feeds a 0x5537 reply received at client_receive_us; returns its round trip or -1.

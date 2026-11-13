@@ -303,7 +303,7 @@
     <string name="title_vrr">가변 주사율</string>
     <string name="summary_vrr">VRR: G-Sync, FreeSync 또는 가변 주사율 화면에서 다음 새로 고침을 기다리지 않고 각 프레임을 도착하는 대로 표시합니다. 켜져 있는 동안에는 ‘프레임 페이싱’을 사용하지 않습니다.</string>
     <string name="summary_vrr_unavailable">Android 16과 적응형 주사율을 지원하는 화면이 필요합니다.</string>
-    <string name="title_host_frame_times">PC의 프레임 타이밍으로 표시</string>
+    <string name="title_host_frame_times">리얼 VRR</string>
     <string name="summary_host_frame_times">각 프레임을 잠시 붙잡아 게임이 그린 시점에 표시해 움직임을 고르게 합니다. 지연 시간이 몇 밀리초 늘어납니다. 움직임이 고르지 않아 보이면 켜세요.</string>
     <string name="title_content_rate_frame_rate">화면을 게임의 프레임 속도에 맞추기</string>
     <string name="summary_content_rate_frame_rate">화면을 게임의 실제 프레임 속도에 맞는 주사율로 전환합니다(예: 120 FPS 스트림에서 60 FPS 게임이면 60 Hz). PC 지원이 필요합니다.</string>

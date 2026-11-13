@@ -25,7 +25,11 @@ public class HostFrameClockTest {
     private static final class FakeBridge implements HostFrameClock.Bridge {
         final java.util.concurrent.CountDownLatch probes = new java.util.concurrent.CountDownLatch(2);
         volatile int starts, schedules, stops;
-        @Override public void start(int minIntervalUs) { starts++; }
+        volatile boolean adaptive;
+        @Override public void start(int minIntervalUs, boolean adaptive) {
+            starts++;
+            this.adaptive = adaptive;
+        }
         @Override public void stop() { stops++; }
         @Override public void reset() { }
         @Override public boolean schedule(long hostUs, long readyNs, long[] out) {
@@ -80,6 +84,17 @@ public class HostFrameClockTest {
         assertFalse("no offset once the clock is stopped", clock.clockOffset(new long[2]));
         clock.stop();
         assertEquals("a second stop does nothing", 1, bridge.stops);
+    }
+
+    @Test public void onlyAnAdaptiveDisplayAsksForTheBoundOnLateFrames() {
+        FakeBridge bridge = new FakeBridge();
+        HostFrameClock clock = new HostFrameClock(bridge, 5);
+        clock.start(120, true, false, true, true);
+        assertTrue(bridge.adaptive);
+        clock.stop();
+        clock.start(120, true, false);
+        assertFalse("a fixed panel keeps the percentile delay", bridge.adaptive);
+        clock.stop();
     }
 
     @Test public void aHostThatDidNotAnnounceClockSyncGetsNoProbes() throws Exception {

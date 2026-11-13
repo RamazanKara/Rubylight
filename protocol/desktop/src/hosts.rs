@@ -3479,6 +3479,7 @@ pub(crate) mod tests {
             quit_on_leave: Default::default(),
             notices: Default::default(),
             full_chroma: Default::default(),
+            internet_play: Default::default(),
         }
     }
 

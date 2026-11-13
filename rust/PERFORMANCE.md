@@ -9471,8 +9471,11 @@ to send, the median of the ten 5 s stream timing windows after the first: 3.54 m
 degrees; on this build 3.48 ms (70 degrees), 3.61 ms (flat), 3.63 ms (110 degrees) and, in the
 two 90 degree runs, 4.20 and 3.88 ms with the encode at 3.74 and 3.38 ms where every other run
 of either build reads 2.98 to 3.12 ms. Those two ran minutes before the same build's other runs
-while other sessions used this PC, and were not repeated on a quiet one, so what the longer
-measurement costs a frame is not separated from that load here.
+while other sessions used this PC. Repeated on November 13 on the idle PC, the 4.0.0 package and
+this build in turn at 90 degrees, 60 s a run, the mean of the ten windows: present to send 3.56
+and 3.54 ms on 4.0.0 against 3.57 and 3.55 ms on this build (p99 4.01 and 3.86 against 3.97 and
+3.93 ms), the encode 3.07 and 3.05 against 3.07 and 3.06 ms. The longer measurement costs a
+frame nothing these runs can show.
 
 
 ## Hardware covered

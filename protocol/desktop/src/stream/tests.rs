@@ -304,7 +304,7 @@ fn every_tearing_vrr_stream_checks_its_display_not_only_the_beam_race() {
         let (pacing, vrr) = present::pacing(settings, tearing);
         checks_display_for_vrr(vrr, pacing, present::without_vrr(settings), forced)
     };
-    // The default settings: VRR on, the swap chain tears, Immediate.
+    // The default settings: VRR on, the swap chain tears, Real VRR.
     assert!(checks(&Settings::default(), true, None), "a fixed refresh display would tear on every present unchecked");
     let host_times = Settings { present_at_host_times: true, ..Default::default() };
     assert!(checks(&host_times, true, None));
@@ -315,7 +315,8 @@ fn every_tearing_vrr_stream_checks_its_display_not_only_the_beam_race() {
     let off = Settings { vrr: false, vsync: false, ..Default::default() };
     assert_eq!(present::pacing(&off, true).0, PacingMode::Immediate);
     assert!(!checks(&off, true, None), "tearing asked for without VRR is the user's choice");
-    assert!(!checks(&Settings { vsync: false, ..Default::default() }, true, None), "V-Sync off: immediate either way");
+    let shown_when_decoded = Settings { vsync: false, present_at_host_times: false, ..Default::default() };
+    assert!(!checks(&shown_when_decoded, true, None), "V-Sync and Real VRR off: immediate either way");
     assert!(!checks(&Settings::default(), true, Some(false)), "NIGHTJAR_VRR_CHECK=0");
     assert!(checks(&Settings::default(), true, Some(true)));
 }
@@ -324,7 +325,8 @@ fn every_tearing_vrr_stream_checks_its_display_not_only_the_beam_race() {
 /// display, unchecked. The check now runs for its present mode.
 #[test]
 fn a_vrr_stream_without_v_sync_checks_its_display_for_the_present_mode() {
-    let settings = Settings { vsync: false, ..Default::default() };
+    // Real VRR off: frames shown when decoded, which needs no pacing check without V-Sync.
+    let settings = Settings { vsync: false, present_at_host_times: false, ..Default::default() };
     let (pacing, vrr) = present::pacing(&settings, true);
     let pacing_check = checks_display_for_vrr(vrr, pacing, present::without_vrr(&settings), None);
     assert!(!pacing_check);

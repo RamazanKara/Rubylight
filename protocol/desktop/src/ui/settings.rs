@@ -863,7 +863,7 @@ impl Launcher {
             // With Sharper colored text packed on Windows, VRR shows each frame at once.
             let immediate_packed = cfg!(windows) && s.experimental_packed_444 && vrr_offered;
             rows.when(vrr && !immediate_packed);
-            setting_row(ui, s, &mut rows, &["present_at_host_times"], "Real VRR", "Holds each frame briefly so it appears when the game drew it, evening out motion. Adds a few milliseconds of latency; turn it on if motion looks uneven.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["present_at_host_times"], "Real VRR", "Shows each frame when the game drew it, so motion stays even. Adds about 1 to 4 ms of latency; leave it on unless you want the lowest latency.", |ui, s| {
                 toggle(ui, &mut s.present_at_host_times)
             });
             rows.always();
@@ -2004,7 +2004,7 @@ pub(super) const ANDROID_KEYS: &[(&str, &str)] = &[
     ("adaptive_quality", "adaptive_quality_mode"), ("quality_min_short_edge", "adaptive_quality_min_resolution"),
     ("quality_min_fps", "adaptive_quality_min_fps"),
     // Display & image
-    ("video_scaling", "checkbox_stretch_video"), ("vrr", "checkbox_vrr"), ("present_at_host_times", "checkbox_host_frame_times"),
+    ("video_scaling", "checkbox_stretch_video"), ("vrr", "checkbox_vrr"), ("present_at_host_times", "checkbox_real_vrr"),
     ("frame_pacing", "frame_pacing"), ("drop_late_frames", "checkbox_drop_late_frames"), ("upscaling", "upscaling_mode"),
     ("upscale_sharpness", "upscaling_sharpness"),
     ("align_video_top", "video_alignment"), ("virtual_display", "checkbox_virtual_display"),

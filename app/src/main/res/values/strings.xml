@@ -347,8 +347,10 @@
     <string name="title_vrr">Variable refresh rate</string>
     <string name="summary_vrr">VRR: shows each frame the moment it arrives on a G-Sync, FreeSync or adaptive-refresh screen, without waiting for the next refresh. Frame pacing is not used while VRR is on.</string>
     <string name="summary_vrr_unavailable">Needs Android 16 and a screen with adaptive refresh.</string>
-    <string name="title_host_frame_times">Real VRR</string>
+    <string name="title_host_frame_times">Show frames at the PC’s frame times</string>
     <string name="summary_host_frame_times">Holds each frame briefly so it appears when the game drew it, evening out motion. Adds a few milliseconds of latency; turn it on if motion looks uneven.</string>
+    <string name="title_real_vrr">Real VRR</string>
+    <string name="summary_real_vrr">Shows each frame when the game drew it, so motion stays even. Adds about 1 to 4 ms of latency; leave it on unless you want the lowest latency.</string>
     <string name="title_content_rate_frame_rate">Match the screen to the game’s frame rate</string>
     <string name="summary_content_rate_frame_rate">Switches the screen to a refresh rate that fits the game’s real frame rate, such as 60 Hz for a 60 FPS game in a 120 FPS stream. Needs PC support.</string>
     <string name="title_virtual_display_scale">PC render resolution</string>

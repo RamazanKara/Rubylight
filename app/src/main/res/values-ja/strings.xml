@@ -303,8 +303,10 @@
     <string name="title_vrr">可変リフレッシュレート</string>
     <string name="summary_vrr">VRR：G-Sync、FreeSync、または可変リフレッシュレート対応の画面で、次のリフレッシュを待たずに各フレームを届いた時点で表示します。オンの間、「フレームペーシング」は使われません。</string>
     <string name="summary_vrr_unavailable">Android 16 と可変リフレッシュレート対応の画面が必要です。</string>
-    <string name="title_host_frame_times">リアルVRR</string>
+    <string name="title_host_frame_times">PCのフレームタイミングで表示</string>
     <string name="summary_host_frame_times">各フレームを少しだけ保持してゲームが描画したタイミングで表示し、動きを均一にします。遅延が数ミリ秒増えます。動きにムラがある場合はオンにしてください。</string>
+    <string name="title_real_vrr">リアルVRR</string>
+    <string name="summary_real_vrr">各フレームをゲームが描画したタイミングで表示し、動きを均一に保ちます。遅延が約1〜4ミリ秒増えます。最小の遅延を求める場合以外はオンのままにしてください。</string>
     <string name="title_content_rate_frame_rate">画面をゲームのフレームレートに合わせる</string>
     <string name="summary_content_rate_frame_rate">画面を、ゲームの実際のフレームレートに合うリフレッシュレートに切り替えます（120 FPS のストリームで 60 FPS のゲームなら 60 Hz など）。PC の対応が必要です。</string>
     <string name="title_virtual_display_scale">PC のレンダリング解像度</string>

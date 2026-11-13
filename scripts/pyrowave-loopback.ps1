@@ -184,7 +184,9 @@ try {
     $env:PATH = 'C:\msys64\ucrt64\bin;' + $env:PATH
     function Set-ClientSettings([int]$Kbps, [string]$Decoder = 'Cpu', [hashtable]$Extra = @{}) {
         $settings = @{ width = $Width; height = $Height; fps = $Fps; bitrate_kbps = $Kbps; pyrowave_decoder = $Decoder; adaptive_bitrate = $false; codec = $Codec;
-            window_mode = 'Windowed'; overlay = $true; console_home = $false; early_decode = $false }
+            window_mode = 'Windowed'; overlay = $true; console_home = $false; early_decode = $false
+            # Without it the once-only switch of Real VRR to on would override an -Extra present_at_host_times.
+            real_vrr_default_on = $true }
         foreach ($key in $Extra.Keys) { $settings[$key] = $Extra[$key] }
         ($settings | ConvertTo-Json -Compress) |
             Set-Content "$ClientProfile\settings.json"
@@ -262,29 +264,38 @@ try {
         $n++; $variant = [string]$leg[0]; $kbps = [int]$leg[1]; $group = if ($kbps -eq 0) { 'default' } else { [string][math]::Round($kbps / 1000) }
         $name = '{0:00}-{1}-{2}' -f $n, $variant, $group
         $exe = if ($variant -eq 'B') { $ClientB } else { $ClientA }
-        Set-ClientSettings $kbps $(if ($variant -eq 'B') { $DecoderB } else { $DecoderA }) $(if ($variant -eq 'B') { $ExtraB } else { $ExtraA })
-        $hostLines = if ($hostLog) { (Get-Content $hostLog -ErrorAction SilentlyContinue | Measure-Object -Line).Lines } else { 0 }
-        Write-Host "leg $name ($Seconds s at $kbps kbps, ${Width}x${Height}@$Fps, decoder $(if ($variant -eq 'B') { $DecoderB } else { $DecoderA }))"
-        $p = Start-Client $exe $name $Seconds $EarlyDecode.IsPresent
-        $extra = if ($variant -eq 'B') { $ExtraB } else { $ExtraA }
-        # A fullscreen leg stays where it is; only a window is put at the corner of the second display.
-        if (-not $extra.ContainsKey('window_mode') -or $extra['window_mode'] -eq 'Windowed') { Move-ClientWindow $p }
-        $meter = if ($PresentMon) { Start-PresentMon $exe $name $Seconds }
-        $ended = $p.WaitForExit(($Seconds + 120) * 1000)
-        if (-not $ended) { $p.Kill() }
-        if ($meter -and -not $meter.WaitForExit(20000)) { Stop-Process -Id $meter.Id -Force; Write-Host "leg ${name}: PresentMon did not end by itself" }
-        # A hang is looked for first: a leg that stalls or fails because the encoder hung is exit 3, not 2.
-        $hostText = if ($hostLog) { (Get-Content $hostLog -ErrorAction SilentlyContinue | Select-Object -Skip $hostLines) -join "`n" } else { '' }
-        if ($hostText -match '(?i)gpu hang|encoder hang|device removed') {
-            Write-Host "leg ${name}: AMD encoder hang suspected, stopping (exit 3). Do not retry; see $hostLog"; exit 3
+        # A fresh test host offers PyroWave only after its first stream, so the first leg can stream
+        # HEVC instead (the client log says so): such a leg runs once more, and a second miss stops.
+        for ($try = 1; ; $try++) {
+            Set-ClientSettings $kbps $(if ($variant -eq 'B') { $DecoderB } else { $DecoderA }) $(if ($variant -eq 'B') { $ExtraB } else { $ExtraA })
+            $hostLines = if ($hostLog) { (Get-Content $hostLog -ErrorAction SilentlyContinue | Measure-Object -Line).Lines } else { 0 }
+            Write-Host "leg $name ($Seconds s at $kbps kbps, ${Width}x${Height}@$Fps, decoder $(if ($variant -eq 'B') { $DecoderB } else { $DecoderA }))"
+            $p = Start-Client $exe $name $Seconds $EarlyDecode.IsPresent
+            $extra = if ($variant -eq 'B') { $ExtraB } else { $ExtraA }
+            # A fullscreen leg stays where it is; only a window is put at the corner of the second display.
+            if (-not $extra.ContainsKey('window_mode') -or $extra['window_mode'] -eq 'Windowed') { Move-ClientWindow $p }
+            $meter = if ($PresentMon) { Start-PresentMon $exe $name $Seconds }
+            $ended = $p.WaitForExit(($Seconds + 120) * 1000)
+            if (-not $ended) { $p.Kill() }
+            if ($meter -and -not $meter.WaitForExit(20000)) { Stop-Process -Id $meter.Id -Force; Write-Host "leg ${name}: PresentMon did not end by itself" }
+            # A hang is looked for first: a leg that stalls or fails because the encoder hung is exit 3, not 2.
+            $hostText = if ($hostLog) { (Get-Content $hostLog -ErrorAction SilentlyContinue | Select-Object -Skip $hostLines) -join "`n" } else { '' }
+            if ($hostText -match '(?i)gpu hang|encoder hang|device removed') {
+                Write-Host "leg ${name}: AMD encoder hang suspected, stopping (exit 3). Do not retry; see $hostLog"; exit 3
+            }
+            if (-not $ended) { Write-Host "leg $name did not end"; exit 2 }
+            # After the hang check: a hung leg has no presents to capture, and that is exit 3, not 2.
+            if ($meter -and -not (Test-Path "$Out\$name.presentmon.csv")) { Write-Host "leg ${name}: PresentMon wrote no CSV; see $Out\$name.presentmon.stderr.log"; exit 2 }
+            $sent = [regex]::Matches($hostText, 'sent_mbps=([0-9.]+)') | ForEach-Object { [double]$_.Groups[1].Value } | Sort-Object
+            $sentMedian = if ($sent.Count) { $sent[[int][math]::Floor(($sent.Count - 1) / 2)] } else { [double]::NaN }
+            "$name host sent_mbps median $([math]::Round($sentMedian, 1)) over $($sent.Count) timing lines" | Tee-Object -FilePath "$Out\sent_mbps.txt" -Append | Write-Host
+            if ($p.ExitCode -ne 0) { Write-Host "leg $name failed (exit $($p.ExitCode)); see $Out\$name.log"; exit 2 }
+            $streamed = if ((Get-Content "$Out\$name.log" -Raw -ErrorAction SilentlyContinue) -match 'streaming \S+ (\S+) at') { $Matches[1] -replace '\.', '' } else { '' }
+            if ($streamed -eq $Codec) { break }
+            if ($try -ge 2) { Write-Host "leg $name streamed '$streamed', not $Codec; see $Out\$name.log"; exit 2 }
+            Write-Host "leg $name streamed '$streamed', not ${Codec}: running it again"
+            Start-Sleep -Seconds 5
         }
-        if (-not $ended) { Write-Host "leg $name did not end"; exit 2 }
-        # After the hang check: a hung leg has no presents to capture, and that is exit 3, not 2.
-        if ($meter -and -not (Test-Path "$Out\$name.presentmon.csv")) { Write-Host "leg ${name}: PresentMon wrote no CSV; see $Out\$name.presentmon.stderr.log"; exit 2 }
-        $sent = [regex]::Matches($hostText, 'sent_mbps=([0-9.]+)') | ForEach-Object { [double]$_.Groups[1].Value } | Sort-Object
-        $sentMedian = if ($sent.Count) { $sent[[int][math]::Floor(($sent.Count - 1) / 2)] } else { [double]::NaN }
-        "$name host sent_mbps median $([math]::Round($sentMedian, 1)) over $($sent.Count) timing lines" | Tee-Object -FilePath "$Out\sent_mbps.txt" -Append | Write-Host
-        if ($p.ExitCode -ne 0) { Write-Host "leg $name failed (exit $($p.ExitCode)); see $Out\$name.log"; exit 2 }
         $summaryLegs += "${variant}:${group}:$Out\$name.csv"
         Start-Sleep -Seconds 5
     }

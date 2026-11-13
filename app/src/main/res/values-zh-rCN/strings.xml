@@ -303,8 +303,10 @@
     <string name="title_vrr">可变刷新率</string>
     <string name="summary_vrr">VRR：在 G-Sync、FreeSync 或自适应刷新屏幕上，每帧一到达就显示，无需等待下一次刷新。开启时不使用“帧速调节”。</string>
     <string name="summary_vrr_unavailable">需要 Android 16 和支持自适应刷新的屏幕。</string>
-    <string name="title_host_frame_times">真实 VRR</string>
+    <string name="title_host_frame_times">按电脑的帧时间显示画面</string>
     <string name="summary_host_frame_times">将每帧短暂保留，使其在游戏绘制它的时刻显示，让动态更平稳。会增加几毫秒延迟；动态看起来不均匀时请开启。</string>
+    <string name="title_real_vrr">真实 VRR</string>
+    <string name="summary_real_vrr">在游戏绘制每帧的时刻显示它，让动态保持平稳。会增加约 1 到 4 毫秒延迟；除非你想要最低延迟，否则请保持开启。</string>
     <string name="title_content_rate_frame_rate">让屏幕匹配游戏帧率</string>
     <string name="summary_content_rate_frame_rate">将屏幕切换到与游戏实际帧率相符的刷新率，例如在 120 FPS 的串流中为 60 FPS 的游戏使用 60 Hz。需要电脑支持。</string>
     <string name="title_virtual_display_scale">电脑渲染分辨率</string>

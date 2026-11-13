@@ -283,6 +283,8 @@ public class SettingsKeysTest {
         reads.put("checkbox_enable_sdr_10bit", new Read(false, true, c -> c.enableSdr10Bit));
         reads.put("checkbox_vrr", new Read(false, true, c -> c.vrr));
         reads.put("checkbox_host_frame_times", new Read(false, true, c -> c.hostFrameTimes));
+        // Applies with VRR, which this device doesn't offer (VrrOfferedTest checks that it applies there).
+        reads.put("checkbox_real_vrr", new Read(true, false, c -> c.realVrr));
         reads.put("checkbox_content_rate_frame_rate", new Read(false, true, c -> c.contentRateFrameRate));
         reads.put("frame_pacing", new Read("latency", "balanced", c -> c.framePacing));
         reads.put("checkbox_reduce_refresh_rate", new Read(false, true, c -> c.reduceRefreshRate));

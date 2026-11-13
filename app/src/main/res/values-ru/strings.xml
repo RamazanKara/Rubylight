@@ -303,8 +303,10 @@
     <string name="title_vrr">Переменная частота обновления</string>
     <string name="summary_vrr">VRR: показывает каждый кадр сразу по прибытии на экране с G-Sync, FreeSync или адаптивной частотой обновления, не дожидаясь следующего обновления. Пока включено, «Синхронизация кадров» не используется.</string>
     <string name="summary_vrr_unavailable">Нужны Android 16 и экран с адаптивной частотой.</string>
-    <string name="title_host_frame_times">Настоящий VRR</string>
+    <string name="title_host_frame_times">Показывать кадры в ритме ПК</string>
     <string name="summary_host_frame_times">Ненадолго задерживает каждый кадр, чтобы он появлялся тогда, когда игра его нарисовала, и движение было ровнее. Добавляет несколько миллисекунд задержки; включите, если движение выглядит неровным.</string>
+    <string name="title_real_vrr">Настоящий VRR</string>
+    <string name="summary_real_vrr">Показывает каждый кадр тогда, когда игра его нарисовала, чтобы движение оставалось ровным. Добавляет около 1–4 мс задержки; оставьте включённым, если вам не нужна минимальная задержка.</string>
     <string name="title_content_rate_frame_rate">Подстраивать экран под частоту кадров игры</string>
     <string name="summary_content_rate_frame_rate">Переключает экран на частоту обновления, которая подходит к реальной частоте кадров игры, например 60 Гц для игры с 60 FPS в трансляции 120 FPS. Нужна поддержка ПК.</string>
     <string name="title_virtual_display_scale">Разрешение рендеринга на ПК</string>

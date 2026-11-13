@@ -700,7 +700,7 @@ fn files_round_trip() {
     // A settings file from an older version keeps the new fields' defaults.
     std::fs::write(dir.join("settings.json"), r#"{"fps": 90}"#).unwrap();
     assert_eq!(store.settings().fps, 90);
-    assert!(!store.settings().present_at_host_times);
+    assert!(store.settings().present_at_host_times, "Real VRR is switched on once");
     std::fs::remove_dir_all(dir).unwrap();
 }
 
@@ -887,6 +887,21 @@ fn recover_interrupted_streams_turns_on_once_and_a_later_off_is_kept() {
     settings.auto_reconnect = false;
     store.save_settings(&settings).unwrap();
     assert!(!store.settings().auto_reconnect, "the user's off after the switch is kept");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn real_vrr_turns_on_once_and_a_later_off_is_kept() {
+    assert!(Settings::default().present_at_host_times);
+    let dir = std::env::temp_dir().join(format!("nightjar-real-vrr-{}", std::process::id()));
+    let store = Store::at(dir.clone()).unwrap();
+    std::fs::write(dir.join("settings.json"), r#"{"present_at_host_times": false, "auto_reconnect_default_on": true}"#)
+        .unwrap();
+    let mut settings = store.settings();
+    assert!(settings.present_at_host_times, "an old file's off is switched on once");
+    settings.present_at_host_times = false;
+    store.save_settings(&settings).unwrap();
+    assert!(!store.settings().present_at_host_times, "the user's off after the switch is kept");
     std::fs::remove_dir_all(dir).unwrap();
 }
 

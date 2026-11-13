@@ -171,8 +171,9 @@ not a measurement artefact, and it comes from the present clock, not from the sw
 
 - The stream runs with pacing `HostTimes` (the log line `streaming ... pacing HostTimes`). That is
   the mode when `vrr` and `present_at_host_times` are both on. Since the measurement in
-  docs/pyrowave-decode.md ("The wait between decoded and shown") `present_at_host_times` is off by
-  default and VRR displays present immediately; the numbers below are from when it was the default. SDL vsync is off in this mode, so no
+  docs/pyrowave-decode.md ("The wait between decoded and shown") `present_at_host_times` was off by
+  default and VRR displays presented immediately, until the bounded wait made it the default again
+  (docs/pyrowave-decode.md, "Real VRR"); the numbers below are from before that bound. SDL vsync is off in this mode, so no
   vsync queue or swap chain frame latency is involved.
 - `PresentClock` (`protocol/core/src/present_clock.rs`) shows each frame at its host timestamp plus
   a delay. The delay is the 97th percentile of how late recent frames were, plus 0.5 ms. It rises at

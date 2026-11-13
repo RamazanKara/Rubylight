@@ -231,6 +231,7 @@ public class PreferenceConfiguration {
     static final String YUV444_PREF_STRING = "checkbox_yuv444";
     static final String VRR_PREF_STRING = "checkbox_vrr";
     static final String HOST_FRAME_TIMES_PREF_STRING = "checkbox_host_frame_times";
+    static final String REAL_VRR_PREF_STRING = "checkbox_real_vrr";
     static final String CONTENT_RATE_FRAME_RATE_PREF_STRING = "checkbox_content_rate_frame_rate";
     static final String UPSCALING_PREF_STRING = "upscaling_mode";
     static final String UPSCALING_SHARPNESS_PREF_STRING = "upscaling_sharpness";
@@ -488,7 +489,13 @@ public class PreferenceConfiguration {
     /** Play over the internet: a punched path to a PC that offers it, after every direct path (InternetPlay). */
     public boolean internetPlay;
     public boolean virtualDisplay, enableYuv444, vrr;
-    // Show frames at the host's frame times (HostFrameClock); replaces frame pacing.
+    // Real VRR (checkbox_real_vrr, on by default): with adaptive refresh, frames at the host's frame times.
+    // Without adaptive refresh "Show frames at the PC's frame times" (checkbox_host_frame_times, off by
+    // default) schedules them on the display's refresh instead. Two keys, because the old switch's stored
+    // off can't be told apart from its old default.
+    public boolean realVrr, gridHostFrameTimes;
+    // Show frames at the host's frame times (HostFrameClock): the switch of the two above that applies to
+    // this stream's adaptive refresh (resolveHostFrameTimes). Replaces frame pacing.
     public boolean hostFrameTimes;
     // Vote the content rate the host's frame times show to the display (Surface.setFrameRate).
     public boolean contentRateFrameRate;
@@ -844,6 +851,11 @@ public class PreferenceConfiguration {
         return layerPacing != null ? framePacingValue(layerPacing) : getFramePacingValue(context);
     }
 
+    /** Real VRR with adaptive refresh, else the switch for a fixed refresh; again after a layer sets VRR. */
+    void resolveHostFrameTimes() {
+        hostFrameTimes = vrr ? realVrr : gridHostFrameTimes;
+    }
+
     /** The bitrate for this configuration's size and frame rate when nobody chose one. */
     int automaticBitrateKbps() {
         return getDefaultBitrate(getResolutionText(width, height), Integer.toString(fps));
@@ -1035,6 +1047,7 @@ public class PreferenceConfiguration {
             profile.applyTo(config);
             // A PC, game or profile layer saved with VRR on can't turn it on where no screen has ARR.
             config.vrr &= com.limelight.binding.video.DisplayFrameRatePolicy.vrrOffered(context);
+            config.resolveHostFrameTimes();
             StreamLayers.Source resolution = layers.source(HostStreamProfile.Field.RESOLUTION);
             config.fromPcProfile = resolution == StreamLayers.Source.PC || resolution == StreamLayers.Source.GAME;
             if (config.resolutionFollowsScreen && !followedScreen) {
@@ -1766,7 +1779,9 @@ public class PreferenceConfiguration {
             config.framePacing = FRAME_PACING_MIN_LATENCY;
             config.reduceRefreshRate = false;
         }
-        config.hostFrameTimes = prefs.getBoolean(HOST_FRAME_TIMES_PREF_STRING, false);
+        config.realVrr = prefs.getBoolean(REAL_VRR_PREF_STRING, true);
+        config.gridHostFrameTimes = prefs.getBoolean(HOST_FRAME_TIMES_PREF_STRING, false);
+        config.resolveHostFrameTimes();
         // The vote is for a SurfaceView. It needs the lower refresh rate switch: the settings screen greys it
         // without that, so a stored choice must not act on its own. VRR turns it on: without ARR (known only
         // once the stream's display is) the content rate is the only way down from the panel maximum, to a

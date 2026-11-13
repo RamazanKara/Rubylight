@@ -122,6 +122,64 @@ public class VrrOfferedTest {
         assertTrue(stream("plain-pc", "game").vrr);
     }
 
+    @Test
+    public void realVrrIsOnWithVrrAndTheFixedRefreshSwitchKeepsItsOwnChoice() {
+        Application app = RuntimeEnvironment.getApplication();
+        ArrDisplay.supported = true;
+        assertFalse("without VRR the fixed refresh's switch decides, off by default",
+                PreferenceConfiguration.readPreferences(app).hostFrameTimes);
+        // The old switch's off, which first launches stored as its default, doesn't turn Real VRR off.
+        prefs().edit().putBoolean(PreferenceConfiguration.VRR_PREF_STRING, true)
+                .putBoolean(PreferenceConfiguration.HOST_FRAME_TIMES_PREF_STRING, false).commit();
+        PreferenceConfiguration config = PreferenceConfiguration.readPreferences(app);
+        assertTrue("Real VRR is the default with VRR", config.hostFrameTimes);
+        assertEquals(PreferenceConfiguration.FRAME_PACING_MIN_LATENCY, config.framePacing);
+        prefs().edit().putBoolean(PreferenceConfiguration.REAL_VRR_PREF_STRING, false).commit();
+        assertFalse(PreferenceConfiguration.readPreferences(app).hostFrameTimes);
+        prefs().edit().putBoolean(PreferenceConfiguration.VRR_PREF_STRING, false)
+                .putBoolean(PreferenceConfiguration.HOST_FRAME_TIMES_PREF_STRING, true).commit();
+        assertTrue(PreferenceConfiguration.readPreferences(app).hostFrameTimes);
+        // A saved VRR reads as off without ARR, so the fixed refresh's switch decides there.
+        prefs().edit().putBoolean(PreferenceConfiguration.VRR_PREF_STRING, true)
+                .putBoolean(PreferenceConfiguration.REAL_VRR_PREF_STRING, true)
+                .putBoolean(PreferenceConfiguration.HOST_FRAME_TIMES_PREF_STRING, false).commit();
+        ArrDisplay.supported = false;
+        assertFalse(PreferenceConfiguration.readPreferences(app).hostFrameTimes);
+    }
+
+    @Test
+    public void aPcOrGameLayerThatTurnsVrrOnOrOffPicksTheMatchingSwitch() {
+        Application app = RuntimeEnvironment.getApplication();
+        ArrDisplay.supported = true;
+        HostStreamProfile.deserialize("v2;vrr=true").save(app, "vrr-pc");
+        HostStreamProfile.deserialize("v2;vrr=false").save(app, "flat-pc");
+        PreferenceConfiguration config = stream("vrr-pc", "desktop");
+        assertTrue("a PC that turns VRR on gets Real VRR", config.vrr && config.hostFrameTimes);
+        prefs().edit().putBoolean(PreferenceConfiguration.VRR_PREF_STRING, true)
+                .putString(PreferenceConfiguration.FRAME_PACING_PREF_STRING, "balanced").commit();
+        assertTrue(PreferenceConfiguration.readPreferences(app).hostFrameTimes);
+        config = stream("flat-pc", "desktop");
+        assertFalse("a PC that turns VRR off gets the fixed refresh's switch", config.vrr || config.hostFrameTimes);
+        assertEquals("and its pacing back", PreferenceConfiguration.FRAME_PACING_BALANCED, config.framePacing);
+    }
+
+    @Test
+    public void realVrrShowsWithVrrAndTheFixedRefreshSwitchWithout() {
+        ArrDisplay.supported = true;
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            // The screen holds only the rows shown; the fragment also finds the hidden ones.
+            android.preference.PreferenceScreen display =
+                    SettingsStructureTest.open(controller.get(), "display").getPreferenceScreen();
+            assertNull(display.findPreference(PreferenceConfiguration.REAL_VRR_PREF_STRING));
+            assertTrue(display.findPreference(PreferenceConfiguration.HOST_FRAME_TIMES_PREF_STRING) != null);
+            prefs().edit().putBoolean(PreferenceConfiguration.VRR_PREF_STRING, true).commit();
+            assertTrue(display.findPreference(PreferenceConfiguration.REAL_VRR_PREF_STRING) != null);
+            assertNull(display.findPreference(PreferenceConfiguration.HOST_FRAME_TIMES_PREF_STRING));
+            assertTrue("on by default", ((SwitchPreference) display.findPreference(
+                    PreferenceConfiguration.REAL_VRR_PREF_STRING)).isChecked());
+        }
+    }
+
     private static PreferenceConfiguration stream(String pc, String game) {
         return PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication(), pc,
                 HostCapabilities.UNKNOWN, game, 1, StreamLayers.Network.WIFI);

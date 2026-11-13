@@ -115,7 +115,9 @@ try {
     }
     function Set-ClientSettings([int]$Kbps, [string]$Decoder, [hashtable]$Extra) {
         $settings = @{ width = $Width; height = $Height; fps = $Fps; bitrate_kbps = $Kbps; pyrowave_decoder = $Decoder; adaptive_bitrate = $false; codec = 'PyroWave';
-            window_mode = 'Windowed'; overlay = $true; console_home = $false; early_decode = $false }
+            window_mode = 'Windowed'; overlay = $true; console_home = $false; early_decode = $false
+            # Without it the once-only switch of Real VRR to on would override an -Extra present_at_host_times.
+            real_vrr_default_on = $true }
         foreach ($key in $Extra.Keys) { $settings[$key] = $Extra[$key] }
         $local = Join-Path $Out 'settings.json'
         [IO.File]::WriteAllText($local, ($settings | ConvertTo-Json -Compress))

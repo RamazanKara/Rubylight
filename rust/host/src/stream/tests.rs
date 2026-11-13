@@ -398,7 +398,7 @@ fn app_menu_commands_follow_the_host_commands_and_their_undo_waits_for_the_app()
         .collect();
     *f.host.current_app.lock().unwrap() =
         Some(crate::process::RunningApp::with_environment(&app, environment).unwrap());
-    let mut send = |index: u8| {
+    let send = |index: u8| {
         let mut at = None;
         server_command(&f.host, &client, &[index], true, &mut at)
     };

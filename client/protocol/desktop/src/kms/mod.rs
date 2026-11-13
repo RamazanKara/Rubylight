@@ -74,7 +74,8 @@ pub struct Decision {
     pub backend: Backend,
     /// The log line's reason.
     pub why: String,
-    /// The SDL video driver to ask for, None to leave SDL's own choice (or the environment's).
+    /// The SDL video drivers to ask for, None to leave the environment's `SDL_VIDEO_DRIVER` to
+    /// SDL. The desktop pins Wayland and X11: SDL's own order would fall through to KMSDRM.
     pub driver_hint: Option<&'static str>,
 }
 
@@ -98,8 +99,13 @@ pub fn decide(flag: Option<bool>, setting: DisplayOutput, session: Session, sdl_
         (None, DisplayOutput::Automatic) if session.any() => (false, format!("a {} session is there", if session.wayland { "Wayland" } else { "X11" })),
         (None, DisplayOutput::Automatic) => (true, "no Wayland or X11 session is there".to_owned()),
     };
-    Decision { backend: if kms { Backend::Kms } else { Backend::Desktop }, why, driver_hint: kms.then_some("kmsdrm") }
+    Decision { backend: if kms { Backend::Kms } else { Backend::Desktop }, why, driver_hint: Some(if kms { KMS_DRIVER } else { DESKTOP_DRIVERS }) }
 }
+
+/// SDL's video driver for straight to the display.
+pub const KMS_DRIVER: &str = "kmsdrm";
+/// SDL's video drivers for the desktop, in SDL's own order: never KMSDRM behind the desktop's back.
+pub const DESKTOP_DRIVERS: &str = "wayland,x11";
 
 /// The renderer KMS mode draws with: OpenGL (EGL on GBM), on which SDL keeps DRM master on its
 /// own descriptor, so a stream's pictures can go on display planes; the GPU renderer's Vulkan
@@ -114,8 +120,22 @@ pub fn renderer_for(choice: crate::config::Renderer, video_planes: bool) -> Opti
     }
 }
 
-/// What a failed start in KMS mode says: SDL's error and what it usually means.
-pub fn start_failure(error: &str) -> String {
+/// What a failed start through the desktop says when no Wayland or X11 session is there: the
+/// desktop was asked for (flag or setting), so SDL does not fall back to the display on its own.
+pub fn desktop_failure(error: &str) -> String {
+    format!(
+        "Nightjar found no Wayland or X11 session to show its window in ({error}). Start it in a desktop session, or choose Straight to the display (Settings, Display output, or {KMS_ARG}) to draw on the display from a text console."
+    )
+}
+
+/// What a failed start in KMS mode says: SDL's error and what it usually means. `connected` is
+/// how many connectors of the card have a display, None when the cards could not be read.
+pub fn start_failure(error: &str, connected: Option<usize>) -> String {
+    if connected == Some(0) {
+        return format!(
+            "Nightjar could not open the display through KMS ({error}): no connected display was found on the graphics card. Connect a display and turn it on, or choose another card with SDL_KMSDRM_DEVICE_INDEX."
+        );
+    }
     format!(
         "Nightjar could not open the display through KMS ({error}). It needs read and write access to /dev/dri/card* and /dev/input/event* \
          (the video and input groups, or a seat from logind), and no other program showing on that display. Run it from a text console, or pass {NO_KMS_ARG} in a desktop session."
@@ -180,7 +200,7 @@ mod tests {
         assert_eq!((d.backend, d.driver_hint), (Backend::Kms, Some("kmsdrm")));
         assert!(d.why.contains("no Wayland or X11"));
         let d = decide(None, DisplayOutput::Automatic, session(true, true), None);
-        assert_eq!((d.backend, d.driver_hint), (Backend::Desktop, None));
+        assert_eq!((d.backend, d.driver_hint), (Backend::Desktop, Some(DESKTOP_DRIVERS)));
         assert!(d.why.contains("Wayland"));
         assert!(decide(None, DisplayOutput::Automatic, session(false, true), None).why.contains("X11"));
     }
@@ -191,8 +211,21 @@ mod tests {
         assert_eq!(decide(None, DisplayOutput::Desktop, session(false, false), None).backend, Backend::Desktop);
         assert_eq!(decide(Some(true), DisplayOutput::Desktop, session(true, false), None).backend, Backend::Kms);
         let d = decide(Some(false), DisplayOutput::Kms, session(false, false), None);
-        assert_eq!((d.backend, d.driver_hint), (Backend::Desktop, None));
+        // The desktop pins SDL to Wayland and X11, so SDL cannot fall back to KMSDRM by itself.
+        assert_eq!((d.backend, d.driver_hint), (Backend::Desktop, Some("wayland,x11")));
         assert!(d.why.contains("--no-kms"));
+        assert_eq!(decide(None, DisplayOutput::Desktop, session(false, false), None).driver_hint, Some(DESKTOP_DRIVERS));
+    }
+
+    #[test]
+    fn start_failures_name_the_missing_desktop_or_display() {
+        let desktop = desktop_failure("No available video device");
+        assert!(desktop.contains("no Wayland or X11 session") && desktop.contains("Straight to the display") && desktop.contains(KMS_ARG), "{desktop}");
+        let none = start_failure("error getting KMSDRM displays information", Some(0));
+        assert!(none.contains("no connected display was found") && !none.contains("read and write access"), "{none}");
+        for connected in [Some(1), None] {
+            assert!(start_failure("Permission denied", connected).contains("read and write access"));
+        }
     }
 
     #[test]

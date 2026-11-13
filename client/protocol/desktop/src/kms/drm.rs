@@ -427,6 +427,25 @@ pub struct DumbBuffer {
     size: usize,
 }
 
+/// How many connectors have a display connected, on card `index` (`SDL_KMSDRM_DEVICE_INDEX`) or
+/// every card in /dev/dri; None when no card could be read. Reads only: no DRM master needed.
+pub fn connected_displays(index: Option<u32>) -> Option<usize> {
+    use std::os::fd::AsRawFd;
+    let mut read_any = false;
+    let mut count = 0;
+    for entry in std::fs::read_dir("/dev/dri").ok()?.flatten() {
+        let name = entry.file_name();
+        let Some(number) = name.to_str().and_then(|n| n.strip_prefix("card")).and_then(|n| n.parse::<u32>().ok()) else { continue };
+        if index.is_some_and(|wanted| wanted != number) { continue; }
+        let Ok(file) = std::fs::File::open(entry.path()) else { continue };
+        let card = Card { fd: file.as_raw_fd(), infos: Default::default() };
+        let Ok((_, connectors)) = card.resources() else { continue };
+        read_any = true;
+        count += connectors.iter().filter(|&&id| card.connector(id).is_ok_and(|(conn, _)| conn.connection == CONNECTED)).count();
+    }
+    read_any.then_some(count)
+}
+
 impl Card {
     /// The card behind `fd`, with atomic modesetting and universal planes asked for (SDL 3.4
     /// turns them off on its descriptor whenever it drops DRM master).

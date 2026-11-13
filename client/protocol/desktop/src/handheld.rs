@@ -54,10 +54,26 @@ pub struct StartWindow {
     pub windowed_after_stream: bool,
 }
 
-/// Under gamescope the window fills the screen without a border from the start and stays so
-/// after a stream: there is no desktop to return to, and a saved windowed place means nothing.
-pub fn start_window(gamescope: bool) -> StartWindow {
-    StartWindow { fullscreen: gamescope, borderless: gamescope, restore_place: !gamescope, windowed_after_stream: !gamescope }
+/// Under gamescope, and straight to the display (KMS), the window fills the screen without a
+/// border from the start and stays so after a stream: there is no desktop to return to, and a
+/// saved windowed place means nothing (and is not overwritten).
+pub fn start_window(fills_screen: bool) -> StartWindow {
+    StartWindow { fullscreen: fills_screen, borderless: fills_screen, restore_place: !fills_screen, windowed_after_stream: !fills_screen }
+}
+
+/// The window fills the screen with no desktop around it: gamescope, or straight to the display.
+pub fn fills_screen() -> bool {
+    gamescope() || crate::kms::active()
+}
+
+/// The launcher window's size at creation: 1280x800 on a desktop. Straight to the display, the
+/// display's current mode (`screen`): SDL's KMSDRM sets the mode closest to the window's windowed
+/// size, so a 1280x800 window would take a 4K TV down to 720p for the launcher and the stream.
+pub fn start_size(kms: bool, screen: Option<(i32, i32)>) -> (i32, i32) {
+    match screen {
+        Some((w, h)) if kms && w > 0 && h > 0 => (w, h),
+        _ => (1280, 800),
+    }
 }
 
 /// What an input event is, for the pointer.
@@ -544,6 +560,14 @@ mod tests {
         assert!(!deck.windowed_after_stream, "a stream's end keeps it fullscreen");
         let desktop = start_window(false);
         assert_eq!(desktop, StartWindow { fullscreen: false, borderless: false, restore_place: true, windowed_after_stream: true });
+    }
+
+    #[test]
+    fn straight_to_the_display_the_launcher_opens_at_the_displays_mode() {
+        assert_eq!(start_size(true, Some((3840, 2160))), (3840, 2160));
+        assert_eq!(start_size(false, Some((3840, 2160))), (1280, 800), "a desktop window keeps its size");
+        assert_eq!(start_size(true, None), (1280, 800), "no mode read: SDL picks");
+        assert_eq!(start_size(true, Some((0, 0))), (1280, 800));
     }
 
     #[test]

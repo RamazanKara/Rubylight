@@ -760,17 +760,24 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         .flat_map(|host| host.settings.iter().chain(host.app_settings.values()))
         .chain(profiles.entries.iter().map(|profile| &profile.settings))));
 
-    // Steam's Game Mode: fullscreen without a border from the start (handheld.rs).
-    let start = handheld::start_window(handheld::gamescope());
+    // Steam's Game Mode, and straight to the display: fullscreen without a border from the start
+    // (handheld.rs), at the display's current mode in KMS mode.
+    let start = handheld::start_window(handheld::fills_screen());
     if handheld::gamescope() {
         eprintln!("nightjar: gamescope: starting fullscreen without a border; Start+Back opens the stream menu");
     }
+    // SAFETY: display queries on the main thread after SDL_Init; the mode is SDL's and read at once.
+    let screen = unsafe {
+        let mode = SDL_GetDesktopDisplayMode(SDL_GetPrimaryDisplay());
+        (!mode.is_null()).then(|| ((*mode).w, (*mode).h))
+    };
+    let (width, height) = handheld::start_size(kms::active(), screen);
     // SAFETY: window and renderer creation on the main thread.
     let (window, renderer, wake_event) = unsafe {
         let window = SDL_CreateWindow(
             c"Nightjar".as_ptr(),
-            1280,
-            800,
+            width,
+            height,
             start_flags(start),
         );
         if window.is_null() {
@@ -1054,8 +1061,9 @@ impl App {
 
     fn save_hosts_and_place(&self) {
         if let Err(e) = self.store.save_hosts(&self.hosts.records()) { eprintln!("nightjar: PCs not saved: {e}"); }
-        // Under gamescope the window was never placed from the saved place, so Desktop Mode's stays.
-        if handheld::start_window(handheld::gamescope()).restore_place {
+        // Under gamescope, or straight to the display, the window was never placed from the saved
+        // place, so the desktop's stays.
+        if handheld::start_window(handheld::fills_screen()).restore_place {
             if let Some(placement) = window_place::current(self.window, self.store.window_placement().as_ref()) {
                 if let Err(e) = self.store.save_window_placement(&placement) { eprintln!("nightjar: window place not saved: {e}"); }
             }
@@ -3075,8 +3083,8 @@ Redacted logs, oldest line first; addresses, PC names, PINs and credentials are 
             SDL_SetRenderVSync(self.renderer, if pacing == PacingMode::Vsync { 1 } else { 0 });
             #[cfg(target_os = "linux")]
             eprintln!("nightjar: present mode {}", sdl::present_mode_name(sdl::present_mode(self.renderer)));
-            let mode = stream_window_mode(settings.window_mode, handheld::gamescope());
-            match if facts.role == nightjar_core::http::AppRole::InputOnly { WindowMode::Windowed } else { mode } {
+            let wanted = if facts.role == nightjar_core::http::AppRole::InputOnly { WindowMode::Windowed } else { settings.window_mode };
+            match stream_window_mode(wanted, handheld::gamescope(), kms::active()) {
                 WindowMode::Fullscreen => {
                     let mut mode: SDL_DisplayMode = std::mem::zeroed();
                     let id = SDL_GetDisplayForWindow(self.window);
@@ -3362,7 +3370,7 @@ Redacted logs, oldest line first; addresses, PC names, PINs and credentials are 
         self.pointer.shown();
         // SAFETY: window and renderer calls on the main thread.
         unsafe {
-            if handheld::start_window(handheld::gamescope()).windowed_after_stream {
+            if handheld::start_window(handheld::fills_screen()).windowed_after_stream {
                 SDL_SetWindowFullscreen(self.window, false);
             }
             SDL_SetRenderVSync(self.renderer, 1);
@@ -4392,8 +4400,12 @@ fn pointer_input(event: &SDL_Event) -> handheld::Input {
 }
 
 /// The stream's window mode: gamescope scales the window itself, so no exclusive mode change there.
-fn stream_window_mode(mode: WindowMode, gamescope: bool) -> WindowMode {
+/// Straight to the display (`kms`) the window keeps the display's mode at any setting: a window
+/// size or an exclusive mode would make SDL's KMSDRM set the mode nearest it, and the stream's
+/// own mode (its rate at the display's size) is the video planes' (`kms_scanout`).
+fn stream_window_mode(mode: WindowMode, gamescope: bool, kms: bool) -> WindowMode {
     match mode {
+        _ if kms => WindowMode::Borderless,
         WindowMode::Fullscreen if gamescope => WindowMode::Borderless,
         mode => mode,
     }
@@ -5017,9 +5029,13 @@ mod tests {
         assert!(deck.0 & SDL_WINDOW_HIDDEN.0 != 0, "shown after the GUI is ready");
         let desktop = start_flags(handheld::start_window(false));
         assert_eq!(desktop.0, (SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN).0);
-        assert_eq!(stream_window_mode(WindowMode::Fullscreen, true), WindowMode::Borderless, "no exclusive mode under gamescope");
-        assert_eq!(stream_window_mode(WindowMode::Fullscreen, false), WindowMode::Fullscreen);
-        assert_eq!(stream_window_mode(WindowMode::Windowed, true), WindowMode::Windowed);
+        assert_eq!(stream_window_mode(WindowMode::Fullscreen, true, false), WindowMode::Borderless, "no exclusive mode under gamescope");
+        assert_eq!(stream_window_mode(WindowMode::Fullscreen, false, false), WindowMode::Fullscreen);
+        assert_eq!(stream_window_mode(WindowMode::Windowed, true, false), WindowMode::Windowed);
+        // Straight to the display the window keeps the display's mode whatever the setting.
+        for mode in [WindowMode::Fullscreen, WindowMode::Windowed, WindowMode::Borderless] {
+            assert_eq!(stream_window_mode(mode, false, true), WindowMode::Borderless);
+        }
     }
 
     #[test]

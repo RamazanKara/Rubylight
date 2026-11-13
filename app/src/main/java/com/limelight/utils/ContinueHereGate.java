@@ -140,7 +140,8 @@ public final class ContinueHereGate {
                 .setMessage(parent.getString(R.string.continue_here_playing_on, move.playingTitle, move.playingOn))
                 .setPositiveButton(R.string.continue_here_action, (shown, which) -> PinLockActivity.runAfterPin(
                         parent, computer.uuid, computer.displayName(), () -> press(parent, client::continueHere, start)))
-                .setNeutralButton(R.string.continue_here_stream_too, (shown, which) -> start.accept(parent))
+                .setNeutralButton(streamTooLabel(NativeCapabilities.offersSessionGuests(KnownCapabilities.of(computer.uuid))),
+                        (shown, which) -> start.accept(parent))
                 .setNegativeButton(android.R.string.cancel, null)
                 .create();
         // A tile reached by touch leaves the dialog in touch mode, where a plain request fails and a pad's A presses nothing.
@@ -149,6 +150,15 @@ public final class ContinueHereGate {
             if (!action.requestFocus()) action.requestFocusFromTouch();
         });
         return dialog;
+    }
+
+    /**
+     * The second stream's button: Join on a PC that makes it a guest of the device playing (which lets it in first),
+     * Stream here too elsewhere.
+     */
+    @VisibleForTesting
+    static int streamTooLabel(boolean sessionGuests) {
+        return sessionGuests ? R.string.guests_join : R.string.continue_here_stream_too;
     }
 
     /**

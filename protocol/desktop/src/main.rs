@@ -1596,7 +1596,8 @@ impl App {
                     let (asked, asked_resume) = ui::asked_start(known, app, resume, playing_on);
                     match select_step(resume, too, playing, press_failed) {
                         SelectStep::Ask(name, device) => {
-                            self.launcher.ask_after(Dialog::ContinueHere { host: id, app: asked, resume: asked_resume, name, device })
+                            let join = self.hosts.offers_session_guests(id);
+                            self.launcher.ask_after(Dialog::ContinueHere { host: id, app: asked, resume: asked_resume, name, device, join })
                         }
                         SelectStep::Join => self.launch(id, target, true, LaunchKind::JoinRunning, LaunchFrom::Launcher),
                         SelectStep::Start => self.launch(id, app, resume, LaunchKind::Stream, LaunchFrom::Launcher),
@@ -3876,6 +3877,7 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                 host_audio: !s.host_audio.switches().is_empty() || s.host_audio.problem().is_some(),
                 controller_audio: s.controller_audio_available(),
                 usb: s.usb.is_some() || s.usb_refused.is_some(),
+                guests: s.guests.shown(),
                 exits: s.game_exits(),
             };
             let layout = stream_menu::layout(&available, shortcuts.data.len(), pads.menu_buttons());
@@ -4149,6 +4151,9 @@ fn draw_overlay(gui: &mut Gui, window: *mut SDL_Window, renderer: *mut SDL_Rende
                                             // Why there are no devices shows without opening anything.
                                             usb::show_refusal(ui, why);
                                         }
+                                    }
+                                    "guests" => {
+                                        menu_style::fold(ui, "guests", Icon::Controller, tr("Guests"), |ui| s.show_guests(ui));
                                     }
                                     "export_statistics" => if menu_style::action(ui, Icon::Download, tr("Export statistics (last hour)"), None).clicked() { s.export_statistics = true; },
                                     "help" => {

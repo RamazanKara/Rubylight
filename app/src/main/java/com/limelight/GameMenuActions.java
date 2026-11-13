@@ -297,6 +297,7 @@ final class GameMenuActions {
         options.hostMenu = game.conn.hasNativeCouchMenu();
         options.usbForwarding = game.prefConfig.usbForwarding && MoonBridge.isRustStream() && game.conn.offersUsbForwarding();
         options.imageClipboard = game.conn.hasImageClipboard();
+        options.sessionGuests = game.streamGuests != null && game.streamGuests.manages();
         options.microphoneOffered = game.conn.getMicrophoneStatus().canMute();
         options.microphoneMuted = game.conn.isMicrophoneMuted();
         options.nightModeOffered = game.conn.offersHostAudio(com.limelight.nativeapi.NativeCapabilities.NIGHT_MODE);
@@ -387,6 +388,7 @@ final class GameMenuActions {
             case CLIPBOARD_SEND: action = () -> transferClipboard(true); break;
             case CLIPBOARD_RECEIVE: action = () -> transferClipboard(false); break;
             case USB_DEVICES: action = this::showUsbDevices; break;
+            case GUESTS: action = () -> { if (game.streamGuests != null) game.streamGuests.showGuests(); }; break;
             case IMAGE_CLIPBOARD_SEND: action = () -> transferClipboardImage(true); break;
             case IMAGE_CLIPBOARD_RECEIVE: action = () -> transferClipboardImage(false); break;
             case FILES: action = this::showFiles; break;

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="guests_join">Tham gia</string>
+    <string name="guests_wants_to_join">%1$s muốn tham gia trò chơi của bạn</string>
+    <string name="guests_let_in">Cho vào</string>
+    <string name="guests_deny">Từ chối</string>
+    <string name="guests_title">Khách</string>
+    <string name="guests_none">Chưa có ai tham gia trò chơi của bạn</string>
+    <string name="guests_view">Chỉ xem</string>
+    <string name="guests_controller">Tay cầm</string>
+    <string name="guests_keyboard_mouse">Tay cầm, bàn phím và chuột</string>
+    <string name="guests_give_keyboard">Đưa bàn phím</string>
+    <string name="guests_take_keyboard">Lấy lại bàn phím</string>
+    <string name="guests_has_keyboard">đang giữ bàn phím</string>
+    <string name="guests_away">vắng mặt</string>
+    <string name="guests_kick">Mời ra</string>
+    <string name="guests_block">Chặn</string>
+    <string name="guests_failed">Không thể thay đổi khách</string>
+</resources>

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="guests_join">Rejoindre</string>
+    <string name="guests_wants_to_join">%1$s veut rejoindre votre jeu</string>
+    <string name="guests_let_in">Accepter</string>
+    <string name="guests_deny">Refuser</string>
+    <string name="guests_title">Invités</string>
+    <string name="guests_none">Personne n\'a rejoint votre jeu</string>
+    <string name="guests_view">Regarder seulement</string>
+    <string name="guests_controller">Manette</string>
+    <string name="guests_keyboard_mouse">Manette, clavier et souris</string>
+    <string name="guests_give_keyboard">Donner le clavier</string>
+    <string name="guests_take_keyboard">Reprendre le clavier</string>
+    <string name="guests_has_keyboard">a le clavier</string>
+    <string name="guests_away">absent</string>
+    <string name="guests_kick">Exclure</string>
+    <string name="guests_block">Bloquer</string>
+    <string name="guests_failed">Impossible de modifier les invités</string>
+</resources>

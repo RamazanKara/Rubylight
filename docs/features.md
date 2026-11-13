@@ -17,6 +17,7 @@ This page lists every feature with a link to its guide. Features available on on
 - **Wake and play.** Selecting a sleeping PC's game wakes the PC and starts the game.
 - **Confirmation before a game closes.** Starting a game while another is running closes the running one only after confirmation, and the prompt names both games.
 - **Continue here.** Moves a game another device is playing to this one in one press, or **Stream here too** beside it. Needs a host that offers it (Rubylight). [A game's page](console.md#a-games-page)
+- **Play together as a guest.** On a PC that offers guests, **Join** on a game another device plays asks that device to let you in: you get the same picture and sound with your own controller, and the keyboard and mouse only if the player grants them. The device playing is asked "<device> wants to join your game" with **Let in** and **Deny**, and **Guests** in its stream menu changes what each guest may do, hands over the keyboard and mouse, and kicks or blocks a guest. Needs a host that offers it (Rubylight). [A game's page](console.md#a-games-page)
 - **Join co-op.** Take a free player slot in a PC's Nucleus Co-op split-screen session, or return to your own seat. Needs a host with co-op sessions (Rubylight 3.0). [Join co-op](console.md#join-co-op)
 - **Launcher integration.** Games start from the Android TV home screen, Beacon, ES-DE, Daijisho, Pegasus and home-screen shortcuts on Android ([launcher integrations](FRONTENDS.md)), and from `nightjar --host … --app …` on Windows and Linux.
 

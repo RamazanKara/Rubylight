@@ -67,6 +67,8 @@ pub struct Available {
     pub host_audio: bool,
     pub controller_audio: bool,
     pub usb: bool,
+    /// This device manages the guests of its game (`session.guests`).
+    pub guests: bool,
     /// The ways out that end the PC's session or game, beside Disconnect: End session (a More row)
     /// and Close or Quit game as the Session and graphics page offers them, Quit game on a PC
     /// without it.
@@ -114,6 +116,9 @@ pub fn offers(a: &Available) -> Vec<Offer> {
     }
     if a.usb {
         offers.push(Offer::action("usb_devices"));
+    }
+    if a.guests {
+        offers.push(Offer::action("guests"));
     }
     offers.push(Offer::action("export_statistics"));
     offers.push(Offer::action("help"));
@@ -609,7 +614,7 @@ mod tests {
     fn everything() -> Available {
         Available {
             mouse: Some(true), overlay: true, shortcuts: true, microphone: Some(false), quality: true, clipboard: true, image_clipboard: true,
-            commands: true, session: true, host_audio: true, controller_audio: true, usb: true, exits: vec![HostExit::End, HostExit::CloseGame],
+            commands: true, session: true, host_audio: true, controller_audio: true, usb: true, guests: true, exits: vec![HostExit::End, HostExit::CloseGame],
         }
     }
 
@@ -646,7 +651,7 @@ mod tests {
         assert_eq!(layout.grid[layout.grid.len() - 2..], [Cell::Shortcut(0), Cell::Add]);
         assert_eq!(layout.footer, ["close", "disconnect", "close_game"]);
         assert_eq!(layout.more, ["picture", "night_mode", "image_clipboard_send", "image_clipboard_receive", "usb_devices",
-            "controller_audio", "export_statistics", "help", "reconnect", "end_host_session"]);
+            "guests", "controller_audio", "export_statistics", "help", "reconnect", "end_host_session"]);
         for built_in in format::BUILT_INS {
             assert!(!built_in_label(built_in.id).is_empty());
         }

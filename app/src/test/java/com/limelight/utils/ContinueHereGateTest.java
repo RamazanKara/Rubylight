@@ -1,10 +1,12 @@
 package com.limelight.utils;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
+import com.limelight.R;
 import com.limelight.nativeapi.NativeApiException;
 import com.limelight.nativeapi.StreamMove;
 import com.limelight.nativeapi.StreamMoveFixtures;
@@ -16,6 +18,12 @@ import org.junit.Test;
 public class ContinueHereGateTest {
     private static NvApp game(int id) {
         return new NvApp("Game", id, false);
+    }
+
+    @Test
+    public void aPcWithGuestsOffersJoinInsteadOfStreamHereToo() {
+        assertEquals(R.string.guests_join, ContinueHereGate.streamTooLabel(true));
+        assertEquals(R.string.continue_here_stream_too, ContinueHereGate.streamTooLabel(false));
     }
 
     @Test

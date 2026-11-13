@@ -36,7 +36,7 @@ fn an_answer_that_arrives_by_itself_waits_for_the_open_dialog() {
     assert!(matches!(&l.dialog, Dialog::Message { body, .. } if body == "failed"));
 
     // And the other way round: a question the player is in stays, its answer comes after it.
-    l.dialog = Dialog::ContinueHere { host: 1, app: 7, resume: true, name: "Game".into(), device: "Phone".into() };
+    l.dialog = Dialog::ContinueHere { host: 1, app: 7, resume: true, name: "Game".into(), device: "Phone".into(), join: false };
     l.ask_after(moved());
     assert!(matches!(l.dialog, Dialog::ContinueHere { .. }));
     l.dialog = Dialog::None;
@@ -1058,7 +1058,7 @@ fn at_150_percent_in_german_a_1280x720_window_clips_no_button() {
             Dialog::ConfirmClose { host: id, name: "A game with a rather long title".into() },
             Dialog::ConfirmQuit { host: id, start: Some((8, "Another long game title".into())), running: "A game with a rather long title".into(), resume: Some(7), named: None },
             Dialog::ConfirmReplace { app: "Another long game title".into(), running: "A game with a rather long title".into() },
-            Dialog::ContinueHere { host: id, app: 7, resume: true, name: "A game with a rather long title".into(), device: "A long name for a phone".into() },
+            Dialog::ContinueHere { host: id, app: 7, resume: true, name: "A game with a rather long title".into(), device: "A long name for a phone".into(), join: true },
             Dialog::NowPlaying { host: id, app: 7, device: "A long name for a television".into() },
             Dialog::GameCameBack { host: id, app: 7 },
             Dialog::MoveFailed { host: id, app: 7 },

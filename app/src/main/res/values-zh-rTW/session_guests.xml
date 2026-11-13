@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="guests_join">加入</string>
+    <string name="guests_wants_to_join">%1$s 想加入你的遊戲</string>
+    <string name="guests_let_in">允許加入</string>
+    <string name="guests_deny">拒絕</string>
+    <string name="guests_title">訪客</string>
+    <string name="guests_none">還沒有人加入你的遊戲</string>
+    <string name="guests_view">僅觀看</string>
+    <string name="guests_controller">控制器</string>
+    <string name="guests_keyboard_mouse">控制器、鍵盤和滑鼠</string>
+    <string name="guests_give_keyboard">交出鍵盤</string>
+    <string name="guests_take_keyboard">收回鍵盤</string>
+    <string name="guests_has_keyboard">正在使用鍵盤</string>
+    <string name="guests_away">離開</string>
+    <string name="guests_kick">移出</string>
+    <string name="guests_block">封鎖</string>
+    <string name="guests_failed">無法變更訪客</string>
+</resources>

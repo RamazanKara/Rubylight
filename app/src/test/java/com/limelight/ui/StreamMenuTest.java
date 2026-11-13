@@ -236,6 +236,17 @@ public class StreamMenuTest {
     }
 
     @Test
+    public void guestsShowOnlyToTheDeviceThatManagesThem() {
+        StreamMenu.Options options = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+        assertFalse(items(StreamMenu.mainPage(options)).contains(StreamMenu.Item.GUESTS));
+        options.sessionGuests = true;
+        assertTrue(sections(StreamMenu.mainPage(options)).get(StreamMenu.Section.HOST).contains(StreamMenu.Item.GUESTS));
+        StreamMenu.Options monitor = options("rubylight-serverinfo.xml", NvApp.Role.REMOTE_MONITOR);
+        monitor.sessionGuests = true;
+        assertFalse(items(StreamMenu.mainPage(monitor)).contains(StreamMenu.Item.GUESTS));
+    }
+
+    @Test
     public void imageClipboardRowsNeedTheHostFeatureAndTheTextClipboardPermissions() {
         StreamMenu.Options options = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
         options.imageClipboard = true;
@@ -284,6 +295,7 @@ public class StreamMenuTest {
         options.pictureInPicture = true;
         options.externalDisplays = true;
         options.usbForwarding = true;
+        options.sessionGuests = true;
         List<StreamMenu.Entry> entries = new ArrayList<>(StreamMenu.mainPage(options));
         // The overlay modes are one choice that marks the chosen mode with a check.
         for (StreamMenu.Entry entry : StreamMenu.overlayPage(options)) {

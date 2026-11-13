@@ -815,6 +815,18 @@ final class GameConnection {
     private HostLossWatch hostLossWatch;
 
     // Readies the check after a host's goodbye: the address the stream connected to.
+    /** Asks the device playing about devices that want to join, on hosts that offer guests. */
+    private void startStreamGuests() {
+        if (!game.connected || game.isFinishing() || game.streamGuests != null || !game.conn.offersSessionGuests()
+                || game.app.getRole() != com.limelight.nvstream.http.NvApp.Role.STREAM) {
+            return;
+        }
+        com.limelight.nativeapi.NativeApiClient client = game.conn.nativeApiClient();
+        if (client == null) return;
+        game.streamGuests = new StreamGuests(game, client);
+        game.streamGuests.start();
+    }
+
     private void startHostLossWatch() {
         if (hostLossWatch != null) hostLossWatch.stop();
         hostLossWatch = null;
@@ -873,6 +885,10 @@ final class GameConnection {
         if (game.clipboardSync != null) {
             game.clipboardSync.stop();
             game.clipboardSync = null;
+        }
+        if (game.streamGuests != null) {
+            game.streamGuests.stop();
+            game.streamGuests = null;
         }
         // Before the connection stops: detaching tells the host.
         if (game.usbForwarding != null) {
@@ -1068,7 +1084,9 @@ final class GameConnection {
         if (hostFailure != null) LimeLog.severe("The PC reported: " + hostFailure);
         final int portFlags = MoonBridge.getPortFlagsFromTerminationErrorCode(errorCode);
         // A stream that never had video does not reconnect: its error (and the port test) shows at once.
-        final boolean transientFailure = ContinueHerePolicy.recovers(
+        // Nor does a guest the player removed or blocked, whose time ran out or whose game ended: the PC chose it.
+        final boolean guestEnded = com.limelight.nativeapi.NativeGuests.ended(hostFailure);
+        final boolean transientFailure = !guestEnded && ContinueHerePolicy.recovers(
                 StreamRecoveryPolicy.recoversTermination(errorCode, game.streamRecovery.videoStarted()), movedTo != null);
         // A renderer failure on this device says nothing about the network
         final int portTestResult = errorCode == MoonBridge.ML_ERROR_GRACEFUL_TERMINATION || hostGone ||
@@ -1359,7 +1377,10 @@ final class GameConnection {
 
                 game.connected = true;
                 startHostLossWatch();
-                game.conn.refreshNativeHostControl(() -> game.runOnUiThread(game.menuActions::startUsbAutoForwarding));
+                game.conn.refreshNativeHostControl(() -> game.runOnUiThread(() -> {
+                    game.menuActions.startUsbAutoForwarding();
+                    startStreamGuests();
+                }));
                 game.getIntent().removeExtra(Game.EXTRA_RECOVERY_MEDIA_FAILURE);
                 game.bitrateHandler.removeCallbacks(game.adaptation.sampleStreamHealth);
                 game.bitrateHandler.postDelayed(game.adaptation.sampleStreamHealth, 1000);

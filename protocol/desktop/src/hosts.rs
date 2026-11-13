@@ -1843,6 +1843,14 @@ impl Hosts {
         })
     }
 
+    /// Whether this PC makes a stream of another device's game a guest of that device
+    /// (`session.guests`), as its native capabilities last said.
+    pub fn offers_session_guests(&self, id: u64) -> bool {
+        self.get(id)
+            .and_then(|host| host.native.capabilities.as_ref())
+            .is_some_and(nightjar_core::http::NativeCapabilities::offers_session_guests)
+    }
+
     /// After a stream ended, unless the player left it on purpose: asks the PC whether it moved
     /// to another device.
     pub fn read_stream_move(&mut self, id: u64, app: i32, left_on_purpose: bool) {

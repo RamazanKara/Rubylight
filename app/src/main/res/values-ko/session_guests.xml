@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="guests_join">참가</string>
+    <string name="guests_wants_to_join">%1$s 님이 게임에 참가하려고 합니다</string>
+    <string name="guests_let_in">참가 허용</string>
+    <string name="guests_deny">거절</string>
+    <string name="guests_title">게스트</string>
+    <string name="guests_none">아직 참가한 사람이 없습니다</string>
+    <string name="guests_view">보기만</string>
+    <string name="guests_controller">컨트롤러</string>
+    <string name="guests_keyboard_mouse">컨트롤러, 키보드, 마우스</string>
+    <string name="guests_give_keyboard">키보드 넘기기</string>
+    <string name="guests_take_keyboard">키보드 되찾기</string>
+    <string name="guests_has_keyboard">키보드 사용 중</string>
+    <string name="guests_away">자리 비움</string>
+    <string name="guests_kick">내보내기</string>
+    <string name="guests_block">차단</string>
+    <string name="guests_failed">게스트를 변경하지 못했습니다</string>
+</resources>

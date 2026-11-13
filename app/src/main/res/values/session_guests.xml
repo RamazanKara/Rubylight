@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Guests from other devices (feature session.guests): Join, the join prompt and the stream menu's Guests. -->
+    <string name="guests_join">Join</string>
+    <string name="guests_wants_to_join">%1$s wants to join your game</string>
+    <string name="guests_let_in">Let in</string>
+    <string name="guests_deny">Deny</string>
+    <string name="guests_title">Guests</string>
+    <string name="guests_none">Nobody has joined your game</string>
+    <string name="guests_view">View only</string>
+    <string name="guests_controller">Controller</string>
+    <string name="guests_keyboard_mouse">Controller, keyboard and mouse</string>
+    <string name="guests_give_keyboard">Give keyboard</string>
+    <string name="guests_take_keyboard">Take back keyboard</string>
+    <string name="guests_has_keyboard">has the keyboard</string>
+    <string name="guests_away">away</string>
+    <string name="guests_kick">Kick</string>
+    <string name="guests_block">Block</string>
+    <string name="guests_failed">Could not change the guests</string>
+</resources>

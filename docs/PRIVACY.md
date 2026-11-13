@@ -51,6 +51,11 @@ that PC only. It is not recorded or stored on your device, and it stops when you
 mute it in the stream menu or the stream ends. Pairing exchanges identity
 information with that PC. Host discovery also uses your local network.
 
+**Guests.** On a PC that offers guests, the device playing reads every few
+seconds during a stream which devices joined its game or want to; their device
+names come from the PC and stay in memory for the stream. A device that joins
+as a guest sees and hears everything the stream shows.
+
 **Scan QR code** in Add PC asks for camera access only when you tap it. The
 camera reads the pairing code on your PC's screen; no picture is saved or
 sent. Without the access, type the PC's address instead.

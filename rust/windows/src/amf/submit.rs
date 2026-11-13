@@ -303,9 +303,6 @@ impl Encoder {
             acknowledge_keyframe(true, result, &mut self.recover, &mut self.hdr_metadata);
             let accepted = Instant::now();
             self.last_accepted = Some(accepted);
-            if let (Some(vpe), Some(used)) = (self.vpe.as_deref_mut(), vpe_used) {
-                vpe.record(used, conversion_elapsed, image.captured);
-            }
             self.in_flight.push_back(Submission {
                 pts: cut.pts,
                 // From the first submission: the frame's encode time counts both.
@@ -522,6 +519,11 @@ impl Encoder {
             // still retains it until the encoder returns its output.
             let accepted = Instant::now();
             self.last_accepted = Some(accepted);
+            // AMF's video converter: which path converted the frame, how long it took and
+            // how old the frame was when the encoder accepted it.
+            if let (Some(vpe), Some(used)) = (self.vpe.as_deref_mut(), vpe_used) {
+                vpe.record(used, conversion_elapsed, image.captured);
+            }
             self.in_flight.push_back(Submission {
                 pts: self.index,
                 started,

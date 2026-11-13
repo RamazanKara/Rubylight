@@ -272,6 +272,11 @@ export function nativeEncoders(gpus: readonly Gpu[] | null | undefined, adapter:
   return [...found];
 }
 
+/** The image enhancements the host's metadata reports, for `NVIDIA_ENHANCEMENTS`. */
+export function nvidiaEnhancements(features: Record<string, boolean> | null | undefined): string[] {
+  return ['rtx_hdr', 'rtx_video'].filter((name) => features?.[name] === true);
+}
+
 const count = (n: number) => (n === 0 ? 'None' : n === 1 ? '1 command' : `${n} commands`);
 const clip = (text: string, max = 60) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
 

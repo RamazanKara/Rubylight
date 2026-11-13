@@ -30,6 +30,7 @@
     nativeEncoders,
     normalise,
     NOT_SETTINGS,
+    nvidiaEnhancements,
     sameValue,
     settingsOnly,
     type Edits,
@@ -52,7 +53,7 @@
   import { EXPERT_GROUPS } from '../lib/schema/main';
   import SaveBar from '../components/settings/SaveBar.svelte';
   import { SETTING as PRESET, covered, presetById, presetId, presetNotice, withPreset } from '../lib/stream-presets';
-  import { NATIVE_ENCODERS, type Setting } from '../lib/settings-types';
+  import { NATIVE_ENCODERS, NVIDIA_ENHANCEMENTS, type Setting } from '../lib/settings-types';
 
   const tabs = settingGroups;
   const byKey: ReadonlyMap<string, Setting> = new Map(schema.settings.map((setting) => [setting.key, setting]));
@@ -127,6 +128,8 @@
       String(current.adapter_name ?? ''),
       String(current.adapter_pnp_id ?? ''),
     );
+    // RTX HDR and RTX Video settings show where the host offers them.
+    current[NVIDIA_ENHANCEMENTS] = nvidiaEnhancements(session.metadata?.features);
     return current;
   });
   const changes = $derived(stored ? computeChanges(defaults, edits, stored, new Set(covered)) : {});

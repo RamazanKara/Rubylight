@@ -115,6 +115,19 @@ export interface Setting {
  */
 export const NATIVE_ENCODERS = '@native_encoders';
 
+/**
+ * Not a setting: visibleWhen also gets the image enhancements this host
+ * offers ('rtx_hdr', 'rtx_video') under this name. Only the NVIDIA build on
+ * an NVIDIA GPU whose driver supports them offers any.
+ */
+export const NVIDIA_ENHANCEMENTS = '@nvidia_enhancements';
+
+/** Whether the host offers the image enhancement `name`. */
+export function offersEnhancement(values: Record<string, ConfigValue>, name: string): boolean {
+  const offered = values[NVIDIA_ENHANCEMENTS];
+  return Array.isArray(offered) && offered.includes(name);
+}
+
 export interface Schema {
   categories: Category[];
   settings: Setting[];

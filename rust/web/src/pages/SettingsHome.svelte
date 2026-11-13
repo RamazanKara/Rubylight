@@ -25,6 +25,7 @@
     has,
     nativeEncoders,
     normalise,
+    nvidiaEnhancements,
     sameValue,
     settingsOnly,
     type Edits,
@@ -35,7 +36,7 @@
   import { MAIN_SECTIONS, UPDATE_KEYS, onHome } from '../lib/schema/main';
   import { categoriesOf, groupAnchor, schema, settingGroups, settingsGroup } from '../lib/settings-schema';
   import { session as host } from '../lib/session.svelte';
-  import { NATIVE_ENCODERS, type Setting } from '../lib/settings-types';
+  import { NATIVE_ENCODERS, NVIDIA_ENHANCEMENTS, type Setting } from '../lib/settings-types';
   import { SETTING as PRESET, covered, presetById, presetId, presetNotice, withPreset } from '../lib/stream-presets';
 
   const RESULTS = 8;
@@ -75,6 +76,7 @@
               String(values.adapter_name ?? ''),
               String(values.adapter_pnp_id ?? ''),
             ),
+            [NVIDIA_ENHANCEMENTS]: nvidiaEnhancements(host.metadata?.features),
           },
           edits,
           config,

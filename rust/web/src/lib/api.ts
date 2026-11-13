@@ -303,6 +303,15 @@ export interface Gpu {
   luid: [number, number];
   pnp_id: string | null;
 }
+export interface NvidiaEnhancements {
+  /** Whether this is Rubylight's NVIDIA build, which carries them. */
+  build: boolean;
+  rtx_hdr: boolean;
+  rtx_video: boolean;
+  /** Why each enhancement this PC does not offer is missing, by name. */
+  errors: Record<string, string>;
+}
+
 export interface Metadata {
   status: true;
   platform: 'windows';
@@ -337,6 +346,8 @@ export interface Metadata {
   audio_error: string | null;
   audio_enabled: boolean;
   features: { pyrowave: boolean; virtual_display: boolean; [key: string]: boolean };
+  /** The NVIDIA build's image enhancements: what this PC offers and why the rest is missing. */
+  nvidia_enhancements?: NvidiaEnhancements;
   credentials_exists: boolean;
   webrtc?: { enabled: boolean; running: boolean; discovery: boolean; port: number; media_port: number; error: string | null };
 }

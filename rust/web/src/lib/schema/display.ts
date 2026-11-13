@@ -1,6 +1,6 @@
 // Settings for the categories named in settings-schema.ts.
 import type { ConfigValue } from '../api';
-import type { Setting } from '../settings-types';
+import { offersEnhancement, type Setting } from '../settings-types';
 
 type Values = Record<string, ConfigValue>;
 
@@ -11,6 +11,11 @@ function text(values: Values, key: string, fallback: string): string {
   const trimmed = String(value).trim();
   return trimmed === '' ? fallback : trimmed;
 }
+
+/** RTX HDR's settings show where the host offers it. */
+const rtxHdr = (values: Values) => offersEnhancement(values, 'rtx_hdr');
+const RTX_HDR_HINT =
+  'Shown when this PC runs Rubylight’s NVIDIA build on an NVIDIA graphics card whose driver offers RTX HDR.';
 
 /** A switch as the host reads it, including the spellings Vibepollo wrote. */
 function on(values: Values, key: string, fallback: boolean): boolean {
@@ -606,6 +611,67 @@ export const settings: Setting[] = [
     group: 'HDR',
     control: { kind: 'number', min: 400, max: 2000, step: 1, unit: 'nits' },
     default: 1000,
+  },
+  {
+    key: 'rtx_hdr',
+    label: 'RTX HDR',
+    description:
+      'Turns a game’s SDR picture into HDR on NVIDIA graphics cards. It runs only when an app or device turns it on and the device asks for HDR, so this switch alone converts nothing.',
+    details:
+      'While RTX HDR converts the picture, the streamed display stays in SDR and Prefer 10-bit SDR does not apply. It uses the peak brightness above.',
+    category: 'hdr',
+    group: 'RTX HDR',
+    control: { kind: 'toggle' },
+    default: false,
+    visibleWhen: rtxHdr,
+    inactiveHint: RTX_HDR_HINT,
+  },
+  {
+    key: 'rtx_hdr_sdr_brightness',
+    label: 'SDR brightness',
+    description: 'Raises the brightness of the SDR picture in an RTX HDR stream, from 0 to 100. 0 leaves it unchanged.',
+    category: 'hdr',
+    group: 'RTX HDR',
+    control: { kind: 'number', min: 0, max: 100, step: 1 },
+    default: 0,
+    visibleWhen: rtxHdr,
+    inactiveHint: RTX_HDR_HINT,
+  },
+  {
+    key: 'rtx_hdr_contrast',
+    label: 'Contrast',
+    description:
+      'From −100 to 100; 0 is neutral. A value in the game’s NVIDIA driver profile wins, and the desktop always uses 0.',
+    category: 'hdr',
+    group: 'RTX HDR',
+    control: { kind: 'number', min: -100, max: 100, step: 1 },
+    default: 0,
+    visibleWhen: rtxHdr,
+    inactiveHint: RTX_HDR_HINT,
+  },
+  {
+    key: 'rtx_hdr_saturation',
+    label: 'Saturation',
+    description:
+      'From −100 to 100; 0 is neutral. A value in the game’s NVIDIA driver profile wins, and the desktop always uses 0.',
+    category: 'hdr',
+    group: 'RTX HDR',
+    control: { kind: 'number', min: -100, max: 100, step: 1 },
+    default: 0,
+    visibleWhen: rtxHdr,
+    inactiveHint: RTX_HDR_HINT,
+  },
+  {
+    key: 'rtx_hdr_middle_gray',
+    label: 'Middle gray',
+    description:
+      'Mid-tone brightness from 10 to 100; higher is brighter. A value in the game’s NVIDIA driver profile wins, and the desktop always uses 50.',
+    category: 'hdr',
+    group: 'RTX HDR',
+    control: { kind: 'number', min: 10, max: 100, step: 1 },
+    default: 50,
+    visibleWhen: rtxHdr,
+    inactiveHint: RTX_HDR_HINT,
   },
 
   // Used when a launch names no mode.

@@ -916,3 +916,32 @@ test('the mouse input method and device touchpads sit with the mouse, on Automat
     assert.equal(setting.visibleWhen({}), true, setting.key);
   }
 });
+
+test('RTX HDR and RTX Video settings show only where the host offers them, with their defaults', () => {
+  const { NVIDIA_ENHANCEMENTS } = types;
+  const expected = [
+    ['rtx_hdr', 'rtx_hdr', false],
+    ['rtx_hdr_sdr_brightness', 'rtx_hdr', 0],
+    ['rtx_hdr_contrast', 'rtx_hdr', 0],
+    ['rtx_hdr_saturation', 'rtx_hdr', 0],
+    ['rtx_hdr_middle_gray', 'rtx_hdr', 50],
+    ['rtx_video', 'rtx_video', false],
+    ['rtx_video_intensity', 'rtx_video', 100],
+  ];
+  for (const [key, name, fallback] of expected) {
+    const setting = settings.get(key);
+    assert.equal(setting.default, fallback, key);
+    assert.equal(setting.visibleWhen({}), false, key);
+    assert.equal(setting.visibleWhen({ [NVIDIA_ENHANCEMENTS]: [] }), false, key);
+    assert.equal(setting.visibleWhen({ [NVIDIA_ENHANCEMENTS]: [name] }), true, key);
+    const other = name === 'rtx_hdr' ? 'rtx_video' : 'rtx_hdr';
+    assert.equal(setting.visibleWhen({ [NVIDIA_ENHANCEMENTS]: [other] }), false, key);
+    assert.match(setting.inactiveHint, /NVIDIA build/, key);
+    assert.doesNotMatch(`${setting.label} ${setting.description} ${setting.details ?? ''}`, /experimental|beta|preview/i, key);
+  }
+  assert.equal(settings.get('rtx_hdr').category, 'hdr');
+  assert.equal(settings.get('rtx_video').category, 'video');
+  assert.deepEqual(values.nvidiaEnhancements({ pyrowave: true, rtx_hdr: false, rtx_video: true }), ['rtx_video']);
+  assert.deepEqual(values.nvidiaEnhancements({ rtx_hdr: true, rtx_video: true }), ['rtx_hdr', 'rtx_video']);
+  assert.deepEqual(values.nvidiaEnhancements(undefined), []);
+});

@@ -17,6 +17,7 @@
   import VideoSettings from './VideoSettings.svelte';
   import LosslessSettings from './LosslessSettings.svelte';
   import RadeonSettings from './RadeonSettings.svelte';
+  import RtxSettings from './RtxSettings.svelte';
   import GameFiles from './GameFiles.svelte';
   import GameSettingsFiles from './GameSettingsFiles.svelte';
   import DeviceOverrides from './DeviceOverrides.svelte';
@@ -24,6 +25,7 @@
   import NeuralRendering from './NeuralRendering.svelte';
   import { api, type App, type SessionStatus } from '../../lib/api';
   import { confirm, failed, notify } from '../../lib/feedback.svelte';
+  import { session } from '../../lib/session.svelte';
   import { guardNavigation, link, navigate } from '../../lib/router.svelte';
   import { commandFor, coverKey } from '../../lib/paths';
   import { closeApp, confirmClose, coverPath, isRunningApp, launchApp, runningName } from './app';
@@ -410,6 +412,12 @@
     <Panel collapsible title="Lossless Scaling" description="Upscaling and frame generation by Lossless Scaling while the app runs.">
       <LosslessSettings {draft} />
     </Panel>
+
+    {#if session.metadata?.nvidia_enhancements?.build}
+      <Panel collapsible title="NVIDIA image enhancement" description="RTX HDR and RTX Video enhancement for this app’s streams.">
+        <RtxSettings {draft} offered={session.metadata.nvidia_enhancements} />
+      </Panel>
+    {/if}
 
     {#if draft.saved.uuid}
       <NeuralRendering uuid={draft.saved.uuid} />

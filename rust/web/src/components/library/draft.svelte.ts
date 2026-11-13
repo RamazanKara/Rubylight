@@ -42,13 +42,19 @@ export const FLAGS = {
   'frame-gen-limiter-fix': false,
   'lossless-scaling-enabled': false,
   'background-stream': false,
+  /** RTX HDR for this app (NVIDIA build); off leaves it to a device or stream. */
+  'rtx-hdr': false,
   /** The game's "<name> (Co-op)" entry lists in the library. */
   'coop-entry': true,
 } as const;
 export type FlagKey = keyof typeof FLAGS;
 
 /** Switches whose missing key means the host setting, so on and off are both stored. */
-export type TristateKey = 'prefer-10bit-sdr' | 'terminate-on-pause' | 'lossless-scaling-legacy-auto-detect';
+export type TristateKey =
+  | 'prefer-10bit-sdr'
+  | 'terminate-on-pause'
+  | 'lossless-scaling-legacy-auto-detect'
+  | 'rtx-video';
 
 /** Whole numbers and the range the host accepts. A missing key uses the host's value. */
 export const NUMBERS: Record<string, { min: number; max?: number }> = {
@@ -57,13 +63,23 @@ export const NUMBERS: Record<string, { min: number; max?: number }> = {
   'lossless-scaling-target-fps': { min: 1, max: 480 },
   'lossless-scaling-rtss-limit': { min: 1, max: 480 },
   'lossless-scaling-launch-delay': { min: 0, max: 600 },
+  'rtx-hdr-sdr-brightness': { min: 0, max: 100 },
+  'rtx-hdr-contrast': { min: -100, max: 100 },
+  'rtx-hdr-saturation': { min: -100, max: 100 },
+  'rtx-hdr-middle-gray': { min: 10, max: 100 },
+  'rtx-video-intensity': { min: 0, max: 100 },
 };
 export type NumberKey =
   | 'exit-timeout'
   | 'scale-factor'
   | 'lossless-scaling-target-fps'
   | 'lossless-scaling-rtss-limit'
-  | 'lossless-scaling-launch-delay';
+  | 'lossless-scaling-launch-delay'
+  | 'rtx-hdr-sdr-brightness'
+  | 'rtx-hdr-contrast'
+  | 'rtx-hdr-saturation'
+  | 'rtx-hdr-middle-gray'
+  | 'rtx-video-intensity';
 
 /** Choices and free text. An empty value removes the key. */
 export type TextKey =

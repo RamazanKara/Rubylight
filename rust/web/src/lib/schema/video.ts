@@ -1,6 +1,6 @@
 // Settings for the categories named in settings-schema.ts: video, encoders and the HDR of the video.
 import type { ConfigValue } from '../api';
-import { NATIVE_ENCODERS, type Aliases, type Setting } from '../settings-types';
+import { NATIVE_ENCODERS, offersEnhancement, type Aliases, type Setting } from '../settings-types';
 import { SETTING, defaultPreset, presets } from '../stream-presets';
 
 type Values = Record<string, ConfigValue>;
@@ -73,6 +73,10 @@ function automatic(values: Values, backend: string, unknown: boolean): boolean {
 const amf = (values: Values) => encoder(values) === 'amf' || automatic(values, 'amf', true);
 const nvenc = (values: Values) => encoder(values) === 'nvenc' || automatic(values, 'nvenc', false);
 const amfHint = 'Applies when AMD AMF encodes, as Automatic does on AMD graphics cards.';
+/** RTX Video enhancement's settings show where the host offers it. */
+const rtxVideo = (values: Values) => offersEnhancement(values, 'rtx_video');
+const RTX_VIDEO_HINT =
+  'Shown when this PC runs Rubylight’s NVIDIA build on an NVIDIA graphics card whose driver offers RTX Video enhancement.';
 /** PERFORMANCE.md, October 7: AMF split-frame encoding, pre-analysis row (4K60, RX 7900 XT). */
 const PREANALYSIS_COST = 'about 20 ms per 4K frame on 8-bit SDR streams';
 /**
@@ -355,11 +359,37 @@ const video: Setting[] = [
     visibleWhen: (values) => flag(values, 'pyrowave', true),
   },
   {
+    key: 'rtx_video',
+    label: 'RTX Video enhancement',
+    description:
+      'Cleans up and sharpens the picture on NVIDIA graphics cards before it is encoded, at the stream’s own size. Every app uses it unless the app or device turns it off.',
+    details:
+      'It reads SDR captures and the 16-bit HDR capture, not the 10-bit one, and adds GPU work to each frame. RTX HDR takes priority when both are on for an HDR stream of an SDR game.',
+    category: 'video',
+    group: 'RTX Video enhancement',
+    control: { kind: 'toggle' },
+    default: false,
+    visibleWhen: rtxVideo,
+    inactiveHint: RTX_VIDEO_HINT,
+  },
+  {
+    key: 'rtx_video_intensity',
+    label: 'Strength',
+    description: 'How strongly RTX Video enhancement works, from 0 to 100. 0 leaves the picture unchanged.',
+    details: 'Each quarter is one of NVIDIA’s four quality levels: 1 to 25 is the lightest, 76 to 100 the strongest.',
+    category: 'video',
+    group: 'RTX Video enhancement',
+    control: { kind: 'number', min: 0, max: 100, step: 1 },
+    default: 100,
+    visibleWhen: rtxVideo,
+    inactiveHint: RTX_VIDEO_HINT,
+  },
+  {
     key: 'prefer_sdr_10bit',
     label: 'Prefer 10-bit SDR',
     description:
       'When a device asks for HDR, keeps the display in standard dynamic range (SDR) and sends 10-bit SDR video. Reduces banding without switching to HDR.',
-    details: 'Devices and apps can override it.',
+    details: 'Not applied while RTX HDR converts the stream. Devices and apps can override it.',
     category: 'hdr',
     group: 'HDR',
     control: { kind: 'toggle' },

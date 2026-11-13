@@ -23,6 +23,7 @@ Rubylight is a Moonlight-compatible game-streaming host for Windows 10 and 11 PC
 | [Co-op and background streaming](nucleus-coop.md) | Several players on one PC, each with their own picture, sound and controller, and play while someone else uses the PC. |
 | [WebRTC server](webrtc.md) | Streaming to browsers and Samsung TVs, paired with a PIN. |
 | [Guests in the browser](browser-guests.md) | Guest links for friends, with access controls. |
+| [Guests from other devices](multiclient.md) | A second paired device joins the game another device plays, with approval, permissions and kick. |
 | [USB forwarding](usb-forwarding.md) | Using a device's USB devices on the PC. |
 | [Microphone](microphone.md) | The client's microphone on the PC. |
 | [DualSense USB audio and haptics](dualsense-haptics.md) | DualSense and Steam Deck audio and haptics over USB. |
@@ -43,7 +44,7 @@ Rubylight is a Moonlight-compatible game-streaming host for Windows 10 and 11 PC
 | Keep each device's own in-game settings, or add Neural Rendering to a game | [Managed game files](configuration.md#managed-game-files) · [Neural Rendering](configuration.md#neural-rendering) |
 | Move a running game to another device, share it, or stream a second screen | [Displays](features.md#displays) · [Control from a client](features.md#control-from-a-client) |
 | Keep the stream steady on a slow or lossy link, or pick a latency or quality preset | [Link-rate adaptation](configuration.md#lower-bitrate-when-the-link-cannot-carry-it) · [Host bitrate adaptation](configuration.md#host-bitrate-adaptation) · [Stream presets](configuration.md#stream-presets) |
-| Let a device play while someone else uses the PC, or play together on one PC | [Background streaming](configuration.md#background-streaming) · [Co-op and background streaming](nucleus-coop.md) |
+| Let a device play while someone else uses the PC, or play together on one PC | [Background streaming](configuration.md#background-streaming) · [Co-op and background streaming](nucleus-coop.md) · [Guests from other devices](multiclient.md) |
 | Stream from an NVIDIA GPU | [NVENC](nvenc.md) · [NVIDIA NVENC settings](configuration.md#nvidia-nvenc) |
 | Let a device close games or change Radeon or NVIDIA driver settings | [Host control](configuration.md#host-control-for-a-device) · [Session actions](configuration.md#session-actions) · [Radeon settings with restore](configuration.md#radeon-settings-with-restore) · [Radeon settings per game](configuration.md#radeon-settings-per-game) |
 | Set up a controller or use the client's microphone | [Controllers](configuration.md#controllers) · [DualSense USB audio and haptics](dualsense-haptics.md) · [Microphone](microphone.md) |

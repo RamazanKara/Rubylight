@@ -1,0 +1,5 @@
+# Guests from other devices
+- **Play together from your own devices.** A second paired device that joins the game another device plays becomes its guest: the same picture and sound with its own stream, its own controller as the next player, and the keyboard and mouse only if you grant them. Nightjar's Join and a Moonlight client starting the running app both work.
+- **You decide who joins.** By default the player lets each guest in, from Nightjar or the console's Home, within 45 seconds; **When another device joins the running game** (Settings → Games → Play together) can let guests in without asking or turn guests off. **What a guest may do** sets View only, Controller, or Controller, keyboard and mouse, and the player can change it, kick a guest, block it for the rest of the game, or let it in for an hour or a day.
+- **One keyboard and mouse at a time.** A guest with keyboard and mouse takes them when nobody else used them for two seconds; the player, or someone at the PC moving its mouse, takes them back at once.
+- The player's own stream is unchanged: each guest gets its own encoder on the same capture, at its own size, codec and bitrate.

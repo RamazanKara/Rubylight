@@ -4,6 +4,8 @@
 
 While you stream a game in the console's **Stream** page, up to four friends can watch it in their own browsers, and play along with a controller or a keyboard and mouse if you let them. They get a link, open it, type a name and see and hear your stream. They need no app, no account and no pairing. There are no relay servers in between: every guest connects straight to your PC.
 
+To have a paired Nightjar or Moonlight device join the game another device plays, see [Guests from other devices](multiclient.md).
+
 ## Invite someone
 
 1. Turn on the WebRTC server and stream from the console's **Stream** page ([Stream in the console](webrtc.md#stream-in-the-console)).

@@ -267,6 +267,20 @@ Only asking for the game shares: `/resume`, or a `/launch` of a Resume tile. Any
 
 **Radeon profile (`radeon.profile`).** An app with `radeon-profile` set (see [Radeon settings per game](configuration.md#radeon-settings-per-game)) puts `radeon_profile` in the owner's Session: `profile` (`competitive`, `smoothness`, `quality` or `custom`), `state` (`applying`, `applied` or `failed`), `settings` (the ids written, which go back when the session ends) and, when something was left out or failed, `message`. A failed profile does not stop the launch: the game runs without it, the host log names the setting with `ERROR`, and the session shows `failed` with the reason. The profile goes through the same journaled path as `POST /radeon/settings` and is restored by the same session-end hooks. It needs no `host_control` on the device: the app's config is the consent.
 
+**Guests from other devices (`session.guests`).** Listed while the host's `guest_join` is not `off` ([Guests from other devices](multiclient.md)). A paired device that resumes the running game of another device, or launches its app, is that device's guest: its `/launch` or `/resume` waits while the owner decides (up to 45 s under `ask`), then succeeds or fails with the reason as its `status_message`. The routes below need View or Launch. Every caller reads the list; answering and managing need the owner device or **Host control**, otherwise 409 `not_session_owner`.
+
+| Method | Path | Body | Result |
+|---|---|---|---|
+| GET | `/session/guests` | | SessionGuests |
+| POST | `/session/guests/approve` | `{"id", "permission"?, "seconds"?}` | SessionGuests. `permission` defaults to `guest_permission`; `seconds` is 300 to 604800, or absent until the game ends |
+| POST | `/session/guests/deny` | `{"id"}` | SessionGuests |
+| POST | `/session/guests/kick` | `{"id"}` | SessionGuests. Ends the guest's stream; it may ask again |
+| POST | `/session/guests/revoke` | `{"id"}` | SessionGuests. Ends the guest's stream and refuses that device's joins until the game ends |
+| POST | `/session/guests/permission` | `{"id", "permission"}` | SessionGuests |
+| POST | `/session/guests/keyboard-mouse` | `{"id"}` or `{"id": null}` | SessionGuests. Hands the keyboard and mouse to a guest, or back to the owner |
+
+SessionGuests is `{"policy", "default_permission", "manage", "you", "owner", "max_guests", "version", "keyboard_mouse", "guests": [{"id", "name", "permission", "streaming", "since", "expires"}], "waiting": [{"id", "name", "seconds_left"}]}`. A permission is `view`, `controller` or `controller-keyboard-mouse`; any other is 422 `invalid_value`. `you` is the caller's own guest id, `keyboard_mouse` the guest holding them (null: the owner), `version` changes with every change, and `since` and `expires` are Unix seconds. An id no longer there is 404 `not_found`. Clients poll it about every 2 s while streaming, only while the feature is listed. When the host ends a guest's stream (kick, block, expiry, the game ending), the device's `/serverinfo` `RustHostLastFailure` says why, for example "The player removed you from the game".
+
 **Couch menu (`session.couch_menu`).** `POST /session/couch-menu` with `{"open": true}` opens the menu the host draws into the caller's own live stream, and `{"open": false}` closes it ([Couch menu](configuration.md#couch-menu)). It is idempotent and answers `{"open"}`, whether the menu is open now. The body takes no other field. Without a live stream of its own the caller gets 409 `no_session`; a stream that can't show the menu (the menu off for it, a stream too small, or its control stream not connected yet) gets 503 `temporarily_unavailable` with the reason. The feature is listed only to a device with View or Launch whose `couch_menu` setting, the host's or its own, is on.
 
 ## Radeon state and writes

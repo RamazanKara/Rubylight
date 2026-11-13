@@ -34,13 +34,14 @@ regex = "1.12"
 quick-xml = { version = "0.42", features = ["serialize"] }
 prost = "0.14"
 rubylight-native-api = { path = "native-api" }
+# Settings backup archives (src/settings_backup.rs), stored without compression;
+# also the release archives of the neural rendering package checks (src/neural).
+zip = { version = "4.6", default-features = false }
 
 [dev-dependencies]
 # Property tests over the decoders of peer input (src/fuzz.rs).
 proptest = { version = "1", default-features = false, features = ["std"] }
 tempfile = "3.23"
-# Release archives for the neural rendering package checks (src/neural).
-zip = { version = "4.6", default-features = false }
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
 
 [lints]

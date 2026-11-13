@@ -415,8 +415,8 @@ pub fn content_rect(source: (u32, u32), target: (u32, u32)) -> Rect {
     let width = even(size.0, target.0);
     let height = even(size.1, target.1);
     Rect {
-        x: (target.0 - width) / 2 & !1,
-        y: (target.1 - height) / 2 & !1,
+        x: ((target.0 - width) / 2) & !1,
+        y: ((target.1 - height) / 2) & !1,
         width,
         height,
     }

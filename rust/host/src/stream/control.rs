@@ -1449,7 +1449,11 @@ impl Media {
                     }
                     // The PC's newest copy for a device that syncs the clipboard (0x5508):
                     // reliable.
-                    if let Some(frame) = p.clipboard_sync.take(Instant::now()) {
+                    // A guest's permission is asked per copy: one made view only gets no more.
+                    if let Some(frame) = p
+                        .clipboard_sync
+                        .take(Instant::now(), || h.device_guests.full_access(&s))
+                    {
                         match p.encrypt(
                             &s,
                             butterpollo_core::clipboard_sync::CLIPBOARD_SYNC_MESSAGE_TYPE,

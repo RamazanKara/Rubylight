@@ -371,9 +371,18 @@ impl PeerSync {
         }
     }
 
-    /// The PC's newest copy as a frame to send, its token kept for [`ECHO`].
-    pub(crate) fn take(&mut self, now: Instant) -> Option<Vec<u8>> {
+    /// The PC's newest copy as a frame to send, its token kept for [`ECHO`]. `may_read` is
+    /// asked for each copy, not once for the stream: a guest made view only (or that lost its
+    /// keyboard-and-mouse permission) gets no more of the PC's copies, and the copy is dropped.
+    pub(crate) fn take(
+        &mut self,
+        now: Instant,
+        may_read: impl FnOnce() -> bool,
+    ) -> Option<Vec<u8>> {
         let frame = self.outbox.lock().unwrap().take()?;
+        if !may_read() {
+            return None;
+        }
         if self.sent.len() == ECHO_TOKENS {
             self.sent.pop_front();
         }
@@ -729,8 +738,8 @@ pub(crate) mod tests {
         let mut sync = PeerSync::default();
         let now = Instant::now();
         *sync.outbox.lock().unwrap() = Some(Item::Text("pc".into()).frame(42));
-        assert_eq!(sync.take(now).unwrap(), text(42, "pc"));
-        assert_eq!(sync.take(now), None);
+        assert_eq!(sync.take(now, || true).unwrap(), text(42, "pc"));
+        assert_eq!(sync.take(now, || true), None);
         assert_eq!(sync.accept(&text(42, "pc"), &ALL, now), Accepted::Nothing);
         assert_eq!(
             sync.accept(&text(43, "pc"), &ALL, now),
@@ -743,10 +752,23 @@ pub(crate) mod tests {
         // Only the newest tokens are kept.
         for token in 0..=ECHO_TOKENS as u32 {
             *sync.outbox.lock().unwrap() = Some(Item::Text("pc".into()).frame(100 + token));
-            sync.take(now);
+            sync.take(now, || true);
         }
         assert_eq!(sync.sent.len(), ECHO_TOKENS);
         assert_eq!(sync.sent.front().unwrap().0, 101);
+    }
+
+    #[test]
+    fn a_copy_is_not_sent_once_the_device_may_no_longer_read_it() {
+        let mut sync = PeerSync::default();
+        let now = Instant::now();
+        *sync.outbox.lock().unwrap() = Some(Item::Text("pc".into()).frame(7));
+        // Made view only after the stream's first clipboard frame: asked again, refused.
+        assert_eq!(sync.take(now, || false), None);
+        assert!(sync.outbox.lock().unwrap().is_none(), "the copy is dropped");
+        assert!(sync.sent.is_empty());
+        *sync.outbox.lock().unwrap() = Some(Item::Text("again".into()).frame(8));
+        assert_eq!(sync.take(now, || true).unwrap(), text(8, "again"));
     }
 
     #[test]

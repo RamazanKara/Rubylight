@@ -151,6 +151,7 @@ Each of these needs its permission on the device. The clipboard comes with **Eve
 - **Updates.** New versions are offered, not forced; automatic installation is opt-in, at an interval or a time of day you choose. The host downloads the installer from the official release, verifies its size and SHA-256 digest, waits for an idle minute and upgrades through the service. A failed copy or start restores the previous files ([Updates](configuration.md#updates)).
 - **Crash recovery.** The service restarts the host after a crash.
 - **Separate instances** with their own profile folders and base ports ([Multiple instances](configuration.md#multiple-instances)).
+- **Settings backup and restore.** One file with the settings, apps, covers, device settings, game settings files and webhooks, from the console or the tray. Pairing identity and sign-in go in only when you choose. A restore shows what changes, saves the current settings first and restarts ([Configuration](configuration.md#settings-backup-and-restore)).
 
 ## Clients
 

@@ -37,11 +37,12 @@ test('Help is connecting, log findings and the support bundle, and links to Trou
 
 test('Troubleshoot holds the recovery Help had, in the order of the page map, under Advanced', async () => {
   const page = await source('pages/Troubleshoot.svelte');
-  assert.match(page, /<PageHeader title="Troubleshoot" subtitle="Restart, displays, co-op and crash reports\.">/);
+  assert.match(page, /<PageHeader title="Troubleshoot" subtitle="Restart, displays, co-op, crash reports and settings backup\.">/);
   // The host anchor links may point at stays, on the section so it adds no extra gap.
   assert.match(page, /<Section title="Rubylight" anchor="host" quiet>/);
   assert.doesNotMatch(page, /<div id="host"><\/div>/);
-  inOrder(page, ['<ChildSessionBanner', '<HostPanel', '<DisplaysPanel', '<WindowsSessionPanel', '<CoopHelpPanel', '<CrashPanel']);
+  inOrder(page, ['<ChildSessionBanner', '<HostPanel', '<DisplaysPanel', '<WindowsSessionPanel', '<CoopHelpPanel', '<CrashPanel', '<BackupPanel']);
+  assert.match(page, /<Section title="Settings backup" anchor="backup" quiet>/);
   assert.doesNotMatch(page, /<LogAnalysisPanel|moved/);
   const nav = await source('lib/navigation.ts');
   const advanced = nav.slice(nav.indexOf('export const advanced'));

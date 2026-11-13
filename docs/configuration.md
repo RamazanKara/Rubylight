@@ -16,7 +16,7 @@ This guide covers each feature's settings by topic. [All settings](#all-settings
 | Games | [Close apps on disconnect](#close-apps-on-disconnect) · [When a Playnite game closes](#when-a-playnite-game-closes) · [Playnite launch focus](#playnite-launch-focus) · [Radeon settings per game](#radeon-settings-per-game) · [Managed game files](#managed-game-files) · [Game settings per device](#game-settings-per-device) · [Neural Rendering](#neural-rendering) · [Background streaming](#background-streaming) |
 | Apps and devices | [Settings for one app or device](#settings-for-one-app-or-device) · [Host control, session actions and Radeon settings](#host-control-session-actions-and-radeon-settings) |
 | Sharing and browsers | [Clipboard, files and USB](#clipboard-files-and-usb) · [File transfer](#file-transfer) · [Shared folders](#shared-folders) · [WebRTC server](#webrtc-server) |
-| Running the host | [Multiple instances](#multiple-instances) · [Updates](#updates) |
+| Running the host | [Multiple instances](#multiple-instances) · [Updates](#updates) · [Settings backup and restore](#settings-backup-and-restore) |
 | Reference | [All settings](#all-settings) · [Further reference](#further-reference) |
 
 ## How configuration works
@@ -1027,6 +1027,22 @@ If you opt into **Install updates automatically**, the installed Windows service
 **Check for updates** (`update_check_interval`, default `86400` seconds, at least `3600`) sets how often the host checks. Set it to `0` to disable scheduled checks and automatic installation; manual checks remain available.
 
 To check at a time of day instead, set **Update check time** (**All settings → This PC → Updates**, `update_check_time`) to a time on the 24-hour clock such as `03:00`. The host then checks once a day, at the first moment it is free at or after that time on the PC's own clock, and with **Install updates automatically** on a new release installs after that check under the same idle rule. If the PC is off, asleep or streaming at that time, the check runs as soon as it can afterwards, not a day later. The time follows the PC's time zone and daylight saving time. While a time is set the interval's length is not used, but `update_check_interval = 0` still turns scheduled checks off. A value that is not a time (`3am`, `25:00`) is reported in the host log and ignored, and the interval decides. An empty value, the default, keeps the interval.
+
+## Settings backup and restore
+
+**Advanced → Troubleshoot → Settings backup** saves the host's settings as one ZIP file and restores such a file, on this PC or another one. The tray offers the same: **Back up settings** saves a file without secrets to the signed-in user's `Documents\Rubylight` folder and shows where, and **Restore settings...** opens the console's panel.
+
+A backup holds `sunshine.conf` (every setting, webhooks included), the app list, the covers, app aliases, each paired device's own settings (names, display modes, commands and the other per-device overrides) and the game settings files kept per device. A `backup.json` inside lists every file with its size and SHA-256.
+
+**Include pairing identity and sign-in** is off by default. Only with it on does the file hold secrets: this PC's pairing certificate and key, the paired devices with their certificates and permissions, the console sign-in, API tokens and webhook secrets. Anyone with such a file can pose as this PC to the paired devices and sign in to the console, so the console asks again before it downloads one. Without secrets, a sign-in password or token kept in `sunshine.conf` is left out and each webhook's secret is emptied.
+
+Restoring works in steps:
+
+1. **Check.** The console uploads the file and the host checks it: a Rubylight settings backup of a version it reads, every file as the manifest lists it, only files a backup holds, secrets only when the backup says it has them, and settings, apps and device files it can read. Nothing changes yet.
+2. **Review.** The panel lists what changes: the settings that differ, apps added, removed and changed, covers and game settings files written, devices restored or skipped, and whether the pairing identity and sign-in stay or are replaced.
+3. **Restore.** Refused while a device streams or connects. The host saves the current settings, with their secrets, as `backups\before-restore-<time>.zip` in its data folder (the newest five stay), then restarts and applies the backup before it loads anything else. A failed restore keeps the previous settings and shows a notice in the console; the file stays as `backups\restore-failed.zip`.
+
+A backup without secrets keeps this PC's pairing identity, paired devices, permissions, sign-in and API tokens: device settings go only to the devices paired here (matched by their ID), and a webhook this PC does not have gets a new secret, which its receiver then needs. A backup with secrets replaces them, so a device paired since the backup was made must pair again. Covers and game settings files only this PC has stay. The API is in [the API reference](api.md#console-only-routes).
 
 ## All settings
 

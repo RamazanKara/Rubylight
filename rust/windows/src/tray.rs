@@ -36,6 +36,10 @@ pub enum Action {
     QuitApp,
     /// Look for a newer release and say what was found.
     CheckUpdates,
+    /// Save the settings, without secrets, to the user's Documents folder.
+    BackupSettings,
+    /// Open the console where a settings backup is restored.
+    RestoreSettings,
     Restart,
     Quit,
 }
@@ -272,6 +276,8 @@ unsafe extern "system" fn window(
                                     MF_STRING | MF_GRAYED
                                 };
                                 let _ = AppendMenuW(menu, flags, 5, PCWSTR(label.as_ptr()));
+                                let _ = AppendMenuW(menu, MF_STRING, 8, w!("Back up settings"));
+                                let _ = AppendMenuW(menu, MF_STRING, 9, w!("Restore settings..."));
                                 let _ = AppendMenuW(menu, MF_STRING, 3, w!("Restart"));
                                 let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
                                 let _ = AppendMenuW(menu, MF_STRING, 4, w!("Quit"));
@@ -299,6 +305,8 @@ unsafe extern "system" fn window(
                                 5 => Some(Action::QuitApp),
                                 6 => Some(Action::CheckUpdates),
                                 7 => Some(Action::PairDevice),
+                                8 => Some(Action::BackupSettings),
+                                9 => Some(Action::RestoreSettings),
                                 _ => None,
                             };
                             if let Some(action) = action {
@@ -609,6 +617,8 @@ fn show_notification(window: isize, title: &str, text: &str) -> bool {
 pub const PAGE_ENTER_PIN: &str = "/devices?pair=pin";
 /// The console's Devices page at the QR code that pairs a device.
 pub const PAGE_PAIR_QR: &str = "/devices?pair=qr";
+/// The console's Troubleshoot page at the settings backup.
+pub const PAGE_BACKUP: &str = "/troubleshoot#backup";
 
 fn console_url(port: u16, page: &str) -> String {
     format!("https://localhost:{port}{page}")
@@ -621,7 +631,7 @@ pub fn open_web(port: u16) -> Result<()> {
 /// Open a page of the console in the signed-in user's browser. `page` is one
 /// of the `PAGE_` paths or `/`.
 pub fn open_web_page(port: u16, page: &str) -> Result<()> {
-    if !matches!(page, "/" | PAGE_ENTER_PIN | PAGE_PAIR_QR) {
+    if !matches!(page, "/" | PAGE_ENTER_PIN | PAGE_PAIR_QR | PAGE_BACKUP) {
         bail!("not a console page: {page}");
     }
     if crate::process::is_system() {
@@ -671,6 +681,10 @@ mod tests {
         assert_eq!(
             console_url(47990, PAGE_PAIR_QR),
             "https://localhost:47990/devices?pair=qr"
+        );
+        assert_eq!(
+            console_url(47990, PAGE_BACKUP),
+            "https://localhost:47990/troubleshoot#backup"
         );
         assert!(open_web_page(47990, "//evil.example/").is_err());
     }

@@ -34,6 +34,7 @@ mod runtime;
 mod service_tasks;
 mod session_control;
 mod session_notes;
+mod settings_backup;
 #[cfg(any(debug_assertions, test))]
 mod soak_fault;
 mod stall_watch;

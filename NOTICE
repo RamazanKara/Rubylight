@@ -58,6 +58,10 @@ originates and from which Rubylight's is ported (see LizardByte Sunshine below).
 Per-app stream-menu commands (the app key menu-cmd with name, cmd and elevated,
 rust/core/src/menu_commands.rs) follow Foundation Sunshine's menu commands
 (src/process.cpp, src/nvhttp/apps.cpp); the undo is Rubylight's.
+Settings backup and restore from the console and the tray
+(rust/core/src/settings_backup.rs, rust/host/src/settings_backup.rs) follow
+Foundation Sunshine v2025.1011.143611's tray export, import and restore (pull
+request 248); the archive format and its checks are Rubylight's.
 Copyright (c) Foundation Sunshine authors, GPL-3.0.
 
 LizardByte Sunshine

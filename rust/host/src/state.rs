@@ -703,10 +703,16 @@ impl Host {
     }
     pub fn load(directory: PathBuf, assets: PathBuf, port: Option<u16>) -> Result<Shared> {
         std::fs::create_dir_all(&directory)?;
+        // A restore the console staged applies before anything is read
+        // (docs/configuration.md, "Settings backup and restore").
+        let restored = crate::settings_backup::apply_staged(&directory);
         let config_path = directory.join("sunshine.conf");
         let (mut config, retired) = Config::load_retiring(&config_path)?;
         let warnings = Warnings::default();
         crate::host_warnings::restore(&directory, &warnings);
+        if let Err(message) = restored {
+            crate::host_warnings::notice(&directory, &warnings, "settings_restore", &message);
+        }
         if let Some(warning) = butterpollo_core::config::retired_warning(&retired) {
             // Written back, so the file no longer has them; the notice is saved
             // until the console dismisses it. A file that cannot be written

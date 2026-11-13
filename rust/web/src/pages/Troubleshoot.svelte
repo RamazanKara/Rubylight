@@ -3,6 +3,7 @@
   import PageHeader from '../components/PageHeader.svelte';
   import ChildSessionBanner from '../components/maintenance/ChildSessionBanner.svelte';
   import CoopHelpPanel from '../components/maintenance/CoopHelpPanel.svelte';
+  import BackupPanel from '../components/maintenance/BackupPanel.svelte';
   import CrashPanel from '../components/maintenance/CrashPanel.svelte';
   import DisplaysPanel from '../components/maintenance/DisplaysPanel.svelte';
   import HostPanel from '../components/maintenance/HostPanel.svelte';
@@ -14,7 +15,7 @@
      log analysis and the support bundle; updates, wake, sleep and sign-in are in Settings, the Vulkan HDR
      layer and RTSS in All settings. -->
 <div class="page">
-  <PageHeader title="Troubleshoot" subtitle="Restart, displays, co-op and crash reports.">
+  <PageHeader title="Troubleshoot" subtitle="Restart, displays, co-op, crash reports and settings backup.">
     {#snippet actions()}<Button href="/logs" icon="logs">View logs</Button>{/snippet}
   </PageHeader>
   <ChildSessionBanner />
@@ -30,6 +31,9 @@
   </Section>
   <Section title="Crash reports" anchor="crashes" quiet>
     <CrashPanel />
+  </Section>
+  <Section title="Settings backup" anchor="backup" quiet>
+    <BackupPanel />
   </Section>
 </div>
 

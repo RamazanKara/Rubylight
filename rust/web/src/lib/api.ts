@@ -143,6 +143,50 @@ async function json<T>(method: Method, path: string, body?: unknown, timeout = R
   return parsed as T;
 }
 
+/**
+ * A POST whose body or answer is a file (a settings backup): the answer as a Blob. Retries once
+ * after a refreshed session or CSRF token, as `send` does.
+ */
+async function binary(path: string, body: BodyInit, contentType: string, timeout: number, retried = false): Promise<Blob> {
+  if (!csrfToken) await refreshCsrf();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  let response: Response;
+  let blob: Blob;
+  try {
+    response = await fetch(path, {
+      method: 'POST',
+      credentials: 'same-origin',
+      signal: controller.signal,
+      headers: { 'X-CSRF-Token': csrfToken, 'Content-Type': contentType },
+      body,
+    });
+    blob = await response.blob();
+  } catch (error) {
+    if (controller.signal.aborted) throw new TimeoutError(timeout);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+  if (response.ok) return blob;
+  const text = await blob.text();
+  if (!retried && response.status === 401) {
+    if (await refreshSession()) return binary(path, body, contentType, timeout, true);
+    onSignedOut?.();
+  }
+  if (!retried && response.status === 400 && text.includes('CSRF token required')) {
+    await refreshCsrf();
+    return binary(path, body, contentType, timeout, true);
+  }
+  let message = text || `${response.status} ${response.statusText}`;
+  try {
+    message = (JSON.parse(text) as { error?: string }).error ?? message;
+  } catch {
+    // Some errors are plain text.
+  }
+  throw new ApiError(response.status, message);
+}
+
 const get = <T>(path: string, timeout = REQUEST_TIMEOUT_MS) => json<T>('GET', path, undefined, timeout);
 const post = <T>(path: string, body: unknown = {}, timeout = REQUEST_TIMEOUT_MS) => json<T>('POST', path, body, timeout);
 
@@ -150,6 +194,23 @@ const post = <T>(path: string, body: unknown = {}, timeout = REQUEST_TIMEOUT_MS)
 
 export interface Ok {
   status: true;
+}
+/** One line of what restoring a settings backup changes. */
+export interface BackupChange {
+  item: 'settings' | 'apps' | 'covers' | 'game_settings' | 'devices' | 'pairing' | 'credentials' | 'webhooks';
+  detail: string;
+}
+/** `POST /api/backup/inspect`: the checked upload's token and what restoring it changes. */
+export interface BackupInspection {
+  status: true;
+  token: string;
+  summary: {
+    created_unix: number;
+    host_version: string;
+    /** The backup carries the pairing identity and credentials. */
+    secrets: boolean;
+    changes: BackupChange[];
+  };
 }
 /** One Radeon setting as the driver reports it (the native API's model). */
 export interface RadeonSetting {
@@ -1220,6 +1281,16 @@ export const api = {
     crash: () => get<CrashStatus>('/api/health/crashdump'),
     dismissCrash: (filename: string, captured_at: string) =>
       post<Ok>('/api/health/crashdump/dismiss', { filename, captured_at }),
+  },
+  backup: {
+    /** The settings as a ZIP archive; `secrets` adds the pairing identity and credentials. */
+    export: (secrets: boolean) =>
+      binary('/api/backup/export', JSON.stringify({ secrets }), 'application/json', ACTION_TIMEOUT_MS),
+    /** Checks an archive and keeps it on the host for `restore`. */
+    inspect: async (file: Blob) =>
+      JSON.parse(await (await binary('/api/backup/inspect', file, 'application/zip', SLOW_TIMEOUT_MS)).text()) as BackupInspection,
+    /** Saves the current settings, applies the checked archive and restarts the host. */
+    restore: (token: string) => post<Ok & { saved?: string }>('/api/backup/restore', { token }, ACTION_TIMEOUT_MS),
   },
   logs: {
     /** Bytes after `offset`, at most `max`; offset -1 means the last `max` bytes. */

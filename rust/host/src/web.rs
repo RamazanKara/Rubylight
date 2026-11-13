@@ -1,4 +1,5 @@
 mod apps;
+mod backup;
 mod child_session;
 mod clients;
 mod coop;
@@ -337,6 +338,13 @@ pub fn guest_router_with(h: Shared, console: crate::webrtc::server::Console) -> 
 pub fn router_with(h: Shared, console: crate::webrtc::server::Console) -> Router {
     Router::new()
         .route("/api/webrtc/signal", get(webrtc_signal))
+        // A settings backup may be larger than the other requests.
+        .route(
+            "/api/backup/inspect",
+            axum::routing::post(api).layer(axum::extract::DefaultBodyLimit::max(
+                butterpollo_core::settings_backup::MAX_ARCHIVE as usize,
+            )),
+        )
         .route(
             "/api/{*path}",
             get(api).post(api).patch(api).put(api).delete(api),
@@ -1039,6 +1047,10 @@ pub(crate) async fn api(
     // What is left of the removed child sessions takes no body.
     if path == "/api/child-session" || path.starts_with("/api/child-session/") {
         return child_session::handle(&h, &method, path).await;
+    }
+    // Settings backup: `inspect` takes the archive itself as the body.
+    if path.starts_with("/api/backup/") {
+        return backup::handle(&h, &method, path, &body).await;
     }
     let data: Value = if body.is_empty() {
         json!({})

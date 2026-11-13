@@ -158,9 +158,10 @@ fn user_action(h: &Shared, action: Action, web_port: u16) {
                 tracing::warn!(%error, "could not open the administration console");
             }
         }
-        Action::EnterPin | Action::PairDevice => {
+        Action::EnterPin | Action::PairDevice | Action::RestoreSettings => {
             let page = match action {
                 Action::EnterPin => butterpollo_windows::tray::PAGE_ENTER_PIN,
+                Action::RestoreSettings => butterpollo_windows::tray::PAGE_BACKUP,
                 _ => butterpollo_windows::tray::PAGE_PAIR_QR,
             };
             if let Err(error) = butterpollo_windows::tray::open_web_page(web_port, page) {
@@ -186,6 +187,30 @@ fn user_action(h: &Shared, action: Action, web_port: u16) {
             });
         }
         Action::CheckUpdates => maintenance::trigger_update(h, true),
+        Action::BackupSettings => {
+            let h = h.clone();
+            tokio::task::spawn_blocking(move || {
+                match crate::settings_backup::export_from_tray(&h) {
+                    Ok(path) => {
+                        tracing::info!(path = %path.display(), "settings backed up from the tray");
+                        butterpollo_windows::tray::notify(
+                            "Settings backed up",
+                            &format!(
+                                "Saved to {}. Pairing identity and sign-in are not in it.",
+                                path.display()
+                            ),
+                        );
+                    }
+                    Err(error) => {
+                        tracing::warn!(error = %format!("{error:#}"), "the tray settings backup failed");
+                        butterpollo_windows::tray::notify(
+                            "Settings not backed up",
+                            &format!("{error:#}"),
+                        );
+                    }
+                }
+            });
+        }
         Action::Restart => {
             h.restart.store(true, Ordering::Release);
             h.stop.store(true, Ordering::Release);

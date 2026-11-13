@@ -1081,6 +1081,11 @@ impl Ready {
     pub fn capture_target(&self) -> (String, u64) {
         self.target.current()
     }
+    /// The stream's display and its revision, whether or not the app's window is shown in its
+    /// place: a recreated display has a new revision.
+    pub fn display_target(&self) -> (String, u64) {
+        self.target.display.lock().unwrap().clone()
+    }
     /// Streams the app's window (a `window:<hwnd>/<pid>@<display>` capture
     /// target) in place of the display, or the display again for None; the
     /// capture reopens on the change within 100 ms. Whether it changed.

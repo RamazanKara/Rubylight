@@ -1493,6 +1493,23 @@ pub enum Capture {
 /// The desktop pointer a lost capture last saw, for the capture replacing it.
 pub struct Pointer(crate::cursor::Carried);
 
+/// Whether an in-process WGC capture of display `current` can change to a target on `next`
+/// (a window there when `window`) on its own device ([`Capture::switch_on_device`]): the same
+/// display, outside the WGC helper, and a target that opens with WGC (a window always does; the
+/// display does unless `kind` names another backend or the display driver pushes its frames).
+fn switches_in_place(
+    current: &str,
+    next: &str,
+    window: bool,
+    kind: &str,
+    helper: bool,
+    push: bool,
+) -> bool {
+    let same_display = !current.is_empty() && current.eq_ignore_ascii_case(next);
+    let opens_with_wgc = window || !(push || matches!(kind, "ddx" | "dxgi" | "amd"));
+    same_display && opens_with_wgc && !helper
+}
+
 fn open_stream_capture<T>(
     kind: &str,
     warnings: &butterpollo_core::session::Warnings,
@@ -1661,6 +1678,68 @@ impl Capture {
         open_stream_capture(kind, &warnings, |backend| {
             Self::new_options_reported(name, backend, hdr, config, warnings.clone())
         })
+    }
+    /// Opens capture target `name` on this capture's own D3D11 device, for a change of target
+    /// on the same display (the app's window found, minimised or restored). The encoder keeps
+    /// taking its frames: no device is released or made, unlike the reopen after a device loss,
+    /// whose AMF rebuild early in a window stream once hung the GPU. The capture's texture pool
+    /// and compute handoff carry over, as they do when WGC follows a window's new size.
+    ///
+    /// None when the change needs a capture on a new device: another display, a backend other
+    /// than in-process WGC (the SYSTEM service's WGC helper, Desktop Duplication, AMD Direct
+    /// Capture, the display driver's frame push), or a device that is lost. On success the old
+    /// capture is left without its pool and is to be dropped.
+    pub fn switch_on_device(
+        &mut self,
+        name: &str,
+        kind: &str,
+        hdr: bool,
+        config: &butterpollo_core::config::Config,
+        warnings: std::sync::Arc<butterpollo_core::session::Warnings>,
+    ) -> Option<Result<Self>> {
+        if self.device_removed().is_some() {
+            return None;
+        }
+        let Self::Wgc(current) = self else {
+            return None;
+        };
+        let target = WindowTarget::parse(name).ok()?;
+        let display = target
+            .as_ref()
+            .map_or(name, |target| target.display.as_str());
+        let helper = crate::process::is_system() || config.boolean("wgc_user_helper", false);
+        let push = target.is_none() && idd_push::wanted_for(name, kind, config);
+        if !switches_in_place(
+            &current.gpu.display.display_name,
+            display,
+            target.is_some(),
+            kind,
+            helper,
+            push,
+        ) {
+            return None;
+        }
+        let window = target.as_ref().map(WindowTarget::handle);
+        let opened = (|| -> Result<Wgc> {
+            if let Some(target) = &target {
+                window::require_capture(crate::display::windows_build())?;
+                window::check(target.handle())?;
+            }
+            let mut capture = Wgc::new_device(
+                current.gpu.clone(),
+                hdr,
+                config.boolean("wgc_high_rate_capture", false),
+                window,
+                window_cursor(config),
+            )?;
+            capture.drain_to_newest = config.boolean("wgc_drain_to_newest", false);
+            Ok(capture)
+        })();
+        Some(opened.map(|mut capture| {
+            capture.owned = std::mem::take(&mut current.owned);
+            capture.owned.warnings = warnings;
+            Self::Wgc(Box::new(capture))
+        }))
     }
     pub fn new(name: &str, kind: &str) -> Result<Self> {
         Self::new_format(name, kind, false)

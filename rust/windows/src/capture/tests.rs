@@ -1,6 +1,54 @@
 use super::*;
 
 #[test]
+fn a_target_change_on_the_same_display_keeps_the_capture_device() {
+    let display = r"\\.\DISPLAY3";
+    // The app's window found, minimised and restored on the stream's display.
+    assert!(switches_in_place(
+        display, display, true, "wgc", false, false
+    ));
+    assert!(switches_in_place(
+        display, display, false, "wgc", false, false
+    ));
+    assert!(switches_in_place(
+        display,
+        r"\\.\display3",
+        false,
+        "auto",
+        false,
+        false
+    ));
+    // A window opens with WGC whatever the display's backend.
+    assert!(switches_in_place(
+        display, display, true, "ddx", false, false
+    ));
+    // Everything else gets a capture on a new device.
+    assert!(!switches_in_place(
+        display,
+        r"\\.\DISPLAY4",
+        true,
+        "wgc",
+        false,
+        false
+    ));
+    assert!(!switches_in_place("", "", false, "wgc", false, false));
+    assert!(
+        !switches_in_place(display, display, true, "wgc", true, false),
+        "WGC helper"
+    );
+    for kind in ["ddx", "dxgi", "amd"] {
+        assert!(
+            !switches_in_place(display, display, false, kind, false, false),
+            "{kind}"
+        );
+    }
+    assert!(
+        !switches_in_place(display, display, false, "wgc", false, true),
+        "frame push"
+    );
+}
+
+#[test]
 fn snapshot_backpressure_keeps_final_native_update_until_consumers_release_space() -> Result<()> {
     use std::{collections::VecDeque, sync::Arc};
     // Shared capture supports more consumers than the eight snapshot slots.

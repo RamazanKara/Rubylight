@@ -92,6 +92,9 @@ pub(crate) fn require_hdr_source(
 }
 /// Backoff only after reopening fails; resource release is acknowledged.
 const RECOVERY_RETRY: Duration = Duration::from_millis(150);
+/// How long a capture of the app's window that became unavailable (minimised, closed) waits
+/// for the app window worker, which checks every 250 ms, to lay the display back over it.
+const WINDOW_TARGET_WAIT: Duration = Duration::from_millis(400);
 /// How long capture waits for the stream's display to come back before it
 /// shows another one. Switching a virtual display back on takes about a
 /// second; recreating it takes up to the driver's 10 s arrival deadline.
@@ -702,6 +705,9 @@ impl Media {
                             return Ok(());
                         }
                     };
+                    // The stream's display (and its revision) when the capture last opened on a
+                    // new device: a window target switches on that device only while it stays.
+                    let mut opened_display = prepared.display_target();
                     capture.set_claim_grid(worker_grid.clone(), aligned);
                     *worker_backend.lock().unwrap() = capture.backend();
                     tracing::info!(requested=%kind, backend=capture.backend(), output=%target.0, "capture backend opened");
@@ -805,7 +811,30 @@ impl Media {
                             user_desktop = available;
                             // Back from the primary display once the stream's returns.
                             let returned = on_primary && butterpollo_windows::capture::display_present(&next.0);
-                            if worker.take_device_restart()? || next != target || return_to_wgc || returned {
+                            let restart = worker.take_device_restart()?;
+                            // The app's window found, minimised or restored on the same display
+                            // and not recreated: the new target opens on the capture's own device
+                            // and the encoder keeps going. A device problem, another display or
+                            // backend reopens on a new device below, releasing the encoder.
+                            let in_place = !restart && !return_to_wgc && !returned && next != target
+                                && prepared.display_target() == opened_display;
+                            if in_place
+                                && let Some(switched) = capture.switch_on_device(&next.0, &kind, hdr, &capture_config, capture_warnings.clone())
+                            {
+                                match switched {
+                                    Ok(switched) => {
+                                        drop(std::mem::replace(&mut capture, switched));
+                                        tracing::info!(from = %target.0, to = %next.0, "capture switched target on its device");
+                                        target = next.clone();
+                                        capture.set_claim_grid(worker_grid.clone(), aligned);
+                                        *worker_backend.lock().unwrap() = capture.backend();
+                                        last_frame = Instant::now();
+                                        continue;
+                                    }
+                                    Err(error) => tracing::info!(error = %format!("{error:#}"), to = %next.0, "the capture could not switch target on its device; reopening it"),
+                                }
+                            }
+                            if restart || next != target || return_to_wgc || returned {
                                 let lost = std::mem::replace(&mut capture, Capture::Closed);
                                 progress.mark(crate::stall_watch::Phase::Reopen);
                                 (capture, on_primary, target) = match reopen(lost, &next) {
@@ -813,6 +842,7 @@ impl Media {
                                     Err(_) if worker_stop.load(Ordering::Acquire) => return Ok(()),
                                     Err(error) => return Err(error),
                                 };
+                                opened_display = prepared.display_target();
                                 capture.set_claim_grid(worker_grid.clone(), aligned);
                                 *worker_backend.lock().unwrap() = capture.backend();
                                 last_frame = Instant::now();
@@ -855,6 +885,27 @@ impl Media {
                                 }
                             }
                             Err(e) => {
+                                // The app's window shown over the display was minimised or closed:
+                                // its worker lays the display back within its check, and the next
+                                // target check switches to it on this device, without releasing
+                                // the encoder. Any other failure reopens on a new device.
+                                if DeviceLost::from_error(&e).is_none()
+                                    && target != prepared.display_target()
+                                    && butterpollo_windows::capture::WindowTarget::parse(&target.0).ok().flatten().is_some()
+                                {
+                                    let deadline = Instant::now() + WINDOW_TARGET_WAIT;
+                                    while prepared.capture_target() == target
+                                        && Instant::now() < deadline
+                                        && !worker_stop.load(Ordering::Acquire)
+                                    {
+                                        timer.until(Instant::now() + Duration::from_millis(10));
+                                    }
+                                    if prepared.capture_target() != target {
+                                        tracing::info!(error = %format!("{e:#}"), "the app's window is unavailable; the capture follows its target");
+                                        check_target = Instant::now();
+                                        continue;
+                                    }
+                                }
                                 if let Some(loss) = DeviceLost::from_error(&e) {
                                     worker.device_lost(loss, &capture_warnings, Instant::now())?;
                                     worker.take_device_restart()?;
@@ -868,6 +919,7 @@ impl Media {
                                     Err(_) if worker_stop.load(Ordering::Acquire) => return Ok(()),
                                     Err(error) => return Err(error),
                                 };
+                                opened_display = prepared.display_target();
                                 capture.set_claim_grid(worker_grid.clone(), aligned);
                                 *worker_backend.lock().unwrap() = capture.backend();
                                 last_frame = Instant::now();

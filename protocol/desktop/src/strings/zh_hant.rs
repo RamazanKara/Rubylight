@@ -1550,6 +1550,8 @@ sudo sysctl -w net.core.rmem_max={}", "接收緩衝區：系統只分配了所�
     ("Where Nightjar shows itself. Automatic draws straight to the display when no desktop is running. Applies at the next start.", "Nightjar 的顯示位置。自動：沒有執行桌面時直接繪製到顯示器。下次啟動時生效。"),
     ("Video planes", "視訊平面"),
     ("Draws the stream straight to the display, on a display plane of its own, with HDR and without a copy. Leave it on; off, the renderer draws the stream instead.", "直接繪製到顯示器時，將串流顯示在獨立的顯示平面上，支援 HDR 且不必複製。請保持開啟；關閉後改由渲染器繪製串流。"),
+    ("High-performance GPU power while streaming", "串流時使用高效能 GPU 供電"),
+    ("Keeps an AMD graphics card at its highest clocks for the whole stream, so it cannot slow down between frames and show a frame late. Uses more power and shortens battery life. Changes nothing when the card's clocks are already set by hand. Applies from the next stream.", "在整個串流期間讓 AMD 顯示卡保持最高頻率，使其不會在影格之間降速，從而避免畫面延遲。會增加耗電並縮短電池續航。如果顯示卡頻率已手動設定，則不會有任何變化。從下一次串流起生效。"),
     ("Video planes are unavailable; the stream is drawn by the renderer. The log says why.", "視訊平面無法使用，串流由轉譯器繪製。原因見記錄檔。"),
     ("Guests", "訪客"),
     ("Let in", "允許加入"),

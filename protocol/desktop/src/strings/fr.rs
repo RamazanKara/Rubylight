@@ -1550,6 +1550,8 @@ sudo sysctl -w net.core.rmem_max={}", "Tampon de réception : le système a acco
     ("Where Nightjar shows itself. Automatic draws straight to the display when no desktop is running. Applies at the next start.", "Où Nightjar s’affiche. Automatique dessine directement sur l’écran quand aucun bureau n’est lancé. S’applique au prochain démarrage."),
     ("Video planes", "Plans vidéo"),
     ("Draws the stream straight to the display, on a display plane of its own, with HDR and without a copy. Leave it on; off, the renderer draws the stream instead.", "En dessinant directement sur l’écran, affiche le stream sur son propre plan d’affichage, avec HDR et sans copie. Laissez-le activé ; désactivé, c’est le rendu qui dessine le stream."),
+    ("High-performance GPU power while streaming", "Alimentation GPU haute performance pendant le stream"),
+    ("Keeps an AMD graphics card at its highest clocks for the whole stream, so it cannot slow down between frames and show a frame late. Uses more power and shortens battery life. Changes nothing when the card's clocks are already set by hand. Applies from the next stream.", "Maintient une carte graphique AMD à ses fréquences maximales pendant tout le stream, pour qu’elle ne ralentisse pas entre les images et n’en affiche pas une en retard. Consomme davantage et réduit l’autonomie de la batterie. Ne change rien si les fréquences de la carte ont déjà été réglées à la main. S’applique à partir du prochain stream."),
     ("Video planes are unavailable; the stream is drawn by the renderer. The log says why.", "Les plans vidéo ne sont pas disponibles ; le rendu dessine le stream. Le journal indique pourquoi."),
     ("Guests", "Invités"),
     ("Let in", "Accepter"),

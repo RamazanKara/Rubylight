@@ -1550,6 +1550,8 @@ sudo sysctl -w net.core.rmem_max={}", "Buffer di ricezione: il sistema ha conces
     ("Where Nightjar shows itself. Automatic draws straight to the display when no desktop is running. Applies at the next start.", "Dove si mostra Nightjar. Automatico disegna direttamente sullo schermo quando nessun desktop è in esecuzione. Si applica al prossimo avvio."),
     ("Video planes", "Piani video"),
     ("Draws the stream straight to the display, on a display plane of its own, with HDR and without a copy. Leave it on; off, the renderer draws the stream instead.", "Disegnando direttamente sullo schermo, mostra lo stream su un proprio piano di visualizzazione, con HDR e senza copie. Lascialo attivo; disattivato, è il renderer a disegnare lo stream."),
+    ("High-performance GPU power while streaming", "Alimentazione GPU ad alte prestazioni durante lo stream"),
+    ("Keeps an AMD graphics card at its highest clocks for the whole stream, so it cannot slow down between frames and show a frame late. Uses more power and shortens battery life. Changes nothing when the card's clocks are already set by hand. Applies from the next stream.", "Mantiene una scheda grafica AMD alle frequenze più alte per tutto lo stream, così non rallenta tra un fotogramma e l’altro né mostra un fotogramma in ritardo. Consuma più energia e riduce l’autonomia della batteria. Non cambia nulla se le frequenze della scheda sono già impostate a mano. Si applica dal prossimo stream."),
     ("Video planes are unavailable; the stream is drawn by the renderer. The log says why.", "I piani video non sono disponibili; lo stream è disegnato dal renderer. Il log spiega il motivo."),
     ("Guests", "Ospiti"),
     ("Let in", "Fai entrare"),

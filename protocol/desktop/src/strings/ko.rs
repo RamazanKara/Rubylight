@@ -1550,6 +1550,8 @@ sudo sysctl -w net.core.rmem_max={}", "수신 버퍼: 시스템이 요청한 {1}
     ("Where Nightjar shows itself. Automatic draws straight to the display when no desktop is running. Applies at the next start.", "Nightjar가 표시되는 위치입니다. 자동은 데스크톱이 실행 중이지 않을 때 디스플레이에 직접 그립니다. 다음 시작부터 적용됩니다."),
     ("Video planes", "비디오 플레인"),
     ("Draws the stream straight to the display, on a display plane of its own, with HDR and without a copy. Leave it on; off, the renderer draws the stream instead.", "디스플레이에 직접 그릴 때 스트림을 전용 디스플레이 플레인에 표시합니다. HDR을 지원하며 복사가 없습니다. 켜 두세요. 끄면 렌더러가 스트림을 그립니다."),
+    ("High-performance GPU power while streaming", "스트리밍 중 고성능 GPU 전력"),
+    ("Keeps an AMD graphics card at its highest clocks for the whole stream, so it cannot slow down between frames and show a frame late. Uses more power and shortens battery life. Changes nothing when the card's clocks are already set by hand. Applies from the next stream.", "스트림 내내 AMD 그래픽 카드를 최고 클럭으로 유지해, 프레임 사이에 속도가 떨어져 화면이 늦게 나오는 일을 막습니다. 전력 소비가 늘고 배터리 사용 시간이 줄어듭니다. 카드의 클럭을 이미 직접 설정했다면 아무것도 바뀌지 않습니다. 다음 스트림부터 적용됩니다."),
     ("Video planes are unavailable; the stream is drawn by the renderer. The log says why.", "비디오 플레인을 사용할 수 없어 렌더러가 스트림을 그립니다. 이유는 로그에 있습니다."),
     ("Guests", "게스트"),
     ("Let in", "참가 허용"),

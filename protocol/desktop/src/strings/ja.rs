@@ -1550,6 +1550,8 @@ sudo sysctl -w net.core.rmem_max={}", "受信バッファー：システムは�
     ("Where Nightjar shows itself. Automatic draws straight to the display when no desktop is running. Applies at the next start.", "Nightjar を表示する場所です。自動では、デスクトップが動いていないときにディスプレイへ直接描画します。次回の起動から適用されます。"),
     ("Video planes", "ビデオプレーン"),
     ("Draws the stream straight to the display, on a display plane of its own, with HDR and without a copy. Leave it on; off, the renderer draws the stream instead.", "ディスプレイに直接描画するとき、ストリームを専用の表示プレーンに表示します。HDRに対応し、コピーは発生しません。オンのままにしてください。オフでは、レンダラーがストリームを描画します。"),
+    ("High-performance GPU power while streaming", "ストリーミング中のGPU高性能電力"),
+    ("Keeps an AMD graphics card at its highest clocks for the whole stream, so it cannot slow down between frames and show a frame late. Uses more power and shortens battery life. Changes nothing when the card's clocks are already set by hand. Applies from the next stream.", "ストリーム全体を通じてAMDのグラフィックスカードを最高クロックに保ち、フレーム間で速度が落ちて映像が遅れて表示されるのを防ぎます。消費電力が増え、バッテリー駆動時間が短くなります。カードのクロックが手動で設定済みの場合は何も変わりません。次のストリームから適用されます。"),
     ("Video planes are unavailable; the stream is drawn by the renderer. The log says why.", "ビデオプレーンを使えないため、ストリームはレンダラーで描画されます。理由はログに記録されています。"),
     ("Guests", "ゲスト"),
     ("Let in", "参加を許可"),

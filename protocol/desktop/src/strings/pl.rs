@@ -1550,6 +1550,8 @@ sudo sysctl -w net.core.rmem_max={}", "Bufor odbioru: system przydzielił {0} Ki
     ("Where Nightjar shows itself. Automatic draws straight to the display when no desktop is running. Applies at the next start.", "Gdzie Nightjar się wyświetla. Automatycznie rysuje bezpośrednio na ekranie, gdy nie działa żaden pulpit. Działa od następnego uruchomienia."),
     ("Video planes", "Płaszczyzny wideo"),
     ("Draws the stream straight to the display, on a display plane of its own, with HDR and without a copy. Leave it on; off, the renderer draws the stream instead.", "Przy rysowaniu bezpośrednio na ekranie pokazuje strumień na własnej płaszczyźnie wyświetlania, z HDR i bez kopiowania. Zostaw włączone; po wyłączeniu strumień rysuje renderer."),
+    ("High-performance GPU power while streaming", "Wysoka wydajność GPU podczas strumieniowania"),
+    ("Keeps an AMD graphics card at its highest clocks for the whole stream, so it cannot slow down between frames and show a frame late. Uses more power and shortens battery life. Changes nothing when the card's clocks are already set by hand. Applies from the next stream.", "Utrzymuje kartę graficzną AMD na najwyższych taktowaniach przez cały strumień, dzięki czemu nie zwalnia między klatkami i nie pokazuje klatki z opóźnieniem. Zużywa więcej energii i skraca czas pracy na baterii. Nic nie zmienia, jeśli taktowania karty są już ustawione ręcznie. Działa od następnego strumienia."),
     ("Video planes are unavailable; the stream is drawn by the renderer. The log says why.", "Płaszczyzny wideo są niedostępne; strumień rysuje renderer. Przyczyna jest w dzienniku."),
     ("Guests", "Goście"),
     ("Let in", "Wpuść"),

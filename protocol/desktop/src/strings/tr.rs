@@ -1550,6 +1550,8 @@ sudo sysctl -w net.core.rmem_max={}", "Alma arabelleği: sistem istenen {1} KiB'
     ("Where Nightjar shows itself. Automatic draws straight to the display when no desktop is running. Applies at the next start.", "Nightjar'ın nerede görüneceği. Otomatik, çalışan bir masaüstü yokken doğrudan ekrana çizer. Bir sonraki başlatmada uygulanır."),
     ("Video planes", "Video düzlemleri"),
     ("Draws the stream straight to the display, on a display plane of its own, with HDR and without a copy. Leave it on; off, the renderer draws the stream instead.", "Doğrudan ekrana çizerken yayını kendi ekran düzleminde, HDR ile ve kopyalamadan gösterir. Açık bırakın; kapalıyken yayını oluşturucu çizer."),
+    ("High-performance GPU power while streaming", "Yayın sırasında yüksek performanslı GPU gücü"),
+    ("Keeps an AMD graphics card at its highest clocks for the whole stream, so it cannot slow down between frames and show a frame late. Uses more power and shortens battery life. Changes nothing when the card's clocks are already set by hand. Applies from the next stream.", "Bir AMD ekran kartını yayın boyunca en yüksek saat hızlarında tutar; böylece kareler arasında yavaşlayıp bir kareyi geç göstermez. Daha fazla güç harcar ve pil ömrünü kısaltır. Kartın saat hızları elle ayarlanmışsa hiçbir şey değişmez. Bir sonraki yayından itibaren uygulanır."),
     ("Video planes are unavailable; the stream is drawn by the renderer. The log says why.", "Video düzlemleri kullanılamıyor; yayını işleyici çiziyor. Nedeni günlükte yazıyor."),
     ("Guests", "Konuklar"),
     ("Let in", "İçeri al"),

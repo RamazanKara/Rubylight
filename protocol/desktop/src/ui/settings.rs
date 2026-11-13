@@ -43,7 +43,7 @@ pub(super) const SECTION_KEYS: [&[&[&str]]; 8] = [
         &["dual_screen"], &["second_screen_width", "second_screen_height"], &["input_only_any_host"]],
     &[&["theme"], &["language"], &["open_on_start", "console_home"], &["quick_resume"], &["check_updates"], &["home_card_size"],
         &["ui_zoom"], &["high_contrast"], &["reduce_motion"]],
-    &[&["graphics_card"], &["renderer"], &["display_output"], &["video_planes"], &["sops"], &["link_probe"], &["post_stream_decode_time"]],
+    &[&["graphics_card"], &["renderer"], &["display_output"], &["video_planes"], &["high_performance_gpu_power"], &["sops"], &["link_probe"], &["post_stream_decode_time"]],
     &[&["error_correction"], &["client_hint_bitrate"], &["tell_host_wireless"], &["tell_host_link_speed"],
         &["network_priority"], &["unbatched_input"], &["full_range"],
         &["pyrowave_decoder"], &["pyrowave_async_compute"],
@@ -1428,6 +1428,9 @@ impl Launcher {
                 });
                 setting_row(ui, s, &mut rows, &["video_planes"], "Video planes", "Draws the stream straight to the display, on a display plane of its own, with HDR and without a copy. Leave it on; off, the renderer draws the stream instead.", |ui, s| {
                     toggle(ui, &mut s.video_planes)
+                });
+                setting_row(ui, s, &mut rows, &["high_performance_gpu_power"], "High-performance GPU power while streaming", "Keeps an AMD graphics card at its highest clocks for the whole stream, so it cannot slow down between frames and show a frame late. Uses more power and shortens battery life. Changes nothing when the card's clocks are already set by hand. Applies from the next stream.", |ui, s| {
+                    toggle(ui, &mut s.high_performance_gpu_power)
                 });
             }
             rows.group(en("Compatibility"));

@@ -44,6 +44,20 @@ On Android with Variable refresh rate off, the matching setting is **Show frames
 frame times** (off by default): it shows each frame on the refresh nearest its time on the PC. See
 [refresh rate and VRR](video-and-latency.md#refresh-rate-and-vrr).
 
+## Tear-free VRR on Windows
+
+A VRR screen starts drawing a frame the moment it is presented and needs one refresh to draw it
+(4.2 ms at 240 Hz). A frame presented while the screen is still drawing the last one is torn: the
+part of the screen not yet drawn shows the new frame, the rest shows it only on the next refresh.
+That happens when two frames arrive close together, and often below the screen's range, where the
+graphics driver repeats the last frame by itself.
+
+**Tear-free VRR** is in the same place as Real VRR, shows while **Variable refresh rate** is on,
+and is on by default. Before each frame Nightjar reads where the screen is in its drawing. A frame
+that arrives while the screen is drawing waits for it to finish, at most one refresh, and is then
+shown whole. Turn it off to show every frame at once, with tearing. It works with Real VRR on or
+off. Linux and Android compose whole frames by themselves.
+
 ## How it works
 
 **On the PC.** For a VRR stream to a virtual display, Rubylight runs that display at 1000 Hz
@@ -131,6 +145,23 @@ PyroWave on that monitor both rules showed the same share (10.7 and 10.9%).
 The method, the raw figures and the replays behind the 2 ms bound are in
 [PyroWave decoding: Real VRR](pyrowave-decode.md#real-vrr-measured-cadence-and-a-link-with-a-long-tail).
 
+**Tear-free VRR** (a laptop streams HEVC over Wi-Fi to the PC's 240 Hz VRR monitor, whose
+drawing position is recorded every 40 µs for 12 seconds of each 35-second run):
+
+| Test animation | Frames torn: off | On | From frame ready to whole on screen, median / 19 of 20: off | On |
+|---|---|---|---|---|
+| Uneven, frame gaps of 8 to 25 ms | 34.3% | 0.2% | 2.3 / 9.6 ms | 1.4 / 8.2 ms |
+| 120 fps | 1.9% | 0.0% | 0.5 / 2.0 ms | 0.5 / 1.9 ms |
+| About 72 fps | 24.7% | 0.2% | 1.4 / 6.6 ms | 1.6 / 7.4 ms |
+| About 57 fps | 38.2% | 3.5% | 2.5 / 9.5 ms | 1.9 / 9.2 ms |
+
+A frame counts as torn when it was presented while the screen was drawing. Each figure is one run,
+and the share with the setting off varies from run to run (2 to 26% in three 120 fps runs). About
+a third of the frames waited, 1.7 to 2.0 ms each (3% of them at 120 fps). A whole frame is on
+screen no later for it, because a torn frame is whole only on the screen's next refresh. What the
+wait gives up is the part of a torn frame that would have appeared up to one refresh sooner.
+[Details](../protocol/desktop/README.md).
+
 ## Limits
 
 - **It adds delay:** about 1.3 to 1.5 ms on a clean link and 2.6 to 3.5 ms over Wi-Fi in the runs
@@ -140,8 +171,9 @@ The method, the raw figures and the replays behind the 2 ms bound are in
   ready, and one more than 6 ms later than the typical frame raises the delay no further: about
   10% of frame gaps stayed more than 1 ms off their timestamps in the runs above.
 - **Below the screen's range the graphics driver repeats pictures,** and a frame that arrives
-  during such a refresh tears. On a 240 Hz monitor whose range ends at 80 Hz, 24 to 32% of frames
-  did, with test animations of 40 to 67 fps. Nightjar repeating the picture itself on Windows,
+  during such a refresh waits for it to end with Tear-free VRR, or tears without it. On a 240 Hz
+  monitor whose range ends at 80 Hz, 23 to 39% of frames arrived that way, with test animations of
+  54 to 85 fps. Nightjar repeating the picture itself on Windows,
   timed from the frame rate and the screen's scan line, brought a 60 fps animation to 16% and
   changed nothing for a 40 fps and an uneven one, and the frames that then waited for a refresh
   to end were shown 1.1 to 1.5 ms late. It is therefore not on

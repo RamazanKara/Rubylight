@@ -321,6 +321,49 @@ impl Streaming {
         left
     }
 
+    /// `VrrSync::Blank` on Windows: presents with tearing only when the display is in its vertical
+    /// blank and the last present has left the queue, otherwise with sync interval 1. Until the scan
+    /// line can be read no present tears, as upstream has it: unknown scanout authorises no tearing
+    /// flip. Returns whether it presented; false leaves the present to the caller.
+    fn blank_present(&mut self, renderer: *mut SDL_Renderer, probe: bool) -> bool {
+        if !cfg!(windows) || !probe || self.vrr.sync != present::VrrSync::Blank
+            || !matches!(self.pacer.mode, PacingMode::Immediate | PacingMode::HostTimes) { return false; }
+        let now = session::now_us();
+        let since = self.flip_guard.last_flip_us.map(|last| now.saturating_sub(last));
+        // The display's mode gives the period until the scan is calibrated.
+        let period_us = self.race_probe.as_ref().and_then(race_probe::RaceProbe::beam)
+            .map_or_else(|| refresh_period_us(self.plan.display.refresh_hz), |beam| beam.scan_ns / 1000);
+        let planned = present::planned_latch(since, period_us);
+        let probe_ref = self.race_probe.as_ref();
+        let latched = present::latch(planned, period_us, || {
+            // SAFETY: the renderer is live on this thread.
+            let (predecessor_known, statistics_valid, pending) = unsafe { present::flip_statistics(renderer) };
+            let mut observation = present::FlipObservation { predecessor_known, statistics_valid, pending, ..Default::default() };
+            if statistics_valid && !pending {
+                let read_start = session::now_us();
+                let sample = probe_ref.and_then(race_probe::RaceProbe::before);
+                let read_end = session::now_us();
+                observation.raster_valid = sample.is_some();
+                observation.in_vertical_blank = sample.is_some_and(|sample| sample.vblank);
+                observation.raster_query_start_us = read_start;
+                observation.raster_query_end_us = read_end;
+            }
+            observation
+        }, session::now_us);
+        if planned {
+            self.flip_guard.planned += 1;
+        } else if latched {
+            self.flip_guard.protected += 1;
+        } else {
+            self.flip_guard.tearing += 1;
+        }
+        // SAFETY: a live renderer.
+        unsafe {
+            if !present::present_adaptive(renderer, latched) { SDL_RenderPresent(renderer); }
+        }
+        true
+    }
+
     /// Takes the slices the decoder finished since the last call into the racer.
     fn observe_slices(&mut self, slices: &mut VecDeque<pyrowave::SliceReady>) {
         // Anything the racer does not take is dropped here, which lets go of its plane set.
@@ -656,7 +699,7 @@ impl Streaming {
             // SAFETY: a live renderer.
             self.direct_motion.presenting(Some(self.direct_rules(unsafe { SDL_GetRenderWindow(renderer) })));
         }
-        let skips = probe && self.skip_over_waiting && !self.skipped.must_wait()
+        let skips = probe && self.skip_over_waiting && !self.skipped.must_wait() && self.vrr.sync != present::VrrSync::Blank
             && self.pacer.skips_instead_of_waiting(self.plan.display.refresh_hz);
         #[cfg(target_os = "linux")]
         if probe {
@@ -683,13 +726,15 @@ impl Streaming {
             }
         }
         let issued_us = session::now_us();
+        let blank = self.blank_present(renderer, probe);
         // SAFETY: a live renderer.
         let refused = unsafe {
             let done = if skips { present::present_without_waiting(renderer, self.skipped.hold()) } else { present::NoWait::Failed };
             if skips { self.no_wait_present = done != present::NoWait::Failed; }
-            if done == present::NoWait::Failed { SDL_RenderPresent(renderer); }
+            if done == present::NoWait::Failed && !blank { SDL_RenderPresent(renderer); }
             done == present::NoWait::Refused
         };
+        self.flip_guard.last_flip_us = Some(issued_us);
         let returned_us = session::now_us();
         if let Some(warp) = self.frame_warp.as_mut() { warp.presented(returned_us); }
         #[cfg(target_os = "linux")]

@@ -77,7 +77,7 @@ pub(super) fn checks_display_for_present_mode(vrr: bool, pacing: PacingMode, pac
 pub(super) fn display_probe(beam_race: bool, vrr: &present::VrrPacing) -> Option<&'static str> {
     if beam_race {
         Some("beam race")
-    } else if vrr.check || vrr.present_check || vrr.sync == present::VrrSync::Scan || vrr.lfc {
+    } else if vrr.check || vrr.present_check || matches!(vrr.sync, present::VrrSync::Scan | present::VrrSync::Blank) || vrr.lfc {
         Some("display check")
     } else {
         None
@@ -277,7 +277,10 @@ impl Streaming {
         ));
         let mut pacing = pacing_label(self.pacer.mode, self.vrr.fell_back).to_owned();
         if self.vrr.sync != present::VrrSync::Off && self.pacer.mode != PacingMode::Vsync {
-            pacing.push_str(&format!(", VRR sync {}", self.vrr.sync.label()));
+            match self.vrr.sync {
+                present::VrrSync::Scan => pacing.push_str(", tear-free"),
+                sync => pacing.push_str(&format!(", VRR sync {}", sync.label())),
+            }
             if self.scan_waits.0 > 0 {
                 pacing.push_str(&format!(" ({} waits, {:.2} ms each)", self.scan_waits.0, self.scan_waits.1 as f64 / f64::from(self.scan_waits.0) / 1e6));
             }

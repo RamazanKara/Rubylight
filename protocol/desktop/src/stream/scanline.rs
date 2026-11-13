@@ -70,11 +70,13 @@ impl Beam {
     }
 
     /// How long the beam of a reading takes to leave the picture's last row (ns), at most one scan:
-    /// what a present waits for to show its picture whole (`VrrSync::Scan`). None in the blanking,
-    /// where a flip comes before the first row.
+    /// what a present waits for to show its picture whole (`VrrSync::Scan`). The blanking lines a
+    /// scan begins with are part of it: the beam is through them in 0.5 ms at 240 Hz and a tearing
+    /// flip takes 0.4 ms and more to arrive, so a present issued there tears the top rows. None
+    /// once the beam has left the last row, where a variable refresh display waits for a flip.
     pub fn scan_left_ns(&self, sample: &Sample) -> Option<u64> {
-        let row = self.row_of(sample)?;
-        Some((((f64::from(self.rows - row)) * 1e6 / self.lines_per_ms) as u64).min(self.scan_ns))
+        let end = self.blank_rows + self.rows;
+        (sample.line < end).then(|| ((f64::from(end - sample.line) * 1e6 / self.lines_per_ms) as u64).min(self.scan_ns))
     }
 
     /// How long ago the scan a reading belongs to began (ns): the counter keeps walking while a

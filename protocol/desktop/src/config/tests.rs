@@ -891,6 +891,11 @@ fn recover_interrupted_streams_turns_on_once_and_a_later_off_is_kept() {
 }
 
 #[test]
+fn tear_free_vrr_is_on_by_default() {
+    assert!(Settings::default().vrr_tear_free);
+}
+
+#[test]
 fn real_vrr_turns_on_once_and_a_later_off_is_kept() {
     assert!(Settings::default().present_at_host_times);
     let dir = std::env::temp_dir().join(format!("nightjar-real-vrr-{}", std::process::id()));

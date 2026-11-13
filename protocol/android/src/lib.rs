@@ -14,6 +14,7 @@ pub mod echo;
 mod engine;
 pub mod extras;
 pub mod files;
+pub mod internet;
 mod frame_warp;
 mod listener;
 pub mod native_api;

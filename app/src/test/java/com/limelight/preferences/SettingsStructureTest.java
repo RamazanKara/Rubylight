@@ -336,6 +336,20 @@ public class SettingsStructureTest {
     }
 
     @Test
+    public void playOverTheInternetIsOnInConnectionForBothEngines() {
+        prefs().edit().putBoolean("checkbox_rust_engine", false).commit();
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            StreamSettings screen = controller.get();
+            assertNotNull(resultGroup(search(screen, "Play over the internet"), "checkbox_internet_play"));
+            ((SearchView) screen.findViewById(R.id.settings_search)).setQuery("", false);
+            settle(screen);
+            PreferenceGroup connection = (PreferenceGroup) open(screen, "streaming").getPreferenceScreen()
+                    .findPreference("category_streaming_connection");
+            assertTrue(((SwitchPreference) connection.findPreference("checkbox_internet_play")).isChecked());
+        }
+    }
+
+    @Test
     public void groupingIncomingVideoPacketsIsOnInConnectionWithTheRustEngineOnly() {
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             StreamSettings screen = controller.get();

@@ -103,6 +103,9 @@ pub enum Feature {
     MicOnly,
     /// Moving the running game's stream to this device (`POST /session/continue-here`).
     ContinueHere,
+    /// Play over the internet (`RustHostInternetPlayVersion`): the host publishes rendezvous
+    /// records for its paired devices and answers hole punches (`/internet-play/v1`).
+    InternetPlay,
 }
 
 impl Feature {
@@ -155,6 +158,7 @@ impl Feature {
         Feature::Coop,
         Feature::MicOnly,
         Feature::ContinueHere,
+        Feature::InternetPlay,
     ];
 }
 
@@ -282,6 +286,9 @@ pub struct Evidence {
     /// The image enhancements the host runs before encoding (`NvidiaEnhancements`,
     /// `rubylight_protocol::nvidia_enhance` bits); 0 for none.
     pub nvidia_enhancements: u8,
+    /// -1 without `RustHostInternetPlayVersion` (paired serverinfo only), 0 when the host has
+    /// Play over the internet off.
+    pub internet_play_version: i32,
     /// `usb`, `clipboard.image` and `folders` in the native features, and the device's `usb`
     /// and `shared_folders` permissions.
     pub usb_offered: bool,
@@ -388,6 +395,7 @@ impl Evidence {
             display_scale_version: -1,
             second_screen_version: -1,
             nvidia_enhancements: 0,
+            internet_play_version: -1,
             ..Default::default()
         };
         let (mut encoder, mut initial_encoder) = (false, false);
@@ -446,6 +454,9 @@ impl Evidence {
                 "NvidiaEnhancements" => {
                     e.nvidia_enhancements =
                         rubylight_protocol::nvidia_enhance::parse_offer(Some(&text))
+                }
+                "RustHostInternetPlayVersion" => {
+                    e.internet_play_version = unsigned(&text, 0xFFFF) as i32
                 }
                 "NativeApiVersion" => e.native_api_version = unsigned(&text, 0xFFFF) as i32,
                 "PowerActionVersion" => e.power_action_version = unsigned(&text, 0xFFFF) as i32,
@@ -862,6 +873,7 @@ impl Evidence {
             }
             Feature::PipelineRates => self.serverinfo_version(self.pipeline_rates_version),
             Feature::SecondScreen => self.serverinfo_version(self.second_screen_version),
+            Feature::InternetPlay => self.serverinfo_version(self.internet_play_version),
             Feature::UsbForwarding => {
                 let refused = (!self.usb_permission).then_some(Reason::UsbPermission);
                 self.native_feature(self.usb_offered, refused)
@@ -1132,6 +1144,8 @@ mod tests {
             ("PipelineRatesVersion", Feature::PipelineRates, &[("1", true), ("", false)]),
             // Only a host that says so keeps a device's second stream beside its first.
             ("SecondScreenVersion", Feature::SecondScreen, &[("1", true), ("2", true), ("0", false), ("x", false)]),
+            // A host with Play over the internet off says 0.
+            ("RustHostInternetPlayVersion", Feature::InternetPlay, &[("1", true), ("0", false), ("", false)]),
         ] {
             for &(value, supported) in cases {
                 let expected = if supported { Availability::Supported } else { never };

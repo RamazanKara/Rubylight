@@ -39,7 +39,7 @@ pub(super) const SECTION_KEYS: [&[&[&str]]; 8] = [
     &[&["audio"], &["play_audio_on_host"], &["microphone"], &["mic_echo_cancel"], &["mic_noise_suppression"], &["mic_auto_gain"], &["mic_gain"],
         &["mute_audio"], &["audio_passthrough"]],
     &[&["overlay", "overlay_mode"], &["overlay_position"], &["auto_reconnect"],
-        &["client_roaming"], &["roaming_metered"], &["network_grace_ms"], &["receive_coalescing"], &["hide_connection_warnings"],
+        &["client_roaming"], &["roaming_metered"], &["network_grace_ms"], &["receive_coalescing"], &["internet_play"], &["hide_connection_warnings"],
         &["dual_screen"], &["second_screen_width", "second_screen_height"], &["input_only_any_host"]],
     &[&["theme"], &["language"], &["open_on_start", "console_home"], &["quick_resume"], &["check_updates"], &["home_card_size"],
         &["ui_zoom"], &["high_contrast"], &["reduce_motion"]],
@@ -1199,6 +1199,9 @@ impl Launcher {
                     toggle(ui, &mut s.receive_coalescing)
                 });
             }
+            setting_row(ui, s, &mut rows, &["internet_play"], "Play over the internet", "Away from home, reach a PC that offers it over a direct internet path, without forwarding ports. Connect once on the PC's network first. Your network is always tried first.", |ui, s| {
+                toggle(ui, &mut s.internet_play)
+            });
             setting_row(ui, s, &mut rows, &["hide_connection_warnings"], "Hide connection warnings", "No warnings about a poor connection during streams.", |ui, s| {
                 toggle(ui, &mut s.hide_connection_warnings)
             });
@@ -2029,7 +2032,7 @@ pub(super) const ANDROID_KEYS: [(&str, &str); 102] = [
     ("overlay", "checkbox_enable_perf_overlay"), ("overlay_position", "performance_overlay_position"),
     ("auto_reconnect", "checkbox_auto_reconnect"), ("connection_test", "network_tests"), ("client_roaming", "checkbox_client_roaming"),
     ("roaming_metered", "checkbox_roaming_metered"), ("network_grace_ms", "list_network_grace"),
-    ("receive_coalescing", "checkbox_receive_coalescing"),
+    ("receive_coalescing", "checkbox_receive_coalescing"), ("internet_play", "checkbox_internet_play"),
     ("hide_connection_warnings", "checkbox_disable_warnings"), ("dual_screen", "checkbox_dual_screen"),
     ("second_screen_width", "list_resolution_screen2"), ("input_only_any_host", "checkbox_input_only_any_host"),
     // App

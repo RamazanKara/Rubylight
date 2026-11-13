@@ -108,6 +108,7 @@ fn feature_name(feature: Feature) -> &'static str {
         Feature::Coop => "coop",
         Feature::MicOnly => "mic_only",
         Feature::ContinueHere => "continue_here",
+        Feature::InternetPlay => "internet_play",
     }
 }
 

@@ -981,8 +981,13 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
         BeamRace::Off => {}
     }
     let race_ask = race_request(beam, early_decode(settings.early_decode), height);
-    let (location, packet_size) = location_for_route(location_override(), route.vpn);
-    if route.vpn && location == Location::Remote {
+    // A punched internet path looks like loopback here; it is the internet, and each datagram
+    // carries the tunnel's header and tag: remote, with the smaller packets.
+    let punched = plan.record.address.parse().is_ok_and(nightjar_core::internet::is_tunnel);
+    let (location, packet_size) = location_for_route(location_override(), route.vpn || punched);
+    if punched && location == Location::Remote {
+        eprintln!("nightjar: streaming over a direct internet path: remote with {packet_size} byte packets");
+    } else if route.vpn && location == Location::Remote {
         eprintln!("nightjar: the route to the PC is a VPN: streaming as remote with {packet_size} byte packets");
     }
     let mut iv = [0u8; 16];

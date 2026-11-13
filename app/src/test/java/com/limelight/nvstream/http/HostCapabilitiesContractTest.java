@@ -85,6 +85,7 @@ public class HostCapabilitiesContractTest {
             case CONTROLLER_IDENTITY: return "controller_identity";
             case PIPELINE_RATES: return "pipeline_rates";
             case SECOND_SCREEN: return "second_screen";
+            case INTERNET_PLAY: return "internet_play";
             case IMAGE_CLIPBOARD: return "image_clipboard";
             case SHARED_FOLDERS: return "shared_folders";
             case COOP: return "coop";

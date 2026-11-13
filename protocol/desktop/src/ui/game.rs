@@ -356,12 +356,12 @@ impl Launcher {
             PcLine::Offline => Some(tr("Offline")),
             PcLine::NotPaired => Some(tr("Not paired")),
             PcLine::Checking => Some(tr("Checking…")),
-            PcLine::Online | PcLine::Running(_)
+            PcLine::Online | PcLine::Running(_) | PcLine::Away(_)
                 if !state.detail.can_start && !state.detail.installed =>
             {
                 Some(tr("Not installed"))
             }
-            PcLine::Online | PcLine::Running(_) => None,
+            PcLine::Online | PcLine::Running(_) | PcLine::Away(_) => None,
         };
         let words = why.map_or_else(|| name.to_owned(), |why| format!("{name}  \u{b7}  {why}"));
         let ink = *ON_SURFACE_VARIANT;

@@ -115,6 +115,10 @@ public class ComputerDetails {
     public boolean virtualDisplayFrameLimiterEnabled;
     public long frameLimiterFpsLimitMilliHz;
     public long pyroWaveHostLinkMbps;
+    /** How the last poll reached the PC (InternetPlay.path): "lan", "ipv6", "mapped" or "punched". Not saved. */
+    public String internetPath;
+    /** Why no path reached a PC that gave this device internet play details, in words; null otherwise. Not saved. */
+    public String unreachable;
     public int pyroWaveBandwidthProbeBytes;
     /** Frame-shaped UDP probes with the handshake (Vibeshine), and the FEC its wire budget counts. */
     public boolean pyroWaveBurstProbe;
@@ -245,6 +249,8 @@ public class ComputerDetails {
 
     public void update(ComputerDetails details) {
         this.state = details.state;
+        this.internetPath = details.internetPath;
+        this.unreachable = details.unreachable;
         this.name = details.name;
         this.uuid = details.uuid;
         if (details.activeAddress != null) {

@@ -46,6 +46,7 @@
     "controller_identity": "unsupported",
     "pipeline_rates": "unsupported",
     "second_screen": "unsupported",
+    "internet_play": "unsupported",
     "image_clipboard": "unsupported",
     "shared_folders": "unsupported",
     "coop": "unsupported",

@@ -526,6 +526,11 @@ public class NvConnection {
     }
 
     private int detectServerConnectionType() {
+        // A punched internet path is a loopback address here, yet it is the internet, and every datagram carries
+        // the tunnel's header and tag: remote, with the smaller packets.
+        if (context.serverAddress != null && com.limelight.computers.InternetPlay.isTunnelAddress(context.serverAddress.address)) {
+            return StreamConfiguration.STREAM_CFG_REMOTE;
+        }
         ConnectivityManager connMgr = (ConnectivityManager) appContext.getSystemService(Context.CONNECTIVITY_SERVICE);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             Network activeNetwork = connMgr.getActiveNetwork();

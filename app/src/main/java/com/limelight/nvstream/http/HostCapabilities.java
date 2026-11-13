@@ -106,6 +106,11 @@ public final class HostCapabilities {
          * its first. Any other host takes it for the first stream starting again and drops that one.
          */
         SECOND_SCREEN(0),
+        /**
+         * Play over the internet (RustHostInternetPlayVersion, paired serverinfo only): the host publishes
+         * rendezvous records for its paired devices and answers hole punches (internet-play/v1).
+         */
+        INTERNET_PLAY(0),
         /** PNG clipboard (native "clipboard.image"). Known only after {@link #withNativeCapabilities}. */
         IMAGE_CLIPBOARD(0),
         /** Shared folders (native "folders"). Known only after {@link #withNativeCapabilities}. */
@@ -677,6 +682,8 @@ public final class HostCapabilities {
         int secondScreenVersion = -1;
         /** NvidiaEnhancements: the image enhancements the host offers per stream (RTX_HDR, RTX_VIDEO bits). */
         int nvidiaEnhancements = 0;
+        /** -1 without RustHostInternetPlayVersion, 0 when the host has Play over the internet off. */
+        int internetPlayVersion = -1;
         /** usb, clipboard.image and folders in the native features, and this device's usb and shared_folders. */
         boolean usbOffered;
         boolean usbPermission;
@@ -811,6 +818,9 @@ public final class HostCapabilities {
                         break;
                     case NVIDIA_ENHANCEMENTS_FIELD:
                         evidence.nvidiaEnhancements = parseEnhancements(parser.nextText());
+                        break;
+                    case "RustHostInternetPlayVersion":
+                        evidence.internetPlayVersion = (int) unsigned(parser.nextText(), 0xFFFF);
                         break;
                     case "NativeApiVersion":
                         evidence.nativeApiVersion = (int) unsigned(parser.nextText(), 0xFFFF);
@@ -1054,6 +1064,8 @@ public final class HostCapabilities {
                     return serverInfoVersion(pipelineRatesVersion);
                 case SECOND_SCREEN:
                     return serverInfoVersion(secondScreenVersion);
+                case INTERNET_PLAY:
+                    return serverInfoVersion(internetPlayVersion);
                 case USB_FORWARDING:
                     return nativeFeature(usbOffered, usbPermission ? null : Reason.USB_PERMISSION);
                 case IMAGE_CLIPBOARD: {
@@ -1136,6 +1148,7 @@ public final class HostCapabilities {
                     .put("pipelineRatesVersion", pipelineRatesVersion)
                     .put("displayScaleVersion", displayScaleVersion)
                     .put("secondScreenVersion", secondScreenVersion).put("nvidiaEnhancements", nvidiaEnhancements)
+                    .put("internetPlayVersion", internetPlayVersion)
                     .put("usbOffered", usbOffered)
                     .put("usbPermission", usbPermission).put("imageClipboardOffered", imageClipboardOffered)
                     .put("foldersOffered", foldersOffered).put("folderPermission", folderPermission)
@@ -1195,6 +1208,7 @@ public final class HostCapabilities {
             evidence.displayScaleVersion = object.optInt("displayScaleVersion", -1);
             evidence.secondScreenVersion = object.optInt("secondScreenVersion", -1);
             evidence.nvidiaEnhancements = object.optInt("nvidiaEnhancements", 0) & ALL_ENHANCEMENTS;
+            evidence.internetPlayVersion = object.optInt("internetPlayVersion", -1);
             evidence.usbOffered = object.optBoolean("usbOffered", false);
             evidence.usbPermission = object.optBoolean("usbPermission", false);
             evidence.imageClipboardOffered = object.optBoolean("imageClipboardOffered", false);
@@ -1248,6 +1262,7 @@ public final class HostCapabilities {
                     pipelineRatesVersion == that.pipelineRatesVersion && displayScaleVersion == that.displayScaleVersion &&
                     secondScreenVersion == that.secondScreenVersion &&
                     nvidiaEnhancements == that.nvidiaEnhancements &&
+                    internetPlayVersion == that.internetPlayVersion &&
                     usbOffered == that.usbOffered &&
                     usbPermission == that.usbPermission && imageClipboardOffered == that.imageClipboardOffered &&
                     foldersOffered == that.foldersOffered && folderPermission == that.folderPermission &&
@@ -1263,7 +1278,7 @@ public final class HostCapabilities {
                     nativeApiVersion, powerActionVersion, sleepSupported, sleepAllowed, nativeCapabilities, filesUpload,
                     filesDownload, fileUploadPermission, fileDownloadPermission, hdrFormats, fecControlVersion,
                     bandwidthProbeVersion, audioCodecs, audioLayouts, textInputVersion, keyboardLayoutVersion,
-                    penBarrelRollVersion, controllerIdentityVersion, pipelineRatesVersion, displayScaleVersion, secondScreenVersion, nvidiaEnhancements, usbOffered,
+                    penBarrelRollVersion, controllerIdentityVersion, pipelineRatesVersion, displayScaleVersion, secondScreenVersion, nvidiaEnhancements, internetPlayVersion, usbOffered,
                     usbPermission, imageClipboardOffered, foldersOffered, folderPermission, coopOffered, micOnlyOffered);
         }
     }

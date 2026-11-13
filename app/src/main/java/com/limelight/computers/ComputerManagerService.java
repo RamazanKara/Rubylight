@@ -9,6 +9,7 @@ import java.net.UnknownHostException;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
@@ -28,6 +29,7 @@ import com.limelight.nativeapi.JniNativeApiTransport;
 import com.limelight.nativeapi.NativeApiClient;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.http.ComputerDetails;
+import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.http.PairingLink;
@@ -38,6 +40,7 @@ import com.limelight.nvstream.wol.WakeTargets;
 import com.limelight.nvstream.wol.WakeTargetsPoll;
 import com.limelight.preferences.HostDisplayChoice;
 import com.limelight.preferences.HostStreamProfile;
+import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.utils.CacheHelper;
 import com.limelight.utils.FrontendExportStore;
 import com.limelight.utils.FrontendSync;
@@ -57,6 +60,7 @@ import android.os.Binder;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.SystemClock;
+import android.preference.PreferenceManager;
 
 import org.xmlpull.v1.XmlPullParserException;
 
@@ -89,6 +93,8 @@ public class ComputerManagerService extends Service {
                     PlatformBinding.getCryptoProvider(ComputerManagerService.this)));
     private volatile ComputerManagerListener listener;
     private final AtomicInteger activePolls = new AtomicInteger(0);
+    // When each PC's internet play reply was last asked for, by UUID (readInternetPlay).
+    private final HashMap<String, Long> internetReads = new HashMap<>();
     private volatile boolean pollingActive;
     private volatile boolean destroyed;
     private boolean discoveryServiceBound;
@@ -197,6 +203,10 @@ public class ComputerManagerService extends Service {
                         if (existingComputer != null && details.serverCert == null) {
                             existingComputer.serverCert = null;
                         }
+                        // Its internet play key went with the pairing.
+                        if (details.serverCert == null) {
+                            InternetPlay.forget(this, details.uuid);
+                        }
                     }
                     // If we already have an entry for this computer in the DB, we must
                     // combine the existing data with this new data (which may be partially available
@@ -231,6 +241,7 @@ public class ComputerManagerService extends Service {
 
                 // After the listener, so a PC that answers is shown before its native API is asked.
                 wakeTargets.polled(details);
+                readInternetPlay(details);
             }
             return true;
         } finally {
@@ -761,6 +772,7 @@ public class ComputerManagerService extends Service {
                 HostStreamProfile.reset(this, computer.uuid);
                 HostDisplayChoice.save(this, computer.uuid, HostDisplayChoice.HOST_DEFAULT);
                 HostCapabilityCache.forget(this, computer.uuid);
+                InternetPlay.forget(this, computer.uuid);
                 com.limelight.nativeapi.ConsoleRepository.forgetHost(this, computer.uuid);
                 HostNotices.forget(this, computer.uuid);
                 HostNames.forget(this, computer.uuid);
@@ -911,8 +923,8 @@ public class ComputerManagerService extends Service {
         HashSet<ComputerDetails.AddressTuple> uniqueAddresses = new HashSet<>();
         startParallelPollThread(localInfo, uniqueAddresses);
         startParallelPollThread(manualInfo, uniqueAddresses);
-        startParallelPollThread(remoteInfo, uniqueAddresses);
         startParallelPollThread(ipv6Info, uniqueAddresses);
+        startParallelPollThread(remoteInfo, uniqueAddresses);
 
         try {
             // Check local first
@@ -939,19 +951,7 @@ public class ComputerManagerService extends Service {
                 }
             }
 
-            // Now remote IPv4
-            synchronized (remoteInfo) {
-                while (!remoteInfo.complete) {
-                    remoteInfo.wait();
-                }
-
-                if (remoteInfo.returnedDetails != null) {
-                    remoteInfo.returnedDetails.activeAddress = remoteInfo.address;
-                    return remoteInfo.returnedDetails;
-                }
-            }
-
-            // Now global IPv6
+            // Now global IPv6: a direct path without the router's help
             synchronized (ipv6Info) {
                 while (!ipv6Info.complete) {
                     ipv6Info.wait();
@@ -960,6 +960,18 @@ public class ComputerManagerService extends Service {
                 if (ipv6Info.returnedDetails != null) {
                     ipv6Info.returnedDetails.activeAddress = ipv6Info.address;
                     return ipv6Info.returnedDetails;
+                }
+            }
+
+            // Now remote IPv4, a forwarded port
+            synchronized (remoteInfo) {
+                while (!remoteInfo.complete) {
+                    remoteInfo.wait();
+                }
+
+                if (remoteInfo.returnedDetails != null) {
+                    remoteInfo.returnedDetails.activeAddress = remoteInfo.address;
+                    return remoteInfo.returnedDetails;
                 }
             }
         } finally {
@@ -971,7 +983,97 @@ public class ComputerManagerService extends Service {
             ipv6Info.interrupt();
         }
 
+        return pollOverTheInternet(details, uniqueAddresses);
+    }
+
+    /**
+     * After the PC's own addresses failed: the internet addresses its internet play reply names (IPv6, then a
+     * forwarded port), then a punched path through both routers (InternetPlay). Sets details.unreachable to the
+     * words for every path when none answers; a PC that never gave a reply is left as before.
+     */
+    private ComputerDetails pollOverTheInternet(ComputerDetails details, HashSet<ComputerDetails.AddressTuple> asked)
+            throws InterruptedException {
+        details.unreachable = null;
+        String reply = InternetPlay.reply(this, details.uuid);
+        if (reply == null) {
+            return null;
+        }
+        InternetPlay.Tried tried = new InternetPlay.Tried();
+        tried.lan = details.localAddress != null || details.manualAddress != null;
+        InternetPlay.Addresses addresses = InternetPlay.addresses(reply);
+        for (ComputerDetails.AddressTuple address : addresses.ipv6) {
+            tried.ipv6 = true;
+            if (asked.add(address)) {
+                ComputerDetails polled = tryPollIp(details, address);
+                if (polled != null) {
+                    polled.activeAddress = address;
+                    return polled;
+                }
+            }
+        }
+        if (addresses.mapped != null) {
+            tried.mapped = true;
+            if (asked.add(addresses.mapped)) {
+                ComputerDetails polled = tryPollIp(details, addresses.mapped);
+                if (polled != null) {
+                    polled.activeAddress = addresses.mapped;
+                    return polled;
+                }
+            }
+        }
+        tried.ipv6 |= details.ipv6Address != null;
+        tried.mapped |= details.remoteAddress != null;
+        if (Thread.currentThread().isInterrupted()) {
+            throw new InterruptedException();
+        }
+        InternetPlay.setEnabled(PreferenceManager.getDefaultSharedPreferences(this)
+                .getBoolean(PreferenceConfiguration.INTERNET_PLAY_PREF_STRING, true));
+        try {
+            ComputerDetails.AddressTuple tunnel = InternetPlay.connect(details.uuid, reply, tried);
+            ComputerDetails polled = tryPollIp(details, tunnel);
+            if (polled != null) {
+                polled.activeAddress = tunnel;
+                return polled;
+            }
+            details.unreachable = InternetPlay.unreachable(reply, tried);
+        } catch (InternetPlay.Unreachable e) {
+            details.unreachable = e.getMessage();
+        }
+        LimeLog.info("Internet play: " + details.unreachable);
         return null;
+    }
+
+    /**
+     * Reads the PC's internet play reply while it is reached on its own network, paired and offering it, at most
+     * every {@link InternetPlay#READ_INTERVAL_MS}: the device keeps it for when it is away.
+     */
+    private void readInternetPlay(ComputerDetails details) {
+        if (details.state != ComputerDetails.State.ONLINE || details.pairState != PairingManager.PairState.PAIRED
+                || details.serverCert == null || details.uuid == null
+                || !details.caps.has(HostCapabilities.Feature.INTERNET_PLAY)
+                || !"lan".equals(details.internetPath)) {
+            return;
+        }
+        long now = SystemClock.elapsedRealtime();
+        synchronized (internetReads) {
+            if (!InternetPlay.due(internetReads.get(details.uuid), now)) {
+                return;
+            }
+            internetReads.put(details.uuid, now);
+        }
+        final String uuid = details.uuid;
+        final ComputerDetails.AddressTuple address = details.activeAddress;
+        final int httpsPort = details.httpsPort;
+        final X509Certificate cert = details.serverCert;
+        wakeRequests.execute(() -> {
+            try {
+                NvHTTP http = new NvHTTP(address, httpsPort, idManager.getUniqueId(), cert,
+                        PlatformBinding.getCryptoProvider(ComputerManagerService.this));
+                InternetPlay.save(ComputerManagerService.this, uuid, http.getInternetPlay());
+            } catch (IOException e) {
+                LimeLog.warning("Internet play: the PC's details could not be read: " + e.getMessage());
+            }
+        });
     }
 
     /** The PC's native API, or null before it is paired (no address or pinned certificate). */
@@ -988,11 +1090,14 @@ public class ComputerManagerService extends Service {
         LimeLog.info("Parallel poll for "+details.name+" returned address: "+details.activeAddress);
 
         if (polledDetails != null) {
+            polledDetails.unreachable = null;
             RedactedLog.addComputerSecrets(polledDetails);
             details.update(polledDetails);
+            details.internetPath = InternetPlay.path(details, InternetPlay.reply(this, details.uuid));
             return true;
         }
         else {
+            details.internetPath = null;
             return false;
         }
     }

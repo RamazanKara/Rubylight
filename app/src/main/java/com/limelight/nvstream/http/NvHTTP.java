@@ -667,6 +667,22 @@ public class NvHTTP {
         }
     }
     
+    /**
+     * The PC's internet play details (internet-play/v1, paired HTTPS, HostCapabilities.Feature.INTERNET_PLAY): its
+     * rendezvous key for this device, IPv6 addresses and forwarded ports, kept as they came (InternetPlay).
+     */
+    public String getInternetPlay() throws IOException {
+        if (serverCert == null || httpsPort <= 0) throw new IOException("Internet play requires a paired host");
+        OkHttpClient client = httpClientShortConnectTimeout.newBuilder().callTimeout(5, TimeUnit.SECONDS)
+                .followRedirects(false).followSslRedirects(false).build();
+        try (ResponseBody response = openHttpConnection(client, getHttpsUrl(true), "internet-play/v1")) {
+            MediaType type = response.contentType();
+            if (type == null || !"application".equals(type.type()) || !"json".equals(type.subtype()) ||
+                    response.source().request(4097)) throw new IOException("Invalid internet play response");
+            return response.string();
+        }
+    }
+
     public ComputerDetails getComputerDetails(boolean likelyOnline) throws IOException, XmlPullParserException {
         return getComputerDetails(getServerInfo(likelyOnline));
     }

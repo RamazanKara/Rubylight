@@ -472,6 +472,10 @@ pub struct Settings {
     /// stack may hand over several video packets in one read, receive coalescing on Windows and
     /// UDP_GRO on Linux (`SessionConfig::receive_coalescing`). On by default.
     pub receive_coalescing: bool,
+    /// "Play over the internet" (Android's `checkbox_internet_play`): after the local network,
+    /// IPv6 and a forwarded port, reach a PC that offers it through a punched path
+    /// (`nightjar_core::internet`). On by default: at home the local network answers first.
+    pub internet_play: bool,
     /// USB forwarding (Experimental): attach USB devices plugged in here to the PC from the
     /// stream controls (src/usb.rs). Off by default.
     pub usb_forwarding: bool,
@@ -1102,6 +1106,7 @@ impl Default for Settings {
             client_roaming: true,
             roaming_metered: false,
             receive_coalescing: true,
+            internet_play: true,
             usb_forwarding: false,
             usb_auto: Vec::new(),
             clipboard_sync: false,
@@ -1253,6 +1258,10 @@ pub struct HostRecord {
     /// What this PC's answers to full chroma left: its last offered modes and whether it refused
     /// the last stream that asked (Android's `HostPackedModes`).
     pub full_chroma: nightjar_core::full_chroma::Memory,
+    /// The PC's `/internet-play/v1` reply as it came, read on its network while paired: its
+    /// rendezvous secret for this device, IPv6 addresses and forwarded ports, for reaching it
+    /// from outside (`nightjar_core::internet`). None until a PC that offers it answered.
+    pub internet_play: Option<String>,
 }
 
 /// PyroWave was chosen and a stream from this PC ran another codec.
@@ -1833,10 +1842,13 @@ impl Store {
     pub fn settings(&self) -> Settings {
         let mut settings: Settings = self.read_or_keep_readable("settings.json", keep_readable_settings);
         settings.migrate();
+        nightjar_core::internet::set_enabled(settings.internet_play);
         settings
     }
 
     pub fn save_settings(&self, settings: &Settings) -> std::io::Result<()> {
+        // Every change of the settings passes here: the tunnels follow Play over the internet.
+        nightjar_core::internet::set_enabled(settings.internet_play);
         self.write(&self.dir.join("settings.json"), settings)
     }
 
@@ -3064,6 +3076,21 @@ mod tests {
         assert!(old.client_roaming && !old.roaming_metered);
         let set: Settings = serde_json::from_str(r#"{"client_roaming":false,"roaming_metered":true}"#).unwrap();
         assert!(!set.client_roaming && set.roaming_metered);
+    }
+
+    #[test]
+    fn play_over_the_internet_is_on_by_default_and_in_old_files() {
+        assert!(Settings::default().internet_play);
+        let old: Settings = serde_json::from_str(r#"{"fps":60}"#).unwrap();
+        assert!(old.internet_play);
+        let off: Settings = serde_json::from_str(r#"{"internet_play":false}"#).unwrap();
+        assert!(!off.internet_play);
+        // The host's reply is kept per PC and survives a save.
+        let record = HostRecord { internet_play: Some("{\"version\":1}".into()), ..Default::default() };
+        let saved: HostRecord = serde_json::from_str(&serde_json::to_string(&record).unwrap()).unwrap();
+        assert_eq!(saved.internet_play.as_deref(), Some("{\"version\":1}"));
+        let old: HostRecord = serde_json::from_str(r#"{"address":"192.0.2.1"}"#).unwrap();
+        assert!(old.internet_play.is_none());
     }
 
     #[test]

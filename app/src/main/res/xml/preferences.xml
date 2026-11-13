@@ -813,6 +813,12 @@
             android:title="@string/title_receive_coalescing"
             android:dialogMessage="@string/summary_receive_coalescing"
             android:defaultValue="true" />
+        <!-- Last resort after the local network, IPv6 and a forwarded port (InternetPlay, nightjar-core internet.rs). -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_internet_play"
+            android:title="@string/title_internet_play"
+            android:dialogMessage="@string/summary_internet_play"
+            android:defaultValue="true" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_disable_warnings"
             android:title="@string/title_checkbox_disable_warnings"

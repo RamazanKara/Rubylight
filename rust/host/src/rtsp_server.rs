@@ -221,7 +221,7 @@ async fn connection(
                 "DESCRIBE" => {
                     let flags = h.codecs.load(std::sync::atomic::Ordering::Acquire);
                     let config = crate::stream::effective_config(&h, &launch)?;
-                    let encryption_mode = crate::network::encryption_mode(&config, peer.ip());
+                    let encryption_mode = crate::network::encryption_mode(&config, peer);
                     let input_capabilities = butterpollo_windows::input::capabilities(&config);
                     if config.boolean("mouse", true)
                         && config.boolean("native_pen_touch", true)
@@ -337,8 +337,7 @@ async fn connection(
                     audio_check
                         .take()
                         .context("the ANNOUNCE's audio codec was not checked")??;
-                    let required_encryption =
-                        crate::network::encryption_mode(&config, peer.ip()) == 2;
+                    let required_encryption = crate::network::encryption_mode(&config, peer) == 2;
                     // The FEC and audio share of the client's bitrate is expected;
                     // only a host cap is worth a warning.
                     let uncapped = butterpollo_core::stream_policy::uncapped_bitrate_kbps(

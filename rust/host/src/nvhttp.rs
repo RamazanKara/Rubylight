@@ -523,7 +523,7 @@ fn serverinfo_response(
     let game = remote_game(h);
     // GameStream's public state is scoped to the requesting client. Local
     // maintenance needs the actual session counts, including queued launches.
-    let local = connection.peer.ip().to_canonical().is_loopback();
+    let local = crate::network::from_this_pc(connection.peer);
     let (session_count, pending_count) = if local {
         let mut sessions = h.sessions.lock().unwrap();
         let expired = sessions.expire();
@@ -661,7 +661,7 @@ fn serverinfo_response(
         ),
         (
             "RustHostProfile",
-            if connection.peer.ip().to_canonical().is_loopback() {
+            if crate::network::from_this_pc(connection.peer) {
                 butterpollo_core::migration::profile_id(&h.directory)
             } else {
                 String::new()
@@ -1641,7 +1641,7 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         }
         let rtsp_port = h.config.read().unwrap().ports()?.rtsp;
         if !launch.rtsp_encrypted
-            && crate::network::encryption_mode(&h.config.read().unwrap(), connection.peer.ip()) == 2
+            && crate::network::encryption_mode(&h.config.read().unwrap(), connection.peer) == 2
         {
             bail!("encrypted RTSP is required for this client address");
         }

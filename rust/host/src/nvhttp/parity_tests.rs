@@ -504,6 +504,56 @@ async fn serverinfo_extras_preserve_permissions_codecs_commands_and_limiter_unit
 /// and paired over HTTPS. Anything a host adds later must be offered, so these change only with
 /// an offer (`ControllerIdentityVersion`, last); only the host's own name, identity, version, profile
 /// and sleep support vary.
+/// What serverinfo shows only a program on this PC (session counts, the running game for local
+/// maintenance, the host's profile) a tunnelled device never sees, though it connects over
+/// loopback: neither from its own loopback address nor from a registered shared one.
+#[tokio::test]
+async fn serverinfo_shows_a_tunnelled_device_nothing_only_this_pc_sees() {
+    let f = Fixture::new();
+    let client = f.client(u32::MAX);
+    let config = butterpollo_core::config::Config::default();
+    let local = document(serverinfo_response(
+        &f.host,
+        &f.connection(true),
+        &config,
+        Some(&client),
+        true,
+        String::new(),
+        0,
+        false,
+    ))
+    .await;
+    assert_eq!(field(&local, "RustHostSessionCount"), "0");
+    assert_ne!(field(&local, "RustHostProfile"), "");
+    for (peer, register) in [("127.77.3.4:40010", false), ("127.0.0.1:40011", true)] {
+        let peer: std::net::SocketAddr = peer.parse().unwrap();
+        let _mark = register.then(|| rubylight_traverse::peers::register(peer, "phone"));
+        let mut connection = f.connection(true);
+        connection.peer = peer;
+        let root = document(serverinfo_response(
+            &f.host,
+            &connection,
+            &config,
+            Some(&client),
+            true,
+            String::new(),
+            0,
+            false,
+        ))
+        .await;
+        for name in [
+            "RustHostSessionCount",
+            "RustHostPendingSessionCount",
+            "RustHostApplicationActive",
+            "RustHostProfile",
+        ] {
+            assert_eq!(field(&root, name), "", "{peer}: {name}");
+        }
+        // Still a paired device: the fields any paired device sees stay.
+        assert_eq!(field(&root, "PairStatus"), "1", "{peer}");
+    }
+}
+
 #[tokio::test]
 async fn serverinfo_for_a_default_config_is_byte_identical() {
     let f = Fixture::new();
@@ -1875,6 +1925,51 @@ async fn a_launch_during_the_startup_probe_waits_for_its_result() {
     assert!(!message.contains("No video encoder is ready"), "{message}");
     assert!(message.contains("encrypted RTSP is required"), "{message}");
     assert!(f.host.sessions.lock().unwrap().pending.is_empty());
+}
+
+/// A device through an internet play tunnel reaches the host from this PC, from its own loopback
+/// address (127.77.x.y) or, on a host listening on one address, from that address under a
+/// registration. Either way it gets the internet's encryption, not the local network's.
+#[tokio::test]
+async fn a_tunnelled_launch_needs_the_internets_encryption() {
+    let f = Fixture::new();
+    f.client(1 << 26);
+    {
+        let mut config = f.host.config.write().unwrap();
+        config
+            .values
+            .insert("lan_encryption_mode".into(), "0".into());
+        config
+            .values
+            .insert("wan_encryption_mode".into(), "2".into());
+    }
+    let app_id = f.host.apps.read().unwrap()[0].id();
+    for (peer, register) in [("127.77.3.4:40000", false), ("127.0.0.1:40001", true)] {
+        let peer: std::net::SocketAddr = peer.parse().unwrap();
+        let _mark = register.then(|| rubylight_traverse::peers::register(peer, "phone"));
+        let args = Args::from([
+            ("appid".into(), app_id.to_string()),
+            ("rikey".into(), "00000000000000000000000000000000".into()),
+            ("rikeyid".into(), "1".into()),
+        ]);
+        let probe = finish_startup_probe_later(&f, 0x1 | 0x100);
+        let launch = {
+            let h = f.host.clone();
+            let mut connection = f.connection(true);
+            connection.peer = peer;
+            tokio::task::spawn_blocking(move || start(h, connection, args, false))
+                .await
+                .unwrap()
+        };
+        probe.join().unwrap();
+        let root = document(launch).await;
+        let message = &root.attributes["status_message"];
+        assert!(
+            message.contains("encrypted RTSP is required"),
+            "{peer}: {message}"
+        );
+        assert!(f.host.sessions.lock().unwrap().pending.is_empty());
+    }
 }
 
 #[tokio::test]

@@ -19,11 +19,29 @@ mod ipv6;
 mod portmap;
 mod upnp;
 
+/// Whether a connection or datagram from `peer` came through an internet play tunnel. The tunnel
+/// reaches the host's ports from this PC (a loopback address of the device's own, or the address
+/// the host listens on), so its peers would otherwise look like programs on this PC. Every trust
+/// decision that favours this PC or the local network asks this first: a tunnelled device gets
+/// what a device on the internet gets.
+pub fn tunnelled(peer: SocketAddr) -> bool {
+    rubylight_traverse::peers::is_tunnelled(peer)
+}
+
+/// Whether a connection from `peer` is a program on this PC: over loopback, and not through an
+/// internet play tunnel.
+pub fn from_this_pc(peer: SocketAddr) -> bool {
+    peer.ip().to_canonical().is_loopback() && !tunnelled(peer)
+}
+
 /// Whether a connection from `peer` to `local` comes from this PC: over loopback, or to one of
-/// this PC's own addresses, which it then comes from too.
-fn peer_is_this_pc(peer: IpAddr, local: IpAddr) -> bool {
-    let peer = peer.to_canonical();
-    peer.is_loopback() || peer == local.to_canonical()
+/// this PC's own addresses, which it then comes from too. Never through an internet play tunnel.
+fn peer_is_this_pc(peer: SocketAddr, local: IpAddr) -> bool {
+    if tunnelled(peer) {
+        return false;
+    }
+    let ip = peer.ip().to_canonical();
+    ip.is_loopback() || ip == local.to_canonical()
 }
 
 /// Whether the browser behind this request runs on this PC. The address can only say it might:
@@ -34,7 +52,7 @@ fn peer_is_this_pc(peer: IpAddr, local: IpAddr) -> bool {
 /// What adds no header and shows the browser the same address and port still can't be told apart:
 /// `ssh -L 47990:localhost:47990`, or a raw port proxy on the same port, opened at `localhost`.
 pub fn browser_on_this_pc(peer: SocketAddr, local: SocketAddr, headers: &HeaderMap) -> bool {
-    peer_is_this_pc(peer.ip(), local.ip())
+    peer_is_this_pc(peer, local.ip())
         && !request_names_elsewhere(
             headers,
             local,
@@ -144,8 +162,12 @@ pub enum Reach {
     Lan,
     Wan,
 }
+/// Internet play tunnels' loopback ranges (127.77.0.0/16, 127.78.0.0/16) are the internet: a
+/// registered tunnel peer outside them needs its port as well, so callers that have it ask
+/// [`tunnelled`] (or [`peer_reach`]) too.
 pub fn reach(address: IpAddr) -> Reach {
     match address.to_canonical() {
+        ip if rubylight_traverse::peers::tunnel_range(ip) => Reach::Wan,
         IpAddr::V4(ip) if ip.is_loopback() => Reach::Pc,
         IpAddr::V4(ip)
             if ip.is_private()
@@ -160,6 +182,14 @@ pub fn reach(address: IpAddr) -> Reach {
     }
 }
 /// The farthest peers allowed to use the web console and API.
+/// [`reach`] of a connection's or datagram's peer: the internet when it came through a tunnel.
+pub fn peer_reach(peer: SocketAddr) -> Reach {
+    if tunnelled(peer) {
+        Reach::Wan
+    } else {
+        reach(peer.ip())
+    }
+}
 pub fn web_reach(config: &Config) -> Reach {
     match config.get("origin_web_ui_allowed", "lan") {
         "wan" => Reach::Wan,
@@ -196,6 +226,9 @@ pub fn play_refusal(peer: IpAddr, local: IpAddr, gateways: &[IpAddr]) -> Option<
 /// [`play_refusal`] with this PC's default gateways, read only for a peer the address checks
 /// alone let in. A routing table that cannot be read refuses: the gateway check would be skipped.
 pub fn play_refused(peer: SocketAddr, local: SocketAddr) -> Option<String> {
+    if tunnelled(peer) {
+        return Some("the browser is outside the local network".to_owned());
+    }
     if let Some(reason) = play_refusal(peer.ip(), local.ip(), &[]) {
         return Some(reason.to_owned());
     }
@@ -221,8 +254,10 @@ fn default_gateways() -> Result<Vec<IpAddr>> {
     GATEWAY_READS.with(|reads| reads.set(reads.get() + 1));
     Ok(vec![TEST_GATEWAY.parse()?])
 }
-pub fn encryption_mode(config: &Config, address: IpAddr) -> u32 {
-    let lan = reach(address) <= Reach::Lan;
+/// The encryption a client at `peer` needs: `lan_encryption_mode` on this PC and the local
+/// network, `wan_encryption_mode` elsewhere, including through an internet play tunnel.
+pub fn encryption_mode(config: &Config, peer: SocketAddr) -> u32 {
+    let lan = peer_reach(peer) <= Reach::Lan;
     config
         .integer(
             if lan {
@@ -1104,14 +1139,97 @@ mod tests {
     fn a_peer_on_this_pc_comes_over_loopback_or_from_the_address_it_reached() {
         let lan: IpAddr = "192.168.4.69".parse().unwrap();
         let loopback = IpAddr::from([127, 0, 0, 1]);
-        assert!(peer_is_this_pc(loopback, loopback));
         assert!(peer_is_this_pc(
-            "::1".parse().unwrap(),
+            "127.0.0.1:50000".parse().unwrap(),
+            loopback
+        ));
+        assert!(peer_is_this_pc(
+            "[::1]:50000".parse().unwrap(),
             "::1".parse().unwrap()
         ));
-        assert!(peer_is_this_pc(lan, lan));
-        assert!(peer_is_this_pc("::ffff:192.168.4.69".parse().unwrap(), lan));
-        assert!(!peer_is_this_pc("192.168.4.10".parse().unwrap(), lan));
+        assert!(peer_is_this_pc("192.168.4.69:50000".parse().unwrap(), lan));
+        assert!(peer_is_this_pc(
+            "[::ffff:192.168.4.69]:50000".parse().unwrap(),
+            lan
+        ));
+        assert!(!peer_is_this_pc("192.168.4.10:50000".parse().unwrap(), lan));
+    }
+
+    /// An internet play tunnel reaches the host's ports from this PC: from a loopback address of
+    /// the device's own, or, when the host listens on one address, from that address. Neither
+    /// may pass for a program on this PC or the local network.
+    #[test]
+    fn a_tunnelled_peer_is_never_this_pc_or_the_local_network() {
+        let loopback = IpAddr::from([127, 0, 0, 1]);
+        let lan: IpAddr = "192.168.4.69".parse().unwrap();
+        let per_device: SocketAddr = "127.77.4.2:50000".parse().unwrap();
+        assert_eq!(reach(per_device.ip()), Reach::Wan);
+        assert_eq!(reach("127.78.1.1".parse().unwrap()), Reach::Wan);
+        assert_eq!(peer_reach(per_device), Reach::Wan);
+        assert!(tunnelled(per_device));
+        assert!(!from_this_pc(per_device));
+        assert!(!peer_is_this_pc(per_device, loopback));
+        assert!(!browser_on_this_pc(
+            per_device,
+            "127.0.0.1:47990".parse().unwrap(),
+            &HeaderMap::new()
+        ));
+        assert!(play_refused(per_device, "127.0.0.1:47990".parse().unwrap()).is_some());
+        assert_eq!(
+            crate::state::pairing_source(per_device.ip()),
+            "a device over the internet"
+        );
+
+        // The address the host listens on, registered by the tunnel for this connection only.
+        let shared: SocketAddr = "192.168.4.69:50011".parse().unwrap();
+        let loopback_shared: SocketAddr = "127.0.0.1:50012".parse().unwrap();
+        assert_eq!(peer_reach(shared), Reach::Lan);
+        assert!(peer_is_this_pc(shared, lan));
+        assert!(from_this_pc(loopback_shared));
+        let marks = [
+            rubylight_traverse::peers::register(shared, "phone"),
+            rubylight_traverse::peers::register(loopback_shared, "phone"),
+        ];
+        assert_eq!(peer_reach(shared), Reach::Wan);
+        assert_eq!(peer_reach(loopback_shared), Reach::Wan);
+        assert!(!peer_is_this_pc(shared, lan));
+        assert!(!peer_is_this_pc(loopback_shared, loopback));
+        assert!(!from_this_pc(loopback_shared));
+        assert!(!browser_on_this_pc(
+            loopback_shared,
+            "127.0.0.1:47990".parse().unwrap(),
+            &HeaderMap::new()
+        ));
+        assert!(play_refused(shared, "192.168.4.69:47990".parse().unwrap()).is_some());
+        // Another connection from the same address is still this PC.
+        assert!(from_this_pc("127.0.0.1:50013".parse().unwrap()));
+        drop(marks);
+        assert!(from_this_pc(loopback_shared));
+    }
+
+    /// A tunnelled client gets the internet's encryption, never the local network's.
+    #[test]
+    fn a_tunnelled_peer_needs_the_internets_encryption() {
+        let config = Config::parse("lan_encryption_mode = 0\nwan_encryption_mode = 2\n").unwrap();
+        assert_eq!(
+            encryption_mode(&config, "127.0.0.1:50020".parse().unwrap()),
+            0
+        );
+        assert_eq!(
+            encryption_mode(&config, "127.77.9.9:50020".parse().unwrap()),
+            2
+        );
+        let shared: SocketAddr = "192.168.4.69:50021".parse().unwrap();
+        assert_eq!(encryption_mode(&config, shared), 0);
+        let mark = rubylight_traverse::peers::register(shared, "phone");
+        assert_eq!(encryption_mode(&config, shared), 2);
+        drop(mark);
+        // Defaults: the internet asks for encryption where the local network doesn't.
+        let defaults = Config::default();
+        assert_eq!(
+            encryption_mode(&defaults, "127.77.9.9:50020".parse().unwrap()),
+            1
+        );
     }
     fn request(pairs: &[(&'static str, &str)]) -> HeaderMap {
         let mut headers = HeaderMap::new();

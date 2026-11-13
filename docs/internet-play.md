@@ -45,6 +45,7 @@ Punching works for IPv4 when at least one side has a cone NAT, or both are port-
 
 ## Limits
 
-- A tunnelled device appears to the host as a loopback peer. The host keys sessions by the device's loopback source address, and the path is sealed with the device's keys.
+- A tunnelled device reaches the host's ports from this PC, yet the host treats it as a device on the internet: every connection and media socket the tunnel opens is marked as tunnelled before it sends, and 127.77.0.0/16 and 127.78.0.0/16 always count as the internet. It gets `wan_encryption_mode`, never `lan_encryption_mode`, none of what serverinfo shows only programs on this PC (session counts, the host's profile), no browser-on-this-PC trust and no LAN-only guest play. The path is sealed with the device's keys.
+- The host keys sessions by the device's source address (127.77.x.y). A host that listens on one address, not every address, connects every tunnel from that address, so it serves one device over the internet at a time.
 - The host polls each device's record every ten seconds while the option is on: a few small DHT packets per device.
 - Away from home, a PC that is off is tried over the DHT at most once a minute.

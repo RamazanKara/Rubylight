@@ -229,10 +229,13 @@ pub struct PendingPin {
     pub sender: tokio::sync::oneshot::Sender<PinEntry>,
 }
 /// Where a pairing request came from, as the owner reads it: loopback is this PC, which for a
-/// browser far away means a tunnel or proxy on it.
+/// browser far away means a tunnel or proxy on it; an internet play tunnel's range is a device on
+/// the internet.
 pub fn pairing_source(address: std::net::IpAddr) -> String {
     let address = address.to_canonical();
-    if address.is_loopback() {
+    if rubylight_traverse::peers::tunnel_range(address) {
+        "a device over the internet".into()
+    } else if address.is_loopback() {
         "this PC (a tunnel or proxy)".into()
     } else {
         address.to_string()

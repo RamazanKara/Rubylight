@@ -784,7 +784,7 @@ fn app_file(root: &std::path::Path, method: &Method, path: &str, policy: &str) -
 async fn guard(State(h): State<Shared>, mut request: Request, next: Next) -> Response {
     // origin_web_ui_allowed: pc, lan (default) or wan, as in Vibepollo.
     if let Some(connection) = request.extensions().get::<Connection>()
-        && crate::network::reach(connection.peer.ip())
+        && crate::network::peer_reach(connection.peer)
             > crate::network::web_reach(&h.config.read().unwrap())
     {
         tracing::info!(peer = %connection.peer, "web interface request from outside the allowed network refused");
@@ -844,7 +844,7 @@ async fn guard(State(h): State<Shared>, mut request: Request, next: Next) -> Res
         && !request
             .extensions()
             .get::<Connection>()
-            .is_some_and(|c| c.peer.ip().is_loopback())
+            .is_some_and(|c| crate::network::from_this_pc(c.peer))
     {
         return error(
             StatusCode::FORBIDDEN,
@@ -1178,7 +1178,7 @@ pub(crate) async fn api(
         // administrator runs this program with --creds.
         if configured
             && !authenticated
-            && connection.peer.ip().to_canonical().is_loopback()
+            && crate::network::from_this_pc(connection.peer)
             && let Ok(program) = std::env::current_exe()
         {
             status["creds_program"] = program.display().to_string().into();

@@ -1149,13 +1149,11 @@ public class HostStreamSettings extends NightjarActivity {
             }
             Preference rtxHdr = findPreference("rtx_hdr");
             if (rtxHdr != null) {
-                rtxHdr.setSummary(enhancementText(own.rtxHdr) + "
-" + getString(R.string.summary_rtx_hdr));
+                rtxHdr.setSummary(enhancementText(own.rtxHdr) + "\n" + getString(R.string.summary_rtx_hdr));
             }
             Preference rtxVideo = findPreference("rtx_video");
             if (rtxVideo != null) {
-                rtxVideo.setSummary(enhancementText(own.rtxVideo) + "
-" + getString(R.string.summary_rtx_video));
+                rtxVideo.setSummary(enhancementText(own.rtxVideo) + "\n" + getString(R.string.summary_rtx_video));
             }
             Preference preset = findPreference("preset");
             if (preset != null) {

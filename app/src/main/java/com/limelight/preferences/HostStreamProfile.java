@@ -33,11 +33,13 @@ public final class HostStreamProfile {
     public Integer upscalingSharpness;
     /** A frame pacing choice as the global setting stores it, e.g. "balanced". */
     public String pacing;
+    /** RTX HDR and RTX Video enhancement turned on or off for this PC's streams; null follows its app setting. */
+    public Boolean rtxHdr, rtxVideo;
 
     /** The values a set can hold; each one falls through on its own. */
     public enum Field {
         RESOLUTION, REFRESH, BITRATE, CODEC, UPSCALING, SHARPNESS, HDR, VRR, YUV444, FULL_RANGE, PACING,
-        VIRTUAL_DISPLAY, RENDER_SCALE, DISPLAY_SCALE
+        VIRTUAL_DISPLAY, RENDER_SCALE, DISPLAY_SCALE, RTX_HDR, RTX_VIDEO
     }
 
     static final String[] PACING_VALUES = {"latency", "balanced", "cap-fps", "smoothness"};
@@ -107,7 +109,8 @@ public final class HostStreamProfile {
     public boolean isEmpty() {
         return nativeResolution == null && refreshRateX100 == null && bitrate == null && renderScale == null &&
                 displayScale == null && codec == null && virtualDisplay == null && hdr == null && fullRange == null &&
-                yuv444 == null && vrr == null && upscalingMode == null && upscalingSharpness == null && pacing == null;
+                yuv444 == null && vrr == null && upscalingMode == null && upscalingSharpness == null && pacing == null &&
+                rtxHdr == null && rtxVideo == null;
     }
 
     public boolean has(Field field) {
@@ -125,6 +128,8 @@ public final class HostStreamProfile {
             case PACING: return pacing != null;
             case VIRTUAL_DISPLAY: return virtualDisplay != null;
             case DISPLAY_SCALE: return displayScale != null;
+            case RTX_HDR: return rtxHdr != null;
+            case RTX_VIDEO: return rtxVideo != null;
             default: return renderScale != null;
         }
     }
@@ -149,6 +154,8 @@ public final class HostStreamProfile {
             case PACING: pacing = from.pacing; break;
             case VIRTUAL_DISPLAY: virtualDisplay = from.virtualDisplay; break;
             case DISPLAY_SCALE: displayScale = from.displayScale; break;
+            case RTX_HDR: rtxHdr = from.rtxHdr; break;
+            case RTX_VIDEO: rtxVideo = from.rtxVideo; break;
             default: renderScale = from.renderScale; break;
         }
     }
@@ -202,6 +209,8 @@ public final class HostStreamProfile {
         if (upscalingMode != null) config.upscalingMode = upscalingMode;
         if (upscalingSharpness != null) config.upscalingSharpness = upscalingSharpness;
         if (pacing != null) config.framePacing = PreferenceConfiguration.framePacingValue(pacing);
+        if (rtxHdr != null) config.rtxHdr = rtxHdr;
+        if (rtxVideo != null) config.rtxVideo = rtxVideo;
         if (config.enableHdr || config.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE) {
             config.useTextureView = false;
         }
@@ -253,6 +262,8 @@ public final class HostStreamProfile {
         if (upscalingMode != null) out.append(";upscaling=").append(upscalingMode.name());
         if (upscalingSharpness != null) out.append(";sharpness=").append(upscalingSharpness);
         if (pacing != null) out.append(";pacing=").append(pacing);
+        if (rtxHdr != null) out.append(";rtx_hdr=").append(rtxHdr);
+        if (rtxVideo != null) out.append(";rtx_video=").append(rtxVideo);
         return out.toString();
     }
 
@@ -331,6 +342,12 @@ public final class HostStreamProfile {
                     break;
                 case "pacing":
                     profile.pacing = requirePacing(field);
+                    break;
+                case "rtx_hdr":
+                    profile.rtxHdr = parseBoolean(field);
+                    break;
+                case "rtx_video":
+                    profile.rtxVideo = parseBoolean(field);
                     break;
                 default:
                     // A value a newer build added; this build leaves it to the global settings.

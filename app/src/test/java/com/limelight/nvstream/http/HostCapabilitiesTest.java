@@ -640,6 +640,28 @@ public class HostCapabilitiesTest {
     }
 
     @Test
+    public void imageEnhancementChoicesGoOnlyForWhatTheHostOffers() {
+        String host = "<RustHostVersion>4.2.0</RustHostVersion>";
+        HostCapabilities none = caps(host);
+        assertEquals(0, none.nvidiaEnhancements());
+        assertEquals("", none.enhancementParameters(true, false));
+        HostCapabilities video = caps(host + "<NvidiaEnhancements>2</NvidiaEnhancements>");
+        assertFalse(video.offersEnhancement(HostCapabilities.RTX_HDR));
+        assertTrue(video.offersEnhancement(HostCapabilities.RTX_VIDEO));
+        assertEquals("&rlRtxVideo=0", video.enhancementParameters(true, false));
+        HostCapabilities both = caps(host + "<NvidiaEnhancements>3</NvidiaEnhancements>");
+        assertEquals("&rlRtxHdr=1&rlRtxVideo=0", both.enhancementParameters(true, false));
+        // Following the app sends nothing.
+        assertEquals("", both.enhancementParameters(null, null));
+        // Unknown bits and junk read as nothing more, as the shared Rust parser reads them.
+        assertEquals(3, caps(host + "<NvidiaEnhancements>255</NvidiaEnhancements>").nvidiaEnhancements());
+        assertEquals(0, caps(host + "<NvidiaEnhancements>x</NvidiaEnhancements>").nvidiaEnhancements());
+        assertEquals(0, caps(host + "<NvidiaEnhancements>-1</NvidiaEnhancements>").nvidiaEnhancements());
+        // It survives the capability cache.
+        assertEquals(3, HostCapabilities.fromJson(both.toJson()).nvidiaEnhancements());
+    }
+
+    @Test
     public void displayScaleNeedsDisplayScaleVersionAndAWorkingVirtualDisplay() {
         String host = "<RustHostVersion>3.0.0</RustHostVersion><VirtualDisplayCapable>true</VirtualDisplayCapable>" +
                 "<VirtualDisplayDriverReady>true</VirtualDisplayDriverReady>";

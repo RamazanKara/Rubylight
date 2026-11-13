@@ -1559,4 +1559,8 @@ sudo sysctl -w net.core.rmem_max={}", "Alma arabelleği: sistem istenen {1} KiB'
     ("Nobody has joined your game", "Oyununa henüz kimse katılmadı"),
     ("Take back keyboard", "Klavyeyi geri al"),
     ("Give keyboard", "Klavyeyi ver"),
+    ("RTX HDR", "RTX HDR"),
+    ("RTX Video", "RTX Video"),
+    ("Turns the PC game’s SDR picture into HDR in HDR streams.", "HDR yayınlarda PC’deki oyunun SDR görüntüsünü HDR’ye dönüştürür."),
+    ("Cleans up and sharpens the picture on the PC before it is encoded.", "Görüntüyü kodlanmadan önce PC’de temizler ve keskinleştirir."),
 ];

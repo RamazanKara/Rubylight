@@ -289,6 +289,50 @@ public final class HostCapabilities {
         return features.get(feature).isSupported();
     }
 
+    /** The serverinfo field naming the image enhancements a host offers (rubylight_protocol::nvidia_enhance). */
+    public static final String NVIDIA_ENHANCEMENTS_FIELD = "NvidiaEnhancements";
+    /** RTX HDR, turned on or off for a stream with {@link #RTX_HDR_PARAMETER}. */
+    public static final int RTX_HDR = 1;
+    /** RTX Video enhancement, turned on or off for a stream with {@link #RTX_VIDEO_PARAMETER}. */
+    public static final int RTX_VIDEO = 2;
+    static final int ALL_ENHANCEMENTS = RTX_HDR | RTX_VIDEO;
+    public static final String RTX_HDR_PARAMETER = "rlRtxHdr";
+    public static final String RTX_VIDEO_PARAMETER = "rlRtxVideo";
+
+    /** The field's bits this client knows; junk reads as none. */
+    static int parseEnhancements(String text) {
+        try {
+            long mask = Long.parseLong(text.trim());
+            return mask < 0 || mask > 0xFFFFFFFFL ? 0 : (int) (mask & ALL_ENHANCEMENTS);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    /** The image enhancements the host offers per stream ({@link #RTX_HDR}, {@link #RTX_VIDEO} bits). */
+    public int nvidiaEnhancements() {
+        return evidence == null ? 0 : evidence.nvidiaEnhancements;
+    }
+
+    public boolean offersEnhancement(int bit) {
+        return (nvidiaEnhancements() & bit) != 0;
+    }
+
+    /**
+     * The launch parameters for this device's choices (null follows the PC's app setting), only for
+     * enhancements the host offers. Shared rule: rubylight_protocol::nvidia_enhance::launch_parameters.
+     */
+    public String enhancementParameters(Boolean rtxHdr, Boolean rtxVideo) {
+        StringBuilder out = new StringBuilder();
+        if (rtxHdr != null && offersEnhancement(RTX_HDR)) {
+            out.append('&').append(RTX_HDR_PARAMETER).append('=').append(rtxHdr ? '1' : '0');
+        }
+        if (rtxVideo != null && offersEnhancement(RTX_VIDEO)) {
+            out.append('&').append(RTX_VIDEO_PARAMETER).append('=').append(rtxVideo ? '1' : '0');
+        }
+        return out.toString();
+    }
+
     public Availability availability(Feature feature) {
         return features.get(feature);
     }
@@ -631,6 +675,8 @@ public final class HostCapabilities {
         int displayScaleVersion = -1;
         /** -1 without SecondScreenVersion: the host ends the first stream when a second one of the device starts. */
         int secondScreenVersion = -1;
+        /** NvidiaEnhancements: the image enhancements the host offers per stream (RTX_HDR, RTX_VIDEO bits). */
+        int nvidiaEnhancements = 0;
         /** usb, clipboard.image and folders in the native features, and this device's usb and shared_folders. */
         boolean usbOffered;
         boolean usbPermission;
@@ -762,6 +808,9 @@ public final class HostCapabilities {
                         break;
                     case "SecondScreenVersion":
                         evidence.secondScreenVersion = (int) unsigned(parser.nextText(), 0xFFFF);
+                        break;
+                    case NVIDIA_ENHANCEMENTS_FIELD:
+                        evidence.nvidiaEnhancements = parseEnhancements(parser.nextText());
                         break;
                     case "NativeApiVersion":
                         evidence.nativeApiVersion = (int) unsigned(parser.nextText(), 0xFFFF);
@@ -1086,7 +1135,8 @@ public final class HostCapabilities {
                     .put("controllerIdentityVersion", controllerIdentityVersion)
                     .put("pipelineRatesVersion", pipelineRatesVersion)
                     .put("displayScaleVersion", displayScaleVersion)
-                    .put("secondScreenVersion", secondScreenVersion).put("usbOffered", usbOffered)
+                    .put("secondScreenVersion", secondScreenVersion).put("nvidiaEnhancements", nvidiaEnhancements)
+                    .put("usbOffered", usbOffered)
                     .put("usbPermission", usbPermission).put("imageClipboardOffered", imageClipboardOffered)
                     .put("foldersOffered", foldersOffered).put("folderPermission", folderPermission)
                     .put("coopOffered", coopOffered).put("micOnlyOffered", micOnlyOffered);
@@ -1144,6 +1194,7 @@ public final class HostCapabilities {
             evidence.pipelineRatesVersion = object.optInt("pipelineRatesVersion", -1);
             evidence.displayScaleVersion = object.optInt("displayScaleVersion", -1);
             evidence.secondScreenVersion = object.optInt("secondScreenVersion", -1);
+            evidence.nvidiaEnhancements = object.optInt("nvidiaEnhancements", 0) & ALL_ENHANCEMENTS;
             evidence.usbOffered = object.optBoolean("usbOffered", false);
             evidence.usbPermission = object.optBoolean("usbPermission", false);
             evidence.imageClipboardOffered = object.optBoolean("imageClipboardOffered", false);
@@ -1196,6 +1247,7 @@ public final class HostCapabilities {
                     controllerIdentityVersion == that.controllerIdentityVersion &&
                     pipelineRatesVersion == that.pipelineRatesVersion && displayScaleVersion == that.displayScaleVersion &&
                     secondScreenVersion == that.secondScreenVersion &&
+                    nvidiaEnhancements == that.nvidiaEnhancements &&
                     usbOffered == that.usbOffered &&
                     usbPermission == that.usbPermission && imageClipboardOffered == that.imageClipboardOffered &&
                     foldersOffered == that.foldersOffered && folderPermission == that.folderPermission &&
@@ -1211,8 +1263,8 @@ public final class HostCapabilities {
                     nativeApiVersion, powerActionVersion, sleepSupported, sleepAllowed, nativeCapabilities, filesUpload,
                     filesDownload, fileUploadPermission, fileDownloadPermission, hdrFormats, fecControlVersion,
                     bandwidthProbeVersion, audioCodecs, audioLayouts, textInputVersion, keyboardLayoutVersion,
-                    penBarrelRollVersion, controllerIdentityVersion, pipelineRatesVersion, displayScaleVersion, secondScreenVersion, usbOffered, usbPermission,
-                    imageClipboardOffered, foldersOffered, folderPermission, coopOffered, micOnlyOffered);
+                    penBarrelRollVersion, controllerIdentityVersion, pipelineRatesVersion, displayScaleVersion, secondScreenVersion, nvidiaEnhancements, usbOffered,
+                    usbPermission, imageClipboardOffered, foldersOffered, folderPermission, coopOffered, micOnlyOffered);
         }
     }
 }

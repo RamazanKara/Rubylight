@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="summary_rtx_hdr">在 HDR 串流中将电脑游戏的 SDR 画面转换为 HDR。</string>
+    <string name="summary_rtx_video">在编码前于电脑上清理并锐化画面。</string>
+</resources>

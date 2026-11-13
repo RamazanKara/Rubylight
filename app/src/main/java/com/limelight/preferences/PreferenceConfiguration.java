@@ -492,6 +492,11 @@ public class PreferenceConfiguration {
     public int virtualDisplayScale;
     // The virtual display's Windows scale in percent; 0 keeps the PC's own.
     public int virtualDisplayDpi;
+    /**
+     * RTX HDR and RTX Video enhancement for this PC's streams (rlRtxHdr, rlRtxVideo): only a PC's own
+     * settings choose them, for a host that offers them; null follows the PC's app setting.
+     */
+    public Boolean rtxHdr, rtxVideo;
     // Where the launch values came from, for the stream log.
     public boolean resolutionFollowsScreen, fromPcProfile;
     // What this PC's displays do during the stream, and the PC's own stream values (for the log).

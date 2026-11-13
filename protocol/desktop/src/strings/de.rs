@@ -1559,4 +1559,8 @@ sudo sysctl -w net.core.rmem_max={2}"),
     ("Nobody has joined your game", "Niemand ist deinem Spiel beigetreten"),
     ("Take back keyboard", "Tastatur zurücknehmen"),
     ("Give keyboard", "Tastatur geben"),
+    ("RTX HDR", "RTX HDR"),
+    ("RTX Video", "RTX Video"),
+    ("Turns the PC game’s SDR picture into HDR in HDR streams.", "Wandelt das SDR-Bild des Spiels auf dem PC in HDR-Streams in HDR um."),
+    ("Cleans up and sharpens the picture on the PC before it is encoded.", "Bereinigt und schärft das Bild auf dem PC, bevor es kodiert wird."),
 ];

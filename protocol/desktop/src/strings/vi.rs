@@ -1559,4 +1559,8 @@ sudo sysctl -w net.core.rmem_max={}", "Bộ đệm nhận: hệ thống chỉ c�
     ("Nobody has joined your game", "Chưa có ai tham gia trò chơi của bạn"),
     ("Take back keyboard", "Lấy lại bàn phím"),
     ("Give keyboard", "Đưa bàn phím"),
+    ("RTX HDR", "RTX HDR"),
+    ("RTX Video", "RTX Video"),
+    ("Turns the PC game’s SDR picture into HDR in HDR streams.", "Chuyển hình ảnh SDR của trò chơi trên PC thành HDR trong luồng HDR."),
+    ("Cleans up and sharpens the picture on the PC before it is encoded.", "Làm sạch và làm nét hình ảnh trên PC trước khi mã hóa."),
 ];

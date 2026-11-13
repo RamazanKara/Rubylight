@@ -552,6 +552,7 @@ final class GameConnection {
                 .setClientRefreshRateX100(Math.round(game.desiredRefreshRate * 100))
                 .setVirtualDisplay(!smallStream && game.prefConfig.virtualDisplay, game.prefConfig.virtualDisplayScale)
                 .setVirtualDisplayDpi(game.prefConfig.virtualDisplayDpi)
+                .setImageEnhancements(game.prefConfig.rtxHdr, game.prefConfig.rtxVideo)
                 .setVrr(!smallStream && game.prefConfig.vrr)
                 .setClipboardSync(game.prefConfig.clipboardSync && game.prefConfig.rustEngine)
                 .setHostDisplay(game.prefConfig.hostDisplay)

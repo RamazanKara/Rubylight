@@ -828,6 +828,14 @@ public class HostStreamSettings extends NightjarActivity {
             row(stream, "vrr", R.string.title_vrr, () -> showSwitch("vrr", R.string.title_vrr));
             row(stream, "pacing", R.string.title_frame_pacing, this::showPacing);
             row(stream, "yuv444", R.string.title_sharp_color, () -> showSwitch("yuv444", R.string.title_sharp_color));
+            // A PC's own choice over its app setting, for the image enhancements its host offers
+            // (NvidiaEnhancements); other hosts and profiles never show them.
+            if (activity.mode == Mode.PC && activity.caps.offersEnhancement(HostCapabilities.RTX_HDR)) {
+                row(stream, "rtx_hdr", R.string.title_rtx_hdr, () -> showEnhancement(HostStreamProfile.Field.RTX_HDR, R.string.title_rtx_hdr));
+            }
+            if (activity.mode == Mode.PC && activity.caps.offersEnhancement(HostCapabilities.RTX_VIDEO)) {
+                row(stream, "rtx_video", R.string.title_rtx_video, () -> showEnhancement(HostStreamProfile.Field.RTX_VIDEO, R.string.title_rtx_video));
+            }
             boolean pc = activity.mode == Mode.PC;
             int reset = pc ? R.string.host_profile_reset : R.string.layers_reset;
             row(stream, "reset", reset, () -> UiHelper.showDialog(activity,
@@ -1139,6 +1147,16 @@ public class HostStreamSettings extends NightjarActivity {
                 dpi.setSummary(summary(HostStreamProfile.Field.DISPLAY_SCALE, own.displayScale != null,
                         displayScaleText(config.virtualDisplayDpi)) + "\n" + getString(R.string.summary_virtual_display_dpi));
             }
+            Preference rtxHdr = findPreference("rtx_hdr");
+            if (rtxHdr != null) {
+                rtxHdr.setSummary(enhancementText(own.rtxHdr) + "
+" + getString(R.string.summary_rtx_hdr));
+            }
+            Preference rtxVideo = findPreference("rtx_video");
+            if (rtxVideo != null) {
+                rtxVideo.setSummary(enhancementText(own.rtxVideo) + "
+" + getString(R.string.summary_rtx_video));
+            }
             Preference preset = findPreference("preset");
             if (preset != null) {
                 GameProfilePreset current = GameProfilePreset.of(own, activity.qualityBitrate());
@@ -1228,6 +1246,25 @@ public class HostStreamSettings extends NightjarActivity {
             new NavigationDialogBuilder(activity).setTitle(R.string.title_frame_pacing)
                     .setSingleChoiceItems(items, checked, (dialog, which) -> {
                         activity.overrides.pacing = which == 0 ? null : values[which - 1];
+                        updateSummaries();
+                        dialog.dismiss();
+                    }).setNegativeButton(android.R.string.cancel, null).show();
+        }
+
+        /** An image enhancement's choice: the PC's app setting, on or off. */
+        private String enhancementText(Boolean choice) {
+            return choice == null ? getString(R.string.fec_choice_host) : onOff(choice);
+        }
+
+        private void showEnhancement(HostStreamProfile.Field field, int title) {
+            Boolean own = field == HostStreamProfile.Field.RTX_HDR ? activity.overrides.rtxHdr : activity.overrides.rtxVideo;
+            CharSequence[] items = {enhancementText(null), onOff(true), onOff(false)};
+            int checked = own == null ? 0 : own ? 1 : 2;
+            new NavigationDialogBuilder(activity).setTitle(title)
+                    .setSingleChoiceItems(items, checked, (dialog, which) -> {
+                        Boolean chosen = which == 0 ? null : which == 1;
+                        if (field == HostStreamProfile.Field.RTX_HDR) activity.overrides.rtxHdr = chosen;
+                        else activity.overrides.rtxVideo = chosen;
                         updateSummaries();
                         dialog.dismiss();
                     }).setNegativeButton(android.R.string.cancel, null).show();

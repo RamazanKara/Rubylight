@@ -26,7 +26,9 @@ fn close(a: f64, b: f64, tolerance: f64) -> bool {
 fn transfer_functions_invert() {
     for v in [0., 0.01, 0.2, 0.5, 0.9, 1.] {
         assert!(close(srgb_encode(srgb_decode(v)), v, 1e-9));
-        assert!(close(pq(depq(v)), v, 1e-9));
+        // ST 2084 puts 0 nits at C1^M2 (about 7e-7), not 0, so the round trip holds from there.
+        assert!(close(pq(depq(v.max(pq(0.)))), v.max(pq(0.)), 1e-9));
+        assert!(close(depq(pq(v)), v, 1e-9));
         assert!(close(bt2020_oetf(bt2020_eotf(v)), v, 1e-9));
         assert!(close(hlg_oetf(hlg_inverse_oetf(v)), v, 1e-9));
     }
@@ -62,10 +64,14 @@ fn sdr_white_and_black_land_on_the_studio_range_codes() {
 fn hdr_80_nit_white_lands_on_its_pq_code() {
     let s = spec(Transfer::Pq, Source::ScRgbF16, 16, 16);
     let planes = reference(&flat(16, 16, [1.; 3]), &s);
-    // 80 nits white: PQ 0.4867, 10-bit studio range 64 + 876 * code.
-    let expected = 64. + 876. * pq(0.008);
+    // 80 nits white: PQ 0.4867, 10-bit studio range 64 + 876 * code. The BT.709 to BT.2020
+    // matrix is the shaders' (rows rounded to six places, so G and B sum to 0.999999): exact
+    // through it, and within a thousandth of a code of the ideal white.
+    let code = each(apply(&BT709_TO_2020, [80.; 3]), |c| pq(c / 10000.));
+    let (expected, expected_cr) = (luma_code(&s, code), chroma_codes(&s, code).1);
+    assert!(close(expected, 64. + 876. * pq(0.008), 1e-3) && close(expected_cr, 512., 1e-3));
     assert!(planes.y.iter().all(|&y| close(y, expected, 1e-6)));
-    assert!(planes.cr.iter().all(|&c| close(c, 512., 1e-6)));
+    assert!(planes.cr.iter().all(|&c| close(c, expected_cr, 1e-6)));
 }
 
 #[test]
@@ -143,7 +149,10 @@ fn hdr_resamples_in_linear_light() {
     }
     // Half of 160 nits is 80 nits, not the PQ code halfway to black.
     let rgb = nonlinear(&source, &s);
-    assert!(close(rgb[0][1], pq(0.008), 1e-9));
+    // Through the shaders' BT.709 to BT.2020 matrix, whose green row sums to 0.999999.
+    let green = apply(&BT709_TO_2020, [80.; 3])[1];
+    assert!(close(rgb[0][1], pq(green / 10000.), 1e-9));
+    assert!(close(rgb[0][1], pq(0.008), 1e-6));
 }
 
 #[test]

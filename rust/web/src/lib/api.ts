@@ -574,6 +574,8 @@ export interface Performance {
 }
 export type Role = 'stream' | 'remote_monitor' | 'input_only';
 export interface StreamSession {
+  /** The guest id when this stream joined another device's game as a guest (`/api/session-guests`). */
+  guest?: number | null;
   encoder: string;
   warnings: { code: string; message: string }[];
   uuid: string;
@@ -824,6 +826,39 @@ export interface GuestEntry {
   /** The invite it joined with. */
   invite: string;
   since: number;
+}
+
+/** `GET /api/session-guests`: paired devices that joined the running game as guests (docs/multiclient.md). */
+export type GuestJoinPolicy = 'ask' | 'allow' | 'off';
+export interface DeviceGuest {
+  id: number;
+  name: string;
+  permission: GuestPermission;
+  /** Whether its stream runs now. */
+  streaming: boolean;
+  /** Unix seconds it was let in. */
+  since: number;
+  /** Unix seconds its time ends; null lasts until the game ends. */
+  expires: number | null;
+}
+export interface JoinWaiting {
+  id: number;
+  name: string;
+  /** Until the join gives up. */
+  seconds_left: number;
+}
+export interface SessionGuestsStatus {
+  policy: GuestJoinPolicy;
+  default_permission: GuestPermission;
+  /** The device playing, when a game runs. */
+  owner: string | null;
+  owner_name: string | null;
+  max_guests: number;
+  version: number;
+  /** The guest holding the keyboard and mouse; null while the device playing holds them. */
+  keyboard_mouse: number | null;
+  guests: DeviceGuest[];
+  waiting: JoinWaiting[];
 }
 
 /** `GET /api/guests`: the Stream page's invite links and the guests watching. */
@@ -1246,6 +1281,21 @@ export const api = {
     revoke: (id: string) => post<Record<string, never>>('/api/guests/revoke', { id }),
     /** Disconnects the guest; its link still works. */
     kick: (id: number) => post<Record<string, never>>('/api/guests/kick', { id }),
+  },
+  sessionGuests: {
+    status: () => get<SessionGuestsStatus>('/api/session-guests'),
+    /** Lets a waiting device in, with `permission`, for `seconds` (300 to 604800) or until the game ends (null). */
+    approve: (id: number, permission: GuestPermission, seconds: number | null = null) =>
+      post<SessionGuestsStatus>('/api/session-guests/approve', { id, permission, seconds }),
+    deny: (id: number) => post<SessionGuestsStatus>('/api/session-guests/deny', { id }),
+    /** Ends the guest's stream; it may ask to join again. */
+    kick: (id: number) => post<SessionGuestsStatus>('/api/session-guests/kick', { id }),
+    /** Ends the guest's stream and refuses its device until the game ends. */
+    revoke: (id: number) => post<SessionGuestsStatus>('/api/session-guests/revoke', { id }),
+    permission: (id: number, permission: GuestPermission) =>
+      post<SessionGuestsStatus>('/api/session-guests/permission', { id, permission }),
+    /** Hands the keyboard and mouse to guest `id`, or back to the device playing with null. */
+    keyboardMouse: (id: number | null) => post<SessionGuestsStatus>('/api/session-guests/keyboard-mouse', { id }),
   },
   coop: {
     status: () => get<CoopStatus>('/api/coop'),

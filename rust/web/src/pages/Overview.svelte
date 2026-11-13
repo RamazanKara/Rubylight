@@ -4,6 +4,7 @@
   import Icon from '../components/Icon.svelte';
   import AppCover from '../components/library/AppCover.svelte';
   import CoopCard from '../components/overview/CoopCard.svelte';
+  import GuestsCard from '../components/overview/GuestsCard.svelte';
   import { coverPath, coverVersion, placeholder } from '../components/library/app';
   import { homeLead, problems } from '../lib/host-readiness';
   import { applyFix, dismissWarning, fixes } from '../lib/host-fixes.svelte';
@@ -19,8 +20,10 @@
   import StreamCard from '../components/overview/StreamCard.svelte';
   import { heroGame, liveFigures } from '../components/overview/now-playing';
   import {
-    api, type App, type Client, type CoopStatus, type PowerStatus, type SessionStatus, type StreamSession,
+    api, type App, type Client, type CoopStatus, type PowerStatus, type SessionGuestsStatus, type SessionStatus,
+    type StreamSession,
   } from '../lib/api';
+  import { shown as guestsShown } from '../lib/session-guests';
   import { endedTitle, endedTone, endText, homeSessions, lastEnded, liveCoop } from '../lib/coop-view';
   import Banner from '../components/Banner.svelte';
   import { confirm, failed, notify } from '../lib/feedback.svelte';
@@ -208,6 +211,17 @@
     }
   }
 
+  // Guests from paired devices in the running game, and devices waiting to join it.
+  let deviceGuests = $state<SessionGuestsStatus | null>(null);
+  async function refreshDeviceGuests() {
+    try {
+      deviceGuests = await api.sessionGuests.status();
+    } catch {
+      // A host without guests answers nothing to show.
+      deviceGuests = null;
+    }
+  }
+
   $effect(() => {
     if (!paired || powerAsked) return;
     powerAsked = true;
@@ -219,10 +233,12 @@
     const stopSessions = poll(refreshSessions, 2000);
     const stopMetadata = poll(loadMetadata, 30_000);
     const stopCoop = poll(refreshCoop, 3000);
+    const stopGuests = poll(refreshDeviceGuests, 2000);
     return () => {
       stopSessions();
       stopMetadata();
       stopCoop();
+      stopGuests();
     };
   });
 </script>
@@ -322,6 +338,9 @@
 {#each coopGames as coopGame (coopGame.id)}
   <CoopCard session={coopGame} clients={coopClients} clientsError={coopClientsError} at={coopAt} onchange={refreshCoop} />
 {/each}
+{#if deviceGuests && guestsShown(deviceGuests)}
+  <GuestsCard status={deviceGuests} onchange={(next) => (deviceGuests = next)} />
+{/if}
 {#if streams.length}
   <Panel title="Connected streams" flush>
     {#each streams as stream}<StreamCard {stream} busy={disconnecting === stream.uuid} ondisconnect={disconnect} />{/each}

@@ -58,6 +58,7 @@
       {:else}
         <Badge tone="live">Live</Badge>
       {/if}
+      {#if stream.guest != null}<Badge>Guest</Badge>{/if}
       {#if limited}
         <Badge tone="warn">
           Bitrate limited by the network: <span class="num">{rate(stream.encoder_bitrate_kbps)}</span> of

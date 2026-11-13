@@ -42,6 +42,8 @@ pub const GLOBAL: &[Setting] = settings! {
     "App behavior" => [
         "terminate_on_pause", "Close the app when the last device disconnects", Bool;
         "exit_timeout", "App shutdown timeout (seconds; apps without their own; default 10)", Number;
+        "guest_join", "Another device joining the running game", Choice(&["ask","allow","off"]);
+        "guest_permission", "What a guest may do", Choice(&["view","controller","controller-keyboard-mouse"]);
     ]
     "Audio" => [
         "virtual_sink", "Virtual audio device", Text;

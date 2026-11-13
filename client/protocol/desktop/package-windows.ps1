@@ -123,11 +123,12 @@ if ([NightjarPackage.Shell]::ExtractIconEx($exe, -1, $null, $null, 0) -lt 1) { t
 
 # What a DLL or exe imports, by name. MSYS2's objdump is GNU binutils on UCRT64 and LLVM's on
 # CLANGARM64; a cross build takes llvm-objdump from its caller's PATH (it reads both machines).
-# Both print the import table's "DLL Name:" lines.
+# Both print the import table's "DLL Name:" lines; LLVM's also prints a DLL's own name from its
+# export table as "DLL name:", which is no import, so the match keeps to the capital.
 $objdump = if ($cross) { (Get-Command llvm-objdump.exe -ErrorAction Stop).Source } else { "$msys\objdump.exe" }
 function Get-Imports([string]$path) {
     & $objdump -p $path | ForEach-Object {
-        if ($_ -match 'DLL Name:\s*(\S+)') { $Matches[1] }
+        if ($_ -cmatch 'DLL Name:\s*(\S+)') { $Matches[1] }
     }
 }
 # Windows' own libraries: api sets, and anything System32 has that MSYS2 does not rebuild.

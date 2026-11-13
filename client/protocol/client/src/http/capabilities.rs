@@ -1146,6 +1146,11 @@ mod tests {
             ("SecondScreenVersion", Feature::SecondScreen, &[("1", true), ("2", true), ("0", false), ("x", false)]),
             // A host with Play over the internet off says 0.
             ("RustHostInternetPlayVersion", Feature::InternetPlay, &[("1", true), ("0", false), ("", false)]),
+            ("BandwidthProbeVersion", Feature::BandwidthProbe, &[("1", true), ("0", false), ("x", false)]),
+            ("TextInputVersion", Feature::TextInput, &[("1", true), ("0", false), ("x", false)]),
+            ("KeyboardLayoutVersion", Feature::ClientKeyboardLayout, &[("1", true), ("0", false), ("x", false)]),
+            ("PenBarrelRollVersion", Feature::PenBarrelRoll, &[("1", true), ("0", false), ("x", false)]),
+            ("ControllerIdentityVersion", Feature::ControllerIdentity, &[("1", true), ("0", false), ("x", false)]),
         ] {
             for &(value, supported) in cases {
                 let expected = if supported { Availability::Supported } else { never };

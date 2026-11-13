@@ -279,6 +279,9 @@ pub struct Evidence {
     /// -1 without `SecondScreenVersion`: the host ends the first stream when a second one of the
     /// device starts.
     pub second_screen_version: i32,
+    /// The image enhancements the host runs before encoding (`NvidiaEnhancements`,
+    /// `rubylight_protocol::nvidia_enhance` bits); 0 for none.
+    pub nvidia_enhancements: u8,
     /// `usb`, `clipboard.image` and `folders` in the native features, and the device's `usb`
     /// and `shared_folders` permissions.
     pub usb_offered: bool,
@@ -384,6 +387,7 @@ impl Evidence {
             pipeline_rates_version: -1,
             display_scale_version: -1,
             second_screen_version: -1,
+            nvidia_enhancements: 0,
             ..Default::default()
         };
         let (mut encoder, mut initial_encoder) = (false, false);
@@ -439,6 +443,10 @@ impl Evidence {
                 "PipelineRatesVersion" => e.pipeline_rates_version = unsigned(&text, 0xFFFF) as i32,
                 "DisplayScaleVersion" => e.display_scale_version = unsigned(&text, 0xFFFF) as i32,
                 "SecondScreenVersion" => e.second_screen_version = unsigned(&text, 0xFFFF) as i32,
+                "NvidiaEnhancements" => {
+                    e.nvidia_enhancements =
+                        rubylight_protocol::nvidia_enhance::parse_offer(Some(&text))
+                }
                 "NativeApiVersion" => e.native_api_version = unsigned(&text, 0xFFFF) as i32,
                 "PowerActionVersion" => e.power_action_version = unsigned(&text, 0xFFFF) as i32,
                 "SleepSupported" => e.sleep_supported = flag(&text) == Some(true),
@@ -980,6 +988,12 @@ impl HostCapabilities {
 
     pub fn has(&self, feature: Feature) -> bool {
         self.availability(feature).is_supported()
+    }
+
+    /// The image enhancements the host offers to turn on or off per stream
+    /// (`rubylight_protocol::nvidia_enhance` bits), 0 for a host without any.
+    pub fn nvidia_enhancements(&self) -> u8 {
+        self.evidence.as_ref().map_or(0, |e| e.nvidia_enhancements)
     }
 
     /// Supported or not known yet: for behavior that does no harm on a host without it.

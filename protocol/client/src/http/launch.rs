@@ -118,6 +118,12 @@ pub struct LaunchRequest {
     /// The display's luminance, sent at launch to hosts other than Rubylight (which gets it in
     /// the DisplayCaps control message); `None` leaves it to the host.
     pub display_luminance: Option<DisplayLuminance>,
+    /// RTX HDR for this stream (`rlRtxHdr`): `Some` turns it on or off over the app's choice,
+    /// `None` follows the app. Sent only for an enhancement the host offers
+    /// ([`HostCapabilities::nvidia_enhancements`]).
+    pub rtx_hdr: Option<bool>,
+    /// RTX Video enhancement for this stream (`rlRtxVideo`), as `rtx_hdr`.
+    pub rtx_video: Option<bool>,
 }
 
 impl Default for LaunchRequest {
@@ -153,6 +159,8 @@ impl Default for LaunchRequest {
             confirm_replace: false,
             clipboard_sync: false,
             display_luminance: None,
+            rtx_hdr: None,
+            rtx_video: None,
         }
     }
 }
@@ -328,6 +336,15 @@ impl LaunchRequest {
         }
         if self.rate_change {
             q.push_str(&format!("&{}=1", rate_change::LAUNCH_PARAMETER));
+        }
+        if !input_only {
+            for (name, value) in rubylight_protocol::nvidia_enhance::launch_parameters(
+                caps.nvidia_enhancements(),
+                self.rtx_hdr,
+                self.rtx_video,
+            ) {
+                q.push_str(&format!("&{name}={value}"));
+            }
         }
         q.push_str(CORE_LAUNCH_PARAMETERS);
         q
@@ -512,6 +529,53 @@ mod tests {
         assert!(!request()
             .query(&rubylight(), false)
             .contains("rlClipboardSync"));
+    }
+
+    #[test]
+    fn image_enhancement_choices_go_only_for_what_the_host_offers() {
+        let chosen = LaunchRequest {
+            rtx_hdr: Some(true),
+            rtx_video: Some(false),
+            ..request()
+        };
+        // A host without the field, and other hosts, get exactly today's query.
+        assert_eq!(rubylight().nvidia_enhancements(), 0);
+        assert_eq!(chosen.query(&rubylight(), false), request().query(&rubylight(), false));
+        let caps = HostCapabilities::UNKNOWN;
+        assert_eq!(chosen.query(&caps, false), request().query(&caps, false));
+        // A host offering only RTX Video gets only that choice.
+        let video_only = ServerInfo::parse(
+            &RUBYLIGHT.replace("</root>", "<NvidiaEnhancements>2</NvidiaEnhancements></root>"),
+            47989,
+        )
+        .unwrap()
+        .capabilities;
+        assert_eq!(video_only.nvidia_enhancements(), 2);
+        let query = chosen.query(&video_only, false);
+        assert!(query.contains("&rlRtxVideo=0&") && !query.contains("rlRtxHdr"), "{query}");
+        // Both, and following the app sends nothing.
+        let both = ServerInfo::parse(
+            &RUBYLIGHT.replace("</root>", "<NvidiaEnhancements>3</NvidiaEnhancements></root>"),
+            47989,
+        )
+        .unwrap()
+        .capabilities;
+        let query = chosen.query(&both, false);
+        assert!(query.contains("&rlRtxHdr=1&rlRtxVideo=0&"), "{query}");
+        assert_eq!(request().query(&both, false), request().query(&rubylight(), false));
+        // An input-only session encodes no picture.
+        let input_only = LaunchRequest { role: AppRole::InputOnly, ..chosen };
+        assert!(!input_only.query(&both, false).contains("rlRtx"));
+        // Unknown bits and junk read as nothing more.
+        for (text, mask) in [("255", 3), ("x", 0), ("-1", 0)] {
+            let caps = ServerInfo::parse(
+                &RUBYLIGHT.replace("</root>", &format!("<NvidiaEnhancements>{text}</NvidiaEnhancements></root>")),
+                47989,
+            )
+            .unwrap()
+            .capabilities;
+            assert_eq!(caps.nvidia_enhancements(), mask, "{text}");
+        }
     }
 
     #[test]

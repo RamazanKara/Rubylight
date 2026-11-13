@@ -67,7 +67,7 @@ This page lists every feature with a link to its guide. Features available on on
 
 ## Controls
 
-- **Controllers.** Up to 16 players, with button, stick, trigger and D-pad mapping per controller model, and **Connect as** to pick the type the PC sees. Extra buttons can press the touchpad, Share / Capture or paddles 1 to 4 on the PC. [Gamepads](controls.md#gamepads)
+- **Controllers.** Up to 16 players, with button, stick, trigger and D-pad mapping per controller model, and **Connect as** to pick the type the PC sees. Extra buttons can press the touchpad, Share / Capture or paddles 1 to 4 on the PC. Nightjar tells a Rubylight host which controller it is, so a Switch 2 Pro Controller arrives as one, with its C button (desktop), grip buttons, motion and rumble, when the PC has usbip-win2 and a Rubylight host that supports it. [Gamepads](controls.md#gamepads)
 - **USB controller drivers.** DualSense over USB with adaptive triggers, the lightbar, Edge paddles, waveform haptics, and its speaker, headset jack and microphone; built-in drivers for Xbox and Switch Pro controllers. Android; the desktop uses SDL for the same controllers and has **USB DualSense audio and haptics**. [DualSense and USB](controls.md#dualsense-and-usb)
 - **Stream menu.** The same tiles on Android and desktop, opened by Back, a hotkey, a controller chord or a held Guide; **Y**, **X**, **LB** and **RB** run the tile you pick, and your keyboard shortcuts, Game Bar and Record that are tiles too. [The stream menu](controls.md#the-stream-menu)
 - **Stream hotkeys.** One set on Android and desktop, each changeable or off. [Stream hotkeys](controls.md#stream-hotkeys)

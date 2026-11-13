@@ -1216,6 +1216,24 @@ mod tests {
         out.iter().map(|p| decode(&p.data).unwrap()).collect()
     }
 
+    /// A sent packet: a controller identity (0x55000080), read with the shared decoder the
+    /// host uses for it (the host core these tests pin predates the packet), or any other
+    /// input as the host core decodes it.
+    #[derive(Debug)]
+    enum Sent {
+        Identity(rubylight_protocol::controller_identity::ControllerIdentity),
+        Host(Input),
+    }
+
+    fn sent(data: &[u8]) -> Sent {
+        use rubylight_protocol::controller_identity::{ControllerIdentity, CONTROLLER_IDENTITY_MAGIC};
+        if data.len() >= 8 && data[4..8] == CONTROLLER_IDENTITY_MAGIC.to_le_bytes() {
+            Sent::Identity(ControllerIdentity::decode(data).unwrap())
+        } else {
+            Sent::Host(decode(data).unwrap())
+        }
+    }
+
     #[test]
     fn touchpad_contacts_go_only_to_a_host_that_takes_them() {
         let contact = TouchpadContact { event: touch_event::MOVE, pointer_id: 1, x: 0.5, y: 0.5, pressure: 0.0 };
@@ -1535,22 +1553,27 @@ mod tests {
         q.send_controller_arrival(1, 2, 3, 0xFFFF, 0).unwrap();
         q.send_controller(1, 2, button::C, 0, 0, (0, 0), (0, 0))
             .unwrap();
-        let sent = take(&mut q, Instant::now());
-        assert_eq!(
-            sent[0],
-            Input::ControllerIdentity(ControllerIdentity {
-                controller: 1,
-                vendor: 0x057E,
-                product: 0x2069
-            })
+        let mut out = Vec::new();
+        q.poll(Instant::now(), false, &mut out);
+        let packets: Vec<Sent> = out.iter().map(|p| sent(&p.data)).collect();
+        assert!(
+            matches!(
+                packets[0],
+                Sent::Identity(ControllerIdentity {
+                    controller: 1,
+                    vendor: 0x057E,
+                    product: 0x2069
+                })
+            ),
+            "{packets:?}"
         );
-        assert!(matches!(sent[1], Input::Arrival { id: 1, .. }));
+        assert!(matches!(packets[1], Sent::Host(Input::Arrival { id: 1, .. })), "{packets:?}");
         assert!(matches!(
-            sent.last().unwrap(),
-            Input::Controller {
+            packets.last().unwrap(),
+            Sent::Host(Input::Controller {
                 buttons: button::C,
                 ..
-            }
+            })
         ));
     }
 
@@ -1565,9 +1588,9 @@ mod tests {
         q.poll(t0, true, &mut out);
         assert!(out.is_empty());
         q.poll(t0, false, &mut out);
-        let sent: Vec<Input> = out.iter().map(|p| decode(&p.data).unwrap()).collect();
-        assert!(matches!(sent[0], Input::ControllerIdentity(_)), "{sent:?}");
-        assert!(matches!(sent[1], Input::Arrival { id: 0, .. }), "{sent:?}");
+        let packets: Vec<Sent> = out.iter().map(|p| sent(&p.data)).collect();
+        assert!(matches!(packets[0], Sent::Identity(_)), "{packets:?}");
+        assert!(matches!(packets[1], Sent::Host(Input::Arrival { id: 0, .. })), "{packets:?}");
     }
 
     #[test]

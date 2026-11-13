@@ -2,8 +2,8 @@
 //! ([`crate::usbip`]) and attached by usbip-win2's signed driver: Windows sees a mouse or
 //! touchpad plugged into a USB port, with no driver of ours in its kernel.
 //!
-//! The mouse has a relative collection (buttons, 16-bit X and Y, a wheel with a resolution
-//! multiplier and a horizontal pan) and an absolute one (X and Y on 0-32767), and is polled
+//! The mouse has a relative collection (buttons, 16-bit X and Y, a wheel and a horizontal
+//! pan, each with a resolution multiplier) and an absolute one (X and Y on 0-32767), and is polled
 //! every millisecond. Its reports reach games as a real mouse's do: raw input from a device,
 //! never flagged as injected. Foundation Sunshine's virtual mouse (a UMDF driver,
 //! `src/platform/windows/virtual_mouse.cpp`) gave the idea and the per-app mouse mode; this
@@ -67,8 +67,10 @@ pub const ABSOLUTE_MAX: u16 = 32767;
 /// Windows' wheel delta of one notch.
 const NOTCH: i32 = 120;
 
-/// The mouse's report descriptor: a relative mouse with a high-resolution wheel (report 1,
-/// multiplier feature report 3) and an absolute mouse (report 2).
+/// The mouse's report descriptor: a relative mouse with a high-resolution wheel and pan
+/// (report 1; feature report 3 holds both resolution multipliers, the wheel's in bits 0-1 and
+/// the pan's in bits 2-3, as in Microsoft's enhanced wheel layout) and an absolute mouse
+/// (report 2).
 pub const MOUSE_REPORT_DESCRIPTOR: &[u8] = &[
     0x05,
     0x01, // Usage Page (Generic Desktop)
@@ -142,10 +144,6 @@ pub const MOUSE_REPORT_DESCRIPTOR: &[u8] = &[
     0x01, //       Report Count (1)
     0xb1,
     0x02, //       Feature (Data, Var, Abs)
-    0x75,
-    0x06, //       Report Size (6)
-    0xb1,
-    0x01, //       Feature (Const)
     0x85,
     RELATIVE_ID, //       Report ID (1)
     0x35,
@@ -165,21 +163,52 @@ pub const MOUSE_REPORT_DESCRIPTOR: &[u8] = &[
     0x81,
     0x06, //       Input (Data, Var, Rel)
     0xc0, //     End Collection
+    0xa1,
+    0x02, //     Collection (Logical)
+    0x85,
+    MULTIPLIER_ID, //       Report ID (3)
+    0x09,
+    0x48, //       Usage (Resolution Multiplier)
+    0x15,
+    0x00, //       Logical Minimum (0)
+    0x25,
+    0x01, //       Logical Maximum (1)
+    0x35,
+    0x01, //       Physical Minimum (1)
+    0x45,
+    WHEEL_MULTIPLIER as u8, //       Physical Maximum (8)
+    0x75,
+    0x02, //       Report Size (2)
+    0x95,
+    0x01, //       Report Count (1)
+    0xb1,
+    0x02, //       Feature (Data, Var, Abs)
+    0x35,
+    0x00, //       Physical Minimum (0)
+    0x45,
+    0x00, //       Physical Maximum (0)
+    0x75,
+    0x04, //       Report Size (4)
+    0xb1,
+    0x01, //       Feature (Const)
+    0x85,
+    RELATIVE_ID, //       Report ID (1)
     0x05,
-    0x0c, //     Usage Page (Consumer)
+    0x0c, //       Usage Page (Consumer)
     0x0a,
     0x38,
-    0x02, //     Usage (AC Pan)
+    0x02, //       Usage (AC Pan)
     0x15,
-    0x81, //     Logical Minimum (-127)
+    0x81, //       Logical Minimum (-127)
     0x25,
-    0x7f, //     Logical Maximum (127)
+    0x7f, //       Logical Maximum (127)
     0x75,
-    0x08, //     Report Size (8)
+    0x08, //       Report Size (8)
     0x95,
-    0x01, //     Report Count (1)
+    0x01, //       Report Count (1)
     0x81,
-    0x06, //     Input (Data, Var, Rel)
+    0x06, //       Input (Data, Var, Rel)
+    0xc0, //     End Collection
     0xc0, //   End Collection
     0xc0, // End Collection
     0x05,
@@ -284,8 +313,8 @@ pub struct HidMouse {
     queue: VecDeque<MouseReport>,
     /// Wheel and pan in 1/120 notches not sent yet.
     scroll: [i32; 2],
-    /// The resolution multiplier Windows set (1 until it does).
-    multiplier: i32,
+    /// The resolution multipliers Windows set, wheel and pan (1 until it does).
+    multiplier: [i32; 2],
     serial: String,
 }
 impl HidMouse {
@@ -294,7 +323,7 @@ impl HidMouse {
             buttons: 0,
             queue: VecDeque::new(),
             scroll: [0; 2],
-            multiplier: 1,
+            multiplier: [1; 2],
             serial: serial.chars().take(32).collect(),
         }
     }
@@ -302,9 +331,10 @@ impl HidMouse {
     pub fn buttons(&self) -> u8 {
         self.buttons
     }
-    /// The wheel steps per notch Windows asked for: 1, or [`WHEEL_MULTIPLIER`].
-    pub fn multiplier(&self) -> i32 {
-        self.multiplier
+    /// The wheel's (or with `horizontal` the pan's) steps per notch Windows asked for: 1, or
+    /// [`WHEEL_MULTIPLIER`].
+    pub fn multiplier(&self, horizontal: bool) -> i32 {
+        self.multiplier[usize::from(horizontal)]
     }
     fn push(&mut self, report: MouseReport) {
         if self.queue.len() >= QUEUE_LIMIT {
@@ -377,12 +407,8 @@ impl HidMouse {
     /// Returns whether a report is waiting; parts of a step wait for the rest.
     pub fn scroll(&mut self, amount: i16, horizontal: bool) -> bool {
         let index = usize::from(horizontal);
-        // Only the vertical wheel has a resolution multiplier.
-        let step = if horizontal {
-            NOTCH
-        } else {
-            NOTCH / self.multiplier
-        };
+        // Both have a resolution multiplier, so a touchpad's fine pan stays fine too.
+        let step = NOTCH / self.multiplier[index];
         self.scroll[index] += i32::from(amount);
         let mut steps = self.scroll[index] / step;
         self.scroll[index] -= steps * step;
@@ -467,14 +493,24 @@ impl Device for HidMouse {
                     }
                     .encode(),
                     (1, ABSOLUTE_ID) => MouseReport::Absolute { x: 0, y: 0 }.encode(),
-                    (3, MULTIPLIER_ID) => vec![MULTIPLIER_ID, u8::from(self.multiplier > 1)],
+                    (3, MULTIPLIER_ID) => vec![
+                        MULTIPLIER_ID,
+                        u8::from(self.multiplier[0] > 1) | u8::from(self.multiplier[1] > 1) << 2,
+                    ],
                     _ => return None,
                 },
-                // SET_REPORT of the multiplier: logical 1 is physical 8.
+                // SET_REPORT of the multipliers (wheel bits 0-1, pan bits 2-3): logical 1 is
+                // physical 8.
                 (0x21, 0x09, value) if value == 0x0300 | u16::from(MULTIPLIER_ID) => {
-                    let logical = data.get(1).copied().unwrap_or(0) & 0x03;
-                    self.multiplier = if logical >= 1 { WHEEL_MULTIPLIER } else { 1 };
-                    self.scroll[0] = 0;
+                    let bits = data.get(1).copied().unwrap_or(0);
+                    for (axis, shift) in [(0, 0), (1, 2)] {
+                        self.multiplier[axis] = if (bits >> shift) & 0x03 >= 1 {
+                            WHEEL_MULTIPLIER
+                        } else {
+                            1
+                        };
+                    }
+                    self.scroll = [0; 2];
                     vec![]
                 }
                 (0x21, 0x09, _) => return None,

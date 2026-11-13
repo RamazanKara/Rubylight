@@ -67,7 +67,11 @@ fn the_mouse_descriptor_gives_the_reports_the_mouse_sends() {
         5 * 8,
         "absolute: a padding byte (no buttons), X, Y"
     );
-    assert_eq!(bits[&(3, 3)], 8, "the resolution multiplier");
+    assert_eq!(
+        bits[&(3, 3)],
+        8,
+        "the wheel's and the pan's multipliers and padding"
+    );
     let mut mouse = HidMouse::new("1");
     mouse.motion(1, 2);
     assert_eq!(
@@ -146,7 +150,8 @@ fn the_wheel_steps_follow_the_multiplier_windows_sets() {
 
     let feature = setup(0x21, 9, 0x0303, 0, 2);
     assert_eq!(mouse.control(&feature, &[3, 1]), Some(vec![]));
-    assert_eq!(mouse.multiplier(), WHEEL_MULTIPLIER);
+    assert_eq!(mouse.multiplier(false), WHEEL_MULTIPLIER);
+    assert_eq!(mouse.multiplier(true), 1, "the pan's bits were 0");
     assert_eq!(
         mouse.control(&setup(0xa1, 1, 0x0303, 0, 2), &[]),
         Some(vec![3, 1])
@@ -169,6 +174,27 @@ fn the_wheel_steps_follow_the_multiplier_windows_sets() {
         .map(|r| i32::from(relative(&r).3))
         .sum();
     assert_eq!(total, i32::from(i16::MAX) / 15);
+}
+
+#[test]
+fn a_fine_pan_follows_its_own_multiplier() {
+    let mut mouse = HidMouse::new("1");
+    // Windows sets both: wheel bits 0-1, pan bits 2-3.
+    let feature = setup(0x21, 9, 0x0303, 0, 2);
+    assert_eq!(mouse.control(&feature, &[3, 0b0101]), Some(vec![]));
+    assert_eq!(mouse.multiplier(true), WHEEL_MULTIPLIER);
+    assert_eq!(
+        mouse.control(&setup(0xa1, 1, 0x0303, 0, 2), &[]),
+        Some(vec![3, 0b0101])
+    );
+    // Four 30s of a touchpad's pan arrive as four reports, not one notch at the fourth.
+    for _ in 0..4 {
+        assert!(mouse.scroll(30, true));
+        assert_eq!(
+            relative(&mouse.interrupt(ENDPOINT).unwrap()),
+            (0, 0, 0, 0, 2)
+        );
+    }
 }
 
 #[test]

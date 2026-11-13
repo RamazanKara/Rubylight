@@ -16,7 +16,7 @@ Neither device needs a new driver or signature: both are USB devices served by t
 
 | Device | USB id | Reports |
 | --- | --- | --- |
-| Mouse | `1209:52B1` | Report 1: five buttons, 16-bit relative X and Y, a wheel with a resolution multiplier (Windows sets 8 steps per notch, so fine scrolling stays fine) and horizontal scroll. Report 2: absolute X and Y (0-32767) on a single display. Interrupt endpoint polled every millisecond. |
+| Mouse | `1209:52B1` | Report 1: five buttons, 16-bit relative X and Y, a wheel and horizontal scroll, each with a resolution multiplier (Windows sets 8 steps per notch, so fine scrolling stays fine both ways). Report 2: absolute X and Y (0-32767) on a single display. Interrupt endpoint polled every millisecond. |
 | Precision touchpad | `1209:52B2` | Report 4: up to five contacts (confidence, tip, id, X and Y in 0.1 mm), scan time, contact count and the click. Feature reports: maximum contacts and pad type, the certification status Windows asks precision touchpads for, input mode and surface switch. |
 
 The touchpad's size is the device's own when it reports one (105 x 70 mm otherwise). The touchpad is plugged in at a device's first touchpad packet and unplugged when the last stream using it ends.

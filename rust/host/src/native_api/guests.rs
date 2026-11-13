@@ -191,7 +191,7 @@ pub async fn set_permission(
     let (client, body): (_, GuestPermission) = manager(&h, &c, request).await?;
     let permission = permission(&body.permission)?;
     h.device_guests
-        .set_permission(body.id, permission)
+        .set_permission(&h, body.id, permission)
         .map_err(failed)?;
     answer(&h, &client)
 }

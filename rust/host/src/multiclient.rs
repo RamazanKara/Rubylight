@@ -7,7 +7,7 @@
 //! The media need nothing of their own: a guest's launch joins the game's display as Stream here
 //! too always did (`display_session::joined_display`), so its capture is the owner's
 //! (`stream::CaptureKey`) and its encoder its own, at the codec, size and bitrate it negotiated.
-use crate::state::{Host, Session, Shared};
+use crate::state::{Host, Launch, Session, Shared};
 use butterpollo_core::{
     multiclient::{
         self as policy, APPROVAL_WAIT, Admission, Ended, Guests, JoinPolicy, Kbm, Permission,
@@ -53,6 +53,9 @@ pub struct DeviceGuests {
     local: Mutex<Option<butterpollo_windows::local_input::Watch>>,
     /// Whether the watcher failed to start, so the log says it once.
     local_failed: AtomicBool,
+    /// Each guest's controllers in the pool (`controller_sessions::key` of its launch), to
+    /// unplug when it may no longer play.
+    pads: Mutex<std::collections::BTreeMap<u32, String>>,
 }
 
 /// A join, as the launch request asks it.
@@ -134,15 +137,38 @@ pub(crate) fn sweep(h: &Shared) {
                 .map(|(generation, owner)| (generation.as_str(), owner.as_str())),
         );
         let expired = state.expire(unix_now());
-        let gone: Vec<String> = state
+        let gone: Vec<(u32, String)> = state
             .guests()
             .iter()
-            .filter_map(|g| g.launch.clone())
-            .filter(|launch| !live.contains(launch))
+            .filter_map(|g| Some((g.id, g.launch.clone()?)))
+            .filter(|(_, launch)| !live.contains(launch))
             .collect();
-        for launch in &gone {
+        for (_, launch) in &gone {
             state.left(launch);
             tracing::info!(launch = %launch, "a guest's stream ended");
+        }
+        // A view-only guest's controllers, or those of a guest that is gone (kicked, revoked,
+        // its time or game over), are unplugged with its stream. A guest that may play and lost
+        // its connection keeps its place, its pads parked like any device's.
+        let unplug: Vec<u32> = gone
+            .iter()
+            .map(|(id, _)| *id)
+            .chain(
+                locked(&guests.pads)
+                    .keys()
+                    .copied()
+                    .filter(|id| state.get(*id).is_none()),
+            )
+            .filter(|id| !state.get(*id).is_some_and(|g| g.permission.gamepads()))
+            .collect();
+        for id in unplug {
+            if let Some(key) = locked(&guests.pads).remove(&id) {
+                h.controller_sessions.unplug(&key);
+                tracing::info!(
+                    guest = id,
+                    "a guest's controllers were unplugged with its stream"
+                );
+            }
         }
         guests.streaming.store(state.streaming(), Ordering::Release);
         let keyboard_mouse: BTreeSet<u32> = state
@@ -290,11 +316,22 @@ impl DeviceGuests {
     }
 
     /// Guest `id`'s launch was queued as `launch`.
-    pub(crate) fn joined(&self, id: u32, launch: &str) {
+    pub(crate) fn joined(&self, id: u32, launch: &Launch) {
+        locked(&self.pads).insert(id, crate::controller_sessions::key(launch));
         let mut state = locked(&self.state);
-        if state.joined(id, launch) {
+        if state.joined(id, &launch.id) {
             self.streaming.store(true, Ordering::Release);
         }
+    }
+
+    /// Whether `launch` may have controllers on the PC: any stream but a view-only guest's,
+    /// which gets none plugged in at launch.
+    pub(crate) fn gamepads_allowed(&self, launch: &Launch) -> bool {
+        launch.guest().is_none_or(|id| {
+            locked(&self.state)
+                .get(id)
+                .is_some_and(|g| g.permission.gamepads())
+        })
     }
 
     /// Whether `event` from session `s` reaches the PC: a guest's only with its permission, and
@@ -483,6 +520,7 @@ impl DeviceGuests {
 
     pub(crate) fn set_permission(
         &self,
+        h: &Host,
         id: u32,
         permission: Permission,
     ) -> Result<(), ActionError> {
@@ -492,6 +530,13 @@ impl DeviceGuests {
         if !permission.keyboard_mouse() {
             locked(&self.kbm).forget(id);
             self.release_later(id);
+        }
+        // View only: its controllers leave the PC now; another permission plugs them in again
+        // with the guest's next controller input.
+        if !permission.gamepads()
+            && let Some(key) = locked(&self.pads).get(&id).cloned()
+        {
+            h.controller_sessions.unplug(&key);
         }
         tracing::info!(
             guest = id,

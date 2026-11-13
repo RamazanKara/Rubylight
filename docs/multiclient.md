@@ -37,7 +37,7 @@ Nightjar waits up to 120 seconds for a join answer. Moonlight clients that give 
 
 | Permission | The guest gets |
 | --- | --- |
-| **View only** (`view`) | The picture and sound. Its controller, keyboard and mouse are ignored. |
+| **View only** (`view`) | The picture and sound. Its controller, keyboard and mouse are ignored, and no controller of its own is plugged in on the PC: a guest made view only loses the ones it had. |
 | **Controller** (`controller`) | A virtual controller of its own, as the next player. Its keyboard and mouse are ignored. |
 | **Controller, keyboard and mouse** (`controller-keyboard-mouse`) | Also the keyboard and mouse, one holder at a time (see below). It also gets the clipboard, USB forwarding and its microphone, where its own device permissions allow them. |
 

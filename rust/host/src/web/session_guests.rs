@@ -91,7 +91,7 @@ pub(super) fn handle(h: &Shared, method: &Method, path: &str, data: &Value) -> R
             None => missing_id(),
         },
         ("POST", "/api/session-guests/permission") => match (id(data), permission(data)) {
-            (Some(id), Some(permission)) => answer(h, guests.set_permission(id, permission)),
+            (Some(id), Some(permission)) => answer(h, guests.set_permission(h, id, permission)),
             (None, _) => missing_id(),
             (_, None) => bad_permission(),
         },

@@ -1652,7 +1652,7 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         };
         let launch = launch_back_half(&h, &args, launch, app, coop, resume, owner)?;
         if let Some(id) = guest {
-            h.device_guests.joined(id, &launch.id);
+            h.device_guests.joined(id, &launch);
         }
         let host = match connection.local.ip() {
             std::net::IpAddr::V4(ip) => ip.to_string(),
@@ -1824,9 +1824,11 @@ fn launch_back_half(
             }
         }
     }
-    // A co-op player's controller drives its slot's pad, never one of its own.
+    // A co-op player's controller drives its slot's pad, never one of its own; a view-only
+    // guest has none on the PC.
     if let Some(value) = args.get("rlControllers")
         && launch.nucleus.is_none()
+        && h.device_guests.gamepads_allowed(&launch)
         && let Err(error) = crate::controller_sessions::prepare(h, &launch, value)
     {
         let canceled = h.sessions.lock().unwrap().pending.remove(&id);

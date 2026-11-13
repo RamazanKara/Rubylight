@@ -82,6 +82,29 @@ impl Pool {
         );
         Ok(pads)
     }
+    /// Unplugs the pads of the controllers under `key`: a parked session is stopped and
+    /// removed; one a stream holds gets a state with no controller active, which unplugs every
+    /// pad it has (a guest made view-only mid-stream), and plugs them in again with its next
+    /// controller input. False when there is no such session.
+    pub fn unplug(&self, key: &str) -> bool {
+        let mut entries = self.0.lock().unwrap();
+        let Some(entry) = entries.get(key) else {
+            return false;
+        };
+        if Arc::strong_count(&entry.pads) > 1 {
+            entry.pads.send(Input::Controller {
+                id: 0,
+                active: 0,
+                buttons: 0,
+                left_trigger: 0,
+                right_trigger: 0,
+                sticks: [0; 4],
+            });
+        } else if let Some(entry) = entries.remove(key) {
+            drop(entry.pads.stop());
+        }
+        true
+    }
     /// Whether a stream still holds any controller session; parked ones
     /// waiting for a reconnect do not count.
     pub fn in_use(&self) -> bool {

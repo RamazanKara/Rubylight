@@ -96,7 +96,7 @@ fn guest_stream(s: &Setup, client: Client, id: u32) -> Arc<Session> {
         .unwrap()
         .active
         .insert(session.launch.id.clone(), session.clone());
-    s.host().device_guests.joined(id, &session.launch.id);
+    s.host().device_guests.joined(id, &session.launch);
     session
 }
 
@@ -232,7 +232,7 @@ async fn allow_lets_in_at_once_and_guest_input_follows_the_permission() {
     assert!(!guests.full_access(&stream));
     // With the keyboard and mouse, the owner takes them back by using them.
     guests
-        .set_permission(id, Permission::ControllerKeyboardMouse)
+        .set_permission(s.host(), id, Permission::ControllerKeyboardMouse)
         .unwrap();
     assert!(guests.full_access(&stream));
     assert!(guests.admits(&stream, mouse), "nobody used them yet");
@@ -247,6 +247,22 @@ async fn allow_lets_in_at_once_and_guest_input_follows_the_permission() {
     // The owner hands them over.
     guests.give_keyboard_mouse(Some(id)).unwrap();
     assert!(guests.admits(&stream, mouse));
+    // Made view only, its controllers leave the PC: none at a launch, and the ones it had are
+    // unplugged.
+    let pool = &s.host().controller_sessions;
+    let none = std::collections::BTreeSet::new();
+    drop(
+        pool.acquire(&stream.launch, &butterpollo_core::config::Config::default())
+            .unwrap(),
+    );
+    assert!(pool.parked(&none));
+    assert!(guests.gamepads_allowed(&stream.launch));
+    guests
+        .set_permission(s.host(), id, Permission::View)
+        .unwrap();
+    assert!(!guests.gamepads_allowed(&stream.launch));
+    assert!(!pool.parked(&none), "its parked controllers were unplugged");
+    assert!(!pool.unplug("nobody:Stream"));
 }
 
 #[tokio::test]

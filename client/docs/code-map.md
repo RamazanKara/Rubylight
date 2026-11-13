@@ -13,6 +13,7 @@ All Rust is one Cargo workspace in `protocol/`.
 | Crate | Folder | Holds |
 | --- | --- | --- |
 | `rubylight-protocol` | `protocol/core/` | Wire formats shared with the host, `no_std`: each extension message in a module of its own, every message id in [`ids.rs`](../protocol/core/src/ids.rs). |
+| `rubylight-traverse` | `protocol/traverse/` | Internet play, shared with the host: DHT records, STUN, PCP and NAT-PMP, hole punching and the tunnel that reach a paired PC from outside its network. |
 | `nightjar-core` | `protocol/client/` | The streaming engine: pairing and HTTPS, RTSP, control, video and audio receive, input, USB forwarding. |
 | `nightjar-policy` | `protocol/policy/` | Decisions without I/O or a clock: bitrate, the quality ladder, the recovery budget, the overlay, the stream menu. Both apps call it, so they decide alike. |
 | `nightjar-desktop` | `protocol/desktop/` | The Windows, Linux and macOS app. |
@@ -28,12 +29,13 @@ A feature lands in both apps in one change. What they share goes into `nightjar-
 | Step | Where |
 | --- | --- |
 | Find and pair a PC, list apps, launch | `protocol/client/src/http/`; what the host offers is [`Feature`, `HostCapabilities`](../protocol/client/src/http/capabilities.rs) |
+| Internet play, guests | `protocol/client/src/internet.rs` and `protocol/client/src/http/internet_play.rs` (over `rubylight-traverse`); joining another device's game in `protocol/client/src/http/session_guests.rs` |
 | RTSP | `protocol/client/src/rtsp/`, `protocol/client/src/sdp.rs` |
 | Control | `protocol/client/src/control/`: `session.rs` is the state machine without a socket, `driver.rs` runs it on ENet, `messages.rs` and `events.rs` are what is sent and received |
 | Start | `protocol/client/src/session/mod.rs`, which also defines the [`VideoDecoder`](../protocol/client/src/session/mod.rs) an app implements |
 | Video | [`receive_thread`, `receive_batch`](../protocol/client/src/session/video.rs) read the socket; [`VideoReceiver`](../protocol/client/src/video/mod.rs) decrypts; [`RtpQueue`, `add_packet`, `reconstruct_frame`](../protocol/client/src/video/queue.rs) order packets and repair loss with [`ReedSolomon`](../protocol/client/src/fec.rs); [`Depacketizer`](../protocol/client/src/video/depacketizer.rs) builds frames; [`FrameQueue`, `decoder_thread`, `decode_loop`](../protocol/client/src/session/video.rs) hand them to the app's decoder |
 | Audio | `protocol/client/src/audio/`, `protocol/client/src/session/audio.rs` |
-| Input, microphone | `protocol/client/src/input/` |
+| Input, microphone | `protocol/client/src/input/` (a physical touchpad's packets in `input/touchpad.rs`) |
 | Native API, files, folders | `protocol/client/src/http/native.rs`, `files.rs` and `folders.rs` beside it |
 
 ## The desktop app
@@ -43,10 +45,10 @@ A feature lands in both apps in one change. What they share goes into `nightjar-
 | Entry, command line | `main.rs` owns the loop and carries out what the UI returns; `cli.rs` |
 | UI | `gui.rs` (egui on SDL3), `ui.rs` and `ui/`: pages only draw and return commands. Settings page: `ui/settings.rs` |
 | PCs and apps | `hosts.rs`: discovery, pairing and app lists on worker threads, results as events |
-| Stream | `stream/mod.rs` (session worker), `stream/connect.rs` (launch), `stream/negotiate.rs` (mode, bitrate, codecs, HDR), `stream/pipeline.rs` (picture loop, decoder order), `stream/present.rs` (when a picture is shown), `stream/input.rs`, `stream/recovery.rs` |
+| Stream | `stream/mod.rs` (session worker), `stream/connect.rs` (launch), `stream/negotiate.rs` (mode, bitrate, codecs, HDR), `stream/pipeline.rs` (picture loop, decoder order), `stream/present.rs` (when a picture is shown), `stream/input.rs`, `stream/recovery.rs`, `stream/guests.rs`, `stream/touchpad/` |
 | Decode | `media.rs` (FFmpeg, Opus), `vulkan_video.rs`, `amd_decode.rs`, `linux_video.rs`, `dmabuf.rs`, `stream/pyrowave.rs`, `stream/pyrowave_gpu.rs` |
 | Windows only | `stream/direct.rs`, `stream/d3d11.rs`, `stream/amf_scaler.rs`, `stream/wasapi.rs`, `stream/microphone.rs` |
-| Linux only | `dmabuf.rs`, `vulkan_video.rs`, `stream/wl_scanout.rs`, `stream/wl_presentation.rs`, `stream/drm_vrr.rs`, `stream/planes_gpu.rs` |
+| Linux only | `dmabuf.rs`, `vulkan_video.rs`, `stream/wl_scanout.rs`, `stream/wl_presentation.rs`, `stream/drm_vrr.rs`, `stream/planes_gpu.rs`, `kms/` with `stream/kms_scanout.rs` (DRM/KMS output without a desktop), `stream/touchpad/evdev.rs` |
 | macOS only | `metal/`, `stream/macos_video_check.rs` |
 | Settings, text | `config.rs`, `strings.rs`, `strings/` |
 
@@ -60,7 +62,7 @@ A stream runs on one of two engines. The Rust engine is `nightjar-core` behind [
 
 | Part | `app/src/main/java/com/limelight/` |
 | --- | --- |
-| Stream activity | `Game.java`, with `GameConnection.java`, `GameRecovery.java`, `GameVideoOutput.java`, `GameTouchInput.java`, `GameOverlays.java` |
+| Stream activity | `Game.java`, with `GameConnection.java`, `GameRecovery.java`, `GameVideoOutput.java`, `GameTouchInput.java`, `GameOverlays.java`, `StreamGuests.java` |
 | Connection | `nvstream/NvConnection.java`, `nvstream/http/` (serverinfo, pairing, [`HostCapabilities`](../app/src/main/java/com/limelight/nvstream/http/HostCapabilities.java)), `nvstream/jni/` |
 | Video | `binding/video/`, led by `binding/video/MediaCodecDecoderRenderer.java` |
 | Input, audio | `binding/input/ControllerHandler.java`, `binding/input/driver/`, `binding/input/touch/`, `binding/input/virtual_controller/`, `binding/audio/` |

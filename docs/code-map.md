@@ -23,11 +23,13 @@ Each Rust module opens with a `//!` header saying what it owns. The index is bui
 | --- | --- | --- |
 | `rubylight-protocol` | `client/protocol/core/` | Wire formats shared with Nightjar, `no_std`: each extension message in a module of its own, and every message id in [`ids.rs`](../client/protocol/core/src/ids.rs). |
 | `rubylight-native-api` | `rust/core/native-api/` | The [native API](native-api.md)'s wire types, versioned on their own. |
+| `rubylight-traverse` | `client/protocol/traverse/` | Internet play shared with Nightjar: reaching a paired host from outside its network without forwarded ports (DHT records, STUN, PCP and NAT-PMP, hole punching, the tunnel). The host uses it from `rust/host/src/internet_play.rs`. |
 | `butterpollo-core` | `rust/core/` | Protocol, state and policy without a Windows call. Decisions are plain functions over plain values, tested on any OS. |
 | `butterpollo-windows` | `rust/windows/` | Everything that calls Windows, a GPU or a driver. |
 | `butterpollo` | `rust/host/` | Servers, sessions and threads: it asks core what to do and windows to do it. `nightjar-core` is a test dependency, for [the interop tests](../rust/host/src/stream/reconnect_tests/interop_tests.rs). |
 | console | `rust/web/` | The Svelte console, built with Vite and served by the host from files. |
 | service, setup, driver | `rust/service/`, `rust/setup/`, `rust/drivers/` | The Windows service and the display driver are workspaces of their own. |
+| NVIDIA NGX adapter | `rust/truehdr-runtime/` | An MSVC DLL between NVIDIA's NGX and the host, for the separate NVIDIA build (`nvidia-proprietary`) only; outside the workspace. |
 
 A behaviour usually has three homes. `rust/core/src/encoder_policy.rs` decides, `rust/windows/src/amf.rs` applies it and `rust/host/src/stream.rs` calls both; displays (`display_policy.rs`, `display.rs`, `display_session.rs`) and input (`input_policy.rs`, `input.rs`, `stream/control.rs`) follow the same split. Put the decision in core, where its test needs no hardware.
 
@@ -54,18 +56,20 @@ Deadlines, by name: [`ENCODER_RECOVERY`](../rust/host/src/stream/video.rs), [`RE
 
 | Area | Decides: `rust/core/src/` | Does: `rust/windows/src/` | Wires: `rust/host/src/` |
 | --- | --- | --- | --- |
-| Encoder | `encoder_policy.rs`, `encoder_gpu.rs`, `encoder_backlog.rs`, `nvenc.rs`, `codec_support.rs` | `encoder.rs`, `amf.rs`, `amf/`, `nvenc.rs`, `nvenc/`, `pyrowave.rs` | `stream.rs`, `stream/video/run.rs` |
-| Capture | `capture_policy.rs` | `capture.rs`, `capture/` | `stream/capture.rs` |
-| Colour, HDR | `hdr.rs`, `hdr_dynamic.rs`, `dovi.rs` | `compute.rs`, `gpu_color.rs`, `color.rs`, `compute_hdr_stats.rs` | `stream.rs` |
+| Encoder | `encoder_policy.rs`, `encoder_gpu.rs`, `encoder_backlog.rs`, `nvenc.rs`, `codec_support.rs`, `amf_vpe.rs`, `image_quality.rs` | `encoder.rs`, `amf.rs`, `amf/` (the AMF video converter in `amf/vpe.rs`), `nvenc.rs`, `nvenc/`, `pyrowave.rs` | `stream.rs`, `stream/video/run.rs` |
+| Capture | `capture_policy.rs`, `app_window.rs` (one app's window) | `capture.rs`, `capture/` (`capture/amd_direct.rs`, `capture/app_window.rs`) | `stream/capture.rs`, `stream/app_window.rs` |
+| Colour, HDR | `hdr.rs`, `hdr_dynamic.rs`, `dovi.rs` | `compute.rs`, `gpu_color.rs`, `gpu_color/`, `color.rs`, `compute_hdr_stats.rs` | `stream.rs` |
+| NVIDIA RTX HDR, RTX Video (NVIDIA build) | `nvidia_enhance.rs` | `nvidia_enhance.rs`, `rtx_video.rs`, `rtx_profiles.rs`, `truehdr.rs`, `shaders/rtx_video.hlsl` | `nvidia_enhance.rs` |
 | Displays | `display_policy.rs`, `display_caps.rs`, `edid.rs`, `topology.rs` | `display.rs`, `display/`, `display_arrangement.rs`, `display_recovery.rs` | `display_session.rs`, `remote_display.rs` |
-| Pacing, bitrate, loss | `stream_policy.rs`, `network_pacing.rs`, `adaptive_bitrate.rs`, `adaptive_fec.rs`, `link_rate.rs`, `ltr.rs` | `timing.rs`, `limiter.rs` | `video_send.rs`, `video_send/`, `stream/qos.rs` |
-| Input, controllers | `input.rs`, `input_policy.rs`, `steam_pad.rs`, `dualsense.rs` | `input.rs`, `input/` | `stream/control.rs`, `controller_sessions.rs` |
+| Pacing, bitrate, loss | `stream_policy.rs`, `network_pacing.rs`, `adaptive_bitrate.rs`, `adaptive_fec.rs`, `link_rate.rs`, `ltr.rs`, `congestion.rs` | `timing.rs`, `limiter.rs` | `video_send.rs`, `video_send/`, `stream/qos.rs` |
+| Input, controllers | `input.rs`, `input_policy.rs`, `steam_pad.rs`, `dualsense.rs`, `switch2.rs`, `virtual_hid.rs` (virtual mouse and touchpad), `usbip.rs`, `dsu.rs` | `input.rs`, `input/` (`input/virtual_hid.rs`, `input/switch2_pad.rs`), `local_input.rs` | `stream/control.rs`, `controller_sessions.rs`, `dsu.rs` |
 | Audio, microphone | `audio.rs`, `audio_dsp/`, `audio_passthrough.rs`, `mic.rs` | `audio.rs`, `audio_app_route.rs`, `mic.rs` | `stream/audio.rs`, `stream/audio_sink.rs`, `mic.rs` |
-| Sessions, pairing | `session.rs`, `session/`, `session_state.rs`, `pairing.rs`, `auth.rs`, `crypto.rs`, `state.rs` | | `nvhttp.rs`, `nvhttp/`, `rtsp_server.rs`, `session_control.rs`, `state.rs` |
-| Settings | `config.rs`, `config/`, `device_overrides.rs`, `stream_preset.rs` | | `web/config.rs`, `console/settings.rs`, `stream/config.rs` |
-| Library, launch | `library.rs`, `steam.rs`, `playnite.rs`, `catalog.rs` | `process.rs`, `process/`, `launcher.rs`, `steam.rs` | `process.rs`, `library.rs`, `launcher_watch.rs` |
+| Sessions, pairing | `session.rs`, `session/`, `session_state.rs`, `pairing.rs`, `auth.rs`, `crypto.rs`, `state.rs`, `multiclient.rs` (guests), `auto_lock.rs` | | `nvhttp.rs`, `nvhttp/`, `rtsp_server.rs`, `session_control.rs`, `state.rs`, `multiclient.rs`, `web/session_guests.rs`, `native_api/guests.rs`, `auto_lock.rs` |
+| Settings | `config.rs`, `config/`, `device_overrides.rs`, `stream_preset.rs`, `settings_backup.rs` | | `web/config.rs`, `console/settings.rs`, `stream/config.rs`, `settings_backup.rs`, `web/backup.rs` |
+| Library, launch | `library.rs`, `steam.rs`, `playnite.rs`, `catalog.rs`, `menu_commands.rs`, `connection_commands.rs` | `process.rs`, `process/`, `launcher.rs`, `steam.rs` | `process.rs`, `library.rs`, `launcher_watch.rs` |
 | Co-op, background | `nucleus.rs`, `nucleus/`, `background.rs` | `nucleus.rs`, `nucleus/` | `nucleus.rs`, `stream/instance_audio.rs`, `stream/background.rs` |
 | Client extensions | `extensions.rs`, `native.rs`, `native/`, `roaming.rs` | `clipboard.rs`, `files.rs`, `shared_folder.rs` | `extensions.rs`, `native_api.rs`, `native_api/`, `stream/roaming.rs`, `usb_forward.rs` |
+| Internet play | (`rubylight-traverse`) | | `internet_play.rs`, `network/portmap.rs` |
 | Console, API | `auth.rs`, `log_analysis.rs` | | `web.rs`, `web/`, `console/`, `web_sessions.rs`, `webhooks.rs` |
 | Browser play | `webrtc/` | | `webrtc/` |
 | Update, service | `update_files.rs`, `update_recovery.rs` | `service.rs` | `updater.rs`, `updater/`, `maintenance.rs`, `service_tasks.rs` |

@@ -88,10 +88,12 @@ impl<D: Device> Slot<D> {
             }
         }
     }
-    /// Whether the device is plugged in and Windows imported it.
+    /// Whether the device is plugged in and Windows reads it: its driver asked for a report.
+    /// Imported is not enough: Windows reads a new mouse about 250 ms later, and input routed
+    /// to it before then waited and arrived merged, so until then it is injected.
     pub fn ready(&self) -> bool {
         matches!(&self.inner.lock().unwrap().state, State::Plugged(pad)
-            if pad.export.as_ref().is_some_and(|export| export.imported()))
+            if pad.export.as_ref().is_some_and(|export| export.polled()))
     }
     /// Plugs in the device `make` builds, on a thread of its own, unless it is plugged in,
     /// on its way, or failed less than [`RETRY`] ago. Returns where it stands.

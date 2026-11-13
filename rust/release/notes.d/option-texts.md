@@ -1,3 +1,0 @@
-# Option texts
-- **Settings say what they cost.** The console's settings, app options and device options now say what a change gives you, what it costs (delay, picture quality, network use or load on the PC) and when to change it, so a setting you don't know tells you whether to leave it alone. Technical terms such as VRR, HDR and bitrate stay, lesser-known ones are explained in a few words, and the full technical detail remains under "More". No setting, value or default changed.
-- Several texts that described a setting wrongly are corrected, among them the Playnite sync, USB forwarding, play over the internet, the encryption modes and the AMD low-latency mode.

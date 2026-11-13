@@ -106,6 +106,28 @@ pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
                 peak_chosen |= target == "hdr_peak_brightness";
             }
         }
+        // The NVIDIA build's enhancements, marked as chosen: RTX HDR runs only
+        // for an app, device or stream that chose it.
+        let inherited = config.clone();
+        for (source, target) in butterpollo_core::nvidia_enhance::APP_KEYS {
+            if let Some(value) = app
+                .extra
+                .get(*source)
+                .filter(|value| !value.is_null() && value.as_str() != Some(""))
+            {
+                butterpollo_core::nvidia_enhance::choose(
+                    &mut config,
+                    &inherited,
+                    target,
+                    Some(
+                        value
+                            .as_str()
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| value.to_string()),
+                    ),
+                );
+            }
+        }
     }
     if let Some(overrides) = app
         .as_ref()
@@ -115,6 +137,16 @@ pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
         peak_chosen |= sets_peak(overrides);
         apply_overrides(&mut config, overrides)?;
     }
+    // The device's choice for this stream (`rlRtxHdr`, `rlRtxVideo`) replaces
+    // the app's, for what this host offers.
+    let offered = h
+        .nvidia_enhancements
+        .load(std::sync::atomic::Ordering::Acquire);
+    butterpollo_core::nvidia_enhance::apply_launch(&mut config, &launch.options, offered);
+    config.values.insert(
+        butterpollo_core::nvidia_enhance::OFFERED_KEY.into(),
+        offered.to_string(),
+    );
     // Every explicit value of the host, the device and the app is in place;
     // the most specific preset any of them named fills the covered settings
     // that are still unset.
@@ -230,6 +262,7 @@ pub(super) fn apply_overrides(
     // One at a time: an override the host cannot use (an imported frame
     // limit of -1) is skipped, as in the C++ host, instead of failing every
     // stream of the device or app, or the running stream when it is edited.
+    let inherited = config.clone();
     let mut overrides = overrides;
     overrides.retain(|key, value| {
         let single = serde_json::Map::from_iter([(key.clone(), value.clone())]);
@@ -247,5 +280,18 @@ pub(super) fn apply_overrides(
             }
         }
     });
+    // A device or app that sets an enhancement chose it (`nvidia_enhance::marker`);
+    // a null restores the inherited value.
+    for (key, value) in &overrides {
+        if butterpollo_core::nvidia_enhance::is_key(key) {
+            if value.is_null() {
+                butterpollo_core::nvidia_enhance::choose(config, &inherited, key, None);
+            } else {
+                config
+                    .values
+                    .insert(butterpollo_core::nvidia_enhance::marker(key), "true".into());
+            }
+        }
+    }
     Ok(())
 }

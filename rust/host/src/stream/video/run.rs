@@ -140,6 +140,9 @@ impl SessionThread<'_> {
         // still pins the allocation so its address can't be reused by a new
         // `GpuImage` and compare equal.
         let mut last_image: Option<std::sync::Weak<GpuImage>> = None;
+        // The NVIDIA build's RTX HDR or RTX Video enhancement; a no-op in
+        // every other build.
+        let mut enhancer = crate::nvidia_enhance::Enhancer::default();
         // The couch menu's panel; one atomic load a frame while closed.
         let mut menu = crate::couch_menu::VideoOverlay::default();
         // Frame Warp's passes over captures, for a client that asked (0x5543).
@@ -1032,10 +1035,20 @@ impl SessionThread<'_> {
                     }
                     last_image = None;
                     staging = None;
+                    enhancer.reset();
                     pacer.reset_source_phase();
                     latest.release_generation(&capture_wake);
                     continue;
                 };
+                // The picture the encoder receives: enhanced where the
+                // stream runs an enhancement, which then needs an encoder
+                // made for that picture.
+                if let Some(tuned) = enhancer.tune(&h, &image, &base_config) {
+                    runtime_config = tuned;
+                }
+                let (enhanced, enhancement_changed) = enhancer.apply(&s, &runtime_config, image);
+                image = enhanced;
+                rebuild_encoder |= enhancement_changed;
                 let checks_started = Instant::now();
                 require_hdr_source(&s, || image.gpu.display_in_hdr(), true)?;
                 let mut frame_checks = checks_started.elapsed();
@@ -1282,7 +1295,8 @@ impl SessionThread<'_> {
                     }
                     // Encoder creation can outlast several source frames.
                     let Some(current) = latest.current()? else { continue };
-                    if !encoder.as_ref().unwrap().accepts_gpu_device(&current) {
+                    let (current, enhancement_changed) = enhancer.apply(&s, &runtime_config, current);
+                    if enhancement_changed || !encoder.as_ref().unwrap().accepts_gpu_device(&current) {
                         continue;
                     }
                     image = current;
@@ -1297,6 +1311,10 @@ impl SessionThread<'_> {
                 let active = encoder
                     .as_mut()
                     .expect("a missing encoder is rebuilt above");
+                // RTX HDR's picture is scaled to its SDR white and peak.
+                if let Some((white, scale)) = enhancer.luminance(&runtime_config) {
+                    active.set_luminance(white, scale);
+                }
                 if menu.dirty || (rebuilt && menu.has_overlay()) {
                     active.set_overlay(menu.for_encoder([stream.width, stream.height]));
                 }

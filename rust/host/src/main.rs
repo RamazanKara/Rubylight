@@ -23,6 +23,7 @@ mod network_path;
 mod neural;
 mod nucleus;
 mod nvhttp;
+mod nvidia_enhance;
 mod playnite;
 mod power_action;
 mod process;
@@ -435,6 +436,13 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
     })
     .await
     .unwrap_or_default();
+    // The NVIDIA build asks the GPU and driver which image enhancements they offer, after the
+    // power profile, off startup's path: serverinfo and the console read the answer.
+    #[cfg(feature = "nvidia-proprietary")]
+    {
+        let h = h.clone();
+        std::thread::spawn(move || crate::nvidia_enhance::probe(&h));
+    }
     // The first launcher scan for the native library runs on its own thread, so the first request
     // finds it done and startup does not wait.
     library::installed(&h);

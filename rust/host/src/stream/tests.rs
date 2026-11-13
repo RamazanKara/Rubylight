@@ -83,7 +83,7 @@ fn a_devices_long_term_references_reach_its_stream_and_no_other_device() {
     assert!(amf_offers_invalidation(&config));
 }
 #[test]
-fn overrides_saved_for_rtx_hdr_keep_only_the_peak_brightness() {
+fn overrides_saved_for_rtx_hdr_are_chosen_and_the_peak_renamed() {
     let mut config = Config::parse("port = 47989\n").unwrap();
     let overrides = serde_json::json!({
         "rtx_hdr": true,
@@ -96,8 +96,12 @@ fn overrides_saved_for_rtx_hdr_keep_only_the_peak_brightness() {
     super::apply_overrides(&mut config, overrides).unwrap();
     assert_eq!(config.integer("hdr_peak_brightness", 0), 1200);
     assert_eq!(config.get("encoder", ""), "amf");
-    assert!(!config.values.contains_key("rtx_hdr"));
-    assert!(!config.values.contains_key("rtx_hdr_contrast"));
+    // The NVIDIA build's RTX HDR reads them as the device's or app's choice.
+    assert!(butterpollo_core::nvidia_enhance::rtx_hdr_enabled(&config));
+    assert_eq!(config.integer("rtx_hdr_contrast", 0), 14);
+    let cleared = serde_json::json!({"rtx_hdr": null});
+    super::apply_overrides(&mut config, cleared.as_object().unwrap()).unwrap();
+    assert!(!butterpollo_core::nvidia_enhance::rtx_hdr_enabled(&config));
     assert!(!super::sets_peak(
         serde_json::json!({"hdr_peak_brightness": ""})
             .as_object()

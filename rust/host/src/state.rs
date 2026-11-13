@@ -357,6 +357,13 @@ pub struct Host {
     /// The macroblocks per second the H.264, HEVC and AV1 encoders take (AMF throughput caps), 0 until probed.
     pub encoder_mb_rates: [std::sync::atomic::AtomicU64; 3],
     pub packed_modes: std::sync::atomic::AtomicU8,
+    /// The NVIDIA build's image enhancements the GPU and driver reported at
+    /// startup (`butterpollo_core::nvidia_enhance` bits); always 0 in other
+    /// builds and on other GPUs.
+    pub nvidia_enhancements: std::sync::atomic::AtomicU8,
+    /// Why the startup check found an enhancement unavailable, per
+    /// enhancement, for the console; empty in other builds.
+    pub nvidia_enhancement_errors: Mutex<Vec<(&'static str, String)>>,
     /// A save narrowing `packed_modes` and a probe publishing them, one at a
     /// time: a probe's result is narrowed to the settings saved by then.
     packed_publish: Mutex<()>,
@@ -869,6 +876,8 @@ impl Host {
             encoder_probe_error: Mutex::new(None),
             encoder_mb_rates: Default::default(),
             packed_modes: std::sync::atomic::AtomicU8::new(0),
+            nvidia_enhancements: std::sync::atomic::AtomicU8::new(0),
+            nvidia_enhancement_errors: Mutex::new(Vec::new()),
             packed_publish: Mutex::new(()),
             packed_probe_pending: std::sync::atomic::AtomicU8::new(0),
             packed_session_waits: std::sync::atomic::AtomicU8::new(0),

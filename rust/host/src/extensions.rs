@@ -87,6 +87,10 @@ fn offer(h: &Shared, config: &Config, dolby: u8) -> Offered {
         rate_change: false,
         clipboard_sync: false,
         transport_feedback: transport_feedback(config),
+        // Probed at startup in the NVIDIA build only (`nvidia_enhance`).
+        nvidia_enhancements: h
+            .nvidia_enhancements
+            .load(std::sync::atomic::Ordering::Acquire),
     }
 }
 

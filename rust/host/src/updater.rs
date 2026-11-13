@@ -20,7 +20,12 @@ mod schedule;
 const REPOSITORIES: [&str; 2] = ["RamazanKara/Rubylight", "RamazanKara/Butterpollo"];
 /// Installer names, current first. Releases also carry the old name so that
 /// hosts from before the rename find them.
-const INSTALLERS: [&str; 2] = ["rubylight-setup", "butterpollo-setup"];
+/// The installer names this build updates from, current name first. The NVIDIA build updates
+/// only from the NVIDIA installer, so an update never swaps one build for the other.
+#[cfg(not(feature = "nvidia-proprietary"))]
+const INSTALLERS: &[&str] = &["rubylight-setup", "butterpollo-setup"];
+#[cfg(feature = "nvidia-proprietary")]
+const INSTALLERS: &[&str] = &["rubylight-nvidia-setup"];
 const MAX_INSTALLER: u64 = 512 * 1024 * 1024;
 const IDLE_SECONDS: u64 = 60;
 
@@ -1405,7 +1410,43 @@ mod tests {
         Ok(())
     }
     fn release() -> Value {
-        json!({"tag_name":"2.0.0-rc.7","assets":[{"name":"butterpollo-setup-2.0.0-rc.7.exe","browser_download_url":"https://github.com/RamazanKara/Butterpollo/releases/download/2.0.0-rc.7/butterpollo-setup-2.0.0-rc.7.exe","size":32,"digest":format!("sha256:{}", "ab".repeat(32))}]})
+        // Each build's own installer.
+        #[cfg(not(feature = "nvidia-proprietary"))]
+        let (repository, name) = ("Butterpollo", "butterpollo-setup-2.0.0-rc.7.exe");
+        #[cfg(feature = "nvidia-proprietary")]
+        let (repository, name) = ("Rubylight", "rubylight-nvidia-setup-2.0.0-rc.7.exe");
+        json!({"tag_name":"2.0.0-rc.7","assets":[{"name":name,"browser_download_url":format!("https://github.com/RamazanKara/{repository}/releases/download/2.0.0-rc.7/{name}"),"size":32,"digest":format!("sha256:{}", "ab".repeat(32))}]})
+    }
+    #[test]
+    fn each_build_updates_only_from_its_own_installer() {
+        let url = |name: &str| {
+            format!("https://github.com/RamazanKara/Rubylight/releases/download/2.0.0-rc.7/{name}")
+        };
+        let mut both = release();
+        both["assets"] = json!([]);
+        for name in [
+            "rubylight-setup-2.0.0-rc.7.exe",
+            "rubylight-nvidia-setup-2.0.0-rc.7.exe",
+        ] {
+            let mut asset = release()["assets"][0].clone();
+            asset["name"] = json!(name);
+            asset["browser_download_url"] = json!(url(name));
+            both["assets"].as_array_mut().unwrap().push(asset);
+        }
+        let chosen = installer(&both).unwrap().url;
+        let own = if cfg!(feature = "nvidia-proprietary") {
+            "rubylight-nvidia-setup-2.0.0-rc.7.exe"
+        } else {
+            "rubylight-setup-2.0.0-rc.7.exe"
+        };
+        assert_eq!(chosen, url(own));
+        // A release without this build's installer offers no update instead of the other build.
+        let mut other = both.clone();
+        other["assets"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|asset| asset["name"] != own);
+        assert!(installer(&other).is_err());
     }
     #[test]
     fn an_unresolved_rollback_cannot_be_overwritten_by_another_update() -> Result<()> {
@@ -1496,6 +1537,7 @@ mod tests {
         }
     }
     #[test]
+    #[cfg(not(feature = "nvidia-proprietary"))]
     fn installers_from_before_and_after_the_rename_are_accepted() {
         for (repository, name) in [
             ("Rubylight", "rubylight-setup-2.0.0-rc.7.exe"),

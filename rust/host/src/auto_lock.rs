@@ -56,13 +56,24 @@ impl Watch {
     }
 }
 
-fn lock(h: &Host) {
-    // Never during a stream: a device that arrived since the decision wins.
-    if devices_connected(h) {
-        tracing::info!("auto lock: a device connected again; Windows stays unlocked");
-        return;
+/// Why the lock is skipped, None to lock. A device that arrived since the decision wins (never
+/// during a stream). Only the service host (SYSTEM) needs a signed-in user to lock for: its user
+/// token query is what fails without one; a host in the user's own session always has its user,
+/// and that query fails there anyway (1314, no SYSTEM privilege).
+fn skip_reason(devices: bool, system: bool, signed_in: impl FnOnce() -> bool) -> Option<&'static str> {
+    if devices {
+        Some("a device connected again; Windows stays unlocked")
+    } else if system && !signed_in() {
+        Some("nobody is signed in to Windows; there is nothing to lock")
+    } else {
+        None
     }
-    if !butterpollo_windows::process::user_signed_in() {
+}
+
+fn lock(h: &Host) {
+    use butterpollo_windows::process;
+    if let Some(why) = skip_reason(devices_connected(h), process::is_system(), process::user_signed_in) {
+        tracing::info!("auto lock: skipped: {why}");
         return;
     }
     match butterpollo_windows::process::Process::shell_detached(LOCK, None, false, &BTreeMap::new())
@@ -86,6 +97,15 @@ mod tests {
         assert!(devices_connected(&f.host));
         f.host.sessions.lock().unwrap().active.clear();
         assert!(!devices_connected(&f.host));
+    }
+
+    #[test]
+    fn auto_lock_skips_only_for_a_device_or_a_service_host_without_a_user() {
+        assert!(skip_reason(true, false, || true).is_some());
+        assert!(skip_reason(false, true, || false).unwrap().contains("nobody is signed in"));
+        assert_eq!(skip_reason(false, true, || true), None);
+        // A host in the user's session locks: its user token query fails there (1314) and is not asked.
+        assert_eq!(skip_reason(false, false, || panic!("not asked outside the service")), None);
     }
 
     #[test]

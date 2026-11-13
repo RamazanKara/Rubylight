@@ -187,7 +187,15 @@ pub(super) fn start(h: Shared, connection: Connection, args: Args, resume: bool)
         if !launch.rtsp_encrypted
             && crate::network::encryption_mode(&h.config.read().unwrap(), connection.peer) == 2
         {
-            bail!("encrypted RTSP is required for this client address");
+            let (network, setting) =
+                if crate::network::peer_reach(connection.peer) <= crate::network::Reach::Lan {
+                    ("the local network", "Local network encryption")
+                } else {
+                    ("the internet", "Internet encryption")
+                };
+            bail!(
+                "this PC requires encrypted streams on {network} and this device cannot encrypt: update its Moonlight app, or set {setting} to When the device supports it"
+            );
         }
         let scheme = if launch.rtsp_encrypted {
             "rtspenc"

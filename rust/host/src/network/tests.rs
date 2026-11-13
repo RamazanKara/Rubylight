@@ -219,6 +219,52 @@ fn a_tunnelled_peer_needs_the_internets_encryption() {
         encryption_mode(&defaults, "127.77.9.9:50020".parse().unwrap()),
         1
     );
+    assert_eq!(
+        encryption_mode(&defaults, "203.0.113.7:50020".parse().unwrap()),
+        1
+    );
+    assert_eq!(
+        encryption_mode(&defaults, "100.101.102.103:50020".parse().unwrap()),
+        0
+    );
+}
+
+/// A device on the internet that cannot encrypt streams under When the device supports it, with a
+/// warning; the local network, Tailscale and Play over the internet's sealed path do not warn.
+#[test]
+fn an_unencrypted_stream_over_the_internet_warns() {
+    let internet: SocketAddr = "203.0.113.7:50020".parse().unwrap();
+    let internet6: SocketAddr = "[2001:db8::7]:50020".parse().unwrap();
+    for peer in [internet, internet6] {
+        for encryption in [0, 1, 2, 4, 5] {
+            let warning = unencrypted_internet_warning(1, peer, encryption).unwrap();
+            assert!(warning.contains("unencrypted"), "{warning}");
+            assert!(warning.contains("Internet encryption"), "{warning}");
+        }
+        // Video and audio encrypted, Off chosen, or Required (which refuses the stream instead).
+        assert_eq!(unencrypted_internet_warning(1, peer, 6), None);
+        assert_eq!(unencrypted_internet_warning(1, peer, 7), None);
+        assert_eq!(unencrypted_internet_warning(0, peer, 0), None);
+        assert_eq!(unencrypted_internet_warning(2, peer, 0), None);
+    }
+    for peer in [
+        "192.168.4.20:50020",
+        "100.101.102.103:50020",
+        "[fd12::7]:50020",
+        "127.0.0.1:50020",
+        "127.77.9.9:50020",
+    ] {
+        assert_eq!(
+            unencrypted_internet_warning(1, peer.parse().unwrap(), 0),
+            None,
+            "{peer}"
+        );
+    }
+    let shared: SocketAddr = "198.51.100.9:50021".parse().unwrap();
+    let mark = rubylight_traverse::peers::register(shared, "phone");
+    assert_eq!(unencrypted_internet_warning(1, shared, 0), None);
+    drop(mark);
+    assert!(unencrypted_internet_warning(1, shared, 0).is_some());
 }
 fn request(pairs: &[(&'static str, &str)]) -> HeaderMap {
     let mut headers = HeaderMap::new();

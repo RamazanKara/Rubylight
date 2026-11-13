@@ -247,13 +247,20 @@ const NOTICE_NAME_CHARS: usize = 40;
 /// the name the device chose, which is cut short so it can neither push the address out of the
 /// notice (Windows keeps 255 UTF-16 units) nor pass for it.
 pub fn pairing_notice(name: &str, address: std::net::IpAddr) -> (String, String) {
+    let text = if pairing_from_internet(address) {
+        "wants to pair from the internet. Enter its PIN in the Rubylight console only if you expect it."
+    } else {
+        "wants to pair. Enter the PIN it shows in the Rubylight console."
+    };
     (
         format!("Pairing request from {}", pairing_source(address)),
-        format!(
-            "{} wants to pair. Enter the PIN it shows in the Rubylight console.",
-            notice_name(name)
-        ),
+        format!("{} {text}", notice_name(name)),
     )
+}
+/// Whether a pairing request came from outside the local network: a PIN pairing there crosses
+/// networks nobody vouches for, so the owner should be expecting it.
+pub fn pairing_from_internet(address: std::net::IpAddr) -> bool {
+    crate::network::reach(address) == crate::network::Reach::Wan
 }
 fn notice_name(name: &str) -> String {
     let name = butterpollo_core::pairing::without_direction_controls(name);

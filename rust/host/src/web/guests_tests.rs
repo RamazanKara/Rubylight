@@ -1006,6 +1006,19 @@ fn a_pairing_notice_shows_the_address_apart_from_a_name_that_could_hide_or_fake_
         "fd12:3456:789a:bcde:f012:3456:789a:bcde".parse().unwrap(),
     );
     assert!(title.encode_utf16().count() <= 63, "{title}");
+    // A request from the internet asks the owner to expect it; the local network's does not.
+    for address in ["203.0.113.7", "2001:db8::7", "127.77.3.4"] {
+        let (_, text) = crate::state::pairing_notice("Phone", address.parse().unwrap());
+        assert_eq!(
+            text,
+            "Phone wants to pair from the internet. Enter its PIN in the Rubylight console only if you expect it.",
+            "{address}"
+        );
+    }
+    for address in ["192.168.4.20", "100.101.102.103", "fd12::7", "::1"] {
+        let (_, text) = crate::state::pairing_notice("Phone", address.parse().unwrap());
+        assert!(!text.contains("internet"), "{address}: {text}");
+    }
 }
 
 #[tokio::test]

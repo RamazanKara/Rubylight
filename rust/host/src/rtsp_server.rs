@@ -337,7 +337,8 @@ async fn connection(
                     audio_check
                         .take()
                         .context("the ANNOUNCE's audio codec was not checked")??;
-                    let required_encryption = crate::network::encryption_mode(&config, peer) == 2;
+                    let encryption_mode = crate::network::encryption_mode(&config, peer);
+                    let required_encryption = encryption_mode == 2;
                     // The FEC and audio share of the client's bitrate is expected;
                     // only a host cap is worth a warning.
                     let uncapped = butterpollo_core::stream_policy::uncapped_bitrate_kbps(
@@ -451,6 +452,14 @@ async fn connection(
                         (3, false) => 0x800000,
                         _ => 0,
                     };
+                    match crate::network::unencrypted_internet_warning(
+                        encryption_mode,
+                        peer,
+                        negotiated.encryption,
+                    ) {
+                        Some(message) => launch.warnings.set("stream_unencrypted", message),
+                        None => launch.warnings.clear("stream_unencrypted"),
+                    }
                     if required_encryption && negotiated.encryption & 6 != 6 {
                         code = 403;
                         reason = "Required audio and video encryption was not negotiated";

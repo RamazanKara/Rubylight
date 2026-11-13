@@ -435,7 +435,7 @@ const network: Setting[] = [
     description:
       'Lets paired Nightjar devices reach this PC from other networks without port forwarding. The PC contacts public servers that see its public address; the Privacy page lists them.',
     details:
-      "Only Nightjar uses the direct path, and only paired devices can read what the PC publishes. A device learns what it needs while it is on your network once. Two networks that both change ports for every destination (symmetric NAT) cannot open a direct path: forward the ports there instead. The PC finds its public address with STUN and meets devices through the BitTorrent DHT. A device tries your network first, then the PC's IPv6 address, then a port the router maps (Automatic port forwarding), and last a direct path both sides open through their routers. The PC contacts public STUN servers and DHT nodes, which see its public address; the Privacy page lists them.",
+      "Only Nightjar uses the direct path, and only paired devices can read what the PC publishes. A device learns what it needs while it is on your network once. Two networks that both change ports for every destination (symmetric NAT) cannot open a direct path: forward the ports there instead. The PC finds its public address with STUN and meets devices through a public peer-to-peer directory (the Mainline DHT), where it leaves only encrypted notes that its paired devices can read. Nothing is downloaded or shared through it. A device tries your network first, then the PC's IPv6 address, then a port the router maps (Automatic port forwarding), and last a direct path both sides open through their routers. The PC contacts public STUN servers and directory nodes, which see its public address; the Privacy page lists them.",
     category: 'network',
     group: 'Discovery and internet',
     control: { kind: 'toggle' },
@@ -590,7 +590,7 @@ const network: Setting[] = [
     description:
       'Encrypts streams outside the local network. Leave it on When the device supports it: Off sends video over the internet unencrypted; Required refuses devices that cannot encrypt.',
     details:
-      'Required turns away devices that cannot encrypt, and demands encrypted video and audio from the others. Off does not offer video encryption. A device that connects through Play over the internet counts as outside the local network.',
+      'Required turns away devices that cannot encrypt, and demands encrypted video and audio from the others. With When the device supports it, a device that cannot encrypt still streams, and the console warns that its stream crosses the internet unencrypted. Off does not offer video encryption. A device that connects through Play over the internet counts as outside the local network; Tailscale counts as the local network.',
     category: 'network',
     group: 'Streams',
     control: { kind: 'select', options: encryption },

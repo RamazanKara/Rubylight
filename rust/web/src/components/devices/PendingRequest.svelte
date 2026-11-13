@@ -47,6 +47,7 @@
         {#if request.webrtc}<Badge>WebRTC</Badge>{/if}
       </span>
       <span class="muted age">Requested {duration(request.age_seconds)} ago</span>
+      {#if request.internet}<span class="muted">From the internet: enter its PIN only if you expect this device.</span>{/if}
     </div>
     <label class="visually-hidden" for="{uid}-pin">PIN shown on {request.name}</label>
     <div class="entry">

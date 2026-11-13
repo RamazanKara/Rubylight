@@ -94,6 +94,18 @@ test('a pairing request shows its address first and apart from the name it chose
   assert.ok(banner.indexOf('Pairing request from') < banner.indexOf('Living room TV'), banner);
 });
 
+test('a pairing request from the internet asks the owner to expect it', async () => {
+  const request = { uniqueid: 'a', name: 'Phone', address: '203.0.113.7', internet: true, age_seconds: 3 };
+  const banner = await body('PairingBanner', { requests: [request] });
+  assert.match(banner, /Phone wants to pair from the internet\./);
+  assert.match(banner, /only if you expect this device/);
+  assert.match(await body('devices/PendingRequest', { request }), /From the internet: enter its PIN only if you expect this device\./);
+  const tunnelled = await body('devices/PendingRequest', { request: { ...request, address: '127.77.3.4' } });
+  assert.match(tunnelled, /Pairing request from a device over the internet/);
+  const local = await body('PairingBanner', { requests: [{ ...request, address: '192.168.4.30', internet: false }] });
+  assert.doesNotMatch(local, /internet|expect/);
+});
+
 test('a linked card is one named link', async () => {
   const out = await body('Card', { href: '/devices/pixel', label: 'Pixel 9 settings', children: html('Pixel 9') });
   assert.match(out, /<a [^>]*href="\/devices\/pixel"[^>]*aria-label="Pixel 9 settings"|<a [^>]*aria-label="Pixel 9 settings"[^>]*href="\/devices\/pixel"/);

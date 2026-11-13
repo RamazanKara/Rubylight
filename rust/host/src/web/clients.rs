@@ -234,6 +234,8 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
                     "name": p.name,
                     // The name is the device's to choose; the address is not.
                     "address": p.address.to_canonical().to_string(),
+                    // Outside the local network: the console asks the owner to expect it.
+                    "internet": crate::state::pairing_from_internet(p.address),
                     "age_seconds": p.created.elapsed().as_secs(),
                     // A WebRTC request has no certificate.
                     "webrtc": p.certificate.is_empty(),

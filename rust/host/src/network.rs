@@ -269,6 +269,26 @@ pub fn encryption_mode(config: &Config, peer: SocketAddr) -> u32 {
         )
         .clamp(0, 2) as u32
 }
+/// The warning for a stream to `peer` whose video and audio are not both encrypted
+/// (`encryption`, the negotiated flags: 2 video, 4 audio) under `mode`, the encryption the peer's
+/// network gets. Only When the device supports it (1) warns: Off is the user's choice and
+/// Required refuses such a stream. The local network, Tailscale included, is not the internet,
+/// and a path through Play over the internet is sealed with the device's own keys.
+pub fn unencrypted_internet_warning(
+    mode: u32,
+    peer: SocketAddr,
+    encryption: u32,
+) -> Option<&'static str> {
+    let ip = peer.ip().to_canonical();
+    (mode == 1
+        && encryption & 6 != 6
+        && !tunnelled(peer)
+        && !rubylight_traverse::peers::tunnel_range(ip)
+        && reach(ip) == Reach::Wan)
+        .then_some(
+            "This device streams over the internet unencrypted: it cannot encrypt video and audio. Update its Moonlight app, or set Internet encryption to Required to turn such devices away.",
+        )
+}
 pub fn ping_timeout(config: &Config) -> Duration {
     Duration::from_millis(config.integer("ping_timeout", 10000).clamp(1000, 300000) as u64)
 }

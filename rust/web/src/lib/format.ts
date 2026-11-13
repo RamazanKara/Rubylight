@@ -9,8 +9,10 @@ export function duration(seconds: number): string {
 }
 
 /** Where a pairing request came from, as the host's tray says it: loopback is this PC, which for a
- * device elsewhere means a tunnel or proxy on it. */
+ * device elsewhere means a tunnel or proxy on it; an internet play tunnel's range is the internet. */
 export function pairingSource(address: string): string {
+  // Play over the internet connects each device from its own 127.77.x.y or 127.78.x.y.
+  if (address.startsWith('127.77.') || address.startsWith('127.78.')) return 'a device over the internet';
   return address === '::1' || address.startsWith('127.') ? 'this PC (a tunnel or proxy)' : address;
 }
 

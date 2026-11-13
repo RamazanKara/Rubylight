@@ -52,8 +52,10 @@
     <div class="text">
       <!-- The address first and apart: the name is the device's to choose, and could name one. -->
       {#if first.address}<span class="from">Pairing request from {pairingSource(first.address)}</span>{/if}
-      <strong class="name">{first.name} wants to pair.</strong>
-      <span class="muted">Enter the PIN shown on that device.{requests.length > 1
+      <strong class="name">{first.name} wants to pair{first.internet ? ' from the internet' : ''}.</strong>
+      <span class="muted">{first.internet
+          ? 'Enter its PIN only if you expect this device.'
+          : 'Enter the PIN shown on that device.'}{requests.length > 1
           ? ` ${requests.length - 1} more waiting.`
           : ''}</span>
     </div>

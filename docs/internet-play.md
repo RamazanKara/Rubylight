@@ -5,7 +5,7 @@
 Devices reach your PC from outside your network without forwarding ports by hand, and without any server run by the Rubylight project: no relay carries your stream and no rendezvous server knows your devices. Two settings are involved:
 
 - **Automatic port forwarding** (`upnp`, off by default) asks your router to forward the streaming ports: through UPnP IGD, else PCP, else NAT-PMP, for IPv4, and opens IPv6 firewall pinholes through UPnP IGDv2 or PCP. Stock Moonlight benefits as well: it reaches a forwarded port at the PC's `ExternalIP`.
-- **Play over the internet** (`internet_play`, off by default) adds a direct path for when no port can be forwarded, such as behind carrier-grade NAT: Nightjar and the host find each other through the public BitTorrent DHT and punch a UDP path through both routers.
+- **Play over the internet** (`internet_play`, off by default) adds a direct path for when no port can be forwarded, such as behind carrier-grade NAT: Nightjar and the host find each other through a public peer-to-peer directory, the Mainline DHT, where each leaves an encrypted note only the other can read, and punch a UDP path through both routers. Nothing is downloaded or shared through it.
 
 ## The order a device tries
 
@@ -21,12 +21,12 @@ The PC's line in Nightjar names the path in use (Internet (IPv6), Internet (forw
 - **Port mapping.** With `upnp` on, every streaming port (HTTP, HTTPS, RTSP, video, audio, control, microphone) is asked for. Leases are renewed every minute and removed when the host stops. The console's **Settings → Network → Internet status** shows the method that worked, each port mapped or refused and why, the public address, the IPv6 pinholes, and notes for carrier-grade NAT (the router's own address is not public) and a second router in front.
 - **Public address.** With `internet_play` on, the host asks public STUN servers for its public address every five minutes (`internet_play_stun_servers`, default `stun.moonlight-stream.org:3478` and `stun.cloudflare.com:3478`) and classifies the router: cone (one mapping for every destination) or symmetric. Paired serverinfo reports `ExternalIP` when either setting is on and the address is known.
 - **Keys for each device.** Each paired device gets a random 32-byte secret, stored with the device on the host and fetched by that device over the paired HTTPS connection (`GET /internet-play/v1`). Unpairing removes it.
-- **Rendezvous.** For each device, the host publishes a record on the DHT every 30 minutes and on change, and looks for the device's record every ten seconds.
+- **Finding each other.** For each device, the host publishes an encrypted record in the directory every 30 minutes and on change, and looks for the device's record every ten seconds.
 - **Tunnels.** A punch authenticated with a device's keys opens a path. The host connects tunnelled HTTP, HTTPS and RTSP to its own ports on loopback from a source address of the device's own (127.77.x.y), so sessions of two devices stay apart, and forwards media datagrams to its media ports.
 
-## Rendezvous on the DHT
+## Finding each other on the Mainline DHT
 
-The records are BitTorrent DHT mutable items (BEP 44), stored by public DHT nodes for about two hours. The host and the device each publish one and read the other's:
+The Mainline DHT is a public peer-to-peer directory, the same one BitTorrent apps use to find each other. Rubylight and Nightjar use it only as a directory for their encrypted records: nothing is downloaded, shared or seeded through it. The records are mutable items (BEP 44), stored by public DHT nodes for about two hours. The host and the device each publish one and read the other's:
 
 - **Keys.** HKDF-SHA256 over the device secret (salt `rubylight internet play v1`) derives an Ed25519 signing key per side, a record key, and a salt per side and hour. The item's target is SHA-1 of the public key and the salt, so the target changes every hour and nobody without the secret can link two hours, a device and its PC, or find either.
 - **Contents.** Sealed with ChaCha20-Poly1305 under the record key: the side's role, time, session ID (random per run), the peer session it answers, its NAT type, up to eight public endpoints and, from the host, its port numbers. A node storing it sees only its size, the signature and the sequence number (the publication time).

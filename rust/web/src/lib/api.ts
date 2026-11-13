@@ -473,6 +473,8 @@ export interface PendingPairing {
   name: string;
   /** Where the request came from: the name is the device's to choose, the address is not. */
   address?: string;
+  /** The request comes from outside the local network. */
+  internet?: boolean;
   age_seconds: number;
   /** The request comes from a WebRTC TV. */
   webrtc?: boolean;

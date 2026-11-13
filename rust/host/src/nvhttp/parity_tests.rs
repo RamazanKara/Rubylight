@@ -1924,7 +1924,10 @@ async fn a_launch_during_the_startup_probe_waits_for_its_result() {
     let root = document(launch).await;
     let message = &root.attributes["status_message"];
     assert!(!message.contains("No video encoder is ready"), "{message}");
-    assert!(message.contains("encrypted RTSP is required"), "{message}");
+    assert!(
+        message.contains("requires encrypted streams on the local network"),
+        "{message}"
+    );
     assert!(f.host.sessions.lock().unwrap().pending.is_empty());
 }
 
@@ -1966,7 +1969,7 @@ async fn a_tunnelled_launch_needs_the_internets_encryption() {
         let root = document(launch).await;
         let message = &root.attributes["status_message"];
         assert!(
-            message.contains("encrypted RTSP is required"),
+            message.contains("requires encrypted streams on the internet"),
             "{peer}: {message}"
         );
         assert!(f.host.sessions.lock().unwrap().pending.is_empty());

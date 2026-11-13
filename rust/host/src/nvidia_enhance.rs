@@ -324,13 +324,13 @@ mod tests {
             .lock()
             .unwrap()
             .push(("rtx_video", "the GPU does not support it".into()));
-        let status = status(&h);
+        let status = status(h);
         assert_eq!(status["build"], cfg!(feature = "nvidia-proprietary"));
         assert_eq!(status["rtx_hdr"], false);
         assert_eq!(status["rtx_video"], false);
         assert_eq!(status["errors"]["rtx_video"], "the GPU does not support it");
         h.nvidia_enhancements.store(RTX_VIDEO, Ordering::Release);
-        assert_eq!(status_of(&h, "rtx_video"), true);
+        assert!(status_of(h, "rtx_video"));
     }
 
     fn status_of(h: &Shared, key: &str) -> bool {

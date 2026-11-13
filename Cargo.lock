@@ -406,6 +406,7 @@ dependencies = [
  "qrcodegen",
  "rand 0.8.8",
  "reqwest",
+ "rubylight-traverse",
  "rustls",
  "rustls-pemfile",
  "rustls-webpki",
@@ -1937,6 +1938,7 @@ dependencies = [
  "rsa",
  "rubylight-native-api",
  "rubylight-protocol",
+ "rubylight-traverse",
  "rustls",
  "rusty_enet 0.4.0",
  "serde",
@@ -2686,6 +2688,14 @@ dependencies = [
 [[package]]
 name = "rubylight-protocol"
 version = "0.1.0"
+
+[[package]]
+name = "rubylight-traverse"
+version = "0.1.0"
+dependencies = [
+ "ring",
+ "socket2 0.6.5",
+]
 
 [[package]]
 name = "rubylight-vdisplay-proto"

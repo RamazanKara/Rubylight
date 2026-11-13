@@ -305,6 +305,7 @@ pub fn router(h: Shared, https: bool) -> Router {
             .route("/api/abr/capabilities", get(abr))
             .route("/api/hardware-metrics", get(hardware_metrics))
             .route("/api/network-path", get(network_path))
+            .route(crate::internet_play::ROUTE, get(internet_play))
             .route("/pyrowave-bandwidth-probe", get(pyrowave_bandwidth))
             .route(
                 butterpollo_core::bandwidth_probe::ROUTE,
@@ -366,6 +367,35 @@ async fn hardware_metrics(
         Err((status, error)) => (status, axum::Json(json!({"error": error}))),
     };
     ([(header::CACHE_CONTROL, "no-store")], response).into_response()
+}
+/// `GET /internet-play/v1` (`docs/internet-play.md`): what a paired device keeps to reach this
+/// PC from outside its network. Paired HTTPS only: it carries the device's rendezvous secret.
+async fn internet_play(
+    State(h): State<Shared>,
+    Extension(connection): Extension<Connection>,
+) -> Response {
+    let client = match authenticated(&h, &connection, 0) {
+        Ok(client) => client,
+        Err(error) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                axum::Json(json!({"error": error.to_string()})),
+            )
+                .into_response();
+        }
+    };
+    let state = h.clone();
+    match tokio::task::spawn_blocking(move || crate::internet_play::describe(&state, &client.cert))
+        .await
+    {
+        Ok(Ok(value)) => ([(header::CACHE_CONTROL, "no-store")], axum::Json(value)).into_response(),
+        Ok(Err(error)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            axum::Json(json!({"error": format!("{error:#}")})),
+        )
+            .into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
 }
 async fn serverinfo(
     State(h): State<Shared>,
@@ -705,6 +735,24 @@ fn serverinfo_response(
             ("SleepSupported", u8::from(h.power.supported()).to_string()),
             ("SleepAllowed", u8::from(client.allows_sleep()).to_string()),
         ]);
+        // Play over the internet: Moonlight keeps ExternalIP as the PC's remote address, and
+        // Nightjar fetches `/internet-play/v1` when the version is set. Paired only: the
+        // public address is the owner's.
+        let internet_play = crate::internet_play::enabled(config);
+        if (internet_play || config.boolean("upnp", false))
+            && let Some(external) = crate::internet_play::external_ipv4()
+        {
+            fields.push(("ExternalIP", external.to_string()));
+        }
+        fields.push((
+            crate::internet_play::SERVERINFO_FIELD,
+            if internet_play {
+                crate::internet_play::VERSION
+            } else {
+                0
+            }
+            .to_string(),
+        ));
     }
     // DESCRIBE's `packed444Modes` mask, from the startup probe and the probe
     // after a save of the full chroma settings, so a client

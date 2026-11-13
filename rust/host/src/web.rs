@@ -237,6 +237,7 @@ fn token_catalog() -> Vec<auth::Scope> {
         ("/api/clients/hdr-profiles", &["GET"][..]),
         ("/api/clients/unpair-all", &["POST"][..]),
         ("/api/frame-limiter/status", &["GET"][..]),
+        ("/api/internet-play", &["GET"][..]),
         ("/api/rtss/status", &["GET"][..]),
         ("/api/health/vulkan-hdr-layer", &["GET"][..]),
         ("/api/health/vulkan-hdr-layer/register", &["POST"][..]),
@@ -1311,6 +1312,7 @@ pub(crate) async fn api(
             | ("PUT", "/api/clients/display-layout") => {
                 displays::handle(&h, method.as_str(), &uri, &data)?
             }
+            ("GET", "/api/internet-play") => crate::internet_play::console_status(&h)?,
             ("GET", "/api/rtss/status" | "/api/frame-limiter/status") => {
                 session::handle(&h, method.as_str(), path)?
             }

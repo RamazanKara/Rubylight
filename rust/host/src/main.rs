@@ -10,6 +10,7 @@ mod extensions;
 mod game_files;
 mod game_settings;
 mod host_warnings;
+mod internet_play;
 mod launcher_watch;
 mod library;
 mod logging;
@@ -503,6 +504,7 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
     // Off unless `enable_dsu_server` is set; a taken port is a console warning.
     dsu::start(h.config.read().unwrap().dsu_server_port(), &h.warnings);
     let port_forward = network::port_forward(h.clone(), bind);
+    let internet_play = internet_play::start(h.clone(), bind);
     let (tray, actions) = if args.no_tray || !h.config.read().unwrap().boolean("system_tray", true)
     {
         (None, None)
@@ -635,6 +637,10 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
     guest_listener.abort();
     tasks.abort_all();
     while tasks.join_next().await.is_some() {}
+    // Tunnelled devices are told the host stops; their streams ended above.
+    if let Some(internet_play) = internet_play {
+        internet_play.stop();
+    }
     h.stop_app(state::AppStop::Shutdown);
     h.session_shutdown();
     // Whatever a session changed goes back before the host exits; the restore thread has had the

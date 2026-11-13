@@ -218,7 +218,9 @@ pub const GLOBAL: &[Setting] = settings! {
         "address_family", "IP support", Choice(&["ipv4","both"]);
         "enable_discovery", "Moonlight discovery on the local network", Bool;
         "enable_pairing", "Allow new device pairings", Bool;
-        "upnp", "UPnP router port forwarding", Bool;
+        "upnp", "Automatic router port forwarding (UPnP, PCP, NAT-PMP)", Bool;
+        "internet_play", "Play over the internet (STUN, DHT rendezvous, direct paths)", Bool;
+        "internet_play_stun_servers", "STUN servers (host:port, comma separated; empty for the defaults)", Text;
         "webrtc_server", "WebRTC server (unencrypted ws:// on the local network)", Bool;
         "webrtc_port", "WebRTC signalling port (TCP; discovery stays on UDP 8000)", Number;
         "webrtc_media_port", "WebRTC media port (UDP)", Number;

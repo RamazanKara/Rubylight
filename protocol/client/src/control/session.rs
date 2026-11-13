@@ -23,6 +23,8 @@ const CONN_CONSECUTIVE_POOR_LOSS_RATE: u32 = 15;
 const CONN_OKAY_LOSS_RATE: u32 = 5;
 const CONN_STATUS_SAMPLE_PERIOD: Duration = Duration::from_millis(3000);
 const FEC_SUMMARY_INTERVAL: Duration = Duration::from_millis(1000);
+/// Queued datagrams past which arrival feedback is dropped rather than queued.
+const TRANSPORT_FEEDBACK_BACKLOG: usize = 32;
 
 /// A sealed datagram for ENet.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -341,6 +343,19 @@ impl ControlSession {
                     .push_back(ReferenceFrameControl::Acknowledge(frame));
             }
         }
+    }
+
+    /// Queues a batch of video arrival feedback (0x5547) for a host that listed it. Dropped
+    /// without that, after stop, and while the control stream holds a backlog: by then the
+    /// report is stale and would only add to it.
+    pub fn transport_feedback(
+        &mut self,
+        report: rubylight_protocol::transport_feedback::TransportFeedback,
+    ) {
+        if self.transmit.len() >= TRANSPORT_FEEDBACK_BACKLOG {
+            return;
+        }
+        let _ = self.send(ClientMessage::TransportFeedback(report));
     }
 
     /// The video stream saw (part of) frame `frame`; drives the connection status.
@@ -841,6 +856,44 @@ mod tests {
             unrecovered,
             ..FecBlock::default()
         }
+    }
+
+    #[test]
+    fn transport_feedback_goes_only_to_a_host_that_listed_it() {
+        use rubylight_protocol::transport_feedback::TransportFeedback;
+        let report = TransportFeedback {
+            stride: 1,
+            entries: vec![0, 10, rubylight_protocol::transport_feedback::NOT_RECEIVED],
+            ..Default::default()
+        };
+        let t0 = Instant::now();
+        let mut stock = session(SessionOptions::default());
+        stock.start(t0);
+        host_reads(&mut stock);
+        stock.transport_feedback(report.clone());
+        assert!(host_reads(&mut stock).is_empty());
+
+        let mut s = ControlSession::new(
+            HostCapabilities {
+                control_messages: vec![0x5547],
+                ..rubylight()
+            },
+            &KEY,
+            SessionOptions::default(),
+        );
+        s.start(t0);
+        host_reads(&mut s);
+        s.transport_feedback(report.clone());
+        let sent = host_reads(&mut s);
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].1, Delivery::Unsequenced);
+        assert_eq!(sent[0].2, 0x5547);
+        assert_eq!(TransportFeedback::decode(&sent[0].3), Some(report.clone()));
+        // A backlog drops reports instead of growing.
+        for _ in 0..TRANSPORT_FEEDBACK_BACKLOG + 10 {
+            s.transport_feedback(report.clone());
+        }
+        assert_eq!(host_reads(&mut s).len(), TRANSPORT_FEEDBACK_BACKLOG);
     }
 
     fn fec_reporting() -> ControlSession {

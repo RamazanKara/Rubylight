@@ -168,6 +168,56 @@ fn fec_blocks(events: &[VideoEvent]) -> Vec<FecBlock> {
 }
 
 #[test]
+fn arrival_feedback_counts_every_datagram_once_enabled() {
+    use rubylight_protocol::transport_feedback::{TransportFeedback, NOT_RECEIVED};
+    let reports = |events: &[VideoEvent]| -> Vec<TransportFeedback> {
+        events
+            .iter()
+            .filter_map(|e| match e {
+                VideoEvent::Signal(VideoSignal::TransportFeedback(report)) => Some(report.clone()),
+                _ => None,
+            })
+            .collect()
+    };
+    let payload: Vec<u8> = (0..9000u32).map(|i| (i * 7) as u8).collect();
+    for enabled in [false, true] {
+        let mut host = Host::new();
+        let mut rx = VideoReceiver::new(config(0x1000));
+        if enabled {
+            rx.enable_transport_feedback();
+        }
+        let mut events = Vec::new();
+        let first = host.frame(&payload, 2);
+        for (i, packet) in first.iter().enumerate() {
+            if i != 3 {
+                rx.receive(packet, 1_000 + i as u64 * 100, &mut events);
+            }
+        }
+        // The next frame, 60 ms later, sends the report on.
+        for packet in host.frame(&payload, 2) {
+            rx.receive(&packet, 61_000, &mut events);
+        }
+        let reports = reports(&events);
+        if !enabled {
+            assert!(reports.is_empty());
+            continue;
+        }
+        assert_eq!(reports.len(), 1, "{reports:?}");
+        let report = &reports[0];
+        assert_eq!(report.stride, 1);
+        assert_eq!(report.base_arrival_us, 1_000);
+        assert!(report.entries.len() > first.len(), "{report:?}");
+        assert_eq!(report.entries[3], NOT_RECEIVED);
+        // The parity after the frame was rebuilt arrived too, though the queue dropped it.
+        for (i, &entry) in report.entries[..first.len()].iter().enumerate() {
+            if i != 3 {
+                assert_eq!(u64::from(entry) * 4, i as u64 * 100, "{i}");
+            }
+        }
+    }
+}
+
+#[test]
 fn finished_blocks_are_counted_for_the_fec_report() {
     let mut host = Host::new();
     let mut rx = VideoReceiver::new(config(0x1000));

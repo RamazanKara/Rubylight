@@ -6,7 +6,7 @@
 
 use crate::{
     audio_ext, control, controller_identity, cursor_shape, fec_report, frame_warp, keyboard_layout, pairing_uri,
-    pen, phase_lock, pipeline_rates, rate_change, roaming, steam_controller, text_input, usb, usbip,
+    pen, phase_lock, pipeline_rates, rate_change, roaming, steam_controller, text_input, transport_feedback, usb, usbip,
 };
 use alloc::{string::String, vec, vec::Vec};
 use proptest::collection::vec;
@@ -386,6 +386,38 @@ round_trip!(
         ),
     |b| fec_report::FecReport::decode(b),
     |v| Some(v.encode().to_vec())
+);
+round_trip!(
+    transport_feedback,
+    (
+        any::<u8>(),
+        any::<u16>(),
+        0u16..70,
+        any::<u32>(),
+        any::<u32>(),
+        any::<u16>(),
+        vec(
+            prop_oneof![any::<u16>(), Just(transport_feedback::NOT_RECEIVED)],
+            0..20
+        )
+    )
+        .prop_map(
+            |(flags, base, stride, seq, base_arrival_us, late, entries)| {
+                transport_feedback::TransportFeedback {
+                    flags,
+                    base,
+                    stride,
+                    seq,
+                    base_arrival_us,
+                    late,
+                    entries,
+                }
+                .encode()
+                .unwrap_or_default()
+            }
+        ),
+    |b| transport_feedback::TransportFeedback::decode(b),
+    |v| v.encode()
 );
 round_trip!(
     keyboard_layout,

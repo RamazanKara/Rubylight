@@ -10,7 +10,7 @@
 use crate::{
     clipboard_sync, control, controller_identity, cursor_shape, fec_report, frame_warp,
     keyboard_layout, pen, phase_lock, pipeline_rates, rate_change, steam_controller, text_input,
-    usb,
+    transport_feedback, usb,
 };
 use core::ops::RangeInclusive;
 
@@ -83,9 +83,19 @@ pub const CONTROL_IDS: &[(u16, &str)] = &[
         frame_warp::FRAME_WARP_REQUEST_MESSAGE_TYPE,
         "frame warp request",
     ),
-    (frame_warp::FRAME_WARP_MODEL_MESSAGE_TYPE, "frame warp model"),
+    (
+        frame_warp::FRAME_WARP_MODEL_MESSAGE_TYPE,
+        "frame warp model",
+    ),
     (frame_warp::FRAME_WARP_TAGS_MESSAGE_TYPE, "frame warp tags"),
-    (frame_warp::FRAME_WARP_MASK_MESSAGE_TYPE, "frame warp HUD mask"),
+    (
+        frame_warp::FRAME_WARP_MASK_MESSAGE_TYPE,
+        "frame warp HUD mask",
+    ),
+    (
+        transport_feedback::TRANSPORT_FEEDBACK_MESSAGE_TYPE,
+        "transport feedback",
+    ),
     (0x5601, "DualSense haptics"),
 ];
 
@@ -132,7 +142,10 @@ pub const INPUT_MAGICS: &[(u32, &str)] = &[
         "Steam Controller attributes",
     ),
     (pen::PEN_BARREL_ROLL_MAGIC, "pen with barrel roll"),
-    (controller_identity::CONTROLLER_IDENTITY_MAGIC, "controller identity"),
+    (
+        controller_identity::CONTROLLER_IDENTITY_MAGIC,
+        "controller identity",
+    ),
 ];
 
 /// Input magics other clients use for touchpad packets.
@@ -203,7 +216,10 @@ mod tests {
             .collect();
         assert_eq!(
             new,
-            [0x5539, 0x553A, 0x553B, 0x553C, 0x553D, 0x553E, 0x5540, 0x5541, 0x5543, 0x5544, 0x5545, 0x5546]
+            [
+                0x5539, 0x553A, 0x553B, 0x553C, 0x553D, 0x553E, 0x5540, 0x5541, 0x5543, 0x5544,
+                0x5545, 0x5546
+            ]
         );
     }
 

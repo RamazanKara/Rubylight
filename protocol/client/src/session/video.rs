@@ -599,6 +599,7 @@ pub fn route(control: &ControlHandle, signals: &mut Vec<VideoSignal>) {
             VideoSignal::RequestIdr
                 | VideoSignal::InvalidateFrames { .. }
                 | VideoSignal::FrameReceived { ltr: true, .. }
+                | VideoSignal::TransportFeedback(_)
         )
     });
     let now = Instant::now();
@@ -611,6 +612,7 @@ pub fn route(control: &ControlHandle, signals: &mut Vec<VideoSignal>) {
                 VideoSignal::FecBlock(block) => session.fec_block(block, now),
                 VideoSignal::FrameReceived { frame, ltr } => session.frame_complete(frame, ltr),
                 VideoSignal::FrameSeen { frame } => session.frame_seen(frame, now),
+                VideoSignal::TransportFeedback(report) => session.transport_feedback(report),
             }
         }
     };

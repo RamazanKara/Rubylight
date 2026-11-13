@@ -123,6 +123,8 @@ pub enum ClientMessage {
     ClipboardSync(rubylight_protocol::clipboard_sync::Frame),
     /// Starts or stops Frame Warp (0x5543): the host's model, tags and HUD mask.
     FrameWarpRequest(rubylight_protocol::frame_warp::FrameWarpRequest),
+    /// When each video packet arrived, for the host's congestion control (0x5547).
+    TransportFeedback(rubylight_protocol::transport_feedback::TransportFeedback),
 }
 
 impl ClientMessage {
@@ -153,6 +155,7 @@ impl ClientMessage {
             Self::Usb(_) => ptype::USB,
             Self::ClipboardSync(_) => ptype::CLIPBOARD_SYNC,
             Self::FrameWarpRequest(_) => ptype::FRAME_WARP_REQUEST,
+            Self::TransportFeedback(_) => ptype::TRANSPORT_FEEDBACK,
         }
     }
 
@@ -200,6 +203,8 @@ impl ClientMessage {
             Self::Usb(message) => message.encode().unwrap_or_default(),
             Self::ClipboardSync(frame) => frame.encode().unwrap_or_default(),
             Self::FrameWarpRequest(request) => request.encode().to_vec(),
+            // `is_valid` refused what does not encode.
+            Self::TransportFeedback(report) => report.encode().unwrap_or_default(),
         }
     }
 
@@ -218,9 +223,11 @@ impl ClientMessage {
 
     pub fn delivery(&self) -> Delivery {
         match self {
-            Self::FrameFecStatus(_) | Self::ClockSync(_) | Self::ControllerMicrophone(_) => {
-                Delivery::Unsequenced
-            }
+            // Arrival feedback is stale once the next report is due; a late one still counts.
+            Self::FrameFecStatus(_)
+            | Self::ClockSync(_)
+            | Self::ControllerMicrophone(_)
+            | Self::TransportFeedback(_) => Delivery::Unsequenced,
             // A lost report is replaced half a second later, a lost FEC report or summary a
             // second later.
             Self::PhaseLockReport(_) | Self::FecReport(_) | Self::FecSummary(_) => {
@@ -249,7 +256,8 @@ impl ClientMessage {
             | Self::ControllerAudioStatus { .. }
             | Self::Usb(_)
             | Self::ClipboardSync(_)
-            | Self::FrameWarpRequest(_) => Some(self.message_type()),
+            | Self::FrameWarpRequest(_)
+            | Self::TransportFeedback(_) => Some(self.message_type()),
             _ => None,
         }
     }
@@ -281,6 +289,7 @@ impl ClientMessage {
             Self::KeyboardLayout(layout) => layout.encode().is_some(),
             Self::RateChange(request) => request.valid(),
             Self::ClipboardSync(frame) => frame.encode().is_some(),
+            Self::TransportFeedback(report) => report.encode().is_some(),
             // Only the client's kinds, and only what encodes.
             Self::Usb(message) => {
                 matches!(

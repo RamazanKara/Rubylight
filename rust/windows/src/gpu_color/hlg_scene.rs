@@ -125,9 +125,10 @@ impl HlgScene {
             context.CSSetShader(&self.shader, None);
             context.CSSetShaderResources(0, Some(&[Some(source)]));
             context.CSSetConstantBuffers(0, Some(&[Some(self.constants.clone())]));
-            context.CSSetUnorderedAccessViews(9, 1, Some([Some(view.clone())].as_ptr()), None);
+            // `hlgScene` is u2: feature level 11_0 has u0-u7 only.
+            context.CSSetUnorderedAccessViews(2, 1, Some([Some(view.clone())].as_ptr()), None);
             context.Dispatch(self.size.0.div_ceil(16), self.size.1.div_ceil(16), 1);
-            context.CSSetUnorderedAccessViews(9, 1, Some([None].as_ptr()), None);
+            context.CSSetUnorderedAccessViews(2, 1, Some([None].as_ptr()), None);
             context.CSSetShaderResources(0, Some(&[None]));
             context.CSSetShader(None, None);
             context.Flush();

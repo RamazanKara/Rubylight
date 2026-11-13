@@ -683,7 +683,8 @@ cbuffer FrameWarp : register(b4) {
     uint fwBitsAt; uint fwStride; uint fwThreshold; uint fwPadding;
 };
 // The thumbnail's words, or the HUD's codes per pixel, then its changed
-// pixels, scores and mask bits per cell.
+// pixels, scores and mask bits per cell. D3D12 only (a root UAV), so past the
+// u0-u7 a D3D11 shader at feature level 11_0 may use.
 RWStructuredBuffer<uint> frameWarp : register(u8);
 // scRGB as PQ of scRGB / 125: 0 to 1, like the sRGB codes of an SDR capture
 // and the PQ codes of an HDR10 capture, which are taken as captured.
@@ -939,9 +940,10 @@ void frame_warp_bits_cs(uint3 id : SV_DispatchThreadID) {
 // Foundation Sunshine's prepare_hlg_scene_cs
 // (src_assets/windows/assets/shaders/directx/prepare_hlg_scene_cs.hlsl,
 // AlkaidLab/foundation-sunshine PR #1216, commit 1add1ed), Copyright (c)
-// Foundation Sunshine authors, GPL-3.0. Its own register, so no other entry's
-// bindings change.
-RWTexture2D<float4> hlgScene : register(u9);
+// Foundation Sunshine authors, GPL-3.0. u2, shared with the PyroWave planes,
+// which hlg_scene_cs never binds: the D3D11 device runs at feature level 11_0,
+// whose compute shaders have u0-u7 only (u9 failed CreateComputeShader).
+RWTexture2D<float4> hlgScene : register(u2);
 [numthreads(16, 16, 1)]
 void hlg_scene_cs(uint3 id : SV_DispatchThreadID) {
     if (any(id.xy >= sourceSize)) return;

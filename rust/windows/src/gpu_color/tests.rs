@@ -1799,3 +1799,28 @@ fn gpu_pool_does_not_overwrite_frames_held_by_the_codec() -> Result<()> {
     assert!(readback(&gpu, &next)?[..64 * 64].iter().all(|y| *y == 940));
     Ok(())
 }
+
+#[test]
+fn every_d3d11_uav_fits_feature_level_11_0() {
+    // The D3D11 device runs at feature level 11_0 (capture.rs), where a compute shader has
+    // u0-u7: a UAV at u8 or above fails CreateComputeShader (E_INVALIDARG), as u9 did for
+    // the HLG prepass. Only D3D12's root UAVs may sit higher.
+    const D3D12_ONLY: [&str; 1] = ["frameWarp"];
+    let mut seen = 0;
+    for line in SHADER.lines() {
+        let Some(at) = line.find(": register(u") else {
+            continue;
+        };
+        let slot: u32 = line[at + 12..]
+            .trim_end_matches(|c: char| !c.is_ascii_digit())
+            .parse()
+            .unwrap_or_else(|_| panic!("unreadable UAV register: {line}"));
+        let name = line[..at].split_whitespace().last().unwrap();
+        seen += 1;
+        assert!(
+            slot < 8 || D3D12_ONLY.contains(&name),
+            "{name} at u{slot} is past feature level 11_0's u0-u7"
+        );
+    }
+    assert!(seen >= 10, "found {seen} UAVs");
+}

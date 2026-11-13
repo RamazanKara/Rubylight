@@ -108,8 +108,15 @@ pub fn app_window_target(id: u64, pid: u32) -> Result<String> {
 }
 
 /// The desktop rectangle a window target's picture shows, for absolute
-/// input: None for a display name, a malformed target or a closed window.
+/// input: None for a display name, a malformed target, a closed or minimised
+/// window, or a handle Windows gave to another process's window since (the
+/// checks capture makes), so input never lands on a window the stream is not.
 pub fn target_rect(name: &str) -> Option<RECT> {
     let target = WindowTarget::parse(name).ok()??;
-    bounds(HWND(target.handle() as *mut _))
+    let handle = target.handle();
+    window::check(handle).ok()?;
+    if let Some(named) = target.process {
+        window::owned_by(handle, window::owner_of(handle), named).ok()?;
+    }
+    bounds(HWND(handle as *mut _))
 }

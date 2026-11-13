@@ -3535,7 +3535,7 @@ Redacted logs, oldest line first; addresses, PC names, PINs and credentials are 
         }
         if let Some((_, at)) = &streaming.toast {
             // The lost-network notice stays until a network returns.
-            if at.elapsed() > Duration::from_secs(4) && !streaming.network_lost {
+            if at.elapsed() > stream::TOAST_SHOWN && !streaming.network_lost {
                 streaming.toast = None;
                 streaming.needs_redraw = true;
             }

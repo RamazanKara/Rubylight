@@ -1074,6 +1074,14 @@ impl Streaming {
         self.needs_redraw = true;
     }
 
+    /// Shows `text` below the notice still showing, for as long again, so a notice that comes
+    /// right after the start's (the video planes giving up at the first picture) loses neither.
+    pub fn add_toast(&mut self, text: impl Into<String>) {
+        let text = text.into();
+        let joined = joined_toast(self.toast.as_ref().map(|(shown, at)| (shown.as_str(), at.elapsed())), &text);
+        self.show_toast(joined);
+    }
+
     /// The route toward the PC went away: a frozen picture is never silent. The notice stays
     /// until a network returns; `away`: the window is minimized or hidden.
     fn network_lost(&mut self, away: bool) {
@@ -2203,8 +2211,34 @@ fn overlay_change(kept: (bool, OverlayMode, OverlayCorner), now: (bool, OverlayM
     (now != kept).then(|| ((now.0 != kept.0).then_some(now.0), (now.1 != kept.1).then_some(now.1), (now.2 != kept.2).then_some(now.2)))
 }
 
+/// How long a stream's notice shows (the lost-network notice stays until a network returns).
+pub const TOAST_SHOWN: Duration = Duration::from_secs(4);
+
+/// The notice `text` makes beside `showing` (its text and age): below it while it still shows,
+/// once only, else alone.
+fn joined_toast(showing: Option<(&str, Duration)>, text: &str) -> String {
+    match showing {
+        Some((shown, age)) if age <= TOAST_SHOWN && !shown.is_empty() => {
+            if shown.lines().any(|line| line == text) { shown.to_owned() } else { format!("{shown}\n{text}") }
+        }
+        _ => text.to_owned(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_notice_joins_the_one_still_showing_once_and_replaces_one_that_went() {
+        use super::{joined_toast, TOAST_SHOWN};
+        use std::time::Duration;
+        let planes = "Video planes are unavailable";
+        let start = "Upscaling is off for this stream";
+        assert_eq!(joined_toast(Some((start, Duration::from_millis(300))), planes), format!("{start}\n{planes}"));
+        assert_eq!(joined_toast(Some((start, TOAST_SHOWN + Duration::from_millis(1))), planes), planes, "a notice that went is not kept");
+        assert_eq!(joined_toast(None, planes), planes);
+        let joined = format!("{start}\n{planes}");
+        assert_eq!(joined_toast(Some((&joined, Duration::ZERO)), planes), joined, "the same notice again is not repeated");
+    }
     use super::*;
 
     #[test]

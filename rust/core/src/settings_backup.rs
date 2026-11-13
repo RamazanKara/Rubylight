@@ -227,13 +227,16 @@ fn without_sessions(bytes: &[u8]) -> Option<Vec<u8>> {
 /// The archive's vibeshine_state.json with the target's console sign-in sessions (`current`, the
 /// target's file) in place of any it carries: a restore never signs the console in or out.
 fn keeping_sessions(archived: &[u8], current: Option<&[u8]>) -> Result<Vec<u8>> {
-    let stripped = without_sessions(archived).context("the archive's vibeshine_state.json is not a JSON object")?;
+    let stripped = without_sessions(archived)
+        .context("the archive's vibeshine_state.json is not a JSON object")?;
     let mut document: Value = serde_json::from_slice(&stripped)?;
     let sessions = current
         .and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok())
         .and_then(|current| current.get("root")?.get(SESSIONS).cloned());
     if let Some(sessions) = sessions {
-        let root = document.as_object_mut().context("vibeshine_state.json is not a JSON object")?;
+        let root = document
+            .as_object_mut()
+            .context("vibeshine_state.json is not a JSON object")?;
         let inner = root.entry("root").or_insert_with(|| json!({}));
         if let Some(inner) = inner.as_object_mut() {
             inner.insert(SESSIONS.into(), sessions);
@@ -271,7 +274,10 @@ pub fn export<W: Write + Seek>(
         contents.push((APPS.into(), bytes));
     }
     // Never the console's sign-in sessions (`SESSIONS`).
-    if let Some(bytes) = read_optional(&files.aliases)?.as_deref().and_then(without_sessions) {
+    if let Some(bytes) = read_optional(&files.aliases)?
+        .as_deref()
+        .and_then(without_sessions)
+    {
         contents.push((ALIASES.into(), bytes));
     }
     let mut folders = Vec::new();
@@ -816,7 +822,10 @@ pub fn apply(archive: &Archive, directory: &Path, fresh: impl FnMut() -> String)
     if let Some(bytes) = archive.files.get(ALIASES) {
         // The target's console sign-in sessions stay as they are.
         let current = read_optional(&files.aliases)?;
-        atomic_write(&files.aliases, &keeping_sessions(bytes, current.as_deref())?)?;
+        atomic_write(
+            &files.aliases,
+            &keeping_sessions(bytes, current.as_deref())?,
+        )?;
     }
     for (name, bytes) in archive.under(COVERS).chain(archive.under(GAME_SETTINGS)) {
         atomic_write(&folder_target(directory, name), bytes)?;

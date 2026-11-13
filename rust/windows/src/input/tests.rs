@@ -1057,13 +1057,30 @@ fn altgr_combinations_use_the_device_layout() {
 }
 #[test]
 fn a_streamed_window_that_went_loses_its_rectangle_and_a_display_keeps_its_last() {
-    let old = RECT { left: 10, top: 20, right: 810, bottom: 620 };
-    let moved = RECT { left: 0, top: 0, right: 800, bottom: 600 };
+    let old = RECT {
+        left: 10,
+        top: 20,
+        right: 810,
+        bottom: 620,
+    };
+    let moved = RECT {
+        left: 0,
+        top: 0,
+        right: 800,
+        bottom: 600,
+    };
     let window = r"window:0x10010/1234@\\.\DISPLAY1";
-    assert_eq!(reread_rect(window, Some(old), None), None, "absolute input waits");
+    assert_eq!(
+        reread_rect(window, Some(old), None),
+        None,
+        "absolute input waits"
+    );
     assert_eq!(reread_rect(window, Some(old), Some(moved)), Some(moved));
     assert_eq!(reread_rect(r"\\.\DISPLAY1", Some(old), None), Some(old));
-    assert_eq!(reread_rect(r"\\.\DISPLAY1", Some(old), Some(moved)), Some(moved));
+    assert_eq!(
+        reread_rect(r"\\.\DISPLAY1", Some(old), Some(moved)),
+        Some(moved)
+    );
 }
 
 #[test]

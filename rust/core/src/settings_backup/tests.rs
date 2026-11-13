@@ -374,11 +374,18 @@ fn console_sign_in_sessions_never_leave_in_a_backup_and_a_restore_keeps_the_targ
     let state = br#"{"root":{"session_tokens":[{"hash":"theirs","username":"admin","address":"10.0.0.2","user_agent":"Browser"}],"display_aliases":{"a":"b"}}}"#;
     let exported: Value = serde_json::from_slice(&without_sessions(state).unwrap()).unwrap();
     assert!(exported["root"].get(SESSIONS).is_none(), "{exported}");
-    assert_eq!(exported["root"]["display_aliases"]["a"], "b", "the rest is kept");
-    assert!(without_sessions(b"not json").is_none(), "an unreadable file stays out whole");
+    assert_eq!(
+        exported["root"]["display_aliases"]["a"], "b",
+        "the rest is kept"
+    );
+    assert!(
+        without_sessions(b"not json").is_none(),
+        "an unreadable file stays out whole"
+    );
     // A restore writes the archive's settings with the target's own sessions.
     let target = br#"{"root":{"session_tokens":[{"hash":"mine"}]}}"#;
-    let restored: Value = serde_json::from_slice(&keeping_sessions(state, Some(target)).unwrap()).unwrap();
+    let restored: Value =
+        serde_json::from_slice(&keeping_sessions(state, Some(target)).unwrap()).unwrap();
     assert_eq!(restored["root"][SESSIONS], json!([{"hash":"mine"}]));
     assert_eq!(restored["root"]["display_aliases"]["a"], "b");
     // A target without sessions gets none from the archive.

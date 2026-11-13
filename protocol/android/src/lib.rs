@@ -20,6 +20,7 @@ pub mod native_api;
 mod opus;
 mod platform;
 mod renderers;
+mod touchpad;
 pub mod open_play;
 pub mod sharp_color;
 pub mod stream_menu;
@@ -411,6 +412,73 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_sendTouchEvent
             rotation as u16,
         )
     })
+}
+
+/// How the host takes a physical touchpad's fingers: `RustBridge.TOUCHPAD_NONE`, `_INDIVIDUAL`
+/// or `_FRAME`; none without a session.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_touchpadTransport(
+    _: JNIEnv,
+    _: JClass,
+) -> jint {
+    engine::with_session(touchpad::TRANSPORT_NONE, |s| {
+        s.input(|q| touchpad::transport_code(q.feature_flags()))
+    })
+}
+
+/// One motion event of a physical touchpad: the first `count` fingers still on it (ids, and
+/// positions on the touchpad's surface, 0-1), its click, and its size in millimetres (0 when
+/// unknown). Returns 0, or the input error code.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_touchpadFrame(
+    env: JNIEnv,
+    _: JClass,
+    device: jint,
+    ids: JIntArray,
+    xs: JFloatArray,
+    ys: JFloatArray,
+    pressures: JFloatArray,
+    count: jint,
+    button: jboolean,
+    width_mm: jshort,
+    height_mm: jshort,
+) -> jint {
+    let Some(session) = engine::session_id() else { return -2 };
+    let count = count.clamp(0, 16) as usize;
+    let mut id = vec![0i32; count];
+    let mut x = vec![0f32; count];
+    let mut y = vec![0f32; count];
+    let mut pressure = vec![0f32; count];
+    if count > 0
+        && (env.get_int_array_region(&ids, 0, &mut id).is_err()
+            || env.get_float_array_region(&xs, 0, &mut x).is_err()
+            || env.get_float_array_region(&ys, 0, &mut y).is_err()
+            || env.get_float_array_region(&pressures, 0, &mut pressure).is_err())
+    {
+        return -3;
+    }
+    let contacts = touchpad::contacts(&id, &x, &y, &pressure);
+    let outs = touchpad::frame(
+        session,
+        device,
+        contacts,
+        button != JNI_FALSE,
+        width_mm.max(0) as u16,
+        height_mm.max(0) as u16,
+    );
+    input(|q| touchpad::send(outs, q))
+}
+
+/// Lifts the touchpad's fingers on the host (capture or focus lost).
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_touchpadCancel(
+    _: JNIEnv,
+    _: JClass,
+) -> jint {
+    let Some(session) = engine::session_id() else { return -2 };
+    let outs = touchpad::track(session, |t| t.cancel());
+    input(|q| touchpad::send(outs, q))
 }
 
 #[no_mangle]

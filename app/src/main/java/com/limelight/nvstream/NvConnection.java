@@ -2338,6 +2338,25 @@ public class NvConnection {
         }
     }
 
+    /** How this stream takes a physical touchpad's fingers: {@code MoonBridge.TOUCHPAD_*}. */
+    public int touchpadTransport() {
+        return canSendInput() ? MoonBridge.touchpadTransport() : MoonBridge.TOUCHPAD_NONE;
+    }
+
+    /** One motion event of a physical touchpad: the fingers still on it, positions 0-1 on its surface. */
+    public int sendTouchpadFrame(int device, int[] ids, float[] xs, float[] ys, float[] pressures, int count,
+                                 boolean button, short widthMm, short heightMm) {
+        if (canSendInput()) {
+            return MoonBridge.touchpadFrame(device, ids, xs, ys, pressures, count, button, widthMm, heightMm);
+        }
+        return MoonBridge.LI_ERR_UNSUPPORTED;
+    }
+
+    /** Lifts the touchpad's fingers on the host. */
+    public int cancelTouchpad() {
+        return canSendInput() ? MoonBridge.touchpadCancel() : MoonBridge.LI_ERR_UNSUPPORTED;
+    }
+
     public int sendPenEvent(byte eventType, byte toolType, byte penButtons, float x, float y,
                             float pressureOrDistance, float contactAreaMajor, float contactAreaMinor,
                             short rotation, byte tilt) {

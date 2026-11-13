@@ -162,6 +162,7 @@ public class PreferenceConfiguration {
     private static final String TRACKPAD_SENSITIVITY_Y_PREF_STRING = "seekbar_trackpad_sensitivity_y";
     private static final String TRACKPAD_SWAP_AXIS_PREF_STRING = "checkbox_trackpad_swap_axis";
     private static final String TRACKPAD_SCROLL_SPEED_PREF_STRING = "seekbar_trackpad_scroll_speed";
+    private static final String NATIVE_TOUCHPAD_PREF_STRING = "checkbox_native_touchpad";
     private static final String LATENCY_TOAST_PREF_STRING = "checkbox_enable_post_stream_toast";
     // Off: streams use the C engine. The Rust engine is a beta and falls back per stream.
     static final String RUST_ENGINE_PREF_STRING = "checkbox_rust_engine";
@@ -442,6 +443,11 @@ public class PreferenceConfiguration {
     public boolean trackpadSwapAxis;
     /** Percent for two-finger scrolling in the touchpad gestures, 10 to 300. */
     public int trackpadScrollSpeed = DEFAULT_TRACKPAD_SCROLL_SPEED;
+    /**
+     * A physical touchpad's fingers go to a PC that takes them (touchpad packets), so the PC's own
+     * touchpad gestures work, instead of the gestures here moving the mouse.
+     */
+    public boolean nativeTouchpad;
     public boolean trackpadAcceleration, trackpadMomentum;
     public String trackpadAccelerationCurve, trackpadMomentumGlide, trackpadArea, threeFingerTap;
     /** The on-screen PC keyboard: layout id or "auto", its share of the window height and its opacity, both in percent. */
@@ -1690,6 +1696,7 @@ public class PreferenceConfiguration {
         config.trackpadSensitivityX = Math.max(-200, Math.min(200, prefs.getInt(TRACKPAD_SENSITIVITY_X_PREF_STRING, DEFAULT_TRACKPAD_SENSITIVITY)));
         config.trackpadSensitivityY = Math.max(-200, Math.min(200, prefs.getInt(TRACKPAD_SENSITIVITY_Y_PREF_STRING, DEFAULT_TRACKPAD_SENSITIVITY)));
         config.trackpadSwapAxis = prefs.getBoolean(TRACKPAD_SWAP_AXIS_PREF_STRING, false);
+        config.nativeTouchpad = prefs.getBoolean(NATIVE_TOUCHPAD_PREF_STRING, false);
         config.trackpadScrollSpeed = Math.max(10, Math.min(300, prefs.getInt(TRACKPAD_SCROLL_SPEED_PREF_STRING, DEFAULT_TRACKPAD_SCROLL_SPEED)));
         config.enableLatencyToast = prefs.getBoolean(LATENCY_TOAST_PREF_STRING, DEFAULT_LATENCY_TOAST);
         config.rustEngine = prefs.getBoolean(RUST_ENGINE_PREF_STRING, true);

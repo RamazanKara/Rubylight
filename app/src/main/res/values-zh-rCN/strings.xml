@@ -192,6 +192,9 @@
     <string name="summary_trackpad_scroll_speed">在触控板上双指滚动的幅度。</string>
     <string name="title_trackpad_swap_axis">交换触控板 X 和 Y</string>
     <string name="summary_trackpad_swap_axis">适用于上报的坐标轴是旋转的触控板。</string>
+    <string name="title_native_touchpad">在电脑上使用触控板手势</string>
+    <string name="summary_native_touchpad">将实体触控板上的手指发送到支持的电脑，让电脑自己的手势在那里生效。</string>
+    <string name="stream_native_touchpad_fallback">此串流不接受触控板手指，因此触控板会移动鼠标。</string>
     <string name="title_checkbox_absolute_mouse_mode">鼠标模式</string>
     <string name="summary_checkbox_absolute_mouse_mode">“捕获”让指针留在串流中；“桌面指针”像普通鼠标一样移动。</string>
     <string name="title_checkbox_mouse_nav_buttons">鼠标后退/前进按钮</string>

@@ -8,6 +8,7 @@
 pub mod microphone;
 pub mod packets;
 pub mod queue;
+pub mod touchpad;
 
 pub use packets::InputEvent;
 pub use queue::{InputError, InputPacket, InputQueue};

@@ -1537,4 +1537,5 @@ sudo sysctl -w net.core.rmem_max={}", "Buffer de recepção: o sistema concedeu 
     ("Frame Warp", "Frame Warp"),
     ("Shifts the picture with your mouse or right stick until the PC’s next frame shows the turn, and keeps the game’s HUD in place. Needs a PC that supports it.", "Desloca a imagem com o mouse ou o analógico direito até o próximo quadro do PC mostrar o giro, e mantém o HUD do jogo no lugar. Requer um PC compatível."),
     ("This PC doesn’t offer Frame Warp, so Nightjar streams without it.", "Este PC não oferece Frame Warp, então o Nightjar transmite sem ele."),
+    ("The touchpad stays a mouse: {}", "O touchpad continua como mouse: {}"),
 ];

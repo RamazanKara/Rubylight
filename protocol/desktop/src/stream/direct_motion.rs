@@ -166,7 +166,8 @@ enum Verdict {
 /// Clicks and wheel turns are marked captured or not: one queued before the capture starts still
 /// holds the first direct motion back.
 fn verdict(kind: SDL_EventType, which: SDL_MouseID, active: bool, ordered: u32, touch: bool, touchpad: bool) -> Verdict {
-    let own = !(touch && matches!(which, SDL_TOUCH_MOUSEID | SDL_PEN_MOUSEID)) && !(touchpad && which == SDL_MouseID(0));
+    let own = !(touch && matches!(which, SDL_TOUCH_MOUSEID | SDL_PEN_MOUSEID))
+        && !(touchpad && super::touchpad::pointer_from_touchpad(which));
     match kind {
         SDL_EVENT_MOUSE_MOTION if active && ordered == 0 && own => Verdict::Sent,
         SDL_EVENT_MOUSE_BUTTON_DOWN | SDL_EVENT_MOUSE_BUTTON_UP | SDL_EVENT_MOUSE_WHEEL => Verdict::Ordered,
@@ -601,7 +602,6 @@ impl DirectMotion {
 
     /// Touchpad contacts go to the PC from now on: the touchpad's pointer moves stay on the main
     /// loop, which tells them from the mouse's.
-    #[cfg_attr(not(windows), allow(dead_code))]
     pub fn touchpad_contacts(&self) {
         self.shared.touchpad.store(true, Ordering::Release);
     }
@@ -727,14 +727,17 @@ mod tests {
         assert_eq!(ordered.load(Ordering::Acquire), 0, "and never below zero");
     }
 
-    /// The main loop swallows the touchpad's pointer moves (SDL's global mouse) while its
-    /// contacts go to the PC; a mouse of its own still goes straight out.
+    /// The main loop swallows the touchpad's pointer moves while its contacts go to the PC: on
+    /// Windows SDL's global mouse, where a mouse of its own still goes straight out; elsewhere
+    /// the system does not say which mouse moved, so every mouse's moves stay on the main loop.
     #[test]
     fn the_touchpads_pointer_stays_on_the_main_loop_while_contacts_go_out() {
         let global = SDL_MouseID(0);
         assert_eq!(verdict(SDL_EVENT_MOUSE_MOTION, global, true, 0, false, true), Verdict::Pass);
         assert_eq!(verdict(SDL_EVENT_MOUSE_MOTION, global, true, 0, false, false), Verdict::Sent);
-        assert_eq!(verdict(SDL_EVENT_MOUSE_MOTION, SDL_MouseID(7), true, 0, false, true), Verdict::Sent);
+        let other = if cfg!(windows) { Verdict::Sent } else { Verdict::Pass };
+        assert_eq!(verdict(SDL_EVENT_MOUSE_MOTION, SDL_MouseID(7), true, 0, false, true), other);
+        assert_eq!(verdict(SDL_EVENT_MOUSE_MOTION, SDL_MouseID(7), true, 0, false, false), Verdict::Sent);
     }
 
     const KEYS: KeyRules = KeyRules { system_keys: false, right_alt_as_meta: false };

@@ -118,7 +118,6 @@ impl Streaming {
         // SAFETY: union members read by event type.
         unsafe {
             let kind = SDL_EventType(event.r#type);
-            #[cfg(windows)]
             if self.touchpad_swallows(event) {
                 return;
             }

@@ -192,6 +192,9 @@
     <string name="summary_trackpad_scroll_speed">在觸控板上雙指捲動的幅度。</string>
     <string name="title_trackpad_swap_axis">交換觸控板 X 和 Y</string>
     <string name="summary_trackpad_swap_axis">適用於回報的座標軸是旋轉的觸控板。</string>
+    <string name="title_native_touchpad">在電腦上使用觸控板手勢</string>
+    <string name="summary_native_touchpad">將實體觸控板上的手指傳送到支援的電腦，讓電腦本身的手勢在那裡運作。</string>
+    <string name="stream_native_touchpad_fallback">此串流不接受觸控板手指，因此觸控板會移動滑鼠。</string>
     <string name="title_checkbox_absolute_mouse_mode">滑鼠模式</string>
     <string name="summary_checkbox_absolute_mouse_mode">「擷取」讓指標留在串流中；「桌面指標」像一般滑鼠一樣移動。</string>
     <string name="title_checkbox_mouse_nav_buttons">滑鼠上一頁/下一頁按鈕</string>

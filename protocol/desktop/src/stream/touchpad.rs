@@ -1,41 +1,35 @@
-//! Precision touchpad passthrough (Windows, the "Touchpad gestures on the PC" setting): the
-//! touchpad's raw multi-finger contacts go to the PC as Foundation Sunshine's touchpad packets
-//! instead of the pointer moves and scrolls Windows makes of them, so the PC sees the fingers.
-//! Only a host that offers the packets gets them; elsewhere the touchpad stays a mouse.
+//! Touchpad passthrough (the "Touchpad gestures on the PC" setting): the touchpad's raw
+//! multi-finger contacts go to the PC as Foundation Sunshine's touchpad packets instead of the
+//! pointer moves and scrolls the system makes of them, so the PC sees the fingers. Only a host
+//! that offers the packets gets them; elsewhere the touchpad stays a mouse. The contacts come
+//! from Raw Input on Windows, evdev on Linux and the trackpad's touches on macOS; the shared
+//! [`Tracker`] turns their frames into what the host gets.
 //!
 //! Ported from Moonlight V+ PC: streaming/input/wintouchpad.cpp (Raw Input HID reports to
-//! hardware frames, [`Assembler`] and `raw`) and streaming/input/touchpad.cpp (frames to
-//! contact changes and the mouse events Windows promotes from them, [`Tracker`]).
+//! hardware frames, [`Assembler`] and `raw`).
 
 use std::collections::BTreeMap;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use nightjar_core::control::negotiation::feature;
-#[cfg(windows)]
-use nightjar_core::input::packets::mouse_button;
-use nightjar_core::input::packets::{touch_event, touchpad, TouchpadContact};
-#[cfg(windows)]
-use nightjar_core::input::{InputError, InputQueue};
+pub use nightjar_core::input::touchpad::{Frame, RawContact, Tracker, Transport};
+use nightjar_core::input::packets::touchpad;
 use sdl3_sys::everything::*;
 
+#[cfg_attr(not(windows), allow(dead_code))]
 const MAX_CONTACTS: usize = touchpad::MAX_FRAME_CONTACTS;
-/// Windows' promoted pointer moves, clicks and scrolls are dropped this long after a frame, so
-/// a lost last report cannot leave the mouse off.
-const MOUSE_SUPPRESSION: Duration = Duration::from_millis(500);
 
-/// One finger as a HID report gives it, on the touchpad's surface (0-1).
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct RawContact {
-    pub pointer_id: u32,
-    pub x: f32,
-    pub y: f32,
-    pub pressure: f32,
-    /// Tip switch and confidence both set; a contact without them is lifting or a palm.
-    pub touching: bool,
+/// What a touchpad source saw since the last pump.
+/// macOS never removes its trackpad.
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
+pub enum Event {
+    Frame(Frame),
+    /// The touchpad with this device number went away.
+    Removed(usize),
 }
 
 /// What one HID input report carried.
 #[derive(Clone, Debug, Default, PartialEq)]
+#[cfg_attr(not(windows), allow(dead_code))]
 pub struct Report {
     pub contact_count: Option<u32>,
     pub scan_time: Option<u32>,
@@ -43,16 +37,7 @@ pub struct Report {
     pub contacts: Vec<RawContact>,
 }
 
-/// A whole hardware frame of one touchpad, or only its button (`contacts: None`).
-#[derive(Clone, Debug, PartialEq)]
-pub struct Frame {
-    pub device: usize,
-    pub contacts: Option<Vec<RawContact>>,
-    pub button: bool,
-    pub width_mm: u16,
-    pub height_mm: u16,
-}
-
+#[cfg_attr(not(windows), allow(dead_code))]
 struct Pending {
     count: u32,
     scan: Option<u32>,
@@ -62,12 +47,14 @@ struct Pending {
 /// Gathers a touchpad's reports into frames (`consumeReport`): a frame announces its contact
 /// count, and hybrid or parallel reports bring the contacts until that many are in.
 #[derive(Default)]
+#[cfg_attr(not(windows), allow(dead_code))]
 pub struct Assembler {
     pending: Option<Pending>,
     completed_scan: Option<u32>,
     button: bool,
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
 impl Assembler {
     /// The frame `report` completes, as (contacts, button), or the button alone when the
     /// report has only that.
@@ -120,240 +107,96 @@ impl Assembler {
     }
 }
 
-/// What the tracker sends.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Out {
-    Contacts { contacts: Vec<TouchpadContact>, buttons: u8, width_mm: u16, height_mm: u16 },
-    /// The touchpad's button pressed with no finger on it: the host has no contact to carry
-    /// it, so it goes as the left mouse button.
-    MouseButton(bool),
-}
-
-/// Turns frames into contact changes (`handleWindowsTouchpadFrame`) and decides which of the
-/// mouse events Windows makes of the touchpad are dropped.
-#[derive(Default)]
-pub struct Tracker {
-    active: BTreeMap<u32, TouchpadContact>,
-    device: usize,
-    button_down: bool,
-    mouse_fallback: bool,
-    size: (u16, u16),
-    last_frame: Option<Instant>,
-    /// SDL mouse buttons (1 << index) whose press was dropped, so their release is too.
-    suppressed_buttons: u32,
-}
-
-impl Tracker {
-    fn has_state(&self) -> bool {
-        !self.active.is_empty() || self.button_down || self.mouse_fallback
-    }
-
-    pub fn frame(&mut self, frame: Frame, now: Instant) -> Vec<Out> {
-        let mut out = Vec::new();
-        let has_current = frame.contacts.as_ref().is_some_and(|c| c.iter().take(MAX_CONTACTS).any(|c| c.touching));
-        let frame_active = has_current || frame.button;
-        if self.has_state() && self.device != frame.device {
-            // An empty or late frame of another touchpad must not take over.
-            if !frame_active {
-                return out;
-            }
-            out.extend(self.cancel());
-        }
-        self.device = frame.device;
-        self.size = (frame.width_mm, frame.height_mm);
-        self.last_frame = Some(now);
-        let button_changed = frame.button != self.button_down;
-        let mut fallback_changed = false;
-        if self.mouse_fallback && !frame.button {
-            out.push(Out::MouseButton(false));
-            self.mouse_fallback = false;
-            fallback_changed = true;
-        } else if !self.mouse_fallback && frame.button
-            && !(if frame.contacts.is_some() { has_current } else { !self.active.is_empty() })
-        {
-            out.push(Out::MouseButton(true));
-            self.mouse_fallback = true;
-            fallback_changed = true;
-        }
-        let buttons = if frame.button && !self.mouse_fallback { touchpad::BUTTON_PRIMARY } else { 0 };
-        let Some(contacts) = frame.contacts else {
-            if button_changed && !fallback_changed {
-                let moved: Vec<_> = self.active.values().map(|c| TouchpadContact { event: touch_event::MOVE, ..*c }).collect();
-                self.push(&mut out, moved, buttons);
-            }
-            self.button_down = frame.button;
-            if self.active.is_empty() && !frame.button {
-                self.device = 0;
-            }
-            return out;
-        };
-        let mut current = BTreeMap::new();
-        for c in contacts.iter().take(MAX_CONTACTS).filter(|c| c.touching) {
-            let event = if self.active.contains_key(&c.pointer_id) { touch_event::MOVE } else { touch_event::DOWN };
-            current.insert(c.pointer_id, TouchpadContact {
-                event,
-                pointer_id: c.pointer_id,
-                x: c.x.clamp(0.0, 1.0),
-                y: c.y.clamp(0.0, 1.0),
-                pressure: c.pressure.clamp(0.0, 1.0),
-            });
-        }
-        // Lifted contacts go first, so the host has a free slot when a full frame replaces one.
-        let lifted: Vec<_> = self.active.iter().filter(|(id, _)| !current.contains_key(id))
-            .map(|(_, c)| TouchpadContact { event: touch_event::UP, ..*c }).collect();
-        self.push(&mut out, lifted, buttons);
-        self.push(&mut out, current.values().copied().collect(), buttons);
-        self.active = current;
-        self.button_down = frame.button;
-        if self.active.is_empty() && !frame.button {
-            self.device = 0;
-        }
-        out
-    }
-
-    fn push(&self, out: &mut Vec<Out>, contacts: Vec<TouchpadContact>, buttons: u8) {
-        for chunk in contacts.chunks(MAX_CONTACTS) {
-            out.push(Out::Contacts { contacts: chunk.to_vec(), buttons, width_mm: self.size.0, height_mm: self.size.1 });
-        }
-    }
-
-    /// Lifts everything this touchpad holds on the host (focus or capture lost, the touchpad
-    /// removed or another taking over).
-    pub fn cancel(&mut self) -> Vec<Out> {
-        let mut out = Vec::new();
-        let cancelled: Vec<_> = self.active.values().map(|c| TouchpadContact { event: touch_event::CANCEL, ..*c }).collect();
-        self.push(&mut out, cancelled, 0);
-        if self.mouse_fallback {
-            out.push(Out::MouseButton(false));
-        }
-        let suppressed = self.suppressed_buttons;
-        *self = Tracker { suppressed_buttons: suppressed, ..Tracker::default() };
-        out
-    }
-
-    pub fn device(&self) -> usize {
-        self.device
-    }
-
-    /// Pointer moves and scrolls of SDL's global mouse (where Windows' touchpad pointer comes
-    /// from) right after a frame are the touchpad again.
-    pub fn swallows_motion(&self, which: SDL_MouseID, now: Instant) -> bool {
-        which == SDL_MouseID(0) && self.last_frame.is_some_and(|t| now.saturating_duration_since(t) <= MOUSE_SUPPRESSION)
-    }
-
-    /// A click Windows promotes from the touchpad: the frames carry it (or the mouse fallback
-    /// already sent it), and its release goes with it.
-    pub fn swallows_button(&mut self, which: SDL_MouseID, button: u8, down: bool, captured: bool, now: Instant) -> bool {
-        if which != SDL_MouseID(0) || !(1..=5).contains(&button) {
-            return false;
-        }
-        let mask = 1u32 << button;
-        if !down {
-            let swallowed = self.suppressed_buttons & mask != 0;
-            self.suppressed_buttons &= !mask;
-            return swallowed;
-        }
-        self.suppressed_buttons &= !mask;
-        if captured && ((self.mouse_fallback && i32::from(button) == SDL_BUTTON_LEFT) || self.swallows_motion(which, now)) {
-            self.suppressed_buttons |= mask;
-            return true;
-        }
-        false
+/// Whether a mouse event comes from where the system's touchpad pointer comes from: SDL's
+/// global mouse on Windows. Linux and macOS do not say which mouse a touchpad's pointer is,
+/// so every mouse's events right after a frame are taken as the touchpad's (touch and pen
+/// aside).
+pub fn pointer_from_touchpad(which: SDL_MouseID) -> bool {
+    if cfg!(windows) {
+        which == SDL_MouseID(0)
+    } else {
+        !matches!(which, SDL_TOUCH_MOUSEID | SDL_PEN_MOUSEID)
     }
 }
 
-/// How the host takes touchpad contacts: a frame per packet, or one contact per packet.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Transport {
-    Frame,
-    Individual,
-}
-
-impl Transport {
-    pub fn of(feature_flags: u32) -> Option<Transport> {
-        if feature_flags & feature::TOUCHPAD_FRAME_EVENTS != 0 {
-            Some(Transport::Frame)
-        } else if feature_flags & feature::TOUCHPAD_EVENTS != 0 {
-            Some(Transport::Individual)
-        } else {
-            None
-        }
-    }
-
-    #[cfg(windows)]
-    pub fn send(self, outs: Vec<Out>, queue: &mut InputQueue) {
-        for out in outs {
-            let sent = match out {
-                Out::MouseButton(down) => queue.send_mouse_button(mouse_button::LEFT, down),
-                Out::Contacts { contacts, buttons, width_mm, height_mm } => match self {
-                    Transport::Frame => queue.send_touchpad_frame(&contacts, buttons, width_mm, height_mm),
-                    Transport::Individual => contacts.iter().try_for_each(|c| queue.send_touchpad(*c, buttons, width_mm, height_mm)),
-                },
-            };
-            match sent {
-                Ok(()) | Err(InputError::Stopped) => {}
-                Err(e) => eprintln!("nightjar: touchpad input not sent: {e:?}"),
-            }
-        }
-    }
-}
+/// Where the contacts come from on this system.
+#[cfg(windows)]
+type Source = raw::RawTouchpad;
+#[cfg(target_os = "linux")]
+type Source = evdev::Evdev;
+#[cfg(target_os = "macos")]
+type Source = trackpad::Trackpad;
 
 /// The stream's touchpad passthrough: off until the first pump with the setting on.
-#[cfg(windows)]
 #[derive(Default)]
 pub struct Touchpad {
     pub tracker: Tracker,
     transport: Option<Transport>,
     started: bool,
-    raw: Option<raw::RawTouchpad>,
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    source: Option<Source>,
 }
 
-#[cfg(windows)]
 impl super::Streaming {
     /// Sends what the touchpad did since the last call; called after each round of events.
     pub fn pump_touchpad(&mut self, window: *mut SDL_Window) {
         if !self.settings.native_touchpad {
             return;
         }
-        if !self.touchpad.started {
-            self.touchpad.started = true;
-            let transport = Transport::of(self.session.input(|q| q.feature_flags()));
-            match transport {
-                None => eprintln!("nightjar: touchpad gestures stay a mouse: the PC takes no touchpad contacts"),
-                Some(transport) => match raw::RawTouchpad::install(window) {
-                    Ok(raw) => {
-                        eprintln!("nightjar: touchpad contacts go to the PC ({transport:?} packets)");
-                        self.touchpad.transport = Some(transport);
-                        self.touchpad.raw = Some(raw);
-                        self.direct_motion.touchpad_contacts();
-                    }
-                    Err(e) => eprintln!("nightjar: touchpad gestures stay a mouse: {e}"),
-                },
-            }
-        }
-        let (Some(transport), Some(raw)) = (self.touchpad.transport, self.touchpad.raw.as_ref()) else { return };
-        let events = raw.take();
-        let live = self.captured && self.focused && !self.absolute;
-        let now = Instant::now();
-        let tracker = &mut self.touchpad.tracker;
-        let mut outs = Vec::new();
-        if !live {
-            outs = tracker.cancel();
-        } else {
-            for event in events {
-                match event {
-                    raw::Event::Frame(frame) => outs.extend(tracker.frame(frame, now)),
-                    raw::Event::Removed(device) if device == tracker.device() => outs.extend(tracker.cancel()),
-                    raw::Event::Removed(_) => {}
+        #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+        {
+            if !self.touchpad.started {
+                self.touchpad.started = true;
+                let transport = Transport::of(self.session.input(|q| q.feature_flags()));
+                match transport {
+                    None => eprintln!("nightjar: touchpad gestures stay a mouse: the PC takes no touchpad contacts"),
+                    Some(transport) => match Source::install(window) {
+                        Ok(source) => {
+                            eprintln!("nightjar: touchpad contacts go to the PC ({transport:?} packets)");
+                            self.touchpad.transport = Some(transport);
+                            self.touchpad.source = Some(source);
+                            self.direct_motion.touchpad_contacts();
+                        }
+                        Err(e) => {
+                            eprintln!("nightjar: touchpad gestures stay a mouse: {e}");
+                            self.show_toast(crate::strings::trf("The touchpad stays a mouse: {}", &[&e]));
+                        }
+                    },
                 }
             }
+            let (Some(transport), Some(source)) = (self.touchpad.transport, self.touchpad.source.as_mut()) else { return };
+            let events = source.take();
+            let live = self.captured && self.focused && !self.absolute;
+            let now = Instant::now();
+            let tracker = &mut self.touchpad.tracker;
+            let mut outs = Vec::new();
+            if !live {
+                outs = tracker.cancel();
+            } else {
+                for event in events {
+                    match event {
+                        Event::Frame(frame) => outs.extend(tracker.frame(frame, now)),
+                        Event::Removed(device) if device == tracker.device() => outs.extend(tracker.cancel()),
+                        Event::Removed(_) => {}
+                    }
+                }
+            }
+            if !outs.is_empty() {
+                let _ = self.session.input(|q| transport.send(outs, q));
+            }
         }
-        if !outs.is_empty() {
-            self.session.input(|q| transport.send(outs, q));
+        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+        {
+            let _ = window;
+            if !self.touchpad.started {
+                self.touchpad.started = true;
+                eprintln!("nightjar: touchpad gestures stay a mouse on this system");
+            }
         }
     }
 
-    /// Whether a mouse event is the touchpad again, already sent as contacts.
+    /// Whether an event is the touchpad again, already sent as contacts: the pointer moves,
+    /// scrolls and clicks the system makes of it and, on macOS, the trackpad's touches.
     pub fn touchpad_swallows(&mut self, event: &SDL_Event) -> bool {
         if self.touchpad.transport.is_none() {
             return false;
@@ -361,12 +204,26 @@ impl super::Streaming {
         let now = Instant::now();
         // SAFETY: union members read by event type.
         unsafe {
-            match SDL_EventType(event.r#type) {
-                SDL_EVENT_MOUSE_MOTION => self.touchpad.tracker.swallows_motion(event.motion.which, now),
-                SDL_EVENT_MOUSE_WHEEL => self.touchpad.tracker.swallows_motion(event.wheel.which, now),
+            let kind = SDL_EventType(event.r#type);
+            #[cfg(target_os = "macos")]
+            if let Some(source) = self.touchpad.source.as_mut() {
+                if source.finger(event) {
+                    return true;
+                }
+                if matches!(kind, SDL_EVENT_MOUSE_BUTTON_DOWN | SDL_EVENT_MOUSE_BUTTON_UP)
+                    && i32::from(event.button.button) == SDL_BUTTON_LEFT
+                    && (self.touchpad.tracker.touching() || source.touching())
+                {
+                    // The trackpad's click comes as the mouse's: it rides on the frames.
+                    source.button(event.button.down);
+                }
+            }
+            match kind {
+                SDL_EVENT_MOUSE_MOTION => self.touchpad.tracker.swallows_motion(pointer_from_touchpad(event.motion.which), now),
+                SDL_EVENT_MOUSE_WHEEL => self.touchpad.tracker.swallows_motion(pointer_from_touchpad(event.wheel.which), now),
                 SDL_EVENT_MOUSE_BUTTON_DOWN | SDL_EVENT_MOUSE_BUTTON_UP => {
                     let b = event.button;
-                    self.touchpad.tracker.swallows_button(b.which, b.button, b.down, self.captured, now)
+                    self.touchpad.tracker.swallows_button(pointer_from_touchpad(b.which), b.button, b.down, self.captured, now)
                 }
                 _ => false,
             }
@@ -376,6 +233,7 @@ impl super::Streaming {
 
 /// A touchpad axis' physical length in millimetres from its HID unit (`physicalDimensionMm`):
 /// centimetres or inches, else 0 for unknown.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn physical_mm(physical_min: i32, physical_max: i32, units: u32, units_exp: u32) -> u16 {
     let extent = i64::from(physical_max) - i64::from(physical_min);
     let system = units & 0xF;
@@ -396,12 +254,18 @@ pub fn physical_mm(physical_min: i32, physical_max: i32, units: u32, units_exp: 
 }
 
 /// A HID value on its logical range as 0-1.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn normalize(value: u32, min: i32, max: i32) -> f32 {
     if max <= min {
         return 0.0;
     }
     ((f64::from(value) - f64::from(min)) / (f64::from(max) - f64::from(min))).clamp(0.0, 1.0) as f32
 }
+
+#[cfg(target_os = "linux")]
+mod evdev;
+#[cfg(target_os = "macos")]
+mod trackpad;
 
 #[cfg(windows)]
 mod raw {
@@ -416,18 +280,13 @@ mod raw {
     use windows::Win32::UI::Input::*;
     use windows::Win32::UI::WindowsAndMessaging::{GIDC_REMOVAL, MSG, WM_INPUT, WM_INPUT_DEVICE_CHANGE};
 
-    use super::{normalize, physical_mm, Assembler, Frame, RawContact, Report};
+    use super::{normalize, physical_mm, Assembler, Event, Frame, RawContact, Report};
 
     const USAGE_CONTACT_IDENTIFIER: u16 = 0x51;
     const USAGE_CONTACT_COUNT: u16 = 0x54;
     const USAGE_SCAN_TIME: u16 = 0x56;
     const USAGE_CONFIDENCE: u16 = 0x47;
     const USAGE_BUTTON_1: u16 = 0x01;
-
-    pub enum Event {
-        Frame(Frame),
-        Removed(usize),
-    }
 
     struct Device {
         preparsed: Vec<u8>,
@@ -761,86 +620,6 @@ mod tests {
         let frame = frame.unwrap();
         assert_eq!(frame.len(), 5);
         assert!(frame[0].touching && frame[0].x == 0.1);
-    }
-
-    fn frame(contacts: &[(u32, f32)], button: bool) -> Frame {
-        Frame { device: 7, contacts: Some(contacts.iter().map(|&(id, x)| contact(id, x, true)).collect()), button, width_mm: 100, height_mm: 60 }
-    }
-
-    fn events(out: &[Out]) -> Vec<(Vec<(u8, u32)>, u8)> {
-        out.iter().filter_map(|o| match o {
-            Out::Contacts { contacts, buttons, .. } => Some((contacts.iter().map(|c| (c.event, c.pointer_id)).collect(), *buttons)),
-            Out::MouseButton(_) => None,
-        }).collect()
-    }
-
-    #[test]
-    fn fingers_go_down_move_and_lift_with_the_click_on_them() {
-        let t = Instant::now();
-        let mut tr = Tracker::default();
-        assert_eq!(events(&tr.frame(frame(&[(1, 0.2)], false), t)), [(vec![(touch_event::DOWN, 1)], 0)]);
-        assert_eq!(events(&tr.frame(frame(&[(1, 0.3), (2, 0.6)], false), t)),
-            [(vec![(touch_event::MOVE, 1), (touch_event::DOWN, 2)], 0)]);
-        // A click with fingers on it rides on their contacts.
-        assert_eq!(events(&tr.frame(frame(&[(1, 0.3), (2, 0.6)], true), t)),
-            [(vec![(touch_event::MOVE, 1), (touch_event::MOVE, 2)], touchpad::BUTTON_PRIMARY)]);
-        // Lifted fingers go first, in their own packet.
-        assert_eq!(events(&tr.frame(frame(&[(2, 0.6), (3, 0.1)], false), t)),
-            [(vec![(touch_event::UP, 1)], 0), (vec![(touch_event::MOVE, 2), (touch_event::DOWN, 3)], 0)]);
-        assert_eq!(events(&tr.cancel()), [(vec![(touch_event::CANCEL, 2), (touch_event::CANCEL, 3)], 0)]);
-        assert!(tr.cancel().is_empty());
-    }
-
-    #[test]
-    fn a_click_without_a_finger_is_the_left_mouse_button() {
-        let t = Instant::now();
-        let mut tr = Tracker::default();
-        let out = tr.frame(Frame { device: 7, contacts: None, button: true, width_mm: 0, height_mm: 0 }, t);
-        assert_eq!(out, [Out::MouseButton(true)]);
-        // Windows' own promoted left click is dropped, and so is its release.
-        assert!(tr.swallows_button(SDL_MouseID(0), SDL_BUTTON_LEFT as u8, true, true, t));
-        assert!(tr.swallows_button(SDL_MouseID(0), SDL_BUTTON_LEFT as u8, false, true, t));
-        let out = tr.frame(Frame { device: 7, contacts: None, button: false, width_mm: 0, height_mm: 0 }, t);
-        assert_eq!(out, [Out::MouseButton(false)]);
-        // A held fallback click is released when the touchpad is cancelled.
-        tr.frame(Frame { device: 7, contacts: None, button: true, width_mm: 0, height_mm: 0 }, t);
-        assert_eq!(tr.cancel(), [Out::MouseButton(false)]);
-    }
-
-    #[test]
-    fn windows_pointer_is_dropped_only_right_after_a_frame_and_only_from_the_global_mouse() {
-        let t = Instant::now();
-        let mut tr = Tracker::default();
-        assert!(!tr.swallows_motion(SDL_MouseID(0), t));
-        tr.frame(frame(&[(1, 0.2)], false), t);
-        assert!(tr.swallows_motion(SDL_MouseID(0), t + Duration::from_millis(500)));
-        assert!(!tr.swallows_motion(SDL_MouseID(0), t + Duration::from_millis(501)));
-        // Another mouse keeps working.
-        assert!(!tr.swallows_motion(SDL_MouseID(42), t));
-        assert!(!tr.swallows_button(SDL_MouseID(42), SDL_BUTTON_LEFT as u8, true, true, t));
-        // A release whose press went through is not dropped.
-        assert!(!tr.swallows_button(SDL_MouseID(0), SDL_BUTTON_RIGHT as u8, false, true, t));
-        tr.cancel();
-        assert!(!tr.swallows_motion(SDL_MouseID(0), t));
-    }
-
-    #[test]
-    fn another_touchpad_takes_over_only_with_a_finger_or_click() {
-        let t = Instant::now();
-        let mut tr = Tracker::default();
-        tr.frame(frame(&[(1, 0.2)], false), t);
-        let other = |contacts: Option<Vec<RawContact>>| Frame { device: 9, contacts, button: false, width_mm: 0, height_mm: 0 };
-        assert!(tr.frame(other(Some(vec![])), t).is_empty());
-        assert_eq!(events(&tr.frame(other(Some(vec![contact(4, 0.5, true)])), t)),
-            [(vec![(touch_event::CANCEL, 1)], 0), (vec![(touch_event::DOWN, 4)], 0)]);
-        assert_eq!(tr.device(), 9);
-    }
-
-    #[test]
-    fn the_host_picks_frames_over_single_contacts() {
-        assert_eq!(Transport::of(feature::PEN_TOUCH_EVENTS), None);
-        assert_eq!(Transport::of(feature::TOUCHPAD_EVENTS), Some(Transport::Individual));
-        assert_eq!(Transport::of(feature::TOUCHPAD_EVENTS | feature::TOUCHPAD_FRAME_EVENTS), Some(Transport::Frame));
     }
 
     #[test]

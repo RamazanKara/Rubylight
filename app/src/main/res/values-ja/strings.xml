@@ -192,6 +192,9 @@
     <string name="summary_trackpad_scroll_speed">タッチパッドで 2 本指スクロールが進む量です。</string>
     <string name="title_trackpad_swap_axis">トラックパッドの X と Y を入れ替え</string>
     <string name="summary_trackpad_swap_axis">軸が回転した状態で報告されるタッチパッド向けです。</string>
+    <string name="title_native_touchpad">PC でタッチパッドのジェスチャー</string>
+    <string name="summary_native_touchpad">物理タッチパッドの指の動きを対応する PC に送り、PC 側のジェスチャーを使えるようにします。</string>
+    <string name="stream_native_touchpad_fallback">このストリームはタッチパッドの指を受け付けないため、タッチパッドはマウスを動かします。</string>
     <string name="title_checkbox_absolute_mouse_mode">マウスモード</string>
     <string name="summary_checkbox_absolute_mouse_mode">「キャプチャ」はポインタをストリーム内に留め、「デスクトップポインタ」は通常のマウスのように動きます。</string>
     <string name="title_checkbox_mouse_nav_buttons">マウスの戻る/進むボタン</string>

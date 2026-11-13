@@ -43,7 +43,10 @@ public final class HostNotices {
         // Render through Vulkan presented too few of the stream's frames on this device's display.
         VULKAN_BEHIND,
         // Full chroma is on and this stream starts without it: the PC or this device cannot do it.
-        PACKED_UNAVAILABLE
+        PACKED_UNAVAILABLE,
+        // Touchpad gestures on the PC is on and this stream takes no touchpad fingers, so the
+        // touchpad moves the mouse.
+        NATIVE_TOUCHPAD_UNAVAILABLE
     }
 
     static final String PREFERENCES = "HostNotices";

@@ -192,6 +192,9 @@
     <string name="summary_trackpad_scroll_speed">Насколько далеко прокручивают два пальца на тачпаде.</string>
     <string name="title_trackpad_swap_axis">Поменять местами X и Y трекпада</string>
     <string name="summary_trackpad_swap_axis">Для тачпадов, которые передают оси повёрнутыми.</string>
+    <string name="title_native_touchpad">Жесты тачпада на ПК</string>
+    <string name="summary_native_touchpad">Передаёт касания пальцев физического тачпада на ПК, который их принимает, чтобы там работали его собственные жесты.</string>
+    <string name="stream_native_touchpad_fallback">Эта трансляция не принимает касания тачпада, поэтому тачпад двигает мышь.</string>
     <string name="title_checkbox_absolute_mouse_mode">Режим мыши</string>
     <string name="summary_checkbox_absolute_mouse_mode">«Захват» удерживает указатель в трансляции; «Указатель рабочего стола» движется как обычная мышь.</string>
     <string name="title_checkbox_mouse_nav_buttons">Кнопки мыши «назад» и «вперёд»</string>

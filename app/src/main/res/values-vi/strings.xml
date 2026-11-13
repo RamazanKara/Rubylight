@@ -192,6 +192,9 @@
     <string name="summary_trackpad_scroll_speed">Mức cuộn bằng hai ngón trên bàn di chuột.</string>
     <string name="title_trackpad_swap_axis">Hoán đổi X và Y của bàn di chuột</string>
     <string name="summary_trackpad_swap_axis">Dành cho bàn di chuột báo các trục bị xoay.</string>
+    <string name="title_native_touchpad">Cử chỉ bàn di chuột trên PC</string>
+    <string name="summary_native_touchpad">Gửi các ngón tay trên bàn di chuột vật lý đến PC nhận chúng, để cử chỉ của PC hoạt động ở đó.</string>
+    <string name="stream_native_touchpad_fallback">Luồng này không nhận ngón tay bàn di chuột, nên bàn di chuột sẽ di chuyển chuột.</string>
     <string name="title_checkbox_absolute_mouse_mode">Chế độ chuột</string>
     <string name="summary_checkbox_absolute_mouse_mode">“Bắt giữ” khóa con trỏ trong stream; “Con trỏ desktop” di chuyển như chuột thông thường.</string>
     <string name="title_checkbox_mouse_nav_buttons">Nút lùi/tiến của chuột</string>

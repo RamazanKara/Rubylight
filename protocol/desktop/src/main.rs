@@ -3412,7 +3412,6 @@ Redacted logs, oldest line first; addresses, PC names, PINs and credentials are 
         if streaming.menu_visible && self.gui.repaint_in(menu_frame).is_some_and(|wait| wait.is_zero()) {
             streaming.needs_redraw = true;
         }
-        #[cfg(windows)]
         streaming.pump_touchpad(window);
         streaming.pump();
         if let Some(host) = self.hosts.get(streaming.host_id) {

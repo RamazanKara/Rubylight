@@ -192,6 +192,9 @@
     <string name="summary_trackpad_scroll_speed">Jak daleko przewijają dwa palce na touchpadzie.</string>
     <string name="title_trackpad_swap_axis">Zamień X i Y touchpada</string>
     <string name="summary_trackpad_swap_axis">Dla touchpadów, które zgłaszają obrócone osie.</string>
+    <string name="title_native_touchpad">Gesty touchpada na PC</string>
+    <string name="summary_native_touchpad">Wysyła palce fizycznego touchpada do PC, który je przyjmuje, aby działały tam jego własne gesty.</string>
+    <string name="stream_native_touchpad_fallback">Ten stream nie przyjmuje palców touchpada, więc touchpad porusza myszą.</string>
     <string name="title_checkbox_absolute_mouse_mode">Tryb myszy</string>
     <string name="summary_checkbox_absolute_mouse_mode">„Przechwytywanie” trzyma wskaźnik w strumieniu; „Wskaźnik pulpitu” porusza się jak zwykła mysz.</string>
     <string name="title_checkbox_mouse_nav_buttons">Przyciski myszy wstecz/dalej</string>

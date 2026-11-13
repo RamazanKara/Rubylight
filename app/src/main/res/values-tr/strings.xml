@@ -192,6 +192,9 @@
     <string name="summary_trackpad_scroll_speed">İki parmakla kaydırmanın dokunmatik yüzeyde ne kadar ilerlediği.</string>
     <string name="title_trackpad_swap_axis">Trackpad X ve Y eksenlerini değiştir</string>
     <string name="summary_trackpad_swap_axis">Eksenlerini döndürülmüş bildiren dokunmatik yüzeyler için.</string>
+    <string name="title_native_touchpad">PC\'de dokunmatik yüzey hareketleri</string>
+    <string name="summary_native_touchpad">Fiziksel dokunmatik yüzeydeki parmakları bunları kabul eden bir PC\'ye gönderir, böylece PC\'nin kendi hareketleri orada çalışır.</string>
+    <string name="stream_native_touchpad_fallback">Bu yayın dokunmatik yüzey parmaklarını kabul etmiyor, bu yüzden dokunmatik yüzey fareyi hareket ettirir.</string>
     <string name="title_checkbox_absolute_mouse_mode">Fare modu</string>
     <string name="summary_checkbox_absolute_mouse_mode">“Yakalanmış” imleci yayında tutar; “Masaüstü imleci” sıradan bir fare gibi hareket eder.</string>
     <string name="title_checkbox_mouse_nav_buttons">Fare geri/ileri düğmeleri</string>

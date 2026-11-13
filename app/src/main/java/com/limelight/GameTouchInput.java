@@ -9,6 +9,7 @@ import com.limelight.binding.input.touch.FingerTapGesture;
 import com.limelight.binding.input.touch.TwoFingerTapGesture;
 import com.limelight.binding.input.touch.TouchMode;
 import com.limelight.binding.input.touch.TouchMomentum;
+import com.limelight.binding.input.touch.TouchpadSurface;
 import com.limelight.binding.input.touch.TrackpadArea;
 import com.limelight.binding.input.touch.TrackpadContext;
 import com.limelight.binding.input.touch.TrackpadPointer;
@@ -76,6 +77,12 @@ final class GameTouchInput {
 
     private boolean nativeTouchUnsupported;
     private boolean nativeTouchGestureActive;
+
+    // Touchpad gestures on the PC: 0 not decided yet (the touchpad's first event decides), 1 a
+    // physical touchpad's fingers go to the PC, 2 the touchpad stays a mouse.
+    private int nativeTouchpadState;
+    // The PC holds fingers or the click of the touchpad.
+    private boolean nativeTouchpadHeld;
 
     private static final int STYLUS_DOWN_DEAD_ZONE_DELAY = 100;
     private static final int STYLUS_DOWN_DEAD_ZONE_RADIUS = 20;
@@ -303,6 +310,7 @@ final class GameTouchInput {
     void cancelTouchInput() {
         if (game.desktopGestures != null) game.desktopGestures.cancelTouch();
         cancelHostTouchInput();
+        cancelNativeTouchpad();
     }
 
     // Desktop pan/zoom takes over the host gesture while retaining its own tap candidate.
@@ -917,6 +925,12 @@ final class GameTouchInput {
                     return true;
                 }
 
+                // The touchpad's click rides on its frames, with the fingers on it.
+                if (eventSource == InputDevice.SOURCE_TOUCHPAD && nativeTouchpad()) {
+                    sendNativeTouchpadFrame(event);
+                    return true;
+                }
+
                 // Always update the position before sending any button events. If we're
                 // dealing with a stylus without hover support, our position might be
                 // significantly different than before.
@@ -1071,7 +1085,15 @@ final class GameTouchInput {
                 if (eventSource == InputDevice.SOURCE_TOUCHPAD) {
                     // Like the mouse case, ignore the touchpad while we aren't capturing it; returning
                     // true keeps Android from turning the touches into d-pad events.
-                    return !game.inputCaptureProvider.isCapturingActive() || handleTouchpadTouch(event);
+                    if (!game.inputCaptureProvider.isCapturingActive()) {
+                        cancelNativeTouchpad();
+                        return true;
+                    }
+                    if (nativeTouchpad()) {
+                        sendNativeTouchpadFrame(event);
+                        return true;
+                    }
+                    return handleTouchpadTouch(event);
                 }
 
                 if ((game.virtualController != null &&
@@ -1252,6 +1274,68 @@ final class GameTouchInput {
         for (TrackpadContext context : touchpadContextMap) {
             context.setUnitsPerMm(unitsPerMm);
         }
+    }
+
+    /**
+     * Whether a physical touchpad's fingers go to the PC this stream (Touchpad gestures on the PC and a
+     * PC that takes them), decided at the touchpad's first event; otherwise it stays a mouse, and the
+     * PC is named once.
+     */
+    private boolean nativeTouchpad() {
+        if (nativeTouchpadState == 0) {
+            if (!game.prefConfig.nativeTouchpad) {
+                nativeTouchpadState = 2;
+            } else if (game.conn.touchpadTransport() != MoonBridge.TOUCHPAD_NONE) {
+                nativeTouchpadState = 1;
+            } else {
+                nativeTouchpadState = 2;
+                LimeLog.warning("Touchpad gestures stay a mouse: this stream takes no touchpad fingers");
+                game.overlays.hostNotice(HostNotices.Notice.NATIVE_TOUCHPAD_UNAVAILABLE, R.string.stream_native_touchpad_fallback);
+            }
+        }
+        return nativeTouchpadState == 1;
+    }
+
+    /** Lifts the fingers and click the PC holds for the touchpad (capture or focus lost). */
+    private void cancelNativeTouchpad() {
+        if (nativeTouchpadHeld) {
+            nativeTouchpadHeld = false;
+            game.conn.cancelTouchpad();
+        }
+    }
+
+    /** The touchpad's fingers still on it after this event, and its click, as one frame for the PC. */
+    private void sendNativeTouchpadFrame(MotionEvent event) {
+        int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_CANCEL) {
+            cancelNativeTouchpad();
+            return;
+        }
+        int lifted = action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP ? event.getActionIndex() : -1;
+        int pointers = event.getPointerCount();
+        int[] ids = new int[pointers];
+        float[] xs = new float[pointers];
+        float[] ys = new float[pointers];
+        float[] pressures = new float[pointers];
+        InputDevice device = event.getDevice();
+        InputDevice.MotionRange xRange = device != null ? device.getMotionRange(MotionEvent.AXIS_X, InputDevice.SOURCE_TOUCHPAD) : null;
+        InputDevice.MotionRange yRange = device != null ? device.getMotionRange(MotionEvent.AXIS_Y, InputDevice.SOURCE_TOUCHPAD) : null;
+        int count = 0;
+        for (int i = 0; i < pointers; i++) {
+            if (i == lifted) {
+                continue;
+            }
+            ids[count] = event.getPointerId(i);
+            xs[count] = TouchpadSurface.unit(event.getX(i), xRange != null ? xRange.getMin() : 0, xRange != null ? xRange.getMax() : 0);
+            ys[count] = TouchpadSurface.unit(event.getY(i), yRange != null ? yRange.getMin() : 0, yRange != null ? yRange.getMax() : 0);
+            pressures[count] = Math.max(0f, Math.min(1f, event.getPressure(i)));
+            count++;
+        }
+        boolean button = (event.getButtonState() & MotionEvent.BUTTON_PRIMARY) != 0;
+        nativeTouchpadHeld = count > 0 || button;
+        game.conn.sendTouchpadFrame(event.getDeviceId(), ids, xs, ys, pressures, count, button,
+                TouchpadSurface.lengthMm(xRange != null ? xRange.getRange() : 0, xRange != null ? xRange.getResolution() : 0),
+                TouchpadSurface.lengthMm(yRange != null ? yRange.getRange() : 0, yRange != null ? yRange.getResolution() : 0));
     }
 
     private boolean handleTouchpadTouch(MotionEvent event) {

@@ -192,6 +192,9 @@
     <string name="summary_trackpad_scroll_speed">Wie weit zwei Finger auf einem Touchpad scrollen.</string>
     <string name="title_trackpad_swap_axis">X und Y des Trackpads tauschen</string>
     <string name="summary_trackpad_swap_axis">Für Touchpads, die ihre Achsen gedreht melden.</string>
+    <string name="title_native_touchpad">Touchpad-Gesten auf dem PC</string>
+    <string name="summary_native_touchpad">Sendet die Finger auf einem physischen Touchpad an einen PC, der sie annimmt, damit seine eigenen Gesten dort funktionieren.</string>
+    <string name="stream_native_touchpad_fallback">Dieser Stream nimmt keine Touchpad-Finger an, daher bewegt das Touchpad die Maus.</string>
     <string name="title_checkbox_absolute_mouse_mode">Mausmodus</string>
     <string name="summary_checkbox_absolute_mouse_mode">„Erfasst“ hält den Zeiger im Stream; „Desktop-Zeiger“ bewegt sich wie eine normale Maus.</string>
     <string name="title_checkbox_mouse_nav_buttons">Vor- und Zurück-Tasten</string>

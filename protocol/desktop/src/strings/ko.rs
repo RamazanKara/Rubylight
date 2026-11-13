@@ -1537,4 +1537,5 @@ sudo sysctl -w net.core.rmem_max={}", "수신 버퍼: 시스템이 요청한 {1}
     ("Frame Warp", "Frame Warp"),
     ("Shifts the picture with your mouse or right stick until the PC’s next frame shows the turn, and keeps the game’s HUD in place. Needs a PC that supports it.", "PC의 다음 프레임에 회전이 나타날 때까지 마우스나 오른쪽 스틱에 맞춰 화면을 옮기고, 게임 HUD는 제자리에 둡니다. 이를 지원하는 PC가 필요합니다."),
     ("This PC doesn’t offer Frame Warp, so Nightjar streams without it.", "이 PC는 Frame Warp를 제공하지 않아 Nightjar가 이 기능 없이 스트리밍합니다."),
+    ("The touchpad stays a mouse: {}", "터치패드는 마우스로 동작합니다: {}"),
 ];

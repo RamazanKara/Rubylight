@@ -18,6 +18,8 @@ pub(super) struct Configured {
 pub(super) struct StreamDisplay {
     pub(super) output: String,
     pub(super) prepared: Arc<crate::display_session::Ready>,
+    /// Follows the app's window (`capture_window = window`) from before the first capture.
+    pub(super) app_window: Option<app_window::AppWindow>,
 }
 
 /// The open capture and the encoder's focus. Fields in reverse order of creation, as in
@@ -182,7 +184,28 @@ impl SessionThread<'_> {
         }
         let output = prepared.output();
         *s.output.write().unwrap() = output.clone();
-        Ok(StreamDisplay { output, prepared })
+        Ok(StreamDisplay { output, prepared, app_window: None })
+    }
+
+    /// The app's window in place of the display (`capture_window = window`), looked for before
+    /// the first capture so the capture and the encoder open on it rather than on the display
+    /// and again on the window a moment later. A co-op player's stream is its window already.
+    pub(super) fn start_app_window(
+        &self,
+        c: &Config,
+        prepared: &Arc<crate::display_session::Ready>,
+    ) -> Option<app_window::AppWindow> {
+        let SessionThread { h, s, .. } = *self;
+        let settings = butterpollo_core::app_window::settings(c)?;
+        if s.launch.role != Role::Stream || s.launch.nucleus.is_some() {
+            return None;
+        }
+        app_window::AppWindow::start(h.clone(), s.clone(), prepared.clone(), settings, app_window::FIRST_WAIT)
+            .inspect_err(|error| {
+                tracing::warn!(%error, "the app's window cannot be followed; the stream shows the display");
+                s.launch.warnings.set("capture_app_window", "The app's window cannot be followed, so the stream shows the display. Reconnect to try again.");
+            })
+            .ok()
     }
 
     /// Opens the capture, waits for its first frame and configures the encoder and its focus

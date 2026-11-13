@@ -545,8 +545,9 @@ impl Media {
                     let Some(config) = session.configure(&mut workers)? else {
                         return Ok(());
                     };
-                    let display =
+                    let mut display =
                         session.prepare_display(&config.c, &mut leases.stream_preparation)?;
+                    display.app_window = session.start_app_window(&config.c, &display.prepared);
                     let Some(capture) = session.start_capture(
                         &config.c,
                         &config.timer,

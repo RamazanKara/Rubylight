@@ -27,7 +27,8 @@ impl SessionThread<'_> {
         let SessionThread { m, h, s } = *self;
         let Workers { pyrowave_sender, webrtc_sender, .. } = workers;
         let Configured { mut config_version, c, timer } = config;
-        let StreamDisplay { prepared, output } = display;
+        // The app window's worker (`capture_window = window`) started before the first capture.
+        let StreamDisplay { prepared, output, app_window: _app_window } = display;
         let Captured { latest, capture_wake, mut focus, focus_verify } = capture;
         let mut staging = None;
         let Started {
@@ -116,19 +117,6 @@ impl SessionThread<'_> {
                 .ok()
         } else {
             None
-        };
-        // The app's window in place of the display (capture_window = window).
-        // A co-op player's stream is its window already.
-        let _app_window = match butterpollo_core::app_window::settings(&c) {
-            Some(settings) if s.launch.role == Role::Stream && s.launch.nucleus.is_none() => {
-                app_window::AppWindow::start(h.clone(), s.clone(), prepared.clone(), settings)
-                    .inspect_err(|error| {
-                        tracing::warn!(%error, "the app's window cannot be followed; the stream shows the display");
-                        s.launch.warnings.set("capture_app_window", "The app's window cannot be followed, so the stream shows the display. Reconnect to try again.");
-                    })
-                    .ok()
-            }
-            _ => None,
         };
         let mut metadata_due = Instant::now() + Duration::from_secs(1);
         // A keyframe a while after an AMF reference-invalidation recovery.

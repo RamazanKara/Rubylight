@@ -1538,4 +1538,10 @@ sudo sysctl -w net.core.rmem_max={}", "수신 버퍼: 시스템이 요청한 {1}
     ("Shifts the picture with your mouse or right stick until the PC’s next frame shows the turn, and keeps the game’s HUD in place. Needs a PC that supports it.", "PC의 다음 프레임에 회전이 나타날 때까지 마우스나 오른쪽 스틱에 맞춰 화면을 옮기고, 게임 HUD는 제자리에 둡니다. 이를 지원하는 PC가 필요합니다."),
     ("This PC doesn’t offer Frame Warp, so Nightjar streams without it.", "이 PC는 Frame Warp를 제공하지 않아 Nightjar가 이 기능 없이 스트리밍합니다."),
     ("The touchpad stays a mouse: {}", "터치패드는 마우스로 동작합니다: {}"),
+    ("Straight to the display", "디스플레이에 직접"),
+    ("Display output", "디스플레이 출력"),
+    ("Where Nightjar shows itself. Automatic draws straight to the display when no desktop is running. Applies at the next start.", "Nightjar가 표시되는 위치입니다. 자동은 데스크톱이 실행 중이지 않을 때 디스플레이에 직접 그립니다. 다음 시작부터 적용됩니다."),
+    ("Video planes", "비디오 플레인"),
+    ("Drawing straight to the display, shows the stream on its own display plane, with HDR and without a copy.", "디스플레이에 직접 그릴 때 스트림을 전용 디스플레이 플레인에 표시합니다. HDR을 지원하며 복사가 없습니다."),
+    ("Video planes are unavailable; the stream is drawn by the renderer. The log says why.", "비디오 플레인을 사용할 수 없어 렌더러가 스트림을 그립니다. 이유는 로그에 있습니다."),
 ];

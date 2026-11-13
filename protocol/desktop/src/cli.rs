@@ -33,12 +33,13 @@ const START_LIMIT: Duration = Duration::from_secs(60);
 /// sooner.
 const LAUNCH_LIMIT: Duration = Duration::from_secs(180);
 
-pub const USAGE: &str = "usage: nightjar [--version | --host <name|uuid> [--app <name|uuid>] [--quit-on-exit] [stream options] | [stream options] stream <host> <app> | list <host> [--verbose] | <pairing link>]
+pub const USAGE: &str = "usage: nightjar [--kms | --no-kms] [--version | --host <name|uuid> [--app <name|uuid>] [--quit-on-exit] [stream options] | [stream options] stream <host> <app> | list <host> [--verbose] | <pairing link>]
 stream options, as moonlight-qt's: --resolution <W>x<H>, --720, --1080, --1440, --4K, --fps <n>, --bitrate <Kbps>,
   --video-codec auto|H.264|HEVC|AV1, --video-decoder auto|software|hardware, --audio-config stereo|5.1-surround|7.1-surround,
   --display-mode fullscreen|windowed|borderless, --capture-system-keys never|fullscreen|always, and these with their --no- forms:
   --hdr, --vsync, --frame-pacing, --performance-overlay, --quit-after, --yuv444, --audio-on-host, --absolute-mouse,
-  --game-optimization, --multi-controller, --swap-gamepad-buttons, --background-gamepad";
+  --game-optimization, --multi-controller, --swap-gamepad-buttons, --background-gamepad
+  --kms, --no-kms: on Linux, draw straight to the display (DRM/KMS) or through the desktop, whatever Display output says";
 
 /// Not the link itself: it holds a PIN and passphrase, and this goes to the log.
 const LINK_NOT_ALONE: &str = "a pairing link is the only argument";

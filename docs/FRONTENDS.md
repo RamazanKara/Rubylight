@@ -143,6 +143,19 @@ It starts the app and closes Nightjar when the stream ends. moonlight-qt's strea
 
 `nightjar list <PC name or UUID> [--verbose]` prints the PC's apps, one name a line, without opening a window, as moonlight-qt's `list` does; MoonDeck reads it to add the PC's apps to Steam. It exits with 0, with -1 (255 on Linux) when the PC is not saved, not paired or cannot be reached, and with 1 when the PC does not give its app list. moonlight-qt's `list --csv` is not available.
 
+### Without a desktop (Linux)
+
+On a console or kiosk box with no Wayland or X11 session, Nightjar draws straight to the display through DRM/KMS and reads keyboards, mice and controllers from evdev. The whole app works there fullscreen, the PC list and settings included, and so does the command line above:
+
+```text
+nightjar --kms --host <PC name or UUID> --app <app name or UUID> --quit-on-exit
+```
+
+- `--kms` draws straight to the display for this start, `--no-kms` through the desktop, whatever **Display output** (Settings › Advanced) says. At its default, Automatic, Nightjar draws straight to the display only when no Wayland or X11 session is there. `SDL_VIDEO_DRIVER` in the environment wins over both.
+- Start it from a text console (Ctrl+Alt+F3, a getty autologin or a systemd service on a VT), as a user with read and write access to `/dev/dri/card*` and `/dev/input/event*`: the `video` and `input` groups, or a seat from logind. No other program may be showing on that display.
+- A stream's pictures go straight onto a display plane, with HDR10, VRR and content type Game sent to the display, and the overlay and stream menu on a plane above them (**Video planes**, on by default). Upscaling, Frame Warp, Sharper colored text and PyroWave are drawn by the renderer instead. Where the display or driver refuses the planes, the stream is drawn by the renderer and a notice says so; the log says why.
+- The log's `nightjar: kms:` lines say which way Nightjar draws and why, which planes a stream took and the display mode it chose.
+
 ## Fix an integration
 
 | Symptom | Cause | Fix |

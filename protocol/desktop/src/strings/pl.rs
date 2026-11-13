@@ -1538,4 +1538,10 @@ sudo sysctl -w net.core.rmem_max={}", "Bufor odbioru: system przydzielił {0} Ki
     ("Shifts the picture with your mouse or right stick until the PC’s next frame shows the turn, and keeps the game’s HUD in place. Needs a PC that supports it.", "Przesuwa obraz zgodnie z myszą lub prawym drążkiem, aż następna klatka z komputera pokaże obrót, a HUD gry zostaje na miejscu. Wymaga komputera, który to obsługuje."),
     ("This PC doesn’t offer Frame Warp, so Nightjar streams without it.", "Ten komputer nie oferuje Frame Warp, więc Nightjar streamuje bez niego."),
     ("The touchpad stays a mouse: {}", "Touchpad działa nadal jako mysz: {}"),
+    ("Straight to the display", "Bezpośrednio na ekran"),
+    ("Display output", "Wyjście obrazu"),
+    ("Where Nightjar shows itself. Automatic draws straight to the display when no desktop is running. Applies at the next start.", "Gdzie Nightjar się wyświetla. Automatycznie rysuje bezpośrednio na ekranie, gdy nie działa żaden pulpit. Działa od następnego uruchomienia."),
+    ("Video planes", "Płaszczyzny wideo"),
+    ("Drawing straight to the display, shows the stream on its own display plane, with HDR and without a copy.", "Przy rysowaniu bezpośrednio na ekranie pokazuje strumień na własnej płaszczyźnie wyświetlania, z HDR i bez kopiowania."),
+    ("Video planes are unavailable; the stream is drawn by the renderer. The log says why.", "Płaszczyzny wideo są niedostępne; strumień rysuje renderer. Przyczyna jest w dzienniku."),
 ];

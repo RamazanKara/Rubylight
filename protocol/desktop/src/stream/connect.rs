@@ -1052,7 +1052,7 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
     let session = Session::start(
         &host,
         config,
-        Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early).with_beam_race(slices).with_gpu_decoder(plan.gpu_decoder).with_dmabuf(plan.dmabuf)),
+        Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early).with_beam_race(slices).with_gpu_decoder(plan.gpu_decoder).with_dmabuf(plan.dmabuf).with_kms_planes(plan.kms_planes)),
         pipeline::audio_renderer(shared.clone(), passthrough, settings.mute_audio),
         Arc::new(pipeline::Events::new(shared)),
         interrupt,
@@ -1262,6 +1262,7 @@ mod replace_tests {
             display: Display { width: 1920, height: 1080, refresh_hz: 60.0, refresh_reported: true },
             hardware: Hardware::None,
             dmabuf: false,
+            kms_planes: false,
             gpu_decoder: None,
             packed_modes: 0,
             color_decodable: (0, String::new()),

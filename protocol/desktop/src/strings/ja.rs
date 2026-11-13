@@ -1538,4 +1538,10 @@ sudo sysctl -w net.core.rmem_max={}", "受信バッファー：システムは�
     ("Shifts the picture with your mouse or right stick until the PC’s next frame shows the turn, and keeps the game’s HUD in place. Needs a PC that supports it.", "PC の次のフレームに回転が反映されるまで、マウスや右スティックの操作に合わせて画像をずらし、ゲームの HUD はそのままにします。対応する PC が必要です。"),
     ("This PC doesn’t offer Frame Warp, so Nightjar streams without it.", "このPCはFrame Warpに対応していないため、Nightjarは使わずにストリーミングします。"),
     ("The touchpad stays a mouse: {}", "タッチパッドはマウスのままです: {}"),
+    ("Straight to the display", "ディスプレイに直接"),
+    ("Display output", "表示出力"),
+    ("Where Nightjar shows itself. Automatic draws straight to the display when no desktop is running. Applies at the next start.", "Nightjar を表示する場所です。自動では、デスクトップが動いていないときにディスプレイへ直接描画します。次回の起動から適用されます。"),
+    ("Video planes", "ビデオプレーン"),
+    ("Drawing straight to the display, shows the stream on its own display plane, with HDR and without a copy.", "ディスプレイに直接描画するとき、ストリームを専用の表示プレーンに表示します。HDR に対応し、コピーは発生しません。"),
+    ("Video planes are unavailable; the stream is drawn by the renderer. The log says why.", "ビデオプレーンを使えないため、ストリームはレンダラーで描画されます。理由はログに記録されています。"),
 ];

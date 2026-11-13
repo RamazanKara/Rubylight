@@ -1538,4 +1538,10 @@ sudo sysctl -w net.core.rmem_max={}", "Tampon de réception : le système a acco
     ("Shifts the picture with your mouse or right stick until the PC’s next frame shows the turn, and keeps the game’s HUD in place. Needs a PC that supports it.", "Décale l’image avec votre souris ou le stick droit jusqu’à ce que la prochaine image du PC montre la rotation, et laisse le HUD du jeu en place. Nécessite un PC compatible."),
     ("This PC doesn’t offer Frame Warp, so Nightjar streams without it.", "Ce PC ne propose pas Frame Warp, Nightjar diffuse donc sans."),
     ("The touchpad stays a mouse: {}", "Le pavé tactile reste une souris : {}"),
+    ("Straight to the display", "Directement sur l’écran"),
+    ("Display output", "Sortie d’affichage"),
+    ("Where Nightjar shows itself. Automatic draws straight to the display when no desktop is running. Applies at the next start.", "Où Nightjar s’affiche. Automatique dessine directement sur l’écran quand aucun bureau n’est lancé. S’applique au prochain démarrage."),
+    ("Video planes", "Plans vidéo"),
+    ("Drawing straight to the display, shows the stream on its own display plane, with HDR and without a copy.", "En dessinant directement sur l’écran, affiche le stream sur son propre plan d’affichage, avec HDR et sans copie."),
+    ("Video planes are unavailable; the stream is drawn by the renderer. The log says why.", "Les plans vidéo ne sont pas disponibles ; le rendu dessine le stream. Le journal indique pourquoi."),
 ];

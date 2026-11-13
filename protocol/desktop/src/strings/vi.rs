@@ -1538,4 +1538,10 @@ sudo sysctl -w net.core.rmem_max={}", "Bộ đệm nhận: hệ thống chỉ c�
     ("Shifts the picture with your mouse or right stick until the PC’s next frame shows the turn, and keeps the game’s HUD in place. Needs a PC that supports it.", "Dịch chuyển hình ảnh theo chuột hoặc cần phải cho đến khi khung hình tiếp theo của PC thể hiện cú xoay, và giữ HUD của trò chơi tại chỗ. Cần PC hỗ trợ tính năng này."),
     ("This PC doesn’t offer Frame Warp, so Nightjar streams without it.", "PC này không cung cấp Frame Warp nên Nightjar truyền phát mà không dùng nó."),
     ("The touchpad stays a mouse: {}", "Bàn di chuột vẫn hoạt động như chuột: {}"),
+    ("Straight to the display", "Trực tiếp lên màn hình"),
+    ("Display output", "Đầu ra hiển thị"),
+    ("Where Nightjar shows itself. Automatic draws straight to the display when no desktop is running. Applies at the next start.", "Nơi Nightjar hiển thị. Tự động sẽ vẽ trực tiếp lên màn hình khi không có màn hình nền nào đang chạy. Áp dụng từ lần khởi động tiếp theo."),
+    ("Video planes", "Lớp video"),
+    ("Drawing straight to the display, shows the stream on its own display plane, with HDR and without a copy.", "Khi vẽ trực tiếp lên màn hình, hiển thị luồng trên lớp hiển thị riêng, có HDR và không sao chép."),
+    ("Video planes are unavailable; the stream is drawn by the renderer. The log says why.", "Không dùng được lớp video; trình kết xuất sẽ vẽ luồng. Nhật ký ghi rõ lý do."),
 ];

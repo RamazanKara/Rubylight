@@ -445,7 +445,7 @@ fn the_section_key_table_is_what_the_page_draws() {
         "frame_pacing" | "vsync" => !vrr,
         // Balanced's, which the default pacing is not (its own test draws it).
         "drop_late_frames" => false,
-        "renderer" | "vulkan_video_first" | "vulkan_rfi" => cfg!(target_os = "linux"),
+        "renderer" | "display_output" | "video_planes" | "vulkan_video_first" | "vulkan_rfi" => cfg!(target_os = "linux"),
         "graphics_card" => graphics_card_here(),
         _ => true,
     };
@@ -499,6 +499,10 @@ fn the_developer_rows_are_in_debug_and_the_tools_in_advanced() {
             if section == "Advanced" {
                 // The renderer is Linux's choice for the whole app, so a PC's settings do not have it.
                 assert_eq!(drawn.contains(&"renderer"), cfg!(target_os = "linux") && screen == Screen::Settings, "{drawn:?}");
+                // So is where it shows itself, and whether a stream goes on a display plane there.
+                for key in ["display_output", "video_planes"] {
+                    assert_eq!(drawn.contains(&key), cfg!(target_os = "linux") && screen == Screen::Settings, "{key}: {drawn:?}");
+                }
                 assert!(drawn.contains(&"sops") && drawn.contains(&"link_probe"), "{screen:?}: {drawn:?}");
             }
         }

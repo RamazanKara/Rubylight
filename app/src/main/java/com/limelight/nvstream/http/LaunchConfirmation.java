@@ -31,7 +31,7 @@ public final class LaunchConfirmation {
         if (error.getErrorCode() != 410) {
             return false;
         }
-        // Rubylight's wording first (rust/host/src/nvhttp.rs), then Vibepollo's control tiles
+        // Rubylight's wording first (rust/host/src/nvhttp/launch_steps.rs), then Vibepollo's control tiles
         // (remote_session.cpp successful_control_completion), then Apollo's Terminate app, which
         // Vibepollo also still serves (nvhttp.cpp launch).
         switch (app.getControl()) {

@@ -854,7 +854,8 @@ impl Streaming {
             }
         };
         if result.is_err() {
-            self.show_toast(tr("Video planes are unavailable; the stream is drawn by the renderer. The log says why."));
+            // Often right after the start notice (the first picture): it joins it, not replaces it.
+            self.add_toast(tr("Video planes are unavailable; the stream is drawn by the renderer. The log says why."));
             self.needs_redraw = true;
         }
         result.is_ok()
@@ -888,7 +889,7 @@ impl Streaming {
         let committed = self.kms.as_mut().map_or(Ok(()), kms_scanout::Scanout::commit);
         let returned_us = session::now_us();
         if committed.is_err() {
-            self.show_toast(tr("Video planes are unavailable; the stream is drawn by the renderer. The log says why."));
+            self.add_toast(tr("Video planes are unavailable; the stream is drawn by the renderer. The log says why."));
             self.needs_redraw = true;
             return None;
         }

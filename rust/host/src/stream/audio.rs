@@ -298,7 +298,13 @@ impl Media {
                         .saturating_duration_since(Instant::now())
                         .clamp(Duration::from_millis(1), Duration::from_millis(5)),
                 ),
-                None => timer.until(Instant::now() + Duration::from_millis(1)),
+                None => timer.until(
+                    Instant::now()
+                        + pace
+                            .due()
+                            .saturating_duration_since(Instant::now())
+                            .clamp(Duration::from_millis(1), Duration::from_millis(5)),
+                ),
             }
             #[cfg(debug_assertions)]
             if let Some(stall) = crate::soak_fault::audio_stall()? {

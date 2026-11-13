@@ -24,7 +24,7 @@ use std::{
     io::{self, Read, Write},
     net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc, Arc, Condvar, Mutex,
     },
     thread,
@@ -100,11 +100,9 @@ struct Connection {
 }
 
 struct Inner {
-    opener: Opener,
     puncher: Puncher,
     reliable: Reliable,
     peer: Option<SocketAddr>,
-    last_heard: Millis,
     last_sent: Millis,
     connections: HashMap<StreamId, Connection>,
     closed: Option<String>,
@@ -115,7 +113,14 @@ struct Shared {
     role: Role,
     bridge: Bridge,
     sealer: Sealer,
+    /// Apart from `inner`, so decrypting a datagram never waits on the reliable layer.
+    opener: Mutex<Opener>,
     inner: Mutex<Inner>,
+    /// The peer while the path is connected and open, else None: `inner`'s state, kept here so
+    /// media needs no `inner` lock. Written only with `inner` held ([`Tunnel::publish`]).
+    connected: Mutex<Option<SocketAddr>>,
+    /// When an authenticated datagram last came in.
+    last_heard: AtomicU64,
     capacity: Condvar,
     stopped: AtomicBool,
     /// The device's media sockets, and where its client last sent from on each.
@@ -184,16 +189,17 @@ impl Tunnel {
             role,
             bridge: bridge.clone(),
             sealer: Sealer::new(&send_key, keys.tag, session),
+            opener: Mutex::new(Opener::new(&receive_key, keys.tag)),
             inner: Mutex::new(Inner {
-                opener: Opener::new(&receive_key, keys.tag),
                 puncher: Puncher::new(candidates, now),
                 reliable: Reliable::new(role == Role::Client),
                 peer: None,
-                last_heard: now,
                 last_sent: now,
                 connections: HashMap::new(),
                 closed: None,
             }),
+            connected: Mutex::new(None),
+            last_heard: AtomicU64::new(now),
             node,
             capacity: Condvar::new(),
             stopped: AtomicBool::new(false),
@@ -249,7 +255,19 @@ impl Tunnel {
 
     /// More addresses for the peer, learned after the start.
     pub fn add_candidates(&self, more: &[SocketAddr]) {
-        self.shared.inner.lock().unwrap().puncher.add(more);
+        let mut inner = self.shared.inner.lock().unwrap();
+        inner.puncher.add(more);
+        self.publish(&inner);
+    }
+
+    /// Mirrors `inner`'s connected peer into `connected`; called with `inner` held after any
+    /// change to its peer, punch state or closing, so the two never disagree for long.
+    fn publish(&self, inner: &Inner) {
+        let peer = match inner.puncher.state() {
+            punch::State::Connected(_) if inner.closed.is_none() => inner.peer,
+            _ => None,
+        };
+        *self.shared.connected.lock().unwrap() = peer;
     }
 
     /// Ends the path and tells the peer.
@@ -259,6 +277,7 @@ impl Tunnel {
             if inner.closed.is_none() {
                 inner.closed = Some(reason.to_owned());
             }
+            self.publish(&inner);
             for (_, connection) in inner.connections.drain() {
                 let _ = connection.writer.send(Outgoing::Reset);
             }
@@ -285,20 +304,30 @@ impl Tunnel {
     /// Takes a datagram the node received for this path's tag.
     pub fn receive(&self, datagram: &[u8], from: SocketAddr) {
         let now = self.shared.node.now();
+        if self.is_closed() {
+            return;
+        }
+        let Some(opened) = self.shared.opener.lock().unwrap().open(datagram) else {
+            return;
+        };
+        self.shared.last_heard.fetch_max(now, Ordering::Relaxed);
+        // Media from the connected peer's address changes nothing in `inner`: it skips the
+        // reliable layer's lock entirely.
+        if opened.kind == Kind::Media && *self.shared.connected.lock().unwrap() == Some(from) {
+            self.media_in(opened.channel, &opened.payload);
+            return;
+        }
         let mut inner = self.shared.inner.lock().unwrap();
         if inner.closed.is_some() {
             return;
         }
-        let Some(opened) = inner.opener.open(datagram) else {
-            return;
-        };
-        inner.last_heard = now;
         // Any authenticated datagram moves the path to where it came from: a NAT that changed
         // the peer's port keeps working.
         inner.peer = Some(from);
         match opened.kind {
             Kind::Punch => {
                 inner.puncher.on_punch(from);
+                self.publish(&inner);
                 drop(inner);
                 self.send_to(from, Kind::PunchAck, 0, &[]);
                 return;
@@ -311,18 +340,21 @@ impl Tunnel {
                 inner.reliable.handle(&opened.payload, now);
             }
             Kind::Media => {
+                self.publish(&inner);
                 drop(inner);
                 self.media_in(opened.channel, &opened.payload);
                 return;
             }
             Kind::Close => {
                 inner.closed = Some("the other side ended the connection".into());
+                self.publish(&inner);
                 drop(inner);
                 self.close("the other side ended the connection");
                 return;
             }
             Kind::Keepalive => {}
         }
+        self.publish(&inner);
         drop(inner);
         self.dispatch();
         self.flush();
@@ -593,7 +625,7 @@ impl Tunnel {
         let Some(end) = &self.shared.media[channel as usize] else {
             return;
         };
-        let mut buffer = vec![0u8; 2048];
+        let mut buffer = vec![0u8; 4096];
         while !self.is_closed() {
             let Ok((length, from)) = end.socket.recv_from(&mut buffer) else {
                 continue;
@@ -602,13 +634,7 @@ impl Tunnel {
                 // Replies go back to wherever the client last sent from.
                 *end.client.lock().unwrap() = Some(from);
             }
-            let peer = {
-                let inner = self.shared.inner.lock().unwrap();
-                match inner.puncher.state() {
-                    punch::State::Connected(_) => inner.peer,
-                    _ => None,
-                }
-            };
+            let peer = *self.shared.connected.lock().unwrap();
             if let Some(peer) = peer {
                 self.shared.node.send(
                     peer,
@@ -644,9 +670,10 @@ impl Tunnel {
             let now = self.shared.node.now();
             let mut inner = self.shared.inner.lock().unwrap();
             let punches = inner.puncher.poll(now);
+            self.publish(&inner);
             let failed = inner.puncher.state() == punch::State::Failed;
             let connected = matches!(inner.puncher.state(), punch::State::Connected(_));
-            let idle = now.saturating_sub(inner.last_heard) > IDLE;
+            let idle = now.saturating_sub(self.shared.last_heard.load(Ordering::Relaxed)) > IDLE;
             let keepalive = connected && now.saturating_sub(inner.last_sent) > KEEPALIVE;
             let peer = inner.peer;
             drop(inner);

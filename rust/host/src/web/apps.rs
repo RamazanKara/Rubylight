@@ -13,6 +13,8 @@ use serde_json::{Value, json};
 use std::collections::HashSet;
 
 pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyhow::Result<Value> {
+    // A library another program changed on disk is what the console lists and changes.
+    h.reload_apps();
     let text = |k: &str| data.get(k).and_then(Value::as_str).unwrap_or("");
     Ok(match (method, path) {
         ("GET", "/api/apps") => {
@@ -72,7 +74,7 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             h.assign_apps(&mut next)?;
             let mut doc = h.app_document.read().unwrap().clone();
             doc["apps"] = serde_json::to_value(&next)?;
-            state::write_json(&h.apps_path, &doc)?;
+            h.save_apps(&doc)?;
             *apps = next;
             *h.app_document.write().unwrap() = doc;
             h.config_version
@@ -104,7 +106,7 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             let next = butterpollo_core::catalog::reorder(&apps, order);
             let mut document = h.app_document.read().unwrap().clone();
             document["apps"] = serde_json::to_value(&next)?;
-            state::write_json(&h.apps_path, &document)?;
+            h.save_apps(&document)?;
             *apps = next;
             *h.app_document.write().unwrap() = document;
             json!({"status":true})
@@ -607,7 +609,7 @@ fn delete_apps_with(
         crate::library::dismiss(&mut doc, &app?);
     }
     doc["apps"] = serde_json::to_value(&next)?;
-    state::write_json(&h.apps_path, &doc)?;
+    h.save_apps(&doc)?;
     *apps = next;
     *h.app_document.write().unwrap() = doc;
     h.config_version

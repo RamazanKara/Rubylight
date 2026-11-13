@@ -74,4 +74,49 @@ public class MicrophoneCaptureTest {
         assertFalse(capture.isCapturing());
         assertEquals(0, reports.get());
     }
+
+    /** Muting stops the recorder from the capture thread and unmuting starts it again. */
+    @Test public void mutingStopsTheRecorderAndUnmutingStartsItAgain() throws Exception {
+        AtomicInteger frames = new AtomicInteger();
+        ShadowAudioRecord.setSource(new ShadowAudioRecord.AudioRecordSource() {
+            @Override public int readInShortArray(short[] data, int offset, int size, boolean blocking) {
+                try {
+                    Thread.sleep(MicrophoneCapture.FRAME_MS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return size;
+            }
+        });
+        MicrophoneCapture capture = new MicrophoneCapture((pcm, samples) -> {
+            frames.incrementAndGet();
+            return 0;
+        }, false);
+        capture.start();
+        try {
+            until(() -> frames.get() >= 2);
+
+            capture.setMuted(true);
+            int afterMute = frames.get();
+            Thread.sleep(3L * MicrophoneCapture.FRAME_MS);
+            // Only a frame already past its mute check may still go out.
+            assertTrue("frames stop while muted", frames.get() - afterMute <= 2);
+            assertTrue(capture.isMuted());
+
+            capture.setMuted(false);
+            int atUnmute = frames.get();
+            until(() -> frames.get() > atUnmute + 1);
+        } finally {
+            capture.stop();
+        }
+        assertFalse(capture.isCapturing());
+    }
+
+    private static void until(java.util.function.BooleanSupplier condition) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 5000;
+        while (!condition.getAsBoolean() && System.currentTimeMillis() < deadline) {
+            Thread.sleep(5);
+        }
+        assertTrue("the capture did not get there in time", condition.getAsBoolean());
+    }
 }

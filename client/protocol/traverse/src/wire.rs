@@ -132,19 +132,25 @@ impl Sealer {
             out.extend_from_slice(&self.session);
         }
         let aad_bytes = out.len();
-        let mut body = payload.to_vec();
-        self.key.seal(nonce(seq), &out[..aad_bytes], &mut body);
-        out.extend_from_slice(&body);
+        out.extend_from_slice(payload);
+        self.key.seal_after(nonce(seq), &mut out, aad_bytes);
         out
     }
 }
+
+/// How many sequence numbers behind the newest the replay window still takes. All channels
+/// share one sequence, and a 4K frame with its FEC runs to hundreds of datagrams, so a window of
+/// 64 would drop video datagrams that audio or control overtook.
+const WINDOW_BITS: u64 = 512;
+const WINDOW_WORDS: usize = (WINDOW_BITS / 64) as usize;
 
 /// One direction's receiving side, with a replay window.
 pub struct Opener {
     key: Aead,
     tag: [u8; 8],
     highest: u64,
-    window: u64,
+    /// Bit `n` (word `n / 64`, bit `n % 64`) is set when `highest - n` was taken.
+    window: [u64; WINDOW_WORDS],
 }
 
 /// What an opened datagram holds.
@@ -161,7 +167,7 @@ impl Opener {
             key: Aead::new(key),
             tag,
             highest: 0,
-            window: 0,
+            window: [0; WINDOW_WORDS],
         }
     }
 
@@ -199,17 +205,40 @@ impl Opener {
             return true;
         }
         let behind = self.highest - seq;
-        behind < 64 && self.window & (1 << behind) == 0
+        behind < WINDOW_BITS && !self.taken(behind)
+    }
+
+    fn taken(&self, behind: u64) -> bool {
+        self.window[(behind / 64) as usize] & (1 << (behind % 64)) != 0
+    }
+
+    fn mark(&mut self, behind: u64) {
+        self.window[(behind / 64) as usize] |= 1 << (behind % 64);
     }
 
     fn accept(&mut self, seq: u64) {
         if seq > self.highest {
-            let shift = seq - self.highest;
-            self.window = if shift >= 64 { 0 } else { self.window << shift };
-            self.window |= 1;
+            self.shift(seq - self.highest);
             self.highest = seq;
-        } else {
-            self.window |= 1 << (self.highest - seq);
+        }
+        self.mark(self.highest - seq);
+    }
+
+    /// Moves the window `shift` sequence numbers on: every bit `n` becomes bit `n + shift`.
+    fn shift(&mut self, shift: u64) {
+        if shift >= WINDOW_BITS {
+            self.window = [0; WINDOW_WORDS];
+            return;
+        }
+        let words = (shift / 64) as usize;
+        let bits = (shift % 64) as u32;
+        for i in (0..WINDOW_WORDS).rev() {
+            let low = i.checked_sub(words).map_or(0, |j| self.window[j]);
+            let carry = match i.checked_sub(words + 1) {
+                Some(j) if bits != 0 => self.window[j] >> (64 - bits),
+                _ => 0,
+            };
+            self.window[i] = (low << bits) | carry;
         }
     }
 }
@@ -277,9 +306,44 @@ mod tests {
         assert!(opener.open(&datagrams[80]).is_some());
         assert!(opener.open(&datagrams[50]).is_some());
         assert!(opener.open(&datagrams[50]).is_none());
-        // More than 64 behind the newest is too old to tell from a replay.
+        assert!(opener.open(&datagrams[10]).is_some());
         assert!(opener.open(&datagrams[10]).is_none());
         assert!(opener.open(&datagrams[99]).is_some());
         assert!(!is_wire(b"d1:t2:aae"));
+    }
+
+    #[test]
+    fn datagrams_far_behind_open_once_and_too_old_ones_never() {
+        let sealer = Sealer::new(&[1; 32], [2; 8], [0; 16]);
+        let datagrams: Vec<Vec<u8>> = (0..1200)
+            .map(|n| sealer.seal(Kind::Media, (n % 4) as u8, &[n as u8; 3]))
+            .collect();
+        let mut opener = Opener::new(&[1; 32], [2; 8]);
+        // The newest first, then 200 behind it, across several word boundaries.
+        assert!(opener.open(&datagrams[300]).is_some());
+        assert!(opener.open(&datagrams[100]).is_some());
+        assert!(opener.open(&datagrams[100]).is_none());
+        for n in (101..300).rev() {
+            assert!(opener.open(&datagrams[n]).is_some(), "{n}");
+        }
+        for (n, datagram) in datagrams.iter().enumerate().take(301).skip(100) {
+            assert!(opener.open(datagram).is_none(), "{n}");
+        }
+        // Moving on by 70 and by 130 keeps what was taken.
+        assert!(opener.open(&datagrams[370]).is_some());
+        assert!(opener.open(&datagrams[300]).is_none());
+        assert!(opener.open(&datagrams[500]).is_some());
+        assert!(opener.open(&datagrams[100]).is_none());
+        assert!(opener.open(&datagrams[370]).is_none());
+        assert!(opener.open(&datagrams[50]).is_some());
+        assert!(opener.open(&datagrams[50]).is_none());
+        // 512 or more behind is too old to tell from a replay.
+        assert!(opener.open(&datagrams[1100]).is_some());
+        assert!(opener.open(&datagrams[1100 - 512]).is_none());
+        assert!(opener.open(&datagrams[1100 - 511]).is_some());
+        // Moving on by 99 keeps what was taken.
+        assert!(opener.open(&datagrams[1199]).is_some());
+        assert!(opener.open(&datagrams[1100]).is_none());
+        assert!(opener.open(&datagrams[1150]).is_some());
     }
 }

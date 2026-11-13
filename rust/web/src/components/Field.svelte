@@ -24,7 +24,7 @@
   <label for={id}>{label}</label>
   {@render children()}
   {#if error}
-    <p class="error">{error}</p>
+    <p class="error" id={id ? `${id}-error` : undefined} role="alert">{error}</p>
   {:else if hint}
     <p class="hint">{hint}</p>
   {/if}

@@ -202,6 +202,16 @@ impl Calibrator {
         self.samples.clear();
     }
 
+    /// The earliest input time a fit reads: the oldest sample's start less [`MAX_LAG_US`], or
+    /// `None` without samples ([`InputHistory::since`]).
+    pub fn earliest_input_us(&self) -> Option<u64> {
+        self.samples
+            .iter()
+            .map(|s| s.t0_us)
+            .min()
+            .map(|t0| t0.saturating_sub(MAX_LAG_US))
+    }
+
     /// The game's lens changed ([`super::lens::Lens`]). The samples kept are read again under
     /// it, so the next fit's gains are the picture centre's under the new lens.
     pub fn set_lens(&mut self, lens: Option<f64>) {

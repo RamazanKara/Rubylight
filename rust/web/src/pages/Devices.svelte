@@ -87,7 +87,8 @@
       clients = list;
       sleepUnavailable = result.sleep_unavailable ?? null;
       loadError = '';
-      if (editing && !list.some((client) => client.uuid === editing)) closeEditor();
+      // A device removed elsewhere closes its editor, unless it holds unsaved changes.
+      if (editing && !editorDirty && !list.some((client) => client.uuid === editing)) closeEditor();
     } catch (error) {
       if (id === latestLoad) loadError = error instanceof Error ? error.message : String(error);
     }
@@ -189,6 +190,7 @@
       danger: true,
     });
     if (ok) {
+      if (editing === client.uuid) closeEditor();
       await run(`unpair:${client.uuid}`, () => api.clients.unpair(client.uuid), `Unpaired ${client.name}.`, 'Unpairing failed');
     }
   }

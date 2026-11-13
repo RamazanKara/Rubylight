@@ -84,9 +84,21 @@
   let invalid = $state<Record<string, string>>({});
   // Search from the Settings home arrives as ?q=.
   let query = $state(queryParam('q') ?? '');
+  // A later navigation that changes ?q= (the quick switcher's "Search all
+  // settings", Back or Forward) replaces the search. Typing here never
+  // touches the address, so it is kept until ?q= itself changes.
+  let urlQuery = queryParam('q');
+  $effect(() => {
+    const next = queryParam('q');
+    if (next === urlQuery) return;
+    urlQuery = next;
+    query = next ?? '';
+  });
   let review = $state<'all' | 'changed' | 'invalid'>('all');
   // Keep reviewed rows mounted while they are corrected or reverted.
   let reviewKeys = $state<string[]>([]);
+  // Only the settings changed from their defaults, saved or not.
+  let customizedOnly = $state(false);
   let contentElement: HTMLDivElement;
   let saving = $state(false);
   let saved = $state(false);
@@ -374,8 +386,24 @@
 
   const words = $derived(searchWords(query));
   const searching = $derived(words.length > 0);
-  const browsingResults = $derived(searching || review !== 'all');
-  const inReview = (key: string) => review === 'all' || reviewKeys.includes(key);
+  const browsingResults = $derived(searching || review !== 'all' || customizedOnly);
+  const listingCustomized = $derived(customizedOnly && review === 'all' && !searching);
+  // A setting put back to its default while the filter is on stays listed until the filter is
+  // turned on again, so its row does not vanish under the pointer.
+  const inReview = (key: string) => {
+    if (review !== 'all') return reviewKeys.includes(key);
+    if (!customizedOnly) return true;
+    if (reviewKeys.includes(key) || pending.has(key) || unknownKeys.includes(key)) return true;
+    const setting = defaults.get(key);
+    return setting !== undefined && differsFromDefault(setting, edits, config);
+  };
+  function setCustomizedOnly(checked: boolean) {
+    customizedOnly = checked;
+    review = 'all';
+    reviewKeys = checked
+      ? [...described.filter((setting) => differsFromDefault(setting, edits, config) || pending.has(setting.key)).map((setting) => setting.key), ...unknownKeys]
+      : [];
+  }
 
   const results = $derived.by(() => {
     if (!browsingResults) return [];
@@ -397,6 +425,7 @@
 
   async function reviewChanges(mode: 'changed' | 'invalid') {
     query = '';
+    customizedOnly = false;
     reviewKeys = mode === 'invalid' ? Object.keys(invalid) : [...pending];
     review = mode;
     await tick();
@@ -465,6 +494,7 @@
     }
     query = '';
     review = 'all';
+    customizedOnly = false;
     navigate(`/settings/${id}`);
   }
 
@@ -628,6 +658,10 @@
 <PageHeader title="All settings" subtitle="Every setting Rubylight reads, by topic.">
   {#snippet actions()}
     <label class="show-keys">
+      <span>Customized only</span>
+      <Switch checked={customizedOnly} onchange={setCustomizedOnly} />
+    </label>
+    <label class="show-keys">
       <span>Show config keys</span>
       <Switch checked={showKeys} onchange={setShowKeys} />
     </label>
@@ -706,7 +740,7 @@
       {:else if browsingResults}
         <div class="results-heading">
           <div>
-            <h2>{review === 'invalid' ? 'Review errors' : review === 'changed' ? 'Review changes' : 'Search results'}</h2>
+            <h2>{review === 'invalid' ? 'Review errors' : review === 'changed' ? 'Review changes' : listingCustomized ? 'Customized settings' : 'Search results'}</h2>
             <p class="muted" role="status">
               {#if review !== 'all' && pending.size === 0}
                 No unsaved changes.
@@ -721,8 +755,8 @@
         </div>
         {#if results.length === 0}
           <Panel>
-            <EmptyState icon="search" title={review === 'invalid' ? 'All corrections complete' : review === 'changed' ? 'No unsaved changes' : 'No settings match'}>
-              <p>{review === 'invalid' ? 'You can save your changes now.' : review === 'changed' ? 'Your settings are up to date.' : 'Search looks at names, config keys, descriptions, topics and menu choices.'}</p>
+            <EmptyState icon="search" title={review === 'invalid' ? 'All corrections complete' : review === 'changed' ? 'No unsaved changes' : listingCustomized ? 'All settings are at their defaults' : 'No settings match'}>
+              <p>{review === 'invalid' ? 'You can save your changes now.' : review === 'changed' ? 'Your settings are up to date.' : listingCustomized ? 'Settings you change from their defaults appear here.' : 'Search looks at names, config keys, descriptions, topics and menu choices.'}</p>
             </EmptyState>
           </Panel>
         {:else}

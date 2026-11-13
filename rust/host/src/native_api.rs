@@ -497,6 +497,7 @@ async fn library(State(h): State<Shared>, Extension(c): Extension<Connection>) -
     Ok(json(StatusCode::OK, &library))
 }
 fn library_of(h: &Shared) -> native_api::library::Library {
+    h.reload_apps();
     let mut apps = h
         .apps
         .read()

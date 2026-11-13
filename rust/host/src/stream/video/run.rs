@@ -168,7 +168,8 @@ impl SessionThread<'_> {
         let mut link = None;
         // The address `link` was routed for.
         let mut routed = None;
-        let mut link_due = Instant::now();
+        // The pacing report runs at most every two seconds.
+        let mut pacing_report_due = Instant::now();
         let mut reported_pacing = None;
         // The route, looked up on its own thread: encoder admission
         // and both send paths read its latest answer.
@@ -338,7 +339,15 @@ impl SessionThread<'_> {
                         let packetize_started = Instant::now();
                         let processing = micros(packetize_started.saturating_duration_since(processing_started));
                         let cap = frame.frame_cap_bytes.unwrap_or(0) as usize;
-                        streaming = match packetizer.streamed_in(std::mem::take(&mut slice_spare), timestamp, processing, delivery.blocks(), delivery.blocks().max(s.config.slices as usize), cap) {
+                        let blocks = delivery.blocks();
+                        // Ask before the buffer moves: `streamed_in` drops it,
+                        // capacity and all, when it refuses the frame.
+                        let streamed = if packetizer.streamable(blocks, cap) {
+                            packetizer.streamed_in(std::mem::take(&mut slice_spare), timestamp, processing, blocks, blocks.max(s.config.slices as usize), cap)
+                        } else {
+                            Err(anyhow::anyhow!("video frame cannot be streamed in {blocks} blocks"))
+                        };
+                        streaming = match streamed {
                             Ok(streamed) => Some(slices::Streaming {
                                 frame: streamed, wire_frame, timestamp, claim, claimed, age, started, packetize_started,
                                 first_polled: polled, last_polled: polled, payload_bytes: 0, processing, bps,
@@ -491,9 +500,6 @@ impl SessionThread<'_> {
                         }
                     }
                     slice_spare = streamed.into_buffer();
-                    if Instant::now() >= link_due {
-                        link_due = Instant::now() + Duration::from_secs(2);
-                    }
                     continue 'frames;
                 }
                 let frame_started = Instant::now();
@@ -526,7 +532,9 @@ impl SessionThread<'_> {
                     link = None;
                 }
                 let first_link = link.is_none();
+                let link_started = Instant::now();
                 let route = link_watch.get(peer);
+                let link_time = link_started.elapsed();
                 link = Some(route);
                 if first_link {
                     crate::video_send::recovery::warn_if_client_link_below_stream(&s, route);
@@ -537,7 +545,8 @@ impl SessionThread<'_> {
                 let safe = butterpollo_core::network_pacing::rate_bps(0, bitrate, route.bps, true, needed);
                 let bps = s.keyframe_loss_bps(bps, safe, wire_frame, frame.idr);
                 inline_paced |= butterpollo_core::network_pacing::paced(bps, needed);
-                if Instant::now() >= link_due {
+                if Instant::now() >= pacing_report_due {
+                    pacing_report_due = Instant::now() + Duration::from_secs(2);
                     butterpollo_core::network_pacing::report_rate(&s.launch.warnings, bps, needed, c.integer("pacing_max_bitrate_kbps", 0));
                     if reported_pacing != Some(bps) {
                         tracing::info!(pacing_bps=bps, wire_budget_bps=needed, link_bps=route.bps, client_link_mbps=s.client_link_mbps(), client_wireless=s.config.client_wireless, configured_kbps=c.integer("pacing_max_bitrate_kbps", 0), "network pacing selected");
@@ -702,13 +711,6 @@ impl SessionThread<'_> {
                     }
                 }
                 let record_time = sent.elapsed();
-                // The route watcher refreshes the link speed; this paces
-                // the pacing report.
-                let link_started = Instant::now();
-                if Instant::now() >= link_due {
-                    link_due = Instant::now() + Duration::from_secs(2);
-                }
-                let link_time = link_started.elapsed();
                 let took = frame_started.elapsed();
                 if took >= SLOW_SEND && slow_send_reported.is_none_or(|at| at.elapsed() >= Duration::from_secs(5)) {
                     slow_send_reported = Some(Instant::now());
@@ -1070,11 +1072,15 @@ impl SessionThread<'_> {
                     pacer.observe_extension(extends);
                 }
                 let fresh = last_image.as_ref().is_none_or(|previous| !std::ptr::eq(previous.as_ptr(), Arc::as_ptr(&image)));
+                // Read out first: the guard must not live through the wait
+                // below, or it blocks `request_invalidation` on the control
+                // thread.
+                let invalidation_clear = s.invalidation.lock().unwrap().is_none();
                 if arrival_pacing
                     && fresh
                     && !rebuild_encoder
                     && !s.idr.load(Ordering::Acquire)
-                    && s.invalidation.lock().unwrap().is_none()
+                    && invalidation_clear
                     && let interval = latest.picture_interval()
                     && let butterpollo_core::stream_policy::Pace::WaitUntil(deadline) =
                         pacer.decide(Instant::now(), image.captured, interval)

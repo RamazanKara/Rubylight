@@ -353,6 +353,8 @@ async fn applist(
     }
     h.request_codec_probe();
     h.wait_for_startup_codecs(STARTUP_CODEC_WAIT).await;
+    // ApolloSync or MoonDeckBuddy may have changed apps.json since the last list.
+    h.reload_apps();
     let apps = h.apps.read().unwrap().clone();
     let config = h.config.read().unwrap().clone();
     // The co-op entries follow the user's apps; reading Nucleus Co-op's

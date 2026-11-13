@@ -996,8 +996,9 @@ fn decode_loop(
             if !decoder.recovers_with_rfi() {
                 receiver.recover_with_idr_only();
             }
+            // The receiver's statistics change only as datagrams arrive, which publishes them
+            // itself, so a decoded frame takes the receiver's lock alone.
             receiver.recycle(frame);
-            *lock(&shared.stats) = receiver.stats();
         }
         route_signals(&mut signals);
     }

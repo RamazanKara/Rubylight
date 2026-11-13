@@ -630,6 +630,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
+        if (recreatingForForm()) return;
         UiHelper.notifyNewRootView(this);
         lastWidthPx = 0;
     }

@@ -569,7 +569,7 @@ public class StreamSettings extends NightjarActivity {
     private void layOutUnderChrome(int left, int top, int right, int bottom) {
         android.content.res.Resources res = fullSizeContext().getResources();
         float density = res.getDisplayMetrics().density;
-        GlassForm form = GlassForm.of(this);
+        GlassForm form = chrome != null ? chrome.form() : GlassForm.of(this);
         ((NightSkyView) findViewById(R.id.settings_sky)).setSafeTop(top);
         View frame = findViewById(R.id.settings_frame);
         if (form == GlassForm.PHONE) {
@@ -603,7 +603,8 @@ public class StreamSettings extends NightjarActivity {
     private void applyListFoot(ListView list) {
         if (list == null) return;
         // A handheld's rail ends on the screen's edge: nothing floats under it, and every row can fit.
-        boolean handheldRail = list == listOf(R.id.settings_sections) && GlassForm.of(this) == GlassForm.HANDHELD;
+        GlassForm form = chrome != null ? chrome.form() : GlassForm.of(this);
+        boolean handheldRail = list == listOf(R.id.settings_sections) && form == GlassForm.HANDHELD;
         int foot = handheldRail ? getResources().getDimensionPixelSize(R.dimen.space_xs) : listFoot;
         list.setPadding(list.getPaddingLeft(), list.getPaddingTop(), list.getPaddingRight(), foot);
     }

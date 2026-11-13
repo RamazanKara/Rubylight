@@ -108,14 +108,21 @@ impl Hosts {
                 Event::ArtSharper { id, app, version, image, sized } => {
                     let frame = self.art_frame;
                     let Some(host) = self.list.iter_mut().find(|h| h.id == id).filter(|h| h.art_versions.get(&app) == Some(&version)) else { continue };
+                    // Only the last read asked for lands: `art_sized` names the scale it was asked
+                    // for, and none means the cover shows all of its file already. An older read
+                    // landing late (behind a newer scale's, or after the cover was loaded again)
+                    // would make it blurrier and stay so.
+                    if let Some(sized) = sized {
+                        if host.art_sized.get(&app).is_none_or(|&asked| sized < asked) {
+                            continue;
+                        }
+                    }
                     // Still the cover it was loaded again for: one given up or replaced since is not.
                     let Some(Art::Ready(texture)) = host.art.get_mut(&app) else { continue };
                     *texture = ctx.load_texture(format!("art-{id}-{app}"), image, egui::TextureOptions::LINEAR);
-                    // A newer scale's may be on its way already; it is the one `art_sized` names.
                     match sized {
                         Some(sized) => {
-                            let asked = host.art_sized.entry(app).or_insert(sized);
-                            *asked = asked.max(sized);
+                            host.art_sized.insert(app, sized);
                         }
                         None => {
                             host.art_sized.remove(&app);

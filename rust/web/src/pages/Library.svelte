@@ -11,6 +11,7 @@
   import { api, type App, type SessionStatus } from '../lib/api';
   import { failed } from '../lib/feedback.svelte';
   import { poll } from '../lib/format';
+  import { refreshMetadata, session } from '../lib/session.svelte';
   import { match, navigate } from '../lib/router.svelte';
 
   let apps = $state<App[] | null>(null);
@@ -50,6 +51,8 @@
 
   onMount(() => {
     void load();
+    // Opened directly, the editor still needs what the host offers, such as RTX HDR and RTX Video.
+    if (!session.metadata) refreshMetadata().catch(() => {});
     return poll(refreshStatus, 5000);
   });
 

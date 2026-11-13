@@ -142,11 +142,19 @@ public class MicrophoneCapture {
 
     // Waits while muted and returns whether capture should go on.
     private boolean awaitUnmuted(AudioRecord record) throws InterruptedException {
+        // The recorder belongs to the capture thread; stop it before taking the lock, so the UI's
+        // setMuted() and isCapturing() never wait on a stop() of the recorder.
+        synchronized (lock) {
+            if (!running || !muted) {
+                return running;
+            }
+        }
+        if (record.getRecordingState() == AudioRecord.RECORDSTATE_RECORDING) {
+            record.stop();
+        }
+        // Recheck under the lock: an unmute that came while stopping is not waited on.
         synchronized (lock) {
             while (running && muted) {
-                if (record.getRecordingState() == AudioRecord.RECORDSTATE_RECORDING) {
-                    record.stop();
-                }
                 lock.wait();
             }
             return running;

@@ -129,6 +129,15 @@ fn compatible_bool<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Resul
         _ => Err(serde::de::Error::custom("invalid boolean")),
     }
 }
+/// Third-party library tools (ApolloSync, MoonDeckBuddy) write `null` for optional strings
+/// and lists in `apps.json`; read those as empty rather than rejecting the whole library.
+fn null_as_default<'de, D, T>(d: D) -> std::result::Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    Ok(Option::<T>::deserialize(d)?.unwrap_or_default())
+}
 impl Client {
     /// The device as its second screen: [`second_screen_uuid`] and the name marked, with the
     /// device's certificate, permissions and settings, but the [`PER_SCREEN_SETTINGS`] that
@@ -730,11 +739,11 @@ impl Credentials {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct App {
     pub name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub cmd: String,
-    #[serde(default, rename = "working-dir")]
+    #[serde(default, rename = "working-dir", deserialize_with = "null_as_default")]
     pub working_dir: String,
-    #[serde(default, rename = "prep-cmd")]
+    #[serde(default, rename = "prep-cmd", deserialize_with = "null_as_default")]
     pub prep: Vec<PrepCommand>,
     #[serde(skip)]
     pub computed_id: Option<u32>,
@@ -745,9 +754,9 @@ pub struct App {
 }
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct PrepCommand {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub r#do: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub undo: String,
     #[serde(default, deserialize_with = "compatible_bool")]
     pub elevated: bool,

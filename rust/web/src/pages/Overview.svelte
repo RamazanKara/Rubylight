@@ -155,8 +155,12 @@
     return { image: uuid && path ? api.apps.coverUrl(uuid, coverVersion(path)) : '', blur: true, hue };
   });
 
+  // Newest wins: a poll still in flight must not overwrite the refresh that follows a disconnect.
+  let latestSessions = 0;
   async function refreshSessions() {
+    const id = ++latestSessions;
     const [list, current] = await Promise.allSettled([api.sessions.streams(), api.sessions.status()]);
+    if (id !== latestSessions) return;
     if (list.status === 'fulfilled') {
       sessions = list.value.sessions ?? [];
       sessionsError = null;

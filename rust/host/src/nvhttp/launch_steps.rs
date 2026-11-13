@@ -128,6 +128,8 @@ pub(super) fn resolve_launch_app(
     owner: remote::Owner,
     resume: bool,
 ) -> Result<(Role, Option<App>, u32, Option<crate::nucleus::CoopApp>)> {
+    // An app another program added to apps.json since the last list launches.
+    h.reload_apps();
     let mut role = match control {
         Some(Control::Monitor) => Role::RemoteMonitor,
         Some(Control::Input) => Role::InputOnly,

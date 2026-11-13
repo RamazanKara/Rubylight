@@ -228,6 +228,27 @@ impl InputHistory {
             })
     }
 
+    /// A copy that answers every query about times from `t_us` on as this one does: the
+    /// entries after `t_us`, and the newest at or before it (the sums and the stick held then).
+    pub fn since(&self, t_us: u64) -> Self {
+        fn tail<T: Copy>(entries: &VecDeque<T>, at: impl Fn(&T) -> u64, t_us: u64) -> VecDeque<T> {
+            let start = entries.partition_point(|e| at(e) <= t_us).saturating_sub(1);
+            entries.range(start..).copied().collect()
+        }
+        Self {
+            controller: self.controller,
+            mouse: tail(&self.mouse, |e| e.at_us, t_us),
+            mouse_sum: self.mouse_sum,
+            pads: tail(&self.pads, |e| e.at_us, t_us),
+            pad_seq: self.pad_seq,
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn mouse_entries(&self) -> usize {
+        self.mouse.len()
+    }
+
     /// When the last mouse move or pad packet arrived.
     pub fn last_input_us(&self) -> Option<u64> {
         let mouse = self.mouse.back().map(|e| e.at_us);
@@ -372,6 +393,52 @@ mod tests {
             empty.stick_integrals(0.1, 1.0).between(0, 1_000_000),
             [0.0; 2]
         );
+    }
+
+    #[test]
+    fn a_copy_since_a_time_answers_as_the_whole_history() {
+        let mut seed = 0x1234_5679u32;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed
+        };
+        let mut h = InputHistory::new(Some(0));
+        let mut t = 10_000u64;
+        for _ in 0..4_000 {
+            t += u64::from(next() % 3_001);
+            match next() % 3 {
+                0 => h.on_mouse(next() as i16 % 50, next() as i16 % 50, t),
+                1 => h.on_controller(0, (next() as i16, next() as i16), t),
+                _ => h.on_controller(1, (1, 1), t),
+            }
+        }
+        let end = t;
+        for cutoff in [0, 5_000, end / 3, end / 2, end - 1, end, end + 10] {
+            let part = h.since(cutoff);
+            assert_eq!(part.controller(), h.controller());
+            assert_eq!(part.last_input_us(), h.last_input_us());
+            for _ in 0..500 {
+                let t0 = cutoff + u64::from(next()) % (end + 50_000 - cutoff.min(end));
+                let t1 = t0 + u64::from(next() % 300_000);
+                assert_eq!(part.mouse_at(t0), h.mouse_at(t0));
+                assert_eq!(part.mouse_between(t0, t1), h.mouse_between(t0, t1));
+                assert_eq!(part.mouse_moved(t0, t1), h.mouse_moved(t0, t1));
+                assert_eq!(part.stick_active(t0, t1), h.stick_active(t0, t1));
+                assert_eq!(part.tag(7, t0, t1), h.tag(7, t0, t1));
+                assert_eq!(
+                    part.stick_integral(t0, t1, 0.15, 1.5),
+                    h.stick_integral(t0, t1, 0.15, 1.5)
+                );
+                let (a, b) = (
+                    part.stick_integrals(0.15, 1.5).between(t0, t1),
+                    h.stick_integrals(0.15, 1.5).between(t0, t1),
+                );
+                assert!((a[0] - b[0]).abs() < 1e-9 && (a[1] - b[1]).abs() < 1e-9);
+            }
+        }
+        assert!(h.since(end / 2).mouse.len() < h.mouse.len());
     }
 
     #[test]

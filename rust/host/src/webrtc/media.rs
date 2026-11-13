@@ -1641,9 +1641,11 @@ fn receive_loop(socket: UdpSocket, tx: Sender<Command>, shared: Arc<Shared>) {
                 consecutive_errors = 0;
                 let counters = &shared.counters;
                 counters.datagrams_received.fetch_add(1, Ordering::Relaxed);
-                if shared.pending_datagrams.fetch_add(1, Ordering::AcqRel)
-                    >= shared.options.datagram_queue
-                {
+                // Only the datagram that takes the queue from empty to non-empty wakes the media
+                // thread: the rest of a burst is already behind it in the channel, which the media
+                // thread drains before it waits, so one signal covers the whole burst.
+                let pending = shared.pending_datagrams.fetch_add(1, Ordering::AcqRel);
+                if pending >= shared.options.datagram_queue {
                     shared.pending_datagrams.fetch_sub(1, Ordering::AcqRel);
                     if counters
                         .datagrams_dropped
@@ -1664,7 +1666,9 @@ fn receive_loop(socket: UdpSocket, tx: Sender<Command>, shared: Arc<Shared>) {
                 if tx.send(command).is_err() {
                     return;
                 }
-                shared.notify();
+                if pending == 0 {
+                    shared.notify();
+                }
             }
             Err(e)
                 if matches!(
@@ -1745,6 +1749,13 @@ fn media_loop(
                 .counters
                 .datagram_errors
                 .store(failed, Ordering::Relaxed);
+            // The receive thread wakes this thread only for the datagram that took the queue
+            // from empty, and a datagram is counted before its bytes are copied into the
+            // channel: one that arrives as the drain above ends is already in the queue, so
+            // drain again rather than sleep until the timer.
+            if shared.pending_datagrams.load(Ordering::Acquire) > 0 {
+                continue;
+            }
             match queue.due(Instant::now()) {
                 Some(due) if due < timeout => {
                     timer.until_paced_or_signal(due, &shared.wake)?;

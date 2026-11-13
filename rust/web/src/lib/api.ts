@@ -82,7 +82,12 @@ function refreshSession(): Promise<boolean> {
   refreshing ??= (async () => {
     const { response, text } = await exchange('/api/auth/refresh', { method: 'POST' }, REQUEST_TIMEOUT_MS);
     if (!response.ok) return false;
-    const body = JSON.parse(text) as IssuedSession;
+    let body: IssuedSession;
+    try {
+      body = JSON.parse(text) as IssuedSession;
+    } catch {
+      return false;
+    }
     csrfToken = body.csrf_token;
     return true;
   })().finally(() => {

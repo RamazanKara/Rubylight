@@ -519,3 +519,60 @@ async fn purging_synced_apps_never_blocks_the_web_server() {
     assert_eq!(response.status(), axum::http::StatusCode::OK);
     holder.join().unwrap();
 }
+
+#[test]
+fn an_app_library_another_program_writes_is_listed_and_kept_by_the_next_sync() {
+    let f = Fixture::new();
+    handle(
+        &f.host,
+        "POST",
+        "/api/apps",
+        &json!({"name": "Mine", "uuid": "mine"}),
+    )
+    .unwrap();
+    // MoonDeckBuddy or ApolloSync adds an app, with nulls and no uuid, while the host runs.
+    let path = f.host.apps_path.clone();
+    let mut document: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    document["apps"].as_array_mut().unwrap().push(json!({
+        "name": "MoonDeckStream", "cmd": null, "working-dir": null,
+        "prep-cmd": [{"do": null, "undo": null}],
+    }));
+    std::fs::write(&path, serde_json::to_vec_pretty(&document).unwrap()).unwrap();
+    let names = |list: &serde_json::Value| -> Vec<String> {
+        list["apps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|app| app["name"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    let list = handle(&f.host, "GET", "/api/apps", &json!({})).unwrap();
+    assert!(names(&list).contains(&"MoonDeckStream".to_owned()));
+    let added = list["apps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|app| app["name"] == "MoonDeckStream")
+        .unwrap();
+    assert!(added["uuid"].as_str().is_some_and(|uuid| !uuid.is_empty()));
+    // A sync builds on the edited library rather than writing the old one back.
+    crate::steam::update_apps(&f.host, |apps| {
+        apps.push(json!({"name": "Synced", "uuid": "synced"}));
+        true
+    })
+    .unwrap();
+    let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let saved = names(&saved);
+    for name in ["Mine", "MoonDeckStream", "Synced"] {
+        assert!(
+            saved.contains(&name.to_owned()),
+            "{name} missing from {saved:?}"
+        );
+    }
+    // A half-written file keeps the apps the host has.
+    let before = f.host.apps.read().unwrap().len();
+    std::fs::write(&path, b"{\"apps\": [").unwrap();
+    f.host.reload_apps();
+    assert_eq!(f.host.apps.read().unwrap().len(), before);
+}

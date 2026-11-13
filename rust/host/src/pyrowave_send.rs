@@ -263,7 +263,8 @@ impl Sender {
         let shared = slot.clone();
         let current = session.clone();
         let worker = thread::Builder::new().name("pyrowave-packetize".into()).spawn(move || {
-            let _priority = butterpollo_windows::capture::Priority::new();
+            let _priority =
+                crate::video_send::send_priority(config.boolean("video_send_mmcss_only", false));
             let mut packetizer = VideoPacketizer {
                 sequence: 0, iv_counter: 0, frame: 1,
                 packet_size: current.config.packet_size, fec_percent: 0,

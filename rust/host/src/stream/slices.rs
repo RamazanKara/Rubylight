@@ -177,6 +177,8 @@ pub struct Routed {
 pub struct Route {
     mode: Mode,
     joined: Vec<u8>,
+    /// The last joined frame's length, to reserve the next buffer.
+    last_joined_len: usize,
 }
 
 impl Route {
@@ -205,6 +207,9 @@ impl Route {
             } else {
                 Mode::Join
             };
+            if self.mode == Mode::Join {
+                self.joined.reserve(self.last_joined_len);
+            }
         }
         let mode = self.mode;
         if last {
@@ -216,11 +221,15 @@ impl Route {
             Mode::Stream => Some(frame),
             Mode::Join => {
                 self.joined.extend_from_slice(&frame.bytes);
-                last.then(|| Encoded {
-                    framing: None,
-                    bytes: std::mem::take(&mut self.joined),
-                    unit: Unit::Whole,
-                    ..frame
+                last.then(|| {
+                    let bytes = std::mem::take(&mut self.joined);
+                    self.last_joined_len = bytes.len();
+                    Encoded {
+                        framing: None,
+                        bytes,
+                        unit: Unit::Whole,
+                        ..frame
+                    }
                 })
             }
         };

@@ -337,6 +337,8 @@ pub struct Host {
     credentials_stamp: Mutex<Option<FileStamp>>,
     pub app_document: RwLock<Value>,
     pub apps: RwLock<Vec<App>>,
+    /// The app library file as the host last read or wrote it; see [`Host::reload_apps`].
+    apps_stamp: Mutex<Option<FileStamp>>,
     pub sessions: Mutex<Sessions>,
     pub controller_sessions: crate::controller_sessions::Pool,
     pub hardware_metrics: Mutex<Option<std::sync::mpsc::SyncSender<crate::telemetry::Request>>>,
@@ -804,24 +806,10 @@ impl Host {
             ]}),
         )?;
         let mut app_document = app_document;
-        let mut assigned = false;
-        if let Some(list) = app_document.get_mut("apps").and_then(Value::as_array_mut) {
-            for app in list.iter_mut().filter_map(Value::as_object_mut) {
-                if app
-                    .get("uuid")
-                    .and_then(Value::as_str)
-                    .is_none_or(|uuid| uuid.trim().is_empty())
-                {
-                    app.insert("uuid".into(), json!(uuid::Uuid::new_v4().to_string()));
-                    assigned = true;
-                }
-                // A ViGEmBus controller type, say, becomes its VHF pad.
-                assigned |= butterpollo_core::config::replace_retired_in_app(app);
-            }
-        }
-        if assigned {
+        if normalize_library(&mut app_document) {
             butterpollo_core::state::write_json(&apps_path, &app_document)?;
         }
+        let apps_stamp = file_stamp(&apps_path);
         let mut apps: Vec<App> =
             serde_json::from_value(app_document.get("apps").cloned().unwrap_or(json!([])))?;
         butterpollo_core::catalog::assign(
@@ -868,6 +856,7 @@ impl Host {
             credentials_stamp: Mutex::new(credentials_stamp),
             app_document: RwLock::new(app_document),
             apps: RwLock::new(apps),
+            apps_stamp: Mutex::new(apps_stamp),
             sessions: Mutex::new(sessions),
             controller_sessions: Default::default(),
             hardware_metrics: Mutex::new(None),
@@ -932,6 +921,59 @@ impl Host {
             neural: Default::default(),
             device_guests: Default::default(),
         }))
+    }
+    /// Write the app library and remember the file as written, so [`Host::reload_apps`] does
+    /// not read the host's own save back. Call it with [`Host::apps`] write-locked.
+    pub fn save_apps(&self, document: &Value) -> Result<()> {
+        butterpollo_core::state::write_json(&self.apps_path, document)?;
+        *self.apps_stamp.lock().unwrap() = file_stamp(&self.apps_path);
+        Ok(())
+    }
+    /// Take up an app library another program changed on disk (ApolloSync, MoonDeckBuddy or a
+    /// hand edit) before the apps are read or changed, so clients see it without a restart and
+    /// the next save or sync builds on it instead of writing the old list back. A file that
+    /// cannot be read as a library, or one that is gone, keeps the apps in memory.
+    pub fn reload_apps(&self) {
+        let current = file_stamp(&self.apps_path);
+        if *self.apps_stamp.lock().unwrap() == current {
+            return;
+        }
+        // The saves' lock order: apps, then the stamp.
+        let mut apps = self.apps.write().unwrap();
+        let mut stamp = self.apps_stamp.lock().unwrap();
+        let current = file_stamp(&self.apps_path);
+        if *stamp == current {
+            return;
+        }
+        *stamp = current;
+        drop(stamp);
+        let loaded = (|| -> Result<(Value, Vec<App>)> {
+            let bytes = std::fs::read(&self.apps_path)?;
+            let json = butterpollo_core::state::json_bytes(&bytes)
+                .context("the file is empty or not text")?;
+            let mut document: Value = serde_json::from_slice(json)?;
+            if normalize_library(&mut document) {
+                self.save_apps(&document)?;
+            }
+            let mut next: Vec<App> =
+                serde_json::from_value(document.get("apps").cloned().unwrap_or(json!([])))?;
+            self.assign_apps(&mut next)?;
+            Ok((document, next))
+        })();
+        match loaded {
+            Ok((document, next)) => {
+                *apps = next;
+                *self.app_document.write().unwrap() = document;
+                self.config_version
+                    .fetch_add(1, std::sync::atomic::Ordering::Release);
+                tracing::info!(apps = apps.len(), "took up the app library changed on disk");
+            }
+            Err(error) => tracing::warn!(
+                error = %format!("{error:#}"),
+                file = %self.apps_path.display(),
+                "the app library changed on disk but cannot be read; the current apps stay"
+            ),
+        }
     }
     pub fn assign_apps(&self, apps: &mut [App]) -> Result<()> {
         let mut aliases = self.aliases.lock().unwrap();
@@ -2012,6 +2054,25 @@ fn packed_mode_names(modes: u8) -> String {
     } else {
         names.join(", ")
     }
+}
+/// Give each app a uuid and its retired settings their replacements; true when anything changed.
+fn normalize_library(document: &mut Value) -> bool {
+    let mut assigned = false;
+    if let Some(list) = document.get_mut("apps").and_then(Value::as_array_mut) {
+        for app in list.iter_mut().filter_map(Value::as_object_mut) {
+            if app
+                .get("uuid")
+                .and_then(Value::as_str)
+                .is_none_or(|uuid| uuid.trim().is_empty())
+            {
+                app.insert("uuid".into(), json!(uuid::Uuid::new_v4().to_string()));
+                assigned = true;
+            }
+            // A ViGEmBus controller type, say, becomes its VHF pad.
+            assigned |= butterpollo_core::config::replace_retired_in_app(app);
+        }
+    }
+    assigned
 }
 /// The app library. One that cannot be read as a library starts the host
 /// with no apps, as in Vibepollo, rather than keeping the host and its web

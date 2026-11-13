@@ -67,9 +67,20 @@ final class GameOverlays {
         game.streamMenuHint.setContentDescription(text + " " + game.getString(R.string.stream_menu_hint_close));
         game.streamMenuHint.setOnClickListener(view -> dismissStreamMenuHint(true));
         game.streamMenuHint.setVisibility(View.VISIBLE);
-        com.limelight.ui.StreamMenuHint.place(game.streamMenuHint, game.performanceOverlayScroll);
+        placeStreamMenuHint();
         game.bitrateHandler.removeCallbacks(expireStreamMenuHint);
         game.bitrateHandler.postDelayed(expireStreamMenuHint, com.limelight.ui.StreamMenuHint.SHOW_MS);
+    }
+
+    /**
+     * Puts the first-stream hint where it stands clear of the performance overlay: below it when that takes the
+     * top and shares the hint's columns, at the top otherwise. Nothing while the hint is not up.
+     */
+    private void placeStreamMenuHint() {
+        if (game.streamMenuHint != null && game.streamMenuHint.getVisibility() == View.VISIBLE &&
+                game.performanceOverlayScroll != null) {
+            com.limelight.ui.StreamMenuHint.place(game.streamMenuHint, game.performanceOverlayScroll);
+        }
     }
 
     void dismissStreamMenuHint(boolean read) {
@@ -104,6 +115,8 @@ final class GameOverlays {
         }
         game.prefConfig.enablePerfOverlay = !game.prefConfig.enablePerfOverlay;
         game.performanceOverlayScroll.setVisibility(game.prefConfig.enablePerfOverlay && !game.isHidingOverlays ? View.VISIBLE : View.GONE);
+        // A hidden overlay lays out no bounds to hear about; the hint returns to the top here.
+        placeStreamMenuHint();
         boolean shown = game.prefConfig.enablePerfOverlay;
         DualScreen.saveSettings(game, editor -> editor.putBoolean("checkbox_enable_perf_overlay", shown));
         updateHardwareMetricsPolling();
@@ -133,11 +146,17 @@ final class GameOverlays {
         com.limelight.ui.OverlayPlacement.Spot spot = com.limelight.ui.OverlayPlacement.place(
                 game.performanceOverlayScroll, parent, this::collectOverlayObstacles, margin, corner);
         if (spot != null) alignOverlayText(spot);
+        // The hint may have been stepped below the old spot; put it beside or under the new one.
+        placeStreamMenuHint();
     }
 
     void attachOverlayPlacement(android.view.ViewGroup parent) {
         com.limelight.ui.OverlayPlacement.attach(game.performanceOverlayScroll, parent,
                 this::collectOverlayObstacles, () -> game.overlayCorner, this::alignOverlayText);
+        // New statistics change the overlay's size, and its corner moves it; the hint follows both after the
+        // layout that says where the overlay went, so the two never sit on each other.
+        game.performanceOverlayScroll.addOnLayoutChangeListener((view, left, top, right, bottom,
+                oldLeft, oldTop, oldRight, oldBottom) -> placeStreamMenuHint());
     }
 
     // Lines of different widths hug the side the overlay sits on. Set only when the side changes.

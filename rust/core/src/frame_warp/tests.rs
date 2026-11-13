@@ -236,6 +236,103 @@ fn a_start_request_restarts_the_counts_and_a_repeat_keeps_them() {
 }
 
 #[test]
+fn another_pad_counts_from_zero_and_drops_what_named_the_old_one() {
+    let request = |controller| {
+        FrameWarpRequest {
+            enabled: true,
+            controller,
+            mask_max_width: 480,
+            lens: true,
+        }
+        .encode()
+    };
+    let mut host = enabled((1920, 1080));
+    host.on_mouse(30, 0, 1_000);
+    host.on_controller(0, (0, 0), 1_000);
+    host.on_controller(0, (900, 0), 2_000);
+    host.tag(1, 100_000);
+    host.calibrator.add(calibrate::Sample {
+        t0_us: 50_000,
+        t1_us: 60_000,
+        motion: Motion::default(),
+    });
+    assert!(host.calibrator.earliest_input_us().is_some());
+    // The same pad again keeps everything.
+    host.on_request(&request(Some(0)));
+    assert!(host.calibrator.earliest_input_us().is_some());
+    assert_eq!(host.recent.len(), 1);
+    // Another pad: the old pad's tags and the samples that read its stick go.
+    host.on_request(&request(Some(1)));
+    assert_eq!(host.take_tags(), None);
+    assert!(host.recent.is_empty());
+    assert_eq!(host.calibrator.earliest_input_us(), None);
+    assert_eq!(host.history.controller(), Some(1));
+    // The old pad no longer counts; the new one counts from its first packet. The mouse sums
+    // carry on.
+    host.on_controller(0, (5, 5), 110_000);
+    host.tag(2, 200_000);
+    let tag = Tags::decode(&host.take_tags().unwrap()).unwrap().tags;
+    assert_eq!(tag.len(), 1);
+    assert_eq!(
+        (
+            tag[0].mouse_x,
+            tag[0].controller_seq,
+            tag[0].controller_held_us
+        ),
+        (30, 0, rubylight_protocol::frame_warp::HELD_NONE)
+    );
+    host.on_controller(1, (0, 0), 210_000);
+    host.tag(3, 300_000);
+    let mut last = None;
+    while let Some(wire) = host.take_tags() {
+        last = Some(Tags::decode(&wire).unwrap());
+    }
+    let tag = *last.unwrap().tags.last().unwrap();
+    assert_eq!((tag.mouse_x, tag.controller_seq), (30, 1));
+    // No pad at all: nothing counts.
+    host.on_request(&request(None));
+    host.on_controller(1, (0, 0), 310_000);
+    host.tag(4, 400_000);
+    let tag = Tags::decode(&host.take_tags().unwrap()).unwrap().tags;
+    assert_eq!(
+        (tag[0].controller_seq, tag[0].controller_held_us),
+        (0, rubylight_protocol::frame_warp::HELD_NONE)
+    );
+}
+
+#[test]
+fn a_fit_job_copies_only_the_history_its_samples_read() {
+    let mut host = enabled((1920, 1080));
+    for i in 0..1_000u64 {
+        host.on_mouse(1, 0, i * 1_000);
+        host.on_controller(0, ((i % 7) as i16 * 1_000, 0), i * 1_000);
+    }
+    assert!(
+        host.fit_job(1_000_000)
+            .unwrap()
+            .history
+            .last_input_us()
+            .is_some()
+    );
+    host.calibrator.add(calibrate::Sample {
+        t0_us: 800_000,
+        t1_us: 810_000,
+        motion: Motion::default(),
+    });
+    let job = host.fit_job(1_000_000).unwrap();
+    let from = 800_000 - calibrate::MAX_LAG_US;
+    for t in [from, from + 1, 700_000, 805_000, 999_000, 2_000_000] {
+        assert_eq!(job.history.mouse_at(t), host.history.mouse_at(t));
+        assert_eq!(
+            job.history.stick_integral(from, t, 0.1, 1.0),
+            host.history.stick_integral(from, t, 0.1, 1.0)
+        );
+        assert_eq!(job.history.tag(1, t, t), host.history.tag(1, t, t));
+    }
+    assert!(job.history.mouse_entries() < host.history.mouse_entries() / 2);
+}
+
+#[test]
 fn tags_carry_the_newest_frames_and_the_input_before_the_lag() {
     let mut host = enabled((1920, 1080));
     // The model sent on request first.

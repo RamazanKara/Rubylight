@@ -922,3 +922,23 @@ fn an_upgrade_leaves_devices_paired_before_it_without_the_grant() {
             .contains_key(PAIRING_APPROVE_KEY)
     );
 }
+
+#[test]
+fn an_app_written_with_nulls_by_another_tool_loads_with_empty_fields() {
+    let app: App = serde_json::from_value(json!({
+        "name": "MoonDeckStream",
+        "cmd": null,
+        "working-dir": null,
+        "prep-cmd": [{"do": null, "undo": null}],
+        "aliases": null,
+    }))
+    .unwrap();
+    assert_eq!(app.cmd, "");
+    assert_eq!(app.working_dir, "");
+    assert_eq!(app.prep.len(), 1);
+    assert_eq!(app.prep[0].r#do, "");
+    assert_eq!(app.prep[0].undo, "");
+    assert!(app.aliases.is_empty());
+    let app: App = serde_json::from_value(json!({"name": "X", "prep-cmd": null})).unwrap();
+    assert!(app.prep.is_empty());
+}

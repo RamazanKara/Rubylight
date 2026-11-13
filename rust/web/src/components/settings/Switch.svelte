@@ -25,7 +25,13 @@
     {checked}
     {disabled}
     aria-describedby={describedby}
-    onchange={(event) => onchange(event.currentTarget.checked)}
+    onchange={(event) => {
+      // Controlled: the box shows `checked` until the caller changes it, so a
+      // failed save does not leave the switch looking on.
+      const next = event.currentTarget.checked;
+      event.currentTarget.checked = checked;
+      onchange(next);
+    }}
   />
   <span class="track" aria-hidden="true"><span class="thumb"></span></span>
 </span>

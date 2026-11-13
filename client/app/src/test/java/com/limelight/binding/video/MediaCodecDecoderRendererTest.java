@@ -294,6 +294,12 @@ public class MediaCodecDecoderRendererTest {
         assertFalse(MediaCodecDecoderRenderer.restartRecreates("OMX.MTK.VIDEO.DECODER.HEVC", vendor));
         assertFalse(MediaCodecDecoderRenderer.restartRecreates("c2.qti.hevc.decoder",
                 java.util.Arrays.asList("low-latency=1", "vendor.qti-ext-dec-low-latency.enable=1")));
+        // Dolby's Codec2 HEVC decoder on Qualcomm with vendor.qti-ext-* keys hung on stop() and configure().
+        assertTrue(MediaCodecDecoderRenderer.restartRecreates("c2.dolby.decoder.hevc",
+                java.util.Arrays.asList("low-latency=1", "vendor.qti-ext-dec-picture-order.enable=1")));
+        assertFalse(MediaCodecDecoderRenderer.restartRecreates("c2.dolby.decoder.hevc", standard));
+        assertFalse(MediaCodecDecoderRenderer.restartRecreates("c2.dolby.decoder.hevc",
+                java.util.Collections.singletonList("vendor.qti-ext-dec-picture-order.enable=0")));
     }
 
     /** The output format's hdr-static-info c2.mtk.dvhe.st.decoder showed in run b1fix. */

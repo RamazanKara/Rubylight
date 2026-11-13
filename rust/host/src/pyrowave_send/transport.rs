@@ -13,7 +13,8 @@ pub(super) fn run(
     host: Shared,
     start: Instant,
 ) -> Result<()> {
-    let _priority = butterpollo_windows::capture::Priority::new();
+    let _priority =
+        crate::video_send::send_priority(config.boolean("video_send_mmcss_only", false));
     let timer = Timer::new()?;
     let mut batch = Batch::default();
     let mut pacer = Pacer::new(Instant::now());

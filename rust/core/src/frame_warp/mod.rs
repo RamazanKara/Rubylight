@@ -143,8 +143,15 @@ impl FrameWarpHost {
             self.recent.clear();
             self.shifts.clear();
             self.resets.thumbnail += 1;
-        } else {
+        } else if self.history.controller() != request.controller {
+            // Another pad: its packets count from zero on both sides (the client's tracker
+            // is new too). Tags already made name the old pad's packets, and the measured
+            // moves read stick input whose history is gone, so both go; the mouse sums stay
+            // (the client rebases them).
             self.history.set_controller(request.controller);
+            self.calibrator.clear_samples();
+            self.recent.clear();
+            self.tags.clear();
         }
         if self.enabled {
             // The client counts from its request on; so does the model it hears first.
@@ -281,11 +288,14 @@ impl FrameWarpHost {
     }
 
     /// The fit to run outside the lock, when one is due: copies of the calibrator and the
-    /// input history (the latter some 200 KB, 5 times a second).
+    /// input history the fit reads (from the oldest sample less the largest lag on), 5 times a
+    /// second.
     pub fn fit_job(&self, now_us: u64) -> Option<FitJob> {
         (self.enabled && self.calibrator.due(now_us)).then(|| FitJob {
             calibrator: self.calibrator.clone(),
-            history: self.history.clone(),
+            history: self
+                .history
+                .since(self.calibrator.earliest_input_us().unwrap_or(now_us)),
             now_us,
             epoch: self.fit_epoch,
         })

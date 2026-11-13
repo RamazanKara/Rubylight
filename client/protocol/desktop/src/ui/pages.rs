@@ -560,11 +560,16 @@ impl Launcher {
             }
             ui.label(tr("Home Wi-Fi names stay on this device. Names are case-sensitive."));
             ui.horizontal(|ui| {
-                ui.add(egui::TextEdit::singleline(&mut self.home_wifi_name).hint_text(tr("Wi-Fi name")).char_limit(32));
-                let valid = !self.home_wifi_name.is_empty() && self.home_wifi_name.len() <= 32
-                    && !self.profiles.home_wifi.contains(&self.home_wifi_name) && self.profiles.home_wifi.len() < 50;
-                if ui.add_enabled(valid, egui::Button::new(tr("Add"))).clicked() {
-                    self.profiles.home_wifi.push(std::mem::take(&mut self.home_wifi_name));
+                let edit = ui.add(egui::TextEdit::singleline(&mut self.home_wifi_name).hint_text(tr("Wi-Fi name")).char_limit(32));
+                // Trimmed, so a name typed with stray spaces is added as it will be matched, and
+                // Enter in the field adds it as the button does.
+                let name = self.home_wifi_name.trim().to_owned();
+                let valid = !name.is_empty() && name.len() <= 32
+                    && !self.profiles.home_wifi.contains(&name) && self.profiles.home_wifi.len() < 50;
+                let submitted = edit.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                if ui.add_enabled(valid, egui::Button::new(tr("Add"))).clicked() || (valid && submitted) {
+                    self.profiles.home_wifi.push(name);
+                    self.home_wifi_name.clear();
                 }
                 if let Some(ssid) = &self.network.ssid {
                     if ui.add_enabled(!self.profiles.home_wifi.contains(ssid) && self.profiles.home_wifi.len() < 50, egui::Button::new(tr("Add current Wi-Fi"))).clicked() {

@@ -4584,13 +4584,20 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     /**
      * Whether a restart releases the codec and creates a new one instead of stop() and configure().
-     * MediaTek's Codec2 decoders with their vendor low-latency mode had no input buffers after that
-     * (TCL C6K: 5000 ms dequeues, DecoderHung); without the mode they restarted fine.
+     * MediaTek's Codec2 decoders with their vendor low-latency mode, and Dolby's with Qualcomm's
+     * vendor low-latency keys, had no input buffers after that (TCL C6K and Lenovo TB323FU: 5000 ms
+     * dequeues, DecoderHung); without the vendor keys they restarted fine.
      */
     static boolean restartRecreates(String decoderName, List<String> tuningKeys) {
-        if (!decoderName.toLowerCase(Locale.ROOT).startsWith("c2.mtk.")) return false;
-        for (String key : tuningKeys) {
-            if (key.startsWith("vendor.mtk.vdec.low-latency.mode=") && !key.endsWith("=0")) return true;
+        String lower = decoderName.toLowerCase(Locale.ROOT);
+        if (lower.startsWith("c2.mtk.")) {
+            for (String key : tuningKeys) {
+                if (key.startsWith("vendor.mtk.vdec.low-latency.mode=") && !key.endsWith("=0")) return true;
+            }
+        } else if (lower.startsWith("c2.dolby.")) {
+            for (String key : tuningKeys) {
+                if (key.startsWith("vendor.qti-ext-") && !key.endsWith("=0")) return true;
+            }
         }
         return false;
     }
@@ -4630,6 +4637,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             byte[] expected = uncheckedHdrStaticInfo;
             MediaFormat format = outputFormat;
             if (expected == null || codecRecoveryType.get() != CR_RECOVERY_TYPE_NONE) {
+                return;
+            }
+            if (dolbyVisionActive && format != null && format.containsKey(MediaFormat.KEY_COLOR_TRANSFER) &&
+                    format.getInteger(MediaFormat.KEY_COLOR_TRANSFER) != MediaFormat.COLOR_TRANSFER_ST2084) {
+                uncheckedHdrStaticInfo = null;
+                LimeLog.info("Dolby Vision decoder maps the picture itself; output format has no HDR10 static metadata");
                 return;
             }
             ByteBuffer carried = format != null && format.containsKey(MediaFormat.KEY_HDR_STATIC_INFO) ?

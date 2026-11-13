@@ -91,6 +91,8 @@ pub fn update_library(
     h: &Shared,
     change: impl FnOnce(&mut Vec<Value>, &mut Value) -> bool,
 ) -> Result<bool> {
+    // A sync changes the library as it is on disk, not one another program has since replaced.
+    h.reload_apps();
     let mut apps = h.apps.write().unwrap();
     let mut document = h.app_document.read().unwrap().clone();
     let mut values = match serde_json::to_value(&*apps)? {
@@ -103,7 +105,7 @@ pub fn update_library(
     let mut next: Vec<App> = serde_json::from_value(Value::Array(values))?;
     h.assign_apps(&mut next)?;
     document["apps"] = serde_json::to_value(&next)?;
-    butterpollo_core::state::write_json(&h.apps_path, &document)?;
+    h.save_apps(&document)?;
     let dropped = crate::neural::dropped(&apps, &next);
     *apps = next;
     *h.app_document.write().unwrap() = document;

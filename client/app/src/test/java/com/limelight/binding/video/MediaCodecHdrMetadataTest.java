@@ -162,6 +162,27 @@ public class MediaCodecHdrMetadataTest {
     }
 
     @Test
+    public void aDolbyVisionDecoderThatMapsThePictureItselfDoesNotRestartForMissingHdr10Metadata() throws IOException {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            MediaCodecDecoderRenderer renderer = streaming(activity.get());
+            ReflectionHelpers.setField(renderer, "dolbyVisionActive", true);
+            AtomicInteger type = ReflectionHelpers.getField(renderer, "codecRecoveryType");
+            renderer.setHdrMode(true, METADATA);
+
+            MediaFormat mapped = MediaFormat.createVideoFormat("video/raw", 1920, 1080);
+            mapped.setInteger(MediaFormat.KEY_COLOR_TRANSFER, MediaFormat.COLOR_TRANSFER_SDR_VIDEO);
+            ReflectionHelpers.setField(renderer, "outputFormat", mapped);
+
+            checkOutput(renderer);
+            assertNull(ReflectionHelpers.getField(renderer, "uncheckedHdrStaticInfo"));
+            for (int i = 0; i < MediaCodecDecoderRenderer.HDR_STATIC_INFO_OUTPUTS; i++) {
+                checkOutput(renderer);
+            }
+            assertEquals(recovery("CR_RECOVERY_TYPE_NONE"), type.get());
+        }
+    }
+
+    @Test
     public void metadataShowingInTheSixtiethOutputNeedsNoRestart() throws IOException {
         try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
             MediaCodecDecoderRenderer renderer = streaming(activity.get());

@@ -1357,3 +1357,31 @@ fn the_app_and_diagnostics_rows_from_android_do_what_they_say() {
     f.settle();
     assert!(!shows(&f, "Show decode time after streaming") && !shows(&f, "Latency benchmark") && !shows(&f, "Export latency CSV"), "{:?}", f.drawn);
 }
+
+/// A game's own settings offer the PC's image enhancements as the PC's own settings do, and
+/// only when its host reports them (NvidiaEnhancements).
+#[test]
+fn a_games_settings_offer_the_rtx_enhancements_its_host_reports() {
+    let mut f = Frames::new(record("PC", true, false), Reach::Online);
+    f.size = vec2(1280.0, 4000.0);
+    let id = f.hosts.list[0].id;
+    let at = SECTION_KEYS.iter().position(|keys| keys.iter().any(|k| k[0] == "rtx_hdr")).unwrap();
+    let rows = |f: &mut Frames, page: Screen| {
+        f.l.go(Screen::Apps(id));
+        if page == Screen::HostSettings(id) { f.l.open_host_settings(id, &f.hosts.list[0]) } else { f.l.open_app_settings(id, &f.hosts.list[0], game(7)) }
+        f.l.settings_view.section = SETTINGS_SECTIONS[at];
+        open_folds(f);
+        f.settle();
+        let keys = setting_keys(f);
+        (keys.contains(&"rtx_hdr"), keys.contains(&"rtx_video"))
+    };
+    let mut info = answer(true, 0);
+    info.capabilities = nightjar_core::http::HostCapabilities::from_evidence(nightjar_core::http::Evidence { nvidia_enhancements: 0, ..Default::default() });
+    f.hosts.list[0].info = Some(info.clone());
+    assert_eq!(rows(&mut f, Screen::AppSettings(id)), (false, false), "a host without them offers neither");
+    info.capabilities = nightjar_core::http::HostCapabilities::from_evidence(nightjar_core::http::Evidence { nvidia_enhancements: rubylight_protocol::nvidia_enhance::ALL, ..Default::default() });
+    f.hosts.list[0].info = Some(info);
+    for page in [Screen::HostSettings(id), Screen::AppSettings(id)] {
+        assert_eq!(rows(&mut f, page), (true, true), "{page:?} offers RTX HDR and RTX Video");
+    }
+}

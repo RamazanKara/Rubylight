@@ -1185,6 +1185,7 @@ fn placed_exe(app: &App) -> Option<PathBuf> {
 
 /// Set or clear the app's [`KEY`] and save the apps.
 fn set_key(h: &Shared, uuid: &str, value: Option<Value>) -> Result<()> {
+    h.reload_apps();
     let mut apps = h.apps.write().unwrap();
     let mut next = apps.clone();
     let app = next
@@ -1198,7 +1199,7 @@ fn set_key(h: &Shared, uuid: &str, value: Option<Value>) -> Result<()> {
     h.assign_apps(&mut next)?;
     let mut doc = h.app_document.read().unwrap().clone();
     doc["apps"] = serde_json::to_value(&next)?;
-    butterpollo_core::state::write_json(&h.apps_path, &doc)?;
+    h.save_apps(&doc)?;
     *apps = next;
     *h.app_document.write().unwrap() = doc;
     h.config_version

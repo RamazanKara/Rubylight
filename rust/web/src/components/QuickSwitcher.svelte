@@ -2,7 +2,7 @@
   // The quick switcher (Ctrl+K or ⌘K, and Search in the sidebar): one search over pages, actions, games,
   // devices and settings, on the console's Dialog. A combobox: the field keeps focus, the arrows move
   // through the results, Enter opens one. Games and devices load each time it opens; nothing polls.
-  import { tick, untrack } from 'svelte';
+  import { onDestroy, tick, untrack } from 'svelte';
   import Dialog from './Dialog.svelte';
   import Icon from './Icon.svelte';
   import AppCover from './library/AppCover.svelte';
@@ -140,16 +140,22 @@
   }
 
   /** Brings a device's row on the Devices page into view, marks it and focuses its first button. */
+  // One pending look at a time: a newer reveal, or closing the app shell, cancels
+  // it, so a stale search cannot take focus seconds later.
+  let revealTimer: ReturnType<typeof setTimeout> | undefined;
+  onDestroy(() => clearTimeout(revealTimer));
   function reveal(name: string) {
+    clearTimeout(revealTimer);
     const until = Date.now() + 3000;
     const look = () => {
+      revealTimer = undefined;
       // The page changes a frame later during a view transition, and its devices load after that.
       const row =
         route.path === '/devices'
           ? [...document.querySelectorAll<HTMLElement>('main li')].find((item) => item.querySelector('.name')?.textContent?.trim() === name)
           : undefined;
       if (!row) {
-        if (Date.now() < until) setTimeout(look, 100);
+        if (Date.now() < until) revealTimer = setTimeout(look, 100);
         return;
       }
       row.scrollIntoView({ block: 'center' });
@@ -159,7 +165,7 @@
         row.animate([{ backgroundColor: mark }, { backgroundColor: 'transparent' }], { duration: 1800, easing: 'ease-out' });
       }
     };
-    setTimeout(look, 0);
+    revealTimer = setTimeout(look, 0);
   }
 </script>
 

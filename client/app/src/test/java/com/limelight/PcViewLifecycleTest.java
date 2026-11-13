@@ -1611,6 +1611,41 @@ public class PcViewLifecycleTest {
         }
     }
 
+    @Test
+    @Config(qualifiers = "w700dp-h440dp-land-xhdpi")
+    public void rotatingFromHandheldToPhoneKeepTheBuiltFormLayoutParamsWithoutClassCast() {
+        ActivityController<Library> controller = pairingScreen(new CountDownLatch(1), 47989);
+        Thread worker = null;
+        try {
+            Library screen = controller.get();
+            // Start pairing so holdsForm() is true while the configuration changes to portrait phone.
+            GridView grid = screen.findViewById(R.id.fragmentView);
+            grid.performItemClick(null, 0, 0);
+            worker = ReflectionHelpers.getField(screen.hostActions(), "pairingThread");
+            assertTrue(screen.hostActions().isPairing());
+
+            RuntimeEnvironment.setQualifiers("w400dp-h700dp-port-xhdpi");
+            android.content.res.Configuration portrait = new android.content.res.Configuration(
+                    screen.getResources().getConfiguration());
+            screen.onConfigurationChanged(portrait);
+            assertFalse(screen.isFinishing());
+            assertTrue(screen.findViewById(R.id.pc_options_hint).getLayoutParams()
+                    instanceof android.widget.LinearLayout.LayoutParams);
+
+            screen.hostActions().cancelPairing();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+        } finally {
+            controller.pause().stop().destroy();
+            if (worker != null) {
+                try {
+                    worker.join(5000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
+    }
+
     /** The PC list and its pairing PIN on a 1080p TV: readable text, nothing read or focused in the overscan band. */
     @Test
     @Config(qualifiers = "w960dp-h540dp-land-television-xhdpi")

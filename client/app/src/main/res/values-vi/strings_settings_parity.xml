@@ -6,7 +6,7 @@
     <string name="summary_sharp_color">Đầy đủ chi tiết màu, giúp chữ màu và đường mảnh luôn rõ nét.</string>
     <string-array name="sharp_color_names">
         <item>Tắt</item>
-        <item>Tự động</item>
+        <item>Bật</item>
     </string-array>
     <string name="title_controllers">Tay cầm điều khiển</string>
     <string name="summary_controllers">Tắt, mọi tay cầm là một người chơi, hoặc mỗi tay cầm là một người chơi riêng.</string>

@@ -6,7 +6,7 @@
     <string name="summary_sharp_color">Detalle de color completo, para que el texto en color y las líneas finas se vean nítidos.</string>
     <string-array name="sharp_color_names">
         <item>Desactivado</item>
-        <item>Automático</item>
+        <item>Activado</item>
     </string-array>
     <string name="title_controllers">Mandos</string>
     <string name="summary_controllers">Desactivado, todos los mandos como un solo jugador o cada mando como un jugador propio.</string>

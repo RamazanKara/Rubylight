@@ -6,7 +6,7 @@
     <string name="summary_sharp_color">Détail complet des couleurs : le texte en couleur et les traits fins restent nets.</string>
     <string-array name="sharp_color_names">
         <item>Désactivé</item>
-        <item>Automatique</item>
+        <item>Activé</item>
     </string-array>
     <string name="title_controllers">Manettes</string>
     <string name="summary_controllers">Désactivé, toutes les manettes comme un seul joueur, ou un joueur par manette.</string>

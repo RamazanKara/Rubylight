@@ -6,7 +6,7 @@
     <string name="summary_sharp_color">색 정보를 모두 유지해 컬러 텍스트와 가는 선이 선명하게 보입니다.</string>
     <string-array name="sharp_color_names">
         <item>사용 안함</item>
-        <item>자동</item>
+        <item>사용</item>
     </string-array>
     <string name="title_controllers">컨트롤러</string>
     <string name="summary_controllers">사용 안함, 모든 컨트롤러를 플레이어 한 명으로, 또는 컨트롤러마다 각자의 플레이어로.</string>

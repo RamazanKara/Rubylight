@@ -6,7 +6,7 @@
     <string name="summary_sharp_color">Tam renk ayrıntısı; renkli metin ve ince çizgiler net kalır.</string>
     <string-array name="sharp_color_names">
         <item>Kapalı</item>
-        <item>Otomatik</item>
+        <item>Açık</item>
     </string-array>
     <string name="title_controllers">Kumandalar</string>
     <string name="summary_controllers">Kapalı, tüm kumandalar tek oyuncu ya da her kumanda ayrı bir oyuncu.</string>

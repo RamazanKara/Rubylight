@@ -6,7 +6,7 @@
     <string name="summary_sharp_color">Dettaglio del colore completo, così il testo colorato e le linee sottili restano nitidi.</string>
     <string-array name="sharp_color_names">
         <item>Disattivato</item>
-        <item>Automatico</item>
+        <item>Attivo</item>
     </string-array>
     <string name="title_controllers">Controller</string>
     <string name="summary_controllers">Disattivato, tutti i controller come un solo giocatore o un giocatore per controller.</string>

@@ -6,7 +6,7 @@
     <string name="summary_sharp_color">Pełna szczegółowość kolorów, dzięki której kolorowy tekst i cienkie linie pozostają wyraźne.</string>
     <string-array name="sharp_color_names">
         <item>Wyłączone</item>
-        <item>Automatycznie</item>
+        <item>Wł.</item>
     </string-array>
     <string name="title_controllers">Kontrolery</string>
     <string name="summary_controllers">Wyłączone, wszystkie kontrolery jako jeden gracz albo każdy kontroler jako osobny gracz.</string>

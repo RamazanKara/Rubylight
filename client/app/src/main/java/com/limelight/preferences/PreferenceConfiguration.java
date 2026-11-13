@@ -938,9 +938,9 @@ public class PreferenceConfiguration {
     }
 
     /**
-     * "Sharper colored text" is Automatic: one choice stored in the two switches it replaced, Prefer YUV 4:4:4
+     * "Sharper colored text" is Off or On: one choice stored in the two switches it replaced, Prefer YUV 4:4:4
      * ({@code checkbox_yuv444}) and Full chroma ({@code experimental_packed_444}). Settings writes both the same;
-     * a store from before reads as Automatic when either is on, so a player who had one gets both paths
+     * a store from before reads as On when either is on, so a player who had one gets both paths
      * (native 4:4:4 first, packed full chroma where it cannot run). Nothing is rewritten, and older
      * versions read the same two keys.
      */
@@ -968,7 +968,7 @@ public class PreferenceConfiguration {
         return prefs.getBoolean(YUV444_PREF_STRING, false) || prefs.getBoolean(PACKED_444_PREF_STRING, false);
     }
 
-    /** Writes Sharper colored text: Automatic sets both switches, Off clears both. */
+    /** Writes Sharper colored text: On sets both switches, Off clears both. */
     static void saveSharpColor(SharedPreferences.Editor editor, boolean automatic) {
         editor.putBoolean(YUV444_PREF_STRING, automatic).putBoolean(PACKED_444_PREF_STRING, automatic);
     }

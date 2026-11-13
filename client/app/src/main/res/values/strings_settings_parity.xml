@@ -6,7 +6,7 @@
     <string name="summary_sharp_color">Full color detail, so colored text and thin lines stay crisp.</string>
     <string-array name="sharp_color_names">
         <item>Off</item>
-        <item>Automatic</item>
+        <item>On</item>
     </string-array>
     <string name="title_controllers">Controllers</string>
     <string name="summary_controllers">Off, every controller as one player, or each controller its own player.</string>

@@ -550,20 +550,20 @@ fn the_vrr_rows_follow_their_own_gates() {
     }
 }
 
-/// Sharper colored text is one choice for its two keys, Off or Automatic; under PyroWave it has
+/// Sharper colored text is one choice for its two keys, Off or On; under PyroWave it has
 /// no row, nor has Less color banding or Video decoding (in Debug).
 #[test]
 fn sharper_colored_text_is_one_choice_hidden_under_pyrowave() {
     let mut f = settings_with(Settings { experimental_packed_444: true, ..Settings::default() });
     open_folds(&mut f);
-    assert!(row_words(&f, "Sharper colored text").contains(&"Automatic") && shows(&f, "Less color banding"), "{:?}", f.drawn);
-    click_value(&mut f, "Sharper colored text", "Automatic");
+    assert!(row_words(&f, "Sharper colored text").contains(&"On") && shows(&f, "Less color banding"), "{:?}", f.drawn);
+    click_value(&mut f, "Sharper colored text", "On");
     let commands = click_last(&mut f, "Off");
     assert!(!f.l.settings.prefer_yuv444 && !f.l.settings.experimental_packed_444, "Off turns both off");
     assert!(commands.iter().any(|c| matches!(c, Command::AskFullChromaAgain)), "{} commands", commands.len());
     click_value(&mut f, "Sharper colored text", "Off");
-    click_last(&mut f, "Automatic");
-    assert!(f.l.settings.prefer_yuv444 && f.l.settings.experimental_packed_444, "Automatic writes both");
+    click_last(&mut f, "On");
+    assert!(f.l.settings.prefer_yuv444 && f.l.settings.experimental_packed_444, "On writes both");
     f.l.settings_view.section = "Debug";
     f.settle();
     assert!(shows(&f, "Video decoding"), "{:?}", f.drawn);

@@ -6,7 +6,7 @@
     <string name="summary_sharp_color">Volle Farbauflösung, damit farbiger Text und dünne Linien scharf bleiben.</string>
     <string-array name="sharp_color_names">
         <item>Aus</item>
-        <item>Automatisch</item>
+        <item>An</item>
     </string-array>
     <string name="title_controllers">Controller</string>
     <string name="summary_controllers">Aus, alle Controller als ein Spieler oder jeder Controller als eigener Spieler.</string>

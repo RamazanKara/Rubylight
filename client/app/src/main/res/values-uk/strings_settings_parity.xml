@@ -6,7 +6,7 @@
     <string name="summary_sharp_color">Повна деталізація кольору, щоб кольоровий текст і тонкі лінії лишалися чіткими.</string>
     <string-array name="sharp_color_names">
         <item>Вимкнено</item>
-        <item>Автоматично</item>
+        <item>Увімкнено</item>
     </string-array>
     <string name="title_controllers">Контролери</string>
     <string name="summary_controllers">Вимкнено, усі контролери як один гравець або кожен контролер — окремий гравець.</string>

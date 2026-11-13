@@ -6,7 +6,7 @@
     <string name="summary_sharp_color">色の情報をすべて保ち、色付きの文字や細い線をくっきり表示します。</string>
     <string-array name="sharp_color_names">
         <item>オフ</item>
-        <item>自動</item>
+        <item>オン</item>
     </string-array>
     <string name="title_controllers">コントローラ</string>
     <string name="summary_controllers">オフ、全コントローラで 1 人のプレイヤー、またはコントローラごとに別々のプレイヤー。</string>

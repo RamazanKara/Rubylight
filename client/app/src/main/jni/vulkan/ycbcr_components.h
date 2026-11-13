@@ -12,7 +12,7 @@ namespace vkr {
 constexpr int32_t kVkComponentSwizzleIdentity = 0;
 constexpr int32_t kVkComponentSwizzleR = 3;
 constexpr int32_t kVkComponentSwizzleB = 5;
-constexpr int32_t kVkFormatG10X6B10X6R10X6TwoPlane420Unorm3Pack16 = 1000156021;
+constexpr int32_t kVkFormatG10X6B10X6R10X6TwoPlane420Unorm3Pack16 = 1000156013;
 constexpr uint32_t kVkVendorNvidia = 0x10DE;
 
 // NVIDIA's Android driver (Tegra X1: the Shield TV) reports the decoder's 10-bit P010 buffers as

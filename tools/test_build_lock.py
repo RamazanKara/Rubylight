@@ -81,11 +81,13 @@ class BuildLease(unittest.TestCase):
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         child_pid = None
         try:
-            deadline = time.monotonic() + 15
-            while not pidfile.exists() and time.monotonic() < deadline:
+            # The file exists, empty, before the child has written its pid into it.
+            deadline, written = time.monotonic() + 15, ''
+            while not written and time.monotonic() < deadline:
                 time.sleep(.05)
-            self.assertTrue(pidfile.exists())
-            child_pid = int(pidfile.read_text())
+                written = pidfile.read_text() if pidfile.exists() else ''
+            self.assertTrue(written, 'the child wrote no pid')
+            child_pid = int(written)
             owner.kill()
             owner.wait(timeout=5)
             result = self.run_cli(sys.executable, '-c', 'pass')

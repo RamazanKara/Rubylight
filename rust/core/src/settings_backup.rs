@@ -207,6 +207,41 @@ fn folder_files(folder: &Path, prefix: &str, out: &mut Vec<(String, PathBuf)>) -
     Ok(())
 }
 
+/// The console's sign-in sessions in vibeshine_state.json (`root.session_tokens`: token hashes,
+/// user names, addresses, browsers). No backup holds them, with secrets or without, and a restore
+/// keeps the target's own.
+const SESSIONS: &str = "session_tokens";
+
+/// vibeshine_state.json without the console's sign-in sessions; None for a file that is not the
+/// JSON object it should be, which then stays out of the backup rather than go out whole.
+fn without_sessions(bytes: &[u8]) -> Option<Vec<u8>> {
+    let mut document: Value = serde_json::from_slice(bytes).ok()?;
+    let root = document.as_object_mut()?;
+    if let Some(inner) = root.get_mut("root").and_then(Value::as_object_mut) {
+        inner.remove(SESSIONS);
+    }
+    root.remove(SESSIONS);
+    serde_json::to_vec_pretty(&document).ok()
+}
+
+/// The archive's vibeshine_state.json with the target's console sign-in sessions (`current`, the
+/// target's file) in place of any it carries: a restore never signs the console in or out.
+fn keeping_sessions(archived: &[u8], current: Option<&[u8]>) -> Result<Vec<u8>> {
+    let stripped = without_sessions(archived).context("the archive's vibeshine_state.json is not a JSON object")?;
+    let mut document: Value = serde_json::from_slice(&stripped)?;
+    let sessions = current
+        .and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok())
+        .and_then(|current| current.get("root")?.get(SESSIONS).cloned());
+    if let Some(sessions) = sessions {
+        let root = document.as_object_mut().context("vibeshine_state.json is not a JSON object")?;
+        let inner = root.entry("root").or_insert_with(|| json!({}));
+        if let Some(inner) = inner.as_object_mut() {
+            inner.insert(SESSIONS.into(), sessions);
+        }
+    }
+    Ok(serde_json::to_vec_pretty(&document)?)
+}
+
 fn read_optional(path: &Path) -> Result<Option<Vec<u8>>> {
     match std::fs::read(path) {
         Ok(bytes) => Ok(Some(bytes)),
@@ -232,10 +267,12 @@ pub fn export<W: Write + Seek>(
     let files = ProfileFiles::new(&config, directory);
     let mut contents: Vec<(String, Vec<u8>)> =
         vec![(CONFIG.into(), config_text(&config, secrets).into_bytes())];
-    for (name, path) in [(APPS, &files.apps), (ALIASES, &files.aliases)] {
-        if let Some(bytes) = read_optional(path)? {
-            contents.push((name.into(), bytes));
-        }
+    if let Some(bytes) = read_optional(&files.apps)? {
+        contents.push((APPS.into(), bytes));
+    }
+    // Never the console's sign-in sessions (`SESSIONS`).
+    if let Some(bytes) = read_optional(&files.aliases)?.as_deref().and_then(without_sessions) {
+        contents.push((ALIASES.into(), bytes));
     }
     let mut folders = Vec::new();
     folder_files(&directory.join(COVERS), COVERS, &mut folders)?;
@@ -777,7 +814,9 @@ pub fn apply(archive: &Archive, directory: &Path, fresh: impl FnMut() -> String)
         atomic_write(&files.apps, bytes)?;
     }
     if let Some(bytes) = archive.files.get(ALIASES) {
-        atomic_write(&files.aliases, bytes)?;
+        // The target's console sign-in sessions stay as they are.
+        let current = read_optional(&files.aliases)?;
+        atomic_write(&files.aliases, &keeping_sessions(bytes, current.as_deref())?)?;
     }
     for (name, bytes) in archive.under(COVERS).chain(archive.under(GAME_SETTINGS)) {
         atomic_write(&folder_target(directory, name), bytes)?;

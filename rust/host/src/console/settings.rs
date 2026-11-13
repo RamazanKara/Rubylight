@@ -274,6 +274,10 @@ pub const APP: &[Setting] = settings! {
         "scale-factor", "Display resolution scale (%)", Number;
         "use-app-identity", "Keep one virtual display identity for this app", Bool;
         "per-client-app-identity", "Keep a display identity for each app and device", Bool;
+        "capture-window", "What to stream", Choice(&["display","window"]);
+        "capture-window-exe", "Window's program (file name; empty for any of the app's)", Text;
+        "capture-window-title", "Window title contains (empty for any)", Text;
+        "capture-window-closed", "When the window closes", Choice(&["display","end"]);
         "prefer-10bit-sdr", "Prefer 10-bit SDR", Bool;
         "frame-generation-mode", "Frame generation", Choice(&["none","game-provided"]);
         "gen1-framegen-fix", "Legacy frame generation capture fix", Bool;

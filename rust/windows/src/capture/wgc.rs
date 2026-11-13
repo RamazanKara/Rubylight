@@ -68,6 +68,8 @@ pub struct Wgc {
     source: Source,
     format: DirectXPixelFormat,
     high_rate: bool,
+    /// Whether the capture draws the pointer.
+    cursor: bool,
     /// A window's new size restarts the capture at it. The helper
     /// cannot: its shared textures keep the first size, so it fails and the
     /// host reopens it at the new size.
@@ -178,6 +180,7 @@ fn open_session(
     format: DirectXPixelFormat,
     size: windows::Graphics::SizeInt32,
     window: bool,
+    cursor: bool,
     high_rate: bool,
 ) -> Result<(Direct3D11CaptureFramePool, GraphicsCaptureSession)> {
     use butterpollo_core::os_gate::{Feature, missing};
@@ -197,13 +200,14 @@ fn open_session(
         .context("Windows Graphics Capture session")?;
     // Each switch below needs a Windows build (see `os_gate`); older
     // builds keep their fixed behaviour and the stream says so. A
-    // game window's stream takes no mouse, so the PC's pointer is not
-    // drawn into it.
+    // co-op player's window takes no mouse, so the PC's pointer is not
+    // drawn into it; an app's window streamed alone takes the device's
+    // mouse, which is drawn as on a display (`cursor`).
     if let Some(reason) = missing(build, Feature::WgcCursorSwitch) {
         tracing::info!("{reason}");
     } else {
         session
-            .SetIsCursorCaptureEnabled(!window)
+            .SetIsCursorCaptureEnabled(cursor)
             .context("Windows Graphics Capture cursor capture")?;
     }
     if let Some(reason) = missing(build, Feature::WgcBorderSwitch) {
@@ -252,15 +256,18 @@ impl Wgc {
         Self::new_format(name, false)
     }
     pub fn new_format(name: &str, hdr: bool) -> Result<Self> {
-        Self::new_device(Device::new(name)?, hdr, false, None)
+        Self::new_device(Device::new(name)?, hdr, false, None, false)
     }
     /// Captures `window` (an HWND) instead of the display when given; the
-    /// display still chooses the GPU and colour space.
+    /// display still chooses the GPU and colour space. A display's capture
+    /// draws the pointer; a window's only with `window_cursor` (an app's
+    /// window streamed alone, never a co-op player's).
     pub(super) fn new_device(
         gpu: Device,
         hdr: bool,
         high_rate: bool,
         window: Option<usize>,
+        window_cursor: bool,
     ) -> Result<Self> {
         // SAFETY: `output` and `gpu.device` are live, `d.Monitor` is that output's monitor, and
         // every call returns owned COM or WinRT objects.
@@ -323,8 +330,16 @@ impl Wgc {
             } else {
                 DirectXPixelFormat::B8G8R8A8UIntNormalized
             };
-            let (pool, session) =
-                open_session(&gpu, &item, format, size, window.is_some(), high_rate)?;
+            let cursor = window.is_none() || window_cursor;
+            let (pool, session) = open_session(
+                &gpu,
+                &item,
+                format,
+                size,
+                window.is_some(),
+                cursor,
+                high_rate,
+            )?;
             let capture = Self {
                 gpu,
                 pool,
@@ -345,6 +360,7 @@ impl Wgc {
                 source,
                 format,
                 high_rate,
+                cursor,
                 follow_resize: true,
                 closed,
                 closed_token,
@@ -548,6 +564,7 @@ impl Wgc {
                 Height: size.1,
             },
             true,
+            self.cursor,
             self.high_rate,
         )
         .context("Windows Graphics Capture could not follow the game window's new size")?;

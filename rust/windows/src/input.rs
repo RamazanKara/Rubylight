@@ -168,11 +168,30 @@ struct Press {
 /// How often a display's rectangle is read again, and a missing display
 /// looked up again: the lookup enumerates every display.
 const RECT_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
+/// How often a streamed window's rectangle is read again: a window is moved
+/// and resized far more often than a display, and reading it is cheap.
+const WINDOW_RECT_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
+/// The start of a window capture target (`capture::WindowTarget`).
+const WINDOW_PREFIX: &str = "window:";
+/// How long the rectangle of `output` is used before it is read again.
+fn rect_interval(output: &str) -> std::time::Duration {
+    if output.starts_with(WINDOW_PREFIX) {
+        WINDOW_RECT_INTERVAL
+    } else {
+        RECT_INTERVAL
+    }
+}
 /// How often absolute input ignored for a missing display is reported.
 const MISSING_DISPLAY_WARNING: std::time::Duration = std::time::Duration::from_secs(10);
 /// The desktop rectangle of `output`: a GDI name, a device ID, or empty for
 /// the first display.
 fn display_rect(output: &str) -> Result<RECT> {
+    // The app's window streamed in place of a display: input maps onto the
+    // window's captured area, wherever it is (butterpollo_core::app_window).
+    if output.starts_with(WINDOW_PREFIX) {
+        return crate::capture::window_target_rect(output)
+            .ok_or_else(|| anyhow::anyhow!("input window missing"));
+    }
     // Before capture publishes its GDI name, the configured display is
     // often a device ID ({...}); input arriving then was dropped.
     let name = crate::display::monitors()
@@ -192,6 +211,9 @@ fn display_rect(output: &str) -> Result<RECT> {
 }
 /// The current rectangle of a display by GDI name, read cheaply from its mode.
 fn current_rect(name: &str) -> Option<RECT> {
+    if name.starts_with(WINDOW_PREFIX) {
+        return crate::capture::window_target_rect(name);
+    }
     if !name.starts_with(r"\\.\") {
         return None;
     }
@@ -473,7 +495,7 @@ impl Injector {
         // A game can change its display's resolution or position mid-stream,
         // and the stream's display can appear after input began.
         self.settle_lookup(false);
-        if self.rect_read.elapsed() >= RECT_INTERVAL {
+        if self.rect_read.elapsed() >= rect_interval(&self.output) {
             if self.rect.is_none() {
                 self.resolve_rect();
             } else {

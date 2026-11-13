@@ -1081,6 +1081,12 @@ impl Ready {
     pub fn capture_target(&self) -> (String, u64) {
         self.target.current()
     }
+    /// Streams the app's window (a `window:<hwnd>/<pid>@<display>` capture
+    /// target) in place of the display, or the display again for None; the
+    /// capture reopens on the change within 100 ms. Whether it changed.
+    pub fn show_app_window(&self, window: Option<String>) -> bool {
+        self.target.show_window(window)
+    }
     pub fn capture(&self) -> String {
         self.framegen.lock().unwrap().capture.clone()
     }
@@ -1097,17 +1103,39 @@ impl Ready {
 
 /// Only copies and publication hold this lock. Lease renewal, topology queries
 /// and restoration must finish before publishing a new capture identity.
+///
+/// The app's window, while a stream shows it in place of its display
+/// (`butterpollo_core::app_window`), is laid over the display's target:
+/// the heartbeat goes on publishing the display, which the stream shows
+/// again once the window is taken off.
 #[derive(Clone)]
-struct CaptureTarget(Arc<Mutex<(String, u64)>>);
+struct CaptureTarget {
+    display: Arc<Mutex<(String, u64)>>,
+    window: Arc<Mutex<Option<String>>>,
+}
 impl CaptureTarget {
     fn new(target: (String, u64)) -> Self {
-        Self(Arc::new(Mutex::new(target)))
+        Self {
+            display: Arc::new(Mutex::new(target)),
+            window: Arc::new(Mutex::new(None)),
+        }
     }
     fn current(&self) -> (String, u64) {
-        self.0.lock().unwrap().clone()
+        match &*self.window.lock().unwrap() {
+            Some(window) => (window.clone(), 0),
+            None => self.display.lock().unwrap().clone(),
+        }
     }
     fn publish(&self, target: (String, u64)) {
-        *self.0.lock().unwrap() = target;
+        *self.display.lock().unwrap() = target;
+    }
+    /// Shows `window` (a window capture target) in place of the display, or
+    /// the display again for None. Whether it changed.
+    fn show_window(&self, window: Option<String>) -> bool {
+        let mut shown = self.window.lock().unwrap();
+        let changed = *shown != window;
+        *shown = window;
+        changed
     }
 }
 impl Drop for Ready {

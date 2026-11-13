@@ -114,6 +114,19 @@ impl SessionThread<'_> {
         } else {
             None
         };
+        // The app's window in place of the display (capture_window = window).
+        // A co-op player's stream is its window already.
+        let _app_window = match butterpollo_core::app_window::settings(&c) {
+            Some(settings) if s.launch.role == Role::Stream && s.launch.nucleus.is_none() => {
+                app_window::AppWindow::start(h.clone(), s.clone(), prepared.clone(), settings)
+                    .inspect_err(|error| {
+                        tracing::warn!(%error, "the app's window cannot be followed; the stream shows the display");
+                        s.launch.warnings.set("capture_app_window", "The app's window cannot be followed, so the stream shows the display. Reconnect to try again.");
+                    })
+                    .ok()
+            }
+            _ => None,
+        };
         let mut metadata_due = Instant::now() + Duration::from_secs(1);
         // A keyframe a while after an AMF reference-invalidation recovery.
         let mut confirm_keyframe: Option<Instant> = None;

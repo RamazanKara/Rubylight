@@ -31,6 +31,25 @@
     },
   ];
 
+  const CAPTURE: Choice[] = [
+    { value: 'display', label: 'The display' },
+    {
+      value: 'window',
+      label: 'The app’s window',
+      hint: 'Only the app’s window, kept in shape. While it is minimised, not yet open or closed, the stream shows the display and the device says why.',
+    },
+  ];
+
+  const CLOSED: Choice[] = [
+    { value: 'display', label: 'Show the display' },
+    { value: 'end', label: 'End the stream' },
+  ];
+
+  /** app_window.rs wants_window. */
+  const streamsWindow = $derived(
+    ['window', 'app', 'true', 'on', 'yes', '1', 'enabled'].includes(draft.text('capture-window').trim().toLowerCase()),
+  );
+
   const ACTIVATION: Choice[] = [
     { value: 'verify_only', label: 'Only check that it’s on' },
     { value: 'ensure_active', label: 'Turn it on' },
@@ -100,6 +119,45 @@
       hint="What happens to the monitor when the stream doesn’t use a virtual display."
       options={ACTIVATION}
     />
+    <ChoiceField
+      {draft}
+      key="capture-window"
+      label="What to stream"
+      hint="The display, or only this app’s window. A device’s setting for this app wins over this."
+      options={CAPTURE}
+    />
+    {#if streamsWindow}
+      <Field
+        label="Window’s program"
+        id="{uid}-window-exe"
+        hint="Only windows of this program, also when a launcher started it. Empty takes any program the app started."
+      >
+        <input
+          id="{uid}-window-exe"
+          class="input mono"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="game.exe"
+          bind:value={() => draft.text('capture-window-exe'), (value) => draft.setText('capture-window-exe', value)}
+        />
+      </Field>
+      <Field label="Window title contains" id="{uid}-window-title" hint="Only windows whose title contains this text, in any case. Empty takes any title.">
+        <input
+          id="{uid}-window-title"
+          class="input"
+          autocomplete="off"
+          placeholder="Any title"
+          bind:value={() => draft.text('capture-window-title'), (value) => draft.setText('capture-window-title', value)}
+        />
+      </Field>
+      <ChoiceField
+        {draft}
+        key="capture-window-closed"
+        label="When the window closes"
+        hint="Once no other window appeared within 5 seconds."
+        options={CLOSED}
+      />
+    {/if}
     <NumberField
       {draft}
       key="scale-factor"

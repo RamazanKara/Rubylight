@@ -85,6 +85,11 @@ pub fn override_allowed(key: &str) -> bool {
         "av1_mode",
         "experimental_packed_444",
         "capture",
+        // The app's window in place of a display (app_window.rs).
+        "capture_window",
+        "capture_window_exe",
+        "capture_window_title",
+        "capture_window_closed",
         "encoder",
         // Playnite focus
         "playnite_focus_attempts",

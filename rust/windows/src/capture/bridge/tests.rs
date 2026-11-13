@@ -248,3 +248,16 @@ fn textures_that_did_not_open_report_the_helpers_own_error() {
         "WGC helper textures did not open: Access is denied. (0x80070005)"
     );
 }
+#[test]
+fn helper_learns_whether_an_app_window_draws_the_pointer_but_not_its_match_rules() {
+    let source = Config::parse(
+        "capture_window = window\ncapture_window_exe = game.exe\ncapture_window_title = Game\n",
+    )
+    .unwrap();
+    let filtered = capture_config(&source);
+    assert_eq!(filtered.values.len(), 1);
+    assert!(crate::capture::window_cursor(&filtered));
+    assert!(!crate::capture::window_cursor(&capture_config(
+        &Config::default()
+    )));
+}

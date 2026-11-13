@@ -74,7 +74,11 @@ export type TextKey =
   | 'frame-generation-mode'
   | 'gamepad'
   | 'radeon-profile'
-  | 'lossless-scaling-profile';
+  | 'lossless-scaling-profile'
+  | 'capture-window'
+  | 'capture-window-exe'
+  | 'capture-window-title'
+  | 'capture-window-closed';
 export function blankApp(): App {
   return { name: '', cmd: '', 'working-dir': '', 'prep-cmd': [] };
 }
@@ -113,6 +117,8 @@ export const CONFIG_KEY = 'config-overrides';
 /** The general settings the editor offers for one device. */
 export const STREAM_PRESET = 'stream_preset';
 export const FRAME_LIMIT = 'frame_limiter_fps_limit';
+/** The display or the app's window (app_window.rs). */
+export const CAPTURE_WINDOW = 'capture_window';
 
 type Block = Record<string, unknown>;
 const isObject = (value: unknown): value is Block => !!value && typeof value === 'object' && !Array.isArray(value);

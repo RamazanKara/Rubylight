@@ -39,6 +39,9 @@ function flag(values: Values, key: string, fallback: boolean): boolean {
 }
 
 const capture = (values: Values) => read(values, 'capture', 'auto').toLowerCase();
+/** app_window.rs wants_window: whether the stream shows the app's window. */
+const streamsWindow = (values: Values) =>
+  ['window', 'app', 'true', 'on', 'yes', '1', 'enabled'].includes(read(values, 'capture_window', 'display').trim().toLowerCase());
 const gridPacing = (values: Values) =>
   ['grid', 'fixed'].includes(read(values, 'frame_pacing', 'arrival').toLowerCase());
 
@@ -136,6 +139,65 @@ const video: Setting[] = [
     // framegen.rs: any case; Vibepollo's wgcc, and dxgi, which the fallback console writes.
     aliases: { match: 'case', spellings: { wgcc: 'wgc', dxgi: 'ddx' } },
     default: 'auto',
+  },
+  {
+    key: 'capture_window',
+    label: 'What to stream',
+    description:
+      'The display, or only the launched app’s window. Apps and devices can choose their own.',
+    details:
+      'The app’s window is found among the programs the app started, or by the program name and title an app sets. It keeps its shape, with black bars if needed, and mouse and touch input land on the window. While it is minimised, before it appears, or after it closes, the stream shows the display and the device says why. Windows Graphics Capture captures the window, whatever the capture method.',
+    category: 'video',
+    group: 'Capture',
+    control: {
+      kind: 'select',
+      options: [
+        { value: 'display', label: 'The display' },
+        { value: 'window', label: 'The app’s window' },
+      ],
+    },
+    // app_window.rs wants_window: these words mean the window, anything else the display.
+    aliases: { match: 'case', spellings: { app: 'window', true: 'window', on: 'window', yes: 'window', '1': 'window', enabled: 'window' } },
+    default: 'display',
+  },
+  {
+    key: 'capture_window_closed',
+    label: 'When the window closes',
+    description: 'What the stream does once the app’s window has closed and no other appeared within 5 seconds.',
+    category: 'video',
+    group: 'Capture',
+    control: {
+      kind: 'select',
+      options: [
+        { value: 'display', label: 'Show the display' },
+        { value: 'end', label: 'End the stream' },
+      ],
+    },
+    aliases: { match: 'case', spellings: { stop: 'end', quit: 'end' } },
+    default: 'display',
+    visibleWhen: (values) => streamsWindow(values),
+  },
+  {
+    key: 'capture_window_exe',
+    label: 'Window’s program',
+    description: 'Only windows of this program, such as game.exe, also when a launcher started it. Empty takes any of the app’s programs.',
+    category: 'video',
+    group: 'Capture',
+    control: { kind: 'text', placeholder: 'game.exe', mono: true },
+    default: '',
+    visibleWhen: (values) => streamsWindow(values),
+    advanced: true,
+  },
+  {
+    key: 'capture_window_title',
+    label: 'Window title contains',
+    description: 'Only windows whose title contains this text, in any case. Empty takes any title.',
+    category: 'video',
+    group: 'Capture',
+    control: { kind: 'text' },
+    default: '',
+    visibleWhen: (values) => streamsWindow(values),
+    advanced: true,
   },
   {
     key: 'capture_poll_interval_us',

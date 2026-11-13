@@ -145,6 +145,8 @@ fn capture_config(config: &Config) -> Config {
         "wgc_high_rate_capture",
         "wgc_drain_to_newest",
         "wgc_helper_streaming_scope",
+        // Whether a window's capture draws the pointer (`window_cursor`).
+        butterpollo_core::app_window::SETTING,
     ];
     Config {
         values: config
@@ -899,6 +901,7 @@ fn worker(pipe: &Pipe) -> Result<()> {
         hdr,
         config.boolean("wgc_high_rate_capture", false),
         window,
+        super::window_cursor(&config),
     )?;
     capture.drain_to_newest = config.boolean("wgc_drain_to_newest", false);
     if let Err(error) = capture.enable_notifications() {

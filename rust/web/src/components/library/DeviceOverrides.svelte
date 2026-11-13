@@ -6,7 +6,7 @@
   import { api, type Client } from '../../lib/api';
   import { presets } from '../../lib/stream-presets';
   import { profileOf, profiles } from './radeon';
-  import { CONFIG_KEY, FRAME_LIMIT, STREAM_PRESET, frameLimitError, type AppDraft } from './draft.svelte';
+  import { CAPTURE_WINDOW, CONFIG_KEY, FRAME_LIMIT, STREAM_PRESET, frameLimitError, type AppDraft } from './draft.svelte';
 
   let { draft }: { draft: AppDraft } = $props();
 
@@ -42,7 +42,7 @@
     const block = draft.app['device-overrides'] as Record<string, Record<string, unknown>> | undefined;
     const config = block?.[device]?.[CONFIG_KEY];
     if (!config || typeof config !== 'object') return [];
-    return Object.keys(config).filter((key) => key !== STREAM_PRESET && key !== FRAME_LIMIT);
+    return Object.keys(config).filter((key) => key !== STREAM_PRESET && key !== FRAME_LIMIT && key !== CAPTURE_WINDOW);
   }
 
   function add() {
@@ -63,6 +63,7 @@
     {@const preset = text(draft.deviceSetting(device, STREAM_PRESET))}
     {@const radeon = draft.deviceRadeon(device)}
     {@const limit = draft.deviceSetting(device, FRAME_LIMIT)}
+    {@const capture = text(draft.deviceSetting(device, CAPTURE_WINDOW))}
     {@const kept = others(device)}
     <section class="device" aria-label={name ?? 'A device that is not paired'}>
       <header>
@@ -107,6 +108,25 @@
             />
             <span class="unit muted">fps</span>
           </span>
+        </Field>
+        <Field
+          label="What to stream"
+          id="{uid}-{device}-capture"
+          hint="The display, or only the game’s window, on this device."
+        >
+          <select
+            id="{uid}-{device}-capture"
+            class="select"
+            value={capture}
+            onchange={(event) => draft.setDeviceSetting(device, CAPTURE_WINDOW, event.currentTarget.value || undefined)}
+          >
+            <option value="">Same as the game</option>
+            {#if capture && capture !== 'display' && capture !== 'window'}
+              <option value={capture}>{capture} (not a choice)</option>
+            {/if}
+            <option value="display">The display</option>
+            <option value="window">The game’s window</option>
+          </select>
         </Field>
         <Field label="Driver preset" id="{uid}-{device}-radeon">
           <select

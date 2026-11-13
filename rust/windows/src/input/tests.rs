@@ -1055,3 +1055,13 @@ fn altgr_combinations_use_the_device_layout() {
         );
     }
 }
+#[test]
+fn a_streamed_window_is_followed_more_often_than_a_display_and_a_closed_one_takes_no_input() {
+    let window = r"window:0x7fff0010/4@\.\DISPLAY1";
+    assert_eq!(rect_interval(window), WINDOW_RECT_INTERVAL);
+    assert_eq!(rect_interval(r"\.\DISPLAY1"), RECT_INTERVAL);
+    assert!(WINDOW_RECT_INTERVAL < RECT_INTERVAL);
+    // No such window: absolute input waits instead of landing on a display.
+    assert!(display_rect(window).is_err());
+    assert!(current_rect(window).is_none());
+}

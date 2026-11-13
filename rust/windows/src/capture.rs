@@ -135,6 +135,12 @@ pub fn check_window(target: &WindowTarget) -> Result<()> {
     let shown_on = window::display_of(target.handle())?;
     window::on_display(target.handle(), &shown_on, &target.display)
 }
+/// Whether a window's capture draws the pointer: an app's window streamed in
+/// place of a display (`capture_window = window`) takes the device's mouse.
+/// A co-op player's window does not; its stream's settings never ask for it.
+pub(crate) fn window_cursor(config: &butterpollo_core::config::Config) -> bool {
+    butterpollo_core::app_window::settings(config).is_some()
+}
 /// The primary display's name, which capture opens when the stream's display
 /// did not come back.
 pub fn primary_display() -> Option<String> {
@@ -1446,6 +1452,8 @@ mod focus;
 mod idd_push;
 mod window;
 pub use window::WindowTarget;
+mod app_window;
+pub use app_window::{app_window_target, app_windows, target_rect as window_target_rect};
 
 /// Whether WGC can capture the input desktop without crossing into Winlogon.
 pub fn wgc_desktop_available() -> bool {
@@ -1717,6 +1725,7 @@ impl Capture {
                 hdr,
                 config.boolean("wgc_high_rate_capture", false),
                 window,
+                window_cursor(config),
             )?;
             capture.owned.warnings = warnings.clone();
             capture.drain_to_newest = config.boolean("wgc_drain_to_newest", false);

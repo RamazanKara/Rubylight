@@ -801,7 +801,7 @@ fn wgc_low_rate_explicitly_disables_the_windows_capture_throttle() -> Result<()>
     let _com = ComGuard::new()?;
     let gpu = Device::new("")?;
     for (high_rate, ticks) in [(false, 0), (true, 10_000), (false, 0)] {
-        let capture = Wgc::new_device(gpu.clone(), false, high_rate, None)?;
+        let capture = Wgc::new_device(gpu.clone(), false, high_rate, None, false)?;
         assert_eq!(capture.session.MinUpdateInterval()?.Duration, ticks);
     }
     Ok(())

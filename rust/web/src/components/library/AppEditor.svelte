@@ -403,7 +403,7 @@
       <GameSettingsFiles {draft} id="{uid}-settings-files" />
     </Panel>
 
-    <Panel collapsible title="Per device" description="This game’s settings on one device: stream preset, frame limit, driver preset and game files.">
+    <Panel collapsible title="Per device" description="This game’s settings on one device: stream preset, frame limit, what to stream, driver preset and game files.">
       <DeviceOverrides {draft} />
     </Panel>
 

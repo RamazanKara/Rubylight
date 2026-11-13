@@ -1,5 +1,6 @@
 use crate::state::{Launch, Session, Shared};
 use butterpollo_core::{controller_audio, haptics};
+mod app_window;
 mod audio;
 pub(crate) mod audio_encoder;
 mod audio_haptics;

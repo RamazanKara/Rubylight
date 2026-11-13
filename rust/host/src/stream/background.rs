@@ -53,6 +53,14 @@ impl Drop for GameWindows {
 }
 
 fn target(output: &str) -> Option<Rect> {
+    // While the stream shows the app's window, its display is the one the
+    // window is on.
+    let window = butterpollo_windows::capture::WindowTarget::parse(output)
+        .ok()
+        .flatten();
+    let output = window
+        .as_ref()
+        .map_or(output, |window| window.display.as_str());
     butterpollo_windows::capture::displays()
         .ok()?
         .into_iter()

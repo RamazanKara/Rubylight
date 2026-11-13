@@ -2670,3 +2670,18 @@ fn capture_target_stays_readable_during_refresh_and_publishes_identity_together(
     refresh.join().unwrap();
     assert_eq!(target.current(), ("output-9999".into(), 9999));
 }
+
+#[test]
+fn an_app_window_is_laid_over_the_display_target_which_the_heartbeat_keeps_publishing() {
+    let target = CaptureTarget::new((r"\.\DISPLAY9".into(), 3));
+    let window = r"window:0x2056c/812@\.\DISPLAY9".to_owned();
+    assert!(target.show_window(Some(window.clone())));
+    assert!(!target.show_window(Some(window.clone())), "unchanged");
+    assert_eq!(target.current(), (window.clone(), 0));
+    // A recreated display while the window shows: the window stays.
+    target.publish((r"\.\DISPLAY10".into(), 4));
+    assert_eq!(target.current(), (window, 0));
+    // Taken off, the stream shows the display as published last.
+    assert!(target.show_window(None));
+    assert_eq!(target.current(), (r"\.\DISPLAY10".into(), 4));
+}

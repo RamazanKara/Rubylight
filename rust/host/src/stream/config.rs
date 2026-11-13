@@ -82,6 +82,14 @@ pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
             // Saved by Vibepollo and earlier Rubylight apps for RTX HDR;
             // the peak is still what a virtual display reports.
             ("rtx-hdr-peak-brightness", "hdr_peak_brightness"),
+            // The app's window in place of a display (app_window.rs).
+            ("capture-window", butterpollo_core::app_window::SETTING),
+            ("capture-window-exe", butterpollo_core::app_window::EXE),
+            ("capture-window-title", butterpollo_core::app_window::TITLE),
+            (
+                "capture-window-closed",
+                butterpollo_core::app_window::CLOSED,
+            ),
         ] {
             if let Some(value) = app
                 .extra
@@ -135,6 +143,15 @@ pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
     // Last, so no override hands the device's keyboard and mouse back to the
     // desktop the person at the PC is using.
     config.values.remove(crate::nucleus::PLAYER);
+    if launch.nucleus.is_some() || launch.role != Role::Stream {
+        // A co-op player's stream is its game window already; a stream that
+        // shows no app has no window to find.
+        for key in butterpollo_core::app_window::KEYS {
+            config.values.remove(key);
+        }
+    } else {
+        app_window_capture(&mut config, &launch.warnings);
+    }
     if launch.nucleus.is_some() {
         crate::nucleus::isolate(&mut config);
         config.values.remove(butterpollo_core::background::SETTING);
@@ -159,6 +176,34 @@ pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
             .insert("video_slice_delivery".into(), "off".into());
     }
     Ok(config)
+}
+
+/// The warning of a stream whose capture method cannot capture a window.
+const APP_WINDOW_METHOD: &str = "capture_app_window_method";
+
+/// A stream of the app's window captures with Windows Graphics Capture, the
+/// only method that captures one window; one set to another method uses WGC
+/// and says so (Automatic already is WGC for this).
+fn app_window_capture(config: &mut Config, warnings: &butterpollo_core::session::Warnings) {
+    if butterpollo_core::app_window::settings(config).is_none() {
+        warnings.clear(APP_WINDOW_METHOD);
+        return;
+    }
+    let method = config.get("capture", "auto").trim().to_ascii_lowercase();
+    let name = match method.as_str() {
+        "ddx" | "dxgi" => "Desktop Duplication",
+        "idd-push" => "direct driver push",
+        _ => {
+            warnings.clear(APP_WINDOW_METHOD);
+            return;
+        }
+    };
+    tracing::warn!(capture = %method, "the app's window is captured with WGC in place of the capture method set");
+    warnings.set(
+        APP_WINDOW_METHOD,
+        format!("This app's window is captured with Windows Graphics Capture: {name}, the capture method set, captures whole displays only."),
+    );
+    config.values.insert("capture".into(), "wgc".into());
 }
 
 pub(super) fn apply_overrides(

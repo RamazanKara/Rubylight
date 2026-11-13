@@ -933,6 +933,7 @@ const SERVERINFO_FIELDS: &[(&str, Reading)] = &[
     ("SecondScreenVersion", Reading::Read),
     ("FrameWarpVersion", Reading::Read),
     ("ControllerIdentityVersion", Reading::Read),
+    ("RustHostInternetPlayVersion", Reading::Read),
     (
         "RustHostSessionCount",
         Reading::Ignored("diagnostics for scripts and the release harness"),
@@ -1080,6 +1081,8 @@ fn expected(feature: Feature) -> Availability {
         Feature::UsbForwarding | Feature::SharedFolders => Unsupported(None),
         // Nucleus Co-op runs only in the service host, which the fixture is not.
         Feature::Coop => Unsupported(None),
+        // Play over the internet is off by default: RustHostInternetPlayVersion is 0.
+        Feature::InternetPlay => Unsupported(None),
         // clipboard_image is on by default.
         Feature::ImageClipboard => Supported,
         // Always listed; the device has every permission, Launch apps among them.

@@ -397,6 +397,8 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     final com.limelight.ui.StreamMessages messages = new com.limelight.ui.StreamMessages(this);
     // From the first time the user opens USB devices until the stream stops.
     com.limelight.binding.usb.UsbForwarding usbForwarding;
+    /** Join requests and guests of this device's game, on hosts that offer them. */
+    StreamGuests streamGuests;
     // Clipboard sync (0x5508) while this stream's PC runs it.
     com.limelight.utils.ClipboardSync clipboardSync;
     final Runnable showStreamMenuHint = overlays::showStreamMenuHint;

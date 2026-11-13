@@ -320,6 +320,32 @@ public final class NativeApiClient {
         }
     }
 
+    /** The running game's guests and the joins waiting (GET /session/guests). Only with feature session.guests. */
+    public NativeGuests guests() throws NativeApiException {
+        try {
+            return NativeGuests.parse(call("guests", ""));
+        } catch (JSONException e) {
+            throw malformed("guests", e);
+        }
+    }
+
+    /**
+     * Answers a join or manages a guest (POST /session/guests/...), as the device playing. {@code action} is
+     * approve, deny, kick, revoke, permission or keyboard_mouse; {@code id} is -1 for keyboard_mouse back to this
+     * device, and {@code permission} may be null except for permission. Answers the list as it is afterwards.
+     */
+    public NativeGuests guestAction(String action, int id, String permission) throws NativeApiException {
+        try {
+            JSONObject request = new JSONObject();
+            request.put("action", action);
+            request.put("id", id < 0 ? JSONObject.NULL : id);
+            if (permission != null) request.put("permission", permission);
+            return NativeGuests.parse(call("guests.action", request.toString()));
+        } catch (JSONException e) {
+            throw malformed("guests", e);
+        }
+    }
+
     /** Ends a waiting device's request (POST /pairing/deny) and answers the devices still waiting. */
     public List<NativePairing.Request> denyPairing(String id) throws NativeApiException {
         try {

@@ -25,6 +25,7 @@ use nightjar_core::http::native_api::wake::Wake;
 use nightjar_core::http::{
     update_arrived, valid_pairing_pin, ClientIdentity, Coop, CoopJoined, Error, HostClient,
     HostUpdate, NativeCapabilities, NativeLibrary, PairingApprove, PairingApproved, PairingRequests, PcPower, PcPowerOffer, PowerError, PowerReply, Refusal, StreamMove,
+    GuestAction, SessionGuests,
 };
 
 /// What the client of one host needs; Java builds it from the paired host's stored data.
@@ -60,6 +61,8 @@ pub trait Host {
     fn pairing_requests(&self) -> Result<PairingRequests, Error>;
     fn approve_pairing(&self, id: &str, pin: &str) -> Result<PairingApproved, Error>;
     fn deny_pairing(&self, id: &str) -> Result<PairingRequests, Error>;
+    fn session_guests(&self) -> Result<SessionGuests, Error>;
+    fn guest_action(&self, action: &GuestAction) -> Result<SessionGuests, Error>;
     fn wake(&self) -> Result<Wake, Error>;
     fn coop(&self) -> Result<Coop, Error>;
     fn join_coop(&self, session: u32) -> Result<CoopJoined, Error>;
@@ -124,6 +127,12 @@ impl Host for HostClient {
     }
     fn deny_pairing(&self, id: &str) -> Result<PairingRequests, Error> {
         HostClient::deny_pairing(self, id)
+    }
+    fn session_guests(&self) -> Result<SessionGuests, Error> {
+        HostClient::session_guests(self)
+    }
+    fn guest_action(&self, action: &GuestAction) -> Result<SessionGuests, Error> {
+        HostClient::guest_action(self, action)
     }
     fn wake(&self) -> Result<Wake, Error> {
         HostClient::wake(self)
@@ -356,6 +365,11 @@ pub fn execute(host: &dyn Host, op: &str, argument: &str) -> String {
             Err(e) => argument_error(format!("pairing approval: {e}")),
         },
         "pairing.deny" => ok(host.deny_pairing(argument)),
+        "guests" => ok(host.session_guests()),
+        "guests.action" => match GuestAction::from_json(argument) {
+            Ok(action) => ok(host.guest_action(&action)),
+            Err(e) => argument_error(e),
+        },
         "wake" => ok(host.wake()),
         "coop" => ok(host.coop()),
         "coop.join" => match argument.trim().parse::<u32>() {
@@ -665,6 +679,14 @@ mod tests {
         fn deny_pairing(&self, id: &str) -> Result<PairingRequests, Error> {
             self.note(&format!("deny {id}"));
             Ok(PairingRequests { requests: Vec::new() })
+        }
+        fn session_guests(&self) -> Result<SessionGuests, Error> {
+            self.note("guests");
+            Ok(serde_json::from_str(GUESTS).unwrap())
+        }
+        fn guest_action(&self, action: &GuestAction) -> Result<SessionGuests, Error> {
+            self.note(&format!("guest {}", action.request().0));
+            Ok(serde_json::from_str(GUESTS).unwrap())
         }
         fn install_host_update(&self) -> Result<HostUpdate, Error> {
             self.note("update install");
@@ -979,6 +1001,19 @@ mod tests {
         assert!(refused.get("ok").is_none());
         let invalid = parse(&execute(&fake, "power.sleep", ""));
         assert_eq!(invalid["error"]["kind"], "invalid_argument");
+    }
+
+    const GUESTS: &str = r#"{"policy":"ask","default_permission":"controller","manage":true,"you":null,"owner":"Fold7","max_guests":4,"version":2,"keyboard_mouse":null,"guests":[],"waiting":[{"id":3,"name":"TV","seconds_left":40}]}"#;
+
+    #[test]
+    fn guests_reach_the_host_and_bad_actions_do_not() {
+        let fake = Fake::default();
+        assert_eq!(parse(&execute(&fake, "guests", ""))["ok"]["waiting"][0]["name"], "TV");
+        let approved = parse(&execute(&fake, "guests.action", r#"{"action":"approve","id":3}"#));
+        assert_eq!(approved["ok"]["owner"], "Fold7");
+        let bad = parse(&execute(&fake, "guests.action", r#"{"action":"permission","id":3,"permission":"admin"}"#));
+        assert_eq!(bad["error"]["kind"], "invalid_argument");
+        assert_eq!(*fake.calls.lock().unwrap(), ["guests", "guest session/guests/approve"]);
     }
 
     #[test]

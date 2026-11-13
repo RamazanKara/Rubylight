@@ -1073,8 +1073,8 @@ impl Launcher {
                     });
                 });
             }
-            Dialog::ContinueHere { host, app, resume, name, device } => {
-                let (host, app, resume) = (*host, *app, *resume);
+            Dialog::ContinueHere { host, app, resume, name, device, join } => {
+                let (host, app, resume, join) = (*host, *app, *resume, *join);
                 modal(ctx, "continue-here", |ui| {
                     ui.set_width(440.0);
                     ui.label(RichText::new(trf("{} is playing on {}", &[&name, &device])).font(semibold(text::SECTION)));
@@ -1088,7 +1088,8 @@ impl Launcher {
                             commands.push(Command::ContinueHere { host, app });
                             close = true;
                         }
-                        if quiet_button(ui, "Stream here too").clicked() {
+                        let too = if join { quiet_button(ui, "Join") } else { quiet_button(ui, "Stream here too") };
+                        if too.clicked() {
                             commands.push(Command::StreamHereToo { host, app, resume });
                             close = true;
                         }

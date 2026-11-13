@@ -18,6 +18,8 @@ public final class NativeCapabilities {
     public static final String COUCH_MENU = "session.couch_menu";
     /** POST /session/continue-here moves the running game's stream here; GET /session carries playing_on and moved_to. */
     public static final String CONTINUE_HERE = "session.continue_here";
+    /** A device that resumes another device's game joins it as a guest; the device playing lets it in. */
+    public static final String SESSION_GUESTS = "session.guests";
     /** GET /wake lists the PC's wake targets: every adapter's MAC and subnet broadcasts. */
     public static final String WAKE = "wake";
     /** USB devices this device forwards to the host during a stream (control message 0x553A). */
@@ -76,6 +78,18 @@ public final class NativeCapabilities {
         try {
             NativeCapabilities capabilities = parse(new JSONObject(knownJson));
             return capabilities.view && capabilities.launch && capabilities.has(CONTINUE_HERE);
+        } catch (JSONException e) {
+            return false;
+        }
+    }
+
+    /** Whether a host's stored capabilities say a stream of another device's game joins it as a guest ({@code session.guests}). */
+    public static boolean offersSessionGuests(String knownJson) {
+        if (knownJson == null) {
+            return false;
+        }
+        try {
+            return parse(new JSONObject(knownJson)).has(SESSION_GUESTS);
         } catch (JSONException e) {
             return false;
         }

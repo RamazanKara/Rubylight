@@ -28,6 +28,7 @@ mod recovery;
 mod quality;
 mod rate_change;
 pub mod menu_extras;
+pub mod guests;
 mod touch;
 /// Touchpad passthrough: Raw Input on Windows, evdev on Linux, trackpad touches on macOS.
 mod touchpad;
@@ -551,6 +552,8 @@ pub struct Streaming {
     guide_waiting: bool,
     /// The PC's night mode and headphone surround switches in the stream controls.
     pub host_audio: menu_extras::HostAudio,
+    /// Join requests and guests of this device's game, on a PC that offers them.
+    pub guests: guests::Guests,
     pub pending_command: Option<usize>,
     pub bitrate_busy: bool,
     /// The toast that packed full chroma's copies leave the decoder behind was shown (`doctor::packed_hint`).
@@ -920,6 +923,7 @@ impl Streaming {
             guide_menu: false,
             guide_waiting: false,
             host_audio: Default::default(),
+            guests: Default::default(),
             pending_command: None,
             bitrate_busy: false,
             packed_hint_shown: false,

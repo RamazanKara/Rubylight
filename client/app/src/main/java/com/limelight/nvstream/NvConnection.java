@@ -98,6 +98,7 @@ public class NvConnection {
     private volatile boolean nativeCouchMenu;
     private volatile boolean nativeUsbForwarding;
     private volatile boolean nativeImageClipboard;
+    private volatile boolean nativeSessionGuests;
     private volatile boolean nativeNightMode, nativeHeadphoneSurround;
     private static Semaphore connectionAllowed = new Semaphore(1);
     /**
@@ -1946,6 +1947,11 @@ public class NvConnection {
         return nativeImageClipboard;
     }
 
+    /** Whether the host lets other devices join this game as guests ({@code session.guests}), as it last said; false until known. */
+    public boolean offersSessionGuests() {
+        return nativeSessionGuests;
+    }
+
     /**
      * Opens the menu the host draws into this stream. Blocks on HTTPS; the native API's error, with its code, comes
      * back as the cause of the IOException. The host checks the permission and that this device owns the stream.
@@ -2023,6 +2029,7 @@ public class NvConnection {
                 nativeCouchMenu = capabilities.has(NativeCapabilities.COUCH_MENU);
                 nativeUsbForwarding = capabilities.offersUsbForwarding();
                 nativeImageClipboard = capabilities.has(NativeCapabilities.CLIPBOARD_IMAGE);
+                nativeSessionGuests = capabilities.has(NativeCapabilities.SESSION_GUESTS);
                 nativeNightMode = capabilities.offersAudio(NativeCapabilities.NIGHT_MODE);
                 nativeHeadphoneSurround = capabilities.offersAudio(NativeCapabilities.HEADPHONE_SURROUND);
                 if (read != null) read.run();

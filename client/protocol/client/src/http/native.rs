@@ -9,6 +9,7 @@
 
 use super::coop::{Coop, CoopJoined, JoinRequest};
 use super::device_approval::{PairingApprove, PairingApproved, PairingDeny, PairingRequests, FEATURE_PAIRING_APPROVE};
+use super::session_guests::{GuestAction, SessionGuests, FEATURE_SESSION_GUESTS};
 use super::pc_power::{HostUpdate, PcPower, PcPowerOffer, PowerRequest};
 use super::native_api::audio::{Audio, AudioWrite};
 use super::native_api::capabilities::Capabilities;
@@ -150,6 +151,12 @@ pub struct NativeCapabilities {
 }
 
 impl NativeCapabilities {
+    /// Whether a device that resumes another device's game joins it as a guest, and the guests
+    /// list, approval prompt and Join are offered.
+    pub fn offers_session_guests(&self) -> bool {
+        self.capabilities.features.iter().any(|f| f == FEATURE_SESSION_GUESTS)
+    }
+
     /// Whether this PC can approve new devices at all, for this device or another.
     pub fn offers_pairing_approve(&self) -> bool {
         self.capabilities.features.iter().any(|f| f == FEATURE_PAIRING_APPROVE)
@@ -397,6 +404,19 @@ impl HostClient {
         let body = serde_json::to_vec(&PairingDeny { id: id.to_owned() })
             .map_err(|e| Error::InvalidArgument(format!("pairing denial: {e}")))?;
         self.native("pairing/deny", Some(&body), MAX_JSON_BYTES, ACTION_READ_TIMEOUT)
+    }
+
+    /// The running game's guests and the joins waiting. Only when the capabilities list
+    /// `session.guests`.
+    pub fn session_guests(&self) -> Result<SessionGuests, Error> {
+        self.native("session/guests", None, MAX_JSON_BYTES, READ_TIMEOUT)
+    }
+
+    /// Answers a join or manages a guest, as the device playing (or one with Host control).
+    /// Answers the list as it is afterwards; a refusal's message says why, in the host's words.
+    pub fn guest_action(&self, action: &GuestAction) -> Result<SessionGuests, Error> {
+        let (path, body) = action.request();
+        self.native(path, Some(&body), MAX_JSON_BYTES, ACTION_READ_TIMEOUT)
     }
 
     /// Installs the host's pending update, ending this device's own stream. Needs Host control;

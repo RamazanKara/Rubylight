@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="guests_join">Unisciti</string>
+    <string name="guests_wants_to_join">%1$s vuole unirsi al tuo gioco</string>
+    <string name="guests_let_in">Fai entrare</string>
+    <string name="guests_deny">Rifiuta</string>
+    <string name="guests_title">Ospiti</string>
+    <string name="guests_none">Nessuno si è unito al tuo gioco</string>
+    <string name="guests_view">Solo visione</string>
+    <string name="guests_controller">Controller</string>
+    <string name="guests_keyboard_mouse">Controller, tastiera e mouse</string>
+    <string name="guests_give_keyboard">Dai la tastiera</string>
+    <string name="guests_take_keyboard">Riprendi la tastiera</string>
+    <string name="guests_has_keyboard">ha la tastiera</string>
+    <string name="guests_away">assente</string>
+    <string name="guests_kick">Espelli</string>
+    <string name="guests_block">Blocca</string>
+    <string name="guests_failed">Impossibile modificare gli ospiti</string>
+</resources>

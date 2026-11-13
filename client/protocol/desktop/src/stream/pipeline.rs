@@ -85,6 +85,8 @@ pub enum Notice {
     HostMenu(Result<(), String>),
     /// The PC's night mode and headphone surround, read or changed from the stream controls.
     HostAudio(super::menu_extras::AudioAnswer),
+    /// The guests of this device's game, read or changed.
+    Guests(super::guests::GuestsAnswer),
     Bitrate { requested: u32, result: Result<u32, String> },
     AdaptiveBitrate(Result<(u32, u32), String>),
     /// A Foundation PC turned its own bitrate controller on; None when it has none.

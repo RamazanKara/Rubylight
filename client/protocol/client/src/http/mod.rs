@@ -23,6 +23,7 @@ mod native;
 mod network_path;
 mod pairing;
 mod device_approval;
+mod session_guests;
 mod pc_power;
 pub mod pace;
 mod power;
@@ -72,6 +73,10 @@ pub use device_approval::{
     FEATURE_PAIRING_APPROVE,
 };
 pub use network_path::{NetworkPath, MAX_NETWORK_PATH_BYTES};
+pub use session_guests::{
+    guest_ended, join_refused, GuestAction, GuestRequest, SessionGuest, SessionGuests, FEATURE_SESSION_GUESTS, GUESTS_POLL_MS,
+    GUEST_CONTROLLER, GUEST_KEYBOARD_MOUSE, GUEST_PERMISSIONS, GUEST_VIEW,
+};
 pub use pairing::{PairFailure, PairResult, PairStep};
 pub use pc_power::{
     host_words, update_arrived, HostUpdate, LateRefusal, PcPower, PcPowerOffer, PowerAvailability, FEATURE_RESTART, FEATURE_SHUTDOWN,

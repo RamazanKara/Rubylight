@@ -42,7 +42,7 @@ public final class StreamMenu {
         VIDEO_SCALING, ZOOM, ZOOM_RESET, OVERLAY_PAGE, PICTURE_IN_PICTURE, VIDEO_OUTPUT,
         BITRATE, RATE_CHANGE, AUTOMATIC_QUALITY, AUTOMATIC_BITRATE,
         HOST_MENU, SERVER_COMMANDS, CLIPBOARD_SEND, CLIPBOARD_RECEIVE, IMAGE_CLIPBOARD_SEND, IMAGE_CLIPBOARD_RECEIVE,
-        USB_DEVICES, FILES, HOST_WEB_UI, HOST_STATUS,
+        USB_DEVICES, GUESTS, FILES, HOST_WEB_UI, HOST_STATUS,
         RECONNECT, DISCONNECT, CONFIRM_DISCONNECT, QUIT_GAME, END_SESSION, END_HOST_SESSION, CLOSE_GAME,
         NATIVE_PAGE, NATIVE_RESUME, SHORTCUTS, MORE, CLOSE,
         OVERLAY_OFF, OVERLAY_COMPACT, OVERLAY_STATISTICS, OVERLAY_DEBUG,
@@ -117,6 +117,8 @@ public final class StreamMenu {
         public boolean hostMenu;
         /** The host offers USB forwarding and it is on here (Rust engine only). */
         public boolean usbForwarding;
+        /** The host lets other devices join this game as guests and this device manages them ({@code session.guests}). */
+        public boolean sessionGuests;
         /** The host's native API carries clipboard images ({@code clipboard.image}). */
         public boolean imageClipboard;
         /** The host offers night mode and headphone surround for this device's stream ({@code audio.*}). */
@@ -303,6 +305,10 @@ public final class StreamMenu {
         }
         if (o.role != NvApp.Role.REMOTE_MONITOR && o.usbForwarding) {
             entries.add(action(Section.HOST, Item.USB_DEVICES, R.string.stream_usb_devices, R.drawable.ic_usb));
+        }
+        // Only the device playing (or one with Host control) manages who joined its game.
+        if (o.role == NvApp.Role.STREAM && o.sessionGuests) {
+            entries.add(action(Section.HOST, Item.GUESTS, R.string.guests_title, R.drawable.ic_guests));
         }
         // File transfer belongs to the PC, not the session; its screen says whether this device may use it.
         if (caps.has(HostCapabilities.Feature.NATIVE_API)) {

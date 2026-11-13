@@ -68,6 +68,12 @@ impl Streaming {
                         self.show_toast(error);
                     }
                 }
+                Notice::Guests(answer) => {
+                    for toast in self.guests.answered(answer, Instant::now()) {
+                        self.show_toast(toast);
+                    }
+                    self.needs_redraw = true;
+                }
                 Notice::HostAudio(answer) => {
                     if let Err(error) = self.host_audio.answered(answer) {
                         self.show_toast(error);
@@ -170,6 +176,7 @@ impl Streaming {
                 Notice::Stage(_) | Notice::Reconnecting(_) | Notice::Started => {}
             }
         }
+        self.poll_guests();
         self.route_microphones(pads);
         *lock(&self.shared.controller_audio) = pads.pads.iter().filter_map(|p| p.audio.as_ref().map(|audio| Arc::downgrade(&audio.playback))).collect();
         self.controller_mouse_active = false;

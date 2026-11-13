@@ -300,8 +300,9 @@ pub enum Dialog {
     /// The PC refused to start `app` until the user confirms closing `running`. Closing the
     /// dialog any other way than confirming cancels the launch.
     ConfirmReplace { app: String, running: String },
-    /// `name` runs on `device`: move it here, stream it here too, or neither.
-    ContinueHere { host: u64, app: i32, resume: bool, name: String, device: String },
+    /// `name` runs on `device`: move it here, stream it here too, or neither. `join`: the PC makes
+    /// the second stream a guest of `device`, which lets it in first, so the button says Join.
+    ContinueHere { host: u64, app: i32, resume: bool, name: String, device: String, join: bool },
     /// This device's stream moved to `device`.
     NowPlaying { host: u64, app: i32, device: String },
     /// The move failed while "Now playing on ..." was open: the game is this device's again.

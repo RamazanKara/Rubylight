@@ -468,7 +468,8 @@ jobs:
   # The separate, unsigned NVIDIA build (rust/build.ps1 -Nvidia): RTX HDR and RTX
   # Video enhancement through NVIDIA's RTX Video SDK, whose proprietary NGX
   # library no signed build may contain (docs/code-signing-policy.md). It is
-  # never sent to SignPath; the release attaches it beside the signed files.
+  # never sent to SignPath. nvidia-assets attaches it to the published release
+  # beside the signed files; publish never waits on it.
   nvidia:
     needs: tag
     if: ${{ !cancelled() && needs.tag.result != 'failure' && !needs.tag.outputs.run && !inputs.notes }}
@@ -548,8 +549,8 @@ jobs:
           if-no-files-found: error
           retention-days: 30
   publish:
-    needs: [tag, test, lint, windows, nvidia]
-    if: ${{ !cancelled() && needs.tag.result == 'success' && (needs.tag.outputs.run || (needs.test.result == 'success' && needs.lint.result == 'success' && needs.windows.result == 'success' && needs.nvidia.result == 'success')) }}
+    needs: [tag, test, lint, windows]
+    if: ${{ !cancelled() && needs.tag.result == 'success' && (needs.tag.outputs.run || (needs.test.result == 'success' && needs.lint.result == 'success' && needs.windows.result == 'success')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -573,15 +574,48 @@ jobs:
           mkdir out
           mv "build/butterpollo-setup-$VERSION.exe" "out/rubylight-setup-$VERSION.exe"
           mv build/butterpollo-rust-release.zip "out/rubylight-$VERSION-windows-x64.zip"
-          # The unsigned NVIDIA build, named apart so the updater never mixes the two.
-          gh run download "$BUILD" -n butterpollo-rust-windows-x64-nvidia -D nvidia
-          mv "nvidia/butterpollo-setup-nvidia-$VERSION.exe" "out/rubylight-nvidia-setup-$VERSION.exe"
-          mv nvidia/butterpollo-rust-nvidia-release.zip "out/rubylight-nvidia-$VERSION-windows-x64.zip"
           (cd out && sha256sum * > SHA256SUMS)
           flags=()
           if [[ $VERSION == *-* ]]; then flags+=(--prerelease); else flags+=(--latest); fi
           gh release create "$TAG" --target "$GITHUB_SHA" --title "Rubylight $VERSION" --notes-file body.md "${flags[@]}" out/*
           echo "::notice::published $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG"
+  # Attaches the unsigned NVIDIA build to the release publish made. The release
+  # never waits on it or fails with it: an NGC outage or a failed NVIDIA build
+  # only delays these extra files, and running this job again attaches them.
+  nvidia-assets:
+    needs: [tag, nvidia, publish]
+    if: ${{ !cancelled() && needs.publish.result == 'success' && (needs.nvidia.result == 'success' || needs.tag.outputs.run) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.tag.outputs.version }}
+      TAG: ${{ needs.tag.outputs.tag }}
+      BUILD: ${{ needs.tag.outputs.run || github.run_id }}
+    steps:
+      - name: Attach the NVIDIA build to the release
+        run: |
+          # The release publish made may take a moment to show; an older one
+          # published under the bare version is found the same way.
+          release=
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            for name in "$TAG" "$VERSION"; do
+              if gh release view "$name" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then release=$name; break 2; fi
+            done
+            sleep 30
+          done
+          if [[ -z $release ]]; then echo "::error::no release $TAG to attach the NVIDIA build to"; exit 1; fi
+          # Named apart from the signed files, so the updater never mixes the two.
+          gh run download "$BUILD" -R "$GITHUB_REPOSITORY" -n butterpollo-rust-windows-x64-nvidia -D nvidia
+          mkdir out
+          mv "nvidia/butterpollo-setup-nvidia-$VERSION.exe" "out/rubylight-nvidia-setup-$VERSION.exe"
+          mv nvidia/butterpollo-rust-nvidia-release.zip "out/rubylight-nvidia-$VERSION-windows-x64.zip"
+          (cd out && sha256sum * > SHA256SUMS-nvidia)
+          gh release upload "$release" -R "$GITHUB_REPOSITORY" --clobber out/*
+          echo "::notice::attached the NVIDIA build to $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$release"
   # Corrects a published release's text after the fact, keeping its assets
   # and its link to the run that built it.
   notes:

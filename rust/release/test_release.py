@@ -664,6 +664,22 @@ class Signing(unittest.TestCase):
         self.assertIn('out/rubylight-nvidia-setup-$VERSION.exe', self.workflow)
         self.assertIn('out/rubylight-nvidia-$VERSION-windows-x64.zip', self.workflow)
 
+    def test_the_release_never_waits_on_the_nvidia_build(self):
+        # An NGC outage or a failed NVIDIA build only delays its extra files:
+        # publish neither needs nor downloads it, and nvidia-assets attaches
+        # it to the release publish made, without signing anything.
+        job = lambda name: re.search(rf'(?ms)^  {name}:\n(.*?)(?=^  \S)', self.workflow)[1]
+        publish = job('publish')
+        self.assertIn('    needs: [tag, test, lint, windows]\n', publish)
+        self.assertNotIn('nvidia', publish)
+        assets = job('nvidia-assets')
+        self.assertIn('    needs: [tag, nvidia, publish]\n', assets)
+        self.assertIn("needs.publish.result == 'success'", assets)
+        self.assertIn('gh release upload "$release"', assets)
+        self.assertIn('-n butterpollo-rust-windows-x64-nvidia', assets)
+        for word in ('SignPath', 'sign-artifacts', 'SIGNPATH', 'gh release create'):
+            self.assertNotIn(word, assets)
+
     def test_only_release_runs_sign(self):
         # Every SignPath request waits for a manual approval, so only the tag
         # job's release decision turns signing on.

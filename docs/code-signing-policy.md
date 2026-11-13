@@ -35,7 +35,7 @@ Files from other projects ship as their projects released them and are never sig
 
 RTX HDR and RTX Video enhancement call NVIDIA's proprietary NGX library and need NVIDIA's `nvngx_truehdr.dll` and `nvngx_vsr.dll`, which may not be relicensed under the GPL. They are therefore built only into a separate NVIDIA build (`rust\build.ps1 -Nvidia`, the host's `nvidia-proprietary` feature), which is never signed:
 
-- its own workflow job builds it from the same commit, and that job never calls SignPath; `sign-artifacts.ps1` and the [artifact configurations](../.signpath/) name only the signed build's folder and files;
+- its own workflow job builds it from the same commit, and another attaches it to the release after the signed files are published; neither calls SignPath, and the signed release never waits on them; `sign-artifacts.ps1` and the [artifact configurations](../.signpath/) name only the signed build's folder and files;
 - every file it publishes carries `nvidia` in its name (`rubylight-nvidia-setup-<version>.exe`, `rubylight-nvidia-<version>-windows-x64.zip`), and Windows shows it without a publisher;
 - a host from it updates only to the next NVIDIA build, and a signed host never to one.
 

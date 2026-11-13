@@ -78,8 +78,12 @@ unsafe fn surface_int(surface: *mut AMFSurface, name: &'static str) -> Option<i6
             static_wide(name).as_ptr(),
             &mut value,
         );
-        (result == AMF_RESULT_AMF_OK && value.type_ == AMF_VARIANT_TYPE_AMF_VARIANT_INT64)
-            .then(|| value.__bindgen_anon_1.int64Value)
+        // The union is read only when GetProperty succeeded with an INT64 value.
+        if result == AMF_RESULT_AMF_OK && value.type_ == AMF_VARIANT_TYPE_AMF_VARIANT_INT64 {
+            Some(value.__bindgen_anon_1.int64Value)
+        } else {
+            None
+        }
     }
 }
 

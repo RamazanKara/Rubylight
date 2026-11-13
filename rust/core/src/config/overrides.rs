@@ -81,6 +81,7 @@ pub fn override_allowed(key: &str) -> bool {
         "wireless_adaptive_pacing",
         "keyframe_loss_pacing",
         "link_rate_adaptation",
+        "congestion_control",
         "video_max_batch_size_kb",
         "pyrowave_critical_fec_percentage",
         "hevc_mode",

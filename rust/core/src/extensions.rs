@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use anyhow::{Result, bail};
 use rubylight_protocol::{
     audio_ext, clipboard_sync, controller_identity, cursor_shape, fec_report, frame_warp, hdr,
-    keyboard_layout, pen, pipeline_rates, rate_change, text_input, usb,
+    keyboard_layout, pen, pipeline_rates, rate_change, text_input, transport_feedback, usb,
 };
 
 pub use rubylight_protocol::fec_report::FecChoice;
@@ -104,6 +104,9 @@ pub struct Offered {
     /// Clipboard sync (0x5508), only on a stream whose launch asked with
     /// `rlClipboardSync=1`, so serverinfo never shows it.
     pub clipboard_sync: bool,
+    /// Per-packet arrival feedback (0x5547) for congestion control, while
+    /// `congestion_control` is on; a DESCRIBE id only, no serverinfo element.
+    pub transport_feedback: bool,
 }
 
 impl Offered {
@@ -126,6 +129,7 @@ impl Offered {
         controller_identity: false,
         rate_change: false,
         clipboard_sync: false,
+        transport_feedback: false,
     };
 
     /// The serverinfo elements of what is offered, in a fixed order; none for
@@ -246,6 +250,10 @@ impl Offered {
             (self.frame_warp, frame_warp::FRAME_WARP_MODEL_MESSAGE_TYPE),
             (self.frame_warp, frame_warp::FRAME_WARP_TAGS_MESSAGE_TYPE),
             (self.frame_warp, frame_warp::FRAME_WARP_MASK_MESSAGE_TYPE),
+            (
+                self.transport_feedback,
+                transport_feedback::TRANSPORT_FEEDBACK_MESSAGE_TYPE,
+            ),
         ]
         .into_iter()
         .filter_map(|(offered, id)| offered.then_some(id))
@@ -352,6 +360,7 @@ mod tests {
         controller_identity: true,
         rate_change: true,
         clipboard_sync: true,
+        transport_feedback: true,
     };
 
     #[test]
@@ -402,13 +411,13 @@ mod tests {
              a=fmtp:97 surround-params=12,12,0,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
              a=x-ss-general.penBarrelRoll:1\r\n\
              a=x-rl-control:0x5508,0x5539,0x553a,0x553b,0x553c,0x553d,0x553e,0x5540,0x5543,\
-             0x5544,0x5545,0x5546\r\n"
+             0x5544,0x5545,0x5546,0x5547\r\n"
         );
         assert_eq!(
             ALL_ON.control_ids(),
             [
                 0x5508, 0x5539, 0x553A, 0x553B, 0x553C, 0x553D, 0x553E, 0x5540, 0x5543, 0x5544,
-                0x5545, 0x5546
+                0x5545, 0x5546, 0x5547
             ]
         );
     }
@@ -442,6 +451,16 @@ mod tests {
             .serverinfo_fields(),
             defaults.serverinfo_fields()
         );
+    }
+
+    #[test]
+    fn transport_feedback_is_a_describe_id_only() {
+        let offered = Offered {
+            transport_feedback: true,
+            ..Offered::NONE
+        };
+        assert!(offered.serverinfo_fields().is_empty());
+        assert_eq!(offered.describe_lines(), "a=x-rl-control:0x5547\r\n");
     }
 
     #[test]

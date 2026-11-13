@@ -612,6 +612,15 @@ impl Media {
                             // This dispatch receives only client-to-host packets;
                             // 0x5502 in the other direction is controller feedback.
                             0x5502 => s.record_fec_status(&payload),
+                            // Per-packet arrival feedback, unreliable and dropped when invalid.
+                            butterpollo_core::congestion::TRANSPORT_FEEDBACK_MESSAGE_TYPE => {
+                                if !s.record_transport_feedback(&payload) {
+                                    tracing::trace!(
+                                        bytes = payload.len(),
+                                        "transport feedback ignored"
+                                    );
+                                }
+                            }
                             butterpollo_core::statistical_fec::FEC_REPORT_MESSAGE_TYPE => {
                                 match s.record_fec_report(&payload) {
                                     Ok((report, used)) => tracing::debug!(
@@ -1348,6 +1357,11 @@ impl Media {
                     }
                     if poll_feedback {
                         s.tick_link_rate(Instant::now(), host.peer(*peer_id).round_trip_time());
+                        let (change, applied) = s
+                            .tick_congestion(Instant::now(), host.peer(*peer_id).round_trip_time());
+                        if let Some(change) = change {
+                            log_congestion_change(&s, &change, applied);
+                        }
                     }
                     // The bitrate notice for a client that asked (0x5538): reliable, so
                     // the overlay is not left stale, and at most one a second.
@@ -2356,4 +2370,35 @@ pub(crate) fn feedback_packets(id: u16, kind: u16, data: &[u8]) -> Vec<(u16, Vec
         }
     }
     result
+}
+
+/// A congestion control decision, for the log: a cut is a warning, a release information.
+fn log_congestion_change(
+    s: &Session,
+    change: &butterpollo_core::congestion::Change,
+    applied: Option<(u32, u32)>,
+) {
+    use butterpollo_core::congestion::ChangeKind;
+    let (old_kbps, new_kbps) = applied.unwrap_or((0, 0));
+    let shadow = s.congestion.lock().unwrap().shadow();
+    macro_rules! line {
+        ($level:ident) => {
+            tracing::$level!(
+                client = %s.launch.client.name,
+                kind = change.kind.name(),
+                from_kbps = change.from_bps / 1000,
+                to_kbps = change.to_bps / 1000,
+                acked_kbps = change.acked_bps / 1000,
+                loss_permille = (change.loss * 1000.0).round() as u32,
+                old_kbps,
+                new_kbps,
+                shadow,
+                "congestion control"
+            )
+        };
+    }
+    match change.kind {
+        ChangeKind::Overuse | ChangeKind::Loss => line!(warn),
+        ChangeKind::Restored | ChangeKind::Stale => line!(info),
+    }
 }

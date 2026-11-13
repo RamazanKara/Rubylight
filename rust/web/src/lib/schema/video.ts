@@ -644,6 +644,19 @@ const video: Setting[] = [
     default: true,
     advanced: true,
   },
+  {
+    key: 'congestion_control',
+    label: 'Adapt to network congestion',
+    description:
+      'Lowers the bitrate and paces video as network delay builds up, before packets are lost, then raises it again. For devices that report packet arrivals, such as Nightjar.',
+    details:
+      'The device reports when each video packet arrived. When packets take longer and longer to arrive, a queue is building on the way, so this PC lowers the bitrate to just under what arrived and paces video at the rate of the slowest link; loss past what error correction repairs lowers it as well. When the delay settles, the bitrate climbs back to the requested one. Works together with Lower the bitrate when the link cannot carry it: the lower of both applies. Off while Adapt bitrate on this PC is on, and a device that sets its own bitrate takes over bitrate control. Reconnect after saving.',
+    category: 'video',
+    group: 'Bitrate and network',
+    control: { kind: 'toggle' },
+    default: false,
+    advanced: true,
+  },
 ];
 
 const encoders: Setting[] = [

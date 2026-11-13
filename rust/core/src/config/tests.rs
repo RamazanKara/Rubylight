@@ -655,6 +655,22 @@ fn link_rate_adaptation_is_on_unless_disabled_or_the_opt_in_owns_the_bitrate() {
 }
 
 #[test]
+fn congestion_control_is_off_unless_set_and_yields_to_the_opt_in() {
+    for (text, enabled) in [
+        ("", false),
+        ("congestion_control=true", true),
+        ("congestion_control=invalid", false),
+        ("congestion_control=false", false),
+        ("congestion_control=true\nhost_adaptive_bitrate=true", false),
+        ("congestion_control=true\nlink_rate_adaptation=false", true),
+    ] {
+        let config = super::Config::parse(text).unwrap();
+        assert_eq!(config.congestion_control(), enabled, "{text}");
+    }
+    assert!(super::override_allowed("congestion_control"));
+}
+
+#[test]
 fn resetting_packet_pacing_opt_in_restores_the_disabled_default() {
     let mut config = super::Config::default();
     assert!(!config.adaptive_packet_pacing(0, false));

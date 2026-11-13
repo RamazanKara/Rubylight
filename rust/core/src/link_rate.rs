@@ -576,7 +576,7 @@ impl Default for LinkRate {
 /// PyroWave's floor: its severe-detail-loss rate
 /// ([`crate::pyrowave::minimum_kbps`], about 186 Mbps at 1080p60), in the
 /// session's bitrate, which the sender scales by configured over negotiated.
-fn pyrowave_floor_kbps(stream: &Negotiated) -> u32 {
+pub(crate) fn pyrowave_floor_kbps(stream: &Negotiated) -> u32 {
     let minimum = crate::pyrowave::minimum_kbps(stream.width, stream.height, stream.fps_millihz());
     if stream.configured_bitrate_kbps == 0 {
         return minimum;

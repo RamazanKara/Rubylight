@@ -35,8 +35,8 @@ enum Message {
 
 fn messages() -> impl Strategy<Value = Vec<Message>> {
     use butterpollo_core::{
-        client_cursor, clock_sync, display_caps, frame_warp, host_timing, link_notice, phase_sync,
-        pipeline_rates, statistical_fec,
+        client_cursor, clock_sync, congestion, display_caps, frame_warp, host_timing, link_notice,
+        phase_sync, pipeline_rates, statistical_fec,
     };
     use proptest::prelude::*;
     let kind = prop_oneof![
@@ -54,6 +54,7 @@ fn messages() -> impl Strategy<Value = Vec<Message>> {
             client_cursor::CURSOR_SHAPE_REQUEST_MESSAGE_TYPE,
             display_caps::DISPLAY_CAPS_MESSAGE_TYPE,
             frame_warp::FRAME_WARP_REQUEST_MESSAGE_TYPE,
+            congestion::TRANSPORT_FEEDBACK_MESSAGE_TYPE,
         ]),
         1 => any::<u16>(),
     ]

@@ -403,6 +403,12 @@ impl SessionThread<'_> {
                                         return Ok(());
                                     }
                                 };
+                                if bytes > 0 {
+                                    s.record_transport_sent(
+                                        &remaining[..count],
+                                        butterpollo_core::network_pacing::overhead(peer.ip().to_canonical().is_ipv6()),
+                                    );
+                                }
                                 sent.first_sent.get_or_insert(Instant::now());
                                 remaining = &remaining[count..];
                                 sent.packets += count;
@@ -630,6 +636,12 @@ impl SessionThread<'_> {
                                 None => batch.send(&m.video, &remaining[..count], peer)?,
                             },
                         };
+                        if bytes > 0 {
+                            s.record_transport_sent(
+                                &remaining[..count],
+                                butterpollo_core::network_pacing::overhead(peer.ip().to_canonical().is_ipv6()),
+                            );
+                        }
                         let finished = Instant::now();
                         first_sent.get_or_insert(finished);
                         send_time += finished.duration_since(send_started);
@@ -747,7 +759,11 @@ impl SessionThread<'_> {
                             let window = s.stats.performance.lock().unwrap().window(Instant::now());
                             let timing = window.snapshot();
                             let link = s.link_rate_snapshot();
-                            let ms = |key: &str| timing[key].as_f64().unwrap_or(0.);
+                            // Congestion control (`congestion_control`, or its shadow run): state,
+                            // and the queueing delay over this window, for `congestion_ab.py`.
+                            let cc = s.congestion_snapshot();
+                            let (cc_queue_p50, cc_queue_p95, cc_samples) = s.take_congestion_window();
+                            let cc_u64 = |key: &str| cc[key].as_u64();
                             let input = s.stats.input_latency.lock().unwrap().take();
                             // Pipeline frame rates since the last summary; none in the first.
                             let rates = pipeline_log.sample(Instant::now(), s.pipeline_counts(), Duration::from_secs(5));
@@ -862,6 +878,23 @@ impl SessionThread<'_> {
                                 // read of a pass's first datagram to its input injected, p50/p99/max ms.
                                 input_receive_to_injected_ms=%input,
                                 input_passes=input.passes,
+                                cc_state=%cc["state"].as_str().unwrap_or("off"),
+                                cc_shadow=cc["shadow"].as_bool().unwrap_or(false),
+                                cc_usage=cc["usage"].as_str(),
+                                cc_target_kbps=cc_u64("target_kbps"),
+                                cc_wanted_kbps=cc_u64("wanted_kbps"),
+                                cc_acked_kbps=cc_u64("acked_kbps"),
+                                cc_pace_kbps=cc_u64("pace_kbps"),
+                                cc_loss_permille=cc_u64("loss_permille"),
+                                cc_trend=cc["trend"].as_f64(),
+                                cc_threshold=cc["threshold"].as_f64(),
+                                cc_queue_p50_ms=cc_queue_p50.map(|v| (v * 100.).round() / 100.),
+                                cc_queue_p95_ms=cc_queue_p95.map(|v| (v * 100.).round() / 100.),
+                                cc_queue_samples=cc_samples,
+                                cc_overuse_cuts=cc_u64("overuse_cuts"),
+                                cc_loss_cuts=cc_u64("loss_cuts"),
+                                cc_reports=cc_u64("reports"),
+                                cc_feedback_bytes=cc_u64("feedback_bytes"),
                                 "stream timings"
                             );
                         }
@@ -914,6 +947,7 @@ impl SessionThread<'_> {
                                 self.follow_size(&prepared, (stream.width, stream.height));
                             }
                             s.rebuild_link_rate(&stream, c.link_rate_adaptation(), max_bitrate_kbps(&s, &c));
+                            rebuild_congestion(&s, &stream, &c);
                             switching.get_or_insert((from, Instant::now()));
                             rebuild_encoder = true;
                         }
@@ -1229,6 +1263,7 @@ impl SessionThread<'_> {
                                 // The link rate, and the display or co-op window, were
                                 // already set for the refused mode.
                                 s.rebuild_link_rate(&stream, c.link_rate_adaptation(), max_bitrate_kbps(&s, &c));
+                                rebuild_congestion(&s, &stream, &c);
                                 if (to.width, to.height) != (from.width, from.height) {
                                     self.follow_size(&prepared, (stream.width, stream.height));
                                 }
@@ -1505,6 +1540,7 @@ impl SessionThread<'_> {
                             let to = butterpollo_core::reconfigure::Mode::of(&stream);
                             from.apply_to(&mut stream);
                             s.rebuild_link_rate(&stream, c.link_rate_adaptation(), max_bitrate_kbps(&s, &c));
+                            rebuild_congestion(&s, &stream, &c);
                             if (to.width, to.height) != (from.width, from.height) {
                                 self.follow_size(&prepared, (stream.width, stream.height));
                             }

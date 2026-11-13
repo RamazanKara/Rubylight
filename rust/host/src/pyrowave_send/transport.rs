@@ -93,6 +93,10 @@ pub(super) fn run(
                 }
                 let count = Batch::count(remaining, batch_limit(bps, remaining[0].len(), ipv6));
                 let bytes = batch.send(&socket, &remaining[..count], frame.peer)?;
+                if bytes > 0 {
+                    current
+                        .record_transport_sent(&remaining[..count], network_pacing::overhead(ipv6));
+                }
                 first_sent.get_or_insert_with(Instant::now);
                 sent += bytes;
                 let left = if bytes > 0 { count } else { 0 };

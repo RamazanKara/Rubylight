@@ -447,6 +447,7 @@ fn restart_on_new_path(s: &Session, c: &Config) {
     let mut stream = s.config.clone();
     s.stream_mode().apply_to(&mut stream);
     s.rebuild_link_rate(&stream, c.link_rate_adaptation(), max_bitrate_kbps(s, c));
+    rebuild_congestion(s, &stream, c);
     configure_adaptive_bitrate(s, c);
 }
 /// The stream's video FEC at its start: the configured percentage is adaptive
@@ -491,6 +492,21 @@ fn configure_adaptive_bitrate(s: &Session, c: &Config) {
         c.boolean("host_adaptive_bitrate", false),
         max_bitrate_kbps(s, c),
     );
+}
+/// Packet-level congestion control from the client's arrival feedback: `(enabled, shadow)`.
+/// `congestion_control` turns it on; `BUTTERPOLLO_CONGESTION_SHADOW=1` runs it measure-only
+/// for the A/B (`rust/release/congestion_ab.py`): it logs what it would do, applies nothing.
+/// Host adaptive bitrate owns the bitrate when on, so neither runs then.
+pub(crate) fn congestion_mode(c: &Config) -> (bool, bool) {
+    let shadow = std::env::var("BUTTERPOLLO_CONGESTION_SHADOW").is_ok_and(|v| v == "1")
+        && !c.boolean("host_adaptive_bitrate", false);
+    (c.congestion_control() || shadow, shadow)
+}
+/// Congestion control for a stream whose mode or path changed; call after
+/// `rebuild_link_rate`.
+fn rebuild_congestion(s: &Session, stream: &butterpollo_core::rtsp::Negotiated, c: &Config) {
+    let (enabled, shadow) = congestion_mode(c);
+    s.rebuild_congestion(stream, enabled, max_bitrate_kbps(s, c), shadow);
 }
 /// The user's `max_bitrate`, within what the stream's codec can be asked for:
 /// PyroWave goes to 2 Gbps, the others to 500 Mbps.

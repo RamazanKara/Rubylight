@@ -140,6 +140,14 @@ pub struct Session<P = (), A = ()> {
     pub link_rate: std::sync::Mutex<crate::link_control::LinkControl>,
     /// What the video sender sent, for `link_rate`; one store per frame.
     pub link_sent: crate::link_control::SentLog,
+    /// Packet-level congestion control from the client's arrival feedback (0x5547); see
+    /// [`crate::congestion`]. Take after `link_rate`.
+    pub congestion: std::sync::Mutex<crate::congestion::Control>,
+    /// What the video sender sent, by packet id, for `congestion`: one store per packet, and
+    /// only once the client's first report came.
+    pub transport_sent: crate::congestion::SendLedger,
+    /// The pace `congestion` set, bps; 0 for none.
+    congestion_pacing_bps: AtomicU64,
     /// The route policy paced the last frame faster than the Wi-Fi rate, so
     /// a latch that slows it may be the whole fix (see `LinkRate::on_latch`).
     pace_was_fast: AtomicBool,
@@ -285,6 +293,9 @@ impl<P, A> Session<P, A> {
             adaptive_bitrate: Default::default(),
             link_rate: Default::default(),
             link_sent: crate::link_control::SentLog::new(started),
+            congestion: Default::default(),
+            transport_sent: crate::congestion::SendLedger::new(started),
+            congestion_pacing_bps: AtomicU64::new(0),
             pace_was_fast: AtomicBool::new(false),
             adaptive_video_pacing_bps: AtomicU64::new(0),
             automatic_pacing: Default::default(),
@@ -841,6 +852,9 @@ impl<P, A> Session<P, A> {
             let mut link = self.link_rate.lock().unwrap();
             link.takeover();
             self.link_sent.set_live(false);
+            self.congestion.lock().unwrap().takeover();
+            self.transport_sent.disable();
+            self.congestion_pacing_bps.store(0, Ordering::Release);
             self.bitrate.store(kbps, Ordering::Release);
         }
         self.launch.warnings.clear("host_bitrate_budget");
@@ -849,10 +863,15 @@ impl<P, A> Session<P, A> {
     }
     pub fn adaptive_pacing_bps(&self, configured_bps: u64) -> u64 {
         let limit = self.adaptive_video_pacing_bps.load(Ordering::Acquire);
-        if limit == 0 {
+        let paced = if limit == 0 {
             configured_bps
         } else {
             configured_bps.min(limit)
+        };
+        // The bottleneck's rate, when congestion control found one.
+        match self.congestion_pacing_bps.load(Ordering::Acquire) {
+            0 => paced,
+            congestion => paced.min(congestion),
         }
     }
     /// Starts the link-rate controller for the stream: `enabled` is
@@ -867,6 +886,14 @@ impl<P, A> Session<P, A> {
         let mut link = self.link_rate.lock().unwrap();
         if let Some(kbps) = link.restore.take() {
             self.bitrate.store(kbps, Ordering::Release);
+        }
+        {
+            // Congestion control's limit goes too; `rebuild_congestion` starts it again.
+            let mut congestion = self.congestion.lock().unwrap();
+            if let Some(kbps) = congestion.take_restore() {
+                self.bitrate.store(kbps, Ordering::Release);
+            }
+            congestion.link_wanted = None;
         }
         let rate = link
             .rate
@@ -1005,13 +1032,21 @@ impl<P, A> Session<P, A> {
         let target = link
             .rate
             .tick(now, rtt, self.fec_percent(), period, current, busy);
-        let applied = match target {
-            Some(kbps) => {
-                link.restore.get_or_insert(current);
-                kbps
+        let mut congestion = self.congestion.lock().unwrap();
+        let applied = if congestion.active() {
+            // Congestion control writes the bitrate: the lower of both limits.
+            congestion.link_wanted = target;
+            congestion.combine(current)
+        } else {
+            match target {
+                Some(kbps) => {
+                    link.restore.get_or_insert(current);
+                    kbps
+                }
+                None => link.restore.take().unwrap_or(current),
             }
-            None => link.restore.take().unwrap_or(current),
         };
+        drop(congestion);
         if applied != current {
             self.bitrate.store(applied, Ordering::Release);
         }
@@ -1149,6 +1184,115 @@ impl<P, A> Session<P, A> {
             }
             _ => {}
         }
+    }
+    /// Starts packet-level congestion control for the stream: `enabled` is
+    /// `Config::congestion_control`, `maximum_kbps` the user's `max_bitrate`, `shadow` the A/B's
+    /// measure-only mode.
+    pub fn configure_congestion(&self, enabled: bool, maximum_kbps: u32, shadow: bool) {
+        self.rebuild_congestion(&self.config, enabled, maximum_kbps, shadow);
+    }
+    /// A controller for a stream whose mode or bitrate changed: a limit it set goes back to
+    /// the bitrate from before it, what it learned is forgotten, a client takeover stays.
+    pub fn rebuild_congestion(
+        &self,
+        stream: &Negotiated,
+        enabled: bool,
+        maximum_kbps: u32,
+        shadow: bool,
+    ) {
+        let _link = self.link_rate.lock().unwrap();
+        let mut congestion = self.congestion.lock().unwrap();
+        if let Some(kbps) = congestion.take_restore() {
+            self.bitrate.store(kbps, Ordering::Release);
+        }
+        *congestion = congestion.rebuild(stream, enabled, maximum_kbps, shadow);
+        if !congestion.active() {
+            self.transport_sent.disable();
+        }
+        self.congestion_pacing_bps.store(0, Ordering::Release);
+    }
+    /// Whether congestion control runs for this stream (0x5547 is offered to it).
+    pub fn congestion_active(&self) -> bool {
+        self.congestion.lock().unwrap().active()
+    }
+    /// A 0x5547 report from the client. The first one turns the sender's ledger on, so a
+    /// client that never reports costs the sender nothing; later ones are joined with it.
+    /// Returns whether the report was valid.
+    pub fn record_transport_feedback(&self, payload: &[u8]) -> bool {
+        self.record_transport_feedback_at(payload, Instant::now())
+    }
+    fn record_transport_feedback_at(&self, payload: &[u8], now: Instant) -> bool {
+        let mut congestion = self.congestion.lock().unwrap();
+        if !congestion.active() {
+            return false;
+        }
+        if !self.transport_sent.live() {
+            self.transport_sent.enable(self.config.encryption & 2 != 0);
+        }
+        congestion.on_report(
+            &self.transport_sent,
+            self.transport_sent.micros(now),
+            payload,
+        )
+    }
+    /// Video packets just handed to the socket: one store each into the ledger, nothing
+    /// while it is off. `overhead` is the IP and UDP framing per packet.
+    pub fn record_transport_sent<T: AsRef<[u8]>>(&self, packets: &[T], overhead: usize) {
+        if self.transport_sent.live() {
+            self.transport_sent
+                .record(packets, overhead, Instant::now());
+        }
+    }
+    pub fn congestion_snapshot(&self) -> serde_json::Value {
+        let congestion = self.congestion.lock().unwrap();
+        congestion.snapshot(self.transport_sent.micros(Instant::now()))
+    }
+    /// Queueing delay p50/p95 (ms) and samples since the last call, for `stream timings`.
+    pub fn take_congestion_window(&self) -> (Option<f64>, Option<f64>, u64) {
+        self.congestion.lock().unwrap().take_window_delay()
+    }
+    /// Call from the feedback tick, after `tick_link_rate`: runs congestion control and
+    /// applies its bitrate and pace. Returns the change to log and `(old, new)` kbps when the
+    /// encoder bitrate changed.
+    pub fn tick_congestion(
+        &self,
+        now: Instant,
+        rtt: Duration,
+    ) -> (Option<crate::congestion::Change>, Option<(u32, u32)>) {
+        let link = self.link_rate.lock().unwrap();
+        let mut congestion = self.congestion.lock().unwrap();
+        if !congestion.active() {
+            return (None, None);
+        }
+        let now_us = self.transport_sent.micros(now);
+        let pace = congestion.tick(now_us, rtt, self.fec_percent(), self.stream_mode().period());
+        self.congestion_pacing_bps
+            .store(pace.unwrap_or(0), Ordering::Release);
+        let current = self.bitrate.load(Ordering::Acquire);
+        let applied = congestion.combine(current);
+        if applied != current {
+            self.bitrate.store(applied, Ordering::Release);
+        }
+        let change = congestion.take_change();
+        let shadow = congestion.shadow();
+        drop(congestion);
+        drop(link);
+        if let Some(change) = change.filter(|_| !shadow) {
+            use crate::congestion::ChangeKind;
+            let mut notices = self.link_notices.lock().unwrap();
+            match change.kind {
+                ChangeKind::Restored | ChangeKind::Stale => notices.note_full(applied),
+                ChangeKind::Overuse | ChangeKind::Loss => {
+                    notices.note(crate::link_notice::LinkNotice {
+                        state: crate::link_notice::LinkState::Limited,
+                        reason: crate::link_notice::LinkReason::Network,
+                        ceiling_kbps: self.config.bitrate_kbps.max(applied),
+                        current_kbps: applied.max(1),
+                    })
+                }
+            }
+        }
+        (change, (applied != current).then_some((current, applied)))
     }
     pub fn configure_automatic_pacing(&self, enabled: bool) {
         *self.automatic_pacing.lock().unwrap() =
@@ -1471,6 +1615,6 @@ impl<P, A> Session<P, A> {
             .lock()
             .unwrap()
             .window(Instant::now());
-        serde_json::json!({"warnings":warnings,"encoder":*self.encoder.read().unwrap(),"uuid":self.launch.client.uuid,"device_name":self.launch.client.name,"width":width,"height":height,"fps":fps,"requested_fps":requested_fps,"video_format":self.config.codec,"hdr":self.config.hdr,"vrr":self.config.vrr_low_latency,"encoder_bitrate_kbps":self.bitrate.load(Ordering::Relaxed),"adaptive_bitrate":self.adaptive_bitrate.lock().unwrap().snapshot(),"link_rate":self.link_rate_snapshot(),"packet_pacing":self.automatic_pacing.lock().unwrap().snapshot(),"fec_percent":self.fec_percent(),"pyrowave_minimum_kbps":(self.config.codec == 3).then(|| crate::pyrowave::minimum_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"pyrowave_recommended_kbps":(self.config.codec == 3).then(|| crate::pyrowave::recommended_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"audio_channels":self.config.audio_channels,"state":if self.stopping(){"STOPPING"}else{"RUNNING"},"frames_sent":self.stats.frames.load(Ordering::Relaxed),"frames_replaced":self.stats.frames_replaced.load(Ordering::Relaxed),"packets_sent":self.stats.packets.load(Ordering::Relaxed),"bytes_sent":self.stats.bytes.load(Ordering::Relaxed),"idr_requests":self.stats.idr_requests.load(Ordering::Relaxed),"reference_invalidations":self.stats.reference_invalidations.load(Ordering::Relaxed),"send_loss_recoveries":self.stats.send_loss_recoveries.load(Ordering::Relaxed),"frames_lost_on_send":self.stats.frames_lost_on_send.load(Ordering::Relaxed),"keyframes_past_fec":self.stats.keyframes_past_fec.load(Ordering::Relaxed),"slice_delivery_overflows":self.stats.slice_delivery_overflows.load(Ordering::Relaxed),"encode_latency_ms":self.stats.latency_us.load(Ordering::Relaxed) as f64/1000.,"performance":performance.snapshot(),"pipeline_rates":self.console_pipeline_rates(),"uptime_seconds":self.started.elapsed().as_secs_f64(),"role":self.launch.role})
+        serde_json::json!({"warnings":warnings,"encoder":*self.encoder.read().unwrap(),"uuid":self.launch.client.uuid,"device_name":self.launch.client.name,"width":width,"height":height,"fps":fps,"requested_fps":requested_fps,"video_format":self.config.codec,"hdr":self.config.hdr,"vrr":self.config.vrr_low_latency,"encoder_bitrate_kbps":self.bitrate.load(Ordering::Relaxed),"adaptive_bitrate":self.adaptive_bitrate.lock().unwrap().snapshot(),"link_rate":self.link_rate_snapshot(),"congestion":self.congestion_snapshot(),"packet_pacing":self.automatic_pacing.lock().unwrap().snapshot(),"fec_percent":self.fec_percent(),"pyrowave_minimum_kbps":(self.config.codec == 3).then(|| crate::pyrowave::minimum_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"pyrowave_recommended_kbps":(self.config.codec == 3).then(|| crate::pyrowave::recommended_kbps(self.config.width, self.config.height, self.config.fps_millihz())),"audio_channels":self.config.audio_channels,"state":if self.stopping(){"STOPPING"}else{"RUNNING"},"frames_sent":self.stats.frames.load(Ordering::Relaxed),"frames_replaced":self.stats.frames_replaced.load(Ordering::Relaxed),"packets_sent":self.stats.packets.load(Ordering::Relaxed),"bytes_sent":self.stats.bytes.load(Ordering::Relaxed),"idr_requests":self.stats.idr_requests.load(Ordering::Relaxed),"reference_invalidations":self.stats.reference_invalidations.load(Ordering::Relaxed),"send_loss_recoveries":self.stats.send_loss_recoveries.load(Ordering::Relaxed),"frames_lost_on_send":self.stats.frames_lost_on_send.load(Ordering::Relaxed),"keyframes_past_fec":self.stats.keyframes_past_fec.load(Ordering::Relaxed),"slice_delivery_overflows":self.stats.slice_delivery_overflows.load(Ordering::Relaxed),"encode_latency_ms":self.stats.latency_us.load(Ordering::Relaxed) as f64/1000.,"performance":performance.snapshot(),"pipeline_rates":self.console_pipeline_rates(),"uptime_seconds":self.started.elapsed().as_secs_f64(),"role":self.launch.role})
     }
 }

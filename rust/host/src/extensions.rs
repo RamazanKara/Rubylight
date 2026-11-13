@@ -86,6 +86,7 @@ fn offer(h: &Shared, config: &Config, dolby: u8) -> Offered {
         // Per launch: `stream_offered`.
         rate_change: false,
         clipboard_sync: false,
+        transport_feedback: transport_feedback(config),
     }
 }
 
@@ -185,6 +186,13 @@ fn cursor_shape(config: &Config) -> bool {
 /// capture and encoder takes it, since the GPU passes read the captured image.
 fn frame_warp(config: &Config) -> bool {
     config.frame_warp()
+}
+
+/// Network: per-packet arrival feedback (0x5547), while congestion control runs
+/// (`congestion_control`, or its measure-only A/B run). The host keeps no send
+/// records until a client's first report comes.
+fn transport_feedback(config: &Config) -> bool {
+    crate::stream::congestion_mode(config).0
 }
 
 /// Diagnostics (B): pipeline frame rates. Every stream counts them, off the
@@ -294,6 +302,24 @@ mod tests {
         ] {
             let config = Config::parse(text).unwrap();
             assert_eq!(frame_warp(&config), offered, "{text}");
+        }
+    }
+
+    /// Arrival feedback is offered only while congestion control is on, and never beside
+    /// host adaptive bitrate, which owns the bitrate then.
+    #[test]
+    fn transport_feedback_follows_congestion_control() {
+        for (text, offered) in [
+            ("", false),
+            ("congestion_control = true\n", true),
+            (
+                "congestion_control = true\nhost_adaptive_bitrate = true\n",
+                false,
+            ),
+            ("congestion_control = false\n", false),
+        ] {
+            let config = Config::parse(text).unwrap();
+            assert_eq!(transport_feedback(&config), offered, "{text}");
         }
     }
 }

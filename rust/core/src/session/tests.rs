@@ -2974,3 +2974,47 @@ fn a_webrtc_stream_is_held_by_another_device_only_while_it_lives() {
     web.stop();
     assert!(!sessions.held_by_other(Role::Stream, Transport::WebRtc, "phone"));
 }
+#[test]
+fn arrival_feedback_turns_the_ledger_on_and_a_client_bitrate_turns_it_off() {
+    let s = Session::new(
+        launch("congestion", Role::Stream),
+        Negotiated {
+            bitrate_kbps: 20_000,
+            configured_bitrate_kbps: 20_000,
+            ..Default::default()
+        },
+    );
+    let report = crate::congestion::TransportFeedback {
+        base: 0,
+        stride: 1,
+        entries: vec![0, 10, 20],
+        ..Default::default()
+    }
+    .encode()
+    .unwrap();
+    // Off: reports are ignored and the sender records nothing.
+    assert!(!s.congestion_active());
+    assert!(!s.record_transport_feedback(&report));
+    assert!(!s.transport_sent.live());
+    assert_eq!(s.info()["congestion"]["state"], "off");
+    s.configure_congestion(true, 0, false);
+    assert!(s.congestion_active());
+    assert!(!s.transport_sent.live());
+    assert!(s.record_transport_feedback(&report));
+    assert!(s.transport_sent.live());
+    assert!(!s.record_transport_feedback(&[0; 3]));
+    s.record_transport_sent(&[vec![0u8; 100]], 28);
+    assert_eq!(s.congestion_snapshot()["reports"], 1);
+    // No limit before it learned anything: the bitrate stays.
+    let (change, applied) = s.tick_congestion(Instant::now(), Duration::from_millis(10));
+    assert!(change.is_none() && applied.is_none());
+    assert_eq!(s.bitrate.load(Ordering::Acquire), 20_000);
+    assert_eq!(s.adaptive_pacing_bps(50_000_000), 50_000_000);
+    s.set_client_bitrate(12_000);
+    assert!(!s.congestion_active());
+    assert!(!s.transport_sent.live());
+    assert!(!s.record_transport_feedback(&report));
+    // The takeover outlives a rebuilt stream.
+    s.rebuild_congestion(&s.config, true, 0, false);
+    assert!(!s.congestion_active());
+}

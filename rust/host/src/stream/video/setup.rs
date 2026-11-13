@@ -255,6 +255,10 @@ impl SessionThread<'_> {
         configure_video_fec(&s, &c)?;
         configure_adaptive_bitrate(&s, &c);
         s.configure_link_rate(c.link_rate_adaptation(), max_bitrate_kbps(&s, &c));
+        {
+            let (enabled, shadow) = congestion_mode(&c);
+            s.configure_congestion(enabled, max_bitrate_kbps(&s, &c), shadow);
+        }
         // Packet adaptation is opt-in, or automatic for a client that
         // reports a wireless route. Explicit pacing and host bitrate
         // adaptation keep their own policies.

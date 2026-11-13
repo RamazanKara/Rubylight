@@ -270,6 +270,11 @@ impl Config {
     pub fn link_rate_adaptation(&self) -> bool {
         self.boolean("link_rate_adaptation", true) && !self.boolean("host_adaptive_bitrate", false)
     }
+    /// Packet-level congestion control from the client's arrival feedback (off until the A/B
+    /// decides). The opt-in `host_adaptive_bitrate` owns the bitrate when set.
+    pub fn congestion_control(&self) -> bool {
+        self.boolean("congestion_control", false) && !self.boolean("host_adaptive_bitrate", false)
+    }
     /// An integer setting; Vibepollo also writes quoted (`"756"`) and
     /// hexadecimal (`0x2a`) values.
     pub fn integer(&self, key: &str, default: i64) -> i64 {

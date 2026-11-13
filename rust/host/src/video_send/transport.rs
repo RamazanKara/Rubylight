@@ -425,6 +425,10 @@ impl Transport<'_> {
                     }
                     None => self.send_batch(&remaining[..count], peer)?,
                 };
+                if bytes > 0 {
+                    // Send times for congestion control; nothing while no client reports.
+                    s.record_transport_sent(&remaining[..count], network_pacing::overhead(ipv6));
+                }
                 let finished = Instant::now();
                 cur.first_send.get_or_insert(send_started);
                 cur.last_send = Some(finished);

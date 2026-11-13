@@ -176,6 +176,8 @@ pub const GLOBAL: &[Setting] = settings! {
         "audio_haptics_gate", "Audio haptics noise gate (dBFS, -80 to -10)", Number;
         "motion_as_ds4", "Use PlayStation profile for motion input", Bool;
         "touchpad_as_ds4", "Use PlayStation profile for touchpad input", Bool;
+        "enable_dsu_server", "DSU motion server for emulators (UDP, every network interface)", Bool;
+        "dsu_server_port", "DSU motion server port (UDP, 1024-65535)", Number;
         "back_button_timeout", "Hold Back to press Guide (milliseconds; -1 disables)", Number;
         "steam_deck_controller", "Steam Deck controller", Choice(&["auto", "steam_deck", "virtual_pad"]);
         "back_grip_l4", "Back grip L4 (upper left) presses", Choice(GRIPS);

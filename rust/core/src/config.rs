@@ -593,6 +593,13 @@ impl Config {
     pub fn webrtc_media_port(&self) -> u16 {
         self.webrtc_port_setting("webrtc_media_port", WEBRTC_MEDIA_PORT)
     }
+    /// The DSU (cemuhook) motion server's UDP port when `enable_dsu_server`
+    /// is on (off by default). `dsu_server_port` defaults to 26760, Foundation
+    /// Sunshine's; a value outside 1024..=65535 is reported and that is used.
+    pub fn dsu_server_port(&self) -> Option<u16> {
+        self.boolean("enable_dsu_server", false)
+            .then(|| self.webrtc_port_setting("dsu_server_port", crate::dsu::DEFAULT_PORT))
+    }
     fn webrtc_port_setting(&self, key: &str, default: u16) -> u16 {
         let n = self.integer(key, i64::from(default));
         if !WEBRTC_PORTS.contains(&n) {
@@ -692,7 +699,7 @@ impl Config {
         if changed("port") && !PORTS.contains(&next.integer("port", 0)) {
             bail!("port must be between 1029 and 65514");
         }
-        for key in ["webrtc_port", "webrtc_media_port"] {
+        for key in ["webrtc_port", "webrtc_media_port", "dsu_server_port"] {
             if changed(key) && !WEBRTC_PORTS.contains(&next.integer(key, 0)) {
                 bail!("{key} must be between 1024 and 65535");
             }

@@ -446,6 +446,7 @@ impl Media {
                         }
                         let id = peer.id();
                         if let Some(p) = peers.remove(&id) {
+                            crate::dsu::forget(&p.id);
                             let session = h.sessions.lock().unwrap().active.get(&p.id).cloned();
                             // ENet timed out a client that went quiet: the stream was lost, as the
                             // ping check below says when it sees that first. A pass that runs late
@@ -1095,6 +1096,8 @@ impl Media {
                                                 _ => {}
                                             }
                                         }
+                                        // Motion and buttons for emulators (`enable_dsu_server`).
+                                        crate::dsu::observe(&p.id, &event);
                                         if !queue_input(&mut p.inputs, event) {
                                             // Warnings::set logs it as well.
                                             s.launch.warnings.set("input_overflow", INPUT_OVERFLOW);
@@ -1628,7 +1631,9 @@ impl Media {
             drop(disconnected);
             peers_went |= !remove.is_empty();
             for peer in remove {
-                peers.remove(&peer);
+                if let Some(p) = peers.remove(&peer) {
+                    crate::dsu::forget(&p.id);
+                }
             }
             // Haptics from game audio, for the waveform controllers the game
             // leaves without haptics or rumble: after the input was applied

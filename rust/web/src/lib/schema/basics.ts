@@ -1088,6 +1088,33 @@ const input: Setting[] = [
     visibleWhen: controllerOn,
   },
   {
+    key: 'enable_dsu_server',
+    label: 'Motion server for emulators (DSU)',
+    description:
+      "Emulators such as Cemu, Dolphin and Citra read each streamed controller's gyroscope, accelerometer, buttons and touch from this PC.",
+    details:
+      'In the emulator, choose DSU or cemuhook motion and the server 127.0.0.1 with the port below. Controllers take slots 1 to 4 in the order they connect. The server answers on every network interface without a password, so other devices on your network can read controller input too; the Windows Firewall blocks them unless you allow the port.',
+    category: 'input',
+    group: 'Controllers',
+    control: { kind: 'toggle' },
+    default: false,
+    restart: true,
+    inactiveHint: "Turn on Controllers under Input to use this setting. Paired devices also need the Controllers permission.",
+    visibleWhen: controllerOn,
+  },
+  {
+    key: 'dsu_server_port',
+    label: 'Motion server port',
+    description: 'The UDP port emulators connect to. 26760 is the port they expect unless told otherwise.',
+    details: 'If something else uses the port, the console shows a warning and the server does not start.',
+    category: 'input',
+    group: 'Controllers',
+    control: { kind: 'number', min: 1024, max: 65535, step: 1 },
+    default: 26760,
+    restart: true,
+    visibleWhen: (values) => controllerOn(values) && on(values, 'enable_dsu_server', false),
+  },
+  {
     key: 'forward_rumble',
     label: 'Vibration',
     description: "Send vibration from games back to the device's controller.",

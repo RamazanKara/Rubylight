@@ -5,6 +5,7 @@ mod continue_here;
 mod controller_sessions;
 mod couch_menu;
 mod display_session;
+mod dsu;
 mod extensions;
 mod game_files;
 mod game_settings;
@@ -488,6 +489,8 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
             None
         }
     };
+    // Off unless `enable_dsu_server` is set; a taken port is a console warning.
+    dsu::start(h.config.read().unwrap().dsu_server_port(), &h.warnings);
     let port_forward = network::port_forward(h.clone(), bind);
     let (tray, actions) = if args.no_tray || !h.config.read().unwrap().boolean("system_tray", true)
     {

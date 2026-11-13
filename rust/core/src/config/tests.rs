@@ -350,7 +350,7 @@ fn the_webrtc_server_is_off_on_8000_and_8001_and_refuses_bad_ports() {
         serde_json::json!(70000),
         serde_json::json!("x"),
     ] {
-        for key in ["webrtc_port", "webrtc_media_port"] {
+        for key in ["webrtc_port", "webrtc_media_port", "dsu_server_port"] {
             let saved = serde_json::json!({ key: bad });
             assert!(
                 config.update(saved.as_object().unwrap()).is_err(),
@@ -1635,4 +1635,18 @@ fn update_is_transactional_and_rejects_injection() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn the_dsu_server_is_off_by_default_and_takes_foundations_port() {
+    assert_eq!(super::Config::parse("").unwrap().dsu_server_port(), None);
+    let on = super::Config::parse("enable_dsu_server = true\n").unwrap();
+    assert_eq!(on.dsu_server_port(), Some(26760));
+    let moved =
+        super::Config::parse("enable_dsu_server = true\ndsu_server_port = 26761\n").unwrap();
+    assert_eq!(moved.dsu_server_port(), Some(26761));
+    let invalid = super::Config::parse("enable_dsu_server = true\ndsu_server_port = 80\n").unwrap();
+    assert_eq!(invalid.dsu_server_port(), Some(26760));
+    let off = super::Config::parse("enable_dsu_server = false\ndsu_server_port = 26761\n").unwrap();
+    assert_eq!(off.dsu_server_port(), None);
 }

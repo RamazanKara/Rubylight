@@ -1067,7 +1067,8 @@ fn expected(feature: Feature) -> Availability {
                 Unsupported(Some(Reason::VirtualDisplayOff))
             }
         }
-        Feature::HardwareMetrics => Unsupported(Some(Reason::HardwareMetricsOff)),
+        // On by default (`hardware_metrics`).
+        Feature::HardwareMetrics => Supported,
         // No PyroWave encoder: ServerCodecModeSupport has no PyroWave profile.
         Feature::PyroWave | Feature::PyroWaveRecords => Unsupported(None),
         // The host has no cursor shape channel: it sends no CursorShapeVersion.

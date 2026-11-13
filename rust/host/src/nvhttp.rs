@@ -570,8 +570,7 @@ fn serverinfo_response(
         ),
         (
             "HardwareMetricsVersion",
-            u8::from(permission & VIEW != 0 && config.hardware_metrics())
-                .to_string(),
+            u8::from(permission & VIEW != 0 && config.hardware_metrics()).to_string(),
         ),
         // 0 for plain HTTP and unpaired requests; the native API
         // (`docs/native-api.md`) answers paired HTTPS only.

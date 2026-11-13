@@ -24,6 +24,9 @@ use super::present::Pending;
 use crate::kms::drm::{self, Card, DumbBuffer, Framebuffer, ModeInfo, Props};
 use crate::kms::plan::{self, Layout, Object, Plane, Value};
 
+/// The stream's scaling: a picture's size and the CRTC's to the picture's rect on it.
+type Viewport<'a> = dyn Fn((i32, i32), (i32, i32)) -> (f32, f32, f32, f32) + 'a;
+
 /// What a stream asks of the planes, from its settings.
 #[derive(Clone, Copy, Debug)]
 pub struct Wishes {
@@ -257,7 +260,7 @@ impl Scanout {
         result
     }
 
-    fn prepare_inner(&mut self, decoded: &Decoded, hdr: Option<HdrMetadata>, viewport: &dyn Fn((i32, i32), (i32, i32)) -> (f32, f32, f32, f32)) -> Result<(), String> {
+    fn prepare_inner(&mut self, decoded: &Decoded, hdr: Option<HdrMetadata>, viewport: &Viewport<'_>) -> Result<(), String> {
         let frame = decoded.picture.frame().ok_or("the picture is not a decoded frame")?;
         let export = frame.dmabuf().ok_or("the picture is not a VA-API DMA-BUF export")?;
         let info = frame.info();
@@ -331,7 +334,7 @@ impl Scanout {
         (surface, generation): (u32, crate::dmabuf::Generation),
         visible: (i32, i32),
         (hdr, color): (Option<HdrMetadata>, (i32, i32)),
-        viewport: &dyn Fn((i32, i32), (i32, i32)) -> (f32, f32, f32, f32),
+        viewport: &Viewport<'_>,
     ) -> Result<(), String> {
         let snapshot = match self.read_state() {
             Ok(snapshot) => snapshot,
@@ -755,7 +758,7 @@ impl Scanout {
     /// Puts back what the stream changed, then frees its framebuffers and buffers.
     fn restore(&mut self) {
         let Some(mut engaged) = self.engaged.take() else { return };
-        let sets: Vec<(u32, u32, u64)> = engaged.restore.drain(..).collect();
+        let sets: Vec<(u32, u32, u64)> = std::mem::take(&mut engaged.restore);
         if !sets.is_empty() {
             if let Err(e) = self.card.commit(&sets, drm::ATOMIC_ALLOW_MODESET) {
                 eprintln!("nightjar: kms: the display's state before the stream could not be put back: {e}");
@@ -781,7 +784,7 @@ impl Drop for Scanout {
 
 /// Where a picture of `visible` size goes on the CRTC of `mode` (`viewport` is the stream's
 /// scaling), from a framebuffer of `layout`.
-fn picture_rect(mode: &ModeInfo, layout: &plan::FbLayout, visible: (i32, i32), viewport: &dyn Fn((i32, i32), (i32, i32)) -> (f32, f32, f32, f32)) -> plan::PlaneRect {
+fn picture_rect(mode: &ModeInfo, layout: &plan::FbLayout, visible: (i32, i32), viewport: &Viewport<'_>) -> plan::PlaneRect {
     let crtc = (u32::from(mode.hdisplay), u32::from(mode.vdisplay));
     let area = viewport(visible, (crtc.0 as i32, crtc.1 as i32));
     let picture = ((visible.0.max(1) as u32).min(layout.width), (visible.1.max(1) as u32).min(layout.height));

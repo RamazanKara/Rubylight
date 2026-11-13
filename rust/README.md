@@ -53,7 +53,7 @@ Keep development profiles and ports distinct from the installed service. See [mu
 
 ## Implementation
 
-The [architecture guide's component table](../docs/architecture.md#components) lists the crates: `butterpollo-core` ([core](core)), `butterpollo-windows` ([windows](windows)), `butterpollo` ([host](host)), [setup](setup), [vulkan-layer](vulkan-layer), [probes](probes), the [native API types](core/native-api) and the display driver's [ring protocol](drivers/rubylight-vdisplay-proto). The display driver ([drivers/rubylight-vdisplay](drivers/rubylight-vdisplay)) builds outside the workspace with the MSVC toolchain.
+The [architecture guide's component table](../docs/architecture.md#components) lists the crates: `butterpollo-core` ([core](core)), `butterpollo-windows` ([windows](windows)), `butterpollo` ([host](host)), [setup](setup), [vulkan-layer](vulkan-layer), [probes](probes), the [native API types](core/native-api) and the display driver's [ring protocol](drivers/rubylight-vdisplay-proto). The display driver ([drivers/rubylight-vdisplay](drivers/rubylight-vdisplay)) builds outside the workspace with the MSVC toolchain, as does the NVIDIA build's NGX adapter ([truehdr-runtime](truehdr-runtime)), which only `build.ps1 -Nvidia` builds.
 
 The Windows service, [service](service), is a workspace of its own with its own version, so `butterpollo-service.exe` stays the same file across releases while that version is unchanged ([the rule](release/README.md#the-service-executable)). It starts and supervises the host, rolls back interrupted updates and runs the rest as `butterpollo.exe` tasks.
 

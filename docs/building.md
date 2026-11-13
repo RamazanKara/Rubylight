@@ -66,6 +66,19 @@ Useful options:
 | `-SkipTests` | Skip workspace tests and Clippy for a local iteration. Formatting still runs; this is not the release validation path. |
 | `-Stage Test\|Lint\|Build` | Run one stage: tests, Clippy, or the release build (with `-Package`). CI runs the three as parallel jobs; the default `All` runs them in order. |
 | `-Jobs <n>` | Parallel jobs for Cargo, CMake, PyroWave and FFmpeg (default 4). |
+| `-Nvidia` | Build the separate, unsigned NVIDIA build with RTX HDR and RTX Video enhancement (the host's `nvidia-proprietary` feature); see below. |
+| `-NvidiaRoot <path>` | Reuse an extracted NVIDIA RTX Video SDK 1.1.0 instead of fetching it (only with `-Nvidia`). |
+| `-MsvcSdk <path>` | Use an xwin SDK layout containing `crt/lib/x86_64`, `sdk/lib/um/x86_64` and `sdk/lib/ucrt/x86_64` for the NVIDIA adapter instead of the developer shell's libraries. |
+
+### The NVIDIA build
+
+RTX HDR and RTX Video enhancement call NVIDIA's proprietary NGX library, so they live behind the host's `nvidia-proprietary` Cargo feature, which is off by default and never part of the signed release ([code signing policy](code-signing-policy.md)):
+
+```powershell
+.\rust\build.ps1 -FetchDependencies -Nvidia -Package
+```
+
+With `-Nvidia` the script fetches the pinned NVIDIA RTX Video SDK 1.1.0 (SHA-256 `abf4f34e2b5a618e355b0d5a0365d8ecc3db4396e756e4c850a867e1ae2ed69e`) from NVIDIA's NGC, tests, lints and builds the host with the feature, builds the adapter `rust/truehdr-runtime` (`butterpollo_truehdr.dll`, MSVC target, outside the workspace) and packages it with NVIDIA's `nvngx_truehdr.dll` and `nvngx_vsr.dll` and the SDK licence. Its outputs carry `nvidia` in their names: `butterpollo-rust-nvidia-release\`, `butterpollo-rust-nvidia-release.zip` and `butterpollo-setup-nvidia-<version>.exe`, which CI attaches to a release as `rubylight-nvidia-setup-<version>.exe` and `rubylight-nvidia-<version>-windows-x64.zip`. A host built this way updates only from those files, and the signed host never from them.
 
 ## SDK environment
 
@@ -78,6 +91,8 @@ Cargo alone cannot build the Windows crates: their build scripts generate bindin
 | `LIBCLANG_PATH` | bindgen | MSYS2's `ucrt64\bin`, which holds `libclang.dll`. |
 | `BUTTERPOLLO_DRIVER_ROOT` | `rust/build.ps1` | Default for `-DriverRoot`. |
 | `BUTTERPOLLO_FFMPEG_ROOT` | `rust/build.ps1` | Default for `-FfmpegRoot`. |
+| `NV_RTX_VIDEO_SDK` | `rust/build.ps1`, `rust/truehdr-runtime/build.rs` | NVIDIA's RTX Video SDK, only for the NVIDIA build; default for `-NvidiaRoot`. |
+| `BUTTERPOLLO_MSVC_ROOT` | `rust/build.ps1` | Default for `-MsvcSdk`. |
 | `BUTTERPOLLO_TEST_FFMPEG_ROOT` | the ignored FFmpeg tests | The FFmpeg build's `bin` folder; `rust/build.ps1` sets it and runs them. |
 
 `butterpollo-core` needs none of them and builds and tests on any OS with plain `cargo test -p butterpollo-core`.
@@ -151,7 +166,7 @@ The dev and test profiles keep only line tables for the workspace crates (panics
 
 Keep target folders between runs instead of deleting them. Two checkouts may reuse one target folder one after the other but never at the same time, and the second must touch its sources first: Cargo compares modification times, so a checkout whose files are older than the folder's artifacts would test the other checkout's build.
 
-The display driver (`rust/drivers/rubylight-vdisplay`) is outside the main workspace; the build script builds it separately with the Windows Driver Kit. Nightjar (`client/`) keeps its own workspace in `client/protocol`; the host takes only its `rubylight-protocol` crate, by path.
+The display driver (`rust/drivers/rubylight-vdisplay`) is outside the main workspace; the build script builds it separately with the Windows Driver Kit. The NVIDIA adapter (`rust/truehdr-runtime`) is outside it too; only `-Nvidia` checks and builds it, for `x86_64-pc-windows-msvc`. Nightjar (`client/`) keeps its own workspace in `client/protocol`; the host takes only its `rubylight-protocol` crate, by path.
 
 Hardware and environment-dependent tests are selected separately. Their fixtures can exercise capture, controllers or displays; choose a fixture for the intended machine and preserve its restoration checks. [PERFORMANCE.md](../rust/PERFORMANCE.md) records measured workloads.
 

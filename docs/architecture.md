@@ -20,6 +20,7 @@ The Windows host, the Moonlight protocol implementation, native helpers, the ser
 | [Service](../rust/service) | The Windows service: starts and supervises the host in the console session. A workspace of its own with its own version, so its executable stays the same file across releases while that version is unchanged. |
 | [Setup](../rust/setup) | Installation, upgrades and package recovery. |
 | [Display driver](../rust/drivers/rubylight-vdisplay) | Rubylight's IddCx virtual-display driver. A workspace of its own, built with the MSVC toolchain and the Windows Driver Kit; [its ring protocol](../rust/drivers/rubylight-vdisplay-proto) is shared with the host. |
+| [NGX adapter](../rust/truehdr-runtime) | Only in the separate, unsigned NVIDIA build: an MSVC DLL that calls NVIDIA's NGX for RTX HDR and RTX Video enhancement, loaded by the host at run time. A workspace of its own ([NVENC](nvenc.md#rtx-hdr-and-rtx-video-enhancement)). |
 | [Native API types](../rust/core/native-api) | The wire types of the [native API](native-api.md), versioned on their own and shared with Nightjar. |
 | [Web console](../rust/web) | Devices, games, settings, stream statistics, logs and maintenance. |
 | [Vulkan layer](../rust/vulkan-layer) | Native HDR integration for Vulkan games. |

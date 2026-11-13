@@ -56,6 +56,19 @@ The D3D11 conversion builds no map, so focus needs the D3D12 conversion on NVENC
 
 Beside the encoder, a host that streams with an NVIDIA GPU serves the NVIDIA driver's global 3D settings in the graphics settings panel (Nightjar's stream menu, the console's game page and the native API's [`/radeon` endpoints](native-api.md#radeon-state-and-writes)), read and written through NVAPI (`rust/windows/src/nvidia_settings.rs`): Low Latency Mode, Max frame rate, Vertical sync, Power management mode, Texture filtering quality, Anisotropic filtering and Smooth Motion (driver 571.86 or newer). As with Radeon settings, the host journals the PC's own values before it changes them and puts them back when the session ends, after a crash too; a combination the panel cannot put back exactly reads as `custom` and is left alone. RTSS's limit mode offers NVIDIA Reflex, and a host that streams with an NVIDIA GPU uses it on its own for virtual-display streams and frame-generation games (`framegen::Policy::for_gpu`).
 
+## RTX HDR and RTX Video enhancement
+
+Rubylight's separate, unsigned NVIDIA build (`rust\build.ps1 -Nvidia`, the host's `nvidia-proprietary` feature) runs two of NVIDIA's RTX Video SDK 1.1.0 features on the captured picture before conversion and encoding ([configuration](configuration.md#rtx-hdr-and-rtx-video-enhancement)):
+
+- **RTX HDR** (NGX TrueHDR) turns an SDR capture into an FP16 scRGB picture for an HDR stream. The streamed display stays in SDR while it runs. Its contrast, saturation, middle gray and peak brightness follow the game's NVIDIA driver profile where one sets them.
+- **RTX Video enhancement** runs NGX VSR with the output at the input's size, so it removes compression artefacts and sharpens without scaling. Strength 1 to 25, 26 to 50, 51 to 75 and 76 to 100 map to VSR quality levels 1 to 4; 0 turns it off. It takes 8-bit SDR and FP16 HDR captures and leaves a 10-bit PQ capture as it is. VSR's model is SDR, so an FP16 picture goes through an SDR proxy normalized around 203-nit white (`rust/windows/src/shaders/rtx_video.hlsl`), and a resolve pass adds back only the change the model made.
+
+NGX is called from `butterpollo_truehdr.dll` (`rust/truehdr-runtime`), an MSVC adapter the GNU host loads at run time; it is the only code that links NVIDIA's import library. The host (`rust/host/src/nvidia_enhance.rs`, `rust/windows/src/{truehdr,rtx_video}.rs`) checks both features on the streaming GPU at start and reports them in serverinfo's `NvidiaEnhancements` bitmask; the console and Nightjar show their controls only where a bit is set. The enhanced picture is a pool texture of its own, so the encoder is rebuilt when an enhancement starts or stops, and converts on the graphics queue while one runs. A failure turns the enhancement off for the session with a visible warning; it never switches encoders.
+
+The per-app settings, the one pre-encode slot that RTX HDR takes first, and the HDR proxy follow Foundation Sunshine's image enhancement (its per-application design and its DLSS NR HDR filter).
+
+**DLSS denoising is not offered.** Earlier ideas used NVIDIA's DLSS ray-reconstruction denoiser (DLSS NR) as a pre-encode clean-up. NGX gives DLSS features only to applications NVIDIA has registered by application ID, and Rubylight neither presents another application's ID nor patches around that check. DLSS NR proper therefore needs NVIDIA's NGX support for third-party applications; RTX Video enhancement uses the RTX Video SDK, which NVIDIA licenses for redistribution in any application.
+
 ## Not run on NVIDIA hardware
 
 The rows above pass the fake-driver tests. No NVIDIA GPU is available to the project, so these behaviours follow NVIDIA's headers and other hosts' code and have not run on one:

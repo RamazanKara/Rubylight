@@ -79,6 +79,13 @@ rust/windows/src/input/virtual_hid.rs) follows Foundation Sunshine's virtual mou
 which is a driver of its own; Rubylight's is a USB device on its USB/IP server. The
 touchpad input packets 0x55000009 and 0x5500000A and their feature flags
 (rust/core/src/input.rs) are Foundation Sunshine's, as Moonlight V+ sends them.
+
+In the separate NVIDIA build, the per-application design of the NVIDIA image
+enhancements, the single pre-encode slot that RTX HDR takes first, and the HDR proxy
+through which RTX Video enhancement treats an HDR picture (rust/core/src/nvidia_enhance.rs,
+rust/host/src/nvidia_enhance.rs, rust/windows/src/rtx_video.rs and
+rust/windows/src/shaders/rtx_video.hlsl) follow Foundation Sunshine's
+src/platform/windows/image_enhancement/, including dlss_nr/hdr_filter.cpp.
 Copyright (c) Foundation Sunshine authors, GPL-3.0.
 
 mac-precision-touchpad
@@ -218,6 +225,24 @@ NVIDIA driver settings
 The driver settings keys of NVIDIA's Low Latency Mode and Smooth Motion in
 rust/windows/src/nvidia_settings.rs, which NVIDIA's NvApiDriverSettings.h does not list,
 are the ones Nonary/Vibepollo (GPL-3.0) writes for them.
+
+NVIDIA RTX Video SDK
+
+Only Rubylight's separate NVIDIA build (rust/build.ps1 -Nvidia, unsigned, files named
+rubylight-nvidia-*) includes NVIDIA RTX Video SDK 1.1.0 components for RTX HDR and
+RTX Video enhancement:
+
+- nvngx_truehdr.dll
+- nvngx_vsr.dll
+
+They are redistributed unmodified under the NVIDIA RTX Video SDK License, included as
+licenses/NVIDIA_RTX_Video_SDK_License.pdf. Rubylight's adapter
+(rust/truehdr-runtime, butterpollo_truehdr.dll) links NVIDIA's NGX import library and
+is the only part of that build that does. The signed Rubylight build contains none of
+these components.
+
+NVIDIA, NVIDIA RTX, GeForce RTX, and related marks are trademarks and/or registered
+trademarks of NVIDIA Corporation in the United States and other countries.
 
 usbip-win2
 

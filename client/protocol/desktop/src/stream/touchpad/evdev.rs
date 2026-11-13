@@ -151,7 +151,7 @@ impl State {
             }
             (EV_ABS, ABS_MT_SLOT) => self.slot = usize::try_from(value).unwrap_or(usize::MAX),
             (EV_ABS, _) => {
-                let Some(slot) = self.slots.get_mut(self.slot) else { return None };
+                let slot = self.slots.get_mut(self.slot)?;
                 match code {
                     ABS_MT_TRACKING_ID => {
                         slot.tracking = value;
@@ -240,7 +240,7 @@ impl Pad {
             match self.file.read(&mut buffer) {
                 Ok(0) => return Err(()),
                 Ok(n) => {
-                    for chunk in buffer[..n - n % SIZE].chunks_exact(SIZE) {
+                    for chunk in buffer[..n].as_chunks::<SIZE>().0 {
                         // SAFETY: a whole input_event the kernel wrote; read unaligned.
                         let event: libc::input_event = unsafe { std::ptr::read_unaligned(chunk.as_ptr().cast()) };
                         let was_dropped = self.state.dropped;

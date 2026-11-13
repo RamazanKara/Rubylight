@@ -101,7 +101,7 @@ See also [Privacy](privacy.md#your-own-devices).
 ## For developers
 
 - **Host capability:** the native API lists the feature `session.guests` while `guest_join` is not `off`. Clients show Join, the approval prompt and the guest list only when it is listed. The host keeps `PROTOCOL_VERSION`, and Moonlight clients use no new messages: a guest's stream is an ordinary stream.
-- **Endpoints:** the routes and types are in [Native API: Guests from other devices](native-api.md#guests-from-other-devices-sessionguests). The console's equivalents are under `/api/session-guests`.
+- **Endpoints:** the routes and types are in [Native API: Session](native-api.md#session), under Guests from other devices. The console's equivalents are under `/api/session-guests`.
 - **Code:**
   - The join policy, the guest list and the keyboard-and-mouse holder are pure state machines in `rust/core/src/multiclient.rs`, tested in `rust/core/src/multiclient/tests.rs`.
   - The host side is in `rust/host/src/multiclient.rs`, with its join gate in `nvhttp.rs` and input gating in `stream/control.rs`.

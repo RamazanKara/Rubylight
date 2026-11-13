@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_internet_play">Гра через інтернет</string>
+    <string name="summary_internet_play">Поза домом під’єднуйтеся до ПК, який це підтримує, прямим шляхом через інтернет без переадресації портів. Спершу один раз під’єднайтеся в мережі ПК. Ваша мережа завжди перевіряється першою.</string>
+    <string name="internet_path_label">Під’єднано через: %1$s</string>
+    <string name="internet_path_ipv6">Інтернет (IPv6)</string>
+    <string name="internet_path_mapped">Інтернет (переадресований порт)</string>
+    <string name="internet_path_punched">Інтернет (прямий шлях)</string>
+</resources>

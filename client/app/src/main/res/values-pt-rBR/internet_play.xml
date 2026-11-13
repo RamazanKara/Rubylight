@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_internet_play">Jogar pela internet</string>
+    <string name="summary_internet_play">Longe de casa, alcance um PC que ofereça isso por um caminho direto pela internet, sem redirecionar portas. Conecte-se uma vez na rede do PC antes. Sua rede é sempre testada primeiro.</string>
+    <string name="internet_path_label">Conectado por: %1$s</string>
+    <string name="internet_path_ipv6">Internet (IPv6)</string>
+    <string name="internet_path_mapped">Internet (porta redirecionada)</string>
+    <string name="internet_path_punched">Internet (caminho direto)</string>
+</resources>

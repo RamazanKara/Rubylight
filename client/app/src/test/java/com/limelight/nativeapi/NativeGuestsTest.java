@@ -7,8 +7,14 @@ import static org.junit.Assert.assertTrue;
 
 import org.json.JSONObject;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.robolectric.RobolectricTestRunner;
+import org.robolectric.annotation.Config;
 
 /** GET /session/guests as the host answers it, and the endings that stop a guest's recovery. */
+// org.json is only stubbed in android.jar: Robolectric supplies the real one, as for NativeCoopTest.
+@RunWith(RobolectricTestRunner.class)
+@Config(sdk = 29, application = android.app.Application.class)
 public class NativeGuestsTest {
     static final String FIXTURE = "{\"policy\":\"ask\",\"default_permission\":\"controller\",\"manage\":true,\"you\":null,"
             + "\"owner\":\"Living room PC\",\"max_guests\":4,\"version\":7,\"keyboard_mouse\":2,"

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_internet_play">Chơi qua internet</string>
+    <string name="summary_internet_play">Khi ở xa nhà, kết nối tới PC có hỗ trợ qua một đường internet trực tiếp, không cần chuyển tiếp cổng. Hãy kết nối một lần trong mạng của PC trước. Mạng của bạn luôn được thử trước.</string>
+    <string name="internet_path_label">Kết nối qua: %1$s</string>
+    <string name="internet_path_ipv6">Internet (IPv6)</string>
+    <string name="internet_path_mapped">Internet (cổng chuyển tiếp)</string>
+    <string name="internet_path_punched">Internet (đường trực tiếp)</string>
+</resources>

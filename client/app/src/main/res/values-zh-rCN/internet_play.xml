@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_internet_play">通过互联网游玩</string>
+    <string name="summary_internet_play">离家在外时，通过直接的互联网路径连接到提供此功能的电脑，无需端口转发。请先在电脑所在的网络中连接一次。始终优先尝试你的网络。</string>
+    <string name="internet_path_label">连接方式：%1$s</string>
+    <string name="internet_path_ipv6">互联网 (IPv6)</string>
+    <string name="internet_path_mapped">互联网 (转发端口)</string>
+    <string name="internet_path_punched">互联网 (直接路径)</string>
+</resources>

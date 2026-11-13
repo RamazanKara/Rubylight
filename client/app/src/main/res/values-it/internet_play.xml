@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_internet_play">Gioca via internet</string>
+    <string name="summary_internet_play">Fuori casa, raggiungi un PC che lo offre tramite un percorso internet diretto, senza inoltrare porte. Connettiti prima una volta sulla rete del PC. La tua rete viene sempre provata per prima.</string>
+    <string name="internet_path_label">Connesso tramite: %1$s</string>
+    <string name="internet_path_ipv6">Internet (IPv6)</string>
+    <string name="internet_path_mapped">Internet (porta inoltrata)</string>
+    <string name="internet_path_punched">Internet (percorso diretto)</string>
+</resources>

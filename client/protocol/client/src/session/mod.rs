@@ -1205,7 +1205,7 @@ fn start(
     listener.stage_starting(Stage::VideoStreamInit);
     let stream = &outcome.config;
     let video_encrypted = outcome.encryption_enabled & sdp::SS_ENC_VIDEO != 0;
-    let video_shared = Arc::new(video::VideoShared::new(VideoReceiver::new(VideoConfig {
+    let mut receiver = VideoReceiver::new(VideoConfig {
         format: outcome.negotiated_video_format,
         packet_size: stream.packet_size as usize,
         app_version: outcome.app_version,
@@ -1214,7 +1214,17 @@ fn start(
         colorspace: stream.color_space as u8,
         encryption_key: video_encrypted.then_some(stream.remote_input_aes_key),
         early_chunks: video_decoder.wants_early_chunks(),
-    })));
+    });
+    // The host runs congestion control on per-packet arrivals (0x5547).
+    if caps.supports_control_message(
+        rubylight_protocol::transport_feedback::TRANSPORT_FEEDBACK_MESSAGE_TYPE,
+    ) {
+        receiver.enable_transport_feedback();
+        parts
+            .shared
+            .log("Video arrival feedback is on: the host adapts to the network from it");
+    }
+    let video_shared = Arc::new(video::VideoShared::new(receiver));
     parts.video_shared = Some(video_shared.clone());
     listener.stage_complete(Stage::VideoStreamInit);
 

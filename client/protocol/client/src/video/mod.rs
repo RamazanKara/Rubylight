@@ -309,6 +309,9 @@ pub enum VideoSignal {
     FrameReceived { frame: u32, ltr: bool },
     /// `connectionSawFrame`: the first packet of a frame block arrived (connection quality).
     FrameSeen { frame: u32 },
+    /// A batch of per-packet arrivals for the host's congestion control (0x5547), only after
+    /// [`VideoReceiver::enable_transport_feedback`]. No C counterpart.
+    TransportFeedback(rubylight_protocol::transport_feedback::TransportFeedback),
 }
 
 /// Receives the receiver's output. Calls happen inside [`VideoReceiver::receive`] and the
@@ -501,6 +504,8 @@ pub struct VideoReceiver {
     decryptor: Option<decrypt::Decryptor>,
     pools: Pools,
     stats: VideoStats,
+    /// Arrival feedback (0x5547) while the host takes it.
+    feedback: Option<rubylight_protocol::transport_feedback::FeedbackTally>,
 }
 
 impl VideoReceiver {
@@ -515,8 +520,15 @@ impl VideoReceiver {
                 frames: Vec::new(),
             },
             stats: VideoStats::default(),
+            feedback: None,
             config,
         }
+    }
+
+    /// Reports when each datagram arrived ([`VideoSignal::TransportFeedback`]), for a host that
+    /// lists 0x5547 in `a=x-rl-control`.
+    pub fn enable_transport_feedback(&mut self) {
+        self.feedback.get_or_insert_with(Default::default);
     }
 
     pub fn config(&self) -> &VideoConfig {
@@ -546,6 +558,16 @@ impl VideoReceiver {
         };
         if datagram.len() < 12 + header {
             return;
+        }
+        // Every datagram counts as arrived, also one the queue drops unopened below.
+        if let Some(tally) = self.feedback.as_mut() {
+            let id = rubylight_protocol::transport_feedback::packet_id(
+                datagram,
+                self.decryptor.is_some(),
+            );
+            if let Some(report) = id.and_then(|id| tally.packet(id, now_us)) {
+                sink.signal(VideoSignal::TransportFeedback(report));
+            }
         }
         // A datagram the queue would reject (its frame or block is finished) is dropped before a
         // packet buffer is taken for it. Encrypted ones are checked after decryption, as before.

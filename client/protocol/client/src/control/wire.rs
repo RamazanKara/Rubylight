@@ -46,6 +46,8 @@ pub mod ptype {
     pub const LINK_NOTICE: u16 = rubylight_protocol::control::LINK_NOTICE_MESSAGE_TYPE;
     pub const FEC_REPORT: u16 = rubylight_protocol::fec_report::FEC_REPORT_MESSAGE_TYPE;
     pub const FEC_SUMMARY: u16 = rubylight_protocol::fec_report::FEC_SUMMARY_MESSAGE_TYPE;
+    pub const TRANSPORT_FEEDBACK: u16 =
+        rubylight_protocol::transport_feedback::TRANSPORT_FEEDBACK_MESSAGE_TYPE;
     pub const TEXT_INPUT: u16 = rubylight_protocol::text_input::TEXT_INPUT_MESSAGE_TYPE;
     pub const PIPELINE_RATES: u16 =
         rubylight_protocol::pipeline_rates::PIPELINE_RATES_MESSAGE_TYPE;

@@ -72,6 +72,8 @@ impl VideoSink for LogSink {
                 log.push(b'W');
                 log.extend_from_slice(&frame.to_le_bytes());
             }
+            // Off unless the host offers 0x5547; the C core has no counterpart.
+            VideoSignal::TransportFeedback(_) => {}
             VideoSignal::FecBlock(block) => {
                 log.push(b'B');
                 log.extend_from_slice(&block.frame.to_le_bytes());

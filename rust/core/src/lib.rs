@@ -43,6 +43,7 @@ pub use rubylight_protocol::clipboard_sync;
 pub mod clock_sync;
 pub mod codec_support;
 pub mod config;
+pub mod connection_commands;
 pub mod controller_audio;
 pub mod couch_menu;
 pub mod crypto;

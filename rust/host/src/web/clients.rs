@@ -113,6 +113,10 @@ pub(crate) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             if let Some(grants) = data.get("shared_folders") {
                 check_folder_grants(grants)?;
             }
+            // Connect and disconnect commands the host could not read would be
+            // skipped at every stream: refuse them here instead.
+            butterpollo_core::connection_commands::check_update(data)
+                .map_err(anyhow::Error::msg)?;
             // A preset the host does not know is refused here, as it is for the
             // host's own setting, before anything is saved.
             if let Some(overrides) = data.get("config_overrides") {
@@ -603,6 +607,41 @@ mod tests {
             .is_err()
         );
         update("TV", butterpollo_core::state::LATER_DEVICE_PERMISSION).unwrap();
+    }
+
+    #[test]
+    fn device_connection_commands_are_checked_before_they_are_saved() {
+        let f = Fixture::new();
+        let client = f.client(PERM);
+        let update = |change: serde_json::Value| {
+            let mut data = change;
+            data["uuid"] = json!(client.uuid);
+            handle(&f.host, "POST", "/api/clients/update", &data)
+        };
+        let stored = |key: &str| {
+            f.host
+                .paired
+                .read()
+                .unwrap()
+                .clients
+                .iter()
+                .find(|c| c.uuid == client.uuid)
+                .and_then(|c| c.extra.get(key).cloned())
+        };
+        let commands = json!([{"cmd": "lights on", "elevated": true}]);
+        update(json!({"do": commands, "undo": [{"cmd": "lights off"}]})).unwrap();
+        assert_eq!(stored("do"), Some(commands.clone()));
+        for bad in [
+            json!({"do": [{"elevated": true}]}),
+            json!({"undo": "lights off"}),
+            json!({"do": commands, "undo": [{"cmd": null}]}),
+        ] {
+            assert!(update(bad.clone()).is_err(), "{bad}");
+        }
+        // A refused update changes nothing.
+        assert_eq!(stored("undo"), Some(json!([{"cmd": "lights off"}])));
+        update(json!({"do": null, "undo": null})).unwrap();
+        assert_eq!((stored("do"), stored("undo")), (None, None));
     }
 
     #[test]

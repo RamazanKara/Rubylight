@@ -1,0 +1,2 @@
+# Device connection commands
+- A device's connect and disconnect commands (Devices, a device, Commands) that the host could not run are now refused when you save them, with the reason, instead of being skipped at every stream. The configuration guide now explains when each kind of command runs: preparation, pause and resume, device connect and disconnect, PC commands, detached commands and webhooks.

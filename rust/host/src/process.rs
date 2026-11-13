@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, bail};
 #[cfg(test)]
 mod parity_tests;
+use butterpollo_core::connection_commands::ConnectionCommand as ClientCommand;
 use butterpollo_core::state::{App, PrepCommand};
 use butterpollo_windows::process::{CommandCancellation, Process};
 use std::{
@@ -9,46 +10,6 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-#[derive(Clone)]
-struct ClientCommand {
-    cmd: String,
-    elevated: bool,
-}
-/// A device's command list as Apollo and the C++ host store it too: an empty
-/// list may be "", and `elevated` may be "true"/"false" or a number. An entry
-/// without a command line is an error: no command may run if its undo list
-/// cannot be read.
-fn client_commands(value: Option<&serde_json::Value>, key: &str) -> Result<Vec<ClientCommand>> {
-    use serde_json::Value;
-    let entries = match value {
-        None | Some(Value::Null) => return Ok(vec![]),
-        Some(Value::String(text)) if text.trim().is_empty() => return Ok(vec![]),
-        Some(Value::Array(entries)) => entries,
-        Some(_) => bail!("the device's {key} commands are not a list"),
-    };
-    entries
-        .iter()
-        .map(|entry| {
-            let Some(cmd) = entry.get("cmd").and_then(Value::as_str) else {
-                bail!("a device {key} command has no command line");
-            };
-            Ok(ClientCommand {
-                cmd: cmd.to_owned(),
-                elevated: match entry.get("elevated") {
-                    Some(Value::Bool(flag)) => *flag,
-                    Some(Value::Number(number)) => number.as_i64().is_some_and(|n| n != 0),
-                    Some(Value::String(text)) => {
-                        matches!(
-                            text.trim().to_ascii_lowercase().as_str(),
-                            "true" | "1" | "yes"
-                        )
-                    }
-                    _ => false,
-                },
-            })
-        })
-        .collect()
-}
 /// Administrator-configured hooks run once for each connected transport, with
 /// its environment saved for disconnect even if the application exits first.
 pub struct ClientCommands {
@@ -136,15 +97,8 @@ impl ClientCommands {
         environment: BTreeMap<String, String>,
     ) -> Result<Self> {
         let parse = |key: &str| -> Result<Vec<ClientCommand>> {
-            let commands = client_commands(extra.get(key), key)?;
-            if commands.len() > 64
-                || commands
-                    .iter()
-                    .any(|c| c.cmd.len() > 32767 || c.cmd.contains('\0'))
-            {
-                bail!("client command list exceeds its limits");
-            }
-            Ok(commands)
+            butterpollo_core::connection_commands::parse(extra.get(key), key)
+                .map_err(anyhow::Error::msg)
         };
         // Validate both lists before any command is started.
         let commands = parse("do")?;
@@ -2245,38 +2199,6 @@ mod tests {
         let verdict = check.run_with(|_| created, list("GAME.EXE", created));
         app.finish_foreground(check, verdict);
         assert_eq!(app.foreign.get(&30), Some(&created));
-    }
-    #[test]
-    fn device_commands_in_the_formats_apollo_writes_are_accepted() {
-        let parse = |value: serde_json::Value| {
-            client_commands(Some(&value), "do").map(|commands| {
-                commands
-                    .into_iter()
-                    .map(|c| (c.cmd, c.elevated))
-                    .collect::<Vec<_>>()
-            })
-        };
-        assert!(parse(serde_json::json!("")).unwrap().is_empty());
-        assert!(client_commands(None, "do").unwrap().is_empty());
-        assert_eq!(
-            parse(serde_json::json!([
-                {"cmd": "a", "elevated": "false"},
-                {"cmd": "b", "elevated": "true"},
-                {"cmd": "c", "elevated": 1},
-                {"cmd": "d"},
-                {"cmd": "e", "elevated": true}
-            ]))
-            .unwrap(),
-            [
-                ("a".to_owned(), false),
-                ("b".to_owned(), true),
-                ("c".to_owned(), true),
-                ("d".to_owned(), false),
-                ("e".to_owned(), true)
-            ]
-        );
-        assert!(parse(serde_json::json!([{"elevated": true}])).is_err());
-        assert!(parse(serde_json::json!({"cmd": "x"})).is_err());
     }
     #[test]
     fn client_hooks_use_the_saved_environment_on_disconnect() {

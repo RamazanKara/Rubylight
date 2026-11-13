@@ -611,6 +611,27 @@ The host checks an app's `menu-cmd` when it is saved: a list of at most 64 entri
 ]
 ```
 
+## Device connect and disconnect commands
+
+Each paired device can run its own commands on this PC: **Devices** → device → **Commands**. **Connect** commands (`do`) run when that device starts streaming, **Disconnect** commands (`undo`) when its stream ends, including a stream that drops. Each command can run **As administrator** (`elevated`); otherwise it runs as the signed-in user. They run for every stream of the device, once per connection, without waiting for each other, and a disconnect command uses the environment its connect commands had, even if the app closed in between.
+
+Commands can use `$(SUNSHINE_CLIENT_NAME)`, `$(SUNSHINE_CLIENT_UUID)`, `$(SUNSHINE_CLIENT_WIDTH)`, `$(SUNSHINE_CLIENT_HEIGHT)`, `$(SUNSHINE_CLIENT_FPS)` and `$(SUNSHINE_CLIENT_HDR)` (also as `APOLLO_…`), plus the running app's own variables. Typical uses: switch the room's lights or a TV input for one device, start a program only a handheld needs, change the PC's sound output for one device.
+
+- **Run connect and disconnect commands** (the device's `allow_client_commands`, default on) turns a device's commands off without deleting them.
+- **Run devices' connect and disconnect commands** in an app's **Behavior** (`allow-client-commands`, default on) skips every device's commands while that app runs; it also turns off [PC commands](#stream-menu-commands) for that app. Input-only connections (a second controller device) run none.
+- The host checks both lists when they are saved, at most 64 commands each, each with a command line ([API](api.md)). A list in an imported or hand-edited state file that the host cannot read is reported in the host log, and the device streams without its commands, so no connect command runs without its disconnect command.
+
+**Which commands run when.** Rubylight has five kinds of commands and one kind of notification; pick by the moment you need:
+
+| Kind | Set in | Runs when | For |
+| --- | --- | --- | --- |
+| Preparation commands | `global_prep_cmd`, an app's `prep-cmd` | Before the app starts (`do`) and after it closes (`undo`), whichever device started it. A failing `do` stops the launch. | Getting the PC ready for any game: a display mode, a mod, a service. |
+| Pause and resume commands | `global_state_cmd`, an app's `state-cmd` | When the app's stream resumes (`do`) and pauses (`undo`). | Pausing a game while nobody watches. |
+| Device connect and disconnect commands | A device's `do` and `undo` | When that device connects and when its stream ends, for every app. | Things one device needs, whichever game it plays. |
+| PC commands | `server_cmd`, an app's `menu-cmd` | When a device picks one in its stream menu; an app's undo runs when the app closes. | Actions on demand during a stream. |
+| Detached commands | An app's `detached` | With the app, not waited for. | Helper programs that run beside a game. |
+| Webhooks | **Advanced → Webhooks** | Devices pair, apps start and stop, streams begin and end ([Webhooks](webhooks.md)). | Telling another system; a webhook runs nothing on this PC. |
+
 ## Close apps on disconnect
 
 **Settings → Games → Close the app when the last device disconnects** (`terminate_on_pause`, default `false`) closes the running app after its last streaming device leaves. When off, the app stays running so a device can reconnect. Input-only connections do not keep the app running. The setting takes effect the next time an app starts, including apps started before Windows sign-in.

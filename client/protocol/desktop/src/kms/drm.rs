@@ -150,14 +150,10 @@ struct Property {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 struct PropertyEnum {
     value: u64,
     name: [u8; 32],
-}
-
-impl Default for PropertyEnum {
-    fn default() -> Self { Self { value: 0, name: [0; 32] } }
 }
 
 #[repr(C)]

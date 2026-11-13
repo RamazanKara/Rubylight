@@ -11,7 +11,17 @@
 //! have been ready recently, plus a margin; it rises at once when frames get later and
 //! falls when they get earlier (by a share of the gap per 100 ms, so a stall is forgotten in
 //! seconds). A frame later than the delay is shown at once, and never held more than
-//! `max_hold_us` (or `max_spread_us`) beyond the typical frame.
+//! `max_hold_us` beyond the typical frame.
+//!
+//! On a display that refreshes when a frame comes ([`Settings::adaptive`]) the delay follows
+//! the link instead of one percentile. Its floor is the knee of the recent lateness: the
+//! point from which waiting [`KNEE_REACH_US`] longer would bring in no more than
+//! [`KNEE_SHARE_PERCENT`] of the frames, so a link whose frames all come within a few
+//! milliseconds is covered whole and a long tail is not waited for. A frame later than the
+//! delay raises it to its own lateness at once and it falls back within a few frames
+//! ([`RELEASE_TAU_US`]): late frames come in bursts, and a frame shown late followed by one
+//! shown on time would be two uneven intervals where this is one. Nothing is held more than
+//! `max_spread_us` beyond the typical frame.
 //!
 //! Scheduling needs no shared clock: the delay is measured against the frames' own
 //! timestamps, so any offset between the two clocks cancels and slow drift is followed
@@ -139,7 +149,10 @@ pub struct Settings {
     /// The most the delay may exceed the median lateness, in microseconds; `None` is
     /// `max_hold_us`. Frames later than the typical one by more than this are shown when they
     /// are ready instead of every frame waiting for them: on a link whose lateness has a long
-    /// tail (Wi-Fi), the percentile rule otherwise holds every frame for the tail.
+    /// tail (Wi-Fi), the percentile rule otherwise holds every frame for the tail. When set,
+    /// and no vsync grid was given, the delay below that ceiling follows the link (the knee of
+    /// the lateness and a late frame's own lateness, see the module documentation) instead of
+    /// `percentile`.
     pub max_spread_us: Option<i64>,
     /// The display's shortest refresh interval, in microseconds. While the content is slower
     /// than the display, presents are never closer. A frame is pushed at most one interval
@@ -167,19 +180,32 @@ impl Default for Settings {
 }
 
 /// [`Settings::max_spread_us`] for a display that refreshes when a frame comes (VRR, adaptive
-/// refresh rate), where a frame shown late moves only its own refresh. Replayed over recorded
-/// two-machine legs (client/docs/pyrowave-decode.md, section "Real VRR"): on Wi-Fi the unbounded
-/// percentile rule held frames 4.3 to 6.9 ms at p50 and 9.7 to 13.7 ms at p95 (50 ms at p99 on
-/// PyroWave); with 2 ms, 2.0 and 3.7 ms, and frames more than 1 ms off the game's cadence fell
-/// from 53-62% (shown when decoded) to 10-14% instead of 4-5%. On screen over Wi-Fi it added
-/// 2.6 to 4.2 ms at p50 instead of 8.0 to 10.0 ms, with 29-31% of frames off the cadence instead
-/// of 20-25% (64-74% shown when decoded). On a clean link the bound never applies.
-pub const ADAPTIVE_SPREAD_US: i64 = 2_000;
+/// refresh rate), where a frame shown late moves only its own refresh: the ceiling of the delay
+/// above the median lateness. Replayed over the recorded two-machine legs
+/// (client/docs/pyrowave-decode.md, section "Real VRR"): on Wi-Fi the unbounded percentile rule
+/// held frames 7.7 ms on average (15.4 ms at p95) with 4% of them more than 1 ms off the game's
+/// cadence; a fixed bound of 2 ms, 2.0 ms with 19% off; the knee and the burst hold under this
+/// ceiling, 3.5 ms with 10.6% off (67% shown when decoded). A fixed bound needs about 4.3 ms for
+/// that share (4 ms above the median: 3.7 ms with 12.2% off; 5 ms: 4.5 ms with 9.8%). On a clean link neither the ceiling nor the burst hold applies.
+pub const ADAPTIVE_SPREAD_US: i64 = 6_000;
+/// How much longer the knee rule looks: a frame this much later than the delay is a whole
+/// hitch however much later it is, so only frames within it count for waiting longer.
+pub const KNEE_REACH_US: i64 = 2_000;
+/// The delay's floor stops rising once waiting [`KNEE_REACH_US`] longer would bring in no more
+/// than this share of the window's frames, in percent. On a link whose lateness is spread
+/// evenly over 6 ms the floor then covers all but a few frames (0.1% off the cadence where the
+/// 2 ms bound left 4%); behind a long tail it stays near the typical frame.
+pub const KNEE_SHARE_PERCENT: usize = 7;
+/// Time constant of the fall after a late frame raised the delay, in host microseconds. In the
+/// recorded Wi-Fi legs a frame more than 2 ms late was followed by another one 33 to 43% of the
+/// time (11 to 17% of all frames were), back to the average three frames on; 50 ms gave the
+/// burst away too early and 200 ms held 0.3 ms longer for 0.7 points fewer frames off.
+pub const RELEASE_TAU_US: i64 = 100_000;
 
 impl Settings {
     /// The defaults for a display that refreshes when a frame comes, whose shortest refresh
-    /// interval is `min_interval_us`: a frame later than the typical one by more than
-    /// [`ADAPTIVE_SPREAD_US`] is shown when it is ready.
+    /// interval is `min_interval_us`: the delay follows the link, and a frame later than the
+    /// typical one by more than [`ADAPTIVE_SPREAD_US`] is shown when it is ready.
     pub fn adaptive(min_interval_us: i64) -> Self {
         Self { min_interval_us, max_spread_us: Some(ADAPTIVE_SPREAD_US), ..Self::default() }
     }
@@ -250,6 +276,28 @@ pub fn snap(t_us: i64, anchor_us: i64, interval_us: i64) -> (i64, i64) {
 
 fn ceil_div(a: i64, b: i64) -> i64 {
     (a + b - 1).div_euclid(b)
+}
+
+/// The knee of `sorted` lateness values (ascending, not empty): the first value from the median
+/// up after which fewer than [`KNEE_SHARE_PERCENT`] of them lie within [`KNEE_REACH_US`], at most
+/// the 97th percentile. Waiting for a frame costs every frame the wait, so it is worth it while
+/// a little more wait brings many frames in and not for a tail that keeps going.
+fn knee(sorted: &[i64]) -> i64 {
+    let n = sorted.len();
+    let top = (n - 1) * 97 / 100;
+    let mut k = (n - 1) / 2;
+    // The last value within reach of `sorted[k]`; it only moves up as `k` does.
+    let mut within = k;
+    while k < top {
+        while within + 1 < n && sorted[within + 1] <= sorted[k] + KNEE_REACH_US {
+            within += 1;
+        }
+        if (within - k) * 100 <= KNEE_SHARE_PERCENT * n {
+            break;
+        }
+        k += 1;
+    }
+    sorted[k]
 }
 
 /// Schedules decoded frames by their host timestamps. See the module documentation.
@@ -607,6 +655,59 @@ impl PresentClock {
         }
     }
 
+    /// The delay as a percentile of the window: it rises at once and falls by a share of the gap
+    /// for each step of host time. Never more than `max_spread_us` (or `max_hold_us`) above the
+    /// median.
+    fn percentile_delay(&self, step: i64) -> i64 {
+        let percentile = if self.on_grid {
+            GRID_PERCENTILE.min(self.settings.percentile)
+        } else {
+            self.settings.percentile
+        };
+        let wanted = self.quantile(percentile) + self.settings.margin_us;
+        let delay = match self.delay_us {
+            Some(held) if wanted < held => {
+                let dt = step.clamp(0, FALL_STEP_MAX_US);
+                let fall = (held - wanted) * dt / FALL_TAU_US;
+                let fall = fall.max(self.settings.decay_us.max(0));
+                (held - fall).max(wanted)
+            }
+            _ => wanted,
+        };
+        // However long the frames were late, a frame is held at most `max_hold_us` beyond
+        // the typical one, or `max_spread_us` when set.
+        let spread = self.settings.max_spread_us.unwrap_or(self.settings.max_hold_us).max(0);
+        delay.min(self.quantile(50) + spread)
+    }
+
+    /// The delay for a display that refreshes when a frame comes, for the frame `lateness` late
+    /// (it is in the window already), and how far that frame itself raised it.
+    ///
+    /// The floor is the knee of the window ([`knee`]) plus the margin, at most `ceiling` above
+    /// the median. A delay above the floor falls towards it by a share of the gap for each step
+    /// of host time ([`RELEASE_TAU_US`]). A frame later than the delay raises it to the frame's
+    /// own lateness, at most to the ceiling: the frame is shown when it is ready either way, and
+    /// the frames after it keep their intervals to it instead of the next one coming a
+    /// lateness early.
+    fn follow_link(&self, lateness: i64, step: i64, ceiling: i64) -> (i64, i64) {
+        let mut sorted = [0i64; MAX_WINDOW];
+        let values = &mut sorted[..self.len];
+        values.copy_from_slice(&self.window[..self.len]);
+        values.sort_unstable();
+        let top = values[(values.len() - 1) / 2] + ceiling + self.settings.margin_us;
+        let floor = (knee(values) + self.settings.margin_us).min(top);
+        let delay = match self.delay_us {
+            Some(held) if held > floor => {
+                let dt = step.clamp(0, FALL_STEP_MAX_US);
+                let fall = ((held - floor) * dt / RELEASE_TAU_US).max(self.settings.decay_us.max(0));
+                (held - fall).max(floor)
+            }
+            _ => floor,
+        };
+        let raised = (lateness.min(top) - delay).max(0);
+        (delay + raised, raised)
+    }
+
     /// [`schedule`](Self::schedule), with how far past its present time the frame was ready and
     /// its host time.
     fn schedule_frame(&mut self, rtp: u32, ready_us: u64, spaced: bool) -> (Schedule, i64, i64) {
@@ -615,6 +716,8 @@ impl PresentClock {
         let lateness = ready - host;
         let start = *self.start_us.get_or_insert(host);
         let step = self.advance(host);
+        // How far this frame's own lateness raised the delay (`follow_link`).
+        let mut raised = 0;
         let mut present = if host - start < WARMUP_US {
             ready + self.settings.margin_us
         } else {
@@ -627,25 +730,14 @@ impl PresentClock {
             self.window[self.next] = lateness;
             self.next = (self.next + 1) % window;
             self.len = (self.len + 1).min(window);
-            let percentile = if self.on_grid {
-                GRID_PERCENTILE.min(self.settings.percentile)
-            } else {
-                self.settings.percentile
-            };
-            let wanted = self.quantile(percentile) + self.settings.margin_us;
-            let mut delay = match self.delay_us {
-                Some(held) if wanted < held => {
-                    let dt = step.clamp(0, FALL_STEP_MAX_US);
-                    let fall = (held - wanted) * dt / FALL_TAU_US;
-                    let fall = fall.max(self.settings.decay_us.max(0));
-                    (held - fall).max(wanted)
+            let delay = match self.settings.max_spread_us {
+                Some(ceiling) if !self.on_grid => {
+                    let (delay, by) = self.follow_link(lateness, step, ceiling.max(0));
+                    raised = by;
+                    delay
                 }
-                _ => wanted,
+                _ => self.percentile_delay(step),
             };
-            // However long the frames were late, a frame is held at most `max_hold_us` beyond
-            // the typical one, or `max_spread_us` when set.
-            let spread = self.settings.max_spread_us.unwrap_or(self.settings.max_hold_us).max(0);
-            delay = delay.min(self.quantile(50) + spread);
             self.delay_us = Some(delay);
             host + delay
         };
@@ -656,8 +748,10 @@ impl PresentClock {
             let min = if spaced { self.settings.min_interval_us.max(0) } else { 0 };
             present = present.max((last + min).min(present + min)).max(last);
         }
-        let late = present < ready;
-        let late_by = (ready - present).max(0);
+        // A frame that raised the delay was due before it did.
+        let due = present - raised;
+        let late = due < ready;
+        let late_by = (ready - due).max(0);
         present = present.clamp(ready, ready + self.settings.max_hold_us.max(0));
         self.last_present = Some(present);
         self.frames += 1;

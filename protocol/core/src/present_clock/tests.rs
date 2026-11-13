@@ -426,30 +426,134 @@ fn median_delay(shown: &[(i64, i64, bool)]) -> i64 {
     delays[delays.len() / 2]
 }
 
-#[test]
-fn a_spread_bound_shows_a_long_tail_late_instead_of_holding_every_frame() {
-    let mut noise = Lcg(5);
-    let unbounded = run(&mut PresentClock::default(), 3000, |_| 11_111, |i| tail(&mut noise, i), 0);
-    let mut noise = Lcg(5);
-    let mut clock = PresentClock::new(Settings { max_spread_us: Some(2_000), ..Settings::default() });
-    let bounded = run(&mut clock, 3000, |_| 11_111, |i| tail(&mut noise, i), 0);
-    // The percentile rule waits for the tail: every frame about 12 ms after its host time.
-    assert!(median_delay(&unbounded) > 10_000, "{}", median_delay(&unbounded));
-    // Bounded: the median lateness (about 0.5 ms) plus at most 2 ms.
-    assert!(median_delay(&bounded) <= 2_600, "{}", median_delay(&bounded));
-    // The tail (270 of the 2700 frames) is shown late, as it comes; the rest keep the cadence.
-    let late = bounded[300..].iter().filter(|s| s.2).count();
-    assert!((250..=300).contains(&late), "{late} late");
-    let pairs = intervals(&bounded[300..]).count();
-    let kept = intervals(&bounded[300..]).filter(|(game, screen)| (screen - game).abs() <= 40).count();
-    assert!(kept * 100 >= pairs * 95, "{kept} of {pairs}");
+/// A clock for a display that refreshes when a frame comes.
+fn adaptive() -> PresentClock {
+    PresentClock::new(Settings::adaptive(0))
+}
+
+/// How far each shown interval is from the game's, in microseconds, late frames included.
+fn interval_errors(shown: &[(i64, i64, bool)]) -> Vec<i64> {
+    shown.windows(2).map(|w| (w[1].1 - w[0].1) - (w[1].0 - w[0].0)).collect()
 }
 
 #[test]
-fn a_spread_bound_changes_nothing_on_a_clean_link() {
+fn a_long_tail_is_shown_late_instead_of_every_frame_waiting_for_it() {
+    let mut noise = Lcg(5);
+    let unbounded = run(&mut PresentClock::default(), 3000, |_| 11_111, |i| tail(&mut noise, i), 0);
+    let mut noise = Lcg(5);
+    let followed = run(&mut adaptive(), 3000, |_| 11_111, |i| tail(&mut noise, i), 0);
+    // The percentile rule waits for the tail: every frame about 12 ms after its host time.
+    assert!(median_delay(&unbounded) > 10_000, "{}", median_delay(&unbounded));
+    // Following the link: never more than the ceiling above the typical frame (about 0.5 ms)
+    // and the margin, and well below it between two late frames.
+    let delays: Vec<i64> = holds(&followed[300..]).zip(&followed[300..]).filter(|(_, s)| !s.2).map(|(d, _)| d).collect();
+    assert!(delays.iter().all(|d| *d <= 500 + ADAPTIVE_SPREAD_US + 500 + 100), "{:?}", delays.iter().max());
+    assert!(median_delay(&followed) <= 5_500, "{}", median_delay(&followed));
+    // The tail (270 of the 2700 frames) is shown late, as it comes, and nothing else is.
+    let late = followed[300..].iter().filter(|s| s.2).count();
+    assert!((250..=300).contains(&late), "{late} late");
+}
+
+#[test]
+fn a_clean_link_is_held_no_longer_than_the_percentile_rule_holds_it() {
     let mut noise = Lcg(6);
     let unbounded = run(&mut PresentClock::default(), 2000, |_| 8_333, |_| noise.next(1_200), 0);
     let mut noise = Lcg(6);
-    let mut clock = PresentClock::new(Settings { max_spread_us: Some(2_000), ..Settings::default() });
-    assert_eq!(run(&mut clock, 2000, |_| 8_333, |_| noise.next(1_200), 0), unbounded);
+    let followed = run(&mut adaptive(), 2000, |_| 8_333, |_| noise.next(1_200), 0);
+    assert!(median_delay(&followed) <= median_delay(&unbounded), "{} against {}", median_delay(&followed), median_delay(&unbounded));
+    assert_eq!(followed[300..].iter().filter(|s| s.2).count(), 0, "the margin covers what the knee leaves");
+    let errors = interval_errors(&followed[300..]);
+    assert!(errors.iter().all(|e| e.abs() <= 300), "{:?}", errors.iter().map(|e| e.abs()).max());
+}
+
+// Lateness spread evenly over 6 ms has no tail to leave out: a fixed 2 ms above the median left
+// one frame in six late.
+#[test]
+fn jitter_without_a_tail_is_covered_whole() {
+    let mut noise = Lcg(7);
+    let shown = run(&mut adaptive(), 3000, |_| 11_111, |_| noise.next(6_000), 0);
+    let settled = &shown[300..];
+    let late = settled.iter().filter(|s| s.2).count();
+    assert!(late * 100 <= settled.len() * 2, "{late} of {} late", settled.len());
+    assert!(median_delay(&shown) <= 6_600, "{}", median_delay(&shown));
+    let errors = interval_errors(settled);
+    let even = errors.iter().filter(|e| e.abs() <= 1_000).count();
+    assert!(even * 1000 >= errors.len() * 995, "{even} of {}", errors.len());
+}
+
+// Late frames come in bursts. The first one is shown when it is ready; the ones behind it keep
+// their intervals to it, where returning to the old delay showed the next frame a lateness early.
+#[test]
+fn a_late_burst_moves_one_interval_and_the_delay_falls_back_after_it() {
+    let mut noise = Lcg(8);
+    let burst = |i: usize| (i >= 400 && i % 200 < 5) as i64 * 4_000;
+    let shown = run(&mut adaptive(), 2000, |_| 10_000, |i| burst(i) + noise.next(300), 0);
+    let delays: Vec<i64> = holds(&shown).collect();
+    let errors = interval_errors(&shown);
+    for start in (400..2000).step_by(200) {
+        assert!(shown[start].2, "the burst's first frame is late");
+        assert!((3_000..=4_500).contains(&errors[start - 1]), "one long interval: {}", errors[start - 1]);
+        for (i, error) in errors.iter().enumerate().take(start + 60).skip(start) {
+            // The burst's other frames are a little late again as the delay starts to fall.
+            assert!(i + 1 < start + 5 || !shown[i + 1].2, "frame {} after the burst is not late", i + 1 - start);
+            assert!(error.abs() <= 700, "interval {} after the burst began is off by {error}", i - start);
+        }
+        // Half a second on, the delay is back where it was before the burst.
+        assert!((delays[start + 60] - delays[start - 1]).abs() <= 150, "{} against {}", delays[start + 60], delays[start - 1]);
+    }
+}
+
+#[test]
+fn a_stall_raises_the_delay_no_further_than_the_ceiling_and_is_forgotten_in_half_a_second() {
+    let mut noise = Lcg(9);
+    let shown = run(&mut adaptive(), 1200, |_| 8_333, |i| (i == 600) as i64 * 30_000 + noise.next(300), 0);
+    let delays: Vec<i64> = holds(&shown).collect();
+    assert!(shown[600].2);
+    // The frames that came during the stall are shown behind it, in order; then the ceiling holds.
+    assert!(delays[605..].iter().all(|d| *d <= 150 + ADAPTIVE_SPREAD_US + 500 + 100), "{:?}", delays[605..].iter().max());
+    assert!((delays[661] - delays[599]).abs() <= 150, "{} against {}", delays[661], delays[599]);
+    assert_eq!(shown[605..].iter().filter(|s| s.2).count(), 0);
+}
+
+#[test]
+fn the_knee_covers_a_spread_and_leaves_a_tail() {
+    let sorted = |mut values: Vec<i64>| {
+        values.sort_unstable();
+        values
+    };
+    assert_eq!(knee(&[4_200]), 4_200);
+    assert_eq!(knee(&[700; 128]), 700);
+    // Even over 6 ms: all but the last few frames.
+    let even = sorted((0..128).map(|i| i * 6_000 / 128).collect());
+    assert!(knee(&even) >= 5_400, "{}", knee(&even));
+    // Nine frames in ten within 1 ms, the others 9 to 12 ms later: the knee stays with the many.
+    let tailed = sorted((0..128).map(|i| if i % 10 == 0 { 9_000 + i * 20 } else { i * 7 }).collect());
+    assert!(knee(&tailed) < 1_000, "{}", knee(&tailed));
+    // A second group further away than the reach is a tail too, however large.
+    let apart = sorted((0..128).map(|i| if i % 5 == 0 { 3_000 + i } else { i }).collect());
+    assert!(knee(&apart) < 200, "{}", knee(&apart));
+    // Within reach it is part of the spread.
+    let near = sorted((0..128).map(|i| if i % 5 == 0 { 1_500 + i } else { i }).collect());
+    assert!(knee(&near) >= 1_500, "{}", knee(&near));
+    // Frames further apart than the reach are a tail from the median on.
+    let wide = sorted((0..128).map(|i| i * 1_000).collect());
+    assert_eq!(knee(&wide), wide[63]);
+    // A few frames have no share to speak of: never past the 97th percentile.
+    assert_eq!(knee(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]), 8);
+}
+
+// On a vsync grid the percentile rule stays, with the spread as a plain bound.
+#[test]
+fn a_vsync_grid_keeps_the_percentile_rule() {
+    let grid = Grid { anchor_us: 0, interval_us: 8_333, lead_us: 2_000, slack_us: 0 };
+    let mut noise = Lcg(10);
+    let mut on_grid = adaptive();
+    let mut plain = PresentClock::default();
+    for i in 0..600i64 {
+        let host = i * 11_111;
+        let ready = (host + 987_654_321 + 20_000 + noise.next(1_500)) as u64;
+        on_grid.schedule_on_grid(rtp(host), ready, grid);
+        plain.schedule_on_grid(rtp(host), ready, grid);
+    }
+    assert_eq!(on_grid.delay_us(), plain.delay_us());
 }

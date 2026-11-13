@@ -156,8 +156,14 @@ public final class PyroWaveDecoderRenderer {
                 mode == UpscalingPolicy.Mode.BILINEAR ? 2 : 0;
     }
 
+    /**
+     * pacingMode is FramePacingPolicy.pyroWaveMode's. topRefreshRate is the display's highest refresh
+     * rate, read only with the PC's frame times (Real VRR): frames are then shown no closer than one
+     * refresh at it. 0 leaves that open.
+     */
     synchronized boolean setup(Surface surface, int format, int width, int height, int fps, float displayRefreshRate,
-                               int pacingMode, boolean fullRange, boolean stretch, UpscalingPolicy.Mode upscaling, int sharpness,
+                               float topRefreshRate, int pacingMode, boolean fullRange, boolean stretch,
+                               UpscalingPolicy.Mode upscaling, int sharpness,
                                Context context, boolean maxClocks, boolean preacquire) {
         cleanup();
         if (!LIBRARY_LOADED || surface == null || !surface.isValid()) return false;
@@ -167,7 +173,7 @@ public final class PyroWaveDecoderRenderer {
         for (int attempt = 0; attempt < (requestedCustom ? 2 : 1); attempt++) {
             if (customDriver != null && !GpuDriverStore.beginUse(context, customDriver)) customDriver = null;
             try {
-                handle = nativeCreate(surface, width, height, fps, displayRefreshRate, pacingMode,
+                handle = nativeCreate(surface, width, height, fps, displayRefreshRate, topRefreshRate, pacingMode,
                         (format & MoonBridge.VIDEO_FORMAT_MASK_YUV444) != 0,
                         (format & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0, fullRange, stretch,
                         upscaleMode(upscaling), SgsrConstants.edgeSharpness(sharpness), preacquire,
@@ -297,11 +303,19 @@ public final class PyroWaveDecoderRenderer {
 
     /**
      * Average ms per frame the decoder waited for free planes and the present thread waited for a
-     * swapchain image, and the percentage of decoded frames a newer one replaced before display.
+     * swapchain image, the percentage of decoded frames a newer one replaced before display, and,
+     * with the PC's frame times (Real VRR), the average ms a ready frame was held for its time
+     * (-1 in every other mode).
      */
     synchronized float[] getWaits() {
         float[] waits = handle != 0 ? nativeGetWaits(handle) : null;
-        return waits != null && waits.length >= 3 ? waits : new float[] {-1, -1, -1};
+        return waits != null && waits.length >= 4 ? waits : new float[] {-1, -1, -1, -1};
+    }
+
+    /** The overlay line for {@link #getWaits()}'s hold with the PC's frame times, or null without one. */
+    static String hostTimesLine(float heldMs) {
+        return heldMs >= 0 && Float.isFinite(heldMs) ?
+                String.format(Locale.US, "PC frame times: held %.1f ms", heldMs) : null;
     }
 
     synchronized int getLastGpuDecodeUs() {
@@ -458,7 +472,8 @@ public final class PyroWaveDecoderRenderer {
     private static native int nativeGetHdrSurfaceFailure();
     private static native int nativeGetReadiness(boolean hdr, String hooks, String directory, String name);
     private static native long nativeCreate(Surface surface, int width, int height, int fps, float displayRefreshRate,
-                                           int pacingMode, boolean chroma444, boolean tenBit, boolean fullRange, boolean stretch,
+                                           float topRefreshRate, int pacingMode,
+                                           boolean chroma444, boolean tenBit, boolean fullRange, boolean stretch,
                                            int upscale, float edgeSharpness, boolean preacquire,
                                            String hooks, String directory, String name);
     private static native String nativeGetDriver(long handle);

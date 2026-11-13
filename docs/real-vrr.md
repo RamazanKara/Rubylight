@@ -15,9 +15,10 @@ steady delay, so the screen refreshes in step with the game.
 
 - **97% of frames on the game's rhythm**, instead of 81 to 90% shown on arrival, for 1.3 to 1.5 ms
   of delay on a clean link (PyroWave, HEVC and AV1 alike).
-- **Built for Wi-Fi too.** A frame much later than the rest is shown when it is ready instead of
-  holding every frame back for it, so over Wi-Fi it halves the frames off the rhythm for 2.6 to
-  4.2 ms.
+- **Built for Wi-Fi too.** The delay follows the connection: it covers the frames that arrive
+  together, a frame much later than the rest is shown when it is ready, and the frames behind a
+  late one keep the game's spacing. Over Wi-Fi about 10% of frame gaps are off their timestamps
+  for 2.6 to 3.5 ms of delay, against two thirds shown on arrival.
 - **On by default** whenever Variable refresh rate is on.
 
 ## Turning it on or off
@@ -55,22 +56,34 @@ is the frame's RTP timestamp, so nothing in the stream changes for other clients
 
 **In Nightjar.** For every frame, Nightjar compares when the frame was ready to show with its time
 on the PC. It needs no shared clock: the offset between the two clocks is the same for every frame,
-so it cancels out, and slow drift is followed as it goes. From the last 128 frames it takes how late
-97% of them were ready, adds 0.5 ms for the present call itself, and shows each frame at its PC time
-plus that delay. The delay rises at once when frames get later, and falls back gradually when they
-get earlier again, so a single stall is forgotten within seconds.
+so it cancels out, and slow drift is followed as it goes. How late the last 128 frames were sets the
+delay, and each frame is shown at its PC time plus that delay. It works like a jitter buffer that is
+measured in milliseconds instead of frames.
 
-Two rules keep that delay short:
+Three rules size that delay:
 
-- **Stragglers don't hold everyone back.** The delay is never more than 2 ms above the typical
-  (median) frame's lateness. A frame later than that is shown when it is ready. On a clean link the
-  bound never applies; on Wi-Fi, where a few frames always arrive much later than the rest, it is
-  what keeps the delay at 2.6 to 4.2 ms instead of 8 to 10 ms.
+- **It covers the frames that arrive together, not the stragglers.** Sorted by lateness, most frames
+  lie within a millisecond or two of each other and a few trail far behind. The delay stops at that
+  knee: where waiting 2 ms longer would bring in fewer than 7% of the frames (and never past the
+  97th percentile), plus 0.5 ms for the present call itself. Jitter without a tail is covered
+  whole; behind a long tail the delay stays near the typical frame, and a frame later than the
+  delay is shown when it is ready.
+- **A late frame takes the ones behind it along.** Late frames come in bursts: in the Wi-Fi
+  recordings the frame after a late one was late 33 to 43% of the time, against 11 to 17% of all
+  frames. A frame later than the delay raises the delay to its own lateness at once, at most 6 ms
+  above the typical frame, and the delay falls back with a time constant of 0.1 s. One gap is
+  longer; the frames behind it keep the game's spacing instead of each jumping on its own.
 - **The screen's limit is respected.** Two frames are never shown closer together than the
   display's fastest refresh, and a frame is pushed back by at most one refresh for it.
 
-On the desktop, the overlay's **Pacing** line reads **VRR, PC frame times**, with the average hold
-and how many frames came later than the delay.
+**Below the screen's range.** A VRR screen waits only so long for a frame: the longest interval
+of its range. Then the graphics driver shows the old picture again (low frame rate compensation),
+which takes as long as a refresh at the screen's top rate, and a frame that arrives meanwhile tears
+or waits. Nightjar leaves those repeats to the driver and the compositor. Timing them itself on
+Windows was built and measured, and is not on: see [Limits](#limits).
+
+On the desktop, the overlay's **Pacing** line reads **VRR, PC frame times**, with the average hold,
+and how many frames came later than the delay. On Android the decoder line of a PyroWave stream ends in **PC frame times**.
 
 ## Measured
 
@@ -101,20 +114,42 @@ when that screen refreshes.)
 | AV1 | 74% | 22%, 8.2 ms | 30%, 3.0 ms |
 
 Part of the share left over Wi-Fi is the test laptop itself, whose capture timestamps are rough.
+
+The Real VRR column is the rule before this one, a fixed bound of 2 ms above the typical frame.
+With the delay following the link, the same recordings replayed through Nightjar's clock and
+judged against the frames' own timestamps (which leaves the laptop's capture out):
+
+| Frame gaps more than 1 ms off their timestamps, mean delay | 2 ms bound | Follows the link |
+|---|---|---|
+| Wi-Fi recordings above (24 runs) | 19.0%, 2.0 ms | 10.6%, 3.5 ms |
+| Laptop to the PC's 240 Hz VRR monitor, HEVC (16 runs) | 12.5%, 1.9 ms | 9.6%, 2.6 ms |
+| Same PC | 1.0 ms | 0.9 ms, the same rhythm |
+
+On the 240 Hz monitor the replay matched the share each run showed on screen within a point. A
+fixed bound with the same delay leaves 10.8% there and about 12% in the Wi-Fi recordings. For
+PyroWave on that monitor both rules showed the same share (10.7 and 10.9%).
 The method, the raw figures and the replays behind the 2 ms bound are in
 [PyroWave decoding: Real VRR](pyrowave-decode.md#real-vrr-measured-cadence-and-a-link-with-a-long-tail).
 
 ## Limits
 
-- **It adds delay:** about 1.3 to 1.5 ms on a clean link and 2.6 to 4.2 ms over Wi-Fi in the runs
-  above. That is the price of the steady rhythm; turn Real VRR off if you would rather have each
+- **It adds delay:** about 1.3 to 1.5 ms on a clean link and 2.6 to 3.5 ms over Wi-Fi in the runs
+  above (19 of 20 frames within 5.6 to 7.1 ms). That is the price of the steady rhythm; turn Real VRR off if you would rather have each
   frame the moment it is decoded.
-- **Over Wi-Fi some frames stay off the rhythm.** A frame more than 2 ms later than the typical one
-  is shown when it is ready, so about 30% of frames were still off in the runs above, against 64 to
-  74% shown on arrival.
-- **Frames are shown on arrival** for PyroWave streams on Android, and on Windows when **Sharper
-  colored text** streams packed full chroma, which it does when the codec's own 4:4:4 is not
-  available on the device or the PC.
+- **Over Wi-Fi some frames stay off the rhythm.** A frame later than the delay is shown when it is
+  ready, and one more than 6 ms later than the typical frame raises the delay no further: about
+  10% of frame gaps stayed more than 1 ms off their timestamps in the runs above.
+- **Below the screen's range the graphics driver repeats pictures,** and a frame that arrives
+  during such a refresh tears. On a 240 Hz monitor whose range ends at 80 Hz, 24 to 32% of frames
+  did, with test animations of 40 to 67 fps. Nightjar repeating the picture itself on Windows,
+  timed from the frame rate and the screen's scan line, brought a 60 fps animation to 16% and
+  changed nothing for a 40 fps and an uneven one, and the frames that then waited for a refresh
+  to end were shown 1.1 to 1.5 ms late. It is therefore not on
+  ([details](../protocol/desktop/README.md)).
+- **Frames are shown on arrival** on Windows when **Sharper colored text** streams packed full
+  chroma, which it does when the codec's own 4:4:4 is not available on the device or the PC.
+- **PyroWave on Android** follows Real VRR on a screen with adaptive refresh. It has not been
+  measured on such a screen.
 - The rhythm can only be as even as the PC's timestamps. With Rubylight and automatic capture they
   are the game's own present times; a capture method other than Windows Graphics Capture stamps the
   time each frame was captured.

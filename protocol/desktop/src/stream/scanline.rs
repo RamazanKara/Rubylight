@@ -77,6 +77,12 @@ impl Beam {
         Some((((f64::from(self.rows - row)) * 1e6 / self.lines_per_ms) as u64).min(self.scan_ns))
     }
 
+    /// How long ago the scan a reading belongs to began (ns): the counter keeps walking while a
+    /// variable refresh display idles after it, so this is also how long the display has waited.
+    pub fn since_scan_ns(&self, sample: &Sample) -> u64 {
+        (f64::from(sample.line) * 1e6 / self.lines_per_ms) as u64
+    }
+
     /// The calibration saw the display wait for presents, on two scans or more (`idle_scans`): a
     /// fixed refresh wraps its counter at every scan's end and never does, and one reading past it
     /// (a mode switch while the calibration ran) is not enough. On a resume a 120 Hz VRR monitor

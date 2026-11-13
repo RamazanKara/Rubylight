@@ -880,7 +880,8 @@ namespace {
             destroy();
         }
 
-        bool create(ANativeWindow *nativeWindow, int streamWidth, int streamHeight, int frameRate, float displayRefreshRate, int pacingMode,
+        bool create(ANativeWindow *nativeWindow, int streamWidth, int streamHeight, int frameRate, float displayRefreshRate,
+                    float topRefreshRate, int pacingMode,
                     bool fullChroma, bool tenBitOutput, bool fullRangeOutput, bool stretchOutput, int upscale, float sharpness,
                     bool preacquireSetting) {
             window = nativeWindow;
@@ -893,7 +894,8 @@ namespace {
             fullRange = fullRangeOutput;
             frameRateHz = frameRate > 0 ? frameRate : 60;
             displayRefreshRateHz = displayRefreshRate;
-            framePacingMode = pacingMode >= 0 && pacingMode <= 3 ? pacingMode : 0;
+            framePacingMode = pacingMode >= 0 && pacingMode <= HOST_TIMES_MODE ? pacingMode : 0;
+            if (framePacingMode == HOST_TIMES_MODE && !createPresentClock(topRefreshRate)) framePacingMode = 0;
             const int64_t periodNs = displayRefreshRate > 1.0f && displayRefreshRate <= 1000.0f ?
                     int64_t(1'000'000'000.0 / displayRefreshRate) : 16'666'667;
             presentTiming.configure(static_cast<PyroWavePresentTiming::Mode>(framePacingMode), periodNs);
@@ -1509,6 +1511,9 @@ namespace {
             surfaceTransform = caps.currentTransform;
             lastSizeCheckUs = nowUs();
             presentTiming.reset();
+            // Rebuilding the swapchain held frames up for a reason that is gone with it: the
+            // clock learns the stream's lateness again instead of keeping a delay sized for that.
+            if (presentClock != nullptr) rp_present_clock_reset(presentClock);
             lastRefreshCheckUs = 0;
             driverRefreshPeriodNs = 0;
             refreshDisplayClock();
@@ -2168,8 +2173,9 @@ namespace {
             }
             const uint64_t afterAcquire = nowUs();
 
-            // Immediate mode keeps the freshest output. Paced modes retain the selected
-            // frame while the next completed frame waits, preserving host cadence.
+            // Immediate mode keeps the freshest output. Paced modes, the PC's frame times among
+            // them, retain the selected frame while the next completed frame waits, preserving
+            // host cadence.
             if (framePacingMode == 0 || slots[index].hostPresentationTimeUs <= 0) {
                 std::lock_guard<std::mutex> lock(slotMutex);
                 const int replaced = schedule.replaceDrawingWithReady();
@@ -2181,6 +2187,10 @@ namespace {
             }
             Slot &slot = slots[index];
             const auto timing = presentTiming.plan(slot.hostPresentationTimeUs, slot.completedNs);
+            if (framePacingMode == HOST_TIMES_MODE && timing.paced) {
+                presentStats.heldNs += uint64_t(timing.targetNs - slot.completedNs);
+                presentStats.heldFrames++;
+            }
 
             // Frame Warp once enableFrameWarp() published it: its pipelines, and the shift below
             const FrameWarpApi *warp = warpApi.load(std::memory_order_acquire);
@@ -2875,6 +2885,31 @@ namespace {
             }
         }
 
+        // Real VRR: this renderer's own instance of the shared present clock
+        // (protocol/core/src/present_clock.rs) behind presentTiming's HostTimes mode, set up as
+        // the MediaCodec path's is (android_present_clock.c): for a display that refreshes when
+        // a frame comes, with one refresh at the display's top rate as the shortest interval.
+        // The clock reads no time itself. The ready times it is given (a slot's completedNs)
+        // and the present times it answers are CLOCK_MONOTONIC, the clock of nowNs() and of
+        // the times VK_GOOGLE_display_timing takes on Android. False without a clock.
+        bool createPresentClock(float topRefreshRate) {
+            RpPresentSettings settings;
+            rp_present_settings_adaptive(&settings);
+            settings.min_interval_us = topRefreshRate > 1.0f && topRefreshRate <= 1000.0f ?
+                    int64_t(1'000'000.0f / topRefreshRate) : 0;
+            presentClock = rp_present_clock_new(&settings);
+            if (presentClock == nullptr) {
+                LOGW("PyroWave pacing: no clock for the PC's frame times; frames are shown as they arrive");
+                return false;
+            }
+            presentTiming.setHostSchedule([](void *clock, uint32_t rtp, uint64_t readyUs) -> uint64_t {
+                return rp_present_clock_schedule(static_cast<RpPresentClock *>(clock), rtp, readyUs).present_us;
+            }, presentClock);
+            LOGI("PyroWave pacing: PC frame times (the display's shortest refresh is %.2f ms)",
+                 double(settings.min_interval_us) / 1000.0);
+            return true;
+        }
+
         // Presenter-owned scheduler input. Android's callback samples are copied by
         // the submission thread; driver timing always refers to this output surface.
         void refreshDisplayClock() {
@@ -2954,6 +2989,12 @@ namespace {
 
         void destroy() {
             stopWorkers();
+            // The present thread, the clock's only user, has ended.
+            presentTiming.setHostSchedule(nullptr, nullptr);
+            if (presentClock != nullptr) {
+                rp_present_clock_free(presentClock);
+                presentClock = nullptr;
+            }
             if (device != VK_NULL_HANDLE) {
                 vk.DeviceWaitIdle(device);
             }
@@ -3064,6 +3105,11 @@ namespace {
         PyroWaveSchedule schedule;
         PyroWavePresentTiming presentTiming;
         int framePacingMode = 0;
+        // Real VRR: frames at the PC's frame times (PyroWavePresentTiming::Mode::HostTimes), from
+        // this renderer's own shared present clock. Null in every other mode. Made before the
+        // workers start, used by the present thread alone, freed after it ended.
+        static constexpr int HOST_TIMES_MODE = int(PyroWavePresentTiming::Mode::HostTimes);
+        RpPresentClock *presentClock = nullptr;
         std::mutex clockMutex;
         int64_t displayClockNs = 0;
         int64_t displayClockIntervalNs = 0;
@@ -3218,6 +3264,8 @@ namespace {
         }
 
         const char *getPresentModeName() const { return presentModeName(presentMode); }
+        // Real VRR: frames are shown at the PC's frame times. Set by create(), then constant.
+        bool showsHostTimes() const { return framePacingMode == HOST_TIMES_MODE; }
         std::string driverDescription;
         std::atomic<PyroWaveUpscalingReason> upscalingReason{UPSCALING_DISABLED};
 
@@ -3230,6 +3278,9 @@ namespace {
         std::atomic<float> lastWaitFreeSlotMs{0};
         std::atomic<float> lastWaitImageMs{-1};
         std::atomic<float> lastReplacedPercent{-1};
+        // With the PC's frame times, how long a frame was held after it was ready, on average;
+        // -1 in every other mode, before the first interval, and while no frame carried a time.
+        std::atomic<float> lastHostHoldMs{-1};
         // Early record push over the last stats interval: the share of frames whose records were
         // in the decoder by their last packet (-1 before any frame came with chunks), and the
         // frames whose chunks were not the frame and went whole.
@@ -3415,6 +3466,9 @@ namespace {
             uint32_t frames = 0;
             uint32_t replaced = 0;
             uint64_t acquireWaitUs = 0;
+            // PC frame times: how long the frames with a time were held after they were ready.
+            uint32_t heldFrames = 0;
+            uint64_t heldNs = 0;
         } presentStats;
 
         void logDecodeStatsIfDue(uint64_t now) {
@@ -3485,6 +3539,16 @@ namespace {
             LOGI("%.1f fps presented: wait for swapchain image %.2f ms, replaced while waiting %u",
                  stats.frames / seconds, imageWaitMs, stats.replaced);
             lastWaitImageMs = imageWaitMs;
+            if (framePacingMode == HOST_TIMES_MODE) {
+                // A frame without a host time is shown as it arrives and is not counted.
+                float heldMs = -1;
+                if (stats.heldFrames != 0) {
+                    heldMs = float(double(stats.heldNs) / double(stats.heldFrames) / 1e6);
+                    LOGI("PC frame times: %u frames held %.2f ms on average after they were ready",
+                         stats.heldFrames, heldMs);
+                }
+                lastHostHoldMs = heldMs;
+            }
             {
                 std::lock_guard<std::mutex> lock(slotMutex);
                 replacedSinceReport += stats.replaced;
@@ -3606,7 +3670,7 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeGetReadiness(JNIE
 JNIEXPORT jlong JNICALL
 Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeCreate(JNIEnv *env, jclass, jobject surface,
                                                                       jint width, jint height, jint frameRate, jfloat displayRefreshRate,
-                                                                      jint pacingMode,
+                                                                      jfloat topRefreshRate, jint pacingMode,
                                                                       jboolean chroma444, jboolean tenBit, jboolean fullRange, jboolean stretch,
                                                                       jint upscale, jfloat edgeSharpness, jboolean preacquire,
                                                                       jstring hooks, jstring directory, jstring name) {
@@ -3622,7 +3686,8 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeCreate(JNIEnv *en
         return 0;
     }
     auto renderer = std::make_unique<Renderer>(custom);
-    if (!renderer->create(window, width, height, frameRate, displayRefreshRate, pacingMode, chroma444, tenBit, fullRange, stretch,
+    if (!renderer->create(window, width, height, frameRate, displayRefreshRate, topRefreshRate, pacingMode,
+                          chroma444, tenBit, fullRange, stretch,
                           upscale, edgeSharpness, preacquire)) {
         return 0;  // The renderer releases the window.
     }
@@ -3817,15 +3882,20 @@ Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeGetEarlyRecords(J
 JNIEXPORT jfloatArray JNICALL
 Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeGetWaits(JNIEnv *env, jclass, jlong handle) {
     auto *renderer = reinterpret_cast<Renderer *>(handle);
-    jfloat values[3] = {renderer->lastWaitFreeSlotMs, renderer->lastWaitImageMs, renderer->lastReplacedPercent};
-    jfloatArray result = env->NewFloatArray(3);
-    if (result != nullptr) env->SetFloatArrayRegion(result, 0, 3, values);
+    jfloat values[4] = {renderer->lastWaitFreeSlotMs, renderer->lastWaitImageMs, renderer->lastReplacedPercent,
+                        renderer->lastHostHoldMs};
+    jfloatArray result = env->NewFloatArray(4);
+    if (result != nullptr) env->SetFloatArrayRegion(result, 0, 4, values);
     return result;
 }
 
 JNIEXPORT jstring JNICALL
 Java_com_limelight_binding_video_PyroWaveDecoderRenderer_nativeGetPresentMode(JNIEnv *env, jclass, jlong handle) {
-    return env->NewStringUTF(reinterpret_cast<Renderer *>(handle)->getPresentModeName());
+    auto *renderer = reinterpret_cast<Renderer *>(handle);
+    std::string mode = renderer->getPresentModeName();
+    // Real VRR, in the words the desktop overlay's Pacing line has for it.
+    if (renderer->showsHostTimes()) mode += ", PC frame times";
+    return env->NewStringUTF(mode.c_str());
 }
 
 JNIEXPORT jstring JNICALL

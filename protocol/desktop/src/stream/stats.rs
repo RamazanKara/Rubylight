@@ -72,12 +72,12 @@ pub(super) fn checks_display_for_present_mode(vrr: bool, pacing: PacingMode, pac
 }
 
 /// Whether the stream reads the scan line around its presents, and the topic of its log lines:
-/// for the beam race, for the VRR display check, and for `NIGHTJAR_VRR_SYNC=scan`, which waits on
-/// the beam. None for every other stream.
+/// for the beam race, for the VRR display check, for `NIGHTJAR_VRR_SYNC=scan`, which waits on
+/// the beam, and for the repeats of a VRR stream (`lfc`). None for every other stream.
 pub(super) fn display_probe(beam_race: bool, vrr: &present::VrrPacing) -> Option<&'static str> {
     if beam_race {
         Some("beam race")
-    } else if vrr.check || vrr.present_check || vrr.sync == present::VrrSync::Scan {
+    } else if vrr.check || vrr.present_check || vrr.sync == present::VrrSync::Scan || vrr.lfc {
         Some("display check")
     } else {
         None
@@ -281,6 +281,9 @@ impl Streaming {
             if self.scan_waits.0 > 0 {
                 pacing.push_str(&format!(" ({} waits, {:.2} ms each)", self.scan_waits.0, self.scan_waits.1 as f64 / f64::from(self.scan_waits.0) / 1e6));
             }
+        }
+        if let Some(keeper) = self.keeper.as_ref().filter(|keeper| keeper.repeats > 0 || self.scan_waits.0 > 0) {
+            pacing.push_str(&format!(", {} repeats, {} waited for a scan", keeper.repeats, self.scan_waits.0));
         }
         if self.pacer.mode == PacingMode::HostTimes {
             if let Some(delay) = self.pacer.clock.delay_us() {

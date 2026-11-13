@@ -6,15 +6,38 @@ final class FramePacingPolicy {
     // Keep a renderer turn finite even if decoder output keeps arriving while we catch up.
     static final int MAX_OUTPUT_DRAIN = 64;
 
-    static int pyroWaveMode(int requestedMode, boolean vrr) {
-        return vrr ? PreferenceConfiguration.FRAME_PACING_MIN_LATENCY : requestedMode;
+    /**
+     * The PyroWave presenter's mode for Real VRR, beside the frame pacing values it takes as they
+     * are: each frame at the time the shared present clock gives it (present_timing.h, HostTimes).
+     */
+    static final int PYROWAVE_HOST_TIMES = 4;
+
+    /**
+     * The mode the PyroWave presenter runs in. Variable refresh rate replaces frame pacing. With
+     * Real VRR on a screen that refreshes when a frame comes (the conditions under which
+     * HostFrameClock schedules MediaCodec frames for an adaptive refresh rate), each frame is
+     * shown at its time on the PC plus a steady delay. Otherwise VRR shows frames as they arrive:
+     * with Real VRR off, and on a screen with a fixed refresh, whose refresh times a frame's time
+     * cannot move.
+     *
+     * @param hostFrameTimes the stream's host frame times switch (PreferenceConfiguration.hostFrameTimes),
+     *                       which under VRR is Real VRR
+     * @param adaptive       the stream's display refreshes when a frame comes (Android 16 ARR)
+     */
+    static int pyroWaveMode(int requestedMode, boolean vrr, boolean hostFrameTimes, boolean adaptive) {
+        if (!vrr) return requestedMode;
+        return hostFrameTimes && adaptive ? PYROWAVE_HOST_TIMES : PreferenceConfiguration.FRAME_PACING_MIN_LATENCY;
     }
 
+    /**
+     * Whether the PyroWave presenter needs the display's vsync callbacks: only for the modes that
+     * put frames onto the vsync grid. Under VRR it shows frames as they arrive or at the PC's
+     * frame times, on no grid.
+     */
     static boolean usesPyroWaveDisplayClock(int requestedMode, boolean vrr, boolean localDisplay) {
-        int mode = pyroWaveMode(requestedMode, vrr);
-        return localDisplay && (mode == PreferenceConfiguration.FRAME_PACING_BALANCED ||
-                mode == PreferenceConfiguration.FRAME_PACING_CAP_FPS ||
-                mode == PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS);
+        return !vrr && localDisplay && (requestedMode == PreferenceConfiguration.FRAME_PACING_BALANCED ||
+                requestedMode == PreferenceConfiguration.FRAME_PACING_CAP_FPS ||
+                requestedMode == PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS);
     }
 
     static boolean dropQueuedFrames(int mode) {

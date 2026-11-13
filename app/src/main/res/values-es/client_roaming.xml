@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_client_roaming">Seguir transmitiendo al cambiar de red</string>
-    <string name="summary_client_roaming">La transmisión continúa cuando este dispositivo cambia de red.</string>
+    <string name="summary_client_roaming">La transmisión pasa a la nueva dirección cuando este dispositivo cambia de red, en lugar de esperar a la antigua. Déjalo activado; requiere un PC compatible.</string>
     <string name="title_roaming_metered">Continuar con datos móviles</string>
-    <string name="summary_roaming_metered">Permite que la transmisión pase a datos móviles u otra red de uso medido.</string>
+    <string name="summary_roaming_metered">Permite que una transmisión en curso pase a datos móviles u otra red de uso medido. Transmitir consume muchos datos; déjalo desactivado salvo que lo quieras así.</string>
 </resources>

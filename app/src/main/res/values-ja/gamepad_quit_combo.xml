@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_list_gamepad_quit_combo">ストリームを終了するボタン</string>
-    <string name="summary_list_gamepad_quit_combo">同時に押し続けるとストリームを終了するボタンです。</string>
+    <string name="summary_list_gamepad_quit_combo">これらのボタンを同時に長押しすると、ストリームメニューを開かずにコントローラからストリームを終了できます。ゲームで使わない組み合わせを選んでください。</string>
     <string name="gamepad_quit_combo_off">オフ</string>
     <string name="stream_controller_mouse">コントローラーマウス</string>
     <string name="title_list_guide_menu_hold">Guide長押しでストリームメニューを開く</string>
-    <string name="summary_list_guide_menu_hold">メニューを開くために Guide を押し続ける時間です。短く押すと PC に送られます。</string>
+    <string name="summary_list_guide_menu_hold">ストリームメニューを開くために Guide を押し続ける時間です。それより短く押すと PC に送られます。ゲームや PC で Guide の長押しが必要な場合は「オフ」を選んでください。</string>
 </resources>

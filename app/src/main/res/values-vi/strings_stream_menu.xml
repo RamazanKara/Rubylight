@@ -54,7 +54,7 @@ Tiến trình chưa lưu sẽ bị mất.</string>
     <string name="stream_menu_button_hide">Ẩn nút menu</string>
     <string name="stream_menu_settings">Menu stream</string>
     <string name="title_floating_menu_button">Nút menu nổi</string>
-    <string name="summary_floating_menu_button">Nút tròn trên stream để mở menu.</string>
+    <string name="summary_floating_menu_button">Nút tròn trên stream, chạm để mở menu stream; kéo để di chuyển nút. Không cần nếu nút Quay lại hoặc tay cầm của bạn đã mở được menu.</string>
     <string name="stream_tile_keyboard">Bàn phím</string>
     <string name="stream_tile_pc_keyboard">Bàn phím PC</string>
     <string name="stream_tile_mouse">Chuột</string>

@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_fec_choice">Hata düzeltme</string>
-    <string name="summary_fec_choice">Bilgisayarın eklediği kurtarma verisi; böylece kaybolan paketler görüntüyü bozmaz.</string>
+    <string name="summary_fec_choice">FEC: bilgisayarın kaybolan paketleri onarmak için eklediği ek veri; görüntünün bit hızından alınır. “PC ayarı” olarak bırakın; görüntü sık sık bozuluyorsa “Otomatik” seçeneğini deneyin.</string>
     <string name="fec_choice_host">PC ayarı</string>
     <string name="fec_choice_auto">Otomatik</string>
     <string name="title_link_probe">Başlamadan önce bağlantıyı test et</string>
-    <string name="summary_link_probe">Otomatik bit hızındaki yeni bir yayın önce bağlantıyı ölçer ve ölçülenden yüksek başlamaz.</string>
+    <string name="summary_link_probe">Otomatik bit hızındaki yeni bir yayın önce bağlantıyı ölçer ve ölçülenden yüksek başlamaz. Kapalı bırakın: ölçümümüzde yayınlar bu durumda daha düşük başladı, kayıp ve donma arttı.</string>
 </resources>

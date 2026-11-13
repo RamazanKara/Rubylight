@@ -6,7 +6,7 @@
     <string name="pc_keyboard_layout_us">Anglais (US)</string>
     <string name="pc_keyboard_layout_de">Allemand (QWERTZ)</string>
     <string name="pc_keyboard_layout_title">Disposition du clavier</string>
-    <string name="pc_keyboard_layout_summary">La disposition du clavier PC à l’écran.</string>
+    <string name="pc_keyboard_layout_summary">Les lettres affichées sur le clavier PC à l’écran. Les touches envoient des positions : choisissez la disposition que Windows utilise sur le PC, sinon d’autres caractères apparaissent. « Automatique » suit la langue de cet appareil.</string>
     <string name="pc_keyboard_size_title">Taille du clavier</string>
     <string name="pc_keyboard_opacity_title">Opacité du clavier</string>
 </resources>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_input_only_any_host">どの PC でも入力専用</string>
-    <string name="summary_checkbox_input_only_any_host">独自の入力専用モードがない PC でも、ゲームのメニューに「入力専用」を表示します。</string>
+    <string name="summary_checkbox_input_only_any_host">入力専用モードがない PC でも「入力専用」を選べるようにします。このデバイスは入力を送るだけになり、別の画面に表示したゲームの操作に使えます。この場合も PC は 1 Mbps 未満の小さなストリームを送ります。</string>
     <string name="input_only_start">入力専用</string>
     <string name="input_only_small_stream_note">映像は最小サイズで引き続きストリーミングされます (約 %1$.1f Mbit/s、1 時間あたり %2$d MB) が、表示されません</string>
     <string name="input_only_reason_input_permission">PC でこのデバイスに入力を許可してください</string>

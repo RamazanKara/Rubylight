@@ -27,5 +27,5 @@
     <string name="stream_rate_change_auto_no_answer">此串流已停止基于丢包的码率调整：电脑没有响应一项更改。</string>
     <string name="title_rate_change_bitrate">丢帧时降低码率</string>
     <string name="summary_short_rate_change_bitrate">关闭：“网络繁忙时降低码率”生效。开启：此设备根据丢帧和网络延迟调整码率。</string>
-    <string name="summary_rate_change_bitrate">一出现丢帧就降低码率。</string>
+    <string name="summary_rate_change_bitrate">一出现丢帧就降低码率，连续几秒没有丢帧后再调回，用来代替“网络繁忙时降低码率”。需要电脑支持。</string>
 </resources>

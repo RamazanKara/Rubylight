@@ -8,9 +8,9 @@
     <string name="stream_bitrate_busy">ПК занят. Повторите попытку чуть позже.</string>
     <string name="stream_host_abr_failed">ПК не включил автоматический битрейт: %1$s</string>
     <string name="title_auto_bitrate">Снижать битрейт при загруженной сети</string>
-    <string name="dialog_auto_bitrate">Снижает битрейт, пока соединение не справляется, и возвращает его, когда оно восстанавливается.</string>
+    <string name="dialog_auto_bitrate">Снижает битрейт, пока соединение не справляется, и возвращает его, когда оно восстановится: картинка менее чёткая, зато меньше рывков. Включите при загруженной сети; нужна поддержка ПК.</string>
     <string name="title_thermal_protection">Тепловая защита</string>
-    <string name="dialog_thermal_protection">Снижает битрейт и разрешение, пока устройство горячее.</string>
+    <string name="dialog_thermal_protection">Снижает битрейт и разрешение, пока устройство горячее, если включено «Снижать битрейт при загруженной сети» или «Автоматическое качество». Включайте, только если устройство перегревается или снижает производительность из-за нагрева.</string>
     <string name="title_automatic_bitrate">Автоматический битрейт</string>
-    <string name="dialog_automatic_bitrate">Nightjar выбирает битрейт по разрешению, частоте кадров и кодеку.</string>
+    <string name="dialog_automatic_bitrate">Nightjar выбирает битрейт по разрешению, частоте кадров и кодеку и подстраивает его, когда они меняются. Отключите, чтобы задать битрейт вручную.</string>
 </resources>

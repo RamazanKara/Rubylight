@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_list_osc_style">Controller style</string>
-    <string name="summary_list_osc_style">„Classic” albo „Modern” z gałkami podążającymi za kciukiem i edytorem układu.</string>
+    <string name="summary_list_osc_style">„Modern” ma gałki podążające za kciukiem i przyciski akcji, które można naciskać po dwa naraz. „Classic” zachowuje pierwotny układ; oba wysyłają do komputera ten sam gamepad.</string>
     <string name="osc_style_classic">Classic</string>
     <string name="osc_style_modern">Modern</string>
     <string name="title_list_osc_stick_mode">Modern controller sticks</string>
-    <string name="summary_list_osc_stick_mode">Przy „Floating” środek gałki jest tam, gdzie dotknie kciuk; przy „Fixed” gałki zostają na miejscu.</string>
+    <string name="summary_list_osc_stick_mode">„Floating” ustawia środek gałki tam, gdzie dotknie kciuk, więc nie musisz w nią dokładnie trafiać. Wybierz „Fixed”, jeśli wolisz celować w narysowaną gałkę.</string>
     <string name="osc_stick_floating">Floating</string>
     <string name="osc_stick_fixed">Fixed</string>
     <string name="title_seekbar_osc_stick_deadzone">Modern controller stick deadzone</string>
-    <string name="summary_seekbar_osc_stick_deadzone">Jak daleko musi przesunąć się kciuk, zanim gałka zareaguje.</string>
+    <string name="summary_seekbar_osc_stick_deadzone">Jak daleko musi przesunąć się kciuk, zanim gałka zareaguje. Zwiększ, jeśli spoczywający kciuk przesuwa kamerę lub postać; zmniejsz, aby celować dokładniej.</string>
     <string name="pad_edit_title">Edit controller layout</string>
     <string name="pad_edit_all">All controls</string>
     <string name="pad_edit_hidden">%1$s (hidden)</string>

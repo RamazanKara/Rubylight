@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_enable_mic">将麦克风发送到电脑</string>
-    <string name="summary_checkbox_enable_mic">将此设备的麦克风发送到电脑。</string>
+    <string name="summary_checkbox_enable_mic">将此设备的麦克风发送到电脑，让你可以在电脑上的游戏和聊天应用中说话。可在串流菜单中静音；需要电脑支持。</string>
     <string name="mic_permission_denied">未获得麦克风权限，因此麦克风保持关闭。请在 Android 设置中允许该权限，即可通过电脑语音。</string>
     <string name="mic_status_sending">麦克风：正在发送</string>
     <string name="mic_status_muted">麦克风：已静音</string>
@@ -9,18 +9,18 @@
     <string name="mic_status_unavailable">麦克风：不可用</string>
     <string name="mic_status_no_permission">麦克风：需要权限</string>
     <string name="title_list_mic_echo_cancel">回声消除</string>
-    <string name="summary_list_mic_echo_cancel">防止扬声器播放的串流声音进入麦克风。</string>
+    <string name="summary_list_mic_echo_cancel">防止扬声器播放的串流声音进入麦克风。请保持“自动”，它会在使用耳机时关闭此功能；如果电脑仍能听到自己的声音，请选“开启”。</string>
     <string name="mic_echo_auto">自动</string>
     <string name="mic_echo_on">开启</string>
     <string name="mic_echo_off">关闭</string>
     <string name="title_checkbox_mic_noise_suppression">噪声抑制</string>
-    <string name="summary_checkbox_mic_noise_suppression">滤除麦克风中持续的背景噪声。</string>
+    <string name="summary_checkbox_mic_noise_suppression">滤除麦克风中风扇等持续的背景噪声。请保持开启。</string>
     <string name="title_checkbox_mic_auto_gain">自动增益</string>
-    <string name="summary_checkbox_mic_auto_gain">平衡小声和大声的说话。</string>
+    <string name="summary_checkbox_mic_auto_gain">平衡小声和大声的说话。如果别人听到你的声音忽大忽小，请开启。</string>
     <string name="title_seekbar_mic_gain">麦克风增益</string>
-    <string name="summary_seekbar_mic_gain">在发送前调低或调高麦克风音量。</string>
+    <string name="summary_seekbar_mic_gain">在发送前调低或调高麦克风音量。别人听你的声音太小时调高，太大时调低。</string>
     <string name="title_checkbox_mic_button">麦克风按钮</string>
-    <string name="summary_checkbox_mic_button">串流画面上用于静音和取消静音麦克风的按钮。</string>
+    <string name="summary_checkbox_mic_button">串流画面上的圆形按钮，点一下即可将麦克风静音或取消静音；拖动可移动它。关闭后，请改从串流菜单静音。</string>
     <string name="mic_button_mute">静音麦克风</string>
     <string name="mic_button_unmute">取消静音麦克风</string>
     <string name="stream_mic_button_show">显示麦克风按钮</string>

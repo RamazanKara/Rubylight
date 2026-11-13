@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_fec_choice">エラー訂正</string>
-    <string name="summary_fec_choice">PC が追加する復元用データで、パケットが失われても映像が乱れないようにします。</string>
+    <string name="summary_fec_choice">FEC：失われたパケットを修復するために PC が追加するデータで、その分は映像のビットレートから差し引かれます。「PC の設定」のままにしてください。映像がよく乱れる場合は「自動」を試してください。</string>
     <string name="fec_choice_host">PC の設定</string>
     <string name="fec_choice_auto">自動</string>
     <string name="title_link_probe">開始前に回線をテスト</string>
-    <string name="summary_link_probe">自動ビットレートの新しいストリームは、まず接続を測定し、その結果を超えるビットレートでは開始しません。</string>
+    <string name="summary_link_probe">自動ビットレートの新しいストリームは、まず接続を測定し、その結果を超えるビットレートでは開始しません。オフのままにしてください。当方の測定では、オンにするとストリームがより低いビットレートで始まり、損失やフリーズが増えました。</string>
 </resources>

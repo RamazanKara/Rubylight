@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_back_opens_menu">返回鍵開啟串流選單</string>
-    <string name="summary_checkbox_back_opens_menu">控制器或掌機的返回鍵會開啟串流選單。</string>
+    <string name="summary_checkbox_back_opens_menu">控制器或掌機的 Back 鍵會開啟串流選單，不再傳送到電腦。如果你的遊戲會用到這個按鈕，請保持關閉。</string>
     <string name="title_checkbox_back_as_guide">返回鍵作為 Guide</string>
-    <string name="summary_checkbox_back_as_guide">返回鍵會向電腦傳送 Guide（Home 或 PS）。</string>
+    <string name="summary_checkbox_back_as_guide">Back 鍵向電腦傳送 Guide（Home 或 PS），遊戲因此不再從該按鈕收到 Back。適用於沒有 Guide 鍵的控制器；「返回鍵開啟串流選單」優先於此選項。</string>
 </resources>

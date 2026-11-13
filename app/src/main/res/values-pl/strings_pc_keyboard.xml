@@ -6,7 +6,7 @@
     <string name="pc_keyboard_layout_us">Angielski (USA)</string>
     <string name="pc_keyboard_layout_de">Niemiecki (QWERTZ)</string>
     <string name="pc_keyboard_layout_title">Układ klawiatury</string>
-    <string name="pc_keyboard_layout_summary">Układ ekranowej klawiatury PC.</string>
+    <string name="pc_keyboard_layout_summary">Litery pokazywane na ekranowej klawiaturze PC. Klawisze wysyłają pozycje, więc wybierz układ, którego Windows używa na komputerze, inaczej pojawią się inne znaki. „Automatyczny” dopasowuje się do języka tego urządzenia.</string>
     <string name="pc_keyboard_size_title">Rozmiar klawiatury</string>
     <string name="pc_keyboard_opacity_title">Przezroczystość klawiatury</string>
 </resources>

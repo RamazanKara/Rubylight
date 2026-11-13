@@ -6,7 +6,7 @@
     <string name="pc_keyboard_layout_us">English (US)</string>
     <string name="pc_keyboard_layout_de">German (QWERTZ)</string>
     <string name="pc_keyboard_layout_title">Keyboard layout</string>
-    <string name="pc_keyboard_layout_summary">The layout of the on-screen PC keyboard.</string>
+    <string name="pc_keyboard_layout_summary">The letters shown on the on-screen PC keyboard. Keys send positions, so pick the layout Windows uses on the PC or other characters appear. Automatic follows this device’s language.</string>
     <string name="pc_keyboard_size_title">Keyboard size</string>
     <string name="pc_keyboard_opacity_title">Keyboard opacity</string>
 </resources>

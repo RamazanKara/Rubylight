@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_back_opens_menu">Zurück öffnet das Stream-Menü</string>
-    <string name="summary_checkbox_back_opens_menu">Die Zurücktaste des Controllers oder Handhelds öffnet das Stream-Menü.</string>
+    <string name="summary_checkbox_back_opens_menu">Die Zurück-Taste des Controllers oder Handhelds öffnet das Stream-Menü und erreicht den PC nicht mehr. Lass es aus, wenn deine Spiele diese Taste nutzen.</string>
     <string name="title_checkbox_back_as_guide">Zurücktaste als Guide</string>
-    <string name="summary_checkbox_back_as_guide">Zurück sendet Guide (Home oder PS) an den PC.</string>
+    <string name="summary_checkbox_back_as_guide">Zurück sendet Guide (Home oder PS) an den PC, Spiele bekommen von dieser Taste also kein Zurück mehr. Für Controller ohne Guide-Taste; „Zurück öffnet das Stream-Menü“ hat Vorrang.</string>
 </resources>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_stream_orientation">화면 방향</string>
-    <string name="summary_stream_orientation">가로, 세로 또는 기기에 따라 회전.</string>
+    <string name="summary_stream_orientation">스트림이 회전할 수 있는 방향입니다. ‘자동’은 휴대전화를 가로로 유지하고 태블릿은 회전하게 합니다. ‘가로’와 ‘세로’는 방향을 고정하고, ‘기기에 따라 회전’은 기기 방향을 따릅니다.</string>
     <string-array name="stream_orientation_names">
         <item>자동</item>
         <item>가로</item>

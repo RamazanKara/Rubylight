@@ -369,7 +369,8 @@ public class AdvancedOptionsTest {
             MaterialSwitchPreference boost = (MaterialSwitchPreference) advanced.findPreference(GPU_BOOST);
             assertEquals("Boost GPU performance for PyroWave", boost.getTitle().toString());
             assertEquals(screen.getString(R.string.summary_gpu_max_clocks), boost.getSummary().toString());
-            assertEquals("Higher GPU clocks for faster PyroWave decoding, at more power and heat.", boost.getSummary().toString());
+            assertEquals("Higher GPU clocks for faster PyroWave decoding, at more power and heat. Leave it off unless PyroWave decoding is too slow.",
+                    boost.getSummary().toString());
             assertNull(boost.getExplanation());
             assertFalse(boost.isChecked());
             assertFalse(PreferenceConfiguration.readPreferences(screen).gpuMaxClocks);

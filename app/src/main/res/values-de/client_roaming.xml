@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_client_roaming">Stream bei Netzwerkwechsel fortsetzen</string>
-    <string name="summary_client_roaming">Der Stream läuft weiter, wenn dieses Gerät das Netzwerk wechselt.</string>
+    <string name="summary_client_roaming">Der Stream zieht zur neuen Adresse um, wenn dieses Gerät das Netzwerk wechselt, statt auf die alte zu warten. Lass es an; braucht Unterstützung durch den PC.</string>
     <string name="title_roaming_metered">Mit mobilen Daten fortsetzen</string>
-    <string name="summary_roaming_metered">Der Stream darf auf mobile Daten oder ein anderes getaktetes Netzwerk wechseln.</string>
+    <string name="summary_roaming_metered">Ein laufender Stream darf auf mobile Daten oder ein anderes getaktetes Netzwerk wechseln. Streamen verbraucht viele Daten; lass es aus, wenn du das nicht willst.</string>
 </resources>

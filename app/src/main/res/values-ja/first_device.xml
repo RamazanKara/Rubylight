@@ -12,7 +12,7 @@
     <string name="stream_restore_help">ストリームが中断されました。\n再開するには PC のアプリ一覧を開いてください。</string>
     <string name="stream_presets">プリセット</string>
     <string name="stream_presets_help">[ネイティブ] は、この画面の解像度とリフレッシュレートで、遅延に関する設定をすべてオンにしてストリーミングします。\n[バッテリー セーバー] は同じ解像度で 30 fps に抑えます。\nPC ごとのプロファイルが引き続き優先されます。</string>
-    <string name="summary_frame_pacing">VRR がオフの間、応答速度と滑らかさのバランスを取ります。</string>
+    <string name="summary_frame_pacing">VRR がオフの間、遅延と動きの安定のどちらを優先するかを決めます。「最小遅延」はフレームをすぐに表示します。ほかの選択肢は画面のリフレッシュを待つため、滑らかになりますが遅延が増えます。</string>
     <string name="summary_language">Nightjar のメニューの言語です。</string>
     <string name="overlay_mode_help">[オフ] はオーバーレイを非表示にします。[コンパクト] は、描画 FPS、ネットワークの往復時間（RTT）、フレーム損失を 1 行で表示し、ストリームが不安定になると先頭の点が黄色または赤に変わります。[統計] はストリームの測定値をリアルタイムで表示します。[デバッグ] はタイミングのパーセンタイルとデコーダーの診断情報を追加します。すべての詳細を見るにはスクロールしてください。ストリームメニューからも変更できます。</string>
     <string name="overlay_statistics">統計</string>

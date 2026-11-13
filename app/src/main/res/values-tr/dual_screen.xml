@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_dual_screen">Çift ekran modu</string>
-    <string name="summary_checkbox_dual_screen">Aynı oyunun ikinci bir yayını, ikinci bir ekranda.</string>
+    <string name="summary_checkbox_dual_screen">Aynı oyunu kendi yayınıyla ikinci bir ekrana da yayınlar; ses ve kumandalar ilk yayında kalır. İkinci bir ekran ve bilgisayar desteği gerekir.</string>
     <string name="title_resolution_screen2">İkinci ekran çözünürlüğü</string>
     <string name="summary_resolution_screen2">İkinci ekranın yayınının çözünürlüğü.</string>
     <string name="resolution_screen2_native">İkinci ekranın kendi boyutu</string>

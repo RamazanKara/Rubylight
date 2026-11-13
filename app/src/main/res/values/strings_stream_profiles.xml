@@ -67,7 +67,7 @@
 
     <!-- Bitrate on mobile data (Settings → Video) -->
     <string name="title_mobile_bitrate">Bitrate on mobile data</string>
-    <string name="summary_mobile_bitrate">The highest bitrate a stream uses on mobile data or a metered network.</string>
+    <string name="summary_mobile_bitrate">The highest bitrate a stream uses on mobile data or a metered network, such as a phone hotspot: less data used, softer picture. Off uses the same bitrate on every network.</string>
     <string name="mobile_bitrate_off">Off</string>
 
     <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="stream_hotkeys_title">ストリームのショートカットキー</string>
-    <string name="stream_hotkeys_summary">ストリーム中に使うNightjar独自のキーの組み合わせ。</string>
+    <string name="stream_hotkeys_summary">ストリームメニューを開くキーなど、ストリーム中に使う Nightjar 独自のキーの組み合わせです。これらのキーは PC に届きません。ゲームやアプリで必要な組み合わせは変更してください。</string>
     <string name="stream_hotkey_change">変更</string>
     <string name="stream_hotkey_off">オフ</string>
     <string name="stream_hotkey_reset">リセット</string>

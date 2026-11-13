@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_back_opens_menu">Indietro apre il menu dello stream</string>
-    <string name="summary_checkbox_back_opens_menu">Il tasto Indietro del controller o della console portatile apre il menu dello stream.</string>
+    <string name="summary_checkbox_back_opens_menu">Il pulsante Indietro del controller o della console portatile apre il menu dello stream e non arriva più al PC. Lascialo disattivato se i tuoi giochi usano quel pulsante.</string>
     <string name="title_checkbox_back_as_guide">Pulsante Indietro come Guide</string>
-    <string name="summary_checkbox_back_as_guide">Indietro invia Guide (Home o PS) al PC.</string>
+    <string name="summary_checkbox_back_as_guide">Indietro invia Guide (Home o PS) al PC, quindi i giochi non ricevono più Indietro da quel pulsante. Per i controller senza pulsante Guide; «Indietro apre il menu dello stream» ha la priorità.</string>
 </resources>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_enable_sdr10">Menos bandas de color</string>
-    <string name="summary_enable_sdr10">Transmite el vídeo no HDR en 10 bits, para que los degradados muestren menos bandas.</string>
+    <string name="summary_enable_sdr10">Transmite el vídeo sin HDR en 10 bits, para que los cielos y los degradados muestren menos bandas. Actívalo si ves bandas con el HDR desactivado; requiere HEVC o AV1 y un PC compatible.</string>
     <string name="startup_sdr10_not_accepted">Este PC no aceptó 10 bits, así que la transmisión es de 8 bits.</string>
     <string name="stream_sdr10_host_hdr">El PC está enviando HDR. Cambia su pantalla a SDR para usar SDR de 10 bits.</string>
     <string name="stream_sdr10_unavailable">No se usa SDR de 10 bits, así que la transmisión es de 8 bits: %1$s</string>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="stream_hotkeys_title">Skróty transmisji</string>
-    <string name="stream_hotkeys_summary">Własne kombinacje klawiszy Nightjar podczas transmisji.</string>
+    <string name="stream_hotkeys_summary">Własne kombinacje klawiszy Nightjar podczas strumienia, np. ta, która otwiera menu strumienia. Ich klawisze nigdy nie trafiają do komputera; zmień tę, której potrzebuje gra lub aplikacja.</string>
     <string name="stream_hotkey_change">Zmień</string>
     <string name="stream_hotkey_off">Wyłączone</string>
     <string name="stream_hotkey_reset">Resetuj</string>

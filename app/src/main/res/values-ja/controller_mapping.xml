@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="controller_mapping_title">コントローラのボタン</string>
-    <string name="controller_mapping_summary">コントローラのモデルごとにボタンとスティックを割り当て直します。</string>
+    <string name="controller_mapping_summary">コントローラのモデルごとにボタンとスティックを割り当て直し、PC から見える種類（Xbox、PlayStation、Nintendo）を設定します。ゲームに違うボタンが表示される場合に使います。</string>
     <string name="controller_mapping_intro">[ボタンを割り当て] をタップしてから、割り当て直すコントローラのボタンを押してください。\n変更は次回のストリームから適用されます。</string>
     <string name="controller_mapping_waiting">コントローラを接続してから [ボタンを割り当て] をタップしてください。</string>
     <string name="controller_mapping_unnamed">コントローラ</string>

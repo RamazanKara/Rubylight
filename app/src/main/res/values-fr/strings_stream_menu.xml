@@ -54,7 +54,7 @@ La progression non enregistrée sera perdue.</string>
     <string name="stream_menu_button_hide">Masquer le bouton du menu</string>
     <string name="stream_menu_settings">Menu du stream</string>
     <string name="title_floating_menu_button">Bouton de menu flottant</string>
-    <string name="summary_floating_menu_button">Un bouton rond au-dessus du stream qui ouvre le menu.</string>
+    <string name="summary_floating_menu_button">Un bouton rond au-dessus du stream qui ouvre le menu du stream d’un appui ; faites-le glisser pour le déplacer. Inutile si Retour ou votre manette ouvre le menu.</string>
     <string name="stream_tile_keyboard">Clavier</string>
     <string name="stream_tile_pc_keyboard">Clavier PC</string>
     <string name="stream_tile_mouse">Souris</string>

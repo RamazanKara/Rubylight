@@ -6,7 +6,7 @@
     <string name="pc_keyboard_layout_us">英語 (US)</string>
     <string name="pc_keyboard_layout_de">ドイツ語 (QWERTZ)</string>
     <string name="pc_keyboard_layout_title">キーボードレイアウト</string>
-    <string name="pc_keyboard_layout_summary">画面上のPCキーボードのレイアウトです。</string>
+    <string name="pc_keyboard_layout_summary">画面上のPCキーボードに表示される文字です。キーは位置として送られるため、PC の Windows と同じレイアウトを選ばないと別の文字が入力されます。「自動」はこのデバイスの言語に従います。</string>
     <string name="pc_keyboard_size_title">キーボードのサイズ</string>
     <string name="pc_keyboard_opacity_title">キーボードの不透明度</string>
 </resources>

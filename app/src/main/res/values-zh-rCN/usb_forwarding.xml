@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_usb_forwarding">转发 USB 设备</string>
-    <string name="summary_usb_forwarding">插在此设备上的 USB 设备可从串流菜单连接到电脑。</string>
+    <string name="summary_usb_forwarding">可从串流菜单把插在此设备上的 USB 设备（例如数位板或安全密钥）交给电脑使用。需要电脑提供 USB 转发。</string>
     <string name="stream_usb_devices">USB 设备</string>
     <string name="usb_forwarding_pick_title">转发 USB 设备</string>
     <string name="usb_forwarding_auto_button">自动</string>

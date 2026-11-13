@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_back_opens_menu">Nút Quay lại mở menu stream</string>
-    <string name="summary_checkbox_back_opens_menu">Nút Quay lại của tay cầm hoặc máy cầm tay mở menu stream.</string>
+    <string name="summary_checkbox_back_opens_menu">Nút Quay lại của tay cầm hoặc máy cầm tay mở menu stream và không còn đến PC. Nên để tắt nếu trò chơi của bạn dùng nút đó.</string>
     <string name="title_checkbox_back_as_guide">Nút Quay lại làm Guide</string>
-    <string name="summary_checkbox_back_as_guide">Nút Quay lại gửi Guide (Home hoặc PS) tới PC.</string>
+    <string name="summary_checkbox_back_as_guide">Nút Quay lại gửi Guide (Home hoặc PS) đến PC, nên trò chơi không còn nhận Quay lại từ nút đó. Dành cho tay cầm không có nút Guide; “Nút Quay lại mở menu stream” được ưu tiên.</string>
 </resources>

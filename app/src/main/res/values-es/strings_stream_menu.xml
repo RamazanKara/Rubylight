@@ -54,7 +54,7 @@ Se perderá el progreso no guardado.</string>
     <string name="stream_menu_button_hide">Ocultar botón de menú</string>
     <string name="stream_menu_settings">Menú de transmisión</string>
     <string name="title_floating_menu_button">Botón de menú flotante</string>
-    <string name="summary_floating_menu_button">Un botón redondo sobre la transmisión que abre el menú.</string>
+    <string name="summary_floating_menu_button">Un botón redondo sobre la transmisión que abre el menú de transmisión con un toque; arrástralo para moverlo. No hace falta si Atrás o tu mando abren el menú.</string>
     <string name="stream_tile_keyboard">Teclado</string>
     <string name="stream_tile_pc_keyboard">Teclado de PC</string>
     <string name="stream_tile_mouse">Ratón</string>

@@ -54,7 +54,7 @@
     <string name="stream_menu_button_hide">隱藏選單按鈕</string>
     <string name="stream_menu_settings">串流選單</string>
     <string name="title_floating_menu_button">浮動選單按鈕</string>
-    <string name="summary_floating_menu_button">串流畫面上用來開啟選單的圓形按鈕。</string>
+    <string name="summary_floating_menu_button">串流畫面上的圓形按鈕，輕觸一下即可開啟串流選單；拖曳可移動它。如果用返回鍵或控制器就能開啟選單，則不需要它。</string>
     <string name="stream_tile_keyboard">鍵盤</string>
     <string name="stream_tile_pc_keyboard">PC 鍵盤</string>
     <string name="stream_tile_mouse">滑鼠</string>

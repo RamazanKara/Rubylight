@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_back_opens_menu">Atrás abre el menú de la transmisión</string>
-    <string name="summary_checkbox_back_opens_menu">El botón Atrás del mando o de la consola portátil abre el menú de la transmisión.</string>
+    <string name="summary_checkbox_back_opens_menu">El botón Atrás del mando o de la consola portátil abre el menú de transmisión y deja de llegar al PC. Déjalo desactivado si tus juegos usan ese botón.</string>
     <string name="title_checkbox_back_as_guide">Botón Atrás como Guide</string>
-    <string name="summary_checkbox_back_as_guide">Atrás envía Guide (Home o PS) al PC.</string>
+    <string name="summary_checkbox_back_as_guide">Atrás envía Guide (Home o PS) al PC, por lo que los juegos dejan de recibir Atrás de ese botón. Para mandos sin botón Guide; «Atrás abre el menú de la transmisión» tiene prioridad.</string>
 </resources>

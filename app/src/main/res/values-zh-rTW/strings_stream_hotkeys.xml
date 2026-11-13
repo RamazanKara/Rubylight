@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="stream_hotkeys_title">串流快速鍵</string>
-    <string name="stream_hotkeys_summary">串流時 Nightjar 自己的組合鍵。</string>
+    <string name="stream_hotkeys_summary">串流時 Nightjar 自己的組合鍵，例如開啟串流選單的那一組。這些按鍵不會傳送到電腦；如果遊戲或應用程式需要其中某一組，請變更它。</string>
     <string name="stream_hotkey_change">變更</string>
     <string name="stream_hotkey_off">關閉</string>
     <string name="stream_hotkey_reset">重設</string>

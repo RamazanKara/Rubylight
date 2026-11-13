@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_network_grace">Esperar durante los cortes de red</string>
-    <string name="summary_network_grace">Cuánto se espera a una red que no responde antes de que termine la transmisión.</string>
+    <string name="summary_network_grace">Cuánto se espera a una red que no responde antes de que termine la transmisión; mientras tanto, la imagen se congela. Súbelo si los cortes breves terminan tus transmisiones; el PC también debe esperar ese tiempo.</string>
     <string name="network_grace_off">Desactivado (10 segundos)</string>
     <string name="network_grace_15">15 segundos</string>
     <string name="network_grace_20">20 segundos</string>

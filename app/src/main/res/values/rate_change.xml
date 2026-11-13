@@ -27,5 +27,5 @@
     <string name="stream_rate_change_auto_no_answer">Loss-based bitrate stopped for this stream: the PC did not answer a change.</string>
     <string name="title_rate_change_bitrate">Lower bitrate when frames are lost</string>
     <string name="summary_short_rate_change_bitrate">Off: Lower bitrate when the network is busy applies. On: this device adjusts from frame loss and network delay.</string>
-    <string name="summary_rate_change_bitrate">Turns the bitrate down as soon as frames go missing.</string>
+    <string name="summary_rate_change_bitrate">Turns the bitrate down as soon as frames go missing and back up after clean seconds, in place of “Lower bitrate when the network is busy”. Needs PC support.</string>
 </resources>

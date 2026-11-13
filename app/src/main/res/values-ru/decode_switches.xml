@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_submit_hint">Ускорить передачу кадров</string>
-    <string name="summary_submit_hint">Подсказка производительности охватывает и поток, который передаёт данные декодеру.</string>
+    <string name="summary_submit_hint">Для сравнения. Подсказка производительности охватывает и поток, который передаёт данные декодеру; на наших устройствах в замерах быстрее не стало. Оставьте выключенным.</string>
     <string name="title_covering_decoder_size">Подготовить декодер к складыванию</string>
-    <string name="summary_covering_decoder_size">Заранее задаёт размер декодера для другого экрана, чтобы складывание обходилось без перезапуска.</string>
+    <string name="summary_covering_decoder_size">Для складных устройств: заранее задаёт размер декодера под больший экран, чтобы первое складывание или поворот обходились без перезапуска декодера. Отключите, если видео останавливается или появляются ошибки.</string>
     <string name="title_pyrowave_preacquire">PyroWave: ранний образ экрана</string>
-    <string name="summary_pyrowave_preacquire">Берёт следующий образ экрана до прихода каждого кадра PyroWave.</string>
+    <string name="summary_pyrowave_preacquire">Для сравнения. Берёт следующий образ экрана до прихода каждого кадра PyroWave; на наших устройствах в замерах быстрее не стало. Оставьте выключенным.</string>
     <string name="title_codec_direct">Видеоданные прямо в декодер</string>
-    <string name="summary_codec_direct">Копирует каждый кадр в декодер один раз.</string>
+    <string name="summary_codec_direct">Для устранения неполадок. Кадры идут прямо в декодер, без лишнего копирования; оставьте включённым и отключайте, только если видео на этом устройстве останавливается или появляются ошибки.</string>
     <string name="title_receive_decode_priority">Приоритет декодера при приёме</string>
-    <string name="summary_receive_decode_priority">Поток, принимающий видео, работает с приоритетом декодера.</string>
+    <string name="summary_receive_decode_priority">Для сравнения. Поток, принимающий видео, работает с приоритетом декодера; на наших устройствах под нагрузкой в замерах стало медленнее. Оставьте выключенным.</string>
 </resources>

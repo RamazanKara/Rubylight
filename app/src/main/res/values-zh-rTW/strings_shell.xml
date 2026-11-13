@@ -73,7 +73,7 @@
     <string name="reduce_motion_full">完整</string>
     <!-- tv-mode-toggle -->
     <string name="title_ui_mode">介面配置</string>
-    <string name="summary_ui_mode">電視或手持配置，或依裝置本身而定。</string>
+    <string name="summary_ui_mode">「自動」依裝置本身而定。手機或掌機連接到電視時請選「電視」：清單項目更大，適合用遙控器或控制器操作。「手持」使用觸控配置。</string>
     <string name="ui_mode_auto">自動</string>
     <string name="ui_mode_tv">電視</string>
     <string name="ui_mode_handheld">手持</string>

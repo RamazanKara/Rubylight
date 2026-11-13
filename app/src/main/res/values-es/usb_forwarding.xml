@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_usb_forwarding">Redirigir dispositivos USB</string>
-    <string name="summary_usb_forwarding">Los dispositivos USB enchufados aquí pueden conectarse al PC desde el menú de la transmisión.</string>
+    <string name="summary_usb_forwarding">Permite que el menú de transmisión pase al PC un dispositivo USB enchufado aquí, como una tableta gráfica o una llave de seguridad. Requiere un PC que ofrezca redirección USB.</string>
     <string name="stream_usb_devices">Dispositivos USB</string>
     <string name="usb_forwarding_pick_title">Redirigir un dispositivo USB</string>
     <string name="usb_forwarding_auto_button">Automático</string>

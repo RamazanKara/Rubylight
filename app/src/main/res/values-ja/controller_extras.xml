@@ -2,20 +2,20 @@
 <resources>
     <!-- Controller and keyboard options -->
     <string name="title_checkbox_disable_rumble">振動をオフにする</string>
-    <string name="summary_checkbox_disable_rumble">すべての振動、トリガーの振動、ハプティクスを止めます。</string>
+    <string name="summary_checkbox_disable_rumble">ゲームが要求する振動（通常の振動、トリガーの振動、ハプティクス）をすべて止めます。振動を一切使いたくない場合以外は、オフのままにしてください。</string>
     <string name="title_checkbox_mouse_emulation_fixed_step">コントローラマウスの精密移動</string>
-    <string name="summary_checkbox_mouse_emulation_fixed_step">X を押している間、ポインタを一定のピクセル数ずつ動かします。</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">コントローラのマウスモードで X を押している間、小さな対象を狙いやすいよう、ポインタを一定のピクセル数ずつ動かします。Y を押すと移動量が 2 倍になります（1 から 128 ピクセル）。</string>
     <string name="stream_mouse_step">マウスのステップ: %1$d px</string>
     <string name="title_checkbox_capture_system_keys">システムキーを送信</string>
-    <string name="summary_checkbox_capture_system_keys">Alt+Tab、Windows キーなどを PC に送ります。</string>
+    <string name="summary_checkbox_capture_system_keys">Alt+Tab や Windows キーなどを、Android が許可する範囲で、このデバイスではなく PC に送ります。これらのショートカットをこのデバイスで使いたい場合はオフにしてください。</string>
     <string name="title_checkbox_system_keys_fullscreen_only">システムキーは全画面のときのみ</string>
-    <string name="summary_checkbox_system_keys_fullscreen_only">ウィンドウ表示では、システムキーはこのデバイスで処理されます。</string>
+    <string name="summary_checkbox_system_keys_fullscreen_only">ウィンドウ表示では Alt+Tab や Windows キーなどをこのデバイスで処理し、全画面では PC に送ります。ウィンドウ表示のストリームの横でアプリを切り替えたい場合はオンにしてください。</string>
     <string name="title_checkbox_back_as_meta">キーボードの戻るキーで Windows キーを送信</string>
-    <string name="summary_checkbox_back_as_meta">物理キーボードの戻るキーで Windows キーを送ります。</string>
+    <string name="summary_checkbox_back_as_meta">物理キーボードの戻るキーで、「戻る」や Esc の代わりに Windows キーを PC に送ります。Android の「戻る」ジェスチャーとストリームメニューのホットキーでは、引き続きストリームメニューを開けます。</string>
     <string name="title_checkbox_right_alt_as_meta">右 Alt を Windows キーとして使用</string>
-    <string name="summary_checkbox_right_alt_as_meta">右 Alt で Windows キーを送ります。Mac ではこれが Command として使われます。</string>
+    <string name="summary_checkbox_right_alt_as_meta">右 Alt で Windows キーを送ります。Mac ではこれが Command として使われます。AltGr で文字を入力する場合はオフのままにしてください。オンにすると、右 Alt は AltGr として働かなくなります。</string>
     <string name="title_checkbox_keyboard_follows_text_fields">テキスト欄に合わせてキーボードを表示</string>
-    <string name="summary_checkbox_keyboard_follows_text_fields">PC のテキスト欄にフォーカスがあるとスクリーンキーボードが開きます。</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">PC のテキスト欄を選ぶとスクリーンキーボードが開き、入力が終わると閉じます。テキスト欄を通知する PC が必要です。自分で開きたい場合はオフにしてください。</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">コントローラのテスト</string>
@@ -57,6 +57,6 @@
 
     <!-- USB Switch Pro driver -->
     <string name="title_usb_switch_pro">USB Switch Pro ドライバ</string>
-    <string name="summary_usb_switch_pro">有線接続の Switch Pro Controller を、モーション、振動、Home、Capture を含めて読み取ります。</string>
+    <string name="summary_usb_switch_pro">有線接続の Switch Pro Controller を Nightjar が直接読み取り、ジャイロ、振動、Home、Capture が使えるようになります。ストリーム中に Android が USB へのアクセス許可を求めます。Bluetooth 接続と Joy-Con は Android の入力のままです。</string>
     <string name="usb_switch_pro_denied">USB にアクセスできないため、Switch Pro Controller は Android の入力を使用します。\n再試行するにはケーブルを接続し直してください。</string>
 </resources>

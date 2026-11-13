@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_display_queue_recovery">Verzögerung der Anzeige-Warteschlange zurückholen</string>
-    <string name="summary_display_queue_recovery">Überspringt ein Frame, wenn der Bildschirm Frames eine Bildwiederholung länger als nötig zurückhält.</string>
+    <string name="summary_display_queue_recovery">Überspringt einen Frame, wenn der Bildschirm Frames eine Bildwiederholung länger als nötig zurückhält, und holt so diese Latenz zurück. Lass es an, solange dich der übersprungene Frame nicht stört.</string>
 </resources>

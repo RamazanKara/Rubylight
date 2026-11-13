@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_usb_forwarding">USB aygıtlarını yönlendir</string>
-    <string name="summary_usb_forwarding">Bu cihaza takılan USB aygıtları yayın menüsünden bilgisayara bağlanabilir.</string>
+    <string name="summary_usb_forwarding">Çizim tableti veya güvenlik anahtarı gibi bu cihaza takılı bir USB aygıtının yayın menüsünden bilgisayara aktarılmasını sağlar. USB yönlendirme sunan bir bilgisayar gerekir.</string>
     <string name="stream_usb_devices">USB aygıtları</string>
     <string name="usb_forwarding_pick_title">Bir USB aygıtını yönlendir</string>
     <string name="usb_forwarding_auto_button">Otomatik</string>

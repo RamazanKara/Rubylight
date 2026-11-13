@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_stream_orientation">Yönlendirme</string>
-    <string name="summary_stream_orientation">Yatay, dikey veya cihazla birlikte döndürme.</string>
+    <string name="summary_stream_orientation">Yayının hangi yöne dönebileceği. “Otomatik” telefonları yatay tutar, tabletlerin dönmesine izin verir; “Yatay” ve “Dikey” yönü kilitler; “Cihazla döndür” cihazı izler.</string>
     <string-array name="stream_orientation_names">
         <item>Otomatik</item>
         <item>Yatay</item>

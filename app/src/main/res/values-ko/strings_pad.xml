@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_list_osc_style">Controller style</string>
-    <string name="summary_list_osc_style">Classic 또는 엄지를 따라가는 스틱과 레이아웃 편집기를 갖춘 Modern입니다.</string>
+    <string name="summary_list_osc_style">‘Modern’은 엄지를 따라가는 스틱과 두 개를 동시에 누를 수 있는 A/B/X/Y 버튼을 갖추고 있습니다. ‘Classic’은 원래 레이아웃을 유지합니다. 둘 다 PC에는 같은 게임패드로 전달됩니다.</string>
     <string name="osc_style_classic">Classic</string>
     <string name="osc_style_modern">Modern</string>
     <string name="title_list_osc_stick_mode">Modern controller sticks</string>
-    <string name="summary_list_osc_stick_mode">Floating은 엄지가 닿은 곳에 스틱 중심을 두고, Fixed는 스틱이 제자리에 고정됩니다.</string>
+    <string name="summary_list_osc_stick_mode">‘Floating’은 엄지가 닿은 곳을 스틱 중심으로 삼아 정확히 맞춰 누를 필요가 없습니다. 화면에 그려진 스틱을 직접 누르는 편이 좋다면 ‘Fixed’를 선택하세요.</string>
     <string name="osc_stick_floating">Floating</string>
     <string name="osc_stick_fixed">Fixed</string>
     <string name="title_seekbar_osc_stick_deadzone">Modern controller stick deadzone</string>
-    <string name="summary_seekbar_osc_stick_deadzone">스틱이 반응하기 전까지 엄지가 움직이는 거리입니다.</string>
+    <string name="summary_seekbar_osc_stick_deadzone">스틱이 반응하기 전까지 엄지가 움직이는 거리입니다. 엄지를 올려 두기만 해도 시점이나 캐릭터가 움직이면 높이고, 더 세밀하게 조준하려면 낮추세요.</string>
     <string name="pad_edit_title">Edit controller layout</string>
     <string name="pad_edit_all">All controls</string>
     <string name="pad_edit_hidden">%1$s (hidden)</string>

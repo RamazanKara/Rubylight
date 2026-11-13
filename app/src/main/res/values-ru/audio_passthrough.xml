@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_audio_passthrough">Сквозной вывод звука</string>
-    <string name="summary_checkbox_audio_passthrough">ПК передаёт звук в формате, который аудиовыход воспроизводит как есть: без сжатия или Dolby.</string>
+    <string name="summary_checkbox_audio_passthrough">Для ресивера, саундбара или телевизора, которые воспроизводят Dolby или многоканальный PCM как есть: ПК передаёт звук в этом формате. Dolby приходит с задержкой примерно до 30 мс. Нужна поддержка ПК.</string>
 </resources>

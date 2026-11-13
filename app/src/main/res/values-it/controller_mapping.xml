@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="controller_mapping_title">Pulsanti del controller</string>
-    <string name="controller_mapping_summary">Rimappa pulsanti e levette di un modello di controller.</string>
+    <string name="controller_mapping_summary">Rimappa pulsanti e levette di un modello di controller e imposta il tipo visto dal PC (Xbox, PlayStation o Nintendo), per quando un gioco mostra i pulsanti sbagliati.</string>
     <string name="controller_mapping_intro">Tocca «Mappa un pulsante», poi premi il pulsante del controller da rimappare.\nLe modifiche si applicano al prossimo stream.</string>
     <string name="controller_mapping_waiting">Collega un controller, poi tocca «Mappa un pulsante».</string>
     <string name="controller_mapping_unnamed">Controller</string>

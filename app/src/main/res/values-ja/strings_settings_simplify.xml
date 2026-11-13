@@ -2,7 +2,7 @@
 <resources>
     <string name="fps_show_supported">対応するフレームレートのみ表示</string>
     <string name="title_adaptive_quality_setting">自動画質</string>
-    <string name="summary_adaptive_quality_setting">PC、ネットワーク、デバイスが追いつかない間、解像度やフレームレートを下げます。</string>
+    <string name="summary_adaptive_quality_setting">ネットワークやこのデバイスが追いつかない間は解像度またはフレームレートを下げ、その後元に戻します。どちらを先に下げるかはモードで決まります。PC の対応が必要です。</string>
     <string name="title_low_latency_customize">カスタマイズ</string>
     <string name="low_latency_customize_closed">低遅延の各項目のオンとオフを選択</string>
     <string name="low_latency_customize_open">個別のスイッチを隠す</string>

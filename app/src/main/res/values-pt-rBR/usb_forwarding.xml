@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_usb_forwarding">Encaminhar dispositivos USB</string>
-    <string name="summary_usb_forwarding">Dispositivos USB plugados aqui podem ser conectados ao PC pelo menu da transmissão.</string>
+    <string name="summary_usb_forwarding">Permite que o menu da transmissão passe ao PC um dispositivo USB conectado aqui, como uma mesa digitalizadora ou uma chave de segurança. Requer um PC que ofereça encaminhamento USB.</string>
     <string name="stream_usb_devices">Dispositivos USB</string>
     <string name="usb_forwarding_pick_title">Encaminhar um dispositivo USB</string>
     <string name="usb_forwarding_auto_button">Automático</string>

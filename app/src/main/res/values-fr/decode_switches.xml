@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_submit_hint">Accélérer la remise des images</string>
-    <string name="summary_submit_hint">L’indication de performances couvre aussi le thread qui alimente le décodeur.</string>
+    <string name="summary_submit_hint">Pour comparer. L’indication de performances couvre aussi le thread qui alimente le décodeur ; ce n’était pas plus rapide dans nos mesures sur nos appareils. Laissez-le désactivé.</string>
     <string name="title_covering_decoder_size">Préparer le décodeur au pliage</string>
-    <string name="summary_covering_decoder_size">Dimensionne le décodeur pour l’autre écran : plier l’appareil ne demande aucun redémarrage.</string>
+    <string name="summary_covering_decoder_size">Pour les appareils pliables : dimensionne d’emblée le décodeur pour le plus grand écran, pour que le premier pliage ou la première rotation ne redémarre pas le décodeur. Désactivez-le à nouveau si la vidéo s’arrête ou affiche des erreurs.</string>
     <string name="title_pyrowave_preacquire">PyroWave : image d\'écran anticipée</string>
-    <string name="summary_pyrowave_preacquire">Prend l’image d’écran suivante avant l’arrivée de chaque image PyroWave.</string>
+    <string name="summary_pyrowave_preacquire">Pour comparer. Prend l’image d’écran suivante avant l’arrivée de chaque image PyroWave ; ce n’était pas plus rapide dans nos mesures sur nos appareils. Laissez-le désactivé.</string>
     <string name="title_codec_direct">Données vidéo directes au décodeur</string>
-    <string name="summary_codec_direct">Copie chaque image une seule fois dans le décodeur.</string>
+    <string name="summary_codec_direct">Pour le dépannage. Les images vont directement dans le décodeur, ce qui économise une copie ; laissez-le activé et ne le désactivez que si la vidéo s’arrête ou affiche des erreurs sur cet appareil.</string>
     <string name="title_receive_decode_priority">Priorité du décodeur à la réception</string>
-    <string name="summary_receive_decode_priority">Le thread qui reçoit la vidéo tourne à la priorité du décodeur.</string>
+    <string name="summary_receive_decode_priority">Pour comparer. Le thread qui reçoit la vidéo tourne à la priorité du décodeur ; c’était plus lent en charge dans nos mesures sur nos appareils. Laissez-le désactivé.</string>
 </resources>

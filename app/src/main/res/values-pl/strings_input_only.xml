@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_input_only_any_host">Tylko sterowanie na każdym komputerze</string>
-    <string name="summary_checkbox_input_only_any_host">Udostępnia „Tylko sterowanie” w menu gry na komputerach bez własnego trybu tylko sterowania.</string>
+    <string name="summary_checkbox_input_only_any_host">Udostępnia „Tylko sterowanie” na komputerach bez tego trybu: to urządzenie tylko wysyła sterowanie do gry wyświetlanej na innym ekranie. Komputer nadal wysyła mały strumień, poniżej 1 Mbps.</string>
     <string name="input_only_start">Tylko sterowanie</string>
     <string name="input_only_small_stream_note">Obraz nadal jest przesyłany w najmniejszym rozmiarze, ok. %1$.1f Mbit/s (%2$d MB na godzinę), ale nie jest pokazywany</string>
     <string name="input_only_reason_input_permission">Zezwól temu urządzeniu na komputerze na sterowanie</string>

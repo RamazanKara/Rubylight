@@ -3,7 +3,7 @@
     <string name="stream_touch_off_help">Сенсор вимкнено. Проведіть назад або натисніть «Назад», щоб відкрити меню трансляції.</string>
     <string name="title_local_cursor_speed">Швидкість локального курсора</string>
     <string name="title_trackpad_acceleration">Прискорення вказівника</string>
-    <string name="summary_trackpad_acceleration">Швидкі рухи пальцем переміщують вказівник далі, ніж повільні.</string>
+    <string name="summary_trackpad_acceleration">Повільні рухи пальця зсувають вказівник менше — для точного наведення, а швидкі — далі. Сенсорні режими «Трекпад» і «Локальний курсор»; діє з наступної трансляції.</string>
     <string name="title_trackpad_acceleration_curve">Сила прискорення</string>
     <string-array name="trackpad_acceleration_curve_names">
         <item>Слабка</item>
@@ -11,7 +11,7 @@
         <item>Сильна</item>
     </string-array>
     <string name="title_trackpad_momentum">Інерція після швидкого жесту</string>
-    <string name="summary_trackpad_momentum">Вказівник рухається далі після швидкого жесту.</string>
+    <string name="summary_trackpad_momentum">Після швидкого жесту вказівник рухається далі, сповільнюючись; дотик до екрана одразу його зупиняє. Сенсорні режими «Трекпад» і «Локальний курсор».</string>
     <string name="title_trackpad_momentum_glide">Дальність інерції</string>
     <string-array name="trackpad_momentum_glide_names">
         <item>Коротка</item>
@@ -19,7 +19,7 @@
         <item>Довга</item>
     </string-array>
     <string name="title_trackpad_area">Область трекпада</string>
-    <string name="summary_trackpad_area">Частина екрана, де починаються жести трекпада.</string>
+    <string name="summary_trackpad_area">Частина екрана, де можуть починатися жести режимів «Трекпад» і «Локальний курсор»; дотики, розпочаті деінде, ігноруються. Виберіть половину, щоб на іншій міг лежати великий палець.</string>
     <string-array name="trackpad_area_names">
         <item>Увесь екран</item>
         <item>Права половина</item>
@@ -28,7 +28,7 @@
         <item>Верхня половина</item>
     </string-array>
     <string name="title_three_finger_tap">Дотик трьома пальцями</string>
-    <string name="summary_three_finger_tap">Що робить швидкий дотик трьома пальцями.</string>
+    <string name="summary_three_finger_tap">Що робить швидкий дотик трьома пальцями. «Системна клавіатура» — клавіатура Android; «Клавіатура ПК» має F-клавіші, Ctrl і Win; «Клавіатура й миша» — панель із клавішами й тачпадом.</string>
     <string-array name="three_finger_tap_names">
         <item>@string/desktop_controls_system_keyboard</item>
         <item>Середнє клацання</item>
@@ -38,7 +38,7 @@
     </string-array>
     <string name="stream_cursor_shape_rejected">Nightjar не може намалювати форму курсора ПК і показує стандартну стрілку.</string>
     <string name="title_four_finger_tap">Дотик чотирма пальцями</string>
-    <string name="summary_four_finger_tap">Що робить швидкий дотик чотирма пальцями.</string>
+    <string name="summary_four_finger_tap">Що робить швидкий дотик чотирма пальцями. «Системна клавіатура» — клавіатура Android; «Клавіатура ПК» має F-клавіші, Ctrl і Win; «Клавіатура й миша» — панель із клавішами й тачпадом.</string>
     <string name="title_multi_touch_finger_taps">Дотики кількома пальцями в режимі «Мультитач»</string>
-    <string name="summary_multi_touch_finger_taps">Дотики трьома й чотирма пальцями виконують свої дії і в режимі «Мультитач».</string>
+    <string name="summary_multi_touch_finger_taps">У режимі «Мультитач» дотики трьома й чотирма пальцями виконують свої дії та більше не надходять на ПК як дотики. Залиште вимкненим, якщо щось на ПК використовує такі дотики.</string>
 </resources>

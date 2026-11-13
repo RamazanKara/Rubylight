@@ -3,7 +3,7 @@
     <string name="stream_touch_off_help">Le tactile est désactivé. Balayez vers l’arrière ou appuyez sur Retour pour ouvrir le menu du stream.</string>
     <string name="title_local_cursor_speed">Vitesse du curseur local</string>
     <string name="title_trackpad_acceleration">Accélération du pointeur</string>
-    <string name="summary_trackpad_acceleration">Les balayages rapides déplacent le pointeur plus loin que les lents.</string>
+    <string name="summary_trackpad_acceleration">Un mouvement lent du doigt déplace moins le pointeur, pour viser avec précision, et les balayages rapides le déplacent plus loin. Modes tactiles « Pavé tactile » et « Curseur local » ; s’applique à partir du prochain stream.</string>
     <string name="title_trackpad_acceleration_curve">Intensité de l’accélération</string>
     <string-array name="trackpad_acceleration_curve_names">
         <item>Douce</item>
@@ -11,7 +11,7 @@
         <item>Forte</item>
     </string-array>
     <string name="title_trackpad_momentum">Glisser après un mouvement rapide</string>
-    <string name="summary_trackpad_momentum">Le pointeur continue sur sa lancée après un geste vif.</string>
+    <string name="summary_trackpad_momentum">Après un geste vif, le pointeur continue sur sa lancée puis ralentit ; toucher l’écran l’arrête aussitôt. Modes tactiles « Pavé tactile » et « Curseur local ».</string>
     <string name="title_trackpad_momentum_glide">Distance de glisse</string>
     <string-array name="trackpad_momentum_glide_names">
         <item>Courte</item>
@@ -19,7 +19,7 @@
         <item>Longue</item>
     </string-array>
     <string name="title_trackpad_area">Zone du pavé tactile</string>
-    <string name="summary_trackpad_area">La partie de l’écran où commencent les gestes du pavé tactile.</string>
+    <string name="summary_trackpad_area">La partie de l’écran où les gestes de « Pavé tactile » et « Curseur local » peuvent commencer ; les appuis qui commencent ailleurs sont ignorés. Choisissez une moitié pour poser un pouce de l’autre côté.</string>
     <string-array name="trackpad_area_names">
         <item>Plein écran</item>
         <item>Moitié droite</item>
@@ -28,7 +28,7 @@
         <item>Moitié supérieure</item>
     </string-array>
     <string name="title_three_finger_tap">Appui à trois doigts</string>
-    <string name="summary_three_finger_tap">Ce que fait un appui rapide à trois doigts.</string>
+    <string name="summary_three_finger_tap">Ce que fait un appui rapide à trois doigts. « Clavier système » est celui d’Android ; « Clavier PC » a les touches F, Ctrl et Win ; « Clavier et souris » est un panneau avec des touches et un pavé tactile.</string>
     <string-array name="three_finger_tap_names">
         <item>@string/desktop_controls_system_keyboard</item>
         <item>Clic du milieu</item>
@@ -38,7 +38,7 @@
     </string-array>
     <string name="stream_cursor_shape_rejected">Nightjar ne peut pas dessiner la forme du curseur du PC et affiche la flèche par défaut.</string>
     <string name="title_four_finger_tap">Appui à quatre doigts</string>
-    <string name="summary_four_finger_tap">Ce que fait un appui rapide à quatre doigts.</string>
+    <string name="summary_four_finger_tap">Ce que fait un appui rapide à quatre doigts. « Clavier système » est celui d’Android ; « Clavier PC » a les touches F, Ctrl et Win ; « Clavier et souris » est un panneau avec des touches et un pavé tactile.</string>
     <string name="title_multi_touch_finger_taps">Appuis à plusieurs doigts en Multitouch</string>
-    <string name="summary_multi_touch_finger_taps">Les appuis à trois et quatre doigts lancent aussi leur action en Multitouch.</string>
+    <string name="summary_multi_touch_finger_taps">En mode « Multitouch », les appuis à trois et quatre doigts lancent leurs actions et n’atteignent plus le PC comme appuis tactiles. Laissez-le désactivé si quelque chose sur le PC utilise ces appuis.</string>
 </resources>

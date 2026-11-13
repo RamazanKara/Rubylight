@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_network_grace">ネットワークの途切れを待つ</string>
-    <string name="summary_network_grace">ネットワークが応答しなくなったとき、ストリームを終了するまで待つ時間です。</string>
+    <string name="summary_network_grace">ネットワークが応答しなくなったとき、ストリームを終了するまで待つ時間です。その間、映像は止まります。短い途切れでストリームが終了してしまう場合は長くしてください。PC 側も同じ時間だけ待つ必要があります。</string>
     <string name="network_grace_off">オフ（10 秒）</string>
     <string name="network_grace_15">15 秒</string>
     <string name="network_grace_20">20 秒</string>

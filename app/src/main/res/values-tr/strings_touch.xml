@@ -3,7 +3,7 @@
     <string name="stream_touch_off_help">Dokunma kapalı. Yayın menüsü için geri kaydırın veya Geri’ye basın.</string>
     <string name="title_local_cursor_speed">Yerel imleç hızı</string>
     <string name="title_trackpad_acceleration">İşaretçi ivmesi</string>
-    <string name="summary_trackpad_acceleration">Hızlı kaydırmalar imleci yavaş olanlardan daha uzağa taşır.</string>
+    <string name="summary_trackpad_acceleration">Yavaş parmak hareketi imleci daha az oynatır (hassas nişan için), hızlı kaydırmalar daha uzağa taşır. “Trackpad” ve “Yerel imleç” dokunma modları için; sonraki yayından itibaren geçerli olur.</string>
     <string name="title_trackpad_acceleration_curve">İvme gücü</string>
     <string-array name="trackpad_acceleration_curve_names">
         <item>Hafif</item>
@@ -11,7 +11,7 @@
         <item>Güçlü</item>
     </string-array>
     <string name="title_trackpad_momentum">Hızlı kaydırmadan sonra kayma</string>
-    <string name="summary_trackpad_momentum">Hızlı bir kaydırmadan sonra imleç hareket etmeye devam eder.</string>
+    <string name="summary_trackpad_momentum">Hızlı bir kaydırmadan sonra imleç yavaşlayarak hareket etmeye devam eder; ekrana dokunmak onu hemen durdurur. “Trackpad” ve “Yerel imleç” dokunma modları için.</string>
     <string name="title_trackpad_momentum_glide">Kayma mesafesi</string>
     <string-array name="trackpad_momentum_glide_names">
         <item>Kısa</item>
@@ -19,7 +19,7 @@
         <item>Uzun</item>
     </string-array>
     <string name="title_trackpad_area">Trackpad alanı</string>
-    <string name="summary_trackpad_area">Trackpad hareketlerinin başladığı ekran bölümü.</string>
+    <string name="summary_trackpad_area">“Trackpad” ve “Yerel imleç” hareketlerinin başlayabileceği ekran bölümü; başka yerde başlayan dokunuşlar yok sayılır. Başparmağınızı diğer tarafta dinlendirmek için bir yarıyı seçin.</string>
     <string-array name="trackpad_area_names">
         <item>Tam ekran</item>
         <item>Sağ yarı</item>
@@ -28,7 +28,7 @@
         <item>Üst yarı</item>
     </string-array>
     <string name="title_three_finger_tap">Üç parmakla dokunma</string>
-    <string name="summary_three_finger_tap">Üç parmakla hızlı dokunmanın yaptığı iş.</string>
+    <string name="summary_three_finger_tap">Üç parmakla hızlı dokunmanın yaptığı iş. “Sistem klavyesi” Android’in klavyesidir; “PC klavyesi” F tuşları, Ctrl ve Win içerir; “Klavye ve fare” tuşları ve dokunmatik yüzeyi olan bir paneldir.</string>
     <string-array name="three_finger_tap_names">
         <item>@string/desktop_controls_system_keyboard</item>
         <item>Orta tıklama</item>
@@ -38,7 +38,7 @@
     </string-array>
     <string name="stream_cursor_shape_rejected">Nightjar bilgisayarın imleç şeklini çizemiyor, bu yüzden varsayılan oku gösteriyor.</string>
     <string name="title_four_finger_tap">Dört parmakla dokunma</string>
-    <string name="summary_four_finger_tap">Dört parmakla hızlı dokunmanın yaptığı iş.</string>
+    <string name="summary_four_finger_tap">Dört parmakla hızlı dokunmanın yaptığı iş. “Sistem klavyesi” Android’in klavyesidir; “PC klavyesi” F tuşları, Ctrl ve Win içerir; “Klavye ve fare” tuşları ve dokunmatik yüzeyi olan bir paneldir.</string>
     <string name="title_multi_touch_finger_taps">Çoklu dokunmada parmak dokunuşları</string>
-    <string name="summary_multi_touch_finger_taps">Üç ve dört parmakla dokunuşlar Çoklu dokunma modunda da eylemlerini çalıştırır.</string>
+    <string name="summary_multi_touch_finger_taps">“Çoklu dokunma” modunda üç ve dört parmakla dokunuşlar eylemlerini çalıştırır ve artık bilgisayara dokunuş olarak ulaşmaz. Bilgisayarda bu dokunuşları kullanan bir şey varsa kapalı bırakın.</string>
 </resources>

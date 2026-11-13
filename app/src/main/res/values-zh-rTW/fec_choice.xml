@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_fec_choice">錯誤更正</string>
-    <string name="summary_fec_choice">電腦加入的復原資料，讓遺失的封包不會使畫面破碎。</string>
+    <string name="summary_fec_choice">FEC：電腦加入的額外資料，用來修復遺失的封包，會佔用一部分畫面位元速率。請保持「電腦的設定」；如果畫面經常破圖，可以試試「自動」。</string>
     <string name="fec_choice_host">電腦的設定</string>
     <string name="fec_choice_auto">自動</string>
     <string name="title_link_probe">開始前測試連線</string>
-    <string name="summary_link_probe">使用自動位元速率的新串流會先測量連線，起始位元速率不會高於測得的值。</string>
+    <string name="summary_link_probe">使用自動位元速率的新串流會先測量連線，起始位元速率不會高於測得的值。請保持關閉：在我們的測量中，開啟後串流的起始位元速率更低，封包遺失和畫面凍結也更多。</string>
 </resources>

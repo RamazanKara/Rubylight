@@ -2,20 +2,20 @@
 <resources>
     <!-- Controller and keyboard options -->
     <string name="title_checkbox_disable_rumble">Disattiva vibrazione</string>
-    <string name="summary_checkbox_disable_rumble">Blocca ogni vibrazione, la vibrazione dei grilletti e il feedback aptico.</string>
+    <string name="summary_checkbox_disable_rumble">Blocca ogni vibrazione richiesta da un gioco: vibrazione, vibrazione dei grilletti e feedback aptico. Lascialo disattivato se non vuoi eliminare del tutto le vibrazioni.</string>
     <string name="title_checkbox_mouse_emulation_fixed_step">Mouse del controller preciso</string>
-    <string name="summary_checkbox_mouse_emulation_fixed_step">Muove il puntatore a passi fissi di pixel mentre X è premuto.</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">Nella modalità mouse del controller, tenendo premuto X il puntatore si muove a passi fissi di pixel, per i bersagli piccoli. Y raddoppia il passo, da 1 a 128 pixel.</string>
     <string name="stream_mouse_step">Passo del mouse: %1$d px</string>
     <string name="title_checkbox_capture_system_keys">Invia i tasti di sistema</string>
-    <string name="summary_checkbox_capture_system_keys">Alt+Tab, il tasto Windows e simili vanno al PC.</string>
+    <string name="summary_checkbox_capture_system_keys">Alt+Tab, il tasto Windows e simili vanno al PC invece che a questo dispositivo, dove Android lo consente. Disattivalo per tenere quelle scorciatoie su questo dispositivo.</string>
     <string name="title_checkbox_system_keys_fullscreen_only">Tasti di sistema solo a schermo intero</string>
-    <string name="summary_checkbox_system_keys_fullscreen_only">In finestra, i tasti di sistema restano su questo dispositivo.</string>
+    <string name="summary_checkbox_system_keys_fullscreen_only">In finestra, Alt+Tab, il tasto Windows e simili restano su questo dispositivo; a schermo intero vanno al PC. Attivalo per cambiare app accanto a uno stream in finestra.</string>
     <string name="title_checkbox_back_as_meta">Indietro della tastiera invia il tasto Windows</string>
-    <string name="summary_checkbox_back_as_meta">Il tasto Indietro di una tastiera fisica invia il tasto Windows.</string>
+    <string name="summary_checkbox_back_as_meta">Il tasto Indietro di una tastiera fisica invia al PC il tasto Windows invece di Indietro o Esc. Il gesto Indietro di Android e la scorciatoia del menu dello stream aprono comunque il menu dello stream.</string>
     <string name="title_checkbox_right_alt_as_meta">Alt destro come tasto Windows</string>
-    <string name="summary_checkbox_right_alt_as_meta">Alt destro invia il tasto Windows, che un Mac usa come Command.</string>
+    <string name="summary_checkbox_right_alt_as_meta">Alt destro invia il tasto Windows, che un Mac usa come Command. Lascialo disattivato se scrivi caratteri con AltGr: Alt destro non funziona più come AltGr.</string>
     <string name="title_checkbox_keyboard_follows_text_fields">La tastiera segue i campi di testo</string>
-    <string name="summary_checkbox_keyboard_follows_text_fields">La tastiera su schermo si apre quando un campo di testo sul PC riceve il focus.</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">Apre la tastiera su schermo quando selezioni un campo di testo sul PC e poi la chiude. Richiede un PC che segnali i campi di testo; disattivalo per aprirla da te.</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">Test del controller</string>
@@ -57,6 +57,6 @@
 
     <!-- USB Switch Pro driver -->
     <string name="title_usb_switch_pro">Driver Switch Pro USB</string>
-    <string name="summary_usb_switch_pro">Legge uno Switch Pro Controller cablato con movimento, vibrazione, Home e Capture.</string>
+    <string name="summary_usb_switch_pro">Nightjar legge direttamente uno Switch Pro Controller cablato, così funzionano giroscopio, vibrazione, Home e Capture. Android chiede l’accesso USB durante uno stream; Bluetooth e Joy-Con restano sull’input di Android.</string>
     <string name="usb_switch_pro_denied">Nessun accesso USB; lo Switch Pro Controller resta sull’input di Android.\nRicollega il cavo per riprovare.</string>
 </resources>

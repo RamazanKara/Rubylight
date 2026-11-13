@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_submit_hint">Frame-Übergabe beschleunigen</string>
-    <string name="summary_submit_hint">Die Leistungssteuerung erfasst auch den Thread, der den Decoder versorgt.</string>
+    <string name="summary_submit_hint">Zum Vergleichen. Die Leistungssteuerung erfasst auch den Thread, der den Decoder versorgt; auf unseren Geräten war es in Messungen nicht schneller. Lass es aus.</string>
     <string name="title_covering_decoder_size">Decoder aufs Falten vorbereiten</string>
-    <string name="summary_covering_decoder_size">Legt den Decoder vorab für den anderen Bildschirm aus, damit Falten keinen Neustart braucht.</string>
+    <string name="summary_covering_decoder_size">Für faltbare Geräte: Legt den Decoder vorab für den größeren Bildschirm aus, damit das erste Falten oder Drehen keinen Decoder-Neustart braucht. Schalte es wieder aus, wenn das Video stehen bleibt oder Fehler zeigt.</string>
     <string name="title_pyrowave_preacquire">PyroWave: Bildschirmbild früher holen</string>
-    <string name="summary_pyrowave_preacquire">Holt das nächste Bildschirmbild, bevor jeder PyroWave-Frame ankommt.</string>
+    <string name="summary_pyrowave_preacquire">Zum Vergleichen. Holt das nächste Bildschirmbild, bevor jeder PyroWave-Frame ankommt; auf unseren Geräten war es in Messungen nicht schneller. Lass es aus.</string>
     <string name="title_codec_direct">Videodaten direkt zum Decoder</string>
-    <string name="summary_codec_direct">Kopiert jeden Frame nur einmal in den Decoder.</string>
+    <string name="summary_codec_direct">Zur Fehlersuche. Frames gehen direkt in den Decoder, was eine Kopie spart; lass es an und schalte es nur aus, wenn das Video auf diesem Gerät stehen bleibt oder Fehler zeigt.</string>
     <string name="title_receive_decode_priority">Decoder-Priorität beim Empfang</string>
-    <string name="summary_receive_decode_priority">Der Thread, der Video empfängt, läuft mit der Priorität des Decoders.</string>
+    <string name="summary_receive_decode_priority">Zum Vergleichen. Der Thread, der Video empfängt, läuft mit der Priorität des Decoders; auf unseren Geräten war es in Messungen unter Last langsamer. Lass es aus.</string>
 </resources>

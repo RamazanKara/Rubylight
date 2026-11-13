@@ -8,9 +8,9 @@
     <string name="stream_bitrate_busy">PC beschäftigt. Versuch es gleich erneut.</string>
     <string name="stream_host_abr_failed">Der PC hat seine automatische Bitrate nicht gestartet: %1$s</string>
     <string name="title_auto_bitrate">Bitrate bei ausgelastetem Netzwerk senken</string>
-    <string name="dialog_auto_bitrate">Senkt die Bitrate, solange die Verbindung nicht mithält, und hebt sie wieder an, sobald sie sich erholt.</string>
+    <string name="dialog_auto_bitrate">Senkt die Bitrate, solange die Verbindung nicht mithält, und hebt sie wieder an, sobald sie sich erholt: weicheres Bild, weniger Ruckeln. Schalte es bei ausgelastetem Netzwerk ein; braucht Unterstützung durch den PC.</string>
     <string name="title_thermal_protection">Überhitzungsschutz</string>
-    <string name="dialog_thermal_protection">Senkt Bitrate und Auflösung, solange das Gerät heiß ist.</string>
+    <string name="dialog_thermal_protection">Senkt Bitrate und Auflösung, solange das Gerät heiß ist, sofern „Bitrate bei ausgelastetem Netzwerk senken“ oder „Automatische Qualität“ an ist. Schalte es nur ein, wenn das Gerät drosselt oder überhitzt.</string>
     <string name="title_automatic_bitrate">Automatische Bitrate</string>
-    <string name="dialog_automatic_bitrate">Nightjar wählt die Bitrate passend zu Auflösung, Bildrate und Codec.</string>
+    <string name="dialog_automatic_bitrate">Nightjar wählt die Bitrate passend zu Auflösung, Bildrate und Codec und passt sie an, wenn diese sich ändern. Schalte es aus, um die Bitrate selbst festzulegen.</string>
 </resources>

@@ -69,7 +69,7 @@
 
     <!-- Bitrate on mobile data (Settings → Video) -->
     <string name="title_mobile_bitrate">Szybkość transmisji na danych mobilnych</string>
-    <string name="summary_mobile_bitrate">Najwyższa szybkość transmisji strumienia na danych mobilnych lub w sieci z pomiarem danych.</string>
+    <string name="summary_mobile_bitrate">Najwyższa szybkość transmisji strumienia na danych mobilnych lub w sieci z pomiarem użycia danych, np. przez hotspot telefonu: mniejsze zużycie danych, mniej ostry obraz. „Wył.” oznacza tę samą szybkość transmisji w każdej sieci.</string>
     <string name="mobile_bitrate_off">Wył.</string>
 
     <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->

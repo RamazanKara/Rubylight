@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_stream_orientation">Orientamento</string>
-    <string name="summary_stream_orientation">Orizzontale, verticale o in rotazione con il dispositivo.</string>
+    <string name="summary_stream_orientation">In che verso può ruotare lo stream. Automatico tiene i telefoni in orizzontale e lascia ruotare i tablet; Orizzontale e Verticale lo bloccano; «Ruota con il dispositivo» segue il dispositivo.</string>
     <string-array name="stream_orientation_names">
         <item>Automatico</item>
         <item>Orizzontale</item>

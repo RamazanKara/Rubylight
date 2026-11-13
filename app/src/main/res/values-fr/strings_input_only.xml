@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_input_only_any_host">Saisie uniquement sur tout PC</string>
-    <string name="summary_checkbox_input_only_any_host">Propose Saisie uniquement dans le menu d’un jeu sur les PC sans leur propre mode Saisie uniquement.</string>
+    <string name="summary_checkbox_input_only_any_host">Propose « Saisie uniquement » sur les PC sans ce mode : cet appareil n’envoie que les entrées, pour un jeu affiché sur un autre écran. Le PC envoie quand même un petit stream, de moins de 1 Mbit/s.</string>
     <string name="input_only_start">Saisie uniquement</string>
     <string name="input_only_small_stream_note">La vidéo est toujours diffusée à la plus petite taille, environ %1$.1f Mbit/s (%2$d Mo par heure), mais n’est pas affichée</string>
     <string name="input_only_reason_input_permission">Autorisez la saisie pour cet appareil sur le PC</string>

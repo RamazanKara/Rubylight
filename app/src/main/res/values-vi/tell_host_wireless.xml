@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_tell_host_wireless">Báo cho PC khi dùng Wi-Fi</string>
-    <string name="summary_tell_host_wireless">PC điều chỉnh nhịp stream cho Wi-Fi ngay từ đầu.</string>
+    <string name="summary_tell_host_wireless">Báo cho PC biết khi thiết bị này dùng Wi-Fi, để PC điều chỉnh nhịp stream cho Wi-Fi ngay từ khung hình đầu tiên. Nên để bật; chỉ tắt để so sánh.</string>
 </resources>

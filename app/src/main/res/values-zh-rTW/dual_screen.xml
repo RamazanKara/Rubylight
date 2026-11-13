@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_dual_screen">雙螢幕模式</string>
-    <string name="summary_checkbox_dual_screen">在第二個螢幕上顯示同一遊戲的第二路串流。</string>
+    <string name="summary_checkbox_dual_screen">同時將同一遊戲串流到第二個螢幕，使用獨立的一路串流；聲音和控制器仍歸第一路。需要第二個螢幕和電腦支援。</string>
     <string name="title_resolution_screen2">第二螢幕解析度</string>
     <string name="summary_resolution_screen2">第二個螢幕串流的解析度。</string>
     <string name="resolution_screen2_native">第二螢幕的原生尺寸</string>

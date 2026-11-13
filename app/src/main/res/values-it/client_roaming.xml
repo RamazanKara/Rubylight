@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_client_roaming">Continua lo stream quando la rete cambia</string>
-    <string name="summary_client_roaming">Lo stream continua quando questo dispositivo cambia rete.</string>
+    <string name="summary_client_roaming">Quando questo dispositivo cambia rete, lo stream passa al nuovo indirizzo invece di attendere quello vecchio. Lascialo attivo; richiede il supporto del PC.</string>
     <string name="title_roaming_metered">Continua con i dati mobili</string>
-    <string name="summary_roaming_metered">Consente allo stream di passare ai dati mobili o a un’altra rete a consumo.</string>
+    <string name="summary_roaming_metered">Consente a uno stream in corso di passare ai dati mobili o a un’altra rete a consumo. Lo streaming consuma molti dati; lascialo disattivato se non è ciò che vuoi.</string>
 </resources>

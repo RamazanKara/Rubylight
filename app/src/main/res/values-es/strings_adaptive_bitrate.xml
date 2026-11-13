@@ -8,9 +8,9 @@
     <string name="stream_bitrate_busy">El PC está ocupado. Vuelve a intentarlo en un momento.</string>
     <string name="stream_host_abr_failed">El PC no inició su tasa de bits automática: %1$s</string>
     <string name="title_auto_bitrate">Bajar la tasa de bits si la red está saturada</string>
-    <string name="dialog_auto_bitrate">Baja la tasa de bits mientras la conexión no da abasto y la vuelve a subir cuando se recupera.</string>
+    <string name="dialog_auto_bitrate">Baja la tasa de bits mientras la conexión no da abasto y la vuelve a subir cuando se recupera: imagen menos nítida, menos tirones. Actívalo en una red saturada; requiere un PC compatible.</string>
     <string name="title_thermal_protection">Protección térmica</string>
-    <string name="dialog_thermal_protection">Reduce la tasa de bits y la resolución mientras el dispositivo está caliente.</string>
+    <string name="dialog_thermal_protection">Baja la tasa de bits y la resolución mientras el dispositivo está caliente, si está activado «Bajar la tasa de bits si la red está saturada» o Calidad automática. Actívalo solo si el dispositivo se ralentiza por el calor o se sobrecalienta.</string>
     <string name="title_automatic_bitrate">Tasa de bits automática</string>
-    <string name="dialog_automatic_bitrate">Nightjar elige la tasa de bits según la resolución, la velocidad de fotogramas y el códec.</string>
+    <string name="dialog_automatic_bitrate">Nightjar elige la tasa de bits según la resolución, la velocidad de fotogramas y el códec, y la adapta cuando cambian. Desactívalo para ajustar la tasa de bits a mano.</string>
 </resources>

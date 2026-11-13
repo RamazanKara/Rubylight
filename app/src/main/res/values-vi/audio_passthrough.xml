@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_audio_passthrough">Truyền thẳng âm thanh</string>
-    <string name="summary_checkbox_audio_passthrough">PC gửi âm thanh ở định dạng mà đầu ra phát nguyên trạng: không nén hoặc Dolby.</string>
+    <string name="summary_checkbox_audio_passthrough">Dành cho receiver, soundbar hoặc TV phát nguyên trạng Dolby hoặc PCM đa kênh: PC gửi đúng định dạng đó. Dolby đến chậm hơn tối đa khoảng 30 ms. Cần PC hỗ trợ.</string>
 </resources>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_stream_orientation">Ausrichtung</string>
-    <string name="summary_stream_orientation">Querformat, Hochformat oder Drehen mit dem Gerät.</string>
+    <string name="summary_stream_orientation">Wie sich der Stream drehen darf. „Automatisch“ hält Handys im Querformat und lässt Tablets drehen; „Querformat“ und „Hochformat“ legen die Ausrichtung fest; „Mit dem Gerät drehen“ folgt dem Gerät.</string>
     <string-array name="stream_orientation_names">
         <item>Automatisch</item>
         <item>Querformat</item>

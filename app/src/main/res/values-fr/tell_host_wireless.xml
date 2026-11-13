@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_tell_host_wireless">Signaler le Wi-Fi au PC</string>
-    <string name="summary_tell_host_wireless">Le PC cadence le stream pour le Wi-Fi dès le début.</string>
+    <string name="summary_tell_host_wireless">Indique au PC quand cet appareil est en Wi-Fi, pour qu’il cadence le stream pour le Wi-Fi dès la première image. Laissez-le activé ; ne le désactivez que pour comparer.</string>
 </resources>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_enable_sdr10">色のバンディングを軽減</string>
-    <string name="summary_enable_sdr10">HDR 以外の映像を 10 ビットでストリーミングし、グラデーションの縞を減らします。</string>
+    <string name="summary_enable_sdr10">HDR 以外の映像を 10 ビットでストリーミングし、空やグラデーションの縞を減らします。HDR がオフのときに縞（バンディング）が見える場合はオンにしてください。HEVC または AV1 と、PC の対応が必要です。</string>
     <string name="startup_sdr10_not_accepted">この PC は 10 ビットを受け付けなかったため、ストリームは 8 ビットです。</string>
     <string name="stream_sdr10_host_hdr">PC が HDR を送信しています。10 ビット SDR にするには PC のディスプレイを SDR に切り替えてください。</string>
     <string name="stream_sdr10_unavailable">10 ビット SDR は使用されず、ストリームは 8 ビットです: %1$s</string>

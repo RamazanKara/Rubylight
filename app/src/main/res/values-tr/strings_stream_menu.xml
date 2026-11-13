@@ -54,7 +54,7 @@ Kaydedilmemiş ilerleme kaybolur.</string>
     <string name="stream_menu_button_hide">Menü düğmesini gizle</string>
     <string name="stream_menu_settings">Yayın menüsü</string>
     <string name="title_floating_menu_button">Kayan menü düğmesi</string>
-    <string name="summary_floating_menu_button">Yayının üzerinde menüyü açan yuvarlak düğme.</string>
+    <string name="summary_floating_menu_button">Yayının üzerinde, dokununca yayın menüsünü açan yuvarlak bir düğme; taşımak için sürükleyin. Menüyü Geri veya kumandanız açıyorsa gerekmez.</string>
     <string name="stream_tile_keyboard">Klavye</string>
     <string name="stream_tile_pc_keyboard">PC klavyesi</string>
     <string name="stream_tile_mouse">Fare</string>

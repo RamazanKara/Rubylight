@@ -73,7 +73,7 @@
     <string name="reduce_motion_full">Повна</string>
     <!-- tv-mode-toggle -->
     <string name="title_ui_mode">Вигляд інтерфейсу</string>
-    <string name="summary_ui_mode">Вигляд для ТБ або портативної консолі чи власний вигляд пристрою.</string>
+    <string name="summary_ui_mode">«Автоматично» підлаштовується під пристрій. Виберіть «ТБ» для телефона або портативної консолі, підключених до телевізора: рядки більші, під пульт або контролер. «Портативний» вмикає сенсорний вигляд.</string>
     <string name="ui_mode_auto">Автоматично</string>
     <string name="ui_mode_tv">ТБ</string>
     <string name="ui_mode_handheld">Портативний</string>

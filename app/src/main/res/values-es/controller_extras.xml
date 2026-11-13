@@ -2,20 +2,20 @@
 <resources>
     <!-- Controller and keyboard options -->
     <string name="title_checkbox_disable_rumble">Desactivar la vibración</string>
-    <string name="summary_checkbox_disable_rumble">Detiene toda la vibración, la de los gatillos y la respuesta háptica.</string>
+    <string name="summary_checkbox_disable_rumble">Detiene toda vibración que pida un juego: la vibración normal, la de los gatillos y la respuesta háptica. Déjalo desactivado salvo que no quieras ninguna vibración.</string>
     <string name="title_checkbox_mouse_emulation_fixed_step">Ratón preciso con el mando</string>
-    <string name="summary_checkbox_mouse_emulation_fixed_step">Mueve el puntero en pasos fijos de píxeles mientras se mantiene pulsado X.</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">En el modo ratón del mando, mantener pulsado X mueve el puntero en pasos fijos de píxeles, para objetivos pequeños. Y duplica el paso, de 1 a 128 píxeles.</string>
     <string name="stream_mouse_step">Paso del ratón: %1$d px</string>
     <string name="title_checkbox_capture_system_keys">Enviar teclas del sistema</string>
-    <string name="summary_checkbox_capture_system_keys">Alt+Tab, la tecla Windows y similares van al PC.</string>
+    <string name="summary_checkbox_capture_system_keys">Alt+Tab, la tecla Windows y similares van al PC en lugar de a este dispositivo, cuando Android lo permite. Desactívalo para conservar esos atajos en este dispositivo.</string>
     <string name="title_checkbox_system_keys_fullscreen_only">Teclas del sistema solo en pantalla completa</string>
-    <string name="summary_checkbox_system_keys_fullscreen_only">En ventana, las teclas del sistema se quedan en este dispositivo.</string>
+    <string name="summary_checkbox_system_keys_fullscreen_only">En ventana, Alt+Tab, la tecla Windows y similares se quedan en este dispositivo; en pantalla completa van al PC. Actívalo para cambiar de aplicación junto a una transmisión en ventana.</string>
     <string name="title_checkbox_back_as_meta">Atrás del teclado envía la tecla Windows</string>
-    <string name="summary_checkbox_back_as_meta">La tecla Atrás de un teclado físico envía la tecla Windows.</string>
+    <string name="summary_checkbox_back_as_meta">La tecla Atrás de un teclado físico envía al PC la tecla Windows en lugar de Atrás o Esc. El gesto Atrás de Android y el atajo del menú de transmisión siguen abriendo el menú de transmisión.</string>
     <string name="title_checkbox_right_alt_as_meta">Alt derecha como tecla Windows</string>
-    <string name="summary_checkbox_right_alt_as_meta">Alt derecha envía la tecla Windows, que un Mac usa como Command.</string>
+    <string name="summary_checkbox_right_alt_as_meta">Alt derecha envía la tecla Windows, que un Mac usa como Command. Déjalo desactivado si escribes caracteres con AltGr: Alt derecha deja entonces de funcionar como AltGr.</string>
     <string name="title_checkbox_keyboard_follows_text_fields">El teclado sigue a los campos de texto</string>
-    <string name="summary_checkbox_keyboard_follows_text_fields">El teclado en pantalla se abre cuando un campo de texto del PC tiene el foco.</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">Abre el teclado en pantalla cuando seleccionas un campo de texto en el PC y lo cierra después. Requiere un PC que informe de los campos de texto; desactívalo para abrirlo a mano.</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">Prueba del mando</string>
@@ -57,6 +57,6 @@
 
     <!-- USB Switch Pro driver -->
     <string name="title_usb_switch_pro">Controlador USB de Switch Pro</string>
-    <string name="summary_usb_switch_pro">Lee un Switch Pro Controller conectado por cable, incluidos movimiento, vibración, Home y Capture.</string>
+    <string name="summary_usb_switch_pro">Nightjar lee directamente un Switch Pro Controller con cable, para que funcionen el giroscopio, la vibración, Home y Capture. Android pide acceso USB durante una transmisión; Bluetooth y los Joy-Con siguen con la entrada de Android.</string>
     <string name="usb_switch_pro_denied">Sin acceso USB; el Switch Pro Controller sigue usando la entrada de Android.\nVuelve a conectar el cable para reintentarlo.</string>
 </resources>

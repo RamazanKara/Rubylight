@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_display_queue_recovery">收回顯示佇列延遲</string>
-    <string name="summary_display_queue_recovery">螢幕讓影格比所需多停留一次更新時，略過一個影格。</string>
+    <string name="summary_display_queue_recovery">螢幕讓影格比所需多停留一次更新時，略過一個影格，把這段延遲追回來。請保持開啟，除非你介意被略過的那個影格。</string>
 </resources>

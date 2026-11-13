@@ -2,7 +2,7 @@
 <resources>
     <string name="fps_show_supported">Mostrar solo las velocidades de fotogramas compatibles</string>
     <string name="title_adaptive_quality_setting">Calidad automática</string>
-    <string name="summary_adaptive_quality_setting">Reduce la resolución o la velocidad de fotogramas mientras el PC, la red o el dispositivo no dan abasto.</string>
+    <string name="summary_adaptive_quality_setting">Baja la resolución o la velocidad de fotogramas mientras la red o este dispositivo no dan abasto, y las vuelve a subir después. El modo decide cuál baja primero; requiere un PC compatible.</string>
     <string name="title_low_latency_customize">Personalizar</string>
     <string name="low_latency_customize_closed">Elige qué partes de la baja latencia están activas</string>
     <string name="low_latency_customize_open">Ocultar los interruptores individuales</string>

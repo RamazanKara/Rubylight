@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_clipboard_sync">Sincronizar área de transferência</string>
-    <string name="summary_clipboard_sync">O texto copiado passa entre este dispositivo e o PC.</string>
+    <string name="summary_clipboard_sync">Copie texto neste dispositivo e cole no PC, ou o contrário, durante a transmissão. Tudo o que você copia como texto é enviado; o PC precisa oferecer sincronização da área de transferência.</string>
     <string name="clipboard_sync_not_offered">A sincronização da área de transferência está desligada: o PC não a ofereceu. Ele precisa permitir que este dispositivo leia e grave a área de transferência dele.</string>
     <string name="clipboard_sync_failed">A sincronização da área de transferência não pôde iniciar.</string>
     <string name="clipboard_sync_read_refused">O Android não deixou a sincronização ler a área de transferência, então esta cópia fica neste dispositivo.</string>

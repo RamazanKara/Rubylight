@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_enable_sdr10">Меньше полос на градиентах</string>
-    <string name="summary_enable_sdr10">Передаёт видео без HDR в 10-битном цвете, чтобы на градиентах было меньше полос.</string>
+    <string name="summary_enable_sdr10">Передаёт видео без HDR в 10-битном цвете, чтобы на небе и градиентах было меньше полос. Включите, если видите полосы при выключенном HDR; нужны HEVC или AV1 и поддержка ПК.</string>
     <string name="startup_sdr10_not_accepted">Этот ПК не принял 10 бит, поэтому поток 8-битный.</string>
     <string name="stream_sdr10_host_hdr">ПК отправляет HDR. Переключите его дисплей в SDR, чтобы получить 10-битный SDR.</string>
     <string name="stream_sdr10_unavailable">10-битный SDR не используется, поэтому поток 8-битный: %1$s</string>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_dual_screen">Chế độ hai màn hình</string>
-    <string name="summary_checkbox_dual_screen">Stream thứ hai của cùng trò chơi trên màn hình thứ hai.</string>
+    <string name="summary_checkbox_dual_screen">Stream cùng trò chơi sang cả màn hình thứ hai, bằng một stream riêng; âm thanh và tay cầm vẫn ở stream đầu. Cần màn hình thứ hai và PC hỗ trợ.</string>
     <string name="title_resolution_screen2">Độ phân giải màn hình thứ hai</string>
     <string name="summary_resolution_screen2">Độ phân giải của stream trên màn hình thứ hai.</string>
     <string name="resolution_screen2_native">Kích thước gốc của màn hình thứ hai</string>

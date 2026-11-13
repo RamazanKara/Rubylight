@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="controller_mapping_title">Przyciski kontrolera</string>
-    <string name="controller_mapping_summary">Zmienia przypisanie przycisków i gałek modelu kontrolera.</string>
+    <string name="controller_mapping_summary">Zmienia przypisanie przycisków i gałek modelu kontrolera oraz ustawia typ, który widzi komputer (Xbox, PlayStation lub Nintendo), na wypadek gdy gra pokazuje złe przyciski.</string>
     <string name="controller_mapping_intro">Kliknij „Przypisz przycisk”, a potem naciśnij przycisk kontrolera, który chcesz zmienić.\nZmiany obowiązują od następnego strumienia.</string>
     <string name="controller_mapping_waiting">Podłącz kontroler, a potem kliknij „Przypisz przycisk”.</string>
     <string name="controller_mapping_unnamed">Kontroler</string>

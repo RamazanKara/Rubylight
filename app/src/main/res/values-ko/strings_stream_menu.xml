@@ -54,7 +54,7 @@
     <string name="stream_menu_button_hide">메뉴 버튼 숨기기</string>
     <string name="stream_menu_settings">스트림 메뉴</string>
     <string name="title_floating_menu_button">플로팅 메뉴 버튼</string>
-    <string name="summary_floating_menu_button">스트림 위에 떠 있는 메뉴 열기용 둥근 버튼입니다.</string>
+    <string name="summary_floating_menu_button">스트림 위에 표시되는 둥근 버튼으로, 탭하면 스트림 메뉴가 열립니다. 드래그해 옮길 수 있습니다. ‘뒤로’나 컨트롤러로 메뉴를 열 수 있다면 필요 없습니다.</string>
     <string name="stream_tile_keyboard">키보드</string>
     <string name="stream_tile_pc_keyboard">PC 키보드</string>
     <string name="stream_tile_mouse">마우스</string>

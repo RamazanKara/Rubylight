@@ -3,7 +3,7 @@
     <string name="stream_touch_off_help">Il touch è disattivato. Scorri indietro o premi Indietro per il menu dello stream.</string>
     <string name="title_local_cursor_speed">Velocità del cursore locale</string>
     <string name="title_trackpad_acceleration">Accelerazione del puntatore</string>
-    <string name="summary_trackpad_acceleration">Gli scorrimenti rapidi spostano il puntatore più lontano di quelli lenti.</string>
+    <string name="summary_trackpad_acceleration">I movimenti lenti del dito spostano meno il puntatore, per mirare con precisione, e gli scorrimenti rapidi lo spostano più lontano. Modalità touch Trackpad e Cursore locale; vale dal prossimo stream.</string>
     <string name="title_trackpad_acceleration_curve">Intensità dell’accelerazione</string>
     <string-array name="trackpad_acceleration_curve_names">
         <item>Leggera</item>
@@ -11,7 +11,7 @@
         <item>Forte</item>
     </string-array>
     <string name="title_trackpad_momentum">Scivolamento dopo uno scatto</string>
-    <string name="summary_trackpad_momentum">Il puntatore continua a muoversi dopo uno scatto rapido.</string>
+    <string name="summary_trackpad_momentum">Dopo uno scatto rapido il puntatore continua a muoversi e rallenta; toccando lo schermo si ferma subito. Modalità touch Trackpad e Cursore locale.</string>
     <string name="title_trackpad_momentum_glide">Distanza di scivolamento</string>
     <string-array name="trackpad_momentum_glide_names">
         <item>Corta</item>
@@ -19,7 +19,7 @@
         <item>Lunga</item>
     </string-array>
     <string name="title_trackpad_area">Area del trackpad</string>
-    <string name="summary_trackpad_area">La parte dello schermo in cui iniziano i gesti del trackpad.</string>
+    <string name="summary_trackpad_area">La parte dello schermo in cui possono iniziare i gesti di Trackpad e Cursore locale; i tocchi che iniziano altrove vengono ignorati. Scegli una metà per poggiare un pollice sull’altro lato.</string>
     <string-array name="trackpad_area_names">
         <item>Schermo intero</item>
         <item>Metà destra</item>
@@ -28,7 +28,7 @@
         <item>Metà superiore</item>
     </string-array>
     <string name="title_three_finger_tap">Tocco con tre dita</string>
-    <string name="summary_three_finger_tap">Cosa fa un tocco rapido con tre dita.</string>
+    <string name="summary_three_finger_tap">Cosa fa un tocco rapido con tre dita. «Tastiera di sistema» è quella di Android; «Tastiera PC» ha i tasti F, Ctrl e Win; «Tastiera e mouse» è un pannello con tasti e un trackpad.</string>
     <string-array name="three_finger_tap_names">
         <item>@string/desktop_controls_system_keyboard</item>
         <item>Clic centrale</item>
@@ -38,7 +38,7 @@
     </string-array>
     <string name="stream_cursor_shape_rejected">Nightjar non può disegnare la forma del cursore del PC e mostra la freccia predefinita.</string>
     <string name="title_four_finger_tap">Tocco con quattro dita</string>
-    <string name="summary_four_finger_tap">Cosa fa un tocco rapido con quattro dita.</string>
+    <string name="summary_four_finger_tap">Cosa fa un tocco rapido con quattro dita. «Tastiera di sistema» è quella di Android; «Tastiera PC» ha i tasti F, Ctrl e Win; «Tastiera e mouse» è un pannello con tasti e un trackpad.</string>
     <string name="title_multi_touch_finger_taps">Tocchi con più dita in Multi-touch</string>
-    <string name="summary_multi_touch_finger_taps">I tocchi con tre e quattro dita eseguono la loro azione anche in Multi-touch.</string>
+    <string name="summary_multi_touch_finger_taps">Nella modalità Multi-touch, i tocchi con tre e quattro dita eseguono le loro azioni e non arrivano più al PC come tocchi. Lascialo disattivato se qualcosa sul PC usa quei tocchi.</string>
 </resources>

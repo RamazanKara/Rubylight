@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_back_opens_menu">Back opens the stream menu</string>
-    <string name="summary_checkbox_back_opens_menu">The controller’s or handheld’s Back button opens the stream menu.</string>
+    <string name="summary_checkbox_back_opens_menu">The controller’s or handheld’s Back button opens the stream menu and no longer reaches the PC. Leave it off if your games use that button.</string>
     <string name="title_checkbox_back_as_guide">Back button as Guide</string>
-    <string name="summary_checkbox_back_as_guide">Back sends Guide (Home or PS) to the PC.</string>
+    <string name="summary_checkbox_back_as_guide">Back sends Guide (Home or PS) to the PC, so games no longer get Back from that button. For controllers without a Guide button; “Back opens the stream menu” takes priority.</string>
 </resources>

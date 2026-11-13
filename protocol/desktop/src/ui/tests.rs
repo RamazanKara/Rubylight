@@ -893,7 +893,7 @@ fn the_pc_render_resolution_is_named_and_ranged_as_on_android() {
     let row = f.placed.iter().find(|(t, ..)| t == "PC render resolution").unwrap_or_else(|| panic!("{:?}", f.drawn)).1;
     f.frame(vec![egui::Event::PointerMoved(row.center())]);
     f.settle();
-    assert!(shows(&f, "The size the PC renders at, as a percent of the stream resolution."), "{:?}", f.drawn);
+    assert!(shows(&f, "The size the PC renders at, as a percent of the stream resolution; the video sent keeps its size. Above 100 the PC draws more pixels than it sends, below fewer."), "{:?}", f.drawn);
     // The old name and description went to the Windows scale, a row of its own.
     assert!(!f.drawn.iter().any(|t| t == "Text and interface size on the virtual display."), "{:?}", f.drawn);
     assert!(shows(&f, "PC display scaling"));

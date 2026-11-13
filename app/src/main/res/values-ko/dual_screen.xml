@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_dual_screen">듀얼 스크린 모드</string>
-    <string name="summary_checkbox_dual_screen">두 번째 화면에 같은 게임의 두 번째 스트림을 표시합니다.</string>
+    <string name="summary_checkbox_dual_screen">같은 게임을 별도의 스트림으로 두 번째 화면에도 표시합니다. 소리와 컨트롤러는 첫 번째 스트림에 남습니다. 두 번째 화면과 PC 지원이 필요합니다.</string>
     <string name="title_resolution_screen2">두 번째 화면 해상도</string>
     <string name="summary_resolution_screen2">두 번째 화면 스트림의 해상도입니다.</string>
     <string name="resolution_screen2_native">두 번째 화면의 원래 크기</string>

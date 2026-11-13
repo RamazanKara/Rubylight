@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_stream_orientation">Orientação</string>
-    <string name="summary_stream_orientation">Horizontal, vertical ou girando com o dispositivo.</string>
+    <string name="summary_stream_orientation">Para que lado a transmissão pode girar. Automática mantém celulares na horizontal e deixa tablets girarem; Horizontal e Vertical travam a orientação; Girar com o dispositivo acompanha o dispositivo.</string>
     <string-array name="stream_orientation_names">
         <item>Automática</item>
         <item>Horizontal</item>

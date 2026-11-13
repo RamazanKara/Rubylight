@@ -8,9 +8,9 @@
     <string name="stream_bitrate_busy">PC ocupado. Tente novamente em instantes.</string>
     <string name="stream_host_abr_failed">O PC não iniciou a taxa de bits automática: %1$s</string>
     <string name="title_auto_bitrate">Reduzir a taxa de bits quando a rede estiver congestionada</string>
-    <string name="dialog_auto_bitrate">Reduz a taxa de bits enquanto a conexão não dá conta e a aumenta de novo quando ela se recupera.</string>
+    <string name="dialog_auto_bitrate">Reduz a taxa de bits enquanto a conexão não dá conta e a aumenta de novo quando ela se recupera: imagem menos nítida, menos engasgos. Ative em uma rede congestionada; requer suporte do PC.</string>
     <string name="title_thermal_protection">Proteção térmica</string>
-    <string name="dialog_thermal_protection">Reduz a taxa de bits e a resolução enquanto o dispositivo está quente.</string>
+    <string name="dialog_thermal_protection">Reduz a taxa de bits e a resolução enquanto o dispositivo está quente, se “Reduzir a taxa de bits quando a rede estiver congestionada” ou Qualidade automática estiver ativado. Ative só se o dispositivo perder desempenho com o calor ou superaquecer.</string>
     <string name="title_automatic_bitrate">Taxa de bits automática</string>
-    <string name="dialog_automatic_bitrate">O Nightjar escolhe a taxa de bits conforme a resolução, a taxa de quadros e o codec.</string>
+    <string name="dialog_automatic_bitrate">O Nightjar escolhe a taxa de bits conforme a resolução, a taxa de quadros e o codec, e acompanha as mudanças deles. Desative para definir a taxa de bits por conta própria.</string>
 </resources>

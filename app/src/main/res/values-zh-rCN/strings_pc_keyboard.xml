@@ -6,7 +6,7 @@
     <string name="pc_keyboard_layout_us">英语（美国）</string>
     <string name="pc_keyboard_layout_de">德语（QWERTZ）</string>
     <string name="pc_keyboard_layout_title">键盘布局</string>
-    <string name="pc_keyboard_layout_summary">屏幕上 PC 键盘的布局。</string>
+    <string name="pc_keyboard_layout_summary">屏幕上 PC 键盘显示的字母。按键发送的是键位，所以请选择电脑上 Windows 使用的布局，否则会出现别的字符。“自动”跟随此设备的语言。</string>
     <string name="pc_keyboard_size_title">键盘大小</string>
     <string name="pc_keyboard_opacity_title">键盘不透明度</string>
 </resources>

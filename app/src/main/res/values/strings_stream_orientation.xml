@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_stream_orientation">Orientation</string>
-    <string name="summary_stream_orientation">Landscape, portrait, or turning with the device.</string>
+    <string name="summary_stream_orientation">Which way the stream may turn. Automatic keeps phones in landscape and lets tablets turn; Landscape and Portrait lock it; Rotate with device follows the device.</string>
     <string-array name="stream_orientation_names">
         <item>Automatic</item>
         <item>Landscape</item>

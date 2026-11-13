@@ -3,7 +3,7 @@
     <string name="stream_touch_off_help">O toque está desativado. Deslize para voltar ou toque em Voltar para abrir o menu da transmissão.</string>
     <string name="title_local_cursor_speed">Velocidade do cursor local</string>
     <string name="title_trackpad_acceleration">Aceleração do ponteiro</string>
-    <string name="summary_trackpad_acceleration">Deslizes rápidos movem o ponteiro mais longe que os lentos.</string>
+    <string name="summary_trackpad_acceleration">Movimentos lentos do dedo movem menos o ponteiro, para mirar com precisão, e deslizes rápidos o levam mais longe. Modos de toque Trackpad e Cursor local; vale a partir da próxima transmissão.</string>
     <string name="title_trackpad_acceleration_curve">Intensidade da aceleração</string>
     <string-array name="trackpad_acceleration_curve_names">
         <item>Suave</item>
@@ -11,7 +11,7 @@
         <item>Forte</item>
     </string-array>
     <string name="title_trackpad_momentum">Deslizar após um gesto rápido</string>
-    <string name="summary_trackpad_momentum">O ponteiro continua se movendo depois de um deslize rápido.</string>
+    <string name="summary_trackpad_momentum">Depois de um deslize rápido, o ponteiro continua se movendo e desacelera; um toque na tela o interrompe na hora. Modos de toque Trackpad e Cursor local.</string>
     <string name="title_trackpad_momentum_glide">Distância do deslize</string>
     <string-array name="trackpad_momentum_glide_names">
         <item>Curta</item>
@@ -19,7 +19,7 @@
         <item>Longa</item>
     </string-array>
     <string name="title_trackpad_area">Área do trackpad</string>
-    <string name="summary_trackpad_area">A parte da tela onde os gestos do trackpad começam.</string>
+    <string name="summary_trackpad_area">A parte da tela onde os gestos de Trackpad e Cursor local podem começar; toques que começam em outro lugar são ignorados. Escolha uma metade para apoiar o polegar no outro lado.</string>
     <string-array name="trackpad_area_names">
         <item>Tela inteira</item>
         <item>Metade direita</item>
@@ -28,7 +28,7 @@
         <item>Metade superior</item>
     </string-array>
     <string name="title_three_finger_tap">Toque com três dedos</string>
-    <string name="summary_three_finger_tap">O que um toque rápido com três dedos faz.</string>
+    <string name="summary_three_finger_tap">O que um toque rápido com três dedos faz. Teclado do sistema é o do Android; Teclado de PC tem teclas F, Ctrl e Win; Teclado e mouse é um painel com teclas e um trackpad.</string>
     <string-array name="three_finger_tap_names">
         <item>@string/desktop_controls_system_keyboard</item>
         <item>Clique do meio</item>
@@ -38,7 +38,7 @@
     </string-array>
     <string name="stream_cursor_shape_rejected">O Nightjar não consegue desenhar o formato do cursor do PC e mostra a seta padrão.</string>
     <string name="title_four_finger_tap">Toque com quatro dedos</string>
-    <string name="summary_four_finger_tap">O que um toque rápido com quatro dedos faz.</string>
+    <string name="summary_four_finger_tap">O que um toque rápido com quatro dedos faz. Teclado do sistema é o do Android; Teclado de PC tem teclas F, Ctrl e Win; Teclado e mouse é um painel com teclas e um trackpad.</string>
     <string name="title_multi_touch_finger_taps">Toques com vários dedos no Multitoque</string>
-    <string name="summary_multi_touch_finger_taps">Toques com três e quatro dedos também executam sua ação no Multitoque.</string>
+    <string name="summary_multi_touch_finger_taps">No modo Multitoque, toques com três e quatro dedos executam suas ações e não chegam mais ao PC como toques. Deixe desativado se algo no PC usa esses toques.</string>
 </resources>

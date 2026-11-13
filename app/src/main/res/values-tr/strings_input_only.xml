@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_input_only_any_host">Her bilgisayarda yalnızca giriş</string>
-    <string name="summary_checkbox_input_only_any_host">Kendi Yalnızca giriş modu olmayan bilgisayarlarda oyunun menüsünde Yalnızca giriş seçeneğini sunar.</string>
+    <string name="summary_checkbox_input_only_any_host">Bu modu olmayan bilgisayarlarda da “Yalnızca Giriş” seçeneğini sunar: başka bir ekranda gösterilen oyun için bu cihaz yalnızca giriş gönderir. Bilgisayar yine de 1 Mbps’nin altında küçük bir yayın gönderir.</string>
     <string name="input_only_start">Yalnızca giriş</string>
     <string name="input_only_small_stream_note">Görüntü yine en küçük boyutta aktarılır, yaklaşık %1$.1f Mbit/sn (saatte %2$d MB), ama gösterilmez</string>
     <string name="input_only_reason_input_permission">Bilgisayarda bu cihaz için girişe izin verin</string>

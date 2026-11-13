@@ -2,7 +2,7 @@
 <resources>
     <string name="fps_show_supported">僅顯示支援的影格速率</string>
     <string name="title_adaptive_quality_setting">自動品質</string>
-    <string name="summary_adaptive_quality_setting">電腦、網路或裝置跟不上時降低解析度或影格速率。</string>
+    <string name="summary_adaptive_quality_setting">網路或此裝置跟不上時降低解析度或影格速率，之後再調回。先降哪一項由模式決定；需要電腦支援。</string>
     <string name="title_low_latency_customize">自訂</string>
     <string name="low_latency_customize_closed">選擇要開啟哪些低延遲項目</string>
     <string name="low_latency_customize_open">隱藏個別開關</string>

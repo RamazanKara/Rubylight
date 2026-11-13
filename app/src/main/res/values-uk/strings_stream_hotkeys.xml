@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="stream_hotkeys_title">Гарячі клавіші трансляції</string>
-    <string name="stream_hotkeys_summary">Власні сполучення клавіш Nightjar під час трансляції.</string>
+    <string name="stream_hotkeys_summary">Власні сполучення клавіш Nightjar під час трансляції, наприклад те, що відкриває меню трансляції. Їхні клавіші не потрапляють на ПК; змініть сполучення, потрібне грі або застосунку.</string>
     <string name="stream_hotkey_change">Змінити</string>
     <string name="stream_hotkey_off">Вимкнено</string>
     <string name="stream_hotkey_reset">Скинути</string>

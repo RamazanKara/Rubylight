@@ -2,7 +2,7 @@
 <resources>
     <string name="fps_show_supported">Yalnızca desteklenen kare hızlarını göster</string>
     <string name="title_adaptive_quality_setting">Otomatik kalite</string>
-    <string name="summary_adaptive_quality_setting">Bilgisayar, ağ veya cihaz yetişemediği sürece çözünürlüğü ya da kare hızını düşürür.</string>
+    <string name="summary_adaptive_quality_setting">Ağ veya bu cihaz yetişemediği sürece çözünürlüğü ya da kare hızını düşürür, sonra yeniden yükseltir. Hangisinin önce düşeceğini mod belirler; bilgisayar desteği gerekir.</string>
     <string name="title_low_latency_customize">Özelleştir</string>
     <string name="low_latency_customize_closed">Düşük gecikmenin hangi parçalarının açık olacağını seçin</string>
     <string name="low_latency_customize_open">Tek tek anahtarları gizle</string>

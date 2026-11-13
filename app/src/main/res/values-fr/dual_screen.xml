@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_dual_screen">Mode double écran</string>
-    <string name="summary_checkbox_dual_screen">Un second stream du même jeu sur un second écran.</string>
+    <string name="summary_checkbox_dual_screen">Diffuse aussi le même jeu sur un second écran, dans un stream à part ; le son et les manettes restent avec le premier. Nécessite un second écran et un PC compatible.</string>
     <string name="title_resolution_screen2">Résolution du second écran</string>
     <string name="summary_resolution_screen2">La résolution du stream du second écran.</string>
     <string name="resolution_screen2_native">Taille propre du second écran</string>

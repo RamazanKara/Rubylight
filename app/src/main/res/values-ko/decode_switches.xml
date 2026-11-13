@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_submit_hint">프레임 전달 가속</string>
-    <string name="summary_submit_hint">성능 힌트가 디코더에 데이터를 공급하는 스레드도 포함합니다.</string>
+    <string name="summary_submit_hint">비교용입니다. 성능 힌트가 디코더에 데이터를 공급하는 스레드도 포함합니다. 저희 기기에서 측정했을 때 더 빨라지지 않았습니다. 꺼 두세요.</string>
     <string name="title_covering_decoder_size">접기에 맞춘 디코더 준비</string>
-    <string name="summary_covering_decoder_size">다른 화면에 맞게 디코더 크기를 정해 두어 접어도 다시 시작하지 않습니다.</string>
+    <string name="summary_covering_decoder_size">폴더블 기기용입니다. 디코더 크기를 미리 더 큰 화면에 맞춰 두어, 처음 접거나 돌릴 때 디코더를 다시 시작하지 않아도 됩니다. 영상이 멈추거나 오류가 보이면 다시 끄세요.</string>
     <string name="title_pyrowave_preacquire">PyroWave 화면 이미지 미리 가져오기</string>
-    <string name="summary_pyrowave_preacquire">각 PyroWave 프레임이 도착하기 전에 다음 화면 이미지를 가져옵니다.</string>
+    <string name="summary_pyrowave_preacquire">비교용입니다. 각 PyroWave 프레임이 도착하기 전에 다음 화면 이미지를 가져옵니다. 저희 기기에서 측정했을 때 더 빨라지지 않았습니다. 꺼 두세요.</string>
     <string name="title_codec_direct">영상 데이터를 디코더로 바로 전달</string>
-    <string name="summary_codec_direct">각 프레임을 디코더에 한 번만 복사합니다.</string>
+    <string name="summary_codec_direct">문제 해결용입니다. 프레임을 디코더로 바로 넣어 복사를 한 번 줄입니다. 켜 두고, 이 기기에서 영상이 멈추거나 오류가 보일 때만 끄세요.</string>
     <string name="title_receive_decode_priority">수신에 디코더 우선순위</string>
-    <string name="summary_receive_decode_priority">영상을 받는 스레드가 디코더와 같은 우선순위로 실행됩니다.</string>
+    <string name="summary_receive_decode_priority">비교용입니다. 영상을 받는 스레드가 디코더와 같은 우선순위로 실행됩니다. 저희 기기에서 측정했을 때 부하가 걸리면 더 느렸습니다. 꺼 두세요.</string>
 </resources>

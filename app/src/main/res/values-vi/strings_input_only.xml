@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_input_only_any_host">Chỉ đầu vào trên mọi PC</string>
-    <string name="summary_checkbox_input_only_any_host">Có Chỉ đầu vào trong menu của trò chơi trên những PC không có chế độ Chỉ đầu vào riêng.</string>
+    <string name="summary_checkbox_input_only_any_host">Cung cấp “Chỉ đầu vào” trên những PC không có chế độ đó: thiết bị này chỉ gửi đầu vào cho trò chơi hiển thị trên màn hình khác. PC vẫn gửi một stream nhỏ, dưới 1 Mbps.</string>
     <string name="input_only_start">Chỉ đầu vào</string>
     <string name="input_only_small_stream_note">Video vẫn được stream ở kích thước nhỏ nhất, khoảng %1$.1f Mbit/s (%2$d MB mỗi giờ), nhưng không được hiển thị</string>
     <string name="input_only_reason_input_permission">Hãy cho phép thiết bị này nhập liệu trên PC</string>

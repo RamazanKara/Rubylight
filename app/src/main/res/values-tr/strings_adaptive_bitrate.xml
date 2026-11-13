@@ -8,9 +8,9 @@
     <string name="stream_bitrate_busy">Bilgisayar meşgul. Birazdan tekrar deneyin.</string>
     <string name="stream_host_abr_failed">Bilgisayar otomatik bit hızını başlatmadı: %1$s</string>
     <string name="title_auto_bitrate">Ağ yoğunken bit hızını düşür</string>
-    <string name="dialog_auto_bitrate">Bağlantı yetişemediği sürece bit hızını düşürür, düzelince yeniden yükseltir.</string>
+    <string name="dialog_auto_bitrate">Bağlantı yetişemediği sürece bit hızını düşürür, düzelince yeniden yükseltir: görüntü yumuşar, takılma azalır. Yoğun ağlarda açın; bilgisayar desteği gerekir.</string>
     <string name="title_thermal_protection">Isı koruması</string>
-    <string name="dialog_thermal_protection">Cihaz sıcakken bit hızını ve çözünürlüğü düşürür.</string>
+    <string name="dialog_thermal_protection">“Ağ yoğunken bit hızını düşür” veya “Otomatik kalite” açıksa, cihaz sıcakken bit hızını ve çözünürlüğü düşürür. Yalnızca cihaz ısınınca yavaşlıyor veya aşırı ısınıyorsa açın.</string>
     <string name="title_automatic_bitrate">Otomatik bit hızı</string>
-    <string name="dialog_automatic_bitrate">Nightjar bit hızını çözünürlüğe, kare hızına ve codec’e göre seçer.</string>
+    <string name="dialog_automatic_bitrate">Nightjar bit hızını çözünürlüğe, kare hızına ve codec’e göre seçer, bunlar değişince de uyarlar. Bit hızını kendiniz ayarlamak için kapatın.</string>
 </resources>

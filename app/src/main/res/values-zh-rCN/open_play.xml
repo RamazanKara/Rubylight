@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_open_on_start">Nightjar 打开时</string>
-    <string name="summary_open_on_start">主页、你的电脑，或短暂倒计时后进入游戏。</string>
+    <string name="summary_open_on_start">Nightjar 最先显示的内容：主页、你的电脑，或经 3 秒倒计时后进入上次的游戏或选定的游戏；倒计时可以取消。</string>
     <string name="open_play_menu">Nightjar 启动时打开</string>
     <string name="open_play_menu_stop">Nightjar 启动时不再打开</string>
     <string name="open_play_countdown">%2$d 秒后在 %1$s 上启动</string>

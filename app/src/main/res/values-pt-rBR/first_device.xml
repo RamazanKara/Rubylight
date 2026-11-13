@@ -12,7 +12,7 @@
     <string name="stream_restore_help">Transmissão interrompida.\nAbra a lista de apps do seu PC para retomar.</string>
     <string name="stream_presets">Predefinições</string>
     <string name="stream_presets_help">Nativo transmite na resolução e taxa de atualização desta tela com todas as configurações de latência ativadas.\nEconomia de bateria mantém essa resolução a 30 fps.\nOs perfis de PC continuam tendo prioridade.</string>
-    <string name="summary_frame_pacing">Equilibra o tempo de resposta e a fluidez enquanto o VRR está desativado.</string>
+    <string name="summary_frame_pacing">Equilibra latência e movimento uniforme enquanto o VRR está desativado. Menor latência exibe os quadros na hora; as outras opções esperam a atualização da tela: mais fluido, com mais atraso.</string>
     <string name="summary_language">O idioma dos menus do Nightjar.</string>
     <string name="overlay_mode_help">Desativado oculta a sobreposição. Compacta mostra uma linha: FPS renderizados, tempo de ida e volta da rede (RTT) e perda de quadros, atrás de um ponto que fica âmbar ou vermelho quando a transmissão tem dificuldades. Estatísticas mostra medições da transmissão em tempo real. Depuração adiciona percentis de tempo e diagnósticos do decodificador; role para ver todos os detalhes. Você também pode alterá-la no menu da transmissão.</string>
     <string name="overlay_statistics">Estatísticas</string>

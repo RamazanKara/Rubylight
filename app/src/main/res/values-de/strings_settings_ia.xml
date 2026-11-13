@@ -27,7 +27,7 @@
     <string name="upscaling_pyrowave_short">PyroWave nutzt SGSR</string>
 
     <string name="title_low_latency_decoding">Latenzarmes Dekodieren</string>
-    <string name="summary_low_latency_decoding">Nutzt die latenzarmen Modi von Android und dem Decoder.</string>
+    <string name="summary_low_latency_decoding">Nutzt die latenzarmen Modi von Android und dem Decoder, für weniger Verzögerung. Lass es an; schalte es nur aus, um ein Dekodierproblem zu prüfen.</string>
 
     <string name="settings_touch_mode_help">Trackpad: Zum Bewegen des Mauszeigers ziehen, zum Klicken tippen.\nTrackpad (Touchpad-Gesten): wie Trackpad, mit den Gesten eines echten Touchpads. Tippen zum Klicken, tippen und erneut berühren zum Ziehen, zwei Finger zum Scrollen, Wischen für Schwung.\nDirekte Maussteuerung: Der Mauszeiger springt dorthin, wo du tippst.\nMultitouch: Berührungen kommen am PC als Touch-Eingabe an. Ohne Unterstützung durch den PC funktioniert das wie die direkte Maussteuerung.\nLokaler Mauszeiger: Ein auf diesem Gerät gezeichneter Mauszeiger folgt deinem Finger sofort; tippe, um dort zu klicken, wohin er zeigt.\nTouch aus: Der Bildschirm ignoriert Berührungen, während du mit einem Controller spielst. Wische zurück oder drücke Zurück für das Stream-Menü.</string>
 

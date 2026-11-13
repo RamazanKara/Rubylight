@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_clipboard_sync">Synchroniser le presse-papiers</string>
-    <string name="summary_clipboard_sync">Le texte copié circule entre cet appareil et le PC.</string>
+    <string name="summary_clipboard_sync">Copiez du texte sur cet appareil et collez-le sur le PC, ou l’inverse, pendant un stream. Tout ce que vous copiez comme texte est envoyé ; le PC doit proposer la synchronisation du presse-papiers.</string>
     <string name="clipboard_sync_not_offered">La synchronisation du presse-papiers est désactivée : le PC ne l\'a pas proposée. Il doit autoriser cet appareil à lire et à écrire son presse-papiers.</string>
     <string name="clipboard_sync_failed">La synchronisation du presse-papiers n\'a pas pu démarrer.</string>
     <string name="clipboard_sync_read_refused">Android n\'a pas laissé la synchronisation lire le presse-papiers : cette copie reste sur cet appareil.</string>

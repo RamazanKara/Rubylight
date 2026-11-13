@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_list_osc_style">Controller style</string>
-    <string name="summary_list_osc_style">“Classic”，或摇杆跟随拇指并带有布局编辑器的“Modern”。</string>
+    <string name="summary_list_osc_style">“Modern”的摇杆会跟随拇指，ABXY 按键可以两个同时按下。“Classic”保留原来的布局；两者向电脑发送的是同一种手柄。</string>
     <string name="osc_style_classic">Classic</string>
     <string name="osc_style_modern">Modern</string>
     <string name="title_list_osc_stick_mode">Modern controller sticks</string>
-    <string name="summary_list_osc_stick_mode">“Floating”摇杆以拇指落点为中心；“Fixed”摇杆固定不动。</string>
+    <string name="summary_list_osc_stick_mode">“Floating”以拇指落点作为摇杆中心，不必准确按到摇杆。如果更喜欢对准画出来的摇杆去按，请选“Fixed”。</string>
     <string name="osc_stick_floating">Floating</string>
     <string name="osc_stick_fixed">Fixed</string>
     <string name="title_seekbar_osc_stick_deadzone">Modern controller stick deadzone</string>
-    <string name="summary_seekbar_osc_stick_deadzone">拇指移动多远后摇杆才会响应。</string>
+    <string name="summary_seekbar_osc_stick_deadzone">拇指移动多远后摇杆才会响应。如果拇指静止放着时视角或角色仍会漂移，请调高；想要更精细的瞄准时调低。</string>
     <string name="pad_edit_title">Edit controller layout</string>
     <string name="pad_edit_all">All controls</string>
     <string name="pad_edit_hidden">%1$s (hidden)</string>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="stream_hotkeys_title">Yayın kısayolları</string>
-    <string name="stream_hotkeys_summary">Yayın sırasında Nightjar\'ın kendi tuş kombinasyonları.</string>
+    <string name="stream_hotkeys_summary">Yayın sırasında Nightjar’ın kendi tuş kombinasyonları; örneğin yayın menüsünü açan kombinasyon. Bu tuşlar bilgisayara hiç ulaşmaz; bir oyunun veya uygulamanın ihtiyaç duyduğunu değiştirin.</string>
     <string name="stream_hotkey_change">Değiştir</string>
     <string name="stream_hotkey_off">Kapalı</string>
     <string name="stream_hotkey_reset">Sıfırla</string>

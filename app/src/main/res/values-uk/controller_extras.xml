@@ -2,20 +2,20 @@
 <resources>
     <!-- Controller and keyboard options -->
     <string name="title_checkbox_disable_rumble">Вимкнути вібрацію</string>
-    <string name="summary_checkbox_disable_rumble">Вимикає всю вібрацію, зокрема вібрацію тригерів і тактильну віддачу.</string>
+    <string name="summary_checkbox_disable_rumble">Вимикає будь-яку вібрацію, яку запитує гра: звичайну, вібрацію тригерів і тактильну віддачу. Вмикайте, лише якщо вібрація не потрібна зовсім.</string>
     <string name="title_checkbox_mouse_emulation_fixed_step">Точна миша з контролера</string>
-    <string name="summary_checkbox_mouse_emulation_fixed_step">Переміщує вказівник фіксованими кроками в пікселях, поки утримується X.</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">У режимі миші з контролера утримання X переміщує вказівник фіксованими кроками в пікселях — для дрібних цілей. Y подвоює крок, від 1 до 128 пікселів.</string>
     <string name="stream_mouse_step">Крок миші: %1$d пкс</string>
     <string name="title_checkbox_capture_system_keys">Надсилати системні клавіші</string>
-    <string name="summary_checkbox_capture_system_keys">Alt+Tab, клавіша Windows і подібні йдуть на ПК.</string>
+    <string name="summary_checkbox_capture_system_keys">Alt+Tab, клавіша Windows і подібні йдуть на ПК, а не на цей пристрій, якщо Android це дозволяє. Вимкніть, щоб ці сполучення лишалися на цьому пристрої.</string>
     <string name="title_checkbox_system_keys_fullscreen_only">Системні клавіші лише на повному екрані</string>
-    <string name="summary_checkbox_system_keys_fullscreen_only">У вікні системні клавіші залишаються на цьому пристрої.</string>
+    <string name="summary_checkbox_system_keys_fullscreen_only">У вікні Alt+Tab, клавіша Windows і подібні залишаються на цьому пристрої; на повному екрані вони йдуть на ПК. Увімкніть, щоб перемикати застосунки поруч із трансляцією у вікні.</string>
     <string name="title_checkbox_back_as_meta">«Назад» на клавіатурі як клавіша Windows</string>
-    <string name="summary_checkbox_back_as_meta">Клавіша «Назад» на фізичній клавіатурі надсилає клавішу Windows.</string>
+    <string name="summary_checkbox_back_as_meta">Клавіша «Назад» на фізичній клавіатурі надсилає на ПК клавішу Windows замість «Назад» чи Esc. Жест «Назад» в Android і гаряча клавіша меню трансляції й далі відкривають меню трансляції.</string>
     <string name="title_checkbox_right_alt_as_meta">Правий Alt як клавіша Windows</string>
-    <string name="summary_checkbox_right_alt_as_meta">Правий Alt надсилає клавішу Windows, яку Mac використовує як Command.</string>
+    <string name="summary_checkbox_right_alt_as_meta">Правий Alt надсилає клавішу Windows, яку Mac використовує як Command. Залиште вимкненим, якщо набираєте символи через AltGr: правий Alt тоді більше не працює як AltGr.</string>
     <string name="title_checkbox_keyboard_follows_text_fields">Клавіатура стежить за текстовими полями</string>
-    <string name="summary_checkbox_keyboard_follows_text_fields">Екранна клавіатура відкривається, коли текстове поле на ПК отримує фокус.</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">Відкриває екранну клавіатуру, коли ви вибираєте текстове поле на ПК, і закриває її після цього. Потрібен ПК, який повідомляє про текстові поля; вимкніть, щоб відкривати її самостійно.</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">Перевірка контролера</string>
@@ -57,6 +57,6 @@
 
     <!-- USB Switch Pro driver -->
     <string name="title_usb_switch_pro">Драйвер Switch Pro через USB</string>
-    <string name="summary_usb_switch_pro">Зчитує дротовий Switch Pro Controller з датчиками руху, вібрацією, Home і Capture.</string>
+    <string name="summary_usb_switch_pro">Nightjar сам зчитує дротовий Switch Pro Controller, щоб працювали гіроскоп, вібрація, Home і Capture. Android просить доступ до USB під час трансляції; Bluetooth і Joy-Con лишаються на введенні Android.</string>
     <string name="usb_switch_pro_denied">Немає доступу до USB; Switch Pro Controller працює через введення Android.\nПерепідключіть кабель, щоб повторити.</string>
 </resources>

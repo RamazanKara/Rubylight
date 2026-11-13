@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_list_gamepad_quit_combo">Tasten zum Verlassen des Streams</string>
-    <string name="summary_list_gamepad_quit_combo">Die Tasten, die gleichzeitig gehalten werden, um den Stream zu verlassen.</string>
+    <string name="summary_list_gamepad_quit_combo">Halte diese Tasten gleichzeitig, um den Stream vom Controller aus zu verlassen, ohne das Stream-Menü zu öffnen. Wähle eine Kombination, die deine Spiele nicht nutzen.</string>
     <string name="gamepad_quit_combo_off">Aus</string>
     <string name="stream_controller_mouse">Controller-Maus</string>
     <string name="title_list_guide_menu_hold">Guide halten öffnet das Stream-Menü</string>
-    <string name="summary_list_guide_menu_hold">Wie lange Guide gehalten wird, um das Menü zu öffnen; ein kurzer Druck geht an den PC.</string>
+    <string name="summary_list_guide_menu_hold">Wie lange Guide gehalten wird, um das Stream-Menü zu öffnen; ein kürzerer Druck geht an den PC. Wähle „Aus“, wenn ein Spiel oder der PC einen langen Guide-Druck braucht.</string>
 </resources>

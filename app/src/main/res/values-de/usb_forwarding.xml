@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_usb_forwarding">USB-Geräte weiterleiten</string>
-    <string name="summary_usb_forwarding">Hier angeschlossene USB-Geräte lassen sich über das Stream-Menü mit dem PC verbinden.</string>
+    <string name="summary_usb_forwarding">Über das Stream-Menü lässt sich ein hier angeschlossenes USB-Gerät, etwa ein Grafiktablett oder ein Sicherheitsschlüssel, an den PC übergeben. Braucht einen PC, der USB-Weiterleitung anbietet.</string>
     <string name="stream_usb_devices">USB-Geräte</string>
     <string name="usb_forwarding_pick_title">USB-Gerät weiterleiten</string>
     <string name="usb_forwarding_auto_button">Automatisch</string>

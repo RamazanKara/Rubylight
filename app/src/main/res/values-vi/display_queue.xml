@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_display_queue_recovery">Lấy lại độ trễ hàng đợi màn hình</string>
-    <string name="summary_display_queue_recovery">Bỏ qua một khung hình khi màn hình giữ khung hình lâu hơn cần thiết một lần làm mới.</string>
+    <string name="summary_display_queue_recovery">Bỏ qua một khung hình khi màn hình giữ khung hình lâu hơn cần thiết một lần làm mới, để lấy lại khoảng trễ đó. Nên để bật, trừ khi khung hình bị bỏ làm bạn khó chịu.</string>
 </resources>

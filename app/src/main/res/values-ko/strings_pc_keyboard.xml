@@ -6,7 +6,7 @@
     <string name="pc_keyboard_layout_us">영어(미국)</string>
     <string name="pc_keyboard_layout_de">독일어(QWERTZ)</string>
     <string name="pc_keyboard_layout_title">키보드 레이아웃</string>
-    <string name="pc_keyboard_layout_summary">화면 PC 키보드의 레이아웃입니다.</string>
+    <string name="pc_keyboard_layout_summary">화면 PC 키보드에 표시되는 글자입니다. 키는 위치로 전송되므로, PC의 Windows가 사용하는 레이아웃을 선택하지 않으면 다른 문자가 입력됩니다. ‘자동’은 이 기기의 언어를 따릅니다.</string>
     <string name="pc_keyboard_size_title">키보드 크기</string>
     <string name="pc_keyboard_opacity_title">키보드 불투명도</string>
 </resources>

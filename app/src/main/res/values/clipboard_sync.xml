@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_clipboard_sync">Clipboard sync</string>
-    <string name="summary_clipboard_sync">Copied text goes between this device and the PC.</string>
+    <string name="summary_clipboard_sync">Copy text on this device and paste it on the PC, or the other way round, while streaming. Everything you copy as text is sent; the PC must offer clipboard sync.</string>
     <string name="clipboard_sync_not_offered">Clipboard sync is off: the PC did not offer it. It must allow this device to read and write its clipboard.</string>
     <string name="clipboard_sync_failed">Clipboard sync could not start.</string>
     <string name="clipboard_sync_read_refused">Android did not let clipboard sync read the clipboard, so this copy stays on this device.</string>

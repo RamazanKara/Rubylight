@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_tell_host_wireless">Wi-Fi’deyken bilgisayara bildir</string>
-    <string name="summary_tell_host_wireless">Bilgisayar yayının hızını baştan Wi-Fi’ye göre ayarlar.</string>
+    <string name="summary_tell_host_wireless">Bu cihazın Wi-Fi kullandığını bilgisayara bildirir; bilgisayar da yayının temposunu ilk kareden itibaren Wi-Fi için ayarlar. Açık bırakın; yalnızca karşılaştırmak için kapatın.</string>
 </resources>

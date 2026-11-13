@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_back_opens_menu">Voltar abre o menu da transmissão</string>
-    <string name="summary_checkbox_back_opens_menu">O botão Voltar do controle ou do portátil abre o menu da transmissão.</string>
+    <string name="summary_checkbox_back_opens_menu">O botão Voltar do controle ou do portátil abre o menu da transmissão e não chega mais ao PC. Deixe desativado se seus jogos usam esse botão.</string>
     <string name="title_checkbox_back_as_guide">Botão Voltar como Guide</string>
-    <string name="summary_checkbox_back_as_guide">Voltar envia Guide (Home ou PS) ao PC.</string>
+    <string name="summary_checkbox_back_as_guide">Voltar envia Guide (Home ou PS) ao PC, então os jogos não recebem mais Voltar desse botão. Para controles sem botão Guide; “Voltar abre o menu da transmissão” tem prioridade.</string>
 </resources>

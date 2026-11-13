@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_network_grace">网络中断时等待</string>
-    <string name="summary_network_grace">网络无响应时，串流结束前等待的时长。</string>
+    <string name="summary_network_grace">网络无响应时，串流结束前等待的时长；等待期间画面会定格。如果短暂的断线就会让串流结束，请调高；电脑也必须等待同样长的时间。</string>
     <string name="network_grace_off">关闭（10 秒）</string>
     <string name="network_grace_15">15 秒</string>
     <string name="network_grace_20">20 秒</string>

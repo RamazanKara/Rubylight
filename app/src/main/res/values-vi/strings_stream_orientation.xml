@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_stream_orientation">Hướng màn hình</string>
-    <string name="summary_stream_orientation">Ngang, dọc hoặc xoay theo thiết bị.</string>
+    <string name="summary_stream_orientation">Stream có thể xoay theo hướng nào. “Tự động” giữ điện thoại ở chiều ngang và cho máy tính bảng xoay; “Ngang” và “Dọc” khóa hướng; “Xoay theo thiết bị” đi theo thiết bị.</string>
     <string-array name="stream_orientation_names">
         <item>Tự động</item>
         <item>Ngang</item>

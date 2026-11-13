@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="controller_mapping_title">Kumanda düğmeleri</string>
-    <string name="controller_mapping_summary">Bir kumanda modelinin düğmelerini ve çubuklarını yeniden eşler.</string>
+    <string name="controller_mapping_summary">Bir kumanda modelinin düğmelerini ve çubuklarını yeniden eşler ve bilgisayarın gördüğü türü (Xbox, PlayStation veya Nintendo) belirler; oyun yanlış düğmeleri gösterdiğinde işe yarar.</string>
     <string name="controller_mapping_intro">“Düğme eşle”ye dokunun, ardından yeniden eşlenecek kumanda düğmesine basın.\nDeğişiklikler sonraki yayında geçerli olur.</string>
     <string name="controller_mapping_waiting">Bir kumanda bağlayın, ardından “Düğme eşle”ye dokunun.</string>
     <string name="controller_mapping_unnamed">Kumanda</string>

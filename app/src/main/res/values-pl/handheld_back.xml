@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_back_opens_menu">Wstecz otwiera menu strumienia</string>
-    <string name="summary_checkbox_back_opens_menu">Przycisk Wstecz kontrolera lub konsoli przenośnej otwiera menu strumienia.</string>
+    <string name="summary_checkbox_back_opens_menu">Przycisk Wstecz kontrolera lub konsoli przenośnej otwiera menu strumienia i nie trafia już do komputera. Zostaw wyłączone, jeśli twoje gry używają tego przycisku.</string>
     <string name="title_checkbox_back_as_guide">Przycisk Wstecz jako Guide</string>
-    <string name="summary_checkbox_back_as_guide">Wstecz wysyła Guide (Home lub PS) do komputera.</string>
+    <string name="summary_checkbox_back_as_guide">Wstecz wysyła Guide (Home lub PS) do komputera, więc gry nie dostają już Wstecz z tego przycisku. Dla kontrolerów bez przycisku Guide; opcja „Wstecz otwiera menu strumienia” ma pierwszeństwo.</string>
 </resources>

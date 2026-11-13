@@ -2,7 +2,7 @@
 <resources>
     <string name="fps_show_supported">Nur unterstützte Bildraten anzeigen</string>
     <string name="title_adaptive_quality_setting">Automatische Qualität</string>
-    <string name="summary_adaptive_quality_setting">Senkt Auflösung oder Bildrate, solange PC, Netzwerk oder Gerät nicht mithalten.</string>
+    <string name="summary_adaptive_quality_setting">Senkt Auflösung oder Bildrate, solange Netzwerk oder Gerät nicht mithalten, und hebt sie danach wieder an. Der Modus bestimmt, was zuerst sinkt; braucht Unterstützung durch den PC.</string>
     <string name="title_low_latency_customize">Anpassen</string>
     <string name="low_latency_customize_closed">Wählen, welche Teile der Latenzoptimierung aktiv sind</string>
     <string name="low_latency_customize_open">Einzelne Schalter ausblenden</string>

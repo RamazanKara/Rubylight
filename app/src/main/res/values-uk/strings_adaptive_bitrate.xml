@@ -8,9 +8,9 @@
     <string name="stream_bitrate_busy">ПК зайнятий. Спробуйте ще раз за мить.</string>
     <string name="stream_host_abr_failed">ПК не ввімкнув автоматичний бітрейт: %1$s</string>
     <string name="title_auto_bitrate">Знижувати бітрейт, коли мережа завантажена</string>
-    <string name="dialog_auto_bitrate">Знижує бітрейт, поки з’єднання не встигає, і повертає його, коли воно відновлюється.</string>
+    <string name="dialog_auto_bitrate">Знижує бітрейт, поки з’єднання не встигає, і повертає його, коли воно відновиться: зображення менш чітке, зате менше ривків. Увімкніть у завантаженій мережі; потрібна підтримка ПК.</string>
     <string name="title_thermal_protection">Тепловий захист</string>
-    <string name="dialog_thermal_protection">Знижує бітрейт і роздільну здатність, поки пристрій гарячий.</string>
+    <string name="dialog_thermal_protection">Знижує бітрейт і роздільну здатність, поки пристрій гарячий, якщо ввімкнено «Знижувати бітрейт, коли мережа завантажена» або «Автоматична якість». Вмикайте, лише якщо пристрій перегрівається або сповільнюється через нагрівання.</string>
     <string name="title_automatic_bitrate">Автоматичний бітрейт</string>
-    <string name="dialog_automatic_bitrate">Nightjar вибирає бітрейт за роздільною здатністю, частотою кадрів і кодеком.</string>
+    <string name="dialog_automatic_bitrate">Nightjar вибирає бітрейт за роздільною здатністю, частотою кадрів і кодеком та підлаштовує його, коли вони змінюються. Вимкніть, щоб задати бітрейт самостійно.</string>
 </resources>

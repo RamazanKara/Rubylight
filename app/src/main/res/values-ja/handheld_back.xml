@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_back_opens_menu">戻るボタンでストリームメニューを開く</string>
-    <string name="summary_checkbox_back_opens_menu">コントローラや携帯ゲーム機の戻るボタンでストリームメニューを開きます。</string>
+    <string name="summary_checkbox_back_opens_menu">コントローラや携帯ゲーム機の Back ボタンでストリームメニューを開きます。このボタンは PC に届かなくなります。ゲームでこのボタンを使う場合はオフのままにしてください。</string>
     <string name="title_checkbox_back_as_guide">戻るボタンを Guide として使う</string>
-    <string name="summary_checkbox_back_as_guide">戻るボタンで Guide（Home または PS）を PC に送ります。</string>
+    <string name="summary_checkbox_back_as_guide">Back で Guide（Home または PS）を PC に送ります。このボタンの Back はゲームに届かなくなります。Guide ボタンがないコントローラ向けです。「戻るボタンでストリームメニューを開く」がオンの場合は、そちらが優先されます。</string>
 </resources>

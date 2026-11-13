@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_tell_host_wireless">Dem PC mitteilen, wenn ich im WLAN bin</string>
-    <string name="summary_tell_host_wireless">Der PC passt das Tempo des Streams von Anfang an ans WLAN an.</string>
+    <string name="summary_tell_host_wireless">Meldet dem PC, wenn dieses Gerät im WLAN ist, damit er den Stream vom ersten Bild an für WLAN taktet. Lass es an; schalte es nur zum Vergleichen aus.</string>
 </resources>

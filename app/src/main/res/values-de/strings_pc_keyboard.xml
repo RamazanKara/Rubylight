@@ -6,7 +6,7 @@
     <string name="pc_keyboard_layout_us">Englisch (US)</string>
     <string name="pc_keyboard_layout_de">Deutsch (QWERTZ)</string>
     <string name="pc_keyboard_layout_title">Tastaturbelegung</string>
-    <string name="pc_keyboard_layout_summary">Die Belegung der PC-Tastatur auf dem Bildschirm.</string>
+    <string name="pc_keyboard_layout_summary">Die Buchstaben, die die PC-Tastatur auf dem Bildschirm zeigt. Tasten senden Positionen; wähle also das Layout, das Windows am PC nutzt, sonst erscheinen andere Zeichen. „Automatisch“ folgt der Sprache dieses Geräts.</string>
     <string name="pc_keyboard_size_title">Tastaturgröße</string>
     <string name="pc_keyboard_opacity_title">Tastaturdeckkraft</string>
 </resources>

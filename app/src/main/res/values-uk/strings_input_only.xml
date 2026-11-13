@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_input_only_any_host">Лише введення на будь-якому ПК</string>
-    <string name="summary_checkbox_input_only_any_host">Додає «Лише введення» до меню гри на ПК без власного режиму «Лише введення».</string>
+    <string name="summary_checkbox_input_only_any_host">Пропонує «Лише введення» на ПК без такого режиму: цей пристрій лише надсилає введення для гри, показаної на іншому екрані. ПК однаково передає маленьке відео, менше ніж 1 Мбіт/с.</string>
     <string name="input_only_start">Лише введення</string>
     <string name="input_only_small_stream_note">Відео й далі передається в найменшому розмірі, близько %1$.1f Мбіт/с (%2$d МБ на годину), але не показується</string>
     <string name="input_only_reason_input_permission">Дозвольте цьому пристрою введення на ПК</string>

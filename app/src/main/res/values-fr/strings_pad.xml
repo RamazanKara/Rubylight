@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_list_osc_style">Controller style</string>
-    <string name="summary_list_osc_style">Classic, ou Modern avec des sticks qui suivent le pouce et un éditeur de disposition.</string>
+    <string name="summary_list_osc_style">« Modern » a des sticks qui suivent le pouce et des boutons d’action que vous pouvez presser deux à la fois. « Classic » garde la disposition d’origine ; les deux envoient la même manette au PC.</string>
     <string name="osc_style_classic">Classic</string>
     <string name="osc_style_modern">Modern</string>
     <string name="title_list_osc_stick_mode">Modern controller sticks</string>
-    <string name="summary_list_osc_stick_mode">Les sticks Floating se centrent là où le pouce se pose ; les sticks Fixed restent en place.</string>
+    <string name="summary_list_osc_stick_mode">« Floating » centre un stick là où votre pouce se pose, sans avoir à le viser exactement. Choisissez « Fixed » si vous préférez viser le stick dessiné.</string>
     <string name="osc_stick_floating">Floating</string>
     <string name="osc_stick_fixed">Fixed</string>
     <string name="title_seekbar_osc_stick_deadzone">Modern controller stick deadzone</string>
-    <string name="summary_seekbar_osc_stick_deadzone">La distance que parcourt le pouce avant qu’un stick réagisse.</string>
+    <string name="summary_seekbar_osc_stick_deadzone">La distance que parcourt le pouce avant qu’un stick réagisse. Augmentez-la si un pouce au repos fait dériver la caméra ou le personnage ; baissez-la pour viser plus finement.</string>
     <string name="pad_edit_title">Edit controller layout</string>
     <string name="pad_edit_all">All controls</string>
     <string name="pad_edit_hidden">%1$s (hidden)</string>

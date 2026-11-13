@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="stream_hotkeys_title">Raccourcis du stream</string>
-    <string name="stream_hotkeys_summary">Les combinaisons de touches propres à Nightjar pendant un stream.</string>
+    <string name="stream_hotkeys_summary">Les combinaisons de touches propres à Nightjar pendant un stream, comme celle qui ouvre le menu du stream. Leurs touches n’atteignent jamais le PC ; modifiez celle dont un jeu ou une appli a besoin.</string>
     <string name="stream_hotkey_change">Modifier</string>
     <string name="stream_hotkey_off">Désactivée</string>
     <string name="stream_hotkey_reset">Réinitialiser</string>

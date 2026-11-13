@@ -66,7 +66,7 @@
 
     <!-- Bitrate on mobile data (Settings → Video) -->
     <string name="title_mobile_bitrate">Tốc độ bit trên dữ liệu di động</string>
-    <string name="summary_mobile_bitrate">Tốc độ bit cao nhất mà stream dùng trên dữ liệu di động hoặc mạng có đo lượng dữ liệu.</string>
+    <string name="summary_mobile_bitrate">Tốc độ bit cao nhất mà stream dùng trên dữ liệu di động hoặc mạng có đo lượng dữ liệu, chẳng hạn điểm phát sóng của điện thoại: tốn ít dữ liệu hơn, hình bớt nét. “Tắt” dùng cùng một tốc độ bit trên mọi mạng.</string>
     <string name="mobile_bitrate_off">Tắt</string>
 
     <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->

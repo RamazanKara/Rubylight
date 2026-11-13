@@ -12,7 +12,7 @@
     <string name="stream_restore_help">Stream bị gián đoạn.\nMở danh sách ứng dụng của PC để tiếp tục.</string>
     <string name="stream_presets">Cấu hình sẵn</string>
     <string name="stream_presets_help">Gốc stream ở độ phân giải và tần số quét của màn hình này, bật mọi cài đặt độ trễ.\nTiết kiệm pin giữ độ phân giải đó ở 30 fps.\nCấu hình riêng của PC vẫn được ưu tiên.</string>
-    <string name="summary_frame_pacing">Cân bằng giữa thời gian phản hồi và độ mượt khi VRR tắt.</string>
+    <string name="summary_frame_pacing">Đánh đổi giữa độ trễ và chuyển động đều khi VRR tắt. “Độ trễ thấp nhất” hiện khung hình ngay; các lựa chọn khác chờ màn hình làm mới: mượt hơn nhưng trễ hơn.</string>
     <string name="summary_language">Ngôn ngữ của các menu trong Nightjar.</string>
     <string name="overlay_mode_help">Tắt sẽ ẩn lớp phủ. Thu gọn hiển thị một dòng: FPS đã kết xuất, thời gian khứ hồi mạng (RTT) và tỷ lệ mất khung hình, cạnh một chấm chuyển sang màu hổ phách hoặc đỏ khi stream gặp khó khăn. Thống kê hiển thị số đo stream trực tiếp. Gỡ lỗi bổ sung phân vị thời gian và chẩn đoán trình giải mã; cuộn để xem toàn bộ chi tiết. Bạn cũng có thể đổi từ menu stream.</string>
     <string name="overlay_statistics">Thống kê</string>

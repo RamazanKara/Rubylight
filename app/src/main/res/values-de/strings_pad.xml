@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_list_osc_style">Controller-Stil</string>
-    <string name="summary_list_osc_style">„Klassisch“ oder „Modern“ mit Sticks, die dem Daumen folgen, und einem Layout-Editor.</string>
+    <string name="summary_list_osc_style">„Modern“ hat Sticks, die dem Daumen folgen, und Aktionstasten, von denen du zwei zugleich drücken kannst. „Klassisch“ behält das ursprüngliche Layout; beide senden dasselbe Gamepad an den PC.</string>
     <string name="osc_style_classic">Klassisch</string>
     <string name="osc_style_modern">Modern</string>
     <string name="title_list_osc_stick_mode">Sticks des modernen Controllers</string>
-    <string name="summary_list_osc_stick_mode">Bei „Schwebend“ liegt die Stickmitte dort, wo der Daumen aufsetzt; bei „Fest“ bleiben die Sticks an ihrem Platz.</string>
+    <string name="summary_list_osc_stick_mode">Bei „Schwebend“ liegt die Stickmitte dort, wo der Daumen aufsetzt, du musst den Stick also nicht genau treffen. Wähle „Fest“, wenn du lieber auf den gezeichneten Stick zielst.</string>
     <string name="osc_stick_floating">Schwebend</string>
     <string name="osc_stick_fixed">Fest</string>
     <string name="title_seekbar_osc_stick_deadzone">Totzone der modernen Sticks</string>
-    <string name="summary_seekbar_osc_stick_deadzone">Wie weit sich ein Daumen bewegt, bevor ein Stick reagiert.</string>
+    <string name="summary_seekbar_osc_stick_deadzone">Wie weit sich ein Daumen bewegt, bevor ein Stick reagiert. Erhöhe den Wert, wenn ein ruhender Daumen Kamera oder Figur driften lässt; senke ihn für feineres Zielen.</string>
     <string name="pad_edit_title">Controller-Layout bearbeiten</string>
     <string name="pad_edit_all">Alle Tasten</string>
     <string name="pad_edit_hidden">%1$s (ausgeblendet)</string>

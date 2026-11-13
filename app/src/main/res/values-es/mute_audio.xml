@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_mute_audio">Silenciar audio</string>
-    <string name="summary_checkbox_mute_audio">No reproduce el sonido de la transmisión en este dispositivo.</string>
+    <string name="summary_checkbox_mute_audio">No reproduce el sonido de la transmisión en este dispositivo, por ejemplo mientras suena por los altavoces del PC. El micrófono y «Reproducir audio también en el PC» siguen funcionando.</string>
 </resources>

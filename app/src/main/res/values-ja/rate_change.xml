@@ -27,5 +27,5 @@
     <string name="stream_rate_change_auto_no_answer">このストリームでは損失に基づくビットレート調整を停止しました: PC が変更に応答しませんでした。</string>
     <string name="title_rate_change_bitrate">フレーム欠落時にビットレートを下げる</string>
     <string name="summary_short_rate_change_bitrate">オフ：「ネットワーク混雑時にビットレートを下げる」が適用されます。オン：このデバイスがフレーム欠落とネットワーク遅延に応じて調整します。</string>
-    <string name="summary_rate_change_bitrate">フレームが欠落するとすぐにビットレートを下げます。</string>
+    <string name="summary_rate_change_bitrate">フレームが欠落するとすぐにビットレートを下げ、問題のない状態が数秒続くと元に戻します。「ネットワーク混雑時にビットレートを下げる」の代わりに働きます。PC の対応が必要です。</string>
 </resources>

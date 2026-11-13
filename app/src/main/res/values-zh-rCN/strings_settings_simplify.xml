@@ -2,7 +2,7 @@
 <resources>
     <string name="fps_show_supported">仅显示支持的帧率</string>
     <string name="title_adaptive_quality_setting">自动画质</string>
-    <string name="summary_adaptive_quality_setting">电脑、网络或设备跟不上时降低分辨率或帧率。</string>
+    <string name="summary_adaptive_quality_setting">网络或此设备跟不上时降低分辨率或帧率，之后再调回。先降哪一项由模式决定；需要电脑支持。</string>
     <string name="title_low_latency_customize">自定义</string>
     <string name="low_latency_customize_closed">选择开启哪些低延迟部分</string>
     <string name="low_latency_customize_open">隐藏各个开关</string>

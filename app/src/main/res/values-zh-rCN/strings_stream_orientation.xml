@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_stream_orientation">屏幕方向</string>
-    <string name="summary_stream_orientation">横屏、竖屏，或随设备旋转。</string>
+    <string name="summary_stream_orientation">串流画面可以转向哪个方向。“自动”让手机保持横屏，平板可以旋转；“横屏”和“竖屏”会锁定方向；“随设备旋转”跟随设备。</string>
     <string-array name="stream_orientation_names">
         <item>自动</item>
         <item>横屏</item>

@@ -2,7 +2,7 @@
 <resources>
     <!-- 10-bit SDR (Sdr10Policy): the setting, and what is said when it is not used. -->
     <string name="title_enable_sdr10">Less color banding</string>
-    <string name="summary_enable_sdr10">Streams non-HDR video in 10-bit, so gradients show fewer bands.</string>
+    <string name="summary_enable_sdr10">Streams non-HDR video in 10-bit, so skies and gradients show fewer bands. Turn it on if you see banding with HDR off; needs HEVC or AV1 and PC support.</string>
     <string name="startup_sdr10_not_accepted">This PC didn’t accept 10-bit, so the stream is 8-bit.</string>
     <string name="stream_sdr10_host_hdr">The PC is sending HDR. Switch its display to SDR for 10-bit SDR.</string>
     <string name="stream_sdr10_unavailable">10-bit SDR isn’t used, so the stream is 8-bit: %1$s</string>

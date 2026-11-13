@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_tell_host_link_speed">Сообщать ПК скорость соединения</string>
-    <string name="summary_tell_host_link_speed">ПК ограничивает скорость отправки скоростью проводного порта этого устройства.</string>
+    <string name="summary_tell_host_link_speed">Сообщает ПК скорость проводного порта этого устройства, чтобы он не отправлял данные быстрее, чем порт может принять. Оставьте включённым; отключайте только для сравнения.</string>
 </resources>

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_display_queue_recovery">Recuperar o atraso da fila de exibição</string>
-    <string name="summary_display_queue_recovery">Pula um quadro quando a tela segura os quadros por uma atualização a mais que o necessário.</string>
+    <string name="summary_display_queue_recovery">Pula um quadro quando a tela segura os quadros por uma atualização a mais que o necessário, para recuperar essa latência. Deixe ativado, a menos que o quadro pulado incomode você.</string>
 </resources>

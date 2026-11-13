@@ -66,7 +66,7 @@
 
     <!-- Bitrate on mobile data (Settings → Video) -->
     <string name="title_mobile_bitrate">모바일 데이터 비트레이트</string>
-    <string name="summary_mobile_bitrate">모바일 데이터나 데이터 사용량 제한 네트워크에서 스트림이 사용하는 최대 비트레이트입니다.</string>
+    <string name="summary_mobile_bitrate">모바일 데이터나 휴대전화 핫스팟 같은 데이터 사용량 제한 네트워크에서 스트림이 사용하는 최대 비트레이트입니다. 데이터를 덜 쓰는 대신 화면이 덜 선명해집니다. ‘사용 안함’은 모든 네트워크에서 같은 비트레이트를 사용합니다.</string>
     <string name="mobile_bitrate_off">사용 안함</string>
 
     <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->

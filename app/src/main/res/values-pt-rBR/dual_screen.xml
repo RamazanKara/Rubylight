@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_dual_screen">Modo de tela dupla</string>
-    <string name="summary_checkbox_dual_screen">Uma segunda transmissão do mesmo jogo em uma segunda tela.</string>
+    <string name="summary_checkbox_dual_screen">Transmite o mesmo jogo também para uma segunda tela, em uma transmissão própria; o som e os controles ficam na primeira. Requer uma segunda tela e suporte do PC.</string>
     <string name="title_resolution_screen2">Resolução da segunda tela</string>
     <string name="summary_resolution_screen2">A resolução da transmissão da segunda tela.</string>
     <string name="resolution_screen2_native">Tamanho próprio da segunda tela</string>

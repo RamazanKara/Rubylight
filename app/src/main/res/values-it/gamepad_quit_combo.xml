@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_list_gamepad_quit_combo">Pulsanti per uscire dallo stream</string>
-    <string name="summary_list_gamepad_quit_combo">I pulsanti da tenere premuti insieme per uscire dallo stream.</string>
+    <string name="summary_list_gamepad_quit_combo">Tieni premuti insieme questi pulsanti per uscire dallo stream dal controller, senza aprire il menu dello stream. Scegli una combinazione che i tuoi giochi non usano.</string>
     <string name="gamepad_quit_combo_off">Disattivato</string>
     <string name="stream_controller_mouse">Mouse con il controller</string>
     <string name="title_list_guide_menu_hold">Tieni premuto Guide per aprire il menu dello stream</string>
-    <string name="summary_list_guide_menu_hold">Quanto a lungo va tenuto premuto Guide per aprire il menu; una pressione breve va al PC.</string>
+    <string name="summary_list_guide_menu_hold">Quanto a lungo va tenuto premuto Guide per aprire il menu dello stream; una pressione più breve va al PC. Scegli Disattivato se un gioco o il PC richiede una pressione lunga di Guide.</string>
 </resources>

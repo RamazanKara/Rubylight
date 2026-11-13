@@ -67,7 +67,7 @@
 
     <!-- Bitrate on mobile data (Settings → Video) -->
     <string name="title_mobile_bitrate">Tasa de bits con datos móviles</string>
-    <string name="summary_mobile_bitrate">La tasa de bits más alta que usa una transmisión con datos móviles o en una red de uso medido.</string>
+    <string name="summary_mobile_bitrate">La tasa de bits máxima de una transmisión con datos móviles o en una red de uso medido, como el punto de acceso de un teléfono: menos datos, imagen menos nítida. Desactivado usa la misma tasa de bits en todas las redes.</string>
     <string name="mobile_bitrate_off">Desactivado</string>
 
     <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->

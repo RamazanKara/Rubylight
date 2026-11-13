@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="stream_hotkeys_title">Stream hotkeys</string>
-    <string name="stream_hotkeys_summary">Nightjar’s own key combinations in a stream.</string>
+    <string name="stream_hotkeys_summary">Nightjar’s own key combinations in a stream, such as the one that opens the stream menu. Their keys never reach the PC; change one that a game or app needs.</string>
     <string name="stream_hotkey_change">Change</string>
     <string name="stream_hotkey_off">Off</string>
     <string name="stream_hotkey_reset">Reset</string>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_stream_orientation">画面の向き</string>
-    <string name="summary_stream_orientation">横向き、縦向き、またはデバイスに合わせて回転。</string>
+    <string name="summary_stream_orientation">ストリームの画面の向きです。「自動」ではスマートフォンは横向きのまま、タブレットは回転します。「横向き」と「縦向き」は向きを固定し、「デバイスに合わせて回転」はデバイスの向きに従います。</string>
     <string-array name="stream_orientation_names">
         <item>自動</item>
         <item>横向き</item>

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_audio_passthrough">Наскрізний вивід звуку</string>
-    <string name="summary_checkbox_audio_passthrough">ПК надсилає звук у форматі, який аудіовихід відтворює як є: без стиснення або Dolby.</string>
+    <string name="summary_checkbox_audio_passthrough">Для ресивера, саундбара або телевізора, які відтворюють Dolby чи багатоканальний PCM як є: ПК надсилає звук у цьому форматі. Dolby надходить із затримкою приблизно до 30 мс. Потрібна підтримка ПК.</string>
 </resources>

@@ -27,5 +27,5 @@
     <string name="stream_rate_change_auto_no_answer">이 스트림의 손실 기반 비트레이트 조정을 중지했습니다: PC가 변경에 응답하지 않았습니다.</string>
     <string name="title_rate_change_bitrate">프레임 손실 시 비트레이트 낮추기</string>
     <string name="summary_short_rate_change_bitrate">꺼짐: ‘네트워크 혼잡 시 비트레이트 낮추기’가 적용됩니다. 켜짐: 이 기기가 프레임 손실과 네트워크 지연에 따라 조정합니다.</string>
-    <string name="summary_rate_change_bitrate">프레임이 손실되면 즉시 비트레이트를 낮춥니다.</string>
+    <string name="summary_rate_change_bitrate">프레임이 손실되면 즉시 비트레이트를 낮추고, 문제없는 상태가 몇 초 이어지면 다시 올립니다. ‘네트워크 혼잡 시 비트레이트 낮추기’ 대신 작동합니다. PC 지원이 필요합니다.</string>
 </resources>

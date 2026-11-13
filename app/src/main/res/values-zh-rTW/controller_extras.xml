@@ -2,20 +2,20 @@
 <resources>
     <!-- Controller and keyboard options -->
     <string name="title_checkbox_disable_rumble">關閉震動</string>
-    <string name="summary_checkbox_disable_rumble">停止所有震動、扳機震動和觸覺回饋。</string>
+    <string name="summary_checkbox_disable_rumble">停止遊戲要求的所有震動：控制器震動、扳機震動和觸覺回饋。除非你完全不想要震動，否則請保持關閉。</string>
     <string name="title_checkbox_mouse_emulation_fixed_step">精確控制器滑鼠</string>
-    <string name="summary_checkbox_mouse_emulation_fixed_step">按住 X 時，指標以固定的像素步距移動。</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">在控制器滑鼠模式下，按住 X 時指標以固定的像素步距移動，方便點選小目標。按 Y 可將步距加倍，範圍為 1 到 128 像素。</string>
     <string name="stream_mouse_step">滑鼠步距：%1$d 像素</string>
     <string name="title_checkbox_capture_system_keys">傳送系統按鍵</string>
-    <string name="summary_checkbox_capture_system_keys">Alt+Tab、Windows 鍵等會傳送到電腦。</string>
+    <string name="summary_checkbox_capture_system_keys">在 Android 允許的情況下，Alt+Tab、Windows 鍵等會傳送到電腦，而不是由此裝置處理。關閉後，這些快速鍵會留在此裝置上。</string>
     <string name="title_checkbox_system_keys_fullscreen_only">僅全屏時傳送系統按鍵</string>
-    <string name="summary_checkbox_system_keys_fullscreen_only">視窗模式下，系統按鍵會留在這部裝置上。</string>
+    <string name="summary_checkbox_system_keys_fullscreen_only">視窗模式下，Alt+Tab、Windows 鍵等會留在此裝置上；全螢幕時則傳送到電腦。想在視窗化的串流旁切換應用程式時請開啟。</string>
     <string name="title_checkbox_back_as_meta">鍵盤返回鍵傳送 Windows 鍵</string>
-    <string name="summary_checkbox_back_as_meta">實體鍵盤的返回鍵會傳送 Windows 鍵。</string>
+    <string name="summary_checkbox_back_as_meta">實體鍵盤的返回鍵向電腦傳送 Windows 鍵，而不是返回或 Esc。Android 的返回手勢和串流選單快速鍵仍可開啟串流選單。</string>
     <string name="title_checkbox_right_alt_as_meta">右 Alt 作為 Windows 鍵</string>
-    <string name="summary_checkbox_right_alt_as_meta">右 Alt 會傳送 Windows 鍵，Mac 會將其當作 Command。</string>
+    <string name="summary_checkbox_right_alt_as_meta">右 Alt 傳送 Windows 鍵，Mac 會將其當作 Command。如果你用 AltGr 輸入字元，請保持關閉：開啟後右 Alt 不再有 AltGr 的作用。</string>
     <string name="title_checkbox_keyboard_follows_text_fields">鍵盤跟隨文字欄位</string>
-    <string name="summary_checkbox_keyboard_follows_text_fields">電腦上的文字欄位取得焦點時，螢幕鍵盤會開啟。</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">在電腦上選取文字欄位時開啟螢幕鍵盤，之後自動關閉。需要電腦能回報文字欄位；關閉後由你自行開啟鍵盤。</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">控制器測試</string>
@@ -57,6 +57,6 @@
 
     <!-- USB Switch Pro driver -->
     <string name="title_usb_switch_pro">USB Switch Pro 驅動程式</string>
-    <string name="summary_usb_switch_pro">讀取有線連接的 Switch Pro Controller，支援體感、震動、Home 和 Capture。</string>
+    <string name="summary_usb_switch_pro">Nightjar 自行讀取有線連接的 Switch Pro Controller，讓陀螺儀、震動、Home 和 Capture 都能使用。串流時 Android 會要求 USB 存取權；藍牙連線和 Joy-Con 仍使用 Android 的輸入。</string>
     <string name="usb_switch_pro_denied">沒有 USB 存取權；Switch Pro Controller 繼續使用 Android 輸入。\n請重新連接傳輸線以重試。</string>
 </resources>

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_audio_passthrough">Paso directo de audio</string>
-    <string name="summary_checkbox_audio_passthrough">El PC envía el sonido en un formato que la salida reproduce tal cual: sin comprimir o Dolby.</string>
+    <string name="summary_checkbox_audio_passthrough">Para un receptor AV, una barra de sonido o un televisor que reproducen Dolby o PCM multicanal tal cual: el PC envía ese formato. Dolby llega hasta unos 30 ms más tarde. Requiere un PC compatible.</string>
 </resources>

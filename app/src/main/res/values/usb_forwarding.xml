@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_usb_forwarding">Forward USB devices</string>
-    <string name="summary_usb_forwarding">USB devices plugged in here can be attached to the PC from the stream menu.</string>
+    <string name="summary_usb_forwarding">Lets the stream menu hand a USB device plugged in here, such as a drawing tablet or security key, to the PC. Needs a PC that offers USB forwarding.</string>
     <string name="stream_usb_devices">USB devices</string>
     <string name="usb_forwarding_pick_title">Forward a USB device</string>
     <string name="usb_forwarding_auto_button">Automatic</string>

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_tell_host_wireless">Wi-Fi 사용 중임을 PC에 알림</string>
-    <string name="summary_tell_host_wireless">PC가 처음부터 Wi-Fi에 맞게 스트림 속도를 조절합니다.</string>
+    <string name="summary_tell_host_wireless">이 기기가 Wi-Fi를 사용 중이면 PC에 알려, PC가 첫 프레임부터 Wi-Fi에 맞게 스트림 속도를 조절하게 합니다. 켜 두고, 비교할 때만 끄세요.</string>
 </resources>

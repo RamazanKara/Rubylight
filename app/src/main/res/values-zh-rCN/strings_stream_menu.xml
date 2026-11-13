@@ -54,7 +54,7 @@
     <string name="stream_menu_button_hide">隐藏菜单按钮</string>
     <string name="stream_menu_settings">串流菜单</string>
     <string name="title_floating_menu_button">悬浮菜单按钮</string>
-    <string name="summary_floating_menu_button">串流画面上用于打开菜单的圆形按钮。</string>
+    <string name="summary_floating_menu_button">串流画面上的圆形按钮，点一下即可打开串流菜单；拖动可移动它。如果用返回键或手柄就能打开菜单，则不需要它。</string>
     <string name="stream_tile_keyboard">键盘</string>
     <string name="stream_tile_pc_keyboard">PC 键盘</string>
     <string name="stream_tile_mouse">鼠标</string>

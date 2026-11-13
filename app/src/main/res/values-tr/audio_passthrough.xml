@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_audio_passthrough">Ses geçişi</string>
-    <string name="summary_checkbox_audio_passthrough">Bilgisayar sesi, çıkışın olduğu gibi çaldığı bir biçimde gönderir: sıkıştırılmamış veya Dolby.</string>
+    <string name="summary_checkbox_audio_passthrough">Dolby veya çok kanallı PCM sesi olduğu gibi çalan bir AV alıcısı, soundbar veya TV içindir: bilgisayar sesi o biçimde gönderir. Dolby, yaklaşık 30 ms’ye varan bir gecikmeyle ulaşır. Bilgisayar desteği gerekir.</string>
 </resources>

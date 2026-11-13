@@ -3,7 +3,7 @@
     <string name="title_packed_444">Full chroma</string>
     <string name="summary_packed_444">Requires Rubylight’s full chroma option, the New streaming engine, and a compatible hardware HEVC/AV1 decoder. If the PC or this device can’t do it, the stream starts without it. HDR also requires a compatible 10-bit HDR display surface.</string>
     <string name="title_frame_warp">Frame Warp</string>
-    <string name="summary_frame_warp">Shifts the picture with your mouse or right stick until the PC’s next frame shows the turn, and keeps the game’s HUD in place. Needs a PC that supports it and the New streaming engine.</string>
+    <string name="summary_frame_warp">Shows mouse and right-stick camera turns on the next refresh by shifting the picture; the HUD stays in place, and edges are approximate while turning. Needs PC support and the New streaming engine.</string>
     <string name="frame_warp_overlay_mouse">Frame Warp: locked %1$s px/count, lag %2$s ms, shift %3$s px (peak %4$s)</string>
     <string name="frame_warp_overlay_stick">Frame Warp: locked %1$s px/s, lag %2$s ms, shift %3$s px (peak %4$s)</string>
     <string name="frame_warp_overlay_learning">Frame Warp: learning</string>
@@ -156,12 +156,12 @@
 
     <!-- Preferences -->
     <string name="title_resolution_list">Resolution</string>
-    <string name="summary_resolution_list">The picture size the PC sends; smaller needs less network and decoding power.</string>
+    <string name="summary_resolution_list">The picture size the PC sends. Higher is sharper and needs more network and decoding power; lower it if the stream stutters.</string>
     <string name="title_fps_list">Frame rate</string>
-    <string name="summary_fps_list">Pictures per second; higher looks smoother and needs a faster network.</string>
+    <string name="summary_fps_list">Frames per second (FPS). Higher looks smoother and needs a faster network and more decoding power; lower it if the stream stutters.</string>
     <string name="title_seekbar_bitrate">Bitrate</string>
     <string name="suffix_seekbar_bitrate_mbps">Mbps</string>
-    <string name="dialog_seekbar_bitrate">Video data per second; higher is sharper and needs a faster network.</string>
+    <string name="dialog_seekbar_bitrate">Video data per second. Higher is sharper and needs a faster network; lower it if the picture stutters or breaks up.</string>
     <string name="seekbar_decrease">Decrease</string>
     <string name="seekbar_increase">Increase</string>
     <string name="seekbar_presets">Presets</string>
@@ -169,102 +169,102 @@
     <string name="fps_suffix_fps">FPS</string>
 
     <string name="title_audio_config_list">Channels</string>
-    <string name="summary_audio_config_list">Stereo, or 5.1, 7.1 or 7.1.4 surround.</string>
+    <string name="summary_audio_config_list">Stereo, or 5.1, 7.1 or 7.1.4 surround. Use Stereo for headphones or two speakers; pick surround only if your speakers and the PC are set up for it.</string>
     <string name="title_checkbox_enable_audiofx">Allow system audio effects</string>
-    <string name="summary_checkbox_enable_audiofx">Lets Android equalizers and effects process the sound.</string>
+    <string name="summary_checkbox_enable_audiofx">Lets Android equalizers and effects process the sound. It can add audio delay; leave it off unless you use such an effect.</string>
 
     <string name="category_gamepad_settings">Controllers</string>
     <string name="summary_checkbox_multi_controller">On: each controller is its own player, and the PC sees a controller only while one is connected. Off: every controller acts as player 1, and the PC always sees one controller.</string>
     <string name="title_checkbox_vibrate_fallback">Vibrate device for rumble</string>
-    <string name="summary_checkbox_vibrate_fallback">This device vibrates when the controller can’t.</string>
+    <string name="summary_checkbox_vibrate_fallback">This device vibrates for player 1’s rumble when the controller has no rumble motors. Turn on if you hold this device while you play.</string>
     <string name="title_seekbar_vibrate_fallback_strength">Device vibration strength</string>
     <string name="summary_seekbar_vibrate_fallback_strength">How strongly this device vibrates.</string>
     <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
     <string name="title_seekbar_deadzone">Stick dead zone</string>
-    <string name="summary_seekbar_deadzone">Ignores small stick movements near the center.</string>
+    <string name="summary_seekbar_deadzone">Ignores small stick movements near the center. Raise it if a resting stick drifts; lower it so small movements register. Games can add their own dead zone on top.</string>
     <string name="suffix_seekbar_deadzone">%</string>
     <string name="title_seekbar_trigger_deadzone">Trigger dead zone</string>
-    <string name="summary_seekbar_trigger_deadzone" formatted="false">Ignores light trigger presses.</string>
+    <string name="summary_seekbar_trigger_deadzone" formatted="false">Ignores light trigger presses. Raise it if a resting trigger presses by itself; lower it so light presses register. Games can add their own dead zone on top.</string>
     <string name="title_checkbox_xb1_driver">USB controller driver</string>
-    <string name="summary_checkbox_xb1_driver">Nightjar’s own driver for Xbox controllers over USB.</string>
+    <string name="summary_checkbox_xb1_driver">Nightjar’s own driver for Xbox controllers over USB, used where Android doesn’t support them itself. Leave it on; Android asks for USB access when it is needed.</string>
     <string name="title_usb_dualsense_haptics">USB DualSense audio and haptics</string>
-    <string name="summary_usb_dualsense_haptics">A wired DualSense’s haptics, speaker, headset and microphone work with the PC.</string>
+    <string name="summary_usb_dualsense_haptics">A wired DualSense plays the game’s haptics (waveform vibration), and its speaker, headset and microphone work with the PC. Needs a PC that supports them.</string>
     <string name="title_usb_dualsense">USB DualSense driver</string>
-    <string name="summary_usb_dualsense">Adaptive triggers, rumble and more for a DualSense over USB.</string>
+    <string name="summary_usb_dualsense">Nightjar reads a DualSense over USB itself, for adaptive triggers, rumble and the lightbar from games. Android asks for USB access in a stream; a DualSense on Bluetooth stays on Android’s input.</string>
     <string name="usb_dualsense_permission_info">Allow USB access when you start a stream.\nWithout it, adaptive triggers stay off.</string>
     <string name="usb_dualsense_enable">Enable USB driver</string>
     <string name="usb_dualsense_denied">No USB access; adaptive triggers are off.\nReconnect the cable to retry.</string>
     <string name="title_checkbox_usb_bind_all">Always use the USB driver</string>
-    <string name="summary_checkbox_usb_bind_all">Uses Nightjar’s driver even for controllers Android supports.</string>
+    <string name="summary_checkbox_usb_bind_all">Uses Nightjar’s driver even for Xbox controllers Android supports. Turn on if a USB controller has no rumble through Android, then reconnect it.</string>
     <string name="title_checkbox_mouse_emulation">Controller mouse mode</string>
-    <string name="summary_checkbox_mouse_emulation">Holding Start switches the controller between gamepad and mouse.</string>
+    <string name="summary_checkbox_mouse_emulation">Holding Start switches the controller between gamepad and mouse. Turn it off if that happens by accident in a game; the stream menu’s Mouse tile still switches it.</string>
     <string name="title_checkbox_flip_face_buttons">Nintendo button layout</string>
-    <string name="summary_checkbox_flip_face_buttons">Swaps A with B and X with Y.</string>
+    <string name="summary_checkbox_flip_face_buttons">Swaps A with B and X with Y. Turn on if a Nintendo-style controller’s buttons should send the letters printed on them.</string>
     <string name="title_checkbox_gamepad_touchpad_as_mouse">Controller touchpad as mouse</string>
-    <string name="summary_checkbox_gamepad_touchpad_as_mouse">The controller’s touchpad moves the PC’s pointer.</string>
+    <string name="summary_checkbox_gamepad_touchpad_as_mouse">The controller’s touchpad (DualSense and similar) moves the PC’s pointer like a mouse. Games then no longer get its touches; leave it off for games that use the touchpad.</string>
     <string name="title_checkbox_gamepad_motion_sensors">Motion controls</string>
-    <string name="summary_checkbox_gamepad_motion_sensors">Sends the controller’s motion sensors to games.</string>
+    <string name="summary_checkbox_gamepad_motion_sensors">Sends the controller’s gyro and accelerometer to games, for motion aiming. The PC may then treat it as a PlayStation controller; turn it off if games show the wrong buttons.</string>
     <string name="title_checkbox_gamepad_motion_fallback">Use device motion sensors</string>
-    <string name="summary_checkbox_gamepad_motion_fallback">Uses this device’s gyro when the controller has none.</string>
+    <string name="summary_checkbox_gamepad_motion_fallback">Player 1 gets this device’s gyro and accelerometer when the controller has none, for motion controls by moving the device. The PC may then treat the controller as a PlayStation one.</string>
 
     <string name="category_input_settings">Touch &amp; mouse</string>
     <string name="title_trackpad_speed">Trackpad speed</string>
     <string name="title_mouse_speed">Mouse speed</string>
     <string name="title_trackpad_sensitivity_x">Trackpad sensitivity X</string>
-    <string name="summary_trackpad_sensitivity_x">Horizontal speed of a physical touchpad.</string>
+    <string name="summary_trackpad_sensitivity_x">Horizontal pointer speed of a physical touchpad, such as a keyboard cover’s, on top of Mouse speed. A negative value flips the direction; touch modes use Trackpad speed.</string>
     <string name="title_trackpad_sensitivity_y">Trackpad sensitivity Y</string>
-    <string name="summary_trackpad_sensitivity_y">Vertical speed of a physical touchpad.</string>
+    <string name="summary_trackpad_sensitivity_y">Vertical pointer speed of a physical touchpad, such as a keyboard cover’s, on top of Mouse speed. A negative value flips the direction; touch modes use Trackpad speed.</string>
     <string name="title_trackpad_scroll_speed">Trackpad scroll speed</string>
-    <string name="summary_trackpad_scroll_speed">How far two fingers scroll on a touchpad.</string>
+    <string name="summary_trackpad_scroll_speed">How far two fingers scroll on a physical touchpad and in the Trackpad (touchpad gestures) touch mode. Lower it if scrolling is too sensitive.</string>
     <string name="title_trackpad_swap_axis">Swap trackpad X and Y</string>
-    <string name="summary_trackpad_swap_axis">For touchpads that report their axes rotated.</string>
+    <string name="summary_trackpad_swap_axis">Swaps the X and Y axes of a physical touchpad. Turn on only if the pointer moves sideways when you swipe up or down; touch modes are not affected.</string>
     <string name="title_native_touchpad">Touchpad gestures on the PC</string>
-    <string name="summary_native_touchpad">Sends a physical touchpad’s fingers to a PC that takes them, so its own gestures work there.</string>
+    <string name="summary_native_touchpad">A physical touchpad’s fingers go to the PC, so its own gestures work there: two-finger scroll, three- and four-finger swipes. A PC that can’t take them gets the pointer as before.</string>
     <string name="stream_native_touchpad_fallback">This stream does not take touchpad fingers, so the touchpad moves the mouse.</string>
     <string name="title_checkbox_absolute_mouse_mode">Mouse mode</string>
-    <string name="summary_checkbox_absolute_mouse_mode">Captured keeps the pointer in the stream; Desktop pointer moves like an ordinary mouse.</string>
+    <string name="summary_checkbox_absolute_mouse_mode">Captured keeps the pointer in the stream and sends relative movement, which games with mouse look need. Desktop pointer moves like an ordinary mouse, for desktop work.</string>
     <string name="title_checkbox_mouse_nav_buttons">Mouse back/forward buttons</string>
-    <string name="summary_checkbox_mouse_nav_buttons">Sends the mouse’s Back and Forward buttons to the PC.</string>
+    <string name="summary_checkbox_mouse_nav_buttons">Sends the mouse’s Back and Forward buttons to the PC. Leave it off if right-click stops working: some devices report right-click as Back.</string>
 
     <string name="category_on_screen_controls_settings">On-screen controls</string>
     <string name="title_checkbox_show_onscreen_controls">Show on-screen controls</string>
     <string name="title_checkbox_vibrate_osc">Vibrate on press</string>
     <string name="title_only_l3r3">Only show L3 and R3</string>
-    <string name="summary_only_l3r3">Hides every on-screen button but L3 and R3.</string>
+    <string name="summary_only_l3r3">Hides every on-screen button but L3 and R3, the stick clicks. Turn on only if your controller has every button except stick clicks.</string>
     <string name="title_onscreen_own_player">On-screen controls as their own player</string>
-    <string name="summary_onscreen_own_player">The on-screen gamepad is player 1; physical controllers count from 2.</string>
+    <string name="summary_onscreen_own_player">The on-screen gamepad is player 1 and physical controllers count from 2, instead of sharing player 1. Leave it off unless the on-screen controls need their own Steam layout.</string>
     <string name="title_show_guide_button">Show Guide button</string>
     <string name="title_show_touchpad_button">Show Touchpad button</string>
-    <string name="summary_show_touchpad_button">Adds a PlayStation touchpad button to the on-screen controls.</string>
+    <string name="summary_show_touchpad_button">Adds a button that clicks a PlayStation controller’s touchpad. Player 1 then connects to the PC as a PlayStation controller; leave it off unless a game needs that click.</string>
     <string name="title_osc_steam_controls">Steam Controller controls</string>
-    <string name="summary_osc_steam_controls">Adds both trackpads, the back buttons L4, R4, L5 and R5, and grip touch to the on-screen controls, for a PC whose controller type is the Steam Controller.</string>
+    <string name="summary_osc_steam_controls">Adds on-screen trackpads, back buttons (L4, R4, L5, R5) and grip touch. Only for a PC whose controller type is the Steam Controller; with the PC’s Automatic type, the trackpads can make it pick a PlayStation controller.</string>
     <string name="title_reset_osc">Reset controls layout</string>
     <string name="dialog_title_reset_osc">Reset layout</string>
-    <string name="dialog_text_reset_osc">Put every on-screen button back to its default size and position?</string>
+    <string name="dialog_text_reset_osc">Put every on-screen button back to its default size and position? This also resets the layouts kept for one game.</string>
     <string name="toast_reset_osc_success">On-screen controls reset to default</string>
     <string name="title_osc_opacity">Opacity</string>
-    <string name="summary_osc_opacity">How visible the on-screen controls are.</string>
+    <string name="summary_osc_opacity">How visible the on-screen controls are. Lower it to see more of the game beneath them.</string>
     <string name="suffix_osc_opacity">%</string>
 
     <string name="title_checkbox_enable_pip">Picture in picture</string>
-    <string name="summary_checkbox_enable_pip">Keeps the stream in a small window when you leave the app.</string>
+    <string name="summary_checkbox_enable_pip">Keeps the stream in a small window when you leave the app, with on-screen controls and the overlay hidden. Off, the stream stops when you leave.</string>
     <string name="title_language_list">Language</string>
     <string name="title_checkbox_small_icon_mode">Use small box art</string>
     <string name="summary_checkbox_small_icon_mode">Fits more games on screen in a PC’s library.</string>
     <string name="title_quick_resume">Quick resume</string>
-    <string name="summary_quick_resume">Selecting a PC that runs a game goes straight back into it.</string>
+    <string name="summary_quick_resume">Selecting a PC that runs a game goes straight back into it, skipping the library. While it is on, open the library from the PC’s menu.</string>
 
     <string name="title_checkbox_enable_sops">Game optimization hint</string>
-    <string name="summary_checkbox_enable_sops">Lets the PC adjust the game’s settings for the stream.</string>
+    <string name="summary_checkbox_enable_sops">Lets the PC adjust the game’s settings for the stream. Leave it on; turn it off if the PC changes a game’s settings and you want them kept.</string>
     <string name="title_checkbox_host_audio">Play audio on the PC too</string>
 
     <string name="title_unlock_fps">Show all frame rates</string>
     <string name="title_checkbox_reduce_refresh_rate">Allow lower refresh rate</string>
-    <string name="summary_checkbox_reduce_refresh_rate">Lets the screen run slower than the stream to save power.</string>
+    <string name="summary_checkbox_reduce_refresh_rate">Lets the screen use the lowest refresh rate that still fits the stream, such as 60 Hz for 60 FPS, to save battery. Off keeps the highest rate, for lower latency.</string>
     <string name="title_checkbox_disable_warnings">Hide connection warnings</string>
-    <string name="summary_checkbox_disable_warnings">No warnings about a poor connection during streams.</string>
+    <string name="summary_checkbox_disable_warnings">Hides the warnings about a poor connection during streams. Turn it on once your connection is set up and you no longer need them.</string>
     <string name="title_video_format">Video codec</string>
-    <string name="summary_video_format">How the video is compressed; Automatic suits most setups.</string>
+    <string name="summary_video_format">How the video is compressed. Leave it on Automatic unless the picture stalls or breaks up; then try H.264, the most compatible codec.</string>
     <string name="pyrowave_ready">Ready on this phone. Needs PC support.</string>
     <string name="pyrowave_checking">Checking GPU support…</string>
     <string name="pyrowave_needs_android">Not supported: needs Android 10</string>
@@ -283,13 +283,13 @@
     <string name="pyrowave_hlg_display_refused">display or driver refused HLG output</string>
     <string name="pyrowave_check_failed">Not supported: GPU check failed</string>
     <string name="title_enable_hdr">HDR</string>
-    <string name="summary_enable_hdr">Brighter highlights and richer color on an HDR screen.</string>
+    <string name="summary_enable_hdr">Brighter highlights and richer color on an HDR screen. Turn it on if this screen shows HDR and HDR is on for the PC’s display.</string>
     <string name="title_full_range">Full color range</string>
-    <string name="summary_full_range">Asks for full-range video, for a PC and screen that both use it.</string>
+    <string name="summary_full_range">Asks for full-range video, for full shadow and highlight detail. Blacks crush or highlights clip unless the PC and the screen both use full range; leave it off unless you know both do.</string>
     <string name="title_enable_post_stream_toast">Show decode time after streaming</string>
-    <string name="summary_enable_post_stream_toast">Shows the average decode time when a stream ends.</string>
+    <string name="summary_enable_post_stream_toast">Shows the average decode time when a stream ends: this device’s decoding only, not the end-to-end latency.</string>
     <string name="title_rust_engine">New streaming engine</string>
-    <string name="summary_rust_engine">The current engine; off uses the classic one.</string>
+    <string name="summary_rust_engine">For troubleshooting. Leave it on; turn it off only if a stream fails to start or misbehaves. The classic engine lacks newer features such as Frame Warp and Audio passthrough.</string>
 
 
     <!-- Toasts -->
@@ -328,7 +328,7 @@
     <string name="pacing_smoothness">Smoothest video (more delay)</string>
 
     <string name="title_analog_scrolling">Stick for scrolling</string>
-    <string name="summary_analog_scrolling">The stick that scrolls in controller mouse mode.</string>
+    <string name="summary_analog_scrolling">The stick that scrolls in controller mouse mode; the other stick moves the pointer. Without a scroll stick, both move the pointer.</string>
     <string name="analogscroll_none">Both sticks move the mouse</string>
     <string name="analogscroll_right">Right analog stick</string>
     <string name="analogscroll_left">Left analog stick</string>
@@ -343,18 +343,18 @@
     <string name="yuv444_fallback">Sharper colored text isn’t available for this stream.</string>
     <string name="yuv444_fallback_hdr">Sharper colored text isn’t available with HDR. HDR takes priority.</string>
     <string name="title_virtual_display">Virtual display</string>
-    <string name="summary_virtual_display">The PC streams from a display of its own that matches the stream.</string>
+    <string name="summary_virtual_display">The PC streams from a virtual display of its own that matches the stream’s resolution and frame rate, whatever monitor the PC has. Off leaves it to the PC’s display settings.</string>
     <string name="title_vrr">Variable refresh rate</string>
-    <string name="summary_vrr">Shows each frame as it arrives on a G-Sync, FreeSync or adaptive-refresh screen.</string>
+    <string name="summary_vrr">VRR: shows each frame the moment it arrives on a G-Sync, FreeSync or adaptive-refresh screen, without waiting for the next refresh. Frame pacing is not used while VRR is on.</string>
     <string name="summary_vrr_unavailable">Needs Android 16 and a screen with adaptive refresh.</string>
     <string name="title_host_frame_times">Show frames at the PC’s frame times</string>
-    <string name="summary_host_frame_times">Holds each frame briefly so it appears when the game drew it, evening out motion.</string>
+    <string name="summary_host_frame_times">Holds each frame briefly so it appears when the game drew it, evening out motion. Adds a few milliseconds of latency; turn it on if motion looks uneven.</string>
     <string name="title_content_rate_frame_rate">Match the screen to the game’s frame rate</string>
-    <string name="summary_content_rate_frame_rate">Switches the screen to the game’s real frame rate where it has a matching mode.</string>
+    <string name="summary_content_rate_frame_rate">Switches the screen to a refresh rate that fits the game’s real frame rate, such as 60 Hz for a 60 FPS game in a 120 FPS stream. Needs PC support.</string>
     <string name="title_virtual_display_scale">PC render resolution</string>
-    <string name="summary_virtual_display_scale">The size the PC renders at, as a percent of the stream resolution.</string>
+    <string name="summary_virtual_display_scale">The size the PC renders at, as a percent of the stream resolution; the video sent keeps its size. Above 100 the PC draws more pixels than it sends, below fewer.</string>
     <string name="title_virtual_display_dpi">PC display scaling</string>
-    <string name="summary_virtual_display_dpi">Text and interface size on the PC’s virtual display.</string>
+    <string name="summary_virtual_display_dpi">Text and interface size on the PC’s virtual display; the resolution stays. Raise it if text is too small on this screen. PC’s own keeps the PC’s setting.</string>
     <string name="virtual_display_dpi_pc_own">PC’s own</string>
     <string-array name="virtual_display_dpi_names" translatable="false">
         <item>@string/virtual_display_dpi_pc_own</item>
@@ -395,25 +395,25 @@
     <string name="latency_csv_failed">Could not save the latency CSV.</string>
     <string name="latency_csv_lost">CSV rows lost to backlog: %1$d</string>
     <string name="title_codec_low_latency">Android low-latency mode</string>
-    <string name="summary_codec_low_latency">Asks the decoder for its lowest delay.</string>
+    <string name="summary_codec_low_latency">Asks the decoder for its lowest delay. Leave it on; turn it off only to check whether it causes a freeze or picture errors.</string>
     <string name="title_experimental_chipset_tuning">Chipset tuning</string>
-    <string name="summary_experimental_chipset_tuning">Extra low-latency settings for MediaTek Dimensity and Samsung Exynos decoders.</string>
+    <string name="summary_experimental_chipset_tuning">Extra low-latency settings for MediaTek Dimensity and Samsung Exynos decoders. Try it on such a device for less delay; turn it off if video stops or stutters.</string>
     <string name="title_vendor_low_latency">Chipset low-latency mode</string>
-    <string name="summary_vendor_low_latency">Uses the chipset’s own low-delay decoding.</string>
+    <string name="summary_vendor_low_latency">Uses the chipset’s own low-delay decoding. Leave it on; turn it off only to check whether it makes video unstable on this device.</string>
     <string name="title_codec_performance">Decoder performance hints</string>
-    <string name="summary_codec_performance">Faster decoding at the cost of more power.</string>
+    <string name="summary_codec_performance">Asks the decoder for its top speed and priority: faster decoding, for lower latency, at more battery use. Leave it on unless heat or battery life matters more.</string>
     <string name="title_phone_performance_hints">Phone performance hints</string>
-    <string name="summary_phone_performance_hints">Lets Android tune performance while streaming.</string>
+    <string name="summary_phone_performance_hints">Tells Android how long decoding takes, so it can raise CPU speed when decoding falls behind. Leave it on; turn it off only to compare decode times.</string>
     <string name="title_gpu_max_clocks">Boost GPU performance for PyroWave</string>
-    <string name="summary_gpu_max_clocks">Higher GPU clocks for faster PyroWave decoding, at more power and heat.</string>
+    <string name="summary_gpu_max_clocks">Higher GPU clocks for faster PyroWave decoding, at more power and heat. Leave it off unless PyroWave decoding is too slow.</string>
     <string name="title_drop_late_frames">Keep only the newest frame</string>
-    <string name="summary_drop_late_frames">Skips frames the screen can no longer show in time.</string>
+    <string name="summary_drop_late_frames">Skips frames the screen can no longer show in time, so the picture never falls behind. Leave it on; off shows every frame in turn and can add delay.</string>
     <string name="title_texture_view">Compatibility video view</string>
-    <string name="summary_texture_view">A different video surface for black or flickering video.</string>
+    <string name="summary_texture_view">For troubleshooting: try it if video is black, flickers or is misplaced. It adds work per frame and is not used with HDR, Less color banding or PyroWave.</string>
     <string name="title_unbatched_input">Instant mouse and pen input</string>
-    <string name="summary_unbatched_input">Sends mouse and pen movement at once instead of in batches.</string>
+    <string name="summary_unbatched_input">Sends mouse and pen movement at once instead of in batches, for less input delay. A high-rate mouse then uses more CPU and network; leave it on unless that matters.</string>
     <string name="title_network_priority">Prioritize stream traffic</string>
-    <string name="summary_network_priority">Gives the stream’s traffic and work priority on this device.</string>
+    <string name="summary_network_priority">Gives the stream’s network traffic and threads priority on this device. Leave it on; turn it off only to compare how the stream runs under load.</string>
     <string name="stream_menu">Stream</string>
     <string name="stream_continue">Continue streaming</string>
     <string name="stream_disconnect">Disconnect</string>
@@ -487,13 +487,13 @@
     <string name="upscaling_bilinear">Smooth</string>
     <string name="upscaling_fsr1">Sharp (FSR)</string>
     <string name="upscaling_sgsr1">Sharp, Snapdragon (SGSR)</string>
-    <string name="summary_upscaling">How a stream smaller than the screen is enlarged.</string>
+    <string name="summary_upscaling">How a stream smaller than the screen is enlarged. FSR and SGSR sharpen edges at some GPU time and battery; HDR streams are enlarged without them.</string>
     <string name="title_upscaling_sharpness">Upscaling sharpness</string>
-    <string name="summary_upscaling_sharpness" formatted="false">How much sharpening the upscaler adds.</string>
+    <string name="summary_upscaling_sharpness" formatted="false">How much sharpening FSR or SGSR adds. Raise it for soft edges; lower it if edges show halos.</string>
     <string name="upscaling_sharpness_value">%1$d%%</string>
     <string name="upscaling_direct">Off (direct output)</string>
     <string name="title_vulkan_render">Render through Vulkan</string>
-    <string name="summary_vulkan_render">Presents video through Vulkan, for frame-generation overlays.</string>
+    <string name="summary_vulkan_render">Presents video through Vulkan, for frame-generation overlays that hook into it. It adds some latency and turns upscaling off; leave it off unless you use such an overlay.</string>
     <string name="vulkan_render_fallback">Vulkan rendering is not used. %1$s</string>
     <string name="vulkan_reason_pyrowave">PyroWave video does not use it.</string>
     <string name="vulkan_reason_api">It needs Android 10 or later.</string>
@@ -524,7 +524,7 @@
     <string name="upscaling_timing_estimate">Estimate includes texture handoff, GPU completion and swap wait (1 ms polling). Display presentation timing is unavailable.</string>
     <string name="upscaling_last_timing">Last GPU path estimate: %1$s</string>
     <string name="keyboard_shortcuts_title">Keyboard shortcuts</string>
-    <string name="keyboard_shortcuts_summary">Key combinations sent to the PC with one press.</string>
+    <string name="keyboard_shortcuts_summary">Key combinations such as Alt+F4, shown as tiles in the stream menu and sent to the PC with one press.</string>
     <string name="keyboard_shortcuts_help">Create up to 32 shortcuts for Extra keyboard keys in the stream menu. Enter keys separated by +, for example CTRL + SHIFT + ESC or WIN + D. Each button presses the keys in order and releases them in reverse order.</string>
     <string name="keyboard_shortcuts_add">Add shortcut</string>
     <string name="keyboard_shortcuts_reorder">Drag, or select and press up or down, to change the order</string>
@@ -544,7 +544,7 @@
     <string name="keyboard_shortcuts_exported">Shortcuts exported.</string>
     <string name="keyboard_shortcuts_file_error">Could not read or write the shortcut file. Check file access and use a valid shortcut export with at most 32 shortcuts.</string>
     <string name="title_disable_hevc_low_latency">HEVC low-latency flags</string>
-    <string name="summary_disable_hevc_low_latency">The optional low-latency flags for HEVC decoders: Auto, On or Off.</string>
+    <string name="summary_disable_hevc_low_latency">Low-latency flags for HEVC decoders. Leave it on Auto, which skips the decoders known to stall with them; choose Off if HEVC video stutters or freezes.</string>
     <string name="hevc_low_latency_auto">Auto</string>
     <string name="hevc_low_latency_on">On</string>
     <string name="hevc_low_latency_off">Off</string>

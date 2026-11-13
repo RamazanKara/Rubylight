@@ -3,7 +3,7 @@
     <string name="stream_touch_off_help">Touch ist aus. Wische zurück oder drücke Zurück für das Stream-Menü.</string>
     <string name="title_local_cursor_speed">Tempo des lokalen Mauszeigers</string>
     <string name="title_trackpad_acceleration">Zeigerbeschleunigung</string>
-    <string name="summary_trackpad_acceleration">Schnelle Wischbewegungen bewegen den Mauszeiger weiter als langsame.</string>
+    <string name="summary_trackpad_acceleration">Langsame Fingerbewegungen bewegen den Mauszeiger weniger, für genaues Zielen, und schnelle Wischbewegungen bewegen ihn weiter. Touch-Modi „Trackpad“ und „Lokaler Mauszeiger“; gilt ab dem nächsten Stream.</string>
     <string name="title_trackpad_acceleration_curve">Stärke der Beschleunigung</string>
     <string-array name="trackpad_acceleration_curve_names">
         <item>Sanft</item>
@@ -11,7 +11,7 @@
         <item>Stark</item>
     </string-array>
     <string name="title_trackpad_momentum">Nachgleiten nach Wischen</string>
-    <string name="summary_trackpad_momentum">Der Mauszeiger bewegt sich nach einem schnellen Wischen weiter.</string>
+    <string name="summary_trackpad_momentum">Nach einem schnellen Wischen bewegt sich der Mauszeiger weiter und wird langsamer; eine Berührung des Bildschirms stoppt ihn sofort. Touch-Modi „Trackpad“ und „Lokaler Mauszeiger“.</string>
     <string name="title_trackpad_momentum_glide">Gleitweg</string>
     <string-array name="trackpad_momentum_glide_names">
         <item>Kurz</item>
@@ -19,7 +19,7 @@
         <item>Lang</item>
     </string-array>
     <string name="title_trackpad_area">Trackpad-Bereich</string>
-    <string name="summary_trackpad_area">Der Teil des Bildschirms, in dem Trackpad-Gesten beginnen.</string>
+    <string name="summary_trackpad_area">Der Teil des Bildschirms, in dem Gesten von „Trackpad“ und „Lokaler Mauszeiger“ beginnen dürfen; Berührungen, die woanders beginnen, werden ignoriert. Wähle eine Hälfte, um auf der anderen einen Daumen abzulegen.</string>
     <string-array name="trackpad_area_names">
         <item>Ganzer Bildschirm</item>
         <item>Rechte Hälfte</item>
@@ -28,7 +28,7 @@
         <item>Obere Hälfte</item>
     </string-array>
     <string name="title_three_finger_tap">Tippen mit drei Fingern</string>
-    <string name="summary_three_finger_tap">Was ein kurzes Tippen mit drei Fingern auslöst.</string>
+    <string name="summary_three_finger_tap">Was ein kurzes Tippen mit drei Fingern auslöst. „Systemtastatur“ ist die von Android; „PC-Tastatur“ hat F-Tasten, Strg und Win; „Tastatur &amp; Maus“ ist ein Feld mit Tasten und Trackpad.</string>
     <string-array name="three_finger_tap_names">
         <item>@string/desktop_controls_system_keyboard</item>
         <item>Mittelklick</item>
@@ -38,7 +38,7 @@
     </string-array>
     <string name="stream_cursor_shape_rejected">Nightjar kann die Mauszeigerform des PCs nicht zeichnen und zeigt den Standardpfeil.</string>
     <string name="title_four_finger_tap">Vier-Finger-Tippen</string>
-    <string name="summary_four_finger_tap">Was ein kurzes Tippen mit vier Fingern auslöst.</string>
+    <string name="summary_four_finger_tap">Was ein kurzes Tippen mit vier Fingern auslöst. „Systemtastatur“ ist die von Android; „PC-Tastatur“ hat F-Tasten, Strg und Win; „Tastatur &amp; Maus“ ist ein Feld mit Tasten und Trackpad.</string>
     <string name="title_multi_touch_finger_taps">Fingertipps bei Multitouch</string>
-    <string name="summary_multi_touch_finger_taps">Tippen mit drei und vier Fingern löst seine Aktion auch im Modus „Multitouch“ aus.</string>
+    <string name="summary_multi_touch_finger_taps">Im Modus „Multitouch“ löst Tippen mit drei und vier Fingern seine Aktionen aus und erreicht den PC nicht mehr als Berührung. Lass es aus, wenn etwas am PC dieses Tippen nutzt.</string>
 </resources>

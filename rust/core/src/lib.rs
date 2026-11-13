@@ -93,6 +93,7 @@ pub mod lossless;
 pub mod ltr;
 pub mod menu_commands;
 pub mod mic;
+pub mod multiclient;
 pub mod migration;
 pub mod native;
 pub use rubylight_native_api as native_api;

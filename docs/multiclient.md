@@ -68,7 +68,7 @@ A guest that loses its connection keeps its place and can come back.
 ## Where to manage guests
 
 - **The owner's Nightjar:**
-  - a prompt during the stream when a device asks to join, with **Let in** and **Deny**;
+  - when a device asks to join, Android asks during the stream with **Let in** and **Deny**; Nightjar for Windows and Linux shows a notice and answers under **Guests** in the stream menu's More page;
   - **Guests** in the stream menu, with each guest's permission, **Kick** and **Block**.
 - **The console:**
   - on Home, a **Guests** card lists the joins waiting and the guests, with permission, stay, keyboard hand-over, **Kick** and **Block**;

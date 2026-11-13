@@ -1225,7 +1225,7 @@ mod tests {
         Host(Input),
     }
 
-    fn sent(data: &[u8]) -> Sent {
+    fn classify(data: &[u8]) -> Sent {
         use rubylight_protocol::controller_identity::{ControllerIdentity, CONTROLLER_IDENTITY_MAGIC};
         if data.len() >= 8 && data[4..8] == CONTROLLER_IDENTITY_MAGIC.to_le_bytes() {
             Sent::Identity(ControllerIdentity::decode(data).unwrap())
@@ -1555,7 +1555,7 @@ mod tests {
             .unwrap();
         let mut out = Vec::new();
         q.poll(Instant::now(), false, &mut out);
-        let packets: Vec<Sent> = out.iter().map(|p| sent(&p.data)).collect();
+        let packets: Vec<Sent> = out.iter().map(|p| classify(&p.data)).collect();
         assert!(
             matches!(
                 packets[0],
@@ -1588,7 +1588,7 @@ mod tests {
         q.poll(t0, true, &mut out);
         assert!(out.is_empty());
         q.poll(t0, false, &mut out);
-        let packets: Vec<Sent> = out.iter().map(|p| sent(&p.data)).collect();
+        let packets: Vec<Sent> = out.iter().map(|p| classify(&p.data)).collect();
         assert!(matches!(packets[0], Sent::Identity(_)), "{packets:?}");
         assert!(matches!(packets[1], Sent::Host(Input::Arrival { id: 0, .. })), "{packets:?}");
     }

@@ -112,11 +112,12 @@ public class HostCapabilityCacheTest {
             HostCapabilities.Feature.BANDWIDTH_PROBE, HostCapabilities.Feature.USB_FORWARDING,
             HostCapabilities.Feature.AUDIO_PASSTHROUGH, HostCapabilities.Feature.SURROUND_714,
             HostCapabilities.Feature.TEXT_INPUT, HostCapabilities.Feature.CLIENT_KEYBOARD_LAYOUT,
-            HostCapabilities.Feature.PEN_BARREL_ROLL, HostCapabilities.Feature.PIPELINE_RATES,
+            HostCapabilities.Feature.PEN_BARREL_ROLL, HostCapabilities.Feature.CONTROLLER_IDENTITY,
+            HostCapabilities.Feature.PIPELINE_RATES,
             HostCapabilities.Feature.IMAGE_CLIPBOARD, HostCapabilities.Feature.SHARED_FOLDERS};
     private static final String[] STORED_VERSIONS_30 = {"hdrFormats", "fecControlVersion", "bandwidthProbeVersion",
             "audioCodecs", "audioLayouts", "textInputVersion", "keyboardLayoutVersion", "penBarrelRollVersion",
-            "pipelineRatesVersion"};
+            "controllerIdentityVersion", "pipelineRatesVersion"};
     private static final String[] STORED_FLAGS_30 = {"usbOffered", "usbPermission", "imageClipboardOffered",
             "foldersOffered", "folderPermission"};
 

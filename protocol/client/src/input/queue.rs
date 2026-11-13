@@ -107,6 +107,7 @@ struct Held {
     mouse_buttons: [Option<Pending>; HELD_MOUSE_BUTTONS],
     controllers: [Option<Pending>; MAX_CONTROLLERS as usize],
     arrivals: [Option<Pending>; MAX_CONTROLLERS as usize],
+    identities: [Option<Pending>; MAX_CONTROLLERS as usize],
     motion: [[Option<Pending>; MAX_MOTION_TYPES]; MAX_CONTROLLERS as usize],
     batteries: [Option<Pending>; MAX_CONTROLLERS as usize],
     touch: Option<Pending>,
@@ -121,6 +122,7 @@ impl Default for Held {
             mouse_buttons: Default::default(),
             controllers: Default::default(),
             arrivals: Default::default(),
+            identities: Default::default(),
             motion: Default::default(),
             batteries: Default::default(),
             touch: None,
@@ -150,6 +152,7 @@ pub struct InputQueue {
     pen_buttons: u8,
     touchpad_buttons: u8,
     pen_barrel_roll: bool,
+    controller_identity: bool,
     scroll_accumulator: i32,
     position: (f32, f32),
     last_mouse: Option<Instant>,
@@ -182,6 +185,7 @@ impl InputQueue {
             pen_buttons: 0,
             touchpad_buttons: 0,
             pen_barrel_roll: false,
+            controller_identity: false,
             scroll_accumulator: 0,
             position: (0.5, 0.5),
             last_mouse: None,
@@ -235,6 +239,18 @@ impl InputQueue {
     /// roll is dropped and pens go as the stock 0x55000003.
     pub fn set_pen_barrel_roll(&mut self, offered: bool) {
         self.pen_barrel_roll = offered;
+    }
+
+    /// Sends controller identities (0x55000080) and the C button: only for a host with
+    /// `ControllerIdentityVersion` (`Feature::ControllerIdentity`). Otherwise identities are
+    /// dropped and the C button is cleared.
+    pub fn set_controller_identity(&mut self, offered: bool) {
+        self.controller_identity = offered;
+    }
+
+    /// Whether [`Self::send_controller_identity`] and the C button reach the host.
+    pub fn controller_identity(&self) -> bool {
+        self.controller_identity
     }
 
     /// Counts what leaves from now on for Frame Warp (`crate::frame_warp`).
@@ -408,6 +424,10 @@ impl InputQueue {
         if buttons & 0x8000_0000 != 0 {
             buttons &= 0xFFFF;
         }
+        // Only a host that takes controller identities knows the C button.
+        if !self.controller_identity {
+            buttons &= !button::C;
+        }
         let number = if self.sunshine {
             number % u16::from(MAX_CONTROLLERS)
         } else {
@@ -476,6 +496,26 @@ impl InputQueue {
             left_stick,
             right_stick,
         )
+    }
+
+    /// Tells a host with `ControllerIdentityVersion` which controller `number` is, by its USB
+    /// vendor and product. Send it before the arrival: the host chooses the virtual pad then.
+    /// Nothing is sent to any other host.
+    pub fn send_controller_identity(
+        &mut self,
+        number: u8,
+        vendor: u16,
+        product: u16,
+    ) -> Result<(), InputError> {
+        self.check()?;
+        if !self.controller_identity {
+            return Ok(());
+        }
+        self.offer_event(InputEvent::ControllerIdentity {
+            number: number % MAX_CONTROLLERS,
+            vendor,
+            product,
+        })
     }
 
     /// Announces a controller to Sunshine hosts, then sends a neutral state for hosts that do
@@ -1004,6 +1044,11 @@ impl InputQueue {
                     *slot = Some(pending);
                 }
             }
+            InputEvent::ControllerIdentity { number, .. } => {
+                if let Some(slot) = held.identities.get_mut(usize::from(number)) {
+                    *slot = Some(pending);
+                }
+            }
             InputEvent::ControllerMotion {
                 number,
                 motion_type,
@@ -1041,7 +1086,7 @@ impl InputQueue {
         self.held.dropped
     }
 
-    /// Sends the latest held state: arrivals, then releases before presses, then controller
+    /// Sends the latest held state: identities and arrivals, then releases before presses, then controller
     /// state, then touch and pen cancels.
     fn release_held(&mut self, out: &mut Vec<InputPacket>) {
         let held = std::mem::take(&mut self.held);
@@ -1067,7 +1112,8 @@ impl InputQueue {
                 })
             )
         };
-        for slot in &held.arrivals {
+        // Each identity goes before the arrivals: the host picks the pad on arrival.
+        for slot in held.identities.iter().chain(&held.arrivals) {
             send(slot, out);
         }
         for slot in held
@@ -1465,6 +1511,63 @@ mod tests {
         let mut g = queue(&gfe());
         g.send_controller_arrival(0, 1, 1, 0, 0).unwrap();
         assert_eq!(take(&mut g, Instant::now()).len(), 1);
+    }
+
+    #[test]
+    fn identities_and_the_c_button_go_only_to_a_host_that_takes_them() {
+        use rubylight_protocol::controller_identity::ControllerIdentity;
+        let mut q = queue(&sunshine());
+        q.send_controller_identity(1, 0x057E, 0x2069).unwrap();
+        q.send_controller(1, 2, button::C | button::A, 0, 0, (0, 0), (0, 0))
+            .unwrap();
+        let sent = take(&mut q, Instant::now());
+        assert_eq!(sent.len(), 1, "{sent:?}");
+        assert!(matches!(
+            sent[0],
+            Input::Controller {
+                buttons: button::A,
+                ..
+            }
+        ));
+
+        q.set_controller_identity(true);
+        q.send_controller_identity(17, 0x057E, 0x2069).unwrap();
+        q.send_controller_arrival(1, 2, 3, 0xFFFF, 0).unwrap();
+        q.send_controller(1, 2, button::C, 0, 0, (0, 0), (0, 0))
+            .unwrap();
+        let sent = take(&mut q, Instant::now());
+        assert_eq!(
+            sent[0],
+            Input::ControllerIdentity(ControllerIdentity {
+                controller: 1,
+                vendor: 0x057E,
+                product: 0x2069
+            })
+        );
+        assert!(matches!(sent[1], Input::Arrival { id: 1, .. }));
+        assert!(matches!(
+            sent.last().unwrap(),
+            Input::Controller {
+                buttons: button::C,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn a_held_identity_goes_before_its_arrival() {
+        let mut q = queue(&sunshine());
+        q.set_controller_identity(true);
+        let t0 = Instant::now();
+        let mut out = Vec::new();
+        q.send_controller_identity(0, 0x057E, 0x2069).unwrap();
+        q.send_controller_arrival(0, 1, 3, 0xFFFF, 0).unwrap();
+        q.poll(t0, true, &mut out);
+        assert!(out.is_empty());
+        q.poll(t0, false, &mut out);
+        let sent: Vec<Input> = out.iter().map(|p| decode(&p.data).unwrap()).collect();
+        assert!(matches!(sent[0], Input::ControllerIdentity(_)), "{sent:?}");
+        assert!(matches!(sent[1], Input::Arrival { id: 0, .. }), "{sent:?}");
     }
 
     #[test]

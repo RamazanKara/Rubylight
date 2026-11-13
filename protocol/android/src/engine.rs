@@ -136,6 +136,8 @@ pub struct StartParams {
     /// "Video data straight to the decoder": MediaCodec frames go to Java in place
     /// ([`crate::renderers::Video`]), unless `debug.nightjar.codec_direct` says otherwise.
     pub codec_direct: bool,
+    /// The host takes controller identities and the C button (`ControllerIdentityVersion`).
+    pub controller_identity: bool,
 }
 
 /// Builds the stream as `callbacks.c` fills STREAM_CONFIGURATION.
@@ -201,6 +203,7 @@ pub fn start(bridge: &'static Bridge, params: StartParams) -> i32 {
     crate::frame_warp::begin(params.config.frame_warp.clone());
 
     let microphone_requested = params.config.stream.microphone;
+    let controller_identity = params.controller_identity;
     let audio_passthrough = params.config.stream.audio_passthrough;
     let events = Arc::new(Events::new(bridge));
     platform::info(&format!(
@@ -279,6 +282,8 @@ pub fn start(bridge: &'static Bridge, params: StartParams) -> i32 {
     ENGINE
         .microphone_state
         .store(microphone_state, Ordering::SeqCst);
+    // Before the session is published: no controller arrives before the queue knows.
+    session.input(|q| q.set_controller_identity(controller_identity));
     let id = ENGINE.sessions.fetch_add(1, Ordering::SeqCst) + 1;
     *lock(&ENGINE.video_gauges) = session.video_gauges();
     *lock(&ENGINE.session) = Some((id, session));

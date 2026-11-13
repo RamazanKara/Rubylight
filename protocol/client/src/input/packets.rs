@@ -27,6 +27,9 @@ pub mod magic {
     /// Foundation Sunshine's laptop touchpad packets (Moonlight V+'s moonlight-common-c).
     pub const TOUCHPAD: u32 = 0x5500_0009;
     pub const TOUCHPAD_FRAME: u32 = 0x5500_000A;
+    /// Which controller a client has (`rubylight_protocol::controller_identity`).
+    pub const CONTROLLER_IDENTITY: u32 =
+        rubylight_protocol::controller_identity::CONTROLLER_IDENTITY_MAGIC;
 }
 
 /// Laptop touchpad packets (`SS_TOUCHPAD_*`): x and y are on the touchpad's own surface, 0-1.
@@ -119,6 +122,9 @@ pub mod button {
     pub const PADDLE4: u32 = 0x08_0000;
     pub const TOUCHPAD: u32 = 0x10_0000;
     pub const MISC: u32 = 0x20_0000;
+    /// The Switch 2 Pro Controller's C button. Only for a host with
+    /// `ControllerIdentityVersion`: any other drops the packet's upper bits or misreads them.
+    pub const C: u32 = rubylight_protocol::controller_identity::BUTTON_C;
 }
 
 /// Controller capabilities (`LI_CCAP_*`) of an arrival event.
@@ -186,6 +192,12 @@ pub enum InputEvent {
         kind: u8,
         capabilities: u16,
         supported_buttons: u32,
+    },
+    /// The controller's USB vendor and product, sent before its arrival.
+    ControllerIdentity {
+        number: u8,
+        vendor: u16,
+        product: u16,
     },
     Touch {
         event: u8,
@@ -274,6 +286,7 @@ impl InputEvent {
             Self::HScroll { .. } => magic::HSCROLL,
             Self::Controller { .. } => magic::MULTI_CONTROLLER,
             Self::ControllerArrival { .. } => magic::CONTROLLER_ARRIVAL,
+            Self::ControllerIdentity { .. } => magic::CONTROLLER_IDENTITY,
             Self::Touch { .. } => magic::TOUCH,
             Self::Pen {
                 roll: rubylight_protocol::pen::ROLL_UNKNOWN,
@@ -367,6 +380,17 @@ impl InputEvent {
                 out.push(kind);
                 le16(&mut out, capabilities);
                 out.extend_from_slice(&supported_buttons.to_le_bytes());
+            }
+            Self::ControllerIdentity {
+                number,
+                vendor,
+                product,
+            } => {
+                // `ControllerIdentity::encode`: controller, reserved, vendor, product, reserved.
+                out.extend_from_slice(&[number, 0]);
+                le16(&mut out, vendor);
+                le16(&mut out, product);
+                out.extend_from_slice(&[0, 0]);
             }
             Self::Touch {
                 event,
@@ -514,6 +538,7 @@ impl InputEvent {
                 channel::GAMEPAD_BASE + (number % u16::from(MAX_CONTROLLERS)) as u8
             }
             Self::ControllerArrival { number, .. }
+            | Self::ControllerIdentity { number, .. }
             | Self::ControllerTouch { number, .. }
             | Self::ControllerBattery { number, .. } => {
                 channel::GAMEPAD_BASE + number % MAX_CONTROLLERS
@@ -545,6 +570,24 @@ mod tests {
 
     fn host(event: &InputEvent) -> Input {
         decode(&event.encode(true)).unwrap_or_else(|e| panic!("{event:?}: {e}"))
+    }
+
+    #[test]
+    fn a_controller_identity_is_the_shared_packet_and_decodes_on_the_host() {
+        use rubylight_protocol::controller_identity::ControllerIdentity;
+        let event = InputEvent::ControllerIdentity {
+            number: 2,
+            vendor: 0x057E,
+            product: 0x2069,
+        };
+        let identity = ControllerIdentity {
+            controller: 2,
+            vendor: 0x057E,
+            product: 0x2069,
+        };
+        assert_eq!(event.encode(true), identity.encode().to_vec());
+        assert_eq!(event.channel(), channel::GAMEPAD_BASE + 2);
+        assert_eq!(host(&event), Input::ControllerIdentity(identity));
     }
 
     #[test]

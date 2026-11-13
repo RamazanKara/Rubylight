@@ -310,6 +310,12 @@ pub struct Pad {
     pub mapping: Mapping,
     raw_buttons: u32,
     raw_axes: [i16; 6],
+    /// USB vendor and product SDL reports (0 when it has none), sent as the controller's
+    /// identity before its arrival.
+    usb_id: (u16, u16),
+    /// The Switch 2 controllers' C button (SDL's Misc 2) is down. It sits outside the button
+    /// mapping and goes as `button::C`, which the queue clears for a host without it.
+    c_down: bool,
     mouse: crate::controller_mouse::Mouse,
     touchpad: crate::controller_mouse::Touchpad,
     buttons: u32,
@@ -376,7 +382,7 @@ impl Pad {
             clickpad(state.buttons, &mut self.clickpad_swallowed)
         } else {
             state.buttons
-        };
+        } | if self.c_down { button::C } else { 0 };
         self.lt = state.lt;
         self.rt = state.rt;
         self.ls = state.ls;
@@ -513,6 +519,8 @@ impl Gamepads {
             mapping,
             raw_buttons: 0,
             raw_axes: [0; 6],
+            usb_id: (vendor, product),
+            c_down: false,
             mouse: crate::controller_mouse::Mouse::default(),
             touchpad: crate::controller_mouse::Touchpad::default(),
             buttons: 0,
@@ -640,6 +648,7 @@ impl Gamepads {
             pad.mouse.release(queue);
             pad.touchpad.release(queue);
             pad.raw_buttons = 0;
+            pad.c_down = false;
             pad.raw_axes = [0; 6];
             pad.clickpad_swallowed = 0;
             pad.back_waiting = false;
@@ -674,6 +683,15 @@ impl Gamepads {
                 SDL_EVENT_GAMEPAD_BUTTON_DOWN | SDL_EVENT_GAMEPAD_BUTTON_UP => {
                     let b = event.gbutton;
                     let pad = self.find(b.which)?;
+                    if i32::from(b.button) == SDL_GAMEPAD_BUTTON_MISC2.0 {
+                        // The Switch 2 controllers' C button: not mapped, sent as itself.
+                        if pad.c_down != b.down {
+                            pad.c_down = b.down;
+                            pad.update(pad_settings);
+                            send_state(pad, mask, queue);
+                        }
+                        return None;
+                    }
                     if usize::from(b.button) >= BUTTON_MAP.len() { return None; }
                     if touchpad_as_mouse && i32::from(b.button) == SDL_GAMEPAD_BUTTON_TOUCHPAD.0 {
                         pad.touchpad.button(b.down, queue);
@@ -748,6 +766,7 @@ impl Gamepads {
                     if b.down && (held == quit || held == menu) {
                         let action = if held == quit { Action::Quit } else { Action::Menu };
                         pad.raw_buttons = 0;
+                        pad.c_down = false;
                         pad.back_waiting = false;
                         pad.raw_axes = [0; 6];
                         pad.mouse.release(queue);
@@ -1161,6 +1180,11 @@ fn describe(pad: &Pad) -> (u8, u32, u16) {
 fn announce(pad: &mut Pad, mask: u16, motion: bool, queue: &mut InputQueue) {
     let (kind, supported, mut caps) = describe(pad);
     if !motion { caps &= !(capability::ACCEL | capability::GYRO); }
+    // Which controller it is goes first, so the host can choose its virtual pad on arrival
+    // (a Switch 2 Pro Controller its own); the queue sends it only to a host that takes it.
+    if pad.usb_id != (0, 0) {
+        let _ = queue.send_controller_identity(pad.sent_as, pad.usb_id.0, pad.usb_id.1);
+    }
     let _ = queue.send_controller_arrival(pad.sent_as, mask, kind, supported, caps);
     pad.announced = true;
     if caps & capability::BATTERY_STATE != 0 {

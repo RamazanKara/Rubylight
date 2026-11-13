@@ -49,6 +49,7 @@
     "text_input": "supported",
     "client_keyboard_layout": "supported",
     "pen_barrel_roll": "supported",
+    "controller_identity": "supported",
     "pipeline_rates": "supported",
     "second_screen": "supported",
     "image_clipboard": "supported",

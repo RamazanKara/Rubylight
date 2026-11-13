@@ -202,6 +202,8 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_startConnectio
             config,
             early_records: pyrowave_early == JNI_TRUE,
             codec_direct: codec_direct == JNI_TRUE,
+            // HostCapabilities.NATIVE_CONTROLLER_IDENTITY.
+            controller_identity: host_features & 2 != 0,
         },
     )
 }
@@ -443,6 +445,19 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_sendPenEvent(
             rubylight_protocol::pen::ROLL_UNKNOWN,
         )
     })
+}
+
+/// Which controller `controller` is, by its USB vendor and product: send it before the arrival.
+/// The queue drops it for a host without `ControllerIdentityVersion`.
+#[no_mangle]
+pub extern "system" fn Java_com_limelight_nvstream_jni_RustBridge_sendControllerIdentityEvent(
+    _: JNIEnv,
+    _: JClass,
+    controller: jbyte,
+    vendor: jint,
+    product: jint,
+) -> jint {
+    input(|q| q.send_controller_identity(controller as u8, vendor as u16, product as u16))
 }
 
 #[no_mangle]

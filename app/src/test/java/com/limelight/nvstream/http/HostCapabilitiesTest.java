@@ -426,6 +426,7 @@ public class HostCapabilitiesTest {
                 {"TextInputVersion", TEXT_INPUT, new String[] {"1"}, new String[] {"0"}},
                 {"KeyboardLayoutVersion", CLIENT_KEYBOARD_LAYOUT, new String[] {"1"}, new String[] {"0"}},
                 {"PenBarrelRollVersion", PEN_BARREL_ROLL, new String[] {"1"}, new String[] {"65536"}},
+                {"ControllerIdentityVersion", CONTROLLER_IDENTITY, new String[] {"1"}, new String[] {"65536"}},
                 {"PipelineRatesVersion", PIPELINE_RATES, new String[] {"1"}, new String[] {""}},
         };
         for (Object[] row : cases) {

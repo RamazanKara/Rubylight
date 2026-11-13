@@ -1194,6 +1194,11 @@ public class ControllerPreparationTest {
             super(null, new ComputerDetails.AddressTuple("127.0.0.1", 47989), 47984, "test",
                     new StreamConfiguration.Builder().setApp(new NvApp("Test", appId, false)).build(), null, null);
         }
+        /** Each identity sent, as {slot, vendor, product}; never part of {@link #events}. */
+        final List<int[]> identities = Collections.synchronizedList(new ArrayList<>());
+        @Override public int sendControllerIdentityEvent(byte slot, int vendorId, int productId) {
+            identities.add(new int[] {slot, vendorId, productId}); return 0;
+        }
         @Override public int sendControllerArrivalEvent(byte slot, short mask, byte type, int buttons, short caps) {
             arrivals++; arrivalType = type; arrivalCaps = caps; arrivalSlot = slot; arrivalButtons = buttons;
             typeBySlot.put(slot, type); events.add("arrival " + slot); return 0;

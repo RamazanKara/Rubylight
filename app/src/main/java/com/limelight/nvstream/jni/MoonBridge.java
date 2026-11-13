@@ -983,6 +983,11 @@ public class MoonBridge {
                                           float pressure, float contactAreaMajor, float contactAreaMinor,
                                           short rotation, byte tilt);
 
+    /** Controller identity (0x55000080): the Rust engine only, which drops it for a host without it. */
+    public static int sendControllerIdentityEvent(byte controllerNumber, int vendorId, int productId) {
+        return rustStream ? RustBridge.sendControllerIdentityEvent(controllerNumber, vendorId, productId) : 0;
+    }
+
     public static int sendControllerArrivalEvent(byte controllerNumber, short activeGamepadMask, byte type, int supportedButtonFlags, short capabilities) {
         return rustStream ? RustBridge.sendControllerArrivalEvent(controllerNumber, activeGamepadMask, type, supportedButtonFlags, capabilities) : cSendControllerArrivalEvent(controllerNumber, activeGamepadMask, type, supportedButtonFlags, capabilities);
     }

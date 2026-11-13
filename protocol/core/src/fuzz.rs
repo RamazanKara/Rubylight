@@ -5,8 +5,8 @@
 //! milliseconds each); a local fuzz run raises it to about a minute per target.
 
 use crate::{
-    audio_ext, control, cursor_shape, fec_report, frame_warp, keyboard_layout, pairing_uri, pen, phase_lock,
-    pipeline_rates, rate_change, roaming, steam_controller, text_input, usb, usbip,
+    audio_ext, control, controller_identity, cursor_shape, fec_report, frame_warp, keyboard_layout, pairing_uri,
+    pen, phase_lock, pipeline_rates, rate_change, roaming, steam_controller, text_input, usb, usbip,
 };
 use alloc::{string::String, vec, vec::Vec};
 use proptest::collection::vec;
@@ -611,6 +611,20 @@ round_trip!(
             }
         ),
     |b| steam_controller::SteamAttributes::decode(b).ok(),
+    |v| Some(v.encode().to_vec())
+);
+round_trip!(
+    controller_identity,
+    (0u8..16, any::<u16>(), any::<u16>()).prop_map(|(controller, vendor, product)| {
+        controller_identity::ControllerIdentity {
+            controller,
+            vendor,
+            product,
+        }
+        .encode()
+        .to_vec()
+    }),
+    |b| controller_identity::ControllerIdentity::decode(b).ok(),
     |v| Some(v.encode().to_vec())
 );
 round_trip!(

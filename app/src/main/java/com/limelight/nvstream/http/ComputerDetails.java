@@ -327,7 +327,7 @@ public class ComputerDetails {
                 encoderBitrateKbps, initialEncoderBitrateKbps, new ArrayList<>(serverCommands), frameLimiterEnabled,
                 virtualDisplayFrameLimiterEnabled, frameLimiterFpsLimitMilliHz, pyroWaveHostLinkMbps,
                 pyroWaveBandwidthProbeBytes, pyroWaveBurstProbe, pyroWaveCriticalFecPercentage,
-                pyroWaveMinParityShards, packed444Modes, hostLastFailure,
+                pyroWaveMinParityShards, packed444Modes, hostLastFailure, internetPath, unreachable,
         };
     }
 

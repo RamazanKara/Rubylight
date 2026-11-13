@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_internet_play">İnternet üzerinden oyna</string>
+    <string name="summary_internet_play">Evden uzaktayken bunu sunan bir PC’ye port yönlendirmeden doğrudan bir internet yoluyla ulaşın. Önce bir kez PC’nin ağında bağlanın. Her zaman önce sizin ağınız denenir.</string>
+    <string name="internet_path_label">Bağlantı yolu: %1$s</string>
+    <string name="internet_path_ipv6">İnternet (IPv6)</string>
+    <string name="internet_path_mapped">İnternet (yönlendirilmiş port)</string>
+    <string name="internet_path_punched">İnternet (doğrudan yol)</string>
+</resources>

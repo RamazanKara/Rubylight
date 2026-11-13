@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_internet_play">Graj przez internet</string>
+    <string name="summary_internet_play">Poza domem łącz się z komputerem, który na to pozwala, bezpośrednią ścieżką przez internet, bez przekierowania portów. Najpierw połącz się raz w sieci komputera. Twoja sieć jest zawsze sprawdzana jako pierwsza.</string>
+    <string name="internet_path_label">Połączono przez: %1$s</string>
+    <string name="internet_path_ipv6">Internet (IPv6)</string>
+    <string name="internet_path_mapped">Internet (przekierowany port)</string>
+    <string name="internet_path_punched">Internet (bezpośrednia ścieżka)</string>
+</resources>

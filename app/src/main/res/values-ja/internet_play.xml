@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_internet_play">インターネット経由でプレイ</string>
+    <string name="summary_internet_play">外出先から、対応する PC にポート転送なしで直接のインターネット経路で接続します。最初に一度、PC と同じネットワークで接続してください。常に自宅のネットワークが先に試されます。</string>
+    <string name="internet_path_label">接続経路: %1$s</string>
+    <string name="internet_path_ipv6">インターネット (IPv6)</string>
+    <string name="internet_path_mapped">インターネット (転送ポート)</string>
+    <string name="internet_path_punched">インターネット (直接経路)</string>
+</resources>

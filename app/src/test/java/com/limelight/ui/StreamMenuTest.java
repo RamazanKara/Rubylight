@@ -529,6 +529,7 @@ public class StreamMenuTest {
             withControl.hostMenu = true;
             withControl.usbForwarding = true;
             withControl.imageClipboard = true;
+            withControl.sessionGuests = true;
             withControl.nightModeOffered = withControl.headphoneSurroundOffered = true;
             try {
                 withControl.hostAudio = NativeApiFixtures.audio(NativeApiFixtures.audioJson(true, false));

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_internet_play">透過網際網路遊玩</string>
+    <string name="summary_internet_play">外出時，透過直接的網際網路路徑連線到提供此功能的電腦，無需連接埠轉送。請先在電腦所在的網路中連線一次。一律優先嘗試你的網路。</string>
+    <string name="internet_path_label">連線方式：%1$s</string>
+    <string name="internet_path_ipv6">網際網路 (IPv6)</string>
+    <string name="internet_path_mapped">網際網路 (轉送的連接埠)</string>
+    <string name="internet_path_punched">網際網路 (直接路徑)</string>
+</resources>

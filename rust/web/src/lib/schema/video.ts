@@ -124,7 +124,7 @@ const video: Setting[] = [
     description:
       'Automatic uses direct driver push on Rubylight virtual displays and Windows Graphics Capture on other displays.',
     details:
-      'Direct driver push receives frames from Rubylight\'s own virtual display driver. If unavailable, it falls back to Windows Graphics Capture, then Desktop Duplication if needed. Choosing Windows Graphics Capture or Desktop Duplication bypasses driver push.',
+      'Direct driver push receives frames from Rubylight\'s own virtual display driver. If unavailable, it falls back to Windows Graphics Capture, then Desktop Duplication if needed. Choosing Windows Graphics Capture or Desktop Duplication bypasses driver push. AMD Direct Capture reads the Radeon driver's presented picture on a display connected to a Radeon; without it, capture falls back to Windows Graphics Capture with a warning.',
     category: 'video',
     group: 'Capture',
     control: {
@@ -134,6 +134,7 @@ const video: Setting[] = [
         { value: 'idd-push', label: 'Direct driver push' },
         { value: 'ddx', label: 'Desktop Duplication' },
         { value: 'wgc', label: 'Windows Graphics Capture' },
+        { value: 'amd', label: 'AMD Direct Capture' },
       ],
     },
     // framegen.rs: any case; Vibepollo's wgcc, and dxgi, which the fallback console writes.
@@ -234,8 +235,8 @@ const video: Setting[] = [
     group: 'Capture troubleshooting',
     control: { kind: 'toggle' },
     default: false,
-    inactiveHint: "Applies to Desktop Duplication, including fallback. Direct driver push and Windows Graphics Capture ignore it.",
-    visibleWhen: (values) => !['wgc', 'wgcc', 'idd-push'].includes(capture(values)),
+    inactiveHint: "Applies to Desktop Duplication, including fallback. Direct driver push, Windows Graphics Capture and AMD Direct Capture ignore it.",
+    visibleWhen: (values) => !['wgc', 'wgcc', 'idd-push', 'amd'].includes(capture(values)),
     advanced: true,
   },
   {

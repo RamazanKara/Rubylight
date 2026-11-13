@@ -1445,6 +1445,8 @@ fn nanos(at: Instant, origin: Instant) -> i64 {
         -(origin.duration_since(at).as_nanos().min(i64::MAX as u128) as i64)
     }
 }
+mod amd_direct;
+pub use amd_direct::Presented;
 mod bridge;
 pub use bridge::START_TIMEOUT as WGC_START_TIMEOUT;
 pub use bridge::run_worker as run_wgc_worker;
@@ -1466,6 +1468,9 @@ pub enum Capture {
     Dxgi(Box<Duplication>),
     /// Frames pushed by Rubylight's own virtual display driver.
     IddPush(Box<idd_push::Session>),
+    /// AMD Direct Capture: the Radeon driver's presented surface, which
+    /// AMD Fluid Motion Frames' generated frames reach.
+    AmdDirect(Box<amd_direct::Session>),
     /// Holds no device: the place of a lost capture while a new one is made.
     Closed,
 }
@@ -1479,12 +1484,22 @@ fn open_stream_capture<T>(
 ) -> Result<T> {
     match open(kind) {
         Ok(capture) => {
-            if matches!(kind, "wgc" | "ddx" | "dxgi") {
+            if matches!(kind, "wgc" | "ddx" | "dxgi" | "amd") {
                 warnings.clear("capture_backend");
             }
             Ok(capture)
         }
         Err(error) if crate::device_loss::DeviceLost::from_error(&error).is_some() => Err(error),
+        Err(error) if kind == "amd" => {
+            // A display on another GPU, an old driver or a driver without
+            // the capture component: keep the stream on WGC and say so.
+            let capture = open_stream_capture("wgc", warnings, open).with_context(|| {
+                format!("AMD Direct Capture failed ({error:#}); the WGC fallback also failed")
+            })?;
+            tracing::warn!(error = %format!("{error:#}"), "AMD Direct Capture unavailable; capturing with WGC");
+            warnings.set("capture_backend", format!("Capturing with Windows Graphics Capture: AMD Direct Capture is unavailable ({error:#}). Generated AMD Fluid Motion Frames may not reach the stream; update the Radeon driver or choose another capture method."));
+            Ok(capture)
+        }
         Err(error) if kind == "wgc" => {
             // WGC can be unavailable under SYSTEM or on a secure desktop.
             // Apply the same fallback at startup and after a capture restart.
@@ -1515,11 +1530,20 @@ impl Capture {
         }
         Ok(())
     }
+    /// AMD Direct Capture's last present (index and flip time) and the
+    /// presents it skipped; `None` for other captures.
+    pub fn amd_presented(&self) -> Option<(Option<Presented>, u64)> {
+        match self {
+            Self::AmdDirect(session) => Some((session.last, session.skipped)),
+            _ => None,
+        }
+    }
     pub fn backend(&self) -> &'static str {
         match self {
             Self::Wgc(_) | Self::WgcWorker(_) => "wgc",
             Self::Dxgi(_) => "ddx",
             Self::IddPush(_) => "idd-push",
+            Self::AmdDirect(_) => "amd",
             Self::Closed => "closed",
         }
     }
@@ -1659,6 +1683,15 @@ impl Capture {
                 name, hdr, config, warnings,
             )?)));
         }
+        if kind == "amd" {
+            // The driver's own surface carries the desktop's format; `hdr`
+            // follows the display, as Desktop Duplication's does.
+            let session = amd_direct::Session::new(name)?;
+            if let Err(error) = crate::gpu_priority::configure(&session.gpu, config) {
+                tracing::debug!(%error, "GPU priority remains at the process default");
+            }
+            return Ok(Self::AmdDirect(Box::new(session)));
+        }
         if kind == "wgc"
             && (crate::process::is_system() || config.boolean("wgc_user_helper", false))
         {
@@ -1763,6 +1796,7 @@ impl Capture {
             Self::WgcWorker(w) => w.next_frame(),
             Self::Dxgi(d) => d.next(Duration::from_millis(1)),
             Self::IddPush(s) => s.next_frame(),
+            Self::AmdDirect(s) => s.next_frame(),
             Self::Closed => bail!("capture is closed"),
         }
     }
@@ -1772,6 +1806,7 @@ impl Capture {
             Self::WgcWorker(w) => w.next_gpu(),
             Self::Dxgi(d) => d.next_gpu(),
             Self::IddPush(s) => s.next_gpu(),
+            Self::AmdDirect(s) => s.next_gpu(),
             Self::Closed => bail!("capture is closed"),
         };
         result.map_err(|error| match self.device_removed() {
@@ -1785,6 +1820,7 @@ impl Capture {
             Self::WgcWorker(w) => &w.gpu,
             Self::Dxgi(d) => &d.gpu,
             Self::IddPush(s) => &s.gpu,
+            Self::AmdDirect(s) => &s.gpu,
             Self::Closed => return None,
         };
         crate::device_loss::DeviceLost::d3d11(&gpu.device)

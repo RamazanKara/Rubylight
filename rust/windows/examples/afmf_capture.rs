@@ -2,7 +2,11 @@
 //! picture's marker band, to tell pictures the app rendered from ones the driver
 //! generated (B7). Capture only; changes no display setting.
 //!
-//! usage: afmf_capture DISPLAY wgc|ddx SECONDS REPORT.json
+//! usage: afmf_capture DISPLAY wgc|ddx|amd SECONDS REPORT.json
+//!
+//! `amd` is AMD Direct Capture (`capture = amd`), which waits for each present the
+//! driver makes, generated frames included. Its report adds the driver's present
+//! indices (how many presents the capture missed) and flip-to-delivery latency.
 //!
 //! A picture is `rendered` when its frame number decodes and the bar sits exactly
 //! where that number puts it, `generated` when the bar is elsewhere or blended,
@@ -103,12 +107,12 @@ fn main() -> anyhow::Result<()> {
     use butterpollo_windows::capture::{Capture, ComGuard, enable_dpi_awareness};
     use std::time::{Duration, Instant};
     let mut args = std::env::args().skip(1);
-    let usage = "usage: afmf_capture DISPLAY wgc|ddx SECONDS REPORT.json";
+    let usage = "usage: afmf_capture DISPLAY wgc|ddx|amd SECONDS REPORT.json";
     let display = args.next().context(usage)?;
     let kind = args.next().context(usage)?;
     let seconds: u64 = args.next().context(usage)?.parse()?;
     let report = args.next().context(usage)?;
-    if !matches!(kind.as_str(), "wgc" | "ddx") || !(1..=600).contains(&seconds) {
+    if !matches!(kind.as_str(), "wgc" | "ddx" | "amd") || !(1..=600).contains(&seconds) {
         bail!("{usage}; seconds 1..600");
     }
     enable_dpi_awareness();
@@ -118,6 +122,9 @@ fn main() -> anyhow::Result<()> {
     let mut pictures = Vec::new();
     let mut idle = 0u64;
     let mut sample = None;
+    // AMD Direct Capture only: (present index, flip-to-delivery ms) per picture.
+    let mut presents: Vec<(f64, i64, f64)> = Vec::new();
+    let mut last_index = None;
     while start.elapsed() < Duration::from_secs(seconds) {
         match capture.next_frame()? {
             Some(image) => {
@@ -136,7 +143,20 @@ fn main() -> anyhow::Result<()> {
                         image.stride,
                     ));
                 }
-                pictures.push((start.elapsed().as_secs_f64() * 1000., verdict));
+                let ms = start.elapsed().as_secs_f64() * 1000.;
+                if let Some((Some(presented), _)) = capture.amd_presented()
+                    && last_index != Some(presented.index)
+                {
+                    last_index = Some(presented.index);
+                    let latency = presented
+                        .flip
+                        .gt(&0)
+                        .then_some(presented.flip)
+                        .map(|flip| (amf_clock() - flip) as f64 / 10_000.)
+                        .unwrap_or(f64::NAN);
+                    presents.push((ms, presented.index, latency));
+                }
+                pictures.push((ms, verdict));
             }
             None => {
                 idle += 1;
@@ -166,12 +186,41 @@ fn main() -> anyhow::Result<()> {
         .filter(|gap| *gap < 1000)
         .sum::<u64>();
     let window = (elapsed - 1.).max(0.001);
+    let steady_presents: Vec<_> = presents.iter().filter(|(t, ..)| *t >= 1000.).collect();
+    let present_span = match (steady_presents.first(), steady_presents.last()) {
+        (Some(first), Some(last)) => (last.1 - first.1).max(0) as u64,
+        _ => 0,
+    };
+    let presents_missed =
+        present_span.saturating_sub(steady_presents.len().saturating_sub(1) as u64);
+    let mut latencies: Vec<f64> = steady_presents
+        .iter()
+        .map(|(.., latency)| *latency)
+        .filter(|latency| latency.is_finite() && (0. ..1000.).contains(latency))
+        .collect();
+    latencies.sort_by(f64::total_cmp);
+    let percentile = |p: f64| {
+        (!latencies.is_empty())
+            .then(|| latencies[((latencies.len() - 1) as f64 * p).round() as usize])
+    };
+    let amd = (kind == "amd").then(|| serde_json::json!({
+        "scope":"the driver's present indices and flip times on the pictures AMD Direct Capture delivered",
+        "presents_seen":steady_presents.len(),"presents_spanned":present_span,
+        "presents_missed":presents_missed,
+        "present_fps":present_span as f64 / window,
+        "flip_to_delivery_ms":{"samples":latencies.len(),"p50":percentile(0.5),
+            "p95":percentile(0.95),"p99":percentile(0.99),"max":latencies.last()},
+        "latency_note":"assumes FlipTimesamp is on AMF's clock (QueryPerformanceCounter in 100 ns units); samples outside 0..1000 ms are left out as another clock",
+        "presents":steady_presents.iter().map(|(t, index, latency)| serde_json::json!({
+            "ms":t,"index":index,"flip_to_delivery_ms":latency.is_finite().then_some(*latency)
+        })).collect::<Vec<_>>()
+    }));
     let data = serde_json::json!({
         "scope":"pictures a capture delivered while afmf_scene ran; says nothing about the screen",
         "display":display,"capture":kind,"seconds":elapsed,"idle_polls":idle,
         "captured_pictures":steady.len(),"captured_fps":steady.len() as f64 / window,
         "rendered":rendered,"generated":generated,"unreadable":unreadable,
-        "distinct_app_frames":codes.len(),"app_frames_skipped":skipped,
+        "distinct_app_frames":codes.len(),"app_frames_skipped":skipped,"amd_direct":amd,
         "pictures":pictures.iter().map(|(t, v)| serde_json::json!({
             "ms":t,"verdict":format!("{v:?}")
         })).collect::<Vec<_>>()
@@ -186,7 +235,31 @@ fn main() -> anyhow::Result<()> {
         steady.len() as f64 / window,
         codes.len()
     );
+    if kind == "amd" {
+        println!(
+            "AFMF_CAPTURE_AMD presents_seen={} presents_missed={presents_missed} flip_to_delivery_ms_p50={:?} p99={:?}",
+            steady_presents.len(),
+            percentile(0.5),
+            percentile(0.99)
+        );
+    }
     Ok(())
+}
+
+/// AMF's clock (`amf_high_precision_clock`): QueryPerformanceCounter in 100 ns units.
+#[cfg(windows)]
+fn amf_clock() -> i64 {
+    use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
+    let (mut ticks, mut frequency) = (0i64, 0i64);
+    // SAFETY: Both calls write one i64 each into the locals passed.
+    unsafe {
+        let _ = QueryPerformanceCounter(&mut ticks);
+        let _ = QueryPerformanceFrequency(&mut frequency);
+    }
+    if frequency == 0 {
+        return 0;
+    }
+    (ticks as i128 * 10_000_000 / frequency as i128) as i64
 }
 
 #[cfg(test)]

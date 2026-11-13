@@ -213,10 +213,11 @@ impl Policy {
             // Vibepollo's constant-rate WGC variant.
             wgc if wgc == "wgcc" => "wgc".to_owned(),
             // `idd-push`: frames pushed by Rubylight's own virtual display driver.
+            // `amd`: AMD Direct Capture, the Radeon driver's presented surface.
             known
                 if matches!(
                     known.as_str(),
-                    "" | "auto" | "wgc" | "ddx" | "dxgi" | "idd-push"
+                    "" | "auto" | "wgc" | "ddx" | "dxgi" | "idd-push" | "amd"
                 ) =>
             {
                 known

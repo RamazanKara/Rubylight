@@ -44,6 +44,7 @@ const CAPTURE: Record<string, string> = {
   wgc: 'Windows Graphics Capture',
   dxgi: 'Desktop Duplication',
   ddx: 'Desktop Duplication',
+  amd: 'AMD Direct Capture',
 };
 
 function encoder(meta: Metadata): Check {

@@ -244,6 +244,7 @@ async fn overview(
             "wgc" => "Windows Graphics Capture",
             "dxgi" | "ddx" => "Desktop Duplication",
             "idd-push" => "Direct driver push",
+            "amd" => "AMD Direct Capture",
             "auto" | "" => "Automatic",
             _ => "Configured capture method",
         }
@@ -706,6 +707,7 @@ async fn settings(
             ("idd-push", "Direct driver push"),
             ("wgc", "Windows Graphics Capture"),
             ("dxgi", "Desktop Duplication"),
+            ("amd", "AMD Direct Capture"),
         ],
     ) + &field(
         "output_name",

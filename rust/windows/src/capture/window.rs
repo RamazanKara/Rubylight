@@ -103,6 +103,9 @@ pub(super) fn refuse_backend(kind: &str) -> Result<()> {
         "ddx" | "dxgi" => bail!(
             "a game window can only be captured with Windows Graphics Capture; Desktop Duplication captures whole displays. Select WGC or automatic capture"
         ),
+        "amd" => bail!(
+            "a game window can only be captured with Windows Graphics Capture; AMD Direct Capture captures whole displays. Select WGC or automatic capture"
+        ),
         "idd-push" => bail!(
             "a game window can only be captured with Windows Graphics Capture; the Rubylight display driver's frame push captures whole displays. Select WGC or automatic capture"
         ),

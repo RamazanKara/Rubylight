@@ -203,6 +203,8 @@ test('capture-specific controls follow the selected method and remain available 
     ['auto', true, true], ['idd-push', false, false],
     ['wgc', false, true], ['wgcc', false, true],
     ['ddx', true, false], ['dxgi', true, false],
+    // AMD Direct Capture falls back to WGC, never to Desktop Duplication.
+    ['amd', false, true],
   ]) {
     assert.equal(predictive.visibleWhen({ capture }), polling, capture);
     assert.equal(aligned.visibleWhen({ capture }), alignment, capture);

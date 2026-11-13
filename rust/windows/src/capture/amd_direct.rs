@@ -296,6 +296,13 @@ fn header_version() -> u64 {
 impl Drop for Session {
     fn drop(&mut self) {
         self.release_held();
+        if let Some(last) = self.last {
+            tracing::info!(
+                presents = last.index,
+                missed = self.skipped,
+                "AMD Direct Capture stopped"
+            );
+        }
         // SAFETY: Self owns the component and context references; the component terminates
         // before the context, and the library outlives both.
         unsafe {

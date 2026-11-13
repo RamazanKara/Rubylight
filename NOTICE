@@ -62,6 +62,16 @@ Settings backup and restore from the console and the tray
 (rust/core/src/settings_backup.rs, rust/host/src/settings_backup.rs) follow
 Foundation Sunshine v2025.1011.143611's tray export, import and restore (pull
 request 248); the archive format and its checks are Rubylight's.
+
+The AMF video converter option (amd_vpe: rust/core/src/amf_vpe.rs,
+rust/windows/src/amf/vpe.rs) and its scene-linear HLG prepass (hlg_scene_cs in
+rust/windows/src/shaders/color.hlsl, rust/windows/src/gpu_color/hlg_scene.rs) are
+ported from Foundation Sunshine's amd_vpe (src/amf/amf_vpe_d3d11.cpp and
+prepare_hlg_scene_cs.hlsl, AlkaidLab/foundation-sunshine PR #1216, commit 1add1ed).
+AMD Direct Capture (capture = amd, rust/windows/src/capture/amd_direct.rs) follows
+its src/platform/windows/display_amd.cpp and the AFMF capture fixes in commits
+02d41dc (#151) and 804ad30 (#175): waiting for each present, the frame rate and the
+duplicated output.
 Copyright (c) Foundation Sunshine authors, GPL-3.0.
 
 LizardByte Sunshine

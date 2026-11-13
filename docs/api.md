@@ -13,6 +13,7 @@ Paired clients use other routes, on the streaming HTTPS port (`HttpsPort` from `
 | `/api/native/v1/...` | [Native API v1](native-api.md): game library, session state and actions, graphics driver settings (Radeon or NVIDIA), files, power and more. [Summary below](#native-api-v1-paired-clients). |
 | `/api/hardware-metrics` | [Hardware metrics](hardware-metrics.md): CPU and AMD GPU readings for a client's overlay. |
 | `/api/network-path` | [Remote connection route](network-path.md): the requesting peer's current Tailscale route category (`NetworkPathVersion`). |
+| `/internet-play/v1` | [Play over the internet](internet-play.md): this device's rendezvous secret, the host's session, public endpoints, IPv6 addresses, forwarded ports and port numbers (`RustHostInternetPlayVersion`). |
 
 Moonlight pairing, app discovery and streaming use the GameStream endpoints in [nvhttp.rs](../rust/host/src/nvhttp.rs).
 

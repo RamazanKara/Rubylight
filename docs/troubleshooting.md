@@ -77,7 +77,7 @@ If the device pairs but cannot launch Desktop, open the device on **Devices** an
 
 ## Clients outside your network cannot connect
 
-With `upnp` on, the host asks the router to forward its streaming ports. "UPnP mapping failed" or "UPnP mapping timed out" means the router refused or did not answer: turn UPnP on in the router, or forward the ports by hand. "UPnP port is already owned by another mapping" means an older mapping, often from another streaming host, holds the port: remove it in the router's port forwarding list. Devices on the same network do not need UPnP.
+With `upnp` on, the host asks the router to forward its streaming ports, through UPnP, else PCP, else NAT-PMP. **Settings → Network → Internet status** shows which worked, each port the router refused and why, and notes for carrier-grade NAT, where forwarded ports cannot be reached from outside ([Play over the internet](internet-play.md) then gives Nightjar a direct path). "UPnP mapping failed" or "UPnP mapping timed out" means the router refused or did not answer: turn UPnP on in the router, or forward the ports by hand. "UPnP port is already owned by another mapping" means an older mapping, often from another streaming host, holds the port: remove it in the router's port forwarding list. Devices on the same network do not need UPnP.
 
 ## The browser stream or a guest link fails to connect
 

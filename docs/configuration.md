@@ -1063,6 +1063,20 @@ Off by default. With **WebRTC server** (`webrtc_server`) on, Rubylight listens f
 - If another program holds the port, the console shows a `webrtc_server` warning, the log has the error and the server does not run. The port never moves on its own.
 - `--bind` applies to both the WebSocket and the discovery socket. The installer's Windows Firewall rule allows `butterpollo.exe` inbound on every port, so TCP 8000, UDP 8000 and UDP 8001 (or the ports you chose) need no extra rule.
 
+## Play over the internet
+
+Devices away from home reach the PC in this order: its IPv6 address, a forwarded IPv4 port, then a direct path both sides punch through their routers ([Play over the internet](internet-play.md)). On the local network nothing changes.
+
+**Automatic port forwarding** (`upnp`, **All settings → Network → Discovery and internet**) asks the router to forward every streaming port, through UPnP, PCP or NAT-PMP, and to open the IPv6 firewall for them through UPnP or PCP. It renews the mappings while the host runs and removes them when it stops. **Internet status** (**Settings → Network**) shows what the router mapped, each port it refused and why, and the public address. Stock Moonlight reaches a forwarded port at the PC's public address, which paired serverinfo reports as `ExternalIP`.
+
+**Play over the internet** (`internet_play`) lets Nightjar reach the PC where no port can be forwarded, such as behind carrier-grade NAT. The host finds its public address through public STUN servers and meets each paired device on the public BitTorrent DHT with encrypted records; neither the project nor anyone else runs a server for it ([Privacy](privacy.md#third-party-services)). A device learns the way once while it is on the PC's network. Two routers that both change ports per destination cannot be punched; then only a forwarded port or IPv6 reaches the PC.
+
+| Key | Default | What it means |
+| --- | --- | --- |
+| `upnp` | `false` | Automatic port forwarding through UPnP, PCP or NAT-PMP, and IPv6 pinholes. |
+| `internet_play` | `false` | Play over the internet for paired Nightjar devices. Needs a restart. |
+| `internet_play_stun_servers` | empty | STUN servers for the public address, `host:port` separated by commas or spaces. Empty uses `stun.moonlight-stream.org:3478` and `stun.cloudflare.com:3478`. Needs a restart. |
+
 ## Multiple instances
 
 Give each instance its own profile folder and base port. An explicit `--config-dir` takes precedence over the portable defaults. From the extracted package, run these commands in separate PowerShell windows, one in each intended Windows session:
@@ -1399,7 +1413,9 @@ Earlier releases had one Sync automatically (`library_auto_sync`) and one Remove
 | --- | --- | --- | --- |
 | Pairing: Allow pairing | `enable_pairing` | `true` | Let new devices pair with this PC. Devices already paired keep working either way. |
 | Discovery and internet: Local network discovery | `enable_discovery` | `true` | Announce this PC on the local network so Moonlight finds it without typing an address. |
-| Discovery and internet: UPnP port forwarding | `upnp` | `false` | Ask the router to forward the streaming ports so devices can connect over the internet. The router must have Universal Plug and Play (UPnP) turned on. |
+| Discovery and internet: Automatic port forwarding | `upnp` | `false` | Ask the router to forward the streaming ports so devices can connect over the internet, through UPnP, PCP or NAT-PMP, and open the IPv6 firewall for them. The router must have one of them turned on. [Play over the internet](#play-over-the-internet) |
+| Discovery and internet: Play over the internet | `internet_play` | `false` | Let paired Nightjar devices reach this PC from outside your network without port forwarding, over a direct path found through public STUN servers and the BitTorrent DHT. Needs a restart. [Play over the internet](#play-over-the-internet) |
+| Discovery and internet: STUN servers | `internet_play_stun_servers` | empty | Public STUN servers that tell the host its public address. Empty uses `stun.moonlight-stream.org:3478` and `stun.cloudflare.com:3478`. Needs a restart. |
 | Streams: Local network encryption | `lan_encryption_mode` | `0` (Off) | Whether streams to devices on the local network, including Tailscale, are encrypted. Encryption costs some performance on slower devices. |
 | Streams: Internet encryption | `wan_encryption_mode` | `1` (When the device supports it) | Whether streams to devices outside the local network are encrypted. Required turns away devices that cannot encrypt. |
 | Streams: Device timeout | `ping_timeout` | `10000` ms | How long this PC waits without hearing from a device before it ends the stream. Longer suits an unreliable network. |

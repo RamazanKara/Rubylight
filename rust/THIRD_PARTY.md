@@ -87,6 +87,31 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+## mac-precision-touchpad
+
+The virtual precision touchpad (`rust/core/src/virtual_hid.rs`, `PrecisionTouchpad` and `PTP_CERTIFICATION_BLOB`) follows the report layout and the certification feature report of imbushuo's [mac-precision-touchpad](https://github.com/imbushuo/mac-precision-touchpad) SPI driver (`AmtPtpDeviceSpiKm/Hid.h`), whose SPI part is under the MIT License (the project's USB drivers are GPL-2.0 and nothing is taken from them). The full text is in `third-party/licenses/mac-precision-touchpad-LICENSE.txt`.
+
+```
+Copyright © 2018 Bingxing Wang
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this
+software and associated documentation files (the “Software”), to deal in the Software
+without restriction, including without limitation the rights to use, copy, modify,
+merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice shall be included in all copies
+or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE
+FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+```
+
 ## Annex
 
 Background streaming in a Windows child session (removed; its settings restore remains) is ported from [Annex](https://github.com/mattxslv/annex) by mattxslv, with ocr1n's launcher rework ([mattxslv/annex#2](https://github.com/mattxslv/annex/pull/2)), under the MIT License: what remains is the Windows settings that setup changed and restore puts back (`rust/core/src/child_session.rs`, `rust/windows/src/child_session.rs`, `rust/host/src/child_session.rs`). The ported parts carry the notice below; the full text is in `third-party/licenses/annex-LICENSE.txt`.

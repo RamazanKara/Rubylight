@@ -72,7 +72,22 @@ AMD Direct Capture (capture = amd, rust/windows/src/capture/amd_direct.rs) follo
 its src/platform/windows/display_amd.cpp and the AFMF capture fixes in commits
 02d41dc (#151) and 804ad30 (#175): waiting for each present, the frame rate and the
 duplicated output.
+
+The virtual mouse with its choice of Automatic, Virtual mouse and Injection
+(mouse_mode, rust/core/src/input_policy.rs; rust/core/src/virtual_hid.rs and
+rust/windows/src/input/virtual_hid.rs) follows Foundation Sunshine's virtual mouse,
+which is a driver of its own; Rubylight's is a USB device on its USB/IP server. The
+touchpad input packets 0x55000009 and 0x5500000A and their feature flags
+(rust/core/src/input.rs) are Foundation Sunshine's, as Moonlight V+ sends them.
 Copyright (c) Foundation Sunshine authors, GPL-3.0.
+
+mac-precision-touchpad
+
+The virtual precision touchpad's report layout and the certification blob Windows
+asks precision touchpads for (rust/core/src/virtual_hid.rs) follow imbushuo's
+mac-precision-touchpad, AmtPtpDeviceSpiKm/Hid.h
+(https://github.com/imbushuo/mac-precision-touchpad). Copyright 2018 Bingxing Wang,
+MIT License; full text in third-party/licenses/mac-precision-touchpad-LICENSE.txt.
 
 LizardByte Sunshine
 

@@ -26,6 +26,7 @@ Rubylight is a Moonlight-compatible game-streaming host for Windows 10 and 11 PC
 | [USB forwarding](usb-forwarding.md) | Using a device's USB devices on the PC. |
 | [Microphone](microphone.md) | The client's microphone on the PC. |
 | [DualSense USB audio and haptics](dualsense-haptics.md) | DualSense and Steam Deck audio and haptics over USB. |
+| [Virtual mouse and touchpad](virtual-mouse.md) | A USB mouse games read like a real one, a device's touchpad as Windows' precision touchpad, and how they compare with injection. |
 | [Remote connection route](network-path.md) | Checking the route a remote client takes, such as Tailscale. |
 
 ## By task

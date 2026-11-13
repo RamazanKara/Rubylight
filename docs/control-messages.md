@@ -335,6 +335,17 @@ Controller packets carry the Switch 2 controllers' C button as button flag `0x40
 
 The client sends both only when serverinfo has `ControllerIdentityVersion` (`1`), which the host offers while `controller` is on; Nightjar's capability is `controller_identity`. Any other host never sees the packet or the flag. The magic lies in the block reserved for controller extensions (`0x55000080`-`0x55000087`).
 
+### Touchpad contacts (input packets `0x55000009` and `0x5500000A`)
+
+A device's physical touchpad (a tablet's keyboard cover, a laptop's precision touchpad) sends its fingers in Foundation Sunshine's touchpad packets, which Moonlight V+ also sends; no new control message is used. The host offers them in the `DESCRIBE` answer's `a=x-ss-general.featureFlags`: `0x10` single contacts and `0x20` frames, set while **Mouse** and **Touchpad gestures from devices** (`native_touchpad`) are on and usbip-win2 is installed. A client without the flags keeps its touchpad as a mouse. Fields are little-endian; positions are on the touchpad's own surface.
+
+| Packet | Bytes | Layout |
+| --- | --- | --- |
+| `0x55000009` single contact | 40 | event u8 at 8, buttons u8 at 9 (bit 0 the click), rotation u16 at 10, pointer id u32 at 12, width mm u16 at 16, height mm u16 at 18, then x, y, pressure, contact major and minor as f32 0-1 from 20 |
+| `0x5500000A` frame | 76 | contact count u8 at 8 (at most 5), buttons u8 at 9, rotation u16 at 10, width mm u16 at 12, height mm u16 at 14, then five 12-byte contacts from 16: event u8, reserved u8, pressure u16, id u32, x u16, y u16 (0-65535) |
+
+Events are Moonlight's touch events (1 down, 2 up, 3 move, 4 cancel, 5 the button only, 7 cancel all). A size of 0 means unknown; the host then uses 105 x 70 mm. The host replays the fingers on a virtual Windows precision touchpad over USB/IP (`butterpollo_core::virtual_hid::PrecisionTouchpad`) and lifts what a device still holds when its stream ends or loses focus. Nightjar sends frames from Android (`SOURCE_TOUCHPAD` with pointer capture) and the desktop (Raw Input on Windows, evdev on Linux, the trackpad on macOS).
+
 ### Stream negotiation
 
 Each is absent until the host offers it.

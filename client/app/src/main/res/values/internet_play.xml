@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_internet_play">Play over the internet</string>
-    <string name="summary_internet_play">Away from home, reach a PC that offers it over a direct internet path, without forwarding ports. Connect once on the PC's network first. Your network is always tried first.</string>
+    <string name="summary_internet_play">Away from home, reach a PC that offers it over a direct internet path, without forwarding ports. Connect once on the PC\'s network first. Your network is always tried first.</string>
     <string name="internet_path_label">Connected over: %1$s</string>
     <string name="internet_path_ipv6">Internet (IPv6)</string>
     <string name="internet_path_mapped">Internet (forwarded port)</string>

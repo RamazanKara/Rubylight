@@ -1,7 +1,7 @@
 use super::super::capabilities::{Availability, Feature, Reason};
 use super::*;
 
-/// A paired Rubylight reply, field for field as rust/host/src/nvhttp.rs writes it.
+/// A paired Rubylight reply, field for field as rust/host/src/nvhttp/serverinfo.rs writes it.
 pub(crate) const RUBYLIGHT: &str = "<?xml version=\"1.0\" encoding=\"utf-8\"?><root status_code=\"200\">\
         <NetworkPathVersion>1</NetworkPathVersion><HardwareMetricsVersion>0</HardwareMetricsVersion>\
         <hostname>Gaming PC</hostname><appversion>7.1.431.-1</appversion><GfeVersion>3.23.0.74</GfeVersion>\

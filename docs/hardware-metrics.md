@@ -127,4 +127,4 @@ The endpoint returns an HTTP error status with `Content-Type: application/json`,
 
 Use the HTTP status for control flow and the text for diagnostics. The host times out a queued/sample response after two seconds. A missing AMD driver or unsupported readings can instead produce a successful response with empty or partial metrics. A `404` means the route is unavailable, including on plain HTTP; stop polling and check discovery and the HTTPS port.
 
-The implementation lives in the [HTTPS handler and capability advertisement](../rust/host/src/nvhttp.rs), [sampling and session checks](../rust/host/src/telemetry.rs), and [Windows metric collector](../rust/windows/src/telemetry.rs).
+The implementation lives in the [HTTPS handler and capability advertisement](../rust/host/src/nvhttp/serverinfo.rs), [sampling and session checks](../rust/host/src/telemetry.rs), and [Windows metric collector](../rust/windows/src/telemetry.rs).

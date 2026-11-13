@@ -37,7 +37,7 @@ A behaviour usually has three homes. `rust/core/src/encoder_policy.rs` decides, 
 
 | Step | Where |
 | --- | --- |
-| Launch or resume | [`launch`, `resume`, `start`, `launch_back_half`](../rust/host/src/nvhttp.rs); the settings in force for this app and device come from `rust/host/src/stream/config.rs` |
+| Launch or resume | [`launch`, `resume`, `start`, `launch_back_half`](../rust/host/src/nvhttp/launch.rs), whose steps are in [`launch_steps.rs`](../rust/host/src/nvhttp/launch_steps.rs); the settings in force for this app and device come from `rust/host/src/stream/config.rs` |
 | RTSP | `rust/host/src/rtsp_server.rs` negotiates and calls [`Media`](../rust/host/src/stream.rs)'s `start`; the extension lines it offers are [`describe_lines`](../rust/core/src/extensions.rs) |
 | Session thread | [`spawn_session`](../rust/host/src/stream/video.rs), then [`start_media`, `spawn_audio`](../rust/host/src/stream/video/setup.rs), the loop [`run`](../rust/host/src/stream/video/run.rs) and `rust/host/src/stream/video/teardown.rs` |
 | Capture | The capture thread in `rust/host/src/stream.rs` publishes the newest frame through `rust/host/src/stream/capture.rs`; backends and fallback are [`Capture`, `open_stream_capture`](../rust/windows/src/capture.rs) |
@@ -46,7 +46,7 @@ A behaviour usually has three homes. `rust/core/src/encoder_policy.rs` decides, 
 | Packetize, send | [`spawn`, `submit`](../rust/host/src/video_send.rs), `rust/host/src/pyrowave_send.rs` for PyroWave, `rust/host/src/stream/slices.rs` for the inline path; formats in `rust/core/src/packet.rs` |
 | Control, input | `rust/host/src/stream/control.rs` runs ENet and dispatches each message by its id; injection is `rust/windows/src/input.rs` |
 | Audio | `rust/host/src/stream/audio.rs`, `audio_encoder.rs` and `audio_sink.rs` beside it; capture is `rust/windows/src/audio.rs` |
-| End | [`session_begin`, `session_teardown`](../rust/host/src/session_control.rs) are the two points every start and end pass; states are [`Machine`](../rust/core/src/session_state.rs); [`stop_streams`](../rust/host/src/nvhttp.rs) ends from HTTP |
+| End | [`session_begin`, `session_teardown`](../rust/host/src/session_control.rs) are the two points every start and end pass; states are [`Machine`](../rust/core/src/session_state.rs); [`stop_streams`](../rust/host/src/nvhttp/quit.rs) ends from HTTP |
 
 Threads carry these names in a debugger and in `rust/host/src/stall_watch.rs` lines: `session`, `control`, `capture`, `gpu-recovery`, `video-packetize`, `video-send`, `pyrowave-packetize`, `pyrowave-send`, `audio`, `audio route`, `server commands`, `gamepads`, `session-journal`.
 

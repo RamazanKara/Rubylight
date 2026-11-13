@@ -30,7 +30,7 @@ Both features work with every Moonlight client:
 - `rust/windows/src/net.rs` `local_mac(address)` returns the 6-byte address of the adapter that owns the request's local IP. It doesn't filter anything.
   - A client that reaches the PC through a Hyper-V vEthernet, ZeroTier or another TAP adapter gets a virtual MAC that no packet can wake.
   - A Wintun route (Tailscale, WireGuard) has no MAC and fails, which gives zeros.
-- `rust/host/src/nvhttp.rs` (around line 322) caches the MAC per local address in `serverinfo_cache` and sends zeros to unpaired requests. `rust/host/src/webrtc/discovery.rs` (line 93) also calls `local_mac`.
+- `rust/host/src/nvhttp/serverinfo.rs` caches the MAC per local address in `serverinfo_cache` and sends zeros to unpaired requests. `rust/host/src/webrtc/discovery.rs` (line 93) also calls `local_mac`.
 - Nothing reads or changes NIC wake settings, sleep states or power requests. The only power call is `DisplayAwake` (`rust/windows/src/timing.rs`): `ES_CONTINUOUS | ES_DISPLAY_REQUIRED` while capturing. The service handles no power broadcasts.
 - Moonlight clients ignore an all-zero MAC and keep the last good one. In Nightjar this is `ComputerDetails.update`, line 239.
 

@@ -605,7 +605,7 @@ fn encrypted_rtsp_handshake_with_the_host() {
 }
 
 // ---------------------------------------------------------------------------------------
-// Pairing and HTTPS against a host built from butterpollo-core's pairing (rust/host/src/nvhttp.rs).
+// Pairing and HTTPS against a host built from butterpollo-core's pairing (rust/host/src/nvhttp/pairing.rs).
 
 const PIN: &str = "4321";
 

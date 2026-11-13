@@ -1338,15 +1338,17 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
     }
 
-    /** The overlay's packed full-chroma lines: the bit depth and HDR state, and why HDR is off when it was dropped. */
+    /**
+     * The overlay's packed full-chroma line: the bit depth and HDR state, and why HDR is off when it was dropped.
+     * The video line above it already reads "YUV 4:4:4 (packed)".
+     */
     private String packedStats() {
-        String text = "Packed full chroma (GPU reconstruction)";
         boolean tenBit = (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
         String drop = packedHdrDrop;
-        if (drop != null) return text + "\n8-bit SDR, HDR off: " + drop;
-        if (!tenBit) return text + "\n8-bit SDR";
+        if (drop != null) return "8-bit SDR, HDR off: " + drop;
+        if (!tenBit) return "8-bit SDR";
         Boolean hdr = currentHdrMode;
-        return text + "\n10-bit " + (hdr == null ? "(waiting for the PC's HDR report)" :
+        return "10-bit " + (hdr == null ? "(waiting for the PC's HDR report)" :
                 hdr ? HdrFormatPolicy.baseLayerName(announcedHdrFormat) : "SDR (the PC reports SDR)");
     }
 
@@ -4792,7 +4794,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             String pacing = PerformanceOverlay.presentJitterText(context, frameLatencyStats.presentJitter(vsyncNs),
                     frameRates[0]);
             if (pacing != null) video.append(pacing).append('\n');
-            video.append((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_YUV444) != 0 ? "YUV 4:4:4" : "YUV 4:2:0");
+            // Packed full chroma travels as a 4:2:0 stream twice as tall, but the picture shown is 4:4:4.
+            video.append(packing != null ? "YUV 4:4:4 (packed)" :
+                    (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_YUV444) != 0 ? "YUV 4:4:4" : "YUV 4:2:0");
             if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0) {
                 video.append(" 10-bit");
             }

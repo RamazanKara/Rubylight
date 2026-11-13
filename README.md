@@ -42,12 +42,30 @@ Turn the camera and the picture turns on your screen's next refresh, instead of 
 
 - **96% of the trail gone.** A test game with 50 ms of delay, streamed at 1440p and 60 fps, showed the picture a median 64.9 px behind the mouse while turning. With Frame Warp: 1.4 to 2.2 px.
 - **Learns each game by itself.** Sailing in Black Flag Resynced, streamed to a handheld and a laptop, it learned the camera as it turned and kept the quest text, compass and icon wheel in place.
+- **Right out to the edges.** It learns each game's field of view and turns the picture the way the game's camera would. At a 90° view, 91% of the trail is gone at the picture's edge, up from 65% when the whole picture slid by one shift (Nightjar 5.1 with Rubylight 4.1).
 - **Costs almost nothing.** 0.14 to 0.16 ms of GPU time a frame on the RX 7900 XT, from 1080p to 4K.
 - **One switch.** **Settings → Video → Frame Warp**, with a Rubylight PC.
 
 <p align="center"><img src="docs/assets/frame-warp/black-flag-retroid.webp" width="640" alt="Black Flag Resynced on a Retroid Pocket 6 in the middle of a camera turn with Frame Warp on: the quest text, compass and icon wheel stay in place."></p>
 
-[How Frame Warp works](docs/protocol/frame-warp.md) · [The host side](https://github.com/RamazanKara/Rubylight/blob/main/docs/frame-warp.md) · [Measurements](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#november-12-frame-warp)
+[How Frame Warp works](docs/protocol/frame-warp.md) · [The host side](https://github.com/RamazanKara/Rubylight/blob/main/docs/frame-warp.md) · [Measurements](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#november-12-frame-warp) · [The lens](https://github.com/RamazanKara/Rubylight/blob/main/rust/PERFORMANCE.md#november-12-frame-warp-lens)
+
+## Real VRR
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/real-vrr/chart-dark.png">
+    <img src="docs/assets/real-vrr/chart-light.png" width="900" alt="Chart: on the same PC, 2.5 to 3.1% of frames land more than 1 ms off the game's rhythm with Real VRR instead of 10.2 to 19.4% shown on arrival, for 1.3 to 1.5 ms of delay. Over Wi-Fi, 29 to 31% instead of 64 to 74%, for 2.6 to 4.2 ms.">
+  </picture>
+</p>
+
+With VRR, your screen refreshes whenever a frame arrives, so it follows the network's rhythm rather than the game's. Real VRR shows each frame at the moment the game presented it on the PC, plus a short, steady delay, so the screen refreshes in step with the game.
+
+- **97% of frames on the game's rhythm,** instead of 81 to 90% shown on arrival, for 1.3 to 1.5 ms of delay. PyroWave, HEVC and AV1 alike, measured on the same PC.
+- **Holds up on Wi-Fi.** A frame much later than the rest is shown when it is ready instead of holding every frame back for it, so over Wi-Fi it halves the frames off the rhythm for 2.6 to 4.2 ms.
+- **On by default** whenever Variable refresh rate is on: a G-Sync, FreeSync or HDMI VRR display on Windows and Linux, or an Android 16 screen with adaptive refresh. It follows any host's frame timestamps; a Rubylight PC stamps each frame with the game's own present time.
+
+[How Real VRR works](docs/real-vrr.md) · [Measurements](docs/pyrowave-decode.md#real-vrr-measured-cadence-and-a-link-with-a-long-tail)
 
 Nightjar streams games from your PC to Android phones, tablets and handhelds, Android TV and Fire TV, Windows, Linux and macOS. It speaks the Moonlight protocol, so it works with the host you already run, and it is built to make the stream feel local: hardware decoding tuned for each chip, frame pacing that follows your display, and recovery that keeps you in the game when the network hiccups.
 

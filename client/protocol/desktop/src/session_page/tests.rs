@@ -1,0 +1,570 @@
+use super::*;
+use nightjar_core::http::native_api::error::ApiError;
+use nightjar_core::http::native_api::session::{Action, Owner};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+fn session(state: SessionState, actions: &[(ActionId, bool, Option<ErrorCode>)]) -> Session {
+    Session {
+        revision: 1,
+        state,
+        owner: Owner::You,
+        app: None,
+        game_running: true,
+        since_unix_ms: None,
+        suspended_until_unix_ms: None,
+        launcher: None,
+        radeon_profile: None,
+        actions: actions.iter().map(|&(id, allowed, reason)| Action { id, allowed, reason }).collect(),
+    }
+}
+
+fn exits(entries: &[Entry]) -> Vec<HostExit> {
+    entries.iter().map(|e| e.exit).collect()
+}
+
+#[test]
+fn close_game_needs_host_control_and_quit_game_is_the_fallback() {
+    let with = actions(true, true, None);
+    assert_eq!(exits(&with), [HostExit::End, HostExit::CloseGame]);
+    let without = actions(true, false, None);
+    assert_eq!(exits(&without), [HostExit::End, HostExit::QuitApp]);
+    assert!(!exits(&without).contains(&HostExit::CloseGame), "never offered without host control");
+    // No Launch permission: neither of them is offered.
+    assert!(actions(false, true, None).is_empty());
+    assert!(actions(false, false, None).is_empty());
+    assert!(with.iter().chain(&without).all(|e| e.blocked.is_none()), "nothing is blocked before the host speaks");
+}
+
+#[test]
+fn nothing_is_offered_until_the_permissions_are_read() {
+    let unknown = Hints { launch: false, host_control: false };
+    let mut state = State::new();
+    assert!(state.actions(unknown).is_empty(), "no Launch permission known: no exits");
+    state.launch = Some(true);
+    assert_eq!(exits(&state.actions(unknown)), [HostExit::End, HostExit::QuitApp]);
+    state.host_control = Some(true);
+    assert_eq!(exits(&state.actions(unknown)), [HostExit::End, HostExit::CloseGame]);
+    state.launch = Some(false);
+    assert!(state.actions(unknown).is_empty());
+}
+
+#[test]
+fn the_host_can_block_an_action_with_a_reason() {
+    let busy = session(
+        SessionState::Launching,
+        &[(ActionId::End, false, Some(ErrorCode::SessionBusy)), (ActionId::CloseGame, false, Some(ErrorCode::SessionBusy))],
+    );
+    let entries = actions(true, true, Some(&busy));
+    assert!(entries.iter().all(|e| e.blocked == Some("The PC is busy. Try again in a moment.")));
+    let other = session(SessionState::Streaming, &[(ActionId::End, false, Some(ErrorCode::NotSessionOwner))]);
+    assert_eq!(actions(true, false, Some(&other))[0].blocked, Some("This session belongs to another device."));
+    // The classic quit is not a native action: the session's list never blocks it.
+    assert_eq!(actions(true, false, Some(&other))[1].blocked, None);
+    let ready = session(SessionState::Streaming, &[(ActionId::End, true, None), (ActionId::CloseGame, true, None)]);
+    assert!(actions(true, true, Some(&ready)).iter().all(|e| e.blocked.is_none()));
+}
+
+#[test]
+fn what_each_exit_keeps_is_said_before_it_runs() {
+    assert!(HostExit::End.confirm().contains("The game keeps running"));
+    // Unlike Disconnect, which leaves the PC as the stream had it: End gives it back.
+    assert!(HostExit::End.confirm().contains("gets its screen and sound back"));
+    assert!(HostExit::CloseGame.confirm().contains("Unsaved progress will be lost"));
+    assert!(HostExit::QuitApp.confirm().contains("Quit the game"));
+    assert_eq!(HostExit::End.label(), "End session");
+}
+
+#[test]
+fn connection_facts_read_like_android() {
+    let lines = connection_lines("GAMING-PC", "HEVC", (1920, 1080, 60), 20_000, "Home Wi-Fi", Some("4.0 ms RTT (±1.0), 0.0% frames lost"));
+    assert_eq!(lines[0], ("PC", "GAMING-PC".to_owned()));
+    assert_eq!(lines[2].1, "1920 × 1080 at 60 fps");
+    assert_eq!(lines[3].1, "20 Mbps");
+    assert_eq!(lines[4], ("Link", "Home Wi-Fi".to_owned()));
+    assert_eq!(lines[5].0, "Connection");
+    let lines = connection_lines("PC", "AV1", (2560, 1440, 120), 12_500, "", None);
+    assert_eq!(lines[3].1, "12.5 Mbps");
+    assert_eq!(lines.len(), 4);
+}
+
+#[test]
+fn polling_is_gated_by_the_intervals_and_stops_for_a_host_without_radeon() {
+    let start = Instant::now();
+    let mut gate = Gate::new(RADEON_INTERVAL, SESSION_INTERVAL);
+    assert_eq!(gate.due(start), Due { session: true, radeon: true }, "the first reads are due at once");
+    gate.session_read(start);
+    gate.radeon_read(start);
+    let at = |ms| start + Duration::from_millis(ms);
+    assert_eq!(gate.due(at(500)), Due { session: false, radeon: false });
+    assert_eq!(gate.wait(at(500)), Duration::from_millis(500));
+    // Radeon: once a second at most. Session: every two seconds.
+    assert_eq!(gate.due(at(999)), Due { session: false, radeon: false });
+    assert_eq!(gate.due(at(1000)), Due { session: false, radeon: true });
+    gate.radeon_read(at(1000));
+    assert_eq!(gate.due(at(1999)), Due { session: false, radeon: false });
+    assert_eq!(gate.due(at(2000)), Due { session: true, radeon: true });
+    // A read that took a while counts from when it finished.
+    gate.radeon_read(at(2300));
+    assert!(!gate.due(at(3200)).radeon);
+    assert!(gate.due(at(3300)).radeon);
+    // A failed write brings the next read forward.
+    gate.radeon_now();
+    assert!(gate.due(at(2301)).radeon);
+    // A host without Radeon endpoints is not asked again; the session still is.
+    gate.radeon_missing();
+    gate.session_read(at(4000));
+    assert_eq!(gate.due(at(9000)), Due { session: true, radeon: false });
+    assert_eq!(gate.wait(at(4500)), Duration::from_millis(1500));
+}
+
+// A host that counts what it is asked, with the doc's Radeon answer.
+struct Fake {
+    reads: Arc<AtomicUsize>,
+    read_times: Arc<Mutex<Vec<Instant>>>,
+    sessions: Arc<AtomicUsize>,
+    writes: Arc<Mutex<Vec<SettingsWrite>>>,
+    actions: Arc<Mutex<Vec<ActionId>>>,
+    quits: Arc<AtomicUsize>,
+    radeon: Arc<Mutex<Option<Radeon>>>,
+    write_error: Option<ErrorCode>,
+    write_missing: bool,
+    quit: Result<bool, u16>,
+    /// The capabilities' features.
+    features: Vec<String>,
+}
+
+struct Counters {
+    reads: Arc<AtomicUsize>,
+    read_times: Arc<Mutex<Vec<Instant>>>,
+    sessions: Arc<AtomicUsize>,
+    writes: Arc<Mutex<Vec<SettingsWrite>>>,
+    actions: Arc<Mutex<Vec<ActionId>>>,
+    quits: Arc<AtomicUsize>,
+}
+
+fn radeon_json(writable: bool) -> Radeon {
+    serde_json::from_str(&format!(
+        r#"{{ "revision": 1, "state": "configurable", "host_control": true, "writable_now": {writable},
+              "gpus": [{{ "id": 5, "name": "AMD Radeon", "driver": "1", "settings": [
+                {{ "id": "anti_lag.enabled", "group": "anti_lag", "kind": "toggle", "state": "configurable", "value": true }},
+                {{ "id": "chill.max_fps", "group": "chill", "kind": "integer", "state": "configurable", "value": 100,
+                   "range": {{ "min": 30, "max": 300, "step": 10 }} }}] }}] }}"#
+    ))
+    .unwrap()
+}
+
+fn fake(writable: bool) -> (Fake, Counters) {
+    let counters = Counters {
+        reads: Arc::default(),
+        read_times: Arc::default(),
+        sessions: Arc::default(),
+        writes: Arc::default(),
+        actions: Arc::default(),
+        quits: Arc::default(),
+    };
+    let fake = Fake {
+        reads: counters.reads.clone(),
+        read_times: counters.read_times.clone(),
+        sessions: counters.sessions.clone(),
+        writes: counters.writes.clone(),
+        actions: counters.actions.clone(),
+        quits: counters.quits.clone(),
+        radeon: Arc::new(Mutex::new(Some(radeon_json(writable)))),
+        write_error: None,
+        write_missing: false,
+        quit: Ok(true),
+        features: Vec::new(),
+    };
+    (fake, counters)
+}
+
+fn api_error(status: u16, code: ErrorCode, setting: Option<&str>) -> Error {
+    Error::Api { status, error: ApiError { code, message: "host words".into(), setting: setting.map(str::to_owned), retry_after_ms: None } }
+}
+
+impl Api for Fake {
+    fn capabilities(&self) -> Result<Capabilities, Error> {
+        let mut caps: Capabilities = serde_json::from_str(
+            r#"{ "api_version": 1, "host": { "name": "PC", "version": "3", "unique_id": "x" }, "features": [],
+                     "permissions": { "list": true, "view": true, "launch": true, "host_control": true } }"#,
+        )
+        .unwrap();
+        caps.features = self.features.clone();
+        Ok(caps)
+    }
+    fn session(&self) -> Result<Session, Error> {
+        self.sessions.fetch_add(1, Ordering::SeqCst);
+        Ok(session(SessionState::Streaming, &[(ActionId::End, true, None), (ActionId::CloseGame, true, None)]))
+    }
+    fn session_action(&self, action: ActionId) -> Result<Session, Error> {
+        self.actions.lock().unwrap().push(action);
+        match self.write_error {
+            Some(code) => Err(api_error(403, code, None)),
+            None => Ok(session(SessionState::Stopping, &[])),
+        }
+    }
+    fn quit_app(&self) -> Result<bool, Error> {
+        self.quits.fetch_add(1, Ordering::SeqCst);
+        self.quit.map_err(|code| Error::Status { code: i32::from(code), message: String::new() })
+    }
+    fn radeon(&self) -> Result<Radeon, Error> {
+        self.reads.fetch_add(1, Ordering::SeqCst);
+        self.read_times.lock().unwrap().push(Instant::now());
+        self.radeon.lock().unwrap().clone().ok_or_else(|| Error::NotFound("radeon".into()))
+    }
+    fn write_radeon(&self, write: &SettingsWrite) -> Result<Radeon, Error> {
+        self.writes.lock().unwrap().push(write.clone());
+        if self.write_missing {
+            return Err(Error::NotFound("radeon".into()));
+        }
+        match self.write_error {
+            Some(code) => Err(api_error(409, code, Some("chill.max_fps"))),
+            None => Ok(radeon_json(true)),
+        }
+    }
+}
+
+fn open(fake: Fake, session_ms: u64, radeon_ms: u64) -> Page {
+    Page::open_with(move || Ok(fake), Arc::new(|| {}), Duration::from_millis(session_ms), Duration::from_millis(radeon_ms))
+}
+
+fn until(what: &str, mut done: impl FnMut() -> bool) {
+    let end = Instant::now() + Duration::from_secs(5);
+    while !done() {
+        assert!(Instant::now() < end, "timed out waiting for {what}");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+fn editable_row(page: &Page, id: &str) -> Row {
+    page.state().radeon.panel.unwrap().find(id).unwrap().clone()
+}
+
+#[test]
+fn the_host_menu_follows_the_capability_and_a_refusal_keeps_the_hosts_words() {
+    assert!(!State::new().host_menu(), "nothing is offered before the capabilities answer");
+    let (mut fake, _) = fake(false);
+    fake.features = vec!["native_api".into(), feature::COUCH_MENU.into()];
+    let page = open(fake, 1000, 1000);
+    until("capabilities", || page.state().couch_menu.is_some());
+    assert!(page.state().host_menu());
+
+    assert_eq!(host_menu_result(Ok(CouchMenu { open: true })), Ok(()));
+    assert!(host_menu_result(Ok(CouchMenu { open: false })).is_err(), "a menu still closed is no success");
+    for code in [ErrorCode::NoSession, ErrorCode::NotSessionOwner, ErrorCode::PermissionRequired, ErrorCode::TemporarilyUnavailable] {
+        let error = host_menu_result(Err(api_error(409, code, None))).unwrap_err();
+        assert!(error.contains("host words"), "{code:?}: {error}");
+    }
+}
+
+#[test]
+fn it_polls_only_while_the_page_is_open() {
+    let (fake, counters) = fake(true);
+    let page = open(fake, 20, 20);
+    until("a few reads", || counters.reads.load(Ordering::SeqCst) >= 3 && counters.sessions.load(Ordering::SeqCst) >= 2);
+    let state = page.state();
+    assert_eq!(state.launch, Some(true));
+    assert_eq!(state.host_control, Some(true));
+    assert!(state.session.is_some() && state.radeon.panel.is_some());
+    assert!(!state.host_menu(), "no host menu without session.couch_menu");
+    drop(page);
+    // The worker ends after the call in flight: give it a moment, then nothing more arrives.
+    std::thread::sleep(Duration::from_millis(100));
+    let (reads, sessions) = (counters.reads.load(Ordering::SeqCst), counters.sessions.load(Ordering::SeqCst));
+    std::thread::sleep(Duration::from_millis(150));
+    assert_eq!(counters.reads.load(Ordering::SeqCst), reads, "no Radeon reads after the page closed");
+    assert_eq!(counters.sessions.load(Ordering::SeqCst), sessions, "no session reads after the page closed");
+}
+
+#[test]
+fn radeon_is_read_at_most_once_per_interval() {
+    let (fake, counters) = fake(true);
+    let page = open(fake, 10_000, 100);
+    // Wait for reads rather than for time: the check is on the gaps the host saw, which
+    // can only be longer than the interval on a slow machine, never shorter.
+    until("four reads", || counters.reads.load(Ordering::SeqCst) >= 4);
+    drop(page);
+    let times = counters.read_times.lock().unwrap().clone();
+    for pair in times.windows(2) {
+        let gap = pair[1].duration_since(pair[0]);
+        assert!(gap >= Duration::from_millis(100), "two Radeon reads {gap:?} apart at a 100 ms interval");
+    }
+}
+
+#[test]
+fn a_write_goes_out_only_when_the_panel_allows_it() {
+    // Host control but no owned session: writable_now is false, so nothing is sent.
+    let (fake, counters) = fake(false);
+    let page = open(fake, 1000, 1000);
+    until("the panel", || page.state().radeon.panel.is_some());
+    let row = editable_row(&page, "anti_lag.enabled");
+    assert_eq!(row.mode, Mode::Value);
+    assert!(!page.write(&row, Value::Bool(false)));
+    std::thread::sleep(Duration::from_millis(50));
+    assert!(counters.writes.lock().unwrap().is_empty(), "no write without writable_now");
+}
+
+#[test]
+fn a_write_sends_the_value_and_the_answer_replaces_the_panel() {
+    let (fake, counters) = fake(true);
+    let page = open(fake, 1000, 1000);
+    until("the panel", || page.state().radeon.panel.is_some());
+    let row = editable_row(&page, "chill.max_fps");
+    assert_eq!(row.mode, Mode::Edit);
+    let value = row.step(1).unwrap();
+    assert_eq!(value, Value::Integer(110), "100 plus the host's step of 10 (20 presses cross 30..300 is 10)");
+    assert!(page.write(&row, value));
+    // While it is in flight, a second write is refused.
+    until("the write", || !counters.writes.lock().unwrap().is_empty());
+    let sent = counters.writes.lock().unwrap().clone();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].gpu, 5);
+    assert_eq!(sent[0].changes, [Change { id: "chill.max_fps".into(), value: Value::Integer(110) }]);
+    until("the answer", || page.state().radeon.pending.is_none());
+    assert!(page.state().radeon.write_failure.is_none());
+}
+
+#[test]
+fn a_second_write_is_refused_while_one_is_in_flight() {
+    let (fake, _counters) = fake(true);
+    let page = open(fake, 1000, 1000);
+    until("the panel", || page.state().radeon.panel.is_some());
+    let row = editable_row(&page, "chill.max_fps");
+    // The state a first write leaves behind until the worker answers.
+    lock(&page.shared).radeon.pending = Some("anti_lag.enabled".into());
+    assert!(!page.write(&row, Value::Integer(110)));
+    lock(&page.shared).radeon.pending = None;
+    assert!(page.write(&row, Value::Integer(110)));
+}
+
+#[test]
+fn a_rejected_write_shows_inline_and_reads_the_value_back() {
+    let (mut fake, counters) = fake(true);
+    fake.write_error = Some(ErrorCode::DriverRejected);
+    let page = open(fake, 1000, 10_000);
+    until("the panel", || page.state().radeon.panel.is_some());
+    let before = counters.reads.load(Ordering::SeqCst);
+    let row = editable_row(&page, "chill.max_fps");
+    assert!(page.write(&row, Value::Integer(110)));
+    until("the failure", || page.state().radeon.write_failure.is_some());
+    let failure = page.state().radeon.write_failure.unwrap();
+    assert_eq!(failure.setting.as_deref(), Some("chill.max_fps"));
+    assert_eq!(failure.text(), "The graphics driver rejected this change.");
+    assert!(page.state().radeon.pending.is_none());
+    // The 10 s interval would not read again by itself: the failure asks for it.
+    until("a read back", || counters.reads.load(Ordering::SeqCst) > before);
+}
+
+#[test]
+fn a_host_without_radeon_hides_the_panel_and_stops_asking() {
+    let (fake, counters) = fake(true);
+    *fake.radeon.lock().unwrap() = None;
+    let page = open(fake, 20, 20);
+    until("hidden", || page.state().radeon.hidden);
+    // Waits on the session reads rather than a fixed sleep: a slow CI runner may poll only once in 120 ms. Several
+    // intervals pass meanwhile, any of which would have read Radeon again.
+    let sessions = counters.sessions.load(Ordering::SeqCst);
+    until("the session read again", || counters.sessions.load(Ordering::SeqCst) >= sessions + 3);
+    assert_eq!(counters.reads.load(Ordering::SeqCst), 1, "a 404 is not asked again");
+}
+
+#[test]
+fn end_and_close_use_the_native_actions_and_quit_uses_cancel() {
+    let (fake, counters) = fake(true);
+    let page = open(fake, 1000, 1000);
+    assert!(page.exit(HostExit::End));
+    until("done", || matches!(page.state().exit, ExitState::Done(HostExit::End)));
+    assert!(page.exit(HostExit::CloseGame));
+    until("done", || matches!(page.state().exit, ExitState::Done(HostExit::CloseGame)));
+    assert_eq!(*counters.actions.lock().unwrap(), [ActionId::End, ActionId::CloseGame]);
+    assert_eq!(counters.quits.load(Ordering::SeqCst), 0);
+    assert!(page.exit(HostExit::QuitApp));
+    until("done", || matches!(page.state().exit, ExitState::Done(HostExit::QuitApp)));
+    assert_eq!(counters.quits.load(Ordering::SeqCst), 1);
+}
+
+/// The stream menu runs a confirmed exit as the page opens: a page whose worker cannot start
+/// fails it with the reason instead of showing it running for ever (and keeping the page open).
+#[test]
+fn an_exit_on_a_page_that_could_not_start_fails_with_the_reason() {
+    let page = Page::open_with(|| Err::<Fake, _>("no client for this PC".to_owned()), Arc::new(|| {}), Duration::from_secs(1), Duration::from_secs(1));
+    page.exit(HostExit::CloseGame);
+    until("the exit failed", || matches!(page.state().exit, ExitState::Failed(HostExit::CloseGame, _)));
+    let ExitState::Failed(_, failure) = page.state().exit else { unreachable!() };
+    assert_eq!(exit_failure_text(&failure), "no client for this PC");
+    assert!(!page.busy(), "the page can close again");
+    assert!(!page.exit(HostExit::CloseGame), "a second try fails at once, the worker is gone");
+    assert!(matches!(page.state().exit, ExitState::Failed(HostExit::CloseGame, _)));
+}
+
+#[test]
+fn a_failed_exit_keeps_the_stream_and_says_why() {
+    let (mut fake, _counters) = fake(true);
+    fake.write_error = Some(ErrorCode::HostControlRequired);
+    let page = open(fake, 1000, 1000);
+    assert!(page.exit(HostExit::CloseGame));
+    until("failed", || matches!(page.state().exit, ExitState::Failed(..)));
+    let ExitState::Failed(exit, failure) = page.state().exit else { unreachable!() };
+    assert_eq!(exit, HostExit::CloseGame);
+    assert_eq!(exit_failure_text(&failure), "Turn on Host control for this device in the PC’s web UI to close games.");
+
+    let (mut fake, _counters) = self::fake(true);
+    fake.quit = Err(599);
+    let page = open(fake, 1000, 1000);
+    assert!(page.exit(HostExit::QuitApp));
+    until("failed", || matches!(page.state().exit, ExitState::Failed(..)));
+    let ExitState::Failed(_, failure) = page.state().exit else { unreachable!() };
+    assert_eq!(exit_failure_text(&failure), "The running game belongs to another device.");
+}
+
+#[test]
+fn the_page_is_busy_until_an_exit_has_been_answered() {
+    let (fake, _counters) = fake(true);
+    let page = open(fake, 1000, 1000);
+    assert!(!page.busy());
+    // The state an exit leaves behind until the host answers.
+    lock(&page.shared).exit = ExitState::Running(HostExit::End);
+    assert!(page.busy(), "closing the page now would hide the host's answer");
+    assert!(!page.exit(HostExit::CloseGame), "a second exit is refused too");
+    lock(&page.shared).exit = ExitState::Failed(HostExit::End, Failure::of(&Error::NotFound("x".into()), None));
+    assert!(!page.busy(), "a failed exit leaves the page free to close");
+}
+
+#[test]
+fn a_write_that_gets_404_hides_the_panel_and_stops_the_reads() {
+    let (mut fake, counters) = fake(true);
+    fake.write_missing = true;
+    let page = open(fake, 1000, 40);
+    until("the panel", || page.state().radeon.panel.is_some());
+    let row = editable_row(&page, "chill.max_fps");
+    assert!(page.write(&row, Value::Integer(110)));
+    until("hidden", || page.state().radeon.hidden);
+    std::thread::sleep(Duration::from_millis(30));
+    let reads = counters.reads.load(Ordering::SeqCst);
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(counters.reads.load(Ordering::SeqCst), reads, "no more reads once a write got 404");
+    assert!(page.state().radeon.hidden, "and the panel does not come back");
+}
+
+/// Manual: the page's worker against a real paired host, without a stream.
+/// `NIGHTJAR_LIVE_CONFIG=<config dir> NIGHTJAR_LIVE_ADDRESS=127.0.0.1 cargo test -p nightjar-desktop
+/// live_host -- --ignored --nocapture`
+#[test]
+#[ignore = "needs a paired Rubylight host; see the doc comment"]
+fn live_host_answers_the_page() {
+    use nightjar_core::http::ClientIdentity;
+    let Some(dir) = crate::sdl::test_input("NIGHTJAR_LIVE_CONFIG", "the paired host's config directory") else { return };
+    let Some(address) = crate::sdl::test_input("NIGHTJAR_LIVE_ADDRESS", "the host's address") else { return };
+    let (dir, address) = (dir.to_string_lossy().into_owned(), address.to_string_lossy().into_owned());
+    let store = crate::config::Store::at(dir.into()).unwrap();
+    let saved = store.identity().expect("a saved identity");
+    let identity = Arc::new(ClientIdentity::from_pem(saved.unique_id, &saved.certificate_pem, &saved.private_key_pem).unwrap());
+    let record = store.hosts().into_iter().find(|h| h.address == address && h.server_certificate.is_some()).expect("a paired host at that address");
+    let page = Page::open(move || crate::hosts::client_for(&identity, &record, &address), Arc::new(|| {}));
+    until("the first answers", || {
+        let s = page.state();
+        s.session.is_some() && (s.radeon.panel.is_some() || s.radeon.hidden || s.radeon.load_failure.is_some())
+    });
+    let state = page.state();
+    println!("{state:#?}");
+    println!("actions: {:?}", state.actions(Hints { launch: true, host_control: false }));
+}
+
+#[test]
+fn a_host_that_cannot_be_reached_is_said_not_hidden() {
+    let page = Page::open_with(
+        || -> Result<Fake, String> { Err("No client for this PC.".into()) },
+        Arc::new(|| {}),
+        SESSION_INTERVAL,
+        RADEON_INTERVAL,
+    );
+    until("the error", || page.state().setup_error.is_some());
+    assert_eq!(page.state().setup_error.as_deref(), Some("No client for this PC."));
+}
+
+/// Escape on the page goes back to the stream controls (main.rs), so its key sits on that row,
+/// not on Resume.
+#[test]
+fn the_escape_key_is_shown_on_the_way_back_to_the_controls() {
+    let (fake, _) = fake(true);
+    let mut page = open(fake, 60_000, 60_000);
+    until("the page", || page.state().session.is_some());
+    let lines: Vec<(&'static str, String)> = connection_lines("GAMING-PC", "HEVC", (2560, 1440, 120), 40_000, "Home Wi-Fi", None);
+    let hints = Hints { launch: true, host_control: true };
+    let ctx = egui::Context::default();
+    crate::theme::apply(&ctx);
+    ctx.enable_accesskit();
+    let mut names = Vec::new();
+    for _ in 0..3 {
+        let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1920.0, 4000.0))), ..Default::default() };
+        let mut output = ctx.run_ui(input, |ui| {
+            egui::Window::new("Session and graphics").show(ui.ctx(), |ui| {
+                crate::session_ui::show(ui, &mut page, &lines, hints);
+            });
+        });
+        output.textures_delta.clear();
+        let tree = output.platform_output.accesskit_update.expect("AccessKit is on");
+        names.extend(tree.nodes.iter().filter_map(|(_, n)| n.label().or(n.value()).map(str::to_owned)));
+    }
+    let esc = crate::shortcuts::Key::Escape.cap();
+    assert!(names.iter().any(|n| *n == format!("{}, {esc}", tr("Back to stream menu"))), "{names:#?}");
+    assert!(names.iter().any(|n| n == tr("Resume")), "Resume without a key: {names:#?}");
+    assert!(!names.iter().any(|n| n.starts_with(tr("Resume")) && n.contains(esc.as_ref())), "{names:#?}");
+}
+
+/// Benchmark, not a check: `cargo test --release -p nightjar-desktop bench_menu_frame -- --ignored --nocapture`.
+/// One headless egui frame of the open "Session and graphics" window, laid out and tessellated.
+#[test]
+#[ignore = "benchmark"]
+fn bench_menu_frame() {
+    let (fake, _) = fake(true);
+    let mut page = open(fake, 60_000, 60_000);
+    until("the page", || page.state().radeon.panel.is_some() && page.state().session.is_some());
+    let lines: Vec<(&'static str, String)> = connection_lines("GAMING-PC", "HEVC", (2560, 1440, 120), 40_000, "Home Wi-Fi", Some("4.0 ms RTT (±1.0), 0.0% frames lost"));
+    let hints = Hints { launch: true, host_control: true };
+    for lang in [crate::strings::Lang::En, crate::strings::Lang::De] {
+        crate::strings::set(lang);
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        let mut time = 0.0;
+        let mut micros = Vec::new();
+        for frame in 0..1200 {
+            time += 1.0 / 60.0;
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1920.0, 1080.0))),
+                time: Some(time),
+                focused: true,
+                ..Default::default()
+            };
+            let start = Instant::now();
+            let mut output = ctx.run_ui(input, |ui| {
+                egui::Window::new("Session and graphics")
+                    .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                    .collapsible(false)
+                    .resizable(false)
+                    .vscroll(true)
+                    .default_width(440.0)
+                    .show(ui.ctx(), |ui| {
+                        crate::session_ui::show(ui, &mut page, &lines, hints);
+                    });
+            });
+            let meshes = ctx.tessellate(std::mem::take(&mut output.shapes), 1.0);
+            output.textures_delta.clear();
+            std::hint::black_box(&meshes);
+            if frame >= 200 {
+                micros.push(start.elapsed().as_secs_f64() * 1e6);
+            }
+        }
+        micros.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let at = |q: f64| micros[((micros.len() - 1) as f64 * q) as usize];
+        println!(
+            "BENCH {lang:?}: {} frames, p50 {:.0} us, p90 {:.0} us, p99 {:.0} us, max {:.0} us, mean {:.0} us",
+            micros.len(),
+            at(0.5),
+            at(0.9),
+            at(0.99),
+            micros[micros.len() - 1],
+            micros.iter().sum::<f64>() / micros.len() as f64
+        );
+    }
+}

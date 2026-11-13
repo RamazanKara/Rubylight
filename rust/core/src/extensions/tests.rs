@@ -1,0 +1,515 @@
+use super::*;
+use crate::rtsp::Negotiated;
+
+mod stock_announce;
+
+const ALL_ON: Offered = Offered {
+    hdr_formats: hdr::ALL,
+    client_fec: true,
+    bandwidth_probe: true,
+    usb: true,
+    audio_codecs: audio_ext::CODECS_ALL,
+    surround_714: true,
+    text_input: true,
+    keyboard_layout: true,
+    pen_barrel_roll: true,
+    cursor_shape: true,
+    pipeline_rates: true,
+    display_scale: true,
+    second_screen: true,
+    frame_warp: true,
+    controller_identity: true,
+    rate_change: true,
+    clipboard_sync: true,
+    transport_feedback: true,
+    nvidia_enhancements: crate::nvidia_enhance::ALL,
+};
+
+#[test]
+fn nothing_offered_adds_nothing() {
+    assert_eq!(Offered::NONE, Offered::default());
+    assert!(Offered::NONE.serverinfo_fields().is_empty());
+    assert_eq!(Offered::NONE.describe_lines(), "");
+    assert!(Offered::NONE.control_ids().is_empty());
+    // Opus alone is what every host already sends.
+    let opus = Offered {
+        audio_codecs: audio_ext::CODEC_OPUS,
+        ..Offered::NONE
+    };
+    assert!(opus.serverinfo_fields().is_empty());
+    assert_eq!(opus.describe_lines(), "");
+}
+
+#[test]
+fn everything_offered_gives_the_exact_fields_and_lines() {
+    let fields: Vec<(&str, String)> = ALL_ON.serverinfo_fields();
+    let fields: Vec<(&str, &str)> = fields.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    assert_eq!(
+        fields,
+        [
+            ("HdrFormats", "31"),
+            ("FecControlVersion", "1"),
+            ("BandwidthProbeVersion", "1"),
+            ("AudioCodecs", "15"),
+            ("AudioLayouts", "15"),
+            ("TextInputVersion", "2"),
+            ("KeyboardLayoutVersion", "1"),
+            ("PenBarrelRollVersion", "1"),
+            ("CursorShapeVersion", "1"),
+            ("PipelineRatesVersion", "1"),
+            ("DisplayScaleVersion", "1"),
+            ("SecondScreenVersion", "1"),
+            ("FrameWarpVersion", "1"),
+            ("ControllerIdentityVersion", "1"),
+            ("NvidiaEnhancements", "3"),
+        ]
+    );
+    assert_eq!(
+        ALL_ON.describe_lines(),
+        "a=x-rl-video.hdrFormats:31\r\n\
+             a=x-rl-audio.codecs:15\r\n\
+             a=x-rl-audio.layout714:12,8,4,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
+             a=x-rl-audio.layout714Hq:12,12,0,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
+             a=fmtp:97 surround-params=12,8,4,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
+             a=fmtp:97 surround-params=12,12,0,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
+             a=x-ss-general.penBarrelRoll:1\r\n\
+             a=x-rl-control:0x5508,0x5539,0x553a,0x553b,0x553c,0x553d,0x553e,0x5540,0x5543,\
+             0x5544,0x5545,0x5546,0x5547\r\n"
+    );
+    assert_eq!(
+        ALL_ON.control_ids(),
+        [
+            0x5508, 0x5539, 0x553A, 0x553B, 0x553C, 0x553D, 0x553E, 0x5540, 0x5543, 0x5544, 0x5545,
+            0x5546, 0x5547
+        ]
+    );
+}
+
+#[test]
+fn rate_changes_are_a_describe_id_only() {
+    let offered = Offered {
+        rate_change: true,
+        ..Offered::NONE
+    };
+    assert!(offered.serverinfo_fields().is_empty());
+    assert_eq!(offered.describe_lines(), "a=x-rl-control:0x553c\r\n");
+    let defaults = Offered {
+        client_fec: true,
+        pipeline_rates: true,
+        ..Offered::NONE
+    };
+    assert_eq!(
+        Offered {
+            rate_change: true,
+            ..defaults
+        }
+        .describe_lines(),
+        "a=x-rl-control:0x5539,0x553c,0x553d\r\n"
+    );
+    assert_eq!(
+        Offered {
+            rate_change: true,
+            ..defaults
+        }
+        .serverinfo_fields(),
+        defaults.serverinfo_fields()
+    );
+}
+
+#[test]
+fn transport_feedback_is_a_describe_id_only() {
+    let offered = Offered {
+        transport_feedback: true,
+        ..Offered::NONE
+    };
+    assert!(offered.serverinfo_fields().is_empty());
+    assert_eq!(offered.describe_lines(), "a=x-rl-control:0x5547\r\n");
+}
+
+#[test]
+fn partial_offers_keep_their_order_and_add_opus() {
+    let offered = Offered {
+        audio_codecs: audio_ext::CODEC_PCM,
+        cursor_shape: true,
+        client_fec: true,
+        ..Offered::NONE
+    };
+    assert_eq!(
+        offered.describe_lines(),
+        "a=x-rl-audio.codecs:3\r\na=x-rl-control:0x5539,0x5540\r\n"
+    );
+    let hdr = Offered {
+        hdr_formats: hdr::HLG | 0x60,
+        ..Offered::NONE
+    };
+    assert_eq!(hdr.serverinfo_fields(), [("HdrFormats", "2".to_owned())]);
+}
+
+#[test]
+fn the_new_control_ids_are_not_the_stock_ones() {
+    for id in ALL_ON.control_ids() {
+        assert!(
+            !crate::rtsp::CONTROL_MESSAGES.contains(&format!("{id:#06x}")),
+            "{id:#06x}"
+        );
+    }
+}
+
+fn announce(sdp: &str) -> Negotiated {
+    Negotiated::from_sdp(sdp.as_bytes()).unwrap()
+}
+
+#[test]
+fn a_stock_announce_passes_whatever_is_offered() {
+    for sdp in [
+        "",
+        "a=x-nv-video[0].dynamicRangeMode:1\n",
+        "a=x-nv-audio.surround.numChannels:6\na=x-nv-audio.surround.channelMask:63\n",
+        "a=x-nv-audio.surround.numChannels:8\n",
+    ] {
+        Offered::NONE.check_announce(&announce(sdp)).unwrap();
+        ALL_ON.check_announce(&announce(sdp)).unwrap();
+    }
+    // An explicit Opus pick is stock too.
+    Offered::NONE
+        .check_announce(&announce("a=x-rl-audio.codec:1\n"))
+        .unwrap();
+}
+
+#[test]
+fn hdr_formats_not_offered_or_not_possible_are_refused() {
+    let hdr = "a=x-nv-video[0].dynamicRangeMode:1\na=x-nv-vqos[0].bitStreamFormat:1\n";
+    let refused = |offered: &Offered, sdp: &str| {
+        let error = offered.check_announce(&announce(sdp)).unwrap_err();
+        assert!(
+            error.to_string().contains("x-rl-video[0].hdrFormat"),
+            "{error}"
+        );
+    };
+    refused(
+        &Offered::NONE,
+        &format!("{hdr}a=x-rl-video[0].hdrFormat:1\n"),
+    );
+    refused(&ALL_ON, &format!("{hdr}a=x-rl-video[0].hdrFormat:3\n"));
+    refused(&ALL_ON, &format!("{hdr}a=x-rl-video[0].hdrFormat:32\n"));
+    let pq_only = Offered {
+        hdr_formats: hdr::PQ,
+        ..Offered::NONE
+    };
+    refused(&pq_only, &format!("{hdr}a=x-rl-video[0].hdrFormat:2\n"));
+    // SDR with a format picked.
+    refused(
+        &ALL_ON,
+        "a=x-nv-vqos[0].bitStreamFormat:1\na=x-rl-video[0].hdrFormat:2\n",
+    );
+    // Dolby Vision 8.1 and 8.4 on H.264 or AV1, 10.1 on H.264 or HEVC, and
+    // any on PyroWave.
+    for (codec, format) in [(0, 4), (2, 4), (2, 8), (3, 4), (0, 16), (1, 16), (3, 16)] {
+        refused(
+            &ALL_ON,
+            &format!(
+                "a=x-nv-video[0].dynamicRangeMode:1\na=x-nv-vqos[0].bitStreamFormat:{codec}\na=x-rl-video[0].hdrFormat:{format}\n"
+            ),
+        );
+    }
+    for format in [1, 2, 4, 8] {
+        ALL_ON
+            .check_announce(&announce(&format!(
+                "{hdr}a=x-rl-video[0].hdrFormat:{format}\n"
+            )))
+            .unwrap();
+    }
+    let av1 = "a=x-nv-video[0].dynamicRangeMode:1\na=x-nv-vqos[0].bitStreamFormat:2\n";
+    for format in [1, 2, 16] {
+        ALL_ON
+            .check_announce(&announce(&format!(
+                "{av1}a=x-rl-video[0].hdrFormat:{format}\n"
+            )))
+            .unwrap();
+    }
+    pq_only
+        .check_announce(&announce(&format!("{hdr}a=x-rl-video[0].hdrFormat:1\n")))
+        .unwrap();
+}
+
+#[test]
+fn hlg_and_dolby_vision_are_offered_by_codec_while_their_settings_are_on() {
+    let hevc_main10 = 0x1 | 0x100 | 0x200;
+    let av1_main10 = 0x1 | 0x100 | 0x2_0000;
+    // HLG on HEVC or AV1 Main10, Dolby Vision 8.1 on HEVC Main10, 8.4 (HLG
+    // underneath) only with both, and 10.1 on AV1 Main10.
+    for (codecs, hlg, dolby_vision, formats) in [
+        (
+            hevc_main10,
+            true,
+            true,
+            hdr::PQ | hdr::HLG | hdr::DV_81 | hdr::DV_84,
+        ),
+        (hevc_main10, false, true, hdr::PQ | hdr::DV_81),
+        (hevc_main10, true, false, hdr::PQ | hdr::HLG),
+        (av1_main10, true, true, hdr::PQ | hdr::HLG | hdr::DV_101),
+        (av1_main10, false, true, hdr::PQ | hdr::DV_101),
+        (av1_main10, true, false, hdr::PQ | hdr::HLG),
+        (av1_main10 | 0x200, true, true, hdr::ALL),
+        (
+            av1_main10 | 0x200,
+            false,
+            true,
+            hdr::PQ | hdr::DV_81 | hdr::DV_101,
+        ),
+    ] {
+        assert_eq!(
+            hdr_offer(codecs, hlg, dolby_vision),
+            formats,
+            "{codecs:#x} {hlg} {dolby_vision}"
+        );
+    }
+    // Both off, or no Main10 encoder: nothing beyond stock HDR, so
+    // serverinfo and DESCRIBE stay stock.
+    for (codecs, hlg, dolby_vision) in [
+        (hevc_main10, false, false),
+        (av1_main10, false, false),
+        (0x1 | 0x100 | 0x1_0000, true, true),
+        (0x0200_0000, false, true),
+        (0, true, true),
+    ] {
+        assert_eq!(hdr_offer(codecs, hlg, dolby_vision), 0, "{codecs:#x}");
+        let offered = Offered {
+            hdr_formats: hdr_offer(codecs, hlg, dolby_vision),
+            ..Offered::NONE
+        };
+        assert!(offered.serverinfo_fields().is_empty());
+        assert!(offered.describe_lines().is_empty());
+    }
+    let offered = Offered {
+        hdr_formats: hdr_offer(hevc_main10, false, true),
+        ..Offered::NONE
+    };
+    assert_eq!(
+        offered.serverinfo_fields(),
+        [("HdrFormats", "5".to_owned())]
+    );
+    assert_eq!(offered.describe_lines(), "a=x-rl-video.hdrFormats:5\r\n");
+    let hdr = "a=x-nv-video[0].dynamicRangeMode:1\na=x-nv-vqos[0].bitStreamFormat:1\n";
+    let pick = |offered: &Offered, format: u8| {
+        offered.check_announce(&announce(&format!(
+            "{hdr}a=x-rl-video[0].hdrFormat:{format}\n"
+        )))
+    };
+    for format in [1, 4] {
+        pick(&offered, format).unwrap();
+    }
+    for format in [2, 8] {
+        pick(&offered, format).unwrap_err();
+    }
+    let all = Offered {
+        hdr_formats: hdr_offer(hevc_main10, true, true),
+        ..Offered::NONE
+    };
+    assert_eq!(all.describe_lines(), "a=x-rl-video.hdrFormats:15\r\n");
+    for format in [1, 2, 4, 8] {
+        pick(&all, format).unwrap();
+    }
+    // An AV1-only host offers 10.1, and a client takes it on AV1 alone.
+    let av1 = Offered {
+        hdr_formats: hdr_offer(av1_main10, false, true),
+        ..Offered::NONE
+    };
+    assert_eq!(av1.serverinfo_fields(), [("HdrFormats", "17".to_owned())]);
+    assert_eq!(av1.describe_lines(), "a=x-rl-video.hdrFormats:17\r\n");
+    let error = pick(&av1, hdr::DV_101).unwrap_err().to_string();
+    assert!(
+        error.contains("(Dolby Vision profile 10) needs AV1"),
+        "{error}"
+    );
+    av1.check_announce(&announce(
+        "a=x-nv-video[0].dynamicRangeMode:1\na=x-nv-vqos[0].bitStreamFormat:2\na=x-rl-video[0].hdrFormat:16\n",
+    ))
+    .unwrap();
+    for format in [4, 8] {
+        pick(&av1, format).unwrap_err();
+    }
+}
+
+#[test]
+fn hlg_needs_hevc_or_av1() {
+    let pick = |codec: u8| {
+        ALL_ON.check_announce(&announce(&format!(
+            "a=x-nv-video[0].dynamicRangeMode:1\na=x-nv-vqos[0].bitStreamFormat:{codec}\na=x-rl-video[0].hdrFormat:2\n"
+        )))
+    };
+    for codec in [1, 2] {
+        pick(codec).unwrap();
+    }
+    // H.264 has no HDR here and PyroWave carries its own picture format.
+    for codec in [0, 3] {
+        let error = pick(codec).unwrap_err().to_string();
+        assert!(
+            error.contains("(HLG) needs HEVC or AV1"),
+            "{codec}: {error}"
+        );
+    }
+}
+
+#[test]
+fn hlg_on_pyrowave_is_offered_with_its_flag_and_taken_only_then() {
+    let hevc_main10 = 0x1 | 0x100 | 0x200;
+    let pyrowave_main10 = 0x0200_0000;
+    // PyroWave Main10 with HLG on adds the flag; HLG alone, without
+    // PyroWave Main10 (8-bit or 4:4:4 only), or with HLG off adds nothing.
+    for (codecs, hlg, dolby_vision, formats) in [
+        (
+            hevc_main10 | pyrowave_main10,
+            true,
+            false,
+            hdr::PQ | hdr::HLG | hdr::PYROWAVE_HLG,
+        ),
+        (
+            hevc_main10 | pyrowave_main10,
+            true,
+            true,
+            hdr::PQ | hdr::HLG | hdr::DV_81 | hdr::DV_84 | hdr::PYROWAVE_HLG,
+        ),
+        // AV1 Main10 adds Dolby Vision 10.1 beside the flag.
+        (
+            hevc_main10 | 0x2_0000 | pyrowave_main10,
+            true,
+            true,
+            hdr::ALL | hdr::PYROWAVE_HLG,
+        ),
+        (
+            pyrowave_main10,
+            true,
+            true,
+            hdr::PQ | hdr::HLG | hdr::PYROWAVE_HLG,
+        ),
+        (
+            hevc_main10 | pyrowave_main10,
+            false,
+            true,
+            hdr::PQ | hdr::DV_81,
+        ),
+        (
+            hevc_main10 | 0x0080_0000 | 0x0400_0000,
+            true,
+            false,
+            hdr::PQ | hdr::HLG,
+        ),
+        (pyrowave_main10, false, true, 0),
+    ] {
+        assert_eq!(
+            hdr_offer(codecs, hlg, dolby_vision),
+            formats,
+            "{codecs:#x} {hlg} {dolby_vision}"
+        );
+    }
+    let with_flag = |codecs, dolby_vision| Offered {
+        hdr_formats: hdr_offer(codecs, true, dolby_vision),
+        ..Offered::NONE
+    };
+    let hlg = with_flag(hevc_main10 | pyrowave_main10, false);
+    assert_eq!(hlg.serverinfo_fields(), [("HdrFormats", "131".to_owned())]);
+    assert_eq!(hlg.describe_lines(), "a=x-rl-video.hdrFormats:131\r\n");
+    let all = with_flag(hevc_main10 | pyrowave_main10, true);
+    assert_eq!(all.serverinfo_fields(), [("HdrFormats", "143".to_owned())]);
+    assert_eq!(all.describe_lines(), "a=x-rl-video.hdrFormats:143\r\n");
+    // The flag alone is no format, so it shows nothing.
+    let flag_only = Offered {
+        hdr_formats: hdr::PYROWAVE_HLG,
+        ..Offered::NONE
+    };
+    assert!(flag_only.serverinfo_fields().is_empty());
+    assert!(flag_only.describe_lines().is_empty());
+
+    let pick = |offered: &Offered, codec: u8, format: u8| {
+        offered.check_announce(&announce(&format!(
+            "a=x-nv-video[0].dynamicRangeMode:1\na=x-nv-vqos[0].bitStreamFormat:{codec}\na=x-rl-video[0].hdrFormat:{format}\n"
+        )))
+    };
+    // HLG on PyroWave with the flag, beside HEVC; PQ on PyroWave as ever.
+    for (codec, format) in [(3, hdr::HLG), (3, hdr::PQ), (1, hdr::HLG)] {
+        pick(&all, codec, format).unwrap();
+    }
+    // Without the flag (a host whose PyroWave has no Main10) HLG on
+    // PyroWave is still refused.
+    let error = pick(&ALL_ON, 3, hdr::HLG).unwrap_err().to_string();
+    assert!(error.contains("(HLG) needs HEVC or AV1"), "{error}");
+    // Dolby Vision profile 8 stays HEVC only, and the flag is never a format.
+    for format in [hdr::DV_81, hdr::DV_84] {
+        let error = pick(&all, 3, format).unwrap_err().to_string();
+        assert!(
+            error.contains("(Dolby Vision profile 8) needs HEVC"),
+            "{error}"
+        );
+    }
+    for format in [hdr::PYROWAVE_HLG, hdr::PYROWAVE_HLG | hdr::HLG, 32] {
+        let error = pick(&all, 3, format).unwrap_err().to_string();
+        assert!(error.contains("is not a single HDR format"), "{error}");
+    }
+}
+
+#[test]
+fn audio_codecs_and_layouts_not_offered_or_not_possible_are_refused() {
+    let with = |codec: u8, channels: u8| {
+        format!("a=x-rl-audio.codec:{codec}\na=x-nv-audio.surround.numChannels:{channels}\n")
+    };
+    let refused = |offered: &Offered, sdp: &str, needle: &str| {
+        let error = offered.check_announce(&announce(sdp)).unwrap_err();
+        assert!(error.to_string().contains(needle), "{sdp}: {error}");
+    };
+    refused(&Offered::NONE, &with(2, 2), "x-rl-audio.codec");
+    refused(&ALL_ON, &with(3, 2), "x-rl-audio.codec");
+    refused(&ALL_ON, &with(16, 2), "x-rl-audio.codec");
+    let pcm = Offered {
+        audio_codecs: audio_ext::CODEC_PCM,
+        ..Offered::NONE
+    };
+    refused(&pcm, &with(4, 2), "x-rl-audio.codec");
+    refused(&ALL_ON, &with(4, 8), "x-rl-audio.codec");
+    refused(&ALL_ON, &with(4, 12), "x-rl-audio.codec");
+    refused(&ALL_ON, &with(8, 12), "x-rl-audio.codec");
+    // 12 channels without 7.1.4 offered, with Opus or PCM.
+    refused(&Offered::NONE, &with(0, 12), "7.1.4");
+    refused(&pcm, &with(2, 12), "7.1.4");
+    for (codec, channels) in [
+        (0, 12),
+        (2, 2),
+        (2, 6),
+        (2, 8),
+        (2, 12),
+        (4, 2),
+        (4, 6),
+        (8, 2),
+        (8, 6),
+        (8, 8),
+    ] {
+        ALL_ON
+            .check_announce(&announce(&with(codec, channels)))
+            .unwrap_or_else(|error| panic!("{codec} {channels}: {error}"));
+    }
+}
+
+#[test]
+fn fec_choice_reads_the_launch_parameter() {
+    let options = |value: Option<&str>| -> BTreeMap<String, String> {
+        value
+            .map(|value| ("rlFecPercentage".to_owned(), value.to_owned()))
+            .into_iter()
+            .collect()
+    };
+    assert_eq!(fec_choice(&options(None)).unwrap(), FecChoice::Host);
+    assert_eq!(fec_choice(&options(Some("host"))).unwrap(), FecChoice::Host);
+    assert_eq!(fec_choice(&options(Some("auto"))).unwrap(), FecChoice::Auto);
+    assert_eq!(
+        fec_choice(&options(Some("0"))).unwrap(),
+        FecChoice::Fixed(0)
+    );
+    assert_eq!(
+        fec_choice(&options(Some("255"))).unwrap(),
+        FecChoice::Fixed(255)
+    );
+    for bad in ["256", "-1", "+5", "05x", "", "Auto"] {
+        let error = fec_choice(&options(Some(bad))).unwrap_err();
+        assert_eq!(error.to_string(), "invalid rlFecPercentage", "{bad}");
+    }
+}

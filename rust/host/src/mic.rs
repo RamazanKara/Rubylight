@@ -190,6 +190,11 @@ impl Receiver {
             self.counters.refused.fetch_add(1, Ordering::Relaxed);
             return;
         };
+        // A guest's microphone plays on the PC only with its keyboard-and-mouse permission.
+        if !self.h.device_guests.full_access(&session) {
+            self.counters.refused.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
         if !self
             .speaker
             .as_ref()

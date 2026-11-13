@@ -20,6 +20,7 @@ mod parity_tests;
 mod power;
 mod radeon;
 mod session;
+mod session_guests;
 mod webhooks;
 #[cfg(test)]
 mod webrtc_tests;
@@ -1066,6 +1067,9 @@ pub(crate) async fn api(
     }
     if path == "/api/guests" || path.starts_with("/api/guests/") {
         return guests::handle(&h, &method, path, &data);
+    }
+    if path == "/api/session-guests" || path.starts_with("/api/session-guests/") {
+        return session_guests::handle(&h, &method, path, &data);
     }
     if path == "/api/neural" || path.starts_with("/api/neural/") {
         return neural::handle(&h, &method, path, &uri, &data).await;

@@ -13,6 +13,7 @@ pub mod coop;
 pub mod error;
 pub mod files;
 pub mod folders;
+pub mod guests;
 pub mod library;
 pub mod pairing;
 pub mod power;
@@ -88,4 +89,7 @@ pub mod feature {
     /// [`crate::pairing`]: a device with Host control lists, approves and
     /// denies pairing requests, while the host's pairing setting is on.
     pub const PAIRING_APPROVE: &str = "pairing.approve";
+    /// [`crate::guests`]: `GET /session/guests` and its actions answer, while the host's
+    /// `guest_join` lets another device join the running game as a guest.
+    pub const SESSION_GUESTS: &str = "session.guests";
 }

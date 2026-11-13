@@ -764,7 +764,9 @@ impl Media {
                                 let Ok(config) = p.config(&h, &s) else {
                                     continue;
                                 };
-                                let allowed = clipboard_sync::allowed(&config, &s.launch.client);
+                                // A guest's clipboard needs its keyboard-and-mouse permission.
+                                let allowed = clipboard_sync::allowed(&config, &s.launch.client)
+                                    && h.device_guests.full_access(&s);
                                 p.clipboard_sync
                                     .receive(&s, &payload, allowed, &self.control_wake);
                             }
@@ -888,7 +890,12 @@ impl Media {
                                     Some(message) => {
                                         let (enabled, limit) = {
                                             let config = h.config.read().unwrap();
-                                            (config.usb_forwarding(), config.usb_max_devices())
+                                            // Never a guest's but one with keyboard and mouse.
+                                            (
+                                                config.usb_forwarding()
+                                                    && h.device_guests.full_access(&s),
+                                                config.usb_max_devices(),
+                                            )
                                         };
                                         h.usb.on_message(
                                             &p.id,
@@ -1052,6 +1059,12 @@ impl Media {
                                             s.launch.warnings.set(&code, message);
                                         }
                                     }
+                                    // A guest's input needs its guest permission, and keys and
+                                    // the mouse go only to their one holder (`multiclient`).
+                                    Ok(event)
+                                        if !h
+                                            .device_guests
+                                            .admits(&s, event.required_permission()) => {}
                                     Ok(mut event) => {
                                         p.audio_haptics.input(
                                             &mut event,
@@ -1573,6 +1586,12 @@ impl Media {
                         }
                     }
                     follow_session(&h, p, &s);
+                    // A guest that lost the keyboard and mouse lets go of what it holds.
+                    if let Some(i) = &mut p.injector
+                        && h.device_guests.take_release(&s)
+                    {
+                        i.release_keyboard_mouse();
+                    }
                     p.audio_haptics.follow(
                         h.config_version.load(Ordering::Acquire),
                         &s.launch.warnings,

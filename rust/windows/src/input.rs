@@ -1170,6 +1170,14 @@ impl Injector {
             drop(self.gamepads.stop());
         }
     }
+    /// Lets go of the keys, mouse buttons and touches this injector holds and keeps its
+    /// controllers: a guest's stream that lost the keyboard and mouse to another holder
+    /// (`butterpollo_core::multiclient::Kbm`).
+    pub fn release_keyboard_mouse(&mut self) {
+        if let Err(error) = self.release_pointers() {
+            tracing::warn!(%error, "keyboard and mouse release incomplete");
+        }
+    }
     pub fn release_all(&mut self) {
         self.gamepads.release_all();
         if let Err(error) = self.release_pointers() {

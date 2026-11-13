@@ -47,6 +47,7 @@ pub mod input;
 mod ipc;
 pub mod keylayout;
 pub mod launcher;
+pub mod local_input;
 pub mod library;
 pub mod limiter;
 pub mod local_time;

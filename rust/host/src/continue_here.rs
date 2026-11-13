@@ -275,7 +275,7 @@ impl Drop for Attempt<'_> {
 
 impl Host {
     /// A device's name, as it was paired.
-    fn device_name(&self, uuid: &str) -> Option<String> {
+    pub(crate) fn device_name(&self, uuid: &str) -> Option<String> {
         self.paired
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)

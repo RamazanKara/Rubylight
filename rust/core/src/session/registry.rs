@@ -242,7 +242,7 @@ impl<P, A> Sessions<P, A> {
     pub fn plain_streams(&self) -> BTreeMap<String, String> {
         self.active
             .values()
-            .filter(|s| !s.stopping() && s.launch.plain_stream())
+            .filter(|s| !s.stopping() && s.launch.plain_stream() && s.launch.guest().is_none())
             .map(|s| (s.launch.client.uuid.clone(), s.launch.client.name.clone()))
             .collect()
     }
@@ -250,7 +250,7 @@ impl<P, A> Sessions<P, A> {
     pub fn plain_launches(&self) -> BTreeMap<String, String> {
         self.pending
             .values()
-            .filter(|p| p.live() && p.plain_stream())
+            .filter(|p| p.live() && p.plain_stream() && p.guest().is_none())
             .map(|p| (p.client.uuid.clone(), p.client.name.clone()))
             .collect()
     }
@@ -275,10 +275,12 @@ impl<P, A> Sessions<P, A> {
             })
     }
     /// Continue here: stop every other device's plain stream and launch. A Nucleus Co-op or
-    /// background stream, an Input-only or Remote Monitor session and the caller's own stay.
+    /// background stream, an Input-only or Remote Monitor session, a guest's stream
+    /// ([`crate::multiclient`]) and the caller's own stay.
     #[must_use = "drop canceled launches after releasing the sessions lock"]
     pub fn stop_plain_streams_of_others(&mut self, client: &str) -> Vec<Launch<P, A>> {
-        let other = |l: &Launch<P, A>| l.plain_stream() && l.client.uuid != client;
+        let other =
+            |l: &Launch<P, A>| l.plain_stream() && l.guest().is_none() && l.client.uuid != client;
         let canceled = self.remove_pending(other);
         for s in self.active.values() {
             if other(&s.launch) {

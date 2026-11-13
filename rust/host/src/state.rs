@@ -341,6 +341,8 @@ pub struct Host {
     pub webrtc_links: crate::webrtc::session::Links,
     /// Invite links for the console's browser stream and the guests watching it.
     pub guests: crate::webrtc::guests::Guests,
+    /// Paired devices joining another device's game as guests (`multiclient`).
+    pub device_guests: crate::multiclient::DeviceGuests,
     pub otp: Mutex<OneTimePins>,
     pub web_sessions: Mutex<HashMap<String, WebSession>>,
     pub stop: std::sync::atomic::AtomicBool,
@@ -909,6 +911,7 @@ impl Host {
             webhooks: crate::webhooks::Webhooks::new(crate::webhooks::Policy::DEFAULT)?,
             nucleus: crate::nucleus::Registry::on_pc(),
             neural: Default::default(),
+            device_guests: Default::default(),
         }))
     }
     pub fn assign_apps(&self, apps: &mut [App]) -> Result<()> {

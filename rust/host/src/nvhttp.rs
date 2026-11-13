@@ -1478,6 +1478,37 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
             return xml(401, &[], Some(error.to_string()));
         }
     };
+    // A device joining another device's game becomes its guest when `guest_join` lets it
+    // (`multiclient`), and may wait for the owner's answer: before the launch lock, so other
+    // launches, the owner's among them, go on meanwhile. Otherwise it streams as it always did.
+    let joins_game = resume
+        || matches!(control, Some(Control::Resume | Control::RunningGame))
+        || (control.is_none()
+            && requested != 0
+            && active.as_ref().is_some_and(|game| game.app.id == requested));
+    let plain = matches!(control, None | Some(Control::Resume | Control::RunningGame))
+        && !args.get("input_only").is_some_and(|v| v == "1")
+        && !args.get("remote_monitor").is_some_and(|v| v == "1");
+    let guest = match h.device_guests.gate(
+        &h,
+        &crate::multiclient::Join {
+            client: &client,
+            joins_game,
+            plain,
+        },
+    ) {
+        Ok(crate::multiclient::Gate::Guest { id, .. }) => Some(id),
+        Ok(crate::multiclient::Gate::NotGuest) => None,
+        Err(refusal) => {
+            return launch_response(
+                Err(LaunchFailure(refusal.status(), refusal.message()).into()),
+                requested,
+                if resume { "resume" } else { "gamesession" },
+                resume,
+                false,
+            );
+        }
+    };
     let _transition = h.launch_transition.lock().unwrap();
     // Whatever refuses this launch below, a press of Continue here it was for ends with it.
     let attempt = crate::continue_here::Attempt::new(
@@ -1510,9 +1541,11 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         ControlFlow::Continue(owner) => owner,
         ControlFlow::Break(response) => return response,
     };
+    // A guest streams the running game, also when it named the game in a `/launch`.
     let resume = resume
         || matches!(control, Some(Control::Resume | Control::RunningGame))
-        || (control == Some(Control::Monitor) && owner == remote::Owner::Monitor);
+        || (control == Some(Control::Monitor) && owner == remote::Owner::Monitor)
+        || guest.is_some();
     let result = (|| -> Result<(String, String)> {
         let key: [u8; 16] = hex::decode(args.get("rikey").context("missing stream key")?)?
             .try_into()
@@ -1530,6 +1563,12 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         }
         let mut launch =
             build_launch_session(&connection, &args, client, app_id, role, key, key_id);
+        if let Some(id) = guest {
+            launch.options.insert(
+                butterpollo_core::multiclient::LAUNCH_OPTION.into(),
+                id.to_string(),
+            );
+        }
         // A refused `rlFecPercentage` fails the launch rather than streaming
         // with protection the client did not ask for.
         butterpollo_core::extensions::fec_choice(&launch.options)?;
@@ -1563,7 +1602,10 @@ fn start(h: Shared, connection: Connection, args: Args, resume: bool) -> Respons
         } else {
             "rtsp"
         };
-        launch_back_half(&h, &args, launch, app, coop, resume, owner)?;
+        let launch = launch_back_half(&h, &args, launch, app, coop, resume, owner)?;
+        if let Some(id) = guest {
+            h.device_guests.joined(id, &launch.id);
+        }
         let host = match connection.local.ip() {
             std::net::IpAddr::V4(ip) => ip.to_string(),
             std::net::IpAddr::V6(ip) => format!("[{ip}]"),
@@ -2485,7 +2527,12 @@ fn build_launch(
             })
             .map_or(0, |rate| rate.0),
         audio_preparation: Default::default(),
-        options: args.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+        // A guest's id is the host's to set (`multiclient`), never the client's.
+        options: args
+            .iter()
+            .filter(|(k, _)| k.as_str() != butterpollo_core::multiclient::LAUNCH_OPTION)
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect(),
         preparing: Default::default(),
         transport: Default::default(),
         roaming_offered: Default::default(),

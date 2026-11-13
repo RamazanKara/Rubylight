@@ -16,6 +16,7 @@ mod logging;
 mod lossless;
 mod maintenance;
 mod mic;
+mod multiclient;
 mod native_api;
 mod network;
 mod network_path;
@@ -458,6 +459,8 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
     // Game settings files a crashed run left swapped for a device are saved as that device's
     // copies and the PC's own put back, as the Windows user once someone is signed in.
     game_settings::start(&h);
+    // Guests from paired devices: their places end with the game or their time.
+    multiclient::start(&h);
     // What a Nucleus Co-op session left for the user at the console when an
     // earlier host stopped mid-session is put back before a stream can start
     // a new one.

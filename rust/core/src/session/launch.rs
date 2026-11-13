@@ -181,6 +181,13 @@ impl<P, A> Launch<P, A> {
     pub fn plain_stream(&self) -> bool {
         self.role == Role::Stream && self.nucleus.is_none() && self.background != Some(true)
     }
+    /// The guest id this launch streams as, when it joined another device's game as a guest
+    /// ([`crate::multiclient`]). The host sets it; it removes the option from every request.
+    pub fn guest(&self) -> Option<u32> {
+        self.options
+            .get(crate::multiclient::LAUNCH_OPTION)
+            .and_then(|id| id.parse().ok())
+    }
     /// The lease an RTSP request at `now` gives this launch.
     pub(super) fn lease(&self, now: Instant) -> Instant {
         (now + RTSP_LEASE).min(self.created + CLAIM_LIMIT)

@@ -31,6 +31,7 @@ mod coop;
 mod couch_menu;
 mod files;
 mod folders;
+mod guests;
 mod launcher;
 mod pairing;
 mod power;

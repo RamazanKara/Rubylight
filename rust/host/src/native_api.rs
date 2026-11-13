@@ -11,6 +11,7 @@ mod audio;
 pub(crate) mod coop;
 pub(crate) mod files;
 mod folders;
+mod guests;
 pub(crate) mod pairing;
 mod power;
 pub(crate) mod radeon;
@@ -245,6 +246,34 @@ pub fn router() -> Router<Shared> {
             &path("/pairing/deny"),
             post(pairing::deny).fallback(unknown),
         )
+        .route(
+            &path("/session/guests"),
+            get(guests::list).fallback(unknown),
+        )
+        .route(
+            &path("/session/guests/approve"),
+            post(guests::approve).fallback(unknown),
+        )
+        .route(
+            &path("/session/guests/deny"),
+            post(guests::deny).fallback(unknown),
+        )
+        .route(
+            &path("/session/guests/kick"),
+            post(guests::kick).fallback(unknown),
+        )
+        .route(
+            &path("/session/guests/revoke"),
+            post(guests::revoke).fallback(unknown),
+        )
+        .route(
+            &path("/session/guests/permission"),
+            post(guests::set_permission).fallback(unknown),
+        )
+        .route(
+            &path("/session/guests/keyboard-mouse"),
+            post(guests::keyboard_mouse).fallback(unknown),
+        )
         .route(&path("/coop"), get(coop::list).fallback(unknown))
         .route(&path("/coop/join"), post(coop::join).fallback(unknown))
         .route(
@@ -363,12 +392,14 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
         },
         |config| config.couch_menu(),
     );
-    let (name, extension_features, pairing) = {
+    let (name, extension_features, pairing, guests) = {
         let config = h.config.read().unwrap_or_else(PoisonError::into_inner);
         (
             crate::network::host_name(&config),
             crate::extensions::native_features(&h, &config),
             config.boolean("enable_pairing", true),
+            butterpollo_core::multiclient::JoinPolicy::from_config(&config)
+                != butterpollo_core::multiclient::JoinPolicy::Off,
         )
     };
     let coop = h.nucleus.unavailable().is_none();
@@ -436,6 +467,8 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
             .chain(update.then_some(feature::UPDATE))
             // While new devices may pair; approving needs Host control.
             .chain(pairing.then_some(feature::PAIRING_APPROVE))
+            // While another device may join the running game as a guest.
+            .chain(guests.then_some(feature::SESSION_GUESTS))
             .chain(extension_features)
             .map(String::from)
             .collect(),

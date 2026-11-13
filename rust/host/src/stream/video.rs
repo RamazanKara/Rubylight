@@ -466,6 +466,10 @@ impl SessionThread<'_> {
 struct Leases {
     encoder: Option<Encoder>,
     latest: Option<Arc<Source>>,
+    // Follows the app's window (`capture_window = window`) from before the first capture.
+    // It goes after the capture: its end shows the display again, which a capture still
+    // open would switch to just before it closes.
+    app_window: Option<app_window::AppWindow>,
     stream_preparation: Option<crate::display_session::StreamPreparation>,
     com: Option<ComGuard>,
 }
@@ -545,9 +549,9 @@ impl Media {
                     let Some(config) = session.configure(&mut workers)? else {
                         return Ok(());
                     };
-                    let mut display =
+                    let display =
                         session.prepare_display(&config.c, &mut leases.stream_preparation)?;
-                    display.app_window = session.start_app_window(&config.c, &display.prepared);
+                    leases.app_window = session.start_app_window(&config.c, &display.prepared);
                     let Some(capture) = session.start_capture(
                         &config.c,
                         &config.timer,

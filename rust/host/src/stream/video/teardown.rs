@@ -12,7 +12,7 @@ impl SessionThread<'_> {
     #[rustfmt::skip]
     pub(super) fn teardown(&self, result: Result<()>, workers: Workers, leases: Leases) {
         let SessionThread { m, h, s } = *self;
-        let Leases { com, stream_preparation, latest, encoder } = leases;
+        let Leases { com, stream_preparation, app_window, latest, encoder } = leases;
         let Workers {
             client_commands,
             audio,
@@ -58,6 +58,7 @@ impl SessionThread<'_> {
         drop(client_commands);
         drop(encoder);
         drop(latest);
+        drop(app_window);
         drop(stream_preparation);
         #[cfg(test)]
         drop(fixture_preparation);

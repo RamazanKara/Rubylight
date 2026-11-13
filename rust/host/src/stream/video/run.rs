@@ -27,8 +27,7 @@ impl SessionThread<'_> {
         let SessionThread { m, h, s } = *self;
         let Workers { pyrowave_sender, webrtc_sender, .. } = workers;
         let Configured { mut config_version, c, timer } = config;
-        // The app window's worker (`capture_window = window`) started before the first capture.
-        let StreamDisplay { prepared, output, app_window: _app_window } = display;
+        let StreamDisplay { prepared, output } = display;
         let Captured { latest, capture_wake, mut focus, focus_verify } = capture;
         let mut staging = None;
         let Started {

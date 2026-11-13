@@ -18,8 +18,6 @@ pub(super) struct Configured {
 pub(super) struct StreamDisplay {
     pub(super) output: String,
     pub(super) prepared: Arc<crate::display_session::Ready>,
-    /// Follows the app's window (`capture_window = window`) from before the first capture.
-    pub(super) app_window: Option<app_window::AppWindow>,
 }
 
 /// The open capture and the encoder's focus. Fields in reverse order of creation, as in
@@ -184,7 +182,7 @@ impl SessionThread<'_> {
         }
         let output = prepared.output();
         *s.output.write().unwrap() = output.clone();
-        Ok(StreamDisplay { output, prepared, app_window: None })
+        Ok(StreamDisplay { output, prepared })
     }
 
     /// The app's window in place of the display (`capture_window = window`), looked for before

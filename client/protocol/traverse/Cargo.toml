@@ -1,0 +1,15 @@
+[package]
+name = "rubylight-traverse"
+description = "Internet play: port mapping formats, STUN, a serverless DHT rendezvous, UDP hole punching and a tunnel for the TCP channels, shared by the Rubylight host and Nightjar"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+# The host builds this by path as well (rust/host), so it stays std plus the crates both
+# workspaces already lock: ring for the keys, seals and DHT signatures, socket2 for a TCP
+# connect from a chosen loopback address.
+[dependencies]
+ring = "0.17"
+socket2 = { version = "0.6", features = ["all"] }

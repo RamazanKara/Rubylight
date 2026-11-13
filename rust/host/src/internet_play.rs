@@ -282,7 +282,11 @@ pub fn describe(h: &Shared, certificate: &str) -> Result<Value> {
         "enabled": enabled(&config),
         "portMapping": config.boolean("upnp", false),
         "externalIpv4": external_ipv4(),
-        "mappedPorts": mapping.failed.is_empty() && !mapping.mapped.is_empty(),
+        // A client derives every port from the base port: a mapping is usable only when the
+        // router kept the port numbers.
+        "mappedPorts": mapping.failed.is_empty()
+            && !mapping.mapped.is_empty()
+            && mapping.mapped.iter().all(|port| port.external == Some(port.port)),
         "ipv6": ipv6_addresses(&config),
         "ports": {
             "http": ports.http,

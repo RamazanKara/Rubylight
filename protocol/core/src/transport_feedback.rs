@@ -536,11 +536,14 @@ mod tests {
             .count();
         assert_eq!(missing, 100);
         assert_eq!(report.flags, 0);
-        // 600 lost: past what a report holds, so the next one skips ahead and says so.
+        // 600 lost: past what a report holds, so the next one skips ahead and says so. The two
+        // arrivals are 800 us apart, a rate that keeps the stride at 1 (two within 100 us would
+        // be 1000 packets an interval, stride 3, whose report holds 1440 ids).
         assert!(tally.packet(111, 250).is_none());
-        let report = tally.packet(711, 300).unwrap();
+        let report = tally.packet(711, 1_000).unwrap();
         assert_eq!((report.base, report.entries.len()), (111, 1));
-        let next = tally.flush(400).unwrap();
+        assert_eq!(tally.stride(), 1);
+        let next = tally.flush(1_100).unwrap();
         assert_eq!(next.base, 711);
         assert_eq!(next.flags & FLAG_SKIPPED, FLAG_SKIPPED);
         // A jump of 30 000 ids is the same on the wire; the host tells them apart by size.

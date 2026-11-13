@@ -224,6 +224,9 @@ struct App {
     pointer: handheld::Pointer,
     /// The stream being started plays in SDR although HDR was asked for (gamescope without HDR): its start says so.
     hdr_note: bool,
+    /// What the stream being started plays without, straight to the display without the GPU renderer
+    /// (`kms::without_gpu`): its start says so.
+    kms_notes: Vec<String>,
     /// Full chroma was asked for and the stream being started runs without it: its start says so.
     packed_note: Option<String>,
     /// The PC (by id) refused full chroma after this start's launch: the start made again for it
@@ -981,6 +984,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         nav_repeat: nav_repeat::NavRepeat::default(),
         pointer: handheld::Pointer::new(handheld::gamescope()),
         hdr_note: false,
+        kms_notes: Vec::new(),
         packed_note: None,
         full_chroma_off: None,
         running: true,
@@ -2870,9 +2874,20 @@ Redacted logs, oldest line first; addresses, PC names, PINs and credentials are 
         stream::pyrowave_sdk::queue::use_async_compute(settings.pyrowave_async_compute);
         // Sharper colored text without the GPU renderer starts without it (`full_chroma::decide`), as
         // on a decoder without it; anything else that needs the renderer refuses the stream.
+        self.kms_notes.clear();
         #[cfg(unix)]
         let packed_without_gpu = {
             self.switch_for_stream(&settings);
+            // Straight to the display the GPU renderer could not be made: what needs it plays
+            // without it and the start says so, instead of a refused stream.
+            if kms::active() && self.gpu_failure.is_some() && sdl::renderer_name(self.renderer) != "gpu" {
+                let renderer = self.renderer;
+                for need in kms::without_gpu(&mut settings, |s| kms_planned(s, renderer)) {
+                    eprintln!("nightjar: kms: {need} is off for this stream: the GPU renderer could not be made");
+                    self.kms_notes.push(trf(KMS_GPU_OFF, &[&tr(config::gpu_need_label(need))]));
+                }
+                self.gpu_failure = None;
+            }
             // HDR and PyroWave say it in their own checks below, with what they found.
             // HDR and 10-bit pictures on video planes (KMS) need nothing of the renderer.
             let planes = kms_planned(&settings, self.renderer);
@@ -3150,7 +3165,8 @@ Redacted logs, oldest line first; addresses, PC names, PINs and credentials are 
         #[cfg(not(target_os = "linux"))]
         let decoder_notes: Vec<String> = Vec::new();
         let packed_note = self.packed_note.take();
-        let notices: Vec<&str> = hdr_note.into_iter().chain(packed_note.as_deref()).chain(decoder_notes.iter().map(String::as_str)).chain(pyrowave.as_deref())
+        let kms_notes = std::mem::take(&mut self.kms_notes);
+        let notices: Vec<&str> = hdr_note.into_iter().chain(kms_notes.iter().map(String::as_str)).chain(packed_note.as_deref()).chain(decoder_notes.iter().map(String::as_str)).chain(pyrowave.as_deref())
             .chain(streaming.facts.codec_fallback.as_deref()).chain(streaming.facts.color_notice.as_deref()).chain(frame_warp.as_deref()).collect();
         let notices = notices.join("\n");
         let network = &self.launcher.network;
@@ -4410,6 +4426,10 @@ fn stream_window_mode(mode: WindowMode, gamescope: bool, kms: bool) -> WindowMod
         mode => mode,
     }
 }
+
+/// A setting that needs the GPU renderer, off for a stream straight to the display where the
+/// renderer could not be made (`kms::without_gpu`).
+const KMS_GPU_OFF: &str = strings::en("{} is off for this stream: the GPU renderer could not be made while drawing straight to the display.");
 
 /// An HDR stream under gamescope without HDR output plays in SDR and says so (handheld.rs).
 const HDR_OFF_NOTE: &str = strings::en("HDR is off: gamescope offers no HDR output here, so this stream is in SDR.");

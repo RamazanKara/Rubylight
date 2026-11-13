@@ -1570,4 +1570,5 @@ sudo sysctl -w net.core.rmem_max={}", "Буфер приймання: систе
     ("RTX Video", "RTX Video"),
     ("Turns the PC game’s SDR picture into HDR in HDR streams.", "Перетворює SDR-зображення гри на ПК на HDR у HDR-трансляціях."),
     ("Cleans up and sharpens the picture on the PC before it is encoded.", "Очищує та підвищує різкість зображення на ПК перед кодуванням."),
+    ("{} is off for this stream: the GPU renderer could not be made while drawing straight to the display.", "{} вимкнено для цього потоку: не вдалося створити GPU-рендерер під час виведення безпосередньо на дисплей."),
 ];

@@ -1570,4 +1570,5 @@ sudo sysctl -w net.core.rmem_max={}", "Bufor odbioru: system przydzielił {0} Ki
     ("RTX Video", "RTX Video"),
     ("Turns the PC game’s SDR picture into HDR in HDR streams.", "Zamienia obraz SDR gry na PC na HDR w strumieniach HDR."),
     ("Cleans up and sharpens the picture on the PC before it is encoded.", "Oczyszcza i wyostrza obraz na PC przed zakodowaniem."),
+    ("{} is off for this stream: the GPU renderer could not be made while drawing straight to the display.", "{} jest wyłączone w tym strumieniu: nie udało się utworzyć renderera GPU podczas rysowania bezpośrednio na ekranie."),
 ];

@@ -1570,4 +1570,5 @@ sudo sysctl -w net.core.rmem_max={}", "Alma arabelleği: sistem istenen {1} KiB'
     ("RTX Video", "RTX Video"),
     ("Turns the PC game’s SDR picture into HDR in HDR streams.", "HDR yayınlarda PC’deki oyunun SDR görüntüsünü HDR’ye dönüştürür."),
     ("Cleans up and sharpens the picture on the PC before it is encoded.", "Görüntüyü kodlanmadan önce PC’de temizler ve keskinleştirir."),
+    ("{} is off for this stream: the GPU renderer could not be made while drawing straight to the display.", "{} bu yayında kapalı: doğrudan ekrana çizerken GPU oluşturucusu oluşturulamadı."),
 ];

@@ -1570,4 +1570,5 @@ sudo sysctl -w net.core.rmem_max={}", "Bộ đệm nhận: hệ thống chỉ c�
     ("RTX Video", "RTX Video"),
     ("Turns the PC game’s SDR picture into HDR in HDR streams.", "Chuyển hình ảnh SDR của trò chơi trên PC thành HDR trong luồng HDR."),
     ("Cleans up and sharpens the picture on the PC before it is encoded.", "Làm sạch và làm nét hình ảnh trên PC trước khi mã hóa."),
+    ("{} is off for this stream: the GPU renderer could not be made while drawing straight to the display.", "{} đã tắt cho luồng này: không thể tạo trình kết xuất GPU khi vẽ trực tiếp lên màn hình."),
 ];

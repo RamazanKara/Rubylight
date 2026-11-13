@@ -1570,4 +1570,5 @@ sudo sysctl -w net.core.rmem_max={}", "受信バッファー：システムは�
     ("RTX Video", "RTX Video"),
     ("Turns the PC game’s SDR picture into HDR in HDR streams.", "HDRストリームでPCのゲームのSDR映像をHDRに変換します。"),
     ("Cleans up and sharpens the picture on the PC before it is encoded.", "エンコード前にPCで映像のノイズを除去し、鮮明にします。"),
+    ("{} is off for this stream: the GPU renderer could not be made while drawing straight to the display.", "このストリームでは{}はオフです: ディスプレイに直接描画している間は GPU レンダラーを作成できませんでした。"),
 ];

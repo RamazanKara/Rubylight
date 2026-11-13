@@ -1570,4 +1570,5 @@ sudo sysctl -w net.core.rmem_max={}", "Tampon de réception : le système a acco
     ("RTX Video", "RTX Video"),
     ("Turns the PC game’s SDR picture into HDR in HDR streams.", "Convertit l’image SDR du jeu du PC en HDR dans les streams HDR."),
     ("Cleans up and sharpens the picture on the PC before it is encoded.", "Nettoie et accentue l’image sur le PC avant son encodage."),
+    ("{} is off for this stream: the GPU renderer could not be made while drawing straight to the display.", "{} est désactivé pour ce flux : le moteur de rendu GPU n’a pas pu être créé en affichage direct sur l’écran."),
 ];

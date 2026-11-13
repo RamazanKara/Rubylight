@@ -945,3 +945,42 @@ test('RTX HDR and RTX Video settings show only where the host offers them, with 
   assert.deepEqual(values.nvidiaEnhancements({ rtx_hdr: true, rtx_video: true }), ['rtx_hdr', 'rtx_video']);
   assert.deepEqual(values.nvidiaEnhancements(undefined), []);
 });
+
+/** The host's Rust sources without their tests, by path under `rust/`. */
+async function hostSources() {
+  const { readdir, readFile } = await import('node:fs/promises');
+  const sources = new Map();
+  for (const crate of ['core', 'host', 'windows', 'setup', 'service']) {
+    const root = new URL(`../${crate}/src/`, import.meta.url);
+    for (const name of await readdir(root, { recursive: true })) {
+      const path = name.replaceAll('\\', '/');
+      if (!path.endsWith('.rs') || /(^|\/|_)tests(\.rs$|\/)/.test(path)) continue;
+      const text = await readFile(new URL(path, root), 'utf8');
+      sources.set(`${crate}/src/${path}`, text.split(/^#\[cfg\(test\)\]\r?\nmod \w+ \{/m)[0]);
+    }
+  }
+  return sources;
+}
+
+test('the host reads every switch and number with the default the console shows', async () => {
+  // Checks of a value the file is known to hold, where the default never applies.
+  const present = new Set(['core/src/config.rs port 0', 'core/src/config.rs hardware_metrics_interval 0', 'host/src/library.rs steam_enabled false']);
+  const wrong = [];
+  let reads = 0;
+  for (const [path, source] of await hostSources()) {
+    for (const [, key, literal] of source.matchAll(/\.(?:boolean|integer)\(\s*"([a-z0-9_]+)"\s*,\s*(true|false|-?[0-9_]+)\s*\)/g)) {
+      reads += 1;
+      const shown = (settings.get(key) ?? pending.find(candidate => candidate.key === key))?.default;
+      if (!['boolean', 'number'].includes(typeof shown) || present.has(`${path} ${key} ${literal}`)) continue;
+      if (String(shown) !== literal.replaceAll('_', '')) wrong.push(`${key}: ${path} reads it with ${literal}, the console shows ${shown}`);
+    }
+  }
+  assert(reads > 150, `only ${reads} reads found: the pattern no longer matches the code`);
+  assert.deepEqual(wrong, []);
+});
+
+test('the configuration guide names every setting the console shows', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const guide = await readFile(new URL('../../docs/configuration.md', import.meta.url), 'utf8');
+  assert.deepEqual(schema.settings.map(setting => setting.key).filter(key => !new RegExp(`\\b${key}\\b`).test(guide)), []);
+});

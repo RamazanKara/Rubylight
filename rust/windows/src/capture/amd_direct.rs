@@ -87,16 +87,46 @@ unsafe fn surface_int(surface: *mut AMFSurface, name: &'static str) -> Option<i6
     }
 }
 
+/// The highest `FrameRate` AMF takes: AMF 1.5.3 declares (0,1)..(200,1), whole frames per
+/// second, so a rate in millihertz (refresh x 1000 over 1000) failed AMF_OUT_OF_RANGE.
+const MAX_FRAME_RATE: u32 = 200;
+
+/// `FrameRate` for a display refreshing at `refresh_hz` (0 when unknown, taken as 60): whole
+/// hertz over 1, within 1-[`MAX_FRAME_RATE`]; true when a faster display was clamped.
+fn frame_rate(refresh_hz: u32) -> (u32, bool) {
+    let hz = if refresh_hz == 0 { 60 } else { refresh_hz };
+    (hz.clamp(1, MAX_FRAME_RATE), hz > MAX_FRAME_RATE)
+}
+
+/// What the stream's warning tells the user when AMD Direct Capture could not start with
+/// `error` and WGC captures instead: a driver update only when the driver is too old.
+pub(super) fn fallback_advice(error: &str) -> &'static str {
+    if error.contains("needs AMF") {
+        "The Radeon driver is too old for it; update the Radeon driver or choose another capture method."
+    } else if error.contains("another vendor's GPU") {
+        "The display is not on a Radeon; choose another capture method."
+    } else if error.contains("AMF error") {
+        "The Radeon driver refused the capture settings; choose another capture method."
+    } else {
+        "Choose another capture method."
+    }
+}
+
 impl Session {
     /// Capture display `name` on its own GPU, at most at its refresh rate.
     pub fn new(name: &str) -> Result<Self> {
         let gpu = Device::for_display(name, "", "")?;
         // Foundation Sunshine sets the stream's rate; a display's refresh
         // bounds every rate it can present, generated frames included.
-        let fps_millihz = match super::current_refresh_hz(&gpu.display.display_name) {
-            0 => 60_000,
-            hz => hz.saturating_mul(1000),
-        };
+        let refresh_hz = super::current_refresh_hz(&gpu.display.display_name);
+        let (fps, clamped) = frame_rate(refresh_hz);
+        if clamped {
+            tracing::info!(
+                refresh_hz,
+                fps,
+                "AMD Direct Capture runs at its highest rate, below the display's refresh"
+            );
+        }
         if gpu.vendor != AMD {
             bail!(
                 "AMD Direct Capture needs the display on a Radeon; {} is on another vendor's GPU",
@@ -172,10 +202,7 @@ impl Session {
                 AMFVariantStruct {
                     type_: AMF_VARIANT_TYPE_AMF_VARIANT_RATE,
                     __bindgen_anon_1: AMFVariantStruct__bindgen_ty_1 {
-                        rateValue: AMFRate {
-                            num: fps_millihz.max(1000),
-                            den: 1000,
-                        },
+                        rateValue: AMFRate { num: fps, den: 1 },
                     },
                 },
             )?;
@@ -198,7 +225,7 @@ impl Session {
                 display = %session.gpu.display.friendly_name,
                 output = session.gpu.display.output_index,
                 runtime = butterpollo_core::codec_support::amf_version_text(runtime),
-                fps_millihz,
+                fps,
                 "AMD Direct Capture started (waits for each present)"
             );
             Ok(session)
@@ -333,6 +360,26 @@ mod tests {
             "1.4.30.0"
         );
         assert!(header_version() > MINIMUM_VERSION);
+    }
+
+    #[test]
+    fn the_frame_rate_is_whole_hertz_within_amfs_range() {
+        assert_eq!(frame_rate(0), (60, false));
+        assert_eq!(frame_rate(144), (144, false));
+        assert_eq!(frame_rate(200), (200, false));
+        assert_eq!(frame_rate(240), (200, true), "clamped, and logged");
+    }
+
+    #[test]
+    fn the_fallback_names_the_real_reason() {
+        let refused = "AMD Direct Capture FrameRate: AMF error AMF_OUT_OF_RANGE (5)";
+        assert!(fallback_advice(refused).contains("refused the capture settings"));
+        assert!(!fallback_advice(refused).contains("update"));
+        let old = "AMD Direct Capture needs AMF 1.4.30 or newer; the driver has 1.4.29.0. Update the Radeon driver";
+        assert!(fallback_advice(old).contains("update the Radeon driver"));
+        let other =
+            "AMD Direct Capture needs the display on a Radeon; DELL is on another vendor's GPU";
+        assert!(fallback_advice(other).contains("not on a Radeon"));
     }
 
     #[test]

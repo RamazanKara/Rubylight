@@ -1513,7 +1513,9 @@ fn open_stream_capture<T>(
                 format!("AMD Direct Capture failed ({error:#}); the WGC fallback also failed")
             })?;
             tracing::warn!(error = %format!("{error:#}"), "AMD Direct Capture unavailable; capturing with WGC");
-            warnings.set("capture_backend", format!("Capturing with Windows Graphics Capture: AMD Direct Capture is unavailable ({error:#}). Generated AMD Fluid Motion Frames may not reach the stream; update the Radeon driver or choose another capture method."));
+            let error = format!("{error:#}");
+            let advice = amd_direct::fallback_advice(&error);
+            warnings.set("capture_backend", format!("Capturing with Windows Graphics Capture: AMD Direct Capture could not start ({error}). {advice}"));
             Ok(capture)
         }
         Err(error) if kind == "wgc" => {

@@ -59,6 +59,7 @@ const basicKeys = new Set([
   'forward_rumble',
   'terminate_on_pause',
   'enable_discovery',
+  'internet_play',
   'webrtc_server',
   'file_transfer',
   'usb_forwarding',

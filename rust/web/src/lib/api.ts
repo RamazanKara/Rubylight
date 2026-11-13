@@ -923,6 +923,40 @@ export interface CoopStatus {
   catalog_error?: string | null;
   sessions: CoopSession[];
 }
+/** One streaming port as the router mapped (or refused) it. */
+export interface InternetPort {
+  protocol: 'TCP' | 'UDP';
+  port: number;
+  external: number | null;
+  reason: string | null;
+}
+/** `GET /api/internet-play`: port mapping, STUN and the rendezvous for Play over the internet. */
+export interface InternetPlayStatus {
+  enabled: boolean;
+  portMapping: boolean;
+  mapping: {
+    enabled: boolean;
+    method: string | null;
+    externalIpv4: string | null;
+    mapped: InternetPort[];
+    failed: InternetPort[];
+    error: string | null;
+    ipv6Method: string | null;
+    ipv6Pinholes: number;
+    ipv6Error: string | null;
+  };
+  externalIp: string | null;
+  rendezvous: {
+    public: string[];
+    nat: 'unknown' | 'none' | 'cone' | 'symmetric';
+    stunError: string | null;
+    devices: number;
+    published: number;
+    dhtError: string | null;
+    paths: { device: string; peer: string | null; connected: boolean }[];
+  } | null;
+  notes: string[];
+}
 export interface VulkanLayerStatus {
   status: true;
   installed: boolean;
@@ -1337,6 +1371,7 @@ export const api = {
   },
   health: {
     limiter: () => get<LimiterStatus>('/api/frame-limiter/status'),
+    internetPlay: () => get<InternetPlayStatus>('/api/internet-play'),
     vulkanLayer: () => get<VulkanLayerStatus>('/api/health/vulkan-hdr-layer'),
     registerVulkanLayer: () => post<VulkanLayerStatus>('/api/health/vulkan-hdr-layer/register'),
     crash: () => get<CrashStatus>('/api/health/crashdump'),

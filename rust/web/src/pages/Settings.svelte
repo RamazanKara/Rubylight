@@ -15,6 +15,7 @@
   import SessionsPanel from '../components/maintenance/SessionsPanel.svelte';
   import UpdatesPanel from '../components/maintenance/UpdatesPanel.svelte';
   import VulkanPanel from '../components/maintenance/VulkanPanel.svelte';
+  import InternetPlayPanel from '../components/maintenance/InternetPlayPanel.svelte';
   import { reason } from '../components/maintenance/util';
   import { matchesSetting, matchesWords, searchWords } from '../components/settings/search';
   import {
@@ -795,6 +796,10 @@
               <LimiterPanel />
             </div>
           </Disclosure>
+        {/if}
+        {#if active.id === 'network'}
+          <!-- Status, not settings keys: what the router mapped and how devices reach this PC. -->
+          <InternetPlayPanel />
         {/if}
         {#if active.id === 'advanced'}
           <Disclosure

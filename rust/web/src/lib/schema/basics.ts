@@ -404,14 +404,40 @@ const network: Setting[] = [
   },
   {
     key: 'upnp',
-    label: 'UPnP port forwarding',
+    label: 'Automatic port forwarding',
     description:
-      'Ask the router to forward the streaming ports so devices can connect over the internet. The router must have Universal Plug and Play (UPnP) turned on.',
+      'Ask the router to forward the streaming ports so devices can connect over the internet. Works with routers that have UPnP, PCP or NAT-PMP turned on.',
     category: 'network',
     group: 'Discovery and internet',
     control: { kind: 'toggle' },
     default: false,
     restart: true,
+  },
+  {
+    key: 'internet_play',
+    label: 'Play over the internet',
+    description:
+      'Lets paired devices connect from outside your network without forwarding ports. The PC finds its public address with STUN and meets devices through the BitTorrent DHT; only paired devices can read what it publishes.',
+    details:
+      "A device tries your network first, then the PC's IPv6 address, then a port the router maps (Automatic port forwarding), and last a direct path both sides open through their routers. A device learns what it needs while it is on your network once. The PC contacts public STUN servers and DHT nodes, which see its public address; the Privacy page lists them. Two networks that both change ports for every destination (symmetric NAT) cannot open a direct path: forward the ports there instead.",
+    category: 'network',
+    group: 'Discovery and internet',
+    control: { kind: 'toggle' },
+    default: false,
+    restart: true,
+  },
+  {
+    key: 'internet_play_stun_servers',
+    label: 'STUN servers',
+    description:
+      'The public servers that tell this PC its internet address, as host:port separated by commas. Empty uses stun.moonlight-stream.org:3478 and stun.cloudflare.com:3478.',
+    category: 'network',
+    group: 'Discovery and internet',
+    control: { kind: 'text', placeholder: 'stun.moonlight-stream.org:3478, stun.cloudflare.com:3478', mono: true },
+    default: '',
+    defaultText: "Moonlight's and Cloudflare's STUN servers",
+    restart: true,
+    visibleWhen: (values) => on(values, 'internet_play', false),
   },
   {
     key: 'webrtc_server',

@@ -104,7 +104,8 @@ export function monitorsWhileStreaming(setting: Setting, current: ConfigValue): 
   return {
     ...setting,
     label: 'While streaming, your monitors',
-    description: 'Turn off shows the game only on your device. Stay on keeps your monitors as they are, next to the stream.',
+    description:
+      'Turn off shows the game only on your device: your monitors go dark while you stream and come back when you stop. Stay on keeps them on, and games can open there instead of on the stream.',
     control: { kind: 'select', options },
   };
 }

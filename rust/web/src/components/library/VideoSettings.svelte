@@ -36,7 +36,7 @@
     <Field
       label="Prefer 10-bit SDR"
       id="{uid}-sdr"
-      hint="When on, HDR requests stream as 10-bit SDR and the display stays in SDR. Needs HEVC or AV1."
+      hint="When on, a device that asks for HDR gets 10-bit SDR instead and the display stays in SDR: less banding, but no HDR picture. Needs HEVC or AV1."
     >
       <select
         id="{uid}-sdr"
@@ -52,7 +52,7 @@
       {draft}
       key="frame-generation-mode"
       label="Frame generation"
-      hint="Tells the host when frames are generated, so the stream keeps pace."
+      hint="Tells the host that this app’s frames are generated, so its frame limiter keeps the stream in pace. Leave it on None unless the game or Lossless Scaling generates frames."
       empty="None"
       options={GENERATION}
     />
@@ -68,11 +68,12 @@
   <div class="toggles">
     <Toggle
       label="Legacy frame generation capture fix"
-      hint="Compatibility option for older frame generation setups. Only used when Frame generation is set to None."
+      hint="An older way to mark the app as generating frames, so the host’s frame limiter paces it on a streamed monitor. Only used when Frame generation is set to None; choose Frame generation above for new apps."
       bind:checked={() => draft.flag('gen1-framegen-fix'), (value) => draft.setFlag('gen1-framegen-fix', value)}
     />
     <Toggle
       label="Frame generation limiter fix"
+      hint="The host does not read this switch; its saved value is only kept. Leave it off."
       bind:checked={() => draft.flag('frame-gen-limiter-fix'), (value) => draft.setFlag('frame-gen-limiter-fix', value)}
     />
   </div>

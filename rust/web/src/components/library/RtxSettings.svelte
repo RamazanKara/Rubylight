@@ -20,14 +20,14 @@
     {#if offered.rtx_hdr}
       <Toggle
         label="Use RTX HDR for this app"
-        hint="Turns the app’s SDR picture into HDR when a device streams in HDR."
+        hint="Turns the app’s SDR picture into HDR when a device streams in HDR, and adds GPU work to every frame while it runs."
         bind:checked={() => draft.flag('rtx-hdr'), (value) => draft.setFlag('rtx-hdr', value)}
       />
       <div class="numbers">
-        <NumberField {draft} key="rtx-hdr-sdr-brightness" label="SDR brightness" hint="0 to 100." placeholder="Host setting" />
-        <NumberField {draft} key="rtx-hdr-contrast" label="Contrast" hint="−100 to 100." placeholder="Host setting" />
-        <NumberField {draft} key="rtx-hdr-saturation" label="Saturation" hint="−100 to 100." placeholder="Host setting" />
-        <NumberField {draft} key="rtx-hdr-middle-gray" label="Middle gray" hint="10 to 100." placeholder="Host setting" />
+        <NumberField {draft} key="rtx-hdr-sdr-brightness" label="SDR brightness" hint="Raises the brightness of the SDR picture, 0 to 100; 0 leaves it unchanged. Raise it if the picture looks too dark." placeholder="Host setting" />
+        <NumberField {draft} key="rtx-hdr-contrast" label="Contrast" hint="−100 to 100; 0 is neutral." placeholder="Host setting" />
+        <NumberField {draft} key="rtx-hdr-saturation" label="Saturation" hint="Color saturation, −100 to 100; 0 is neutral." placeholder="Host setting" />
+        <NumberField {draft} key="rtx-hdr-middle-gray" label="Middle gray" hint="Mid-tone brightness, 10 to 100; higher is brighter." placeholder="Host setting" />
       </div>
     {:else}
       <Banner tone="danger" title="RTX HDR is unavailable on this PC">
@@ -39,7 +39,7 @@
   <section aria-labelledby="{uid}-video">
     <h3 id="{uid}-video">RTX Video enhancement</h3>
     {#if offered.rtx_video}
-      <Field label="RTX Video enhancement" id="{uid}-video-on" hint="Cleans up and sharpens the picture before it is encoded.">
+      <Field label="RTX Video enhancement" id="{uid}-video-on" hint="Cleans up and sharpens the picture before it is encoded, and adds GPU work to every frame while it runs.">
         <select
           id="{uid}-video-on"
           class="select"
@@ -51,7 +51,7 @@
         </select>
       </Field>
       <div class="numbers">
-        <NumberField {draft} key="rtx-video-intensity" label="Strength" hint="0 to 100." placeholder="Host setting" />
+        <NumberField {draft} key="rtx-video-intensity" label="Strength" hint="How strongly it works, 0 to 100; 0 leaves the picture unchanged." placeholder="Host setting" />
       </div>
     {:else}
       <Banner tone="danger" title="RTX Video enhancement is unavailable on this PC">
@@ -59,7 +59,10 @@
       </Banner>
     {/if}
   </section>
-  <p class="note">Empty fields use the host setting. A device can turn either on or off for its own streams.</p>
+  <p class="note">
+    Empty fields use the host setting. A device can turn either on or off for its own streams. A contrast, saturation or
+    middle gray set in the game’s NVIDIA driver profile wins over the one here.
+  </p>
 </div>
 
 <style>

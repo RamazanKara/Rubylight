@@ -857,6 +857,31 @@ test('AMF values that cost the stream say so; the defaults and costless choices 
   ]) assert.deepEqual(costs(config), [], JSON.stringify(config));
 });
 
+test('a value that exposes the PC, loses progress or adds delay says so; the defaults say nothing', () => {
+  const risks = (config) =>
+    handSetCautions(schema.settings, currentValues(schema.settings, {}, config), {}, config).map(({ setting }) => setting.key);
+  assert.deepEqual(risks({}), []);
+  for (const [config, key, text] of [
+    [{ upnp: 'enabled' }, 'upnp', /open to the internet/],
+    [{ wan_encryption_mode: 0 }, 'wan_encryption_mode', /unencrypted/],
+    [{ origin_web_ui_allowed: 'wan' }, 'origin_web_ui_allowed', /addresses on the internet/],
+    [{ enable_dsu_server: 'enabled' }, 'enable_dsu_server', /No password/],
+    [{ dd_configuration_option: 'ensure_only_display' }, 'dd_configuration_option', /other monitors are off/],
+    [{ terminate_on_pause: 'enabled' }, 'terminate_on_pause', /Unsaved progress/],
+    [{ exit_timeout: 0 }, 'exit_timeout', /by force at once/],
+    [{ guest_join: 'allow' }, 'guest_join', /nobody is asked/],
+    [{ frame_pacing: 'grid' }, 'frame_pacing', /Adds delay/],
+    [{ amd_input_queue_size: 1 }, 'amd_input_queue_size', /driver freeze on RDNA4/],
+  ]) {
+    assert.deepEqual(risks(config), [key], JSON.stringify(config));
+    assert.match(caution(settings.get(key), currentValues(schema.settings, {}, config)), text, key);
+  }
+  for (const config of [
+    { wan_encryption_mode: 2 }, { origin_web_ui_allowed: 'pc' }, { dd_configuration_option: 'ensure_primary' },
+    { exit_timeout: 30 }, { guest_join: 'ask' }, { amd_input_queue_size: 4 },
+  ]) assert.deepEqual(risks(config), [], JSON.stringify(config));
+});
+
 test('a preset that removes the frame cap shows it on the row, not as a hand-set cost', () => {
   const described = withPreset(schema.settings, 'reference');
   const config = { stream_preset: 'reference' };

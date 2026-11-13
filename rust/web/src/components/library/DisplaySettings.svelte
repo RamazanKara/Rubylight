@@ -16,18 +16,30 @@
   ];
 
   const LAYOUTS: Choice[] = [
-    { value: 'exclusive', label: 'Exclusive', hint: 'Turns the other monitors off while streaming.' },
-    { value: 'extended', label: 'Extend — keep PC display primary', hint: 'Adds the virtual display beside your monitors and keeps the PC display as the main screen.' },
-    { value: 'extended_primary', label: 'Extend — make virtual display primary', hint: 'The virtual display becomes the main screen, including the desktop and taskbar.' },
+    {
+      value: 'exclusive',
+      label: 'Exclusive',
+      hint: 'Turns your monitors off while a device streams this app, so it opens on the stream. They come back on when the stream ends.',
+    },
+    {
+      value: 'extended',
+      label: 'Extend — keep PC display primary',
+      hint: 'Adds the virtual display beside your monitors and keeps the PC display as the main screen. Games open on the main screen, so on your monitor and not on the stream.',
+    },
+    {
+      value: 'extended_primary',
+      label: 'Extend — make virtual display primary',
+      hint: 'Your monitors stay on and the virtual display becomes the main screen, with the desktop and taskbar, so games open on the stream.',
+    },
     {
       value: 'extended_isolated',
       label: 'Isolate — keep PC display primary',
-      hint: 'Keeps the PC display primary and places the virtual display far away so the mouse cannot wander onto it.',
+      hint: 'Keeps the PC display as the main screen, where games open, and places the virtual display far away so the mouse cannot wander onto it.',
     },
     {
       value: 'extended_primary_isolated',
       label: 'Isolate — make virtual display primary',
-      hint: 'The virtual display becomes the main screen, placed far from your other monitors.',
+      hint: 'The virtual display becomes the main screen, so games open on the stream, and is placed far from your other monitors so the mouse cannot wander onto it.',
     },
   ];
 
@@ -70,7 +82,7 @@
       'Use a virtual display',
       'Streams a virtual display sized for the device, even when the host streams a monitor.',
     )}
-    {@render flag('virtual-display-primary', 'Make the virtual display primary', 'Used when this app inherits its layout. Device and client display choices take precedence.')}
+    {@render flag('virtual-display-primary', 'Make the virtual display primary', 'The virtual display becomes the main screen beside your monitors, so this app opens on the stream. Used only while Virtual display layout below is on Use the host setting; a device’s or client’s display choice comes first.')}
     {@render flag(
       'use-app-identity',
       'Keep one display identity for this app',
@@ -79,7 +91,7 @@
     {@render flag(
       'per-client-app-identity',
       'Keep a separate identity for each device',
-      'Only with the identity above turned on.',
+      'Windows then remembers them for each device on its own. Only with the identity above turned on.',
     )}
   </div>
 
@@ -88,14 +100,14 @@
       {draft}
       key="virtual-display-mode"
       label="Virtual display mode"
-      hint="A device’s own setting wins over this."
+      hint="Whether this app streams a virtual display sized for each device, one shared by all devices, or a monitor. A device’s own setting wins over this."
       options={MODES}
     />
     <ChoiceField
       {draft}
       key="virtual-display-layout"
       label="Virtual display layout"
-      hint="Where the virtual display sits next to the monitors."
+      hint="What your monitors do while this app streams on a virtual display."
       options={LAYOUTS}
     />
     <Field
@@ -162,7 +174,7 @@
       {draft}
       key="scale-factor"
       label="Render scale"
-      hint="Renders the app at this share of the stream resolution. 100 follows the device."
+      hint="Renders the app at this percent of the stream resolution: the streamed display is set to that size. 100 follows the device; another value replaces a scale the device asks for."
       placeholder="100"
       unit="%"
     />

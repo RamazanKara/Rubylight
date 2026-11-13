@@ -205,7 +205,7 @@ export const NVIDIA_CHOICES: { id: string; label: string; hint: string }[] = [
     label: 'Low Latency Mode',
     hint: 'How many frames the CPU may prepare ahead. Ultra cuts input latency most.',
   },
-  { id: 'nvidia_vsync.mode', label: 'Vertical sync', hint: 'The driver’s V-Sync over the game’s own.' },
+  { id: 'nvidia_vsync.mode', label: 'Vertical sync', hint: 'V-Sync set in the driver, which then wins over the game’s own V-Sync setting.' },
   {
     id: 'nvidia_power.mode',
     label: 'Power management mode',
@@ -215,7 +215,7 @@ export const NVIDIA_CHOICES: { id: string; label: string; hint: string }[] = [
   {
     id: 'nvidia_anisotropic_filtering.mode',
     label: 'Anisotropic filtering',
-    hint: 'Sharper textures on surfaces seen at an angle.',
+    hint: 'Sharper textures on surfaces seen at an angle. Costs GPU time.',
   },
   { id: 'nvidia_smooth_motion.enabled', label: 'Smooth Motion', hint: 'The driver generates frames between the game’s.' },
 ];

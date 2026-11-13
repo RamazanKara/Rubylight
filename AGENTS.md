@@ -41,6 +41,7 @@ Rubylight is the Windows Rust host; Nightjar is the host-neutral client in `clie
 - Preserve AMD AMF and NVIDIA NVENC, Windows 10, physical displays, WGC, Desktop Duplication, D3D11 and the keyed-mutex ring. QSV/software encoders stay removed; Intel stays on 2.6.x unless requested. See `docs/nvenc.md`; no NVIDIA hardware is available here.
 - Preserve attribution, fork history and license notices.
 - Fail visibly rather than silently switching encoders. Avoid added latency; prefer client-reported network hints. Performance claims need our own measurements; check `rust/PERFORMANCE.md` before repeating work. Do not install or benchmark competing hosts.
+- A setting's visible text says, in this order, what the user gets, what it costs (delay, picture quality, network, load, or what stops working) and when to change it ("Leave it on unless ..."); a value that can break streaming says so first. Facts from the code, the docs or our measurements only. Well-known terms (VRR, HDR, bitrate, HEVC) stay as they are, a lesser-known one gets a few words of explanation, and source-level internals belong in the console's details. `docs/configuration.md` repeats the console's descriptions; change both.
 - No "Experimental" labels in any UI or release notes; paths our devices can't test are marked Experimental only in the plan and hardware matrix.
 
 ### Build and verification

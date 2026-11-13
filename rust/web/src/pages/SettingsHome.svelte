@@ -358,7 +358,7 @@
     <div class="cautions" data-cautions>
       <Banner
         tone="warn"
-        title={cautions.length === 1 ? 'A changed setting slows the stream' : `${cautions.length} changed settings slow the stream`}
+        title={cautions.length === 1 ? 'A changed setting has a cost or a risk' : `${cautions.length} changed settings have a cost or a risk`}
         ondismiss={dismiss}
       >
         <ul>

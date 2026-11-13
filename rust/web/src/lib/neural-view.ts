@@ -32,7 +32,7 @@ export const NOTICE = {
 
 /** What the panel says it is for. */
 export const ABOUT =
-  'Neural upscaling for games with DLSS, FSR or XeSS, through a third-party mod Rubylight puts in the game’s folder and takes out again.';
+  'Neural upscaling for games with DLSS, FSR or XeSS, through a third-party mod Rubylight puts in the game’s folder and takes out again. Leave it off for online games: one may treat a mod as cheating.';
 
 export function neuralView(status: NeuralStatus): NeuralView {
   const job = status.job;

@@ -27,9 +27,9 @@ const playniteSettings: Setting[] = [
     key: 'playnite_enabled',
     label: 'Playnite',
     description:
-      'Starts apps linked to a Playnite game through Playnite and ends the stream when the game closes. Needs the Rubylight plugin in Playnite.',
+      'Adds your Playnite games, starts them through Playnite and ends the stream when the game closes. Needs the Rubylight plugin in Playnite; off, the games it added no longer start.',
     details:
-      'Games start with the stream’s settings, and the stream ends when Playnite reports the game closed. Install the plugin from Library › Install plugin.',
+      'Install the plugin from Games › Install plugin. Off, an app linked to a Playnite game starts nothing, because Playnite starts it and it has no command of its own; the Playnite sync stops and the Playnite fullscreen app is removed. Games start with the stream’s settings, and the stream ends when Playnite reports the game closed.',
     category: 'library',
     group: 'Playnite',
     control: { kind: 'toggle' },
@@ -39,7 +39,9 @@ const playniteSettings: Setting[] = [
     key: 'playnite_auto_sync',
     label: 'Add games automatically',
     description:
-      'While Playnite runs, adds the games chosen below as apps and removes them when they no longer qualify. When off, only apps already linked to a game are updated.',
+      'While Playnite runs, adds the games chosen below and removes them when they no longer qualify. Off, no game is added or removed; Sync now only updates those already there.',
+    details:
+      'While this is on and the Rubylight plugin is installed, the games of every launcher come through Playnite, and Steam’s and the other launchers’ own syncs stand aside so no game is added twice. It syncs when Playnite starts, when these settings change and every ten minutes. Off, Sync now on the Games page still brings the name and cover of the games already added up to date.',
     category: 'library',
     group: 'Playnite',
     control: { kind: 'toggle' },
@@ -50,7 +52,8 @@ const playniteSettings: Setting[] = [
   {
     key: 'playnite_sync_all_installed',
     label: 'Every installed game',
-    description: 'Adds every installed game, as every launcher does. When off, the recently played games and the categories and plugins below are added.',
+    description:
+      'Adds every installed game in Playnite, as every launcher does. Turn it off for a shorter list: only recently played games and the categories and libraries below are added.',
     category: 'library',
     group: 'Playnite',
     control: { kind: 'toggle' },
@@ -83,7 +86,8 @@ const playniteSettings: Setting[] = [
   {
     key: 'playnite_sync_categories',
     label: 'Categories to add',
-    description: 'A JSON list of Playnite category names whose installed games are added: ["Couch", "Racing"].',
+    description:
+      'Also adds the installed games in these Playnite categories, as a JSON list of names: ["Couch", "Racing"]. Has an effect only while Every installed game is off.',
     category: 'library',
     group: 'Playnite',
     control: { kind: 'json' },
@@ -94,7 +98,8 @@ const playniteSettings: Setting[] = [
   {
     key: 'playnite_sync_plugins',
     label: 'Libraries to add',
-    description: 'A JSON list of Playnite library plugin IDs whose installed games are added.',
+    description:
+      'Also adds the installed games that come from these Playnite library plugins, as a JSON list of plugin IDs. Has an effect only while Every installed game is off.',
     category: 'library',
     group: 'Playnite',
     control: { kind: 'json' },
@@ -106,7 +111,8 @@ const playniteSettings: Setting[] = [
   {
     key: 'playnite_exclude_games',
     label: 'Games to leave out',
-    description: 'A JSON list of Playnite game IDs the sync never adds.',
+    description:
+      'A JSON list of Playnite game IDs the sync never adds. Deleting a game on the Games page keeps it out too, with no list to write.',
     category: 'library',
     group: 'Playnite',
     control: { kind: 'json' },
@@ -163,7 +169,8 @@ const playniteSettings: Setting[] = [
   {
     key: 'playnite_autosync_require_replacement',
     label: 'Replace older recent games',
-    description: 'When more recent games are played, removes as many older added games as are newly added, keeping the count.',
+    description:
+      'When newer recent games are added, removes as many older added games, so the list keeps its size. Off, the older ones stay and the list grows.',
     category: 'library',
     group: 'Playnite',
     control: { kind: 'toggle' },
@@ -187,9 +194,9 @@ const playniteSettings: Setting[] = [
     key: 'playnite_exit_wait_secs',
     label: 'Wait after a game closes',
     description:
-      'How long a game must stay closed before its stream ends, which shows the desktop meanwhile. 0 ends the stream at once.',
+      'After a game closes, the stream shows the desktop this long, then ends. Lower it to leave sooner; too low can end it while a game restarts itself or starts through a launcher.',
     details:
-      'Counts from when Playnite reports the game closed and none of its programs is running. Lower it to leave the desktop sooner after quitting a game. A game that restarts itself, or starts through a launcher, is briefly reported closed, and a shorter wait can end its stream then. This is not the exit timeout, which is how long a game gets to close when Rubylight ends it. 0 to 300 seconds. Applies to the next game started.',
+      'A game that restarts itself, or starts through a launcher, is briefly reported closed, and a shorter wait can end its stream then; raise it if a stream ends while a game is still starting. 0 ends the stream at once. Counts from when Playnite reports the game closed and none of its programs is running. This is not the exit timeout, which is how long a game gets to close when Rubylight ends it. 0 to 300 seconds. Applies to the next game started.',
     category: 'library',
     group: 'Playnite',
     control: { kind: 'number', min: 0, max: 300, step: 1, unit: 's' },
@@ -202,9 +209,9 @@ const playniteSettings: Setting[] = [
     key: 'playnite_focus_attempts',
     label: 'Confirm game focus',
     description:
-      'How many times the game or Playnite fullscreen menu must be confirmed in front after launch. Lower it if Rubylight keeps interrupting another window.',
+      'Puts a launched game or Playnite menu in front, so input reaches it, until confirmed there this many times. Lower it if that interrupts you; a launcher may then take focus back.',
     details:
-      'After launch, Rubylight checks once a second and brings the game or menu to the front until it has been confirmed this many times. 0 leaves focus alone.',
+      '0 leaves focus alone. After launch, Rubylight checks once a second and brings the game or Playnite fullscreen menu to the front until it has been confirmed in front this many times. Launchers and splash screens take the front back while a game starts, so one confirmation is not always enough.',
     category: 'library',
     group: 'Playnite launch focus',
     control: { kind: 'number', min: 0, step: 1 },
@@ -217,7 +224,9 @@ const playniteSettings: Setting[] = [
     key: 'playnite_focus_timeout_secs',
     label: 'Stop focusing after',
     description:
-      'Maximum time spent bringing a launched game or Playnite fullscreen menu to the front. 0 leaves focus alone, even when Confirm game focus is above 0.',
+      'The longest Rubylight keeps bringing a launched game or Playnite menu to the front. Raise it if a slow launch leaves the game behind another window; 0 leaves focus alone.',
+    details:
+      '0 leaves focus alone, even when Confirm game focus is above 0. Applies to a launched game and to the Playnite fullscreen menu; Rubylight checks once a second until this time is over.',
     category: 'library',
     group: 'Playnite launch focus',
     control: { kind: 'number', min: 0, step: 1, unit: 's' },
@@ -230,7 +239,7 @@ const playniteSettings: Setting[] = [
     key: 'playnite_focus_exit_on_first',
     label: 'Stop after the first focus confirmation',
     description:
-      'Stop as soon as the game or Playnite menu is confirmed in front. Prevents later focus changes, but a launcher or splash screen may then take focus back.',
+      'Stops focusing the game or Playnite menu once it was confirmed in front. Turn it on if launches keep interrupting your window; a launcher or splash screen may then take focus back.',
     details: 'Has no effect when either focus limit is 0.',
     category: 'library',
     group: 'Playnite launch focus',
@@ -287,7 +296,7 @@ function launcherSettings(launcher: Launcher): Setting[] {
     {
       key: `library_${id}_enabled`,
       label: `${name} library`,
-      description: `Adds the games installed with ${launcher.installer} to the library${launcher.art}, and ends a stream when the game exits.`,
+      description: `Adds the games installed with ${launcher.installer} to the library${launcher.art}, and ends a stream when the game exits. Off adds no more games; added ones stay.`,
       category: 'library',
       group,
       control: { kind: 'toggle' },
@@ -296,7 +305,9 @@ function launcherSettings(launcher: Launcher): Setting[] {
     {
       key: `${id}_auto_sync`,
       label: 'Sync automatically',
-      description: `Checks every five minutes for games installed${launcher.history ? ', removed or played' : ' or removed'}, and updates the library.`,
+      description: `Checks every five minutes for games installed${launcher.history ? ', removed or played' : ' or removed'}, and updates the library. Off, the list changes only when you press Sync now on the Games page.`,
+      details:
+        'While Playnite is on with Add games automatically and its Rubylight plugin installed, this launcher’s games come through Playnite and this sync stands aside, so no game is added twice.',
       category: 'library',
       group,
       control: { kind: 'toggle' },
@@ -310,7 +321,8 @@ function launcherSettings(launcher: Launcher): Setting[] {
       {
         key: `${id}_sync_all_installed`,
         label: 'Every installed game',
-        description: 'Adds every installed game, as every launcher does. When off, only the games played most recently are added.',
+        description:
+          'Adds every installed game, as every launcher does. Turn it off for a shorter list: only the most recently played games are added, and others the sync added are removed.',
         category: 'library',
         group,
         control: { kind: 'toggle' },
@@ -346,7 +358,7 @@ function launcherSettings(launcher: Launcher): Setting[] {
     {
       key: `${id}_autosync_remove_uninstalled`,
       label: 'Remove uninstalled games',
-      description: `Removes a game’s app when the game is uninstalled.${launcher.history ? ' With recent games only, apps that fall out of the list are always removed.' : ' Games you added by hand stay.'}`,
+      description: `Removes a game’s app when the game is uninstalled; off, it stays in the list.${launcher.history ? ' With recent games only, apps that fall out of the list are always removed.' : ' Games you added by hand always stay.'}`,
       category: 'library',
       group,
       control: { kind: 'toggle' },
@@ -358,6 +370,7 @@ function launcherSettings(launcher: Launcher): Setting[] {
       key: `${id}_exclude_games`,
       label: 'Games to leave out',
       description: `A JSON list of games the sync never adds, by name or ${name} ID: [{"name": "${launcher.example}"}]. Apps already added for them are removed.`,
+      details: 'Deleting a game on the Games page keeps it out as well, with no list to write, until you restore it there.',
       category: 'library',
       group,
       control: { kind: 'json' },
@@ -373,29 +386,39 @@ export const settings: Setting[] = [
   {
     key: 'terminate_on_pause',
     label: 'Close the app when the last device disconnects',
-    description: 'Closes the running app when its last streaming device disconnects. Off keeps it running for reconnection.',
-    details: 'Applies when the app uses the global default. Each app can override this under Behavior. Takes effect the next time an app starts; unsaved progress may be lost when it closes.',
+    description:
+      'Closes the running app when its last streaming device disconnects; unsaved progress may be lost. Leave it off to keep the game running so you can reconnect and carry on.',
+    details: 'Applies when the app uses the global default; each app can override this under Behavior. Takes effect the next time an app starts.',
     category: 'library',
     group: 'App behavior',
     control: { kind: 'toggle' },
     default: false,
+    cautionWhen: (values) =>
+      on(values, 'terminate_on_pause', false)
+        ? 'Unsaved progress may be lost when the last device disconnects.'
+        : undefined,
   },
   {
     key: 'exit_timeout',
     label: 'Exit timeout',
-    description: 'How long an app gets to close when Rubylight ends it, before it is ended by force. 0 ends it at once.',
+    description:
+      'How long an app gets to close by itself when Rubylight ends it, before it is ended by force; 0 ends it at once. Raise it if a game needs longer to shut down cleanly.',
     details: 'Applies to every app without its own exit timeout under Behavior, including games added by the Steam and Playnite syncs. 0 to 300 seconds. It is not how soon a stream ends after you quit a game yourself; for Playnite games that is Wait after a game closes.',
     category: 'library',
     group: 'App behavior',
     control: { kind: 'number', min: 0, max: 300, step: 1, unit: 's' },
     default: 10,
+    cautionWhen: (values) =>
+      String(values.exit_timeout ?? '').trim() === '0'
+        ? 'Apps are ended by force at once, with no time to close by themselves.'
+        : undefined,
     advanced: true,
   },
   {
     key: 'steam_enabled',
     label: 'Steam library',
     description:
-      'Adds your Steam games to the library, with their covers, and ends a stream when the game it started exits.',
+      'Adds your Steam games to the library, with their covers, and ends a stream when the game it started exits. Off adds no more games; added ones stay.',
     category: 'library',
     group: 'Steam options',
     control: { kind: 'toggle' },
@@ -404,23 +427,27 @@ export const settings: Setting[] = [
   {
     key: 'steam_auto_sync',
     label: 'Sync automatically',
-    description: 'Checks Steam every 30 seconds and updates the Steam apps when games are installed, removed or played.',
+    description:
+      'Checks Steam every 30 seconds and updates the Steam apps when games are installed, removed or played. Off, the list changes only when you press Sync now on the Games page.',
+    details:
+      'While Playnite is on with Add games automatically and its Rubylight plugin installed, the Steam games come through Playnite and this sync stands aside, so no game is added twice.',
     category: 'library',
     group: 'Steam options',
     control: { kind: 'toggle' },
     default: true,
-    inactiveHint: "Turn on Steam library to use this setting. Sync now in Library applies it without automatic syncing.",
+    inactiveHint: "Turn on Steam library to use this setting. Sync now on the Games page applies it without automatic syncing.",
     visibleWhen: steam,
   },
   {
     key: 'steam_sync_all_installed',
     label: 'Every installed game',
-    description: 'Adds every installed game, as every launcher does. When off, only the games played most recently are added.',
+    description:
+      'Adds every installed game, as every launcher does. Turn it off for a shorter list: only the most recently played games are added, and others the sync added are removed.',
     category: 'library',
     group: 'Steam options',
     control: { kind: 'toggle' },
     default: true,
-    inactiveHint: "Turn on Steam library to use this setting. Sync now in Library applies it without automatic syncing.",
+    inactiveHint: "Turn on Steam library to use this setting. Sync now on the Games page applies it without automatic syncing.",
     visibleWhen: steam,
   },
   {
@@ -449,23 +476,24 @@ export const settings: Setting[] = [
     key: 'steam_autosync_remove_uninstalled',
     label: 'Remove uninstalled games',
     description:
-      'Removes a Steam app when its game is uninstalled. With recent games only, apps that fall out of the list are always removed.',
+      'Removes a Steam app when its game is uninstalled; off, it stays in the list. With recent games only, apps that fall out of the list are always removed.',
     category: 'library',
     group: 'Steam options',
     control: { kind: 'toggle' },
     default: true,
-    inactiveHint: "Turn on Steam library to use this setting. Sync now in Library applies it without automatic syncing.",
+    inactiveHint: "Turn on Steam library to use this setting. Sync now on the Games page applies it without automatic syncing.",
     visibleWhen: steam,
   },
   {
     key: 'steam_include_tools',
     label: 'Include tools',
-    description: 'Also adds tools, runtimes, redistributables and DLC that Steam lists as installed.',
+    description:
+      'Also adds what Steam lists as installed besides games: tools, runtimes, redistributables and DLC. Leave it off unless you want to start one of them from a device.',
     category: 'library',
     group: 'Steam options',
     control: { kind: 'toggle' },
     default: false,
-    inactiveHint: "Turn on Steam library to use this setting. Sync now in Library applies it without automatic syncing.",
+    inactiveHint: "Turn on Steam library to use this setting. Sync now on the Games page applies it without automatic syncing.",
     visibleWhen: steam,
     advanced: true,
   },
@@ -474,11 +502,12 @@ export const settings: Setting[] = [
     label: 'Games to leave out',
     description:
       'A JSON list of games the sync never adds, by Steam app ID or name: ["570", {"name": "Dota 2"}]. Their Steam apps are removed.',
+    details: 'Deleting a game on the Games page keeps it out as well, with no list to write, until you restore it there.',
     category: 'library',
     group: 'Steam options',
     control: { kind: 'json' },
     default: [],
-    inactiveHint: "Turn on Steam library to use this setting. Sync now in Library applies it without automatic syncing.",
+    inactiveHint: "Turn on Steam library to use this setting. Sync now on the Games page applies it without automatic syncing.",
     visibleWhen: steam,
   },
   // Every other launcher has Steam's options, in its own group beside Steam's.
@@ -487,7 +516,8 @@ export const settings: Setting[] = [
   {
     key: 'library_local_folders',
     label: 'Game folders',
-    description: 'Folders that hold one game per subfolder, such as D:\\Games. Each subfolder joins the library with the program that starts it.',
+    description:
+      'Folders that hold one game per subfolder, such as D:\\Games, for games no launcher lists. Each subfolder joins the library with the program that starts it.',
     details:
       'Installers, uninstallers, redistributables, crash reporters and updaters are skipped, and programs more than two folders down are not read. A game a launcher already lists is shown under that launcher.',
     category: 'library',
@@ -498,7 +528,10 @@ export const settings: Setting[] = [
   {
     key: 'library_local_auto_sync',
     label: 'Sync automatically',
-    description: 'Checks the game folders every five minutes and updates their games when they are added or removed.',
+    description:
+      'Checks the game folders every five minutes and updates their games when they are added or removed. Off, the list changes only when you press Sync now on the Games page.',
+    details:
+      'While Playnite is on with Add games automatically and its Rubylight plugin installed, this sync stands aside, as every launcher’s does.',
     category: 'library',
     group: 'Game folders',
     control: { kind: 'toggle' },
@@ -509,7 +542,7 @@ export const settings: Setting[] = [
   {
     key: 'library_local_autosync_remove_uninstalled',
     label: 'Remove deleted games',
-    description: 'Removes a game folder’s app when its folder is deleted. Games you added by hand stay.',
+    description: 'Removes a game folder’s app when its folder is deleted; off, it stays in the list. Games you added by hand always stay.',
     category: 'library',
     group: 'Game folders',
     control: { kind: 'toggle' },
@@ -520,7 +553,8 @@ export const settings: Setting[] = [
   {
     key: 'library_local_exclude',
     label: 'Folders to leave out',
-    description: 'Game folders Add games never lists, by name (Tools) or full path (D:\\Games\\Tools).',
+    description:
+      'Subfolders to skip in your game folders, by name (Tools) or full path (D:\\Games\\Tools). They are never added, and Add games never lists them.',
     category: 'library',
     group: 'Game folders',
     control: { kind: 'list', placeholder: 'Tools' },
@@ -532,7 +566,7 @@ export const settings: Setting[] = [
     key: 'lossless_scaling_path',
     label: 'Lossless Scaling program',
     description:
-      'LosslessScaling.exe or its folder, for apps that use Lossless Scaling. Empty finds it in Steam libraries and the usual folders.',
+      'LosslessScaling.exe or its folder, for apps that use Lossless Scaling. Leave it empty unless it is not found: empty finds it in Steam libraries and the usual folders.',
     category: 'library',
     group: 'Lossless Scaling',
     control: { kind: 'text', placeholder: 'Found automatically', mono: true, browse: 'executable' },
@@ -542,7 +576,9 @@ export const settings: Setting[] = [
     key: 'lossless_scaling_legacy_auto_detect',
     label: 'Let Lossless Scaling start by itself',
     description:
-      'Uses Lossless Scaling’s auto scale for the game instead of pressing its hotkey, and leaves its window open. An app can choose otherwise.',
+      'Lossless Scaling starts scaling by itself (auto scale) and keeps its window open, instead of Rubylight pressing its hotkey. Try it if scaling does not start; apps can override it.',
+    details:
+      'Off, Rubylight minimizes the Lossless Scaling window, brings the game to the front and presses the hotkey set in Lossless Scaling, up to three times. Each app can choose its own under Lossless Scaling.',
     category: 'library',
     group: 'Lossless Scaling',
     control: { kind: 'toggle' },
@@ -553,9 +589,9 @@ export const settings: Setting[] = [
     key: 'guest_join',
     label: 'When another device joins the running game',
     description:
-      'Whether a paired device that resumes the game another device plays joins as a guest, and whether the player lets it in first.',
+      'Whether a paired device that joins your running game becomes a guest with limited control. Off suits one person with several devices; Ask the player lets you approve each guest.',
     details:
-      'A guest gets the same picture and sound with its own stream and controller, and only what its guest permission allows. The device playing, or the console’s stream card, answers within 45 seconds. Off streams it beside the game with the device’s own permissions, as before guests.',
+      'Off streams it beside the game with the device’s own permissions and asks nobody, as before guests. Ask the player: the device playing, or the console’s stream card, answers within 45 seconds, and no answer refuses the join; a Moonlight client that gives up sooner shows its own timeout. Let in without asking admits it at once. A guest gets the same picture and sound with its own stream and controller, and only what its guest permission allows.',
     category: 'library',
     group: 'Play together',
     control: {
@@ -567,11 +603,16 @@ export const settings: Setting[] = [
       ],
     },
     default: 'off',
+    cautionWhen: (values) =>
+      String(values.guest_join ?? '').trim() === 'allow'
+        ? 'A paired device that joins becomes a guest at once; nobody is asked.'
+        : undefined,
   },
   {
     key: 'guest_permission',
     label: 'What a guest may do',
-    description: 'What a guest from another device may do when it is let in without choosing. The player can change it for each guest.',
+    description:
+      'What a guest may do unless the player chooses otherwise for that guest. Controller suits playing together; Controller, keyboard and mouse also lets a guest operate this PC.',
     details:
       'View only: picture and sound. Controller: a controller of its own, as the next player. Controller, keyboard and mouse: also the keyboard and mouse, one holder at a time, and the clipboard, USB devices and microphone where its device may use them.',
     category: 'library',

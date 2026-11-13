@@ -29,7 +29,7 @@
     if (running) return 'Turning on. The network drops for a few seconds.';
     if (!power) return loadError ? `Could not check: ${loadError}` : 'Checking the network adapters…';
     if (power.fix.error) return "The adapters' wake settings could not be read.";
-    if (offer) return 'Lets your devices start this PC from sleep.';
+    if (offer) return 'Lets your devices start this PC from sleep. Turning it on changes the wake settings of the network adapter; the network may drop for a few seconds.';
     return ready?.text ?? '';
   });
 

@@ -161,13 +161,17 @@
       {#if shown.has('antiLag')}
         <Toggle
           label="Anti-Lag"
-          hint="Cuts the time between your input and the frame it produces."
+          hint="Cuts the time between your input and the frame it produces. The driver switches Chill off while it is on."
           checked={controls.antiLag}
           onchange={(on) => change({ antiLag: on })}
         />
       {/if}
       {#if shown.has('frameCap')}
-        <Field label="Frame rate cap" id="{uid}-cap">
+        <Field
+          label="Frame rate cap"
+          id="{uid}-cap"
+          hint="The driver’s frame limit for this game (Frame Rate Target Control on Radeon, Max frame rate on NVIDIA). Same as the stream keeps the game from rendering frames the stream drops, so its frames arrive evenly."
+        >
           <div class="line">
             <select
               id="{uid}-cap"
@@ -212,7 +216,7 @@
         <div class="feature">
           <Toggle
             label="Chill"
-            hint="Lowers the frame rate while little moves on screen, between a minimum and a maximum."
+            hint="Lowers the frame rate while little moves on screen, between a minimum and a maximum. The driver switches Anti-Lag and Boost off while it is on."
             checked={controls.chill}
             onchange={(on) =>
               change({
@@ -239,6 +243,7 @@
         <div class="feature">
           <Toggle
             label="Image sharpening"
+            hint="Sharpens the game’s picture in the driver, at the strength set here."
             checked={controls.sharpening}
             onchange={(on) =>
               change({
@@ -259,13 +264,17 @@
       {#if shown.has('anisotropic')}
         <Toggle
           label="Anisotropic filtering"
-          hint="Sharper textures on surfaces seen at an angle."
+          hint="Sharper textures on surfaces seen at an angle. Costs GPU time."
           checked={controls.anisotropic}
           onchange={(on) => change({ anisotropic: on })}
         />
       {/if}
       {#if shown.has('antiAliasing')}
-        <Field label="Anti-aliasing" id="{uid}-aa">
+        <Field
+          label="Anti-aliasing"
+          id="{uid}-aa"
+          hint="Smooths jagged edges in the driver: Enhance adds to the game’s own anti-aliasing, Override replaces it. Both cost GPU time."
+        >
           <div class="line wrap">
             <select
               id="{uid}-aa"
@@ -312,7 +321,7 @@
         <div class="feature">
           <Toggle
             label="Boost"
-            hint="Lowers the resolution during fast motion to keep the frame rate up."
+            hint="Lowers the resolution during fast motion to keep the frame rate up. The driver switches Chill off while it is on."
             checked={controls.boost}
             onchange={(on) =>
               change({

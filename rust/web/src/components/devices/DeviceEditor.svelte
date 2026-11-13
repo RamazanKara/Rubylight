@@ -179,12 +179,12 @@
 
   const layoutHint = $derived(
     VIRTUAL_DISPLAY_LAYOUTS.find((layout) => layout.value === draft.virtual_display_layout)?.hint ??
-      'How the virtual display sits beside the monitors.',
+      'What your monitors do while this device streams on a virtual display.',
   );
 
   const presetHint = $derived(
     presets.find((preset) => preset.id === draft.stream_preset)?.description ??
-      'Fills the encoder settings you have not set. Follows the preset in Settings unless this device names its own.',
+      'Fills in the encoder settings you have not set yourself, for this device’s streams. Leave it on Use the host setting, which follows the preset in Settings, unless this device needs its own.',
   );
   /** A stored display override none of its choices shows, as the preset select does. */
   function unknownDisplay(key: DisplayOverride): boolean {
@@ -287,14 +287,14 @@
                 checked={(draft.perm & item.bit) === item.bit}
                 onchange={(event) => setPermission(item.bit, event.currentTarget.checked)}
               />
-              {item.label}
+              {item.label}{#if item.detail}: {item.detail}{/if}
             </label>
           {/each}
           {#if group.name === 'Other'}
             <!-- Not a permission bit: the host keeps it as its own setting for this device. -->
             <label class="check">
               <input type="checkbox" bind:checked={draft.host_control} />
-              Host control: change graphics driver settings and close games from this device
+              Host control: change graphics driver settings, close games, install a Rubylight update and manage guests from this device
             </label>
             <label class="check">
               <input type="checkbox" bind:checked={draft.pairing_approve} />
@@ -314,7 +314,7 @@
             </label>
             <label class="check">
               <input type="checkbox" bind:checked={draft.allow_usb} />
-              USB devices: attach USB devices plugged into this device to this PC during a stream
+              USB devices: attach USB devices plugged into this device to this PC during a stream, while USB forwarding is on in Settings
             </label>
           {/if}
         </fieldset>
@@ -386,7 +386,7 @@
       <Field
         label="Display mode"
         id="{uid}-display-mode"
-        hint="Width × height × refresh rate, such as 2560x1600x120. Empty uses the mode the device asks for; the stream keeps the device's frame rate."
+        hint="The resolution and refresh rate of the display this device streams, as width × height × refresh rate, such as 2560x1600x120. The stream keeps the size and frame rate the device asks for, so a game can render at 1440p on a 4K stream. Leave it empty to use the mode the device asks for."
         error={modeInvalid ? 'Enter width × height × refresh rate, such as 1920x1080x59.94.' : undefined}
       >
         <input
@@ -401,7 +401,7 @@
       <Field
         label="Virtual display mode"
         id="{uid}-mode"
-        hint="Whether this device gets its own virtual display or shares one."
+        hint="Whether this device streams a virtual display of its own, sized for it, one shared with the other devices, or a monitor. Leave it on Use the host setting unless this device needs another choice than your other devices."
       >
         <select id="{uid}-mode" class="select" bind:value={draft.virtual_display_mode}>
           <option value="">Use the host setting</option>
@@ -460,7 +460,7 @@
       <Field
         label="Display scale"
         id="{uid}-scale"
-        hint="The Windows scale of this device's stream display. Set here, it also scales a monitor, which gets its own scale back after the stream. A scale the device asks for itself (Nightjar's PC display scaling) comes first on its virtual display."
+        hint="The Windows scale (text and app size) of this device's stream display; a fixed percentage Windows does not offer at that resolution stops its streams from starting. Set here, it also scales a monitor, which gets its own scale back after the stream. A scale the device asks for itself (Nightjar's PC display scaling) comes first on its virtual display."
         error={unknownDisplay('dd_virtual_display_scale') ? `${draft.display.dd_virtual_display_scale} is not a scale the host takes. Choose one.` : undefined}
       >
         <select id="{uid}-scale" class="select" bind:value={draft.display.dd_virtual_display_scale}>
@@ -476,7 +476,7 @@
     </div>
     <Toggle
       label="Always use a virtual display"
-      hint="Creates a virtual display for this device even when the host streams a monitor."
+      hint="Streams a virtual display sized for this device, even when the host streams a monitor."
       bind:checked={draft.always_use_virtual_display}
     />
     <Toggle
@@ -493,7 +493,7 @@
       <Field
         label="Controller type"
         id="{uid}-gamepad"
-        hint="The virtual controller this device's controllers become, in place of the Controller type in Settings. Automatic goes by the controller the device reports; Moonlight on a Nintendo Switch reports none, so choose Switch Pro for it."
+        hint="The controller games see for this device's controllers, in place of the Controller type in Settings. Leave it on Use the host setting unless this device needs its own: Automatic goes by the controller the device reports, and Moonlight on a Nintendo Switch reports none, so choose Switch Pro for it."
         error={gamepadUnknown ? `“${draft.gamepad}” is not a controller type, so the host ignores it. Choose one.` : undefined}
       >
         <select id="{uid}-gamepad" class="select" bind:value={draft.gamepad}>
@@ -516,7 +516,7 @@
       <Field
         label="Long-term reference frames"
         id="{uid}-ltr"
-        hint="AMD AMF: frames the encoder keeps so this device recovers from lost packets with a small frame instead of a full keyframe. Off is for a decoder that freezes on them."
+        hint="AMD AMF: frames the encoder keeps so this device recovers from lost packets with a small frame instead of a keyframe (a full picture the stream restarts from). Leave it on Use the host setting; choose Off only for a device whose decoder freezes on them, so its picture stops."
         error={ltrUnknown ? `“${draft.ltr_frames}” is not a choice. Choose one.` : undefined}
       >
         <select id="{uid}-ltr" class="select" bind:value={draft.ltr_frames}>
@@ -568,8 +568,9 @@
       bind:checked={draft.background_stream}
     />
     <p class="note">
-      Nucleus Co-op tells the game it has the focus, so the PC keeps its own. A game needs a Nucleus Co-op handler;
-      without one the launch is refused and says why. Exclusive fullscreen and Steam Input do not work this way.
+      Nucleus Co-op tells the game it has the focus, so the PC keeps its own. A game Nucleus Co-op cannot run this
+      way, such as one with anti-cheat, is refused with the reason and never streams your monitors instead. Exclusive
+      fullscreen and Steam Input do not work this way.
     </p>
   </section>
   </details>
@@ -580,7 +581,7 @@
       <Field
         label="Prefer 10-bit SDR"
         id="{uid}-sdr"
-        hint="HDR requests from this device stream as 10-bit SDR and the display stays in SDR. Needs HEVC or AV1."
+        hint="When this device asks for HDR, it gets 10-bit SDR instead and the display stays in SDR: less banding, but no HDR picture. Needs HEVC or AV1."
       >
         <select id="{uid}-sdr" class="select" bind:value={draft.prefer_10bit_sdr}>
           <option value="">Use the host setting</option>
@@ -591,7 +592,7 @@
       <Field
         label="HDR color profile"
         id="{uid}-profile"
-        hint="Applied to the display while this device streams in HDR."
+        hint="A Windows color profile (ICC) applied to the display while this device streams in HDR. Choose one made for this device’s screen; leave it on None otherwise."
         error={profilesError || undefined}
       >
         <select id="{uid}-profile" class="select" bind:value={draft.hdr_profile}>
@@ -612,7 +613,7 @@
   <section>
     <Toggle
       label="Run connect and disconnect commands"
-      hint="An app can still turn these off for its own launches."
+      hint="Turn it off to keep this device’s commands below without running them. An app can still turn these off for its own launches."
       bind:checked={draft.allow_client_commands}
     />
     <div class="command-lists">

@@ -330,7 +330,7 @@
 
     <Panel collapsible title="Behavior" description="What the PC does while the app runs.">
       <div class="toggles">
-        {@render flag('elevated', 'Run as administrator', 'Detached commands run as administrator too.')}
+        {@render flag('elevated', 'Run as administrator', 'Leave it off unless the program needs administrator rights. Detached commands run as administrator too.')}
         {@render flag(
           'auto-detach',
           'Keep the stream when a launcher exits within 5 seconds',
@@ -344,7 +344,7 @@
         {@render flag(
           'allow-client-commands',
           'Run devices’ connect and disconnect commands',
-          'Set for each device under Devices.',
+          'The commands each device has under Devices. Turned off, devices also get no PC commands in their stream menu while this app runs.',
         )}
         {@render flag(
           'exclude-global-state-cmd',
@@ -354,7 +354,7 @@
         {@render flag(
           'background-stream',
           'Stream in the background',
-          'Runs in Nucleus Co-op while someone uses the PC: the game’s own window, game sound only, controllers only. The game needs a Nucleus Co-op handler. Devices can turn this on for every app under Devices.',
+          'Runs in Nucleus Co-op while someone uses the PC: the game’s own window, game sound only, controllers only. A game Nucleus Co-op cannot run this way, such as one with anti-cheat, is refused with the reason. Devices can turn this on for every app under Devices.',
         )}
       </div>
       <div class="form-grid behaviour-numbers">
@@ -370,7 +370,8 @@
             <option value="off">Off</option>
           </select>
           <p class="hint" id="{uid}-terminate-hint">
-            Closing the app may lose unsaved progress. Global default:
+            On closes this app once no device streams it, which may lose unsaved progress. Off keeps it running so
+            a device can reconnect. Global default:
             <a href={APP_BEHAVIOR} use:link>All settings › Games</a>.
           </p>
         </Field>
@@ -378,7 +379,7 @@
           {draft}
           key="exit-timeout"
           label="Exit timeout"
-          hint="How long to wait for the app to close before ending it, 0 to 300. Empty uses the default in All settings › Games."
+          hint="How long the app gets to close by itself when Rubylight ends it, before it is ended by force: 0 to 300, and 0 ends it at once. Empty uses the default in All settings › Games."
           placeholder="Default"
           unit="s"
         />

@@ -72,7 +72,11 @@
         options={PROFILES.filter((p) => p.value !== 'custom')}
         hint="Custom uses your Lossless Scaling defaults, with the choices below."
       />
-      <Field label="Upscaling" id="{uid}-scaling">
+      <Field
+        label="Upscaling"
+        id="{uid}-scaling"
+        hint="The method Lossless Scaling enlarges the game's picture with. Off does no upscaling."
+      >
         <select
           id="{uid}-scaling"
           class="select"
@@ -84,7 +88,7 @@
         </select>
       </Field>
       {#if scaling !== 'off'}
-        <Field label="Render resolution" id="{uid}-resolution" hint="Percent of the output resolution the game renders at, 10 to 100.">
+        <Field label="Render resolution" id="{uid}-resolution" hint="Percent of the output resolution the game renders at before Lossless Scaling enlarges it, 10 to 100.">
           <input
             id="{uid}-resolution"
             class="input num"
@@ -98,7 +102,7 @@
         </Field>
       {/if}
       {#if sharpens}
-        <Field label="Sharpening" id="{uid}-sharpening" hint="1 to 10, default 5.">
+        <Field label="Sharpening" id="{uid}-sharpening" hint="How much Lossless Scaling sharpens the enlarged picture, 1 to 10, default 5.">
           <input
             id="{uid}-sharpening"
             class="input num"
@@ -111,7 +115,7 @@
         </Field>
       {/if}
       {#if generating}
-        <Field label="Flow scale" id="{uid}-flow" hint="Motion estimation resolution, 0 to 100 percent, default 50.">
+        <Field label="Flow scale" id="{uid}-flow" hint="The resolution Lossless Scaling estimates motion at for generated frames, 0 to 100 percent of the picture, default 50.">
           <input
             id="{uid}-flow"
             class="input num"
@@ -143,7 +147,7 @@
         {draft}
         key="lossless-scaling-launch-delay"
         label="Start delay"
-        hint="Seconds to wait after the game's window appears, 0 to 600."
+        hint="Seconds Lossless Scaling waits after the game's window appears before it starts, 0 to 600. Empty waits 8."
         placeholder="8"
         unit="s"
       />
@@ -160,7 +164,8 @@
           <option value="off">Off</option>
         </select>
         <p class="hint" id="{uid}-auto-detect-hint">
-          Uses Lossless Scaling's auto scale instead of pressing its hotkey. PC setting:
+          On, Lossless Scaling starts scaling by itself (its auto scale) and keeps its window open, instead of
+          Rubylight pressing its hotkey. Try On if scaling does not start. PC setting:
           <a href="/settings/games#lossless-scaling" use:link>All settings › Games</a>.
         </p>
       </Field>

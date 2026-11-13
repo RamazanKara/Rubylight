@@ -74,7 +74,11 @@
         <p class="note">Kept as saved. The host ignores these settings unless this device is paired again.</p>
       {/if}
       <div class="form-grid">
-        <Field label="Stream preset" id="{uid}-{device}-preset">
+        <Field
+          label="Stream preset"
+          id="{uid}-{device}-preset"
+          hint="Fills in the encoder settings you have not set yourself, for this game on this device."
+        >
           <select
             id="{uid}-{device}-preset"
             class="select"
@@ -128,7 +132,11 @@
             <option value="window">The game’s window</option>
           </select>
         </Field>
-        <Field label="Driver preset" id="{uid}-{device}-radeon">
+        <Field
+          label="Driver preset"
+          id="{uid}-{device}-radeon"
+          hint="The graphics driver settings for this game on this device, in place of the game’s own Driver preset. Off changes none."
+        >
           <select
             id="{uid}-{device}-radeon"
             class="select"

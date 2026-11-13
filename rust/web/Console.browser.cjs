@@ -761,7 +761,7 @@ test('the host control checkbox drives the saved flag and keeps its section open
   await page.goto(base + '/devices');
   await page.getByRole('button', { name: 'Settings Phone', exact: true }).click();
   await page.getByText('Custom permissions', { exact: true }).click();
-  const box = page.getByLabel('Host control: change graphics driver settings and close games from this device', { exact: true });
+  const box = page.getByLabel('Host control: change graphics driver settings, close games, install a Rubylight update and manage guests from this device', { exact: true });
   assert.equal(await box.isChecked(), false);
   const section = page.locator('details').filter({ has: page.locator('summary', { hasText: 'Custom permissions' }) });
   await box.check();

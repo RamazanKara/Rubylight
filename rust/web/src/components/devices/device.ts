@@ -8,12 +8,13 @@ import { settings as displaySettings } from '../../lib/schema/display';
 import { settings as extensionSettings } from '../../lib/schema/extensions';
 import { settings as videoSettings } from '../../lib/schema/video';
 
-export const PERMISSION_GROUPS: { name: string; items: { bit: number; label: string }[] }[] = [
+/** `detail` says what the device can then do, where the label alone leaves it open; the editor shows it after the label. */
+export const PERMISSION_GROUPS: { name: string; items: { bit: number; label: string; detail?: string }[] }[] = [
   {
     name: 'Apps',
     items: [
       { bit: PERM.LIST_APPS, label: 'List apps' },
-      { bit: PERM.VIEW_STREAMS, label: 'View streams' },
+      { bit: PERM.VIEW_STREAMS, label: 'View streams', detail: 'open the stream of a game that is already running' },
       { bit: PERM.LAUNCH_APPS, label: 'Launch apps' },
     ],
   },
@@ -30,11 +31,11 @@ export const PERMISSION_GROUPS: { name: string; items: { bit: number; label: str
   {
     name: 'Other',
     items: [
-      { bit: PERM.CLIPBOARD_WRITE, label: 'Write to the clipboard' },
-      { bit: PERM.CLIPBOARD_READ, label: 'Read the clipboard' },
-      { bit: PERM.FILE_UPLOAD, label: 'Upload files' },
-      { bit: PERM.FILE_DOWNLOAD, label: 'Download files' },
-      { bit: PERM.SERVER_CMD, label: 'PC commands' },
+      { bit: PERM.CLIPBOARD_WRITE, label: 'Write to the clipboard', detail: 'what the device copies lands on this PC’s clipboard' },
+      { bit: PERM.CLIPBOARD_READ, label: 'Read the clipboard', detail: 'the device receives what is copied on this PC' },
+      { bit: PERM.FILE_UPLOAD, label: 'Upload files', detail: 'send files to this PC’s transfer folder, while File transfer is on in Settings' },
+      { bit: PERM.FILE_DOWNLOAD, label: 'Download files', detail: 'fetch files from this PC’s transfer folder, while File transfer is on in Settings' },
+      { bit: PERM.SERVER_CMD, label: 'PC commands', detail: 'run the commands set up in Settings and in the running app, from the stream menu' },
     ],
   },
 ];
@@ -54,18 +55,30 @@ export const VIRTUAL_DISPLAY_MODES = [
 ];
 
 export const VIRTUAL_DISPLAY_LAYOUTS = [
-  { value: 'exclusive', label: 'Exclusive', hint: 'Turns the other monitors off while streaming.' },
-  { value: 'extended', label: 'Extend — keep PC display primary', hint: 'Adds the virtual display beside your monitors and keeps the PC display as the main screen.' },
-  { value: 'extended_primary', label: 'Extend — make virtual display primary', hint: 'The virtual display becomes the main screen, including the desktop and taskbar.' },
+  {
+    value: 'exclusive',
+    label: 'Exclusive',
+    hint: 'Turns your monitors off while this device streams, so games open on the stream. They come back on when the stream ends.',
+  },
+  {
+    value: 'extended',
+    label: 'Extend — keep PC display primary',
+    hint: 'Adds the virtual display beside your monitors and keeps the PC display as the main screen. Games open on the main screen, so on your monitor and not on the stream.',
+  },
+  {
+    value: 'extended_primary',
+    label: 'Extend — make virtual display primary',
+    hint: 'Your monitors stay on and the virtual display becomes the main screen, with the desktop and taskbar, so games open on the stream.',
+  },
   {
     value: 'extended_isolated',
     label: 'Isolate — keep PC display primary',
-    hint: 'Keeps the PC display primary and places the virtual display far away so the mouse cannot wander onto it.',
+    hint: 'Keeps the PC display as the main screen, where games open, and places the virtual display far away so the mouse cannot wander onto it.',
   },
   {
     value: 'extended_primary_isolated',
     label: 'Isolate — make virtual display primary',
-    hint: 'The virtual display becomes the main screen, placed far from your other monitors.',
+    hint: 'The virtual display becomes the main screen, so games open on the stream, and is placed far from your other monitors so the mouse cannot wander onto it.',
   },
 ];
 

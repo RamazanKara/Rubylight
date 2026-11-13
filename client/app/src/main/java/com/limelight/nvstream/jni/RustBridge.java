@@ -100,6 +100,12 @@ final class RustBridge {
     static native int sendTouchEvent(byte eventType, int pointerId, float x, float y, float pressure, float contactAreaMajor, float contactAreaMinor, short rotation);
     static native int sendPenEvent(byte eventType, byte toolType, byte penButtons, float x, float y, float pressure, float contactAreaMajor, float contactAreaMinor, short rotation, byte tilt);
     static native int sendControllerIdentityEvent(byte controllerNumber, int vendorId, int productId);
+    /** How the host takes a physical touchpad's fingers: {@link MoonBridge#TOUCHPAD_NONE}, _INDIVIDUAL or _FRAME. */
+    static native int touchpadTransport();
+    /** One motion event of a physical touchpad: the first {@code count} fingers on it, positions 0-1 on its surface. */
+    static native int touchpadFrame(int device, int[] ids, float[] xs, float[] ys, float[] pressures, int count,
+                                    boolean button, short widthMm, short heightMm);
+    static native int touchpadCancel();
     static native int sendControllerArrivalEvent(byte controllerNumber, short activeGamepadMask, byte type, int supportedButtonFlags, short capabilities);
     static native int sendControllerTouchEvent(byte controllerNumber, byte eventType, int pointerId, float x, float y, float pressure);
     static native int sendControllerMotionEvent(byte controllerNumber, byte motionType, float x, float y, float z);

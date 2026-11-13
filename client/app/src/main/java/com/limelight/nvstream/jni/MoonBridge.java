@@ -974,6 +974,27 @@ public class MoonBridge {
     private static native int cSendTouchEvent(byte eventType, int pointerId, float x, float y, float pressure,
                                             float contactAreaMajor, float contactAreaMinor, short rotation);
 
+    /** The host takes no touchpad fingers, or the stream runs on the C engine, which has no touchpad packets. */
+    public static final int TOUCHPAD_NONE = 0;
+    public static final int TOUCHPAD_INDIVIDUAL = 1;
+    public static final int TOUCHPAD_FRAME = 2;
+
+    /** How this stream takes a physical touchpad's fingers ("Touchpad gestures on the PC"). */
+    public static int touchpadTransport() {
+        return rustStream ? RustBridge.touchpadTransport() : TOUCHPAD_NONE;
+    }
+
+    /** One motion event of a physical touchpad; 0, or the input error. */
+    public static int touchpadFrame(int device, int[] ids, float[] xs, float[] ys, float[] pressures, int count,
+                                    boolean button, short widthMm, short heightMm) {
+        return rustStream ? RustBridge.touchpadFrame(device, ids, xs, ys, pressures, count, button, widthMm, heightMm) : LI_ERR_UNSUPPORTED;
+    }
+
+    /** Lifts the touchpad's fingers on the host. */
+    public static int touchpadCancel() {
+        return rustStream ? RustBridge.touchpadCancel() : LI_ERR_UNSUPPORTED;
+    }
+
     public static int sendPenEvent(byte eventType, byte toolType, byte penButtons, float x, float y,
                                           float pressure, float contactAreaMajor, float contactAreaMinor,
                                           short rotation, byte tilt) {

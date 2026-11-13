@@ -1044,9 +1044,7 @@ impl Launcher {
             rows.group(en("Touch & mouse"));
             setting_row(ui, s, &mut rows, &["mouse_speed"], "Mouse speed", "How fast the pointer moves.", |ui, s| slider(ui, &mut s.mouse_speed, 25..=400, 5.0, percent, |rail| rail, |field| field.suffix("%")));
             setting_row(ui, s, &mut rows, &["mouse_nav_buttons"], "Mouse back/forward buttons", "Sends the mouse’s Back and Forward buttons to the PC.", |ui, s| toggle(ui, &mut s.mouse_nav_buttons));
-            if cfg!(windows) {
-                setting_row(ui, s, &mut rows, &["native_touchpad"], "Touchpad gestures on the PC", "Sends touchpad fingers to a PC that takes them, so its gestures work there.", |ui, s| toggle(ui, &mut s.native_touchpad));
-            }
+            setting_row(ui, s, &mut rows, &["native_touchpad"], "Touchpad gestures on the PC", "Sends touchpad fingers to a PC that takes them, so its gestures work there.", |ui, s| toggle(ui, &mut s.native_touchpad));
             rows.group(en("Keyboard"));
             if !layered {
                 rows.action("stream_hotkeys");

@@ -1537,4 +1537,5 @@ sudo sysctl -w net.core.rmem_max={}", "Bộ đệm nhận: hệ thống chỉ c�
     ("Frame Warp", "Frame Warp"),
     ("Shifts the picture with your mouse or right stick until the PC’s next frame shows the turn, and keeps the game’s HUD in place. Needs a PC that supports it.", "Dịch chuyển hình ảnh theo chuột hoặc cần phải cho đến khi khung hình tiếp theo của PC thể hiện cú xoay, và giữ HUD của trò chơi tại chỗ. Cần PC hỗ trợ tính năng này."),
     ("This PC doesn’t offer Frame Warp, so Nightjar streams without it.", "PC này không cung cấp Frame Warp nên Nightjar truyền phát mà không dùng nó."),
+    ("The touchpad stays a mouse: {}", "Bàn di chuột vẫn hoạt động như chuột: {}"),
 ];

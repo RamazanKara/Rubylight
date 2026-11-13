@@ -192,6 +192,9 @@
     <string name="summary_trackpad_scroll_speed">터치패드에서 두 손가락 스크롤이 이동하는 정도입니다.</string>
     <string name="title_trackpad_swap_axis">트랙패드 X와 Y 바꾸기</string>
     <string name="summary_trackpad_swap_axis">축이 회전된 상태로 보고되는 터치패드용입니다.</string>
+    <string name="title_native_touchpad">PC에서 터치패드 제스처</string>
+    <string name="summary_native_touchpad">물리 터치패드의 손가락을 이를 받는 PC로 보내 PC의 제스처가 작동하게 합니다.</string>
+    <string name="stream_native_touchpad_fallback">이 스트림은 터치패드 손가락을 받지 않으므로 터치패드가 마우스를 움직입니다.</string>
     <string name="title_checkbox_absolute_mouse_mode">마우스 모드</string>
     <string name="summary_checkbox_absolute_mouse_mode">캡처는 포인터를 스트림 안에 유지하고, 데스크톱 포인터는 일반 마우스처럼 움직입니다.</string>
     <string name="title_checkbox_mouse_nav_buttons">마우스 뒤로/앞으로 버튼</string>

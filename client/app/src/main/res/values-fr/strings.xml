@@ -192,6 +192,9 @@
     <string name="summary_trackpad_scroll_speed">La distance de défilement à deux doigts sur un pavé tactile.</string>
     <string name="title_trackpad_swap_axis">Échanger X et Y du pavé tactile</string>
     <string name="summary_trackpad_swap_axis">Pour les pavés tactiles qui signalent leurs axes pivotés.</string>
+    <string name="title_native_touchpad">Gestes du pavé tactile sur le PC</string>
+    <string name="summary_native_touchpad">Envoie les doigts d’un pavé tactile physique à un PC qui les accepte, pour que ses propres gestes y fonctionnent.</string>
+    <string name="stream_native_touchpad_fallback">Ce stream n’accepte pas les doigts du pavé tactile : le pavé tactile déplace la souris.</string>
     <string name="title_checkbox_absolute_mouse_mode">Mode souris</string>
     <string name="summary_checkbox_absolute_mouse_mode">Capturée garde le pointeur dans le stream ; Pointeur de bureau se déplace comme une souris ordinaire.</string>
     <string name="title_checkbox_mouse_nav_buttons">Boutons précédent/suivant de la souris</string>

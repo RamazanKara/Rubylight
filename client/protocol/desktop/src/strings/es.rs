@@ -1537,4 +1537,5 @@ sudo sysctl -w net.core.rmem_max={}", "Búfer de recepción: el sistema concedi�
     ("Frame Warp", "Frame Warp"),
     ("Shifts the picture with your mouse or right stick until the PC’s next frame shows the turn, and keeps the game’s HUD in place. Needs a PC that supports it.", "Desplaza la imagen con el ratón o el stick derecho hasta que el siguiente fotograma del PC muestre el giro, y deja el HUD del juego en su sitio. Requiere un PC que lo admita."),
     ("This PC doesn’t offer Frame Warp, so Nightjar streams without it.", "Este PC no ofrece Frame Warp, así que Nightjar transmite sin él."),
+    ("The touchpad stays a mouse: {}", "El panel táctil sigue funcionando como ratón: {}"),
 ];

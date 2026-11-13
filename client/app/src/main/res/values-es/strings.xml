@@ -192,6 +192,9 @@
     <string name="summary_trackpad_scroll_speed">Cuánto se desplaza con dos dedos en un panel táctil.</string>
     <string name="title_trackpad_swap_axis">Intercambiar X e Y del trackpad</string>
     <string name="summary_trackpad_swap_axis">Para paneles táctiles que informan de sus ejes girados.</string>
+    <string name="title_native_touchpad">Gestos del panel táctil en el PC</string>
+    <string name="summary_native_touchpad">Envía los dedos de un panel táctil físico a un PC que los acepte, para que sus propios gestos funcionen allí.</string>
+    <string name="stream_native_touchpad_fallback">Esta transmisión no acepta dedos del panel táctil, así que el panel táctil mueve el ratón.</string>
     <string name="title_checkbox_absolute_mouse_mode">Modo del ratón</string>
     <string name="summary_checkbox_absolute_mouse_mode">Capturado mantiene el puntero en la transmisión; Puntero de escritorio se mueve como un ratón normal.</string>
     <string name="title_checkbox_mouse_nav_buttons">Botones atrás/adelante del ratón</string>

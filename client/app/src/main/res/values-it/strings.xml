@@ -192,6 +192,9 @@
     <string name="summary_trackpad_scroll_speed">Quanto scorrono due dita su un trackpad.</string>
     <string name="title_trackpad_swap_axis">Scambia X e Y del trackpad</string>
     <string name="summary_trackpad_swap_axis">Per i trackpad che riportano gli assi ruotati.</string>
+    <string name="title_native_touchpad">Gesti del touchpad sul PC</string>
+    <string name="summary_native_touchpad">Invia le dita di un touchpad fisico a un PC che le accetta, così i suoi gesti funzionano lì.</string>
+    <string name="stream_native_touchpad_fallback">Questo stream non accetta le dita del touchpad, quindi il touchpad muove il mouse.</string>
     <string name="title_checkbox_absolute_mouse_mode">Modalità mouse</string>
     <string name="summary_checkbox_absolute_mouse_mode">Catturato tiene il puntatore nello stream; Puntatore desktop si muove come un normale mouse.</string>
     <string name="title_checkbox_mouse_nav_buttons">Pulsanti indietro/avanti del mouse</string>

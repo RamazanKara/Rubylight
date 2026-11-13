@@ -29,8 +29,7 @@ mod quality;
 mod rate_change;
 pub mod menu_extras;
 mod touch;
-/// Precision touchpad passthrough is Windows only; its frame logic is tested everywhere.
-#[cfg(any(windows, test))]
+/// Touchpad passthrough: Raw Input on Windows, evdev on Linux, trackpad touches on macOS.
 mod touchpad;
 #[cfg(all(target_os = "macos", feature = "demo-library"))]
 pub(crate) use present::macos_video_check::run as check_metal;
@@ -612,7 +611,6 @@ pub struct Streaming {
     shortcut_held: Option<(crate::shortcuts::Held, Instant)>,
     mouse_down: HashSet<u8>,
     touch: touch::Touch,
-    #[cfg(windows)]
     touchpad: touchpad::Touchpad,
     captured: bool,
     /// Whether the window was full screen at the last pass (`follow_fullscreen`).
@@ -950,7 +948,6 @@ impl Streaming {
             shortcut_held: None,
             mouse_down: HashSet::new(),
             touch: touch::Touch::default(),
-            #[cfg(windows)]
             touchpad: touchpad::Touchpad::default(),
             captured: false,
             fullscreen: false,

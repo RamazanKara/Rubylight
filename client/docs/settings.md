@@ -146,6 +146,7 @@ Tier: Main rows show when a section opens; More rows fold behind the section's l
 | Trackpad sensitivity Y<br>`seekbar_trackpad_sensitivity_y` | More | 100% | -200%–200%; step 10% | Adjust the vertical speed of a physical touchpad, such as a keyboard cover's, on top of Mouse speed; 100% is normal speed. Use a negative value to flip the direction. Touchscreen modes use Trackpad speed. |
 | Trackpad scroll speed<br>`seekbar_trackpad_scroll_speed` | More | 50% | 10%–300%; step 10% | Adjust how far two fingers scroll on a physical touchpad or in the Trackpad (touchpad gestures) touch mode; 50% is the default. Lower it if scrolling is too sensitive. |
 | Swap trackpad X and Y<br>`checkbox_trackpad_swap_axis` | More | Off | On; Off | Enable if a physical touchpad moves the pointer sideways when you swipe up or down. Swaps X and Y before Trackpad Sensitivity applies. Touchscreen modes are not affected. |
+| Touchpad gestures on the PC<br>`checkbox_native_touchpad` | More | Off | On; Off | Enable to send a physical touchpad's fingers, such as a keyboard cover's, to a PC that takes them, so the PC's own touchpad gestures (two-finger scroll, three- and four-finger swipes) work there. Needs New streaming engine and a PC that takes touchpad fingers; otherwise the touchpad moves the mouse as before and the stream says so once. Off by default. |
 
 #### Keyboard
 
@@ -555,7 +556,7 @@ Defaults are those of a fresh installation. **Main** rows show when a section op
 | Keyboard shortcuts | More | | Change | Main settings only. Key combinations shown as tiles in the stream menu and sent to the PC with one press. |
 | *Touch & mouse:* Mouse speed | More | 100 % | 25–400 % | Speed of the captured pointer. |
 | Mouse back/forward buttons | More | On | On, Off | Sends the mouse's Back and Forward buttons. |
-| Touchpad gestures on the PC | More | Off | On, Off | Windows only. Sends the touchpad's fingers to a PC that takes them; other PCs get a normal pointer. |
+| Touchpad gestures on the PC | More | Off | On, Off | Sends the touchpad's fingers to a PC that takes them; other PCs get a normal pointer. Windows reads precision touchpads, Linux reads the touchpad's evdev device (your user needs the input group), macOS reads the trackpad's touches. |
 | *Keyboard:* Stream hotkeys | More | | Change | Main settings only. Nightjar's own key combinations during a stream, such as the ones for the mouse mode and the overlay. |
 | Send system keys | More | On | On, Off | Alt+Tab, the Windows key and similar go to the PC while input is captured. |
 | System keys only in full screen | More | Off | On, Off | Shown with Send system keys on. While the stream is in a window, Alt+Tab, the Windows key and similar stay with this computer; they go to the PC in full screen (the Fullscreen and Borderless window modes). |

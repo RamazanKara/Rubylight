@@ -353,8 +353,9 @@ pub struct Settings {
     pub mouse_mode: MouseMode,
     pub mouse_speed: u32,
     pub mouse_nav_buttons: bool,
-    /// Windows: a precision touchpad's fingers go to a PC that takes touchpad contacts
-    /// (Foundation Sunshine) instead of the pointer Windows makes of them.
+    /// A touchpad's fingers go to a PC that takes touchpad contacts (Foundation Sunshine,
+    /// Rubylight) instead of the pointer the system makes of them: Raw Input on Windows, evdev
+    /// on Linux, the trackpad's touches on macOS.
     pub native_touchpad: bool,
     pub right_alt_as_meta: bool,
     /// Send Alt+Tab, the Windows key and similar to the host while the stream has focus.

@@ -218,6 +218,9 @@
     <string name="summary_trackpad_scroll_speed">How far two fingers scroll on a touchpad.</string>
     <string name="title_trackpad_swap_axis">Swap trackpad X and Y</string>
     <string name="summary_trackpad_swap_axis">For touchpads that report their axes rotated.</string>
+    <string name="title_native_touchpad">Touchpad gestures on the PC</string>
+    <string name="summary_native_touchpad">Sends a physical touchpad’s fingers to a PC that takes them, so its own gestures work there.</string>
+    <string name="stream_native_touchpad_fallback">This stream does not take touchpad fingers, so the touchpad moves the mouse.</string>
     <string name="title_checkbox_absolute_mouse_mode">Mouse mode</string>
     <string name="summary_checkbox_absolute_mouse_mode">Captured keeps the pointer in the stream; Desktop pointer moves like an ordinary mouse.</string>
     <string name="title_checkbox_mouse_nav_buttons">Mouse back/forward buttons</string>

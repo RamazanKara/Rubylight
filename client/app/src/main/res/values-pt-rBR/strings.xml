@@ -192,6 +192,9 @@
     <string name="summary_trackpad_scroll_speed">Quanto dois dedos rolam em um touchpad.</string>
     <string name="title_trackpad_swap_axis">Trocar X e Y do trackpad</string>
     <string name="summary_trackpad_swap_axis">Para touchpads que informam os eixos girados.</string>
+    <string name="title_native_touchpad">Gestos do touchpad no PC</string>
+    <string name="summary_native_touchpad">Envia os dedos de um touchpad físico para um PC que os aceite, para que os gestos dele funcionem lá.</string>
+    <string name="stream_native_touchpad_fallback">Esta transmissão não aceita dedos do touchpad, então o touchpad move o mouse.</string>
     <string name="title_checkbox_absolute_mouse_mode">Modo do mouse</string>
     <string name="summary_checkbox_absolute_mouse_mode">Capturado mantém o ponteiro na transmissão; Ponteiro de desktop se move como um mouse comum.</string>
     <string name="title_checkbox_mouse_nav_buttons">Botões voltar/avançar do mouse</string>

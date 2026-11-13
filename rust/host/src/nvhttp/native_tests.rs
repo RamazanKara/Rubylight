@@ -410,6 +410,17 @@ async fn capabilities_list_the_features_and_the_callers_permissions() {
             "clipboard.image"
         ]
     );
+    // Guests from other devices are listed only while `guest_join` is not off (the default).
+    s.host()
+        .config
+        .write()
+        .unwrap()
+        .values
+        .insert("guest_join".into(), "ask".into());
+    let asking: Capabilities = serde_json::from_slice(&s.get("/capabilities").await.body).unwrap();
+    let guests_at = asking.features.iter().position(|f| f == "session.guests");
+    assert_eq!(guests_at, Some(asking.features.len() - 2), "{:?}", asking.features);
+    s.host().config.write().unwrap().values.remove("guest_join");
     let permissions = capabilities.permissions;
     assert_eq!(
         (permissions.list, permissions.view, permissions.launch),

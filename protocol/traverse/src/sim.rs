@@ -242,9 +242,11 @@ impl World {
             };
             match opened.kind {
                 Kind::Punch => {
-                    if let Some(puncher) = peer.puncher.as_mut() {
-                        puncher.on_punch(source);
-                    }
+                    // As HostService::receive does: a paired device's first punch opens the
+                    // host's path at once, before its DHT poll has found the device's record.
+                    peer.puncher
+                        .get_or_insert_with(|| Puncher::new(Vec::new(), now))
+                        .on_punch(source);
                     let ack = peer.sealer.seal(Kind::PunchAck, 0, &[]);
                     self.send(target, source, ack);
                 }
@@ -293,7 +295,14 @@ impl World {
         self.peers[1].puncher = Some(Puncher::new(device_candidates, self.now));
         while self.now < punch::TIMEOUT + host_delay + 1_000 {
             if self.now == host_delay {
-                self.peers[0].puncher = Some(Puncher::new(host_candidates.clone(), self.now));
+                // The record adds its addresses to a path a punch already opened.
+                match self.peers[0].puncher.as_mut() {
+                    Some(puncher) => puncher.add(&host_candidates),
+                    None => {
+                        self.peers[0].puncher =
+                            Some(Puncher::new(host_candidates.clone(), self.now))
+                    }
+                }
             }
             self.step();
             if self.peers[0].connected().is_some() && self.peers[1].connected().is_some() {

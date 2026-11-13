@@ -128,7 +128,7 @@ const video: Setting[] = [
     description:
       'Automatic uses direct driver push on Rubylight virtual displays and Windows Graphics Capture on other displays.',
     details:
-      'Direct driver push receives frames from Rubylight\'s own virtual display driver. If unavailable, it falls back to Windows Graphics Capture, then Desktop Duplication if needed. Choosing Windows Graphics Capture or Desktop Duplication bypasses driver push. AMD Direct Capture reads the Radeon driver's presented picture on a display connected to a Radeon; without it, capture falls back to Windows Graphics Capture with a warning.',
+      'Direct driver push receives frames from Rubylight\'s own virtual display driver. If unavailable, it falls back to Windows Graphics Capture, then Desktop Duplication if needed. Choosing Windows Graphics Capture or Desktop Duplication bypasses driver push. AMD Direct Capture reads the Radeon driver\'s presented picture on a display connected to a Radeon; without it, capture falls back to Windows Graphics Capture with a warning.',
     category: 'video',
     group: 'Capture',
     control: {

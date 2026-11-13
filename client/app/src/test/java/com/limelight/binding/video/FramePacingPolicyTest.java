@@ -6,17 +6,38 @@ import static com.limelight.preferences.PreferenceConfiguration.*;
 import static org.junit.Assert.*;
 
 public class FramePacingPolicyTest {
+    private static final int[] PACING_MODES = {FRAME_PACING_MIN_LATENCY, FRAME_PACING_BALANCED,
+            FRAME_PACING_CAP_FPS, FRAME_PACING_MAX_SMOOTHNESS};
+
     @Test public void pyrowavePreservesAllRequestedModesUnlessVariableRefreshIsEnabled() {
-        for (int mode : new int[] {FRAME_PACING_MIN_LATENCY, FRAME_PACING_BALANCED,
-                FRAME_PACING_CAP_FPS, FRAME_PACING_MAX_SMOOTHNESS}) {
-            assertEquals(mode, FramePacingPolicy.pyroWaveMode(mode, false));
-            assertEquals(FRAME_PACING_MIN_LATENCY, FramePacingPolicy.pyroWaveMode(mode, true));
+        for (int mode : PACING_MODES) {
+            // Without VRR neither the host frame times switch nor an adaptive screen changes the mode.
+            for (boolean hostFrameTimes : new boolean[] {false, true}) {
+                for (boolean adaptive : new boolean[] {false, true}) {
+                    assertEquals(mode, FramePacingPolicy.pyroWaveMode(mode, false, hostFrameTimes, adaptive));
+                }
+            }
+            assertEquals(FRAME_PACING_MIN_LATENCY, FramePacingPolicy.pyroWaveMode(mode, true, false, false));
         }
     }
 
+    // Real VRR for PyroWave: VRR on a screen with adaptive refresh and the Real VRR switch on, the
+    // conditions under which HostFrameClock schedules MediaCodec frames for adaptive refresh.
+    @Test public void pyrowaveShowsFramesAtThePcsFrameTimesOnlyWithVrrRealVrrAndAdaptiveRefresh() {
+        for (int mode : PACING_MODES) {
+            assertEquals(FramePacingPolicy.PYROWAVE_HOST_TIMES, FramePacingPolicy.pyroWaveMode(mode, true, true, true));
+            // Real VRR off: frames are shown as they arrive, as before.
+            assertEquals(FRAME_PACING_MIN_LATENCY, FramePacingPolicy.pyroWaveMode(mode, true, false, true));
+            // A screen without adaptive refresh: unchanged, whatever the switch says.
+            assertEquals(FRAME_PACING_MIN_LATENCY, FramePacingPolicy.pyroWaveMode(mode, true, true, false));
+            assertEquals(FRAME_PACING_MIN_LATENCY, FramePacingPolicy.pyroWaveMode(mode, true, false, false));
+        }
+        // The new mode is none of the frame pacing values the presenter takes as they are.
+        for (int mode : PACING_MODES) assertNotEquals(mode, FramePacingPolicy.PYROWAVE_HOST_TIMES);
+    }
+
     @Test public void onlyPacedLocalOutputUsesTheFixedDisplayClock() {
-        for (int mode : new int[] {FRAME_PACING_MIN_LATENCY, FRAME_PACING_BALANCED,
-                FRAME_PACING_CAP_FPS, FRAME_PACING_MAX_SMOOTHNESS}) {
+        for (int mode : PACING_MODES) {
             assertEquals(mode != FRAME_PACING_MIN_LATENCY,
                     FramePacingPolicy.usesPyroWaveDisplayClock(mode, false, true));
             assertFalse(FramePacingPolicy.usesPyroWaveDisplayClock(mode, true, true));

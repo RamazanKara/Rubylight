@@ -344,7 +344,158 @@ static void testRecoveryKeepsPresentationThroughput() {
     assert(timing.periodNs() == period);
 }
 
+// Stands in for the shared present clock (Real VRR): holds every frame for holdUs after it is
+// ready, or answers fixedUs when `fixed`, and keeps what it was last asked.
+struct FakeClock {
+    uint64_t holdUs = 0;
+    bool fixed = false;
+    uint64_t fixedUs = 0;
+    int calls = 0;
+    uint32_t rtp = 0;
+    uint64_t readyUs = 0;
+};
+
+static uint64_t fakeSchedule(void *context, uint32_t rtp, uint64_t readyUs) {
+    auto &clock = *static_cast<FakeClock *>(context);
+    ++clock.calls;
+    clock.rtp = rtp;
+    clock.readyUs = readyUs;
+    return clock.fixed ? clock.fixedUs : readyUs + clock.holdUs;
+}
+
+static Timing hostTimes(FakeClock &clock) {
+    Timing timing;
+    timing.configure(Timing::Mode::HostTimes, 10 * ms);
+    timing.setHostSchedule(fakeSchedule, &clock);
+    // A vsync sample is still noted; it must not pull the frames onto its grid.
+    timing.observeVsync(epoch);
+    return timing;
+}
+
+static void testHostTimesShowFramesAtTheClocksTime() {
+    FakeClock clock;
+    clock.holdUs = 3'000;
+    auto timing = hostTimes(clock);
+    // One second of host time is 90000 RTP ticks; the ready time goes over in microseconds.
+    const auto first = timing.plan(1'000'000, epoch + ms + 250);
+    assert(clock.calls == 1 && clock.rtp == 90'000 && clock.readyUs == 1'001'000);
+    assert(first.paced && first.targetNs == epoch + 4 * ms);
+    assert(first.desiredPresentNs == first.targetNs && first.idealNs == first.targetNs);
+    assert((first.targetNs - epoch) % (10 * ms) != 0);  // The clock's time, not the next vsync.
+    assert(first.submitNs == epoch + 2 * ms);            // The compositor lead before it.
+
+    const auto second = timing.plan(1'008'333, epoch + 9 * ms + ms / 2);
+    assert(clock.calls == 2 && clock.rtp == 90'750 && clock.readyUs == 1'009'500);
+    assert(second.paced && second.targetNs == epoch + 12 * ms + ms / 2);
+    assert(second.submitNs == second.targetNs - timing.leadNs());
+
+    // Asking again for the same frame neither moves its time nor counts it in the clock twice.
+    const auto repeated = timing.plan(1'008'333, epoch + 50 * ms);
+    assert(clock.calls == 2);
+    assert(repeated.targetNs == second.targetNs && repeated.submitNs == second.submitNs);
+}
+
+static void testHostTimesNeverSubmitBeforeTheFrameIsReady() {
+    FakeClock clock;
+    auto timing = hostTimes(clock);
+    // On time: shown when it is ready, to the nanosecond, and still a paced frame that keeps its
+    // place in the order.
+    const int64_t ready = epoch + ms + 250;
+    const auto onTime = timing.plan(1'000'000, ready);
+    assert(onTime.paced && onTime.targetNs == ready && onTime.desiredPresentNs == ready);
+    assert(onTime.submitNs == ready);
+
+    // A hold shorter than the compositor lead: handed over at once, for the clock's time.
+    clock.holdUs = 500;
+    const int64_t next = epoch + 11 * ms + 250;
+    const auto shortHold = timing.plan(1'010'000, next);
+    assert(shortHold.targetNs == epoch + 11 * ms + ms / 2);
+    assert(shortHold.submitNs == next);
+}
+
+static void testHostTimesGiveTheClockTheRtpTimestamp() {
+    FakeClock clock;
+    auto timing = hostTimes(clock);
+    int64_t ready = epoch;
+    // presentationTimeUs is floor(rtp * 100 / 9); every timestamp comes back, up to the wrap.
+    for (uint32_t rtp : {1u, 2u, 89'999u, 90'000u, 90'001u, 123'456'789u, 0x7fffffffu, 0x80000000u,
+                         0xfffffffeu, 0xffffffffu}) {
+        const int64_t hostUs = int64_t(uint64_t(rtp) * 100 / 9);
+        ready += 10 * ms;
+        assert(timing.plan(hostUs, ready).paced);
+        assert(clock.rtp == rtp);
+    }
+    assert(clock.calls == 10);
+}
+
+static void testHostTimesWithoutATimestampOrAClockShowFramesAsTheyArrive() {
+    FakeClock clock;
+    clock.holdUs = 3'000;
+    auto timing = hostTimes(clock);
+    for (int64_t hostUs : {int64_t(0), int64_t(-5)}) {
+        const auto absent = timing.plan(hostUs, epoch + ms);
+        assert(!absent.paced && absent.submitNs == epoch + ms && absent.desiredPresentNs == 0);
+    }
+    assert(clock.calls == 0);
+    assert(timing.plan(1'000'000, epoch + 2 * ms).paced);
+
+    timing.setHostSchedule(nullptr, nullptr);
+    const auto unscheduled = timing.plan(1'010'000, epoch + 12 * ms);
+    assert(!unscheduled.paced && unscheduled.submitNs == epoch + 12 * ms);
+    assert(unscheduled.desiredPresentNs == 0 && clock.calls == 1);
+}
+
+static void testHostTimesBoundTheAnswerAndExtremeInputs() {
+    FakeClock clock;
+    clock.fixed = true;
+    auto timing = hostTimes(clock);
+    // An answer that cannot be a schedule holds the frame 100 ms at most, without overflow.
+    clock.fixedUs = std::numeric_limits<uint64_t>::max();
+    const auto far = timing.plan(1'000'000, epoch + ms);
+    assert(far.paced && far.targetNs == epoch + 101 * ms);
+    assert(far.submitNs == far.targetNs - timing.leadNs());
+    // An answer before the frame was ready shows it when it is ready.
+    clock.fixedUs = 0;
+    const int64_t ready = epoch + 111 * ms + 7;
+    const auto early = timing.plan(1'110'000, ready);
+    assert(early.paced && early.targetNs == ready && early.submitNs == ready);
+
+    clock.fixed = false;
+    clock.holdUs = 1'000;
+    const auto hugeHost = timing.plan(std::numeric_limits<int64_t>::max(), epoch + 121 * ms);
+    assert(hugeHost.paced && hugeHost.targetNs == epoch + 122 * ms);
+    const int calls = clock.calls;
+    const auto invalidNow = timing.plan(1, std::numeric_limits<int64_t>::max());
+    assert(!invalidNow.paced && clock.calls == calls);
+}
+
+static void testHostTimesUseTheLearnedCompositorLead() {
+    FakeClock clock;
+    clock.holdUs = 8'000;
+    auto timing = hostTimes(clock);
+    // The compositor's feedback teaches the lead as in the grid modes; it moves when the frame
+    // is handed over, never the time it asks for.
+    for (uint32_t id = 1; id <= 40; ++id) deliver(timing, id, 5 * ms);
+    assert(timing.leadNs() == 5 * ms + ms / 2 && timing.pendingCount() == 0);
+    const int64_t ready = epoch + 411 * ms;
+    const auto planned = timing.plan(1'410'000, ready);
+    assert(planned.targetNs == ready + 8 * ms);
+    assert(planned.submitNs == planned.targetNs - (5 * ms + ms / 2));
+
+    // A new swapchain forgets the cached plan (the renderer resets the clock alongside), so the
+    // same frame is scheduled afresh.
+    const int calls = clock.calls;
+    timing.reset();
+    assert(timing.plan(1'410'000, ready).targetNs == ready + 8 * ms && clock.calls == calls + 1);
+}
+
 int main() {
+    testHostTimesShowFramesAtTheClocksTime();
+    testHostTimesNeverSubmitBeforeTheFrameIsReady();
+    testHostTimesGiveTheClockTheRtpTimestamp();
+    testHostTimesWithoutATimestampOrAClockShowFramesAsTheyArrive();
+    testHostTimesBoundTheAnswerAndExtremeInputs();
+    testHostTimesUseTheLearnedCompositorLead();
     sustainedImprovementPreservesModeCushion();
     burstsAndRepeatedPlansDoNotCountAsSustained();
     pausesAndModeChangesDiscardOldEvidence();

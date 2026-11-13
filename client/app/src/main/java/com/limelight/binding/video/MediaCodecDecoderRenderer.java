@@ -1785,11 +1785,21 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         pyroWaveDropReason = 0;
         formats = gatePackedHdr(formats, width, height, fps);
         float displayRefreshRate = outputDisplay.getRefreshRate();
+        // Real VRR for PyroWave: the presenter is made here, before the stream starts, so what
+        // start() reads for MediaCodec's clock (the switch and the display's adaptive refresh,
+        // both known since the constructor) is read here for its mode.
+        boolean adaptive;
+        synchronized (vsyncMonitor) {
+            adaptive = outputHasArrSupport;
+        }
+        int pyroWavePacing = FramePacingPolicy.pyroWaveMode(prefs.framePacing, prefs.vrr, prefs.hostFrameTimes, adaptive);
+        // As for MediaCodec's clock: frames are never shown closer than one refresh at the top rate.
+        float topRefreshRate = pyroWavePacing == FramePacingPolicy.PYROWAVE_HOST_TIMES ? maxDisplayRefreshRate() : 0;
         pyroWaveHdrFailure = 0;
         int choice = firstPyroWaveFormat(formats, candidate -> {
             if (stopping) return false;
             boolean ready = pyroWaveRenderer.setup(renderTarget, candidate, width, height, fps, displayRefreshRate,
-                    FramePacingPolicy.pyroWaveMode(prefs.framePacing, prefs.vrr), prefs.fullRange, prefs.stretchVideo,
+                    topRefreshRate, pyroWavePacing, prefs.fullRange, prefs.stretchVideo,
                     prefs.upscalingMode, prefs.upscalingSharpness, context, prefs.gpuMaxClocks,
                     prefs.pyroWavePreacquire) && !stopping;
             if (!ready) {
@@ -4235,7 +4245,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     @Override
     public void start() {
         if ((videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0) {
-            // Clock sync for the timing CSV; PyroWave frames are not scheduled by host time.
+            // Clock sync for the timing CSV only. With Real VRR the PyroWave presenter shows frames
+            // at the PC's frame times from a clock of its own (FramePacingPolicy.pyroWaveMode).
             hostFrameClock.start(0, false, hostAnnouncesClockSync());
             if (FramePacingPolicy.usesPyroWaveDisplayClock(prefs.framePacing, prefs.vrr, outputVsyncAvailable)) {
                 startChoreographerThread();
@@ -4833,6 +4844,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                         .append(" | screen image ").append(metric(waits[1], " ms"))
                         .append("\nReplaced by a newer frame: before decode ").append(metric(pyroWaveSkippedPercent, "%"))
                         .append(" | before display ").append(metric(waits[2], "%"));
+                String hostTimes = PyroWaveDecoderRenderer.hostTimesLine(waits[3]);
+                if (hostTimes != null) decode.append('\n').append(hostTimes);
                 if (MoonBridge.isPyroWaveEarlyStream()) {
                     decode.append('\n').append(PyroWaveDecoderRenderer.earlyRecordsLine(pyroWaveRenderer.getEarlyRecords()));
                 }

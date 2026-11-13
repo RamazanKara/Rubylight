@@ -50,6 +50,7 @@ mod clipboard_sync;
 pub mod scanline;
 pub mod race;
 pub mod race_probe;
+pub mod lfc;
 #[cfg(any(target_os = "linux", test))]
 pub mod drm_vrr;
 #[cfg(target_os = "linux")]
@@ -491,6 +492,17 @@ pub struct Streaming {
     phase_steady_windows: u32,
     /// Presents `VrrSync::Scan` held for a scan under way, and how long in all (ns).
     scan_waits: (u32, u64),
+    /// Repeats the held picture before a VRR panel refreshes by itself (`lfc`), while the display
+    /// check has the display's scan and found it refreshing on present.
+    keeper: Option<lfc::Keeper>,
+    /// The keeper repeats now: the stream tears whole pictures onto a display the check found
+    /// refreshing on present.
+    keeper_on: bool,
+    /// True under `NIGHTJAR_VRR_LFC=1` only. On screen the repeats spared pictures a scan under way
+    /// on the steadiest content alone and the waits cost cadence everywhere (README, "Low frame
+    /// rates on a VRR display"), so there is no keeper by default; under `count` it counts the
+    /// pictures that met a scan, repeats none and no picture waits for a scan's end.
+    keeper_repeats: bool,
     /// The picture on the display's beam, while racing it is possible (see `sync_race`).
     race_scan: Option<race::Scan>,
     /// The frame in flight under the raced presenter, and what it plans from.
@@ -849,6 +861,13 @@ impl Streaming {
         let present_check = checks_display_for_present_mode(connecting.plan.vrr, connecting.pacing, vrr_check, keeps_mailbox, env_flag("NIGHTJAR_VRR_CHECK"));
         let vrr_sync = if connecting.plan.vrr { present::VrrSync::parse(std::env::var("NIGHTJAR_VRR_SYNC").ok().as_deref()) } else { present::VrrSync::Off };
         if vrr_sync != present::VrrSync::Off { eprintln!("nightjar: VRR sync {} (NIGHTJAR_VRR_SYNC)", vrr_sync.label()); }
+        // `NIGHTJAR_VRR_LFC=1` has the stream repeat pictures for a VRR panel itself
+        // (`lfc::Keeper`), `count` only counts the pictures that meet a scan under way; without
+        // it the stream reads no scan line for this. The scan line is read on Windows.
+        let lfc_mode = std::env::var("NIGHTJAR_VRR_LFC").ok();
+        let lfc_repeats = lfc_mode.as_deref().is_some_and(|mode| connect::flag_value(mode) == Some(true));
+        let lfc_counts = lfc_mode.as_deref().is_some_and(|mode| mode.trim().eq_ignore_ascii_case("count"));
+        let vrr_lfc = cfg!(windows) && connecting.plan.vrr && connecting.pacing != PacingMode::Vsync && (lfc_repeats || lfc_counts);
         if vrr_sync == present::VrrSync::Scan && !vrr_check {
             eprintln!("nightjar: VRR sync scan reads the scan line; the display check's verdict changes no pacing on this stream");
         }
@@ -874,7 +893,7 @@ impl Streaming {
             phase: phase::Phase::default(),
             race_probe: None,
             // The sync interval as `App::begin_stream` set it.
-            vrr: present::VrrPacing::new(vrr_check, vrr_fallback, vrr_sync, connecting.pacing).with_present_check(present_check),
+            vrr: present::VrrPacing::new(vrr_check, vrr_fallback, vrr_sync, connecting.pacing).with_present_check(present_check).with_lfc(vrr_lfc),
             skip_over_waiting: env_flag("NIGHTJAR_PRESENT_SKIP").unwrap_or(true),
             present_deadline_us: std::env::var("NIGHTJAR_PRESENT_DEADLINE_US").ok().and_then(|us| us.parse().ok()),
             no_wait_present: false,
@@ -883,6 +902,9 @@ impl Streaming {
             miss_watch: present::MissWatch::default(),
             phase_steady_windows: std::env::var("NIGHTJAR_PHASE_STEADY_WINDOWS").ok().and_then(|windows| windows.parse().ok()).unwrap_or(phase::STEADY_WINDOWS),
             scan_waits: (0, 0),
+            keeper: None,
+            keeper_on: false,
+            keeper_repeats: lfc_repeats,
             race_scan: None,
             racer: race::Racer::default(),
             predictor: None,
@@ -2134,11 +2156,12 @@ impl Streaming {
             eprintln!("nightjar: beam race: frames not raced: {} with under 1 ms to gain, {} not in slices, {} with the first slice missed",
                 skipped[0], skipped[1], skipped[2]);
         }
-        if self.vrr.sync == present::VrrSync::Scan {
+        if self.vrr.sync == present::VrrSync::Scan || self.keeper.is_some() {
             let (waits, ns) = self.scan_waits;
-            eprintln!("nightjar: VRR sync scan: {waits} presents waited for a scan under way, {:.2} ms each",
+            eprintln!("nightjar: VRR: {waits} presents waited for a scan under way, {:.2} ms each",
                 if waits > 0 { ns as f64 / f64::from(waits) / 1e6 } else { 0.0 });
         }
+        if let Some(keeper) = &self.keeper { eprintln!("nightjar: VRR low frame rate: {}", keeper.line()); }
         lock(&self.shared.roam_watch).take();
         self.session.stop();
         self.host_abr_stop.take()

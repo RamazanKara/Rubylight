@@ -10,7 +10,9 @@
 // deadlines. The renderer serializes every call. No Vulkan or Android dependency.
 class PyroWavePresentTiming {
 public:
-    enum class Mode { Immediate = 0, Balanced = 1, CapFps = 2, Smoothness = 3 };
+    // HostTimes is Real VRR, for a display that refreshes when a frame comes: each frame is
+    // shown at the time the shared present clock gives it (setHostSchedule), on no vsync grid.
+    enum class Mode { Immediate = 0, Balanced = 1, CapFps = 2, Smoothness = 3, HostTimes = 4 };
     struct Plan {
         int64_t submitNs = 0;
         int64_t desiredPresentNs = 0;
@@ -19,10 +21,23 @@ public:
         int64_t idealNs = 0;  // Unrounded host mapping, for opt-in diagnostics only.
     };
 
+    // HostTimes: when to show the frame stamped `rtp` (the host's 90 kHz RTP timestamp) that
+    // was ready at `readyUs`, in microseconds on readyUs's clock. The renderer answers from
+    // the shared present clock (protocol/core/src/present_clock.rs), tests from a fake.
+    using HostSchedule = uint64_t (*)(void *context, uint32_t rtp, uint64_t readyUs);
+
     void configure(Mode mode, int64_t nominalPeriodNs) {
         mode_ = mode;
         if (validPeriod(nominalPeriodNs)) periodNs_ = nominalPeriodNs;
         reset();
+    }
+
+    // Without a schedule, HostTimes shows frames as they arrive. reset() forgets this class's
+    // own state only: the caller resets the clock behind the schedule alongside it.
+    void setHostSchedule(HostSchedule schedule, void *context) {
+        hostSchedule_ = schedule;
+        hostContext_ = context;
+        clearTimeline();
     }
 
     // A stream/swapchain change invalidates the host mapping and old feedback.
@@ -65,11 +80,13 @@ public:
     // are cached by host timestamp: waiting/polling the same frame cannot move its
     // deadline or accumulate another frame of latency. Local ptsUs is NOT an input.
     Plan plan(int64_t hostPresentationTimeUs, int64_t readyNs) {
-        if (mode_ == Mode::Immediate || hostPresentationTimeUs <= 0 || !validTime(readyNs)) {
+        if (mode_ == Mode::Immediate || hostPresentationTimeUs <= 0 || !validTime(readyNs) ||
+            (mode_ == Mode::HostTimes && hostSchedule_ == nullptr)) {
             clearTimeline();
             return {readyNs, 0, 0, false};
         }
         if (anchored_ && hostPresentationTimeUs == lastHostUs_) return lastPlan_;
+        if (mode_ == Mode::HostTimes) return planHostTimes(hostPresentationTimeUs, readyNs);
 
         bool restart = !anchored_ || hostPresentationTimeUs < lastHostUs_ || readyNs < lastReadyNs_;
         if (!restart) {
@@ -184,6 +201,10 @@ private:
     static constexpr size_t kMinimumSamples = 8;
     static constexpr unsigned kLowerSamples = 16;
     static constexpr unsigned kEarlySamples = 8;
+    // The shared clock holds a ready frame 50 ms at most (present_clock.rs, max_hold_us). An
+    // answer further out than twice that cannot be a schedule; bounding it also keeps the
+    // conversion back to nanoseconds from overflowing whatever the schedule answers.
+    static constexpr int64_t kHostHoldLimitNs = 100'000'000;
     struct Entry {
         uint32_t id = 0;
         int64_t submittedNs = 0;
@@ -203,6 +224,29 @@ private:
         int64_t remainder = delta % periodNs_;
         if (remainder < 0) remainder += periodNs_;
         return remainder == 0 ? timeNs : timeNs + periodNs_ - remainder;
+    }
+    // Real VRR: the display refreshes when the frame comes, so the frame asks for the clock's
+    // time itself and there is no vsync to round to. It is handed over the learned compositor
+    // lead before that time, as in the grid modes, and never before it is ready. The clock
+    // keeps its own timeline (pauses, restarts, the delay); this only caches the answer, so
+    // asking again for the same frame neither moves its time nor counts it twice.
+    Plan planHostTimes(int64_t hostUs, int64_t readyNs) {
+        // presentationTimeUs = floor(rtp * 1000 / 90), so the RTP timestamp is its ceiling back
+        // (android_present_clock.c). Unsigned on purpose: a host time that cannot be right
+        // wraps to some timestamp, which the clock handles like any jump of the video clock.
+        const uint32_t rtp = uint32_t((uint64_t(hostUs) * 9 + 99) / 100);
+        const uint64_t readyUs = uint64_t(readyNs) / 1000;
+        const uint64_t presentUs = hostSchedule_(hostContext_, rtp, readyUs);
+        const uint64_t holdUs = presentUs > readyUs ?
+                std::min<uint64_t>(presentUs - readyUs, uint64_t(kHostHoldLimitNs / 1000)) : 0;
+        // Keep the ready time's sub-microsecond part so a frame that is on time is not shown
+        // early.
+        const int64_t presentNs = holdUs == 0 ? readyNs : int64_t(readyUs + holdUs) * 1000;
+        lastPlan_ = {std::max(readyNs, presentNs - leadNs_), presentNs, presentNs, true, presentNs};
+        anchored_ = true;
+        lastHostUs_ = hostUs;
+        lastReadyNs_ = readyNs;
+        return lastPlan_;
     }
     // Delivery may improve after the host-to-local offset was established.
     // Tolerate one period of jitter beyond the lead and selected mode's cushion.
@@ -250,6 +294,8 @@ private:
     }
 
     Mode mode_ = Mode::Immediate;
+    HostSchedule hostSchedule_ = nullptr;
+    void *hostContext_ = nullptr;
     int64_t periodNs_ = 16'666'667;
     int64_t leadNs_ = kInitialLeadNs;
     int64_t phaseNs_ = 0;

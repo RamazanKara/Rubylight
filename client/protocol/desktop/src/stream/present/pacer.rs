@@ -106,6 +106,9 @@ pub struct VrrPacing {
     /// The last verdict found the display at a fixed refresh, and none since found it refreshing
     /// on present.
     fixed_display: bool,
+    /// The stream repeats the held picture for a VRR panel itself (`stream::lfc`), which reads the
+    /// scan line too.
+    pub lfc: bool,
 }
 
 /// The first recheck after a "no VRR" fall back, and the longest between two: each one doubles
@@ -119,8 +122,13 @@ impl VrrPacing {
         Self {
             check, fallback, fell_back: false, sync, interval: i32::from(mode == PacingMode::Vsync),
             restore: None, recheck_us: None, recheck_every_us: RECHECK_FIRST_US, rechecks: true, recovered: false,
-            present_check: false, fixed_display: false,
+            present_check: false, fixed_display: false, lfc: false,
         }
+    }
+
+    /// Has the stream repeat pictures for the panel (`stream::lfc`).
+    pub fn with_lfc(self, lfc: bool) -> Self {
+        Self { lfc, ..self }
     }
 
     /// Runs the display check for the present mode where it changes no pacing.

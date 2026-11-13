@@ -546,6 +546,82 @@ shown interval differs from their stamp interval by more than 1 ms.
   panel), and the game's own present times as stamps (an elevated host refines the stamp to the
   DXGI present through ETW).
 
+### The delay follows the link: the knee and the burst hold
+
+The 2 ms bound was one constant for every link. The recordings behind it (each leg's ready times
+and host stamps) show two things a constant cannot follow:
+
+- **Lateness has a knee.** Most frames lie within a millisecond or two of the median and a thin
+  tail trails off. HEVC's tail is the network's; PyroWave's is decode time (3.3 to 4.4 ms more on
+  the frames in it).
+- **Late frames come in bursts.** A frame more than 2 ms later than the median was followed by
+  another one 33 to 43% of the time for HEVC, where 11 to 17% of all frames were that late; three
+  frames on, the share is back at the average. Under the bound each late frame is shown late by
+  itself: the interval before it is long and the one after it short, again for every frame of the
+  burst.
+
+The rule since (`PresentClock`, `Settings::adaptive`, on a display with no vsync grid):
+
+- The delay's floor is the knee of the 128-frame window: from the median upwards, it stops where
+  no more than 7% of the frames lie within the next 2 ms (`KNEE_SHARE_PERCENT`, `KNEE_REACH_US`),
+  at the 97th percentile at the latest, plus the 0.5 ms margin.
+- A frame later than the delay raises the delay to its own lateness at once, no further than 6 ms
+  above the median (`ADAPTIVE_SPREAD_US`), and the delay falls back to the floor with a time
+  constant of 100 ms (`RELEASE_TAU_US`).
+- A fixed-refresh grid keeps the percentile rule.
+
+Replayed through the shipped clock (`cargo run --release -p rubylight-protocol --example
+present_replay -- <timing CSVs>`). "Off" is the share of shown intervals more than 1 ms from their
+stamp interval:
+
+| Recorded legs | Bound (median + 2 ms): hold mean / p95, off | Follows the link: hold mean / p50 / p95, off, off by more than 2 ms |
+|---|---|---|
+| Wi-Fi to the PC, 24 legs, 76,239 frames | 2.02 / 4.49 ms, 19.0% | 3.47 / 3.36 / 7.10 ms, 10.6%, 7.5% |
+| Wi-Fi to the laptop, 25,072 frames | 1.94 / 3.72 ms, 12.0% | 2.89 / 2.82 / 5.67 ms, 7.7%, 5.6% |
+| Same PC | 0.96 ms | 0.88 ms, the same cadence |
+| Same PC, 240 Hz VRR display | 1.27 ms, 2.2% | 1.26 ms, 1.1% |
+
+- On the Wi-Fi legs to the PC, shown when decoded leaves 67% off, and the unbounded percentile
+  rule 4.1% for a 7.7 ms hold.
+- Fixed bounds over the same legs: median + 3 ms holds 2.86 ms with 15.0% off, + 4 ms 3.72 ms
+  with 12.2%, + 5 ms 4.54 ms with 9.8%, + 6 ms 5.30 ms with 8.0%. A constant needs about 4.3 ms
+  for the 10.6% the rule reaches in 3.47 ms.
+- The knee alone, without the burst hold, holds 2.68 ms with 15.3% off: the burst hold is 0.8 ms
+  and 4.7 points.
+- Synthetic links through the same replay: lateness spread evenly over 6 ms, 4.1% off under the
+  bound and 0.1% now (hold 2.05 to 3.11 ms); a link with late bursts, 1.71 ms and 3.5% to 1.01 ms
+  and 1.7%; a heavy tail, 1.84 ms and 32.5% to 4.32 ms and 11.7%.
+- The other values tried on the Wi-Fi legs to the PC: a ceiling of 4 ms holds 3.07 ms with 12.9%
+  off (0.4 ms less hold, 2.3 points more off), a release of 50 ms 3.05 ms with 13.3%, and one of
+  200 ms 3.99 ms with 9.3% (0.5 ms more for 1.3 points).
+
+On screen: the laptop streams over Wi-Fi to Nightjar on the PC, borderless on its 5120x1440
+240 Hz VRR monitor (`NIGHTJAR_VRR_CHECK` on, so the display check found it refreshing on
+present), the uneven script of 8.3, 16.7, 8.3, 25 and 16.7 ms, two 45 s legs per arm in ABBA
+order, the build before against this one:
+
+| Shown on screen | Hold mean / p95 | Off | Arrivals: p95 lateness above the median |
+|---|---|---|---|
+| HEVC, bound | 2.28 / 3.77 ms | 9.9% (9.0, 10.8) | 4.5 and 4.5 ms |
+| HEVC, follows the link | 3.35 / 6.38 ms | 13.6% (13.7, 13.5) | 5.8 and 6.7 ms |
+| PyroWave, bound | 2.53 / 4.05 ms | 10.7% (12.4, 8.9) | 2.2 and 1.9 ms |
+| PyroWave, follows the link | 2.99 / 5.55 ms | 10.9% (11.6, 10.2) | 2.8 and 2.1 ms |
+
+- Four legs do not separate the rules on screen: the link differed more between legs than the
+  rules do. Over the arrivals of the two HEVC legs shown with the new rule, the bound would have
+  left 18.9 and 19.2% off; over those of the two shown with the bound, the new rule 7.4 and
+  8.4%.
+- The replay reproduces what a leg showed. Bound: 9.2 and 11.0% replayed, 9.0 and 10.8% on
+  screen. New rule: 12.8 and 13.4% replayed, 13.7 and 13.5% on screen, and within 0.5 points
+  on six more HEVC legs of that evening (40 Hz, 60 Hz and the uneven script). So the comparison
+  is the replay, both rules over the same arrivals.
+- Over all 16 HEVC legs of that evening (47,133 frames): the bound holds 1.90 ms with 12.5% off
+  (10.0% by more than 2 ms), the new rule 2.64 ms (p50 2.49, p95 5.60) with 9.6% (6.8%). A
+  fixed bound of 3 ms holds 2.76 ms with 10.8%; the ceiling at 4 ms, 2.31 ms with 11.0%.
+- PyroWave's on-screen share is not what the replay gives for its legs (bound 7.0% replayed,
+  10.7% on screen), and the two rules showed the same on screen. No gain is claimed for
+  PyroWave on the desktop; what puts those intervals off is not yet known.
+
 ## Dropping the CPU wait on the decode fence: measured, not shipped
 
 The decoder thread's `GpuDecoder::wait` (2 s timeout) after `decode` was removed in a trial build

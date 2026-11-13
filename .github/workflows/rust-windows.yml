@@ -582,9 +582,11 @@ jobs:
   # Attaches the unsigned NVIDIA build to the release publish made. The release
   # never waits on it or fails with it: an NGC outage or a failed NVIDIA build
   # only delays these extra files, and running this job again attaches them.
+  # Nothing NVIDIA is published unless the repository variable
+  # PUBLISH_NVIDIA_BUILD is 'true'; the nvidia job's artifact is kept either way.
   nvidia-assets:
     needs: [tag, nvidia, publish]
-    if: ${{ !cancelled() && needs.publish.result == 'success' && (needs.nvidia.result == 'success' || needs.tag.outputs.run) }}
+    if: ${{ vars.PUBLISH_NVIDIA_BUILD == 'true' && !cancelled() && needs.publish.result == 'success' && (needs.nvidia.result == 'success' || needs.tag.outputs.run) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:

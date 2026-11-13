@@ -675,6 +675,12 @@ class Signing(unittest.TestCase):
         assets = job('nvidia-assets')
         self.assertIn('    needs: [tag, nvidia, publish]\n', assets)
         self.assertIn("needs.publish.result == 'success'", assets)
+        # Nothing NVIDIA is published until the repository variable says so;
+        # the nvidia job still builds and keeps its artifact.
+        self.assertIn("    if: ${{ vars.PUBLISH_NVIDIA_BUILD == 'true' && ", assets)
+        nvidia = job('nvidia')
+        self.assertNotIn('PUBLISH_NVIDIA_BUILD', nvidia)
+        self.assertIn('name: butterpollo-rust-windows-x64-nvidia', nvidia)
         self.assertIn('gh release upload "$release"', assets)
         self.assertIn('-n butterpollo-rust-windows-x64-nvidia', assets)
         for word in ('SignPath', 'sign-artifacts', 'SIGNPATH', 'gh release create'):

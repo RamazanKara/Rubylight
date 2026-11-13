@@ -210,6 +210,11 @@ pub fn decode(b: &[u8]) -> Result<Input> {
     if b.len() < need {
         bail!("short input packet");
     }
+    // The touchpad packets are fixed-size structs (SS_TOUCHPAD_PACKET, SS_TOUCHPAD_FRAME_PACKET):
+    // another length is another packet, not a touchpad one with extra bytes.
+    if matches!(magic, TOUCHPAD_MAGIC | TOUCHPAD_FRAME_MAGIC) && b.len() != need {
+        bail!("touchpad packet of the wrong length");
+    }
     if matches!(magic, 0x55000004..=0x55000007) && b[8] >= 16 {
         bail!("invalid controller number");
     }
@@ -740,6 +745,11 @@ mod tests {
         assert!(decode(&touchpad_frame(1, 0, &[(8, 1, 0, 0)])).is_err());
         // A contact past the count is ignored whatever it holds.
         assert!(decode(&touchpad_frame(0, 0, &[(9, 1, 0, 0)])).is_ok());
+        // Another length is another packet.
+        let mut long = frame.clone();
+        long.extend_from_slice(&[0; 4]);
+        long[..4].copy_from_slice(&76u32.to_be_bytes());
+        assert!(decode(&long).is_err());
 
         let mut single = vec![0, 0, 0, 36];
         single.extend_from_slice(&TOUCHPAD_MAGIC.to_le_bytes());

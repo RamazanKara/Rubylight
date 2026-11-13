@@ -222,7 +222,7 @@ pub(crate) fn to_front(window: HWND) -> bool {
 /// [`to_front`] without an Alt tap, which an app that keeps the front would
 /// take for its menu: a key with no meaning (unassigned virtual-key 0xE8)
 /// gives this process the last input all the same.
-pub(crate) fn to_front_quietly(window: HWND) -> bool {
+pub fn to_front_quietly(window: HWND) -> bool {
     raise(window, 0xE8)
 }
 fn raise(window: HWND, tap: u16) -> bool {

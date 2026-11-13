@@ -72,6 +72,46 @@ float4 picture(float4 p : SV_Position) : SV_Target {
 }
 "#;
 
+    /// Puts `window` in front: an unassigned key tap gives this process the last input, which
+    /// the foreground lock asks for (`lossless::to_front_quietly`); failing that, the input of
+    /// the window in front is attached for the call. True when it is in front.
+    fn bring_to_front(window: HWND) -> bool {
+        if butterpollo_windows::lossless::to_front_quietly(window) {
+            return true;
+        }
+        // SAFETY: these calls take handles and thread ids by value; a stale one just fails,
+        // and the attachment is undone before returning.
+        unsafe {
+            let front = GetForegroundWindow();
+            let theirs = GetWindowThreadProcessId(front, None);
+            let ours = GetCurrentThreadId();
+            let attached =
+                theirs != 0 && theirs != ours && AttachThreadInput(ours, theirs, true).as_bool();
+            let _ = BringWindowToTop(window);
+            let _ = SetForegroundWindow(window);
+            if attached {
+                let _ = AttachThreadInput(ours, theirs, false);
+            }
+            GetForegroundWindow() == window
+        }
+    }
+
+    /// Why DXGI refused exclusive fullscreen, in words for the run's report.
+    fn fullscreen_refusal(code: windows::core::HRESULT, front: bool) -> &'static str {
+        match (code, front) {
+            (_, false) => {
+                "the window is not in front (the foreground lock, or another window took it)"
+            }
+            (DXGI_ERROR_NOT_CURRENTLY_AVAILABLE, true) => {
+                "the output is not available now (another exclusive app, a locked or non-interactive desktop)"
+            }
+            (DXGI_ERROR_INVALID_CALL, true) => {
+                "DXGI_ERROR_INVALID_CALL in front: the swap chain or window does not allow it"
+            }
+            _ => "unexpected",
+        }
+    }
+
     struct Window(HWND);
     impl Drop for Window {
         fn drop(&mut self) {
@@ -204,7 +244,11 @@ float4 picture(float4 p : SV_Position) : SV_Target {
                 display.height as i32,
                 SWP_SHOWWINDOW,
             )?;
-            let _ = SetForegroundWindow(window.0);
+            // Exclusive fullscreen needs the window in front, and Windows' foreground lock keeps
+            // a process launched in the background (a scheduled task, a remote shell) from
+            // taking it with SetForegroundWindow alone.
+            let front = bring_to_front(window.0);
+            println!("AFMF_SCENE stage=foreground front={}", u8::from(front));
             let factory: IDXGIFactory2 = CreateDXGIFactory1()?;
             let adapter = factory.EnumAdapters1(display.adapter_index)?;
             let mut device = None;
@@ -265,8 +309,10 @@ float4 picture(float4 p : SV_Position) : SV_Target {
                     }
                     Err(error) => {
                         println!(
-                            "AFMF_SCENE stage=exclusive granted=0 error={:#010x}",
-                            error.code().0
+                            "AFMF_SCENE stage=exclusive granted=0 error={:#010x} front={} why=\"{}\"",
+                            error.code().0,
+                            u8::from(GetForegroundWindow() == window.0),
+                            fullscreen_refusal(error.code(), GetForegroundWindow() == window.0)
                         );
                         Some(false)
                     }

@@ -764,9 +764,13 @@ impl Media {
                                 let Ok(config) = p.config(&h, &s) else {
                                     continue;
                                 };
-                                // A guest's clipboard needs its keyboard-and-mouse permission.
-                                let allowed = clipboard_sync::allowed(&config, &s.launch.client)
-                                    && h.device_guests.full_access(&s);
+                                // A guest's clipboard needs its keyboard-and-mouse permission:
+                                // without it, neither direction.
+                                let allowed = if h.device_guests.full_access(&s) {
+                                    clipboard_sync::allowed(&config, &s.launch.client)
+                                } else {
+                                    clipboard_sync::Allowed::default()
+                                };
                                 p.clipboard_sync
                                     .receive(&s, &payload, allowed, &self.control_wake);
                             }

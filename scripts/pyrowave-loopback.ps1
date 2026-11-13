@@ -14,6 +14,16 @@
 # desktop compositor). Without -CaptureVisible the client window is excluded from the host's capture
 # (WDA_EXCLUDEFROMCAPTURE), which may itself force composition: run once with -CaptureVisible to compare.
 #
+# -Motion replaces the scrolling texture with motion_probe presenting at a game's cadence (its animation
+# argument: a rate in Hz, jitter:8.333,12.5,16.667 or hitch:90:100), and the host captures that window
+# (output_name = window:<hwnd>/<pid>), so the window can sit under a fullscreen client and keep its cadence:
+#   .\scripts\pyrowave-loopback.ps1 -ClientA <nightjar.exe> -Fps 120 -Motion jitter:8.333,12.5,8.333,16.667,12.5 `
+#       -ExtraA @{ window_mode = 'Borderless'; vrr = $true; present_at_host_times = $false } -ExtraB @{ ... $true }
+#
+# -RemoteHost <address> streams from a test host already running on another PC (port -Port, user test,
+# password rust-smoke-only, its own content) instead of starting one here; check that host's log for an
+# encoder hang afterwards.
+#
 # Needs release builds (the MSYS2 UCRT64 runtime DLLs are put on PATH). Takes
 # C:\src\butterpollo-release\GPU-LOCK (waits while another agent holds it) and refuses to start
 # unless the installed host has no session. Exit codes: 0 done, 2 a leg failed, 3 AMD encoder hang
@@ -45,7 +55,11 @@ param(
     [string]$PresentMon = $env:NIGHTJAR_PRESENTMON,   # PresentMon 2.x console exe: capture the client's presents per leg
     [string]$DumpDir,
     [int]$ClientX = 3560,
-    [int]$ClientY = 300
+    [int]$ClientY = 300,
+    [string]$Motion,   # motion_probe's animation argument: capture its window instead of the scrolling texture
+    [string]$MotionProbe = 'C:\src\butterpollo-release\fixtures\motion_probe.exe',
+    [string]$MotionDisplay = '\\.\DISPLAY1',
+    [string]$RemoteHost   # a test host on another PC, with its own content: pair with it and stream from it (port -Port)
 )
 $ErrorActionPreference = 'Stop'
 $Lock = 'C:\src\butterpollo-release\GPU-LOCK'
@@ -95,13 +109,46 @@ try {
     }
 } catch { }
 
-$hostProcess = $null; $anim = $null; $meter = $null
+$hostProcess = $null; $anim = $null; $meter = $null; $probe = $null
 try {
+    # --- Game-like content: motion_probe, started before the host so its window can be the capture --
+    $captureTarget = $null
+    if ($Motion -and -not $RemoteHost) {
+        if (-not (Test-Path $MotionProbe)) { throw "motion_probe not found at $MotionProbe" }
+        $probeSeconds = [math]::Min(3600, $Bitrates.Count * $Order.Length * ($Seconds + 45) + 300)
+        $probe = Start-Process $MotionProbe -PassThru -WindowStyle Hidden -RedirectStandardOutput "$Out\motion.log" -RedirectStandardError "$Out\motion.err.log" `
+            -ArgumentList $MotionDisplay, $probeSeconds, "`"$Out\motion.json`"", $Motion
+        Add-Type -Namespace Probe -Name Native -ErrorAction SilentlyContinue -MemberDefinition @'
+[DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern System.IntPtr FindWindowW(string cls, string title);
+[DllImport("user32.dll")] public static extern bool SetWindowPos(System.IntPtr h, System.IntPtr after, int x, int y, int cx, int cy, uint flags);
+'@
+        $hwnd = [IntPtr]::Zero
+        foreach ($i in 1..40) {
+            if ($probe.HasExited) { throw "motion_probe exited (exit $($probe.ExitCode)); see $Out\motion.err.log" }
+            # [NullString]: PowerShell passes $null to a string parameter as "", which matches no title.
+            $hwnd = [Probe.Native]::FindWindowW('ButterpolloMotionProbe', [NullString]::Value)
+            if ($hwnd -ne [IntPtr]::Zero -and (Select-String -Quiet 'stage=first-present' "$Out\motion.log")) { break }
+            Start-Sleep -Milliseconds 250
+        }
+        if ($hwnd -eq [IntPtr]::Zero) { throw 'motion_probe window did not appear' }
+        # Not topmost and at the bottom: a fullscreen client above it keeps its direct flip, and
+        # window capture still sees every present of a covered window.
+        [void][Probe.Native]::SetWindowPos($hwnd, [IntPtr]::new(-2), 0, 0, 0, 0, 0x13)
+        [void][Probe.Native]::SetWindowPos($hwnd, [IntPtr]::new(1), 0, 0, 0, 0, 0x13)
+        $captureTarget = "window:$($hwnd.ToInt64())/$($probe.Id)@$MotionDisplay"
+        Write-Host "motion_probe '$Motion' captured as $captureTarget"
+    }
     # A PresentMon session a killed run left behind keeps tracing; the lock is ours, so every nightjar-* session is stale.
     if ($PresentMon) {
         foreach ($stale in (logman query -ets 2>$null | ForEach-Object { if ($_ -match '^(nightjar-\S+)') { $Matches[1] } })) { logman stop $stale -ets *> $null }
     }
     # --- Host profile, kept between runs so the pairing stays -------------------------------
+    $hostAddr = '127.0.0.1'; $hostLog = $null
+    if ($RemoteHost) {
+        # The remote host's content and log are its own: no encoder hang check from here.
+        $hostAddr = $RemoteHost
+        Write-Host "streaming from the test host at ${RemoteHost}:$Port; check its log for an encoder hang afterwards"
+    } else {
     New-Item -ItemType Directory -Force "$HostProfile\record" | Out-Null
     @("port = $Port", 'encoder = amf', 'capture = wgc',
       'virtual_display_layout = extended', 'virtual_display_mode = disabled',
@@ -109,7 +156,8 @@ try {
       'dd_refresh_rate_option = disabled', 'dd_hdr_option = disabled', 'dd_always_restore_from_golden = false',
       'frame_limiter_enable = false', 'stream_audio = false', 'upnp = false', 'enable_discovery = false',
       'vulkan_hdr_layer = false', 'system_tray = false', 'update_check_interval = 0', 'pyrowave = true',
-      'lan_encryption_mode = 2') | Set-Content "$HostProfile\sunshine.conf"
+      'lan_encryption_mode = 2') + $(if ($captureTarget) { @("output_name = $captureTarget") } else { @() }) |
+        Set-Content "$HostProfile\sunshine.conf"
     '{"apps": [{"name": "Desktop", "cmd": "", "virtual-display": false}]}' | Set-Content "$HostProfile\apps.json"
     if (-not (Test-Path "$HostProfile\sunshine_state.json")) {
         $salt = -join ((1..8) | ForEach-Object { '{0:x2}' -f (Get-Random -Maximum 256) })
@@ -124,9 +172,10 @@ try {
     $hostProcess = Start-Process $HostExe -PassThru -WindowStyle Hidden -WorkingDirectory $HostProfile `
         -RedirectStandardOutput "$HostProfile\host.stdout.log" -RedirectStandardError "$HostProfile\host.stderr.log" `
         -ArgumentList '--config-dir', $HostProfile, '--assets', "`"$install\assets\web`"", '--port', $Port, '--bind', '127.0.0.1', '--no-tray'
+    }
     $up = $false
     foreach ($i in 1..60) {
-        try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 "http://127.0.0.1:$Port/serverinfo" | Out-Null; $up = $true; break } catch { Start-Sleep -Seconds 1 }
+        try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 "http://${hostAddr}:$Port/serverinfo" | Out-Null; $up = $true; break } catch { Start-Sleep -Seconds 1 }
     }
     if (-not $up) { throw "test host did not answer on $Port" }
 
@@ -147,7 +196,7 @@ try {
         # One PC, one display: the host captures the display the client window is on, so the window
         # is kept out of the capture (the client's presents would change the host's capture rate).
         if ($CaptureVisible) { Remove-Item Env:\NIGHTJAR_EXCLUDE_FROM_CAPTURE -ErrorAction SilentlyContinue } else { $env:NIGHTJAR_EXCLUDE_FROM_CAPTURE = '1' }
-        $env:NIGHTJAR_AUTOSTREAM = "127.0.0.1:$Port"
+        $env:NIGHTJAR_AUTOSTREAM = "${hostAddr}:$Port"
         $env:NIGHTJAR_AUTOSTREAM_APP = 'Desktop'
         $env:NIGHTJAR_AUTOSTREAM_PIN = $Pin
         $env:NIGHTJAR_AUTOSTREAM_SECONDS = "$StreamSeconds"
@@ -178,7 +227,7 @@ try {
         Write-Host 'pairing the client with the test host'
         Set-ClientSettings $Bitrates[0]
         $p = Start-Client $ClientA 'pair' 5 $false
-        $web = "https://127.0.0.1:$($Port + 1)"
+        $web = "https://${hostAddr}:$($Port + 1)"
         $login = Invoke-RestMethod -SkipCertificateCheck -SessionVariable session -Method Post "$web/api/auth/login" `
             -ContentType 'application/json' -Body (@{ username = 'test'; password = 'rust-smoke-only' } | ConvertTo-Json)
         $headers = @{ 'X-CSRF-Token' = $login.csrf_token }
@@ -200,10 +249,12 @@ try {
 
     # --- Scripted content -------------------------------------------------------------------
     $legs = @(); foreach ($kbps in $Bitrates) { foreach ($variant in $Order.ToCharArray()) { $legs += , @($variant, $kbps) } }
-    $animSeconds = $legs.Count * ($Seconds + 45) + 120
-    $anim = Start-Process pwsh -PassThru -WindowStyle Minimized -ArgumentList '-NoProfile', '-File', "$PSScriptRoot\pyrowave-anim.ps1", '-Seconds', $animSeconds
-    Start-Sleep -Seconds 8
-    if ($anim.HasExited) { throw "the scripted content (pyrowave-anim.ps1) did not start (exit $($anim.ExitCode)); without it the host captures a still desktop" }
+    if (-not $RemoteHost -and -not $Motion) {
+        $animSeconds = $legs.Count * ($Seconds + 45) + 120
+        $anim = Start-Process pwsh -PassThru -WindowStyle Minimized -ArgumentList '-NoProfile', '-File', "$PSScriptRoot\pyrowave-anim.ps1", '-Seconds', $animSeconds
+        Start-Sleep -Seconds 8
+        if ($anim.HasExited) { throw "the scripted content (pyrowave-anim.ps1) did not start (exit $($anim.ExitCode)); without it the host captures a still desktop" }
+    } elseif ($probe -and $probe.HasExited) { throw "motion_probe exited (exit $($probe.ExitCode)); see $Out\motion.err.log" }
 
     # --- Legs -------------------------------------------------------------------------------
     $summaryLegs = @(); $n = 0
@@ -212,7 +263,7 @@ try {
         $name = '{0:00}-{1}-{2}' -f $n, $variant, $group
         $exe = if ($variant -eq 'B') { $ClientB } else { $ClientA }
         Set-ClientSettings $kbps $(if ($variant -eq 'B') { $DecoderB } else { $DecoderA }) $(if ($variant -eq 'B') { $ExtraB } else { $ExtraA })
-        $hostLines = (Get-Content $hostLog -ErrorAction SilentlyContinue | Measure-Object -Line).Lines
+        $hostLines = if ($hostLog) { (Get-Content $hostLog -ErrorAction SilentlyContinue | Measure-Object -Line).Lines } else { 0 }
         Write-Host "leg $name ($Seconds s at $kbps kbps, ${Width}x${Height}@$Fps, decoder $(if ($variant -eq 'B') { $DecoderB } else { $DecoderA }))"
         $p = Start-Client $exe $name $Seconds $EarlyDecode.IsPresent
         $extra = if ($variant -eq 'B') { $ExtraB } else { $ExtraA }
@@ -223,7 +274,7 @@ try {
         if (-not $ended) { $p.Kill() }
         if ($meter -and -not $meter.WaitForExit(20000)) { Stop-Process -Id $meter.Id -Force; Write-Host "leg ${name}: PresentMon did not end by itself" }
         # A hang is looked for first: a leg that stalls or fails because the encoder hung is exit 3, not 2.
-        $hostText = (Get-Content $hostLog -ErrorAction SilentlyContinue | Select-Object -Skip $hostLines) -join "`n"
+        $hostText = if ($hostLog) { (Get-Content $hostLog -ErrorAction SilentlyContinue | Select-Object -Skip $hostLines) -join "`n" } else { '' }
         if ($hostText -match '(?i)gpu hang|encoder hang|device removed') {
             Write-Host "leg ${name}: AMD encoder hang suspected, stopping (exit 3). Do not retry; see $hostLog"; exit 3
         }
@@ -246,6 +297,7 @@ try {
 } finally {
     if ($meter -and -not $meter.HasExited) { Stop-Process -Id $meter.Id -Force }
     if ($anim -and -not $anim.HasExited) { Stop-Process -Id $anim.Id -Force }
+    if ($probe -and -not $probe.HasExited) { Stop-Process -Id $probe.Id -Force }
     if ($hostProcess -and -not $hostProcess.HasExited) { Stop-Process -Id $hostProcess.Id -Force }
     if (-not $KeepLock -and (Test-Path $Lock) -and ((Get-Content $Lock -Raw) -like "$Agent *")) { Remove-Item $Lock -Force }
 }

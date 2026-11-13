@@ -14,6 +14,9 @@ group the A and the B legs are pooled and one table is printed per variant:
                                                      the chain reports no usable vblank)
   jitter         the interval between two presents (render_ns) minus 1000 / fps, p99 of the
                  absolute value, plus the p50 and p99 of the interval itself
+  cadence        the interval between two presents minus the interval between their host stamps
+                 (pts_us), absolute: how closely the screen follows a game's own frame times,
+                 the measure for VRR content whose frame rate is not the stream's
 
 All values are ms. The stat columns are those written by the 42f6bdb0 timing CSV change.
 """
@@ -56,6 +59,21 @@ def intervals(rows):
     return [(b - a) / 1e6 for a, b in zip(stamps, stamps[1:])]
 
 
+def cadence(rows):
+    """How far each interval between two shown frames is from the interval between their host
+    stamps (pts_us, the game's present time), in ms, and the host stamp intervals themselves. A
+    stamp that steps back or a gap over 100 ms (a stall, a restart) is skipped."""
+    pairs = sorted((number(r, "render_ns"), number(r, "pts_us")) for r in rows
+                   if number(r, "render_ns") and number(r, "pts_us") is not None)
+    errors, stamps = [], []
+    for (shown0, pts0), (shown1, pts1) in zip(pairs, pairs[1:]):
+        stamp = (pts1 - pts0) / 1e3
+        if 0 < stamp <= 100:
+            stamps.append(stamp)
+            errors.append(abs((shown1 - shown0) / 1e6 - stamp))
+    return errors, stamps
+
+
 def cell(values, ps):
     if not values:
         return "      -"
@@ -74,6 +92,10 @@ def report(title, legs, fps):
     deviation = [abs(g - nominal) for g in gaps]
     rates = [rendered_fps(leg) for leg in legs]
     print(f"  present interval  {cell(gaps, (50, 99))}   |interval - {nominal:.2f}| {cell(deviation, (50, 99))}")
+    errors = [e for leg in legs for e in cadence(leg)[0]]
+    stamps = [s for leg in legs for s in cadence(leg)[1]]
+    print(f"  host stamp interval {cell(stamps, (5, 50, 95))}")
+    print(f"  cadence |shown - stamp interval| {cell(errors, (50, 95, 99))}")
     print(f"  shown fps (mean of legs) {sum(rates) / len(rates):.2f}")
 
 

@@ -62,13 +62,13 @@ fn report_bits(descriptor: &[u8]) -> std::collections::BTreeMap<(u8, u8), u32> {
 fn the_mouse_descriptor_gives_the_reports_the_mouse_sends() {
     let bits = report_bits(MOUSE_REPORT_DESCRIPTOR);
     assert_eq!(bits[&(1, 1)], 7 * 8, "relative: buttons, X, Y, wheel, pan");
-    assert_eq!(bits[&(1, 2)], 5 * 8, "absolute: buttons, X, Y");
+    assert_eq!(bits[&(1, 2)], 5 * 8, "absolute: a padding byte (no buttons), X, Y");
     assert_eq!(bits[&(3, 3)], 8, "the resolution multiplier");
     let mut mouse = HidMouse::new("1");
     mouse.motion(1, 2);
-    assert_eq!(mouse.interrupt(ENDPOINT).unwrap().len(), 8);
+    assert_eq!(mouse.interrupt(ENDPOINT).unwrap().len(), 8, "report ID and the 7 bytes");
     mouse.absolute(1, 2);
-    assert_eq!(mouse.interrupt(ENDPOINT).unwrap().len(), 5);
+    assert_eq!(mouse.interrupt(ENDPOINT).unwrap().len(), 6, "report ID, padding, X, Y");
 }
 
 #[test]

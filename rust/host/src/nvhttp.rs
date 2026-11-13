@@ -570,7 +570,7 @@ fn serverinfo_response(
         ),
         (
             "HardwareMetricsVersion",
-            u8::from(permission & VIEW != 0 && config.boolean("hardware_metrics", false))
+            u8::from(permission & VIEW != 0 && config.hardware_metrics())
                 .to_string(),
         ),
         // 0 for plain HTTP and unpaired requests; the native API
@@ -721,7 +721,7 @@ fn serverinfo_response(
     // DESCRIBE's `packed444Modes` mask, from the startup probe and the probe
     // after a save of the full chroma settings, so a client
     // can leave out a packed mode before /launch instead of after it.
-    if config.boolean("experimental_packed_444", false) {
+    if config.packed_444() {
         fields.push((
             "Packed444Modes",
             h.packed_modes

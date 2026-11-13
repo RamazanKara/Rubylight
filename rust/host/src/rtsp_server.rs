@@ -271,7 +271,7 @@ async fn connection(
                         body.splice(at..at, format!("a=fmtp:97 surround-params={custom}\r\na=fmtp:97 surround-params={custom}\r\n").bytes());
                     }
                     // Last: the lines after an m= line describe its stream.
-                    if config.boolean("experimental_packed_444", false) {
+                    if config.packed_444() {
                         let modes = h.packed_modes.load(std::sync::atomic::Ordering::Acquire);
                         if modes != 0 {
                             use butterpollo_core::packed444;
@@ -389,7 +389,7 @@ async fn connection(
                     negotiated.validate()?;
                     if negotiated.chroma_packing != 0 {
                         anyhow::ensure!(
-                            config.boolean("experimental_packed_444", false),
+                            config.packed_444(),
                             "experimental packed 4:4:4 is disabled on the host"
                         );
                         let mode = butterpollo_core::packed444::mode_bit(

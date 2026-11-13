@@ -133,7 +133,7 @@ test('the update check time is a time field beside the interval that takes only 
 
 test('hardware metrics are opt-in with a bounded interval and an optional selection', () => {
   const settings = Object.fromEntries(schema.settings.map((setting) => [setting.key, setting]));
-  assert.equal(settings.hardware_metrics.default, false);
+  assert.equal(settings.hardware_metrics.default, true);
   const interval = settings.hardware_metrics_interval;
   assert.equal(interval.default, 1000);
   assert.equal(interval.visibleWhen({}), false);

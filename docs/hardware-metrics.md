@@ -6,11 +6,11 @@ Rubylight can send host CPU usage and AMD GPU readings to a streaming client for
 
 ## Enable on the host
 
-In **All settings → This PC → Hardware metrics**, enable **Send hardware metrics to client**. The setting is off by default. The host collects readings only when an eligible client requests them during its video stream; enabling the setting alone does not start background polling.
+**Send hardware metrics to client** (**All settings → This PC → Hardware metrics**) is on by default. The host collects readings only when an eligible client requests them during its video stream; enabling the setting alone does not start background polling.
 
 | Configuration key | Default | Meaning |
 | --- | --- | --- |
-| `hardware_metrics` | `false` | Allow streaming clients to request hardware readings. |
+| `hardware_metrics` | `true` | Allow streaming clients to request hardware readings. |
 | `hardware_metrics_interval` | `1000` | Minimum time between fresh samples, in milliseconds; configurable from `500` to `10000`. |
 | `hardware_metrics_selection` | `[]` | All supported readings when empty, or a list of metric identifiers from the table below. |
 

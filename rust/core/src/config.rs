@@ -207,6 +207,19 @@ impl Config {
     pub fn idd_push_fence_ring(&self) -> bool {
         self.boolean("idd_push_fence_ring", true)
     }
+    /// Whether Nightjar clients are offered packed full chroma
+    /// (`experimental_packed_444`, on unless turned off). It only offers the
+    /// modes: a stream uses one only when its client asks, so a client that
+    /// does not ask pays nothing for it.
+    pub fn packed_444(&self) -> bool {
+        self.boolean("experimental_packed_444", true)
+    }
+    /// Whether paired clients may read hardware metrics during a stream
+    /// (`hardware_metrics`, on unless turned off). Readings are taken only
+    /// while a client asks for them.
+    pub fn hardware_metrics(&self) -> bool {
+        self.boolean("hardware_metrics", true)
+    }
     /// How long a disconnected stream may keep its display. Exclusive layouts
     /// must release even when an older profile disables restoration: otherwise
     /// the local user's physical displays can remain off for hours. Keeping the

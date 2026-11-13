@@ -682,7 +682,8 @@ fn resetting_packet_pacing_opt_in_restores_the_disabled_default() {
 #[test]
 fn hardware_metrics_defaults_and_file_interval_bounds() {
     let defaults = super::Config::default();
-    assert!(!defaults.boolean("hardware_metrics", false));
+    assert!(defaults.hardware_metrics());
+    assert!(defaults.packed_444());
     assert_eq!(defaults.hardware_metrics_interval(), 1000);
     assert!(defaults.list("hardware_metrics_selection").is_empty());
     for (value, expected) in [

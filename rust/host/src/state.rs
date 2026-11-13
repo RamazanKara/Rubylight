@@ -1499,7 +1499,7 @@ impl Host {
         let offered = (self.packed_modes.load(Ordering::Acquire) & !probed | found & probed)
             & packed_modes_offerable(&config, self.codecs.load(Ordering::Acquire));
         self.packed_modes.store(offered, Ordering::Release);
-        if config.boolean("experimental_packed_444", false) {
+        if config.packed_444() {
             tracing::info!(
                 modes = packed_mode_names(offered),
                 "packed 4:4:4 modes offered to clients"
@@ -1872,7 +1872,7 @@ const PACKED_MODES: [(u8, bool); 4] = [(1, false), (1, true), (2, false), (2, tr
 /// The packed 4:4:4 modes the settings let clients be offered: none while
 /// full chroma is off, and none for a codec or 10-bit mode turned off.
 fn packed_modes_allowed(config: &Config) -> u8 {
-    if !config.boolean("experimental_packed_444", false) {
+    if !config.packed_444() {
         return 0;
     }
     PACKED_MODES

@@ -222,7 +222,7 @@ const video: Setting[] = [
     category: 'video',
     group: 'Codecs',
     control: { kind: 'toggle' },
-    default: false,
+    default: true,
     advanced: true,
   },
   {

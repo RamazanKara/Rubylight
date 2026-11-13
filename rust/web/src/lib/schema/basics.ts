@@ -236,11 +236,11 @@ const general: Setting[] = [
   {
     key: 'hardware_metrics',
     label: 'Send hardware metrics to client',
-    description: 'Share supported CPU and GPU readings when a compatible client requests them during a stream. Off by default; unavailable readings are omitted.',
+    description: 'Share supported CPU and GPU readings when a compatible client requests them during a stream. Unavailable readings are omitted.',
     category: 'general',
     group: 'Hardware metrics',
     control: { kind: 'toggle' },
-    default: false,
+    default: true,
   },
   {
     key: 'hardware_metrics_interval',
@@ -264,7 +264,7 @@ const general: Setting[] = [
     },
     default: 1000,
     inactiveHint: "Turn on Send hardware metrics to client to use this setting.",
-    visibleWhen: (values) => on(values, 'hardware_metrics', false),
+    visibleWhen: (values) => on(values, 'hardware_metrics', true),
   },
   {
     key: 'hardware_metrics_selection',
@@ -276,7 +276,7 @@ const general: Setting[] = [
     control: { kind: 'list', placeholder: 'cpu_usage_percent' },
     default: [],
     inactiveHint: "Turn on Send hardware metrics to client to use this setting.",
-    visibleWhen: (values) => on(values, 'hardware_metrics', false),
+    visibleWhen: (values) => on(values, 'hardware_metrics', true),
   },
   {
     key: 'log_path',

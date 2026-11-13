@@ -16,7 +16,7 @@ pub struct Request {
 
 fn options(h: &Host, client: &str) -> Result<(Duration, Vec<String>), Error> {
     let config = h.config.read().unwrap();
-    if !config.boolean("hardware_metrics", false) {
+    if !config.hardware_metrics() {
         return Err((StatusCode::FORBIDDEN, "Hardware metrics are disabled"));
     }
     let options = (

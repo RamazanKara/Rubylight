@@ -19,7 +19,7 @@ public class PresentSchedulerTest {
         long lastVsyncNs = Long.MIN_VALUE;
         boolean lastBumped;
         boolean bumped;
-        @Override public void start(int minIntervalUs) { }
+        @Override public void start(int minIntervalUs, boolean adaptive) { }
         @Override public void stop() { }
         @Override public void reset() { }
         @Override public boolean schedule(long hostUs, long readyNs, long[] out) {

@@ -11,7 +11,7 @@
 //! have been ready recently, plus a margin; it rises at once when frames get later and
 //! falls when they get earlier (by a share of the gap per 100 ms, so a stall is forgotten in
 //! seconds). A frame later than the delay is shown at once, and never held more than
-//! `max_hold_us` beyond the typical frame.
+//! `max_hold_us` (or `max_spread_us`) beyond the typical frame.
 //!
 //! Scheduling needs no shared clock: the delay is measured against the frames' own
 //! timestamps, so any offset between the two clocks cancels and slow drift is followed
@@ -136,6 +136,11 @@ pub struct Settings {
     pub decay_us: i64,
     /// The longest a frame is held after it is ready, in microseconds.
     pub max_hold_us: i64,
+    /// The most the delay may exceed the median lateness, in microseconds; `None` is
+    /// `max_hold_us`. Frames later than the typical one by more than this are shown when they
+    /// are ready instead of every frame waiting for them: on a link whose lateness has a long
+    /// tail (Wi-Fi), the percentile rule otherwise holds every frame for the tail.
+    pub max_spread_us: Option<i64>,
     /// The display's shortest refresh interval, in microseconds. While the content is slower
     /// than the display, presents are never closer. A frame is pushed at most one interval
     /// past its own present time, though: content as fast as the display (a 60 fps stream on
@@ -155,8 +160,28 @@ impl Default for Settings {
             margin_us: 500,
             decay_us: 25,
             max_hold_us: 50_000,
+            max_spread_us: None,
             min_interval_us: 0,
         }
+    }
+}
+
+/// [`Settings::max_spread_us`] for a display that refreshes when a frame comes (VRR, adaptive
+/// refresh rate), where a frame shown late moves only its own refresh. Replayed over recorded
+/// two-machine legs (client/docs/pyrowave-decode.md, section "Real VRR"): on Wi-Fi the unbounded
+/// percentile rule held frames 4.3 to 6.9 ms at p50 and 9.7 to 13.7 ms at p95 (50 ms at p99 on
+/// PyroWave); with 2 ms, 2.0 and 3.7 ms, and frames more than 1 ms off the game's cadence fell
+/// from 53-62% (shown when decoded) to 10-14% instead of 4-5%. On screen over Wi-Fi it added
+/// 2.6 to 4.2 ms at p50 instead of 8.0 to 10.0 ms, with 29-31% of frames off the cadence instead
+/// of 20-25% (64-74% shown when decoded). On a clean link the bound never applies.
+pub const ADAPTIVE_SPREAD_US: i64 = 2_000;
+
+impl Settings {
+    /// The defaults for a display that refreshes when a frame comes, whose shortest refresh
+    /// interval is `min_interval_us`: a frame later than the typical one by more than
+    /// [`ADAPTIVE_SPREAD_US`] is shown when it is ready.
+    pub fn adaptive(min_interval_us: i64) -> Self {
+        Self { min_interval_us, max_spread_us: Some(ADAPTIVE_SPREAD_US), ..Self::default() }
     }
 }
 
@@ -618,8 +643,9 @@ impl PresentClock {
                 _ => wanted,
             };
             // However long the frames were late, a frame is held at most `max_hold_us` beyond
-            // the typical one.
-            delay = delay.min(self.quantile(50) + self.settings.max_hold_us.max(0));
+            // the typical one, or `max_spread_us` when set.
+            let spread = self.settings.max_spread_us.unwrap_or(self.settings.max_hold_us).max(0);
+            delay = delay.min(self.quantile(50) + spread);
             self.delay_us = Some(delay);
             host + delay
         };

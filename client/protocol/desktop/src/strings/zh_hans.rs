@@ -1357,7 +1357,7 @@ sudo sysctl -w net.core.rmem_max={}", "接收缓冲区：系统只分配了所�
     ("Fullscreen switches the display to the stream’s resolution and refresh rate where it can; Borderless covers the display without changing it; Windowed is an ordinary window.", "“全屏”会在可行时把显示器切换到串流的分辨率和刷新率；“无边框”铺满显示器但不更改其模式；“窗口”是普通窗口。"),
     ("How the picture fits a screen of another shape: Fit shows all of it with bars, Fill crops the edges, Stretch distorts it, 1:1 pixels shows it at its own size.", "画面如何适应比例不同的屏幕：“适应”显示完整画面并留黑边，“填充”会裁掉边缘，“拉伸”会使画面变形，“1:1 像素”按原始尺寸显示。"),
     ("VRR: shows each frame the moment it arrives on a G-Sync, FreeSync or adaptive-refresh screen, without waiting for the next refresh. Frame pacing is not used while VRR is on.", "VRR：在 G-Sync、FreeSync 或自适应刷新屏幕上，每帧一到达就显示，无需等待下一次刷新。开启时不使用“帧速调节”。"),
-    ("Show frames at the PC’s frame times", "按电脑的帧时间显示画面"),
+    ("Real VRR", "真实 VRR"),
     ("Holds each frame briefly so it appears when the game drew it, evening out motion. Adds a few milliseconds of latency; turn it on if motion looks uneven.", "将每帧短暂保留，使其在游戏绘制它的时刻显示，让动态更平稳。会增加几毫秒延迟；动态看起来不均匀时请开启。"),
     ("Trades latency against steady motion while VRR is off. Lowest latency shows frames at once; the other choices wait for the screen’s refresh: smoother, with more delay.", "VRR 关闭时，在延迟和动态平稳之间取舍。“最低延迟”会立即显示每一帧；其他选项会等待屏幕刷新：更流畅，但延迟更高。"),
     ("Waits for the screen’s refresh, so the picture never tears; the wait adds latency. Turn it off for the lowest latency if tearing doesn’t bother you.", "等待屏幕刷新，因此画面绝不撕裂；等待会增加延迟。如果不介意撕裂，可关闭以获得最低延迟。"),

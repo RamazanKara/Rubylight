@@ -413,3 +413,43 @@ fn content_as_fast_as_the_display_does_not_build_up_a_hold() {
     let p99 = holds[holds.len() * 99 / 100];
     assert!(p99 <= interval + 8_000, "99th percentile hold {p99} us");
 }
+
+/// Lateness with a long tail, as on Wi-Fi: most frames within 1 ms, one in ten 8 to 12 ms later.
+fn tail(noise: &mut Lcg, i: usize) -> i64 {
+    if i % 10 == 3 { 8_000 + noise.next(4_000) } else { noise.next(1_000) }
+}
+
+/// Median of host present to client present after the start, beyond the fixed path and offset.
+fn median_delay(shown: &[(i64, i64, bool)]) -> i64 {
+    let mut delays: Vec<i64> = shown[300..].iter().map(|s| s.1 - s.0 - (987_654_321 + 20_000)).collect();
+    delays.sort_unstable();
+    delays[delays.len() / 2]
+}
+
+#[test]
+fn a_spread_bound_shows_a_long_tail_late_instead_of_holding_every_frame() {
+    let mut noise = Lcg(5);
+    let unbounded = run(&mut PresentClock::default(), 3000, |_| 11_111, |i| tail(&mut noise, i), 0);
+    let mut noise = Lcg(5);
+    let mut clock = PresentClock::new(Settings { max_spread_us: Some(2_000), ..Settings::default() });
+    let bounded = run(&mut clock, 3000, |_| 11_111, |i| tail(&mut noise, i), 0);
+    // The percentile rule waits for the tail: every frame about 12 ms after its host time.
+    assert!(median_delay(&unbounded) > 10_000, "{}", median_delay(&unbounded));
+    // Bounded: the median lateness (about 0.5 ms) plus at most 2 ms.
+    assert!(median_delay(&bounded) <= 2_600, "{}", median_delay(&bounded));
+    // The tail (270 of the 2700 frames) is shown late, as it comes; the rest keep the cadence.
+    let late = bounded[300..].iter().filter(|s| s.2).count();
+    assert!((250..=300).contains(&late), "{late} late");
+    let pairs = intervals(&bounded[300..]).count();
+    let kept = intervals(&bounded[300..]).filter(|(game, screen)| (screen - game).abs() <= 40).count();
+    assert!(kept * 100 >= pairs * 95, "{kept} of {pairs}");
+}
+
+#[test]
+fn a_spread_bound_changes_nothing_on_a_clean_link() {
+    let mut noise = Lcg(6);
+    let unbounded = run(&mut PresentClock::default(), 2000, |_| 8_333, |_| noise.next(1_200), 0);
+    let mut noise = Lcg(6);
+    let mut clock = PresentClock::new(Settings { max_spread_us: Some(2_000), ..Settings::default() });
+    assert_eq!(run(&mut clock, 2000, |_| 8_333, |_| noise.next(1_200), 0), unbounded);
+}

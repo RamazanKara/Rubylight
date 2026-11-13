@@ -1248,10 +1248,13 @@ public class MoonBridge {
         return rustStream ? RustBridge.sendClockSyncProbe() : cSendClockSyncProbe();
     }
     private static native boolean cSendClockSyncProbe();
-    public static void presentClockStart(int minIntervalUs) {
-        if (rustStream) RustBridge.presentClockStart(minIntervalUs); else cPresentClockStart(minIntervalUs);
+    // adaptive: the display refreshes when a frame comes (adaptive refresh rate), so a frame much
+    // later than the typical one is shown when ready instead of every frame waiting for it.
+    public static void presentClockStart(int minIntervalUs, boolean adaptive) {
+        if (rustStream) RustBridge.presentClockStart(minIntervalUs, adaptive);
+        else cPresentClockStart(minIntervalUs, adaptive);
     }
-    private static native void cPresentClockStart(int minIntervalUs);
+    private static native void cPresentClockStart(int minIntervalUs, boolean adaptive);
     public static void presentClockStop() {
         if (rustStream) RustBridge.presentClockStop(); else cPresentClockStop();
     }

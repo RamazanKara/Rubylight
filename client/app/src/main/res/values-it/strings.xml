@@ -303,7 +303,7 @@
     <string name="title_vrr">Frequenza di aggiornamento variabile</string>
     <string name="summary_vrr">VRR: mostra ogni fotogramma appena arriva su uno schermo G-Sync, FreeSync o ad aggiornamento adattivo, senza attendere il prossimo aggiornamento. Finché è attivo, Frame pacing non viene usato.</string>
     <string name="summary_vrr_unavailable">Richiede Android 16 e uno schermo con aggiornamento adattivo.</string>
-    <string name="title_host_frame_times">Mostra i fotogrammi al ritmo del PC</string>
+    <string name="title_host_frame_times">VRR reale</string>
     <string name="summary_host_frame_times">Trattiene brevemente ogni fotogramma perché appaia quando il gioco lo ha disegnato, uniformando il movimento. Aggiunge qualche millisecondo di latenza; attivalo se il movimento appare irregolare.</string>
     <string name="title_content_rate_frame_rate">Adatta lo schermo alla frequenza del gioco</string>
     <string name="summary_content_rate_frame_rate">Porta lo schermo a una frequenza di aggiornamento adatta al frame rate reale del gioco, ad esempio 60 Hz per un gioco a 60 FPS in uno stream a 120 FPS. Richiede il supporto del PC.</string>

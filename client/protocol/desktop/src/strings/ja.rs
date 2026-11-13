@@ -1357,7 +1357,7 @@ sudo sysctl -w net.core.rmem_max={}", "受信バッファー：システムは�
     ("Fullscreen switches the display to the stream’s resolution and refresh rate where it can; Borderless covers the display without changing it; Windowed is an ordinary window.", "「フルスクリーン」は、可能な場合にディスプレイをストリームの解像度とリフレッシュレートに切り替えます。「ボーダーレス」はディスプレイの設定を変えずに全体を覆います。「ウィンドウ」は通常のウィンドウです。"),
     ("How the picture fits a screen of another shape: Fit shows all of it with bars, Fill crops the edges, Stretch distorts it, 1:1 pixels shows it at its own size.", "縦横比が異なる画面への映像の合わせ方です。「フィット」は帯を付けて全体を表示し、「フィル」は端を切り取り、「引き伸ばし」は映像をゆがめ、「1:1ピクセル」は元のサイズで表示します。"),
     ("VRR: shows each frame the moment it arrives on a G-Sync, FreeSync or adaptive-refresh screen, without waiting for the next refresh. Frame pacing is not used while VRR is on.", "VRR：G-Sync、FreeSync、または可変リフレッシュレート対応の画面で、次のリフレッシュを待たずに各フレームを届いた時点で表示します。オンの間、「フレームペーシング」は使われません。"),
-    ("Show frames at the PC’s frame times", "PCのフレームタイミングで表示"),
+    ("Real VRR", "リアルVRR"),
     ("Holds each frame briefly so it appears when the game drew it, evening out motion. Adds a few milliseconds of latency; turn it on if motion looks uneven.", "各フレームを少しだけ保持してゲームが描画したタイミングで表示し、動きを均一にします。遅延が数ミリ秒増えます。動きにムラがある場合はオンにしてください。"),
     ("Trades latency against steady motion while VRR is off. Lowest latency shows frames at once; the other choices wait for the screen’s refresh: smoother, with more delay.", "VRRがオフの間、遅延と動きの安定のどちらを優先するかを決めます。「最小遅延」はフレームをすぐに表示します。ほかの選択肢は画面のリフレッシュを待つため、滑らかになりますが遅延が増えます。"),
     ("Waits for the screen’s refresh, so the picture never tears; the wait adds latency. Turn it off for the lowest latency if tearing doesn’t bother you.", "画面のリフレッシュを待つため、映像にティアリングが起きませんが、待つ分だけ遅延が増えます。ティアリングが気にならない場合は、オフにすると遅延が最小になります。"),

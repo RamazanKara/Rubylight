@@ -422,7 +422,7 @@ CSV (`due_ns`, `present_begin_ns`, the swap chain's frame statistics; see `timin
   4K. Not shipped: it fails the "jitter no worse than 1 ms more" bar at 4K and the gain is within
   the leg-to-leg spread of 1 to 2 ms.
 - **Default changed: `present_at_host_times` is now off**, so a VRR/tearing display presents
-  immediately (`PacingMode::Immediate`; the setting "Show frames at the PC's frame times" is the
+  immediately (`PacingMode::Immediate`; the setting "Real VRR" is the
   opt-in for `HostTimes`). On this display Immediate beats HostTimes on latency (receive_to_present
   p50 3.21 against 10.36 ms at 1080p, 3.46 against 10.92 at 4K) and on smoothness (present-interval
   p99 deviation 1.96 against 9.24 ms at 1080p; 6.51 against 11.51 at 4K). Displays without tearing
@@ -432,6 +432,93 @@ CSV (`due_ns`, `present_begin_ns`, the swap chain's frame statistics; see `timin
   synthetic desktop animation. Cutting the host's acquired-to-submitted age (submit the capture
   closest to the encode tick, or stamp the frame with its submit time) would shrink the spread at
   the source and is a host change.
+
+## Real VRR: measured cadence, and a link with a long tail
+
+Real VRR (`PacingMode::HostTimes`, formerly "Show frames at the PC's frame times") waits for the
+97th percentile of lateness plus 0.5 ms. On a link whose lateness has a long tail that holds every frame for the
+tail. The wait is now bounded at the median lateness plus 2 ms
+(`present_clock::ADAPTIVE_SPREAD_US`, `Settings::max_spread_us`): a frame later than that is shown
+when it is ready. The bound applies wherever frames are shown at their times on a display that
+refreshes when a frame comes: the desktop's HostTimes (VRR only) and Android's Real VRR on a
+screen with ARR. Android on a fixed vsync grid keeps the percentile rule.
+
+Rigs (`scripts/pyrowave-loopback.ps1 -Motion` or `-RemoteHost`, `scripts/timing_breakdown.py`,
+which now prints the cadence: |shown interval - host stamp interval|):
+
+- Loopback: the isolated test host on the dev PC captures `motion_probe`'s window, which presents
+  at 85.7 fps in an uneven pattern (8.3, 12.5, 8.3, 16.7, 12.5 ms); Nightjar on the same PC, 45 s
+  ABBA legs, PyroWave 300 Mbps, HEVC and AV1 50 Mbps at 1080p120, GPU decode.
+- Two machines: the 780M laptop's isolated test host (3.0.0-rc.4, unelevated, so the stamps are
+  WGC composition times) captures its 120 Hz panel showing `motion_probe` (8.3, 16.7, 8.3, 25,
+  16.7 ms: 66.7 fps) and streams over Wi-Fi to Nightjar on the PC, 45 s ABBA legs, PyroWave 150
+  Mbps and HEVC 30 Mbps at 1080p120.
+
+The PC's display offered no VRR during these runs (the G93SC was in a 2560x1440 120 Hz mode). With
+`NIGHTJAR_VRR_CHECK=0` Nightjar keeps the chosen pacing anyway and presents with tearing, so each
+present is scanned out where it is called, as a VRR panel would show it; the client log reads
+`pacing HostTimes` in every Real VRR leg. Loopback, on screen, A shown when decoded and B Real VRR.
+"Off grid" is the distance of each shown interval from the nearest multiple of 4.167 ms, which every
+interval of the probe's pattern is: the game's own cadence, independent of the host's stamps.
+
+| Loopback, on screen, 2 legs each | Off grid > 1 ms: when decoded / Real VRR | Off grid p95 | Host stamps off grid > 1 ms | receive to present p50 / p95 |
+|---|---|---|---|---|
+| PyroWave | 30.6% / 2.5% | 1.87 / 0.87 ms | 9 to 13% | 1.71 / 3.81 to 2.98 / 4.88 ms |
+| HEVC | 19.4% / 2.9% | 1.79 / 0.89 ms | 15% | 0.51 / 0.61 to 1.88 / 3.42 ms |
+| AV1 | 15.5% / 3.1% | 1.65 / 0.90 ms | 12 to 13% | 0.50 / 0.60 to 1.78 / 3.17 ms |
+
+- Real VRR puts 97% of frames within 1 ms of the game's cadence with every codec, for about 1.3 ms
+  at the median. It comes closer than the host's stamps themselves: WGC's composition times jitter
+  by a millisecond or two (stamp intervals of 6.6 ms in a pattern whose shortest is 8.3 ms), and
+  the display's shortest interval (`min_interval_us`, 8.3 ms at 120 Hz) keeps two presents from
+  coming closer than the panel can show.
+- Measured against the host's stamps instead (`timing_breakdown.py`'s cadence), Real VRR looks no
+  better than presenting when decoded (p95 1.5 to 2.3 ms either way): that metric counts the
+  stamps' own jitter as the truth.
+
+Over Wi-Fi, on screen (two machines, laptop pattern on an 8.333 ms grid, 2 legs each against
+presenting when decoded in the same build). The percentile rule ran in Nightjar 5.1.0's package;
+the bound in a release build of this change (MSYS2's FFmpeg 8 instead of the package's FFmpeg 9).
+Presenting when decoded measured the same in both (receive to present p50 4.2 to 5.0 ms). The
+laptop's stamps are 42 to 51% off grid: WGC composition times of its whole display.
+
+| Wi-Fi, on screen | Off grid > 1 ms: when decoded | Percentile rule: off, added receive to present p50 / p95 | Bound (median + 2 ms): off, added p50 / p95 |
+|---|---|---|---|
+| PyroWave 150 Mbps | 64 to 73% | 24.7%, +10.0 / +17.0 ms | 31.4%, +4.2 / +6.5 ms |
+| HEVC 30 Mbps | 68 to 69% | 19.6%, +8.0 / +8.4 ms | 28.7%, +2.6 / +2.9 ms |
+| AV1 30 Mbps | 74% | 22.5%, +8.2 / +12.8 ms | 30.3%, +3.0 / +2.6 ms |
+
+- The bound takes 5.4 to 5.8 ms off the median and 5.5 to 10.5 ms off p95 for 6 to 9 points more
+  frames off the cadence; Real VRR still halves the frames off it against presenting when decoded.
+- On screen both rules add about 2 ms more than the replay's hold, likely because the display's
+  shortest interval (8.3 ms at 120 Hz) pushes frames whose stamps came closer and frames waiting in
+  the decode queue are scheduled with it (`schedule_queued`); not broken down further.
+
+The Wi-Fi comparison below is a replay, not on-screen flips: each leg's recorded ready times (`decoder_output_ns`) and host stamps (`pts_us`)
+were replayed through `PresentClock::schedule_frame` (no grid). "Off" is the share of frames whose
+shown interval differs from their stamp interval by more than 1 ms.
+
+| All legs pooled | Shown when decoded: off | Percentile rule: hold p50 / p95, off | Bound (median + 2 ms): hold p50 / p95, off |
+|---|---|---|---|
+| Loopback, PyroWave | 12.0% (p95 1.63 ms) | 0.96 / 2.45 ms, 0.3% | 0.96 / 2.41 ms, 0.3% |
+| Loopback, HEVC | 0.6% | 1.03 / 1.38 ms, 0.1% | 1.03 / 1.38 ms, 0.1% |
+| Wi-Fi, PyroWave | 53.3% | 4.30 / 13.67 ms (p99 50, the hold cap), 5.2% | 2.00 / 3.71 ms, 9.7% |
+| Wi-Fi, HEVC | 62.0% | 6.85 / 9.70 ms, 3.6% | 2.00 / 3.72 ms, 14.4% |
+
+- On a clean link the rule costs about 1 ms and puts frames on the game's cadence almost exactly;
+  the bound never applies there. The 7 ms hold of the previous section came from a desktop
+  animation that the 240 Hz capture outran: the host's sample-and-hold age, not the network.
+- On Wi-Fi the percentile rule holds every frame for the tail: 4.3 to 6.9 ms at p50, and after a
+  stall the delay sits at the 50 ms cap until it decays. The bound keeps the hold at 2.0 / 3.7 ms
+  and shows the tail late: 10 to 14% of frames off the cadence instead of 4 to 5%, against 53 to
+  62% when each frame is shown when decoded.
+- Other bounds over the same Wi-Fi legs (hold p50, off): median + 1 ms 1.0 ms, 18 to 19%; + 3 ms
+  3.0 ms, 9 to 11%; + 4 ms 3.7 to 4.0 ms, 8 to 9%. Past 2 ms each millisecond buys less.
+- Capping each frame's hold (`max_hold_us` at 2 to 4 ms) instead was worse, 31 to 41% off: the
+  delay stays high and frames are cut at random.
+- Not measured yet: flips on a VRR panel (the on-screen legs present with tearing on a fixed 120 Hz
+  panel), and the game's own present times as stamps (an elevated host refines the stamp to the
+  DXGI present through ETW).
 
 ## Dropping the CPU wait on the decode fence: measured, not shipped
 

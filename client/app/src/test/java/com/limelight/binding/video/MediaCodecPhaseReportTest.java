@@ -29,7 +29,7 @@ import java.util.List;
 
 import static org.junit.Assert.*;
 
-/** The phase lock report with "Show frames at the PC's frame times", as with lowest latency. */
+/** The phase lock report with Real VRR (host frame times), as with lowest latency. */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 28, application = Application.class,
         shadows = {MediaCodecPhaseReportTest.SlackBridge.class, MediaCodecPhaseReportTest.OneFrameCodec.class},

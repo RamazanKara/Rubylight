@@ -146,7 +146,7 @@ final class RustBridge {
     static native boolean sendHostTimingRequest(boolean enabled);
     static native boolean sendLinkNoticeRequest(boolean enabled);
     static native boolean sendClockSyncProbe();
-    static native void presentClockStart(int minIntervalUs);
+    static native void presentClockStart(int minIntervalUs, boolean adaptive);
     static native void presentClockStop();
     static native void presentClockReset();
     static native boolean presentClockSchedule(long hostUs, long readyNs, long[] out);

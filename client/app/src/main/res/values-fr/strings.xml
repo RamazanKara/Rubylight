@@ -303,7 +303,7 @@
     <string name="title_vrr">Rafraîchissement variable</string>
     <string name="summary_vrr">VRR : affiche chaque image dès son arrivée sur un écran G-Sync, FreeSync ou à rafraîchissement adaptatif, sans attendre le prochain rafraîchissement. Le frame pacing n’est pas utilisé tant qu’il est activé.</string>
     <string name="summary_vrr_unavailable">Nécessite Android 16 et un écran à rafraîchissement adaptatif.</string>
-    <string name="title_host_frame_times">Afficher les images au rythme du PC</string>
+    <string name="title_host_frame_times">VRR réel</string>
     <string name="summary_host_frame_times">Retient brièvement chaque image pour qu’elle apparaisse quand le jeu l’a dessinée, ce qui régularise les mouvements. Ajoute quelques millisecondes de latence ; activez-le si les mouvements semblent irréguliers.</string>
     <string name="title_content_rate_frame_rate">Adapter l’écran à la cadence du jeu</string>
     <string name="summary_content_rate_frame_rate">Passe l’écran à une fréquence de rafraîchissement adaptée à la vraie fréquence d’images du jeu, par exemple 60 Hz pour un jeu à 60 FPS dans un stream à 120 FPS. Nécessite un PC compatible.</string>

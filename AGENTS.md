@@ -28,7 +28,7 @@ Studying the code, learning from the architecture, and writing your own independ
 
 ## Working on this repository
 
-Rubylight is the Windows Rust host; Nightjar is the host-neutral client in `client/` (see [client/AGENTS.md](client/AGENTS.md)). Guides: [builds](docs/building.md), [Rust workspace](rust/README.md), [architecture](docs/architecture.md), [release and hardware testing](rust/release/README.md), [performance evidence](rust/PERFORMANCE.md). Keep the status table in [the 3.0 plan](docs/rubylight-3.0-plan.md) current when changing that work.
+Rubylight is the Windows Rust host; Nightjar is the host-neutral client in `client/` (see [client/AGENTS.md](client/AGENTS.md)). Start from the [code map](docs/code-map.md) (Nightjar: [client/docs/code-map.md](client/docs/code-map.md)) instead of searching: it has where each area lives, every file one kind of change touches (a setting, a control message, a capability, an API route) and the narrowest test. `python tools/code_map.py index <folder>`, `with <file>` and `hot <folder>` answer the rest from the tree and its history; `check` verifies the maps, so correct them in the change that moves code. Guides: [builds](docs/building.md), [Rust workspace](rust/README.md), [architecture](docs/architecture.md), [release and hardware testing](rust/release/README.md), [performance evidence](rust/PERFORMANCE.md). Keep the status table in [the 3.0 plan](docs/rubylight-3.0-plan.md) current when changing that work.
 
 ### Layout and compatibility
 

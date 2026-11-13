@@ -82,6 +82,7 @@ Rubylight is a Moonlight-compatible game-streaming host for Windows 10 and 11 PC
 | Document | Contents |
 | --- | --- |
 | [Architecture](architecture.md) | The crates, the frame path from capture to packet, compute queues, HDR and PyroWave. |
+| [Code map](code-map.md) | Where each part lives, the files one kind of change touches, and the narrowest test for it. |
 | [Build guide](building.md) | Toolchain, pinned dependencies, packaging, the web console and the website. |
 | [Developer guide](../rust/README.md) | Workspace layout, isolated profiles, running the host from source and validation tools. |
 | [Release signing](code-signing.md) | The maintainer's SignPath setup and what each release signs. |

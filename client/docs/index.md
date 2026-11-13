@@ -54,6 +54,7 @@ New to Nightjar? Read the [quick start](quick-start.md), then return here when y
 | Page | Contents |
 | --- | --- |
 | [Building](building.md) | Toolchains, tests, signing, the release workflow and the [documentation checks](building.md#documentation-checks) |
+| [Code map](code-map.md) | Where each part lives, the files one kind of change touches, and the narrowest test for it |
 | [Translations](TRANSLATIONS.md) | Supported languages and how to contribute one |
 | [Device results](devices.md#send-results) | Submitting a benchmark from your device |
 

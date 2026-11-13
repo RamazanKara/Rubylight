@@ -2,6 +2,7 @@
 
 Host-neutral Moonlight-protocol client for Android and desktop (public repo RamazanKara/nightjar, mirrored from this folder).
 
+- Start from the [code map](docs/code-map.md) instead of searching: crates, both apps, the Android app's two engines, every file a setting, a control message or a host-dependent feature touches, and the narrowest test.
 - Gate host-specific extras by the `HostCapabilities` model, never by brand checks. User-facing text says Nightjar and stays host-neutral.
 - Android and desktop stay at parity: a feature or setting lands on both in one change, with shared logic in the `client/protocol` Rust crate. On-screen touch controls are Android-only.
 - Desktop (`protocol/desktop`) builds for Windows, Linux and macOS. `cfg(unix)` includes macOS: gate Linux-only code (VAAPI, Vulkan video, DMA-BUF, D-Bus, sysfs) with `target_os = "linux"`. No Mac is available here; the macOS CI job is the Mac gate. A changed shader `.spv` needs its Metal translation regenerated (`protocol/desktop/src/metal/generate.py`).

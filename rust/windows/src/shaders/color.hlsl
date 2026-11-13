@@ -932,3 +932,23 @@ void frame_warp_bits_cs(uint3 id : SV_DispatchThreadID) {
     }
     frameWarp[fwBitsAt + id.y * fwStride + id.x] = word;
 }
+// AMF's HLG input (`amf::vpe`, `hlg_prepass` in butterpollo_core::amf_vpe):
+// scene-linear BT.2020 light for a 1000-nit display, the inverse reference
+// OOTF at system gamma 1.2 that `hlg` applies before its OETF; AMF's video
+// converter applies the OETF, scaling and the YUV conversion. After
+// Foundation Sunshine's prepare_hlg_scene_cs
+// (src_assets/windows/assets/shaders/directx/prepare_hlg_scene_cs.hlsl,
+// AlkaidLab/foundation-sunshine PR #1216, commit 1add1ed), Copyright (c)
+// Foundation Sunshine authors, GPL-3.0. Its own register, so no other entry's
+// bindings change.
+RWTexture2D<float4> hlgScene : register(u9);
+[numthreads(16, 16, 1)]
+void hlg_scene_cs(uint3 id : SV_DispatchThreadID) {
+    if (any(id.xy >= sourceSize)) return;
+    float3 rgb = source.Load(int3(id.xy, 0)).rgb;
+    float3 light = pixel == 2 ? depq(rgb) * 125.0 : gamut2020(rgb);
+    float3 display = max(light, 0) * (80.0 / 1000.0);
+    float y = dot(display, float3(0.2627, 0.6780, 0.0593));
+    float3 scene = y > 0 ? display * pow(max(y, 1e-6), (1.0 - 1.2) / 1.2) : 0;
+    hlgScene[id.xy] = float4(scene, 1);
+}

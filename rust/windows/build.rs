@@ -18,7 +18,7 @@ fn main() {
     // AMD's AMF headers, vendored in include/AMF.
     println!("cargo:rerun-if-changed=include/AMF");
     let amf_include = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("include");
-    let amf=bindgen::Builder::default().header_contents("amf.h","#include <AMF/core/Factory.h>\n#include <AMF/components/VideoEncoderVCE.h>\n#include <AMF/components/VideoEncoderHEVC.h>\n#include <AMF/components/VideoEncoderAV1.h>\n")
+    let amf=bindgen::Builder::default().header_contents("amf.h","#include <AMF/core/Factory.h>\n#include <AMF/components/VideoEncoderVCE.h>\n#include <AMF/components/VideoEncoderHEVC.h>\n#include <AMF/components/VideoEncoderAV1.h>\n#include <AMF/components/VideoConverter.h>\n#include <AMF/components/DisplayCapture.h>\n")
         .clang_arg(format!("-I{}",amf_include.display())).allowlist_type("AMF.*|amf_.*")
         .allowlist_var("AMF.*|amf_.*").layout_tests(false).derive_debug(false).generate_comments(false).generate().expect("generate AMF C ABI");
     amf.write_to_file(out.join("amf.rs")).unwrap();

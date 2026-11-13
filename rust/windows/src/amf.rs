@@ -15,6 +15,8 @@ mod properties;
 mod rate_control;
 mod submit;
 mod units;
+mod vpe;
+pub(crate) use vpe::wanted_for as vpe_wanted_for;
 
 use crate::text::{static_wide, to_wide};
 use crate::{
@@ -245,6 +247,9 @@ pub struct Encoder {
     /// The statistics pass behind the D3D11 conversion, for a stream that
     /// wants dynamic metadata and converts there.
     graphics_stats: Option<Box<crate::gpu_color::HdrStats>>,
+    /// AMF's video converter in front of the encoder (`amd_vpe`), on the
+    /// D3D11 context; frames it refuses take the D3D11 shader conversion.
+    vpe: Option<Box<vpe::Vpe>>,
     last_query: Option<AMF_RESULT>,
     last_submit: Option<AMF_RESULT>,
     /// When AMF last accepted an input, for the stream's stage timings.
@@ -424,6 +429,8 @@ impl Drop for Encoder {
                 });
                 ((*(*self.component).pVtbl).Release.unwrap())(self.component);
             }
+            // After the encoder has released the converter's output surfaces.
+            self.vpe.take();
             // After the encoder has let go of its D3D12 inputs.
             self.compute.take();
             if !self.context.is_null() {

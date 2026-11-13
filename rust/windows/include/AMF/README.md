@@ -2,7 +2,9 @@
 
 The subset of AMD's Advanced Media Framework (AMF) C headers that the AMF
 bindings in `rust/windows/build.rs` include: `core/Factory.h`, the H.264,
-HEVC and AV1 encoder components, and the headers those pull in.
+HEVC and AV1 encoder components, the video converter
+(`components/VideoConverter.h`), AMD Direct Capture
+(`components/DisplayCapture.h`), and the headers those pull in.
 
 - Source: [GPUOpen-LibrariesAndSDKs/AMF](https://github.com/GPUOpen-LibrariesAndSDKs/AMF),
   `amf/public/include`

@@ -353,6 +353,7 @@ impl Encoder {
                 ((*(*context).pVtbl).Release.unwrap())(context);
                 return Err(e);
             }
+            let d3d12_free = d3d12.is_none();
             let compute = match (d3d12, compute) {
                 (Some(interface), Some(converter)) => Some(Box::new(ComputeInput {
                     converter,
@@ -396,6 +397,7 @@ impl Encoder {
                 compute,
                 dynamic: None,
                 graphics_stats: None,
+                vpe: None,
                 last_query: None,
                 last_submit: None,
                 last_accepted: None,
@@ -672,6 +674,24 @@ impl Encoder {
             e.frame_cap
                 .observe(e.read(rate_control::frame_cap_name(e.codec)));
             e.dynamic = e.enable_dynamic(options);
+            // AMF's video converter shares the encoder's D3D11 context;
+            // `Encoder::new_gpu` leaves the compute queue out for it.
+            if d3d12_free && butterpollo_core::amf_vpe::wanted(options) {
+                match vpe::Vpe::new(factory, context, &e.config) {
+                    Ok(converter) => {
+                        tracing::info!(
+                            engine = converter.engine,
+                            "AMF video converter on (amd_vpe): frames convert in AMF, the shader converts the rest"
+                        );
+                        e.vpe = Some(Box::new(converter));
+                    }
+                    Err(error) => {
+                        let error = format!("{error:#}");
+                        tracing::warn!(%error, "AMF video converter unavailable; the shader conversion converts every frame");
+                        e.warnings.set("encoder_vpe", format!("AMD hardware colour conversion is unavailable ({error}); converting with Rubylight's shaders. Update the AMD driver, or turn the setting off."));
+                    }
+                }
+            }
             e.log_effective();
             if options.amd_output_thread() {
                 // The component is initialized, and `Encoder::drop` joins the

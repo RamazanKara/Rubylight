@@ -18,6 +18,7 @@
 pub mod adaptive_bitrate;
 pub mod adaptive_fec;
 pub mod adaptive_pacing;
+pub mod amf_vpe;
 pub mod app_window;
 pub mod arrival_gaps;
 pub mod audio;
@@ -73,6 +74,7 @@ pub mod hdr_dynamic;
 pub mod host_service;
 pub mod host_timing;
 pub mod hotkey;
+pub mod image_quality;
 pub mod input;
 pub mod input_latency;
 pub mod input_policy;

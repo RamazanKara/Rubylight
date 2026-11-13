@@ -303,6 +303,9 @@ impl Encoder {
             acknowledge_keyframe(true, result, &mut self.recover, &mut self.hdr_metadata);
             let accepted = Instant::now();
             self.last_accepted = Some(accepted);
+            if let (Some(vpe), Some(used)) = (self.vpe.as_deref_mut(), vpe_used) {
+                vpe.record(used, conversion_elapsed, image.captured);
+            }
             self.in_flight.push_back(Submission {
                 pts: cut.pts,
                 // From the first submission: the frame's encode time counts both.
@@ -329,6 +332,48 @@ impl Encoder {
             Ok(())
         }
     }
+    /// Convert `image` with AMF's video converter, or `None` when the
+    /// stream has none or this frame takes the shader conversion. A failed
+    /// conversion leaves the shaders converting the rest of the stream.
+    fn convert_vpe(
+        &mut self,
+        image: &GpuImage,
+        source: (u32, u32, crate::capture::Pixel),
+    ) -> Result<Option<vpe::Converted>> {
+        let Some(converter) = self.vpe.as_deref_mut() else {
+            return Ok(None);
+        };
+        if converter.failed {
+            return Ok(None);
+        }
+        let Ok(input) = converter.plan(image, self.luminance, self.overlay.is_some()) else {
+            return Ok(None);
+        };
+        match converter.convert(image, input, &mut self.ownership) {
+            Ok(converted) => {
+                // HDR dynamic metadata reads the capture, as on the shader path.
+                if let Some(stats) = self.graphics_stats.as_deref_mut() {
+                    if self
+                        .gpu_convert
+                        .as_ref()
+                        .is_none_or(|converter| converter.source != source)
+                    {
+                        self.gpu_convert =
+                            Some(gpu::Converter::new(&self._device, &self.config, source)?);
+                    }
+                    stats.queue(image, &self.gpu_convert.as_ref().unwrap().color);
+                }
+                Ok(Some(converted))
+            }
+            Err(error) => {
+                converter.failed = true;
+                let error = format!("{error:#}");
+                tracing::warn!(%error, "AMF video converter failed; the shader conversion converts the rest of this stream");
+                self.warnings.set("encoder_vpe", format!("AMD hardware colour conversion stopped ({error}); converting with Rubylight's shaders for the rest of this stream."));
+                Ok(None)
+            }
+        }
+    }
     pub fn encode_gpu(
         &mut self,
         image: &GpuImage,
@@ -342,6 +387,9 @@ impl Encoder {
             bail!("GPU frame and encoder must use the same D3D11 device");
         }
         let source = (image.width, image.height, image.pixel);
+        let conversion_started = Instant::now();
+        // Whether AMF's video converter took this frame, on a stream that has one.
+        let mut vpe_used = None;
         let (surface, converted, conversion) = if let Some(input) = self.compute.as_mut() {
             let compute = input.converter.compute().clone();
             let texture = timed("compute open", || compute.open(&image.texture))?;
@@ -374,7 +422,13 @@ impl Encoder {
             // Kept while the frame may need encoding again (`reencodes_cut`).
             let kept = self.cut_limit.map(|_| converted.texture.clone());
             (surface, (None, kept), Some(converted.conversion))
+        } else if let Some(converted) = self.convert_vpe(image, source)? {
+            vpe_used = Some(true);
+            (converted.surface, (converted.held, None), None)
         } else {
+            if self.vpe.is_some() {
+                vpe_used = Some(false);
+            }
             if self
                 .gpu_convert
                 .as_ref()
@@ -397,6 +451,7 @@ impl Encoder {
             }
             (surface, (Some(texture), None), None)
         };
+        let conversion_elapsed = conversion_started.elapsed();
         let (converted, converted12) = converted;
         self.set_bitrate(bitrate)?;
         // SAFETY: surface owns a live AMF interface backed by this encoder's device;

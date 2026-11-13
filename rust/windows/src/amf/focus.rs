@@ -22,7 +22,7 @@ pub(crate) const PROBE_FRAMES: u32 = 3;
 /// 2026-10-27). Maps from the 16th frame on matched focus off; this is twice that.
 pub(crate) const SETTLE_FRAMES: u32 = 30;
 /// `IID_AMFSurface` (Surface.h), an inline function bindgen does not emit.
-const SURFACE_IID: AMFGuid = AMFGuid {
+pub(crate) const SURFACE_IID: AMFGuid = AMFGuid {
     data1: 0x3075dbe3,
     data2: 0x8718,
     data3: 0x4cfa,

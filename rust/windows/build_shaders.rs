@@ -8,7 +8,7 @@ const SOURCE: &str = include_str!("src/shaders/color.hlsl");
 #[cfg(windows)]
 pub fn compile(out: &Path) {
     println!("cargo:rerun-if-changed=src/shaders/color.hlsl");
-    const ENTRIES: [(&str, &str); 35] = [
+    const ENTRIES: [(&str, &str); 36] = [
         ("vertex", "vs_5_0"),
         ("luma", "ps_5_0"),
         ("chroma", "ps_5_0"),
@@ -49,6 +49,8 @@ pub fn compile(out: &Path) {
         ("frame_warp_hud_cs", "cs_5_0"),
         ("frame_warp_score_cs", "cs_5_0"),
         ("frame_warp_bits_cs", "cs_5_0"),
+        // AMF video converter's HLG input (`amf::vpe`).
+        ("hlg_scene_cs", "cs_5_0"),
     ];
     // One thread per entry, so the step takes as long as the slowest shader
     // rather than the sum. Each entry still compiles alone, byte for byte as

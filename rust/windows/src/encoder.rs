@@ -288,6 +288,7 @@ impl Encoder {
         // including when recovery selects a different codec.
         warnings.clear("encoder_intra_refresh");
         warnings.clear("hdr_dynamic_metadata");
+        warnings.clear("encoder_vpe");
         require_encoding_gpu(&image.gpu)?;
         if config.codec == 3 {
             if config.hdr {
@@ -357,10 +358,27 @@ impl Encoder {
                 Err(error) => Err(nvenc_failed(error, &image.gpu.display.adapter)),
             };
         }
+        // AMF's video converter (`amd_vpe`) runs on the encoder's D3D11
+        // context, which a compute-queue encoder does not have.
+        let vpe = match crate::amf::vpe_wanted_for(tuning, config) {
+            Ok(wanted) => wanted,
+            Err(refusal) => {
+                tracing::info!(
+                    reason = refusal.code(),
+                    "amd_vpe is on, but AMF's video converter cannot write this stream's layout; converting with the shaders"
+                );
+                false
+            }
+        };
         // Colour conversion on a compute queue keeps running beside a
         // game that fills the GPU's graphics queue.
         // AMF rejects 4:4:4 regardless of which queue converts the input.
-        let compute = if !config.yuv444
+        let compute = if vpe {
+            tracing::info!(
+                "amd_vpe is on: AMF converts on the encoder's D3D11 context instead of the compute queue"
+            );
+            None
+        } else if !config.yuv444
             && crate::compute::enabled(tuning)
             && crate::compute::shareable(&image.texture)
         {

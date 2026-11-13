@@ -802,8 +802,10 @@ impl PlanarConverter {
     }
 }
 mod hdr_stats;
+mod hlg_scene;
 mod menu;
 mod view_cache;
 pub(crate) use hdr_stats::HdrStats;
+pub(crate) use hlg_scene::HlgScene;
 #[cfg(test)]
 mod tests;

@@ -146,6 +146,49 @@ public class StreamGlassTest {
         }
     }
 
+    /**
+     * nightjar#108: Android 14 and later keep a window where it was for its whole open animation, so the blur window, opened in
+     * the corner before the panel has a size, showed there at the panel's size. It opens without an enter animation, keeps its
+     * exit, and its blur rises once it lies under the panel.
+     */
+    @Test
+    public void theBlurOpensWithoutAnAnimationAndRisesOnceUnderThePanel() {
+        try (var controller = Robolectric.buildActivity(Stream.class).setup().visible()) {
+            Activity activity = controller.get();
+            activity.setTheme(R.style.StreamTheme);
+            GlassTier.force(activity, GlassTier.LENS);
+            MenuBlurWindow.enabledForTest = true;
+            MenuBlurWindow blur;
+            try {
+                blur = MenuBlurWindow.openIfAllowed(activity, 40, on -> { });
+            } finally {
+                GlassTier.force(activity, null);
+            }
+            assertNotNull(blur);
+            assertEquals(R.style.StreamMenuBlurAnimation, blur.windowAnimations());
+            android.content.res.TypedArray animations = activity.obtainStyledAttributes(R.style.StreamMenuBlurAnimation,
+                    new int[] {android.R.attr.windowEnterAnimation, android.R.attr.windowExitAnimation});
+            try {
+                assertEquals("no enter animation", 0, animations.getResourceId(0, 0));
+                assertEquals("the panel's exit", R.anim.tv_sheet_exit, animations.getResourceId(1, 0));
+            } finally {
+                animations.recycle();
+            }
+
+            assertEquals("a pixel's blur in the corner", 1, blur.shownRadius());
+            org.robolectric.shadows.ShadowLooper.idleMainLooper(400, java.util.concurrent.TimeUnit.MILLISECONDS);
+            assertEquals("until it lies under the panel", 1, blur.shownRadius());
+            blur.cover(300, 40, 600, 500);
+            assertTrue("then it rises", blur.shownRadius() < 40);
+            org.robolectric.shadows.ShadowLooper.idleMainLooper(400, java.util.concurrent.TimeUnit.MILLISECONDS);
+            assertEquals("to the full radius with the panel's entrance", 40, blur.shownRadius());
+            blur.cover(300, 60, 600, 460);
+            assertEquals("a new page only moves it", 40, blur.shownRadius());
+            blur.close();
+            assertFalse(blur.isShowing());
+        }
+    }
+
     @Test
     public void recomposingStandsABlurredPixelForAMomentOnAnyTier() {
         try (var controller = Robolectric.buildActivity(Stream.class).setup().visible()) {

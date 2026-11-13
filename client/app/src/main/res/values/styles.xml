@@ -277,7 +277,13 @@
         <item name="android:windowIsFloating">false</item>
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:backgroundDimEnabled">false</item>
-        <item name="android:windowAnimationStyle">@style/TvSheetAnimation</item>
+        <item name="android:windowAnimationStyle">@style/StreamMenuBlurAnimation</item>
+    </style>
+
+    <!-- No enter animation: the system does not move a window while it opens, so the blur, opened in the corner before the
+         panel has a size, stood there for the whole animation. Its blur rises with the panel instead (MenuBlurWindow). -->
+    <style name="StreamMenuBlurAnimation" parent="">
+        <item name="android:windowExitAnimation">@anim/tv_sheet_exit</item>
     </style>
 
     <!-- The window of connecting and a failed connection: the whole screen, no animation in front of the stream. -->

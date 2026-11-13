@@ -1,4 +1,0 @@
-# Settings backup and restore
-- **Back up and restore settings.** Advanced, Troubleshoot, Settings backup saves the settings, apps, covers, each device's own settings, game settings files and webhooks as one file, and restores such a file on this PC or another one. The tray's Back up settings saves one to Documents\Rubylight, and Restore settings opens the panel.
-- **Secrets only when you choose.** Include pairing identity and sign-in adds this PC's pairing certificate, the paired devices, the console sign-in, API tokens and webhook secrets, with a warning that anyone with the file can use them. Without it, a restore keeps this PC's own.
-- **A restore you can check.** The host checks the file first and lists what changes, saves the current settings as a backup of its own, then restarts and applies it. A failed restore keeps the previous settings and says why in the console.

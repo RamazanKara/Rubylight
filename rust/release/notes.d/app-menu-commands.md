@@ -1,2 +1,0 @@
-# App menu commands
-- **Commands for one game in the stream menu.** A game's new Stream menu commands panel adds commands that devices with the PC commands permission can run while that game runs, from Nightjar's PC commands, Artemis and the host menu. Each can have an undo, which runs once when the game closes if its command ran. A game can also hide the PC commands from Settings while it runs. The host menu now lists the PC commands too, with a second press to confirm.

@@ -73,7 +73,7 @@
     <string name="reduce_motion_full">Completo</string>
     <!-- tv-mode-toggle -->
     <string name="title_ui_mode">Diseño de la interfaz</string>
-    <string name="summary_ui_mode">El diseño para TV o portátil, o el propio del dispositivo.</string>
+    <string name="summary_ui_mode">Automático sigue al dispositivo. Elige TV para un teléfono o una consola portátil conectados a un televisor: filas más grandes, pensadas para mando a distancia o mando de juego. Portátil ofrece el diseño táctil.</string>
     <string name="ui_mode_auto">Automático</string>
     <string name="ui_mode_tv">TV</string>
     <string name="ui_mode_handheld">Portátil</string>

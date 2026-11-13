@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_list_osc_style">Controller style</string>
-    <string name="summary_list_osc_style">“Classic” ya da başparmağı izleyen çubuklar ve düzen düzenleyicisi sunan “Modern”.</string>
+    <string name="summary_list_osc_style">“Modern” başparmağınızı izleyen çubuklar ve ikisine birden basabileceğiniz A/B/X/Y düğmeleri sunar. “Classic” özgün düzeni korur; ikisi de bilgisayara aynı oyun kumandasını gönderir.</string>
     <string name="osc_style_classic">Classic</string>
     <string name="osc_style_modern">Modern</string>
     <string name="title_list_osc_stick_mode">Modern controller sticks</string>
-    <string name="summary_list_osc_stick_mode">“Floating” çubuklar başparmağın değdiği yerde ortalanır; “Fixed” çubuklar yerinde kalır.</string>
+    <string name="summary_list_osc_stick_mode">“Floating” çubuğu başparmağınızın değdiği yerde ortalar; tam üstüne basmanız gerekmez. Çizili çubuğu hedeflemeyi tercih ediyorsanız “Fixed” seçin.</string>
     <string name="osc_stick_floating">Floating</string>
     <string name="osc_stick_fixed">Fixed</string>
     <string name="title_seekbar_osc_stick_deadzone">Modern controller stick deadzone</string>
-    <string name="summary_seekbar_osc_stick_deadzone">Çubuk tepki vermeden önce başparmağın ne kadar hareket ettiği.</string>
+    <string name="summary_seekbar_osc_stick_deadzone">Çubuk tepki vermeden önce başparmağın ne kadar hareket ettiği. Duran başparmak kamerayı veya karakteri kaydırıyorsa artırın; daha hassas nişan için azaltın.</string>
     <string name="pad_edit_title">Edit controller layout</string>
     <string name="pad_edit_all">All controls</string>
     <string name="pad_edit_hidden">%1$s (hidden)</string>

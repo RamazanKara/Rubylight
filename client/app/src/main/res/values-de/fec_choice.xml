@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_fec_choice">Fehlerkorrektur</string>
-    <string name="summary_fec_choice">Wiederherstellungsdaten, die der PC hinzufügt, damit verlorene Pakete das Bild nicht stören.</string>
+    <string name="summary_fec_choice">FEC: Wiederherstellungsdaten, die der PC mitsendet, um verlorene Pakete zu reparieren; sie gehen von der Bitrate des Bildes ab. Lass es auf „Einstellung des PCs“; probiere „Automatisch“, wenn das Bild oft Bildfehler zeigt.</string>
     <string name="fec_choice_host">Einstellung des PCs</string>
     <string name="fec_choice_auto">Automatisch</string>
     <string name="title_link_probe">Verbindung vor dem Start testen</string>
-    <string name="summary_link_probe">Ein neuer Stream mit automatischer Bitrate misst zuerst die Verbindung und startet nicht höher, als sie trägt.</string>
+    <string name="summary_link_probe">Ein neuer Stream mit automatischer Bitrate misst zuerst die Verbindung und startet nicht höher. Lass es aus: In unserer Messung starteten Streams damit niedriger, mit mehr Verlust und Standbildern.</string>
 </resources>

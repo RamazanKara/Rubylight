@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_input_only_any_host">Только ввод на любом ПК</string>
-    <string name="summary_checkbox_input_only_any_host">Добавляет «Только ввод» в меню игры на ПК без собственного режима «Только ввод».</string>
+    <string name="summary_checkbox_input_only_any_host">Предлагает «Только ввод» на ПК без такого режима: это устройство только передаёт ввод для игры, которая показана на другом экране. ПК при этом всё равно передаёт маленькое видео, менее 1 Мбит/с.</string>
     <string name="input_only_start">Только ввод</string>
     <string name="input_only_small_stream_note">Видео по-прежнему передаётся в минимальном размере, около %1$.1f Мбит/с (%2$d МБ в час), но не показывается</string>
     <string name="input_only_reason_input_permission">Разрешите этому устройству ввод на ПК</string>

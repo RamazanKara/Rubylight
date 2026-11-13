@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_list_gamepad_quit_combo">스트림 종료 버튼</string>
-    <string name="summary_list_gamepad_quit_combo">함께 누르고 있으면 스트림을 종료하는 버튼입니다.</string>
+    <string name="summary_list_gamepad_quit_combo">이 버튼들을 함께 누르고 있으면 스트림 메뉴를 열지 않고 컨트롤러로 스트림을 종료합니다. 게임에서 쓰지 않는 조합을 선택하세요.</string>
     <string name="gamepad_quit_combo_off">끔</string>
     <string name="stream_controller_mouse">컨트롤러 마우스</string>
     <string name="title_list_guide_menu_hold">Guide 길게 눌러 스트림 메뉴 열기</string>
-    <string name="summary_list_guide_menu_hold">메뉴를 열기 위해 Guide를 누르고 있는 시간입니다. 짧게 누르면 PC로 전달됩니다.</string>
+    <string name="summary_list_guide_menu_hold">스트림 메뉴를 열기 위해 Guide를 누르고 있는 시간입니다. 더 짧게 누르면 PC로 전달됩니다. 게임이나 PC에서 Guide를 길게 눌러야 한다면 ‘끔’을 선택하세요.</string>
 </resources>

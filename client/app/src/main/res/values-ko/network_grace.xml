@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_network_grace">네트워크 끊김 동안 기다리기</string>
-    <string name="summary_network_grace">네트워크가 응답하지 않을 때 스트림을 종료하기 전까지 기다리는 시간입니다.</string>
+    <string name="summary_network_grace">네트워크가 응답하지 않을 때 스트림을 종료하기 전까지 기다리는 시간입니다. 그동안 화면은 멈춥니다. 짧은 끊김에도 스트림이 종료되면 늘리세요. PC도 그만큼 기다려야 합니다.</string>
     <string name="network_grace_off">끄기(10초)</string>
     <string name="network_grace_15">15초</string>
     <string name="network_grace_20">20초</string>

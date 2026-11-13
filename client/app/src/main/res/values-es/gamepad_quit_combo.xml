@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_list_gamepad_quit_combo">Botones para salir de la transmisión</string>
-    <string name="summary_list_gamepad_quit_combo">Los botones que se mantienen pulsados a la vez para salir de la transmisión.</string>
+    <string name="summary_list_gamepad_quit_combo">Mantén pulsados estos botones a la vez para salir de la transmisión desde el mando, sin abrir el menú de transmisión. Elige una combinación que tus juegos no usen.</string>
     <string name="gamepad_quit_combo_off">Desactivado</string>
     <string name="stream_controller_mouse">Ratón con el mando</string>
     <string name="title_list_guide_menu_hold">Mantener Guide para abrir el menú de la transmisión</string>
-    <string name="summary_list_guide_menu_hold">Cuánto tiempo se mantiene pulsado Guide para abrir el menú; una pulsación corta llega al PC.</string>
+    <string name="summary_list_guide_menu_hold">Cuánto tiempo se mantiene pulsado Guide para abrir el menú de transmisión; una pulsación más corta va al PC. Elige Desactivado si un juego o el PC necesitan una pulsación larga de Guide.</string>
 </resources>

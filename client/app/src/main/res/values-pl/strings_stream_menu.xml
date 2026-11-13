@@ -54,7 +54,7 @@ Niezapisany postęp zostanie utracony.</string>
     <string name="stream_menu_button_hide">Ukryj przycisk menu</string>
     <string name="stream_menu_settings">Menu strumienia</string>
     <string name="title_floating_menu_button">Pływający przycisk menu</string>
-    <string name="summary_floating_menu_button">Okrągły przycisk nad strumieniem, który otwiera menu.</string>
+    <string name="summary_floating_menu_button">Okrągły przycisk nad strumieniem, który stuknięciem otwiera menu strumienia; przeciągnij go, aby go przesunąć. Niepotrzebny, jeśli menu otwiera Wstecz lub kontroler.</string>
     <string name="stream_tile_keyboard">Klawiatura</string>
     <string name="stream_tile_pc_keyboard">Klawiatura PC</string>
     <string name="stream_tile_mouse">Mysz</string>

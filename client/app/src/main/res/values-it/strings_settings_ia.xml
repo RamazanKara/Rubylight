@@ -21,7 +21,7 @@
     <string name="upscaling_hdr_short">Non usato con HDR</string>
     <string name="upscaling_pyrowave_short">PyroWave usa SGSR</string>
     <string name="title_low_latency_decoding">Decodifica a bassa latenza</string>
-    <string name="summary_low_latency_decoding">Usa le modalità a bassa latenza di Android e del decoder.</string>
+    <string name="summary_low_latency_decoding">Usa le modalità a bassa latenza di Android e del decoder, per meno ritardo. Lascialo attivo; disattivalo solo per verificare un problema di decodifica.</string>
     <string name="settings_touch_mode_help">Trackpad: trascina per muovere il cursore, tocca per fare clic.\nTrackpad (gesti touchpad): come Trackpad, con i gesti di un touchpad fisico. Tocca per fare clic, tocca e ritocca per trascinare, due dita per scorrere, scatto veloce per l’inerzia.\nMouse diretto: il cursore va dove tocchi.\nMulti-touch: i tocchi arrivano al PC come input touch. Senza il supporto del PC funziona come Mouse diretto.\nCursore locale: un puntatore disegnato su questo dispositivo segue subito il dito; tocca per fare clic dove punta.\nTouch disattivato: lo schermo ignora il tocco mentre giochi con un controller. Scorri indietro o premi Indietro per il menu dello stream.</string>
     <string name="resolution_screen">Dimensioni schermo (%1$s)</string>
     <string name="resolution_screen_cutout">Dimensioni schermo, evitando il foro della fotocamera (%1$s)</string>

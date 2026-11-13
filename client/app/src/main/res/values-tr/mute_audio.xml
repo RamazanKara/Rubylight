@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_mute_audio">Sesi kapat</string>
-    <string name="summary_checkbox_mute_audio">Bu cihazda yayın sesi çalınmaz.</string>
+    <string name="summary_checkbox_mute_audio">Bu cihazda yayın sesi çalınmaz; örneğin sesi bilgisayarın hoparlörleri çalarken. Mikrofon ve “Sesi bilgisayarda da çal” çalışmaya devam eder.</string>
 </resources>

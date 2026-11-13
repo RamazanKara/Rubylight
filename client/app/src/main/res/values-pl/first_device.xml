@@ -12,7 +12,7 @@
     <string name="stream_restore_help">Strumień przerwany.\nOtwórz listę aplikacji komputera, aby wznowić.</string>
     <string name="stream_presets">Profile</string>
     <string name="stream_presets_help">Natywny strumieniuje w rozdzielczości i częstotliwości odświeżania tego ekranu ze wszystkimi ustawieniami niskiego opóźnienia włączonymi.\nOszczędzanie baterii zachowuje tę rozdzielczość przy 30 FPS.\nProfile komputerów nadal mają pierwszeństwo.</string>
-    <string name="summary_frame_pacing">Równoważy czas reakcji i płynność, gdy VRR jest wyłączone.</string>
+    <string name="summary_frame_pacing">Kompromis między opóźnieniem a równym ruchem, gdy VRR jest wyłączone. „Najniższe opóźnienie” pokazuje klatki od razu; pozostałe opcje czekają na odświeżenie ekranu: płynniej, ale z większym opóźnieniem.</string>
     <string name="summary_language">Język menu Nightjar.</string>
     <string name="overlay_mode_help">Wyłączone ukrywa nakładkę. Kompaktowa pokazuje jedną linię: renderowane FPS, czas odpowiedzi sieci (RTT) i utratę klatek, za kropką, która zmienia kolor na bursztynowy lub czerwony, gdy strumień ma problemy. Statystyki pokazują bieżące pomiary strumienia. Debugowanie dodaje percentyle czasów i diagnostykę dekodera; przewiń, aby zobaczyć wszystkie szczegóły. Możesz ją też zmienić w menu strumienia.</string>
     <string name="overlay_statistics">Statystyki</string>

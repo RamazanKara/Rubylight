@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_open_on_start">Wenn Nightjar startet</string>
-    <string name="summary_open_on_start">Start, deine PCs oder ein kurzer Countdown bis zum Spiel.</string>
+    <string name="summary_open_on_start">Was Nightjar zuerst zeigt: Start, deine PCs oder einen abbrechbaren 3-Sekunden-Countdown in dein letztes oder ein gewähltes Spiel.</string>
     <string name="open_play_menu">Beim Start von Nightjar öffnen</string>
     <string name="open_play_menu_stop">Beim Start von Nightjar nicht mehr öffnen</string>
     <string name="open_play_countdown">Startet auf %1$s in %2$d</string>

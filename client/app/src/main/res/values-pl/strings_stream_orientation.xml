@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_stream_orientation">Orientacja</string>
-    <string name="summary_stream_orientation">Poziomo, pionowo lub obrót razem z urządzeniem.</string>
+    <string name="summary_stream_orientation">W którą stronę strumień może się obracać. „Automatyczna” trzyma telefony w poziomie i pozwala obracać tablety; „Poziomo” i „Pionowo” blokują orientację; „Obracaj z urządzeniem” podąża za urządzeniem.</string>
     <string-array name="stream_orientation_names">
         <item>Automatyczna</item>
         <item>Poziomo</item>

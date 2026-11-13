@@ -4,7 +4,7 @@
     <string name="title_stream_menu_button_x">X in the stream menu</string>
     <string name="title_stream_menu_button_lb">LB in the stream menu</string>
     <string name="title_stream_menu_button_rb">RB in the stream menu</string>
-    <string name="summary_stream_menu_button">What this button runs while the stream menu is open.</string>
+    <string name="summary_stream_menu_button">What this button runs while the stream menu is open. Default runs the tile marked with this button in its corner; an action that leaves the stream, such as Disconnect, asks first.</string>
     <string name="stream_menu_button_default">Default</string>
     <string name="stream_menu_button_none">Off</string>
     <!-- The stream menu's first page, in its order (protocol/policy stream_menu::assignable, which a test holds this to). -->

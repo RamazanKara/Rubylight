@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_mute_audio">오디오 음소거</string>
-    <string name="summary_checkbox_mute_audio">이 기기에서 스트림 소리를 재생하지 않습니다.</string>
+    <string name="summary_checkbox_mute_audio">이 기기에서 스트림 소리를 재생하지 않습니다. 예를 들어 PC 스피커로 소리를 들을 때 사용합니다. 마이크와 ‘PC에서도 오디오 재생’은 계속 작동합니다.</string>
 </resources>

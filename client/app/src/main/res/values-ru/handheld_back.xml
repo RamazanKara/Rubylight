@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_back_opens_menu">«Назад» открывает меню трансляции</string>
-    <string name="summary_checkbox_back_opens_menu">Кнопка «Назад» контроллера или портативной консоли открывает меню трансляции.</string>
+    <string name="summary_checkbox_back_opens_menu">Кнопка «Назад» контроллера или портативной консоли открывает меню трансляции и больше не передаётся на ПК. Оставьте выключенным, если ваши игры используют эту кнопку.</string>
     <string name="title_checkbox_back_as_guide">Кнопка «Назад» как Guide</string>
-    <string name="summary_checkbox_back_as_guide">«Назад» отправляет на ПК Guide (Home или PS).</string>
+    <string name="summary_checkbox_back_as_guide">«Назад» отправляет на ПК Guide (Home или PS), поэтому игры больше не получают «Назад» от этой кнопки. Для контроллеров без кнопки Guide; параметр «„Назад“ открывает меню трансляции» имеет приоритет.</string>
 </resources>

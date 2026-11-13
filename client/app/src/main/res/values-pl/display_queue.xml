@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_display_queue_recovery">Odzyskuj opóźnienie kolejki ekranu</string>
-    <string name="summary_display_queue_recovery">Pomija jedną klatkę, gdy ekran przetrzymuje klatki o jedno odświeżenie dłużej, niż trzeba.</string>
+    <string name="summary_display_queue_recovery">Pomija jedną klatkę, gdy ekran przetrzymuje klatki o jedno odświeżenie dłużej, niż trzeba, aby odzyskać to opóźnienie. Zostaw włączone, chyba że pominięta klatka ci przeszkadza.</string>
 </resources>

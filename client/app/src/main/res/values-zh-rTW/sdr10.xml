@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_enable_sdr10">減少色帶</string>
-    <string name="summary_enable_sdr10">以 10 位元串流非 HDR 影片，讓漸層中的色帶更少。</string>
+    <string name="summary_enable_sdr10">以 10 位元串流非 HDR 視訊，讓天空和漸層中的色帶更少。關閉 HDR 時若看到色帶，請開啟；需要 HEVC 或 AV1，以及電腦支援。</string>
     <string name="startup_sdr10_not_accepted">此電腦不接受 10 位元，因此串流為 8 位元。</string>
     <string name="stream_sdr10_host_hdr">電腦正在傳送 HDR。請將其顯示器切換為 SDR 以使用 10 位元 SDR。</string>
     <string name="stream_sdr10_unavailable">未使用 10 位元 SDR，因此串流為 8 位元：%1$s</string>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_dual_screen">双屏模式</string>
-    <string name="summary_checkbox_dual_screen">在第二个屏幕上显示同一游戏的第二路串流。</string>
+    <string name="summary_checkbox_dual_screen">同时把同一游戏串流到第二个屏幕，使用独立的一路串流；声音和手柄仍归第一路。需要第二个屏幕和电脑支持。</string>
     <string name="title_resolution_screen2">第二屏幕分辨率</string>
     <string name="summary_resolution_screen2">第二个屏幕串流的分辨率。</string>
     <string name="resolution_screen2_native">第二屏幕的原生尺寸</string>

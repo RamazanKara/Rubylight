@@ -82,7 +82,7 @@
     <string-array name="reduce_motion_values" translatable="false"><item>system</item><item>reduce</item><item>full</item></string-array>
     <!-- tv-mode-toggle -->
     <string name="title_ui_mode">Interface layout</string>
-    <string name="summary_ui_mode">The TV or handheld layout, or the device’s own.</string>
+    <string name="summary_ui_mode">Automatic follows the device. Choose TV for a phone or handheld connected to a TV: bigger rows, made for a remote or controller. Handheld gives the touch layout.</string>
     <string name="ui_mode_auto">Automatic</string>
     <string name="ui_mode_tv">TV</string>
     <string name="ui_mode_handheld">Handheld</string>

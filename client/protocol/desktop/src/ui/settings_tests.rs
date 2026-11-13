@@ -209,8 +209,8 @@ fn a_sections_fold_counts_its_rows_and_opens_and_closes() {
 #[test]
 fn a_rows_hint_shows_on_hover_and_focus_only() {
     let mut f = settings_with(Settings::default());
-    let (size_hint, rate_hint) = ("The picture size the PC sends; smaller needs less network and decoding power.",
-        "Pictures per second; higher looks smoother and needs a faster network.");
+    let (size_hint, rate_hint) = ("The picture size the PC sends. Higher is sharper and needs more network and decoding power; lower it if the stream stutters.",
+        "Frames per second (FPS). Higher looks smoother and needs a faster network and more decoding power; lower it if the stream stutters.");
     // Resolution has focus on arrival.
     assert!(shows(&f, size_hint) && !shows(&f, rate_hint), "{:?}", f.drawn);
     let y = |f: &Frames, text: &str| f.placed.iter().find(|(t, ..)| t == text).unwrap_or_else(|| panic!("{text}")).1.top();

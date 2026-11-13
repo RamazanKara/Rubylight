@@ -21,7 +21,7 @@
     <string name="upscaling_hdr_short">HDR에서는 사용 안 됨</string>
     <string name="upscaling_pyrowave_short">PyroWave는 SGSR 사용</string>
     <string name="title_low_latency_decoding">저지연 디코딩</string>
-    <string name="summary_low_latency_decoding">Android와 디코더의 저지연 모드를 사용합니다.</string>
+    <string name="summary_low_latency_decoding">Android와 디코더의 저지연 모드를 사용해 지연을 줄입니다. 켜 두고, 디코딩 문제를 확인할 때만 끄세요.</string>
     <string name="settings_touch_mode_help">트랙패드: 드래그하여 커서를 움직이고 탭하여 클릭합니다.\n트랙패드(터치패드 제스처): 트랙패드와 같지만 실제 터치패드의 제스처를 씁니다. 탭하면 클릭, 탭한 뒤 다시 터치하면 드래그, 두 손가락으로 스크롤, 빠르게 튕기면 관성이 이어집니다.\n다이렉트 마우스: 탭한 위치로 커서가 이동합니다.\n멀티 터치: 터치가 PC에 터치 입력으로 전달됩니다. PC가 지원하지 않으면 다이렉트 마우스처럼 작동합니다.\n로컬 커서: 이 기기에 그려진 포인터가 손가락을 바로 따라갑니다. 탭하면 포인터가 가리키는 곳을 클릭합니다.\n터치 끄기: 컨트롤러로 플레이하는 동안 화면 터치를 무시합니다. 뒤로 스와이프하거나 뒤로 버튼을 누르면 스트림 메뉴가 열립니다.</string>
     <string name="resolution_screen">화면 크기(%1$s)</string>
     <string name="resolution_screen_cutout">화면 크기, 카메라 컷아웃 제외(%1$s)</string>

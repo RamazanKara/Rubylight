@@ -8,9 +8,9 @@
     <string name="stream_bitrate_busy">PC occupato. Riprova tra poco.</string>
     <string name="stream_host_abr_failed">Il PC non ha avviato il suo bitrate automatico: %1$s</string>
     <string name="title_auto_bitrate">Riduci il bitrate se la rete è congestionata</string>
-    <string name="dialog_auto_bitrate">Abbassa il bitrate quando la connessione resta indietro e lo rialza quando si riprende.</string>
+    <string name="dialog_auto_bitrate">Abbassa il bitrate quando la connessione resta indietro e lo rialza quando si riprende: immagine meno nitida, meno scatti. Attivalo su una rete congestionata; richiede il supporto del PC.</string>
     <string name="title_thermal_protection">Protezione termica</string>
-    <string name="dialog_thermal_protection">Riduce bitrate e risoluzione finché il dispositivo è caldo.</string>
+    <string name="dialog_thermal_protection">Riduce bitrate e risoluzione finché il dispositivo è caldo, se è attivo «Riduci il bitrate se la rete è congestionata» o «Qualità automatica». Attivalo solo se il dispositivo rallenta per il calore o si surriscalda.</string>
     <string name="title_automatic_bitrate">Bitrate automatico</string>
-    <string name="dialog_automatic_bitrate">Nightjar sceglie il bitrate in base a risoluzione, frame rate e codec.</string>
+    <string name="dialog_automatic_bitrate">Nightjar sceglie il bitrate in base a risoluzione, frame rate e codec e lo adegua quando cambiano. Disattivalo per impostare il bitrate da te.</string>
 </resources>

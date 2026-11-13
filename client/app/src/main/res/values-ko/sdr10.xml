@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_enable_sdr10">색 밴딩 줄이기</string>
-    <string name="summary_enable_sdr10">HDR이 아닌 영상을 10비트로 스트리밍해 그라데이션의 줄무늬를 줄입니다.</string>
+    <string name="summary_enable_sdr10">HDR이 아닌 영상을 10비트로 스트리밍해 하늘이나 그라데이션의 줄무늬를 줄입니다. HDR을 끈 상태에서 줄무늬(밴딩)가 보이면 켜세요. HEVC 또는 AV1과 PC 지원이 필요합니다.</string>
     <string name="startup_sdr10_not_accepted">이 PC가 10비트를 받아들이지 않아 스트림은 8비트입니다.</string>
     <string name="stream_sdr10_host_hdr">PC가 HDR을 보내고 있습니다. 10비트 SDR을 쓰려면 PC 디스플레이를 SDR로 바꾸세요.</string>
     <string name="stream_sdr10_unavailable">10비트 SDR을 사용하지 않아 스트림은 8비트입니다: %1$s</string>

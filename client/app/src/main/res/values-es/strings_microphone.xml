@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_enable_mic">Enviar micrófono al PC</string>
-    <string name="summary_checkbox_enable_mic">Envía el micrófono de este dispositivo al PC.</string>
+    <string name="summary_checkbox_enable_mic">Envía el micrófono de este dispositivo al PC, para que puedas hablar allí en juegos y aplicaciones de chat. Siléncialo desde el menú de transmisión; requiere un PC compatible.</string>
     <string name="mic_permission_denied">No se ha permitido el acceso al micrófono, así que seguirá desactivado. Permítelo en los ajustes de Android para hablar a través del PC.</string>
     <string name="mic_status_sending">Micrófono: enviando</string>
     <string name="mic_status_muted">Micrófono: silenciado</string>
@@ -9,18 +9,18 @@
     <string name="mic_status_unavailable">Micrófono: no disponible</string>
     <string name="mic_status_no_permission">Micrófono: se necesita permiso</string>
     <string name="title_list_mic_echo_cancel">Cancelación de eco</string>
-    <string name="summary_list_mic_echo_cancel">Evita que el sonido de la transmisión en los altavoces entre en el micrófono.</string>
+    <string name="summary_list_mic_echo_cancel">Evita que el sonido de la transmisión que sale de los altavoces entre en el micrófono. Déjalo en Automático, que lo desactiva con auriculares; elige Activada si el PC sigue oyendo su propio sonido.</string>
     <string name="mic_echo_auto">Automático</string>
     <string name="mic_echo_on">Activada</string>
     <string name="mic_echo_off">Desactivada</string>
     <string name="title_checkbox_mic_noise_suppression">Supresión de ruido</string>
-    <string name="summary_checkbox_mic_noise_suppression">Filtra del micrófono el ruido de fondo constante.</string>
+    <string name="summary_checkbox_mic_noise_suppression">Filtra del micrófono los ventiladores y otros ruidos de fondo constantes. Déjalo activado.</string>
     <string name="title_checkbox_mic_auto_gain">Ganancia automática</string>
-    <string name="summary_checkbox_mic_auto_gain">Iguala la voz baja y la alta.</string>
+    <string name="summary_checkbox_mic_auto_gain">Iguala la voz baja y la alta. Actívalo si los demás oyen tu voz pasar de demasiado baja a demasiado alta.</string>
     <string name="title_seekbar_mic_gain">Ganancia del micrófono</string>
-    <string name="summary_seekbar_mic_gain">Baja o sube el micrófono antes de enviarlo.</string>
+    <string name="summary_seekbar_mic_gain">Baja o sube el volumen del micrófono antes de enviarlo. Súbelo si los demás te oyen demasiado bajo; bájalo si te oyen demasiado alto.</string>
     <string name="title_checkbox_mic_button">Botón de micrófono</string>
-    <string name="summary_checkbox_mic_button">Un botón en la transmisión que silencia y activa el micrófono.</string>
+    <string name="summary_checkbox_mic_button">Un botón redondo sobre la transmisión que silencia y reactiva el micrófono con un toque; arrástralo para moverlo. Si lo desactivas, silencia desde el menú de transmisión.</string>
     <string name="mic_button_mute">Silenciar micrófono</string>
     <string name="mic_button_unmute">Activar micrófono</string>
     <string name="stream_mic_button_show">Mostrar botón de micrófono</string>

@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_fec_choice">Correction d’erreurs</string>
-    <string name="summary_fec_choice">Des données de récupération ajoutées par le PC, pour que les paquets perdus ne dégradent pas l’image.</string>
+    <string name="summary_fec_choice">FEC : des données supplémentaires que le PC ajoute pour réparer les paquets perdus, prises sur le débit de l’image. Laissez-le sur « Réglage du PC » ; essayez « Automatique » si l’image se dégrade souvent.</string>
     <string name="fec_choice_host">Réglage du PC</string>
     <string name="fec_choice_auto">Automatique</string>
     <string name="title_link_probe">Tester la connexion avant de démarrer</string>
-    <string name="summary_link_probe">Un nouveau stream au débit automatique mesure d’abord la connexion et ne démarre pas plus haut.</string>
+    <string name="summary_link_probe">Un nouveau stream au débit automatique mesure d’abord la connexion et ne démarre pas plus haut. Laissez-le désactivé : dans nos mesures, les streams démarraient alors plus bas, avec plus de pertes et de gels d’image.</string>
 </resources>

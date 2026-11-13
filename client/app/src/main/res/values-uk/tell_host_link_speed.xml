@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_tell_host_link_speed">Повідомляти ПК швидкість з\'єднання</string>
-    <string name="summary_tell_host_link_speed">ПК обмежує швидкість надсилання швидкістю дротового порту цього пристрою.</string>
+    <string name="summary_tell_host_link_speed">Повідомляє ПК швидкість дротового порту цього пристрою, щоб він не надсилав дані швидше, ніж порт може прийняти. Залиште ввімкненим; вимикайте лише для порівняння.</string>
 </resources>

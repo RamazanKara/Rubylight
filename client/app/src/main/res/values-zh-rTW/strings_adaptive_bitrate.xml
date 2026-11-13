@@ -8,9 +8,9 @@
     <string name="stream_bitrate_busy">電腦忙碌中，請稍後再試。</string>
     <string name="stream_host_abr_failed">電腦未啟動其自動位元速率：%1$s</string>
     <string name="title_auto_bitrate">網路忙碌時降低位元速率</string>
-    <string name="dialog_auto_bitrate">連線跟不上時降低位元速率，恢復後再調回。</string>
+    <string name="dialog_auto_bitrate">連線跟不上時降低位元速率，恢復後再調回：畫面會稍微模糊，但卡頓更少。網路忙碌時請開啟；需要電腦支援。</string>
     <string name="title_thermal_protection">過熱保護</string>
-    <string name="dialog_thermal_protection">裝置發熱時降低位元速率和解析度。</string>
+    <string name="dialog_thermal_protection">裝置發熱時降低位元速率和解析度，前提是已開啟「網路忙碌時降低位元速率」或「自動品質」。僅在裝置降頻或過熱時開啟。</string>
     <string name="title_automatic_bitrate">自動位元速率</string>
-    <string name="dialog_automatic_bitrate">Nightjar 依解析度、影格速率和編解碼器選擇位元速率。</string>
+    <string name="dialog_automatic_bitrate">Nightjar 依解析度、影格速率和轉碼器選擇位元速率，並在這些設定變更時隨之調整。關閉後可自行設定位元速率。</string>
 </resources>

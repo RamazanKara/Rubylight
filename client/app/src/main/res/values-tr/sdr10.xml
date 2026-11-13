@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_enable_sdr10">Daha az renk bantlanması</string>
-    <string name="summary_enable_sdr10">HDR olmayan videoyu 10 bit yayınlar; böylece renk geçişlerinde daha az bant görünür.</string>
+    <string name="summary_enable_sdr10">HDR olmayan videoyu 10 bit yayınlar; gökyüzünde ve renk geçişlerinde daha az bant görünür. HDR kapalıyken bantlanma görüyorsanız açın; HEVC veya AV1 ve bilgisayar desteği gerekir.</string>
     <string name="startup_sdr10_not_accepted">Bu bilgisayar 10 biti kabul etmedi, bu yüzden yayın 8 bit.</string>
     <string name="stream_sdr10_host_hdr">Bilgisayar HDR gönderiyor. 10 bit SDR için ekranını SDR’ye geçirin.</string>
     <string name="stream_sdr10_unavailable">10 bit SDR kullanılmıyor, bu yüzden yayın 8 bit: %1$s</string>

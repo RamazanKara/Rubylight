@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_submit_hint">Velocizza la consegna dei fotogrammi</string>
-    <string name="summary_submit_hint">Il suggerimento prestazioni copre anche il thread che alimenta il decoder.</string>
+    <string name="summary_submit_hint">Per fare confronti. Il suggerimento prestazioni copre anche il thread che alimenta il decoder; sui nostri dispositivi non è risultato più veloce. Lascialo disattivato.</string>
     <string name="title_covering_decoder_size">Prepara il decoder alla piegatura</string>
-    <string name="summary_covering_decoder_size">Dimensiona il decoder per l’altro schermo, così piegare non richiede un riavvio.</string>
+    <string name="summary_covering_decoder_size">Per i pieghevoli: dimensiona fin dall’inizio il decoder per lo schermo più grande, così la prima piegatura o rotazione non richiede un riavvio del decoder. Disattivalo di nuovo se il video si ferma o mostra errori.</string>
     <string name="title_pyrowave_preacquire">PyroWave: immagine dello schermo anticipata</string>
-    <string name="summary_pyrowave_preacquire">Prende la prossima immagine dello schermo prima dell’arrivo di ogni fotogramma PyroWave.</string>
+    <string name="summary_pyrowave_preacquire">Per fare confronti. Prende la prossima immagine dello schermo prima dell’arrivo di ogni fotogramma PyroWave; sui nostri dispositivi non è risultato più veloce. Lascialo disattivato.</string>
     <string name="title_codec_direct">Dati video diretti al decoder</string>
-    <string name="summary_codec_direct">Copia ogni fotogramma nel decoder una sola volta.</string>
+    <string name="summary_codec_direct">Per la risoluzione dei problemi. I fotogrammi vanno direttamente nel decoder, risparmiando una copia; lascialo attivo e disattivalo solo se il video si ferma o mostra errori su questo dispositivo.</string>
     <string name="title_receive_decode_priority">Priorità del decoder in ricezione</string>
-    <string name="summary_receive_decode_priority">Il thread che riceve il video gira con la priorità del decoder.</string>
+    <string name="summary_receive_decode_priority">Per fare confronti. Il thread che riceve il video gira con la priorità del decoder; sui nostri dispositivi è risultato più lento sotto carico. Lascialo disattivato.</string>
 </resources>

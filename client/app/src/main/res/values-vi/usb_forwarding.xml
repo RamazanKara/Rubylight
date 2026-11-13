@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_usb_forwarding">Chuyển tiếp thiết bị USB</string>
-    <string name="summary_usb_forwarding">Thiết bị USB cắm vào máy này có thể được gắn vào PC từ menu stream.</string>
+    <string name="summary_usb_forwarding">Cho phép menu stream chuyển một thiết bị USB cắm vào máy này, như bảng vẽ hoặc khóa bảo mật, sang PC. Cần PC có chuyển tiếp USB.</string>
     <string name="stream_usb_devices">Thiết bị USB</string>
     <string name="usb_forwarding_pick_title">Chuyển tiếp thiết bị USB</string>
     <string name="usb_forwarding_auto_button">Tự động</string>

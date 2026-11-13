@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="controller_mapping_title">控制器按鈕</string>
-    <string name="controller_mapping_summary">重新對應某種控制器型號的按鈕和搖桿。</string>
+    <string name="controller_mapping_summary">重新對應某種控制器型號的按鈕和搖桿，並設定電腦辨識到的類型（Xbox、PlayStation 或 Nintendo），適用於遊戲顯示的按鈕圖示不對的情況。</string>
     <string name="controller_mapping_intro">輕觸「對應按鈕」，然後按下要重新對應的控制器按鈕。\n變更會在下次串流時套用。</string>
     <string name="controller_mapping_waiting">請連接控制器，然後輕觸「對應按鈕」。</string>
     <string name="controller_mapping_unnamed">控制器</string>

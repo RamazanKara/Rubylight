@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_client_roaming">Продовжувати трансляцію в разі зміни мережі</string>
-    <string name="summary_client_roaming">Трансляція триває, коли цей пристрій змінює мережу.</string>
+    <string name="summary_client_roaming">Коли цей пристрій змінює мережу, трансляція переходить на нову адресу, а не чекає на стару. Залиште ввімкненим; потрібна підтримка ПК.</string>
     <string name="title_roaming_metered">Продовжувати через мобільні дані</string>
-    <string name="summary_roaming_metered">Дозволяє трансляції переходити на мобільні дані або іншу лімітну мережу.</string>
+    <string name="summary_roaming_metered">Дозволяє запущеній трансляції переходити на мобільні дані або іншу лімітну мережу. Трансляція витрачає багато трафіку; вмикайте, лише якщо вам це потрібно.</string>
 </resources>

@@ -3,13 +3,13 @@
      opens, group names, row hints and notices. -->
 <resources>
     <string name="title_sharp_color">Texto en color más nítido</string>
-    <string name="summary_sharp_color">Detalle de color completo, para que el texto en color y las líneas finas se vean nítidos.</string>
+    <string name="summary_sharp_color">Detalle de color completo (4:4:4), para que el texto en color y las líneas finas se vean nítidos. Actívalo si se ven borrosos; consume más potencia de decodificación y requiere un PC y un dispositivo compatibles.</string>
     <string-array name="sharp_color_names">
         <item>Desactivado</item>
         <item>Activado</item>
     </string-array>
     <string name="title_controllers">Mandos</string>
-    <string name="summary_controllers">Desactivado, todos los mandos como un solo jugador o cada mando como un jugador propio.</string>
+    <string name="summary_controllers">Un jugador por mando convierte cada mando en un jugador propio y es lo adecuado para casi todos. Un jugador hace que todos los mandos sean el jugador 1; Desactivado no envía ningún mando al PC.</string>
     <string-array name="controllers_names">
         <item>Desactivado</item>
         <item>Un jugador</item>
@@ -25,8 +25,8 @@
         <item>Continuar mi último juego</item>
         <item>Un juego elegido</item>
     </string-array>
-    <string name="summary_host_display_location">Cómo coloca el PC la pantalla transmitida junto a sus propias pantallas.</string>
-    <string name="summary_pace_calibration_row">Busca el ritmo más rápido al que los fotogramas PyroWave de un PC llegan completos.</string>
+    <string name="summary_host_display_location">Cómo coloca el PC la pantalla virtual de la transmisión junto a sus monitores. La opción Exclusivo apaga los monitores del PC durante la transmisión; vuelven al terminar. Requiere un PC compatible.</string>
+    <string name="summary_pace_calibration_row">Busca y guarda el ritmo más rápido al que los fotogramas PyroWave de un PC llegan completos, para conexiones que pierden el final de los fotogramas, como una base USB con Ethernet. Tarda de uno a tres minutos.</string>
     <string name="summary_network_tests">Mide ping, jitter y pérdida, y la velocidad de descarga si el PC lo admite.</string>
     <string name="settings_category_touch_mouse">Táctil y ratón</string>
     <string name="settings_category_connection">Conexión</string>
@@ -34,16 +34,16 @@
     <string name="sharp_color_unavailable_device">El texto en color más nítido no está disponible en este dispositivo.</string>
     <string name="sharp_color_stopped">El texto en color más nítido se ha detenido. Reconectando sin él.</string>
     <string name="sharp_color_hdr_dropped">Esta transmisión está en SDR: en este PC, HDR no está disponible con el texto en color más nítido.</string>
-    <string name="hint_show_onscreen_controls">Un mando táctil sobre la transmisión.</string>
-    <string name="hint_mouse_speed">La velocidad a la que se mueve el puntero.</string>
+    <string name="hint_show_onscreen_controls">Un mando táctil dibujado sobre la transmisión, para jugar sin un mando físico. Tapa parte de la imagen; baja Opacidad para ver más del juego.</string>
+    <string name="hint_mouse_speed">La velocidad a la que un ratón físico mueve el puntero del PC. Los modos táctiles tienen sus propios ajustes de velocidad.</string>
     <string name="hint_trackpad_speed">Velocidad del puntero en el modo táctil Trackpad.</string>
-    <string name="hint_local_cursor_speed">Velocidad del puntero en el modo táctil Cursor local.</string>
+    <string name="hint_local_cursor_speed">Velocidad del puntero en el modo táctil Cursor local. Con el valor predeterminado, el puntero se mueve lo mismo que tu dedo.</string>
     <string name="hint_trackpad_acceleration_curve">Cuánto más lejos llegan los deslizamientos rápidos.</string>
     <string name="hint_trackpad_momentum_glide">Cuánto se desliza el puntero.</string>
-    <string name="hint_pc_keyboard_size">El tamaño del teclado de PC en pantalla.</string>
-    <string name="hint_pc_keyboard_opacity">La transparencia del teclado de PC en pantalla.</string>
-    <string name="hint_vibrate_osc">El dispositivo vibra al pulsar un botón en pantalla.</string>
-    <string name="hint_show_guide_button">Añade un botón Guide a los controles en pantalla.</string>
+    <string name="hint_pc_keyboard_size">Cuánta altura de la pantalla ocupa el teclado de PC en pantalla. Más grande da teclas mayores; más pequeño deja ver más de la transmisión.</string>
+    <string name="hint_pc_keyboard_opacity">Lo transparente que es el teclado de PC en pantalla. Un valor más bajo deja ver más de la transmisión que hay detrás.</string>
+    <string name="hint_vibrate_osc">Vibra cuando pulsas los controles en pantalla (no los botones del mando Classic), si la respuesta táctil del sistema está activada, y con la vibración de un juego cuando ningún mando físico la recibe.</string>
+    <string name="hint_show_guide_button">Añade un botón Guide (Home o PS) a los controles en pantalla.</string>
     <string name="hint_host_audio">Mantiene el sonido en los altavoces del PC durante la transmisión.</string>
     <string name="hint_overlay_position">La esquina en la que se muestra la superposición de rendimiento.</string>
     <string name="summary_reset_all">Devuelve todos los ajustes a su valor predeterminado; se conservan los PC, juegos, perfiles e idioma.</string>

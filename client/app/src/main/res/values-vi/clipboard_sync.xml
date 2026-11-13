@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_clipboard_sync">Đồng bộ bộ nhớ tạm</string>
-    <string name="summary_clipboard_sync">Văn bản đã sao chép được chuyển qua lại giữa thiết bị này và PC.</string>
+    <string name="summary_clipboard_sync">Sao chép văn bản trên thiết bị này rồi dán trên PC, hoặc ngược lại, trong khi stream. Mọi thứ bạn sao chép dưới dạng văn bản đều được gửi đi; PC phải có đồng bộ bộ nhớ tạm.</string>
     <string name="clipboard_sync_not_offered">Đồng bộ bộ nhớ tạm đang tắt: PC không cung cấp. PC phải cho phép thiết bị này đọc và ghi bộ nhớ tạm của nó.</string>
     <string name="clipboard_sync_failed">Không thể bắt đầu đồng bộ bộ nhớ tạm.</string>
     <string name="clipboard_sync_read_refused">Android không cho đồng bộ đọc bộ nhớ tạm, nên bản sao này ở lại thiết bị này.</string>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_back_opens_menu">Geri, yayın menüsünü açar</string>
-    <string name="summary_checkbox_back_opens_menu">Kumandanın veya el konsolunun Geri düğmesi yayın menüsünü açar.</string>
+    <string name="summary_checkbox_back_opens_menu">Kumandanın veya el konsolunun Geri düğmesi yayın menüsünü açar ve artık bilgisayara ulaşmaz. Oyunlarınız bu düğmeyi kullanıyorsa kapalı bırakın.</string>
     <string name="title_checkbox_back_as_guide">Geri düğmesi Guide olarak</string>
-    <string name="summary_checkbox_back_as_guide">Geri, bilgisayara Guide (Home veya PS) gönderir.</string>
+    <string name="summary_checkbox_back_as_guide">Geri düğmesi bilgisayara Guide (Home veya PS) gönderir; oyunlar artık bu düğmeden Geri almaz. Guide düğmesi olmayan kumandalar içindir; “Geri, yayın menüsünü açar” önceliklidir.</string>
 </resources>

@@ -6,7 +6,7 @@
     <string name="pc_keyboard_layout_us">Англійська (США)</string>
     <string name="pc_keyboard_layout_de">Німецька (QWERTZ)</string>
     <string name="pc_keyboard_layout_title">Розкладка клавіатури</string>
-    <string name="pc_keyboard_layout_summary">Розкладка екранної клавіатури ПК.</string>
+    <string name="pc_keyboard_layout_summary">Літери на екранній клавіатурі ПК. Клавіші надсилають позиції, тож виберіть розкладку, яку Windows використовує на ПК, інакше з’являться інші символи. «Автоматично» відповідає мові цього пристрою.</string>
     <string name="pc_keyboard_size_title">Розмір клавіатури</string>
     <string name="pc_keyboard_opacity_title">Прозорість клавіатури</string>
 </resources>

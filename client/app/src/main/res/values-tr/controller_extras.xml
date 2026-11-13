@@ -2,20 +2,20 @@
 <resources>
     <!-- Controller and keyboard options -->
     <string name="title_checkbox_disable_rumble">Titreşimi kapat</string>
-    <string name="summary_checkbox_disable_rumble">Tüm titreşimi, tetik titreşimini ve dokunsal geri bildirimi durdurur.</string>
+    <string name="summary_checkbox_disable_rumble">Oyunun istediği her titreşimi durdurur: titreşim, tetik titreşimi ve dokunsal geri bildirim. Hiç titreşim istemiyorsanız açın; yoksa kapalı bırakın.</string>
     <string name="title_checkbox_mouse_emulation_fixed_step">Hassas kumanda faresi</string>
-    <string name="summary_checkbox_mouse_emulation_fixed_step">X basılı tutulurken imleci sabit piksel adımlarıyla hareket ettirir.</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">Kumandayla fare modunda X basılı tutulurken imleç sabit piksel adımlarıyla hareket eder; küçük hedefler içindir. Y, adımı 1 pikselden 128 piksele kadar ikiye katlar.</string>
     <string name="stream_mouse_step">Fare adımı: %1$d px</string>
     <string name="title_checkbox_capture_system_keys">Sistem tuşlarını gönder</string>
-    <string name="summary_checkbox_capture_system_keys">Alt+Tab, Windows tuşu ve benzerleri bilgisayara gider.</string>
+    <string name="summary_checkbox_capture_system_keys">Alt+Tab, Windows tuşu ve benzerleri, Android’in izin verdiği durumlarda bu cihaz yerine bilgisayara gider. Bu kısayolların bu cihazda kalması için kapatın.</string>
     <string name="title_checkbox_system_keys_fullscreen_only">Sistem tuşları yalnızca tam ekranda</string>
-    <string name="summary_checkbox_system_keys_fullscreen_only">Pencere modunda sistem tuşları bu cihazda kalır.</string>
+    <string name="summary_checkbox_system_keys_fullscreen_only">Pencere modunda Alt+Tab, Windows tuşu ve benzerleri bu cihazda kalır; tam ekranda bilgisayara gider. Penceredeki yayının yanında uygulamalar arasında geçiş yapmak için açın.</string>
     <string name="title_checkbox_back_as_meta">Klavyedeki Geri tuşu Windows tuşu gönderir</string>
-    <string name="summary_checkbox_back_as_meta">Fiziksel klavyenin Geri tuşu Windows tuşunu gönderir.</string>
+    <string name="summary_checkbox_back_as_meta">Fiziksel klavyenin Geri tuşu bilgisayara Geri veya Esc yerine Windows tuşunu gönderir. Android’in Geri hareketi ve yayın menüsü kısayolu yayın menüsünü yine açar.</string>
     <string name="title_checkbox_right_alt_as_meta">Sağ Alt Windows tuşu olarak</string>
-    <string name="summary_checkbox_right_alt_as_meta">Sağ Alt, Mac’in Command olarak kullandığı Windows tuşunu gönderir.</string>
+    <string name="summary_checkbox_right_alt_as_meta">Sağ Alt, Mac’in Command olarak kullandığı Windows tuşunu gönderir. AltGr ile karakter yazıyorsanız kapalı bırakın: açıkken Sağ Alt artık AltGr olarak çalışmaz.</string>
     <string name="title_checkbox_keyboard_follows_text_fields">Klavye metin alanlarını takip eder</string>
-    <string name="summary_checkbox_keyboard_follows_text_fields">Bilgisayarda bir metin alanı odaklandığında ekran klavyesi açılır.</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">Bilgisayarda bir metin alanı seçtiğinizde ekran klavyesini açar, sonra kapatır. Metin alanlarını bildiren bir bilgisayar gerekir; klavyeyi kendiniz açmak için kapatın.</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">Kumanda testi</string>
@@ -57,6 +57,6 @@
 
     <!-- USB Switch Pro driver -->
     <string name="title_usb_switch_pro">USB Switch Pro sürücüsü</string>
-    <string name="summary_usb_switch_pro">Kablolu bir Switch Pro Controller’ı hareket, titreşim, Home ve Capture ile okur.</string>
+    <string name="summary_usb_switch_pro">Nightjar kablolu bir Switch Pro Controller’ı kendisi okur; böylece jiroskop, titreşim, Home ve Capture çalışır. Android yayın sırasında USB erişimi ister; Bluetooth ve Joy-Con, Android’in girişinde kalır.</string>
     <string name="usb_switch_pro_denied">USB erişimi yok; Switch Pro Controller Android girişini kullanmaya devam ediyor.\nTekrar denemek için kabloyu yeniden takın.</string>
 </resources>

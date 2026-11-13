@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_back_opens_menu">Retour ouvre le menu du stream</string>
-    <string name="summary_checkbox_back_opens_menu">Le bouton Retour de la manette ou de la console portable ouvre le menu du stream.</string>
+    <string name="summary_checkbox_back_opens_menu">Le bouton Retour de la manette ou de la console portable ouvre le menu du stream et n’atteint plus le PC. Laissez-le désactivé si vos jeux utilisent ce bouton.</string>
     <string name="title_checkbox_back_as_guide">Bouton Retour en Guide</string>
-    <string name="summary_checkbox_back_as_guide">Retour envoie Guide (Home ou PS) au PC.</string>
+    <string name="summary_checkbox_back_as_guide">Retour envoie Guide (Home ou PS) au PC, donc les jeux ne reçoivent plus Retour de ce bouton. Pour les manettes sans bouton Guide ; « Retour ouvre le menu du stream » est prioritaire.</string>
 </resources>

@@ -8,9 +8,9 @@
     <string name="stream_bitrate_busy">PC occupé. Réessayez dans un instant.</string>
     <string name="stream_host_abr_failed">Le PC n’a pas lancé son débit automatique : %1$s</string>
     <string name="title_auto_bitrate">Baisser le débit si le réseau est chargé</string>
-    <string name="dialog_auto_bitrate">Baisse le débit quand la connexion prend du retard, puis le remonte une fois qu’elle se rétablit.</string>
+    <string name="dialog_auto_bitrate">Baisse le débit tant que la connexion prend du retard, puis le remonte une fois qu’elle se rétablit : image plus douce, moins de saccades. Activez-le sur un réseau chargé ; nécessite un PC compatible.</string>
     <string name="title_thermal_protection">Protection thermique</string>
-    <string name="dialog_thermal_protection">Réduit le débit et la résolution tant que l’appareil est chaud.</string>
+    <string name="dialog_thermal_protection">Baisse le débit et la résolution tant que l’appareil est chaud, si « Baisser le débit si le réseau est chargé » ou « Qualité automatique » est activé. Ne l’activez que si l’appareil bride ses performances ou surchauffe.</string>
     <string name="title_automatic_bitrate">Débit automatique</string>
-    <string name="dialog_automatic_bitrate">Nightjar choisit le débit selon la résolution, la fréquence d’images et le codec.</string>
+    <string name="dialog_automatic_bitrate">Nightjar choisit le débit selon la résolution, la fréquence d’images et le codec, et l’ajuste quand ils changent. Désactivez-le pour régler le débit vous-même.</string>
 </resources>

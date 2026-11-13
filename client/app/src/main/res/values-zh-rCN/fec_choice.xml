@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_fec_choice">纠错</string>
-    <string name="summary_fec_choice">电脑添加的恢复数据，使丢失的数据包不会让画面破碎。</string>
+    <string name="summary_fec_choice">FEC：电脑添加的额外数据，用于修复丢失的数据包，会占用一部分画面码率。请保持“电脑的设置”；如果画面经常花屏，可以试试“自动”。</string>
     <string name="fec_choice_host">电脑的设置</string>
     <string name="fec_choice_auto">自动</string>
     <string name="title_link_probe">开始前测试连接</string>
-    <string name="summary_link_probe">使用自动码率的新串流会先测量连接，起始码率不会高于测得的值。</string>
+    <string name="summary_link_probe">使用自动码率的新串流会先测量连接，起始码率不会高于测得的值。请保持关闭：在我们的测量中，开启后串流的起始码率更低，丢包和画面定格也更多。</string>
 </resources>

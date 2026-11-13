@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_tell_host_wireless">在 Wi-Fi 下通知电脑</string>
-    <string name="summary_tell_host_wireless">电脑从一开始就按 Wi-Fi 调整串流节奏。</string>
+    <string name="summary_tell_host_wireless">此设备使用 Wi-Fi 时告知电脑，让电脑从第一帧起就按 Wi-Fi 调节串流节奏。请保持开启；仅在做对比时关闭。</string>
 </resources>

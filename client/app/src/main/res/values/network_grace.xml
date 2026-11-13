@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_network_grace">Wait through network dropouts</string>
-    <string name="summary_network_grace">How long a silent network is waited out before the stream ends.</string>
+    <string name="summary_network_grace">How long a silent network is waited out before the stream ends; the picture freezes meanwhile. Raise it if short dropouts end your streams; the PC must wait as long too.</string>
     <string name="network_grace_off">Off (10 seconds)</string>
     <string name="network_grace_15">15 seconds</string>
     <string name="network_grace_20">20 seconds</string>

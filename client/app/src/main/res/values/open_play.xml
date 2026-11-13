@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_open_on_start">When Nightjar opens</string>
-    <string name="summary_open_on_start">Home, your PCs, or a short countdown into a game.</string>
+    <string name="summary_open_on_start">What Nightjar shows first: Home, your PCs, or a 3-second countdown into your last or a chosen game, which you can cancel.</string>
     <string name="open_play_menu">Open this when Nightjar starts</string>
     <string name="open_play_menu_stop">Stop opening this when Nightjar starts</string>
     <string name="open_play_countdown">Starting on %1$s in %2$d</string>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_network_grace">Attendre pendant les coupures réseau</string>
-    <string name="summary_network_grace">Combien de temps le stream attend un réseau muet avant de s’arrêter.</string>
+    <string name="summary_network_grace">Combien de temps le stream attend un réseau muet avant de s’arrêter ; l’image reste figée pendant ce temps. Augmentez cette durée si de brèves coupures mettent fin à vos streams ; le PC doit attendre aussi longtemps.</string>
     <string name="network_grace_off">Désactivé (10 secondes)</string>
     <string name="network_grace_15">15 secondes</string>
     <string name="network_grace_20">20 secondes</string>

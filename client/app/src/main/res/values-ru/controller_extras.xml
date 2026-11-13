@@ -2,20 +2,20 @@
 <resources>
     <!-- Controller and keyboard options -->
     <string name="title_checkbox_disable_rumble">Отключить вибрацию</string>
-    <string name="summary_checkbox_disable_rumble">Отключает всю вибрацию, включая вибрацию триггеров и тактильную отдачу.</string>
+    <string name="summary_checkbox_disable_rumble">Отключает любую вибрацию, которую запрашивает игра: обычную, вибрацию триггеров и тактильную отдачу. Включайте, только если вибрация не нужна совсем.</string>
     <string name="title_checkbox_mouse_emulation_fixed_step">Точная мышь на контроллере</string>
-    <string name="summary_checkbox_mouse_emulation_fixed_step">Перемещает указатель фиксированными шагами в пикселях, пока удерживается X.</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">В режиме мыши на контроллере удержание X перемещает указатель фиксированными шагами в пикселях — для мелких целей. Y удваивает шаг, от 1 до 128 пикселей.</string>
     <string name="stream_mouse_step">Шаг мыши: %1$d пкс</string>
     <string name="title_checkbox_capture_system_keys">Отправлять системные клавиши</string>
-    <string name="summary_checkbox_capture_system_keys">Alt+Tab, клавиша Windows и подобные уходят на ПК.</string>
+    <string name="summary_checkbox_capture_system_keys">Alt+Tab, клавиша Windows и подобные уходят на ПК, а не на это устройство, если Android это разрешает. Отключите, чтобы эти сочетания оставались на этом устройстве.</string>
     <string name="title_checkbox_system_keys_fullscreen_only">Системные клавиши только на полном экране</string>
-    <string name="summary_checkbox_system_keys_fullscreen_only">В окне системные клавиши остаются на этом устройстве.</string>
+    <string name="summary_checkbox_system_keys_fullscreen_only">В окне Alt+Tab, клавиша Windows и подобные остаются на этом устройстве; на полном экране они уходят на ПК. Включите, чтобы переключать приложения рядом с трансляцией в окне.</string>
     <string name="title_checkbox_back_as_meta">«Назад» на клавиатуре как клавиша Windows</string>
-    <string name="summary_checkbox_back_as_meta">Клавиша «Назад» на физической клавиатуре отправляет клавишу Windows.</string>
+    <string name="summary_checkbox_back_as_meta">Клавиша «Назад» на физической клавиатуре отправляет на ПК клавишу Windows вместо «Назад» или Esc. Жест «Назад» в Android и горячая клавиша меню трансляции по-прежнему открывают меню трансляции.</string>
     <string name="title_checkbox_right_alt_as_meta">Правый Alt как клавиша Windows</string>
-    <string name="summary_checkbox_right_alt_as_meta">Правый Alt отправляет клавишу Windows, которую Mac использует как Command.</string>
+    <string name="summary_checkbox_right_alt_as_meta">Правый Alt отправляет клавишу Windows, которую Mac использует как Command. Оставьте выключенным, если набираете символы через AltGr: правый Alt тогда перестаёт работать как AltGr.</string>
     <string name="title_checkbox_keyboard_follows_text_fields">Клавиатура следует за текстовыми полями</string>
-    <string name="summary_checkbox_keyboard_follows_text_fields">Экранная клавиатура открывается, когда текстовое поле на ПК получает фокус.</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">Открывает экранную клавиатуру, когда вы выбираете текстовое поле на ПК, и закрывает её после. Нужен ПК, который сообщает о текстовых полях; отключите, чтобы открывать её самостоятельно.</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">Проверка контроллера</string>
@@ -57,6 +57,6 @@
 
     <!-- USB Switch Pro driver -->
     <string name="title_usb_switch_pro">Драйвер USB Switch Pro</string>
-    <string name="summary_usb_switch_pro">Считывает проводной Switch Pro Controller с датчиками движения, вибрацией, Home и Capture.</string>
+    <string name="summary_usb_switch_pro">Nightjar сам считывает проводной Switch Pro Controller, чтобы работали гироскоп, вибрация, Home и Capture. Android запрашивает доступ к USB во время трансляции; Bluetooth и Joy-Con остаются на вводе Android.</string>
     <string name="usb_switch_pro_denied">Нет доступа к USB; Switch Pro Controller работает через ввод Android.\nПереподключите кабель, чтобы повторить.</string>
 </resources>

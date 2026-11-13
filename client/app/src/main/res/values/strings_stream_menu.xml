@@ -62,7 +62,7 @@ Unsaved progress will be lost.</string>
     <string name="stream_menu_button_hide">Hide menu button</string>
     <string name="stream_menu_settings">Stream menu</string>
     <string name="title_floating_menu_button">Floating menu button</string>
-    <string name="summary_floating_menu_button">A round button over the stream that opens the menu.</string>
+    <string name="summary_floating_menu_button">A round button over the stream that opens the stream menu with a tap; drag it to move it. Not needed if Android’s Back or your controller opens the menu.</string>
     <!-- A stream menu tile's short name, the same on desktop Nightjar (nightjar-policy's stream_menu::label); two lines at most in a compact tile. -->
     <string name="stream_tile_keyboard">Keyboard</string>
     <string name="stream_tile_pc_keyboard">PC keyboard</string>

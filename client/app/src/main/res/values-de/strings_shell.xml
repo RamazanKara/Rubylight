@@ -73,7 +73,7 @@
     <string name="reduce_motion_full">Voll</string>
     <!-- tv-mode-toggle -->
     <string name="title_ui_mode">Oberfläche</string>
-    <string name="summary_ui_mode">Das TV- oder Handheld-Layout oder das des Geräts.</string>
+    <string name="summary_ui_mode">„Automatisch“ richtet sich nach dem Gerät. Wähle „TV“ für ein Handy oder Handheld am Fernseher: größere Zeilen, gemacht für Fernbedienung oder Controller. „Handheld“ ist das Touch-Layout.</string>
     <string name="ui_mode_auto">Automatisch</string>
     <string name="ui_mode_tv">TV</string>
     <string name="ui_mode_handheld">Handheld</string>

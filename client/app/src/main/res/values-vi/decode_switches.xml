@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_submit_hint">Tăng tốc chuyển khung hình</string>
-    <string name="summary_submit_hint">Gợi ý hiệu năng cũng bao gồm luồng cấp dữ liệu cho bộ giải mã.</string>
+    <string name="summary_submit_hint">Dùng để so sánh. Gợi ý hiệu năng bao gồm cả luồng cấp dữ liệu cho bộ giải mã; đo trên thiết bị của chúng tôi thì không nhanh hơn. Nên để tắt.</string>
     <string name="title_covering_decoder_size">Chuẩn bị bộ giải mã khi gập</string>
-    <string name="summary_covering_decoder_size">Đặt sẵn kích thước bộ giải mã cho màn hình còn lại, nên khi gập không cần khởi động lại.</string>
+    <string name="summary_covering_decoder_size">Dành cho máy màn hình gập: đặt sẵn kích thước bộ giải mã cho màn hình lớn hơn, nên lần gập hoặc xoay đầu tiên không cần khởi động lại bộ giải mã. Tắt lại nếu video dừng hoặc bị lỗi hình.</string>
     <string name="title_pyrowave_preacquire">PyroWave: lấy sớm ảnh màn hình</string>
-    <string name="summary_pyrowave_preacquire">Lấy ảnh màn hình tiếp theo trước khi mỗi khung hình PyroWave đến.</string>
+    <string name="summary_pyrowave_preacquire">Dùng để so sánh. Lấy ảnh màn hình tiếp theo trước khi mỗi khung hình PyroWave đến; đo trên thiết bị của chúng tôi thì không nhanh hơn. Nên để tắt.</string>
     <string name="title_codec_direct">Dữ liệu video thẳng vào bộ giải mã</string>
-    <string name="summary_codec_direct">Chép mỗi khung hình vào bộ giải mã một lần.</string>
+    <string name="summary_codec_direct">Dùng để khắc phục sự cố. Khung hình đi thẳng vào bộ giải mã, bớt một lần sao chép; nên để bật, chỉ tắt nếu video dừng hoặc bị lỗi hình trên thiết bị này.</string>
     <string name="title_receive_decode_priority">Ưu tiên bộ giải mã khi nhận</string>
-    <string name="summary_receive_decode_priority">Luồng nhận video chạy với mức ưu tiên của bộ giải mã.</string>
+    <string name="summary_receive_decode_priority">Dùng để so sánh. Luồng nhận video chạy với mức ưu tiên của bộ giải mã; đo trên thiết bị của chúng tôi thì chậm hơn khi tải nặng. Nên để tắt.</string>
 </resources>

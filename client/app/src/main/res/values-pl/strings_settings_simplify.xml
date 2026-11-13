@@ -2,7 +2,7 @@
 <resources>
     <string name="fps_show_supported">Pokaż tylko obsługiwane liczby klatek</string>
     <string name="title_adaptive_quality_setting">Automatyczna jakość</string>
-    <string name="summary_adaptive_quality_setting">Obniża rozdzielczość lub liczbę klatek, gdy komputer, sieć lub urządzenie nie nadążają.</string>
+    <string name="summary_adaptive_quality_setting">Obniża rozdzielczość lub liczbę klatek, gdy sieć lub to urządzenie nie nadążają, a potem znów je podnosi. Tryb decyduje, co spada najpierw; wymaga obsługi przez komputer.</string>
     <string name="title_low_latency_customize">Dostosuj</string>
     <string name="low_latency_customize_closed">Wybierz, które części niskich opóźnień są włączone</string>
     <string name="low_latency_customize_open">Ukryj pojedyncze przełączniki</string>

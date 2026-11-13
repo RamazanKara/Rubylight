@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_audio_passthrough">Passthrough audio</string>
-    <string name="summary_checkbox_audio_passthrough">Le PC envoie le son dans un format que la sortie lit tel quel : non compressé ou Dolby.</string>
+    <string name="summary_checkbox_audio_passthrough">Pour un ampli, une barre de son ou un téléviseur qui lit tel quel le Dolby ou le PCM multicanal : le PC envoie ce format. Le Dolby arrive jusqu’à environ 30 ms plus tard. Nécessite un PC compatible.</string>
 </resources>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_clipboard_sync">Zwischenablage synchronisieren</string>
-    <string name="summary_clipboard_sync">Kopierter Text wird zwischen diesem Gerät und dem PC ausgetauscht.</string>
+    <string name="summary_clipboard_sync">Kopiere beim Streamen Text auf diesem Gerät und füge ihn am PC ein, oder umgekehrt. Alles, was du als Text kopierst, wird gesendet; der PC muss die Zwischenablage-Synchronisierung anbieten.</string>
     <string name="clipboard_sync_not_offered">Die Synchronisierung der Zwischenablage ist aus: Der PC hat sie nicht angeboten. Er muss diesem Gerät erlauben, seine Zwischenablage zu lesen und zu schreiben.</string>
     <string name="clipboard_sync_failed">Die Synchronisierung der Zwischenablage konnte nicht starten.</string>
     <string name="clipboard_sync_read_refused">Android hat der Synchronisierung das Lesen der Zwischenablage verweigert, diese Kopie bleibt also auf diesem Gerät.</string>

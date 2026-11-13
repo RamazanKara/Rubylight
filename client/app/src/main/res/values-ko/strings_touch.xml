@@ -3,7 +3,7 @@
     <string name="stream_touch_off_help">터치가 꺼져 있습니다. 뒤로 스와이프하거나 뒤로 버튼을 누르면 스트림 메뉴가 열립니다.</string>
     <string name="title_local_cursor_speed">로컬 커서 속도</string>
     <string name="title_trackpad_acceleration">포인터 가속</string>
-    <string name="summary_trackpad_acceleration">빠르게 스와이프하면 천천히 할 때보다 포인터가 더 멀리 이동합니다.</string>
+    <string name="summary_trackpad_acceleration">손가락을 천천히 움직이면 포인터가 덜 움직여 정밀하게 조준할 수 있고, 빠르게 스와이프하면 더 멀리 이동합니다. ‘트랙패드’와 ‘로컬 커서’ 터치 모드에서 쓰이며, 다음 스트림부터 적용됩니다.</string>
     <string name="title_trackpad_acceleration_curve">가속 강도</string>
     <string-array name="trackpad_acceleration_curve_names">
         <item>약하게</item>
@@ -11,7 +11,7 @@
         <item>강하게</item>
     </string-array>
     <string name="title_trackpad_momentum">플릭 후 미끄러짐</string>
-    <string name="summary_trackpad_momentum">빠르게 플릭한 뒤에도 포인터가 계속 움직입니다.</string>
+    <string name="summary_trackpad_momentum">빠르게 플릭한 뒤에도 포인터가 계속 움직이다가 서서히 느려집니다. 화면을 터치하면 즉시 멈춥니다. ‘트랙패드’와 ‘로컬 커서’ 터치 모드에서 쓰입니다.</string>
     <string name="title_trackpad_momentum_glide">미끄러짐 거리</string>
     <string-array name="trackpad_momentum_glide_names">
         <item>짧게</item>
@@ -19,7 +19,7 @@
         <item>길게</item>
     </string-array>
     <string name="title_trackpad_area">트랙패드 영역</string>
-    <string name="summary_trackpad_area">트랙패드 제스처가 시작되는 화면 영역입니다.</string>
+    <string name="summary_trackpad_area">‘트랙패드’와 ‘로컬 커서’ 제스처를 시작할 수 있는 화면 영역입니다. 다른 곳에서 시작한 터치는 무시됩니다. 절반을 선택하면 반대쪽에 엄지를 올려 둘 수 있습니다.</string>
     <string-array name="trackpad_area_names">
         <item>전체 화면</item>
         <item>오른쪽 절반</item>
@@ -28,7 +28,7 @@
         <item>위쪽 절반</item>
     </string-array>
     <string name="title_three_finger_tap">세 손가락 탭</string>
-    <string name="summary_three_finger_tap">세 손가락으로 빠르게 탭했을 때의 동작입니다.</string>
+    <string name="summary_three_finger_tap">세 손가락으로 빠르게 탭했을 때의 동작입니다. ‘시스템 키보드’는 Android 키보드이고, ‘PC 키보드’에는 F 키, Ctrl, Win이 있으며, ‘키보드 및 마우스’는 키와 트랙패드가 있는 패널입니다.</string>
     <string-array name="three_finger_tap_names">
         <item>@string/desktop_controls_system_keyboard</item>
         <item>가운데 클릭</item>
@@ -38,7 +38,7 @@
     </string-array>
     <string name="stream_cursor_shape_rejected">Nightjar가 PC의 커서 모양을 그릴 수 없어 기본 화살표를 표시합니다.</string>
     <string name="title_four_finger_tap">네 손가락 탭</string>
-    <string name="summary_four_finger_tap">네 손가락으로 빠르게 탭했을 때의 동작입니다.</string>
+    <string name="summary_four_finger_tap">네 손가락으로 빠르게 탭했을 때의 동작입니다. ‘시스템 키보드’는 Android 키보드이고, ‘PC 키보드’에는 F 키, Ctrl, Win이 있으며, ‘키보드 및 마우스’는 키와 트랙패드가 있는 패널입니다.</string>
     <string name="title_multi_touch_finger_taps">멀티 터치에서 여러 손가락 탭</string>
-    <string name="summary_multi_touch_finger_taps">멀티 터치에서도 세 손가락과 네 손가락 탭이 설정한 동작을 실행합니다.</string>
+    <string name="summary_multi_touch_finger_taps">‘멀티 터치’ 모드에서도 세 손가락과 네 손가락 탭이 설정한 동작을 실행하며, 이 탭은 더 이상 터치로 PC에 전달되지 않습니다. PC에서 이 탭을 사용한다면 꺼 두세요.</string>
 </resources>

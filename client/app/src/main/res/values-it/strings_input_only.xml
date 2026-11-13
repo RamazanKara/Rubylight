@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_input_only_any_host">Solo input su qualsiasi PC</string>
-    <string name="summary_checkbox_input_only_any_host">Offre Solo input nel menu di un gioco sui PC senza una propria modalità Solo input.</string>
+    <string name="summary_checkbox_input_only_any_host">Offre Solo input sui PC senza quella modalità: questo dispositivo invia solo l’input, per un gioco mostrato su un altro schermo. Il PC invia comunque un piccolo stream, sotto 1 Mbps.</string>
     <string name="input_only_start">Solo input</string>
     <string name="input_only_small_stream_note">Il video viene comunque trasmesso alla dimensione minima, circa %1$.1f Mbit/s (%2$d MB all’ora), ma non viene mostrato</string>
     <string name="input_only_reason_input_permission">Consenti l’input per questo dispositivo sul PC</string>

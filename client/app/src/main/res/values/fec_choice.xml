@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_fec_choice">Error correction</string>
-    <string name="summary_fec_choice">Recovery data the PC adds, so lost packets don’t break up the picture.</string>
+    <string name="summary_fec_choice">FEC: extra data the PC adds to repair lost packets, taken from the picture’s bitrate. Leave it on PC’s setting; try Automatic if the picture breaks up often.</string>
     <string name="fec_choice_host">PC’s setting</string>
     <string name="fec_choice_auto">Automatic</string>
     <string name="fec_choice_10" translatable="false">10 %</string>
@@ -11,5 +11,5 @@
     <string-array name="fec_choice_names"><item>@string/fec_choice_host</item><item>@string/fec_choice_auto</item><item>@string/fec_choice_10</item><item>@string/fec_choice_20</item><item>@string/fec_choice_30</item><item>@string/fec_choice_50</item></string-array>
     <string-array name="fec_choice_values" translatable="false"><item>host</item><item>auto</item><item>10</item><item>20</item><item>30</item><item>50</item></string-array>
     <string name="title_link_probe">Test the link before starting</string>
-    <string name="summary_link_probe">A new stream at the automatic bitrate measures the connection first and starts no higher.</string>
+    <string name="summary_link_probe">A new stream at the automatic bitrate measures the connection first and starts no higher. Leave it off: in our measurements, streams then started lower, with more loss and freezes.</string>
 </resources>

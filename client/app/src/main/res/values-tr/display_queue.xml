@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_display_queue_recovery">Ekran kuyruğu gecikmesini geri al</string>
-    <string name="summary_display_queue_recovery">Ekran kareleri gerekenden bir yenileme daha uzun beklettiğinde bir kare atlar.</string>
+    <string name="summary_display_queue_recovery">Ekran kareleri gerekenden bir yenileme daha uzun beklettiğinde, bu gecikmeyi geri kazanmak için bir kare atlar. Atlanan kare sizi rahatsız etmiyorsa açık bırakın.</string>
 </resources>

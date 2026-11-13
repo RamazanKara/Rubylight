@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_dual_screen">Режим двох екранів</string>
-    <string name="summary_checkbox_dual_screen">Друга трансляція тієї ж гри на другому екрані.</string>
+    <string name="summary_checkbox_dual_screen">Передає ту саму гру й на другий екран, окремою трансляцією; звук і контролери лишаються в першої. Потрібні другий екран і підтримка ПК.</string>
     <string name="title_resolution_screen2">Роздільна здатність другого екрана</string>
     <string name="summary_resolution_screen2">Роздільна здатність трансляції на другому екрані.</string>
     <string name="resolution_screen2_native">Власний розмір другого екрана</string>

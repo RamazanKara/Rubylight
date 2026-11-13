@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_submit_hint">Kare aktarımını hızlandır</string>
-    <string name="summary_submit_hint">Performans ipucu, kod çözücüyü besleyen iş parçacığını da kapsar.</string>
+    <string name="summary_submit_hint">Karşılaştırma içindir. Performans ipucu, kod çözücüyü besleyen iş parçacığını da kapsar; cihazlarımızdaki ölçümlerde daha hızlı çıkmadı. Kapalı bırakın.</string>
     <string name="title_covering_decoder_size">Kod çözücüyü katlamaya hazırla</string>
-    <string name="summary_covering_decoder_size">Kod çözücüyü diğer ekrana göre boyutlandırır; böylece katlamak yeniden başlatma gerektirmez.</string>
+    <string name="summary_covering_decoder_size">Katlanabilir cihazlar için: kod çözücüyü baştan büyük ekrana göre boyutlandırır; böylece ilk katlama veya döndürmede kod çözücünün yeniden başlaması gerekmez. Video durur veya hatalı görünürse yeniden kapatın.</string>
     <string name="title_pyrowave_preacquire">PyroWave: erken ekran görüntüsü</string>
-    <string name="summary_pyrowave_preacquire">Her PyroWave karesi gelmeden önce sonraki ekran görüntüsünü alır.</string>
+    <string name="summary_pyrowave_preacquire">Karşılaştırma içindir. Her PyroWave karesi gelmeden önce sonraki ekran görüntüsünü alır; cihazlarımızdaki ölçümlerde daha hızlı çıkmadı. Kapalı bırakın.</string>
     <string name="title_codec_direct">Video verisi doğrudan kod çözücüye</string>
-    <string name="summary_codec_direct">Her kareyi kod çözücüye tek kez kopyalar.</string>
+    <string name="summary_codec_direct">Sorun giderme içindir. Kareler doğrudan kod çözücüye gider, böylece bir kopyalama eksilir; açık bırakın, yalnızca bu cihazda video durur veya hatalı görünürse kapatın.</string>
     <string name="title_receive_decode_priority">Alımda kod çözücü önceliği</string>
-    <string name="summary_receive_decode_priority">Videoyu alan iş parçacığı kod çözücünün önceliğiyle çalışır.</string>
+    <string name="summary_receive_decode_priority">Karşılaştırma içindir. Videoyu alan iş parçacığı kod çözücünün önceliğiyle çalışır; cihazlarımızdaki ölçümlerde yük altında daha yavaş çıktı. Kapalı bırakın.</string>
 </resources>

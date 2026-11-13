@@ -27,5 +27,5 @@
     <string name="stream_rate_change_auto_no_answer">此串流已停止依封包遺失調整位元速率：電腦沒有回應一項變更。</string>
     <string name="title_rate_change_bitrate">遺失影格時降低位元速率</string>
     <string name="summary_short_rate_change_bitrate">關閉：套用「網路忙碌時降低位元速率」。開啟：這部裝置依遺失影格和網路延遲調整位元速率。</string>
-    <string name="summary_rate_change_bitrate">一出現遺失影格就降低位元速率。</string>
+    <string name="summary_rate_change_bitrate">一出現掉格就降低位元速率，連續幾秒沒有掉格後再調回，用來取代「網路忙碌時降低位元速率」。需要電腦支援。</string>
 </resources>

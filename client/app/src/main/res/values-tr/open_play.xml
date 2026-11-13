@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_open_on_start">Nightjar açıldığında</string>
-    <string name="summary_open_on_start">Ana sayfa, bilgisayarlarınız veya bir oyuna kısa bir geri sayım.</string>
+    <string name="summary_open_on_start">Nightjar’ın ilk gösterdiği şey: Ana sayfa, bilgisayarlarınız ya da son oyununuza veya seçtiğiniz bir oyuna götüren, iptal edebileceğiniz 3 saniyelik geri sayım.</string>
     <string name="open_play_menu">Nightjar başlayınca bunu aç</string>
     <string name="open_play_menu_stop">Nightjar başlayınca bunu açma</string>
     <string name="open_play_countdown">%1$s üzerinde %2$d içinde başlıyor</string>

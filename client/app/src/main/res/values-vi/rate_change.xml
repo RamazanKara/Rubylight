@@ -27,5 +27,5 @@
     <string name="stream_rate_change_auto_no_answer">Đã dừng điều chỉnh tốc độ bit theo mất gói cho stream này: PC không phản hồi một thay đổi.</string>
     <string name="title_rate_change_bitrate">Giảm tốc độ bit khi mất khung hình</string>
     <string name="summary_short_rate_change_bitrate">Tắt: áp dụng “Giảm tốc độ bit khi mạng bận”. Bật: thiết bị này điều chỉnh theo mất khung hình và độ trễ mạng.</string>
-    <string name="summary_rate_change_bitrate">Giảm tốc độ bit ngay khi khung hình bị mất.</string>
+    <string name="summary_rate_change_bitrate">Giảm tốc độ bit ngay khi khung hình bị mất và tăng lại sau những giây không mất khung hình, thay cho “Giảm tốc độ bit khi mạng bận”. Cần PC hỗ trợ.</string>
 </resources>

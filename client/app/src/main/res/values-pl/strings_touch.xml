@@ -3,7 +3,7 @@
     <string name="stream_touch_off_help">Dotyk jest wyłączony. Przesuń wstecz lub naciśnij Wstecz, aby otworzyć menu strumienia.</string>
     <string name="title_local_cursor_speed">Szybkość kursora lokalnego</string>
     <string name="title_trackpad_acceleration">Przyspieszenie wskaźnika</string>
-    <string name="summary_trackpad_acceleration">Szybkie przesunięcia przenoszą wskaźnik dalej niż wolne.</string>
+    <string name="summary_trackpad_acceleration">Wolny ruch palca przesuwa wskaźnik mniej, co ułatwia precyzyjne celowanie, a szybkie przesunięcia przenoszą go dalej. Tryby dotyku „Touchpad” i „Kursor lokalny”; działa od następnego strumienia.</string>
     <string name="title_trackpad_acceleration_curve">Siła przyspieszenia</string>
     <string-array name="trackpad_acceleration_curve_names">
         <item>Łagodna</item>
@@ -11,7 +11,7 @@
         <item>Mocna</item>
     </string-array>
     <string name="title_trackpad_momentum">Ślizg po szybkim ruchu</string>
-    <string name="summary_trackpad_momentum">Wskaźnik porusza się dalej po szybkim przesunięciu.</string>
+    <string name="summary_trackpad_momentum">Po szybkim ruchu wskaźnik porusza się dalej i zwalnia; dotknięcie ekranu od razu go zatrzymuje. Tryby dotyku „Touchpad” i „Kursor lokalny”.</string>
     <string name="title_trackpad_momentum_glide">Długość ślizgu</string>
     <string-array name="trackpad_momentum_glide_names">
         <item>Krótki</item>
@@ -19,7 +19,7 @@
         <item>Długi</item>
     </string-array>
     <string name="title_trackpad_area">Obszar touchpada</string>
-    <string name="summary_trackpad_area">Część ekranu, w której zaczynają się gesty touchpada.</string>
+    <string name="summary_trackpad_area">Część ekranu, w której mogą zaczynać się gesty trybów „Touchpad” i „Kursor lokalny”; dotknięcia zaczęte gdzie indziej są ignorowane. Wybierz połowę, aby po drugiej stronie móc oprzeć kciuk.</string>
     <string-array name="trackpad_area_names">
         <item>Cały ekran</item>
         <item>Prawa połowa</item>
@@ -28,7 +28,7 @@
         <item>Górna połowa</item>
     </string-array>
     <string name="title_three_finger_tap">Stuknięcie trzema palcami</string>
-    <string name="summary_three_finger_tap">Co robi szybkie stuknięcie trzema palcami.</string>
+    <string name="summary_three_finger_tap">Co robi szybkie stuknięcie trzema palcami. „Klawiatura systemowa” to klawiatura Androida; „Klawiatura PC” ma klawisze F, Ctrl i Win; „Klawiatura i mysz” to panel z klawiszami i touchpadem.</string>
     <string-array name="three_finger_tap_names">
         <item>@string/desktop_controls_system_keyboard</item>
         <item>Kliknięcie środkowe</item>
@@ -38,7 +38,7 @@
     </string-array>
     <string name="stream_cursor_shape_rejected">Nightjar nie może narysować kształtu kursora z komputera, więc pokazuje domyślną strzałkę.</string>
     <string name="title_four_finger_tap">Stuknięcie czterema palcami</string>
-    <string name="summary_four_finger_tap">Co robi szybkie stuknięcie czterema palcami.</string>
+    <string name="summary_four_finger_tap">Co robi szybkie stuknięcie czterema palcami. „Klawiatura systemowa” to klawiatura Androida; „Klawiatura PC” ma klawisze F, Ctrl i Win; „Klawiatura i mysz” to panel z klawiszami i touchpadem.</string>
     <string name="title_multi_touch_finger_taps">Stuknięcia wieloma palcami w trybie Wielodotyk</string>
-    <string name="summary_multi_touch_finger_taps">Stuknięcia trzema i czterema palcami wykonują swoje akcje także w trybie „Wielodotyk”.</string>
+    <string name="summary_multi_touch_finger_taps">W trybie „Wielodotyk” stuknięcia trzema i czterema palcami wykonują swoje akcje i nie trafiają już do komputera jako dotyk. Zostaw wyłączone, jeśli coś na komputerze używa tych stuknięć.</string>
 </resources>

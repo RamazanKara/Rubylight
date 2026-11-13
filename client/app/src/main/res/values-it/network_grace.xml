@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_network_grace">Attendi durante le interruzioni di rete</string>
-    <string name="summary_network_grace">Quanto si attende una rete silenziosa prima che lo stream termini.</string>
+    <string name="summary_network_grace">Quanto si attende una rete silenziosa prima che lo stream termini; nel frattempo l’immagine resta ferma. Aumentalo se brevi interruzioni chiudono i tuoi stream; anche il PC deve attendere altrettanto.</string>
     <string name="network_grace_off">Disattivato (10 secondi)</string>
     <string name="network_grace_15">15 secondi</string>
     <string name="network_grace_20">20 secondi</string>

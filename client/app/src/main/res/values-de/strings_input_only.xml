@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_input_only_any_host">Steuern an jedem PC</string>
-    <string name="summary_checkbox_input_only_any_host">Bietet „Steuern“ im Menü eines Spiels auf PCs ohne eigenen Nur-Steuern-Modus an.</string>
+    <string name="summary_checkbox_input_only_any_host">Bietet „Steuern“ auch auf PCs ohne diesen Modus an: Dieses Gerät sendet nur Eingaben, für ein Spiel, das auf einem anderen Bildschirm läuft. Der PC sendet trotzdem einen kleinen Stream, unter 1 Mbit/s.</string>
     <string name="input_only_start">Steuern</string>
     <string name="input_only_small_stream_note">Video läuft weiter in kleinster Größe, etwa %1$.1f Mbit/s (%2$d MB pro Stunde), wird aber nicht gezeigt</string>
     <string name="input_only_reason_input_permission">Erlaube diesem Gerät am PC Eingaben</string>

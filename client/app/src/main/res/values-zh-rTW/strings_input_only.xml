@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_input_only_any_host">在任何電腦上僅限輸入</string>
-    <string name="summary_checkbox_input_only_any_host">在沒有內建僅限輸入模式的電腦上，於遊戲選單中提供「僅限輸入」。</string>
+    <string name="summary_checkbox_input_only_any_host">在沒有該模式的電腦上也提供「僅限輸入」：此裝置只傳送輸入，用於顯示在另一個螢幕上的遊戲。電腦仍會傳送一路很小的串流，低於 1 Mbps。</string>
     <string name="input_only_start">僅限輸入</string>
     <string name="input_only_small_stream_note">影像仍以最小尺寸串流，約 %1$.1f Mbit/s（每小時 %2$d MB），但不會顯示</string>
     <string name="input_only_reason_input_permission">請在電腦上允許這部裝置輸入</string>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_network_grace">Ağ kesintilerinde bekle</string>
-    <string name="summary_network_grace">Yayın sona ermeden önce yanıt vermeyen ağın ne kadar bekleneceği.</string>
+    <string name="summary_network_grace">Yayın sona ermeden önce yanıt vermeyen ağın ne kadar bekleneceği; bu sırada görüntü donar. Kısa kesintiler yayınlarınızı bitiriyorsa artırın; bilgisayarın da o kadar beklemesi gerekir.</string>
     <string name="network_grace_off">Kapalı (10 saniye)</string>
     <string name="network_grace_15">15 saniye</string>
     <string name="network_grace_20">20 saniye</string>

@@ -641,7 +641,7 @@ impl Launcher {
                 format!("{}x{}", s.width, s.height)
             };
             let mut chose = None;
-            setting_row(ui, s, &mut rows, &["width", "height"], "Resolution", "The picture size the PC sends; smaller needs less network and decoding power.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["width", "height"], "Resolution", "The picture size the PC sends. Higher is sharper and needs more network and decoding power; lower it if the stream stutters.", |ui, s| {
                 // Taller than egui's default menu; it scrolls where the window is shorter.
                 Combo::from_id_salt("resolution")
                     .selected_text(current)
@@ -688,7 +688,7 @@ impl Launcher {
                 trf("{} fps", &[&s.fps])
             };
             let mut chose = None;
-            setting_row(ui, s, &mut rows, &["fps"], "Frame rate", "Pictures per second; higher looks smoother and needs a faster network.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["fps"], "Frame rate", "Frames per second (FPS). Higher looks smoother and needs a faster network and more decoding power; lower it if the stream stutters.", |ui, s| {
                 Combo::from_id_salt("fps")
                     .selected_text(fps_text)
                     .height(640.0)
@@ -715,7 +715,7 @@ impl Launcher {
             let (w, h, fps, bitrate) = stream_mode(s, display);
             let recommended = stream_mode(&Settings { bitrate_kbps: 0, ..s.clone() }, display).3;
             let mut automatic = s.bitrate_kbps == 0;
-            setting_row(ui, s, &mut rows, &["bitrate_kbps"], "Automatic bitrate", "Nightjar picks the bitrate for the resolution, frame rate and codec.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["bitrate_kbps"], "Automatic bitrate", "Nightjar picks the bitrate for the resolution, frame rate and codec, and follows them when they change. Turn it off to set the bitrate yourself.", |ui, s| {
                 let r = toggle(ui, &mut automatic);
                 if r.changed() {
                     s.bitrate_kbps = if automatic { 0 } else { recommended };
@@ -728,7 +728,7 @@ impl Launcher {
                 if let Some(warning) = pyrowave_bitrate_warning(s, w, h, fps) {
                     rows.note(warning, *TERTIARY);
                 }
-                setting_row(ui, s, &mut rows, &["bitrate_kbps"], "Bitrate", "Video data per second; higher is sharper and needs a faster network.", |ui, s| {
+                setting_row(ui, s, &mut rows, &["bitrate_kbps"], "Bitrate", "Video data per second. Higher is sharper and needs a faster network; lower it if the picture stutters or breaks up.", |ui, s| {
                     let r = log_slider(ui, &mut mbps, 0.5..=2000.0, 0.5, mbps_text,
                         |rail| rail.logarithmic(true).step_by(0.5),
                         |field| field.suffix(" Mbps").max_decimals(1).speed(0.5));
@@ -738,12 +738,12 @@ impl Launcher {
                     r
                 });
             }
-            setting_row(ui, s, &mut rows, &["adaptive_bitrate"], "Lower bitrate when the network is busy", "Turns the bitrate down while the connection falls behind, and back up once it recovers.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["adaptive_bitrate"], "Lower bitrate when the network is busy", "Turns the bitrate down while the connection falls behind and back up once it recovers: softer picture, less stutter. Turn it on for a busy network; needs PC support.", |ui, s| {
                 toggle(ui, &mut s.adaptive_bitrate)
             });
             if mobile_shown {
                 rows.action("mobile_bitrate");
-                setting_row(ui, s, &mut rows, &[], "Bitrate on mobile data", "The highest bitrate a stream uses on mobile data or a metered network.", |ui, _| {
+                setting_row(ui, s, &mut rows, &[], "Bitrate on mobile data", "The highest bitrate a stream uses on mobile data or a metered network, such as a phone hotspot: less data used, softer picture. Off uses the same bitrate on every network.", |ui, _| {
                     Combo::from_id_salt("mobile-bitrate").selected_text(mobile_bitrate_name(mobile_limit)).show_ui(ui, |ui| {
                         // A cap set to another value on the Profiles page stays on the list.
                         let listed = MOBILE_BITRATES_KBPS.contains(&mobile_limit);
@@ -753,7 +753,7 @@ impl Launcher {
                     }).response
                 });
             }
-            setting_row(ui, s, &mut rows, &["codec"], "Video codec", "How the video is compressed; Automatic suits most setups.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["codec"], "Video codec", "How the video is compressed. Leave it on Automatic unless the picture stalls or breaks up; then try H.264, the most compatible codec.", |ui, s| {
                 Combo::from_id_salt("codec")
                     .selected_text(codec_name(s.codec))
                     .show_ui(ui, |ui| {
@@ -769,10 +769,10 @@ impl Launcher {
                     })
                     .response
             });
-            setting_row(ui, s, &mut rows, &["hdr"], "HDR", "Brighter highlights and richer color on an HDR screen.", |ui, s| toggle(ui, &mut s.hdr));
+            setting_row(ui, s, &mut rows, &["hdr"], "HDR", "Brighter highlights and richer color on an HDR screen. Turn it on if this screen shows HDR and HDR is on for the PC’s display.", |ui, s| toggle(ui, &mut s.hdr));
             // PyroWave's 4:4:4 is a codec of its own.
             rows.when(!s.codec.is_pyrowave());
-            setting_row(ui, s, &mut rows, &["prefer_yuv444", "experimental_packed_444"], "Sharper colored text", "Full color detail, so colored text and thin lines stay crisp.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["prefer_yuv444", "experimental_packed_444"], "Sharper colored text", "Full color detail (4:4:4), so colored text and thin lines stay crisp. Turn it on if they look blurry; it takes more decoding power and needs PC and device support.", |ui, s| {
                 let mut on = sharp_color(s);
                 let response = Combo::from_id_salt("sharp-color").selected_text(sharp_color_name(on)).show_ui(ui, |ui| {
                     for choice in [false, true] {
@@ -785,12 +785,12 @@ impl Launcher {
                 response
             });
             rows.when(!s.hdr);
-            setting_row(ui, s, &mut rows, &["sdr_10bit"], "Less color banding", "Streams non-HDR video in 10-bit, so gradients show fewer bands.", |ui, s| toggle(ui, &mut s.sdr_10bit));
+            setting_row(ui, s, &mut rows, &["sdr_10bit"], "Less color banding", "Streams non-HDR video in 10-bit, so skies and gradients show fewer bands. Turn it on if you see banding with HDR off; needs HEVC or AV1 and PC support.", |ui, s| toggle(ui, &mut s.sdr_10bit));
             rows.always();
             setting_row(ui, s, &mut rows, &["frame_warp"], "Frame Warp",
-                "Shifts the picture with your mouse or right stick until the PC’s next frame shows the turn, and keeps the game’s HUD in place. Needs a PC that supports it.",
+                "Shows mouse and right-stick camera turns on the next refresh by shifting the picture; the HUD stays in place, and edges are approximate while turning. Needs PC support.",
                 |ui, s| toggle(ui, &mut s.frame_warp));
-            setting_row(ui, s, &mut rows, &["adaptive_quality"], "Automatic quality", "Lowers the resolution or frame rate while the PC, network or device can’t keep up.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["adaptive_quality"], "Automatic quality", "Lowers the resolution or frame rate while the network or this device can’t keep up, and raises it again after. The mode decides which goes first; needs PC support.", |ui, s| {
                 Combo::from_id_salt("quality").selected_text(tr(s.adaptive_quality.label())).show_ui(ui, |ui| {
                     for mode in [crate::config::QualityMode::Off, crate::config::QualityMode::Motion, crate::config::QualityMode::Detail, crate::config::QualityMode::Battery] {
                         ui.selectable_value(&mut s.adaptive_quality, mode, tr(mode.label()));
@@ -816,7 +816,7 @@ impl Launcher {
             // Only a Wayland desktop's HDR description has the choice; Windows maps HDR itself.
             if cfg!(target_os = "linux") {
                 rows.when(s.hdr);
-                setting_row(ui, s, &mut rows, &["hdr_desktop_brightness"], "HDR brightness follows the desktop", "HDR streams follow the desktop’s brightness instead of the PC’s.", |ui, s| {
+                setting_row(ui, s, &mut rows, &["hdr_desktop_brightness"], "HDR brightness follows the desktop", "HDR streams get brighter or dimmer with the desktop’s brightness setting. Leave it off to show them at the brightness the PC sends.", |ui, s| {
                     toggle(ui, &mut s.hdr_desktop_brightness)
                 });
                 rows.always();
@@ -837,7 +837,7 @@ impl Launcher {
             rows.always();
 
             rows.section(en("Display & image"));
-            setting_row(ui, s, &mut rows, &["window_mode"], "Window", "Full screen, borderless or a window.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["window_mode"], "Window", "Fullscreen switches the display to the stream’s resolution and refresh rate where it can; Borderless covers the display without changing it; Windowed is an ordinary window.", |ui, s| {
                 Combo::from_id_salt("window")
                     .selected_text(window_name(s.window_mode))
                     .show_ui(ui, |ui| {
@@ -847,7 +847,7 @@ impl Launcher {
                     })
                     .response
             });
-            setting_row(ui, s, &mut rows, &["video_scaling"], "Video size", "How the picture fits the screen: Fit, Fill, Stretch or 1:1 pixels.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["video_scaling"], "Video size", "How the picture fits a screen of another shape: Fit shows all of it with bars, Fill crops the edges, Stretch distorts it, 1:1 pixels shows it at its own size.", |ui, s| {
                 use crate::config::VideoScaling;
                 Combo::from_id_salt("video-scaling").selected_text(tr(s.video_scaling.label())).show_ui(ui, |ui| {
                     for mode in [VideoScaling::Fit, VideoScaling::Fill, VideoScaling::Stretch, VideoScaling::Native] {
@@ -856,19 +856,19 @@ impl Launcher {
                 }).response
             });
             rows.when(vrr_offered);
-            setting_row(ui, s, &mut rows, &["vrr"], "Variable refresh rate", "Shows each frame as it arrives on a G-Sync, FreeSync or adaptive-refresh screen.", |ui, s| toggle(ui, &mut s.vrr));
+            setting_row(ui, s, &mut rows, &["vrr"], "Variable refresh rate", "VRR: shows each frame the moment it arrives on a G-Sync, FreeSync or adaptive-refresh screen, without waiting for the next refresh. Frame pacing is not used while VRR is on.", |ui, s| toggle(ui, &mut s.vrr));
             rows.always();
             let vrr = s.vrr && vrr_offered;
             rows.group(en("Refresh rate"));
             // With Sharper colored text packed on Windows, VRR shows each frame at once.
             let immediate_packed = cfg!(windows) && s.experimental_packed_444 && vrr_offered;
             rows.when(vrr && !immediate_packed);
-            setting_row(ui, s, &mut rows, &["present_at_host_times"], "Show frames at the PC’s frame times", "Holds each frame briefly so it appears when the game drew it, evening out motion.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["present_at_host_times"], "Show frames at the PC’s frame times", "Holds each frame briefly so it appears when the game drew it, evening out motion. Adds a few milliseconds of latency; turn it on if motion looks uneven.", |ui, s| {
                 toggle(ui, &mut s.present_at_host_times)
             });
             rows.always();
             rows.when(!vrr);
-            setting_row(ui, s, &mut rows, &["frame_pacing"], "Frame pacing", "Balances response time against smoothness while VRR is off.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["frame_pacing"], "Frame pacing", "Trades latency against steady motion while VRR is off. Lowest latency shows frames at once; the other choices wait for the screen’s refresh: smoother, with more delay.", |ui, s| {
                 Combo::from_id_salt("frame-pacing").selected_text(tr(s.frame_pacing.label())).show_ui(ui, |ui| {
                     for mode in crate::config::FramePacing::ALL {
                         ui.selectable_value(&mut s.frame_pacing, mode, tr(mode.label()));
@@ -878,17 +878,17 @@ impl Launcher {
             // Balanced's choice: the newest picture at each refresh, or each in turn (`Pacer::take_due`).
             // The other pacings decide that themselves, as on Android (`SettingRules.dropLateFramesApplies`).
             rows.when(s.frame_pacing == crate::config::FramePacing::Balanced);
-            setting_row(ui, s, &mut rows, &["drop_late_frames"], "Keep only the newest frame", "Skips frames the screen can no longer show in time.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["drop_late_frames"], "Keep only the newest frame", "Skips frames the screen can no longer show in time, so the picture never falls behind. Leave it on; off shows every frame in turn and can add delay.", |ui, s| {
                 toggle(ui, &mut s.drop_late_frames)
             });
             rows.always();
             rows.when(!vrr);
             // Still narrowed to VRR off, as Frame pacing; a pacing that waits for the refresh keeps it on.
             rows.when(!s.frame_pacing.forces_vsync());
-            setting_row(ui, s, &mut rows, &["vsync"], "V-Sync", "Waits for the screen’s refresh, so the picture never tears.", |ui, s| toggle(ui, &mut s.vsync));
+            setting_row(ui, s, &mut rows, &["vsync"], "V-Sync", "Waits for the screen’s refresh, so the picture never tears; the wait adds latency. Turn it off for the lowest latency if tearing doesn’t bother you.", |ui, s| toggle(ui, &mut s.vsync));
             rows.always();
             rows.group(en("Image"));
-            setting_row(ui, s, &mut rows, &["upscaling"], "Upscaling", "How a stream smaller than the screen is enlarged.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["upscaling"], "Upscaling", "How a stream smaller than the screen is enlarged. FSR and SGSR sharpen edges at some GPU time and battery; HDR streams are enlarged without them.", |ui, s| {
                 Combo::from_id_salt("upscaling").selected_text(tr(s.upscaling.label())).show_ui(ui, |ui| {
                     // AI enhancement is offered only where the GPU's probe finds the vendor's super
                     // resolution or RTX Video HDR. It loads the AMF runtime, so it runs once per
@@ -903,12 +903,12 @@ impl Launcher {
                 }).response
             });
             rows.when(s.upscaling.is_shader());
-            setting_row(ui, s, &mut rows, &["upscale_sharpness"], "Upscaling sharpness", "How much sharpening the upscaler adds.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["upscale_sharpness"], "Upscaling sharpness", "How much sharpening FSR or SGSR adds. Raise it for soft edges; lower it if edges show halos.", |ui, s| {
                 slider(ui, &mut s.upscale_sharpness, 0..=100, 5.0, percent, |rail| rail, |field| field.suffix("%"))
             });
             rows.always();
             rows.when(matches!(s.video_scaling, crate::config::VideoScaling::Fit | crate::config::VideoScaling::Native));
-            setting_row(ui, s, &mut rows, &["align_video_top"], "Video position", "Where a Fit or 1:1 picture sits: center or top.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["align_video_top"], "Video position", "Where a Fit or 1:1 picture sits: center or top. Top leaves the space below the picture free.", |ui, s| {
                 Combo::from_id_salt("video-position").selected_text(video_position_name(s.align_video_top)).show_ui(ui, |ui| {
                     for top in [false, true] {
                         ui.selectable_value(&mut s.align_video_top, top, video_position_name(top));
@@ -917,9 +917,9 @@ impl Launcher {
             });
             rows.always();
             rows.group(en("PC display"));
-            setting_row(ui, s, &mut rows, &["virtual_display"], "Virtual display", "The PC streams from a display of its own that matches the stream.", |ui, s| toggle(ui, &mut s.virtual_display));
+            setting_row(ui, s, &mut rows, &["virtual_display"], "Virtual display", "The PC streams from a virtual display of its own that matches the stream’s resolution and frame rate, whatever monitor the PC has. Off leaves it to the PC’s display settings.", |ui, s| toggle(ui, &mut s.virtual_display));
             rows.when(s.virtual_display);
-            setting_row(ui, s, &mut rows, &["virtual_display_scale"], "PC render resolution", "The size the PC renders at, as a percent of the stream resolution.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["virtual_display_scale"], "PC render resolution", "The size the PC renders at, as a percent of the stream resolution; the video sent keeps its size. Above 100 the PC draws more pixels than it sends, below fewer.", |ui, s| {
                 slider(ui, &mut s.virtual_display_scale, crate::config::RENDER_SCALE, 5.0, percent, |rail| rail.step_by(5.0), |field| field.suffix("%"))
             });
             rows.always();
@@ -927,7 +927,7 @@ impl Launcher {
             let test_host = if let Screen::HostSettings(id) = screen { view.hosts.get(id) } else { None };
             rows.when(display_scale_gate(test_host.and_then(|h| h.info.as_ref())
                 .map_or(nightjar_core::http::Availability::Unknown, |i| i.capabilities.availability(nightjar_core::http::Feature::DisplayScale))));
-            setting_row(ui, s, &mut rows, &["virtual_display_dpi"], "PC display scaling", "Text and interface size on the PC’s virtual display.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["virtual_display_dpi"], "PC display scaling", "Text and interface size on the PC’s virtual display; the resolution stays. Raise it if text is too small on this screen. PC’s own keeps the PC’s setting.", |ui, s| {
                 Combo::from_id_salt("virtual-display-dpi")
                     .selected_text(display_scale_name(s.virtual_display_dpi))
                     .show_ui(ui, |ui| {
@@ -937,7 +937,7 @@ impl Launcher {
                     }).response
             });
             rows.always();
-            setting_row(ui, s, &mut rows, &["host_display"], "Display arrangement", "How the PC places the streamed display beside its own screens.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["host_display"], "Display arrangement", "How the PC places the stream’s virtual display beside its monitors. Virtual display only switches the PC’s monitors off during the stream; they come back when it ends. Needs PC support.", |ui, s| {
                 Combo::from_id_salt("host-display")
                     .selected_text(tr(host_display_name(s.host_display)))
                     .show_ui(ui, |ui| {
@@ -949,7 +949,7 @@ impl Launcher {
             });
 
             rows.section(en("Controls"));
-            setting_row(ui, s, &mut rows, &["mouse_mode"], "Mouse mode", "Captured keeps the pointer in the stream; Desktop pointer moves like an ordinary mouse.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["mouse_mode"], "Mouse mode", "Captured keeps the pointer in the stream and sends relative movement, which games with mouse look need. Desktop pointer moves like an ordinary mouse, for desktop work.", |ui, s| {
                 Combo::from_id_salt("mouse")
                     .selected_text(mouse_name(s.mouse_mode))
                     .show_ui(ui, |ui| {
@@ -959,7 +959,7 @@ impl Launcher {
                     })
                     .response
             });
-            setting_row(ui, s, &mut rows, &["controllers", "multi_controller"], "Controllers", "Off, every controller as one player, or each controller its own player.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["controllers", "multi_controller"], "Controllers", "A player each makes every controller its own player and suits almost everyone. One player makes every controller player 1; Off sends no controller to the PC.", |ui, s| {
                 let current = Controllers::from_saved(s.controllers, s.multi_controller);
                 let mut choice = current;
                 let response = Combo::from_id_salt("controllers").selected_text(tr(controllers_name(current))).show_ui(ui, |ui| {
@@ -974,7 +974,7 @@ impl Launcher {
             });
             if !layered {
                 rows.action("controller_buttons");
-                setting_row(ui, s, &mut rows, &[], "Controller buttons", "Remaps a controller model’s buttons and sticks.", |ui, _| {
+                setting_row(ui, s, &mut rows, &[], "Controller buttons", "Remaps a controller model’s buttons and sticks and sets the type the PC sees (Xbox, PlayStation or Nintendo), for when a game shows the wrong buttons.", |ui, _| {
                     let button = quiet_button(ui, "Controller buttons");
                     if button.clicked() { open_controllers = Some(false); }
                     links.push(("controllers-link", button.clone()));
@@ -988,13 +988,13 @@ impl Launcher {
                     button
                 });
             }
-            setting_row(ui, s, &mut rows, &["clipboard_sync"], "Clipboard sync", "Copied text goes between this device and the PC.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["clipboard_sync"], "Clipboard sync", "Copy text on this device and paste it on the PC, or the other way round, while streaming. Everything you copy as text is sent; the PC must offer clipboard sync.", |ui, s| {
                 toggle(ui, &mut s.clipboard_sync)
             });
             rows.group(en("Controllers"));
             rows.when(s.controllers);
-            setting_row(ui, s, &mut rows, &["swap_face_buttons"], "Nintendo button layout", "Swaps A with B and X with Y.", |ui, s| toggle(ui, &mut s.swap_face_buttons));
-            setting_row(ui, s, &mut rows, &["gamepad_quit_combo"], "Buttons to leave the stream", "The buttons held together to leave the stream.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["swap_face_buttons"], "Nintendo button layout", "Swaps A with B and X with Y. Turn on if a Nintendo-style controller’s buttons should send the letters printed on them.", |ui, s| toggle(ui, &mut s.swap_face_buttons));
+            setting_row(ui, s, &mut rows, &["gamepad_quit_combo"], "Buttons to leave the stream", "Hold these buttons together to leave the stream from the controller, without opening the stream menu. Pick a combination your games don’t use.", |ui, s| {
                 Combo::from_id_salt("gamepad-quit-combo").selected_text(style.quit_combo(s.gamepad_quit_combo)).show_ui(ui, |ui| {
                     for combo in crate::config::GamepadQuitCombo::ALL {
                         ui.selectable_value(&mut s.gamepad_quit_combo, combo, style.quit_combo(combo));
@@ -1002,17 +1002,17 @@ impl Launcher {
                 }).response
             });
             // For every controller whose buttons page sets none of its own.
-            setting_row(ui, s, &mut rows, &["deadzone"], "Stick dead zone", "Ignores small stick movements near the center.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["deadzone"], "Stick dead zone", "Ignores small stick movements near the center. Raise it if a resting stick drifts; lower it so small movements register. Games can add their own dead zone on top.", |ui, s| {
                 slider(ui, &mut s.deadzone, crate::config::DEADZONE, 1.0, percent, |rail| rail, |field| field.suffix("%"))
             });
-            setting_row(ui, s, &mut rows, &["trigger_deadzone"], "Trigger dead zone", "Ignores light trigger presses.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["trigger_deadzone"], "Trigger dead zone", "Ignores light trigger presses. Raise it if a resting trigger presses by itself; lower it so light presses register. Games can add their own dead zone on top.", |ui, s| {
                 slider(ui, &mut s.trigger_deadzone, 0..=u32::from(crate::gamepad::MAX_TRIGGER_DEADZONE), 1.0, percent, |rail| rail, |field| field.suffix("%"))
             });
-            setting_row(ui, s, &mut rows, &["controller_motion"], "Motion controls", "Sends the controller’s motion sensors to games.", |ui, s| toggle(ui, &mut s.controller_motion));
-            setting_row(ui, s, &mut rows, &["disable_rumble"], "Turn off vibration", "Stops all rumble, trigger rumble and haptics.", |ui, s| toggle(ui, &mut s.disable_rumble));
-            setting_row(ui, s, &mut rows, &["controller_mouse"], "Controller mouse mode", "Holding Start switches the controller between gamepad and mouse.", |ui, s| toggle(ui, &mut s.controller_mouse));
+            setting_row(ui, s, &mut rows, &["controller_motion"], "Motion controls", "Sends the controller’s gyro and accelerometer to games, for motion aiming. The PC may then treat it as a PlayStation controller; turn it off if games show the wrong buttons.", |ui, s| toggle(ui, &mut s.controller_motion));
+            setting_row(ui, s, &mut rows, &["disable_rumble"], "Turn off vibration", "Stops every vibration a game asks for: rumble, trigger rumble and haptics. Leave it off unless you want no vibration at all.", |ui, s| toggle(ui, &mut s.disable_rumble));
+            setting_row(ui, s, &mut rows, &["controller_mouse"], "Controller mouse mode", "Holding Start switches the controller between gamepad and mouse. Turn it off if that happens by accident in a game; the stream menu’s Mouse tile still switches it.", |ui, s| toggle(ui, &mut s.controller_mouse));
             rows.when(s.controller_mouse);
-            setting_row(ui, s, &mut rows, &["analog_scrolling"], "Stick for scrolling", "The stick that scrolls in controller mouse mode.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["analog_scrolling"], "Stick for scrolling", "The stick that scrolls in controller mouse mode; the other stick moves the pointer. Without a scroll stick, both move the pointer.", |ui, s| {
                 use crate::config::AnalogScrolling;
                 Combo::from_id_salt("analog-scrolling").selected_text(scrolling_name(s.analog_scrolling)).show_ui(ui, |ui| {
                     for stick in [AnalogScrolling::Off, AnalogScrolling::Left, AnalogScrolling::Right] {
@@ -1020,11 +1020,11 @@ impl Launcher {
                     }
                 }).response
             });
-            setting_row(ui, s, &mut rows, &["mouse_fixed_step"], "Precise controller mouse", "Moves the pointer in fixed pixel steps while X is held.", |ui, s| toggle(ui, &mut s.mouse_fixed_step));
+            setting_row(ui, s, &mut rows, &["mouse_fixed_step"], "Precise controller mouse", "In controller mouse mode, holding X moves the pointer in fixed pixel steps, for small targets. Each press of Y doubles the step, from 1 to 128 pixels.", |ui, s| toggle(ui, &mut s.mouse_fixed_step));
             rows.always();
             rows.when(s.controllers);
-            setting_row(ui, s, &mut rows, &["gamepad_touchpad_as_mouse"], "Controller touchpad as mouse", "The controller’s touchpad moves the PC’s pointer.", |ui, s| toggle(ui, &mut s.gamepad_touchpad_as_mouse));
-            setting_row(ui, s, &mut rows, &["background_controllers"], "Input in the background", "Controllers keep working while another window is active.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["gamepad_touchpad_as_mouse"], "Controller touchpad as mouse", "The controller’s touchpad (DualSense and similar) moves the PC’s pointer like a mouse. Games then no longer get its touches; leave it off for games that use the touchpad.", |ui, s| toggle(ui, &mut s.gamepad_touchpad_as_mouse));
+            setting_row(ui, s, &mut rows, &["background_controllers"], "Input in the background", "Controllers keep working in the stream while another window is active. Presses meant for another app then also reach the PC; turn on only to play with Nightjar in the background.", |ui, s| {
                 toggle(ui, &mut s.background_controllers)
             });
             rows.always();
@@ -1032,23 +1032,23 @@ impl Launcher {
             // floating menu button has no desktop row: a window has a pointer and keys to open the menu.
             rows.group(en("Stream menu"));
             rows.when(s.controllers);
-            setting_row(ui, s, &mut rows, &["guide_hold_ms"], "Hold Guide to open the stream menu", "How long Guide is held to open the menu; a short press goes to the PC.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["guide_hold_ms"], "Hold Guide to open the stream menu", "How long Guide is held to open the stream menu; a shorter press goes to the PC. Choose Off if a game or the PC needs a long Guide press.", |ui, s| {
                 Combo::from_id_salt("guide-hold").selected_text(guide_hold_name(s.guide_hold_ms)).show_ui(ui, |ui| {
                     for ms in crate::config::GUIDE_HOLD_MS {
                         ui.selectable_value(&mut s.guide_hold_ms, ms, guide_hold_name(ms));
                     }
                 }).response
             });
-            setting_row(ui, s, &mut rows, &["back_opens_menu"], "Back opens the stream menu", "The controller’s or handheld’s Back button opens the stream menu.", |ui, s| toggle(ui, &mut s.back_opens_menu));
-            setting_row(ui, s, &mut rows, &["back_as_guide"], "Back button as Guide", "Back sends Guide (Home or PS) to the PC.", |ui, s| toggle(ui, &mut s.back_as_guide));
-            setting_row(ui, s, &mut rows, &["stream_menu_buttons"], "Y in the stream menu", "What this button runs while the stream menu is open.", |ui, s| stream_menu_button(ui, s, Hotkey::Y));
-            setting_row(ui, s, &mut rows, &["stream_menu_buttons"], "X in the stream menu", "What this button runs while the stream menu is open.", |ui, s| stream_menu_button(ui, s, Hotkey::X));
-            setting_row(ui, s, &mut rows, &["stream_menu_buttons"], "LB in the stream menu", "What this button runs while the stream menu is open.", |ui, s| stream_menu_button(ui, s, Hotkey::Lb));
-            setting_row(ui, s, &mut rows, &["stream_menu_buttons"], "RB in the stream menu", "What this button runs while the stream menu is open.", |ui, s| stream_menu_button(ui, s, Hotkey::Rb));
+            setting_row(ui, s, &mut rows, &["back_opens_menu"], "Back opens the stream menu", "The controller’s or handheld’s Back button opens the stream menu and no longer reaches the PC. Leave it off if your games use that button.", |ui, s| toggle(ui, &mut s.back_opens_menu));
+            setting_row(ui, s, &mut rows, &["back_as_guide"], "Back button as Guide", "Back sends Guide (Home or PS) to the PC, so games no longer get Back from that button. For controllers without a Guide button; “Back opens the stream menu” takes priority.", |ui, s| toggle(ui, &mut s.back_as_guide));
+            setting_row(ui, s, &mut rows, &["stream_menu_buttons"], "Y in the stream menu", "What this button runs while the stream menu is open. Default runs the tile marked with this button in its corner; an action that leaves the stream, such as Disconnect, asks first.", |ui, s| stream_menu_button(ui, s, Hotkey::Y));
+            setting_row(ui, s, &mut rows, &["stream_menu_buttons"], "X in the stream menu", "What this button runs while the stream menu is open. Default runs the tile marked with this button in its corner; an action that leaves the stream, such as Disconnect, asks first.", |ui, s| stream_menu_button(ui, s, Hotkey::X));
+            setting_row(ui, s, &mut rows, &["stream_menu_buttons"], "LB in the stream menu", "What this button runs while the stream menu is open. Default runs the tile marked with this button in its corner; an action that leaves the stream, such as Disconnect, asks first.", |ui, s| stream_menu_button(ui, s, Hotkey::Lb));
+            setting_row(ui, s, &mut rows, &["stream_menu_buttons"], "RB in the stream menu", "What this button runs while the stream menu is open. Default runs the tile marked with this button in its corner; an action that leaves the stream, such as Disconnect, asks first.", |ui, s| stream_menu_button(ui, s, Hotkey::Rb));
             rows.always();
             if !layered {
                 rows.action("keyboard_shortcuts");
-                setting_row(ui, s, &mut rows, &[], "Keyboard shortcuts", "Key combinations sent to the PC with one press.", |ui, _| {
+                setting_row(ui, s, &mut rows, &[], "Keyboard shortcuts", "Key combinations such as Alt+F4, shown as tiles in the stream menu and sent to the PC with one press.", |ui, _| {
                     let shortcuts = quiet_button(ui, "Change");
                     if shortcuts.clicked() { commands.push(Command::Shortcuts); }
                     links.push(("shortcuts-link", shortcuts.clone()));
@@ -1056,38 +1056,38 @@ impl Launcher {
                 });
             }
             rows.group(en("Touch & mouse"));
-            setting_row(ui, s, &mut rows, &["mouse_speed"], "Mouse speed", "How fast the pointer moves.", |ui, s| slider(ui, &mut s.mouse_speed, 25..=400, 5.0, percent, |rail| rail, |field| field.suffix("%")));
+            setting_row(ui, s, &mut rows, &["mouse_speed"], "Mouse speed", "How fast the mouse moves the PC’s pointer in the Captured mouse mode.", |ui, s| slider(ui, &mut s.mouse_speed, 25..=400, 5.0, percent, |rail| rail, |field| field.suffix("%")));
             setting_row(ui, s, &mut rows, &["mouse_nav_buttons"], "Mouse back/forward buttons", "Sends the mouse’s Back and Forward buttons to the PC.", |ui, s| toggle(ui, &mut s.mouse_nav_buttons));
-            setting_row(ui, s, &mut rows, &["native_touchpad"], "Touchpad gestures on the PC", "Sends touchpad fingers to a PC that takes them, so its gestures work there.", |ui, s| toggle(ui, &mut s.native_touchpad));
+            setting_row(ui, s, &mut rows, &["native_touchpad"], "Touchpad gestures on the PC", "A physical touchpad’s fingers go to the PC, so its own gestures work there: two-finger scroll, three- and four-finger swipes. A PC that can’t take them gets the pointer as before.", |ui, s| toggle(ui, &mut s.native_touchpad));
             rows.group(en("Keyboard"));
             if !layered {
                 rows.action("stream_hotkeys");
-                setting_row(ui, s, &mut rows, &[], "Stream hotkeys", "Nightjar’s own key combinations in a stream.", |ui, _| {
+                setting_row(ui, s, &mut rows, &[], "Stream hotkeys", "Nightjar’s own key combinations in a stream, such as the one that opens the stream menu. Their keys never reach the PC; change one that a game or app needs.", |ui, _| {
                     let hotkeys = quiet_button(ui, "Change");
                     if hotkeys.clicked() { commands.push(Command::StreamHotkeys); }
                     links.push(("stream-hotkeys-link", hotkeys.clone()));
                     hotkeys
                 });
             }
-            setting_row(ui, s, &mut rows, &["capture_system_keys"], "Send system keys", "Alt+Tab, the Windows key and similar go to the PC.", |ui, s| toggle(ui, &mut s.capture_system_keys));
+            setting_row(ui, s, &mut rows, &["capture_system_keys"], "Send system keys", "Alt+Tab, the Windows key and similar go to the PC instead of this device. Turn it off to keep those shortcuts on this device.", |ui, s| toggle(ui, &mut s.capture_system_keys));
             rows.when(s.capture_system_keys);
-            setting_row(ui, s, &mut rows, &["system_keys_fullscreen_only"], "System keys only in full screen", "In a window, system keys stay with this device.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["system_keys_fullscreen_only"], "System keys only in full screen", "In a window, Alt+Tab, the Windows key and similar stay with this device; in full screen they go to the PC. Turn on to switch apps beside a windowed stream.", |ui, s| {
                 toggle(ui, &mut s.system_keys_fullscreen_only)
             });
             rows.always();
-            setting_row(ui, s, &mut rows, &["right_alt_as_meta"], "Right Alt as Windows key", "Right Alt sends the Windows key, which a Mac uses as Command.", |ui, s| toggle(ui, &mut s.right_alt_as_meta));
+            setting_row(ui, s, &mut rows, &["right_alt_as_meta"], "Right Alt as Windows key", "Right Alt sends the Windows key, which a Mac uses as Command. Leave it off if you type characters with AltGr: Right Alt then no longer works as AltGr.", |ui, s| toggle(ui, &mut s.right_alt_as_meta));
             rows.group(en("USB"));
             rows.when(s.controllers);
-            setting_row(ui, s, &mut rows, &["controller_audio"], "USB DualSense audio and haptics", "A wired DualSense’s haptics, speaker, headset and microphone work with the PC.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["controller_audio"], "USB DualSense audio and haptics", "A wired DualSense plays the game’s haptics (waveform vibration), and its speaker, headset and microphone work with the PC. Needs a PC that supports them.", |ui, s| {
                 toggle(ui, &mut s.controller_audio)
             });
             rows.always();
-            setting_row(ui, s, &mut rows, &["usb_forwarding"], "Forward USB devices", "USB devices plugged in here can be attached to the PC from the stream menu.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["usb_forwarding"], "Forward USB devices", "Lets the stream menu hand a USB device plugged in here, such as a drawing tablet or security key, to the PC. Needs a PC that offers USB forwarding.", |ui, s| {
                 toggle(ui, &mut s.usb_forwarding)
             });
 
             rows.section(en("Audio"));
-            setting_row(ui, s, &mut rows, &["audio"], "Channels", "Stereo, or 5.1, 7.1 or 7.1.4 surround.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["audio"], "Channels", "Stereo, or 5.1, 7.1 or 7.1.4 surround. Use Stereo for headphones or two speakers; pick surround only if your speakers and the PC are set up for it.", |ui, s| {
                 Combo::from_id_salt("audio")
                     .selected_text(audio_name(s.audio))
                     .show_ui(ui, |ui| {
@@ -1103,35 +1103,35 @@ impl Launcher {
             setting_row(ui, s, &mut rows, &["play_audio_on_host"], "Play audio on the PC too", "Keeps sound on the PC’s speakers while streaming.", |ui, s| {
                 toggle(ui, &mut s.play_audio_on_host)
             });
-            setting_row(ui, s, &mut rows, &["microphone"], "Send microphone to the PC", "Sends this device’s microphone to the PC.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["microphone"], "Send microphone to the PC", "Sends this device’s microphone to the PC, so you can talk in games and chat apps there. Mute it from the stream menu; needs PC support.", |ui, s| {
                 toggle(ui, &mut s.microphone)
             });
             rows.when(s.microphone);
-            setting_row(ui, s, &mut rows, &["mic_echo_cancel"], "Echo cancellation", "Keeps the stream’s sound from the speakers out of the microphone.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["mic_echo_cancel"], "Echo cancellation", "Keeps the stream’s sound from the speakers out of the microphone. Leave it on Automatic, which turns it off with headphones; pick On if the PC still hears its own sound.", |ui, s| {
                 Combo::from_id_salt("mic-echo-cancel").selected_text(tr(s.mic_echo_cancel.label())).show_ui(ui, |ui| {
                     for mode in crate::config::MicEcho::ALL {
                         ui.selectable_value(&mut s.mic_echo_cancel, mode, tr(mode.label()));
                     }
                 }).response
             });
-            setting_row(ui, s, &mut rows, &["mic_noise_suppression"], "Noise suppression", "Filters steady background noise out of the microphone.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["mic_noise_suppression"], "Noise suppression", "Filters fans and other steady background noise out of the microphone and adds about 7 ms of microphone delay. Leave it on.", |ui, s| {
                 toggle(ui, &mut s.mic_noise_suppression)
             });
-            setting_row(ui, s, &mut rows, &["mic_auto_gain"], "Automatic gain", "Evens out quiet and loud speech.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["mic_auto_gain"], "Automatic gain", "Evens out quiet and loud speech. Turn it on if others hear your voice swing between too quiet and too loud.", |ui, s| {
                 toggle(ui, &mut s.mic_auto_gain)
             });
-            setting_row(ui, s, &mut rows, &["mic_gain"], "Microphone gain", "Makes the microphone quieter or louder before it is sent.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["mic_gain"], "Microphone gain", "Makes the microphone quieter or louder before it is sent. Raise it if others hear you too quietly, lower it if too loudly.", |ui, s| {
                 let step = f64::from(crate::config::MIC_GAIN_STEP);
                 slider(ui, &mut s.mic_gain, crate::config::MIC_GAIN, step, percent, |rail| rail.step_by(step), |field| field.suffix("%"))
             });
             rows.always();
-            setting_row(ui, s, &mut rows, &["mute_audio"], "Mute audio", "Plays no stream sound on this device.", |ui, s| toggle(ui, &mut s.mute_audio));
-            setting_row(ui, s, &mut rows, &["audio_passthrough"], "Audio passthrough", "The PC sends uncompressed sound that the output plays as is.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["mute_audio"], "Mute audio", "Plays no stream sound on this device, for example while the PC’s speakers play it. The microphone and “Play audio on the PC too” keep working.", |ui, s| toggle(ui, &mut s.mute_audio));
+            setting_row(ui, s, &mut rows, &["audio_passthrough"], "Audio passthrough", "The PC sends uncompressed (PCM) sound, played as is: about 1.5 Mbps for stereo, up to 6 Mbps for 7.1. Leave it off on a slow network; needs PC support.", |ui, s| {
                 toggle(ui, &mut s.audio_passthrough)
             });
 
             rows.section(en("Streaming"));
-            setting_row(ui, s, &mut rows, &["overlay", "overlay_mode"], "Performance overlay", "Shows how the stream is doing: Compact, Statistics or Debug.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["overlay", "overlay_mode"], "Performance overlay", "Shows how the stream is doing. Compact is one line with FPS, network round trip and frame loss; Statistics and Debug add detail for troubleshooting.", |ui, s| {
                 let shown = if s.overlay { tr(s.overlay_mode.label()) } else { tr("Off") };
                 Combo::from_id_salt("overlay-mode").selected_text(shown).show_ui(ui, |ui| {
                     if ui.selectable_label(!s.overlay, tr("Off")).clicked() { s.overlay = false; }
@@ -1151,7 +1151,7 @@ impl Launcher {
                 }).response
             });
             rows.always();
-            setting_row(ui, s, &mut rows, &["auto_reconnect"], "Recover interrupted streams", "Reconnects to the same game after a dropped connection, up to five times a minute.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["auto_reconnect"], "Recover interrupted streams", "Reconnects to the same game after a dropped connection, up to five times a minute; it never starts or replaces a game. Leave it on.", |ui, s| {
                 toggle(ui, &mut s.auto_reconnect)
             });
             // A PC's own page tests that PC; the main settings test the paired one chosen. Every
@@ -1172,15 +1172,15 @@ impl Launcher {
                 });
             }
             rows.group(en("Connection"));
-            setting_row(ui, s, &mut rows, &["client_roaming"], "Keep streaming when the network changes", "The stream carries on when this device switches networks.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["client_roaming"], "Keep streaming when the network changes", "The stream moves to the new address when this device switches networks, instead of waiting for the old one. Leave it on; needs PC support.", |ui, s| {
                 toggle(ui, &mut s.client_roaming)
             });
             rows.when(s.client_roaming);
-            setting_row(ui, s, &mut rows, &["roaming_metered"], "Continue on mobile data", "Lets the stream move onto mobile data or another metered network.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["roaming_metered"], "Continue on mobile data", "Lets a running stream move onto mobile data or another metered network. Streaming uses a lot of data; leave it off unless you want that.", |ui, s| {
                 toggle(ui, &mut s.roaming_metered)
             });
             rows.always();
-            setting_row(ui, s, &mut rows, &["network_grace_ms"], "Wait through network dropouts", "How long a silent network is waited out before the stream ends.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["network_grace_ms"], "Wait through network dropouts", "How long a silent network is waited out before the stream ends; the picture freezes meanwhile. Raise it if short dropouts end your streams; the PC must wait as long too.", |ui, s| {
                 use nightjar_policy::recovery::{network_grace_choice_s, NETWORK_GRACE_CHOICES_S};
                 let current = network_grace_choice_s(s.network_grace_ms);
                 // Off keeps a value that is already off; another choice is off at the default.
@@ -1195,18 +1195,18 @@ impl Launcher {
             });
             // Receive coalescing on Windows, UDP_GRO on Linux; macOS's engine does neither.
             if cfg!(any(target_os = "linux", windows)) {
-                setting_row(ui, s, &mut rows, &["receive_coalescing"], "Group incoming video packets", "Takes several video packets from the network at once. Turn it off if the picture turns blocky or black.", |ui, s| {
+                setting_row(ui, s, &mut rows, &["receive_coalescing"], "Group incoming video packets", "Takes several video packets from the network at once, which saves work at high bitrates. Leave it on; turn it off if the picture turns blocky or black.", |ui, s| {
                     toggle(ui, &mut s.receive_coalescing)
                 });
             }
             setting_row(ui, s, &mut rows, &["internet_play"], "Play over the internet", "Away from home, reach a PC that offers it over a direct internet path, without forwarding ports. Connect once on the PC's network first. Your network is always tried first.", |ui, s| {
                 toggle(ui, &mut s.internet_play)
             });
-            setting_row(ui, s, &mut rows, &["hide_connection_warnings"], "Hide connection warnings", "No warnings about a poor connection during streams.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["hide_connection_warnings"], "Hide connection warnings", "Hides the warnings about a poor connection during streams. Turn it on once your connection is set up and you no longer need them.", |ui, s| {
                 toggle(ui, &mut s.hide_connection_warnings)
             });
             rows.group("");
-            setting_row(ui, s, &mut rows, &["dual_screen"], "Dual screen mode", "A second stream of the same game on a second screen.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["dual_screen"], "Dual screen mode", "Streams the same game to a second screen too, in a stream of its own; sound and controllers stay with the first. Needs a second screen and PC support.", |ui, s| {
                 toggle(ui, &mut s.dual_screen)
             });
             rows.when(s.dual_screen);
@@ -1225,14 +1225,14 @@ impl Launcher {
             rows.always();
             // A game's menu reads it from the main settings.
             if !layered {
-                setting_row(ui, s, &mut rows, &["input_only_any_host"], "Input-only on any PC", "Offers Input-only in a game’s menu on PCs without their own Input-only mode.", |ui, s| {
+                setting_row(ui, s, &mut rows, &["input_only_any_host"], "Input-only on any PC", "Offers Input-only on PCs without that mode: this device only sends input, for a game shown on another screen. The PC still sends a small stream, under 1 Mbps.", |ui, s| {
                     toggle(ui, &mut s.input_only_any_host)
                 });
             }
 
             if !layered {
                 rows.section(en("App"));
-                setting_row(ui, s, &mut rows, &["theme"], "Theme", "System, Dark or OLED black.", |ui, s| {
+                setting_row(ui, s, &mut rows, &["theme"], "Theme", "System follows the system’s light or dark setting; OLED black uses pure black surfaces.", |ui, s| {
                     Combo::from_id_salt("theme").selected_text(tr(s.theme.label())).show_ui(ui, |ui| {
                         for theme in crate::config::Theme::ALL {
                             ui.selectable_value(&mut s.theme, theme, tr(theme.label()));
@@ -1249,7 +1249,7 @@ impl Launcher {
                         })
                         .response
                 });
-                setting_row(ui, s, &mut rows, &["open_on_start", "console_home"], "When Nightjar opens", "Home, your PCs, or a short countdown into a game.", |ui, s| {
+                setting_row(ui, s, &mut rows, &["open_on_start", "console_home"], "When Nightjar opens", "What Nightjar shows first: Home, your PCs, or a 3-second countdown into your last or a chosen game, which you can cancel.", |ui, s| {
                     let current = start_screen(s);
                     let mut choice = current;
                     let name = |screen: StartScreen| start_screen_name(screen, open_game.as_deref());
@@ -1264,7 +1264,7 @@ impl Launcher {
                     }
                     response
                 });
-                setting_row(ui, s, &mut rows, &["quick_resume"], "Quick resume", "Selecting a PC that runs a game goes straight back into it.", |ui, s| {
+                setting_row(ui, s, &mut rows, &["quick_resume"], "Quick resume", "Selecting a PC that runs a game goes straight back into it, skipping the library. While it is on, open the library from the PC’s menu.", |ui, s| {
                     toggle(ui, &mut s.quick_resume)
                 });
                 rows.action("pin_lock");
@@ -1384,7 +1384,7 @@ impl Launcher {
             // Windows PCs with two GPUs, for the whole app, not a PC or a profile.
             #[cfg(windows)]
             if let Some(gpus) = crate::gpu_adapters::gpus().filter(|_| !layered) {
-                setting_row(ui, s, &mut rows, &["graphics_card"], "Graphics card", "The GPU that draws and decodes the stream.", |ui, s| {
+                setting_row(ui, s, &mut rows, &["graphics_card"], "Graphics card", "The GPU that draws and decodes the stream where this device has two. Leave it on Automatic, which is Windows’ choice; the others set Windows’ GPU preference for Nightjar.", |ui, s| {
                     use crate::config::GraphicsCard;
                     let name = |choice: GraphicsCard| match choice {
                         GraphicsCard::Automatic => tr(choice.label()).to_owned(),
@@ -1403,7 +1403,7 @@ impl Launcher {
             }
             // Linux only (Windows draws with Direct3D 11), and for the whole app, not a PC or a profile.
             if cfg!(target_os = "linux") && !layered {
-                setting_row(ui, s, &mut rows, &["renderer"], "Renderer", "What draws Nightjar’s window: OpenGL or the GPU renderer.", |ui, s| {
+                setting_row(ui, s, &mut rows, &["renderer"], "Renderer", "On OpenGL, streams that need the GPU renderer (HDR, upscaling, PyroWave, 4:4:4) are refused. Leave it on Automatic, which switches to the GPU renderer (Vulkan) when a stream needs it.", |ui, s| {
                     Combo::from_id_salt("renderer")
                         .selected_text(tr(s.renderer.label()))
                         .show_ui(ui, |ui| {
@@ -1426,14 +1426,14 @@ impl Launcher {
                         })
                         .response
                 });
-                setting_row(ui, s, &mut rows, &["video_planes"], "Video planes", "Drawing straight to the display, shows the stream on its own display plane, with HDR and without a copy.", |ui, s| {
+                setting_row(ui, s, &mut rows, &["video_planes"], "Video planes", "Draws the stream straight to the display, on a display plane of its own, with HDR and without a copy. Leave it on; off, the renderer draws the stream instead.", |ui, s| {
                     toggle(ui, &mut s.video_planes)
                 });
             }
             rows.group(en("Compatibility"));
-            setting_row(ui, s, &mut rows, &["sops"], "Game optimization hint", "Lets the PC adjust the game’s settings for the stream.", |ui, s| toggle(ui, &mut s.sops));
+            setting_row(ui, s, &mut rows, &["sops"], "Game optimization hint", "Lets the PC adjust the game’s settings for the stream. Leave it on; turn it off if the PC changes a game’s settings and you want them kept.", |ui, s| toggle(ui, &mut s.sops));
             rows.group(en("Diagnostics"));
-            setting_row(ui, s, &mut rows, &["link_probe"], "Test the link before starting", "A new stream at the automatic bitrate measures the connection first and starts no higher.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["link_probe"], "Test the link before starting", "A new stream at the automatic bitrate measures the connection first and starts no higher. Leave it off: in our measurements, streams then started lower, with more loss and freezes.", |ui, s| {
                 toggle(ui, &mut s.link_probe)
             });
             // Where a PC measures it, or a pace was saved; a PC's own page also has it.
@@ -1444,7 +1444,7 @@ impl Launcher {
                 }
                 rows.action("pyrowave_pace");
                 rows.room((if pace_pcs.len() > 1 { TEST_PC_W } else { 0.0 }) + (if pace.is_some() { 80.0 } else { 0.0 }));
-                setting_row(ui, s, &mut rows, &[], "PyroWave frame pace", "Finds the fastest pace at which a PC’s PyroWave frames arrive whole.", |ui, _| {
+                setting_row(ui, s, &mut rows, &[], "PyroWave frame pace", "Finds and saves the fastest pace at which a PC’s PyroWave frames arrive whole, for links that lose frame ends, such as a USB Ethernet dock. Takes one to three minutes.", |ui, _| {
                     let online = pc.reach == Reach::Online;
                     let mut action = None;
                     if online && pc.info.as_ref().is_some_and(|i| i.pyrowave_burst_probe) {
@@ -1464,7 +1464,7 @@ impl Launcher {
                 });
             }
             if !layered {
-                setting_row(ui, s, &mut rows, &["post_stream_decode_time"], "Show decode time after streaming", "Shows the average decode time when a stream ends.", |ui, s| {
+                setting_row(ui, s, &mut rows, &["post_stream_decode_time"], "Show decode time after streaming", "Shows the average decode time when a stream ends: this device’s decoding only, not the end-to-end latency.", |ui, s| {
                     toggle(ui, &mut s.post_stream_decode_time)
                 });
                 rows.action("latency_benchmark");
@@ -1484,7 +1484,7 @@ impl Launcher {
 
             rows.section(en("Debug"));
             // Android's main rows first, in its order.
-            setting_row(ui, s, &mut rows, &["error_correction"], "Error correction", "Recovery data the PC adds, so lost packets don’t break up the picture.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["error_correction"], "Error correction", "FEC: extra data the PC adds to repair lost packets, taken from the picture’s bitrate. Leave it on PC’s setting; try Automatic if the picture breaks up often.", |ui, s| {
                 Combo::from_id_salt("error-correction")
                     .selected_text(error_correction_name(s.error_correction))
                     .show_ui(ui, |ui| {
@@ -1494,30 +1494,30 @@ impl Launcher {
                         }
                     }).response
             });
-            setting_row(ui, s, &mut rows, &["client_hint_bitrate"], "Lower bitrate when frames are lost", "Turns the bitrate down as soon as frames go missing.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["client_hint_bitrate"], "Lower bitrate when frames are lost", "Turns the bitrate down as soon as frames go missing and back up after clean seconds, in place of “Lower bitrate when the network is busy”. Needs PC support.", |ui, s| {
                 toggle(ui, &mut s.client_hint_bitrate)
             });
-            setting_row(ui, s, &mut rows, &["tell_host_wireless"], "Tell the PC when on Wi-Fi", "The PC paces the stream for Wi-Fi from the start.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["tell_host_wireless"], "Tell the PC when on Wi-Fi", "Tells the PC when this device is on Wi-Fi, so it paces the stream for Wi-Fi from the first frame. Leave it on; turn it off only to compare.", |ui, s| {
                 toggle(ui, &mut s.tell_host_wireless)
             });
-            setting_row(ui, s, &mut rows, &["tell_host_link_speed"], "Tell the PC the link speed", "The PC limits its sending rate to this device’s wired port speed.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["tell_host_link_speed"], "Tell the PC the link speed", "Tells the PC this device’s wired port speed, so it never sends faster than the port can take. Leave it on; turn it off only to compare.", |ui, s| {
                 toggle(ui, &mut s.tell_host_link_speed)
             });
             // The engine sets socket and thread priorities on Linux and thread priorities on Windows.
             if cfg!(any(target_os = "linux", windows)) {
-                setting_row(ui, s, &mut rows, &["network_priority"], "Prioritize stream traffic", "Gives the stream’s traffic and work priority on this device.", |ui, s| {
+                setting_row(ui, s, &mut rows, &["network_priority"], "Prioritize stream traffic", "Gives the stream’s network traffic and threads priority on this device. Leave it on; turn it off only to compare how the stream runs under load.", |ui, s| {
                     toggle(ui, &mut s.network_priority)
                 });
             }
-            setting_row(ui, s, &mut rows, &["unbatched_input"], "Instant mouse and pen input", "Sends mouse and pen movement at once instead of in batches.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["unbatched_input"], "Instant mouse and pen input", "Sends mouse and pen movement at once instead of in batches, for less input delay. A high-rate mouse then uses more CPU and network; leave it on unless that matters.", |ui, s| {
                 toggle(ui, &mut s.unbatched_input)
             });
-            setting_row(ui, s, &mut rows, &["full_range"], "Full color range", "Asks for full-range video, for a PC and screen that both use it.", |ui, s| toggle(ui, &mut s.full_range));
+            setting_row(ui, s, &mut rows, &["full_range"], "Full color range", "Asks for full-range video, for full shadow and highlight detail. Blacks crush or highlights clip unless the PC and the screen both use full range; leave it off unless you know both do.", |ui, s| toggle(ui, &mut s.full_range));
             rows.group(en("PyroWave"));
             if let Some(reason) = &gpu_decoder_error {
                 rows.note(trf("GPU decoding isn’t available here: {}", &[reason]), *TERTIARY);
             }
-            setting_row(ui, s, &mut rows, &["pyrowave_decoder"], "PyroWave decoder", "Decodes PyroWave on the graphics card or the processor.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["pyrowave_decoder"], "PyroWave decoder", "Decodes PyroWave on the GPU or the CPU. GPU measured lower latency; where it can’t run, PyroWave is not offered until you choose CPU.", |ui, s| {
                 Combo::from_id_salt("pyrowave-decoder")
                     .selected_text(tr(s.pyrowave_decoder.label()))
                     .show_ui(ui, |ui| {
@@ -1528,13 +1528,13 @@ impl Launcher {
                     .response
             });
             rows.when(s.pyrowave_decoder == crate::config::PyroWaveDecoder::Gpu);
-            setting_row(ui, s, &mut rows, &["pyrowave_async_compute"], "Decode PyroWave on a compute queue", "Decodes on the GPU’s separate compute queue where it has one.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["pyrowave_async_compute"], "Decode PyroWave on a compute queue", "For comparing. Lets a PyroWave decode overlap the drawing of the previous frame on GPUs that can; it showed no clear gain on a Radeon 780M laptop. Leave it off.", |ui, s| {
                 toggle(ui, &mut s.pyrowave_async_compute)
             });
             rows.always();
             rows.group(en("Decoder"));
             rows.when(!s.codec.is_pyrowave());
-            setting_row(ui, s, &mut rows, &["decoder"], "Video decoding", "Automatic decodes on the graphics card; Software on the processor.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["decoder"], "Video decoding", "Automatic decodes on the GPU (hardware decoding) and falls back by itself where it must; Software always decodes on the CPU. Leave it on Automatic.", |ui, s| {
                 Combo::from_id_salt("decoder")
                     .selected_text(decoder_name(s.decoder))
                     .show_ui(ui, |ui| {
@@ -1545,16 +1545,16 @@ impl Launcher {
                     .response
             });
             rows.when(s.decoder == DecoderPreference::Software);
-            setting_row(ui, s, &mut rows, &["software_slices"], "Slices for software decoding", "The PC splits each frame so the processor decodes parts in parallel.", |ui, s| {
+            setting_row(ui, s, &mut rows, &["software_slices"], "Slices for software decoding", "For comparing. The PC splits each frame into slices that the CPU decodes in parallel; in our measurements it was worse than off. Leave it off.", |ui, s| {
                 toggle(ui, &mut s.software_slices)
             });
             rows.always();
             // Vulkan video is Linux's.
             if cfg!(target_os = "linux") {
-                setting_row(ui, s, &mut rows, &["vulkan_video_first"], "Vulkan video first", "Decodes with Vulkan video before VAAPI.", |ui, s| {
+                setting_row(ui, s, &mut rows, &["vulkan_video_first"], "Vulkan video first", "Tries Vulkan video decoding before VAAPI. Leave it off: VAAPI avoids a copy too and recovers from a lost frame without a keyframe (a full new picture).", |ui, s| {
                     toggle(ui, &mut s.vulkan_video_first)
                 });
-                setting_row(ui, s, &mut rows, &["vulkan_rfi"], "Vulkan video recovery", "Repairs a lost frame with Vulkan video without waiting for a whole new one.", |ui, s| {
+                setting_row(ui, s, &mut rows, &["vulkan_rfi"], "Vulkan video recovery", "For comparing. With Vulkan video decoding, repairs a lost frame without waiting for a keyframe (a full new picture). Leave it off.", |ui, s| {
                     toggle(ui, &mut s.vulkan_rfi)
                 });
             }

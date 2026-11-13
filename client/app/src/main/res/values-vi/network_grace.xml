@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_network_grace">Chờ qua lúc mất mạng</string>
-    <string name="summary_network_grace">Thời gian chờ khi mạng ngừng phản hồi trước khi stream kết thúc.</string>
+    <string name="summary_network_grace">Thời gian chờ khi mạng ngừng phản hồi trước khi stream kết thúc; trong lúc đó hình bị đứng. Tăng nếu những lần mất mạng ngắn làm stream của bạn kết thúc; PC cũng phải chờ lâu như vậy.</string>
     <string name="network_grace_off">Tắt (10 giây)</string>
     <string name="network_grace_15">15 giây</string>
     <string name="network_grace_20">20 giây</string>

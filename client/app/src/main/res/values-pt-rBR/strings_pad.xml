@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_list_osc_style">Controller style</string>
-    <string name="summary_list_osc_style">Classic, ou Modern com analógicos que seguem o polegar e um editor de layout.</string>
+    <string name="summary_list_osc_style">Modern tem analógicos que seguem seu polegar e botões frontais que você pode apertar dois ao mesmo tempo. Classic mantém o layout original; os dois enviam o mesmo gamepad ao PC.</string>
     <string name="osc_style_classic">Classic</string>
     <string name="osc_style_modern">Modern</string>
     <string name="title_list_osc_stick_mode">Modern controller sticks</string>
-    <string name="summary_list_osc_stick_mode">Com Floating, os analógicos se centralizam onde o polegar toca; com Fixed, ficam no lugar.</string>
+    <string name="summary_list_osc_stick_mode">Floating centraliza o analógico onde seu polegar toca, então você não precisa acertá-lo em cheio. Escolha Fixed se preferir mirar no analógico desenhado.</string>
     <string name="osc_stick_floating">Floating</string>
     <string name="osc_stick_fixed">Fixed</string>
     <string name="title_seekbar_osc_stick_deadzone">Modern controller stick deadzone</string>
-    <string name="summary_seekbar_osc_stick_deadzone">Quanto o polegar se move antes de um analógico responder.</string>
+    <string name="summary_seekbar_osc_stick_deadzone">Quanto o polegar se move antes de um analógico responder. Aumente se um polegar em repouso mexer a câmera ou o personagem; reduza para mirar com mais precisão.</string>
     <string name="pad_edit_title">Edit controller layout</string>
     <string name="pad_edit_all">All controls</string>
     <string name="pad_edit_hidden">%1$s (hidden)</string>

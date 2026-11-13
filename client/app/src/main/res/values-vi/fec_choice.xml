@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_fec_choice">Sửa lỗi</string>
-    <string name="summary_fec_choice">Dữ liệu khôi phục mà PC thêm vào, để gói bị mất không làm vỡ hình.</string>
+    <string name="summary_fec_choice">FEC: dữ liệu bổ sung PC thêm vào để sửa các gói bị mất, lấy từ tốc độ bit của hình ảnh. Nên để “Cài đặt của PC”; thử “Tự động” nếu hình hay bị vỡ.</string>
     <string name="fec_choice_host">Cài đặt của PC</string>
     <string name="fec_choice_auto">Tự động</string>
     <string name="title_link_probe">Kiểm tra kết nối trước khi bắt đầu</string>
-    <string name="summary_link_probe">Stream mới ở tốc độ bit tự động sẽ đo kết nối trước và không bắt đầu cao hơn mức đo được.</string>
+    <string name="summary_link_probe">Stream mới ở tốc độ bit tự động sẽ đo kết nối trước và không bắt đầu cao hơn mức đo được. Nên để tắt: trong phép đo của chúng tôi, khi bật thì stream bắt đầu thấp hơn, mất dữ liệu và đứng hình nhiều hơn.</string>
 </resources>

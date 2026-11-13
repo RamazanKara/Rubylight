@@ -8,9 +8,9 @@
     <string name="stream_bitrate_busy">PC busy. Try again in a moment.</string>
     <string name="stream_host_abr_failed">The PC did not start its automatic bitrate: %1$s</string>
     <string name="title_auto_bitrate">Lower bitrate when the network is busy</string>
-    <string name="dialog_auto_bitrate">Turns the bitrate down while the connection falls behind, and back up once it recovers.</string>
+    <string name="dialog_auto_bitrate">Turns the bitrate down while the connection falls behind and back up once it recovers: softer picture, less stutter. Turn it on for a busy network; needs PC support.</string>
     <string name="title_thermal_protection">Thermal protection</string>
-    <string name="dialog_thermal_protection">Lowers the bitrate and resolution while the device is hot.</string>
+    <string name="dialog_thermal_protection">Lowers bitrate and resolution while the device is hot, if “Lower bitrate when the network is busy” or Automatic quality is on. Turn it on only if the device throttles or overheats.</string>
     <string name="title_automatic_bitrate">Automatic bitrate</string>
-    <string name="dialog_automatic_bitrate">Nightjar picks the bitrate for the resolution, frame rate and codec.</string>
+    <string name="dialog_automatic_bitrate">Nightjar picks the bitrate for the resolution, frame rate and codec, and follows them when they change. Turn it off to set the bitrate yourself.</string>
 </resources>

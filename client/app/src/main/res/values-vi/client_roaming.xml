@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_client_roaming">Tiếp tục stream khi đổi mạng</string>
-    <string name="summary_client_roaming">Stream vẫn tiếp tục khi thiết bị này chuyển mạng.</string>
+    <string name="summary_client_roaming">Stream chuyển sang địa chỉ mới khi thiết bị này đổi mạng, thay vì chờ địa chỉ cũ. Nên để bật; cần PC hỗ trợ.</string>
     <string name="title_roaming_metered">Tiếp tục bằng dữ liệu di động</string>
-    <string name="summary_roaming_metered">Cho phép stream chuyển sang dữ liệu di động hoặc mạng có đo lượng dữ liệu khác.</string>
+    <string name="summary_roaming_metered">Cho phép stream đang chạy chuyển sang dữ liệu di động hoặc mạng có đo lượng dữ liệu khác. Stream tốn rất nhiều dữ liệu; nên để tắt trừ khi bạn muốn vậy.</string>
 </resources>

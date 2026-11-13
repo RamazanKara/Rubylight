@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_input_only_any_host">Input-only on any PC</string>
-    <string name="summary_checkbox_input_only_any_host">Offers Input-only in a game’s menu on PCs without their own Input-only mode.</string>
+    <string name="summary_checkbox_input_only_any_host">Offers Input-only on PCs without that mode: this device only sends input, for a game shown on another screen. The PC still sends a small stream, under 1 Mbps.</string>
     <string name="input_only_start">Input-only</string>
     <string name="input_only_small_stream_note">Video still streams at the smallest size, about %1$.1f Mbit/s (%2$d MB an hour), but isn’t shown</string>
     <string name="input_only_reason_input_permission">Allow input for this device on the PC</string>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_network_grace">Przeczekuj zaniki sieci</string>
-    <string name="summary_network_grace">Jak długo przeczekiwana jest cisza w sieci, zanim strumień się zakończy.</string>
+    <string name="summary_network_grace">Jak długo przeczekiwana jest cisza w sieci, zanim strumień się zakończy; obraz w tym czasie stoi w miejscu. Zwiększ, jeśli krótkie zaniki sieci kończą twoje strumienie; komputer też musi czekać tak samo długo.</string>
     <string name="network_grace_off">Wyłączone (10 sekund)</string>
     <string name="network_grace_15">15 sekund</string>
     <string name="network_grace_20">20 sekund</string>

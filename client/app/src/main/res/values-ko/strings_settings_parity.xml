@@ -3,13 +3,13 @@
      opens, group names, row hints and notices. -->
 <resources>
     <string name="title_sharp_color">더 선명한 컬러 텍스트</string>
-    <string name="summary_sharp_color">색 정보를 모두 유지해 컬러 텍스트와 가는 선이 선명하게 보입니다.</string>
+    <string name="summary_sharp_color">색 정보를 모두 유지해(4:4:4) 컬러 텍스트와 가는 선이 선명하게 보입니다. 흐릿해 보이면 켜세요. 디코딩 부담이 커지며 PC와 기기의 지원이 필요합니다.</string>
     <string-array name="sharp_color_names">
         <item>사용 안함</item>
         <item>사용</item>
     </string-array>
     <string name="title_controllers">컨트롤러</string>
-    <string name="summary_controllers">사용 안함, 모든 컨트롤러를 플레이어 한 명으로, 또는 컨트롤러마다 각자의 플레이어로.</string>
+    <string name="summary_controllers">‘컨트롤러별 플레이어’는 컨트롤러마다 각자의 플레이어가 되며, 거의 모든 경우에 적합합니다. ‘플레이어 한 명’은 모든 컨트롤러를 플레이어 1로 만들고, ‘사용 안함’은 컨트롤러를 PC로 보내지 않습니다.</string>
     <string-array name="controllers_names">
         <item>사용 안함</item>
         <item>플레이어 한 명</item>
@@ -25,8 +25,8 @@
         <item>마지막 게임 계속하기</item>
         <item>선택한 게임</item>
     </string-array>
-    <string name="summary_host_display_location">PC가 스트리밍 디스플레이를 자체 화면 옆에 배치하는 방식입니다.</string>
-    <string name="summary_pace_calibration_row">PC의 PyroWave 프레임이 온전히 도착하는 가장 빠른 페이스를 찾습니다.</string>
+    <string name="summary_host_display_location">PC가 스트림용 가상 디스플레이를 자체 모니터 옆에 배치하는 방식입니다. ‘전용’을 선택하면 스트림 중에는 PC 모니터가 꺼지고, 스트림이 끝나면 다시 켜집니다. PC 지원이 필요합니다.</string>
+    <string name="summary_pace_calibration_row">PC의 PyroWave 프레임이 온전히 도착하는 가장 빠른 페이스를 찾아 저장합니다. USB 이더넷 독처럼 프레임 끝부분이 손실되는 연결을 위한 기능입니다. 1~3분 걸립니다.</string>
     <string name="summary_network_tests">핑, 지터, 손실을 측정하고, PC가 지원하면 다운로드 속도도 측정합니다.</string>
     <string name="settings_category_touch_mouse">터치 및 마우스</string>
     <string name="settings_category_connection">연결</string>
@@ -34,16 +34,16 @@
     <string name="sharp_color_unavailable_device">이 기기에서는 더 선명한 컬러 텍스트를 사용할 수 없습니다.</string>
     <string name="sharp_color_stopped">더 선명한 컬러 텍스트가 중지되었습니다. 이 기능 없이 다시 연결하는 중입니다.</string>
     <string name="sharp_color_hdr_dropped">이 스트림은 SDR입니다. 이 PC에서는 더 선명한 컬러 텍스트와 HDR을 함께 사용할 수 없습니다.</string>
-    <string name="hint_show_onscreen_controls">스트림 위에 표시되는 터치 게임패드입니다.</string>
-    <string name="hint_mouse_speed">포인터가 움직이는 속도입니다.</string>
+    <string name="hint_show_onscreen_controls">스트림 위에 표시되는 터치 게임패드로, 실제 컨트롤러 없이 플레이할 수 있습니다. 화면 일부를 가리므로, 게임을 더 많이 보려면 ‘불투명도’를 낮추세요.</string>
+    <string name="hint_mouse_speed">실제 마우스가 PC의 포인터를 움직이는 속도입니다. 터치 모드에는 각각의 속도 설정이 따로 있습니다.</string>
     <string name="hint_trackpad_speed">트랙패드 터치 모드의 포인터 속도입니다.</string>
-    <string name="hint_local_cursor_speed">로컬 커서 터치 모드의 포인터 속도입니다.</string>
+    <string name="hint_local_cursor_speed">‘로컬 커서’ 터치 모드의 포인터 속도입니다. 기본값에서는 포인터가 손가락이 움직인 만큼 움직입니다.</string>
     <string name="hint_trackpad_acceleration_curve">빠르게 스와이프할 때 포인터가 더 멀리 가는 정도입니다.</string>
     <string name="hint_trackpad_momentum_glide">포인터가 미끄러지는 거리입니다.</string>
-    <string name="hint_pc_keyboard_size">화면 PC 키보드의 크기입니다.</string>
-    <string name="hint_pc_keyboard_opacity">화면 PC 키보드가 비쳐 보이는 정도입니다.</string>
-    <string name="hint_vibrate_osc">화면 버튼을 누르면 기기가 진동합니다.</string>
-    <string name="hint_show_guide_button">화면 컨트롤에 Guide 버튼을 추가합니다.</string>
+    <string name="hint_pc_keyboard_size">화면 PC 키보드가 화면 높이에서 차지하는 비율입니다. 크게 하면 키가 커지고, 작게 하면 스트림이 더 많이 보입니다.</string>
+    <string name="hint_pc_keyboard_opacity">화면 PC 키보드가 비쳐 보이는 정도입니다. 낮출수록 뒤의 스트림이 더 잘 보입니다.</string>
+    <string name="hint_vibrate_osc">시스템의 터치 피드백이 켜져 있으면 화면 컨트롤(‘Classic’ 컨트롤러의 버튼 제외)을 누를 때 진동합니다. 또한 진동을 받을 실제 컨트롤러가 없으면 게임의 진동에 맞춰 이 기기가 진동합니다.</string>
+    <string name="hint_show_guide_button">화면 컨트롤에 Guide 버튼(Home 또는 PS)을 추가합니다.</string>
     <string name="hint_host_audio">스트리밍 중에도 PC 스피커에서 소리가 나옵니다.</string>
     <string name="hint_overlay_position">성능 오버레이가 놓이는 모서리입니다.</string>
     <string name="summary_reset_all">모든 설정을 기본값으로 되돌립니다. PC, 게임, 프로필, 언어는 그대로 유지됩니다.</string>

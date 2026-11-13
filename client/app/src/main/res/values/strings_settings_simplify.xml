@@ -2,7 +2,7 @@
 <resources>
     <string name="fps_show_supported">Show supported frame rates only</string>
     <string name="title_adaptive_quality_setting">Automatic quality</string>
-    <string name="summary_adaptive_quality_setting">Lowers the resolution or frame rate while the PC, network or device can’t keep up.</string>
+    <string name="summary_adaptive_quality_setting">Lowers the resolution or frame rate while the network or this device can’t keep up, and raises it again after. The mode decides which goes first; needs PC support.</string>
     <string name="title_low_latency_customize">Customize</string>
     <string name="low_latency_customize_closed">Choose which low-latency parts are on</string>
     <string name="low_latency_customize_open">Hide the individual switches</string>

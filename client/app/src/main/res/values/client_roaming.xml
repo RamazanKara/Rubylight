@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_client_roaming">Keep streaming when the network changes</string>
-    <string name="summary_client_roaming">The stream carries on when this device switches networks.</string>
+    <string name="summary_client_roaming">The stream moves to the new address when this device switches networks, instead of waiting for the old one. Leave it on; needs PC support.</string>
     <string name="title_roaming_metered">Continue on mobile data</string>
-    <string name="summary_roaming_metered">Lets the stream move onto mobile data or another metered network.</string>
+    <string name="summary_roaming_metered">Lets a running stream move onto mobile data or another metered network. Streaming uses a lot of data; leave it off unless you want that.</string>
 </resources>

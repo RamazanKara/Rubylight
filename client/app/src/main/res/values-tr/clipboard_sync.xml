@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_clipboard_sync">Pano eşitleme</string>
-    <string name="summary_clipboard_sync">Kopyalanan metin bu cihaz ile bilgisayar arasında aktarılır.</string>
+    <string name="summary_clipboard_sync">Yayın sırasında bu cihazda kopyaladığınız metni bilgisayarda yapıştırın ya da tersini yapın. Metin olarak kopyaladığınız her şey gönderilir; bilgisayarın pano eşitlemeyi sunması gerekir.</string>
     <string name="clipboard_sync_not_offered">Pano eşitleme kapalı: bilgisayar bunu sunmadı. Bilgisayar bu cihazın panosunu okumasına ve yazmasına izin vermelidir.</string>
     <string name="clipboard_sync_failed">Pano eşitleme başlatılamadı.</string>
     <string name="clipboard_sync_read_refused">Android eşitlemenin panoyu okumasına izin vermedi, bu kopya bu cihazda kalıyor.</string>

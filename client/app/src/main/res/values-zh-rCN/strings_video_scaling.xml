@@ -9,7 +9,7 @@
     </string-array>
     <string name="video_scaling_help">适应屏幕：显示完整画面，屏幕比例不同时会有黑边。\n填充（裁剪）：在不变形的情况下填满屏幕，超出的边缘会被裁掉。\n拉伸：填满屏幕；画面可能会显得更宽或更高。\n1:1 像素：串流的每个像素对应屏幕上的一个像素。较小的串流四周留边，较大的串流会被裁剪。\n“视频位置”可将适应屏幕或 1:1 的画面移到顶部。双指缩放在所有模式下都可用，画中画始终显示完整画面。</string>
     <string name="title_video_alignment">视频位置</string>
-    <string name="summary_video_alignment">“适应屏幕”或“1:1 像素”画面的位置：居中或顶部。</string>
+    <string name="summary_video_alignment">“适应屏幕”或“1:1 像素”画面的位置：居中或顶部。“顶部”会把画面下方的空间空出来。</string>
     <string-array name="video_alignment_names">
         <item>居中</item>
         <item>顶部</item>

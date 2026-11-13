@@ -57,7 +57,7 @@ Nicht gespeicherter Fortschritt geht verloren.</string>
     <string name="stream_menu_button_hide">Menütaste ausblenden</string>
     <string name="stream_menu_settings">Streammenü</string>
     <string name="title_floating_menu_button">Schwebende Menütaste</string>
-    <string name="summary_floating_menu_button">Ein runder Knopf über dem Stream, der das Menü öffnet.</string>
+    <string name="summary_floating_menu_button">Ein runder Knopf über dem Stream, der das Stream-Menü mit einem Tipp öffnet; ziehe ihn, um ihn zu verschieben. Unnötig, wenn Zurück oder dein Controller das Menü öffnet.</string>
     <string name="stream_tile_keyboard">Tastatur</string>
     <string name="stream_tile_pc_keyboard">PC-Tastatur</string>
     <string name="stream_tile_mouse">Maus</string>

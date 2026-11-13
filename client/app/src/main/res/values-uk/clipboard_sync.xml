@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_clipboard_sync">Синхронізація буфера обміну</string>
-    <string name="summary_clipboard_sync">Скопійований текст передається між цим пристроєм і ПК.</string>
+    <string name="summary_clipboard_sync">Копіюйте текст на цьому пристрої та вставляйте на ПК або навпаки під час трансляції. Передається все, що ви копіюєте як текст; ПК має підтримувати синхронізацію буфера обміну.</string>
     <string name="clipboard_sync_not_offered">Синхронізацію буфера обміну вимкнено: ПК її не запропонував. Він має дозволити цьому пристрою читати й записувати свій буфер обміну.</string>
     <string name="clipboard_sync_failed">Не вдалося запустити синхронізацію буфера обміну.</string>
     <string name="clipboard_sync_read_refused">Android не дав синхронізації прочитати буфер обміну, тож ця копія лишається на цьому пристрої.</string>

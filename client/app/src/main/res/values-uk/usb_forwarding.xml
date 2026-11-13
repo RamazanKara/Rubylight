@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_usb_forwarding">Переспрямовувати USB-пристрої</string>
-    <string name="summary_usb_forwarding">USB-пристрої, підключені сюди, можна передати на ПК з меню трансляції.</string>
+    <string name="summary_usb_forwarding">Дозволяє з меню трансляції передати на ПК підключений сюди USB-пристрій, наприклад графічний планшет або ключ безпеки. Потрібен ПК з підтримкою переспрямування USB.</string>
     <string name="stream_usb_devices">USB-пристрої</string>
     <string name="usb_forwarding_pick_title">Переспрямувати USB-пристрій</string>
     <string name="usb_forwarding_auto_button">Автоматично</string>

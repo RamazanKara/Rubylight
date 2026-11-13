@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_open_on_start">Nightjar를 열 때</string>
-    <string name="summary_open_on_start">홈, 내 PC 또는 짧은 카운트다운 후 게임.</string>
+    <string name="summary_open_on_start">Nightjar가 처음에 표시하는 화면입니다. 홈, 내 PC, 또는 3초 카운트다운(취소 가능) 후 마지막 게임이나 선택한 게임을 표시합니다.</string>
     <string name="open_play_menu">Nightjar 시작 시 열기</string>
     <string name="open_play_menu_stop">Nightjar 시작 시 열지 않기</string>
     <string name="open_play_countdown">%1$s에서 %2$d초 후 시작</string>

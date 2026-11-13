@@ -6,7 +6,7 @@
     <string name="pc_keyboard_layout_us">Tiếng Anh (Mỹ)</string>
     <string name="pc_keyboard_layout_de">Tiếng Đức (QWERTZ)</string>
     <string name="pc_keyboard_layout_title">Bố cục bàn phím</string>
-    <string name="pc_keyboard_layout_summary">Bố cục của bàn phím PC trên màn hình.</string>
+    <string name="pc_keyboard_layout_summary">Các chữ cái hiện trên bàn phím PC trên màn hình. Phím gửi vị trí, nên hãy chọn bố cục mà Windows dùng trên PC, nếu không sẽ ra ký tự khác. “Tự động” theo ngôn ngữ của thiết bị này.</string>
     <string name="pc_keyboard_size_title">Kích thước bàn phím</string>
     <string name="pc_keyboard_opacity_title">Độ mờ của bàn phím</string>
 </resources>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_open_on_start">При запуске Nightjar</string>
-    <string name="summary_open_on_start">Главная, ваши ПК или короткий отсчёт до игры.</string>
+    <string name="summary_open_on_start">Что Nightjar показывает первым: «Главная», ваши ПК или 3-секундный отсчёт перед запуском последней или выбранной игры; отсчёт можно отменить.</string>
     <string name="open_play_menu">Открывать при запуске Nightjar</string>
     <string name="open_play_menu_stop">Не открывать при запуске Nightjar</string>
     <string name="open_play_countdown">Запуск на %1$s через %2$d</string>

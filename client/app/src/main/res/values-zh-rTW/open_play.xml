@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_open_on_start">Nightjar 開啟時</string>
-    <string name="summary_open_on_start">首頁、你的電腦，或短暫倒數後進入遊戲。</string>
+    <string name="summary_open_on_start">Nightjar 最先顯示的內容：首頁、你的電腦，或經 3 秒倒數後進入上次的遊戲或選定的遊戲；倒數可以取消。</string>
     <string name="open_play_menu">Nightjar 啟動時開啟</string>
     <string name="open_play_menu_stop">Nightjar 啟動時不再開啟</string>
     <string name="open_play_countdown">%2$d 秒後在 %1$s 上啟動</string>

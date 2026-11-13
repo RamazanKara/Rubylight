@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="stream_hotkeys_title">스트림 단축키</string>
-    <string name="stream_hotkeys_summary">스트림 중에 쓰는 Nightjar 고유의 키 조합입니다.</string>
+    <string name="stream_hotkeys_summary">스트림 메뉴를 여는 조합처럼 스트림 중에 쓰는 Nightjar 고유의 키 조합입니다. 이 키들은 PC로 전달되지 않습니다. 게임이나 앱에 필요한 조합은 바꾸세요.</string>
     <string name="stream_hotkey_change">변경</string>
     <string name="stream_hotkey_off">사용 안함</string>
     <string name="stream_hotkey_reset">초기화</string>

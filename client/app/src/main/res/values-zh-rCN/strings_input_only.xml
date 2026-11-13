@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_input_only_any_host">在任意电脑上仅输入</string>
-    <string name="summary_checkbox_input_only_any_host">在没有自带仅输入模式的电脑上，于游戏菜单中提供“仅输入”。</string>
+    <string name="summary_checkbox_input_only_any_host">在没有该模式的电脑上也提供“仅输入”：此设备只发送输入，用于在另一块屏幕上显示的游戏。电脑仍会发送一路很小的串流，低于 1 Mbps。</string>
     <string name="input_only_start">仅输入</string>
     <string name="input_only_small_stream_note">视频仍以最小尺寸串流，约 %1$.1f Mbit/s（每小时 %2$d MB），但不会显示</string>
     <string name="input_only_reason_input_permission">请在电脑上允许此设备输入</string>

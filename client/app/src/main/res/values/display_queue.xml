@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_display_queue_recovery">Take back display queue delay</string>
-    <string name="summary_display_queue_recovery">Skips one frame when the screen holds frames a refresh longer than needed.</string>
+    <string name="summary_display_queue_recovery">Skips one frame when the screen holds frames a refresh longer than needed, to win that latency back. Leave it on unless the skipped frame bothers you.</string>
 </resources>

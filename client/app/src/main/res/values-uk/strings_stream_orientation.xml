@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_stream_orientation">Орієнтація</string>
-    <string name="summary_stream_orientation">Альбомна, книжкова або поворот разом із пристроєм.</string>
+    <string name="summary_stream_orientation">Як може повертатися трансляція. «Автоматично» тримає телефони в альбомній орієнтації й дозволяє планшетам повертатися; «Альбомна» та «Книжкова» фіксують її; «Повертати з пристроєм» повторює положення пристрою.</string>
     <string-array name="stream_orientation_names">
         <item>Автоматично</item>
         <item>Альбомна</item>

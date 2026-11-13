@@ -6,7 +6,7 @@
     <string name="pc_keyboard_layout_us">İngilizce (ABD)</string>
     <string name="pc_keyboard_layout_de">Almanca (QWERTZ)</string>
     <string name="pc_keyboard_layout_title">Klavye düzeni</string>
-    <string name="pc_keyboard_layout_summary">Ekrandaki PC klavyesinin düzeni.</string>
+    <string name="pc_keyboard_layout_summary">Ekrandaki PC klavyesinde gösterilen harfler. Tuşlar konum gönderir; bu yüzden bilgisayardaki Windows’un kullandığı düzeni seçin, yoksa başka karakterler çıkar. “Otomatik” bu cihazın dilini izler.</string>
     <string name="pc_keyboard_size_title">Klavye boyutu</string>
     <string name="pc_keyboard_opacity_title">Klavye opaklığı</string>
 </resources>

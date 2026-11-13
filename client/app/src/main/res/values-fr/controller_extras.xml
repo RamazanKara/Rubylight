@@ -2,20 +2,20 @@
 <resources>
     <!-- Controller and keyboard options -->
     <string name="title_checkbox_disable_rumble">Désactiver les vibrations</string>
-    <string name="summary_checkbox_disable_rumble">Coupe toutes les vibrations, celles des gâchettes et le retour haptique.</string>
+    <string name="summary_checkbox_disable_rumble">Coupe toutes les vibrations demandées par un jeu : vibrations, vibrations des gâchettes et retour haptique. Laissez-le désactivé sauf si vous ne voulez aucune vibration.</string>
     <string name="title_checkbox_mouse_emulation_fixed_step">Souris précise à la manette</string>
-    <string name="summary_checkbox_mouse_emulation_fixed_step">Déplace le pointeur par pas fixes de pixels tant que X est maintenu.</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">En mode souris de la manette, maintenir X déplace le pointeur par pas fixes de pixels, pour les petites cibles. Y double le pas, de 1 à 128 pixels.</string>
     <string name="stream_mouse_step">Pas de la souris : %1$d px</string>
     <string name="title_checkbox_capture_system_keys">Envoyer les touches système</string>
-    <string name="summary_checkbox_capture_system_keys">Alt+Tab, la touche Windows et les touches similaires vont au PC.</string>
+    <string name="summary_checkbox_capture_system_keys">Alt+Tab, la touche Windows et les touches similaires vont au PC plutôt qu’à cet appareil, quand Android le permet. Désactivez-le pour garder ces raccourcis sur cet appareil.</string>
     <string name="title_checkbox_system_keys_fullscreen_only">Touches système seulement en plein écran</string>
-    <string name="summary_checkbox_system_keys_fullscreen_only">En fenêtre, les touches système restent sur cet appareil.</string>
+    <string name="summary_checkbox_system_keys_fullscreen_only">En fenêtre, Alt+Tab, la touche Windows et les touches similaires restent sur cet appareil ; en plein écran, elles vont au PC. Activez-le pour changer d’appli à côté d’un stream en fenêtre.</string>
     <string name="title_checkbox_back_as_meta">Retour du clavier en touche Windows</string>
-    <string name="summary_checkbox_back_as_meta">La touche Retour d’un clavier physique envoie la touche Windows.</string>
+    <string name="summary_checkbox_back_as_meta">La touche Retour d’un clavier physique envoie au PC la touche Windows au lieu de Retour ou Esc. Le geste Retour d’Android et le raccourci du menu du stream ouvrent toujours le menu du stream.</string>
     <string name="title_checkbox_right_alt_as_meta">Alt droite comme touche Windows</string>
-    <string name="summary_checkbox_right_alt_as_meta">Alt droite envoie la touche Windows, qu’un Mac utilise comme Command.</string>
+    <string name="summary_checkbox_right_alt_as_meta">Alt droite envoie la touche Windows, qu’un Mac utilise comme touche Commande. Laissez-le désactivé si vous tapez des caractères avec AltGr : Alt droite ne fonctionne alors plus comme AltGr.</string>
     <string name="title_checkbox_keyboard_follows_text_fields">Le clavier suit les champs de texte</string>
-    <string name="summary_checkbox_keyboard_follows_text_fields">Le clavier à l’écran s’ouvre quand un champ de texte du PC reçoit le focus.</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">Ouvre le clavier à l’écran quand vous sélectionnez un champ de texte sur le PC et le referme ensuite. Nécessite un PC qui signale les champs de texte ; désactivez-le pour l’ouvrir vous-même.</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">Test de la manette</string>
@@ -57,6 +57,6 @@
 
     <!-- USB Switch Pro driver -->
     <string name="title_usb_switch_pro">Pilote Switch Pro USB</string>
-    <string name="summary_usb_switch_pro">Lit une Switch Pro Controller filaire avec mouvements, vibrations, Home et Capture.</string>
+    <string name="summary_usb_switch_pro">Nightjar lit lui-même une Switch Pro Controller filaire, pour que le gyroscope, les vibrations, Home et Capture fonctionnent. Android demande l’accès USB pendant un stream ; le Bluetooth et les Joy-Con restent gérés par Android.</string>
     <string name="usb_switch_pro_denied">Pas d’accès USB ; la Switch Pro Controller reste sur l’entrée d’Android.\nRebranchez le câble pour réessayer.</string>
 </resources>

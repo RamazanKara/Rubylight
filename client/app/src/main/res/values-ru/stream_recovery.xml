@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_auto_reconnect">Восстанавливать прерванные трансляции</string>
-    <string name="summary_auto_reconnect">Переподключается к той же игре после обрыва соединения, до пяти раз в минуту.</string>
+    <string name="summary_auto_reconnect">Переподключается к той же игре после обрыва соединения, до пяти раз в минуту; никогда не запускает и не заменяет игру. Оставьте включённым.</string>
     <string name="stream_recovery_attempt">Повторное подключение к игре… Попытка %1$d из %2$d. Нажмите «Назад», чтобы отменить.</string>
     <string name="stream_recovery_session_changed">Предыдущий игровой сеанс больше недоступен. Автовосстановление остановлено, чтобы не запустить и не заменить игру.</string>
     <string name="continue_here_browser_stream">Другое устройство играет в эту игру в браузере, и эта трансляция не может работать параллельно. Сначала завершите ту трансляцию.</string>

@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_list_gamepad_quit_combo">Кнопки виходу з трансляції</string>
-    <string name="summary_list_gamepad_quit_combo">Кнопки, які утримують разом, щоб вийти з трансляції.</string>
+    <string name="summary_list_gamepad_quit_combo">Утримуйте ці кнопки разом, щоб вийти з трансляції з контролера, не відкриваючи меню трансляції. Виберіть комбінацію, якої не використовують ваші ігри.</string>
     <string name="gamepad_quit_combo_off">Вимк.</string>
     <string name="stream_controller_mouse">Миша з контролера</string>
     <string name="title_list_guide_menu_hold">Утримання Guide відкриває меню трансляції</string>
-    <string name="summary_list_guide_menu_hold">Час утримання Guide для відкриття меню; коротке натискання надходить на ПК.</string>
+    <string name="summary_list_guide_menu_hold">Скільки треба утримувати Guide, щоб відкрити меню трансляції; коротше натискання надходить на ПК. Виберіть «Вимк.», якщо грі або ПК потрібне довге натискання Guide.</string>
 </resources>

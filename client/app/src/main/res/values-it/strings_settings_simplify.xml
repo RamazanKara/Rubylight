@@ -2,7 +2,7 @@
 <resources>
     <string name="fps_show_supported">Mostra solo i frame rate supportati</string>
     <string name="title_adaptive_quality_setting">Qualità automatica</string>
-    <string name="summary_adaptive_quality_setting">Abbassa la risoluzione o il frame rate quando PC, rete o dispositivo non tengono il passo.</string>
+    <string name="summary_adaptive_quality_setting">Abbassa la risoluzione o il frame rate quando la rete o questo dispositivo non tengono il passo, e poi li rialza. La modalità decide quale dei due scende per primo; richiede il supporto del PC.</string>
     <string name="title_low_latency_customize">Personalizza</string>
     <string name="low_latency_customize_closed">Scegli quali parti della bassa latenza sono attive</string>
     <string name="low_latency_customize_open">Nascondi i singoli interruttori</string>

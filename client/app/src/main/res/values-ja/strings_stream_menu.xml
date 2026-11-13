@@ -54,7 +54,7 @@
     <string name="stream_menu_button_hide">メニューボタンを非表示</string>
     <string name="stream_menu_settings">ストリームメニュー</string>
     <string name="title_floating_menu_button">フローティングメニューボタン</string>
-    <string name="summary_floating_menu_button">ストリームの上に表示され、メニューを開く丸いボタンです。</string>
+    <string name="summary_floating_menu_button">ストリームの上に表示される丸いボタンで、タップするとストリームメニューが開きます。ドラッグで移動できます。「戻る」やコントローラでメニューを開ける場合は不要です。</string>
     <string name="stream_tile_keyboard">キーボード</string>
     <string name="stream_tile_pc_keyboard">PCキーボード</string>
     <string name="stream_tile_mouse">マウス</string>

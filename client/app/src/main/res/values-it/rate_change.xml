@@ -27,5 +27,5 @@
     <string name="stream_rate_change_auto_no_answer">Bitrate basato sulle perdite interrotto per questo stream: il PC non ha risposto a una modifica.</string>
     <string name="title_rate_change_bitrate">Riduci il bitrate quando si perdono fotogrammi</string>
     <string name="summary_short_rate_change_bitrate">Disattivato: si applica «Riduci il bitrate se la rete è congestionata». Attivato: questo dispositivo si adatta in base alla perdita di fotogrammi e al ritardo di rete.</string>
-    <string name="summary_rate_change_bitrate">Abbassa il bitrate appena mancano dei fotogrammi.</string>
+    <string name="summary_rate_change_bitrate">Abbassa il bitrate appena mancano dei fotogrammi e lo rialza dopo alcuni secondi senza perdite, al posto di «Riduci il bitrate se la rete è congestionata». Richiede il supporto del PC.</string>
 </resources>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_network_grace">Netzwerkaussetzer überbrücken</string>
-    <string name="summary_network_grace">Wie lange ein stilles Netzwerk überbrückt wird, bevor der Stream endet.</string>
+    <string name="summary_network_grace">Wie lange ein stilles Netzwerk überbrückt wird, bevor der Stream endet; währenddessen friert das Bild ein. Erhöhe den Wert, wenn kurze Aussetzer deine Streams beenden; der PC muss ebenso lange warten.</string>
     <string name="network_grace_off">Aus (10 Sekunden)</string>
     <string name="network_grace_15">15 Sekunden</string>
     <string name="network_grace_20">20 Sekunden</string>

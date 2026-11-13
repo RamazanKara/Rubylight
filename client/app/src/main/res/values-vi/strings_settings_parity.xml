@@ -3,13 +3,13 @@
      opens, group names, row hints and notices. -->
 <resources>
     <string name="title_sharp_color">Chữ màu sắc nét hơn</string>
-    <string name="summary_sharp_color">Đầy đủ chi tiết màu, giúp chữ màu và đường mảnh luôn rõ nét.</string>
+    <string name="summary_sharp_color">Đầy đủ chi tiết màu (4:4:4), giúp chữ màu và đường mảnh luôn sắc nét. Bật nếu chúng trông mờ; tốn sức giải mã hơn và cần cả PC lẫn thiết bị hỗ trợ.</string>
     <string-array name="sharp_color_names">
         <item>Tắt</item>
         <item>Bật</item>
     </string-array>
     <string name="title_controllers">Tay cầm điều khiển</string>
-    <string name="summary_controllers">Tắt, mọi tay cầm là một người chơi, hoặc mỗi tay cầm là một người chơi riêng.</string>
+    <string name="summary_controllers">“Mỗi tay cầm một người chơi” biến mỗi tay cầm thành một người chơi riêng và phù hợp với hầu hết mọi người. “Một người chơi” biến mọi tay cầm thành người chơi 1; “Tắt” không gửi tay cầm nào đến PC.</string>
     <string-array name="controllers_names">
         <item>Tắt</item>
         <item>Một người chơi</item>
@@ -25,8 +25,8 @@
         <item>Tiếp tục trò chơi gần nhất</item>
         <item>Một trò chơi đã chọn</item>
     </string-array>
-    <string name="summary_host_display_location">Cách PC đặt màn hình được stream bên cạnh các màn hình của chính nó.</string>
-    <string name="summary_pace_calibration_row">Tìm nhịp nhanh nhất mà khung hình PyroWave của PC vẫn đến trọn vẹn.</string>
+    <string name="summary_host_display_location">Cách PC đặt màn hình ảo của stream bên cạnh các màn hình của nó. Lựa chọn “Độc quyền” tắt các màn hình của PC trong lúc stream; chúng bật lại khi stream kết thúc. Cần PC hỗ trợ.</string>
+    <string name="summary_pace_calibration_row">Tìm và lưu nhịp nhanh nhất mà khung hình PyroWave của PC vẫn đến trọn vẹn, dành cho các kết nối làm mất phần cuối khung hình, như dock USB Ethernet. Mất từ một đến ba phút.</string>
     <string name="summary_network_tests">Đo ping, độ dao động và mất gói, cùng tốc độ tải xuống nếu PC hỗ trợ.</string>
     <string name="settings_category_touch_mouse">Cảm ứng &amp; chuột</string>
     <string name="settings_category_connection">Kết nối</string>
@@ -34,16 +34,16 @@
     <string name="sharp_color_unavailable_device">Chữ màu sắc nét hơn không khả dụng trên thiết bị này.</string>
     <string name="sharp_color_stopped">Chữ màu sắc nét hơn đã dừng. Đang kết nối lại mà không dùng tính năng này.</string>
     <string name="sharp_color_hdr_dropped">Stream này ở SDR: trên PC này, HDR không dùng được cùng chữ màu sắc nét hơn.</string>
-    <string name="hint_show_onscreen_controls">Tay cầm cảm ứng nằm trên stream.</string>
-    <string name="hint_mouse_speed">Tốc độ di chuyển của con trỏ.</string>
+    <string name="hint_show_onscreen_controls">Tay cầm cảm ứng vẽ đè lên stream, để chơi mà không cần tay cầm vật lý. Nó che một phần hình ảnh; giảm “Độ mờ đục” để thấy trò chơi nhiều hơn.</string>
+    <string name="hint_mouse_speed">Tốc độ chuột vật lý di chuyển con trỏ của PC. Các chế độ cảm ứng có cài đặt tốc độ riêng.</string>
     <string name="hint_trackpad_speed">Tốc độ con trỏ ở chế độ cảm ứng Bàn di chuột.</string>
-    <string name="hint_local_cursor_speed">Tốc độ con trỏ ở chế độ cảm ứng Con trỏ cục bộ.</string>
+    <string name="hint_local_cursor_speed">Tốc độ con trỏ ở chế độ cảm ứng “Con trỏ cục bộ”. Ở mức mặc định, con trỏ đi xa đúng bằng ngón tay bạn.</string>
     <string name="hint_trackpad_acceleration_curve">Mức vuốt nhanh đưa con trỏ đi xa hơn.</string>
     <string name="hint_trackpad_momentum_glide">Quãng đường con trỏ trượt tiếp.</string>
-    <string name="hint_pc_keyboard_size">Kích thước bàn phím PC trên màn hình.</string>
-    <string name="hint_pc_keyboard_opacity">Độ trong suốt của bàn phím PC trên màn hình.</string>
-    <string name="hint_vibrate_osc">Thiết bị rung khi nhấn một nút trên màn hình.</string>
-    <string name="hint_show_guide_button">Thêm nút Guide vào điều khiển trên màn hình.</string>
+    <string name="hint_pc_keyboard_size">Bàn phím PC trên màn hình chiếm bao nhiêu chiều cao màn hình. Lớn hơn thì phím to hơn; nhỏ hơn thì thấy stream nhiều hơn.</string>
+    <string name="hint_pc_keyboard_opacity">Bàn phím PC trên màn hình trong suốt đến mức nào. Thấp hơn thì thấy rõ stream phía sau hơn.</string>
+    <string name="hint_vibrate_osc">Rung khi bạn nhấn điều khiển trên màn hình (trừ các nút của tay cầm “Classic”), nếu phản hồi chạm của hệ thống đang bật, và rung theo trò chơi khi không có tay cầm vật lý nào nhận.</string>
+    <string name="hint_show_guide_button">Thêm nút Guide (Home hoặc PS) vào điều khiển trên màn hình.</string>
     <string name="hint_host_audio">Vẫn phát âm thanh trên loa của PC khi stream.</string>
     <string name="hint_overlay_position">Góc đặt lớp phủ hiệu năng.</string>
     <string name="summary_reset_all">Đưa mọi cài đặt về mặc định; PC, trò chơi, hồ sơ và ngôn ngữ được giữ nguyên.</string>

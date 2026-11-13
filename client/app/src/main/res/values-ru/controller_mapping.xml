@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="controller_mapping_title">Кнопки контроллера</string>
-    <string name="controller_mapping_summary">Переназначает кнопки и стики модели контроллера.</string>
+    <string name="controller_mapping_summary">Переназначает кнопки и стики модели контроллера и задаёт тип, который видит ПК (Xbox, PlayStation или Nintendo), — на случай, если игра показывает не те кнопки.</string>
     <string name="controller_mapping_intro">Нажмите «Назначить кнопку», затем нажмите кнопку контроллера, которую нужно переназначить.\nИзменения вступят в силу со следующей трансляции.</string>
     <string name="controller_mapping_waiting">Подключите контроллер и нажмите «Назначить кнопку».</string>
     <string name="controller_mapping_unnamed">Контроллер</string>

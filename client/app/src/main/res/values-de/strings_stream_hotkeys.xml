@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="stream_hotkeys_title">Stream-Tastenkürzel</string>
-    <string name="stream_hotkeys_summary">Nightjars eigene Tastenkombinationen im Stream.</string>
+    <string name="stream_hotkeys_summary">Nightjars eigene Tastenkombinationen im Stream, etwa die, die das Stream-Menü öffnet. Ihre Tasten erreichen den PC nie; ändere eine, die ein Spiel oder eine App braucht.</string>
     <string name="stream_hotkey_change">Ändern</string>
     <string name="stream_hotkey_off">Aus</string>
     <string name="stream_hotkey_reset">Zurücksetzen</string>

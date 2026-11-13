@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_list_osc_style">Controller style</string>
-    <string name="summary_list_osc_style">「Classic」か、親指に追従するスティックとレイアウトエディターを備えた「Modern」です。</string>
+    <string name="summary_list_osc_style">「Modern」は、親指に追従するスティックと、2 つ同時に押せる A/B/X/Y ボタンを備えています。「Classic」は従来のレイアウトのままです。どちらも PC には同じゲームパッドとして送られます。</string>
     <string name="osc_style_classic">Classic</string>
     <string name="osc_style_modern">Modern</string>
     <string name="title_list_osc_stick_mode">Modern controller sticks</string>
-    <string name="summary_list_osc_stick_mode">「Floating」ではスティックが親指を置いた位置を中心にし、「Fixed」ではスティックが定位置から動きません。</string>
+    <string name="summary_list_osc_stick_mode">「Floating」では親指を置いた位置がスティックの中心になるので、正確に狙う必要がありません。表示されているスティックを狙って操作したい場合は「Fixed」を選んでください。</string>
     <string name="osc_stick_floating">Floating</string>
     <string name="osc_stick_fixed">Fixed</string>
     <string name="title_seekbar_osc_stick_deadzone">Modern controller stick deadzone</string>
-    <string name="summary_seekbar_osc_stick_deadzone">スティックが反応するまでに親指を動かす距離です。</string>
+    <string name="summary_seekbar_osc_stick_deadzone">スティックが反応するまでに親指を動かす距離です。親指を置いているだけで視点やキャラクターが動いてしまう場合は上げ、より細かく狙いたい場合は下げてください。</string>
     <string name="pad_edit_title">Edit controller layout</string>
     <string name="pad_edit_all">All controls</string>
     <string name="pad_edit_hidden">%1$s (hidden)</string>

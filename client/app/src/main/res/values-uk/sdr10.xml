@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_enable_sdr10">Менше смуг на градієнтах</string>
-    <string name="summary_enable_sdr10">Передає відео без HDR у 10-бітному кольорі, щоб на градієнтах було менше смуг.</string>
+    <string name="summary_enable_sdr10">Передає відео без HDR у 10-бітному кольорі, щоб на небі й градієнтах було менше смуг. Увімкніть, якщо бачите смуги з вимкненим HDR; потрібні HEVC або AV1 і підтримка ПК.</string>
     <string name="startup_sdr10_not_accepted">Цей ПК не прийняв 10 біт, тому потік 8-бітний.</string>
     <string name="stream_sdr10_host_hdr">ПК надсилає HDR. Перемкніть його дисплей на SDR для 10-бітного SDR.</string>
     <string name="stream_sdr10_unavailable">10-бітний SDR не використовується, тому потік 8-бітний: %1$s</string>

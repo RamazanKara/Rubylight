@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_submit_hint">Acelerar la entrega de fotogramas</string>
-    <string name="summary_submit_hint">La indicación de rendimiento también cubre el hilo que alimenta al decodificador.</string>
+    <string name="summary_submit_hint">Para comparar. La indicación de rendimiento también cubre el hilo que alimenta al decodificador; no fue más rápido al medirlo en nuestros dispositivos. Déjalo desactivado.</string>
     <string name="title_covering_decoder_size">Preparar el decodificador para plegar</string>
-    <string name="summary_covering_decoder_size">Dimensiona el decodificador para la otra pantalla, así plegar no requiere reiniciar.</string>
+    <string name="summary_covering_decoder_size">Para plegables: dimensiona el decodificador de antemano para la pantalla más grande, así el primer plegado o giro no requiere reiniciar el decodificador. Desactívalo de nuevo si el vídeo se detiene o muestra errores.</string>
     <string name="title_pyrowave_preacquire">PyroWave: imagen de pantalla anticipada</string>
-    <string name="summary_pyrowave_preacquire">Toma la siguiente imagen de pantalla antes de que llegue cada fotograma PyroWave.</string>
+    <string name="summary_pyrowave_preacquire">Para comparar. Toma la siguiente imagen de pantalla antes de que llegue cada fotograma PyroWave; no fue más rápido al medirlo en nuestros dispositivos. Déjalo desactivado.</string>
     <string name="title_codec_direct">Datos de vídeo directos al decodificador</string>
-    <string name="summary_codec_direct">Copia cada fotograma una sola vez al decodificador.</string>
+    <string name="summary_codec_direct">Para solucionar problemas. Los fotogramas van directamente al decodificador, lo que ahorra una copia; déjalo activado y desactívalo solo si el vídeo se detiene o muestra errores en este dispositivo.</string>
     <string name="title_receive_decode_priority">Prioridad de decodificador al recibir</string>
-    <string name="summary_receive_decode_priority">El hilo que recibe el vídeo usa la prioridad del decodificador.</string>
+    <string name="summary_receive_decode_priority">Para comparar. El hilo que recibe el vídeo usa la prioridad del decodificador; fue más lento bajo carga al medirlo en nuestros dispositivos. Déjalo desactivado.</string>
 </resources>

@@ -2,7 +2,7 @@
 <resources>
     <string name="fps_show_supported">Afficher seulement les fréquences d’images prises en charge</string>
     <string name="title_adaptive_quality_setting">Qualité automatique</string>
-    <string name="summary_adaptive_quality_setting">Baisse la résolution ou la fréquence d’images tant que le PC, le réseau ou l’appareil ne suit pas.</string>
+    <string name="summary_adaptive_quality_setting">Baisse la résolution ou la fréquence d’images tant que le réseau ou cet appareil ne suit pas, puis la remonte ensuite. Le mode décide laquelle baisse en premier ; nécessite un PC compatible.</string>
     <string name="title_low_latency_customize">Personnaliser</string>
     <string name="low_latency_customize_closed">Choisir les éléments de faible latence actifs</string>
     <string name="low_latency_customize_open">Masquer les options individuelles</string>

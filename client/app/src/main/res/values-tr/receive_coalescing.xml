@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_receive_coalescing">Gelen video paketlerini grupla</string>
-    <string name="summary_receive_coalescing">Ağdan birkaç video paketini tek seferde alır. Görüntü bloklaşır veya kararırsa kapatın.</string>
+    <string name="summary_receive_coalescing">Ağdan birkaç video paketini tek seferde alır; bu, yüksek bit hızlarında iş yükünü azaltır. Açık bırakın; görüntü bloklaşır veya kararırsa kapatın.</string>
 </resources>

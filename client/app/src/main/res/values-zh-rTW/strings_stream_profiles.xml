@@ -66,7 +66,7 @@
 
     <!-- Bitrate on mobile data (Settings → Video) -->
     <string name="title_mobile_bitrate">行動數據位元速率</string>
-    <string name="summary_mobile_bitrate">串流在行動數據或計量付費網路上使用的最高位元速率。</string>
+    <string name="summary_mobile_bitrate">串流在行動數據或計量付費網路（例如手機的無線基地台）上使用的最高位元速率：更省流量，畫面會稍微模糊。「關閉」表示在所有網路上使用相同的位元速率。</string>
     <string name="mobile_bitrate_off">關閉</string>
 
     <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->

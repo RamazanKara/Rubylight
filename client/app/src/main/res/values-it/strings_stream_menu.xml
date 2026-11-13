@@ -54,7 +54,7 @@ I progressi non salvati andranno persi.</string>
     <string name="stream_menu_button_hide">Nascondi pulsante del menu</string>
     <string name="stream_menu_settings">Menu dello stream</string>
     <string name="title_floating_menu_button">Pulsante menu mobile</string>
-    <string name="summary_floating_menu_button">Un pulsante rotondo sopra lo stream che apre il menu.</string>
+    <string name="summary_floating_menu_button">Un pulsante rotondo sopra lo stream che apre il menu dello stream con un tocco; trascinalo per spostarlo. Non serve se Indietro o il tuo controller aprono il menu.</string>
     <string name="stream_tile_keyboard">Tastiera</string>
     <string name="stream_tile_pc_keyboard">Tastiera PC</string>
     <string name="stream_tile_mouse">Mouse</string>

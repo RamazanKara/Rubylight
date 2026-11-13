@@ -6,7 +6,7 @@
     <string name="pc_keyboard_layout_us">Inglese (USA)</string>
     <string name="pc_keyboard_layout_de">Tedesco (QWERTZ)</string>
     <string name="pc_keyboard_layout_title">Layout della tastiera</string>
-    <string name="pc_keyboard_layout_summary">Il layout della tastiera PC sullo schermo.</string>
+    <string name="pc_keyboard_layout_summary">Le lettere mostrate sulla tastiera PC sullo schermo. I tasti inviano posizioni, quindi scegli il layout che Windows usa sul PC, altrimenti compaiono altri caratteri. Automatico segue la lingua di questo dispositivo.</string>
     <string name="pc_keyboard_size_title">Dimensione della tastiera</string>
     <string name="pc_keyboard_opacity_title">Opacità della tastiera</string>
 </resources>

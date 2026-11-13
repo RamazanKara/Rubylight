@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_display_queue_recovery">Recuperar el retraso de la cola de pantalla</string>
-    <string name="summary_display_queue_recovery">Omite un fotograma cuando la pantalla retiene los fotogramas un refresco más de lo necesario.</string>
+    <string name="summary_display_queue_recovery">Omite un fotograma cuando la pantalla retiene los fotogramas una actualización más de lo necesario, para recuperar esa latencia. Déjalo activado salvo que te moleste el fotograma omitido.</string>
 </resources>

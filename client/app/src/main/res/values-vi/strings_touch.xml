@@ -3,7 +3,7 @@
     <string name="stream_touch_off_help">Cảm ứng đang tắt. Vuốt quay lại hoặc nhấn Quay lại để mở menu stream.</string>
     <string name="title_local_cursor_speed">Tốc độ con trỏ cục bộ</string>
     <string name="title_trackpad_acceleration">Gia tốc con trỏ</string>
-    <string name="summary_trackpad_acceleration">Vuốt nhanh di chuyển con trỏ xa hơn vuốt chậm.</string>
+    <string name="summary_trackpad_acceleration">Di ngón tay chậm thì con trỏ đi ít hơn, để ngắm chính xác, còn vuốt nhanh đưa nó đi xa hơn. Dùng cho chế độ cảm ứng “Bàn di chuột” và “Con trỏ cục bộ”; áp dụng từ stream kế tiếp.</string>
     <string name="title_trackpad_acceleration_curve">Mức gia tốc</string>
     <string-array name="trackpad_acceleration_curve_names">
         <item>Nhẹ</item>
@@ -11,7 +11,7 @@
         <item>Mạnh</item>
     </string-array>
     <string name="title_trackpad_momentum">Trượt tiếp sau khi vuốt nhanh</string>
-    <string name="summary_trackpad_momentum">Con trỏ tiếp tục di chuyển sau một cú vuốt nhanh.</string>
+    <string name="summary_trackpad_momentum">Sau một cú vuốt nhanh, con trỏ tiếp tục di chuyển rồi chậm dần; chạm vào màn hình sẽ dừng nó ngay. Dùng cho chế độ cảm ứng “Bàn di chuột” và “Con trỏ cục bộ”.</string>
     <string name="title_trackpad_momentum_glide">Quãng trượt</string>
     <string-array name="trackpad_momentum_glide_names">
         <item>Ngắn</item>
@@ -19,7 +19,7 @@
         <item>Dài</item>
     </string-array>
     <string name="title_trackpad_area">Vùng bàn di chuột</string>
-    <string name="summary_trackpad_area">Phần màn hình nơi cử chỉ bàn di chuột bắt đầu.</string>
+    <string name="summary_trackpad_area">Phần màn hình nơi cử chỉ “Bàn di chuột” và “Con trỏ cục bộ” được phép bắt đầu; các lần chạm bắt đầu ở nơi khác bị bỏ qua. Chọn một nửa để đặt ngón cái nghỉ ở nửa kia.</string>
     <string-array name="trackpad_area_names">
         <item>Toàn màn hình</item>
         <item>Nửa phải</item>
@@ -28,7 +28,7 @@
         <item>Nửa trên</item>
     </string-array>
     <string name="title_three_finger_tap">Chạm ba ngón</string>
-    <string name="summary_three_finger_tap">Tác dụng của một lần chạm nhanh bằng ba ngón.</string>
+    <string name="summary_three_finger_tap">Tác dụng của một lần chạm nhanh bằng ba ngón. “Bàn phím hệ thống” là bàn phím của Android; “Bàn phím PC” có phím F, Ctrl và Win; “Bàn phím và chuột” là bảng có phím và bàn di chuột.</string>
     <string-array name="three_finger_tap_names">
         <item>@string/desktop_controls_system_keyboard</item>
         <item>Nhấp chuột giữa</item>
@@ -38,7 +38,7 @@
     </string-array>
     <string name="stream_cursor_shape_rejected">Nightjar không thể vẽ hình dạng con trỏ của PC nên hiển thị mũi tên mặc định.</string>
     <string name="title_four_finger_tap">Chạm bằng bốn ngón tay</string>
-    <string name="summary_four_finger_tap">Tác dụng của một lần chạm nhanh bằng bốn ngón.</string>
+    <string name="summary_four_finger_tap">Tác dụng của một lần chạm nhanh bằng bốn ngón. “Bàn phím hệ thống” là bàn phím của Android; “Bàn phím PC” có phím F, Ctrl và Win; “Bàn phím và chuột” là bảng có phím và bàn di chuột.</string>
     <string name="title_multi_touch_finger_taps">Chạm nhiều ngón trong Cảm ứng đa điểm</string>
-    <string name="summary_multi_touch_finger_taps">Chạm ba và bốn ngón cũng thực hiện thao tác của chúng trong chế độ Cảm ứng đa điểm.</string>
+    <string name="summary_multi_touch_finger_taps">Ở chế độ “Cảm ứng đa điểm”, chạm ba và bốn ngón thực hiện thao tác của chúng và không còn đến PC dưới dạng chạm. Nên để tắt nếu thứ gì đó trên PC dùng các lần chạm này.</string>
 </resources>

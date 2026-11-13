@@ -12,7 +12,7 @@
     <string name="stream_restore_help">스트림이 중단되었습니다.\n다시 이어가려면 PC의 앱 목록을 여세요.</string>
     <string name="stream_presets">사전 설정</string>
     <string name="stream_presets_help">기본 해상도는 모든 지연 시간 설정을 켠 상태로 이 화면의 해상도와 주사율로 스트리밍합니다.\n배터리 절약은 같은 해상도를 30fps로 유지합니다.\nPC 프로필이 여전히 우선 적용됩니다.</string>
-    <string name="summary_frame_pacing">VRR이 꺼져 있는 동안 응답 속도와 부드러움의 균형을 맞춥니다.</string>
+    <string name="summary_frame_pacing">VRR이 꺼져 있는 동안 지연 시간과 고른 움직임 중 무엇을 우선할지 정합니다. ‘최저 지연 시간’은 프레임을 즉시 표시합니다. 다른 선택 항목은 화면 새로 고침을 기다려 더 부드럽지만 지연이 늘어납니다.</string>
     <string name="summary_language">Nightjar 메뉴의 언어입니다.</string>
     <string name="overlay_mode_help">사용 안함은 오버레이를 숨깁니다. 간단히는 렌더링 FPS, 네트워크 왕복 시간(RTT), 프레임 손실을 한 줄로 보여주며, 스트림이 불안정하면 앞의 점이 주황색이나 빨간색으로 바뀝니다. 통계는 실시간 스트림 측정값을 보여줍니다. 디버그는 타이밍 백분위수와 디코더 진단 정보를 추가합니다. 스크롤하면 모든 세부 정보를 볼 수 있습니다. 스트림 메뉴에서도 변경할 수 있습니다.</string>
     <string name="overlay_statistics">통계</string>

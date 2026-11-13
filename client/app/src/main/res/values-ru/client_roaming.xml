@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_client_roaming">Продолжать трансляцию при смене сети</string>
-    <string name="summary_client_roaming">Трансляция продолжается, когда это устройство меняет сеть.</string>
+    <string name="summary_client_roaming">Когда это устройство меняет сеть, трансляция переходит на новый адрес, а не ждёт прежнего. Оставьте включённым; нужна поддержка ПК.</string>
     <string name="title_roaming_metered">Продолжать через мобильные данные</string>
-    <string name="summary_roaming_metered">Позволяет трансляции переходить на мобильные данные или другую лимитную сеть.</string>
+    <string name="summary_roaming_metered">Позволяет идущей трансляции переходить на мобильные данные или другую лимитную сеть. Трансляция расходует много трафика; включайте, только если вам это нужно.</string>
 </resources>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="controller_mapping_title">Botones del mando</string>
-    <string name="controller_mapping_summary">Reasigna los botones y joysticks de un modelo de mando.</string>
+    <string name="controller_mapping_summary">Reasigna los botones y joysticks de un modelo de mando y fija el tipo que ve el PC (Xbox, PlayStation o Nintendo), para cuando un juego muestra los botones equivocados.</string>
     <string name="controller_mapping_intro">Toca «Asignar un botón» y pulsa el botón del mando que quieras reasignar.\nLos cambios se aplican a la próxima transmisión.</string>
     <string name="controller_mapping_waiting">Conecta un mando y toca «Asignar un botón».</string>
     <string name="controller_mapping_unnamed">Mando</string>

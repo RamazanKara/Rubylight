@@ -3,13 +3,13 @@
      opens, group names, row hints and notices. -->
 <resources>
     <string name="title_sharp_color">Чіткіший кольоровий текст</string>
-    <string name="summary_sharp_color">Повна деталізація кольору, щоб кольоровий текст і тонкі лінії лишалися чіткими.</string>
+    <string name="summary_sharp_color">Повна деталізація кольору (4:4:4), щоб кольоровий текст і тонкі лінії лишалися чіткими. Увімкніть, якщо вони виглядають розмитими; навантаження на декодер більше, потрібна підтримка ПК і пристрою.</string>
     <string-array name="sharp_color_names">
         <item>Вимкнено</item>
         <item>Увімкнено</item>
     </string-array>
     <string name="title_controllers">Контролери</string>
-    <string name="summary_controllers">Вимкнено, усі контролери як один гравець або кожен контролер — окремий гравець.</string>
+    <string name="summary_controllers">«Кожен — окремий гравець» робить кожен контролер окремим гравцем і підходить майже всім. «Один гравець» робить усі контролери гравцем 1; «Вимкнено» не передає на ПК жодного контролера.</string>
     <string-array name="controllers_names">
         <item>Вимкнено</item>
         <item>Один гравець</item>
@@ -25,8 +25,8 @@
         <item>Продовжити останню гру</item>
         <item>Вибрана гра</item>
     </string-array>
-    <string name="summary_host_display_location">Як ПК розташовує дисплей трансляції поруч зі своїми екранами.</string>
-    <string name="summary_pace_calibration_row">Знаходить найшвидший темп, за якого кадри PyroWave з ПК надходять цілими.</string>
+    <string name="summary_host_display_location">Як ПК розташовує віртуальний дисплей трансляції поруч зі своїми моніторами. Варіант «Ексклюзивний» вимикає монітори ПК на час трансляції; після неї вони вмикаються знову. Потрібна підтримка ПК.</string>
+    <string name="summary_pace_calibration_row">Знаходить і зберігає найшвидший темп, за якого кадри PyroWave з ПК надходять цілими, — для з’єднань, що втрачають кінці кадрів, наприклад док-станції з Ethernet через USB. Триває від однієї до трьох хвилин.</string>
     <string name="summary_network_tests">Вимірює пінг, джитер і втрати, а також швидкість завантаження, якщо ПК це підтримує.</string>
     <string name="settings_category_touch_mouse">Сенсор і миша</string>
     <string name="settings_category_connection">З’єднання</string>
@@ -34,16 +34,16 @@
     <string name="sharp_color_unavailable_device">Чіткіший кольоровий текст недоступний на цьому пристрої.</string>
     <string name="sharp_color_stopped">Чіткіший кольоровий текст перестав працювати. Повторне підключення без нього.</string>
     <string name="sharp_color_hdr_dropped">Ця трансляція в SDR: на цьому ПК HDR недоступний разом із чіткішим кольоровим текстом.</string>
-    <string name="hint_show_onscreen_controls">Сенсорний геймпад поверх трансляції.</string>
-    <string name="hint_mouse_speed">Наскільки швидко рухається вказівник.</string>
+    <string name="hint_show_onscreen_controls">Сенсорний геймпад поверх трансляції — щоб грати без фізичного контролера. Закриває частину зображення; зменште «Непрозорість», щоб краще бачити гру.</string>
+    <string name="hint_mouse_speed">Наскільки швидко фізична миша рухає вказівник ПК. Сенсорні режими мають власні налаштування швидкості.</string>
     <string name="hint_trackpad_speed">Швидкість вказівника в сенсорному режимі «Трекпад».</string>
-    <string name="hint_local_cursor_speed">Швидкість вказівника в сенсорному режимі «Локальний курсор».</string>
+    <string name="hint_local_cursor_speed">Швидкість вказівника в сенсорному режимі «Локальний курсор». Зі стандартним значенням вказівник проходить стільки ж, скільки палець.</string>
     <string name="hint_trackpad_acceleration_curve">Наскільки далі швидкі рухи пальцем переміщують вказівник.</string>
     <string name="hint_trackpad_momentum_glide">Як далеко вказівник ковзає за інерцією.</string>
-    <string name="hint_pc_keyboard_size">Розмір екранної клавіатури ПК.</string>
-    <string name="hint_pc_keyboard_opacity">Наскільки прозора екранна клавіатура ПК.</string>
-    <string name="hint_vibrate_osc">Пристрій вібрує під час натискання екранної кнопки.</string>
-    <string name="hint_show_guide_button">Додає кнопку Guide до екранних елементів керування.</string>
+    <string name="hint_pc_keyboard_size">Яку частину висоти екрана займає екранна клавіатура ПК. Що більша, то більші клавіші; що менша, то більше видно трансляцію.</string>
+    <string name="hint_pc_keyboard_opacity">Наскільки прозора екранна клавіатура ПК. Що нижче значення, то краще видно трансляцію за нею.</string>
+    <string name="hint_vibrate_osc">Вібрує, коли ви натискаєте екранні елементи керування (крім кнопок контролера «Classic»), якщо в системі ввімкнено вібрацію під час дотику, а також під час вібрації з гри, коли її не приймає фізичний контролер.</string>
+    <string name="hint_show_guide_button">Додає кнопку Guide (Home або PS) до екранних елементів керування.</string>
     <string name="hint_host_audio">Залишає звук у динаміках ПК під час трансляції.</string>
     <string name="hint_overlay_position">Кут, у якому розташований оверлей продуктивності.</string>
     <string name="summary_reset_all">Повертає всі налаштування до стандартних значень; ПК, ігри, профілі й мова зберігаються.</string>

@@ -27,5 +27,5 @@
     <string name="stream_rate_change_auto_no_answer">Verlustbasierte Bitrate für diesen Stream beendet: Der PC hat auf eine Änderung nicht geantwortet.</string>
     <string name="title_rate_change_bitrate">Bitrate bei Bildverlust senken</string>
     <string name="summary_short_rate_change_bitrate">Aus: „Bitrate bei ausgelastetem Netzwerk senken“ gilt. An: Dieses Gerät passt sie nach Bildverlust und Netzwerkverzögerung an.</string>
-    <string name="summary_rate_change_bitrate">Senkt die Bitrate, sobald Bilder verloren gehen.</string>
+    <string name="summary_rate_change_bitrate">Senkt die Bitrate, sobald Bilder fehlen, und hebt sie nach fehlerfreien Sekunden wieder an, anstelle von „Bitrate bei ausgelastetem Netzwerk senken“. Braucht Unterstützung durch den PC.</string>
 </resources>

@@ -2,20 +2,20 @@
 <resources>
     <!-- Controller and keyboard options -->
     <string name="title_checkbox_disable_rumble">Turn off vibration</string>
-    <string name="summary_checkbox_disable_rumble">Stops all rumble, trigger rumble and haptics.</string>
+    <string name="summary_checkbox_disable_rumble">Stops every vibration a game asks for: rumble, trigger rumble and haptics. Leave it off unless you want no vibration at all.</string>
     <string name="title_checkbox_mouse_emulation_fixed_step">Precise controller mouse</string>
-    <string name="summary_checkbox_mouse_emulation_fixed_step">Moves the pointer in fixed pixel steps while X is held.</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">In controller mouse mode, holding X moves the pointer in fixed pixel steps, for small targets. Each press of Y doubles the step, from 1 to 128 pixels.</string>
     <string name="stream_mouse_step">Mouse step: %1$d px</string>
     <string name="title_checkbox_capture_system_keys">Send system keys</string>
-    <string name="summary_checkbox_capture_system_keys">Alt+Tab, the Windows key and similar go to the PC.</string>
+    <string name="summary_checkbox_capture_system_keys">Alt+Tab, the Windows key and similar go to the PC instead of this device, where Android allows it. Turn it off to keep those shortcuts on this device.</string>
     <string name="title_checkbox_system_keys_fullscreen_only">System keys only in full screen</string>
-    <string name="summary_checkbox_system_keys_fullscreen_only">In a window, system keys stay with this device.</string>
+    <string name="summary_checkbox_system_keys_fullscreen_only">In a window, Alt+Tab, the Windows key and similar stay with this device; in full screen they go to the PC. Turn on to switch apps beside a windowed stream.</string>
     <string name="title_checkbox_back_as_meta">Keyboard Back sends Windows key</string>
-    <string name="summary_checkbox_back_as_meta">A physical keyboard’s Back key sends the Windows key.</string>
+    <string name="summary_checkbox_back_as_meta">A physical keyboard’s Back key sends the Windows key to the PC instead of Back or Esc. Android’s Back gesture and the stream menu hotkey still open the stream menu.</string>
     <string name="title_checkbox_right_alt_as_meta">Right Alt as Windows key</string>
-    <string name="summary_checkbox_right_alt_as_meta">Right Alt sends the Windows key, which a Mac uses as Command.</string>
+    <string name="summary_checkbox_right_alt_as_meta">Right Alt sends the Windows key, which a Mac uses as Command. Leave it off if you type characters with AltGr: Right Alt then no longer works as AltGr.</string>
     <string name="title_checkbox_keyboard_follows_text_fields">Keyboard follows text fields</string>
-    <string name="summary_checkbox_keyboard_follows_text_fields">The on-screen keyboard opens when a text field on the PC has focus.</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">Opens the on-screen keyboard when you select a text field on the PC and closes it after. Needs a PC that reports text fields; turn off to open it yourself.</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">Controller test</string>
@@ -57,6 +57,6 @@
 
     <!-- USB Switch Pro driver -->
     <string name="title_usb_switch_pro">USB Switch Pro driver</string>
-    <string name="summary_usb_switch_pro">Reads a wired Switch Pro Controller with motion, rumble, Home and Capture.</string>
+    <string name="summary_usb_switch_pro">Nightjar reads a wired Switch Pro Controller itself, so gyro, rumble, Home and Capture work. Android asks for USB access in a stream; Bluetooth controllers and Joy-Con stay on Android’s input.</string>
     <string name="usb_switch_pro_denied">No USB access; the Switch Pro Controller stays on Android’s input.\nReconnect the cable to retry.</string>
 </resources>

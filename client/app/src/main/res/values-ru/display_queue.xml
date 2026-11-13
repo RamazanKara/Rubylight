@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_display_queue_recovery">Возвращать задержку очереди экрана</string>
-    <string name="summary_display_queue_recovery">Пропускает один кадр, когда экран задерживает кадры на одно обновление дольше нужного.</string>
+    <string name="summary_display_queue_recovery">Пропускает один кадр, когда экран задерживает кадры на одно обновление дольше нужного, чтобы вернуть эту задержку. Оставьте включённым, если пропущенный кадр вам не мешает.</string>
 </resources>

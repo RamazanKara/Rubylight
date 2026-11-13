@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_audio_passthrough">音频直通</string>
-    <string name="summary_checkbox_audio_passthrough">电脑以输出设备可直接播放的格式发送声音：未压缩或 Dolby。</string>
+    <string name="summary_checkbox_audio_passthrough">适用于能直接播放 Dolby 或多声道 PCM 的功放、回音壁或电视：电脑会以该格式发送声音。Dolby 最多会晚到约 30 ms。需要电脑支持。</string>
 </resources>

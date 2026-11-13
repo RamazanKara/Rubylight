@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_tell_host_wireless">Повідомляти ПК про Wi-Fi</string>
-    <string name="summary_tell_host_wireless">ПК від самого початку підлаштовує темп трансляції під Wi-Fi.</string>
+    <string name="summary_tell_host_wireless">Повідомляє ПК, що цей пристрій підключено через Wi-Fi, щоб він від першого кадру підлаштовував темп трансляції під Wi-Fi. Залиште ввімкненим; вимикайте лише для порівняння.</string>
 </resources>

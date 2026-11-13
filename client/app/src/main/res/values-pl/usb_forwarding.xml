@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_usb_forwarding">Przekazuj urządzenia USB</string>
-    <string name="summary_usb_forwarding">Urządzenia USB podłączone tutaj można przyłączyć do komputera z menu strumienia.</string>
+    <string name="summary_usb_forwarding">Pozwala z menu strumienia przekazać komputerowi urządzenie USB podłączone tutaj, np. tablet graficzny lub klucz bezpieczeństwa. Wymaga komputera, który oferuje przekazywanie USB.</string>
     <string name="stream_usb_devices">Urządzenia USB</string>
     <string name="usb_forwarding_pick_title">Przekaż urządzenie USB</string>
     <string name="usb_forwarding_auto_button">Automatycznie</string>

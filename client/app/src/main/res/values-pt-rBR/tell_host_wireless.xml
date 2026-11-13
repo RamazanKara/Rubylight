@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_tell_host_wireless">Avisar o PC quando estiver no Wi-Fi</string>
-    <string name="summary_tell_host_wireless">O PC ajusta o ritmo da transmissão para Wi-Fi desde o início.</string>
+    <string name="summary_tell_host_wireless">Avisa o PC quando este dispositivo está no Wi-Fi, para ele ajustar o ritmo da transmissão ao Wi-Fi desde o primeiro quadro. Deixe ativado; desative só para comparar.</string>
 </resources>

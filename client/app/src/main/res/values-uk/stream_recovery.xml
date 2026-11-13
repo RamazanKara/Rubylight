@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_auto_reconnect">Відновлювати перервані трансляції</string>
-    <string name="summary_auto_reconnect">Повторно підключається до тієї самої гри після обриву з’єднання, до п’яти разів на хвилину.</string>
+    <string name="summary_auto_reconnect">Повторно підключається до тієї самої гри після обриву з’єднання, до п’яти разів на хвилину; ніколи не запускає й не замінює гру. Залиште ввімкненим.</string>
     <string name="stream_recovery_attempt">Повторне підключення до гри… Спроба %1$d з %2$d. Натисніть «Назад», щоб скасувати.</string>
     <string name="stream_recovery_session_changed">Попередній ігровий сеанс більше недоступний. Автоматичне відновлення зупинено, щоб не запустити й не замінити гру.</string>
     <string name="continue_here_browser_stream">Інший пристрій грає в цю гру в браузері, і ця трансляція не може працювати паралельно. Спочатку завершіть ту трансляцію.</string>

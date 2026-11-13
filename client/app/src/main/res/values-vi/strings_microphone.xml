@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_enable_mic">Gửi micrô tới PC</string>
-    <string name="summary_checkbox_enable_mic">Gửi micrô của thiết bị này tới PC.</string>
+    <string name="summary_checkbox_enable_mic">Gửi micrô của thiết bị này đến PC để bạn nói chuyện trong trò chơi và ứng dụng trò chuyện ở đó. Tắt tiếng micrô từ menu stream; cần PC hỗ trợ.</string>
     <string name="mic_permission_denied">Quyền truy cập micrô chưa được cấp nên micrô vẫn tắt. Hãy cho phép trong phần cài đặt Android để nói chuyện qua PC.</string>
     <string name="mic_status_sending">Micrô: đang gửi</string>
     <string name="mic_status_muted">Micrô: đã tắt tiếng</string>
@@ -9,18 +9,18 @@
     <string name="mic_status_unavailable">Micrô: không khả dụng</string>
     <string name="mic_status_no_permission">Micrô: cần cấp quyền</string>
     <string name="title_list_mic_echo_cancel">Khử tiếng vọng</string>
-    <string name="summary_list_mic_echo_cancel">Ngăn âm thanh stream từ loa lọt vào micrô.</string>
+    <string name="summary_list_mic_echo_cancel">Ngăn âm thanh stream từ loa lọt vào micrô. Nên để “Tự động”, chế độ này tự tắt khi dùng tai nghe; chọn “Bật” nếu PC vẫn nghe thấy âm thanh của chính nó.</string>
     <string name="mic_echo_auto">Tự động</string>
     <string name="mic_echo_on">Bật</string>
     <string name="mic_echo_off">Tắt</string>
     <string name="title_checkbox_mic_noise_suppression">Khử tiếng ồn</string>
-    <string name="summary_checkbox_mic_noise_suppression">Lọc tiếng ồn nền đều đặn khỏi micrô.</string>
+    <string name="summary_checkbox_mic_noise_suppression">Lọc tiếng quạt và các tiếng ồn nền đều đặn khác khỏi micrô. Nên để bật.</string>
     <string name="title_checkbox_mic_auto_gain">Tự động tăng âm</string>
-    <string name="summary_checkbox_mic_auto_gain">Cân bằng giọng nói nhỏ và lớn.</string>
+    <string name="summary_checkbox_mic_auto_gain">Cân bằng giọng nói nhỏ và lớn. Bật nếu người khác nghe giọng bạn lúc quá nhỏ, lúc quá to.</string>
     <string name="title_seekbar_mic_gain">Mức tăng micrô</string>
-    <string name="summary_seekbar_mic_gain">Làm micrô nhỏ hoặc to hơn trước khi gửi.</string>
+    <string name="summary_seekbar_mic_gain">Làm micrô nhỏ hơn hoặc to hơn trước khi gửi. Tăng nếu người khác nghe bạn quá nhỏ, giảm nếu quá to.</string>
     <string name="title_checkbox_mic_button">Nút micrô</string>
-    <string name="summary_checkbox_mic_button">Nút trên stream để tắt và bật lại micrô.</string>
+    <string name="summary_checkbox_mic_button">Nút tròn trên stream để tắt và bật lại micrô bằng một lần chạm; kéo để di chuyển nút. Khi tắt, hãy tắt tiếng micrô từ menu stream.</string>
     <string name="mic_button_mute">Tắt micrô</string>
     <string name="mic_button_unmute">Bật lại micrô</string>
     <string name="stream_mic_button_show">Hiện nút micrô</string>

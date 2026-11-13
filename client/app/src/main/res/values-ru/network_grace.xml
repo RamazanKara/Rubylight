@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_network_grace">Пережидать обрывы сети</string>
-    <string name="summary_network_grace">Сколько трансляция ждёт замолчавшую сеть, прежде чем завершиться.</string>
+    <string name="summary_network_grace">Сколько трансляция ждёт замолчавшую сеть, прежде чем завершиться; изображение при этом замирает. Увеличьте, если короткие обрывы завершают ваши трансляции; ПК должен ждать столько же.</string>
     <string name="network_grace_off">Выкл. (10 секунд)</string>
     <string name="network_grace_15">15 секунд</string>
     <string name="network_grace_20">20 секунд</string>

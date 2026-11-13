@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_input_only_any_host">Somente entrada em qualquer PC</string>
-    <string name="summary_checkbox_input_only_any_host">Oferece Somente entrada no menu de um jogo em PCs sem um modo Somente entrada próprio.</string>
+    <string name="summary_checkbox_input_only_any_host">Oferece Somente entrada em PCs sem esse modo: este dispositivo só envia a entrada, para um jogo exibido em outra tela. O PC ainda envia uma transmissão pequena, abaixo de 1 Mbps.</string>
     <string name="input_only_start">Somente entrada</string>
     <string name="input_only_small_stream_note">O vídeo continua sendo transmitido no menor tamanho, cerca de %1$.1f Mbit/s (%2$d MB por hora), mas não é mostrado</string>
     <string name="input_only_reason_input_permission">Permita a entrada deste dispositivo no PC</string>

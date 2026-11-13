@@ -3,13 +3,13 @@
      opens, group names, row hints and notices. -->
 <resources>
     <string name="title_sharp_color">Daha net renkli metin</string>
-    <string name="summary_sharp_color">Tam renk ayrıntısı; renkli metin ve ince çizgiler net kalır.</string>
+    <string name="summary_sharp_color">Tam renk ayrıntısı (4:4:4); renkli metin ve ince çizgiler net kalır. Bunlar bulanık görünüyorsa açın; daha fazla kod çözme gücü ister, bilgisayarın ve cihazın desteklemesi gerekir.</string>
     <string-array name="sharp_color_names">
         <item>Kapalı</item>
         <item>Açık</item>
     </string-array>
     <string name="title_controllers">Kumandalar</string>
-    <string name="summary_controllers">Kapalı, tüm kumandalar tek oyuncu ya da her kumanda ayrı bir oyuncu.</string>
+    <string name="summary_controllers">“Her biri ayrı oyuncu” her kumandayı ayrı bir oyuncu yapar ve hemen herkese uyar. “Tek oyuncu” tüm kumandaları 1. oyuncu yapar; “Kapalı” bilgisayara hiçbir kumanda göndermez.</string>
     <string-array name="controllers_names">
         <item>Kapalı</item>
         <item>Tek oyuncu</item>
@@ -25,8 +25,8 @@
         <item>Son oyunuma devam et</item>
         <item>Seçilen bir oyun</item>
     </string-array>
-    <string name="summary_host_display_location">Bilgisayarın, yayınlanan ekranı kendi ekranlarının yanına nasıl yerleştirdiği.</string>
-    <string name="summary_pace_calibration_row">Bir bilgisayarın PyroWave karelerinin eksiksiz ulaştığı en yüksek tempoyu bulur.</string>
+    <string name="summary_host_display_location">Bilgisayarın, yayının sanal ekranını kendi monitörlerinin yanına nasıl yerleştirdiği. “Özel” seçeneği yayın boyunca bilgisayarın monitörlerini kapatır; yayın bitince geri gelirler. Bilgisayar desteği gerekir.</string>
+    <string name="summary_pace_calibration_row">Bir bilgisayarın PyroWave karelerinin eksiksiz ulaştığı en yüksek tempoyu bulup kaydeder; USB Ethernet dock’u gibi kare sonlarını kaybeden bağlantılar içindir. Bir ila üç dakika sürer.</string>
     <string name="summary_network_tests">Ping, jitter ve kaybı, bilgisayar destekliyorsa indirme hızını da ölçer.</string>
     <string name="settings_category_touch_mouse">Dokunma ve fare</string>
     <string name="settings_category_connection">Bağlantı</string>
@@ -34,16 +34,16 @@
     <string name="sharp_color_unavailable_device">Daha net renkli metin bu cihazda kullanılamıyor.</string>
     <string name="sharp_color_stopped">Daha net renkli metin durdu. Onsuz yeniden bağlanılıyor.</string>
     <string name="sharp_color_hdr_dropped">Bu yayın SDR’de: bu bilgisayarda daha net renkli metinle HDR kullanılamıyor.</string>
-    <string name="hint_show_onscreen_controls">Yayının üzerinde dokunmatik bir oyun kumandası.</string>
-    <string name="hint_mouse_speed">İmlecin ne kadar hızlı hareket ettiği.</string>
+    <string name="hint_show_onscreen_controls">Fiziksel kumanda olmadan oynamak için yayının üzerine çizilen dokunmatik bir oyun kumandası. Görüntünün bir kısmını kapatır; oyunu daha çok görmek için “Opaklık” değerini düşürün.</string>
+    <string name="hint_mouse_speed">Fiziksel bir farenin bilgisayarın imlecini ne kadar hızlı hareket ettirdiği. Dokunma modlarının kendi hız ayarları vardır.</string>
     <string name="hint_trackpad_speed">Trackpad dokunma modunda imleç hızı.</string>
-    <string name="hint_local_cursor_speed">Yerel imleç dokunma modunda imleç hızı.</string>
+    <string name="hint_local_cursor_speed">“Yerel imleç” dokunma modunda imleç hızı. Varsayılan değerde imleç parmağınız kadar yol alır.</string>
     <string name="hint_trackpad_acceleration_curve">Hızlı kaydırmaların ne kadar daha uzağa gittiği.</string>
     <string name="hint_trackpad_momentum_glide">İmlecin ne kadar uzağa süzüldüğü.</string>
-    <string name="hint_pc_keyboard_size">Ekrandaki PC klavyesinin boyutu.</string>
-    <string name="hint_pc_keyboard_opacity">Ekrandaki PC klavyesinin ne kadar saydam olduğu.</string>
-    <string name="hint_vibrate_osc">Ekrandaki bir düğmeye basılınca cihaz titrer.</string>
-    <string name="hint_show_guide_button">Ekran kontrollerine bir Guide düğmesi ekler.</string>
+    <string name="hint_pc_keyboard_size">Ekrandaki PC klavyesinin ekran yüksekliğinin ne kadarını kapladığı. Büyük değer tuşları büyütür; küçük değer yayının daha fazlasını görünür bırakır.</string>
+    <string name="hint_pc_keyboard_opacity">Ekrandaki PC klavyesinin ne kadar saydam olduğu. Düşük değer arkasındaki yayını daha çok gösterir.</string>
+    <string name="hint_vibrate_osc">Sistemin dokunma geri bildirimi açıksa ekran kontrollerine basınca titrer (“Classic” kumandanın düğmeleri hariç); fiziksel bir kumanda üstlenmiyorsa oyunun titreşimi için de titrer.</string>
+    <string name="hint_show_guide_button">Ekran kontrollerine bir Guide düğmesi (Home veya PS) ekler.</string>
     <string name="hint_host_audio">Yayın sırasında ses bilgisayarın hoparlörlerinde de çalar.</string>
     <string name="hint_overlay_position">Performans katmanının bulunduğu köşe.</string>
     <string name="summary_reset_all">Tüm ayarları varsayılanlarına döndürür; bilgisayarlar, oyunlar, profiller ve dil korunur.</string>

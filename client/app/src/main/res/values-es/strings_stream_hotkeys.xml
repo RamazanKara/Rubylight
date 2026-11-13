@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="stream_hotkeys_title">Atajos de la transmisión</string>
-    <string name="stream_hotkeys_summary">Las combinaciones de teclas propias de Nightjar durante la transmisión.</string>
+    <string name="stream_hotkeys_summary">Las combinaciones de teclas propias de Nightjar durante la transmisión, como la que abre el menú de transmisión. Sus teclas nunca llegan al PC; cambia la que necesite un juego o una aplicación.</string>
     <string name="stream_hotkey_change">Cambiar</string>
     <string name="stream_hotkey_off">Desactivada</string>
     <string name="stream_hotkey_reset">Restablecer</string>

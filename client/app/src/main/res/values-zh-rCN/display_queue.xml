@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_display_queue_recovery">收回显示队列延迟</string>
-    <string name="summary_display_queue_recovery">屏幕让帧比所需多停留一次刷新时，跳过一帧。</string>
+    <string name="summary_display_queue_recovery">屏幕让帧比所需多停留一次刷新时，跳过一帧，把这段延迟追回来。请保持开启，除非你介意被跳过的那一帧。</string>
 </resources>

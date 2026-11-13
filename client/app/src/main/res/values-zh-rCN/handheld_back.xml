@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_back_opens_menu">返回键打开串流菜单</string>
-    <string name="summary_checkbox_back_opens_menu">手柄或掌机的返回键会打开串流菜单。</string>
+    <string name="summary_checkbox_back_opens_menu">手柄或掌机的 Back 键会打开串流菜单，不再发送到电脑。如果你的游戏要用到这个按键，请保持关闭。</string>
     <string name="title_checkbox_back_as_guide">返回键作为 Guide</string>
-    <string name="summary_checkbox_back_as_guide">返回键向电脑发送 Guide（Home 或 PS）。</string>
+    <string name="summary_checkbox_back_as_guide">Back 键向电脑发送 Guide（Home 或 PS），游戏因此不再从该按键收到 Back。适用于没有 Guide 键的手柄；“返回键打开串流菜单”优先于此选项。</string>
 </resources>

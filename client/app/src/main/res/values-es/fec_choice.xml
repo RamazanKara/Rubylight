@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_fec_choice">Corrección de errores</string>
-    <string name="summary_fec_choice">Datos de recuperación que añade el PC, para que los paquetes perdidos no rompan la imagen.</string>
+    <string name="summary_fec_choice">FEC: datos adicionales que añade el PC para reparar paquetes perdidos, a costa de la tasa de bits de la imagen. Déjalo en Configuración del PC; prueba Automático si la imagen se rompe a menudo.</string>
     <string name="fec_choice_host">Configuración del PC</string>
     <string name="fec_choice_auto">Automático</string>
     <string name="title_link_probe">Probar la conexión antes de empezar</string>
-    <string name="summary_link_probe">Una nueva transmisión con la tasa de bits automática mide primero la conexión y no empieza por encima de lo que aguanta.</string>
+    <string name="summary_link_probe">Una nueva transmisión con la tasa de bits automática mide primero la conexión y no empieza por encima de lo medido. Déjalo desactivado: en nuestra medición, las transmisiones empezaban entonces más bajas, con más pérdidas y congelaciones.</string>
 </resources>

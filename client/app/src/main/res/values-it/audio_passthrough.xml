@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_audio_passthrough">Passthrough audio</string>
-    <string name="summary_checkbox_audio_passthrough">Il PC invia l’audio in un formato che l’uscita riproduce così com’è: non compresso o Dolby.</string>
+    <string name="summary_checkbox_audio_passthrough">Per un ricevitore AV, una soundbar o una TV che riproduce Dolby o PCM multicanale così com’è: il PC invia quel formato. Il Dolby arriva fino a circa 30 ms più tardi. Richiede il supporto del PC.</string>
 </resources>

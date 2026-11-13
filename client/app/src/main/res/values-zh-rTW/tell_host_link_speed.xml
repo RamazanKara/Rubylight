@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_tell_host_link_speed">告知電腦連結速度</string>
-    <string name="summary_tell_host_link_speed">電腦會將傳送速率限制在這部裝置有線連接埠的速度內。</string>
+    <string name="summary_tell_host_link_speed">將此裝置有線連接埠的速度告知電腦，讓電腦的傳送速率不超過連接埠能承受的速度。請保持開啟；僅在做比較時關閉。</string>
 </resources>

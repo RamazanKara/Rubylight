@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="stream_hotkeys_title">Горячие клавиши трансляции</string>
-    <string name="stream_hotkeys_summary">Собственные сочетания клавиш Nightjar во время трансляции.</string>
+    <string name="stream_hotkeys_summary">Собственные сочетания клавиш Nightjar во время трансляции, например то, что открывает меню трансляции. Их клавиши не попадают на ПК; измените сочетание, которое нужно игре или приложению.</string>
     <string name="stream_hotkey_change">Изменить</string>
     <string name="stream_hotkey_off">Выкл.</string>
     <string name="stream_hotkey_reset">Сбросить</string>

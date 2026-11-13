@@ -54,7 +54,7 @@
     <string name="stream_menu_button_hide">Скрыть кнопку меню</string>
     <string name="stream_menu_settings">Меню трансляции</string>
     <string name="title_floating_menu_button">Плавающая кнопка меню</string>
-    <string name="summary_floating_menu_button">Круглая кнопка поверх трансляции, открывающая меню.</string>
+    <string name="summary_floating_menu_button">Круглая кнопка поверх трансляции, которая касанием открывает меню трансляции; перетащите её, чтобы переместить. Не нужна, если меню открывает «Назад» или контроллер.</string>
     <string name="stream_tile_keyboard">Клавиатура</string>
     <string name="stream_tile_pc_keyboard">Клавиатура ПК</string>
     <string name="stream_tile_mouse">Мышь</string>

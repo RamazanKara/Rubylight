@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_tell_host_wireless">Wi-Fi接続をPCに知らせる</string>
-    <string name="summary_tell_host_wireless">PC が最初から Wi-Fi に合わせてストリームのペースを調整します。</string>
+    <string name="summary_tell_host_wireless">このデバイスが Wi-Fi 接続であることを PC に伝え、PC が最初のフレームから Wi-Fi に合わせてストリームのペースを調整できるようにします。オンのままにし、比較するときにのみオフにしてください。</string>
 </resources>

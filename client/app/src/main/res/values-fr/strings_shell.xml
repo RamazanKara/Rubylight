@@ -73,7 +73,7 @@
     <string name="reduce_motion_full">Complet</string>
     <!-- tv-mode-toggle -->
     <string name="title_ui_mode">Disposition de l’interface</string>
-    <string name="summary_ui_mode">La disposition TV ou portable, ou celle de l’appareil.</string>
+    <string name="summary_ui_mode">« Automatique » suit l’appareil. Choisissez « TV » pour un téléphone ou une console portable reliés à un téléviseur : des lignes plus grandes, pensées pour une télécommande ou une manette. « Portable » donne la disposition tactile.</string>
     <string name="ui_mode_auto">Automatique</string>
     <string name="ui_mode_tv">TV</string>
     <string name="ui_mode_handheld">Portable</string>

@@ -2,7 +2,7 @@
 <resources>
     <string name="fps_show_supported">Chỉ hiện các tốc độ khung hình được hỗ trợ</string>
     <string name="title_adaptive_quality_setting">Chất lượng tự động</string>
-    <string name="summary_adaptive_quality_setting">Giảm độ phân giải hoặc tốc độ khung hình khi PC, mạng hoặc thiết bị không theo kịp.</string>
+    <string name="summary_adaptive_quality_setting">Giảm độ phân giải hoặc tốc độ khung hình khi mạng hoặc thiết bị này không theo kịp, rồi tăng lại sau đó. Chế độ quyết định giảm cái nào trước; cần PC hỗ trợ.</string>
     <string name="title_low_latency_customize">Tùy chỉnh</string>
     <string name="low_latency_customize_closed">Chọn các phần độ trễ thấp được bật</string>
     <string name="low_latency_customize_open">Ẩn các công tắc riêng lẻ</string>

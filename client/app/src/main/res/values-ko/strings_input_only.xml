@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_input_only_any_host">모든 PC에서 입력 전용</string>
-    <string name="summary_checkbox_input_only_any_host">자체 입력 전용 모드가 없는 PC에서도 게임 메뉴에 입력 전용을 표시합니다.</string>
+    <string name="summary_checkbox_input_only_any_host">입력 전용 모드가 없는 PC에서도 ‘입력 전용’을 선택할 수 있게 합니다. 이 기기는 입력만 보내며, 다른 화면에 표시되는 게임을 조작할 때 씁니다. 이때도 PC는 1 Mbps 미만의 작은 스트림을 보냅니다.</string>
     <string name="input_only_start">입력 전용</string>
     <string name="input_only_small_stream_note">영상은 여전히 가장 작은 크기로 스트리밍되지만(약 %1$.1fMbit/s, 시간당 %2$dMB) 표시되지 않습니다</string>
     <string name="input_only_reason_input_permission">PC에서 이 기기의 입력을 허용하세요</string>

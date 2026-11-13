@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_mute_audio">静音</string>
-    <string name="summary_checkbox_mute_audio">不在此设备上播放串流声音。</string>
+    <string name="summary_checkbox_mute_audio">不在此设备上播放串流声音，例如声音由电脑的扬声器播放时。麦克风和“同时在电脑上播放音频”仍然有效。</string>
 </resources>

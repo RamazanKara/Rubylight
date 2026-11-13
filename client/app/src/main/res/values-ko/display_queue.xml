@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_display_queue_recovery">디스플레이 대기열 지연 되찾기</string>
-    <string name="summary_display_queue_recovery">화면이 프레임을 필요보다 한 번의 새로 고침만큼 더 오래 붙잡고 있으면 프레임 하나를 건너뜁니다.</string>
+    <string name="summary_display_queue_recovery">화면이 프레임을 필요보다 한 번의 새로 고침만큼 더 오래 붙잡고 있으면 프레임 하나를 건너뛰어 그만큼의 지연 시간을 되찾습니다. 건너뛴 프레임이 거슬리지 않는다면 켜 두세요.</string>
 </resources>

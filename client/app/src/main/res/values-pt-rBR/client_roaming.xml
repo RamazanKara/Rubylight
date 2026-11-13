@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_client_roaming">Continuar transmitindo ao trocar de rede</string>
-    <string name="summary_client_roaming">A transmissão continua quando este dispositivo troca de rede.</string>
+    <string name="summary_client_roaming">A transmissão passa para o novo endereço quando este dispositivo troca de rede, em vez de esperar pelo antigo. Deixe ativado; requer suporte do PC.</string>
     <string name="title_roaming_metered">Continuar nos dados móveis</string>
-    <string name="summary_roaming_metered">Permite que a transmissão passe para dados móveis ou outra rede limitada.</string>
+    <string name="summary_roaming_metered">Permite que uma transmissão em andamento passe para dados móveis ou outra rede limitada. Transmitir consome muitos dados; deixe desativado, a menos que você queira isso.</string>
 </resources>

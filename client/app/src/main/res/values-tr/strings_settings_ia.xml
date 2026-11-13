@@ -21,7 +21,7 @@
     <string name="upscaling_hdr_short">HDR ile kullanılmaz</string>
     <string name="upscaling_pyrowave_short">PyroWave SGSR kullanır</string>
     <string name="title_low_latency_decoding">Düşük gecikmeli kod çözme</string>
-    <string name="summary_low_latency_decoding">Android’in ve kod çözücünün düşük gecikme modlarını kullanır.</string>
+    <string name="summary_low_latency_decoding">Daha az gecikme için Android’in ve kod çözücünün düşük gecikme modlarını kullanır. Açık bırakın; yalnızca bir kod çözme sorununu sınamak için kapatın.</string>
     <string name="settings_touch_mode_help">Trackpad: imleci hareket ettirmek için sürükleyin, tıklamak için dokunun.\nTrackpad (dokunmatik yüzey hareketleri): Trackpad gibi, ancak fiziksel bir dokunmatik yüzeyin hareketleriyle. Tıklamak için dokunun, sürüklemek için dokunup yeniden dokunun, kaydırmak için iki parmak kullanın, hızlı fırlatma ivme verir.\nDoğrudan fare: imleç dokunduğunuz yere gider.\nÇoklu dokunma: dokunuşlar bilgisayara dokunma girişi olarak ulaşır. Bilgisayar desteği yoksa Doğrudan fare gibi çalışır.\nYerel imleç: bu cihazda çizilen bir işaretçi parmağınızı anında izler; gösterdiği yere tıklamak için dokunun.\nDokunma kapalı: kumandayla oynarken ekran dokunmaları yok sayar. Yayın menüsü için geri kaydırın veya Geri’ye basın.</string>
     <string name="resolution_screen">Ekran boyutu (%1$s)</string>
     <string name="resolution_screen_cutout">Ekran boyutu, kamera kesiği hariç (%1$s)</string>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_client_roaming">Kontynuuj strumień po zmianie sieci</string>
-    <string name="summary_client_roaming">Strumień trwa dalej, gdy to urządzenie zmienia sieć.</string>
+    <string name="summary_client_roaming">Gdy to urządzenie zmienia sieć, strumień przenosi się na nowy adres, zamiast czekać na stary. Zostaw włączone; wymaga obsługi przez komputer.</string>
     <string name="title_roaming_metered">Kontynuuj przez dane komórkowe</string>
-    <string name="summary_roaming_metered">Pozwala przenieść strumień na dane mobilne lub inną sieć z pomiarem danych.</string>
+    <string name="summary_roaming_metered">Pozwala trwającemu strumieniowi przejść na dane mobilne lub inną sieć z pomiarem użycia danych. Strumieniowanie zużywa dużo danych; zostaw wyłączone, chyba że tego chcesz.</string>
 </resources>

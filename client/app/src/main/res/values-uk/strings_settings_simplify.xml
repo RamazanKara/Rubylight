@@ -2,7 +2,7 @@
 <resources>
     <string name="fps_show_supported">Показувати лише підтримувані частоти кадрів</string>
     <string name="title_adaptive_quality_setting">Автоматична якість</string>
-    <string name="summary_adaptive_quality_setting">Знижує роздільну здатність або частоту кадрів, поки ПК, мережа чи пристрій не встигають.</string>
+    <string name="summary_adaptive_quality_setting">Знижує роздільну здатність або частоту кадрів, поки мережа чи цей пристрій не встигають, а потім повертає. Режим визначає, що знижується першим; потрібна підтримка ПК.</string>
     <string name="title_low_latency_customize">Налаштувати</string>
     <string name="low_latency_customize_closed">Виберіть, які частини низької затримки ввімкнено</string>
     <string name="low_latency_customize_open">Сховати окремі перемикачі</string>

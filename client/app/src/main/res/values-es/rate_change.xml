@@ -27,5 +27,5 @@
     <string name="stream_rate_change_auto_no_answer">La tasa de bits según pérdidas se ha detenido en esta transmisión: el PC no ha respondido a un cambio.</string>
     <string name="title_rate_change_bitrate">Bajar la tasa de bits al perder fotogramas</string>
     <string name="summary_short_rate_change_bitrate">Desactivado: se aplica «Bajar la tasa de bits si la red está saturada». Activado: este dispositivo se ajusta según la pérdida de fotogramas y el retraso de red.</string>
-    <string name="summary_rate_change_bitrate">Baja la tasa de bits en cuanto se pierden fotogramas.</string>
+    <string name="summary_rate_change_bitrate">Baja la tasa de bits en cuanto se pierden fotogramas y la vuelve a subir tras unos segundos sin pérdidas, en lugar de «Bajar la tasa de bits si la red está saturada». Requiere un PC compatible.</string>
 </resources>

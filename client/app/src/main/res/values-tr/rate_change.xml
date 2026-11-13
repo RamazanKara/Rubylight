@@ -27,5 +27,5 @@
     <string name="stream_rate_change_auto_no_answer">Kayba dayalı bit hızı bu yayın için durduruldu: bilgisayar bir değişikliğe yanıt vermedi.</string>
     <string name="title_rate_change_bitrate">Kare kaybında bit hızını düşür</string>
     <string name="summary_short_rate_change_bitrate">Kapalı: “Ağ yoğunken bit hızını düşür” geçerli olur. Açık: bu cihaz bit hızını kare kaybına ve ağ gecikmesine göre ayarlar.</string>
-    <string name="summary_rate_change_bitrate">Kareler kaybolmaya başlar başlamaz bit hızını düşürür.</string>
+    <string name="summary_rate_change_bitrate">“Ağ yoğunken bit hızını düşür” yerine çalışır: kareler kaybolmaya başlar başlamaz bit hızını düşürür, kayıpsız geçen saniyelerden sonra yeniden yükseltir. Bilgisayar desteği gerekir.</string>
 </resources>

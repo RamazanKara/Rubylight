@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_audio_passthrough">Przekazywanie dźwięku bez zmian</string>
-    <string name="summary_checkbox_audio_passthrough">Komputer wysyła dźwięk w formacie, który wyjście odtwarza bez zmian: nieskompresowanym lub Dolby.</string>
+    <string name="summary_checkbox_audio_passthrough">Dla amplitunera, soundbara lub telewizora, który odtwarza Dolby lub wielokanałowy PCM bez zmian: komputer wysyła ten format. Dolby dociera z opóźnieniem do około 30 ms. Wymaga obsługi przez komputer.</string>
 </resources>

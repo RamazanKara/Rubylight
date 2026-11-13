@@ -73,7 +73,7 @@
     <string name="reduce_motion_full">Đầy đủ</string>
     <!-- tv-mode-toggle -->
     <string name="title_ui_mode">Bố cục giao diện</string>
-    <string name="summary_ui_mode">Bố cục TV hoặc cầm tay, hoặc bố cục riêng của thiết bị.</string>
+    <string name="summary_ui_mode">“Tự động” theo thiết bị. Chọn “TV” cho điện thoại hoặc máy cầm tay nối với TV: hàng lớn hơn, dành cho điều khiển từ xa hoặc tay cầm. “Cầm tay” cho bố cục cảm ứng.</string>
     <string name="ui_mode_auto">Tự động</string>
     <string name="ui_mode_tv">TV</string>
     <string name="ui_mode_handheld">Cầm tay</string>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_network_grace">Esperar durante quedas de rede</string>
-    <string name="summary_network_grace">Quanto tempo se espera por uma rede sem resposta antes de a transmissão terminar.</string>
+    <string name="summary_network_grace">Quanto tempo se espera por uma rede sem resposta antes de a transmissão terminar; enquanto isso, a imagem congela. Aumente se quedas curtas encerram suas transmissões; o PC também precisa esperar o mesmo tempo.</string>
     <string name="network_grace_off">Desativado (10 segundos)</string>
     <string name="network_grace_15">15 segundos</string>
     <string name="network_grace_20">20 segundos</string>

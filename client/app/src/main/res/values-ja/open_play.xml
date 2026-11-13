@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_open_on_start">Nightjarの起動時</string>
-    <string name="summary_open_on_start">ホーム、PCの一覧、または短いカウントダウンの後にゲーム。</string>
+    <string name="summary_open_on_start">Nightjar が最初に表示するものです。ホーム、PC の一覧、または 3 秒のカウントダウン（キャンセルできます）の後に前回のゲームか選んだゲームを表示します。</string>
     <string name="open_play_menu">Nightjarの起動時に開く</string>
     <string name="open_play_menu_stop">Nightjarの起動時に開かない</string>
     <string name="open_play_countdown">%1$sで%2$d秒後に開始</string>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_enable_sdr10">Weniger Farbbänder</string>
-    <string name="summary_enable_sdr10">Streamt Video ohne HDR in 10 Bit, sodass Verläufe weniger Farbbänder zeigen.</string>
+    <string name="summary_enable_sdr10">Streamt Video ohne HDR in 10 Bit, sodass Himmel und Verläufe weniger Farbbänder zeigen. Schalte es ein, wenn du ohne HDR Farbbänder siehst; braucht HEVC oder AV1 und Unterstützung durch den PC.</string>
     <string name="startup_sdr10_not_accepted">Dieser PC hat 10 Bit nicht angenommen, der Stream läuft mit 8 Bit.</string>
     <string name="stream_sdr10_host_hdr">Der PC sendet HDR. Stelle sein Display für 10-Bit-SDR auf SDR um.</string>
     <string name="stream_sdr10_unavailable">10-Bit-SDR wird nicht verwendet, der Stream läuft mit 8 Bit: %1$s</string>

@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_fec_choice">Correzione degli errori</string>
-    <string name="summary_fec_choice">Dati di recupero aggiunti dal PC, così i pacchetti persi non rovinano l’immagine.</string>
+    <string name="summary_fec_choice">FEC: dati aggiuntivi che il PC invia per riparare i pacchetti persi, sottratti al bitrate dell’immagine. Lascia «Impostazione del PC»; prova Automatico se l’immagine si rovina spesso.</string>
     <string name="fec_choice_host">Impostazione del PC</string>
     <string name="fec_choice_auto">Automatico</string>
     <string name="title_link_probe">Testa la connessione prima di iniziare</string>
-    <string name="summary_link_probe">Un nuovo stream al bitrate automatico misura prima la connessione e non parte più in alto.</string>
+    <string name="summary_link_probe">Un nuovo stream al bitrate automatico misura prima la connessione e non parte oltre il valore misurato. Lascialo disattivato: nelle nostre misurazioni gli stream partivano così più in basso, con più perdite e blocchi.</string>
 </resources>

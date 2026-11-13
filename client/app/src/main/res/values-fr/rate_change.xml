@@ -27,5 +27,5 @@
     <string name="stream_rate_change_auto_no_answer">Débit selon les pertes arrêté pour ce stream : le PC n’a pas répondu à une modification.</string>
     <string name="title_rate_change_bitrate">Baisser le débit en cas d’images perdues</string>
     <string name="summary_short_rate_change_bitrate">Désactivé : « Baisser le débit si le réseau est chargé » s’applique. Activé : cet appareil s’ajuste selon les pertes d’images et le délai réseau.</string>
-    <string name="summary_rate_change_bitrate">Baisse le débit dès que des images manquent.</string>
+    <string name="summary_rate_change_bitrate">Baisse le débit dès que des images manquent et le remonte après quelques secondes sans perte, à la place de « Baisser le débit si le réseau est chargé ». Nécessite un PC compatible.</string>
 </resources>

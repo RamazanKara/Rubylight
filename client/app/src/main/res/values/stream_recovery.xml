@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_auto_reconnect">Recover interrupted streams</string>
-    <string name="summary_auto_reconnect">Reconnects to the same game after a dropped connection, up to five times a minute.</string>
+    <string name="summary_auto_reconnect">Reconnects to the same game after a dropped connection, up to five times a minute; it never starts or replaces a game. Leave it on.</string>
     <string name="stream_recovery_attempt">Reconnecting to your game… Attempt %1$d of %2$d. Press Back to cancel.</string>
     <string name="stream_recovery_session_changed">The previous game session is no longer available. Automatic recovery stopped to avoid starting or replacing a game.</string>
     <string name="continue_here_browser_stream">Another device is playing this game in a browser, and this stream can’t run beside it. End that stream first.</string>

@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_list_gamepad_quit_combo">Botões para sair da transmissão</string>
-    <string name="summary_list_gamepad_quit_combo">Os botões mantidos pressionados juntos para sair da transmissão.</string>
+    <string name="summary_list_gamepad_quit_combo">Segure estes botões juntos para sair da transmissão pelo controle, sem abrir o menu da transmissão. Escolha uma combinação que seus jogos não usem.</string>
     <string name="gamepad_quit_combo_off">Desligado</string>
     <string name="stream_controller_mouse">Mouse no controle</string>
     <string name="title_list_guide_menu_hold">Segurar Guide para abrir o menu da transmissão</string>
-    <string name="summary_list_guide_menu_hold">Por quanto tempo Guide fica pressionado para abrir o menu; um toque curto vai para o PC.</string>
+    <string name="summary_list_guide_menu_hold">Por quanto tempo segurar Guide para abrir o menu da transmissão; um toque mais curto vai para o PC. Escolha Desligado se um jogo ou o PC precisar de um toque longo em Guide.</string>
 </resources>

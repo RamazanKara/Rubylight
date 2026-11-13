@@ -73,7 +73,7 @@
     <string name="reduce_motion_full">Pełny</string>
     <!-- tv-mode-toggle -->
     <string name="title_ui_mode">Układ interfejsu</string>
-    <string name="summary_ui_mode">Układ TV lub przenośny albo własny układ urządzenia.</string>
+    <string name="summary_ui_mode">„Automatyczny” dopasowuje się do urządzenia. Wybierz „TV” dla telefonu lub konsoli przenośnej podłączonych do telewizora: większe wiersze, z myślą o pilocie lub kontrolerze. „Przenośny” daje układ dotykowy.</string>
     <string name="ui_mode_auto">Automatyczny</string>
     <string name="ui_mode_tv">TV</string>
     <string name="ui_mode_handheld">Przenośny</string>

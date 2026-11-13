@@ -6,7 +6,7 @@
     <string name="pc_keyboard_layout_us">Inglês (EUA)</string>
     <string name="pc_keyboard_layout_de">Alemão (QWERTZ)</string>
     <string name="pc_keyboard_layout_title">Layout do teclado</string>
-    <string name="pc_keyboard_layout_summary">O layout do teclado de PC na tela.</string>
+    <string name="pc_keyboard_layout_summary">As letras mostradas no teclado de PC na tela. As teclas enviam posições, então escolha o layout que o Windows usa no PC, ou aparecerão outros caracteres. Automático segue o idioma deste dispositivo.</string>
     <string name="pc_keyboard_size_title">Tamanho do teclado</string>
     <string name="pc_keyboard_opacity_title">Opacidade do teclado</string>
 </resources>

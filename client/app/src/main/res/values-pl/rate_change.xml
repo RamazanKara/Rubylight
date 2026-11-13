@@ -27,5 +27,5 @@
     <string name="stream_rate_change_auto_no_answer">Szybkość transmisji zależna od strat zatrzymana dla tego strumienia: komputer nie odpowiedział na zmianę.</string>
     <string name="title_rate_change_bitrate">Obniżaj szybkość transmisji przy utracie klatek</string>
     <string name="summary_short_rate_change_bitrate">Wył.: obowiązuje „Obniżaj szybkość transmisji przy obciążonej sieci”. Wł.: to urządzenie dostosowuje ją na podstawie utraty klatek i opóźnienia sieci.</string>
-    <string name="summary_rate_change_bitrate">Obniża szybkość transmisji, gdy tylko giną klatki.</string>
+    <string name="summary_rate_change_bitrate">Obniża szybkość transmisji, gdy tylko giną klatki, i podnosi ją po kilku sekundach bez strat, zamiast opcji „Obniżaj szybkość transmisji przy obciążonej sieci”. Wymaga obsługi przez komputer.</string>
 </resources>

@@ -66,7 +66,7 @@
 
     <!-- Bitrate on mobile data (Settings → Video) -->
     <string name="title_mobile_bitrate">移动数据码率</string>
-    <string name="summary_mobile_bitrate">串流在移动数据或按流量计费的网络上使用的最高码率。</string>
+    <string name="summary_mobile_bitrate">串流在移动数据或按流量计费的网络（例如手机热点）上使用的最高码率：更省流量，画面会模糊一些。“关闭”表示在所有网络上使用相同的码率。</string>
     <string name="mobile_bitrate_off">关闭</string>
 
     <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->

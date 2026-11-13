@@ -27,5 +27,5 @@
     <string name="stream_rate_change_auto_no_answer">Зниження бітрейту при втраті кадрів зупинено для цієї трансляції: ПК не відповів на зміну.</string>
     <string name="title_rate_change_bitrate">Знижувати бітрейт у разі втрати кадрів</string>
     <string name="summary_short_rate_change_bitrate">Вимкнено: діє «Знижувати бітрейт, коли мережа завантажена». Увімкнено: цей пристрій підлаштовується за втратами кадрів і затримкою мережі.</string>
-    <string name="summary_rate_change_bitrate">Знижує бітрейт, щойно починають зникати кадри.</string>
+    <string name="summary_rate_change_bitrate">Знижує бітрейт, щойно починають зникати кадри, і підвищує його після кількох секунд без втрат — замість «Знижувати бітрейт, коли мережа завантажена». Потрібна підтримка ПК.</string>
 </resources>

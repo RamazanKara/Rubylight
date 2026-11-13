@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_mute_audio">Вимкнути звук</string>
-    <string name="summary_checkbox_mute_audio">Звук трансляції на цьому пристрої не відтворюється.</string>
+    <string name="summary_checkbox_mute_audio">Звук трансляції на цьому пристрої не відтворюється, наприклад поки він лунає з колонок ПК. Мікрофон і «Відтворювати звук і на ПК» працюють далі.</string>
 </resources>

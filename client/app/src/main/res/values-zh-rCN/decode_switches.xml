@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_submit_hint">加快帧交付</string>
-    <string name="summary_submit_hint">性能提示也覆盖向解码器送入数据的线程。</string>
+    <string name="summary_submit_hint">用于对比。性能提示也覆盖向解码器送入数据的线程；在我们的设备上测得并不更快。请保持关闭。</string>
     <string name="title_covering_decoder_size">为折叠准备解码器</string>
-    <string name="summary_covering_decoder_size">按另一块屏幕设定解码器尺寸，折叠时无需重启。</string>
+    <string name="summary_covering_decoder_size">适用于折叠屏设备：预先按较大的屏幕设定解码器尺寸，这样第一次折叠或旋转时无需重启解码器。如果视频停止或出现错误，请重新关闭。</string>
     <string name="title_pyrowave_preacquire">PyroWave 提前获取屏幕图像</string>
-    <string name="summary_pyrowave_preacquire">在每个 PyroWave 帧到达前先获取下一张屏幕图像。</string>
+    <string name="summary_pyrowave_preacquire">用于对比。在每个 PyroWave 帧到达前先获取下一张屏幕图像；在我们的设备上测得并不更快。请保持关闭。</string>
     <string name="title_codec_direct">视频数据直达解码器</string>
-    <string name="summary_codec_direct">每帧只复制一次到解码器。</string>
+    <string name="summary_codec_direct">用于排查问题。帧直接送入解码器，省去一次复制；请保持开启，仅在此设备上视频停止或出现错误时关闭。</string>
     <string name="title_receive_decode_priority">接收使用解码器优先级</string>
-    <string name="summary_receive_decode_priority">接收视频的线程以解码器的优先级运行。</string>
+    <string name="summary_receive_decode_priority">用于对比。接收视频的线程以解码器的优先级运行；在我们的设备上，高负载时测得更慢。请保持关闭。</string>
 </resources>

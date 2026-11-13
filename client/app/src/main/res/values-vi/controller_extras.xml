@@ -2,20 +2,20 @@
 <resources>
     <!-- Controller and keyboard options -->
     <string name="title_checkbox_disable_rumble">Tắt rung</string>
-    <string name="summary_checkbox_disable_rumble">Dừng mọi rung, rung cò và phản hồi xúc giác.</string>
+    <string name="summary_checkbox_disable_rumble">Dừng mọi rung động mà trò chơi yêu cầu: rung, rung cò và phản hồi xúc giác. Nên để tắt, trừ khi bạn không muốn rung chút nào.</string>
     <string name="title_checkbox_mouse_emulation_fixed_step">Chuột tay cầm chính xác</string>
-    <string name="summary_checkbox_mouse_emulation_fixed_step">Di chuyển con trỏ theo bước pixel cố định khi giữ X.</string>
+    <string name="summary_checkbox_mouse_emulation_fixed_step">Trong chế độ chuột bằng tay cầm, giữ X sẽ di chuyển con trỏ theo bước pixel cố định, dành cho các mục tiêu nhỏ. Y nhân đôi bước, từ 1 đến 128 pixel.</string>
     <string name="stream_mouse_step">Bước chuột: %1$d px</string>
     <string name="title_checkbox_capture_system_keys">Gửi phím hệ thống</string>
-    <string name="summary_checkbox_capture_system_keys">Alt+Tab, phím Windows và các phím tương tự được gửi tới PC.</string>
+    <string name="summary_checkbox_capture_system_keys">Alt+Tab, phím Windows và các phím tương tự được gửi đến PC thay vì thiết bị này, ở nơi Android cho phép. Tắt để giữ các phím tắt đó cho thiết bị này.</string>
     <string name="title_checkbox_system_keys_fullscreen_only">Chỉ gửi phím hệ thống khi toàn màn hình</string>
-    <string name="summary_checkbox_system_keys_fullscreen_only">Ở chế độ cửa sổ, các phím hệ thống ở lại thiết bị này.</string>
+    <string name="summary_checkbox_system_keys_fullscreen_only">Ở chế độ cửa sổ, Alt+Tab, phím Windows và các phím tương tự ở lại thiết bị này; khi toàn màn hình, chúng được gửi đến PC. Bật để chuyển ứng dụng bên cạnh một stream dạng cửa sổ.</string>
     <string name="title_checkbox_back_as_meta">Phím Quay lại trên bàn phím gửi phím Windows</string>
-    <string name="summary_checkbox_back_as_meta">Phím Quay lại của bàn phím vật lý gửi phím Windows.</string>
+    <string name="summary_checkbox_back_as_meta">Phím Quay lại của bàn phím vật lý gửi phím Windows đến PC thay vì Quay lại hoặc Esc. Cử chỉ Quay lại của Android và phím tắt menu stream vẫn mở menu stream.</string>
     <string name="title_checkbox_right_alt_as_meta">Alt phải làm phím Windows</string>
-    <string name="summary_checkbox_right_alt_as_meta">Alt phải gửi phím Windows, phím mà Mac dùng làm Command.</string>
+    <string name="summary_checkbox_right_alt_as_meta">Alt phải gửi phím Windows, phím mà Mac dùng làm Command. Nên để tắt nếu bạn gõ ký tự bằng AltGr: khi bật, Alt phải không còn hoạt động như AltGr.</string>
     <string name="title_checkbox_keyboard_follows_text_fields">Bàn phím theo trường văn bản</string>
-    <string name="summary_checkbox_keyboard_follows_text_fields">Bàn phím ảo mở ra khi một trường văn bản trên PC được chọn.</string>
+    <string name="summary_checkbox_keyboard_follows_text_fields">Mở bàn phím ảo khi bạn chọn một trường văn bản trên PC và đóng lại sau đó. Cần PC có báo trường văn bản; tắt để tự mở bàn phím.</string>
 
     <!-- Controller test page -->
     <string name="controller_test_title">Kiểm tra tay cầm</string>
@@ -57,6 +57,6 @@
 
     <!-- USB Switch Pro driver -->
     <string name="title_usb_switch_pro">Driver Switch Pro qua USB</string>
-    <string name="summary_usb_switch_pro">Đọc Switch Pro Controller có dây, kèm chuyển động, rung, Home và Capture.</string>
+    <string name="summary_usb_switch_pro">Nightjar tự đọc Switch Pro Controller có dây, nên con quay hồi chuyển, rung, Home và Capture đều hoạt động. Android hỏi quyền truy cập USB khi stream; Bluetooth và Joy-Con vẫn dùng đầu vào của Android.</string>
     <string name="usb_switch_pro_denied">Không có quyền truy cập USB; Switch Pro Controller vẫn dùng đầu vào của Android.\nHãy cắm lại cáp để thử lại.</string>
 </resources>

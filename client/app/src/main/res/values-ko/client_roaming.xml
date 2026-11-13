@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_client_roaming">네트워크가 바뀌어도 스트리밍 유지</string>
-    <string name="summary_client_roaming">이 기기가 네트워크를 바꿔도 스트림이 계속됩니다.</string>
+    <string name="summary_client_roaming">이 기기가 네트워크를 바꾸면 스트림이 이전 주소를 기다리지 않고 새 주소로 옮겨 갑니다. 켜 두세요. PC 지원이 필요합니다.</string>
     <string name="title_roaming_metered">모바일 데이터로 계속</string>
-    <string name="summary_roaming_metered">스트림이 모바일 데이터나 다른 데이터 사용량 제한 네트워크로 옮겨 갈 수 있게 합니다.</string>
+    <string name="summary_roaming_metered">실행 중인 스트림이 모바일 데이터나 다른 데이터 사용량 제한 네트워크로 옮겨 갈 수 있게 합니다. 스트리밍은 데이터를 많이 씁니다. 그래도 괜찮은 경우가 아니면 꺼 두세요.</string>
 </resources>

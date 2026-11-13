@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_usb_forwarding">轉送 USB 裝置</string>
-    <string name="summary_usb_forwarding">插在這部裝置上的 USB 裝置可從串流選單連接到電腦。</string>
+    <string name="summary_usb_forwarding">可從串流選單將插在此裝置上的 USB 裝置（例如繪圖板或安全金鑰）交給電腦使用。需要電腦提供 USB 轉送。</string>
     <string name="stream_usb_devices">USB 裝置</string>
     <string name="usb_forwarding_pick_title">轉送 USB 裝置</string>
     <string name="usb_forwarding_auto_button">自動</string>

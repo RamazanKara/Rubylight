@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_stream_orientation">Orientation</string>
-    <string name="summary_stream_orientation">Paysage, portrait ou rotation avec l’appareil.</string>
+    <string name="summary_stream_orientation">Le sens dans lequel le stream peut pivoter. « Automatique » garde les téléphones en paysage et laisse pivoter les tablettes ; « Paysage » et « Portrait » le verrouillent ; « Pivoter avec l’appareil » suit l’appareil.</string>
     <string-array name="stream_orientation_names">
         <item>Automatique</item>
         <item>Paysage</item>

@@ -27,5 +27,5 @@
     <string name="stream_rate_change_auto_no_answer">A taxa de bits baseada em perdas parou nesta transmissão: o PC não respondeu a uma alteração.</string>
     <string name="title_rate_change_bitrate">Reduzir a taxa de bits ao perder quadros</string>
     <string name="summary_short_rate_change_bitrate">Desativado: vale “Reduzir a taxa de bits quando a rede estiver congestionada”. Ativado: este dispositivo se ajusta pela perda de quadros e pelo atraso da rede.</string>
-    <string name="summary_rate_change_bitrate">Reduz a taxa de bits assim que há perda de quadros.</string>
+    <string name="summary_rate_change_bitrate">Reduz a taxa de bits assim que há perda de quadros e a aumenta de novo após alguns segundos sem perdas, no lugar de “Reduzir a taxa de bits quando a rede estiver congestionada”. Requer suporte do PC.</string>
 </resources>

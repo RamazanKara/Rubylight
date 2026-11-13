@@ -3,13 +3,13 @@
      opens, group names, row hints and notices. -->
 <resources>
     <string name="title_sharp_color">Texte en couleur plus net</string>
-    <string name="summary_sharp_color">Détail complet des couleurs : le texte en couleur et les traits fins restent nets.</string>
+    <string name="summary_sharp_color">Tout le détail des couleurs (4:4:4), pour que le texte en couleur et les traits fins restent nets. Activez-le s’ils paraissent flous ; demande plus de puissance de décodage, et un PC et un appareil compatibles.</string>
     <string-array name="sharp_color_names">
         <item>Désactivé</item>
         <item>Activé</item>
     </string-array>
     <string name="title_controllers">Manettes</string>
-    <string name="summary_controllers">Désactivé, toutes les manettes comme un seul joueur, ou un joueur par manette.</string>
+    <string name="summary_controllers">« Un joueur par manette » fait de chaque manette un joueur à part et convient à presque tout le monde. « Un seul joueur » fait de chaque manette le joueur 1 ; « Désactivé » n’envoie aucune manette au PC.</string>
     <string-array name="controllers_names">
         <item>Désactivé</item>
         <item>Un seul joueur</item>
@@ -25,8 +25,8 @@
         <item>Reprendre mon dernier jeu</item>
         <item>Un jeu choisi</item>
     </string-array>
-    <string name="summary_host_display_location">Comment le PC place l’écran du stream à côté de ses propres écrans.</string>
-    <string name="summary_pace_calibration_row">Trouve le rythme le plus rapide auquel les images PyroWave d’un PC arrivent complètes.</string>
+    <string name="summary_host_display_location">Comment le PC place l’écran virtuel du stream à côté de ses propres écrans. Le choix « Exclusif » éteint les écrans du PC pendant le stream ; ils se rallument à la fin. Nécessite un PC compatible.</string>
+    <string name="summary_pace_calibration_row">Trouve et enregistre le rythme le plus rapide auquel les images PyroWave d’un PC arrivent entières, pour les liaisons qui perdent la fin des images, comme une station d’accueil USB Ethernet. Prend une à trois minutes.</string>
     <string name="summary_network_tests">Mesure le ping, la gigue et les pertes, ainsi que la vitesse de téléchargement si le PC le permet.</string>
     <string name="settings_category_touch_mouse">Tactile et souris</string>
     <string name="settings_category_connection">Connexion</string>
@@ -34,16 +34,16 @@
     <string name="sharp_color_unavailable_device">Le texte en couleur plus net n’est pas disponible sur cet appareil.</string>
     <string name="sharp_color_stopped">Le texte en couleur plus net s’est arrêté. Reconnexion sans cette option.</string>
     <string name="sharp_color_hdr_dropped">Ce stream est en SDR : le HDR n’est pas disponible avec le texte en couleur plus net sur ce PC.</string>
-    <string name="hint_show_onscreen_controls">Une manette tactile au-dessus du stream.</string>
-    <string name="hint_mouse_speed">La vitesse de déplacement du pointeur.</string>
+    <string name="hint_show_onscreen_controls">Une manette tactile dessinée au-dessus du stream, pour jouer sans manette physique. Elle couvre une partie de l’image ; baissez « Opacité » pour voir davantage le jeu.</string>
+    <string name="hint_mouse_speed">La vitesse à laquelle une souris physique déplace le pointeur du PC. Les modes tactiles ont leurs propres réglages de vitesse.</string>
     <string name="hint_trackpad_speed">La vitesse du pointeur dans le mode tactile Pavé tactile.</string>
-    <string name="hint_local_cursor_speed">La vitesse du pointeur dans le mode tactile Curseur local.</string>
+    <string name="hint_local_cursor_speed">La vitesse du pointeur dans le mode tactile « Curseur local ». À la valeur par défaut, le pointeur parcourt la même distance que votre doigt.</string>
     <string name="hint_trackpad_acceleration_curve">La distance supplémentaire parcourue par les balayages rapides.</string>
     <string name="hint_trackpad_momentum_glide">Jusqu’où le pointeur continue de glisser.</string>
-    <string name="hint_pc_keyboard_size">La taille du clavier PC à l’écran.</string>
-    <string name="hint_pc_keyboard_opacity">La transparence du clavier PC à l’écran.</string>
-    <string name="hint_vibrate_osc">L’appareil vibre à chaque appui sur un bouton à l’écran.</string>
-    <string name="hint_show_guide_button">Ajoute un bouton Guide aux commandes à l’écran.</string>
+    <string name="hint_pc_keyboard_size">La part de la hauteur de l’écran qu’occupe le clavier PC à l’écran. Plus grand, les touches sont plus grosses ; plus petit, le stream reste plus visible.</string>
+    <string name="hint_pc_keyboard_opacity">La transparence du clavier PC à l’écran. Une valeur plus basse laisse mieux voir le stream derrière.</string>
+    <string name="hint_vibrate_osc">Vibre quand vous appuyez sur les commandes à l’écran (sauf les boutons de la manette « Classic »), si le retour tactile du système est activé, et pour les vibrations d’un jeu quand aucune manette physique ne les prend.</string>
+    <string name="hint_show_guide_button">Ajoute un bouton Guide (Home ou PS) aux commandes à l’écran.</string>
     <string name="hint_host_audio">Le son reste aussi sur les haut-parleurs du PC pendant le streaming.</string>
     <string name="hint_overlay_position">Le coin où se place la superposition des performances.</string>
     <string name="summary_reset_all">Rétablit tous les paramètres par défaut ; les PC, jeux, profils et la langue sont conservés.</string>

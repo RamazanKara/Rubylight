@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_fec_choice">오류 정정</string>
-    <string name="summary_fec_choice">PC가 추가하는 복구 데이터로, 패킷이 손실되어도 화면이 깨지지 않게 합니다.</string>
+    <string name="summary_fec_choice">FEC: 손실된 패킷을 복구하기 위해 PC가 추가하는 데이터로, 그만큼 영상 비트레이트에서 빠집니다. ‘PC 설정’으로 두세요. 화면이 자주 깨지면 ‘자동’을 사용해 보세요.</string>
     <string name="fec_choice_host">PC 설정</string>
     <string name="fec_choice_auto">자동</string>
     <string name="title_link_probe">시작 전에 연결 테스트</string>
-    <string name="summary_link_probe">자동 비트레이트의 새 스트림은 먼저 연결을 측정하고, 측정값보다 높게 시작하지 않습니다.</string>
+    <string name="summary_link_probe">자동 비트레이트의 새 스트림은 먼저 연결을 측정하고, 측정값보다 높게 시작하지 않습니다. 꺼 두세요. 저희 측정에서는 켰을 때 스트림이 더 낮은 비트레이트로 시작했고 손실과 멈춤이 더 많았습니다.</string>
 </resources>

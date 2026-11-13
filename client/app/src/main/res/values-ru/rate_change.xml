@@ -27,5 +27,5 @@
     <string name="stream_rate_change_auto_no_answer">Снижение битрейта при потере кадров остановлено для этой трансляции: ПК не ответил на изменение.</string>
     <string name="title_rate_change_bitrate">Снижать битрейт при потере кадров</string>
     <string name="summary_short_rate_change_bitrate">Выкл.: действует «Снижать битрейт при загруженной сети». Вкл.: это устройство подстраивается по потерям кадров и задержке сети.</string>
-    <string name="summary_rate_change_bitrate">Снижает битрейт, как только начинают пропадать кадры.</string>
+    <string name="summary_rate_change_bitrate">Снижает битрейт, как только начинают пропадать кадры, и повышает его после нескольких секунд без потерь — вместо «Снижать битрейт при загруженной сети». Нужна поддержка ПК.</string>
 </resources>

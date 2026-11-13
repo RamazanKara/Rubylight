@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_client_roaming">ネットワークが変わってもストリーミングを継続</string>
-    <string name="summary_client_roaming">このデバイスがネットワークを切り替えてもストリームが続きます。</string>
+    <string name="summary_client_roaming">このデバイスがネットワークを切り替えると、ストリームは元のアドレスを待たずに新しいアドレスへ移ります。オンのままにしてください。PC の対応が必要です。</string>
     <string name="title_roaming_metered">モバイルデータで続行</string>
-    <string name="summary_roaming_metered">ストリームをモバイルデータや他の従量制ネットワークに移行できるようにします。</string>
+    <string name="summary_roaming_metered">実行中のストリームがモバイルデータや他の従量制ネットワークに移れるようにします。ストリーミングは大量のデータを使います。それでもよい場合以外は、オフのままにしてください。</string>
 </resources>

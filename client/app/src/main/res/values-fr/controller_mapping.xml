@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="controller_mapping_title">Boutons de la manette</string>
-    <string name="controller_mapping_summary">Réattribue les boutons et les sticks d’un modèle de manette.</string>
+    <string name="controller_mapping_summary">Réattribue les boutons et les sticks d’un modèle de manette et définit le type que voit le PC (Xbox, PlayStation ou Nintendo), pour les jeux qui affichent les mauvais boutons.</string>
     <string name="controller_mapping_intro">Appuyez sur « Attribuer un bouton », puis sur le bouton de la manette à réattribuer.\nLes modifications s’appliquent au prochain stream.</string>
     <string name="controller_mapping_waiting">Connectez une manette, puis appuyez sur « Attribuer un bouton ».</string>
     <string name="controller_mapping_unnamed">Manette</string>

@@ -73,7 +73,7 @@
     <string name="reduce_motion_full">Completo</string>
     <!-- tv-mode-toggle -->
     <string name="title_ui_mode">Layout dell’interfaccia</string>
-    <string name="summary_ui_mode">Il layout TV o portatile, oppure quello del dispositivo.</string>
+    <string name="summary_ui_mode">Automatico segue il dispositivo. Scegli TV per un telefono o una console portatile collegati a una TV: righe più grandi, pensate per telecomando o controller. Portatile dà il layout touch.</string>
     <string name="ui_mode_auto">Automatico</string>
     <string name="ui_mode_tv">TV</string>
     <string name="ui_mode_handheld">Portatile</string>

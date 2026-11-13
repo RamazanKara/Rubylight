@@ -2,15 +2,15 @@
 <!-- The modern on-screen controller and its layout editor. -->
 <resources>
     <string name="title_list_osc_style">Controller style</string>
-    <string name="summary_list_osc_style">Classic, or Modern with sticks that follow the thumb and a layout editor.</string>
+    <string name="summary_list_osc_style">Modern has sticks that follow your thumb and face buttons you can press two at a time. Classic keeps the original layout; both send the same gamepad to the PC.</string>
     <string name="osc_style_classic">Classic</string>
     <string name="osc_style_modern">Modern</string>
     <string name="title_list_osc_stick_mode">Modern controller sticks</string>
-    <string name="summary_list_osc_stick_mode">Floating sticks center where the thumb lands; Fixed sticks stay put.</string>
+    <string name="summary_list_osc_stick_mode">Floating centers a stick where your thumb lands, so you need not hit it exactly. Pick Fixed if you prefer to aim at the drawn stick.</string>
     <string name="osc_stick_floating">Floating</string>
     <string name="osc_stick_fixed">Fixed</string>
     <string name="title_seekbar_osc_stick_deadzone">Modern controller stick deadzone</string>
-    <string name="summary_seekbar_osc_stick_deadzone">How far a thumb moves before a stick answers.</string>
+    <string name="summary_seekbar_osc_stick_deadzone">How far a thumb moves before a stick answers. Raise it if a resting thumb drifts the camera or character; lower it for finer aim.</string>
     <string name="pad_edit_title">Edit controller layout</string>
     <string name="pad_edit_all">All controls</string>
     <string name="pad_edit_hidden">%1$s (hidden)</string>

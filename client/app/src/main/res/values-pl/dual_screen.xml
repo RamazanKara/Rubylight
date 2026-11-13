@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_checkbox_dual_screen">Tryb dwóch ekranów</string>
-    <string name="summary_checkbox_dual_screen">Drugi strumień tej samej gry na drugim ekranie.</string>
+    <string name="summary_checkbox_dual_screen">Strumieniuje tę samą grę także na drugi ekran, w osobnym strumieniu; dźwięk i kontrolery zostają przy pierwszym. Wymaga drugiego ekranu i obsługi przez komputer.</string>
     <string name="title_resolution_screen2">Rozdzielczość drugiego ekranu</string>
     <string name="summary_resolution_screen2">Rozdzielczość strumienia drugiego ekranu.</string>
     <string name="resolution_screen2_native">Własny rozmiar drugiego ekranu</string>

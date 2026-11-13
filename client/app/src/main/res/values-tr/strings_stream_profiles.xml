@@ -67,7 +67,7 @@
 
     <!-- Bitrate on mobile data (Settings → Video) -->
     <string name="title_mobile_bitrate">Mobil veride bit hızı</string>
-    <string name="summary_mobile_bitrate">Bir yayının mobil veride veya sınırlı bir ağda kullandığı en yüksek bit hızı.</string>
+    <string name="summary_mobile_bitrate">Yayının mobil veride veya telefon hotspot’u gibi sınırlı bir ağda kullandığı en yüksek bit hızı: daha az veri, daha yumuşak görüntü. “Kapalı”, her ağda aynı bit hızını kullanır.</string>
     <string name="mobile_bitrate_off">Kapalı</string>
 
     <!-- Stream values of a profile or a game (the PC settings screen in another mode) -->

@@ -143,6 +143,7 @@ pub mod usbip;
 /// USB forwarding's control message (0x553A) and the USB/IP framing its tunnel carries.
 pub use rubylight_protocol::{usb as usb_forward, usbip as usbip_wire};
 pub mod version;
+pub mod virtual_hid;
 pub mod virtual_output;
 pub mod wake;
 /// The QR pairing link (`rubylight://pair?...`) the console shows.

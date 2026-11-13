@@ -162,6 +162,8 @@ pub const GLOBAL: &[Setting] = settings! {
         "mouse", "Mouse input", Bool;
         "controller", "Controller input", Bool;
         "native_pen_touch", "Native pen and touch", Bool;
+        "mouse_mode", "Mouse input method (auto: the virtual mouse when the USB/IP driver is installed)", Choice(&["auto","virtual_mouse","injection"]);
+        "native_touchpad", "Touchpad gestures from devices", Bool;
         "gamepad", "Controller profile (auto: DualSense for PlayStation-type or motion/touchpad, Switch 2 Pro over USB/IP for a Switch 2 Pro Controller, Switch Pro for other Nintendo, Xbox Series otherwise)", Choice(&["auto","vhf_xbox","vhf_xbox_one","vhf_ds4","vhf_ds5","usbip_ds5","usbip_switch2","vhf_switch","vhf_steam","vigem_x360"]);
         "keybindings", "Keyboard remapping pairs", Json;
         "always_send_scancodes", "Send keyboard scan codes", Bool;

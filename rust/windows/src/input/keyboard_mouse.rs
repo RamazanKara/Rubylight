@@ -5,7 +5,7 @@ use super::*;
 impl Injector {
     /// Inject input now.
     fn send(&self, inputs: &[INPUT]) -> Result<()> {
-        if (self.inject)(inputs) < inputs.len() {
+        if self.deliver(inputs) < inputs.len() {
             bail!(
                 "Windows input injection failed: {}",
                 std::io::Error::last_os_error()
@@ -21,7 +21,7 @@ impl Injector {
         }
         let (sent, refused) = {
             let _order = SEND_ORDER.lock().unwrap();
-            let sent = (self.inject)(&self.pending.inputs);
+            let sent = self.deliver(&self.pending.inputs);
             let refused = (sent < self.pending.inputs.len())
                 .then(|| std::io::Error::last_os_error().to_string());
             (sent, refused)

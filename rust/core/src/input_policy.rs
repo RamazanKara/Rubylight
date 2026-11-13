@@ -148,12 +148,52 @@ pub fn gamepad_profile(value: &str) -> u16 {
     }
 }
 
+/// `mouse_mode`: how the host moves the PC's mouse and presses its buttons.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MouseMode {
+    /// The virtual USB mouse while it is plugged in, Windows' injected input otherwise:
+    /// Foundation Sunshine's default ("use the driver if available").
+    Auto,
+    /// The virtual USB mouse; until it is plugged in, and where it cannot be, injected input,
+    /// with a warning.
+    VirtualMouse,
+    /// Windows' injected input (SendInput) only.
+    Injection,
+}
+impl MouseMode {
+    /// The setting's value; Foundation Sunshine's `vmouse` and `sendinput` names are read too.
+    pub fn parse(value: &str) -> Option<Self> {
+        Some(match value.trim().to_ascii_lowercase().as_str() {
+            "auto" | "" => Self::Auto,
+            "virtual_mouse" | "vmouse" | "virtual" => Self::VirtualMouse,
+            "injection" | "sendinput" | "send_input" => Self::Injection,
+            _ => return None,
+        })
+    }
+    pub fn resolve(config: &Config) -> Self {
+        let value = config.get("mouse_mode", "auto");
+        Self::parse(value).unwrap_or_else(|| {
+            crate::config::invalid("mouse_mode", value);
+            Self::Auto
+        })
+    }
+    /// Whether the virtual mouse is wanted at all.
+    pub fn wants_virtual(self) -> bool {
+        self != Self::Injection
+    }
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct Policy {
     pub keyboard: bool,
     pub mouse: bool,
     pub controller: bool,
     pub native_pen_touch: bool,
+    /// `mouse_mode`: the virtual USB mouse or injected input.
+    pub mouse_mode: MouseMode,
+    /// `native_touchpad`: a tablet's physical touchpad replays on the virtual Precision
+    /// Touchpad.
+    pub native_touchpad: bool,
     /// The device's touch profile: native touches as sent, or as a mouse or trackpad.
     pub touch: crate::touch_profile::Settings,
     pub always_send_scancodes: bool,
@@ -226,6 +266,8 @@ impl Policy {
             mouse: config.boolean("mouse", true),
             controller: config.boolean("controller", true),
             native_pen_touch: config.boolean("native_pen_touch", true),
+            mouse_mode: MouseMode::resolve(config),
+            native_touchpad: config.boolean("native_touchpad", true),
             touch: crate::touch_profile::Settings::resolve(config),
             always_send_scancodes: config.boolean("always_send_scancodes", true),
             high_resolution_scrolling: config.boolean("high_resolution_scrolling", true),
@@ -295,6 +337,7 @@ impl Policy {
             | Input::MouseButton { .. }
             | Input::Scroll { .. } => self.mouse,
             Input::Pen { .. } | Input::Touch { .. } => self.mouse && self.native_pen_touch,
+            Input::Touchpad { .. } => self.mouse && self.native_touchpad,
             _ => self.controller,
         }
     }
@@ -758,5 +801,55 @@ mod tests {
         }));
         assert_eq!(p.key(0xa5), 0xa6);
         assert_eq!(p.key(0x11), 0xa2);
+    }
+
+    #[test]
+    fn mouse_mode_defaults_to_auto_and_reads_foundations_names() {
+        assert_eq!(
+            Policy::resolve(&Config::default()).unwrap().mouse_mode,
+            MouseMode::Auto
+        );
+        for (value, mode) in [
+            ("auto", MouseMode::Auto),
+            ("virtual_mouse", MouseMode::VirtualMouse),
+            ("vmouse", MouseMode::VirtualMouse),
+            ("injection", MouseMode::Injection),
+            ("SendInput", MouseMode::Injection),
+            ("nonsense", MouseMode::Auto),
+        ] {
+            let config = Config::parse(&format!(
+                "mouse_mode = {value}
+"
+            ))
+            .unwrap();
+            assert_eq!(MouseMode::resolve(&config), mode, "{value}");
+        }
+        assert!(MouseMode::Auto.wants_virtual());
+        assert!(!MouseMode::Injection.wants_virtual());
+    }
+
+    #[test]
+    fn touchpad_packets_need_the_mouse_and_native_touchpad() {
+        let touchpad = Input::Touchpad {
+            frame: true,
+            buttons: 0,
+            width_mm: 0,
+            height_mm: 0,
+            contacts: vec![],
+        };
+        assert!(
+            Policy::resolve(&Config::default())
+                .unwrap()
+                .allows(&touchpad)
+        );
+        for text in [
+            "native_touchpad = false
+",
+            "mouse = false
+",
+        ] {
+            let policy = Policy::resolve(&Config::parse(text).unwrap()).unwrap();
+            assert!(!policy.allows(&touchpad), "{text}");
+        }
     }
 }

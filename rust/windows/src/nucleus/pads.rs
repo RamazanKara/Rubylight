@@ -434,7 +434,8 @@ pub fn route(event: Input, slot: usize, players: usize) -> Result<Input, Dropped
         | Input::Keyboard { .. }
         | Input::Text(_)
         | Input::Touch { .. }
-        | Input::Pen { .. } => Err(Dropped::KeyboardMouse),
+        | Input::Pen { .. }
+        | Input::Touchpad { .. } => Err(Dropped::KeyboardMouse),
         _ => Err(Dropped::Ignored),
     }
 }

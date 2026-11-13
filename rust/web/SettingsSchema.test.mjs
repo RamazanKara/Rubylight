@@ -901,3 +901,18 @@ test('Frame Warp is a live Frame pacing switch, on by default, without an Experi
   assert.equal(pending.some(candidate => candidate.key === 'frame_warp'), false);
   assert.doesNotMatch(`${setting.label} ${setting.description} ${setting.details ?? ''}`, /Experimental/);
 });
+
+test('the mouse input method and device touchpads sit with the mouse, on Automatic and on', () => {
+  const method = settings.get('mouse_mode');
+  assert.deepEqual([method.category, method.group, method.default], ['input', 'Mouse, pen and touch', 'auto']);
+  assert.deepEqual(method.control.options.map(option => option.value), ['auto', 'virtual_mouse', 'injection']);
+  // input_policy.rs MouseMode::parse reads Foundation Sunshine's spellings.
+  assert.deepEqual(method.aliases.spellings, { vmouse: 'virtual_mouse', sendinput: 'injection' });
+  const touchpad = settings.get('native_touchpad');
+  assert.deepEqual([touchpad.category, touchpad.group, touchpad.default], ['input', 'Mouse, pen and touch', true]);
+  for (const setting of [method, touchpad]) {
+    assert.doesNotMatch(`${setting.label} ${setting.description}`, /Experimental|beta|preview/i, setting.key);
+    assert.equal(setting.visibleWhen({ mouse: false }), false, setting.key);
+    assert.equal(setting.visibleWhen({}), true, setting.key);
+  }
+});

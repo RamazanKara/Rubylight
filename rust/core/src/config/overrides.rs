@@ -26,6 +26,8 @@ pub fn override_allowed(key: &str) -> bool {
         "high_resolution_scrolling",
         "absolute_left_release_delay",
         "native_pen_touch",
+        "mouse_mode",
+        "native_touchpad",
         "keybindings",
         "couch_menu",
         "couch_menu_open_with",

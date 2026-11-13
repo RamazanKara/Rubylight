@@ -1032,6 +1032,41 @@ const input: Setting[] = [
     visibleWhen: mouseOn,
   },
   {
+    key: 'mouse_mode',
+    label: 'Mouse input method',
+    description:
+      'How this PC moves its mouse for a device. Virtual mouse plugs in a USB mouse that games read like a real one; injection uses Windows input, which some games and anti-cheat ignore. Automatic uses the virtual mouse when the USB audio and haptics driver is installed.',
+    details:
+      'The virtual mouse needs usbip-win2, the driver the setup installs with USB audio and haptics. Without it, Virtual mouse uses injection and the stream says why. A game or device can choose its own method under Games or Devices.',
+    category: 'input',
+    group: 'Mouse, pen and touch',
+    control: {
+      kind: 'select',
+      options: [
+        { value: 'auto', label: 'Automatic' },
+        { value: 'virtual_mouse', label: 'Virtual mouse' },
+        { value: 'injection', label: 'Injection' },
+      ],
+    },
+    // input_policy.rs MouseMode::parse: Foundation Sunshine's names.
+    aliases: { spellings: { vmouse: 'virtual_mouse', sendinput: 'injection' } },
+    default: 'auto',
+    inactiveHint: "Turn on Mouse under Input to use this setting. Paired devices also need the Mouse permission.",
+    visibleWhen: mouseOn,
+  },
+  {
+    key: 'native_touchpad',
+    label: 'Touchpad gestures from devices',
+    description:
+      "Replay a device's physical touchpad on a virtual Windows precision touchpad, so Windows' scrolling and gestures work. Off, or without the USB audio and haptics driver, the device's touchpad moves the mouse.",
+    category: 'input',
+    group: 'Mouse, pen and touch',
+    control: { kind: 'toggle' },
+    default: true,
+    inactiveHint: "Turn on Mouse under Input to use this setting. Paired devices also need the Mouse permission.",
+    visibleWhen: mouseOn,
+  },
+  {
     key: 'gamepad',
     label: 'Controller type',
     description:

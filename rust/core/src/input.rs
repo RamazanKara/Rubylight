@@ -90,6 +90,17 @@ pub enum Input {
         percent: u8,
     },
     Haptics(bool),
+    /// A tablet's physical touchpad: one finger (0x55000009, `frame` false) or every finger
+    /// of a hardware frame (0x5500000A), Moonlight V+'s and Foundation Sunshine's touchpad
+    /// packets. `buttons` bit 0 is the click; the size is the client's surface in millimetres,
+    /// 0 when unknown. The host replays it on the virtual Precision Touchpad.
+    Touchpad {
+        frame: bool,
+        buttons: u8,
+        width_mm: u16,
+        height_mm: u16,
+        contacts: Vec<crate::virtual_hid::Contact>,
+    },
     /// The real Steam Controller's firmware attributes (0x55000008), sent
     /// after its arrival, for the VHF Steam Controller profile.
     SteamAttributes(SteamAttributes),
@@ -153,6 +164,10 @@ fn float(b: &[u8], n: usize) -> Result<f32> {
     }
     Ok(f)
 }
+/// Moonlight V+'s and Foundation Sunshine's one-finger touchpad packet.
+pub const TOUCHPAD_MAGIC: u32 = 0x5500_0009;
+/// Their touchpad frame packet: up to five fingers of one hardware frame.
+pub const TOUCHPAD_FRAME_MAGIC: u32 = 0x5500_000A;
 pub fn decode(b: &[u8]) -> Result<Input> {
     if b.len() < 8 {
         bail!("short input header");
@@ -188,6 +203,8 @@ pub fn decode(b: &[u8]) -> Result<Input> {
         0x55000005 => 28,
         0x55000006 => 24,
         0x55000007 => 12,
+        TOUCHPAD_MAGIC => 40,
+        TOUCHPAD_FRAME_MAGIC => 76,
         _ => bail!("unknown input magic {magic:#x}"),
     };
     if b.len() < need {
@@ -213,6 +230,15 @@ pub fn decode(b: &[u8]) -> Result<Input> {
     }
     if magic == 0x55000007 && (b[9] > 5 || (b[10] > 100 && b[10] != 255)) {
         bail!("invalid battery report");
+    }
+    if magic == TOUCHPAD_MAGIC && b[8] > 7 {
+        bail!("invalid touchpad event");
+    }
+    if magic == TOUCHPAD_FRAME_MAGIC
+        && (usize::from(b[8]) > crate::virtual_hid::MAX_CONTACTS
+            || (0..usize::from(b[8])).any(|n| b[16 + n * 12] > 7))
+    {
+        bail!("invalid touchpad frame");
     }
     Ok(match magic {
         // Moonlight sets 0x8000 on every key code; only the low byte is the VK.
@@ -342,6 +368,39 @@ pub fn decode(b: &[u8]) -> Result<Input> {
             id: b[8],
             state: b[9],
             percent: b[10],
+        },
+        // SS_TOUCHPAD_PACKET: event, buttons, rotation, pointer id, size, then x, y,
+        // pressure and contact area as floats.
+        TOUCHPAD_MAGIC => Input::Touchpad {
+            frame: false,
+            buttons: b[9],
+            width_mm: le16(b, 16),
+            height_mm: le16(b, 18),
+            contacts: vec![crate::virtual_hid::Contact {
+                event: b[8],
+                id: le32(b, 12),
+                x: float(b, 20)?,
+                y: float(b, 24)?,
+            }],
+        },
+        // SS_TOUCHPAD_FRAME_PACKET: count, buttons, rotation, size, then five contacts of
+        // event, reserved, pressure, pointer id, x and y (normalized u16s).
+        TOUCHPAD_FRAME_MAGIC => Input::Touchpad {
+            frame: true,
+            buttons: b[9],
+            width_mm: le16(b, 12),
+            height_mm: le16(b, 14),
+            contacts: (0..usize::from(b[8]))
+                .map(|n| {
+                    let at = 16 + n * 12;
+                    crate::virtual_hid::Contact {
+                        event: b[at],
+                        id: le32(b, at + 4),
+                        x: f32::from(le16(b, at + 8)) / 65535.0,
+                        y: f32::from(le16(b, at + 10)) / 65535.0,
+                    }
+                })
+                .collect(),
         },
         _ => unreachable!(),
     })
@@ -525,6 +584,43 @@ impl Input {
                 *s = n.clone();
                 Batch::Merged
             }
+            (s @ Touchpad { .. }, n @ Touchpad { .. }) => {
+                if let (
+                    Touchpad {
+                        frame,
+                        buttons,
+                        contacts,
+                        ..
+                    },
+                    Touchpad {
+                        frame: nf,
+                        buttons: nb,
+                        contacts: nc,
+                        ..
+                    },
+                ) = (&*s, n)
+                {
+                    // Only moves of the same fingers with the click unchanged coalesce, as in
+                    // Foundation Sunshine; a finger going down or up never does.
+                    let moves = |c: &[crate::virtual_hid::Contact]| {
+                        !c.is_empty() && c.iter().all(|c| c.event == 3)
+                    };
+                    if frame != nf
+                        || buttons != nb
+                        || !moves(contacts.as_slice())
+                        || !moves(nc.as_slice())
+                    {
+                        return Batch::Stop;
+                    }
+                    if contacts.len() != nc.len()
+                        || contacts.iter().zip(nc).any(|(a, b)| a.id != b.id)
+                    {
+                        return Batch::Skip;
+                    }
+                }
+                *s = n.clone();
+                Batch::Merged
+            }
             _ => Batch::Stop,
         }
     }
@@ -536,7 +632,8 @@ impl Input {
             Self::Relative { .. }
             | Self::Absolute { .. }
             | Self::MouseButton { .. }
-            | Self::Scroll { .. } => 1 << 11,
+            | Self::Scroll { .. }
+            | Self::Touchpad { .. } => 1 << 11,
             _ => 1 << 8,
         }
     }
@@ -597,6 +694,90 @@ mod tests {
         let (code, message) = Input::Relative { x: 1, y: 1 }.denied_warning("Tablet");
         assert_eq!(code, "input_permission_mouse");
         assert!(message.contains("Turn on Mouse"));
+    }
+    fn touchpad_frame(count: u8, buttons: u8, contacts: &[(u8, u32, u16, u16)]) -> Vec<u8> {
+        let mut b = vec![0, 0, 0, 72];
+        b.extend_from_slice(&TOUCHPAD_FRAME_MAGIC.to_le_bytes());
+        b.extend_from_slice(&[count, buttons, 0xff, 0xff, 105, 0, 70, 0]);
+        for n in 0..5 {
+            let (event, id, x, y) = contacts.get(n).copied().unwrap_or_default();
+            b.extend_from_slice(&[event, 0, 0, 0x80]);
+            b.extend_from_slice(&id.to_le_bytes());
+            b.extend_from_slice(&x.to_le_bytes());
+            b.extend_from_slice(&y.to_le_bytes());
+        }
+        b
+    }
+    #[test]
+    fn touchpad_packets_decode_as_v_plus_sends_them() {
+        use crate::virtual_hid::Contact;
+        let frame = touchpad_frame(2, 1, &[(1, 7, 0, 65535), (3, 9, 32768, 0)]);
+        assert_eq!(frame.len(), 76);
+        let Input::Touchpad {
+            frame: true,
+            buttons: 1,
+            width_mm: 105,
+            height_mm: 70,
+            contacts,
+        } = decode(&frame).unwrap()
+        else {
+            panic!("a touchpad frame");
+        };
+        assert_eq!(contacts.len(), 2);
+        assert_eq!(
+            contacts[0],
+            Contact {
+                event: 1,
+                id: 7,
+                x: 0.0,
+                y: 1.0
+            }
+        );
+        assert_eq!((contacts[1].event, contacts[1].id), (3, 9));
+        assert!((contacts[1].x - 0.5).abs() < 0.001);
+        // Six contacts, or an unknown event, are refused.
+        assert!(decode(&touchpad_frame(6, 0, &[])).is_err());
+        assert!(decode(&touchpad_frame(1, 0, &[(8, 1, 0, 0)])).is_err());
+        // A contact past the count is ignored whatever it holds.
+        assert!(decode(&touchpad_frame(0, 0, &[(9, 1, 0, 0)])).is_ok());
+
+        let mut single = vec![0, 0, 0, 36];
+        single.extend_from_slice(&TOUCHPAD_MAGIC.to_le_bytes());
+        single.extend_from_slice(&[3, 1, 0xff, 0xff, 4, 3, 2, 1, 105, 0, 70, 0]);
+        for v in [0.25f32, 0.5, 1.0, 0.0, 0.0] {
+            single.extend_from_slice(&v.to_le_bytes());
+        }
+        assert_eq!(
+            decode(&single).unwrap(),
+            Input::Touchpad {
+                frame: false,
+                buttons: 1,
+                width_mm: 105,
+                height_mm: 70,
+                contacts: vec![Contact {
+                    event: 3,
+                    id: 0x0102_0304,
+                    x: 0.25,
+                    y: 0.5
+                }],
+            }
+        );
+        assert_eq!(decode(&single).unwrap().required_permission(), 1 << 11);
+        single[20..24].copy_from_slice(&f32::NAN.to_le_bytes());
+        assert!(decode(&single).is_err());
+    }
+    #[test]
+    fn touchpad_moves_of_the_same_fingers_coalesce_and_nothing_else_does() {
+        let moves = |x: u16| decode(&touchpad_frame(2, 0, &[(3, 1, x, 0), (3, 2, x, 0)])).unwrap();
+        let mut first = moves(1);
+        assert_eq!(first.merge(&moves(2)), Batch::Merged);
+        assert_eq!(first, moves(2));
+        let other = decode(&touchpad_frame(1, 0, &[(3, 5, 0, 0)])).unwrap();
+        assert_eq!(first.merge(&other), Batch::Skip);
+        let lift = decode(&touchpad_frame(1, 0, &[(2, 1, 0, 0)])).unwrap();
+        assert_eq!(first.merge(&lift), Batch::Stop);
+        let click = decode(&touchpad_frame(2, 1, &[(3, 1, 0, 0), (3, 2, 0, 0)])).unwrap();
+        assert_eq!(first.merge(&click), Batch::Stop);
     }
     #[test]
     fn overflow_leaves_both_axes_untouched() {

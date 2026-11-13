@@ -35,6 +35,7 @@ mod switch2_pad;
 mod touch_pen;
 mod usbip_pad;
 mod vigem;
+mod virtual_hid;
 
 pub use desktop::{
     desktop_refused, follow_input_desktop, input_desktop_name, keep_on_input_desktop,
@@ -84,6 +85,16 @@ pub fn capabilities(config: &butterpollo_core::config::Config) -> u32 {
         // (a Steam Deck's right trackpad) is placed on its right half; apply()
         // ignores any other touchpad.
         flags |= 2;
+    }
+    if config.boolean("mouse", true)
+        && config.boolean("native_touchpad", true)
+        && usbip_pad::usbip_exe().is_some()
+    {
+        // A tablet's physical touchpad, as Moonlight V+'s and Foundation Sunshine's packets
+        // carry it: one contact (LI_FF_TOUCHPAD_EVENTS) or a whole frame
+        // (LI_FF_TOUCHPAD_FRAME_EVENTS) each. It replays on the virtual Precision Touchpad,
+        // which needs usbip-win2; without it the client keeps its touchpad a mouse.
+        flags |= 0x10 | 0x20;
     }
     flags
 }
@@ -135,6 +146,16 @@ pub struct Injector {
     inject: fn(&[INPUT]) -> usize,
     /// `inject_pointer` for touch frames, or a stand-in in tests.
     inject_touch: unsafe fn(HSYNTHETICPOINTERDEVICE, &[POINTER_TYPE_INFO]) -> Result<()>,
+    warnings: std::sync::Arc<butterpollo_core::session::Warnings>,
+    /// This stream holds a share of the virtual mouse (`mouse_mode` auto or virtual_mouse):
+    /// mouse input goes to it while it is plugged in.
+    virtual_mouse: bool,
+    /// Whether mouse input last went to the virtual mouse, to log when that changes.
+    virtual_mouse_routed: std::sync::atomic::AtomicBool,
+    /// This stream holds a share of the virtual touchpad (`native_touchpad`).
+    touchpad: bool,
+    /// The touchpad's plugging was reported.
+    touchpad_reported: bool,
 }
 /// Keyboard and mouse input of one pass of the control loop, sent in one
 /// SendInput call: a call cost 31-36 us whether it carried one input or
@@ -292,7 +313,11 @@ impl Injector {
             pen: Default::default(),
             touch_refreshed: std::time::Instant::now(),
             pen_refreshed: std::time::Instant::now(),
-            gamepads: std::sync::Arc::new(GamepadThread::new(profile, policy.clone(), warnings)?),
+            gamepads: std::sync::Arc::new(GamepadThread::new(
+                profile,
+                policy.clone(),
+                warnings.clone(),
+            )?),
             policy,
             layout: None,
             next_layout: None,
@@ -311,9 +336,208 @@ impl Injector {
             pending: Pending::default(),
             inject,
             inject_touch: inject_pointer,
+            warnings,
+            virtual_mouse: false,
+            virtual_mouse_routed: std::sync::atomic::AtomicBool::new(false),
+            touchpad: false,
+            touchpad_reported: false,
         };
         injector.look_up(output);
+        injector.start_virtual_devices();
         Ok(injector)
+    }
+    /// Plugs in the virtual mouse for `mouse_mode` auto or virtual_mouse, and takes a share of
+    /// the virtual touchpad, which plugs in at the first touchpad packet. Tests use neither.
+    fn start_virtual_devices(&mut self) {
+        if cfg!(test) || !self.policy.mouse {
+            return;
+        }
+        if self.policy.mouse_mode.wants_virtual() {
+            virtual_hid::MOUSE.acquire();
+            self.virtual_mouse = true;
+            let availability = virtual_hid::MOUSE
+                .plug(|| butterpollo_core::virtual_hid::HidMouse::new(&virtual_hid::serial()));
+            self.report_virtual_mouse(&availability);
+        }
+        if self.policy.native_touchpad {
+            virtual_hid::TOUCHPAD.acquire();
+            self.touchpad = true;
+        }
+    }
+    /// Says why mouse input is injected when the virtual mouse cannot take it: a log line
+    /// for `auto`, and a stream warning too when the setting asked for the virtual mouse.
+    fn report_virtual_mouse(&self, availability: &virtual_hid::Availability) {
+        use butterpollo_core::input_policy::MouseMode;
+        use virtual_hid::Availability;
+        let asked = self.policy.mouse_mode == MouseMode::VirtualMouse;
+        let why = match availability {
+            Availability::Ready | Availability::Plugging => {
+                tracing::info!(
+                    mode = ?self.policy.mouse_mode,
+                    "mouse input goes to the virtual mouse once it is plugged in"
+                );
+                return;
+            }
+            Availability::NoDriver => {
+                "it needs usbip-win2, the USB audio and haptics driver".to_owned()
+            }
+            Availability::Failed(error) => format!("it could not be plugged in: {error}"),
+        };
+        if asked {
+            tracing::warn!(
+                why,
+                "mouse input is injected instead of using the virtual mouse"
+            );
+            self.warnings.set(
+                "mouse_virtual_unavailable",
+                format!(
+                    "Mouse input uses Windows injection instead of the virtual mouse: {why}. Install the USB audio and haptics driver with the setup, or set Mouse input method to Injection."
+                ),
+            );
+        } else {
+            tracing::info!(
+                why,
+                "mouse input is injected: the virtual mouse is unavailable"
+            );
+        }
+    }
+    /// Sends inputs as SendInput would, putting mouse input on the virtual mouse while this
+    /// stream uses it and it is plugged in. Returns how many of the first inputs went out.
+    fn deliver(&self, inputs: &[INPUT]) -> usize {
+        let routed = self.virtual_mouse && virtual_hid::MOUSE.ready();
+        if self.virtual_mouse
+            && self
+                .virtual_mouse_routed
+                .swap(routed, std::sync::atomic::Ordering::Relaxed)
+                != routed
+        {
+            if routed {
+                tracing::info!("mouse input goes to the virtual mouse");
+            } else {
+                tracing::warn!("mouse input is injected: the virtual mouse is gone");
+            }
+        }
+        if !routed {
+            let sent = (self.inject)(inputs);
+            tracing::trace!(
+                target: "input_timing",
+                qpc = virtual_hid::qpc(),
+                route = "injection",
+                inputs = sent,
+                "delivered"
+            );
+            return sent;
+        }
+        let single_display = virtual_hid::single_display();
+        let mut sent = 0;
+        let mut start = 0;
+        for (i, input) in inputs.iter().enumerate() {
+            if input.r#type != INPUT_MOUSE {
+                continue;
+            }
+            // SAFETY: a mouse INPUT holds its MOUSEINPUT in the union.
+            let mi = unsafe { input.Anonymous.mi };
+            let Some(ops) = virtual_hid::hid_ops(&mi, single_display) else {
+                continue;
+            };
+            // Keys before it go first, in order.
+            if start < i {
+                let n = (self.inject)(&inputs[start..i]);
+                sent += n;
+                if n < i - start {
+                    return sent;
+                }
+            }
+            if virtual_hid::apply(&ops) || (self.inject)(std::slice::from_ref(input)) == 1 {
+                sent += 1;
+            } else {
+                return sent;
+            }
+            start = i + 1;
+        }
+        if start < inputs.len() {
+            sent += (self.inject)(&inputs[start..]);
+        }
+        tracing::trace!(
+            target: "input_timing",
+            qpc = virtual_hid::qpc(),
+            route = "virtual_mouse",
+            inputs = sent,
+            "delivered"
+        );
+        sent
+    }
+    /// A tablet's physical touchpad: its fingers replay on the virtual Precision Touchpad,
+    /// plugged in at the first packet with the client's size.
+    fn touchpad_packet(
+        &mut self,
+        buttons: u8,
+        width_mm: u16,
+        height_mm: u16,
+        contacts: &[butterpollo_core::virtual_hid::Contact],
+    ) {
+        use virtual_hid::Availability;
+        if !self.touchpad {
+            return;
+        }
+        let now = Instant::now();
+        let applied = virtual_hid::TOUCHPAD.with(|pad| {
+            pad.apply(contacts, buttons, now);
+            (pad.active(), pad.early_contacts)
+        });
+        let (code, why) = match applied {
+            Some((true, _)) => return,
+            // Windows reads the configuration at once; this many contacts without it means it
+            // took the device as something else.
+            Some((false, early)) if early >= 500 => (
+                "touchpad_not_precision",
+                "Windows did not switch the virtual touchpad to precision touchpad input"
+                    .to_owned(),
+            ),
+            Some(_) => return,
+            None => match virtual_hid::TOUCHPAD.plug(move || {
+                butterpollo_core::virtual_hid::PrecisionTouchpad::new(
+                    width_mm,
+                    height_mm,
+                    &virtual_hid::serial(),
+                    Instant::now(),
+                )
+            }) {
+                Availability::Ready | Availability::Plugging => {
+                    if !self.touchpad_reported {
+                        self.touchpad_reported = true;
+                        tracing::info!(
+                            width_mm,
+                            height_mm,
+                            "plugging in the virtual touchpad for the device's touchpad"
+                        );
+                    }
+                    return;
+                }
+                Availability::NoDriver => (
+                    "touchpad_no_driver",
+                    "the virtual touchpad needs usbip-win2, the USB audio and haptics driver"
+                        .to_owned(),
+                ),
+                Availability::Failed(error) => (
+                    "touchpad_failed",
+                    format!("the virtual touchpad could not be plugged in: {error}"),
+                ),
+            },
+        };
+        if self.warnings.snapshot().iter().any(|w| w.code == code) {
+            return;
+        }
+        tracing::warn!(
+            why,
+            "touchpad gestures from the device do not reach Windows"
+        );
+        self.warnings.set(
+            code,
+            format!(
+                "Touchpad gestures from this device do not reach Windows: {why}. Turn off touchpad gestures on the device to use its touchpad as a mouse."
+            ),
+        );
     }
     /// The keyboard layout keys the client did not normalize go with (None: the host's),
     /// read by the control loop from the device's report (0x553E) and `keyboard_layout`.
@@ -533,6 +757,19 @@ impl Injector {
     /// Apply a pass of events in order, with one SendInput call where the
     /// order allows; returns why events failed.
     pub fn apply_all(&mut self, events: &[Event]) -> Vec<anyhow::Error> {
+        if tracing::enabled!(target: "input_timing", tracing::Level::TRACE) {
+            for e in events {
+                if let Event::Relative { x, y } = e {
+                    tracing::trace!(
+                        target: "input_timing",
+                        qpc = virtual_hid::qpc(),
+                        x,
+                        y,
+                        "arrived"
+                    );
+                }
+            }
+        }
         for e in events {
             if let Err(error) = self.stage(e) {
                 self.pending.errors.push(error);
@@ -880,6 +1117,13 @@ impl Injector {
                 self.haptics = *enabled;
                 self.gamepads.set_haptics(*enabled);
             }
+            Touchpad {
+                buttons,
+                width_mm,
+                height_mm,
+                contacts,
+                ..
+            } => self.touchpad_packet(*buttons, *width_mm, *height_mm, contacts),
             // Only the VHF Steam Controller profile takes them.
             Controller { .. }
             | SteamAttributes(_)
@@ -973,6 +1217,9 @@ impl Injector {
         // attempting every release even if an earlier device refused it.
         keep("touch contacts", self.cancel_touches());
         keep("pen", self.cancel_pen());
+        if self.touchpad {
+            virtual_hid::TOUCHPAD.with(|pad| pad.release_all(Instant::now()));
+        }
         self.keys.clear();
         self.key_sources.clear();
         self.buttons.clear();
@@ -996,6 +1243,13 @@ impl Drop for Injector {
             if let Some(device) = self.pen_device.take() {
                 DestroySyntheticPointerDevice(device);
             }
+        }
+        // After the buttons above were released through it.
+        if self.virtual_mouse {
+            virtual_hid::MOUSE.release();
+        }
+        if self.touchpad {
+            virtual_hid::TOUCHPAD.release();
         }
     }
 }

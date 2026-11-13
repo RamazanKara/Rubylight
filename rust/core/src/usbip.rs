@@ -102,6 +102,12 @@ pub trait Device: Send + 'static {
     /// The next report on an interrupt IN endpoint. None holds that
     /// endpoint's transfers until the client cancels them.
     fn interrupt(&mut self, endpoint: u8) -> Option<Vec<u8>>;
+    /// Whether an interrupt IN endpoint has a report now. A real mouse or touchpad NAKs the
+    /// host's polls until it has something to say: false keeps the transfer waiting, without a
+    /// periodic wake-up, until [`Export::changed`].
+    fn interrupt_ready(&self, _endpoint: u8) -> bool {
+        true
+    }
     fn output(&mut self, _endpoint: u8, _data: &[u8]) -> bool {
         false
     }
@@ -218,6 +224,9 @@ struct Link {
     iso_next: [Option<Instant>; 16],
     /// Whether the device changed since its last report.
     changed: bool,
+    /// Every waiting interrupt transfer was NAKed ([`Device::interrupt_ready`]) and nothing
+    /// changed since: the report thread sleeps until a change or a new transfer.
+    idle: bool,
 }
 impl Link {
     /// Puts held transfers back in line, to be served at once.
@@ -225,6 +234,7 @@ impl Link {
         let held = std::mem::take(&mut self.held);
         self.pending.extend(held);
         self.changed = true;
+        self.idle = false;
     }
     /// Sends a reply; a client that cannot take it is disconnected.
     fn send(&mut self, b: &[u8]) {
@@ -332,6 +342,7 @@ impl<D: Device> Export<D> {
         let retry = self.shared.device.lock().unwrap().retries_held();
         let mut link = self.shared.link.lock().unwrap();
         link.changed = true;
+        link.idle = false;
         if retry {
             link.retry_held();
         }
@@ -640,6 +651,7 @@ fn serve<D: Device>(shared: &Shared<D>, stream: TcpStream) -> io::Result<()> {
                         endpoint: endpoint as u8,
                         length,
                     });
+                    link.idle = false;
                     drop(link);
                     shared.wake.notify_all();
                     continue;
@@ -719,7 +731,8 @@ fn report<D: Device>(shared: &Shared<D>) {
         if shared.stop.load(Ordering::Acquire) {
             return;
         }
-        let waiting = link.imported && (!link.pending.is_empty() || !link.iso.is_empty());
+        let polling = !link.pending.is_empty() && !link.idle;
+        let waiting = link.imported && (polling || !link.iso.is_empty());
         let now = Instant::now();
         if !waiting {
             link = shared.wake.wait(link).unwrap();
@@ -729,7 +742,7 @@ fn report<D: Device>(shared: &Shared<D>) {
             .iso
             .iter()
             .map(|t| t.due)
-            .chain((!link.pending.is_empty()).then_some(if link.changed { now } else { next }))
+            .chain(polling.then_some(if link.changed { now } else { next }))
             .min()
             .unwrap_or(next);
         if now < due {
@@ -776,8 +789,9 @@ fn report<D: Device>(shared: &Shared<D>) {
         }
         let mut served = 0u32;
         let mut sent = false;
+        let mut naked = false;
         let mut i = 0;
-        while (link.changed || now >= next) && i < link.pending.len() {
+        while polling && (link.changed || now >= next) && i < link.pending.len() {
             let transfer = link.pending[i];
             let bit = 1u32 << (transfer.endpoint & 31);
             if served & bit != 0 {
@@ -785,6 +799,12 @@ fn report<D: Device>(shared: &Shared<D>) {
                 continue;
             }
             served |= bit;
+            if !device.interrupt_ready(transfer.endpoint) {
+                // A NAK: the transfer waits for the device's next change.
+                naked = true;
+                i += 1;
+                continue;
+            }
             link.pending.remove(i);
             match device.transfer_in(transfer.endpoint, transfer.length) {
                 Some(mut data) => {
@@ -800,6 +820,9 @@ fn report<D: Device>(shared: &Shared<D>) {
         if sent {
             link.changed = false;
             next = now + shared.period;
+        } else if naked {
+            link.changed = false;
+            link.idle = true;
         }
     }
 }
@@ -1183,5 +1206,72 @@ mod tests {
         }
         assert_eq!(seen[&1][0], 0x05, "the held HID read reports");
         assert_eq!(&seen[&5][..4], &[0x03, 0x01, 0x00, 0x0d]);
+    }
+
+    /// A device that has a report only after a change, as a mouse or touchpad.
+    struct Quiet {
+        report: Option<Vec<u8>>,
+    }
+    impl Device for Quiet {
+        fn describe(&self) -> UsbDevice {
+            UsbDevice {
+                speed: 2,
+                vendor: 0x1209,
+                product: 1,
+                release: 1,
+                interfaces: vec![(3, 0, 2)],
+            }
+        }
+        fn control(&mut self, _setup: &Setup, _data: &[u8]) -> Option<Vec<u8>> {
+            Some(vec![])
+        }
+        fn interrupt(&mut self, _endpoint: u8) -> Option<Vec<u8>> {
+            self.report.take()
+        }
+        fn interrupt_ready(&self, _endpoint: u8) -> bool {
+            self.report.is_some()
+        }
+    }
+
+    #[test]
+    fn an_event_driven_endpoint_is_naked_until_its_next_change() {
+        let export = Export::listen(Quiet { report: None }, Duration::from_millis(1)).unwrap();
+        let mut client = TcpStream::connect((Ipv4Addr::LOCALHOST, export.port())).unwrap();
+        let mut request = op_reply(OP_REQ_IMPORT, 0);
+        let mut busid = [0u8; 32];
+        busid[..3].copy_from_slice(b"1-1");
+        request.extend_from_slice(&busid);
+        client.write_all(&request).unwrap();
+        let mut imported = [0u8; 8 + 312];
+        client.read_exact(&mut imported).unwrap();
+        assert_eq!(&imported[..8], &op_reply(0x0003, 0)[..]);
+
+        submit(&mut client, 1, 1, true, 8, [0; 8], &[]);
+        // Many periods pass without a report: the poll is NAKed, not answered empty.
+        client
+            .set_read_timeout(Some(Duration::from_millis(50)))
+            .unwrap();
+        let mut byte = [0u8; 1];
+        assert!(client.peek(&mut byte).is_err());
+
+        export.with(|quiet| quiet.report = Some(vec![1, 2, 3]));
+        export.changed();
+        client
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        assert_eq!(reply(&mut client), (RET_SUBMIT, 1, 0, vec![1, 2, 3]));
+
+        // The next poll waits again for the next change.
+        submit(&mut client, 2, 1, true, 8, [0; 8], &[]);
+        client
+            .set_read_timeout(Some(Duration::from_millis(50)))
+            .unwrap();
+        assert!(client.peek(&mut byte).is_err());
+        export.with(|quiet| quiet.report = Some(vec![4]));
+        export.changed();
+        client
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        assert_eq!(reply(&mut client), (RET_SUBMIT, 2, 0, vec![4]));
     }
 }

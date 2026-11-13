@@ -183,16 +183,27 @@ pub fn pc_command_names(
 ) -> Vec<String> {
     let global = butterpollo_core::menu_commands::global(config.get("server_cmd", "[]"));
     let app = h.current_app.lock().unwrap();
-    let (own, exclude) = app
-        .as_ref()
-        .filter(|app| app.allow_client_commands)
-        .map_or((&[][..], false), |app| {
-            (&app.menu_commands[..], app.exclude_global_menu)
-        });
+    // The same rule as running one (`pc_command`): a list of commands that do nothing is none.
+    let Some((own, exclude)) = device_menu(app.as_ref()) else {
+        return Vec::new();
+    };
     butterpollo_core::menu_commands::listed(&global, own, exclude)
         .into_iter()
         .map(|(_, command)| command.name.clone())
         .collect()
+}
+
+/// The running app's own menu commands and whether it hides the host-wide ones; None while it
+/// turned device commands off (`allow-client-commands = false`), when no PC command is listed or
+/// run. Without an app, the host-wide ones.
+fn device_menu(
+    app: Option<&RunningApp>,
+) -> Option<(&[butterpollo_core::menu_commands::MenuCommand], bool)> {
+    match app {
+        Some(app) if !app.allow_client_commands => None,
+        Some(app) => Some((&app.menu_commands[..], app.exclude_global_menu)),
+        None => Some((&[], false)),
+    }
 }
 
 /// PC command `index` of [`pc_command_names`], ready to start; an app command
@@ -204,13 +215,8 @@ pub fn pc_command(h: &crate::state::Shared, index: usize, expect: Option<&str>) 
     use butterpollo_core::menu_commands::{self, Source};
     let global = menu_commands::global(h.config.read().unwrap().get("server_cmd", "[]"));
     let mut app = h.current_app.lock().unwrap();
-    if app.as_ref().is_some_and(|app| !app.allow_client_commands) {
-        return None;
-    }
     let source = {
-        let (own, exclude) = app.as_ref().map_or((&[][..], false), |app| {
-            (&app.menu_commands[..], app.exclude_global_menu)
-        });
+        let (own, exclude) = device_menu(app.as_ref())?;
         let (source, command) = *menu_commands::listed(&global, own, exclude).get(index)?;
         if expect.is_some_and(|name| name != command.name) {
             return None;

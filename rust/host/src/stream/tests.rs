@@ -417,6 +417,15 @@ fn app_menu_commands_follow_the_host_commands_and_their_undo_waits_for_the_app()
         Some(crate::process::RunningApp::with_environment(&hidden, Default::default()).unwrap());
     assert_eq!(send(0).map(|run| run.cmd), Some("pet".into()));
     assert!(send(1).is_none());
+    // An app with device commands off lists none, the host-wide ones included, and runs none.
+    let off = serde_json::from_value(json!({"name":"Off","allow-client-commands":false,
+        "menu-cmd":[{"name":"Pet","cmd":"pet"}]}))
+    .unwrap();
+    *f.host.current_app.lock().unwrap() =
+        Some(crate::process::RunningApp::with_environment(&off, Default::default()).unwrap());
+    let config = f.host.config.read().unwrap().clone();
+    assert!(crate::process::pc_command_names(&f.host, &config).is_empty());
+    assert!(send(0).is_none());
 }
 #[test]
 fn the_stream_thread_skips_its_game_look_while_another_thread_holds_the_app() {

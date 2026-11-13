@@ -676,8 +676,9 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         let driver = std::env::var("SDL_VIDEO_DRIVER").ok();
         let decision = kms::decide(kms::flag(), setting, session, driver.as_deref());
         eprintln!("nightjar: kms: {} ({})", if decision.backend == kms::Backend::Kms { "drawing straight to the display" } else { "drawing through the desktop" }, decision.why);
-        if decision.driver_hint.is_some() {
-            sdl::set_hint(SDL_HINT_VIDEO_DRIVER, c"kmsdrm");
+        if let Some(drivers) = decision.driver_hint {
+            let drivers = std::ffi::CString::new(drivers).expect("driver names have no NUL");
+            sdl::set_hint(SDL_HINT_VIDEO_DRIVER, &drivers);
         }
         kms::set(decision.backend);
     }
@@ -695,8 +696,16 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     // SAFETY: SDL initialisation on the main thread.
     unsafe {
         if !SDL_Init(subsystems) {
-            if kms::active() {
-                return Err(kms::start_failure(&sdl::error()));
+            #[cfg(target_os = "linux")]
+            {
+                if kms::active() {
+                    let index = std::env::var("SDL_KMSDRM_DEVICE_INDEX").ok().and_then(|i| i.trim().parse().ok());
+                    return Err(kms::start_failure(&sdl::error(), kms::drm::connected_displays(index)));
+                }
+                let session = kms::Session::read(|name| std::env::var_os(name), std::path::Path::exists);
+                if !session.any() {
+                    return Err(kms::desktop_failure(&sdl::error()));
+                }
             }
             return Err(format!("SDL could not start: {}", sdl::error()));
         }

@@ -222,6 +222,7 @@ The second line appears only when the host offers something, and stock clients i
 | `0x5544` | Frame Warp model | `frame_warp::Model` | host to client | with `0x5543` | `FrameWarpVersion` |
 | `0x5545` | Frame Warp tags | `frame_warp::Tags` | host to client | with `0x5543` | `FrameWarpVersion` |
 | `0x5546` | Frame Warp HUD mask | `frame_warp::Mask` | host to client | with `0x5543` | `FrameWarpVersion` |
+| `0x5547` | Transport feedback | `transport_feedback::TransportFeedback` | client to host | while `congestion_control` is on (off by default) | none |
 
 `0x5508` (clipboard sync, above) goes on the same second line. `0x5542` is reserved. `0x5506`-`0x5510` belong to other clients and hosts: Rubylight takes `0x5508` with Moonlight V+'s frame unchanged and defines nothing else there. Nightjar sends `0x5510` (FEC summary, Moonlight V+'s format) only to a host whose `DESCRIBE` has `x-ss-video[0].fecControlVersion`, which Rubylight does not send.
 
@@ -322,6 +323,25 @@ As Nightjar's [cursor shape protocol](../client/docs/protocol/cursor-shape.md), 
 ### 0x5543 to 0x5546 Frame Warp
 
 As [Frame Warp](frame-warp.md) and Nightjar's [protocol document](../client/docs/protocol/frame-warp.md), version 1. The client sends the 8-byte request once the stream runs; the host then keeps the input history, measures the picture's motion and sends the model (reliable) when it locks, unlocks or changes, a tag for every video frame with the three before it (unreliable, unsequenced) and the HUD mask (reliable) when it changes. A request with `enabled` 0 stops all three. The request's flags say whether the client draws the lens; only such a client is sent the model's focal length, any other gets 0. The tags' frame numbers are the video frame numbers the client decodes. Nothing is sent to a client that did not ask, and the host does no Frame Warp work for it.
+
+### 0x5547 transport feedback (20 bytes and the entries)
+
+Per-packet arrival times of the video stream, for the host's congestion control ([configuration](configuration.md#adapt-to-network-congestion)). The client sends them only to a host that lists `0x5547` in `a=x-rl-control`, unreliable and unsequenced, about every 50 ms while video arrives, and drops a report rather than queue it behind a backlog.
+
+| Bytes | Field | Meaning |
+| --- | --- | --- |
+| 0 | `version` | `1` |
+| 1 | `flags` | bit 0: the client skipped ahead, ids between the previous report's end and `base` arrived too late or never |
+| 2-3 | `count u16` | entries that follow, 1 to 480 |
+| 4-5 | `base u16` | packet id of the first entry |
+| 6-7 | `stride u16` | ids between entries, 1 to 64: every packet at 1, every `stride`-th id when the packet rate would overflow 480 entries per report |
+| 8-11 | `seq u32` | report number, +1 per report |
+| 12-15 | `base_arrival_us u32` | the client's arrival clock in microseconds, wrapping; only differences count |
+| 16-17 | `late u16` | packets that arrived for ids an earlier report already closed |
+| 18-19 | reserved | 0 |
+| 20- | `entries u16[count]` | arrival of id `base + i × stride`, in 4 µs units after `base_arrival_us` (at most `0xFFFE`); `0xFFFF` when it did not arrive |
+
+The packet id is the 16 bits a datagram carries in the clear: bytes 0-1 little-endian (the low bits of the IV counter) for an encrypted video datagram, the RTP sequence number in bytes 2-3 big-endian otherwise. The client reads it before reassembly, so parity it never needed still counts as arrived. A report is at most 980 bytes. The host keeps no send record until a client's first report, ignores reports it cannot parse, and stops using them when the client sets the bitrate itself.
 
 ### Pen barrel roll (input packet `0x5500000B`, 40 bytes)
 

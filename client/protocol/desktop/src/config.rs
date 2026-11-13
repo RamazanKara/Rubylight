@@ -443,6 +443,10 @@ pub struct Settings {
     /// Drawing straight to the display, a stream's decoded pictures go on a display plane
     /// (`stream::kms_scanout`) instead of being drawn into the window; for the whole app.
     pub video_planes: bool,
+    /// "High-performance GPU power while streaming" (Linux): each AMD GPU that drives a connected
+    /// display is held at its peak power state for the stream (`stream::gpu_hold`). Off by default;
+    /// for the whole app.
+    pub high_performance_gpu_power: bool,
     pub microphone: bool,
     /// Echo cancellation on the microphone (`stream::microphone`), automatic by default.
     pub mic_echo_cancel: MicEcho,
@@ -1104,6 +1108,7 @@ impl Default for Settings {
             graphics_card: GraphicsCard::Automatic,
             display_output: DisplayOutput::Automatic,
             video_planes: true,
+            high_performance_gpu_power: false,
             microphone: false,
             mic_echo_cancel: MicEcho::Auto,
             mic_gain: 100,

@@ -331,6 +331,11 @@ Its drawing straight to the display on Linux follows moonlight-qt v6.2.0's DRM r
 KMSDRM descriptor, choosing the video plane and its zpos under the overlay, and the
 connector and plane properties for HDR metadata, colorimetry, max bpc, YCbCr encoding and
 range (client/protocol/desktop/src/kms/ and stream/kms_scanout.rs).
+Nightjar desktop's high-performance GPU power while streaming on Linux, which holds an AMD
+GPU that drives a connected display at its peak stable power state (client/protocol/desktop/
+src/stream/gpu_hold.rs), is ported from Nonary's moonlight-qt fork
+(https://github.com/Nonary/moonlight-qt, GPL-3.0): app/streaming/gpuperformancehold.{h,cpp}
+at commit 19758e5e6, with the same GPU selection, requests and release.
 The FFmpeg that Nightjar desktop ships on Windows carries Moonlight's FFmpeg patch for
 D3D11VA, D3D12VA and DXVA2 decoding of HEVC Range Extension profiles (HEVC 4:4:4), by
 Cameron Gutman, from https://github.com/moonlight-stream/moonlight-qt-deps

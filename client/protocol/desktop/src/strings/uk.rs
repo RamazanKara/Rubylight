@@ -1550,6 +1550,8 @@ sudo sysctl -w net.core.rmem_max={}", "Буфер приймання: систе
     ("Where Nightjar shows itself. Automatic draws straight to the display when no desktop is running. Applies at the next start.", "Де показується Nightjar. «Автоматично» малює просто на екран, коли робочий стіл не запущено. Застосовується під час наступного запуску."),
     ("Video planes", "Відеоплощини"),
     ("Draws the stream straight to the display, on a display plane of its own, with HDR and without a copy. Leave it on; off, the renderer draws the stream instead.", "Під час виведення просто на екран показує трансляцію на власній площині дисплея, з HDR і без копіювання. Залиште ввімкненим; якщо вимкнути, трансляцію малює рендерер."),
+    ("High-performance GPU power while streaming", "Висока продуктивність GPU під час стрімінгу"),
+    ("Keeps an AMD graphics card at its highest clocks for the whole stream, so it cannot slow down between frames and show a frame late. Uses more power and shortens battery life. Changes nothing when the card's clocks are already set by hand. Applies from the next stream.", "Утримує відеокарту AMD на найвищих частотах протягом усього стріму, щоб вона не знижувала частоту між кадрами й не показувала кадр із запізненням. Споживає більше енергії та скорочує час роботи від акумулятора. Нічого не змінює, якщо частоти карти вже задано вручну. Діє з наступного стріму."),
     ("Video planes are unavailable; the stream is drawn by the renderer. The log says why.", "Відеоплощини недоступні; трансляцію малює рендерер. Причину вказано в журналі."),
     ("Guests", "Гості"),
     ("Let in", "Впустити"),

@@ -69,6 +69,10 @@ pub(crate) mod stage_times;
 #[cfg(any(target_os = "linux", test))]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) mod gpu_clocks;
+// The GPU hold asks amdgpu for a stable pstate on Linux's render nodes; its sysfs reading is tested everywhere.
+#[cfg(any(target_os = "linux", test))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) mod gpu_hold;
 #[cfg(windows)]
 mod d3d11;
 #[cfg(windows)]
@@ -520,6 +524,10 @@ pub struct Streaming {
     /// The pictures on a display plane when Nightjar draws straight to the display.
     #[cfg(target_os = "linux")]
     pub kms: Option<kms_scanout::Scanout>,
+    /// The AMD GPUs held at their peak power state for this stream (`high_performance_gpu_power`);
+    /// dropped with the stream, which releases them.
+    #[cfg(target_os = "linux")]
+    _gpu_hold: Option<gpu_hold::GpuHold>,
     pub overlay_mode: OverlayMode,
     pub overlay_corner: OverlayCorner,
     /// The overlay as last kept in the settings; see `take_overlay_change`.
@@ -915,6 +923,8 @@ impl Streaming {
             overlay_visible: settings.overlay,
             #[cfg(target_os = "linux")]
             kms: None,
+            #[cfg(target_os = "linux")]
+            _gpu_hold: settings.high_performance_gpu_power.then(gpu_hold::acquire),
             overlay_mode: settings.overlay_mode,
             overlay_corner: settings.overlay_position,
             overlay_kept: (settings.overlay, settings.overlay_mode, settings.overlay_position),

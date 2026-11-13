@@ -1550,6 +1550,8 @@ sudo sysctl -w net.core.rmem_max={}", "Bộ đệm nhận: hệ thống chỉ c�
     ("Where Nightjar shows itself. Automatic draws straight to the display when no desktop is running. Applies at the next start.", "Nơi Nightjar hiển thị. Tự động sẽ vẽ trực tiếp lên màn hình khi không có màn hình nền nào đang chạy. Áp dụng từ lần khởi động tiếp theo."),
     ("Video planes", "Lớp video"),
     ("Draws the stream straight to the display, on a display plane of its own, with HDR and without a copy. Leave it on; off, the renderer draws the stream instead.", "Khi vẽ trực tiếp lên màn hình, hiển thị stream trên lớp hiển thị riêng, có HDR và không sao chép. Nên để bật; khi tắt, trình kết xuất sẽ vẽ stream."),
+    ("High-performance GPU power while streaming", "Hiệu năng GPU cao khi phát trực tuyến"),
+    ("Keeps an AMD graphics card at its highest clocks for the whole stream, so it cannot slow down between frames and show a frame late. Uses more power and shortens battery life. Changes nothing when the card's clocks are already set by hand. Applies from the next stream.", "Giữ card đồ họa AMD ở xung nhịp cao nhất trong suốt phiên phát, để card không chậm xuống giữa các khung hình và hiển thị khung hình bị trễ. Tốn thêm điện và làm pin dùng được ít hơn. Không thay đổi gì nếu xung nhịp của card đã được đặt thủ công. Áp dụng từ phiên phát tiếp theo."),
     ("Video planes are unavailable; the stream is drawn by the renderer. The log says why.", "Không dùng được lớp video; trình kết xuất sẽ vẽ luồng. Nhật ký ghi rõ lý do."),
     ("Guests", "Khách"),
     ("Let in", "Cho vào"),

@@ -427,7 +427,8 @@ Nightjar's desktop client ports logic and approaches from:
   Moonlight V+ ships it.
 - Nonary's (Chase Payne) moonlight-qt fork (GPL-3.0): the reference for VRR pacing,
   tearing presentation and D3D11VA rendering that this client's pacing and decoder path
-  were checked against.
+  were checked against. The Linux high-performance GPU power hold (`src/stream/gpu_hold.rs`) is
+  ported from its `app/streaming/gpuperformancehold.{h,cpp}` at commit 19758e5e6.
 - [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c) (GPL-3.0),
   through `nightjar-core`.
 

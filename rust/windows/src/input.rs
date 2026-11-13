@@ -231,6 +231,17 @@ fn display_rect(output: &str) -> Result<RECT> {
         bottom: d.y + d.height as i32,
     })
 }
+/// The rectangle after a periodic re-read (`read`): a display that could not be read keeps its
+/// last one (a mode change mid-read), but a streamed window that is closed, minimised or replaced
+/// has none, so absolute input waits instead of landing on whatever is there now. Relative input
+/// needs no rectangle and goes on.
+fn reread_rect(output: &str, last: Option<RECT>, read: Option<RECT>) -> Option<RECT> {
+    match read {
+        Some(rect) => Some(rect),
+        None if output.starts_with(WINDOW_PREFIX) => None,
+        None => last,
+    }
+}
 /// The current rectangle of a display by GDI name, read cheaply from its mode.
 fn current_rect(name: &str) -> Option<RECT> {
     if name.starts_with(WINDOW_PREFIX) {
@@ -725,9 +736,7 @@ impl Injector {
                 self.resolve_rect();
             } else {
                 self.rect_read = now;
-                if let Some(rect) = current_rect(&self.output) {
-                    self.rect = Some(rect);
-                }
+                self.rect = reread_rect(&self.output, self.rect, current_rect(&self.output));
             }
         }
         if refresh_due(&mut self.touch_refreshed, now) {

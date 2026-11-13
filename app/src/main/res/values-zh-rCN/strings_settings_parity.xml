@@ -6,7 +6,7 @@
     <string name="summary_sharp_color">完整的色彩细节，让彩色文字和细线保持清晰。</string>
     <string-array name="sharp_color_names">
         <item>关闭</item>
-        <item>自动</item>
+        <item>开启</item>
     </string-array>
     <string name="title_controllers">手柄</string>
     <string name="summary_controllers">关闭、所有手柄作为同一玩家，或每个手柄各为一名玩家。</string>

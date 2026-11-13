@@ -27,13 +27,13 @@ pub fn notice(why: &Why) -> Option<&'static str> {
     }
 }
 
-/// "Sharper colored text" is Automatic: it is stored in two keys, and either one asks (settings
+/// "Sharper colored text" is On: it is stored in two keys, and either one asks (settings
 /// saved before the two became one may hold only one of them).
 pub fn automatic(settings: &Settings) -> bool {
     settings.prefer_yuv444 || settings.experimental_packed_444
 }
 
-/// The settings the decoder checks run with before [`decide`]: Automatic tries the codec's own
+/// The settings the decoder checks run with before [`decide`]: On tries the codec's own
 /// 4:4:4 first, so they check it (`stream::probes_color`) and the plain formats
 /// (`stream::base_probe_formats`) as a stream without packing has them.
 pub fn native_probe_settings(settings: &Settings) -> Settings {
@@ -211,7 +211,7 @@ mod tests {
     static DECODES_444: (u32, String) = (YUV444_FORMATS | SDR10_FORMATS | YUV444_10_FORMATS, String::new());
     static DECODES_NONE: (u32, String) = (0, String::new());
 
-    /// "Sharper colored text" Automatic: both its keys.
+    /// "Sharper colored text" On: both its keys.
     fn on() -> Settings {
         Settings { prefer_yuv444: true, experimental_packed_444: true, ..Settings::default() }
     }

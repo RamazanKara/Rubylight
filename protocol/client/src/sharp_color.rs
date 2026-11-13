@@ -1,4 +1,4 @@
-//! "Sharper colored text": one choice, Off or Automatic, for full color detail in a stream. Both
+//! "Sharper colored text": one choice, Off or On, for full color detail in a stream. Both
 //! clients ask here which way a stream gets it: the codec's own 4:4:4 ([`crate::color::offer`])
 //! where this device decodes it and the PC encodes it, else packed full chroma
 //! ([`crate::full_chroma::before_launch`]) where the PC and this device share a packed mode.
@@ -9,7 +9,7 @@
 //! device have a 10-bit packed mode in common, so a stream never drops HDR for it.
 //!
 //! The setting is stored in the two keys older versions read (`prefer_yuv444` or Android's
-//! `checkbox_yuv444`, and `experimental_packed_444`): Off is both off, Automatic both on. Android
+//! `checkbox_yuv444`, and `experimental_packed_444`): Off is both off, On both on. Android
 //! asks through JSON over JNI ([`json`]); desktop calls [`decide`] directly.
 
 use crate::color::{self, Refusal, Wants};
@@ -19,7 +19,7 @@ use rubylight_protocol::packed444::LAYERED_MODES;
 /// What a stream's decision is made from.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Input {
-    /// The setting is Automatic.
+    /// The setting is On.
     pub auto: bool,
     /// HDR is on for this stream (the setting and an HDR display).
     pub hdr: bool,

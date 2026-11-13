@@ -6,7 +6,7 @@
     <string name="summary_sharp_color">Полная детализация цвета, чтобы цветной текст и тонкие линии оставались чёткими.</string>
     <string-array name="sharp_color_names">
         <item>Выкл.</item>
-        <item>Автоматически</item>
+        <item>Вкл.</item>
     </string-array>
     <string name="title_controllers">Контроллеры</string>
     <string name="summary_controllers">Выкл., все контроллеры как один игрок или каждый контроллер — отдельный игрок.</string>

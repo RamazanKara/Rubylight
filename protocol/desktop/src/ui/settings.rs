@@ -1759,13 +1759,13 @@ fn controllers_name(choice: Controllers) -> &'static str {
     }
 }
 
-/// "Sharper colored text" is Automatic while either of its two keys is on (`nightjar_core::sharp_color`).
+/// "Sharper colored text" is On while either of its two keys is on (`nightjar_core::sharp_color`).
 pub(super) fn sharp_color(s: &Settings) -> bool {
     s.prefer_yuv444 || s.experimental_packed_444
 }
 
 fn sharp_color_name(on: bool) -> &'static str {
-    if on { tr("Automatic") } else { tr("Off") }
+    if on { tr("On") } else { tr("Off") }
 }
 
 /// Video position: the picture at the window's centre or its top (`align_video_top`).

@@ -6,7 +6,7 @@
     <string name="summary_sharp_color">Detalhe de cor completo, para que texto colorido e linhas finas fiquem nítidos.</string>
     <string-array name="sharp_color_names">
         <item>Desativado</item>
-        <item>Automático</item>
+        <item>Ativado</item>
     </string-array>
     <string name="title_controllers">Controles</string>
     <string name="summary_controllers">Desativado, todos os controles como um só jogador ou cada controle como um jogador próprio.</string>

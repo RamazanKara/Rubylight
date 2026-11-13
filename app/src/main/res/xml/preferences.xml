@@ -83,7 +83,7 @@
         <Preference android:key="more_video" android:title="@string/settings_more" android:persistent="false" />
     </PreferenceCategory>
     <PreferenceCategory android:key="category_basic_settings">
-        <!-- Off or Automatic: writes checkbox_yuv444 and experimental_packed_444 alike (PreferenceConfiguration.sharpColor);
+        <!-- Off or On: writes checkbox_yuv444 and experimental_packed_444 alike (PreferenceConfiguration.sharpColor);
              a stream tries native 4:4:4, then packed full chroma (SharpColor). Hidden while the codec is PyroWave. -->
         <Preference android:key="sharp_color" android:title="@string/title_sharp_color"
             android:dialogMessage="@string/summary_sharp_color" android:persistent="false" />

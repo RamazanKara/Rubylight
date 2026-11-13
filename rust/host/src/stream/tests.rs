@@ -336,18 +336,19 @@ fn server_commands_require_permission_app_opt_in_and_a_valid_index_and_are_throt
     f.host.config.write().unwrap().values.insert("server_cmd".into(), json!([
             {"name":"First","cmd":"echo first"}, {"name":"Second","cmd":"echo second","elevated":true}
         ]).to_string());
+    let run = |run: Option<crate::process::MenuRun>| run.map(|run| (run.cmd, run.elevated));
     let mut at = None;
     assert_eq!(server_command(&f.host, &client, &[1], false, &mut at), None);
     assert!(at.is_none());
     assert_eq!(
-        server_command(&f.host, &client, &[1], true, &mut at),
+        run(server_command(&f.host, &client, &[1], true, &mut at)),
         Some(("echo second".into(), true))
     );
     assert!(at.is_some());
     assert_eq!(server_command(&f.host, &client, &[0], true, &mut at), None);
     at = Some(Instant::now() - Duration::from_secs(2));
     assert_eq!(
-        server_command(&f.host, &client, &[0], true, &mut at),
+        run(server_command(&f.host, &client, &[0], true, &mut at)),
         Some(("echo first".into(), false))
     );
     for payload in [vec![], vec![0, 1], vec![2]] {
@@ -372,6 +373,46 @@ fn server_commands_require_permission_app_opt_in_and_a_valid_index_and_are_throt
         Some(crate::process::RunningApp::with_environment(&app, Default::default()).unwrap());
     assert_eq!(server_command(&f.host, &client, &[0], true, &mut at), None);
     assert!(at.is_none());
+}
+#[test]
+fn app_menu_commands_follow_the_host_commands_and_their_undo_waits_for_the_app() {
+    use crate::state::test_support::Fixture;
+    use serde_json::json;
+    let f = Fixture::new();
+    let client = f.client(1 << 20);
+    f.host.config.write().unwrap().values.insert(
+        "server_cmd".into(),
+        json!([{"name":"Lock","cmd":"lock"}]).to_string(),
+    );
+    let app = serde_json::from_value(json!({"name":"Game","menu-cmd":[
+        {"name":"Pet","cmd":"pet $(SUNSHINE_CLIENT_NAME)","undo":"rem pet closed","elevated":false},
+        {"name":"Broken"}
+    ]}))
+    .unwrap();
+    let environment = [("SUNSHINE_CLIENT_NAME".to_owned(), "Phone".to_owned())]
+        .into_iter()
+        .collect();
+    *f.host.current_app.lock().unwrap() =
+        Some(crate::process::RunningApp::with_environment(&app, environment).unwrap());
+    let mut send = |index: u8| {
+        let mut at = None;
+        server_command(&f.host, &client, &[index], true, &mut at)
+    };
+    assert_eq!(send(0).map(|run| run.cmd), Some("lock".into()));
+    let pet = send(1).unwrap();
+    assert_eq!((pet.cmd.as_str(), pet.elevated), ("pet Phone", false));
+    assert_eq!(pet.environment["SUNSHINE_CLIENT_NAME"], "Phone");
+    // An entry without a command keeps its index and runs nothing.
+    assert!(send(2).is_none());
+    assert!(send(3).is_none());
+    // An app that hides the host-wide commands lists only its own.
+    let hidden = serde_json::from_value(json!({"name":"Hidden","exclude-global-menu-cmd":true,
+        "menu-cmd":[{"name":"Pet","cmd":"pet"}]}))
+    .unwrap();
+    *f.host.current_app.lock().unwrap() =
+        Some(crate::process::RunningApp::with_environment(&hidden, Default::default()).unwrap());
+    assert_eq!(send(0).map(|run| run.cmd), Some("pet".into()));
+    assert!(send(1).is_none());
 }
 #[test]
 fn the_stream_thread_skips_its_game_look_while_another_thread_holds_the_app() {

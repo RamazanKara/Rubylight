@@ -487,3 +487,36 @@ fn detached_app_commands_run_with_the_supplied_environment() {
     }
     drop(running);
 }
+
+#[test]
+fn stopping_an_app_undoes_its_menu_commands_once_last_run_first() {
+    let fixture = Fixture::new();
+    let trace = fixture.host.directory.join("menu-undo.txt");
+    let elevated = butterpollo_windows::process::user_environment().is_err();
+    let undo = |name: &str| format!("echo {name}>>\"{}\"", trace.display());
+    let app: App = serde_json::from_value(json!({
+        "name": "Menu commands",
+        "menu-cmd": [
+            {"name": "First", "cmd": "rem first", "undo": undo("undo-first"), "elevated": elevated},
+            {"name": "Second", "cmd": "rem second", "undo": undo("undo-second"), "elevated": elevated},
+            {"name": "Never run", "cmd": "rem never", "undo": undo("undo-never"), "elevated": elevated},
+            {"name": "No undo", "cmd": "rem plain", "elevated": elevated}
+        ]
+    }))
+    .unwrap();
+    let mut running = RunningApp::with_environment(&app, BTreeMap::new()).unwrap();
+    // The menu command itself is started by the control worker; here only its
+    // record counts.
+    assert!(running.menu_command(0).is_some());
+    assert!(running.menu_command(1).is_some());
+    assert!(running.menu_command(0).is_some());
+    assert!(running.menu_command(3).is_some());
+    assert!(running.menu_command(9).is_none());
+    running.stop();
+    let log = std::fs::read_to_string(&trace).unwrap();
+    let lines = log.lines().map(str::trim).collect::<Vec<_>>();
+    assert_eq!(lines, ["undo-first", "undo-second"], "{log}");
+    // A second stop (the drop) undoes nothing again.
+    running.stop();
+    assert_eq!(std::fs::read_to_string(&trace).unwrap(), log);
+}

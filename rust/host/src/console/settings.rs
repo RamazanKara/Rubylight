@@ -252,6 +252,8 @@ pub const APP: &[Setting] = settings! {
         "exit-timeout", "App shutdown timeout (seconds)", Number;
         "terminate-on-pause", "Close the app when the last device disconnects", Bool;
         "allow-client-commands", "Allow per-device connection commands", Bool;
+        "menu-cmd", "Stream menu commands for this app (name, command, undo when the app closes)", Json;
+        "exclude-global-menu-cmd", "Hide the host-wide PC commands while this app runs", Bool;
         "exclude-global-state-cmd", "Exclude global pause and resume commands", Bool;
         "background-stream", "Stream in the background (Nucleus Co-op, controllers only)", Bool;
         "coop-entry", "Show the game's co-op entry in the library", Bool;

@@ -23,6 +23,7 @@ pub(crate) const CATALOGUE: &[(&str, &str, &str)] = &[
     ),
     ("end_session", "End session", "Sitzung beenden"),
     ("close_game", "Close game", "Spiel schließen"),
+    ("run", "Run", "Ausführen"),
     (
         "next_stream",
         "Applies from the next stream",
@@ -163,6 +164,7 @@ pub(crate) fn snapshot() -> Snapshot {
         }),
         preset: Some(preset()),
         items: vec![toggle(items::AUDIO_NIGHT_MODE, "Night mode", false)],
+        commands: vec![],
     }
 }
 
@@ -729,4 +731,44 @@ fn couch_menu_setting_from_a_native_api_setting() {
         items::label_path(items::ENCODER_FOCUS),
         "couch_menu/items/encoder_focus"
     );
+}
+
+#[test]
+fn couch_menu_model_pc_commands_run_by_index_after_a_confirm() {
+    let mut run = Run::new(Snapshot {
+        commands: vec!["Lock PC".into(), "Desktop pet".into()],
+        ..snapshot()
+    });
+    let text = run.text();
+    let at = |label: &str| {
+        text.iter()
+            .position(|line| line.starts_with(label))
+            .unwrap()
+    };
+    assert!(at("Night mode") < at("Lock PC"));
+    assert!(at("Desktop pet") < at("Disconnect"));
+    run.focus("Desktop pet");
+    assert_eq!(
+        run.focused().trim_end(),
+        "Desktop pet                    Run"
+    );
+    assert_eq!(run.nav(Nav::Accept), None, "a command needs a confirm");
+    assert_eq!(run.message(), "Press again within 5 s to confirm");
+    assert_eq!(
+        run.nav(Nav::Accept),
+        Some(Action::RunCommand {
+            index: 1,
+            name: "Desktop pet".into()
+        })
+    );
+    run.menu.finish(Err("The command changed.".into()));
+    assert_eq!(run.message(), "Failed: The command changed.");
+    // The confirm is per command row.
+    run.focus("Lock PC");
+    run.nav(Nav::Accept);
+    run.focus("Desktop pet");
+    assert_eq!(run.nav(Nav::Accept), None);
+    // Without commands there are no rows.
+    let run = Run::new(snapshot());
+    assert!(!run.text().iter().any(|line| line.ends_with("Run")));
 }

@@ -196,6 +196,82 @@ impl Drop for StateCommands {
     }
 }
 
+/// A stream-menu command to start: the command line, as administrator or not,
+/// and its environment (empty for host-wide commands, which run as before with
+/// the signed-in user's).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MenuRun {
+    pub cmd: String,
+    pub elevated: bool,
+    pub environment: BTreeMap<String, String>,
+    /// The app's working folder; empty for host-wide commands.
+    pub working: String,
+}
+impl MenuRun {
+    pub fn start(&self) -> Result<()> {
+        Process::shell_detached(
+            &self.cmd,
+            directory(&self.working),
+            self.elevated,
+            &self.environment,
+        )
+    }
+}
+
+/// The PC commands a device with the PC commands permission sees, in index
+/// order: the host-wide `server_cmd` ones (unless the running app hides them),
+/// then the running app's own (`menu-cmd`) while it allows device commands.
+pub fn pc_command_names(h: &crate::state::Shared) -> Vec<String> {
+    let global =
+        butterpollo_core::menu_commands::global(h.config.read().unwrap().get("server_cmd", "[]"));
+    let app = h.current_app.lock().unwrap();
+    let (own, exclude) = app
+        .as_ref()
+        .filter(|app| app.allow_client_commands)
+        .map_or((&[][..], false), |app| {
+            (&app.menu_commands[..], app.exclude_global_menu)
+        });
+    butterpollo_core::menu_commands::listed(&global, own, exclude)
+        .into_iter()
+        .map(|(_, command)| command.name.clone())
+        .collect()
+}
+
+/// PC command `index` of [`pc_command_names`], ready to start; an app command
+/// is recorded for its undo. None when the running app turned device commands
+/// off, the index is out of range, the command is empty, or `expect` names
+/// another command (the list changed since the device read it). The caller
+/// checks the device's permission.
+pub fn pc_command(h: &crate::state::Shared, index: usize, expect: Option<&str>) -> Option<MenuRun> {
+    use butterpollo_core::menu_commands::{self, Source};
+    let global = menu_commands::global(h.config.read().unwrap().get("server_cmd", "[]"));
+    let mut app = h.current_app.lock().unwrap();
+    if app.as_ref().is_some_and(|app| !app.allow_client_commands) {
+        return None;
+    }
+    let source = {
+        let (own, exclude) = app.as_ref().map_or((&[][..], false), |app| {
+            (&app.menu_commands[..], app.exclude_global_menu)
+        });
+        let (source, command) = *menu_commands::listed(&global, own, exclude).get(index)?;
+        if expect.is_some_and(|name| name != command.name) {
+            return None;
+        }
+        source
+    };
+    match source {
+        Source::Global(index) => {
+            let command = &global[index];
+            (!command.cmd.is_empty()).then(|| MenuRun {
+                cmd: command.cmd.clone(),
+                elevated: command.elevated,
+                ..Default::default()
+            })
+        }
+        Source::App(index) => app.as_mut()?.menu_command(index),
+    }
+}
+
 pub struct RunningApp {
     pub id: u32,
     pub name: String,
@@ -216,6 +292,12 @@ pub struct RunningApp {
     wait_all: bool,
     detached: bool,
     pub allow_client_commands: bool,
+    /// The app's own stream-menu commands (`menu-cmd`), listed after the host-wide
+    /// `server_cmd` ones, and whether the app hides those (`exclude-global-menu-cmd`).
+    pub menu_commands: Vec<butterpollo_core::menu_commands::MenuCommand>,
+    pub exclude_global_menu: bool,
+    /// The app's menu commands that ran, undone when the app stops.
+    menu_undo: butterpollo_core::menu_commands::UndoLog,
     terminate_on_pause: bool,
     connected: bool,
     state_events: Option<StateCommands>,
@@ -388,6 +470,17 @@ impl RunningApp {
             wait_all: app_bool(app, "wait-all", true),
             detached: false,
             allow_client_commands: app_bool(app, "allow-client-commands", true),
+            menu_commands: app
+                .extra
+                .get(butterpollo_core::menu_commands::APP_KEY)
+                .map(|list| butterpollo_core::menu_commands::entries(list, true))
+                .unwrap_or_default(),
+            exclude_global_menu: app_bool(
+                app,
+                butterpollo_core::menu_commands::EXCLUDE_GLOBAL_KEY,
+                false,
+            ),
+            menu_undo: Default::default(),
             terminate_on_pause: app_bool(app, "terminate-on-pause", false),
             connected: false,
             state_events: None,
@@ -657,6 +750,31 @@ impl RunningApp {
             tracing::warn!(%error, "application could not exit gracefully");
             let _ = child.stop();
         }
+        // Menu commands ran after the preparation, so they are undone before it.
+        for index in self.menu_undo.take() {
+            let Some(command) = self.menu_commands.get(index) else {
+                continue;
+            };
+            match expand(&command.undo, &self.environment)
+                .and_then(|undo| {
+                    Process::shell(
+                        &undo,
+                        directory(&self.working),
+                        command.elevated,
+                        &self.environment,
+                    )
+                })
+                .and_then(|p| p.wait(Duration::from_secs(20)))
+            {
+                Ok(0) => {}
+                Ok(code) => {
+                    tracing::warn!(code, command = %command.name, "menu command undo failed")
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, command = %command.name, "menu command undo failed")
+                }
+            }
+        }
         for prep in self.undo.drain(..).rev() {
             if !prep.undo.is_empty() {
                 match Process::shell(
@@ -676,6 +794,30 @@ impl RunningApp {
         // The game is closed: its settings files become the device's copies and the PC's own
         // go back.
         drop(self.settings_swap.take());
+    }
+    /// App menu command `index`, ready to start with the app's environment, and
+    /// recorded so its undo runs when the app stops. None for an index the app
+    /// does not have, an empty command, or one whose variables cannot be expanded.
+    pub fn menu_command(&mut self, index: usize) -> Option<MenuRun> {
+        let command = self.menu_commands.get(index)?;
+        if command.cmd.trim().is_empty() {
+            return None;
+        }
+        let cmd = match expand(&command.cmd, &self.environment) {
+            Ok(cmd) => cmd,
+            Err(error) => {
+                tracing::warn!(%error, command = %command.name, "menu command not run");
+                return None;
+            }
+        };
+        let run = MenuRun {
+            cmd,
+            elevated: command.elevated,
+            environment: self.environment.clone(),
+            working: self.working.clone(),
+        };
+        self.menu_undo.record(index, command);
+        Some(run)
     }
     /// The deferred app, once a user has signed in (checked once a second).
     pub fn take_ready_deferred(&mut self) -> Option<(App, HashMap<String, String>)> {

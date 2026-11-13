@@ -3,6 +3,7 @@
 import type { App, PrepCommand } from '../../lib/api';
 import { GAME_FILES_KEY, gameFileEntries, gameFileRows, gameFilesError, type GameFileRow } from './gamefiles';
 import { PROFILE_KEY, SETTINGS_KEY, profileError, profileOf, rowsOf, settingsOf, type SettingRow } from './radeon';
+import { MENU_KEY, menuEntries, menuError, menuRows, type MenuRow } from './menucommands';
 import { SETTINGS_FILES_KEY, settingsFilePaths, settingsFilesError, storedSettingsFiles } from './settingsfiles';
 
 export interface PrepRow extends PrepCommand {
@@ -31,6 +32,8 @@ export const FLAGS = {
   'allow-client-commands': true,
   'exclude-global-state-cmd': false,
   'exclude-global-prep-cmd': false,
+  /** Hide the host-wide PC commands while the app runs. */
+  'exclude-global-menu-cmd': false,
   'virtual-display': false,
   'virtual-display-primary': false,
   'use-app-identity': false,
@@ -137,8 +140,12 @@ function assemble(
   files: GameFileRow[],
   deviceFiles: Record<string, GameFileRow[]>,
   settingsFiles: TextRow[],
+  menu: MenuRow[],
 ): App {
   const record: App = { ...app };
+  const menuCommands = menuEntries(menu);
+  if (menuCommands.length) record[MENU_KEY] = menuCommands;
+  else delete record[MENU_KEY];
   const swapped = settingsFilePaths(settingsFiles.map((row) => row.value));
   if (swapped.length) record[SETTINGS_FILES_KEY] = swapped;
   else delete record[SETTINGS_FILES_KEY];
@@ -192,6 +199,7 @@ function normalise(source: App): App {
     gameFileRows(copy[GAME_FILES_KEY]),
     deviceFileRows(copy),
     storedSettingsFiles(copy[SETTINGS_FILES_KEY]).map((path) => textRow(path)),
+    menuRows(copy[MENU_KEY]),
   );
 }
 
@@ -215,6 +223,8 @@ export class AppDraft {
   deviceFiles = $state<Record<string, GameFileRow[]>>({});
   /** The game settings files swapped per device. */
   settingsFiles = $state<TextRow[]>([]);
+  /** The app's own stream-menu commands. */
+  menu = $state<MenuRow[]>([]);
   #saved = $state.raw<App>(blankApp());
   #baseline = $state('');
 
@@ -224,6 +234,8 @@ export class AppDraft {
   readonly filesError = $derived(gameFilesError(this.files));
   /** Why the game settings files cannot be saved, or ''. */
   readonly settingsFilesError = $derived(settingsFilesError(this.settingsFiles.map((row) => row.value)));
+  /** Why the menu commands cannot be saved, or ''. */
+  readonly menuError = $derived(menuError(this.menu));
   /** Why a device's settings cannot be saved, or ''. */
   readonly devicesError = $derived(
     this.devices()
@@ -237,6 +249,7 @@ export class AppDraft {
       this.radeonError !== '' ||
       this.filesError !== '' ||
       this.settingsFilesError !== '' ||
+      this.menuError !== '' ||
       this.devicesError !== '' ||
       Object.keys(NUMBERS).some((key) => this.numberError(key as NumberKey) !== ''),
   );
@@ -260,6 +273,7 @@ export class AppDraft {
     this.files = gameFileRows(copy[GAME_FILES_KEY]);
     this.deviceFiles = deviceFileRows(copy);
     this.settingsFiles = storedSettingsFiles(copy[SETTINGS_FILES_KEY]).map((path) => textRow(path));
+    this.menu = menuRows(copy[MENU_KEY]);
     this.#baseline = stable(normalise(copy));
   }
 
@@ -285,6 +299,7 @@ export class AppDraft {
       $state.snapshot(this.files) as GameFileRow[],
       $state.snapshot(this.deviceFiles) as Record<string, GameFileRow[]>,
       $state.snapshot(this.settingsFiles) as TextRow[],
+      $state.snapshot(this.menu) as MenuRow[],
     );
   }
 

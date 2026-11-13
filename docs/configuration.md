@@ -586,9 +586,30 @@ The keyboard chords leave out Ctrl+Alt+Shift, which Moonlight keeps for its shor
 
 `couch_menu_open_with` and the four chord and hold settings can be set per device or app in their overrides, so a phone can open the menu by touch and a TV only by controller. A value the host refuses to save is refused with a message; one edited into the file by hand is reported in the host log and its default is used.
 
-The menu offers Back to game, Disconnect (the game keeps running), End session and Close game. Each runs with the device's permissions as the console has them then, the same checks as the native API's session actions; End session and Close game ask for a second press within 5 s. While the menu is open the game gets no input, and everything the pad, keyboard, mouse and touch held is released when it opens. B or Esc on the top page, the chord again, a tap outside the panel or Back to game close it. Nightjar and other native clients open and close it with `POST /api/native/v1/session/couch-menu` when the host lists `session.couch_menu`.
+The menu offers Back to game, the [PC commands](#stream-menu-commands) the device may run, Disconnect (the game keeps running), End session and Close game. Each runs with the device's permissions as the console has them then, the same checks as the native API's session actions; End session, Close game and every PC command ask for a second press within 5 s. While the menu is open the game gets no input, and everything the pad, keyboard, mouse and touch held is released when it opens. B or Esc on the top page, the chord again, a tap outside the panel or Back to game close it. Nightjar and other native clients open and close it with `POST /api/native/v1/session/couch-menu` when the host lists `session.couch_menu`.
 
 Input-only sessions and the read-back encode path (`wgc_direct_encoder_input = false`) have no picture the host draws on, so the menu stays closed there and the host log says why; so does a stream too small for the panel.
+
+## Stream menu commands
+
+A device with the **PC commands** permission (**Devices** → device → **Permissions**) lists commands it can run on this PC from its stream menu: Nightjar's **PC commands**, Artemis's server commands, and the rows above Disconnect in the [couch menu](#couch-menu). The list has two parts, in this order:
+
+1. **PC commands from Settings** (`server_cmd`, under **Settings → Games → Commands from devices**): available in every app.
+2. **The running app's own commands** (`menu-cmd`, the app's **Stream menu commands** panel): listed only while that app runs. Each has a name, a command line, an optional **undo** and **As administrator**. The app's commands run in its working folder with its environment, so they can use the same `$(SUNSHINE_…)` variables as its preparation commands.
+
+An app's **Hide the PC commands from Settings** (`exclude-global-menu-cmd`, default off) lists only its own commands while it runs. An app with **Run devices' connect and disconnect commands** turned off (`allow-client-commands = false`) runs no PC commands at all.
+
+**Undo.** When an app closes (quit from a device, End session, Close game, the game exiting or the host stopping), the undo of each of its menu commands that ran during that run runs once, the most recently run first, before the app's preparation undo commands. A command run twice is undone once. Commands from Settings have no undo: they belong to no app run.
+
+A device runs a command by its place in the list, so a device that read the list before an app started or closed may be asked to reconnect: Nightjar and the couch menu check the name first and refuse a command whose place now holds another. A device may run one command a second. The couch menu asks for a second press within 5 s before it runs one.
+
+The host checks an app's `menu-cmd` when it is saved: a list of at most 64 entries, each with a `name` and a `cmd`, an optional `undo` string and an optional `elevated` boolean. Apps imported from Foundation Sunshine keep their command `id`.
+
+```json
+"menu-cmd": [
+  { "name": "Desktop pet", "cmd": "C:\\Tools\\pet.exe", "undo": "taskkill /im pet.exe", "elevated": false }
+]
+```
 
 ## Close apps on disconnect
 
@@ -1234,7 +1255,7 @@ Every setting in the console, by the console's tabs and groups, with its key and
 | Lossless Scaling: Let Lossless Scaling start by itself | `lossless_scaling_legacy_auto_detect` | `false` | Uses Lossless Scaling’s auto scale for the game instead of pressing its hotkey, and leaves its window open. An app can choose otherwise. |
 | Commands around every app: Preparation commands | `global_prep_cmd` | none | Commands run before every app starts (do) and after it closes (undo). If a do command fails, the app does not start; apps can opt out in their settings. |
 | Commands around every app: Pause and resume commands | `global_state_cmd` | none | Commands run when any app's stream resumes (do) and when it pauses (undo), before the app's own state commands. Apps can opt out in their settings. |
-| Commands from devices: PC commands | `server_cmd` | none | Commands a device can run on this PC from its stream menu, in streaming apps that support it. Only devices with the PC commands permission see them. |
+| Commands from devices: PC commands | `server_cmd` | none | Commands a device can run on this PC from its stream menu, in streaming apps that support it. Only devices with the PC commands permission see them. Apps can add their own commands, with an undo, and hide these ([stream menu commands](#stream-menu-commands)). |
 
 Earlier releases had one Sync automatically (`library_auto_sync`) and one Remove uninstalled games (`library_autosync_remove_uninstalled`) for every launcher. Rubylight gives each launcher and the game folders that value when it loads a configuration that sets them, unless the launcher's own key is set.
 

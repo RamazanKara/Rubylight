@@ -477,21 +477,10 @@ fn serverinfo_response(
         config.virtual_display_mode(windows_11) != "disabled",
     );
     let permission = client.as_ref().map_or(0, |client| client.perm);
-    // Artemis lists these commands; a client runs one by its index.
+    // Artemis lists these commands; a client runs one by its index: the
+    // host-wide ones, then the running app's own (`menu_commands`).
     let commands: Vec<String> = if permission & 0x0010_0000 != 0 {
-        serde_json::from_str::<serde_json::Value>(config.get("server_cmd", "[]"))
-            .ok()
-            .and_then(|v| v.as_array().cloned())
-            .unwrap_or_default()
-            .iter()
-            .map(|command| {
-                command
-                    .get("name")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or_default()
-                    .to_owned()
-            })
-            .collect()
+        crate::process::pc_command_names(h)
     } else {
         Vec::new()
     };

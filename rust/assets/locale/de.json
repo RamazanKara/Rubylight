@@ -1430,6 +1430,7 @@
     "disconnect": "Trennen (Spiel läuft weiter)",
     "end_session": "Sitzung beenden",
     "close_game": "Spiel schließen",
+    "run": "Ausführen",
     "next_stream": "Gilt ab dem nächsten Stream",
     "confirm": "Binnen 5 s erneut drücken",
     "working": "Läuft...",

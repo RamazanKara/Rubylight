@@ -84,6 +84,8 @@ strings! {
     end_session,
     /// "Close game"
     close_game,
+    /// "Run", the value column of a PC command row.
+    run,
     /// "Applies from the next stream"
     next_stream,
     /// "Press again within 5 s to confirm"
@@ -233,6 +235,10 @@ pub struct Snapshot {
     pub preset: Option<Setting>,
     /// Extension rows, in registry order.
     pub items: Vec<Setting>,
+    /// The PC commands the device may run, by name, in the index order the
+    /// device's own stream menu uses (`/serverinfo` `ServerCommand`). Empty
+    /// without the PC commands permission.
+    pub commands: Vec<String>,
 }
 
 /// Where a change goes.
@@ -263,6 +269,11 @@ pub enum Action {
     RestoreRadeon {
         gpu: i32,
     },
+    /// Runs PC command `index`, which was named `name` when it was confirmed.
+    RunCommand {
+        index: usize,
+        name: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -278,6 +289,7 @@ enum RowId {
     Radeon,
     Preset,
     Item(String),
+    Command(usize),
     Disconnect,
     End,
     CloseGame,
@@ -540,13 +552,17 @@ impl State {
                 None
             }
             RowId::Disconnect => Some(Action::Disconnect),
-            RowId::End | RowId::CloseGame => {
+            RowId::End | RowId::CloseGame | RowId::Command(_) => {
                 if let Some((id, armed)) = &self.confirm
                     && *id == row.id
                     && now < *armed + CONFIRM
                 {
                     return Some(match row.id {
                         RowId::End => Action::EndSession,
+                        RowId::Command(index) => Action::RunCommand {
+                            index,
+                            name: row.label.to_owned(),
+                        },
                         _ => Action::CloseGame,
                     });
                 }
@@ -621,6 +637,9 @@ fn rows<'a>(s: &'a Strings, page: Page, snap: &'a Snapshot) -> Vec<Row<'a>> {
             for item in snap.items.iter().filter(shown) {
                 rows.push(setting(RowId::Item(item.id.clone()), item));
             }
+            for (index, name) in snap.commands.iter().enumerate() {
+                rows.push(plain(RowId::Command(index), name));
+            }
             rows.push(plain(RowId::Disconnect, &s.disconnect));
             rows.push(plain(RowId::End, &s.end_session));
             rows.push(Row {
@@ -666,6 +685,7 @@ fn lines(s: &Strings, state: &State, snap: &Snapshot, rows: &[Row]) -> Vec<Line>
                 }
                 // The page link ("Radeon settings ▸" in the design, Latin-1 here).
                 None if row.id == RowId::Radeon => ">".into(),
+                None if matches!(row.id, RowId::Command(_)) => s.run.clone(),
                 None => String::new(),
             }
         };

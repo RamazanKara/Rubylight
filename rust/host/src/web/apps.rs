@@ -32,6 +32,10 @@ pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyh
             // A Radeon profile the host cannot read is an error here, not a game that starts
             // without it.
             butterpollo_core::radeon_profile::check(&app.extra)?;
+            butterpollo_core::menu_commands::check_app(
+                app.extra.get(butterpollo_core::menu_commands::APP_KEY),
+            )
+            .map_err(anyhow::Error::msg)?;
             butterpollo_core::device_overrides::check(&app.extra)?;
             crate::game_files::check(&app)?;
             butterpollo_core::game_settings::paths(&app.extra)?;

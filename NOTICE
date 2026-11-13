@@ -55,6 +55,9 @@ follow Foundation Sunshine's src/nvenc/. Its native YUV 4:4:4 path for NVENC (co
 79423092eda6ccd011e58d04236c8f16e02765c5, src/nvenc/common_impl/ and the
 convert_yuv444_* shaders) was compared with LizardByte Sunshine's, where that path
 originates and from which Rubylight's is ported (see LizardByte Sunshine below).
+Per-app stream-menu commands (the app key menu-cmd with name, cmd and elevated,
+rust/core/src/menu_commands.rs) follow Foundation Sunshine's menu commands
+(src/process.cpp, src/nvhttp/apps.cpp); the undo is Rubylight's.
 Copyright (c) Foundation Sunshine authors, GPL-3.0.
 
 LizardByte Sunshine

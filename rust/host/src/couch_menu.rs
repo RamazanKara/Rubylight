@@ -450,6 +450,26 @@ fn act(h: &Shared, s: &Session, action: &Action) -> Result<(), Failure> {
             }
             item.set(h, s, &client, change.value.clone())
         }
+        Action::RunCommand { index, name } => {
+            // The PC commands permission, as for the device's own stream menu.
+            if !client(h, s)?.allows(1 << 20) {
+                return Err(Failure::new(
+                    ErrorCode::PermissionRequired,
+                    "This device may not run PC commands.",
+                ));
+            }
+            let run =
+                crate::process::pc_command(h, *index, Some(name.as_str())).ok_or_else(|| {
+                    Failure::new(
+                        ErrorCode::InvalidRequest,
+                        "The command changed or this game turned PC commands off.",
+                    )
+                })?;
+            run.start().map_err(|error| {
+                tracing::warn!(%error, command = %name, "couch menu PC command failed");
+                Failure::new(ErrorCode::Internal, "The command could not be started.")
+            })
+        }
         Action::Change { .. } | Action::RestoreRadeon { .. } => Err(Failure::new(
             ErrorCode::TemporarilyUnavailable,
             "Graphics card settings are not in this menu.",
@@ -469,8 +489,16 @@ fn codec(codec: u32) -> &'static str {
 
 /// The main page's status line and the registered rows that apply.
 fn snapshot(h: &Shared, s: &Session, registry: &[&dyn items::Item], locale: &str) -> Snapshot {
-    let host_control =
-        client(h, s).is_ok_and(|client| butterpollo_core::native::host_control(&client));
+    let device = client(h, s).ok();
+    let host_control = device
+        .as_ref()
+        .is_some_and(butterpollo_core::native::host_control);
+    // The same list, in the same order, the device's own stream menu shows.
+    let commands = if device.as_ref().is_some_and(|client| client.allows(1 << 20)) {
+        crate::process::pc_command_names(h)
+    } else {
+        Vec::new()
+    };
     let items = registry
         .iter()
         .filter_map(|item| {
@@ -497,6 +525,7 @@ fn snapshot(h: &Shared, s: &Session, registry: &[&dyn items::Item], locale: &str
         radeon: None,
         preset: None,
         items,
+        commands,
     }
 }
 

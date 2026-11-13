@@ -13,6 +13,7 @@
   import DisplaySettings from './DisplaySettings.svelte';
   import NumberField from './NumberField.svelte';
   import PrepCommands from './PrepCommands.svelte';
+  import MenuCommands from './MenuCommands.svelte';
   import VideoSettings from './VideoSettings.svelte';
   import LosslessSettings from './LosslessSettings.svelte';
   import RadeonSettings from './RadeonSettings.svelte';
@@ -301,6 +302,26 @@
           hint="The ones set in Settings."
           bind:checked={() => draft.flag('exclude-global-prep-cmd'),
           (value) => draft.setFlag('exclude-global-prep-cmd', value)}
+        />
+      </div>
+    </Panel>
+
+    <Panel
+      collapsible
+      title="Stream menu commands"
+      description="Commands devices can run on this PC from their stream menu and the host menu while this app runs. Each undo runs when the app closes, if its command ran."
+    >
+      <div class="prep">
+        <MenuCommands id="{uid}-menu" bind:rows={draft.menu} error={draft.menuError} />
+        <p class="note">
+          Only devices with the PC commands permission see them, after the PC commands set in Settings.
+          Commands can use the same <code>$(SUNSHINE_…)</code> variables as preparation commands.
+        </p>
+        <Toggle
+          label="Hide the PC commands from Settings"
+          hint="While this app runs, devices see only its own commands."
+          bind:checked={() => draft.flag('exclude-global-menu-cmd'),
+          (value) => draft.setFlag('exclude-global-menu-cmd', value)}
         />
       </div>
     </Panel>

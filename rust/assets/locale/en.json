@@ -1507,6 +1507,7 @@
     "disconnect": "Disconnect (game keeps running)",
     "end_session": "End session",
     "close_game": "Close game",
+    "run": "Run",
     "next_stream": "Applies from the next stream",
     "confirm": "Press again within 5 s to confirm",
     "working": "Working...",

@@ -8,7 +8,7 @@ pub(super) fn server_command(
     payload: &[u8],
     authenticated: bool,
     command_at: &mut Option<Instant>,
-) -> Option<(String, bool)> {
+) -> Option<crate::process::MenuRun> {
     // Legacy plaintext control is not proof that the sender owns the stream key.
     if !authenticated || !client.allows(1 << 20) || payload.len() != 1 {
         return None;
@@ -23,16 +23,7 @@ pub(super) fn server_command(
         return None;
     }
     *command_at = Some(Instant::now());
-    let commands: serde_json::Value =
-        serde_json::from_str(h.config.read().unwrap().get("server_cmd", "[]")).unwrap_or_default();
-    let command = commands.as_array()?.get(payload[0] as usize)?;
-    Some((
-        command.get("cmd")?.as_str()?.to_owned(),
-        command
-            .get("elevated")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false),
-    ))
+    crate::process::pc_command(h, payload[0] as usize, None)
 }
 
 /// Expire controller sessions once a second (`last` is the last time). Input
@@ -289,20 +280,15 @@ impl Media {
         let _com = ComGuard::new()?;
         let mut priority = None;
         let (commands, pending_commands) =
-            std::sync::mpsc::sync_channel::<(Arc<Session>, String, bool)>(32);
+            std::sync::mpsc::sync_channel::<(Arc<Session>, crate::process::MenuRun)>(32);
         thread::Builder::new()
             .name("server commands".into())
             .spawn(move || {
-                for (session, value, elevated) in pending_commands {
+                for (session, run) in pending_commands {
                     if session.stopping() {
                         continue;
                     }
-                    if let Err(error) = butterpollo_windows::process::Process::shell_detached(
-                        &value,
-                        None,
-                        elevated,
-                        &Default::default(),
-                    ) {
+                    if let Err(error) = run.start() {
                         tracing::warn!(%error, "configured server command failed");
                     }
                 }
@@ -596,13 +582,13 @@ impl Media {
                                 }
                             }
                             0x3000 => {
-                                if let Some((value, elevated)) = server_command(
+                                if let Some(run) = server_command(
                                     &h,
                                     &s.launch.client,
                                     &payload,
                                     encrypted,
                                     &mut p.command_at,
-                                ) && let Err(e) = commands.try_send((s.clone(), value, elevated))
+                                ) && let Err(e) = commands.try_send((s.clone(), run))
                                 {
                                     tracing::warn!(error=%e, "configured server command failed");
                                 }

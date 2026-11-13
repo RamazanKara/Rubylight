@@ -84,6 +84,7 @@ pub mod log_analysis;
 pub mod logfile;
 pub mod lossless;
 pub mod ltr;
+pub mod menu_commands;
 pub mod mic;
 pub mod migration;
 pub mod native;

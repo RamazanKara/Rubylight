@@ -2044,16 +2044,17 @@ mod tests {
 
     #[test]
     fn only_8_bit_4_2_0_unpacked_streams_go_to_an_importing_presenter_as_dmabufs() {
-        use nightjar_core::sdp::{VIDEO_FORMAT_H264, VIDEO_FORMAT_MASK_10BIT};
+        // HEVC Main10 is 10-bit 4:2:0: VIDEO_FORMAT_MASK_10BIT also holds the 10-bit 4:4:4 bits.
+        use nightjar_core::sdp::{VIDEO_FORMAT_H264, VIDEO_FORMAT_H265_MAIN10};
         let setup = VideoSetup { format: VIDEO_FORMAT_H264, width: 1920, height: 1080, fps: 60, chroma_packing: 0, logical_width: 1920, logical_height: 1080, color_space: 1, color_range: 0 };
         assert!(exports_dmabuf(true, false, &setup));
         assert!(!exports_dmabuf(false, false, &setup), "a presenter that does not import gets mappings");
-        assert!(!exports_dmabuf(true, false, &VideoSetup { format: VIDEO_FORMAT_H264 | VIDEO_FORMAT_MASK_10BIT, ..setup }), "SDL's GL renderers have no P010 texture");
+        assert!(!exports_dmabuf(true, false, &VideoSetup { format: VIDEO_FORMAT_H265_MAIN10, ..setup }), "SDL's GL renderers have no P010 texture");
         assert!(!exports_dmabuf(true, false, &VideoSetup { format: VIDEO_FORMAT_H264 | VIDEO_FORMAT_MASK_YUV444, ..setup }));
         assert!(!exports_dmabuf(true, false, &VideoSetup { chroma_packing: 1, ..setup }), "packed pictures are rebuilt from memory");
         // A display plane takes the pictures as they are, P010 too, but not 4:4:4 or packed ones.
         assert!(exports_dmabuf(false, true, &setup));
-        assert!(exports_dmabuf(false, true, &VideoSetup { format: VIDEO_FORMAT_H264 | VIDEO_FORMAT_MASK_10BIT, ..setup }));
+        assert!(exports_dmabuf(false, true, &VideoSetup { format: VIDEO_FORMAT_H265_MAIN10, ..setup }));
         assert!(!exports_dmabuf(true, true, &VideoSetup { format: VIDEO_FORMAT_H264 | VIDEO_FORMAT_MASK_YUV444, ..setup }));
         assert!(!exports_dmabuf(false, true, &VideoSetup { chroma_packing: 1, ..setup }));
         // A software decoder asked for DMA-BUFs decodes as before.

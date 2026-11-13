@@ -137,7 +137,7 @@ export function categoriesOf(setting: { category: CategoryId }): { id: string; l
  * which start folded, come last, Debug switches at the very end.
  */
 const GROUP_ORDER: Record<TabId, readonly string[]> = {
-  pc: ['Name and language', 'Updates', 'Sleep and wake', 'Tray', 'Hardware metrics'],
+  pc: ['Name and language', 'Updates', 'Sleep and wake', 'Privacy', 'Tray', 'Hardware metrics'],
   picture: [
     'Preset', 'Streamed display', 'Resolution and refresh rate', 'HDR', 'Codecs', 'Bitrate and network',
     'Frame pacing', 'Frame limiter', 'Encoder', 'Capture', 'After a stream', 'Remote monitors',

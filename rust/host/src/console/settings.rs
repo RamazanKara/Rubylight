@@ -229,6 +229,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "csrf_allowed_origins", "Additional trusted administration origins", Json;
         "session_token_ttl_seconds", "Sign-in session lifetime (seconds)", Number;
         "remember_me_refresh_token_ttl_seconds", "Remembered browser lifetime (seconds)", Number;
+        "lock_on_last_disconnect", "Lock Windows when the last device leaves", Bool;
         "system_tray", "Show system tray icon", Bool;
         "hide_tray_controls", "Hide tray shutdown controls", Bool;
         "min_log_level", "Log level (0 verbose, 1 debug, 2 info, 3 warning, 4 error, 6 off)", Number;

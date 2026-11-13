@@ -415,6 +415,7 @@ pub async fn maintain(
     let mut library_tick_watch = LibraryTickWatch::default();
     let mut hotkey = RestoreHotkey::default();
     let mut tray = butterpollo_core::tray::Tracker::default();
+    let mut auto_lock = crate::auto_lock::Watch::default();
     let mut housekeeping: Option<tokio::task::JoinHandle<()>> = None;
     let ticking = Arc::new(AtomicBool::new(false));
     // An idle loop sleeps until its next timer. A launch or stream (`Sessions::with_waker`), an
@@ -487,6 +488,7 @@ pub async fn maintain(
             }
         }
         crate::updater::poll(&h);
+        auto_lock.poll(&h);
         start_deferred(&h);
         if actions.is_some() {
             show_app(&h, &mut tray);
@@ -513,7 +515,10 @@ pub async fn maintain(
             .then(butterpollo_windows::tray::notices_due)
             .flatten();
         let timers = [update_at, launcher_at, wake_at, steam_at];
-        let at = idle_until(Instant::now(), timers.into_iter().chain(notices));
+        let at = idle_until(
+            Instant::now(),
+            timers.into_iter().chain(notices).chain(auto_lock.due()),
+        );
         tokio::select! {
             () = tokio::time::sleep_until(at.into()) => {}
             () = wake.notified() => {}

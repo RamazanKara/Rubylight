@@ -152,6 +152,7 @@ Each default below is what a fresh install uses, checked against the host code. 
 | Steam library — `steam_enabled` | `true` | Steam games appear with their covers. Every other launcher you install adds its games the same way. |
 | Co-op players — `nucleus_coop_players` | `4` | The game's handler and the free controller slots can allow fewer. |
 | Sleep after idle — `sleep_after_idle_minutes` | `0` (off) | The PC sleeps only when you ask it to. |
+| Lock Windows when the last device leaves — `lock_on_last_disconnect` | `false` | Locking changes what you find at the PC after a stream, so it waits for you to ask, as in Parsec and Apollo. |
 | Check for updates — `update_check_interval` | `86400` seconds | Once a day. |
 | Update check time — `update_check_time` | empty | The interval decides when the host checks, not a time of day. |
 | Install updates automatically — `auto_update` | `false` | You are told about an update and install it when you choose. |
@@ -907,6 +908,15 @@ A paired client such as [Nightjar](https://github.com/RamazanKara/nightjar) uses
 
 **Sleep after idle** (`sleep_after_idle_minutes`, under **All settings → This PC → Sleep and wake**, default `0`, off) puts the PC to sleep when nobody has streamed or used it for that many minutes, 5 to 1440. **Sleep with a suspended stream** (`sleep_while_suspended`, default `false`) also lets it sleep while a stream is suspended or an app launched from a device still runs. A paired device can wake the PC again with Wake-on-LAN; [Privacy](privacy.md#your-own-devices) lists what it reads for that.
 
+### Lock Windows when the last device leaves
+
+**Lock Windows when the last device leaves** (`lock_on_last_disconnect`, under **All settings → This PC → Privacy**, default `false`) locks the signed-in Windows session once no device has been connected for 10 seconds: no stream, launch, browser stream or controller session. The PC is then not left signed in for whoever sits at it, as with Parsec's privacy mode.
+
+- It never locks during a stream. A device that moves the stream with **Continue here**, roams or reconnects within the 10 seconds keeps the PC unlocked, and the host checks again right before it locks.
+- It locks once each time the last device leaves, and only after a device was connected: starting the host or turning the setting on locks nothing.
+- The lock runs as the signed-in user in their session (`LockWorkStation`). With nobody signed in there is nothing to lock.
+- To get back in, start a stream: the lock screen streams like the desktop, so the device unlocks the PC with the Windows password or PIN ([Features](features.md#capture)). Signing in at the PC works as always. A game left running keeps running behind the lock screen.
+
 ### Session actions
 
 A session has a state the host keeps: idle, preparing, launching, streaming, suspended or stopping. A client with the right permissions can end it in three ways:
@@ -1027,6 +1037,7 @@ Every setting in the console, by the console's tabs and groups, with its key and
 | Updates: Include pre-releases | `notify_pre_releases` | `false` | Also offer pre-release versions when checking for updates. They get fixes sooner but may have more bugs. |
 | Sleep and wake: Sleep after idle | `sleep_after_idle_minutes` | `0` min | Put this PC to sleep when nobody has streamed or used it for this many minutes. 0 turns it off. |
 | Sleep and wake: Sleep with a suspended stream | `sleep_while_suspended` | `false` | Let the PC sleep after idle while a stream is suspended or an app launched from a device is still running. |
+| Privacy: Lock Windows when the last device leaves | `lock_on_last_disconnect` | `false` | Lock this PC when no device has streamed to it for 10 seconds, so it is not left signed in for whoever sits at it. |
 | Tray: Tray icon | `system_tray` | `true` | Show a Rubylight icon in the Windows notification area, with a shortcut to this console. |
 | Tray: Hide tray controls | `hide_tray_controls` | `false` | Remove the disconnect, restart and quit actions from the tray icon's menu, so people at the PC cannot stop Rubylight from there. |
 | Hardware metrics: Send hardware metrics to client | `hardware_metrics` | `true` | Share supported CPU and GPU readings when a compatible client requests them during a stream. Unavailable readings are omitted. |

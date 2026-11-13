@@ -29,6 +29,7 @@ pub mod audio_haptics;
 pub mod audio_passthrough;
 pub mod audio_scope;
 pub mod auth;
+pub mod auto_lock;
 pub mod background;
 pub mod bandwidth_probe;
 pub mod bitstream;

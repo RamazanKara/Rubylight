@@ -195,6 +195,18 @@ const general: Setting[] = [
     visibleWhen: (values) => Number(values.sleep_after_idle_minutes ?? 0) > 0,
   },
   {
+    key: 'lock_on_last_disconnect',
+    label: 'Lock Windows when the last device leaves',
+    description:
+      'Lock this PC when no device has streamed to it for 10 seconds, so it is not left signed in for whoever sits at it.',
+    details:
+      'Never during a stream: a device that moves the stream with Continue here or reconnects within 10 seconds keeps the PC unlocked. Unlock it from the next stream, where the lock screen streams like the desktop, or at the PC.',
+    category: 'general',
+    group: 'Privacy',
+    control: { kind: 'toggle' },
+    default: false,
+  },
+  {
     key: 'min_log_level',
     label: 'Log level',
     description:

@@ -56,6 +56,8 @@ test('settings that moved sit where people look for them', () => {
   const at = (key) => [settingsGroup(settings.get(key).category), settings.get(key).group];
   assert.deepEqual(at('enable_pairing'), ['network', 'Pairing']);
   assert.deepEqual(at('sleep_after_idle_minutes'), ['pc', 'Sleep and wake']);
+  assert.deepEqual(at('lock_on_last_disconnect'), ['pc', 'Privacy']);
+  assert.equal(settings.get('lock_on_last_disconnect').default, false);
   assert.deepEqual(at('min_log_level'), ['advanced', 'Logging']);
   assert.equal(at('usb_forwarding')[0], 'sound');
   assert.equal(at('clipboard_image')[0], 'network');

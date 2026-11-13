@@ -1,3 +1,4 @@
+mod auto_lock;
 mod child_session;
 mod console;
 mod continue_here;

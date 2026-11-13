@@ -296,6 +296,12 @@ struct ComputeInput {
     context: gpu::D3d12Context,
 }
 impl Encoder {
+    /// AMF's video converter refused a long run of frames for a lasting reason
+    /// (`plan::GIVE_WAY_AFTER`): an encoder without it, converting on the compute queue,
+    /// serves this stream better.
+    pub fn vpe_gave_way(&self) -> bool {
+        self.vpe.as_ref().is_some_and(|vpe| vpe.gave_way)
+    }
     /// Start recording every output unit (see [`OutputUnit`]). With slice or
     /// tile output, `poll` then keeps a frame in flight until its last unit.
     pub fn record_units(&mut self) {

@@ -57,6 +57,10 @@ pub(crate) struct Vpe {
     reported: Instant,
     /// The last frame refusal logged, so each new one is said once.
     refused: Option<Refusal>,
+    /// Frames in a row refused for a lasting reason, and whether that run reached
+    /// [`plan::GIVE_WAY_AFTER`]: the stream then drops the converter for the compute queue.
+    run: plan::RefusalRun,
+    pub(crate) gave_way: bool,
     index: i64,
 }
 // SAFETY: The component and context are used only from the encoder's thread,
@@ -170,6 +174,8 @@ impl Vpe {
             acceleration: plan::vui::ACCELERATION_VPE_PREFERRED,
             reported: Instant::now(),
             refused: None,
+            run: Default::default(),
+            gave_way: false,
             index: 0,
         };
         vpe.engine = vpe.engine_available();
@@ -339,6 +345,14 @@ impl Vpe {
                 tracing::info!("AMF video converter: converting frames again");
             }
             _ => {}
+        }
+        if !self.gave_way && self.run.observe(planned.as_ref().err().copied()) {
+            self.gave_way = true;
+            tracing::info!(
+                reason = self.refused.map_or("", Refusal::code),
+                frames = plan::GIVE_WAY_AFTER,
+                "AMF video converter refused every frame for a lasting reason; the stream converts on the compute queue instead"
+            );
         }
         planned
     }

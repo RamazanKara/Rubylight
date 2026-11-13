@@ -430,6 +430,14 @@ impl Encoder {
             Self::Pyrowave(e) => e.encode_gpu(image, idr, bitrate),
         }
     }
+    /// AMF's video converter (`amd_vpe`) gave way: rebuild without it, so conversion can
+    /// return to the compute queue.
+    pub fn converter_gave_way(&self) -> bool {
+        match self {
+            Self::Amf(e) => e.vpe_gave_way(),
+            Self::Nvenc(_) | Self::Pyrowave(_) => false,
+        }
+    }
     pub fn accepts_gpu_device(&self, image: &GpuImage) -> bool {
         match self {
             Self::Amf(e) => e.accepts_gpu_device(image),

@@ -110,6 +110,37 @@ impl Refusal {
     pub fn whole_stream(self) -> bool {
         matches!(self, Self::Yuv444 | Self::PackedChroma | Self::Size)
     }
+    /// Whether the refusal lasts while the desktop stays as it is (an SDR desktop on an HDR
+    /// stream, a brightness scale), unlike the pointer or the menu, which come and go.
+    pub fn lasting(self) -> bool {
+        self.whole_stream()
+            || matches!(
+                self,
+                Self::SdrSourceOnHdrStream | Self::HdrSourceOnSdrStream | Self::LuminanceScale
+            )
+    }
+}
+
+/// Frames in a row the converter may refuse for a lasting reason before the stream gives it
+/// up: while it is on, colour conversion stays off the compute queue (about 0.14 ms a frame
+/// beside a busy game) for frames the shaders convert anyway.
+pub const GIVE_WAY_AFTER: u32 = 300;
+
+/// Counts the frames in a row refused for a lasting reason ([`Refusal::lasting`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RefusalRun {
+    frames: u32,
+}
+impl RefusalRun {
+    /// One frame's plan: its refusal, None when the converter took it. True once
+    /// [`GIVE_WAY_AFTER`] frames in a row were refused for a lasting reason.
+    pub fn observe(&mut self, refusal: Option<Refusal>) -> bool {
+        self.frames = match refusal {
+            Some(refusal) if refusal.lasting() => self.frames.saturating_add(1),
+            _ => 0,
+        };
+        self.frames >= GIVE_WAY_AFTER
+    }
 }
 
 /// AMF's surface formats, as `AMF_SURFACE_FORMAT` numbers them (Surface.h).

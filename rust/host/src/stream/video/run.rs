@@ -95,6 +95,9 @@ impl SessionThread<'_> {
         };
         // Separate encoder failures in this session, each counted once.
         let (mut failures, mut counted_failure) = (0u32, None);
+        // AMF's video converter refused a long run of frames for a lasting reason: the rest of
+        // the session encodes without it, converting on the compute queue.
+        let mut vpe_gave_way = false;
         let mut base_config = c.clone();
         let mut runtime_config = c.clone();
         s.phase_sync.lock().unwrap().set_hold_at_rate(c.boolean(PHASE_LOCK_HOLD_AT_RATE, false));
@@ -1057,6 +1060,11 @@ impl SessionThread<'_> {
                 rebuild_encoder |= encoder
                     .as_ref()
                     .is_none_or(|encoder| !encoder.accepts_gpu_device(&image));
+                if !vpe_gave_way && encoder.as_ref().is_some_and(|encoder| encoder.converter_gave_way()) {
+                    vpe_gave_way = true;
+                    rebuild_encoder = true;
+                    tracing::info!(client = %s.launch.client.name, "amd_vpe: the converter refused every frame for a lasting reason; rebuilding the encoder without it for the rest of the session");
+                }
                 if rebuild_encoder {
                     pacer.reset_source_phase();
                 }
@@ -1237,6 +1245,9 @@ impl SessionThread<'_> {
                         failures += 1;
                     }
                     let mut tuning = c.clone();
+                    if vpe_gave_way {
+                        tuning.values.insert("amd_vpe".into(), "false".into());
+                    }
                     if failures >= 2 {
                         tuning.values.insert("gpu_compute_conversion".into(), "false".into());
                         if butterpollo_windows::compute::enabled(&c) {

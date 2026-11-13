@@ -221,3 +221,25 @@ fn the_latest_refusal_carries_into_the_next_report_window() {
     assert_eq!(next.refused, Some("vpe_sdr_source_on_hdr_stream"));
     assert_eq!(Tally::default().next_window().refused, None);
 }
+
+#[test]
+fn the_converter_gives_way_after_a_run_of_lasting_refusals_only() {
+    let mut run = RefusalRun::default();
+    for _ in 1..GIVE_WAY_AFTER {
+        assert!(!run.observe(Some(Refusal::SdrSourceOnHdrStream)));
+    }
+    assert!(run.observe(Some(Refusal::SdrSourceOnHdrStream)));
+    // A converted frame or a passing refusal (the pointer) starts the run over.
+    let mut run = RefusalRun::default();
+    for i in 0..GIVE_WAY_AFTER * 2 {
+        let refusal = if i % 100 == 99 {
+            Some(Refusal::Pointer)
+        } else {
+            Some(Refusal::LuminanceScale)
+        };
+        assert!(!run.observe(refusal), "frame {i}");
+    }
+    run.observe(None);
+    assert!(!run.observe(Some(Refusal::HdrSourceOnSdrStream)));
+    assert!(!Refusal::Menu.lasting() && Refusal::Size.lasting());
+}

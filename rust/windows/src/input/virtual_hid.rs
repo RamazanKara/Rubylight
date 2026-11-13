@@ -193,9 +193,11 @@ pub fn hid_ops(mi: &MOUSEINPUT, single_display: bool) -> Option<Vec<Op>> {
             if !single_display {
                 return None;
             }
-            // SendInput's 0-65535 over the desktop, which is the primary display here.
+            // SendInput's 0-65535 over the desktop, which is the primary display here, rounded
+            // to the nearest point of the virtual mouse's 0-ABSOLUTE_MAX.
             let scale = |v: i32| {
-                (i64::from(v.clamp(0, 65535)) * i64::from(virtual_hid::ABSOLUTE_MAX) / 65535) as u16
+                ((i64::from(v.clamp(0, 65535)) * i64::from(virtual_hid::ABSOLUTE_MAX) + 65535 / 2)
+                    / 65535) as u16
             };
             ops.push(Op::Absolute(scale(mi.dx), scale(mi.dy)));
         } else {

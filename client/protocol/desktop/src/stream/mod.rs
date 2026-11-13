@@ -1076,6 +1076,7 @@ impl Streaming {
 
     /// Shows `text` below the notice still showing, for as long again, so a notice that comes
     /// right after the start's (the video planes giving up at the first picture) loses neither.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub fn add_toast(&mut self, text: impl Into<String>) {
         let text = text.into();
         let joined = joined_toast(self.toast.as_ref().map(|(shown, at)| (shown.as_str(), at.elapsed())), &text);
@@ -2216,6 +2217,7 @@ pub const TOAST_SHOWN: Duration = Duration::from_secs(4);
 
 /// The notice `text` makes beside `showing` (its text and age): below it while it still shows,
 /// once only, else alone.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn joined_toast(showing: Option<(&str, Duration)>, text: &str) -> String {
     match showing {
         Some((shown, age)) if age <= TOAST_SHOWN && !shown.is_empty() => {

@@ -4429,6 +4429,7 @@ fn stream_window_mode(mode: WindowMode, gamescope: bool, kms: bool) -> WindowMod
 
 /// A setting that needs the GPU renderer, off for a stream straight to the display where the
 /// renderer could not be made (`kms::without_gpu`).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 const KMS_GPU_OFF: &str = strings::en("{} is off for this stream: the GPU renderer could not be made while drawing straight to the display.");
 
 /// An HDR stream under gamescope without HDR output plays in SDR and says so (handheld.rs).

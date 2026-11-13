@@ -319,7 +319,7 @@ mod tests {
     #[test]
     fn a_build_without_the_enhancements_reports_nothing_offered() {
         let f = crate::state::test_support::Fixture::new();
-        let h = f.host;
+        let h = &f.host;
         h.nvidia_enhancement_errors
             .lock()
             .unwrap()

@@ -434,7 +434,9 @@ impl Tunnel {
         let spawned = thread::Builder::new()
             .name("internet play connect".into())
             .spawn(move || match connect_from(source, service, &device) {
-                Ok((tcp, mark)) => tunnel.bridge_connection(stream, tcp, writes, Arc::new(mark)),
+                Ok((tcp, mark)) => {
+                    tunnel.bridge_connection(stream, tcp, writes, Some(Arc::new(mark)))
+                }
                 Err(_) => {
                     let mut inner = tunnel.shared.inner.lock().unwrap();
                     inner.connections.remove(&stream);
@@ -479,20 +481,21 @@ impl Tunnel {
             let tunnel = self.clone();
             let _ = thread::Builder::new()
                 .name("internet play connection".into())
-                .spawn(move || tunnel.bridge_connection(stream, tcp, writes));
+                .spawn(move || tunnel.bridge_connection(stream, tcp, writes, None));
         }
     }
 
     /// Runs a TCP connection's two directions: a thread reads it into the stream, this one
     /// writes what the stream brings.
-    /// `mark` registers the connection as tunnelled; both directions hold it, so it stays
-    /// registered while either still uses the socket.
+    /// `mark`, on the host side, registers the connection as tunnelled; both directions hold
+    /// it, so it stays registered while either still uses the socket. The device side has
+    /// nothing to register: its connections come from the device's own programs.
     fn bridge_connection(
         &self,
         stream: StreamId,
         tcp: TcpStream,
         writes: mpsc::Receiver<Outgoing>,
-        mark: Arc<peers::Mark>,
+        mark: Option<Arc<peers::Mark>>,
     ) {
         let _ = tcp.set_nodelay(true);
         if let Ok(reading) = tcp.try_clone() {

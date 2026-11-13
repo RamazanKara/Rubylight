@@ -114,7 +114,7 @@ pub fn inspect(directory: &Path, bytes: &[u8]) -> Result<Value> {
     }
     let archive = core::read(std::io::Cursor::new(bytes))?;
     let summary = core::summarize(&archive, directory);
-    let token = hex::encode(&butterpollo_core::crypto::random::<16>());
+    let token = hex::encode(butterpollo_core::crypto::random::<16>());
     let path = backups(directory).join(format!("{PENDING_PREFIX}{token}.zip"));
     butterpollo_core::state::atomic_write(&path, bytes)?;
     remove_pending(directory, Some(&path));

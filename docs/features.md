@@ -59,6 +59,7 @@ This page lists every feature with a link to its guide. Features available on on
 - **Wait through network dropouts.** Holds the stream through 15, 20, 30 or 60 seconds of network silence. [Network drops](video-and-latency.md#network-drops)
 - **Link reporting.** Nightjar tells a supporting host whether the device is on Wi-Fi or a wired link and how fast the link is, and reports lost video once a second.
 - **Connection test and PyroWave frame pace.** A speed test (**Settings → Streaming → Connection test**) and, for PyroWave, a frame pace calibration (**Settings → Advanced → PyroWave frame pace**), also in a PC's own settings, with a host that offers them. [Connection test](TROUBLESHOOTING.md#connection-test)
+- **Play over the internet.** On by default, after the local network: Nightjar tries the PC's IPv6 address, then a forwarded port, then, with a PC that offers it (Rubylight with Play over the internet on), a direct path both sides punch through their routers, without port forwarding. Connect once on the PC's network first. The PC's line names the path in use, and when none works it lists each one and why. [Settings](settings.md)
 - **Play away from home.** On Android, a guide sets up a private Tailscale connection and tests the PC from where you are; the desktop checks the paired PC with **Remote access → Test this PC**. [Play away from home](remote-setup.md)
 
 ## Sound

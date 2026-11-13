@@ -101,6 +101,19 @@ Those servers receive your public IP address and network protocol traffic.
 They do not receive your stream, clipboard or problem reports. Their
 operators' retention practices apply.
 
+**Play over the internet** (on by default, Settings → Streaming → Connection)
+acts only for a PC that offers it and that gave this device its key while you
+were on its network. When neither the local network, the PC's IPv6 address nor
+a forwarded port answers, Nightjar asks `stun.moonlight-stream.org` and
+`stun.cloudflare.com` for this device's public address and meets the PC on the
+public BitTorrent DHT (joined through `router.bittorrent.com`,
+`dht.transmissionbt.com`, `router.utorrent.com` and `dht.libtorrent.org`).
+DHT nodes, run by anyone, see your public IP address and store records
+encrypted with keys only this device and the PC hold; they cannot read them or
+link them to you, the PC or another hour. The stream then goes directly
+between this device and the PC, sealed with those keys. No server of the
+Nightjar project is involved. Turn the setting off to never contact them.
+
 Opening a help or source link contacts the website you choose to visit. The
 site and your browser apply their own privacy practices.
 

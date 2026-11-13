@@ -105,6 +105,7 @@ Each default below is what a fresh install uses, checked against the host code. 
 | Lower the bitrate when the link cannot carry it — `link_rate_adaptation` | `true` | Always on. Acts only on loss error correction cannot repair, so a healthy link never changes. See [Lower bitrate when the link cannot carry it](#lower-bitrate-when-the-link-cannot-carry-it). |
 | Adapt bitrate on this PC — `host_adaptive_bitrate` | `false` | Devices that control their own bitrate do it better from their side; this is for clients that do not. |
 | Most error correction a device may ask for — `fec_max_percentage` | `50` % | A device that chooses its own error correction may go up to half the video packets. In the October 27 runs this cut Wi-Fi loss and freezes against the host's own share ([October 27](../rust/PERFORMANCE.md#october-27-client-error-correction-and-a-link-test-before-the-first-bitrate-nuc)). |
+| Prioritize stream traffic (DSCP) — `dscp_tagging` | `true` | Marked video and audio go first on Wi-Fi; turn it off for a router that mishandles marked packets. |
 | Bandwidth test — `bandwidth_probe` | `true` | Lets a paired device time a short download before it picks a bitrate. The device decides whether to run it. |
 | Virtual display refresh — `frame_limiter_auto_virtual_framegen` | `legacy` | The virtual display runs at twice the stream rate, so each game frame is captured sooner after it is drawn, and automatic frame limiting applies. |
 | Limit every stream — `frame_limiter_enable` | `false` | Physical monitors keep the game's own frame rate; virtual displays are limited automatically. |
@@ -392,6 +393,12 @@ A device that supports it (Nightjar) chooses its own share of error-correction p
 ## Roaming
 
 **Client roaming** (`client_roaming`, default `true`) lets a device whose address changes, such as a phone moving from Wi-Fi to mobile data, keep its stream. The device proves the new address with the stream key first; the host then sends there and drops what arrives from the old address. Only devices that support it (Nightjar) use it; other Moonlight clients stream as before. Off, the host neither offers it nor answers roaming datagrams. Turning it off applies at once; turning it on applies from the next stream.
+
+## Prioritize stream traffic (DSCP)
+
+**Prioritize stream traffic (DSCP)** (`dscp_tagging`, under **All settings → Network → Streams**, default `true`) marks the stream's packets for devices on the local network, when the device asks for it as Moonlight does there: video as audio-video traffic (DSCP 40, 802.1p 5) and audio as voice (DSCP 56, 802.1p 7), through Windows' qWAVE service. Wi-Fi sends marked packets from its video and voice queues, ahead of other traffic, and switches that honour the marks do the same. Devices outside the local network ask for no marks and get none.
+
+Turn it off when sound crackles or the picture stutters with one router and not another: some consumer routers drop or delay marked packets. Off, the host marks neither video nor audio and asks Windows for no qWAVE flow, whatever the device asks for; the device's own marks on what it sends are its own setting. It applies from the next stream.
 
 ## Game-only audio
 
@@ -1302,6 +1309,7 @@ Earlier releases had one Sync automatically (`library_auto_sync`) and one Remove
 | Streams: Internet encryption | `wan_encryption_mode` | `1` (When the device supports it) | Whether streams to devices outside the local network are encrypted. Required turns away devices that cannot encrypt. |
 | Streams: Device timeout | `ping_timeout` | `10000` ms | How long this PC waits without hearing from a device before it ends the stream. Longer suits an unreliable network. |
 | Streams: Client roaming | `client_roaming` | `true` | Let a device whose network address changes, such as a phone moving from Wi-Fi to mobile data, keep its stream instead of reconnecting. |
+| Streams: Prioritize stream traffic (DSCP) | `dscp_tagging` | `true` | Mark video and audio packets for devices on the local network so Wi-Fi and switches that honour the marks send them first. |
 | Streams: Bandwidth test | `bandwidth_probe` | `true` | Lets paired devices time a short download to measure the network before they pick a bitrate. |
 | WebRTC: WebRTC server | `webrtc_server` | `false` | Let TVs and browsers that speak the Moonlight WebRTC protocol pair and stream. |
 | WebRTC: WebRTC signalling port | `webrtc_port` | `8000` | The TCP port TVs connect their WebSocket to. Discovery always listens on UDP 8000, where TVs send their broadcast. |

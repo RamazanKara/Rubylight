@@ -225,6 +225,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "lan_encryption_mode", "Local network encryption (0 never, 1 optional, 2 required)", Number;
         "wan_encryption_mode", "Internet encryption (0 never, 1 optional, 2 required)", Number;
         "ping_timeout", "Device timeout (milliseconds)", Number;
+        "dscp_tagging", "Prioritize stream traffic with DSCP marks (local network)", Bool;
         "origin_web_ui_allowed", "Administration access", Choice(&["pc","lan","wan"]);
         "csrf_allowed_origins", "Additional trusted administration origins", Json;
         "session_token_ttl_seconds", "Sign-in session lifetime (seconds)", Number;

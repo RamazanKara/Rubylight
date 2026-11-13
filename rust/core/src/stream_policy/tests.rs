@@ -3467,3 +3467,45 @@ fn an_eight_bit_request_is_neither_hdr_nor_ten_bit() {
         assert!(!stream.hdr && !stream.sdr_10bit && !stream.ten_bit());
     }
 }
+
+#[test]
+fn dscp_tagging_off_turns_off_what_the_device_asked_for() {
+    let mut stream = artemis_announce(60);
+    stream.video_qos = true;
+    stream.audio_qos = true;
+    apply(&mut stream, 60_000, &Config::parse("").unwrap());
+    assert!(stream.video_qos && stream.audio_qos, "on by default");
+    apply(
+        &mut stream,
+        60_000,
+        &Config::parse(
+            "dscp_tagging=true
+",
+        )
+        .unwrap(),
+    );
+    assert!(stream.video_qos && stream.audio_qos);
+    apply(
+        &mut stream,
+        60_000,
+        &Config::parse(
+            "dscp_tagging=false
+",
+        )
+        .unwrap(),
+    );
+    assert!(!stream.video_qos && !stream.audio_qos);
+    // On never turns on what a remote device did not ask for.
+    let mut remote = artemis_announce(60);
+    remote.video_qos = false;
+    remote.audio_qos = false;
+    apply_dscp(
+        &mut remote,
+        &Config::parse(
+            "dscp_tagging=true
+",
+        )
+        .unwrap(),
+    );
+    assert!(!remote.video_qos && !remote.audio_qos);
+}

@@ -1462,6 +1462,7 @@ pub fn infer_sdr_10bit(stream: &mut Negotiated, sdr_requested: bool) -> bool {
     inferred
 }
 pub fn apply(stream: &mut Negotiated, launch_millihz: u32, config: &Config) {
+    apply_dscp(stream, config);
     // The stream runs at the rate its request asks for, as in Vibepollo,
     // where `limit_framerate` only aligns encoder timestamps to the launch
     // rate. Turned on here, the stream is encoded at the launch rate.
@@ -1503,6 +1504,17 @@ pub fn apply(stream: &mut Negotiated, launch_millihz: u32, config: &Config) {
         }
     }
     stream.bitrate_kbps = budget.clamp(1, 2_000_000) as u32;
+}
+/// `dscp_tagging` (default on, as in Sunshine, LizardByte/Sunshine#6067):
+/// off, the host tags neither video nor audio with DSCP and asks Windows for
+/// no qWAVE flow, whatever the device asks for. Some consumer routers drop or
+/// delay tagged packets, heard as crackling audio. A device that asks for no
+/// tagging (a remote one) gets none either way.
+pub fn apply_dscp(stream: &mut Negotiated, config: &Config) {
+    if !config.boolean("dscp_tagging", true) {
+        stream.video_qos = false;
+        stream.audio_qos = false;
+    }
 }
 /// Video packets always use the size the device asked for. Moonlight receives into a
 /// buffer of that size, so a larger packet is cut short (#52: 1200 bytes against the 1184

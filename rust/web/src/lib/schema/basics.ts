@@ -576,6 +576,18 @@ const network: Setting[] = [
     default: true,
   },
   {
+    key: 'dscp_tagging',
+    label: 'Prioritize stream traffic (DSCP)',
+    description:
+      'Mark video and audio packets for devices on the local network so Wi-Fi and switches that honour the marks send them first.',
+    details:
+      'Turn it off if sound crackles or the picture stutters only on one router: some consumer routers drop or delay marked packets. Devices outside the local network are never marked. Applies from the next stream.',
+    category: 'network',
+    group: 'Streams',
+    control: { kind: 'toggle' },
+    default: true,
+  },
+  {
     key: 'bandwidth_probe',
     label: 'Bandwidth test',
     description: 'Lets paired devices time a short download to measure the network before they pick a bitrate.',

@@ -40,6 +40,7 @@ Everything the current Rubylight release does, by area, with a link to where eac
 - **Client-chosen error correction.** A client that supports it chooses its own share of recovery packets, or lets the host follow its loss reports, up to `fec_max_percentage`, and can test the link before choosing its first bitrate ([Configuration](configuration.md#error-correction-chosen-by-the-device)). Error correction uses GFNI instructions on processors that have them (AMD Zen 4, Intel Ice Lake and newer), with the same bytes.
 - **Changes without reconnecting.** A Rubylight client can change the stream's resolution, bitrate and frame rate mid-stream, as a foldable phone does when it is opened ([Control messages](control-messages.md)).
 - **Roaming.** A client whose address changes, such as a phone moving from Wi-Fi to mobile data, keeps its stream ([Configuration](configuration.md#roaming)). Control messages are resent as soon as the client is heard from after an outage.
+- **Prioritized stream traffic.** Video and audio for devices on the local network carry DSCP marks, so Wi-Fi sends them ahead of other traffic; a switch turns the marks off for a router that mishandles them ([Configuration](configuration.md#prioritize-stream-traffic-dscp)).
 - **Host bitrate adaptation** (off by default). For conventional Moonlight streams, the host adapts the bitrate to observed loss, accounting for FEC and audio, and yields to the client's own bitrate control ([Configuration](configuration.md#host-bitrate-adaptation)).
 
 ## Capture

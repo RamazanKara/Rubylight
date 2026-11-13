@@ -72,7 +72,9 @@ rust/windows/src/gpu_color.rs), the conversion shaders' output layout
 (src_assets/windows/assets/shaders/directx/include/convert_yuv444_ps_base.hlsl and
 convert_yuv444_planar_vs.hlsl; yuv444_* in rust/windows/src/shaders/color.hlsl), and
 the YUV 4:4:4 capability check (validate_encoder_capabilities in src/nvenc/nvenc_base.cpp;
-rust/windows/src/nvenc.rs). Copyright (c) LizardByte and the Sunshine contributors, GPL-3.0.
+rust/windows/src/nvenc.rs). The dscp_tagging switch, on by default, that turns off the
+DSCP marks on video and audio (rust/core/src/stream_policy.rs) follows LizardByte
+Sunshine pull request 6067. Copyright (c) LizardByte and the Sunshine contributors, GPL-3.0.
 
 The Dolby Vision profile 8.1 RPU writer (rust/core/src/dovi.rs) follows the syntax,
 default values and L1 limits of the dolby_vision crate 3.4.0 of dovi_tool

@@ -1,13 +1,13 @@
 package com.limelight.ui;
 
+import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.Dialog;
 import android.os.Build;
 import android.view.Gravity;
 import android.view.Window;
 import android.view.WindowManager;
-
-import androidx.annotation.RequiresApi;
+import android.view.animation.AnimationUtils;
 
 import com.limelight.R;
 
@@ -26,6 +26,12 @@ final class MenuBlurWindow {
     private final Dialog window;
     private final WindowManager manager;
     private final Consumer<Boolean> listener;
+    private final int radius;
+    /** How long the blur takes to rise to {@link #radius} once it lies under the panel; 0 shows it at once. */
+    private final long riseMs;
+    private int shownRadius;
+    private boolean placed;
+    private ValueAnimator rise;
     private boolean closed;
 
     /** The rule: an Android that has the call, a tier that can afford live glass, and the system's switch on right now. */
@@ -64,7 +70,13 @@ final class MenuBlurWindow {
         w.addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS);
         w.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
-        if (Motion.reduced(owner)) w.setWindowAnimations(0);
+        boolean still = Motion.reduced(owner);
+        if (still) w.setWindowAnimations(0);
+        this.radius = radius;
+        // The window opens without an animation (StreamMenuBlurAnimation): Android 14 and later keep a window where it was
+        // for its whole open animation, so this one, opened in the corner, showed there at the panel's size before it moved
+        // under the panel (nightjar#108). The blur rises with the panel's own entrance instead.
+        riseMs = still || radius <= 1 ? 0 : owner.getResources().getInteger(R.integer.motion_base);
         WindowManager.LayoutParams params = w.getAttributes();
         params.gravity = Gravity.TOP | Gravity.START;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -78,16 +90,18 @@ final class MenuBlurWindow {
         params.height = 1;
         w.setAttributes(params);
         listener = onSwitch == null ? null : onSwitch::accept;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) applyBlur(w, radius);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            // The window keeps its radius on its decor view, which exists only once asked for.
+            w.getDecorView();
+            setRadius(riseMs > 0 ? 1 : radius);
+            if (listener != null) manager.addCrossWindowBlurEnabledListener(listener);
+        }
         window.show();
     }
 
-    @RequiresApi(Build.VERSION_CODES.S)
-    private void applyBlur(Window w, int radius) {
-        // The window keeps its radius on its decor view, which exists only once asked for.
-        w.getDecorView();
-        w.setBackgroundBlurRadius(radius);
-        if (listener != null) manager.addCrossWindowBlurEnabledListener(listener);
+    private void setRadius(int value) {
+        shownRadius = value;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) window.getWindow().setBackgroundBlurRadius(value);
     }
 
     /** Lies behind the panel at these screen pixels; a new page moves it with the panel's height. */
@@ -101,12 +115,39 @@ final class MenuBlurWindow {
         params.width = width;
         params.height = height;
         w.setAttributes(params);
+        if (!placed) {
+            placed = true;
+            riseUnderThePanel();
+        }
+    }
+
+    /** From a pixel's blur to the full radius, as the panel fades and slides in (tv_sheet_enter). */
+    private void riseUnderThePanel() {
+        if (riseMs <= 0) return;
+        rise = ValueAnimator.ofInt(shownRadius, radius);
+        rise.setDuration(riseMs);
+        rise.setInterpolator(AnimationUtils.loadInterpolator(window.getContext(), android.R.interpolator.fast_out_slow_in));
+        rise.addUpdateListener(animation -> {
+            if (!closed) setRadius((int) animation.getAnimatedValue());
+        });
+        rise.start();
+    }
+
+    /** The blur radius the window asks for now: for a test. */
+    int shownRadius() {
+        return shownRadius;
+    }
+
+    /** The window's animations: for a test. */
+    int windowAnimations() {
+        return window.getWindow().getAttributes().windowAnimations;
     }
 
     /** Removes the window, not hides it, and stops listening. */
     void close() {
         if (closed) return;
         closed = true;
+        if (rise != null) rise.cancel();
         if (listener != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) manager.removeCrossWindowBlurEnabledListener(listener);
         window.dismiss();
     }

@@ -769,7 +769,7 @@ fn settings_main_rows_are_androids_tiers() {
     let ours: Vec<(&str, Vec<&str>)> = MAIN_KEYS.iter().map(|(name, keys)| (*name, keys.to_vec())).collect();
     assert_eq!(ours, parsed, "MAIN_KEYS follows settings_tiers.xml");
     let preferences = include_str!("../../../../app/src/main/res/xml/preferences.xml");
-    for (desktop, android) in ANDROID_KEYS {
+    for &(desktop, android) in ANDROID_KEYS {
         assert!(preferences.contains(&format!("android:key=\"{android}\"")), "{desktop} matches Android's {android}, which exists");
         assert!(!DESKTOP_MAIN.contains(&desktop), "{desktop}: Android decides its tier");
     }

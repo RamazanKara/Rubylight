@@ -1995,7 +1995,7 @@ pub(super) const MAIN_KEYS: [(&str, &[&str]); 8] = [
 
 /// Every desktop row on both platforms and the Android preference it is: a setting's first key or
 /// an action row's name, then Android's key. A row is main when its match is in `MAIN_KEYS`.
-pub(super) const ANDROID_KEYS: [(&str, &str); 102] = [
+pub(super) const ANDROID_KEYS: &[(&str, &str)] = &[
     // Video
     ("width", "list_resolution"), ("fps", "list_fps"), ("bitrate_kbps", "seekbar_bitrate_kbps"),
     ("adaptive_bitrate", "checkbox_auto_bitrate"), ("mobile_bitrate", "list_mobile_bitrate_kbps"), ("codec", "video_format"),
@@ -2760,7 +2760,7 @@ mod tests {
     fn the_tier_tables_name_each_row_once() {
         let settings = serde_json::to_value(Settings::default()).unwrap();
         let mut seen = std::collections::HashSet::new();
-        for (desktop, _) in ANDROID_KEYS {
+        for &(desktop, _) in ANDROID_KEYS {
             assert!(seen.insert(desktop), "{desktop} is listed once");
             assert!(settings.get(desktop).is_some() != ACTION_ROWS.contains(&desktop), "{desktop} is a setting or an action, not both");
         }

@@ -194,10 +194,13 @@ pub fn hid_ops(mi: &MOUSEINPUT, single_display: bool) -> Option<Vec<Op>> {
                 return None;
             }
             // SendInput's 0-65535 over the desktop, which is the primary display here, rounded
-            // to the nearest point of the virtual mouse's 0-ABSOLUTE_MAX.
+            // to the nearest point of the virtual mouse's 0-ABSOLUTE_MAX. Never 0: Windows
+            // ignores an absolute (0, 0) from a HID mouse (the pointer stayed put), and 1 still
+            // lands on the first pixel; the far edge, ABSOLUTE_MAX, lands on the last.
             let scale = |v: i32| {
-                ((i64::from(v.clamp(0, 65535)) * i64::from(virtual_hid::ABSOLUTE_MAX) + 65535 / 2)
-                    / 65535) as u16
+                (((i64::from(v.clamp(0, 65535)) * i64::from(virtual_hid::ABSOLUTE_MAX) + 65535 / 2)
+                    / 65535) as u16)
+                    .max(1)
             };
             ops.push(Op::Absolute(scale(mi.dx), scale(mi.dy)));
         } else {
@@ -346,6 +349,15 @@ mod tests {
         assert_eq!(
             hid_ops(&input(absolute, 65535, 32768, 0), true),
             Some(vec![Op::Absolute(32767, 16384)])
+        );
+        // The top left corner is 1, not the 0 Windows ignores; the right edge stays the last.
+        assert_eq!(
+            hid_ops(&input(absolute, 0, 0, 0), true),
+            Some(vec![Op::Absolute(1, 1)])
+        );
+        assert_eq!(
+            hid_ops(&input(absolute, -5, 70000, 0), true),
+            Some(vec![Op::Absolute(1, 32767)])
         );
     }
 

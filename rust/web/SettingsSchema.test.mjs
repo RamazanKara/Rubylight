@@ -264,6 +264,10 @@ test('each encoder group shows for its encoder, and Automatic shows the one for 
   assert.equal(settings.get('nvenc_target_quality').visibleWhen({ encoder: 'amf', nvenc_rate_control: 'vbr' }), false);
   assert.equal(settings.get('nvenc_min_qp_hevc').visibleWhen({ ...nv, nvenc_enable_min_qp: 'true' }), true);
   assert.equal(settings.get('nvenc_min_qp_hevc').visibleWhen(nv), false);
+  // amf_vpe.rs: off unless asked for, and only where AMF encodes.
+  assert.equal(settings.get('amd_vpe').default, false);
+  assert.equal(settings.get('amd_vpe').visibleWhen({ encoder: 'amf' }), true);
+  assert.equal(settings.get('amd_vpe').visibleWhen(nv), false);
 });
 
 test('encoder focus shows in the Encoder group for AMF and for NVENC', () => {

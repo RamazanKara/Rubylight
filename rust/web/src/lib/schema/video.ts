@@ -1038,6 +1038,20 @@ const amd: Setting[] = [
     visibleWhen: amf,
   },
   {
+    key: 'amd_vpe',
+    label: 'Hardware color conversion',
+    description:
+      'Converts and scales captured frames with the AMD driver’s video converter, on the Video Processing Engine where the graphics card has one, instead of Rubylight’s shaders.',
+    details:
+      'Covers SDR, HDR10 and HLG streams with YUV 4:2:0. Frames with the desktop pointer drawn by Rubylight, the couch menu or adjusted HDR brightness, and full-chroma streams, keep the shaders. The converter runs on the encoder’s graphics device instead of the compute queue. If it fails, the stream continues with the shaders and the console shows a warning.',
+    category: 'encoders',
+    group: 'AMD AMF',
+    control: { kind: 'toggle' },
+    default: false,
+    inactiveHint: amfHint,
+    visibleWhen: amf,
+  },
+  {
     key: 'amd_smart_access_video',
     label: 'SmartAccess Video',
     description:

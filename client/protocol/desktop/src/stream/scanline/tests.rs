@@ -101,7 +101,9 @@ fn a_present_mid_scan_waits_for_the_beam_to_leave_the_last_row() {
     // 400 lines per ms: row 700 has 740 rows to go, 1.85 ms.
     assert_eq!(beam.scan_left_ns(&Sample { at_ns: 0, line: 900, vblank: false }), Some(1_850_000));
     assert_eq!(beam.scan_left_ns(&Sample { at_ns: 0, line: 200, vblank: false }), Some(3_600_000), "the first row: the whole picture to go");
-    assert_eq!(beam.scan_left_ns(&Sample { at_ns: 0, line: 100, vblank: true }), None, "in the blanking a flip comes before the first row");
+    assert_eq!(beam.scan_left_ns(&Sample { at_ns: 0, line: 100, vblank: true }), Some(3_850_000), "the blanking a scan begins with is part of it");
+    assert_eq!(beam.scan_left_ns(&Sample { at_ns: 0, line: 0, vblank: true }), Some(4_100_000), "a scan that has just begun");
+    assert_eq!(beam.scan_left_ns(&Sample { at_ns: 0, line: 1640, vblank: true }), None, "the beam has left the last row");
     assert_eq!(beam.scan_left_ns(&Sample { at_ns: 0, line: 5000, vblank: false }), None, "past the last row");
     let short = Beam { scan_ns: 2_000_000, ..beam };
     assert_eq!(short.scan_left_ns(&Sample { at_ns: 0, line: 200, vblank: false }), Some(2_000_000), "never more than a scan");

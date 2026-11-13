@@ -356,6 +356,10 @@ pub struct Settings {
     /// when decoded) for 1.3 to 1.5 ms, and over Wi-Fi halved the frames off it for 2.6 to 4.2 ms
     /// (docs/pyrowave-decode.md, "Real VRR").
     pub present_at_host_times: bool,
+    /// Tear-free VRR (Windows, with `vrr`): a frame that arrives while the display is still drawing
+    /// the last one waits for it to finish, at most one refresh, and is shown whole
+    /// (`present::VrrSync::Scan`). On by default; off shows every frame at once, with tearing.
+    pub vrr_tear_free: bool,
     /// Without VRR: wait for the display's refresh (no tearing).
     pub vsync: bool,
     /// Without VRR: how pictures wait for the display (Android's `frame_pacing`).
@@ -1067,6 +1071,7 @@ impl Default for Settings {
             align_video_top: false,
             vrr: true,
             present_at_host_times: true,
+            vrr_tear_free: true,
             vsync: true,
             frame_pacing: FramePacing::Latency,
             drop_late_frames: true,

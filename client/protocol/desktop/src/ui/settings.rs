@@ -26,7 +26,7 @@ pub(super) const SECTION_KEYS: [&[&[&str]]; 8] = [
         &["prefer_yuv444", "experimental_packed_444"], &["sdr_10bit"], &["frame_warp"], &["adaptive_quality"], &["quality_min_short_edge"], &["quality_min_fps"],
         &["hdr_desktop_brightness"], &["rtx_hdr"], &["rtx_video"]],
     &[&["window_mode"], &["video_scaling"], &["vrr"],
-        &["present_at_host_times"], &["frame_pacing"], &["drop_late_frames"], &["vsync"],
+        &["present_at_host_times"], &["vrr_tear_free"], &["frame_pacing"], &["drop_late_frames"], &["vsync"],
         &["upscaling"], &["upscale_sharpness"], &["align_video_top"],
         &["virtual_display"], &["virtual_display_scale"], &["virtual_display_dpi"], &["host_display"]],
     &[&["mouse_mode"], &["controllers", "multi_controller"], &["clipboard_sync"],
@@ -865,6 +865,12 @@ impl Launcher {
             rows.when(vrr && !immediate_packed);
             setting_row(ui, s, &mut rows, &["present_at_host_times"], "Real VRR", "Shows each frame when the game drew it, so motion stays even. Adds about 1 to 4 ms of latency; leave it on unless you want the lowest latency.", |ui, s| {
                 toggle(ui, &mut s.present_at_host_times)
+            });
+            // The wait applies to every VRR stream on Windows, with or without Real VRR.
+            rows.always();
+            rows.when(vrr && cfg!(windows));
+            setting_row(ui, s, &mut rows, &["vrr_tear_free"], "Tear-free VRR", "Waits for the screen to finish drawing the last frame before showing the next, so no frame is torn. Only a frame that arrives while the screen is still drawing waits, at most one refresh (about 4 ms at 240 Hz). Turn it off to show every frame at once, with tearing.", |ui, s| {
+                toggle(ui, &mut s.vrr_tear_free)
             });
             rows.always();
             rows.when(!vrr);

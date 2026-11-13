@@ -336,6 +336,12 @@ GPU that drives a connected display at its peak stable power state (client/proto
 src/stream/gpu_hold.rs), is ported from Nonary's moonlight-qt fork
 (https://github.com/Nonary/moonlight-qt, GPL-3.0): app/streaming/gpuperformancehold.{h,cpp}
 at commit 19758e5e6, with the same GPU selection, requests and release.
+From the same project and commit, on Windows: the measurement switch NIGHTJAR_VRR_SYNC=blank
+(client/protocol/desktop/src/stream/present/pacer.rs, `latch`, `planned_latch`,
+`present_adaptive`, `flip_statistics`; stream/render.rs, `blank_present`) is ported from its
+D3D11 flip protection (app/streaming/video/ffmpeg-renderers/d3d11presentpolicy.h,
+d3d11va.cpp, pacer/vrr/vrrtimingcontroller.cpp), with its test cases
+(tests/vrr/tst_dxgipresent.cpp).
 The FFmpeg that Nightjar desktop ships on Windows carries Moonlight's FFmpeg patch for
 D3D11VA, D3D12VA and DXVA2 decoding of HEVC Range Extension profiles (HEVC 4:4:4), by
 Cameron Gutman, from https://github.com/moonlight-stream/moonlight-qt-deps

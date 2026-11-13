@@ -210,6 +210,10 @@ pub enum VrrSync {
     /// Wait out a scan under way on this thread (the beam from the scan line, at most one scan),
     /// then present with tearing.
     Scan,
+    /// Tears only when the display is in its vertical blank and the present before it has left the
+    /// queue, as read just before the present; any other present goes out with sync interval 1 and
+    /// is shown whole after the scan under way.
+    Blank,
 }
 
 impl VrrSync {
@@ -219,10 +223,21 @@ impl VrrSync {
             None | Some("" | "off" | "0") => Self::Off,
             Some("present1") => Self::Present1,
             Some("scan") => Self::Scan,
+            Some("blank") => Self::Blank,
             Some(other) => {
-                eprintln!("nightjar: NIGHTJAR_VRR_SYNC={other:?} is not present1, scan or off, so it is off");
+                eprintln!("nightjar: NIGHTJAR_VRR_SYNC={other:?} is not present1, scan, blank or off, so it is off");
                 Self::Off
             }
+        }
+    }
+
+    /// A VRR stream's sync: what `NIGHTJAR_VRR_SYNC` says when it is set (`off` shows every frame
+    /// at once), else Tear-free VRR (`vrr_tear_free`), which waits out a scan under way where the
+    /// scan line can be read, on Windows.
+    pub fn choose(env: Option<&str>, tear_free: bool, windows: bool) -> Self {
+        match env.map(str::trim) {
+            None | Some("") => if tear_free && windows { Self::Scan } else { Self::Off },
+            text => Self::parse(text),
         }
     }
 
@@ -231,8 +246,75 @@ impl VrrSync {
             Self::Off => "off",
             Self::Present1 => "present1",
             Self::Scan => "scan",
+            Self::Blank => "blank",
         }
     }
+}
+
+/// What the swap chain and the scan line said about the last present, read just before the next
+/// one. Mirrors upstream `D3D11PresentPolicy::FlipObservation`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FlipObservation {
+    pub predecessor_known: bool,
+    pub statistics_valid: bool,
+    pub pending: bool,
+    pub raster_valid: bool,
+    pub in_vertical_blank: bool,
+    pub raster_query_start_us: u64,
+    pub raster_query_end_us: u64,
+}
+
+/// Whether a present is latched (sync interval 1). Literal port of upstream
+/// `D3D11PresentPolicy::latch` from Nonary's moonlight-qt (GPL-3.0, commit 19758e5e6),
+/// app/streaming/video/ffmpeg-renderers/d3d11presentpolicy.h, without its `synchronizeAll`
+/// argument. A retired predecessor can still be scanning out. Unknown or active scanout must not
+/// authorize a tearing flip. A fresh blank is a risk filter, not a reservation of the phase when a
+/// later asynchronous flip reaches the panel.
+pub fn latch(planned_latched: bool, protection_window_us: u64, observation: impl FnOnce() -> FlipObservation, clock: impl FnOnce() -> u64) -> bool {
+    if planned_latched { return true; }
+    if protection_window_us == 0 { return false; } // Explicitly disabled protection.
+    let observation = observation();
+    if !observation.predecessor_known || !observation.statistics_valid || observation.pending
+        || !observation.raster_valid || !observation.in_vertical_blank { return true; }
+    let now_us = clock();
+    // Bound the entire observation age, including any preemption after the query. This
+    // conservative budget does not claim a remaining blank time.
+    let precision_us = (protection_window_us / 16).min(250);
+    precision_us == 0 || observation.raster_query_start_us == 0
+        || observation.raster_query_end_us < observation.raster_query_start_us
+        || now_us < observation.raster_query_end_us
+        || now_us - observation.raster_query_start_us > precision_us
+}
+
+/// Upstream `vrrFloorLatchGapUs` (vrrtimingcontroller.cpp, commit 19758e5e6).
+pub const FLOOR_LATCH_GAP_US: u64 = 20_000;
+/// Upstream `latchedPresentationHeadroomUs` default (vrrtimingcontroller.h, commit 19758e5e6).
+pub const LATCH_HEADROOM_US: u64 = 225;
+
+/// Whether the planned flip latches (sync interval 1), from the time since the last flip. Literal
+/// port of upstream `vrrtimingcontroller.cpp` (commit 19758e5e6), where the latch is decided before
+/// the present. A frame closer to the last flip than one display period plus headroom is latched:
+/// the scan of the picture before cannot be over. After a gap of `FLOOR_LATCH_GAP_US` or more,
+/// past the VRR range, the driver may be repeating the last picture, so the flip queue places this
+/// one too.
+pub fn planned_latch(since_last_flip_us: Option<u64>, display_period_us: u64) -> bool {
+    match since_last_flip_us {
+        None => false,
+        Some(since) => since < display_period_us.saturating_add(LATCH_HEADROOM_US) || since >= FLOOR_LATCH_GAP_US,
+    }
+}
+
+/// The flip history of a stream's presents, for `VrrSync::Blank`.
+#[derive(Default)]
+pub struct FlipGuard {
+    /// When the last present was issued (us), whatever its kind.
+    pub last_flip_us: Option<u64>,
+    /// Presents that went out with tearing.
+    pub tearing: u64,
+    /// Presents latched by `planned_latch`.
+    pub planned: u64,
+    /// Presents latched by the observation.
+    pub protected: u64,
 }
 
 /// The swap chain's sync interval for a pacing mode: 1 waits for the refresh, 0 presents at once
@@ -361,6 +443,60 @@ pub unsafe fn present_without_waiting(renderer: *mut SDL_Renderer, hold: std::ti
 /// Nothing to uphold here; the signature is the Windows one's.
 #[cfg(not(windows))]
 pub unsafe fn present_without_waiting(_renderer: *mut SDL_Renderer, _hold: std::time::Duration) -> NoWait { NoWait::Failed }
+
+/// Presents with sync interval 1 when `latched` (the flip waits out a scan under way), else with
+/// tearing. Returns whether the present succeeded.
+///
+/// # Safety
+/// `renderer` is the live D3D11 renderer of this thread.
+#[cfg(windows)]
+pub unsafe fn present_adaptive(renderer: *mut SDL_Renderer, latched: bool) -> bool {
+    use windows::core::Interface;
+    use windows::Win32::Graphics::Dxgi::{IDXGISwapChain, DXGI_PRESENT, DXGI_PRESENT_ALLOW_TEARING};
+    let chain = crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_D3D11_SWAPCHAIN_POINTER);
+    let Some(chain) = IDXGISwapChain::from_raw_borrowed(&chain) else { return false };
+    if !SDL_FlushRenderer(renderer) { return false; }
+    let result = if latched { chain.Present(1, DXGI_PRESENT(0)) } else { chain.Present(0, DXGI_PRESENT_ALLOW_TEARING) };
+    // A present unbinds the back buffer's view: this makes SDL's next draw bind it again.
+    SDL_FlushRenderer(renderer);
+    result.is_ok()
+}
+
+/// Only Windows has this present.
+///
+/// # Safety
+/// Nothing to uphold here; the signature is the Windows one's.
+#[cfg(not(windows))]
+pub unsafe fn present_adaptive(_renderer: *mut SDL_Renderer, _latched: bool) -> bool { false }
+
+/// The swap chain's flip history: `(predecessor_known, statistics_valid, pending)`. The predecessor
+/// is the last present issued; statistics are valid when the last present to reach the display is
+/// not after it, and pending when that present is before it.
+///
+/// # Safety
+/// `renderer` is the live D3D11 renderer of this thread.
+#[cfg(windows)]
+pub unsafe fn flip_statistics(renderer: *mut SDL_Renderer) -> (bool, bool, bool) {
+    use windows::core::Interface;
+    use windows::Win32::Graphics::Dxgi::{IDXGISwapChain, DXGI_FRAME_STATISTICS};
+    let chain = crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_D3D11_SWAPCHAIN_POINTER);
+    let Some(chain) = IDXGISwapChain::from_raw_borrowed(&chain) else { return (false, false, false) };
+    let last = chain.GetLastPresentCount();
+    let mut stats = DXGI_FRAME_STATISTICS::default();
+    let frames = chain.GetFrameStatistics(&mut stats);
+    match (last, frames) {
+        (Ok(last), Ok(())) => (true, stats.PresentCount <= last, stats.PresentCount < last),
+        (Ok(_), Err(_)) => (true, false, false),
+        (Err(_), _) => (false, false, false),
+    }
+}
+
+/// Only Windows has this flip history.
+///
+/// # Safety
+/// Nothing to uphold here; the signature is the Windows one's.
+#[cfg(not(windows))]
+pub unsafe fn flip_statistics(_renderer: *mut SDL_Renderer) -> (bool, bool, bool) { (false, false, false) }
 
 /// A stream faster than the display is refused by design: to wait there is the queue again.
 fn a_picture_a_refresh(frame_us: u64, refresh_us: u64) -> bool {

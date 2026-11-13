@@ -507,6 +507,8 @@ pub struct Streaming {
     /// rates on a VRR display"), so there is no keeper by default; under `count` it counts the
     /// pictures that met a scan, repeats none and no picture waits for a scan's end.
     keeper_repeats: bool,
+    /// The flip history of `VrrSync::Blank`: its last present and how each present was latched.
+    flip_guard: present::FlipGuard,
     /// The picture on the display's beam, while racing it is possible (see `sync_race`).
     race_scan: Option<race::Scan>,
     /// The frame in flight under the raced presenter, and what it plans from.
@@ -867,8 +869,9 @@ impl Streaming {
         #[cfg(not(target_os = "linux"))]
         let keeps_mailbox = false;
         let present_check = checks_display_for_present_mode(connecting.plan.vrr, connecting.pacing, vrr_check, keeps_mailbox, env_flag("NIGHTJAR_VRR_CHECK"));
-        let vrr_sync = if connecting.plan.vrr { present::VrrSync::parse(std::env::var("NIGHTJAR_VRR_SYNC").ok().as_deref()) } else { present::VrrSync::Off };
-        if vrr_sync != present::VrrSync::Off { eprintln!("nightjar: VRR sync {} (NIGHTJAR_VRR_SYNC)", vrr_sync.label()); }
+        let sync_env = std::env::var("NIGHTJAR_VRR_SYNC").ok();
+        let vrr_sync = if connecting.plan.vrr { present::VrrSync::choose(sync_env.as_deref(), settings.vrr_tear_free, cfg!(windows)) } else { present::VrrSync::Off };
+        if sync_env.is_some() && connecting.plan.vrr { eprintln!("nightjar: VRR sync {} (NIGHTJAR_VRR_SYNC)", vrr_sync.label()); }
         // `NIGHTJAR_VRR_LFC=1` has the stream repeat pictures for a VRR panel itself
         // (`lfc::Keeper`), `count` only counts the pictures that meet a scan under way; without
         // it the stream reads no scan line for this. The scan line is read on Windows.
@@ -876,8 +879,8 @@ impl Streaming {
         let lfc_repeats = lfc_mode.as_deref().is_some_and(|mode| connect::flag_value(mode) == Some(true));
         let lfc_counts = lfc_mode.as_deref().is_some_and(|mode| mode.trim().eq_ignore_ascii_case("count"));
         let vrr_lfc = cfg!(windows) && connecting.plan.vrr && connecting.pacing != PacingMode::Vsync && (lfc_repeats || lfc_counts);
-        if vrr_sync == present::VrrSync::Scan && !vrr_check {
-            eprintln!("nightjar: VRR sync scan reads the scan line; the display check's verdict changes no pacing on this stream");
+        if matches!(vrr_sync, present::VrrSync::Scan | present::VrrSync::Blank) && !vrr_check {
+            eprintln!("nightjar: VRR sync {} reads the scan line; the display check's verdict changes no pacing on this stream", vrr_sync.label());
         }
         let mut doctor = doctor::Doctor::default();
         doctor.receive_buffer = session.video_receive_buffer();
@@ -913,6 +916,7 @@ impl Streaming {
             keeper: None,
             keeper_on: false,
             keeper_repeats: lfc_repeats,
+            flip_guard: present::FlipGuard::default(),
             race_scan: None,
             racer: race::Racer::default(),
             predictor: None,
@@ -2172,6 +2176,11 @@ impl Streaming {
                 if waits > 0 { ns as f64 / f64::from(waits) / 1e6 } else { 0.0 });
         }
         if let Some(keeper) = &self.keeper { eprintln!("nightjar: VRR low frame rate: {}", keeper.line()); }
+        if self.vrr.sync == present::VrrSync::Blank {
+            let guard = &self.flip_guard;
+            eprintln!("nightjar: VRR blank sync: {} presents tore in the blank, {} synchronised near the last flip or after a gap, {} synchronised for a scan under way or missing evidence",
+                guard.tearing, guard.planned, guard.protected);
+        }
         lock(&self.shared.roam_watch).take();
         self.session.stop();
         self.host_abr_stop.take()

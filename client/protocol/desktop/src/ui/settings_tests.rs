@@ -444,6 +444,7 @@ fn the_section_key_table_is_what_the_page_draws() {
         // A PC's own settings, for a host that reports them (NvidiaEnhancements).
         "rtx_hdr" | "rtx_video" => false,
         "present_at_host_times" => vrr,
+        "vrr_tear_free" => vrr && cfg!(windows),
         "frame_pacing" | "vsync" => !vrr,
         // Balanced's, which the default pacing is not (its own test draws it).
         "drop_late_frames" => false,

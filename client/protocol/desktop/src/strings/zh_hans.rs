@@ -1359,6 +1359,8 @@ sudo sysctl -w net.core.rmem_max={}", "接收缓冲区：系统只分配了所�
     ("VRR: shows each frame the moment it arrives on a G-Sync, FreeSync or adaptive-refresh screen, without waiting for the next refresh. Frame pacing is not used while VRR is on.", "VRR：在 G-Sync、FreeSync 或自适应刷新屏幕上，每帧一到达就显示，无需等待下一次刷新。开启时不使用“帧速调节”。"),
     ("Real VRR", "真实 VRR"),
     ("Shows each frame when the game drew it, so motion stays even. Adds about 1 to 4 ms of latency; leave it on unless you want the lowest latency.", "在游戏绘制每帧的时刻显示它，让动态保持平稳。会增加约 1 到 4 毫秒延迟；除非你想要最低延迟，否则请保持开启。"),
+    ("Tear-free VRR", "无撕裂 VRR"),
+    ("Waits for the screen to finish drawing the last frame before showing the next, so no frame is torn. Only a frame that arrives while the screen is still drawing waits, at most one refresh (about 4 ms at 240 Hz). Turn it off to show every frame at once, with tearing.", "等待屏幕绘制完上一帧后再显示下一帧，因此不会出现撕裂。只有在屏幕仍在绘制时到达的帧才会等待，最多等待一次刷新（240 Hz 下约 4 毫秒）。关闭后会立即显示每一帧，并可能出现撕裂。"),
     ("Trades latency against steady motion while VRR is off. Lowest latency shows frames at once; the other choices wait for the screen’s refresh: smoother, with more delay.", "VRR 关闭时，在延迟和动态平稳之间取舍。“最低延迟”会立即显示每一帧；其他选项会等待屏幕刷新：更流畅，但延迟更高。"),
     ("Waits for the screen’s refresh, so the picture never tears; the wait adds latency. Turn it off for the lowest latency if tearing doesn’t bother you.", "等待屏幕刷新，因此画面绝不撕裂；等待会增加延迟。如果不介意撕裂，可关闭以获得最低延迟。"),
     ("How a stream smaller than the screen is enlarged. FSR and SGSR sharpen edges at some GPU time and battery; HDR streams are enlarged without them.", "小于屏幕的串流画面如何放大。FSR 和 SGSR 会锐化边缘，但要占用一些 GPU 时间和电量；HDR 串流放大时不使用它们。"),

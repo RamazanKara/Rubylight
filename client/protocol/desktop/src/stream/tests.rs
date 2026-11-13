@@ -349,6 +349,7 @@ fn the_scan_line_is_read_for_the_beam_race_the_display_check_and_vrr_sync_scan()
     assert_eq!(display_probe(true, &vrr(false, VrrSync::Off)), Some("beam race"));
     // NIGHTJAR_VRR_SYNC=scan waits on the beam, so it reads the scan line with the check off.
     assert_eq!(display_probe(false, &vrr(false, VrrSync::Scan)), Some("display check"));
+    assert_eq!(display_probe(false, &vrr(false, VrrSync::Blank)), Some("display check"), "blank reads the scan line too");
     assert_eq!(display_probe(false, &vrr(false, VrrSync::Present1)), None, "present1 reads no beam");
     assert_eq!(display_probe(false, &vrr(false, VrrSync::Off)), None, "a default stream without VRR does none of it");
 }

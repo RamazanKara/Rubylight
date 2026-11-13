@@ -12,6 +12,8 @@
 //! stream then follows the client instead of the app's setting. Without the
 //! parameter the app's setting applies.
 
+use alloc::vec::Vec;
+
 /// The serverinfo element: a decimal mask of the enhancements offered.
 pub const SERVERINFO_FIELD: &str = "NvidiaEnhancements";
 /// RTX HDR: an SDR picture turned into HDR for an HDR stream.

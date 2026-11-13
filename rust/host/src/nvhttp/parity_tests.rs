@@ -641,6 +641,7 @@ async fn serverinfo_for_a_default_config_is_byte_identical() {
              <PowerActionVersion>1</PowerActionVersion>\
              <SleepSupported>{sleep}</SleepSupported>\
              <SleepAllowed>0</SleepAllowed>\
+             <RustHostInternetPlayVersion>0</RustHostInternetPlayVersion>\
              <Packed444Modes>0</Packed444Modes>\
              <HdrFormats>15</HdrFormats>\
              <FecControlVersion>1</FecControlVersion>\

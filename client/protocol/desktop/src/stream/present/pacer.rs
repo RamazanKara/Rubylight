@@ -318,10 +318,14 @@ pub struct FlipGuard {
 }
 
 /// The swap chain's sync interval for a pacing mode: 1 waits for the refresh, 0 presents at once
-/// with tearing. Racing slices needs tearing whatever `sync` says.
+/// with tearing. Racing slices needs tearing whatever `sync` says. On macOS Real VRR presents
+/// synchronised: a Metal layer shows a synchronised present on a display with a refresh range
+/// when it is issued, and Nonary's moonlight-qt keeps `displaySyncEnabled` on under VRR for it
+/// (GPL-3.0, commit 19758e5e6, vt_metal.mm).
 pub fn sync_interval(mode: PacingMode, sync: VrrSync) -> i32 {
     match (mode, sync) {
         (PacingMode::Vsync, _) => 1,
+        (PacingMode::HostTimes, _) if cfg!(target_os = "macos") => 1,
         (PacingMode::Immediate | PacingMode::HostTimes, VrrSync::Present1) => 1,
         _ => 0,
     }

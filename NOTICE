@@ -341,7 +341,9 @@ From the same project and commit, on Windows: the measurement switch NIGHTJAR_VR
 `present_adaptive`, `flip_statistics`; stream/render.rs, `blank_present`) is ported from its
 D3D11 flip protection (app/streaming/video/ffmpeg-renderers/d3d11presentpolicy.h,
 d3d11va.cpp, pacer/vrr/vrrtimingcontroller.cpp), with its test cases
-(tests/vrr/tst_dxgipresent.cpp).
+(tests/vrr/tst_dxgipresent.cpp); and on macOS what is read from NSScreen and the tests for a
+variable refresh range (client/protocol/desktop/src/mac_display.rs) are ported from
+app/streaming/macdisplaytiming.{h,mm}.
 The FFmpeg that Nightjar desktop ships on Windows carries Moonlight's FFmpeg patch for
 D3D11VA, D3D12VA and DXVA2 decoding of HEVC Range Extension profiles (HEVC 4:4:4), by
 Cameron Gutman, from https://github.com/moonlight-stream/moonlight-qt-deps

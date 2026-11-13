@@ -304,7 +304,7 @@ Nightjar is a fork of [Moonlight Android](https://github.com/moonlight-stream/mo
 - [Moonlight V+](https://github.com/qiin2333/moonlight-vplus) by qiin2333, for soft-keyboard, decoder and controller handling, and [Moonlight V+ PC](https://github.com/qiin2333/moonlight-qt), for the desktop client's D3D11 draw pass, AI enhancement, touchpad input, Linux USB forwarding, crash dumps and update check
 - [Moonlight X](https://github.com/MoreOrLessSoftware/moonlight-android/tree/mlsoft-x) by MoreOrLessSoftware, for Exynos and Tensor decoder settings and the Vulkan renderer
 - [moonlight-noir](https://github.com/derflacco/moonlight-android) by derflacco, for decoder low-latency settings
-- Nonary's moonlight-qt fork, the reference for the desktop client's VRR pacing and D3D11VA rendering, and the source of the Linux high-performance GPU power hold (`client/protocol/desktop/src/stream/gpu_hold.rs`) and the Windows VRR sync switch `blank` (`stream/present/pacer.rs`), both from commit 19758e5e6
+- Nonary's moonlight-qt fork, the reference for the desktop client's VRR pacing and D3D11VA rendering, and the source of the Linux high-performance GPU power hold (`client/protocol/desktop/src/stream/gpu_hold.rs`), the Windows VRR sync switch `blank` (`stream/present/pacer.rs`) and the macOS refresh range (`src/mac_display.rs`), all from commit 19758e5e6
 - [Nonary/moonlight-common-c](https://github.com/Nonary/moonlight-common-c), for the DualSense waveform protocol
 
 The bundled third-party components (PyroWave, Granite, volk, libadrenotools, AMD FSR 1, Qualcomm SGSR 1, SDL, FFmpeg, the Figtree font and others) keep their own licenses. [License and credits](docs/index.md#license-and-credits) names each contribution and the notices to retain when redistributing.

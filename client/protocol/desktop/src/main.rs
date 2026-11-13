@@ -51,6 +51,10 @@ mod linux_diagnosis;
 mod linux_video;
 mod latency_bench;
 mod logpipe;
+// The display's refresh range is NSScreen's; its tests for a variable range run everywhere.
+#[cfg(any(target_os = "macos", test))]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod mac_display;
 mod media;
 mod mp4;
 mod menu_style;
@@ -111,7 +115,7 @@ use gui::{Gui, Scale};
 use hosts::{Apps, Event as HostEvent, Hosts};
 use media::Hardware;
 use shortcuts::{Action, Scope};
-use stream::present::{pacing, PacingMode};
+use stream::present::pacing;
 use stream::{ConnectFailed, Connecting, Display, Exit, LaunchPlan, Streaming};
 use strings::{tr, trf};
 use ui::{Combo, Command, ConnectingView, Dialog, Launcher, Screen, View};
@@ -680,6 +684,26 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     #[cfg(target_os = "linux")]
     {
         launcher.tearing_supported = true;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // SAFETY: SDL's live window, on the main thread.
+        let timing = unsafe {
+            mac_display::of_window(SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, std::ptr::null_mut()))
+        };
+        let variable = timing.is_some_and(|timing| timing.variable_refresh());
+        match timing {
+            Some(timing) => {
+                let (slowest, fastest) = timing.range_hz();
+                eprintln!("nightjar: the display refreshes at {slowest:.0} to {fastest:.0} Hz{}", if variable { ", a variable refresh rate" } else { "" });
+            }
+            None => eprintln!("nightjar: the display reports no refresh range"),
+        }
+        // Real VRR on a Mac is built and was not seen on a display: `NIGHTJAR_MAC_VRR=1` turns
+        // it on for a display with a refresh range, where a stream then presents synchronised at
+        // the PC's frame times (`stream::present::sync_interval`).
+        launcher.tearing_supported = variable && stream::env_flag("NIGHTJAR_MAC_VRR") == Some(true);
+        if launcher.tearing_supported { eprintln!("nightjar: Real VRR on this display (NIGHTJAR_MAC_VRR)"); }
     }
     launcher.gpu_device = renderer_gpu_device(renderer);
     // Off Windows the swapchain's present mode decides tearing, logged when a stream starts.

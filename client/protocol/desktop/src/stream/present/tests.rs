@@ -453,7 +453,7 @@ fn the_vrr_sync_switch_sets_the_sync_interval_of_tearing_modes_only() {
         assert_eq!(sync_interval(PacingMode::BeamRace, sync), 0, "slices need tearing");
     }
     assert_eq!(sync_interval(PacingMode::Immediate, VrrSync::Off), 0);
-    assert_eq!(sync_interval(PacingMode::HostTimes, VrrSync::Off), 0, "Real VRR tears");
+    assert_eq!(sync_interval(PacingMode::HostTimes, VrrSync::Off), i32::from(cfg!(target_os = "macos")), "Real VRR tears, except on macOS");
     assert_eq!(sync_interval(PacingMode::Immediate, VrrSync::Present1), 1);
     assert_eq!(sync_interval(PacingMode::HostTimes, VrrSync::Present1), 1);
     assert_eq!(sync_interval(PacingMode::Immediate, VrrSync::Scan), 0, "waits on this thread, then tears");

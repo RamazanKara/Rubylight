@@ -726,9 +726,27 @@ fn vpe_ab() -> Result<()> {
     ];
     let mut cases = vec![];
     let mut sitings = vec![];
+    // A case that fails is recorded with its error and the run goes on, so one failure (an
+    // HLG prepass the device refuses) does not lose every other result and the report.
+    let mut failed = 0;
+    let mut record =
+        |list: &mut Vec<serde_json::Value>, name: String, result: Result<serde_json::Value>| {
+            match result {
+                Ok(value) => list.push(value),
+                Err(error) => {
+                    failed += 1;
+                    eprintln!("{name}: {error:#}");
+                    list.push(json!({"name": name, "error": format!("{error:#}")}));
+                }
+            }
+        };
     for (transfer, pixel) in kinds {
         let native = negotiated(transfer, 1920, 1080);
-        sitings.push(siting_case(&gpu, &runtime, acceleration, pixel, &native)?);
+        record(
+            &mut sitings,
+            format!("siting {transfer:?} {pixel:?}"),
+            siting_case(&gpu, &runtime, acceleration, pixel, &native),
+        );
         // Native, the two common integer reductions, a fractional one, an
         // enlargement and a letterbox (21:9 on 16:9).
         for (source, target) in [
@@ -753,9 +771,11 @@ fn vpe_ab() -> Result<()> {
                 &picture,
                 pixel,
                 &config,
-            )?;
-            eprintln!("{result}");
-            cases.push(result);
+            );
+            if let Ok(result) = &result {
+                eprintln!("{result}");
+            }
+            record(&mut cases, format!("{name} {transfer:?} {pixel:?}"), result);
         }
     }
     for (name, picture, pixel) in captures()? {
@@ -783,9 +803,11 @@ fn vpe_ab() -> Result<()> {
                     &picture,
                     pixel,
                     &config,
-                )?;
-                eprintln!("{result}");
-                cases.push(result);
+                );
+                if let Ok(result) = &result {
+                    eprintln!("{result}");
+                }
+                record(&mut cases, format!("{label} {transfer:?}"), result);
             }
         }
     }
@@ -797,11 +819,17 @@ fn vpe_ab() -> Result<()> {
         "time": "CPU time from submitting a conversion to reading two of its pixels back, per frame",
         "siting": sitings,
         "cases": cases,
+        "failed": failed,
     });
     let text = serde_json::to_string_pretty(&report)?;
     match std::env::var("RUBYLIGHT_VPE_REPORT") {
         Ok(path) => std::fs::write(&path, &text).with_context(|| path.clone())?,
         Err(_) => println!("{text}"),
     }
+    // Written in full first; the run still fails when a case did.
+    anyhow::ensure!(
+        failed == 0,
+        "{failed} cases failed; the report has their errors"
+    );
     Ok(())
 }

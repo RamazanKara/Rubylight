@@ -93,9 +93,9 @@ class Stale(unittest.TestCase):
     def test_paths_in_backticks_and_in_table_columns(self):
         with tempfile.TemporaryDirectory() as temp:
             folder = pathlib.Path(temp)
-            for name in ('docs', 'rust/core/src/config', 'rust/host/src'):
+            for name in ('docs', 'rust/core/src/config', 'rust/host/src/rust'):
                 (folder / name).mkdir(parents=True)
-            for name in ('rust/core/src/config.rs', 'rust/host/src/state.rs'):
+            for name in ('rust/core/src/config.rs', 'rust/host/src/state.rs', 'rust/host/src/rust/own.rs'):
                 (folder / name).write_text('', encoding='utf-8')
             text = chr(10).join((
                 'Read `rust/core/src/config.rs` and `rust/core/src/gone.rs`; `cargo/test` and `a/b` are not in the tree.',
@@ -104,11 +104,12 @@ class Stale(unittest.TestCase):
                 '| --- | --- | --- |',
                 '| Settings | `config.rs`, `config/`, `Config` | `state.rs`, `web.rs` |',
                 '| Words | `lost.rs` and `rust/host/src/state.rs` | none |',
+                '| A folder named like one of the tree | | `rust/own.rs`, `rust/none.rs` |',
                 '',
                 'After the table `config.rs` is only a word again.'))
             self.assertEqual(code_map.stale(text, folder / 'docs'), [
                 (1, 'rust/core/src/gone.rs', 'no such file'), (5, 'rust/host/src/web.rs', 'no such file'),
-                (6, 'rust/core/src/lost.rs', 'no such file')])
+                (6, 'rust/core/src/lost.rs', 'no such file'), (7, 'rust/none.rs', 'no such file')])
 
 
 class Repository(unittest.TestCase):

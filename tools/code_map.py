@@ -199,20 +199,21 @@ def stale(text, folder):
 
         def rooted(path):
             return '/' in path.rstrip('/') and (root / path.split('/')[0]).exists()
-        missing += [(number, path, 'no such file') for path in PATH.findall(plain)
-                    if rooted(path) and not (root / path).exists()]
-        if not line.lstrip().startswith('|'):
-            bases = {}
-            continue
-        cells = plain.split('|')
-        if number < len(lines) and re.match(r'\s*\|[\s|:-]+\|\s*$', lines[number]):
+        cells = plain.split('|') if line.lstrip().startswith('|') else []
+        header = bool(cells) and number < len(lines) and re.match(r'\s*\|[\s|:-]+\|\s*$', lines[number])
+        if header:
             found = {column: [path for path in PATH.findall(cell) if path.endswith('/')] for column, cell in enumerate(cells)}
             bases = {column: paths[0] for column, paths in found.items() if paths}
-            continue
-        for column, base in bases.items():
-            for path in PATH.findall(cells[column]) if column < len(cells) else ():
-                if ('.' in path or path.endswith('/')) and not rooted(path) and not (root / base / path).exists():
-                    missing.append((number, base + path, 'no such file'))
+        elif not cells:
+            bases = {}
+        # What a column's folder holds is that folder's, even where its first part is a folder of the tree too.
+        cell_paths = [(base, path) for column, base in bases.items() if not header and column < len(cells)
+                      for path in PATH.findall(cells[column])]
+        held = {path for base, path in cell_paths if (root / base / path).exists()}
+        missing += [(number, path, 'no such file') for path in PATH.findall(plain)
+                    if path not in held and rooted(path) and not (root / path).exists()]
+        missing += [(number, base + path, 'no such file') for base, path in cell_paths
+                    if ('.' in path or path.endswith('/')) and path not in held and not rooted(path)]
     return missing
 
 

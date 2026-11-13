@@ -2679,7 +2679,7 @@ mod tests {
         assert_eq!(value(Settings::default(), "open_on_start"), "Home");
         assert_eq!(value(Settings { console_home: false, ..Settings::default() }, "open_on_start"), "Show my PCs");
         assert_eq!(value(Settings::default(), "prefer_yuv444"), "Off");
-        assert_eq!(value(Settings { experimental_packed_444: true, ..Settings::default() }, "prefer_yuv444"), "Automatic");
+        assert_eq!(value(Settings { experimental_packed_444: true, ..Settings::default() }, "prefer_yuv444"), "On");
         assert_eq!(value(Settings::default(), "network_grace_ms"), "Off", "the desktop's 3 s default is within the connection's own timeout");
         assert_eq!(value(Settings { network_grace_ms: 30_000, ..Settings::default() }, "network_grace_ms"), "30 s");
         assert_eq!(value(Settings::default(), "align_video_top"), "Center");

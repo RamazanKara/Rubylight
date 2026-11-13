@@ -767,6 +767,7 @@ impl SessionThread<'_> {
                             let cc = s.congestion_snapshot();
                             let (cc_queue_p50, cc_queue_p95, cc_samples) = s.take_congestion_window();
                             let cc_u64 = |key: &str| cc[key].as_u64();
+                            let ms = |key: &str| timing[key].as_f64().unwrap_or(0.);
                             let input = s.stats.input_latency.lock().unwrap().take();
                             // Pipeline frame rates since the last summary; none in the first.
                             let rates = pipeline_log.sample(Instant::now(), s.pipeline_counts(), Duration::from_secs(5));

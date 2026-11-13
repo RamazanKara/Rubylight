@@ -622,6 +622,16 @@ public class HostCapabilitiesTest {
     }
 
     @Test
+    public void playOverTheInternetNeedsTheHostToHaveItOn() {
+        assertTrue(caps("<RustHostInternetPlayVersion>1</RustHostInternetPlayVersion>").has(Feature.INTERNET_PLAY));
+        for (String version : new String[] {"", "<RustHostInternetPlayVersion>0</RustHostInternetPlayVersion>"}) {
+            assertFalse(version, caps(version).has(Feature.INTERNET_PLAY));
+        }
+        assertTrue(HostCapabilities.fromJson(
+                caps("<RustHostInternetPlayVersion>1</RustHostInternetPlayVersion>").toJson()).has(Feature.INTERNET_PLAY));
+    }
+
+    @Test
     public void aSecondScreenOfOneDeviceNeedsSecondScreenVersion() {
         String host = "<RustHostVersion>3.9.0</RustHostVersion>";
         // Older hosts don't send it and end the first stream when the second starts.

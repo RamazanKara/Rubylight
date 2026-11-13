@@ -117,14 +117,20 @@ public class PcGridAdapter extends GenericGridAdapter<PcView.ComputerObject> {
                 return computer.runningGame != null ?
                         context.getString(R.string.pc_status_playing, computer.runningGame.getAppName()) :
                         context.getString(R.string.pc_status_playing_unknown);
-            case READY:
-                return context.getString(R.string.pc_status_online);
+            case READY: {
+                // Away from home, the line names the internet path in use.
+                String path = com.limelight.computers.InternetPlay.pathLabel(context, computer.details.internetPath);
+                return path != null ? context.getString(R.string.internet_path_label, path) :
+                        context.getString(R.string.pc_status_online);
+            }
             case NOT_PAIRED:
                 return context.getString(R.string.pc_status_not_paired);
             case WAKING:
                 return context.getString(R.string.pc_status_waking);
             case OFFLINE:
-                return context.getString(R.string.pc_offline);
+                // A PC that gave this device internet play details says which paths failed and why.
+                return computer.details.unreachable != null ? computer.details.unreachable :
+                        context.getString(R.string.pc_offline);
             default:
                 return context.getString(R.string.pc_checking);
         }

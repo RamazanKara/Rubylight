@@ -6,6 +6,7 @@ use super::first_run::first_run_of;
 use super::*;
 use super::{glass, spring};
 use egui::Shape;
+use nightjar_core::internet::InternetPath;
 
 const PC_CARD_H: f32 = 216.0;
 const PC_CARD_PAD: f32 = 22.0;
@@ -86,6 +87,8 @@ impl PcAction {
 pub(super) enum PcLine {
     Running(String),
     Online,
+    /// Online through the internet rather than the local network: the words name the path.
+    Away(String),
     Offline,
     NotPaired,
     Checking,
@@ -98,8 +101,23 @@ pub(super) fn pc_line_of(host: &Host) -> PcLine {
         (Reach::Online, false) => PcLine::NotPaired,
         (Reach::Online, true) => match host.running_app() {
             Some(_) => PcLine::Running(at_sentence_start(&running_name(host))),
-            None => PcLine::Online,
+            None => match host.path() {
+                Some(path) if path != InternetPath::Lan => {
+                    PcLine::Away(trf("Online · {}", &[&tr(path_words(path))]))
+                }
+                _ => PcLine::Online,
+            },
         },
+    }
+}
+
+/// The words for a path to a PC (`nightjar_core::internet`), to translate where shown.
+pub(super) fn path_words(path: InternetPath) -> &'static str {
+    match path {
+        InternetPath::Lan => en("Local network"),
+        InternetPath::Ipv6 => en("Internet (IPv6)"),
+        InternetPath::MappedIpv4 => en("Internet (forwarded port)"),
+        InternetPath::Punched => en("Internet (direct path)"),
     }
 }
 
@@ -107,6 +125,7 @@ impl PcLine {
     pub(super) fn words(&self) -> &str {
         match self {
             Self::Running(game) => game,
+            Self::Away(words) => words,
             Self::Online => tr("Online"),
             Self::Offline => tr("Offline"),
             Self::NotPaired => tr("Not paired"),
@@ -417,7 +436,7 @@ pub(super) fn status_line(ui: &Ui, out: &mut Vec<Shape>, at: Pos2, room: f32, li
     const FONT: f32 = 15.0;
     let ctx = ui.ctx();
     let ink: Color32 = match line {
-        PcLine::Running(_) | PcLine::Online => *ON_SURFACE,
+        PcLine::Running(_) | PcLine::Online | PcLine::Away(_) => *ON_SURFACE,
         PcLine::Offline | PcLine::NotPaired | PcLine::Checking => *ON_SURFACE_VARIANT,
     };
     let lead = match line {
@@ -429,7 +448,7 @@ pub(super) fn status_line(ui: &Ui, out: &mut Vec<Shape>, at: Pos2, room: f32, li
             ));
             15.0
         }
-        PcLine::Running(_) | PcLine::Online => {
+        PcLine::Running(_) | PcLine::Online | PcLine::Away(_) => {
             let dot = pos2(at.x + 4.5, at.y);
             if !high_contrast() {
                 glass::soft(

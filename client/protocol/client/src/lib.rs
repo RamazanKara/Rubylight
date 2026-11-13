@@ -10,6 +10,7 @@ pub mod frame_warp;
 pub mod full_chroma;
 pub mod host_loss;
 pub mod http;
+pub mod internet;
 pub mod input;
 pub mod priority;
 pub mod report;

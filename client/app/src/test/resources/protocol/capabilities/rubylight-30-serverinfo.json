@@ -52,6 +52,7 @@
     "controller_identity": "supported",
     "pipeline_rates": "supported",
     "second_screen": "supported",
+    "internet_play": "unsupported",
     "image_clipboard": "supported",
     "shared_folders": "supported",
     "coop": "supported",

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="title_internet_play">Über das Internet spielen</string>
+    <string name="summary_internet_play">Unterwegs einen PC, der es anbietet, über einen direkten Internetweg erreichen, ohne Ports weiterzuleiten. Verbinde dich zuerst einmal im Netzwerk des PCs. Dein Netzwerk wird immer zuerst versucht.</string>
+    <string name="internet_path_label">Verbunden über: %1$s</string>
+    <string name="internet_path_ipv6">Internet (IPv6)</string>
+    <string name="internet_path_mapped">Internet (weitergeleiteter Port)</string>
+    <string name="internet_path_punched">Internet (direkter Weg)</string>
+</resources>

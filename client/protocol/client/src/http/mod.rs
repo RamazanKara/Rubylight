@@ -17,6 +17,7 @@ mod folders;
 pub mod foundation;
 mod hardware_metrics;
 mod identity;
+mod internet_play;
 mod launch;
 mod luminance;
 mod native;
@@ -62,6 +63,7 @@ pub use hardware_metrics::{
     GpuMetrics, HardwareMetrics, Readings, CPU_METRICS, GPU_METRICS, MAX_HARDWARE_METRICS_BYTES,
 };
 pub use identity::ClientIdentity;
+pub use internet_play::{InternetPlay, MAX_INTERNET_PLAY_BYTES};
 pub use launch::{
     asks_to_confirm_replace, parse_launch_reply, HostDisplay, LaunchRequest, Launched,
     CONFIRM_REPLACE, CORE_LAUNCH_PARAMETERS,

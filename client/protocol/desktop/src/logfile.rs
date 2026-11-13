@@ -293,6 +293,15 @@ pub fn add_secrets(record: &crate::config::HostRecord) {
     for secret in names.chain(&record.other_addresses) {
         nightjar_core::report::redact::add_secret(secret);
     }
+    // The PC's internet addresses from its internet play reply stay out of logs too.
+    if let Some(reply) = record.internet_play.as_deref().and_then(|text| nightjar_core::http::InternetPlay::parse(text).ok()) {
+        let addresses = reply.ipv6.iter().map(ToString::to_string)
+            .chain(reply.external_ipv4.map(|ip| ip.to_string()))
+            .chain(reply.endpoints.iter().map(|endpoint| endpoint.ip().to_string()));
+        for address in addresses {
+            nightjar_core::report::redact::add_secret(&address);
+        }
+    }
 }
 
 fn redact_line(line: &[u8], out: &mut Vec<u8>) {

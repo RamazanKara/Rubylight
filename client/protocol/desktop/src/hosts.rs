@@ -30,6 +30,8 @@ const POLL_INTERVAL: Duration = Duration::from_secs(4);
 /// After a quit, a closed game or a stream's end the PC changes its state a moment later, so it is
 /// asked every second for this long (`Host::recheck_until`).
 const RECHECK_INTERVAL: Duration = Duration::from_secs(1);
+/// How often a PC's internet play reply is read again while it is reached on its network.
+const INTERNET_READ_INTERVAL: Duration = Duration::from_secs(600);
 const RECHECK_WINDOW: Duration = Duration::from_secs(15);
 const RECHECK_LIBRARY_INTERVAL: Duration = Duration::from_secs(3);
 /// The native library and permissions are read this often; the session on every poll.
@@ -210,6 +212,8 @@ pub struct Host {
     /// (`/api/network/capabilities`); None until it answered.
     foundation_probe: Option<bool>,
     probing_foundation: bool,
+    /// When the PC's internet play reply was last asked for on its network; None until then.
+    internet_read: Option<Instant>,
 }
 
 impl Host {
@@ -220,6 +224,26 @@ impl Host {
             Some(remote) if self.record.pinned_address.is_none() => remote,
             _ => &self.record.address,
         }
+    }
+
+    /// How this device reaches the PC right now, for the PC's page: the local network, IPv6, a
+    /// forwarded port or a punched path. None while it is not reached.
+    pub fn path(&self) -> Option<nightjar_core::internet::InternetPath> {
+        if self.reach != Reach::Online {
+            return None;
+        }
+        let address: IpAddr = self.connect_address().parse().ok()?;
+        let lan: Vec<IpAddr> = std::iter::once(&self.record.address)
+            .chain(&self.record.other_addresses)
+            .filter_map(|a| a.parse().ok())
+            .collect();
+        let info = internet_reply(&self.record);
+        let path = nightjar_core::internet::path_of(address, &lan, info.as_ref());
+        // An address that is neither the PC's own nor from its reply is the remote one.
+        if self.via_remote.is_some() && path == nightjar_core::internet::InternetPath::Lan {
+            return Some(nightjar_core::internet::InternetPath::MappedIpv4);
+        }
+        Some(path)
     }
 
     /// Whether Test speed runs here: Rubylight's PyroWave test, or Foundation Sunshine's where
@@ -513,6 +537,12 @@ pub enum Event {
         id: u64,
         unique_id: String,
         found: Option<bool>,
+    },
+    /// The PC's `/internet-play/v1` reply as it came, read on its network.
+    InternetPlay {
+        id: u64,
+        unique_id: String,
+        result: Result<String, String>,
     },
     /// This device's WAN address from STUN, the remote address of a PC found on the LAN.
     Remote {
@@ -1166,6 +1196,7 @@ impl Hosts {
             info_seq: 0,
             recheck_until: None,
             via_remote: None,
+            internet_read: None,
             foundation_probe: None,
             probing_foundation: false,
         });
@@ -1427,6 +1458,7 @@ impl Hosts {
         let likely_online = host.reach == Reach::Online;
         self.spawn("serverinfo", move || {
             let mut last_error = String::from(en("No address"));
+            let mut tried = Vec::new();
             for address in poll_addresses(&record) {
                 let result = client_for(&identity, &record, &address)
                     .and_then(|c| c.server_info(likely_online).map_err(|e| describe(&e)));
@@ -1439,7 +1471,32 @@ impl Hosts {
                             result: Ok(Box::new(info)),
                         })
                     }
-                    Err(e) => last_error = e,
+                    Err(e) => {
+                        tried.push(address);
+                        last_error = e;
+                    }
+                }
+            }
+            // Every direct path failed: a punched one, where the PC gave this device its key.
+            if let Some(reply) = internet_reply(&record).filter(|_| record.pinned_address.is_none()) {
+                let asked = |address: String| tried.contains(&address);
+                let tried = nightjar_core::internet::Tried {
+                    lan: asked(record.address.clone()),
+                    ipv6: reply.ipv6.iter().any(|ip| asked(ip.to_string())),
+                    mapped: reply.external_ipv4.is_some_and(|ip| asked(ip.to_string())),
+                };
+                let punched = nightjar_core::internet::punch(&record.unique_id, &reply, tried).and_then(|at| {
+                    let address = at.ip().to_string();
+                    client_for(&identity, &record, &address)
+                        .and_then(|c| c.server_info(true).map_err(|e| describe(&e)))
+                        .map(|info| (address, info))
+                        .map_err(|e| nightjar_core::internet::unreachable(&reply, tried, Some(e)))
+                });
+                match punched {
+                    Ok((address, info)) => {
+                        return Some(Event::Info { id, seq, address, result: Ok(Box::new(info)) })
+                    }
+                    Err(words) => last_error = words,
                 }
             }
             Some(Event::Info {
@@ -2216,6 +2273,22 @@ impl Hosts {
                     self.follow_native(id);
                     self.follow_classic(id);
                     self.check_foundation_probe(id);
+                    self.follow_internet_play(id);
+                }
+                Event::InternetPlay { id, unique_id, result } => {
+                    let Some(host) = self.get_mut(id) else { continue };
+                    match result {
+                        // Another PC answers at this address by now: the reply is not its.
+                        Ok(text) if host.record.unique_id == unique_id => {
+                            if host.record.internet_play.as_deref() != Some(text.as_str()) {
+                                host.record.internet_play = Some(text);
+                                crate::logfile::add_secrets(&host.record);
+                                changed = true;
+                            }
+                        }
+                        Ok(_) => {}
+                        Err(e) => eprintln!("nightjar: the PC's internet play details could not be read: {e}"),
+                    }
                 }
                 Event::FoundationProbe { id, unique_id, found } => {
                     if let Some(host) = self.get_mut(id) {
@@ -2488,6 +2561,28 @@ impl Hosts {
     /// Asks a paired Sunshine-family PC once whether it has Foundation Sunshine's bandwidth test,
     /// so Test speed is offered only where it runs. A request that did not get through is asked
     /// again after the next poll.
+    /// Reads the PC's internet play reply while it is reached on its own network and offers
+    /// it, at most every `INTERNET_READ_INTERVAL`: the device keeps it for when it is away.
+    fn follow_internet_play(&mut self, id: u64) {
+        let Some(identity) = self.identity.clone() else { return };
+        let Some(host) = self.get_mut(id) else { return };
+        let Some(info) = host.info.as_ref() else { return };
+        let offered = info.paired && info.capabilities.has(Feature::InternetPlay);
+        let due = host.internet_read.is_none_or(|at| at.elapsed() >= INTERNET_READ_INTERVAL);
+        if host.reach != Reach::Online || !offered || !due || host.via_remote.is_some() {
+            return;
+        }
+        host.internet_read = Some(Instant::now());
+        let capabilities = info.capabilities.clone();
+        let record = host.connect_record();
+        self.spawn("internet-play", move || {
+            let result = client_for(&identity, &record, &record.address).and_then(|c| {
+                c.internet_play(&capabilities).map(|(text, _)| text).map_err(|e| e.to_string())
+            });
+            Some(Event::InternetPlay { id, unique_id: record.unique_id.clone(), result })
+        });
+    }
+
     fn check_foundation_probe(&mut self, id: u64) {
         let Some(identity) = self.identity.clone() else { return };
         let Some(host) = self.get_mut(id) else { return };
@@ -2615,7 +2710,7 @@ impl Hosts {
                 // The remote address answers only when none of the PC's own did: requests go
                 // there for now, but the PC stays under its own, so the next poll at home finds
                 // it on the LAN again rather than through the router.
-                let remote = host.record.remote_address.as_deref() == Some(address.as_str());
+                let remote = away_address(&host.record, &address);
                 host.via_remote = (remote && host.record.address != address && host.record.pinned_address.is_none())
                     .then(|| address.clone());
                 // A pinned PC keeps its address: an answer from another one was still in flight
@@ -2762,8 +2857,45 @@ fn poll_addresses(record: &HostRecord) -> Vec<String> {
         .filter(|a| Some(*a) != remote)
         .cloned()
         .collect();
-    addresses.extend(remote.cloned());
+    // Then the internet paths in order: the PC's IPv6 addresses, then its forwarded IPv4 port
+    // (the remote address, or the one its internet play reply names).
+    let reply = internet_reply(record);
+    let mut away: Vec<String> = Vec::new();
+    if let Some(reply) = &reply {
+        away.extend(reply.ipv6.iter().map(ToString::to_string));
+    }
+    away.extend(remote.cloned());
+    if let Some(mapped) = reply.as_ref().filter(|r| r.mapped_ports).and_then(|r| r.external_ipv4) {
+        away.push(mapped.to_string());
+    }
+    for address in away {
+        if !addresses.contains(&address) {
+            addresses.push(address);
+        }
+    }
     addresses
+}
+
+/// The PC's stored internet play reply, read again.
+fn internet_reply(record: &HostRecord) -> Option<nightjar_core::http::InternetPlay> {
+    record.internet_play.as_deref().and_then(|text| nightjar_core::http::InternetPlay::parse(text).ok())
+}
+
+/// Whether `address` reaches the PC from outside its network: its remote address, an internet
+/// address from its reply, or a punched path. Requests go there for now; the PC stays stored
+/// under its own address.
+fn away_address(record: &HostRecord, address: &str) -> bool {
+    if record.remote_address.as_deref() == Some(address) {
+        return true;
+    }
+    let Ok(ip) = address.parse::<IpAddr>() else { return false };
+    if nightjar_core::internet::is_tunnel(ip) {
+        return true;
+    }
+    internet_reply(record).is_some_and(|reply| match ip {
+        IpAddr::V6(ip) => reply.ipv6.contains(&ip),
+        IpAddr::V4(ip) => reply.external_ipv4 == Some(ip),
+    })
 }
 
 /// `text` as an IPv4 address that a PC outside this network can be reached at.

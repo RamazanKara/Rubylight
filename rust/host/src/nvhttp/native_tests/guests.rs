@@ -108,7 +108,8 @@ async fn the_feature_follows_the_setting() {
     assert!(!listed(caps), "off by default");
     for policy in ["ask", "allow"] {
         set(&s, "guest_join", policy);
-        let caps: Capabilities = serde_json::from_slice(&s.get("/capabilities").await.body).unwrap();
+        let caps: Capabilities =
+            serde_json::from_slice(&s.get("/capabilities").await.body).unwrap();
         assert!(listed(caps), "{policy}");
     }
     set(&s, "guest_join", "off");

@@ -519,7 +519,7 @@ Under **All settings → Sound & controls**, in the **Keyboard** and **Mouse, pe
 
 **All settings → Sound & controls → Controllers → Controller type** controls which virtual controller games see. Standard profiles use the VHF gamepad driver included in the installer. Composite DualSense waveform haptics and native Steam Deck controllers use the optional usbip-win2 driver, bundled in the installer as **Steam Deck and DualSense USB audio and haptics**.
 
-`gamepad = auto` matches each client's controller. PlayStation clients get a DualSense, the only pad with adaptive triggers; it also carries motion, battery, touchpad, lightbar and rumble. A game's trigger effects reach the player only if the client forwards them to a real DualSense. Nintendo clients get a Switch Pro. Other clients get an Xbox Series pad, or a DualSense when they have motion sensors or a touchpad and `motion_as_ds4` or `touchpad_as_ds4` is enabled. Both preferences default to enabled, so a Steam Deck reporting motion gets a DualSense.
+`gamepad = auto` matches each client's controller. PlayStation clients get a DualSense, the only pad with adaptive triggers; it also carries motion, battery, touchpad, lightbar and rumble. A game's trigger effects reach the player only if the client forwards them to a real DualSense. A client's Switch 2 Pro Controller gets a Switch 2 Pro Controller when usbip-win2 is installed (see below); other Nintendo clients get a Switch Pro. Other clients get an Xbox Series pad, or a DualSense when they have motion sensors or a touchpad and `motion_as_ds4` or `touchpad_as_ds4` is enabled. Both preferences default to enabled, so a Steam Deck reporting motion gets a DualSense.
 
 `vhf_xbox`, `vhf_xbox_one`, `vhf_ds4`, `vhf_ds5` and `vhf_switch` give every client that pad: `vhf_ds5` a DualSense, `vhf_ds4` a DualShock 4 without adaptive triggers. Logs name the profile for each connected controller.
 
@@ -529,11 +529,21 @@ Under **All settings → Sound & controls**, in the **Keyboard** and **Mouse, pe
 
 Earlier releases also offered Xbox 360 (`x360`) and DualShock 4 (`ds4`) through ViGEmBus. Rubylight changes those settings to `vhf_xbox_one` and `vhf_ds4` when it loads them, in the host configuration, app and device overrides, and configurations imported from Sunshine, Apollo or Vibepollo. ViGEmBus is used only for `vigem_x360`; otherwise an installed copy can be uninstalled.
 
+### Switch 2 Pro Controller
+
+A Nightjar client tells the host which controller it has (USB vendor and product). When that is a Switch 2 Pro Controller (`057E:2069`) and usbip-win2 is installed, Automatic attaches a virtual Switch 2 Pro Controller over USB/IP: the C button, both grip buttons (GL and GR), both sticks, gyro and accelerometer, battery, player lights and rumble back to the client. SDL 3 and Steam read it as the real controller, with Steam's own Switch 2 controller support. **Switch 2 Pro (USB/IP)** (`gamepad = usbip_switch2`) gives every controller one. Without usbip-win2, Automatic keeps the Switch Pro and the console says why; with `usbip_switch2` the controller does not work until the driver does. Moonlight and other clients, which do not say which controller they have, keep today's choice. Start the game after connecting the controller.
+
 ### DualSense waveform haptics
 
 With a waveform-capable client and usbip-win2 installed on the host, Automatic can expose a DualSense with its matching USB audio endpoint. **DualSense with waveform haptics (USB/IP)** (`gamepad = usbip_ds5`) explicitly requires this mode. Games can then send their native actuator waveforms alongside ordinary rumble and adaptive triggers. See [setup and current limitations](dualsense-haptics.md).
 
 **Haptics from game audio** (`audio_haptics`, off by default) feeds such a client's DualSense waveform haptics made from the game's bass and impacts while the game sends it none, with `audio_haptics_strength` (0 to 200 %), `audio_haptics_curve` (`linear`, `soft`, `punchy`) and `audio_haptics_gate` (-80 to -10 dBFS). It needs no USB/IP and stops as soon as the game vibrates the controller itself. See [haptics from game audio](dualsense-haptics.md#haptics-from-game-audio).
+
+### Motion server for emulators (DSU)
+
+**Motion server for emulators (DSU)** (`enable_dsu_server`, off by default) serves each streamed controller's gyroscope and accelerometer, buttons, sticks, triggers, touchpad and battery over the DSU (cemuhook) protocol, which Cemu, Dolphin, Citra, Yuzu and other emulators read for motion controls. In the emulator, choose DSU or cemuhook motion with server `127.0.0.1` and port `dsu_server_port` (26760 by default, 1024 to 65535). Controllers take slots 1 to 4 in the order they connect, from any streaming device, and leave them when they disconnect; a fifth controller gets none. The server starts with the host; changing either setting takes effect after a host restart. If the port is taken, the console says so and streams work without it.
+
+The server listens on every network interface, as Foundation Sunshine's does, and has no password: any device that reaches the port can read the streamed controllers' input, and pad data goes to whoever asks for it. The Windows Firewall blocks other devices unless you add a rule for the UDP port; for an emulator on another PC, allow it only on a network you trust.
 
 ### Steam Deck
 
@@ -1242,9 +1252,11 @@ Every setting in the console, by the console's tabs and groups, with its key and
 | Mouse, pen and touch: Touch sensitivity | `touch_sensitivity` | `100` % | How far the pointer moves for a swipe as a trackpad, and how far two fingers scroll. |
 | Mouse, pen and touch: Touch gestures | `touch_gestures` | `true` | As a mouse or trackpad, two fingers scroll and a two-finger tap clicks right. |
 | Mouse, pen and touch: Device-drawn cursor | `client_cursor` | `true` | Lets a device draw the mouse cursor itself, so the cursor moves without waiting for the video. Needs Desktop Duplication capture; with other capture the cursor stays in the video. |
-| Controllers: Controller type | `gamepad` | `auto` (Automatic) | The virtual controller this PC uses. Automatic matches each device's controller; choosing a type here uses it for all connected controllers. |
+| Controllers: Controller type | `gamepad` | `auto` (Automatic) | The virtual controller this PC uses. Automatic matches each device's controller; choosing a type here uses it for all connected controllers. `usbip_switch2` is a Switch 2 Pro Controller over USB/IP. |
 | Controllers: PlayStation controller for motion controls | `motion_as_ds4` | `true` | With Automatic, motion sensors select DualSense. Turn it off to ignore motion sensors when choosing. |
 | Controllers: PlayStation controller for touchpads | `touchpad_as_ds4` | `true` | With Automatic, a touchpad selects DualSense. Turn it off to ignore the touchpad when choosing. |
+| Controllers: Motion server for emulators (DSU) | `enable_dsu_server` | `false` | Emulators such as Cemu, Dolphin and Citra read each streamed controller's gyroscope, accelerometer, buttons and touch from this PC. Listens on every network interface. Takes effect after a host restart. |
+| Controllers: Motion server port | `dsu_server_port` | `26760` | The UDP port emulators connect to, 1024 to 65535. Takes effect after a host restart. |
 | Controllers: Vibration | `forward_rumble` | `true` | Send vibration from games back to the device's controller. |
 | Controllers: Haptics from game audio | `audio_haptics` | `false` | A DualSense on the device feels the game's bass and impacts when the game sends it no vibration of its own. Changes apply during a stream. |
 | Controllers: Audio haptics strength | `audio_haptics_strength` | `100` % | How strongly the bass drives the actuators. 0 is off; above 100 % quiet scenes are felt more but loud ones clip. |

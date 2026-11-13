@@ -138,6 +138,25 @@ InputPlumber (https://github.com/ShadowBlip/InputPlumber, GPLv3), and the input
 report layout and button bits from SDL's SDL_hidapi_steamdeck.c and
 controller_structs.h (https://github.com/libsdl-org/SDL, zlib license).
 
+VIIPER, Solstice and SDL (Switch 2 Pro Controller)
+
+The virtual Switch 2 Pro Controller (rust/core/src/switch2.rs) follows libVIIPER's
+device/ns2pro by Alia5 (https://github.com/Alia5/VIIPER, GPL-3.0, commit 20aa112) for
+its USB descriptors, input reports and bulk command replies, Solstice by Luiz Filipe
+Bandeira and contributors (https://github.com/eqnx-emu/Solstice, GPL-3.0) for its
+button and motion mapping, and SDL 3's SDL_hidapi_switch2.c
+(https://github.com/libsdl-org/SDL, zlib license, Copyright (C) 1997-2026 Sam
+Lantinga) for the axis scales, stick calibration, the initialisation SDL sends, HD
+rumble and motion timestamps.
+
+DS4Windows and Foundation Sunshine (DSU motion server)
+
+The DSU (cemuhook) motion server (rust/core/src/dsu.rs, rust/host/src/dsu.rs) follows
+the protocol of DS4Windows' UdpServer.cs (https://github.com/schmaldeo/DS4Windows,
+GPL-3.0, Jays2Kings, Ryochan7, schmaldeo and contributors). Its settings
+(enable_dsu_server, dsu_server_port) and default port 26760 are Foundation Sunshine's
+(https://github.com/AlkaidLab/foundation-sunshine, GPL-3.0).
+
 Artemis
 
 Nightjar's touchpad gestures for a physical touchpad and the Trackpad (touchpad

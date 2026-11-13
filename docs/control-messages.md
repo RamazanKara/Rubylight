@@ -327,6 +327,14 @@ As [Frame Warp](frame-warp.md) and Nightjar's [protocol document](../client/docs
 
 Bytes 0-35 are Moonlight's pen packet (`0x55000003`) with this magic at offset 4, and its declared big-endian length is 36. Bytes 36-37 are `barrel_roll u16`, in degrees clockwise from 0 to 359 or `0xFFFF` when unknown, and bytes 38-39 are reserved (0). The client sends it instead of the pen packet only when serverinfo has `PenBarrelRollVersion` and the `DESCRIBE` answer has `a=x-ss-general.penBarrelRoll:1`.
 
+### Controller identity (input packet `0x55000080`, 16 bytes) and the C button
+
+`rubylight_protocol::controller_identity::ControllerIdentity`, sent on the controller's gamepad channel before its arrival (`0x55000004`), so the host knows which controller it is when it picks the virtual pad. After the big-endian length (12) and the magic: `controller u8` (0-15), a reserved byte (0), `vendor u16` and `product u16` (the USB ids the client's controller reports, little-endian) and two reserved bytes (0). A Switch 2 Pro Controller is `057E:2069`. Clients send it again when another controller takes the number.
+
+Controller packets carry the Switch 2 controllers' C button as button flag `0x400000` (in the upper 16 bits that Sunshine-family hosts take).
+
+The client sends both only when serverinfo has `ControllerIdentityVersion` (`1`), which the host offers while `controller` is on; Nightjar's capability is `controller_identity`. Any other host never sees the packet or the flag. The magic lies in the block reserved for controller extensions (`0x55000080`-`0x55000087`).
+
 ### Stream negotiation
 
 Each is absent until the host offers it.

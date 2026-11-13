@@ -51,12 +51,30 @@ Turn the camera and the picture turns on your screen's next refresh, instead of 
 
 - **96% of the trail gone.** A test game with 50 ms of delay, streamed at 1440p and 60 fps, showed the picture a median 64.9 px behind the mouse while turning. With Frame Warp: 1.4 to 2.2 px.
 - **Learns each game by itself.** Sailing in Black Flag Resynced, streamed to a handheld and a laptop, it learned the camera as it turned and kept the quest text, compass and icon wheel in place.
+- **Right out to the edges.** It learns each game's field of view and turns the picture the way the game's camera would. At a 90° view, 91% of the trail is gone at the picture's edge, up from 65% when the whole picture slid by one shift (Rubylight 4.1 and Nightjar 5.1).
 - **Costs almost nothing.** 0.14 to 0.16 ms of GPU time a frame on the RX 7900 XT, from 1080p to 4K.
 - **One switch.** Nightjar › Settings › Video › Frame Warp. Rubylight is ready for it out of the box.
 
 <p align="center"><img src="docs/media/frame-warp/black-flag-retroid.webp" width="640" alt="Black Flag Resynced on a Retroid Pocket 6 in the middle of a camera turn with Frame Warp on: the quest text, compass and icon wheel stay in place."></p>
 
-[How Frame Warp works](docs/frame-warp.md) · [Measurements](rust/PERFORMANCE.md#november-12-frame-warp)
+[How Frame Warp works](docs/frame-warp.md) · [Measurements](rust/PERFORMANCE.md#november-12-frame-warp) · [The lens](rust/PERFORMANCE.md#november-12-frame-warp-lens)
+
+## Real VRR
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="client/docs/assets/real-vrr/chart-dark.png">
+    <img src="client/docs/assets/real-vrr/chart-light.png" width="900" alt="Chart: on the same PC, 2.5 to 3.1% of frames land more than 1 ms off the game's rhythm with Real VRR instead of 10.2 to 19.4% shown on arrival, for 1.3 to 1.5 ms of delay. Over Wi-Fi, 29 to 31% instead of 64 to 74%, for 2.6 to 4.2 ms.">
+  </picture>
+</p>
+
+With VRR, your screen refreshes whenever a frame arrives, so it follows the network's rhythm rather than the game's. With Real VRR, Nightjar shows each frame at the moment the game presented it on the PC, plus a short, steady delay, and the screen refreshes in step with the game. Rubylight stamps every frame with the game's present time, and for a VRR stream runs the virtual display at 1000 Hz so each frame leaves the moment it is drawn.
+
+- **97% of frames on the game's rhythm,** instead of 81 to 90% shown on arrival, for 1.3 to 1.5 ms of delay. PyroWave, HEVC and AV1 alike, measured on the same PC.
+- **Holds up on Wi-Fi.** A frame much later than the rest is shown when it is ready instead of holding every frame back for it, so over Wi-Fi it halves the frames off the rhythm for 2.6 to 4.2 ms.
+- **On by default** in Nightjar whenever Variable refresh rate is on: a G-Sync, FreeSync or HDMI VRR display on Windows and Linux, or an Android 16 screen with adaptive refresh.
+
+[How Real VRR works](client/docs/real-vrr.md) · [Measurements](client/docs/pyrowave-decode.md#real-vrr-measured-cadence-and-a-link-with-a-long-tail)
 
 <table>
   <tr>
@@ -146,7 +164,7 @@ Rubylight speaks the Moonlight protocol and keeps its protocol version, so unmod
 | --- | --- | --- |
 | [Moonlight](https://moonlight-stream.org) | Windows, macOS, Linux, Android, iOS, Apple TV, and community ports such as Xbox | The reference client: H.264, HEVC and AV1, SDR and HDR, as the device decodes them |
 | [Artemis](https://github.com/ClassicOldSong/moonlight-android) | Android | Virtual displays matched to the device |
-| [Nightjar](https://github.com/RamazanKara/nightjar) ([website](https://ramazankara.github.io/nightjar/)) | Android, Android TV, Fire TV, Windows, Linux, macOS | Rubylight's own client: Frame Warp, PyroWave and packed 4:4:4, QR pairing, the game library, Radeon and NVIDIA driver settings, device-chosen error correction and pacing |
+| [Nightjar](https://github.com/RamazanKara/nightjar) ([website](https://ramazankara.github.io/nightjar/)) | Android, Android TV, Fire TV, Windows, Linux, macOS | Rubylight's own client: Frame Warp, Real VRR, PyroWave and packed 4:4:4, QR pairing, the game library, Radeon and NVIDIA driver settings, device-chosen error correction and pacing |
 | [Nonary's Moonlight](https://github.com/Nonary/moonlight-qt) | Desktop (a Moonlight-Qt fork) | PyroWave |
 | Browsers and Samsung Tizen TVs | WebRTC | H.264, HEVC and AV1 with HDR, surround sound and gamepads, paired with a PIN ([WebRTC](docs/webrtc.md)) |
 
@@ -241,6 +259,7 @@ All figures come from our own runs on an RX 7900 XT under Windows 11 25H2. Each 
 | Pairing, picture, colour, smoothness and update problems | [Troubleshooting](docs/troubleshooting.md) |
 | The complete feature set | [Features](docs/features.md) |
 | Camera turns on the client's next refresh | [Frame Warp](docs/frame-warp.md) |
+| A VRR screen that keeps the game's rhythm | [Real VRR](client/docs/real-vrr.md) |
 | Latency, smoothness and how they are measured | [Performance](docs/performance.md) · [Measurement record](rust/PERFORMANCE.md) |
 | Tested GPUs, Windows versions and clients | [Hardware matrix](docs/hardware-matrix.md) |
 | How the host is built internally | [Architecture](docs/architecture.md) |

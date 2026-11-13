@@ -20,6 +20,7 @@ Rubylight is a Moonlight-compatible game-streaming host for Windows 10 and 11 PC
 | [Configuration](configuration.md) | Every feature's settings by topic, then every configuration key with its default. |
 | [Features](features.md) | The complete feature set, by area. |
 | [Frame Warp](frame-warp.md) | Camera turns on the client's next refresh: what the host learns per game, the HUD it keeps in place, and the measurements. |
+| [Real VRR](../client/docs/real-vrr.md) | On a VRR screen, Nightjar shows each frame at the game's own present time: what the host stamps, how the client paces, and the measurements. |
 | [Co-op and background streaming](nucleus-coop.md) | Several players on one PC, each with their own picture, sound and controller, and play while someone else uses the PC. |
 | [WebRTC server](webrtc.md) | Streaming to browsers and Samsung TVs, paired with a PIN. |
 | [Guests in the browser](browser-guests.md) | Guest links for friends, with access controls. |
@@ -37,6 +38,7 @@ Rubylight is a Moonlight-compatible game-streaming host for Windows 10 and 11 PC
 | --- | --- |
 | Move from another host, try Rubylight beside it, or update the host | [Coming from another host](getting-started.md#coming-from-another-host) · [Import a profile](getting-started.md#bring-an-existing-profile) · [Install alongside](getting-started.md#keep-another-host-and-install-alongside) · [Upgrading](getting-started.md#upgrading) |
 | Use Frame Warp with Nightjar | [Frame Warp](frame-warp.md) |
+| Keep a VRR screen on the game's rhythm | [Real VRR](../client/docs/real-vrr.md) |
 | Choose a codec, turn on HDR or use PyroWave | [Choose your stream format](getting-started.md#choose-your-stream-format) · [Capture and video](configuration.md#capture-and-video) |
 | Stream Dolby Vision, HDR10+ or HLG to a TV | [Capture and video](configuration.md#capture-and-video) |
 | Send PCM or Dolby Digital to a receiver, or use 7.1.4, night mode or headphone surround | [PCM and Dolby Digital audio](configuration.md#pcm-and-dolby-digital-audio) · [Surround, night mode and headphone surround](configuration.md#surround-night-mode-and-headphone-surround) |

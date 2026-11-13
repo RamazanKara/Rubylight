@@ -23,6 +23,7 @@ New to Nightjar? Read the [quick start](quick-start.md), then return here when y
 | [USB DualSense audio and haptics](dualsense-haptics.md) | Waveform haptics and controller audio over USB |
 | [Video and latency](video-and-latency.md) | Codecs, HDR, PyroWave, refresh rate, scaling, bitrate, error correction and audio |
 | [Frame Warp](video-and-latency.md#frame-warp) | Camera turns on your screen's next refresh with a Rubylight PC, the HUD kept in place |
+| [Real VRR](real-vrr.md) | On a VRR screen, each frame shown at the game's own time on the PC, so the screen keeps the game's rhythm |
 | [Recovery and automatic quality](recovery-and-quality.md) | Recovering interrupted streams, riding out network drops, automatic resolution and frame rate |
 | [Clipboard, files, folders and USB devices](sharing.md) | Sharing with a PC whose host supports it |
 | [Launcher integrations](FRONTENDS.md) | Starting games from Beacon, ES-DE, Daijisho, Pegasus and Android TV's home screen |

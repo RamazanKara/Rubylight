@@ -120,7 +120,7 @@ impl VrrPacing {
     /// `mode`: the pacing the stream starts with, whose sync interval the renderer has.
     pub fn new(check: bool, fallback: PacingMode, sync: VrrSync, mode: PacingMode) -> Self {
         Self {
-            check, fallback, fell_back: false, sync, interval: i32::from(mode == PacingMode::Vsync),
+            check, fallback, fell_back: false, sync, interval: sync_interval(mode, VrrSync::Off),
             restore: None, recheck_us: None, recheck_every_us: RECHECK_FIRST_US, rechecks: true, recovered: false,
             present_check: false, fixed_display: false, lfc: false,
         }

@@ -592,13 +592,13 @@ fn a_vrr_streams_pacing_follows_the_display_check_once_and_sets_the_interval_onc
     assert_eq!(vrr.step(&mut mode, Some(&fixed), 0), Some(1), "V-Sync waits for the refresh");
     assert_eq!((mode, vrr.fell_back), (PacingMode::Vsync, true));
     assert_eq!(vrr.step(&mut mode, Some(&fixed), 0), None, "given once");
-    // V-Sync off in the settings: immediate stays, with nothing for the renderer.
+    // V-Sync off in the settings: immediate stays, with nothing for the renderer where Real VRR tears.
     let no_vsync = crate::config::Settings { vsync: false, present_at_host_times: true, ..Default::default() };
     let (start, _) = pacing(&no_vsync, true);
     assert_eq!(start, PacingMode::HostTimes);
     let mut vrr = VrrPacing::new(true, without_vrr(&no_vsync), VrrSync::Off, start);
     let mut mode = start;
-    assert_eq!(vrr.step(&mut mode, Some(&fixed), 0), None);
+    assert_eq!(vrr.step(&mut mode, Some(&fixed), 0), interval_change(PacingMode::HostTimes, PacingMode::Immediate));
     assert_eq!((mode, vrr.fell_back), (PacingMode::Immediate, true));
     // NIGHTJAR_VRR_CHECK=0: the verdict is not applied; present1 still sets interval 1.
     let mut vrr = VrrPacing::new(false, PacingMode::Vsync, VrrSync::Present1, PacingMode::Immediate);
@@ -672,8 +672,15 @@ fn a_v_sync_fall_back_is_rechecked_and_returns_once_the_display_refreshes_on_pre
     }
     assert_eq!(vrr.step(&mut mode, Some(&idles), at), None);
     assert_eq!(mode, PacingMode::Vsync);
-    assert_eq!(vrr.step(&mut mode, Some(&on), at), Some(0));
+    assert_eq!(vrr.step(&mut mode, Some(&on), at), interval_change(PacingMode::Vsync, PacingMode::HostTimes));
     assert_eq!(mode, PacingMode::HostTimes, "the pacing it had before");
+}
+
+/// The interval `VrrPacing::step` reports when the pacing changes: none where both pacings
+/// present alike, as Real VRR and V-Sync do on macOS.
+fn interval_change(from: PacingMode, to: PacingMode) -> Option<i32> {
+    let (before, after) = (sync_interval(from, VrrSync::Off), sync_interval(to, VrrSync::Off));
+    (before != after).then_some(after)
 }
 
 #[test]
@@ -692,12 +699,12 @@ fn a_linux_vrr_stream_on_a_display_without_vrr_waits_for_the_refresh() {
         let mut vrr = VrrPacing::new(true, without_vrr(&settings), VrrSync::Off, start);
         let mut mode = start;
         assert_eq!(vrr.step(&mut mode, Some(&verdict(true, None)), 0), None, "still reading: the pacing stays");
-        assert_eq!(vrr.step(&mut mode, Some(&verdict(true, Some(&off))), 0), Some(1), "V-Sync waits for the refresh");
+        assert_eq!(vrr.step(&mut mode, Some(&verdict(true, Some(&off))), 0), interval_change(start, PacingMode::Vsync), "V-Sync waits for the refresh");
         assert_eq!((mode, vrr.fell_back), (PacingMode::Vsync, true));
         // A recheck that reads VRR on (the user turned it on) returns to the pacing it had.
         let tears = vrr.probe_tears(mode);
         assert!(tears, "rechecked with the pacing it had");
-        assert_eq!(vrr.step(&mut mode, Some(&verdict(tears, Some(&on))), 0), Some(0));
+        assert_eq!(vrr.step(&mut mode, Some(&verdict(tears, Some(&on))), 0), interval_change(PacingMode::Vsync, start));
         assert_eq!(mode, start);
     }
     // Where VRR runs (KDE adaptive sync, GNOME VRR, gamescope) nothing changes.

@@ -695,7 +695,7 @@ fn connect_from(
     let bound = socket
         .local_addr()?
         .as_socket()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "no local address"))?;
+        .ok_or_else(|| io::Error::other("no local address"))?;
     let mark = peers::register(bound, device);
     socket.connect_timeout(&SockAddr::from(to), Duration::from_secs(3))?;
     Ok((socket.into(), mark))

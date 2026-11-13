@@ -82,12 +82,15 @@ struct DeviceState {
     answered: Option<[u8; 16]>,
 }
 
+/// Each open tunnel by its path tag, with the device session it was opened for.
+type Tunnels = HashMap<[u8; 8], ([u8; 16], Tunnel)>;
+
 struct Shared {
     node: Node,
     config: HostConfig,
     session: [u8; 16],
     devices: Mutex<Vec<DeviceState>>,
-    tunnels: Mutex<HashMap<[u8; 8], ([u8; 16], Tunnel)>>,
+    tunnels: Mutex<Tunnels>,
     status: Mutex<Status>,
     stop: AtomicBool,
 }

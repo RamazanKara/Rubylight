@@ -303,8 +303,10 @@
     <string name="title_vrr">Taxa de atualização variável</string>
     <string name="summary_vrr">VRR: exibe cada quadro assim que chega em uma tela G-Sync, FreeSync ou com atualização adaptável, sem esperar a próxima atualização. Ritmo de quadros não é usado enquanto o VRR estiver ativado.</string>
     <string name="summary_vrr_unavailable">Requer Android 16 e uma tela com atualização adaptável.</string>
-    <string name="title_host_frame_times">VRR real</string>
+    <string name="title_host_frame_times">Mostrar quadros no ritmo do PC</string>
     <string name="summary_host_frame_times">Segura cada quadro por um instante para que apareça quando o jogo o desenhou, deixando o movimento mais uniforme. Adiciona alguns milissegundos de latência; ative se o movimento parecer irregular.</string>
+    <string name="title_real_vrr">VRR real</string>
+    <string name="summary_real_vrr">Mostra cada quadro quando o jogo o desenhou, para um movimento uniforme. Adiciona cerca de 1 a 4 ms de latência; deixe ativado, a menos que queira a menor latência.</string>
     <string name="title_content_rate_frame_rate">Ajustar a tela à taxa do jogo</string>
     <string name="summary_content_rate_frame_rate">Muda a tela para uma taxa de atualização que combine com a taxa de quadros real do jogo, como 60 Hz para um jogo a 60 FPS em uma transmissão a 120 FPS. Requer suporte do PC.</string>
     <string name="title_virtual_display_scale">Resolução de renderização do PC</string>

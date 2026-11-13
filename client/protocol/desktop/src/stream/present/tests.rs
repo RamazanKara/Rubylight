@@ -383,12 +383,12 @@ fn letterbox_keeps_the_aspect_ratio() {
 }
 
 #[test]
-fn the_default_config_shows_frames_immediately_with_vrr_and_waits_for_vsync_without() {
-    // Measured on a 240 Hz tearing display: HostTimes held frames about 7 ms and had the
-    // less even present intervals, so it is opt-in (docs/pyrowave-decode.md).
+fn the_default_config_shows_frames_at_host_times_with_vrr_and_waits_for_vsync_without() {
+    // Real VRR: on screen it put 97% of frames on the game's cadence for 1.3 to 1.5 ms, and over
+    // Wi-Fi halved the frames off it for 2.6 to 4.2 ms (docs/pyrowave-decode.md, "Real VRR").
     let settings = crate::config::Settings::default();
-    assert!(!settings.present_at_host_times);
-    assert_eq!(pacing(&settings, true), (PacingMode::Immediate, true));
+    assert!(settings.present_at_host_times);
+    assert_eq!(pacing(&settings, true), (PacingMode::HostTimes, true));
     // No tearing support: VRR is not available and the display's refresh is awaited, as before.
     assert_eq!(pacing(&settings, false), (PacingMode::Vsync, false));
     let no_vrr = crate::config::Settings { vrr: false, ..settings.clone() };
@@ -477,7 +477,8 @@ fn a_vrr_streams_pacing_follows_the_display_check_once_and_sets_the_interval_onc
     let mut unchecked = VrrPacing::new(false, PacingMode::Immediate, VrrSync::Off, PacingMode::Immediate);
     unchecked.step(&mut mode, Some(&fixed), 0);
     assert!(unchecked.display_vrr());
-    let settings = crate::config::Settings::default();
+    // Real VRR off: frames shown when decoded.
+    let settings = crate::config::Settings { present_at_host_times: false, ..Default::default() };
     let (start, _) = pacing(&settings, true);
     assert_eq!(start, PacingMode::Immediate);
     let mut vrr = VrrPacing::new(true, without_vrr(&settings), VrrSync::Off, start);
@@ -869,7 +870,7 @@ fn frame_pacing_other_than_lowest_latency_waits_for_the_refresh_without_vrr_only
         assert_eq!(pacing(&settings, true).0, PacingMode::Vsync, "{mode:?}");
     }
     let vrr = crate::config::Settings { frame_pacing: FramePacing::Smoothness, ..Default::default() };
-    assert_eq!(pacing(&vrr, true), (PacingMode::Immediate, true), "VRR ignores frame pacing, as on Android");
+    assert_eq!(pacing(&vrr, true), (PacingMode::HostTimes, true), "VRR ignores frame pacing, as on Android");
     assert_eq!(frame_us(60), 16_666);
     assert_eq!(frame_us(0), 250_000, "an unknown rate holds at most 250 ms");
 }

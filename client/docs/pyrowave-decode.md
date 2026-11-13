@@ -421,7 +421,8 @@ CSV (`due_ns`, `present_begin_ns`, the swap chain's frame statistics; see `timin
   at 1080p and 12.5 to 16.6 at 4K, shown fps 58.7 to 59.0 and 59.6 to 58.4: more late frames at
   4K. Not shipped: it fails the "jitter no worse than 1 ms more" bar at 4K and the gain is within
   the leg-to-leg spread of 1 to 2 ms.
-- **Default changed: `present_at_host_times` is now off**, so a VRR/tearing display presents
+- **Default changed: `present_at_host_times` was off** from here until the bounded wait below
+  (section "Real VRR", where it is on again), so a VRR/tearing display presented
   immediately (`PacingMode::Immediate`; the setting "Real VRR" is the
   opt-in for `HostTimes`). On this display Immediate beats HostTimes on latency (receive_to_present
   p50 3.21 against 10.36 ms at 1080p, 3.46 against 10.92 at 4K) and on smoothness (present-interval
@@ -463,18 +464,33 @@ interval of the probe's pattern is: the game's own cadence, independent of the h
 
 | Loopback, on screen, 2 legs each | Off grid > 1 ms: when decoded / Real VRR | Off grid p95 | Host stamps off grid > 1 ms | receive to present p50 / p95 |
 |---|---|---|---|---|
-| PyroWave | 30.6% / 2.5% | 1.87 / 0.87 ms | 9 to 13% | 1.71 / 3.81 to 2.98 / 4.88 ms |
+| PyroWave (one A leg) | 10.2% / 2.5% | 1.19 / 0.87 ms | 5 to 13% | 1.45 / 1.72 to 2.98 / 4.88 ms |
 | HEVC | 19.4% / 2.9% | 1.79 / 0.89 ms | 15% | 0.51 / 0.61 to 1.88 / 3.42 ms |
 | AV1 | 15.5% / 3.1% | 1.65 / 0.90 ms | 12 to 13% | 0.50 / 0.60 to 1.78 / 3.17 ms |
 
-- Real VRR puts 97% of frames within 1 ms of the game's cadence with every codec, for about 1.3 ms
-  at the median. It comes closer than the host's stamps themselves: WGC's composition times jitter
+- PyroWave's first A leg streamed HEVC (a fresh test host offers PyroWave only after its first
+  stream) and is left out; the table first pooled it into PyroWave's A (30.6% off grid, receive to
+  present 1.71 / 3.81 ms). `pyrowave-loopback.ps1` now runs such a leg again, and `grid_error.py`
+  leaves out a leg whose log names another codec.
+- Real VRR puts 97% of frames within 1 ms of the game's cadence with every codec (81 to 90% shown
+  when decoded), for 1.3 to 1.5 ms at the median. It comes closer than the host's stamps themselves: WGC's composition times jitter
   by a millisecond or two (stamp intervals of 6.6 ms in a pattern whose shortest is 8.3 ms), and
   the display's shortest interval (`min_interval_us`, 8.3 ms at 120 Hz) keeps two presents from
   coming closer than the panel can show.
 - Measured against the host's stamps instead (`timing_breakdown.py`'s cadence), Real VRR looks no
   better than presenting when decoded (p95 1.5 to 2.3 ms either way): that metric counts the
   stamps' own jitter as the truth.
+
+The same legs on the PC's own display with VRR on (5120x1440 at 240 Hz, 2026-11-13, without
+`NIGHTJAR_VRR_CHECK=0`; the display check confirmed VRR in most legs and could not tell in the rest)
+cannot judge cadence: Nightjar's flips now set the display's refresh, which times the compositor
+whose times WGC stamps the probe's frames with, so the stamps lose the probe's grid (47 to 76% of
+stamp intervals more than 1 ms off it) and both arms follow them (shown when decoded 39 to 75% off,
+Real VRR 55 to 66%). On-screen VRR cadence needs the host on another PC. The cost is measured all
+the same: Real VRR added 1.3 to 1.4 ms at the median (receive to present p50 1.40, 0.53 and 0.51 ms
+shown when decoded against 2.79, 1.82 and 1.87 ms for PyroWave, HEVC and AV1), on the display
+where the percentile rule once held frames about 7 ms ("The wait between decoded and shown", other
+content).
 
 Over Wi-Fi, on screen (two machines, laptop pattern on an 8.333 ms grid, 2 legs each against
 presenting when decoded in the same build). The percentile rule ran in Nightjar 5.1.0's package;
@@ -493,6 +509,16 @@ laptop's stamps are 42 to 51% off grid: WGC composition times of its whole displ
 - On screen both rules add about 2 ms more than the replay's hold, likely because the display's
   shortest interval (8.3 ms at 120 Hz) pushes frames whose stamps came closer and frames waiting in
   the decode queue are scheduled with it (`schedule_queued`); not broken down further.
+
+**Default.** Real VRR is on by default with VRR since these runs (2026-11-13, the owner's call on
+this evidence): on desktop `present_at_host_times` (saved settings are switched on once,
+`real_vrr_default_on`), on Android `checkbox_real_vrr`, a key of its own, because the old switch's
+stored off can't be told from its old default and it also drives the fixed-refresh grid, which stays
+off by default as `checkbox_host_frame_times`. The earlier measurement that turned it off ("The wait
+between decoded and shown": about 7 ms more at the median on a 240 Hz display) ran the percentile
+rule without the bound on a steady desktop animation, whose host-side spread set the hold; on that
+display, now with VRR on, the bounded rule added 1.3 to 1.4 ms (above). Android's Real VRR on a screen with ARR has not been measured on
+screen; the bound and the display's shortest interval are the same code as desktop's.
 
 The Wi-Fi comparison below is a replay, not on-screen flips: each leg's recorded ready times (`decoder_output_ns`) and host stamps (`pts_us`)
 were replayed through `PresentClock::schedule_frame` (no grid). "Off" is the share of frames whose

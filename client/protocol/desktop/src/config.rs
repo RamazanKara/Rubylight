@@ -351,10 +351,10 @@ pub struct Settings {
     pub align_video_top: bool,
     /// The display has variable refresh (G-Sync, FreeSync, HDMI VRR).
     pub vrr: bool,
-    /// With VRR: show each frame at the PC's frame time plus a steady delay. Off by default: on a
-    /// 240 Hz tearing display it held PyroWave frames about 7 ms (receive_to_present p50 10.4 ms
-    /// against 3.2 ms shown immediately) and its present intervals were less even
-    /// (docs/pyrowave-decode.md, "The wait between decoded and shown").
+    /// Real VRR: with VRR, show each frame at the PC's frame time plus a steady delay. On by
+    /// default: on screen it put 97% of frames within 1 ms of the game's cadence (81 to 90% shown
+    /// when decoded) for 1.3 to 1.5 ms, and over Wi-Fi halved the frames off it for 2.6 to 4.2 ms
+    /// (docs/pyrowave-decode.md, "Real VRR").
     pub present_at_host_times: bool,
     /// Without VRR: wait for the display's refresh (no tearing).
     pub vsync: bool,
@@ -530,6 +530,11 @@ pub struct Settings {
     /// once; a choice made after that is kept.
     #[serde(default)]
     pub auto_reconnect_default_on: bool,
+    /// The once-only switch of Real VRR (`present_at_host_times`) to on has run (Android's
+    /// `checkbox_real_vrr` is a new key instead). Missing from files written before it, so those
+    /// are switched once; a choice made after that is kept.
+    #[serde(default)]
+    pub real_vrr_default_on: bool,
     /// The once-only look at the PCs' and games' own settings has run: before 4.1.1, pressing A
     /// on an inherited row pinned its value for the whole PC, and a pin can't be told apart from
     /// a choice (`Launcher::show_kept_settings_once`). Missing from files written before it.
@@ -912,12 +917,16 @@ pub const MIC_GAIN: std::ops::RangeInclusive<u32> = 25..=400;
 pub const MIC_GAIN_STEP: u32 = 5;
 
 impl Settings {
-    /// What every load does to settings saved by an earlier version. Idempotent: it needs no flag
-    /// but `auto_reconnect_default_on`'s.
+    /// What every load does to settings saved by an earlier version. Idempotent: it needs no flags
+    /// but `auto_reconnect_default_on`'s and `real_vrr_default_on`'s.
     pub(crate) fn migrate(&mut self) {
         // Turns Recover interrupted streams on once in settings saved before it became the default.
         if !self.auto_reconnect_default_on {
             (self.auto_reconnect, self.auto_reconnect_default_on) = (true, true);
+        }
+        // The same for Real VRR: its off was the old default, not a choice.
+        if !self.real_vrr_default_on {
+            (self.present_at_host_times, self.real_vrr_default_on) = (true, true);
         }
         normalize_values(&mut SettingsValues(self));
     }
@@ -1053,7 +1062,7 @@ impl Default for Settings {
             video_scaling: VideoScaling::Fit,
             align_video_top: false,
             vrr: true,
-            present_at_host_times: false,
+            present_at_host_times: true,
             vsync: true,
             frame_pacing: FramePacing::Latency,
             drop_late_frames: true,
@@ -1123,6 +1132,7 @@ impl Default for Settings {
             pyrowave_async_compute: false,
             auto_reconnect: true,
             auto_reconnect_default_on: true,
+            real_vrr_default_on: true,
             kept_settings_checked: false,
             virtual_display: false,
             virtual_display_scale: 100,

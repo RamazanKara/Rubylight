@@ -16,6 +16,7 @@ final class SettingRules {
     static final String DROP_LATE_FRAMES = "checkbox_drop_late_frames";
     static final String FRAME_PACING = PreferenceConfiguration.FRAME_PACING_PREF_STRING;
     static final String HOST_FRAME_TIMES = PreferenceConfiguration.HOST_FRAME_TIMES_PREF_STRING;
+    static final String REAL_VRR = PreferenceConfiguration.REAL_VRR_PREF_STRING;
     static final String ADAPTIVE_QUALITY = "adaptive_quality_mode";
     static final String ADAPTIVE_QUALITY_MIN_RESOLUTION = "adaptive_quality_min_resolution";
     static final String ADAPTIVE_QUALITY_MIN_FPS = "adaptive_quality_min_fps";
@@ -29,6 +30,14 @@ final class SettingRules {
     static boolean vrrOn(Context context, SharedPreferences prefs) {
         return prefs.getBoolean(PreferenceConfiguration.VRR_PREF_STRING, false) &&
                 DisplayFrameRatePolicy.vrrOffered(context);
+    }
+
+    /**
+     * Real VRR shows frames at the PC's frame times with adaptive refresh; without it the switch for
+     * a fixed refresh does (PreferenceConfiguration.resolveHostFrameTimes).
+     */
+    static boolean realVrrApplies(Context context, SharedPreferences prefs) {
+        return vrrOn(context, prefs);
     }
 
     /** Frame pacing decides how frames are shown unless adaptive refresh or host frame times take over. */

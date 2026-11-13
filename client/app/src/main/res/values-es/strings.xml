@@ -303,8 +303,10 @@
     <string name="title_vrr">Frecuencia de actualización variable</string>
     <string name="summary_vrr">VRR: muestra cada fotograma en cuanto llega en una pantalla G-Sync, FreeSync o de frecuencia adaptativa, sin esperar a la siguiente actualización. Ritmo de fotogramas no se usa mientras VRR está activado.</string>
     <string name="summary_vrr_unavailable">Necesita Android 16 y una pantalla con frecuencia adaptativa.</string>
-    <string name="title_host_frame_times">VRR real</string>
+    <string name="title_host_frame_times">Mostrar fotogramas al ritmo del PC</string>
     <string name="summary_host_frame_times">Retiene cada fotograma un instante para que aparezca cuando el juego lo dibujó, y así el movimiento es más uniforme. Añade unos milisegundos de latencia; actívalo si el movimiento se ve irregular.</string>
+    <string name="title_real_vrr">VRR real</string>
+    <string name="summary_real_vrr">Muestra cada fotograma cuando el juego lo dibujó, para que el movimiento sea uniforme. Añade entre 1 y 4 ms de latencia; déjalo activado salvo que quieras la latencia más baja.</string>
     <string name="title_content_rate_frame_rate">Ajustar la pantalla a la tasa del juego</string>
     <string name="summary_content_rate_frame_rate">Cambia la pantalla a una frecuencia de actualización acorde con la velocidad de fotogramas real del juego, como 60 Hz para un juego a 60 FPS en una transmisión a 120 FPS. Requiere un PC compatible.</string>
     <string name="title_virtual_display_scale">Resolución de renderizado del PC</string>

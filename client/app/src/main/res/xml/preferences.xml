@@ -151,7 +151,14 @@
         <Preference android:key="more_display" android:title="@string/settings_more" android:persistent="false" />
     </PreferenceCategory>
     <PreferenceCategory android:key="category_display_refresh" android:title="@string/settings_category_refresh">
-        <!-- Applies with adaptive refresh on or off: frames are released at their host frame times. -->
+        <!-- Real VRR: with adaptive refresh, frames are released at their host frame times. Shown only with it, and
+             the fixed refresh's switch below only without it (StreamSettings, SettingRules,
+             PreferenceConfiguration.resolveHostFrameTimes). -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_real_vrr"
+            android:title="@string/title_real_vrr"
+            android:dialogMessage="@string/summary_real_vrr"
+            android:defaultValue="true" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_host_frame_times"
             android:title="@string/title_host_frame_times"

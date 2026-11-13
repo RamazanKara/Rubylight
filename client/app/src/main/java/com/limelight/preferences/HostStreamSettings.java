@@ -356,6 +356,7 @@ public class HostStreamSettings extends NightjarActivity {
         values.applyTo(config);
         // As when the stream starts: VRR set in a layer stays off where no screen has ARR.
         config.vrr &= DisplayFrameRatePolicy.vrrOffered(this);
+        config.resolveHostFrameTimes();
         if (config.resolutionFollowsScreen && !followedScreen) {
             String nativeResolution = PreferenceConfiguration.nativeResolution(this);
             if (nativeResolution != null) {

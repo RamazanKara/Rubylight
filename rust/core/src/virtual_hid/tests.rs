@@ -359,7 +359,7 @@ fn a_cancel_is_not_a_touch_and_cancel_all_lifts_everything() {
     assert!(pad.release_all(epoch));
     let report = pad.interrupt(ENDPOINT).unwrap();
     assert_eq!(count(&report), 1);
-    assert_eq!(finger(&report, 0).1, false);
+    assert!(!finger(&report, 0).1);
     assert_eq!(pad.fingers(), 0);
     assert!(!pad.release_all(epoch), "nothing left to lift");
 }

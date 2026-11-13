@@ -339,7 +339,7 @@ pub fn start(h: Shared, bind: IpAddr) -> Option<InternetPlay> {
     };
     // Tunnels connect to the host's own ports on loopback, from an address per device; a host
     // bound to one address is reached there instead.
-    let (service, per_device_source) = if bind.is_unspecified() {
+    let (service_address, per_device_source) = if bind.is_unspecified() {
         (IpAddr::V4(Ipv4Addr::LOCALHOST), true)
     } else {
         (bind, false)
@@ -350,7 +350,7 @@ pub fn start(h: Shared, bind: IpAddr) -> Option<InternetPlay> {
     };
     let host = match HostService::start(HostConfig {
         ports,
-        service,
+        service: service_address,
         per_device_source,
         bind: node_bind,
         stun_servers: traverse::server_list(

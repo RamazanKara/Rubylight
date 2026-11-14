@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 设置 › 控制 › 陀螺仪映射 (GyroProfileEditor) -->
+    <string name="title_gyro_mapping">陀螺仪映射</string>
+    <string name="summary_gyro_mapping">让体感瞄准朝正确方向并设定其速度，按手柄分别设置。除非瞄准沿错误轴移动或转得太快、太慢，否则保持“标准”。</string>
+    <string name="gyro_mapping_device_row">%1$s：%2$s</string>
+    <string name="gyro_mapping_choice_title">%1$s 的陀螺仪</string>
+    <string name="gyro_choice_standard">标准</string>
+    <string name="gyro_choice_flydigi">Flydigi Apex 4 和 Vader 4 Pro（Switch 模式）</string>
+    <string name="gyro_choice_custom">%1$s（自定义）</string>
+    <string name="gyro_choice_new">新建自定义配置…</string>
+    <string name="gyro_mapping_saved">已保存。下次串流时生效。</string>
+    <string name="gyro_profiles_title">自定义配置</string>
+    <string name="gyro_profile_new">新建配置…</string>
+    <string name="gyro_profile_edit">编辑</string>
+    <string name="gyro_profile_duplicate">复制</string>
+    <string name="gyro_profile_delete">删除</string>
+    <string name="gyro_profile_copy_name">%1$s 的副本</string>
+    <string name="gyro_profile_delete_title">删除此配置？</string>
+    <string name="gyro_profile_delete_message">使用 %1$s 的手柄将回到“标准”。</string>
+    <string name="gyro_profile_deleted">配置已删除</string>
+    <string name="gyro_profile_create_title">新建陀螺仪配置</string>
+    <string name="gyro_profile_edit_title">编辑陀螺仪配置</string>
+    <string name="gyro_profile_help">对于游戏读取的每个方向，选择驱动它的手柄轴，如果方向相反就将其反转。每个轴只能使用一次。灵敏度可加快或减慢体感瞄准。</string>
+    <string name="gyro_profile_name">配置名称</string>
+    <string name="gyro_profile_name_required">输入名称</string>
+    <string name="gyro_profile_axes_unique">X、Y、Z 各使用一次。</string>
+    <string name="gyro_profile_axis_x">上下（X）</string>
+    <string name="gyro_profile_axis_y">左右（Y）</string>
+    <string name="gyro_profile_axis_z">倾斜（Z）</string>
+    <string name="gyro_profile_source_axis">由 %2$s 控制的%1$s</string>
+    <string name="gyro_profile_invert">反转</string>
+    <string name="gyro_profile_horizontal">左右灵敏度</string>
+    <string name="gyro_profile_vertical">上下灵敏度</string>
+    <string name="gyro_profile_saved">配置已保存。下次串流时生效。</string>
+
+    <!-- 设置 › 高级 › 诊断 › 显示体感读数 (GyroDiagnosticOverlay) -->
+    <string name="title_show_gyro_diagnostics">显示体感读数</string>
+    <string name="summary_show_gyro_diagnostics">显示串流时每个手柄发送的体感数值，并提供按钮将其记录下来、以 CSV 文件分享。覆盖画面左上角。除非体感瞄准异常，否则保持关闭。</string>
+    <string name="gyro_diag_title">体感读数</string>
+    <string name="gyro_diag_waiting">正在等待手柄体感…</string>
+    <string name="gyro_diag_record">录制</string>
+    <string name="gyro_diag_stop">停止</string>
+    <string name="gyro_diag_recording">录制中</string>
+    <string name="gyro_diag_mapping_settings">映射：设置</string>
+    <string name="gyro_diag_mapping_flydigi">映射：Flydigi</string>
+    <string name="gyro_diag_identify">手柄</string>
+    <string name="gyro_diag_devices">已连接的手柄</string>
+    <string name="gyro_diag_share">分享 CSV</string>
+    <string name="gyro_diag_share_title">分享体感读数</string>
+    <string name="gyro_diag_hide">隐藏</string>
+    <string name="gyro_diag_show">显示</string>
+</resources>

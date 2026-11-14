@@ -325,6 +325,12 @@
             android:title="@string/title_checkbox_gamepad_motion_fallback"
             android:dialogMessage="@string/summary_checkbox_gamepad_motion_fallback"
             android:defaultValue="false" />
+        <!-- Opens each connected controller's gyroscope mapping (GyroProfileEditor); stores nothing here. -->
+        <Preference
+            android:key="gyro_mapping_profiles"
+            android:title="@string/title_gyro_mapping"
+            android:summary="@string/summary_gyro_mapping"
+            android:persistent="false" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_disable_rumble"
             android:title="@string/title_checkbox_disable_rumble"
@@ -1022,6 +1028,11 @@
             android:key="checkbox_link_probe"
             android:title="@string/title_link_probe"
             android:dialogMessage="@string/summary_link_probe"
+            android:defaultValue="false" />
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_show_gyro_diagnostics"
+            android:title="@string/title_show_gyro_diagnostics"
+            android:dialogMessage="@string/summary_show_gyro_diagnostics"
             android:defaultValue="false" />
         <!-- A PC's PyroWave frame pace (its own settings page), shown where a paired PC can measure it or has one saved. -->
         <Preference android:key="pace_calibration" android:title="@string/pace_calibration_title"

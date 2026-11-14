@@ -187,6 +187,18 @@ TrackpadContext.java): tap to click, two-finger scroll, tap-and-drag and flick
 momentum are ported from Artemis (https://github.com/ClassicOldSong/moonlight-android)
 by ClassicOldSong, GPL-3.0, by Umberto Marotta (nightjar#91).
 
+jvanderv42's Nightjar fork (gyroscope mapping)
+
+Nightjar's per-controller gyroscope mapping, the Flydigi Apex 4 and Vader 4 Pro preset
+and the in-stream motion readings are ported from jvanderv42's Nightjar fork
+(https://github.com/jvanderv42/nightjar, GPL-3.0) at commit d0e14cf25:
+client/app/src/main/java/com/limelight/binding/input/GyroAxisTransformer.java,
+GyroMappingPreferences.java and GyroDiagnosticOverlay.java,
+client/app/src/main/java/com/limelight/preferences/GyroProfileEditor.java, their hooks
+in binding/input/ControllerHandler.java and Game.java, and their tests. The desktop
+client's gyroscope axes and sensitivity (client/protocol/desktop/src/gamepad.rs,
+ui/pages.rs) follow the same design.
+
 Moonlight V+
 
 Nightjar's soft keyboard for the host's text fields

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Settings › Controls › Gyroscope mapping (GyroProfileEditor) -->
+    <string name="title_gyro_mapping">Gyroscope mapping</string>
+    <string name="summary_gyro_mapping">Turns motion aiming the right way and sets its speed, for each controller. Leave it on Standard unless aiming moves on the wrong axis or turns too fast or too slowly.</string>
+    <string name="gyro_mapping_device_row">%1$s: %2$s</string>
+    <string name="gyro_mapping_choice_title">Gyroscope of %1$s</string>
+    <string name="gyro_choice_standard">Standard</string>
+    <string name="gyro_choice_flydigi">Flydigi Apex 4 and Vader 4 Pro (Switch mode)</string>
+    <string name="gyro_choice_custom">%1$s (custom)</string>
+    <string name="gyro_choice_new">New custom profile…</string>
+    <string name="gyro_mapping_saved">Saved. It applies from the next stream.</string>
+    <string name="gyro_profiles_title">Custom profiles</string>
+    <string name="gyro_profile_new">New profile…</string>
+    <string name="gyro_profile_edit">Edit</string>
+    <string name="gyro_profile_duplicate">Duplicate</string>
+    <string name="gyro_profile_delete">Delete</string>
+    <string name="gyro_profile_copy_name">%1$s copy</string>
+    <string name="gyro_profile_delete_title">Delete this profile?</string>
+    <string name="gyro_profile_delete_message">Controllers that use %1$s go back to Standard.</string>
+    <string name="gyro_profile_deleted">Profile deleted</string>
+    <string name="gyro_profile_create_title">New gyroscope profile</string>
+    <string name="gyro_profile_edit_title">Edit gyroscope profile</string>
+    <string name="gyro_profile_help">For each direction a game reads, choose the controller axis that drives it, and invert it if it turns the wrong way. Use each axis once. The sensitivities speed aiming up or slow it down.</string>
+    <string name="gyro_profile_name">Profile name</string>
+    <string name="gyro_profile_name_required">Enter a name</string>
+    <string name="gyro_profile_axes_unique">Use each of X, Y and Z once.</string>
+    <string name="gyro_profile_axis_x">Up and down (X)</string>
+    <string name="gyro_profile_axis_y">Left and right (Y)</string>
+    <string name="gyro_profile_axis_z">Tilt (Z)</string>
+    <string name="gyro_profile_source_axis">%1$s from %2$s</string>
+    <string name="gyro_profile_invert">Invert</string>
+    <string name="gyro_profile_horizontal">Left and right sensitivity</string>
+    <string name="gyro_profile_vertical">Up and down sensitivity</string>
+    <string name="gyro_profile_saved">Profile saved. It applies from the next stream.</string>
+
+    <!-- Settings › Advanced › Diagnostics › Show motion readings (GyroDiagnosticOverlay) -->
+    <string name="title_show_gyro_diagnostics">Show motion readings</string>
+    <string name="summary_show_gyro_diagnostics">Shows the motion values each controller sends while streaming, with buttons to record them and share them as a CSV file. Covers the top left of the picture. Leave it off unless motion aiming misbehaves.</string>
+    <string name="gyro_diag_title">Motion readings</string>
+    <string name="gyro_diag_waiting">Waiting for controller motion…</string>
+    <string name="gyro_diag_record">Record</string>
+    <string name="gyro_diag_stop">Stop</string>
+    <string name="gyro_diag_recording">Recording</string>
+    <string name="gyro_diag_mapping_settings">Mapping: settings</string>
+    <string name="gyro_diag_mapping_flydigi">Mapping: Flydigi</string>
+    <string name="gyro_diag_identify">Controllers</string>
+    <string name="gyro_diag_devices">Connected controllers</string>
+    <string name="gyro_diag_share">Share CSV</string>
+    <string name="gyro_diag_share_title">Share motion readings</string>
+    <string name="gyro_diag_hide">Hide</string>
+    <string name="gyro_diag_show">Show</string>
+</resources>

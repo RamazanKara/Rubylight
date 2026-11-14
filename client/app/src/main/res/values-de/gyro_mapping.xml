@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Einstellungen › Steuerung › Gyroskop-Zuordnung (GyroProfileEditor) -->
+    <string name="title_gyro_mapping">Gyroskop-Zuordnung</string>
+    <string name="summary_gyro_mapping">Richtet das Zielen per Bewegung für jeden Controller richtig aus und legt seine Geschwindigkeit fest. Lass es auf Standard, außer das Zielen bewegt sich auf der falschen Achse oder dreht zu schnell oder zu langsam.</string>
+    <string name="gyro_mapping_device_row">%1$s: %2$s</string>
+    <string name="gyro_mapping_choice_title">Gyroskop von %1$s</string>
+    <string name="gyro_choice_standard">Standard</string>
+    <string name="gyro_choice_flydigi">Flydigi Apex 4 und Vader 4 Pro (Switch-Modus)</string>
+    <string name="gyro_choice_custom">%1$s (eigenes)</string>
+    <string name="gyro_choice_new">Neues eigenes Profil…</string>
+    <string name="gyro_mapping_saved">Gespeichert. Gilt ab dem nächsten Stream.</string>
+    <string name="gyro_profiles_title">Eigene Profile</string>
+    <string name="gyro_profile_new">Neues Profil…</string>
+    <string name="gyro_profile_edit">Bearbeiten</string>
+    <string name="gyro_profile_duplicate">Duplizieren</string>
+    <string name="gyro_profile_delete">Löschen</string>
+    <string name="gyro_profile_copy_name">%1$s (Kopie)</string>
+    <string name="gyro_profile_delete_title">Dieses Profil löschen?</string>
+    <string name="gyro_profile_delete_message">Controller, die %1$s nutzen, kehren zu „Standard“ zurück.</string>
+    <string name="gyro_profile_deleted">Profil gelöscht</string>
+    <string name="gyro_profile_create_title">Neues Gyroskop-Profil</string>
+    <string name="gyro_profile_edit_title">Gyroskop-Profil bearbeiten</string>
+    <string name="gyro_profile_help">Wähle für jede Richtung, die ein Spiel liest, die Controller-Achse, die sie steuert, und kehre sie um, wenn sie in die falsche Richtung geht. Nutze jede Achse einmal. Die Empfindlichkeiten beschleunigen das Zielen per Bewegung oder bremsen es.</string>
+    <string name="gyro_profile_name">Profilname</string>
+    <string name="gyro_profile_name_required">Gib einen Namen ein</string>
+    <string name="gyro_profile_axes_unique">Nutze X, Y und Z jeweils einmal.</string>
+    <string name="gyro_profile_axis_x">Hoch und runter (X)</string>
+    <string name="gyro_profile_axis_y">Links und rechts (Y)</string>
+    <string name="gyro_profile_axis_z">Neigen (Z)</string>
+    <string name="gyro_profile_source_axis">%1$s von %2$s</string>
+    <string name="gyro_profile_invert">Umkehren</string>
+    <string name="gyro_profile_horizontal">Empfindlichkeit für links und rechts</string>
+    <string name="gyro_profile_vertical">Empfindlichkeit für hoch und runter</string>
+    <string name="gyro_profile_saved">Profil gespeichert. Gilt ab dem nächsten Stream.</string>
+
+    <!-- Einstellungen › Erweitert › Diagnose › Bewegungswerte anzeigen (GyroDiagnosticOverlay) -->
+    <string name="title_show_gyro_diagnostics">Bewegungswerte anzeigen</string>
+    <string name="summary_show_gyro_diagnostics">Zeigt die Bewegungswerte, die jeder Controller beim Streamen sendet, mit Schaltflächen zum Aufzeichnen und Teilen als CSV-Datei. Deckt die linke obere Ecke des Bildes ab. Lass es aus, außer das Zielen per Bewegung verhält sich falsch.</string>
+    <string name="gyro_diag_title">Bewegungswerte</string>
+    <string name="gyro_diag_waiting">Warte auf Controller-Bewegung…</string>
+    <string name="gyro_diag_record">Aufzeichnen</string>
+    <string name="gyro_diag_stop">Stopp</string>
+    <string name="gyro_diag_recording">Aufzeichnung läuft</string>
+    <string name="gyro_diag_mapping_settings">Zuordnung: Einstellungen</string>
+    <string name="gyro_diag_mapping_flydigi">Zuordnung: Flydigi</string>
+    <string name="gyro_diag_identify">Controller</string>
+    <string name="gyro_diag_devices">Verbundene Controller</string>
+    <string name="gyro_diag_share">CSV teilen</string>
+    <string name="gyro_diag_share_title">Bewegungswerte teilen</string>
+    <string name="gyro_diag_hide">Ausblenden</string>
+    <string name="gyro_diag_show">Einblenden</string>
+</resources>

@@ -201,7 +201,7 @@ final class SettingRules {
 
     /** Rows hidden while Controllers is Off (Controls › Controllers and the stream menu's controller rows). */
     static final String[] CONTROLLER_ROWS = {"checkbox_flip_face_buttons", "list_gamepad_quit_combo", "seekbar_deadzone",
-            "seekbar_trigger_deadzone", "checkbox_gamepad_motion_sensors", "checkbox_disable_rumble", "checkbox_mouse_emulation",
+            "seekbar_trigger_deadzone", "checkbox_gamepad_motion_sensors", "gyro_mapping_profiles", "checkbox_disable_rumble", "checkbox_mouse_emulation",
             "checkbox_gamepad_touchpad_as_mouse", "list_guide_menu_hold", "checkbox_back_opens_menu", "checkbox_back_as_guide",
             "list_stream_menu_button_y", "list_stream_menu_button_x", "list_stream_menu_button_lb", "list_stream_menu_button_rb"};
     /** Rows hidden while the on-screen controls are not shown. */

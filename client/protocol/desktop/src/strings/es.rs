@@ -1572,4 +1572,11 @@ sudo sysctl -w net.core.rmem_max={}", "Búfer de recepción: el sistema concedi�
     ("Turns the PC game’s SDR picture into HDR in HDR streams.", "Convierte la imagen SDR del juego del PC en HDR en las transmisiones HDR."),
     ("Cleans up and sharpens the picture on the PC before it is encoded.", "Limpia y enfoca la imagen en el PC antes de codificarla."),
     ("{} is off for this stream: the GPU renderer could not be made while drawing straight to the display.", "{} está desactivado en esta transmisión: no se pudo crear el renderizador de GPU al dibujar directamente en la pantalla."),
+    ("Motion", "Movimiento"),
+    ("Up and down (X)", "Arriba y abajo (X)"),
+    ("Left and right (Y)", "Izquierda y derecha (Y)"),
+    ("Tilt (Z)", "Inclinación (Z)"),
+    ("Left and right sensitivity", "Sensibilidad izquierda y derecha"),
+    ("Up and down sensitivity", "Sensibilidad arriba y abajo"),
+    ("Speeds motion aiming up or slows it down; 100% sends the controller’s own speed.", "Acelera o frena la puntería con movimiento; el 100 % usa la velocidad propia del mando."),
 ];

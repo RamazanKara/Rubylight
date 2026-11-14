@@ -41,6 +41,7 @@ public class ExtraButtonMappingTest {
     private static class Connection extends NvConnection {
         final List<Integer> buttons = new ArrayList<>();
         int arrivals, arrivalButtons, motions, touches;
+        float[] lastMotion;
         byte arrivalType;
         short arrivalCaps;
 
@@ -62,6 +63,7 @@ public class ExtraButtonMappingTest {
 
         @Override public int sendControllerMotionEvent(byte number, byte motionType, float x, float y, float z) {
             motions++;
+            lastMotion = new float[] {x, y, z};
             return 0;
         }
 
@@ -384,6 +386,33 @@ public class ExtraButtonMappingTest {
             } finally {
                 handler.destroy();
                 activity.get().getSharedPreferences("ControllerButtonMaps", Context.MODE_PRIVATE).edit().clear().commit();
+            }
+        }
+    }
+
+    @Test
+    public void usbPadGyroFollowsItsModelsGyroscopeMapping() {
+        try (ActivityController<Activity> activity = Robolectric.buildActivity(Activity.class).create()) {
+            GyroMappingPreferences.setChoice(activity.get(), null,
+                    ControllerButtonMap.deviceKey(0x045e, 0x028e, null), GyroMappingPreferences.FLYDIGI);
+            Connection connection = new Connection();
+            PreferenceConfiguration preferences = new PreferenceConfiguration();
+            preferences.multiController = true;
+            preferences.gamepadMotionSensors = true;
+            ControllerHandler handler = new ControllerHandler(activity.get(), connection, null, preferences);
+            XboxPad pad = new XboxPad(MOTION_AND_TOUCHPAD);
+            try {
+                handler.deviceAdded(pad);
+                handler.reportControllerState(42, ControllerPacket.A_FLAG, 0, 0, 0, 0, 0, 0);
+                handler.reportControllerMotion(42, MoonBridge.LI_MOTION_TYPE_GYRO, 1, 2, 3);
+                assertEquals(1, connection.motions);
+                org.junit.Assert.assertArrayEquals(new float[] {-2f, 3f, 1f}, connection.lastMotion, 0f);
+                handler.reportControllerMotion(42, MoonBridge.LI_MOTION_TYPE_ACCEL, 1, 2, 3);
+                org.junit.Assert.assertArrayEquals("the accelerometer goes as it is",
+                        new float[] {1f, 2f, 3f}, connection.lastMotion, 0f);
+            } finally {
+                handler.destroy();
+                activity.get().getSharedPreferences(GyroMappingPreferences.STORE, Context.MODE_PRIVATE).edit().clear().commit();
             }
         }
     }

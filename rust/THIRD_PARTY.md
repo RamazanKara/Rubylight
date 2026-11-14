@@ -123,6 +123,10 @@ MIT License
 Copyright (c) 2026 mattxslv
 ```
 
+## Nightjar gyroscope mapping from jvanderv42's fork
+
+Nightjar's per-controller gyroscope mapping (axis choice, inversion and sensitivity, the Flydigi Apex 4 and Vader 4 Pro preset) and its in-stream motion readings are ported from [jvanderv42's Nightjar fork](https://github.com/jvanderv42/nightjar) at commit d0e14cf25 (GPL-3.0): `client/app/src/main/java/com/limelight/binding/input/GyroAxisTransformer.java`, `GyroMappingPreferences.java`, `GyroDiagnosticOverlay.java` and `client/app/src/main/java/com/limelight/preferences/GyroProfileEditor.java`. The desktop client's gyroscope axes and sensitivity (`client/protocol/desktop/src/gamepad.rs`) follow the same design. It remains under GPL-3.0.
+
 ## PyroWave patches from Punktfunk
 
 The PyroWave SDK patches `0002-payload-data-444-sizing` and `0003-decoder-reject-short-block` in `rust/codec-patches/pyrowave` are adapted from patches 0001 and 0008 of [Punktfunk](https://git.unom.io/unom/punktfunk) (MIT OR Apache-2.0), used here under the MIT License. They are compiled into the shipped `libpyrowave-shared-1.dll`.

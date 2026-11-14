@@ -1572,4 +1572,11 @@ sudo sysctl -w net.core.rmem_max={}", "Buffer di ricezione: il sistema ha conces
     ("Turns the PC game’s SDR picture into HDR in HDR streams.", "Converte l’immagine SDR del gioco sul PC in HDR negli stream HDR."),
     ("Cleans up and sharpens the picture on the PC before it is encoded.", "Pulisce e rende più nitida l’immagine sul PC prima della codifica."),
     ("{} is off for this stream: the GPU renderer could not be made while drawing straight to the display.", "{} è disattivato per questo stream: non è stato possibile creare il renderer GPU disegnando direttamente sullo schermo."),
+    ("Motion", "Movimento"),
+    ("Up and down (X)", "Su e giù (X)"),
+    ("Left and right (Y)", "Sinistra e destra (Y)"),
+    ("Tilt (Z)", "Inclinazione (Z)"),
+    ("Left and right sensitivity", "Sensibilità sinistra e destra"),
+    ("Up and down sensitivity", "Sensibilità su e giù"),
+    ("Speeds motion aiming up or slows it down; 100% sends the controller’s own speed.", "Accelera o rallenta la mira con il movimento; il 100% usa la velocità propria del controller."),
 ];

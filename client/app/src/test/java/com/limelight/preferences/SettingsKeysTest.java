@@ -65,7 +65,7 @@ public class SettingsKeysTest {
     // Rows that open a screen or a dialog and store nothing under their key.
     private static final Set<String> ACTIONS = new HashSet<>(Arrays.asList(
             "gpu_driver", "keyboard_shortcuts_editor", "stream_hotkeys", "controller_button_mapping",
-            "controller_test", "stream_profiles", "reset_osc", "check_updates_now", "help", "latency_benchmark", "report_problem", "about_app", "reset_all", "export_latency_csv",
+            "controller_test", "gyro_mapping_profiles", "stream_profiles", "reset_osc", "check_updates_now", "help", "latency_benchmark", "report_problem", "about_app", "reset_all", "export_latency_csv",
             "pin_lock", // opens its own screen; the PIN lives in the pin_lock prefs file
             "network_tests", // opens a saved PC's connection tests
             StreamSettings.PACE_CALIBRATION_KEY, // opens a saved PC's tests, where its PyroWave frame pace is measured
@@ -95,6 +95,7 @@ public class SettingsKeysTest {
             com.limelight.ui.AppTheme.OLED_BLACK, // AppTheme, including activities opened directly
             com.limelight.ui.AppTheme.ALWAYS_DARK,
             com.limelight.ui.AppTheme.HIGH_CONTRAST, // AppTheme and the contrast overlay
+            com.limelight.binding.input.GyroDiagnosticOverlay.PREF_SHOW_DIAGNOSTICS, // Game's motion readings
             com.limelight.ui.AppTheme.UI_SCALE, // NightjarActivity.attachBaseContext
             com.limelight.ui.AppTheme.UI_MODE, // NightjarActivity.attachBaseContext
             com.limelight.ui.Motion.REDUCE_MOTION, // Motion

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Cài đặt › Điều khiển › Gán con quay hồi chuyển (GyroProfileEditor) -->
+    <string name="title_gyro_mapping">Gán con quay hồi chuyển</string>
+    <string name="summary_gyro_mapping">Chỉnh hướng ngắm bằng chuyển động cho đúng và đặt tốc độ, cho từng tay cầm. Cứ để Mặc định trừ khi hướng ngắm lệch trục hoặc quay quá nhanh hay quá chậm.</string>
+    <string name="gyro_mapping_device_row">%1$s: %2$s</string>
+    <string name="gyro_mapping_choice_title">Con quay hồi chuyển của %1$s</string>
+    <string name="gyro_choice_standard">Mặc định</string>
+    <string name="gyro_choice_flydigi">Flydigi Apex 4 và Vader 4 Pro (chế độ Switch)</string>
+    <string name="gyro_choice_custom">%1$s (tùy chỉnh)</string>
+    <string name="gyro_choice_new">Hồ sơ tùy chỉnh mới…</string>
+    <string name="gyro_mapping_saved">Đã lưu. Áp dụng từ stream tiếp theo.</string>
+    <string name="gyro_profiles_title">Hồ sơ tùy chỉnh</string>
+    <string name="gyro_profile_new">Hồ sơ mới…</string>
+    <string name="gyro_profile_edit">Sửa</string>
+    <string name="gyro_profile_duplicate">Nhân bản</string>
+    <string name="gyro_profile_delete">Xóa</string>
+    <string name="gyro_profile_copy_name">Bản sao của %1$s</string>
+    <string name="gyro_profile_delete_title">Xóa hồ sơ này?</string>
+    <string name="gyro_profile_delete_message">Tay cầm dùng %1$s sẽ quay lại Mặc định.</string>
+    <string name="gyro_profile_deleted">Đã xóa hồ sơ</string>
+    <string name="gyro_profile_create_title">Hồ sơ con quay mới</string>
+    <string name="gyro_profile_edit_title">Sửa hồ sơ con quay</string>
+    <string name="gyro_profile_help">Với mỗi hướng mà trò chơi đọc, hãy chọn trục tay cầm điều khiển hướng đó và đảo lại nếu nó đi sai chiều. Dùng mỗi trục một lần. Các độ nhạy tăng hoặc giảm tốc độ ngắm bằng chuyển động.</string>
+    <string name="gyro_profile_name">Tên hồ sơ</string>
+    <string name="gyro_profile_name_required">Nhập tên</string>
+    <string name="gyro_profile_axes_unique">Dùng X, Y và Z mỗi trục một lần.</string>
+    <string name="gyro_profile_axis_x">Lên và xuống (X)</string>
+    <string name="gyro_profile_axis_y">Trái và phải (Y)</string>
+    <string name="gyro_profile_axis_z">Nghiêng (Z)</string>
+    <string name="gyro_profile_source_axis">%1$s từ %2$s</string>
+    <string name="gyro_profile_invert">Đảo chiều</string>
+    <string name="gyro_profile_horizontal">Độ nhạy trái và phải</string>
+    <string name="gyro_profile_vertical">Độ nhạy lên và xuống</string>
+    <string name="gyro_profile_saved">Đã lưu hồ sơ. Áp dụng từ stream tiếp theo.</string>
+
+    <!-- Cài đặt › Nâng cao › Chẩn đoán › Hiện các giá trị chuyển động (GyroDiagnosticOverlay) -->
+    <string name="title_show_gyro_diagnostics">Hiện các giá trị chuyển động</string>
+    <string name="summary_show_gyro_diagnostics">Hiện các giá trị chuyển động mà mỗi tay cầm gửi khi stream, kèm nút ghi lại và chia sẻ chúng dưới dạng tệp CSV. Che góc trên bên trái hình ảnh. Cứ để tắt trừ khi việc ngắm bằng chuyển động bị lỗi.</string>
+    <string name="gyro_diag_title">Giá trị chuyển động</string>
+    <string name="gyro_diag_waiting">Đang chờ chuyển động của tay cầm…</string>
+    <string name="gyro_diag_record">Ghi</string>
+    <string name="gyro_diag_stop">Dừng</string>
+    <string name="gyro_diag_recording">Đang ghi</string>
+    <string name="gyro_diag_mapping_settings">Gán: cài đặt</string>
+    <string name="gyro_diag_mapping_flydigi">Gán: Flydigi</string>
+    <string name="gyro_diag_identify">Tay cầm</string>
+    <string name="gyro_diag_devices">Tay cầm đã kết nối</string>
+    <string name="gyro_diag_share">Chia sẻ CSV</string>
+    <string name="gyro_diag_share_title">Chia sẻ giá trị chuyển động</string>
+    <string name="gyro_diag_hide">Ẩn</string>
+    <string name="gyro_diag_show">Hiện</string>
+</resources>

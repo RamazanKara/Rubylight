@@ -1,4 +1,5 @@
-• Gyroscope mapping (Settings → Controls) fixes motion aiming that turns the wrong way and sets its speed per controller, with a Flydigi preset or your own profiles.
-• Show motion readings (Diagnostics) shows and records each controller's motion.
-• Variable refresh rate can be turned on again on screens without adaptive refresh, where frames wait for the next refresh.
+• Gyroscope mapping (Settings → Controls) fixes motion aiming per controller, with a Flydigi preset or your own profiles.
+• A game's menu now switches the profile in use before you play.
+• Show motion readings (Diagnostics) records each controller's motion.
+• Variable refresh rate can be turned on again on screens without adaptive refresh.
 • Plugging in a keyboard or mouse from a controller maker no longer offers to open Nightjar.

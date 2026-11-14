@@ -2995,6 +2995,71 @@ fn a_games_page_is_one_play_beside_favourite_over_its_rows() {
     assert_eq!(at(&f, "Stream settings").top(), settings.top(), "no jump for a chip that was not there");
 }
 
+/// A game's page on a PC, with profiles named `names` (ids from 1).
+fn game_page_with_profiles(names: &[&str]) -> Frames {
+    let mut f = home_with_games(1);
+    let pc = f.hosts.list[0].id;
+    f.hosts.list[0].apps = Apps::Loaded(vec![nightjar_core::http::App { name: "Game 00".into(), uuid: "install-0".into(), ..game(1000) }]);
+    f.l.profiles.entries = names.iter().zip(1u64..).map(|(name, id)| crate::config::Profile { id, name: (*name).into(), settings: Default::default() }).collect();
+    f.l.go(Screen::Game { host: pc, app: 1000 });
+    f.settle();
+    f
+}
+
+/// The last `text` drawn below the chrome: a popup's rows come after the page's.
+fn last_text_at(f: &Frames, text: &str) -> egui::Pos2 {
+    f.placed.iter().rfind(|(t, r, _)| t == text && r.top() > chrome::PAGE_TOP).map(|p| p.1.center()).unwrap_or_else(|| panic!("{text} in {:?}", f.drawn))
+}
+
+/// nightjar#61: the game's page switches the profile before the stream starts.
+#[test]
+fn a_games_page_offers_the_profile_only_with_profiles() {
+    let mut f = game_page_with_profiles(&[]);
+    assert!(!shows(&f, "Active profile"), "{:?}", f.drawn);
+    f.l.profiles.entries.push(crate::config::Profile { id: 1, name: "Quiet".into(), settings: Default::default() });
+    f.settle();
+    assert!(shows(&f, "Active profile") && shows(&f, "Main settings"), "{:?}", f.drawn);
+    f.l.profiles.active = Some(1);
+    f.settle();
+    assert!(shows(&f, "Active profile") && shows(&f, "Quiet"), "{:?}", f.drawn);
+}
+
+#[test]
+fn picking_a_profile_on_the_games_page_sets_and_saves_it() {
+    let mut f = game_page_with_profiles(&["Quiet", "Sharp"]);
+    let at = last_text_at(&f, "Active profile");
+    f.click_at(at, egui::PointerButton::Primary);
+    f.settle();
+    assert!(shows(&f, "Quiet") && shows(&f, "Sharp"), "the list names each profile: {:?}", f.drawn);
+    let at = last_text_at(&f, "Sharp");
+    let commands = f.click_at(at, egui::PointerButton::Primary);
+    assert_eq!(f.l.profiles.active, Some(2));
+    assert!(commands.iter().any(|c| matches!(c, Command::SaveProfiles)), "{} commands", commands.len());
+    f.settle();
+    let at = last_text_at(&f, "Active profile");
+    f.click_at(at, egui::PointerButton::Primary);
+    f.settle();
+    let at = last_text_at(&f, "Main settings");
+    f.click_at(at, egui::PointerButton::Primary);
+    assert_eq!(f.l.profiles.active, None, "Main settings is a choice too");
+}
+
+#[test]
+fn a_network_rule_decides_the_profile_and_the_row_opens_the_profiles_page() {
+    let mut f = game_page_with_profiles(&["Quiet", "Sharp"]);
+    f.l.network.wifi = true;
+    f.l.profiles.automatic = true;
+    f.l.profiles.active = Some(1);
+    f.l.profiles.wifi = Some(2);
+    f.settle();
+    assert!(shows(&f, "Sharp") && !shows(&f, "Quiet"), "the next stream uses the rule's profile: {:?}", f.drawn);
+    let at = last_text_at(&f, "Active profile");
+    f.click_at(at, egui::PointerButton::Primary);
+    f.settle();
+    assert_eq!(f.l.screen, Screen::Profiles);
+    assert_eq!(f.l.profiles.active, Some(1), "nothing was changed");
+}
+
 /// Play pressed before the PC's app list arrives holds, then starts when it lands; it asks for it too.
 #[test]
 fn play_before_the_list_arrives_starts_when_it_lands() {

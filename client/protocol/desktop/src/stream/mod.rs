@@ -490,6 +490,8 @@ pub struct Streaming {
     /// `NIGHTJAR_HELD_REPORT=0` for measurement runs: a held stream's phase reports count to
     /// each refresh instead of each turn (60 fps on 120 Hz then missed 6.7% of turns, against 0.2%).
     held_report_refresh: bool,
+    /// The refresh a held stream's last picture was shown at (`phase::HeldAnchor`).
+    held_anchor: phase::HeldAnchor,
     /// Whether the last present that tried it could go without waiting: not on Linux, nor on a
     /// renderer without a DXGI swap chain.
     no_wait_present: bool,
@@ -925,6 +927,7 @@ impl Streaming {
             present_deadline_us: std::env::var("NIGHTJAR_PRESENT_DEADLINE_US").ok().and_then(|us| us.parse().ok()),
             held_margin_us: std::env::var("NIGHTJAR_HELD_MARGIN_US").ok().and_then(|us| us.parse().ok()),
             held_report_refresh: std::env::var_os("NIGHTJAR_HELD_REPORT").is_some_and(|v| v == "0"),
+            held_anchor: phase::HeldAnchor::default(),
             no_wait_present: false,
             skipped: present::SkippedPicture::new(std::env::var("NIGHTJAR_PRESENT_HOLD_US").ok().and_then(|us| us.parse().ok()).map_or(present::REFUSED_HOLD, Duration::from_micros)),
             skipped_picture: None,

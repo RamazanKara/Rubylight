@@ -5,7 +5,6 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.preference.Preference;
 import android.preference.PreferenceManager;
-import android.preference.SwitchPreference;
 import android.view.Display;
 
 import com.limelight.R;
@@ -164,19 +163,18 @@ public class VrrOfferedTest {
     }
 
     @Test
-    public void realVrrShowsWithVrrAndTheFixedRefreshSwitchWithout() {
+    public void vrrOnByDefaultIsRealVrrAndTheFixedRefreshSwitchShowsWithoutVrr() {
         ArrDisplay.supported = true;
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             // The screen holds only the rows shown; the fragment also finds the hidden ones.
             android.preference.PreferenceScreen display =
                     SettingsStructureTest.open(controller.get(), "display").getPreferenceScreen();
-            assertNull(display.findPreference(PreferenceConfiguration.REAL_VRR_PREF_STRING));
+            assertNull("Real VRR is the Variable refresh rate row's On", display.findPreference(PreferenceConfiguration.REAL_VRR_PREF_STRING));
             assertTrue(display.findPreference(PreferenceConfiguration.HOST_FRAME_TIMES_PREF_STRING) != null);
             prefs().edit().putBoolean(PreferenceConfiguration.VRR_PREF_STRING, true).commit();
-            assertTrue(display.findPreference(PreferenceConfiguration.REAL_VRR_PREF_STRING) != null);
             assertNull(display.findPreference(PreferenceConfiguration.HOST_FRAME_TIMES_PREF_STRING));
-            assertTrue("on by default", ((SwitchPreference) display.findPreference(
-                    PreferenceConfiguration.REAL_VRR_PREF_STRING)).isChecked());
+            assertEquals("on by default", "on", ((android.preference.ListPreference) display.findPreference(
+                    PreferenceConfiguration.VRR_PREF_STRING)).getValue());
         }
     }
 
@@ -187,7 +185,7 @@ public class VrrOfferedTest {
 
     @Test
     public void withoutArrThePcRowIsGreyedAndPacingIsntReplaced() {
-        HostStreamProfile.deserialize("v2;vrr=true").save(RuntimeEnvironment.getApplication(), "vrr-pc");
+        HostStreamProfile.deserialize("v2;vrr=true;real_vrr=false").save(RuntimeEnvironment.getApplication(), "vrr-pc");
         ActivityController<HostStreamSettings> controller = openPc("vrr-pc");
         try {
             HostStreamSettings.SettingsFragment settings = (HostStreamSettings.SettingsFragment)
@@ -200,8 +198,9 @@ public class VrrOfferedTest {
         } finally {
             controller.pause().stop().destroy();
         }
-        assertEquals("the PC's choice is kept", Boolean.TRUE,
-                HostStreamProfile.deserialize(HostStreamProfile.raw(RuntimeEnvironment.getApplication(), "vrr-pc")).vrr);
+        HostStreamProfile kept = HostStreamProfile.deserialize(HostStreamProfile.raw(RuntimeEnvironment.getApplication(), "vrr-pc"));
+        assertEquals("the PC's choice is kept", Boolean.TRUE, kept.vrr);
+        assertEquals("with its Real VRR", Boolean.FALSE, kept.realVrr);
 
         ArrDisplay.supported = true;
         controller = openPc("vrr-pc");
@@ -209,6 +208,8 @@ public class VrrOfferedTest {
             HostStreamSettings.SettingsFragment settings = (HostStreamSettings.SettingsFragment)
                     controller.get().getFragmentManager().findFragmentById(R.id.host_profile_settings);
             assertTrue(settings.findPreference("vrr").isEnabled());
+            assertTrue("the PC's Fastest", String.valueOf(settings.findPreference("vrr").getSummary())
+                    .startsWith(controller.get().getResources().getStringArray(R.array.vrr_choice_names)[VrrChoice.FASTEST]));
             assertTrue(String.valueOf(settings.findPreference("pacing").getSummary())
                     .contains(controller.get().getString(R.string.layers_pacing_vrr)));
         } finally {
@@ -221,6 +222,20 @@ public class VrrOfferedTest {
         HostCapabilityCache.save(app, uuid, TestHosts.rubylight());
         Intent intent = new Intent(app, HostStreamSettings.class).putExtra("host_uuid", uuid).putExtra("host_name", "Den PC");
         return Robolectric.buildActivity(HostStreamSettings.class, intent).setup();
+    }
+
+    @Test
+    public void withoutArrTheRowsChoiceReadsAsOffAndTheSwitchesAreKept() {
+        prefs().edit().putBoolean(PreferenceConfiguration.VRR_PREF_STRING, true)
+                .putBoolean(PreferenceConfiguration.REAL_VRR_PREF_STRING, false).commit();
+        assertEquals(VrrChoice.OFF, VrrChoice.shown(prefs(), DisplayFrameRatePolicy.vrrOffered(RuntimeEnvironment.getApplication())));
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            SettingsStructureTest.open(controller.get(), "display");
+        }
+        assertTrue(prefs().getBoolean(PreferenceConfiguration.VRR_PREF_STRING, false));
+        assertFalse(prefs().getBoolean(PreferenceConfiguration.REAL_VRR_PREF_STRING, true));
+        ArrDisplay.supported = true;
+        assertEquals(VrrChoice.FASTEST, VrrChoice.shown(prefs(), DisplayFrameRatePolicy.vrrOffered(RuntimeEnvironment.getApplication())));
     }
 
     @Test

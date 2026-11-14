@@ -29,6 +29,11 @@ public final class HostStreamProfile {
     public Integer displayScale;
     public PreferenceConfiguration.FormatOption codec;
     public Boolean virtualDisplay, hdr, fullRange, yuv444, vrr;
+    /**
+     * Real VRR, set only with {@code vrr} on: the Variable refresh rate row's On (true) or Fastest (false), so the two
+     * travel together as one value (VrrChoice). Null with VRR set follows the layers below, as layers saved before it did.
+     */
+    public Boolean realVrr;
     public UpscalingPolicy.Mode upscalingMode;
     public Integer upscalingSharpness;
     /** A frame pacing choice as the global setting stores it, e.g. "balanced". */
@@ -109,7 +114,7 @@ public final class HostStreamProfile {
     public boolean isEmpty() {
         return nativeResolution == null && refreshRateX100 == null && bitrate == null && renderScale == null &&
                 displayScale == null && codec == null && virtualDisplay == null && hdr == null && fullRange == null &&
-                yuv444 == null && vrr == null && upscalingMode == null && upscalingSharpness == null && pacing == null &&
+                yuv444 == null && vrr == null && realVrr == null && upscalingMode == null && upscalingSharpness == null && pacing == null &&
                 rtxHdr == null && rtxVideo == null;
     }
 
@@ -148,7 +153,10 @@ public final class HostStreamProfile {
             case UPSCALING: upscalingMode = from.upscalingMode; break;
             case SHARPNESS: upscalingSharpness = from.upscalingSharpness; break;
             case HDR: hdr = from.hdr; break;
-            case VRR: vrr = from.vrr; break;
+            case VRR:
+                vrr = from.vrr;
+                realVrr = from.realVrr;
+                break;
             case YUV444: yuv444 = from.yuv444; break;
             case FULL_RANGE: fullRange = from.fullRange; break;
             case PACING: pacing = from.pacing; break;
@@ -206,6 +214,7 @@ public final class HostStreamProfile {
             config.experimentalPacked444 = yuv444;
         }
         if (vrr != null) config.vrr = vrr;
+        if (realVrr != null) config.realVrr = realVrr;
         if (upscalingMode != null) config.upscalingMode = upscalingMode;
         if (upscalingSharpness != null) config.upscalingSharpness = upscalingSharpness;
         if (pacing != null) config.framePacing = PreferenceConfiguration.framePacingValue(pacing);
@@ -238,7 +247,7 @@ public final class HostStreamProfile {
         if (hdr != null && hdr == global.enableHdr) hdr = null;
         if (fullRange != null && fullRange == global.fullRange) fullRange = null;
         if (yuv444 != null && yuv444 == global.enableYuv444) yuv444 = null;
-        if (vrr != null && vrr == global.vrr) vrr = null;
+        if (vrr != null && vrr == global.vrr && (realVrr == null || realVrr == global.realVrr)) vrr = realVrr = null;
         if (upscalingMode == global.upscalingMode) upscalingMode = null;
         if (upscalingSharpness != null && upscalingSharpness == global.upscalingSharpness) upscalingSharpness = null;
         return this;
@@ -259,6 +268,7 @@ public final class HostStreamProfile {
         if (fullRange != null) out.append(";full_range=").append(fullRange);
         if (yuv444 != null) out.append(";yuv444=").append(yuv444);
         if (vrr != null) out.append(";vrr=").append(vrr);
+        if (realVrr != null) out.append(";real_vrr=").append(realVrr);
         if (upscalingMode != null) out.append(";upscaling=").append(upscalingMode.name());
         if (upscalingSharpness != null) out.append(";sharpness=").append(upscalingSharpness);
         if (pacing != null) out.append(";pacing=").append(pacing);
@@ -329,6 +339,9 @@ public final class HostStreamProfile {
                 case "vrr":
                     profile.vrr = parseBoolean(field);
                     break;
+                case "real_vrr":
+                    profile.realVrr = parseBoolean(field);
+                    break;
                 case "upscaling": {
                     String[] parts = field.split(":", -1);
                     if (parts.length > 2) throw new IllegalArgumentException("Invalid upscaling");
@@ -354,6 +367,8 @@ public final class HostStreamProfile {
                     break;
             }
         }
+        // Real VRR is part of VRR on; alone it would change nothing a layer shows.
+        if (!Boolean.TRUE.equals(profile.vrr)) profile.realVrr = null;
         return profile;
     }
 
@@ -432,6 +447,7 @@ public final class HostStreamProfile {
         // VRR turns off frame timing on a Rubylight PC; the old screen saved a copy of the global
         // switch with every profile, so it follows the main setting again.
         profile.vrr = null;
+        profile.realVrr = null;
         return profile.isEmpty() ? "" : profile.serialize();
     }
 

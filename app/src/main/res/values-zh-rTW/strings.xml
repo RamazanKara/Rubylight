@@ -301,12 +301,15 @@
     <string name="title_virtual_display">虛擬顯示器</string>
     <string name="summary_virtual_display">電腦從自己的一個虛擬顯示器進行串流，它與串流的解析度和影格速率一致，不受電腦所接螢幕的影響。關閉則交由電腦的顯示設定決定。</string>
     <string name="title_vrr">可變更新率</string>
-    <string name="summary_vrr">VRR：在 G-Sync、FreeSync 或自動調整更新率的螢幕上，每個影格一到達就顯示，不必等待下一次螢幕更新。開啟時不使用「影格調步」。</string>
+    <string name="summary_vrr">VRR：在 G-Sync、FreeSync 或自動調整更新率的螢幕上，影格不必等待下一次螢幕更新即可顯示，且不使用「影格調步」。「開啟」在遊戲繪製每個影格的時刻顯示它，讓動態保持平穩，會增加約 1 到 4 毫秒延遲；「最快」在每個影格一到達時就顯示，延遲最低。需要 Android 16 和支援自動調整更新率的螢幕。</string>
+    <string-array name="vrr_choice_names">
+        <item>關閉</item>
+        <item>開啟</item>
+        <item>最快</item>
+    </string-array>
     <string name="summary_vrr_unavailable">需要 Android 16 和支援自動調整更新率的螢幕。</string>
     <string name="title_host_frame_times">依電腦的影格時間顯示畫面</string>
     <string name="summary_host_frame_times">將每個影格短暫保留，讓它在遊戲繪製的時刻顯示，使動態更平穩。會增加幾毫秒延遲；動態看起來不均勻時請開啟。</string>
-    <string name="title_real_vrr">真實 VRR</string>
-    <string name="summary_real_vrr">在遊戲繪製每個影格的時刻顯示它，讓動態保持平穩。會增加約 1 到 4 毫秒延遲；除非你想要最低延遲，否則請保持開啟。</string>
     <string name="title_content_rate_frame_rate">讓螢幕符合遊戲影格率</string>
     <string name="summary_content_rate_frame_rate">將螢幕切換為符合遊戲實際影格速率的更新率，例如在 120 FPS 的串流中為 60 FPS 的遊戲使用 60 Hz。需要電腦支援。</string>
     <string name="title_virtual_display_scale">電腦轉譯解析度</string>

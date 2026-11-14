@@ -71,7 +71,7 @@ public enum GameProfilePreset {
                 break;
             case SMOOTHNESS:
                 own.pacing = "smoothness";
-                own.vrr = Boolean.FALSE;
+                VrrChoice.save(own, VrrChoice.OFF);
                 break;
             case QUALITY:
                 own.bitrate = qualityKbps;

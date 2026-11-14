@@ -700,7 +700,7 @@ fn files_round_trip() {
     // A settings file from an older version keeps the new fields' defaults.
     std::fs::write(dir.join("settings.json"), r#"{"fps": 90}"#).unwrap();
     assert_eq!(store.settings().fps, 90);
-    assert!(store.settings().present_at_host_times, "Real VRR is switched on once");
+    assert!(store.settings().present_at_host_times, "present_at_host_times (Variable refresh rate On) is switched on once");
     std::fs::remove_dir_all(dir).unwrap();
 }
 

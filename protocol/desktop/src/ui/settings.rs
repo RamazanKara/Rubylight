@@ -25,8 +25,8 @@ pub(super) const SECTION_KEYS: [&[&[&str]]; 8] = [
     &[&["width", "height"], &["fps"], &["bitrate_kbps"], &["adaptive_bitrate"], &["codec"], &["hdr"],
         &["prefer_yuv444", "experimental_packed_444"], &["sdr_10bit"], &["frame_warp"], &["adaptive_quality"], &["quality_min_short_edge"], &["quality_min_fps"],
         &["hdr_desktop_brightness"], &["rtx_hdr"], &["rtx_video"]],
-    &[&["window_mode"], &["video_scaling"], &["vrr"],
-        &["present_at_host_times"], &["vrr_tear_free"], &["frame_pacing"], &["drop_late_frames"], &["vsync"],
+    &[&["window_mode"], &["video_scaling"], &["vrr", "present_at_host_times", "vrr_tear_free"],
+        &["frame_pacing"], &["drop_late_frames"], &["vsync"],
         &["upscaling"], &["upscale_sharpness"], &["align_video_top"],
         &["virtual_display"], &["virtual_display_scale"], &["virtual_display_dpi"], &["host_display"]],
     &[&["mouse_mode"], &["controllers", "multi_controller"], &["clipboard_sync"],
@@ -856,24 +856,27 @@ impl Launcher {
                     }
                 }).response
             });
+            // One choice for VRR's three keys (`VrrChoice`). With Sharper colored text packed on
+            // Windows, VRR shows each frame at once whatever the choice: the stream leaves host
+            // times out, and the choice stays for the streams without it.
             rows.when(vrr_offered);
-            setting_row(ui, s, &mut rows, &["vrr"], "Variable refresh rate", "VRR: shows each frame the moment it arrives on a G-Sync, FreeSync or adaptive-refresh screen, without waiting for the next refresh. Frame pacing is not used while VRR is on.", |ui, s| toggle(ui, &mut s.vrr));
+            setting_row(ui, s, &mut rows, &["vrr", "present_at_host_times", "vrr_tear_free"], "Variable refresh rate", "VRR: on a G-Sync, FreeSync or adaptive-refresh screen, frames are shown without waiting for the screen’s refresh. On shows each frame when the game drew it, and whole, so motion stays even; that adds about 1 to 4 ms of latency. Fastest shows each frame the moment it arrives, which can tear. Frame pacing is not used while VRR is on.", |ui, s| {
+                let current = vrr_choice(s);
+                let mut choice = current;
+                let response = Combo::from_id_salt("vrr").selected_text(vrr_choice_name(current)).show_ui(ui, |ui| {
+                    // Custom is never offered: it only says a mix the file holds.
+                    for each in VrrChoice::OFFERED {
+                        ui.selectable_value(&mut choice, each, vrr_choice_name(each));
+                    }
+                }).response;
+                if choice != current {
+                    set_vrr_choice(s, choice);
+                }
+                response
+            });
             rows.always();
             let vrr = s.vrr && vrr_offered;
             rows.group(en("Refresh rate"));
-            // With Sharper colored text packed on Windows, VRR shows each frame at once.
-            let immediate_packed = cfg!(windows) && s.experimental_packed_444 && vrr_offered;
-            rows.when(vrr && !immediate_packed);
-            setting_row(ui, s, &mut rows, &["present_at_host_times"], "Real VRR", "Shows each frame when the game drew it, so motion stays even. Adds about 1 to 4 ms of latency; leave it on unless you want the lowest latency.", |ui, s| {
-                toggle(ui, &mut s.present_at_host_times)
-            });
-            // The wait applies to every VRR stream on Windows, with or without Real VRR.
-            rows.always();
-            rows.when(vrr && cfg!(windows));
-            setting_row(ui, s, &mut rows, &["vrr_tear_free"], "Tear-free VRR", "Waits for the screen to finish drawing the last frame before showing the next, so no frame is torn. Only a frame that arrives while the screen is still drawing waits, at most one refresh (about 4 ms at 240 Hz). Turn it off to show every frame at once, with tearing.", |ui, s| {
-                toggle(ui, &mut s.vrr_tear_free)
-            });
-            rows.always();
             rows.when(!vrr);
             setting_row(ui, s, &mut rows, &["frame_pacing"], "Frame pacing", "Trades latency against steady motion while VRR is off. Lowest latency shows frames at once; the other choices wait for the screen’s refresh: smoother, with more delay.", |ui, s| {
                 Combo::from_id_salt("frame-pacing").selected_text(tr(s.frame_pacing.label())).show_ui(ui, |ui| {
@@ -1827,6 +1830,68 @@ fn sharp_color_name(on: bool) -> &'static str {
     if on { tr("On") } else { tr("Off") }
 }
 
+/// "Variable refresh rate" as one choice over its three keys, which settings.json keeps as they
+/// are: `vrr`, `present_at_host_times` (the game's timing) and `vrr_tear_free` (whole frames).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum VrrChoice {
+    Off,
+    /// The game's timing, whole frames.
+    On,
+    /// Each frame on arrival; it can tear.
+    Fastest,
+    /// A mix of the keys none of the others writes (the old separate switches, or a hand-edited
+    /// file): shown as the value, never offered, and kept until another choice is made.
+    Custom,
+}
+
+impl VrrChoice {
+    /// The choices the list offers.
+    pub(super) const OFFERED: [VrrChoice; 3] = [VrrChoice::Off, VrrChoice::On, VrrChoice::Fastest];
+}
+
+/// Whether `vrr_tear_free` does something on this platform: Windows and Linux wait out a scan
+/// under way; macOS has no such wait, so the key reads as nothing there.
+pub(super) const fn vrr_tear_free_applies() -> bool {
+    cfg!(any(windows, target_os = "linux"))
+}
+
+/// The choice the saved keys make, on this platform.
+pub(super) fn vrr_choice(s: &Settings) -> VrrChoice {
+    vrr_choice_where(s, vrr_tear_free_applies())
+}
+
+/// The choice the saved keys make where `vrr_tear_free` applies, or where it does not (only the
+/// game's timing then tells On from Fastest).
+pub(super) fn vrr_choice_where(s: &Settings, tear_free_applies: bool) -> VrrChoice {
+    match (s.vrr, s.present_at_host_times, s.vrr_tear_free) {
+        (false, ..) => VrrChoice::Off,
+        (true, true, true) => VrrChoice::On,
+        (true, false, false) => VrrChoice::Fastest,
+        (true, host_times, _) if !tear_free_applies => if host_times { VrrChoice::On } else { VrrChoice::Fastest },
+        (true, ..) => VrrChoice::Custom,
+    }
+}
+
+/// Saves a choice into the three keys: On and Fastest write all three, Off only `vrr`, so the
+/// others come back with VRR. Custom writes nothing.
+pub(super) fn set_vrr_choice(s: &mut Settings, choice: VrrChoice) {
+    match choice {
+        VrrChoice::Off => s.vrr = false,
+        VrrChoice::On => (s.vrr, s.present_at_host_times, s.vrr_tear_free) = (true, true, true),
+        VrrChoice::Fastest => (s.vrr, s.present_at_host_times, s.vrr_tear_free) = (true, false, false),
+        VrrChoice::Custom => {}
+    }
+}
+
+fn vrr_choice_name(choice: VrrChoice) -> &'static str {
+    match choice {
+        VrrChoice::Off => tr("Off"),
+        VrrChoice::On => tr("On"),
+        VrrChoice::Fastest => tr("Fastest"),
+        VrrChoice::Custom => tr("Custom"),
+    }
+}
+
 /// Video position: the picture at the window's centre or its top (`align_video_top`).
 fn video_position_name(top: bool) -> &'static str {
     if top { tr("Top") } else { tr("Center") }
@@ -1931,6 +1996,7 @@ pub(super) fn value_text(key: &str, s: &Settings, display: &Display, style: crat
         "open_on_start" | "console_home" => start_screen_name(start_screen(s), None),
         "controllers" | "multi_controller" => tr(controllers_name(Controllers::from_saved(s.controllers, s.multi_controller))).to_owned(),
         "prefer_yuv444" | "experimental_packed_444" => sharp_color_name(sharp_color(s)).to_owned(),
+        "vrr" | "present_at_host_times" | "vrr_tear_free" => vrr_choice_name(vrr_choice(s)).to_owned(),
         "align_video_top" => video_position_name(s.align_video_top).to_owned(),
         "width" | "height" if s.width == 0 => trf("Native ({}x{})", &[&display.width, &display.height]),
         "width" | "height" => format!("{}x{}", s.width, s.height),
@@ -2005,6 +2071,8 @@ pub(super) const MAIN_KEYS: [(&str, &[&str]); 8] = [
 
 /// Every desktop row on both platforms and the Android preference it is: a setting's first key or
 /// an action row's name, then Android's key. A row is main when its match is in `MAIN_KEYS`.
+/// `present_at_host_times` matches Android's `checkbox_real_vrr`; on the desktop it is a key of
+/// the Variable refresh rate row, as the desktop-only `vrr_tear_free` is.
 pub(super) const ANDROID_KEYS: &[(&str, &str)] = &[
     // Video
     ("width", "list_resolution"), ("fps", "list_fps"), ("bitrate_kbps", "seekbar_bitrate_kbps"),
@@ -2745,6 +2813,70 @@ mod tests {
         assert_eq!(value(Settings::default(), "network_grace_ms"), "Off", "the desktop's 3 s default is within the connection's own timeout");
         assert_eq!(value(Settings { network_grace_ms: 30_000, ..Settings::default() }, "network_grace_ms"), "30 s");
         assert_eq!(value(Settings::default(), "align_video_top"), "Center");
+        // Variable refresh rate says the one choice its three keys make, under any of them.
+        let fastest = Settings { present_at_host_times: false, vrr_tear_free: false, ..Settings::default() };
+        for key in ["vrr", "present_at_host_times", "vrr_tear_free"] {
+            assert_eq!(value(Settings::default(), key), "On");
+            assert_eq!(value(fastest.clone(), key), "Fastest");
+            assert_eq!(value(Settings { vrr: false, ..Settings::default() }, key), "Off");
+        }
+        let mixed = Settings { vrr_tear_free: false, ..Settings::default() };
+        assert_eq!(value(mixed, "vrr"), if vrr_tear_free_applies() { "Custom" } else { "On" });
+    }
+
+    /// The choice each of the eight saved combinations makes, where `vrr_tear_free` applies
+    /// (Windows, Linux) and where it does not (macOS).
+    #[test]
+    fn variable_refresh_rate_reads_every_saved_combination() {
+        use VrrChoice::{Custom, Fastest, Off, On};
+        // (vrr, present_at_host_times, vrr_tear_free) -> where it applies, where it does not.
+        let table = [
+            ((false, false, false), Off, Off),
+            ((false, false, true), Off, Off),
+            ((false, true, false), Off, Off),
+            ((false, true, true), Off, Off),
+            ((true, false, false), Fastest, Fastest),
+            ((true, false, true), Custom, Fastest),
+            ((true, true, false), Custom, On),
+            ((true, true, true), On, On),
+        ];
+        for ((vrr, present_at_host_times, vrr_tear_free), applies, elsewhere) in table {
+            let s = Settings { vrr, present_at_host_times, vrr_tear_free, ..Settings::default() };
+            assert_eq!(vrr_choice_where(&s, true), applies, "{vrr} {present_at_host_times} {vrr_tear_free} where tear-free applies");
+            assert_eq!(vrr_choice_where(&s, false), elsewhere, "{vrr} {present_at_host_times} {vrr_tear_free} where it does not");
+            assert_ne!(elsewhere, Custom, "never Custom where tear-free does not apply");
+            assert_eq!(vrr_choice(&s), if vrr_tear_free_applies() { applies } else { elsewhere });
+        }
+        assert_eq!(vrr_choice(&Settings::default()), On, "the defaults are On");
+    }
+
+    /// On and Fastest write all three keys, Off only `vrr`; Custom is shown, never offered, and
+    /// choosing it writes nothing. Reset all puts the three back together.
+    #[test]
+    fn choosing_variable_refresh_rate_writes_its_keys() {
+        use VrrChoice::{Custom, Fastest, Off, On};
+        assert_eq!(VrrChoice::OFFERED, [Off, On, Fastest]);
+        assert!(!VrrChoice::OFFERED.contains(&Custom));
+        for bits in 0..8u8 {
+            let before = Settings { vrr: bits & 1 != 0, present_at_host_times: bits & 2 != 0, vrr_tear_free: bits & 4 != 0, ..Settings::default() };
+            let chose = |choice| {
+                let mut s = before.clone();
+                set_vrr_choice(&mut s, choice);
+                s
+            };
+            let on = chose(On);
+            assert_eq!((on.vrr, on.present_at_host_times, on.vrr_tear_free), (true, true, true), "{bits}");
+            assert_eq!(vrr_choice(&on), On);
+            let fastest = chose(Fastest);
+            assert_eq!((fastest.vrr, fastest.present_at_host_times, fastest.vrr_tear_free), (true, false, false), "{bits}");
+            assert_eq!(vrr_choice(&fastest), Fastest);
+            let off = chose(Off);
+            assert_eq!(off, Settings { vrr: false, ..before.clone() }, "Off changes only vrr ({bits})");
+            assert_eq!(vrr_choice(&off), Off);
+            assert_eq!(chose(Custom), before, "Custom writes nothing ({bits})");
+            let reset = reset_to_defaults(&fastest);
+            assert_eq!((reset.vrr, reset.present_at_host_times, reset.vrr_tear_free), (true, true, true));
+        }
     }
 
     /// "When Nightjar opens" saves both of its keys, and each choice reads back as itself.

@@ -770,7 +770,9 @@ fn settings_main_rows_are_androids_tiers() {
     assert_eq!(ours, parsed, "MAIN_KEYS follows settings_tiers.xml");
     let preferences = include_str!("../../../../app/src/main/res/xml/preferences.xml");
     for &(desktop, android) in ANDROID_KEYS {
-        assert!(preferences.contains(&format!("android:key=\"{android}\"")), "{desktop} matches Android's {android}, which exists");
+        // Real VRR has no row of its own on Android either: Variable refresh rate's control writes it (VrrPreference).
+        let control = if android == "checkbox_real_vrr" { "checkbox_vrr" } else { android };
+        assert!(preferences.contains(&format!("android:key=\"{control}\"")), "{desktop} matches Android's {android}, which exists");
         assert!(!DESKTOP_MAIN.contains(&desktop), "{desktop}: Android decides its tier");
     }
     assert!(main_row("adaptive_bitrate") && main_row("auto_reconnect") && main_row("window_mode") && main_row("connection_test"));

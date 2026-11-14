@@ -24,6 +24,36 @@ public class HostStreamProfileTest {
         assertEquals(Integer.valueOf(70), upscaled.upscalingSharpness);
     }
 
+    /** A layer's Variable refresh rate carries VRR and Real VRR together; layers saved before read as they streamed. */
+    @Test
+    public void aLayersVariableRefreshRateCarriesBothSwitches() {
+        HostStreamProfile own = new HostStreamProfile();
+        VrrChoice.save(own, VrrChoice.FASTEST);
+        assertEquals("v2;vrr=true;real_vrr=false", own.serialize());
+        HostStreamProfile read = HostStreamProfile.deserialize(own.serialize());
+        assertEquals(Boolean.TRUE, read.vrr);
+        assertEquals(Boolean.FALSE, read.realVrr);
+        assertEquals("one value", 1, read.count());
+
+        VrrChoice.save(own, VrrChoice.ON);
+        assertEquals("v2;vrr=true;real_vrr=true", own.serialize());
+        VrrChoice.save(own, VrrChoice.OFF);
+        assertEquals("Off leaves Real VRR to the layers below", "v2;vrr=false", own.serialize());
+        VrrChoice.save(own, null);
+        assertTrue(own.isEmpty());
+
+        // Taken from a layer as one value, with both switches.
+        HostStreamProfile fastest = HostStreamProfile.deserialize("v2;vrr=true;real_vrr=false");
+        HostStreamProfile merged = new HostStreamProfile();
+        merged.take(HostStreamProfile.Field.VRR, fastest);
+        assertEquals(Boolean.TRUE, merged.vrr);
+        assertEquals(Boolean.FALSE, merged.realVrr);
+
+        // Real VRR alone is not a value (SettingsKeysTest checks what a layer streams with).
+        assertNull(HostStreamProfile.deserialize("v2;vrr=false;real_vrr=true").realVrr);
+        assertTrue(HostStreamProfile.deserialize("v2;real_vrr=false").isEmpty());
+    }
+
     @Test
     public void invalidUpscalingProfilesAreRejected() {
         String prefix = "1280,720,6000,10000,100,AUTO,false,false,false,false,";

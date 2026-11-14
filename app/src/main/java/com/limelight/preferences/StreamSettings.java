@@ -1626,8 +1626,8 @@ public class StreamSettings extends NightjarActivity {
 
         /**
          * A setting that does nothing for the current choices is hidden, not greyed, and keeps its value: frame
-         * pacing while adaptive refresh or host frame times replace it, Real VRR without adaptive refresh and the
-         * fixed refresh's host frame times with it, the frame-drop choice without Balanced
+         * pacing while adaptive refresh or host frame times replace it, the fixed refresh's host frame times with
+         * adaptive refresh (its On does the same), the frame-drop choice without Balanced
          * pacing, the sharpness without an upscaler that sharpens, the two minimums while automatic quality is
          * off, a switch's own rows while it is off (SettingRules), and the new streaming engine's rows with the
          * classic one. Hidden settings leave search and their section's More count, and come back in their place.
@@ -1638,9 +1638,8 @@ public class StreamSettings extends NightjarActivity {
             setShown(SHARP_COLOR_KEY, SettingRules.sharpColorApplies(prefs));
             setShown("checkbox_enable_sdr_10bit", SettingRules.sdr10Applies(prefs));
             setShown(SettingRules.FRAME_PACING, SettingRules.framePacingApplies(context, prefs));
-            boolean realVrr = SettingRules.realVrrApplies(context, prefs);
-            setShown(SettingRules.REAL_VRR, realVrr);
-            setShown(SettingRules.HOST_FRAME_TIMES, !realVrr);
+            // With adaptive refresh the Variable refresh rate row's On shows frames at the PC's frame times.
+            setShown(SettingRules.HOST_FRAME_TIMES, !SettingRules.vrrOn(context, prefs));
             setShown("checkbox_reduce_refresh_rate", SettingRules.reduceRefreshRateApplies(context, prefs));
             setShown("checkbox_content_rate_frame_rate", SettingRules.contentRateApplies(context, prefs));
             setShown("checkbox_display_queue_recovery", SettingRules.displayQueueRecoveryApplies(context, prefs));
@@ -2897,7 +2896,7 @@ public class StreamSettings extends NightjarActivity {
             // Adaptive refresh only where a screen has ARR (Android 16): elsewhere it can't be turned on,
             // and a choice saved before reads as off (PreferenceConfiguration and SettingRules do the same).
             // The row shows off without saving that, so the choice returns if Android later adds ARR.
-            SwitchPreference vrr = (SwitchPreference) findPreference(PreferenceConfiguration.VRR_PREF_STRING);
+            Preference vrr = findPreference(PreferenceConfiguration.VRR_PREF_STRING);
             if (vrr != null && !DisplayFrameRatePolicy.vrrOffered(getActivity())) {
                 LimeLog.info("Hiding adaptive refresh: no screen has ARR");
                 vrr.setPersistent(false);

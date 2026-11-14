@@ -147,6 +147,12 @@
         <item>@string/pacing_balanced_alt</item>
         <item>@string/pacing_smoothness</item>
     </string-array>
+    <!-- Variable refresh rate: Off, On or Fastest (VrrChoice.VALUES), stored in checkbox_vrr and checkbox_real_vrr. -->
+    <string-array name="vrr_choice_values" translatable="false">
+        <item>off</item>
+        <item>on</item>
+        <item>fastest</item>
+    </string-array>
     <string-array name="video_frame_pacing_values" translatable="false">
         <item>latency</item>
         <item>balanced</item>

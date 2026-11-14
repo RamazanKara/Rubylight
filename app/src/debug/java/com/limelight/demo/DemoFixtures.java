@@ -114,7 +114,7 @@ public final class DemoFixtures {
                 .putString("list_resolution", "1920x1080").putString("list_fps", Integer.toString(fps))
                 .putInt("seekbar_bitrate_kbps", 40000).putString("video_format", "auto")
                 .putString("frame_pacing", "balanced").putString("upscaling_mode", "fsr1")
-                .putBoolean("checkbox_vrr", true).putBoolean("checkbox_enable_hdr", false)
+                .putBoolean("checkbox_vrr", true).putBoolean("checkbox_real_vrr", true).putBoolean("checkbox_enable_hdr", false)
                 .putBoolean("checkbox_drop_late_frames", false).putBoolean("checkbox_reduce_refresh_rate", false)
                 .putBoolean("checkbox_codec_performance", true).putBoolean("checkbox_phone_performance_hints", true)
                 .putBoolean("checkbox_small_icon_mode", smallTiles)

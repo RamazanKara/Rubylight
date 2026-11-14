@@ -4,5 +4,5 @@
     <path d="M27 15v16m-6-6 6 6 6-6M19 33v5h16v-5"/>
   </g>
   <text x="50" y="24" fill="#14161f" font-family="Segoe UI,Arial,sans-serif" font-size="17" font-weight="700">Download Nightjar</text>
-  <text x="50" y="40" fill="#14161f" font-family="Segoe UI,Arial,sans-serif" font-size="12">ANDROID · WINDOWS · LINUX</text>
+  <text x="50" y="40" fill="#14161f" font-family="Segoe UI,Arial,sans-serif" font-size="11">ANDROID · WINDOWS · LINUX · MACOS</text>
 </svg>

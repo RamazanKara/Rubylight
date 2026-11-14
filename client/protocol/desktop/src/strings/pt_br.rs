@@ -1591,5 +1591,5 @@ sudo sysctl -w net.core.rmem_max={}", "Buffer de recepção: o sistema concedeu 
     ("Accept and install", "Aceitar e instalar"),
     ("Turning it on removes the earlier neural upscaling from the game’s folder first.", "Ao ativar, o upscaling neural anterior é removido primeiro da pasta do jogo."),
     ("The PC offers no frame generation for this game.", "O PC não oferece geração de quadros para este jogo."),
-    ("Smoother motion in games that offer DLSS frame generation, through a mod the PC puts in the game’s folder. Leave it off for online games: one may treat a mod as cheating.", "Movimento mais suave em jogos que oferecem geração de quadros DLSS, por meio de um mod que o PC coloca na pasta do jogo. Deixe desativado em jogos online: algum pode considerar um mod como trapaça."),
+    ("Frame generation for games that offer DLSS frame generation, through a mod the PC puts in the game’s folder and takes out again: turn on DLSS frame generation in the game, and this takes its place. Leave it off for online games: one may treat a mod as cheating.", "Geração de quadros para jogos que oferecem geração de quadros DLSS, por meio de um mod que o PC coloca na pasta do jogo e depois retira: ative a geração de quadros DLSS no jogo, e isto ocupa o lugar dela. Deixe desativado em jogos online: algum pode considerar um mod como trapaça."),
 ];

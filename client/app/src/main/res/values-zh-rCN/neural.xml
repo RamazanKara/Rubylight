@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="neural_menu">帧生成</string>
-    <string name="neural_menu_note">通过 PC 放进游戏文件夹的模组让运动更流畅</string>
+    <string name="neural_menu_note">通过 PC 放进游戏文件夹的模组实现帧生成</string>
     <string name="neural_title">帧生成 · %1$s</string>
     <string name="neural_loading">正在加载…</string>
     <string name="neural_turning_on">正在开启帧生成…</string>
     <string name="neural_turning_off">正在关闭帧生成…</string>
     <string name="neural_problem">帧生成未更改</string>
-    <string name="neural_about">在提供 DLSS 帧生成的游戏中，通过 PC 放进游戏文件夹的模组让画面运动更流畅。在线游戏请保持关闭：有些游戏可能将模组视为作弊。</string>
+    <string name="neural_about">为提供 DLSS 帧生成的游戏提供帧生成，通过 PC 放进游戏文件夹、之后再取出的模组实现：在游戏中打开 DLSS 帧生成，由它来代替。在线游戏请保持关闭：有些游戏可能将模组视为作弊。</string>
     <string name="neural_not_offered">此 PC 未为该游戏提供帧生成。</string>
     <string name="neural_frame_generation">帧生成</string>
     <string name="neural_replaces">开启后会先从游戏文件夹移除之前的神经网络超分辨率。</string>

@@ -1591,5 +1591,5 @@ sudo sysctl -w net.core.rmem_max={}", "接收缓冲区：系统只分配了所�
     ("Accept and install", "接受并安装"),
     ("Turning it on removes the earlier neural upscaling from the game’s folder first.", "开启后会先从游戏文件夹移除之前的神经网络超分辨率。"),
     ("The PC offers no frame generation for this game.", "此 PC 未为该游戏提供帧生成。"),
-    ("Smoother motion in games that offer DLSS frame generation, through a mod the PC puts in the game’s folder. Leave it off for online games: one may treat a mod as cheating.", "在提供 DLSS 帧生成的游戏中，通过 PC 放进游戏文件夹的模组让画面运动更流畅。在线游戏请保持关闭：有些游戏可能将模组视为作弊。"),
+    ("Frame generation for games that offer DLSS frame generation, through a mod the PC puts in the game’s folder and takes out again: turn on DLSS frame generation in the game, and this takes its place. Leave it off for online games: one may treat a mod as cheating.", "为提供 DLSS 帧生成的游戏提供帧生成，通过 PC 放进游戏文件夹、之后再取出的模组实现：在游戏中打开 DLSS 帧生成，由它来代替。在线游戏请保持关闭：有些游戏可能将模组视为作弊。"),
 ];

@@ -1591,5 +1591,5 @@ sudo sysctl -w net.core.rmem_max={}", "Bộ đệm nhận: hệ thống chỉ c�
     ("Accept and install", "Chấp nhận và cài đặt"),
     ("Turning it on removes the earlier neural upscaling from the game’s folder first.", "Khi bật, tính năng nâng độ phân giải bằng nơ-ron trước đây sẽ được gỡ khỏi thư mục của trò chơi trước."),
     ("The PC offers no frame generation for this game.", "PC không cung cấp tính năng tạo khung hình cho trò chơi này."),
-    ("Smoother motion in games that offer DLSS frame generation, through a mod the PC puts in the game’s folder. Leave it off for online games: one may treat a mod as cheating.", "Chuyển động mượt hơn trong các trò chơi có tạo khung hình DLSS, nhờ một bản mod mà PC đặt vào thư mục của trò chơi. Hãy tắt với trò chơi trực tuyến: một số trò có thể coi bản mod là gian lận."),
+    ("Frame generation for games that offer DLSS frame generation, through a mod the PC puts in the game’s folder and takes out again: turn on DLSS frame generation in the game, and this takes its place. Leave it off for online games: one may treat a mod as cheating.", "Tạo khung hình cho các trò chơi có tạo khung hình DLSS, nhờ một bản mod mà PC đặt vào thư mục của trò chơi rồi gỡ ra: bật tạo khung hình DLSS trong trò chơi, và tính năng này sẽ thay thế nó. Hãy tắt với trò chơi trực tuyến: một số trò có thể coi bản mod là gian lận."),
 ];

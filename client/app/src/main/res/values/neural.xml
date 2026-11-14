@@ -2,13 +2,13 @@
 <!-- A game's frame generation from the library's game menu (computers/NeuralSheet). -->
 <resources>
     <string name="neural_menu">Frame generation</string>
-    <string name="neural_menu_note">Smoother motion through a mod the PC puts in the game’s folder</string>
+    <string name="neural_menu_note">Frame generation through a mod the PC puts in the game’s folder</string>
     <string name="neural_title">Frame generation · %1$s</string>
     <string name="neural_loading">Loading…</string>
     <string name="neural_turning_on">Turning on frame generation…</string>
     <string name="neural_turning_off">Turning off frame generation…</string>
     <string name="neural_problem">Frame generation didn’t change</string>
-    <string name="neural_about">Smoother motion in games that offer DLSS frame generation, through a mod the PC puts in the game’s folder. Leave it off for online games: one may treat a mod as cheating.</string>
+    <string name="neural_about">Frame generation for games that offer DLSS frame generation, through a mod the PC puts in the game’s folder and takes out again: turn on DLSS frame generation in the game, and this takes its place. Leave it off for online games: one may treat a mod as cheating.</string>
     <string name="neural_not_offered">The PC offers no frame generation for this game.</string>
     <string name="neural_frame_generation">Frame generation</string>
     <string name="neural_replaces">Turning it on removes the earlier neural upscaling from the game’s folder first.</string>

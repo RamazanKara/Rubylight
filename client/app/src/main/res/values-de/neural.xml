@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="neural_menu">Frame Generation</string>
-    <string name="neural_menu_note">Flüssigere Bewegung durch eine Mod, die der PC in den Ordner des Spiels legt</string>
+    <string name="neural_menu_note">Frame Generation durch eine Mod, die der PC in den Ordner des Spiels legt</string>
     <string name="neural_title">Frame Generation · %1$s</string>
     <string name="neural_loading">Wird geladen…</string>
     <string name="neural_turning_on">Frame Generation wird eingeschaltet…</string>
     <string name="neural_turning_off">Frame Generation wird ausgeschaltet…</string>
     <string name="neural_problem">Frame Generation wurde nicht geändert</string>
-    <string name="neural_about">Flüssigere Bewegung in Spielen mit DLSS Frame Generation, durch eine Mod, die der PC in den Ordner des Spiels legt. Für Onlinespiele aus lassen: Eines könnte eine Mod als Betrug werten.</string>
+    <string name="neural_about">Frame Generation für Spiele mit DLSS Frame Generation, durch eine Mod, die der PC in den Ordner des Spiels legt und wieder entfernt: DLSS Frame Generation im Spiel einschalten, dann tritt dies an ihre Stelle. Für Onlinespiele aus lassen: Eines könnte eine Mod als Betrug werten.</string>
     <string name="neural_not_offered">Der PC bietet für dieses Spiel keine Frame Generation an.</string>
     <string name="neural_frame_generation">Frame Generation</string>
     <string name="neural_replaces">Beim Einschalten wird zuerst das frühere neuronale Upscaling aus dem Ordner des Spiels entfernt.</string>

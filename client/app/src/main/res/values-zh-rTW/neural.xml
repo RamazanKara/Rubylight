@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="neural_menu">幀生成</string>
-    <string name="neural_menu_note">透過 PC 放進遊戲資料夾的模組讓動態更流暢</string>
+    <string name="neural_menu_note">透過 PC 放進遊戲資料夾的模組實現幀生成</string>
     <string name="neural_title">幀生成 · %1$s</string>
     <string name="neural_loading">載入中…</string>
     <string name="neural_turning_on">正在開啟幀生成…</string>
     <string name="neural_turning_off">正在關閉幀生成…</string>
     <string name="neural_problem">幀生成未變更</string>
-    <string name="neural_about">在提供 DLSS 幀生成的遊戲中，透過 PC 放進遊戲資料夾的模組讓畫面動態更流暢。線上遊戲請保持關閉：有些遊戲可能將模組視為作弊。</string>
+    <string name="neural_about">為提供 DLSS 幀生成的遊戲提供幀生成，透過 PC 放進遊戲資料夾、之後再取出的模組實現：在遊戲中開啟 DLSS 幀生成，由它來代替。線上遊戲請保持關閉：有些遊戲可能將模組視為作弊。</string>
     <string name="neural_not_offered">此 PC 未為此遊戲提供幀生成。</string>
     <string name="neural_frame_generation">幀生成</string>
     <string name="neural_replaces">開啟後會先從遊戲資料夾移除之前的神經網路超解析度。</string>

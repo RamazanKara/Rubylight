@@ -1591,5 +1591,5 @@ sudo sysctl -w net.core.rmem_max={}", "수신 버퍼: 시스템이 요청한 {1}
     ("Accept and install", "동의하고 설치"),
     ("Turning it on removes the earlier neural upscaling from the game’s folder first.", "켜면 먼저 이전 뉴럴 업스케일링이 게임 폴더에서 제거됩니다."),
     ("The PC offers no frame generation for this game.", "이 PC는 이 게임에 프레임 생성을 제공하지 않습니다."),
-    ("Smoother motion in games that offer DLSS frame generation, through a mod the PC puts in the game’s folder. Leave it off for online games: one may treat a mod as cheating.", "DLSS 프레임 생성을 지원하는 게임에서 PC가 게임 폴더에 넣는 모드로 움직임이 더 부드러워집니다. 온라인 게임에서는 끈 채로 두세요. 모드를 부정행위로 간주하는 게임이 있을 수 있습니다."),
+    ("Frame generation for games that offer DLSS frame generation, through a mod the PC puts in the game’s folder and takes out again: turn on DLSS frame generation in the game, and this takes its place. Leave it off for online games: one may treat a mod as cheating.", "DLSS 프레임 생성을 지원하는 게임을 위한 프레임 생성으로, PC가 게임 폴더에 넣었다가 다시 빼는 모드를 사용합니다. 게임에서 DLSS 프레임 생성을 켜면 이것이 그 자리를 대신합니다. 온라인 게임에서는 끈 채로 두세요. 모드를 부정행위로 간주하는 게임이 있을 수 있습니다."),
 ];

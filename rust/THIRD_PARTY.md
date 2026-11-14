@@ -127,6 +127,12 @@ Copyright (c) 2026 mattxslv
 
 Nightjar's per-controller gyroscope mapping (axis choice, inversion and sensitivity, the Flydigi Apex 4 and Vader 4 Pro preset) and its in-stream motion readings are ported from [jvanderv42's Nightjar fork](https://github.com/jvanderv42/nightjar) at commit d0e14cf25 (GPL-3.0): `client/app/src/main/java/com/limelight/binding/input/GyroAxisTransformer.java`, `GyroMappingPreferences.java`, `GyroDiagnosticOverlay.java` and `client/app/src/main/java/com/limelight/preferences/GyroProfileEditor.java`. The desktop client's gyroscope axes and sensitivity (`client/protocol/desktop/src/gamepad.rs`) follow the same design. It remains under GPL-3.0.
 
+## Neural Rendering: ANR frame generation and the earlier AMDNR
+
+Neural Rendering's per-app frame generation switch (`rust/core/src/neural.rs`, `rust/host/src/neural.rs`) installs [ANR](https://github.com/apex-compute/ANR) frame generation by apex-compute, release FG-V.B16, whose authors publish no license. Rubylight does not host, bundle, mirror or modify any of its files: at the user's request the host downloads the release's two archives from GitHub, checks them against the pinned SHA-256, GitHub's digests and the release's `SHA256SUMS.txt`, and copies the files unmodified into the game's folder. The full package carries OptiScaler (GPL-3.0) with its license texts, which are copied with it.
+
+Rubylight 3.0's Neural Rendering installed [AMDNR](https://github.com/3zwr1/AMD-NR---OptiScaler) by 3zwr1 (GPL-3.0, an OptiScaler fork) and its lmxxf runtime by Kien (MIT) the same way. ANR frame generation replaced it on 2026-11-14; only the removal of existing installs remains.
+
 ## PyroWave patches from Punktfunk
 
 The PyroWave SDK patches `0002-payload-data-444-sizing` and `0003-decoder-reject-short-block` in `rust/codec-patches/pyrowave` are adapted from patches 0001 and 0008 of [Punktfunk](https://git.unom.io/unom/punktfunk) (MIT OR Apache-2.0), used here under the MIT License. They are compiled into the shipped `libpyrowave-shared-1.dll`.

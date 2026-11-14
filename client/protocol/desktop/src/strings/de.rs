@@ -1591,5 +1591,5 @@ sudo sysctl -w net.core.rmem_max={2}"),
     ("Accept and install", "Akzeptieren und installieren"),
     ("Turning it on removes the earlier neural upscaling from the game’s folder first.", "Beim Einschalten wird zuerst das frühere neuronale Upscaling aus dem Ordner des Spiels entfernt."),
     ("The PC offers no frame generation for this game.", "Der PC bietet für dieses Spiel keine Frame Generation an."),
-    ("Smoother motion in games that offer DLSS frame generation, through a mod the PC puts in the game’s folder. Leave it off for online games: one may treat a mod as cheating.", "Flüssigere Bewegung in Spielen mit DLSS Frame Generation, durch eine Mod, die der PC in den Ordner des Spiels legt. Für Onlinespiele aus lassen: Eines könnte eine Mod als Betrug werten."),
+    ("Frame generation for games that offer DLSS frame generation, through a mod the PC puts in the game’s folder and takes out again: turn on DLSS frame generation in the game, and this takes its place. Leave it off for online games: one may treat a mod as cheating.", "Frame Generation für Spiele mit DLSS Frame Generation, durch eine Mod, die der PC in den Ordner des Spiels legt und wieder entfernt: DLSS Frame Generation im Spiel einschalten, dann tritt dies an ihre Stelle. Für Onlinespiele aus lassen: Eines könnte eine Mod als Betrug werten."),
 ];

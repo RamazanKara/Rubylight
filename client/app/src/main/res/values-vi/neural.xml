@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="neural_menu">Tạo khung hình</string>
-    <string name="neural_menu_note">Chuyển động mượt hơn nhờ bản mod mà PC đặt vào thư mục của trò chơi</string>
+    <string name="neural_menu_note">Tạo khung hình nhờ một bản mod mà PC đặt vào thư mục của trò chơi</string>
     <string name="neural_title">Tạo khung hình · %1$s</string>
     <string name="neural_loading">Đang tải…</string>
     <string name="neural_turning_on">Đang bật tạo khung hình…</string>
     <string name="neural_turning_off">Đang tắt tạo khung hình…</string>
     <string name="neural_problem">Tạo khung hình không thay đổi</string>
-    <string name="neural_about">Chuyển động mượt hơn trong các trò chơi có tạo khung hình DLSS, nhờ một bản mod mà PC đặt vào thư mục của trò chơi. Hãy tắt với trò chơi trực tuyến: một số trò có thể coi bản mod là gian lận.</string>
+    <string name="neural_about">Tạo khung hình cho các trò chơi có tạo khung hình DLSS, nhờ một bản mod mà PC đặt vào thư mục của trò chơi rồi gỡ ra: bật tạo khung hình DLSS trong trò chơi, và tính năng này sẽ thay thế nó. Hãy tắt với trò chơi trực tuyến: một số trò có thể coi bản mod là gian lận.</string>
     <string name="neural_not_offered">PC không cung cấp tính năng tạo khung hình cho trò chơi này.</string>
     <string name="neural_frame_generation">Tạo khung hình</string>
     <string name="neural_replaces">Khi bật, tính năng nâng độ phân giải bằng nơ-ron trước đây sẽ được gỡ khỏi thư mục của trò chơi trước.</string>

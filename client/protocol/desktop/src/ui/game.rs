@@ -168,7 +168,7 @@ impl Launcher {
             (tr("The PC offers no frame generation for this game.").to_owned(), *ON_SURFACE_VARIANT)
         } else {
             (
-                tr("Smoother motion in games that offer DLSS frame generation, through a mod the PC puts in the game’s folder. Leave it off for online games: one may treat a mod as cheating.").to_owned(),
+                tr("Frame generation for games that offer DLSS frame generation, through a mod the PC puts in the game’s folder and takes out again: turn on DLSS frame generation in the game, and this takes its place. Leave it off for online games: one may treat a mod as cheating.").to_owned(),
                 *ON_SURFACE_VARIANT,
             )
         };

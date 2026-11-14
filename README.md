@@ -275,6 +275,7 @@ Rubylight is licensed under **GPL-3.0**. Everyone who helped, with their GitHub 
 - The virtual mouse and its Automatic / Virtual mouse / Injection choice follow **the Foundation Sunshine authors'** virtual mouse, and device touchpads use their touchpad packets; the virtual precision touchpad's reports follow **Bingxing Wang's (imbushuo)** [mac-precision-touchpad](https://github.com/imbushuo/mac-precision-touchpad) (MIT).
 - Rubylight's virtual display driver is based on **Enrico Bühler's (unom)** pf-vdisplay driver from [punktfunk](https://github.com/unom/punktfunk) (MIT OR Apache-2.0).
 - Background streaming and co-op run games through **SplitScreen.Me's** [Nucleus Co-op](https://github.com/SplitScreen-Me/splitscreenme-nucleus) (GPL-3.0) and **Ilyaki's** ProtoInput (MIT), which you download yourself; Rubylight neither bundles nor downloads them.
+- Neural Rendering's frame generation installs **apex-compute's** [ANR](https://github.com/apex-compute/ANR) (no license published), which the host downloads only at your request and copies unmodified into the game's folder; Rubylight bundles none of it. Rubylight 3.0's Neural Rendering used **3zwr1's** [AMDNR](https://github.com/3zwr1/AMD-NR---OptiScaler) (GPL-3.0, an OptiScaler fork) and **Kien's** lmxxf runtime (MIT) the same way until 2026-11-14.
 
 [License](LICENSE) · [Third-party components](rust/THIRD_PARTY.md) · [Project history](docs/butterpollo-cpp.md) · [Code signing policy](docs/code-signing-policy.md) · [Privacy](docs/privacy.md)
 

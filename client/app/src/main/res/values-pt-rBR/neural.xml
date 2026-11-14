@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="neural_menu">Geração de quadros</string>
-    <string name="neural_menu_note">Movimento mais suave por meio de um mod que o PC coloca na pasta do jogo</string>
+    <string name="neural_menu_note">Geração de quadros por meio de um mod que o PC coloca na pasta do jogo</string>
     <string name="neural_title">Geração de quadros · %1$s</string>
     <string name="neural_loading">Carregando…</string>
     <string name="neural_turning_on">Ativando a geração de quadros…</string>
     <string name="neural_turning_off">Desativando a geração de quadros…</string>
     <string name="neural_problem">A geração de quadros não foi alterada</string>
-    <string name="neural_about">Movimento mais suave em jogos que oferecem geração de quadros DLSS, por meio de um mod que o PC coloca na pasta do jogo. Deixe desativado em jogos online: algum pode considerar um mod como trapaça.</string>
+    <string name="neural_about">Geração de quadros para jogos que oferecem geração de quadros DLSS, por meio de um mod que o PC coloca na pasta do jogo e depois retira: ative a geração de quadros DLSS no jogo, e isto ocupa o lugar dela. Deixe desativado em jogos online: algum pode considerar um mod como trapaça.</string>
     <string name="neural_not_offered">O PC não oferece geração de quadros para este jogo.</string>
     <string name="neural_frame_generation">Geração de quadros</string>
     <string name="neural_replaces">Ao ativar, o upscaling neural anterior é removido primeiro da pasta do jogo.</string>

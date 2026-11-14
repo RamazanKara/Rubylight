@@ -1591,5 +1591,5 @@ sudo sysctl -w net.core.rmem_max={}", "受信バッファー：システムは�
     ("Accept and install", "同意してインストール"),
     ("Turning it on removes the earlier neural upscaling from the game’s folder first.", "オンにすると、まず以前のニューラルアップスケーリングがゲームのフォルダーから削除されます。"),
     ("The PC offers no frame generation for this game.", "この PC はこのゲームのフレーム生成を提供していません。"),
-    ("Smoother motion in games that offer DLSS frame generation, through a mod the PC puts in the game’s folder. Leave it off for online games: one may treat a mod as cheating.", "DLSS フレーム生成に対応したゲームで、PC がゲームのフォルダーに置く MOD により動きがより滑らかになります。オンラインゲームではオフのままにしてください。MOD を不正行為とみなすゲームがあります。"),
+    ("Frame generation for games that offer DLSS frame generation, through a mod the PC puts in the game’s folder and takes out again: turn on DLSS frame generation in the game, and this takes its place. Leave it off for online games: one may treat a mod as cheating.", "DLSS フレーム生成に対応したゲーム向けのフレーム生成です。PC がゲームのフォルダーに置き、また取り除く MOD を使います。ゲームで DLSS フレーム生成をオンにすると、これが代わりに働きます。オンラインゲームではオフのままにしてください。MOD を不正行為とみなすゲームがあります。"),
 ];

@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="neural_menu">Génération d’images</string>
-    <string name="neural_menu_note">Des mouvements plus fluides grâce à un mod que le PC place dans le dossier du jeu</string>
+    <string name="neural_menu_note">Génération d’images grâce à un mod que le PC place dans le dossier du jeu</string>
     <string name="neural_title">Génération d’images · %1$s</string>
     <string name="neural_loading">Chargement…</string>
     <string name="neural_turning_on">Activation de la génération d’images…</string>
     <string name="neural_turning_off">Désactivation de la génération d’images…</string>
     <string name="neural_problem">La génération d’images n’a pas changé</string>
-    <string name="neural_about">Des mouvements plus fluides dans les jeux qui proposent la génération d’images DLSS, grâce à un mod que le PC place dans le dossier du jeu. Laissez-le désactivé pour les jeux en ligne : l’un d’eux peut considérer un mod comme de la triche.</string>
+    <string name="neural_about">La génération d’images pour les jeux qui proposent la génération d’images DLSS, grâce à un mod que le PC place dans le dossier du jeu puis retire : activez la génération d’images DLSS dans le jeu, et ceci prend sa place. Laissez-le désactivé pour les jeux en ligne : l’un d’eux peut considérer un mod comme de la triche.</string>
     <string name="neural_not_offered">Le PC ne propose pas de génération d’images pour ce jeu.</string>
     <string name="neural_frame_generation">Génération d’images</string>
     <string name="neural_replaces">L’activer retire d’abord l’ancienne mise à l’échelle neuronale du dossier du jeu.</string>

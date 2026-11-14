@@ -1591,5 +1591,5 @@ sudo sysctl -w net.core.rmem_max={}", "Bufor odbioru: system przydzielił {0} Ki
     ("Accept and install", "Zaakceptuj i zainstaluj"),
     ("Turning it on removes the earlier neural upscaling from the game’s folder first.", "Włączenie najpierw usuwa z folderu gry wcześniejsze neuronowe skalowanie."),
     ("The PC offers no frame generation for this game.", "PC nie oferuje generowania klatek dla tej gry."),
-    ("Smoother motion in games that offer DLSS frame generation, through a mod the PC puts in the game’s folder. Leave it off for online games: one may treat a mod as cheating.", "Płynniejszy ruch w grach z generowaniem klatek DLSS, dzięki modowi, który PC umieszcza w folderze gry. W grach online zostaw wyłączone: któraś może uznać moda za oszustwo."),
+    ("Frame generation for games that offer DLSS frame generation, through a mod the PC puts in the game’s folder and takes out again: turn on DLSS frame generation in the game, and this takes its place. Leave it off for online games: one may treat a mod as cheating.", "Generowanie klatek w grach z generowaniem klatek DLSS, dzięki modowi, który PC umieszcza w folderze gry i z niego usuwa: włącz w grze generowanie klatek DLSS, a to zajmie jego miejsce. W grach online zostaw wyłączone: któraś może uznać moda za oszustwo."),
 ];

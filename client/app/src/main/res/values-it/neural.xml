@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="neural_menu">Generazione di fotogrammi</string>
-    <string name="neural_menu_note">Movimento più fluido tramite una mod che il PC mette nella cartella del gioco</string>
+    <string name="neural_menu_note">Generazione di fotogrammi tramite una mod che il PC mette nella cartella del gioco</string>
     <string name="neural_title">Generazione di fotogrammi · %1$s</string>
     <string name="neural_loading">Caricamento…</string>
     <string name="neural_turning_on">Attivazione della generazione di fotogrammi…</string>
     <string name="neural_turning_off">Disattivazione della generazione di fotogrammi…</string>
     <string name="neural_problem">La generazione di fotogrammi non è cambiata</string>
-    <string name="neural_about">Movimento più fluido nei giochi che offrono la generazione di fotogrammi DLSS, tramite una mod che il PC mette nella cartella del gioco. Lasciala disattivata nei giochi online: qualcuno potrebbe considerare una mod un imbroglio.</string>
+    <string name="neural_about">Generazione di fotogrammi per i giochi che offrono la generazione di fotogrammi DLSS, tramite una mod che il PC mette nella cartella del gioco e poi toglie: attiva la generazione di fotogrammi DLSS nel gioco e questa ne prende il posto. Lasciala disattivata nei giochi online: qualcuno potrebbe considerare una mod un imbroglio.</string>
     <string name="neural_not_offered">Il PC non offre la generazione di fotogrammi per questo gioco.</string>
     <string name="neural_frame_generation">Generazione di fotogrammi</string>
     <string name="neural_replaces">Attivandola, viene prima rimosso dalla cartella del gioco il precedente upscaling neurale.</string>

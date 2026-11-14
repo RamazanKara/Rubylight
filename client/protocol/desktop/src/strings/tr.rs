@@ -1591,5 +1591,5 @@ sudo sysctl -w net.core.rmem_max={}", "Alma arabelleği: sistem istenen {1} KiB'
     ("Accept and install", "Kabul et ve yükle"),
     ("Turning it on removes the earlier neural upscaling from the game’s folder first.", "Açmak, önce önceki nöral ölçeklendirmeyi oyunun klasöründen kaldırır."),
     ("The PC offers no frame generation for this game.", "PC bu oyun için kare oluşturma sunmuyor."),
-    ("Smoother motion in games that offer DLSS frame generation, through a mod the PC puts in the game’s folder. Leave it off for online games: one may treat a mod as cheating.", "DLSS kare oluşturma sunan oyunlarda, PC’nin oyunun klasörüne koyduğu bir modla daha akıcı hareket. Çevrim içi oyunlarda kapalı bırakın: biri modu hile sayabilir."),
+    ("Frame generation for games that offer DLSS frame generation, through a mod the PC puts in the game’s folder and takes out again: turn on DLSS frame generation in the game, and this takes its place. Leave it off for online games: one may treat a mod as cheating.", "DLSS kare oluşturma sunan oyunlar için, PC’nin oyunun klasörüne koyup yeniden kaldırdığı bir modla kare oluşturma: oyunda DLSS kare oluşturmayı açın, bu onun yerini alır. Çevrim içi oyunlarda kapalı bırakın: biri modu hile sayabilir."),
 ];

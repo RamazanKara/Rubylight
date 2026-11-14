@@ -1591,5 +1591,5 @@ sudo sysctl -w net.core.rmem_max={}", "Буфер приймання: систе
     ("Accept and install", "Прийняти й установити"),
     ("Turning it on removes the earlier neural upscaling from the game’s folder first.", "Під час увімкнення спершу видаляється попереднє нейронне масштабування з теки гри."),
     ("The PC offers no frame generation for this game.", "ПК не пропонує генерацію кадрів для цієї гри."),
-    ("Smoother motion in games that offer DLSS frame generation, through a mod the PC puts in the game’s folder. Leave it off for online games: one may treat a mod as cheating.", "Плавніший рух в іграх із генерацією кадрів DLSS завдяки моду, який ПК розміщує в теці гри. Не вмикайте в онлайн-іграх: якась може вважати мод шахрайством."),
+    ("Frame generation for games that offer DLSS frame generation, through a mod the PC puts in the game’s folder and takes out again: turn on DLSS frame generation in the game, and this takes its place. Leave it off for online games: one may treat a mod as cheating.", "Генерація кадрів для ігор із генерацією кадрів DLSS за допомогою моду, який ПК розміщує в теці гри й потім прибирає: увімкніть у грі генерацію кадрів DLSS, і це займе її місце. Не вмикайте в онлайн-іграх: якась може вважати мод шахрайством."),
 ];

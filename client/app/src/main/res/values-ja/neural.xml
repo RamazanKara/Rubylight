@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="neural_menu">フレーム生成</string>
-    <string name="neural_menu_note">PC がゲームのフォルダーに置く MOD で動きをより滑らかに</string>
+    <string name="neural_menu_note">PC がゲームのフォルダーに置く MOD によるフレーム生成</string>
     <string name="neural_title">フレーム生成 · %1$s</string>
     <string name="neural_loading">読み込み中…</string>
     <string name="neural_turning_on">フレーム生成をオンにしています…</string>
     <string name="neural_turning_off">フレーム生成をオフにしています…</string>
     <string name="neural_problem">フレーム生成は変更されませんでした</string>
-    <string name="neural_about">DLSS フレーム生成に対応したゲームで、PC がゲームのフォルダーに置く MOD により動きがより滑らかになります。オンラインゲームではオフのままにしてください。MOD を不正行為とみなすゲームがあります。</string>
+    <string name="neural_about">DLSS フレーム生成に対応したゲーム向けのフレーム生成です。PC がゲームのフォルダーに置き、また取り除く MOD を使います。ゲームで DLSS フレーム生成をオンにすると、これが代わりに働きます。オンラインゲームではオフのままにしてください。MOD を不正行為とみなすゲームがあります。</string>
     <string name="neural_not_offered">この PC はこのゲームのフレーム生成を提供していません。</string>
     <string name="neural_frame_generation">フレーム生成</string>
     <string name="neural_replaces">オンにすると、まず以前のニューラルアップスケーリングがゲームのフォルダーから削除されます。</string>

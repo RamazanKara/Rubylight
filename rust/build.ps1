@@ -233,6 +233,9 @@ try {
         # The NGX adapter is an MSVC DLL of its own (NVIDIA's static NGX library is MSVC-only);
         # the GNU host loads it at run time.
         $env:NV_RTX_VIDEO_SDK = $NvidiaRoot
+        # The static C runtime: a PC without the Visual C++ Redistributable could not load an
+        # adapter that needs MSVCP140.dll and VCRUNTIME140.dll.
+        $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = '-C target-feature=+crt-static'
         if ($MsvcSdk) {
             $sysroot = & rustc $toolchain --print sysroot
             $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER = Join-Path $sysroot 'lib\rustlib\x86_64-pc-windows-gnu\bin\rust-lld.exe'

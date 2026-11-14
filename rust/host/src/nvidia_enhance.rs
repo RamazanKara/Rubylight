@@ -19,10 +19,12 @@ use std::sync::{Arc, atomic::Ordering};
 const WARNING: &str = "nvidia_enhancement";
 
 /// Asks the GPU and driver which enhancements they offer, once at startup.
+/// NVIDIA's NGX runs in a process of its own (`--nvidia-probe`): a crash or
+/// hang inside it costs the enhancements, never the host.
 #[cfg(feature = "nvidia-proprietary")]
 pub(crate) fn probe(h: &Shared) {
     let started = std::time::Instant::now();
-    let (offered, errors) = butterpollo_windows::nvidia_enhance::probe();
+    let (offered, errors) = probe_child(&h.directory);
     h.nvidia_enhancements.store(offered, Ordering::Release);
     for (feature, error) in &errors {
         tracing::warn!(feature, error = %error, "NVIDIA image enhancement unavailable");
@@ -34,6 +36,74 @@ pub(crate) fn probe(h: &Shared) {
         "NVIDIA image enhancements checked"
     );
     *h.nvidia_enhancement_errors.lock().unwrap() = errors;
+}
+
+/// The `--nvidia-probe` process: NGX's check, printed as one JSON line. A
+/// crash in it leaves a report in `profile`'s crashes folder.
+#[cfg(feature = "nvidia-proprietary")]
+pub(crate) fn probe_main(profile: &std::path::Path) -> i32 {
+    // Without crash reports the check still runs; its exit code tells a crash.
+    let _ = butterpollo_windows::crash::initialize(profile);
+    let (offered, errors) = butterpollo_windows::nvidia_enhance::probe();
+    let errors: serde_json::Map<String, serde_json::Value> = errors
+        .into_iter()
+        .map(|(feature, error)| (feature.to_owned(), error.into()))
+        .collect();
+    println!(
+        "{}",
+        serde_json::json!({"offered": offered, "errors": errors})
+    );
+    0
+}
+
+/// Runs NVIDIA's check in its own process, as this host's user.
+#[cfg(feature = "nvidia-proprietary")]
+fn probe_child(profile: &std::path::Path) -> nvidia_enhance::Offer {
+    use nvidia_enhance::{PROBE_TIMEOUT_SECS, ProbeEnd, probe_failed, read_probe};
+    use std::{io::BufRead, os::windows::process::CommandExt, process::Stdio, time::Instant};
+    let spawned = std::env::current_exe().and_then(|program| {
+        std::process::Command::new(program)
+            .arg("--nvidia-probe")
+            .arg(profile)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+            .spawn()
+    });
+    let mut child = match spawned {
+        Ok(child) => child,
+        Err(error) => return probe_failed(format!("NVIDIA's check could not start: {error}")),
+    };
+    // The answer is one line. Read on its own thread: the crash reporter the
+    // check starts holds the pipe open after the check exits.
+    let (sender, lines) = std::sync::mpsc::channel();
+    if let Some(stdout) = child.stdout.take() {
+        std::thread::spawn(move || {
+            if let Some(Ok(line)) = std::io::BufReader::new(stdout).lines().next() {
+                let _ = sender.send(line);
+            }
+        });
+    }
+    let deadline = Instant::now() + std::time::Duration::from_secs(PROBE_TIMEOUT_SECS);
+    let ended = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break ProbeEnd::Code(status.code().unwrap_or(-1)),
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(50))
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break ProbeEnd::TimedOut;
+            }
+            Err(error) => {
+                return probe_failed(format!("NVIDIA's check could not be waited for: {error}"));
+            }
+        }
+    };
+    let line = lines.recv_timeout(std::time::Duration::from_secs(2)).ok();
+    read_probe(line.as_deref(), ended)
 }
 
 /// The console's view: whether this is the NVIDIA build, what it offers and

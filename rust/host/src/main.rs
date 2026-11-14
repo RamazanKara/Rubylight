@@ -112,6 +112,11 @@ struct Args {
     display_watch: Option<u32>,
     #[arg(long, hide = true)]
     crash_reporter: bool,
+    /// The NVIDIA build's startup check of NGX, in a process of its own; the
+    /// value is the profile folder, for its crash report.
+    #[cfg(feature = "nvidia-proprietary")]
+    #[arg(long, hide = true, value_name = "PROFILE")]
+    nvidia_probe: Option<PathBuf>,
     /// Run the display self-test and write its report; see
     /// butterpollo-service.exe --display-self-test.
     #[arg(long, hide = true)]
@@ -175,6 +180,10 @@ fn main() -> Result<()> {
     let args = Args::parse();
     if args.crash_reporter {
         return butterpollo_windows::crash::reporter();
+    }
+    #[cfg(feature = "nvidia-proprietary")]
+    if let Some(profile) = &args.nvidia_probe {
+        std::process::exit(nvidia_enhance::probe_main(profile));
     }
     if args.radeon_helper {
         std::process::exit(butterpollo_windows::radeon::helper::run());

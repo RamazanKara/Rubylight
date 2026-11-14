@@ -1,0 +1,2 @@
+# NVIDIA build startup
+- **The NVIDIA build starts even when NVIDIA's check fails.** At start the NVIDIA build asks the graphics driver whether it offers RTX HDR and RTX Video enhancement. In issue #103 its host did not start on a GeForce RTX card. The check now runs in a process of its own and is given 30 seconds: if it crashes or hangs, the host starts without the two enhancements, the app page says why, and the profile's `crashes` folder keeps a report. The NVIDIA build also no longer needs the Visual C++ Redistributable on the PC.

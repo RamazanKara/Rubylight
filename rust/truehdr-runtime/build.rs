@@ -21,7 +21,17 @@ fn main() {
         "cargo:rustc-link-search=native={}",
         sdk.join("lib/Windows/x64").display()
     );
-    println!("cargo:rustc-link-lib=static=nvsdk_ngx_d");
+    // NVIDIA's library comes for the static C runtime (_s) and its DLLs (_d). The static one
+    // spares the adapter the Visual C++ Redistributable, which a PC need not have;
+    // rust/build.ps1 builds the adapter with crt-static.
+    let static_crt = std::env::var("CARGO_CFG_TARGET_FEATURE")
+        .is_ok_and(|features| features.split(',').any(|feature| feature == "crt-static"));
+    let ngx = if static_crt {
+        "nvsdk_ngx_s"
+    } else {
+        "nvsdk_ngx_d"
+    };
+    println!("cargo:rustc-link-lib=static={ngx}");
     println!("cargo:rustc-link-lib=advapi32");
     println!("cargo:rustc-link-lib=user32");
     println!("cargo:rerun-if-changed=../assets/version_info.rs");

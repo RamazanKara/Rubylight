@@ -244,6 +244,61 @@ pub fn unavailable(config: &Config, offered: u8, source: Source) -> Option<Strin
     (!reasons.is_empty()).then(|| reasons.join(" "))
 }
 
+/// How long the NVIDIA build's startup check may run. It takes a few
+/// hundred milliseconds; NGX's first start after a driver update can take
+/// seconds.
+pub const PROBE_TIMEOUT_SECS: u64 = 30;
+
+/// What the GPU and driver offer (`RTX_HDR`, `RTX_VIDEO` bits) and why each
+/// missing enhancement is missing.
+pub type Offer = (u8, Vec<(&'static str, String)>);
+
+/// How the NVIDIA build's check process (`--nvidia-probe`) ended.
+#[derive(Clone, Copy, Debug)]
+pub enum ProbeEnd {
+    Code(i32),
+    TimedOut,
+}
+
+/// The enhancements the check printed (one JSON line), or why it gave no
+/// answer. Only a check that ended normally counts: one that crashed after
+/// its answer would crash a stream's NGX the same way.
+pub fn read_probe(line: Option<&str>, ended: ProbeEnd) -> Offer {
+    match ended {
+        ProbeEnd::TimedOut => {
+            return probe_failed(format!(
+                "NVIDIA's check did not finish within {PROBE_TIMEOUT_SECS} s; update the NVIDIA driver"
+            ));
+        }
+        // NTSTATUS exception codes: an access violation, a fail-fast and so on.
+        ProbeEnd::Code(code) if code as u32 >= 0xc000_0000 => {
+            return probe_failed(format!(
+                "NVIDIA's check crashed ({:#010x}); update the NVIDIA driver",
+                code as u32
+            ));
+        }
+        ProbeEnd::Code(0) => {}
+        ProbeEnd::Code(code) => {
+            return probe_failed(format!("NVIDIA's check failed (exit code {code})"));
+        }
+    }
+    let Some(answer) = line.and_then(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+    else {
+        return probe_failed("NVIDIA's check gave no answer".into());
+    };
+    let offered = answer["offered"].as_u64().unwrap_or(0) as u8 & (RTX_HDR | RTX_VIDEO);
+    let errors = ["rtx_hdr", "rtx_video"]
+        .into_iter()
+        .filter_map(|feature| Some((feature, answer["errors"][feature].as_str()?.to_owned())))
+        .collect();
+    (offered, errors)
+}
+
+/// Neither enhancement, both for `reason`.
+pub fn probe_failed(reason: String) -> Offer {
+    (0, vec![("rtx_hdr", reason.clone()), ("rtx_video", reason)])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -408,6 +463,45 @@ mod tests {
             assert!(is_key(key), "{key}");
             assert!(crate::config::override_allowed(key), "{key}");
             assert!(!crate::config::removed(key), "{key}");
+        }
+    }
+
+    /// Issue #103: the NVIDIA build's host did not start on an RTX card. Its
+    /// check of NVIDIA's NGX runs in a process of its own, and only an
+    /// answer from a check that ended normally reaches the host.
+    #[test]
+    fn nvidia_checks_that_crash_or_hang_offer_nothing_and_say_why() {
+        let answer = r#"{"offered":3,"errors":{}}"#;
+        assert_eq!(read_probe(Some(answer), ProbeEnd::Code(0)), (3, vec![]));
+        let partial =
+            r#"{"offered":2,"errors":{"rtx_hdr":"the NVIDIA driver is too old","x":"y"}}"#;
+        assert_eq!(
+            read_probe(Some(partial), ProbeEnd::Code(0)),
+            (
+                2,
+                vec![("rtx_hdr", "the NVIDIA driver is too old".to_owned())]
+            )
+        );
+        // Bits beyond the two enhancements are not offered.
+        assert_eq!(
+            read_probe(Some(r#"{"offered":255}"#), ProbeEnd::Code(0)).0,
+            ALL
+        );
+        let crash = 0xc000_0005_u32 as i32;
+        for (line, ended, reason) in [
+            (Some(answer), ProbeEnd::Code(crash), "crashed (0xc0000005)"),
+            (None, ProbeEnd::TimedOut, "did not finish within 30 s"),
+            (Some(answer), ProbeEnd::Code(1), "failed (exit code 1)"),
+            (None, ProbeEnd::Code(0), "gave no answer"),
+            (Some("not json"), ProbeEnd::Code(0), "gave no answer"),
+        ] {
+            let (offered, errors) = read_probe(line, ended);
+            assert_eq!(offered, 0, "{ended:?}");
+            let features: Vec<_> = errors.iter().map(|(feature, _)| *feature).collect();
+            assert_eq!(features, ["rtx_hdr", "rtx_video"], "{ended:?}");
+            for (_, error) in errors {
+                assert!(error.contains(reason), "{error}");
+            }
         }
     }
 }

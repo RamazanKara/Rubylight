@@ -94,8 +94,9 @@ fn the_log_says_what_the_presents_met() {
 fn a_scan_under_way_is_waited_out_to_its_end() {
     let limit = SCAN_NS + SCAN_WAIT_SLACK_NS;
     // A picture that meets the scan just begun sleeps most of it, not 2 ms (Nightjar 5.4.1).
-    assert_eq!(scan_step(Some(SCAN_NS), true, 0, limit), ScanStep::Sleep(SCAN_NS - 250_000));
-    // The last quarter millisecond is spun, reading the beam.
+    assert_eq!(scan_step(Some(SCAN_NS), true, 0, limit), ScanStep::Sleep(SCAN_NS - 1_000_000));
+    // The last millisecond and a half is spun, reading the beam.
+    assert_eq!(scan_step(Some(1_400_000), true, 6_600_000, limit), ScanStep::Spin);
     assert_eq!(scan_step(Some(200_000), true, 7_800_000, limit), ScanStep::Spin);
     // The beam has left the last row: present.
     assert_eq!(scan_step(None, true, 8_000_000, limit), ScanStep::Go);
@@ -109,9 +110,10 @@ fn a_scan_under_way_is_waited_out_to_its_end() {
 
 #[test]
 fn the_log_counts_presents_that_went_out_into_a_scan() {
-    let tally = Tally { cut_short: 3, ..Tally::default() };
+    let tally = Tally { cut_short: 3, wrapped: 2, ..Tally::default() };
     assert_eq!(tally.lines(), vec![
         "VRR: 3 presents went out before the scan under way had ended (the wait reached its limit or the scan line could not be read)".to_string(),
+        "VRR: 2 waits ended as the display began its next scan, with no reading past the last row".to_string(),
     ]);
 }
 
@@ -143,7 +145,7 @@ fn a_wait_follows_the_beam_past_the_last_row() {
     // Met 0.3 ms into the scan: it waits the 7.75 ms left, not 2 ms, and goes once the beam has
     // left row 1080 (line 1113), before the slack runs out.
     let (waited, line) = simulate(300_000, 0, lines);
-    assert!(!waited.cut_short);
+    assert!(!waited.cut_short && !waited.wrapped);
     assert!((7_700_000..8_100_000).contains(&waited.ns), "{waited:?}");
     assert!((1113..1125).contains(&line), "went out at line {line}");
     // A sleep 0.6 ms too long (a coarse timer) still goes, a little late, and never into the rows.
@@ -156,7 +158,7 @@ fn a_counter_that_wraps_ends_the_wait() {
     // Back to back scans: the counter goes from the last line straight to 0 and never reads past
     // the last row. The wait ends at the wrap, not at its limit.
     let (waited, line) = simulate(300_000, 0, |at| Some(((at as f64 * 138.2 / 1e6) as u32) % 1113));
-    assert!(!waited.cut_short, "{waited:?}");
+    assert!(!waited.cut_short && waited.wrapped, "{waited:?}");
     assert!(waited.ns < 8_000_000 && line < 33, "{waited:?} at line {line}");
 }
 

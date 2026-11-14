@@ -143,21 +143,26 @@ Nucleus Co-op 2.4.2 from its GitHub release and chooses its folder, whose
 NucleusCoop.exe the host checks by size and SHA-256. Game handlers come from Nucleus Co-op's
 handler hub and are the user's own content.
 
-AMDNR (Neural Rendering)
+ANR frame generation (Neural Rendering)
 
-The per-app Neural Rendering switch (rust/core/src/neural.rs, rust/host/src/neural.rs)
-installs AMDNR by 3zwr1 (https://github.com/3zwr1/AMD-NR---OptiScaler), a GPL-3.0
-licensed fork of OptiScaler, into a game's folder. Rubylight does not host, bundle,
-mirror or modify any of its files: at the user's request the host downloads the
-release's AMDNR-v*.zip from that GitHub release on the user's PC and, when that
-package lacks the neural runtime, the same release's AMDNR-lmxxf-*.zip of the same
-version (the lmxxf runtime by Kien, MIT, as the mod's authors distribute it). It
-checks them against GitHub's digests and the release's SHA256SUMS.txt, and copies
-the files unmodified, license texts included; from the runtime component it takes
-only the runtime and its licenses. It never fetches the release's other assets (the
-launcher, the danielblnc runtimes, the capture host, the Mochi component and other
-components). The console
-calls the feature Neural Rendering and does not brand it with the mod's name.
+The per-app frame generation switch (rust/core/src/neural.rs, rust/host/src/neural.rs)
+installs ANR frame generation by apex-compute (https://github.com/apex-compute/ANR),
+release FG-V.B16, into a game's folder. Its authors publish no license for it.
+Rubylight does not host, bundle, mirror or modify any of its files: at the user's
+request the host downloads the release's anr-fg-V.B16-full.zip and
+anr-fg-V.B16-addon.zip from that GitHub release on the user's PC, checks them against
+the SHA-256 Rubylight pins, GitHub's digests and the release's SHA256SUMS.txt, and
+copies the files unmodified. The full package carries OptiScaler (GPL-3.0) with its
+license texts, which are copied with it. The console and Nightjar call the feature
+frame generation and do not brand it with the mod's name.
+
+AMDNR (Rubylight 3.0's Neural Rendering)
+
+Rubylight 3.0's per-app Neural Rendering switch installed AMDNR by 3zwr1
+(https://github.com/3zwr1/AMD-NR---OptiScaler), a GPL-3.0 licensed fork of
+OptiScaler, and its lmxxf runtime by Kien (MIT), downloaded only at the user's request
+and copied unmodified. ANR frame generation replaced it on 2026-11-14; Rubylight now
+only removes AMDNR from the games it put it in, by the manifest it wrote then.
 
 InputPlumber and SDL
 

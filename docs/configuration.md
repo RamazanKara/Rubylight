@@ -800,14 +800,15 @@ The host reads and writes the files as the signed-in Windows user, as for manage
 
 ## Neural Rendering
 
-**Neural Rendering** is a switch on a game's page in **Games**. It installs a third-party neural upscaling mod into the game's folder, for games with DLSS, FSR or XeSS, and removes it again. It is off for every game.
+**Neural Rendering** is a game's **Frame generation** switch on its page in **Games**, and on a paired Nightjar device (Android's game menu, the desktop game page) whose device has **Host control**. It puts a third-party frame generation mod into the game's folder and takes it out again: turn on DLSS frame generation in the game, and the mod takes its place, for smoother motion on GPUs without NVIDIA's own. It is off for every game. Leave it off for online games: one may treat a mod as cheating.
 
-- **Requirements.** Radeon graphics with RDNA 3 or RDNA 4 and 12 or more compute units, on the GPU Rubylight streams with, and AMD Software 26.9.1 or newer. Elsewhere the switch says why it is unavailable.
+- **Requirements.** AMD Radeon RX 5000 and newer graphics (RDNA, the Radeon 780M among them) or NVIDIA GeForce GTX 16, RTX 20 and newer, on the GPU Rubylight streams with, and the Microsoft Visual C++ 2015-2022 Redistributable (x64). When Rubylight can't identify the GPU, the switch says so instead of guessing. Intel graphics are not offered.
+- **Games.** Only games that ship DLSS frame generation: `nvngx_dlssg.dll` or Streamline's `sl.dlss_g.dll` in the install or beside the game's program. Games with a known anti-cheat in their install, games Steam lists Valve Anti-Cheat for, and games that carry another upscaler or frame generation mod are refused.
 - **First use.** A notice explains that the mod is not made or endorsed by AMD or NVIDIA and that an online game may still treat a mod as cheating; **Cancel** is the default. The switch turns on only while nothing is streaming.
-- **Download.** The host downloads one pinned release of the mod from its authors' GitHub release, about 1 GB (88 s on the test PC), and checks it against the pinned and the published checksums. It never updates the mod by itself. [Privacy](privacy.md#third-party-services) lists what GitHub receives.
-- **Refused games.** Games with a known anti-cheat in their install, games Steam lists Valve Anti-Cheat for, and games that already carry another upscaler mod.
-- **Where it goes.** The mod goes beside the game's own program, never a launcher's. When the host cannot tell which program is the game, the page asks for the game's `.exe`.
-- **Removal.** Turning the switch off, or deleting or uninstalling the game, removes only the files Rubylight put there. A folder on a drive that is not connected is retried every 10 minutes.
+- **Download.** The host downloads one pinned release from its authors' GitHub release, about 14 MB, and checks it against the pinned and the published checksums. It never updates by itself. [Privacy](privacy.md#third-party-services) lists what GitHub receives.
+- **Where it goes.** Beside the game's own program, never a launcher's. When the host cannot tell which program is the game, the page asks for the game's `.exe`, and a device says to choose it in the console. A game that already has OptiScaler, installed by the user, gets only the frame generation add-on, and the three `[FrameGen]` values it changes in `OptiScaler.ini` are put back exactly on removal. A game that uses only Vulkan loads it as `winmm.dll` or `version.dll`, never `dxgi.dll`. It never overwrites a file.
+- **Removal.** Turning the switch off, or deleting or uninstalling the game, removes only the files Rubylight put there; a file changed since is left, and the page names it. A folder on a drive that is not connected is retried every 10 minutes.
+- **The earlier neural upscaling.** Rubylight 3.0's neural upscaling is no longer offered. A game that still has it shows it on its page with **Remove**, and turning frame generation on removes it first. The host deletes that upscaling's own download (about 1 GB) when it starts; game folders keep their copies until you remove them.
 
 ## Background streaming
 

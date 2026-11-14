@@ -2013,9 +2013,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     /**
      * The Vulkan renderer will present a HEVC or AV1 HDR stream that is not packed, as setupUpscaling
      * then chooses it: with "Render through Vulkan" on, or for Frame Warp, which draws through it
-     * unasked. Game asks before the stream (vulkanSurface), before the PC has offered Frame Warp, so
-     * asking for it stands in for the offer: a Dolby Vision decoder must never be drawn by Vulkan
-     * (HdrFormatPolicy), which a Lenovo TB323FU showed as flicker in HDR alone (Rubylight #104).
+     * unasked. pickHdrFormat asks before the PC has offered Frame Warp, so asking for it stands in
+     * for the offer: a Dolby Vision decoder must never be drawn by Vulkan (HdrFormatPolicy), which a
+     * Lenovo TB323FU showed as flicker in HDR alone (Rubylight #104). Game's HLG check before the
+     * stream passes false: a wrong guess there would cost all of HDR.
      *
      * @param frameWarpListed the PC's serverinfo lists Frame Warp (HostCapabilities.Feature.FRAME_WARP)
      */

@@ -301,7 +301,7 @@
     <string name="title_virtual_display">Display virtuale</string>
     <string name="summary_virtual_display">Il PC trasmette da un proprio display virtuale con la risoluzione e il frame rate dello stream, qualunque monitor abbia il PC. Disattivato, decidono le impostazioni del display del PC.</string>
     <string name="title_vrr">Frequenza di aggiornamento variabile</string>
-    <string name="summary_vrr">VRR: su uno schermo G-Sync, FreeSync o ad aggiornamento adattivo, i fotogrammi appaiono senza attendere il prossimo aggiornamento e Frame pacing non viene usato. Attivo mostra ogni fotogramma quando il gioco lo ha disegnato, per un movimento uniforme, e aggiunge circa 1-4 ms di latenza; Più veloce mostra ogni fotogramma appena arriva, per la latenza più bassa. Uno schermo senza frequenza adattiva funziona invece alla sua frequenza massima: ogni fotogramma attende comunque il prossimo aggiornamento (meno di 8,3 ms a 120 Hz) e lo schermo consuma più batteria che a 60 Hz. Lascialo disattivato lì, a meno che lo schermo superi i 60 Hz.</string>
+    <string name="summary_vrr">VRR: su uno schermo G-Sync, FreeSync o ad aggiornamento adattivo, i fotogrammi appaiono senza attendere il prossimo aggiornamento e Frame pacing non viene usato. Attivo mostra ogni fotogramma quando il gioco lo ha disegnato, per un movimento uniforme, e aggiunge circa 1-4 ms di latenza; Più veloce mostra ogni fotogramma appena arriva, per la latenza più bassa. Uno schermo senza frequenza adattiva funziona invece alla sua frequenza massima, o a un multiplo più basso dei fotogrammi del gioco quando la massima scatterebbe, il PC invia i tempi dei fotogrammi e lo schermo cambia senza oscurarsi; ogni fotogramma attende comunque il prossimo aggiornamento (meno di 8,3 ms a 120 Hz). Lascialo disattivato su uno schermo che resta a 60 Hz, dove basta il frame pacing.</string>
     <string-array name="vrr_choice_names">
         <item>Disattivato</item>
         <item>Attivo</item>
@@ -374,7 +374,7 @@
     <string name="stream_limiter_stream_rate">Frame rate dello stream</string>
     <string name="stream_android_pacing">La frequenza di aggiornamento variabile è disattivata. Si applica l’impostazione di frame pacing.</string>
     <string name="stream_android_arr">ARR di Android: criterio automatico. Funziona con qualsiasi PC compatibile; Android sceglie la frequenza di aggiornamento effettiva.</string>
-    <string name="stream_android_max_refresh">ARR di Android: non disponibile su questa versione di Android o su questo display. Viene richiesta la frequenza di aggiornamento massima e i frame vengono mostrati appena arrivano.</string>
+    <string name="stream_android_max_refresh">ARR di Android: non disponibile su questa versione di Android o questo schermo. Viene richiesta la frequenza massima; i fotogrammi attendono comunque il prossimo aggiornamento.</string>
     <string name="stream_host_action_failed">Azione del PC non riuscita: %1$s</string>
     <string name="stream_quit_on_leave_progress">Chiusura di %1$s sul PC…</string>
     <string name="stream_quit_on_leave_failed">Impossibile chiudere %1$s sul PC, quindi è ancora in esecuzione. %2$s</string>

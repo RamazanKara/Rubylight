@@ -301,7 +301,7 @@
     <string name="title_virtual_display">Virtuelles Display</string>
     <string name="summary_virtual_display">Der PC streamt von einem eigenen virtuellen Display, das zu Auflösung und Bildrate des Streams passt, egal welchen Monitor der PC hat. Ausgeschaltet entscheiden die Display-Einstellungen des PCs.</string>
     <string name="title_vrr">Variable Bildwiederholrate</string>
-    <string name="summary_vrr">VRR: Auf einem Bildschirm mit G-Sync, FreeSync oder adaptiver Bildwiederholrate erscheinen Bilder, ohne auf die nächste Bildwiederholung zu warten, und Frame-Pacing wird nicht genutzt. „An“ zeigt jedes Bild dann, wenn das Spiel es gezeichnet hat, damit Bewegungen gleichmäßig bleiben, und kostet etwa 1 bis 4 ms Latenz; „Am schnellsten“ zeigt jedes Bild, sobald es ankommt, für die geringste Latenz. Ein Bildschirm ohne adaptive Bildwiederholrate läuft stattdessen mit seiner höchsten Bildwiederholrate: Jedes Bild wartet weiter auf die nächste Bildwiederholung (unter 8,3 ms bei 120 Hz), und der Bildschirm braucht mehr Akku als bei 60 Hz. Lass es dort aus, außer der Bildschirm schafft mehr als 60 Hz.</string>
+    <string name="summary_vrr">VRR: Auf einem Bildschirm mit G-Sync, FreeSync oder adaptiver Bildwiederholrate erscheinen Bilder, ohne auf die nächste Bildwiederholung zu warten, und Frame-Pacing wird nicht genutzt. „An“ zeigt jedes Bild dann, wenn das Spiel es gezeichnet hat, damit Bewegungen gleichmäßig bleiben, und kostet etwa 1 bis 4 ms Latenz; „Am schnellsten“ zeigt jedes Bild, sobald es ankommt, für die geringste Latenz. Ein Bildschirm ohne adaptive Bildwiederholrate läuft stattdessen mit seiner höchsten Bildwiederholrate oder mit einem niedrigeren Vielfachen der Bildrate des Spiels, wenn die höchste ruckeln würde, der PC seine Bildzeiten sendet und der Bildschirm ohne Schwarzbild umschaltet; jedes Bild wartet weiter auf die nächste Bildwiederholung (unter 8,3 ms bei 120 Hz). Lass es auf einem Bildschirm, der bei 60 Hz bleibt, aus: Dort erledigt das Frame-Pacing.</string>
     <string-array name="vrr_choice_names">
         <item>Aus</item>
         <item>An</item>
@@ -374,7 +374,7 @@
     <string name="stream_limiter_stream_rate">Stream-Bildrate</string>
     <string name="stream_android_pacing">„Variable Bildwiederholrate“ ist aus. Deine Frame-Pacing-Einstellung gilt.</string>
     <string name="stream_android_arr">Android ARR: automatische Steuerung. Funktioniert mit jedem kompatiblen PC; Android wählt die tatsächliche Bildwiederholrate.</string>
-    <string name="stream_android_max_refresh">Android ARR: auf dieser Android-Version oder diesem Display nicht verfügbar. Die maximale Bildwiederholrate wird angefordert und Frames werden sofort angezeigt.</string>
+    <string name="stream_android_max_refresh">Android ARR: auf dieser Android-Version oder diesem Display nicht verfügbar. Die höchste Bildwiederholrate wird angefordert; Bilder warten weiter auf die nächste Bildwiederholung.</string>
     <string name="stream_host_action_failed">PC-Aktion fehlgeschlagen: %1$s</string>
     <string name="stream_quit_on_leave_progress">%1$s wird auf dem PC beendet …</string>
     <string name="stream_quit_on_leave_failed">%1$s konnte auf dem PC nicht beendet werden und läuft weiter. %2$s</string>

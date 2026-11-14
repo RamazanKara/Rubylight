@@ -301,7 +301,7 @@
     <string name="title_virtual_display">Màn hình ảo</string>
     <string name="summary_virtual_display">PC stream từ một màn hình ảo riêng khớp với độ phân giải và tốc độ khung hình của stream, bất kể PC có màn hình nào. Khi tắt, việc này tùy theo cài đặt hiển thị của PC.</string>
     <string name="title_vrr">Tần số quét biến thiên</string>
-    <string name="summary_vrr">VRR: trên màn hình G-Sync, FreeSync hoặc có tần số quét thích ứng, khung hình được hiển thị mà không chờ lần làm mới kế tiếp, và “Nhịp độ khung hình” không được dùng. “Bật” hiển thị mỗi khung hình đúng lúc trò chơi đã vẽ, giúp chuyển động luôn đều, và thêm khoảng 1–4 mili giây độ trễ; “Nhanh nhất” hiển thị từng khung hình ngay khi đến, cho độ trễ thấp nhất. Màn hình không có tần số quét thích ứng sẽ chạy ở tần số quét cao nhất: mỗi khung hình vẫn chờ lần làm mới tiếp theo (dưới 8,3 ms ở 120 Hz) và màn hình tốn pin hơn so với 60 Hz. Hãy để tắt trừ khi màn hình vượt quá 60 Hz.</string>
+    <string name="summary_vrr">VRR: trên màn hình G-Sync, FreeSync hoặc có tần số quét thích ứng, khung hình được hiển thị mà không chờ lần làm mới kế tiếp, và “Nhịp độ khung hình” không được dùng. “Bật” hiển thị mỗi khung hình đúng lúc trò chơi đã vẽ, giúp chuyển động luôn đều, và thêm khoảng 1–4 mili giây độ trễ; “Nhanh nhất” hiển thị từng khung hình ngay khi đến, cho độ trễ thấp nhất. Màn hình không có tần số quét thích ứng sẽ chạy ở tần số quét cao nhất, hoặc ở một bội số thấp hơn của tốc độ khung hình trò chơi khi mức cao nhất bị giật, PC gửi thời điểm khung hình và màn hình chuyển được mà không tắt tối; mỗi khung hình vẫn chờ lần làm mới tiếp theo (dưới 8,3 ms ở 120 Hz). Hãy để tắt trên màn hình chỉ ở 60 Hz, nơi điều nhịp khung hình đã đủ.</string>
     <string-array name="vrr_choice_names">
         <item>Tắt</item>
         <item>Bật</item>
@@ -374,7 +374,7 @@
     <string name="stream_limiter_stream_rate">Tốc độ khung hình stream</string>
     <string name="stream_android_pacing">Tần số quét biến thiên đang tắt. Cài đặt nhịp độ khung hình của bạn được áp dụng.</string>
     <string name="stream_android_arr">Android ARR: chính sách tự động. Hoạt động với mọi PC tương thích; Android chọn tần số quét thực tế.</string>
-    <string name="stream_android_max_refresh">Android ARR: không khả dụng trên phiên bản Android hoặc màn hình này. Đang yêu cầu tần số quét tối đa và hiển thị khung hình ngay khi nhận được.</string>
+    <string name="stream_android_max_refresh">ARR Android: không khả dụng trên phiên bản Android hoặc màn hình này. Đang yêu cầu tần số quét cao nhất; khung hình vẫn chờ lần làm mới tiếp theo.</string>
     <string name="stream_host_action_failed">Thao tác trên PC thất bại: %1$s</string>
     <string name="stream_quit_on_leave_progress">Đang thoát %1$s trên PC…</string>
     <string name="stream_quit_on_leave_failed">Không thể thoát %1$s trên PC nên trò chơi vẫn đang chạy. %2$s</string>

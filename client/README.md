@@ -63,7 +63,7 @@ With VRR, your screen refreshes whenever a frame arrives, so it follows the netw
 
 - **97% of frames on the game's rhythm,** instead of 81 to 90% shown on arrival, for 1.3 to 1.5 ms of delay. PyroWave, HEVC and AV1 alike, measured on the same PC.
 - **Holds up on Wi-Fi.** A frame much later than the rest is shown when it is ready instead of holding every frame back for it, so over Wi-Fi it halves the frames off the rhythm for 2.6 to 4.2 ms.
-- **On by default** whenever Variable refresh rate is on: a G-Sync, FreeSync or HDMI VRR display on Windows and Linux, or an Android 16 screen with adaptive refresh. It follows any host's frame timestamps; a Rubylight PC stamps each frame with the game's own present time.
+- **On by default** whenever Variable refresh rate is on: a G-Sync, FreeSync or HDMI VRR display on Windows and Linux, or any Android screen (one without adaptive refresh keeps frames on its refresh grid). It follows any host's frame timestamps; a Rubylight PC stamps each frame with the game's own present time.
 
 [How Real VRR works](docs/real-vrr.md) · [Measurements](docs/pyrowave-decode.md#real-vrr-measured-cadence-and-a-link-with-a-long-tail)
 

@@ -301,7 +301,7 @@
     <string name="title_virtual_display">虚拟显示器</string>
     <string name="summary_virtual_display">电脑从自己的一个虚拟显示器进行串流，它与串流的分辨率和帧率一致，与电脑接的是什么显示器无关。关闭则由电脑的显示设置决定。</string>
     <string name="title_vrr">可变刷新率</string>
-    <string name="summary_vrr">VRR：在 G-Sync、FreeSync 或自适应刷新屏幕上，帧无需等待下一次刷新即可显示，且不使用“帧速调节”。“开启”在游戏绘制每帧的时刻显示它，让动态保持平稳，会增加约 1 到 4 毫秒延迟；“最快”在每帧一到达时就显示，延迟最低。没有自适应刷新率的屏幕会改用其最高刷新率运行：每帧仍要等待下一次刷新（120 Hz 下不到 8.3 毫秒），屏幕也比 60 Hz 时更耗电。除非屏幕高于 60 Hz，否则请保持关闭。</string>
+    <string name="summary_vrr">VRR：在 G-Sync、FreeSync 或自适应刷新屏幕上，帧无需等待下一次刷新即可显示，且不使用“帧速调节”。“开启”在游戏绘制每帧的时刻显示它，让动态保持平稳，会增加约 1 到 4 毫秒延迟；“最快”在每帧一到达时就显示，延迟最低。没有自适应刷新率的屏幕会改用其最高刷新率运行；若最高刷新率会卡顿、PC 发送帧时间且屏幕能不黑屏切换，则改用游戏帧率的较低倍数。每帧仍要等待下一次刷新（120 Hz 下不到 8.3 毫秒）。屏幕只能保持 60 Hz 时请保持关闭，帧同步已足够。</string>
     <string-array name="vrr_choice_names">
         <item>关闭</item>
         <item>开启</item>
@@ -374,7 +374,7 @@
     <string name="stream_limiter_stream_rate">串流帧率</string>
     <string name="stream_android_pacing">可变刷新率已关闭。将使用你的帧速调节设置。</string>
     <string name="stream_android_arr">Android ARR：自动策略。适用于任何兼容的电脑；实际刷新率由 Android 决定。</string>
-    <string name="stream_android_max_refresh">Android ARR：此 Android 版本或显示屏不支持。将请求最高刷新率，并在帧到达后立即显示。</string>
+    <string name="stream_android_max_refresh">Android ARR：此 Android 版本或屏幕不可用。正在请求最高刷新率；帧仍要等待下一次刷新。</string>
     <string name="stream_host_action_failed">电脑操作失败：%1$s</string>
     <string name="stream_quit_on_leave_progress">正在电脑上退出 %1$s…</string>
     <string name="stream_quit_on_leave_failed">无法在电脑上退出 %1$s，它仍在运行。%2$s</string>

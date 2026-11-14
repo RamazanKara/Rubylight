@@ -301,7 +301,7 @@
     <string name="title_virtual_display">Écran virtuel</string>
     <string name="summary_virtual_display">Le PC diffuse depuis son propre écran virtuel, à la résolution et à la fréquence d’images du stream, quel que soit l’écran du PC. Désactivé, ce sont les réglages d’affichage du PC qui décident.</string>
     <string name="title_vrr">Rafraîchissement variable</string>
-    <string name="summary_vrr">VRR : sur un écran G-Sync, FreeSync ou à rafraîchissement adaptatif, les images s’affichent sans attendre le prochain rafraîchissement et le frame pacing n’est pas utilisé. Activé affiche chaque image quand le jeu l’a dessinée, pour des mouvements réguliers, et ajoute environ 1 à 4 ms de latence ; Le plus rapide affiche chaque image dès son arrivée, pour la latence la plus faible. Un écran sans rafraîchissement adaptatif tourne plutôt à sa fréquence maximale : chaque image attend toujours le prochain rafraîchissement (moins de 8,3 ms à 120 Hz) et l’écran consomme plus de batterie qu’à 60 Hz. Laissez-le désactivé sur un tel écran, sauf s’il dépasse 60 Hz.</string>
+    <string name="summary_vrr">VRR : sur un écran G-Sync, FreeSync ou à rafraîchissement adaptatif, les images s’affichent sans attendre le prochain rafraîchissement et le frame pacing n’est pas utilisé. Activé affiche chaque image quand le jeu l’a dessinée, pour des mouvements réguliers, et ajoute environ 1 à 4 ms de latence ; Le plus rapide affiche chaque image dès son arrivée, pour la latence la plus faible. Un écran sans rafraîchissement adaptatif tourne plutôt à sa fréquence maximale, ou à un multiple plus bas de la fréquence d’images du jeu quand la maximale saccaderait, que le PC envoie ses horaires d’images et que l’écran change sans écran noir ; chaque image attend toujours le prochain rafraîchissement (moins de 8,3 ms à 120 Hz). Laissez-le désactivé sur un écran qui reste à 60 Hz : le frame pacing y suffit.</string>
     <string-array name="vrr_choice_names">
         <item>Désactivé</item>
         <item>Activé</item>
@@ -374,7 +374,7 @@
     <string name="stream_limiter_stream_rate">Fréquence d’images du stream</string>
     <string name="stream_android_pacing">Le rafraîchissement variable est désactivé. Votre réglage de frame pacing s’applique.</string>
     <string name="stream_android_arr">ARR Android : règle automatique. Fonctionne avec tout PC compatible ; Android choisit la fréquence de rafraîchissement réelle.</string>
-    <string name="stream_android_max_refresh">ARR Android : indisponible sur cette version d’Android ou cet écran. Demande du rafraîchissement maximal et affichage des images dès leur arrivée.</string>
+    <string name="stream_android_max_refresh">ARR Android : indisponible sur cette version d’Android ou cet écran. Demande de la fréquence maximale ; les images attendent toujours le prochain rafraîchissement.</string>
     <string name="stream_host_action_failed">Échec de l’action sur le PC : %1$s</string>
     <string name="stream_quit_on_leave_progress">Fermeture de %1$s sur le PC…</string>
     <string name="stream_quit_on_leave_failed">Impossible de quitter %1$s sur le PC, il tourne donc toujours. %2$s</string>

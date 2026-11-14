@@ -301,7 +301,7 @@
     <string name="title_virtual_display">Sanal ekran</string>
     <string name="summary_virtual_display">Bilgisayar, monitörü ne olursa olsun, yayının çözünürlüğüne ve kare hızına uyan kendine ait bir sanal ekrandan yayın yapar. Kapalıyken bu, bilgisayarın ekran ayarlarına bırakılır.</string>
     <string name="title_vrr">Değişken yenileme hızı</string>
-    <string name="summary_vrr">VRR: G-Sync, FreeSync veya uyarlanabilir yenileme hızlı bir ekranda kareler sonraki yenilemeyi beklemeden gösterilir ve “Kare zamanlama” kullanılmaz. “Açık” her kareyi oyunun çizdiği anda gösterir; böylece hareket dengeli kalır, yaklaşık 1-4 ms gecikme ekler. “En hızlı” her kareyi geldiği anda gösterir ve en düşük gecikmeyi verir. Uyarlanabilir yenileme hızı olmayan bir ekran bunun yerine en yüksek yenileme hızında çalışır: her kare yine bir sonraki yenilemeyi bekler (120 Hz’de 8,3 ms’den az) ve ekran 60 Hz’e göre daha fazla pil harcar. Ekran 60 Hz’in üzerine çıkmıyorsa kapalı bırakın.</string>
+    <string name="summary_vrr">VRR: G-Sync, FreeSync veya uyarlanabilir yenileme hızlı bir ekranda kareler sonraki yenilemeyi beklemeden gösterilir ve “Kare zamanlama” kullanılmaz. “Açık” her kareyi oyunun çizdiği anda gösterir; böylece hareket dengeli kalır, yaklaşık 1-4 ms gecikme ekler. “En hızlı” her kareyi geldiği anda gösterir ve en düşük gecikmeyi verir. Uyarlanabilir yenileme hızı olmayan bir ekran bunun yerine en yüksek yenileme hızında çalışır; en yüksek hız takılacaksa, PC kare zamanlarını gönderiyorsa ve ekran kararmadan geçebiliyorsa oyunun kare hızının daha düşük bir katında çalışır. Her kare yine bir sonraki yenilemeyi bekler (120 Hz’de 8,3 ms’den az). 60 Hz’de kalan bir ekranda kapalı bırakın; orada kare zamanlaması yeterlidir.</string>
     <string-array name="vrr_choice_names">
         <item>Kapalı</item>
         <item>Açık</item>
@@ -374,7 +374,7 @@
     <string name="stream_limiter_stream_rate">Yayın kare hızı</string>
     <string name="stream_android_pacing">Değişken yenileme hızı kapalı. Kare zamanlama ayarınız geçerlidir.</string>
     <string name="stream_android_arr">Android ARR: otomatik politika. Tüm uyumlu bilgisayarlarla çalışır; gerçek yenileme hızını Android seçer.</string>
-    <string name="stream_android_max_refresh">Android ARR: bu Android sürümünde veya ekranda kullanılamıyor. En yüksek yenileme hızı isteniyor ve kareler geldikçe gösteriliyor.</string>
+    <string name="stream_android_max_refresh">Android ARR: bu Android sürümünde veya ekranda kullanılamaz. En yüksek yenileme hızı isteniyor; kareler yine bir sonraki yenilemeyi bekler.</string>
     <string name="stream_host_action_failed">Bilgisayar işlemi başarısız oldu: %1$s</string>
     <string name="stream_quit_on_leave_progress">Bilgisayarda %1$s oyunundan çıkılıyor…</string>
     <string name="stream_quit_on_leave_failed">Bilgisayarda %1$s oyunundan çıkılamadı, bu yüzden hâlâ çalışıyor. %2$s</string>

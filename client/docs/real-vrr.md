@@ -43,8 +43,8 @@ What it needs:
 - **Windows and Linux:** a display with G-Sync, FreeSync or HDMI VRR turned on, so that Variable
   refresh rate applies. If the display turns out not to refresh when a frame is presented, Nightjar
   waits for the refresh instead, as without VRR, and the overlay says so.
-- **Android:** Variable refresh rate, which needs Android 16 or newer on a screen with adaptive
-  refresh (ARR).
+- **Android:** Variable refresh rate. On a screen with adaptive refresh (ARR, Android 16) the
+  screen follows the frames; on any other the frames keep the game's times on its refresh grid.
 - **macOS:** not on by default. Nightjar's log names the refresh range the screen reports (ProMotion and
   Adaptive-Sync screens have one). On such a screen the environment variable `NIGHTJAR_MAC_VRR=1`
   turns Real VRR on, which has not been measured: if you try it, tell us what you see.

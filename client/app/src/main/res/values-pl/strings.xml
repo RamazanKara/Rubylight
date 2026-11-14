@@ -301,7 +301,7 @@
     <string name="title_virtual_display">Ekran wirtualny</string>
     <string name="summary_virtual_display">Komputer strumieniuje z własnego ekranu wirtualnego o rozdzielczości i liczbie klatek strumienia, niezależnie od tego, jaki ma monitor. Po wyłączeniu decydują ustawienia ekranu komputera.</string>
     <string name="title_vrr">Zmienna częstotliwość odświeżania</string>
-    <string name="summary_vrr">VRR: na ekranie z G-Sync, FreeSync lub adaptacyjnym odświeżaniem klatki są wyświetlane bez czekania na następne odświeżenie, a „Tempo klatek” nie jest używane. „Wł.” pokazuje każdą klatkę wtedy, gdy gra ją narysowała, więc ruch pozostaje równy, i dodaje około 1–4 ms opóźnienia; „Najszybciej” wyświetla każdą klatkę zaraz po nadejściu, dla najniższego opóźnienia. Ekran bez adaptacyjnego odświeżania działa wtedy z najwyższą częstotliwością: każda klatka nadal czeka na kolejne odświeżenie (poniżej 8,3 ms przy 120 Hz), a ekran zużywa więcej baterii niż przy 60 Hz. Zostaw to wyłączone, chyba że ekran przekracza 60 Hz.</string>
+    <string name="summary_vrr">VRR: na ekranie z G-Sync, FreeSync lub adaptacyjnym odświeżaniem klatki są wyświetlane bez czekania na następne odświeżenie, a „Tempo klatek” nie jest używane. „Wł.” pokazuje każdą klatkę wtedy, gdy gra ją narysowała, więc ruch pozostaje równy, i dodaje około 1–4 ms opóźnienia; „Najszybciej” wyświetla każdą klatkę zaraz po nadejściu, dla najniższego opóźnienia. Ekran bez adaptacyjnego odświeżania działa wtedy z najwyższą częstotliwością albo z niższą wielokrotnością liczby klatek gry, gdy najwyższa by się zacinała, PC wysyła czasy klatek, a ekran przełącza się bez wygaszenia; każda klatka nadal czeka na kolejne odświeżenie (poniżej 8,3 ms przy 120 Hz). Zostaw to wyłączone na ekranie, który zostaje przy 60 Hz: tam wystarczy synchronizacja klatek.</string>
     <string-array name="vrr_choice_names">
         <item>Wyłączone</item>
         <item>Wł.</item>
@@ -374,7 +374,7 @@
     <string name="stream_limiter_stream_rate">Liczba klatek strumienia</string>
     <string name="stream_android_pacing">„Zmienna częstotliwość odświeżania” jest wyłączona. Obowiązuje ustawienie tempa klatek.</string>
     <string name="stream_android_arr">ARR Androida: zasada automatyczna. Działa z każdym zgodnym komputerem; Android wybiera rzeczywistą częstotliwość odświeżania.</string>
-    <string name="stream_android_max_refresh">ARR Androida: niedostępne w tej wersji Androida lub na tym ekranie. Żądanie maksymalnego odświeżania i wyświetlanie klatek od razu po odebraniu.</string>
+    <string name="stream_android_max_refresh">ARR Androida: niedostępne w tej wersji Androida lub na tym ekranie. Żądana jest najwyższa częstotliwość; klatki nadal czekają na kolejne odświeżenie.</string>
     <string name="stream_host_action_failed">Działanie komputera nie powiodło się: %1$s</string>
     <string name="stream_quit_on_leave_progress">Zamykanie %1$s na komputerze…</string>
     <string name="stream_quit_on_leave_failed">Nie udało się zamknąć %1$s na komputerze, więc nadal działa. %2$s</string>

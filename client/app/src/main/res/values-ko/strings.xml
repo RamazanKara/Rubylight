@@ -301,7 +301,7 @@
     <string name="title_virtual_display">가상 디스플레이</string>
     <string name="summary_virtual_display">PC에 어떤 모니터가 있든, PC가 스트림의 해상도와 프레임 속도에 맞춘 자체 가상 디스플레이에서 스트리밍합니다. 끄면 PC의 디스플레이 설정을 따릅니다.</string>
     <string name="title_vrr">가변 주사율</string>
-    <string name="summary_vrr">VRR: G-Sync, FreeSync 또는 가변 주사율 화면에서 다음 새로 고침을 기다리지 않고 프레임을 표시하며 ‘프레임 페이싱’을 사용하지 않습니다. ‘사용’은 각 프레임을 게임이 그린 시점에 표시해 움직임을 고르게 유지하며 지연 시간이 약 1~4ms 늘어납니다. ‘가장 빠르게’는 각 프레임을 도착하는 대로 표시해 지연 시간이 가장 낮습니다. 적응형 주사율이 없는 화면은 대신 최고 주사율로 동작합니다. 각 프레임은 여전히 다음 화면 갱신을 기다리고(120 Hz에서 8.3 ms 미만), 60 Hz보다 배터리를 더 씁니다. 화면이 60 Hz를 넘지 않으면 꺼 두세요.</string>
+    <string name="summary_vrr">VRR: G-Sync, FreeSync 또는 가변 주사율 화면에서 다음 새로 고침을 기다리지 않고 프레임을 표시하며 ‘프레임 페이싱’을 사용하지 않습니다. ‘사용’은 각 프레임을 게임이 그린 시점에 표시해 움직임을 고르게 유지하며 지연 시간이 약 1~4ms 늘어납니다. ‘가장 빠르게’는 각 프레임을 도착하는 대로 표시해 지연 시간이 가장 낮습니다. 적응형 주사율이 없는 화면은 대신 최고 주사율로 동작하며, 최고 주사율에서 끊기고 PC가 프레임 시간을 보내며 화면이 깜빡임 없이 전환할 수 있으면 게임 프레임 속도의 더 낮은 배수로 동작합니다. 각 프레임은 여전히 다음 화면 갱신을 기다립니다(120 Hz에서 8.3 ms 미만). 60 Hz에 머무는 화면에서는 꺼 두세요. 프레임 페이싱으로 충분합니다.</string>
     <string-array name="vrr_choice_names">
         <item>사용 안함</item>
         <item>사용</item>
@@ -374,7 +374,7 @@
     <string name="stream_limiter_stream_rate">스트림 프레임 속도</string>
     <string name="stream_android_pacing">가변 주사율이 꺼져 있습니다. 프레임 페이싱 설정이 적용됩니다.</string>
     <string name="stream_android_arr">Android ARR: 자동 정책. 호환되는 모든 PC에서 작동하며, 실제 주사율은 Android가 선택합니다.</string>
-    <string name="stream_android_max_refresh">Android ARR: 이 Android 버전 또는 디스플레이에서 사용할 수 없습니다. 최대 주사율을 요청하고 프레임이 도착하는 대로 표시합니다.</string>
+    <string name="stream_android_max_refresh">Android ARR: 이 Android 버전이나 화면에서는 사용할 수 없습니다. 최고 주사율을 요청하며, 프레임은 여전히 다음 화면 갱신을 기다립니다.</string>
     <string name="stream_host_action_failed">PC 작업 실패: %1$s</string>
     <string name="stream_quit_on_leave_progress">PC에서 %1$s 종료 중…</string>
     <string name="stream_quit_on_leave_failed">PC에서 %1$s을(를) 종료하지 못해 계속 실행 중입니다. %2$s</string>

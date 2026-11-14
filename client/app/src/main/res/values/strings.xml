@@ -345,7 +345,7 @@
     <string name="title_virtual_display">Virtual display</string>
     <string name="summary_virtual_display">The PC streams from a virtual display of its own that matches the stream’s resolution and frame rate, whatever monitor the PC has. Off leaves it to the PC’s display settings.</string>
     <string name="title_vrr">Variable refresh rate</string>
-    <string name="summary_vrr">VRR: on a G-Sync, FreeSync or adaptive-refresh screen, frames show without waiting for the next refresh, and frame pacing is not used. On shows each frame when the game drew it, so motion stays even, for about 1 to 4 ms of latency; Fastest shows each frame the moment it arrives, for the lowest latency. A screen without adaptive refresh runs at its highest refresh rate instead: each frame still waits for the next refresh (under 8.3 ms at 120 Hz), and the screen uses more battery than at 60 Hz. Leave it off there unless the screen goes above 60 Hz.</string>
+    <string name="summary_vrr">VRR: on a G-Sync, FreeSync or adaptive-refresh screen, frames show without waiting for the next refresh, and frame pacing is not used. On shows each frame when the game drew it, so motion stays even, for about 1 to 4 ms of latency; Fastest shows each frame the moment it arrives, for the lowest latency. A screen without adaptive refresh runs at its highest refresh rate instead, or at a lower multiple of the game’s frame rate where the highest would judder, the PC sends its frame times and the screen switches without blanking; each frame still waits for the next refresh (under 8.3 ms at 120 Hz). Leave it off on a screen that stays at 60 Hz, where frame pacing does the job.</string>
     <string-array name="vrr_choice_names">
         <item>Off</item>
         <item>On</item>
@@ -450,7 +450,7 @@
     <string name="stream_limiter_stream_rate">Stream frame rate</string>
     <string name="stream_android_pacing">Variable refresh rate is off. Your frame pacing setting applies.</string>
     <string name="stream_android_arr">Android ARR: automatic policy. Works with any compatible PC; Android chooses the actual refresh rate.</string>
-    <string name="stream_android_max_refresh">Android ARR: unavailable on this Android version or display. Requesting maximum refresh and showing frames as they arrive.</string>
+    <string name="stream_android_max_refresh">Android ARR: unavailable on this Android version or display. Requesting the highest refresh rate; frames still wait for the next refresh.</string>
     <string name="stream_host_action_failed">PC action failed: %1$s</string>
     <string name="stream_quit_on_leave_progress">Quitting %1$s on the PC…</string>
     <string name="stream_quit_on_leave_failed">Couldn’t quit %1$s on the PC, so it is still running. %2$s</string>

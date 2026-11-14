@@ -301,7 +301,7 @@
     <string name="title_virtual_display">仮想ディスプレイ</string>
     <string name="summary_virtual_display">PC のモニターに関係なく、ストリームの解像度とフレームレートに合わせた専用の仮想ディスプレイから PC がストリーミングします。オフでは PC のディスプレイ設定に任せます。</string>
     <string name="title_vrr">可変リフレッシュレート</string>
-    <string name="summary_vrr">VRR：G-Sync、FreeSync、または可変リフレッシュレート対応の画面で、次のリフレッシュを待たずにフレームを表示し、「フレームペーシング」は使われません。「オン」は各フレームをゲームが描画したタイミングで表示して動きを均一に保ち、遅延が約1〜4ミリ秒増えます。「最速」は各フレームを届いた時点で表示し、遅延が最小になります。可変リフレッシュレートのない画面では、代わりに最高リフレッシュレートで動作します。各フレームは次のリフレッシュを待ち（120 Hz で 8.3 ms 未満）、60 Hz より電池を多く使います。画面が 60 Hz を超えない場合はオフのままにしてください。</string>
+    <string name="summary_vrr">VRR：G-Sync、FreeSync、または可変リフレッシュレート対応の画面で、次のリフレッシュを待たずにフレームを表示し、「フレームペーシング」は使われません。「オン」は各フレームをゲームが描画したタイミングで表示して動きを均一に保ち、遅延が約1〜4ミリ秒増えます。「最速」は各フレームを届いた時点で表示し、遅延が最小になります。可変リフレッシュレートのない画面では、代わりに最高リフレッシュレートで動作します。最高レートではカクつき、PC がフレーム時刻を送り、画面が暗転せずに切り替えられる場合は、ゲームのフレームレートの低い倍数で動作します。各フレームは次のリフレッシュを待ちます（120 Hz で 8.3 ms 未満）。60 Hz のままの画面ではオフにしてください。フレームペーシングで足ります。</string>
     <string-array name="vrr_choice_names">
         <item>オフ</item>
         <item>オン</item>
@@ -374,7 +374,7 @@
     <string name="stream_limiter_stream_rate">ストリームのフレームレート</string>
     <string name="stream_android_pacing">可変リフレッシュレートはオフです。フレームペーシングの設定が適用されます。</string>
     <string name="stream_android_arr">Android ARR: 自動ポリシー。互換性のあるすべての PC で動作し、実際のリフレッシュレートは Android が選択します。</string>
-    <string name="stream_android_max_refresh">Android ARR: この Android バージョンまたはディスプレイでは利用できません。最大リフレッシュレートを要求し、フレームを受信次第表示します。</string>
+    <string name="stream_android_max_refresh">Android ARR: この Android バージョンまたは画面では使えません。最高リフレッシュレートを要求します。フレームは次のリフレッシュを待ちます。</string>
     <string name="stream_host_action_failed">PC の操作に失敗しました: %1$s</string>
     <string name="stream_quit_on_leave_progress">PC 上の %1$s を終了しています…</string>
     <string name="stream_quit_on_leave_failed">PC 上の %1$s を終了できなかったため、まだ実行中です。%2$s</string>

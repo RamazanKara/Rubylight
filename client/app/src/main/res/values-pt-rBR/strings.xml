@@ -301,7 +301,7 @@
     <string name="title_virtual_display">Tela virtual</string>
     <string name="summary_virtual_display">O PC transmite de uma tela virtual própria que corresponde à resolução e à taxa de quadros da transmissão, seja qual for o monitor do PC. Desativado, quem decide são as configurações de tela do PC.</string>
     <string name="title_vrr">Taxa de atualização variável</string>
-    <string name="summary_vrr">VRR: em uma tela G-Sync, FreeSync ou com atualização adaptável, os quadros são exibidos sem esperar a próxima atualização e Ritmo de quadros não é usado. Ativado mostra cada quadro quando o jogo o desenhou, para um movimento uniforme, e adiciona cerca de 1 a 4 ms de latência; Mais rápido exibe cada quadro assim que chega, para a menor latência. Uma tela sem taxa adaptativa roda na sua taxa de atualização mais alta: cada quadro ainda espera a próxima atualização (menos de 8,3 ms a 120 Hz) e a tela gasta mais bateria do que a 60 Hz. Deixe desativado nela, a menos que a tela passe de 60 Hz.</string>
+    <string name="summary_vrr">VRR: em uma tela G-Sync, FreeSync ou com atualização adaptável, os quadros são exibidos sem esperar a próxima atualização e Ritmo de quadros não é usado. Ativado mostra cada quadro quando o jogo o desenhou, para um movimento uniforme, e adiciona cerca de 1 a 4 ms de latência; Mais rápido exibe cada quadro assim que chega, para a menor latência. Uma tela sem taxa adaptativa roda na sua taxa mais alta, ou num múltiplo menor da taxa de quadros do jogo quando a mais alta engasgaria, o PC envia seus tempos de quadro e a tela troca sem apagar; cada quadro ainda espera a próxima atualização (menos de 8,3 ms a 120 Hz). Deixe desativado numa tela que fica em 60 Hz, onde o ritmo de quadros resolve.</string>
     <string-array name="vrr_choice_names">
         <item>Desativado</item>
         <item>Ativado</item>
@@ -374,7 +374,7 @@
     <string name="stream_limiter_stream_rate">Taxa de quadros da transmissão</string>
     <string name="stream_android_pacing">A taxa de atualização variável está desativada. Sua configuração de ritmo de quadros é aplicada.</string>
     <string name="stream_android_arr">ARR do Android: política automática. Funciona com qualquer PC compatível; o Android escolhe a taxa de atualização real.</string>
-    <string name="stream_android_max_refresh">ARR do Android: indisponível nesta versão do Android ou nesta tela. Solicitando a atualização máxima e exibindo os quadros assim que chegam.</string>
+    <string name="stream_android_max_refresh">ARR do Android: indisponível nesta versão do Android ou tela. Pedindo a taxa mais alta; os quadros ainda esperam a próxima atualização.</string>
     <string name="stream_host_action_failed">Falha na ação do PC: %1$s</string>
     <string name="stream_quit_on_leave_progress">Encerrando %1$s no PC…</string>
     <string name="stream_quit_on_leave_failed">Não foi possível encerrar %1$s no PC, então ele continua em execução. %2$s</string>

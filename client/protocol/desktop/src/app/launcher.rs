@@ -731,13 +731,13 @@ impl App {
     }
 }
 
-/// The key egui gets for a controller button's launcher action (`shortcuts::PAD`).
 /// Whether `plan`'s decoder makes its pictures on the renderer's device (D3D11VA, PyroWave on the
 /// GPU), so that a stream whose device changed while connecting cannot show them.
 fn decodes_on_device(plan: &LaunchPlan) -> bool {
     matches!(plan.hardware, Hardware::D3d11(_)) || plan.gpu_decoder.is_some()
 }
 
+/// The key egui gets for a controller button's launcher action (`shortcuts::PAD`).
 fn nav_key(action: Action) -> Option<egui::Key> {
     match action {
         Action::Select => Some(egui::Key::Enter),

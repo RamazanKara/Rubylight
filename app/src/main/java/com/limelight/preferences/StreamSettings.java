@@ -2653,6 +2653,10 @@ public class StreamSettings extends NightjarActivity {
                 startActivity(new Intent(getActivity(), ControllerTestActivity.class));
                 return true;
             });
+            findPreference("gyro_mapping_profiles").setOnPreferenceClickListener(preference -> {
+                GyroProfileEditor.open(getActivity());
+                return true;
+            });
             findPreference("keyboard_shortcuts_editor").setOnPreferenceClickListener(preference -> {
                 startActivity(new Intent(getActivity(), KeyboardShortcutsActivity.class));
                 return true;

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Ustawienia › Sterowanie › Mapowanie żyroskopu (GyroProfileEditor) -->
+    <string name="title_gyro_mapping">Mapowanie żyroskopu</string>
+    <string name="summary_gyro_mapping">Ustawia właściwy kierunek celowania ruchem i jego prędkość dla każdego kontrolera. Zostaw Standard, chyba że celowanie działa na złej osi albo obraca się za szybko lub za wolno.</string>
+    <string name="gyro_mapping_device_row">%1$s: %2$s</string>
+    <string name="gyro_mapping_choice_title">Żyroskop: %1$s</string>
+    <string name="gyro_choice_standard">Standard</string>
+    <string name="gyro_choice_flydigi">Flydigi Apex 4 i Vader 4 Pro (tryb Switch)</string>
+    <string name="gyro_choice_custom">%1$s (własne)</string>
+    <string name="gyro_choice_new">Nowy własny profil…</string>
+    <string name="gyro_mapping_saved">Zapisano. Działa od następnego strumienia.</string>
+    <string name="gyro_profiles_title">Własne profile</string>
+    <string name="gyro_profile_new">Nowy profil…</string>
+    <string name="gyro_profile_edit">Edytuj</string>
+    <string name="gyro_profile_duplicate">Duplikuj</string>
+    <string name="gyro_profile_delete">Usuń</string>
+    <string name="gyro_profile_copy_name">Kopia: %1$s</string>
+    <string name="gyro_profile_delete_title">Usunąć ten profil?</string>
+    <string name="gyro_profile_delete_message">Kontrolery używające %1$s wracają do Standard.</string>
+    <string name="gyro_profile_deleted">Usunięto profil</string>
+    <string name="gyro_profile_create_title">Nowy profil żyroskopu</string>
+    <string name="gyro_profile_edit_title">Edytuj profil żyroskopu</string>
+    <string name="gyro_profile_help">Dla każdego kierunku odczytywanego przez grę wybierz oś kontrolera, która nim steruje, i odwróć ją, jeśli działa w złą stronę. Użyj każdej osi raz. Czułości przyspieszają lub spowalniają celowanie ruchem.</string>
+    <string name="gyro_profile_name">Nazwa profilu</string>
+    <string name="gyro_profile_name_required">Wpisz nazwę</string>
+    <string name="gyro_profile_axes_unique">Użyj X, Y i Z po jednym razie.</string>
+    <string name="gyro_profile_axis_x">Góra i dół (X)</string>
+    <string name="gyro_profile_axis_y">Lewo i prawo (Y)</string>
+    <string name="gyro_profile_axis_z">Przechył (Z)</string>
+    <string name="gyro_profile_source_axis">%1$s od %2$s</string>
+    <string name="gyro_profile_invert">Odwróć</string>
+    <string name="gyro_profile_horizontal">Czułość w poziomie</string>
+    <string name="gyro_profile_vertical">Czułość w pionie</string>
+    <string name="gyro_profile_saved">Zapisano profil. Działa od następnego strumienia.</string>
+
+    <!-- Ustawienia › Zaawansowane › Diagnostyka › Pokaż odczyty ruchu (GyroDiagnosticOverlay) -->
+    <string name="title_show_gyro_diagnostics">Pokaż odczyty ruchu</string>
+    <string name="summary_show_gyro_diagnostics">Pokazuje wartości ruchu wysyłane przez każdy kontroler podczas strumienia, z przyciskami do ich zapisania i udostępnienia jako plik CSV. Zasłania lewy górny róg obrazu. Zostaw wyłączone, chyba że celowanie ruchem działa źle.</string>
+    <string name="gyro_diag_title">Odczyty ruchu</string>
+    <string name="gyro_diag_waiting">Czekam na ruch kontrolera…</string>
+    <string name="gyro_diag_record">Nagraj</string>
+    <string name="gyro_diag_stop">Zatrzymaj</string>
+    <string name="gyro_diag_recording">Nagrywanie</string>
+    <string name="gyro_diag_mapping_settings">Mapowanie: ustawienia</string>
+    <string name="gyro_diag_mapping_flydigi">Mapowanie: Flydigi</string>
+    <string name="gyro_diag_identify">Kontrolery</string>
+    <string name="gyro_diag_devices">Połączone kontrolery</string>
+    <string name="gyro_diag_share">Udostępnij CSV</string>
+    <string name="gyro_diag_share_title">Udostępnij odczyty ruchu</string>
+    <string name="gyro_diag_hide">Ukryj</string>
+    <string name="gyro_diag_show">Pokaż</string>
+</resources>

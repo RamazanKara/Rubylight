@@ -102,7 +102,20 @@ pub struct Mapping {
     /// One of [`CONNECT_AS`]; mappings saved before it existed load as Automatic.
     #[serde(deserialize_with = "lenient_connect_as")]
     pub connect_as: u8,
+    /// The controller gyroscope axis behind each axis games read (X up and down, Y left and right,
+    /// Z tilt): the source index plus one, negative to invert, each source once. Android's
+    /// Gyroscope mapping profiles, after jvanderv42's Nightjar fork (GPL-3.0).
+    pub gyro_axes: [i8; 3],
+    /// Left and right gyroscope speed in percent, [`MIN_GYRO_SPEED`] to [`MAX_GYRO_SPEED`].
+    pub gyro_yaw: u16,
+    /// Up and down gyroscope speed in percent, likewise.
+    pub gyro_pitch: u16,
 }
+
+pub const MIN_GYRO_SPEED: u16 = 10;
+pub const MAX_GYRO_SPEED: u16 = 300;
+/// The gyroscope axes games read, in the order of [`Mapping::gyro_axes`].
+pub const GYRO_AXIS_NAMES: [&str; 3] = [en("Up and down (X)"), en("Left and right (Y)"), en("Tilt (Z)")];
 
 /// Anything but a known choice reads as Automatic, so one bad value (256, -1, "x", or a type a
 /// newer Nightjar adds) never fails the whole file and with it every controller's mapping.
@@ -117,7 +130,17 @@ fn lenient_connect_as<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Resu
 
 impl Default for Mapping {
     fn default() -> Self {
-        Self { name: String::new(), buttons: [None; 21], axes: [1, 2, 3, 4, 5, 6], deadzone: 0, trigger_deadzone: 0, connect_as: CTYPE_UNKNOWN }
+        Self {
+            name: String::new(),
+            buttons: [None; 21],
+            axes: [1, 2, 3, 4, 5, 6],
+            deadzone: 0,
+            trigger_deadzone: 0,
+            connect_as: CTYPE_UNKNOWN,
+            gyro_axes: [1, 2, 3],
+            gyro_yaw: 100,
+            gyro_pitch: 100,
+        }
     }
 }
 
@@ -191,6 +214,29 @@ fn back_as_guide(raw: u32, on: bool) -> u32 {
 }
 
 impl Mapping {
+    /// The gyroscope reading games get, in SDL's axes (X pitch, Y yaw, Z roll) and units.
+    pub fn map_gyro(&self, raw: [f32; 3]) -> [f32; 3] {
+        let pick = |source: i8| {
+            let value = raw[usize::from(source.unsigned_abs().clamp(1, 3)) - 1];
+            if source < 0 { -value } else { value }
+        };
+        [
+            pick(self.gyro_axes[0]) * f32::from(self.gyro_pitch) / 100.0,
+            pick(self.gyro_axes[1]) * f32::from(self.gyro_yaw) / 100.0,
+            pick(self.gyro_axes[2]),
+        ]
+    }
+
+    /// Gives `output` the source `source` (signed, as in [`Self::gyro_axes`]); the axis that had
+    /// it takes `output`'s old source, so each source stays in use once.
+    pub fn set_gyro_axis(&mut self, output: usize, source: i8) {
+        let old = self.gyro_axes[output];
+        if let Some(other) = (0..3).find(|&i| i != output && self.gyro_axes[i].unsigned_abs() == source.unsigned_abs()) {
+            self.gyro_axes[other] = old.unsigned_abs() as i8 * self.gyro_axes[other].signum();
+        }
+        self.gyro_axes[output] = source;
+    }
+
     pub fn valid(&self) -> bool {
         self.deadzone <= MAX_STICK_DEADZONE
             && self.trigger_deadzone <= MAX_TRIGGER_DEADZONE
@@ -198,6 +244,10 @@ impl Mapping {
             && self.axes.iter().enumerate().all(|(i, source)| {
                 *source == 0 || if i < 4 { (1..=4).contains(&source.unsigned_abs()) } else { (5..=6).contains(source) }
             })
+            && self.gyro_axes.iter().all(|s| (1..=3).contains(&s.unsigned_abs()))
+            && (1..=3).all(|axis| self.gyro_axes.iter().any(|s| s.unsigned_abs() == axis))
+            && (MIN_GYRO_SPEED..=MAX_GYRO_SPEED).contains(&self.gyro_yaw)
+            && (MIN_GYRO_SPEED..=MAX_GYRO_SPEED).contains(&self.gyro_pitch)
     }
 
     /// The type the pad arrives as: the pinned one, else `detected`. A value this version does
@@ -828,13 +878,8 @@ impl Gamepads {
                         }
                         SDL_SENSOR_GYRO => {
                             let deg = 57.295_78;
-                            let _ = queue.send_controller_motion(
-                                pad.sent_as,
-                                motion_type::GYRO,
-                                x * deg,
-                                y * deg,
-                                z * deg,
-                            );
+                            let [x, y, z] = pad.mapping.map_gyro([x * deg, y * deg, z * deg]);
+                            let _ = queue.send_controller_motion(pad.sent_as, motion_type::GYRO, x, y, z);
                         }
                         _ => {}
                     }

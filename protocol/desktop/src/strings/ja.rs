@@ -1572,4 +1572,11 @@ sudo sysctl -w net.core.rmem_max={}", "受信バッファー：システムは�
     ("Turns the PC game’s SDR picture into HDR in HDR streams.", "HDRストリームでPCのゲームのSDR映像をHDRに変換します。"),
     ("Cleans up and sharpens the picture on the PC before it is encoded.", "エンコード前にPCで映像のノイズを除去し、鮮明にします。"),
     ("{} is off for this stream: the GPU renderer could not be made while drawing straight to the display.", "このストリームでは{}はオフです: ディスプレイに直接描画している間は GPU レンダラーを作成できませんでした。"),
+    ("Motion", "モーション"),
+    ("Up and down (X)", "上下（X）"),
+    ("Left and right (Y)", "左右（Y）"),
+    ("Tilt (Z)", "傾き（Z）"),
+    ("Left and right sensitivity", "左右の感度"),
+    ("Up and down sensitivity", "上下の感度"),
+    ("Speeds motion aiming up or slows it down; 100% sends the controller’s own speed.", "モーションによる照準を速くしたり遅くしたりします。100% ではコントローラ本来の速さで動きます。"),
 ];

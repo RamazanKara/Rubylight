@@ -775,3 +775,48 @@ fn dualsense_effect_changes_only_requested_triggers() {
     assert_eq!(&effect[22..32], &[3; 10]);
     assert_eq!(&effect[32..], &[0; 15]);
 }
+
+#[test]
+fn gyro_is_sent_as_sdl_reads_it_until_a_mapping_changes_it() {
+    let mut mapping = Mapping::default();
+    assert_eq!(mapping.map_gyro([1.0, -2.0, 3.0]), [1.0, -2.0, 3.0]);
+    // Each axis games read takes a controller axis, optionally inverted (Android's Flydigi preset).
+    mapping.gyro_axes = [-2, 3, 1];
+    assert!(mapping.valid());
+    assert_eq!(mapping.map_gyro([1.0, 2.0, 3.0]), [-2.0, 3.0, 1.0]);
+    // Up and down scales X, left and right scales Y, tilt is never scaled.
+    mapping.gyro_axes = [1, 2, 3];
+    mapping.gyro_pitch = 50;
+    mapping.gyro_yaw = 200;
+    assert_eq!(mapping.map_gyro([2.0, 2.0, 2.0]), [1.0, 4.0, 2.0]);
+    assert!(mapping.valid());
+}
+
+#[test]
+fn a_gyro_axis_change_swaps_so_each_source_stays_used_once() {
+    let mut mapping = Mapping::default();
+    mapping.set_gyro_axis(0, -2);
+    assert_eq!(mapping.gyro_axes, [-2, 1, 3]);
+    mapping.set_gyro_axis(2, 2);
+    assert_eq!(mapping.gyro_axes, [-3, 1, 2], "the axis that had Y takes Z and keeps its inversion");
+    mapping.set_gyro_axis(1, -1);
+    assert_eq!(mapping.gyro_axes, [-3, -1, 2], "inverting in place swaps nothing");
+    assert!(mapping.valid());
+}
+
+#[test]
+fn a_gyro_mapping_out_of_range_is_refused() {
+    for axes in [[1, 1, 3], [0, 2, 3], [4, 2, 3], [-1, -1, 2]] {
+        assert!(!Mapping { gyro_axes: axes, ..Mapping::default() }.valid(), "{axes:?}");
+    }
+    assert!(!Mapping { gyro_yaw: MIN_GYRO_SPEED - 1, ..Mapping::default() }.valid());
+    assert!(!Mapping { gyro_pitch: MAX_GYRO_SPEED + 1, ..Mapping::default() }.valid());
+    assert!(Mapping { gyro_yaw: MIN_GYRO_SPEED, gyro_pitch: MAX_GYRO_SPEED, ..Mapping::default() }.valid());
+}
+
+#[test]
+fn a_mapping_saved_before_gyro_settings_loads_with_the_gyro_unchanged() {
+    let old: Mapping = serde_json::from_str(r#"{"name":"Pad","deadzone":10}"#).expect("an older mapping");
+    assert_eq!((old.gyro_axes, old.gyro_yaw, old.gyro_pitch), ([1, 2, 3], 100, 100));
+    assert!(old.valid());
+}

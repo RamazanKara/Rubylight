@@ -40,6 +40,14 @@ Open **Sticks, triggers and D-pad** after selecting a controller. Each output st
 
 **Nintendo button layout** swaps A/B and X/Y. Raise **Stick dead zone** if a stationary stick drifts. **Trigger dead zone** (2% by default, 0% sends every press) ignores light trigger presses; raise it if a resting trigger presses by itself. On desktop, **Stick dead zone** and **Trigger dead zone** (0% by default) apply to every controller, and each controller's **Controller buttons** page can set its own. **Vibrate device for rumble** gives you rumble on the phone or tablet when the controller has no motors. **Turn off vibration** (off by default) stops every vibration the host asks for: controller and trigger rumble (including the USB Switch Pro driver), USB DualSense waveform haptics and the device vibration above. It applies from the next stream.
 
+### Gyroscope mapping
+
+**Settings → Controls → Gyroscope mapping** lists the connected controllers with the mapping each uses. **Standard**, the default, sends the gyroscope as Android reports it. **Flydigi Apex 4 and Vader 4 Pro (Switch mode)** remaps those pads' axes, from measurements on them, for when their motion aiming turns on the wrong axes. A **custom profile** chooses which controller axis drives up and down (X), left and right (Y) and tilt (Z), inverts any of them, and scales left and right and up and down from 0.10× to 3.00×; tilt is never scaled and the accelerometer is sent as it is. Profiles have names and can be edited, duplicated or deleted under **Custom profiles**; a controller whose profile is deleted goes back to Standard. The choice is stored per controller, so two pads of one model (Flydigi pads in Switch mode both report as Pro Controller) can differ; a pad that Nightjar's USB driver owns uses the choice last made for its model. It applies from the next stream. The device's own motion sensors, used as a fallback, are never remapped.
+
+**Settings → Advanced → Diagnostics → Show motion readings** (off by default) shows, at the top left of the stream, the motion values each controller sends after its mapping. Its buttons record them and share them as a CSV file, list the connected controllers with their IDs, and try the Flydigi preset on every controller until the stream ends, to compare it with the controllers' own choice. The buttons answer touch only, never a controller.
+
+On desktop, each controller's **Controller buttons** page has the same axis choice, inversion and left-right and up-down sensitivity (10% to 300%) under **Motion**, stored per controller model with its other mappings.
+
 ### Controller test
 
 Open **Settings → Controls → Controller test**, or **Test controller** on the Controller buttons page, to check a controller without a stream:

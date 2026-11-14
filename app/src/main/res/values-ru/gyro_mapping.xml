@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Настройки › Управление › Назначение гироскопа (GyroProfileEditor) -->
+    <string name="title_gyro_mapping">Назначение гироскопа</string>
+    <string name="summary_gyro_mapping">Направляет прицеливание движением в нужную сторону и задаёт его скорость для каждого контроллера. Оставьте «Стандарт», если только прицеливание не идёт по не той оси или не поворачивается слишком быстро или медленно.</string>
+    <string name="gyro_mapping_device_row">%1$s: %2$s</string>
+    <string name="gyro_mapping_choice_title">Гироскоп %1$s</string>
+    <string name="gyro_choice_standard">Стандарт</string>
+    <string name="gyro_choice_flydigi">Flydigi Apex 4 и Vader 4 Pro (режим Switch)</string>
+    <string name="gyro_choice_custom">%1$s (свой)</string>
+    <string name="gyro_choice_new">Новый свой профиль…</string>
+    <string name="gyro_mapping_saved">Сохранено. Применится со следующей трансляции.</string>
+    <string name="gyro_profiles_title">Свои профили</string>
+    <string name="gyro_profile_new">Новый профиль…</string>
+    <string name="gyro_profile_edit">Изменить</string>
+    <string name="gyro_profile_duplicate">Дублировать</string>
+    <string name="gyro_profile_delete">Удалить</string>
+    <string name="gyro_profile_copy_name">Копия %1$s</string>
+    <string name="gyro_profile_delete_title">Удалить этот профиль?</string>
+    <string name="gyro_profile_delete_message">Контроллеры, использующие %1$s, вернутся к «Стандарту».</string>
+    <string name="gyro_profile_deleted">Профиль удалён</string>
+    <string name="gyro_profile_create_title">Новый профиль гироскопа</string>
+    <string name="gyro_profile_edit_title">Изменить профиль гироскопа</string>
+    <string name="gyro_profile_help">Для каждого направления, которое читает игра, выберите ось контроллера, которая им управляет, и переверните её, если оно идёт не туда. Используйте каждую ось по одному разу. Чувствительности ускоряют или замедляют прицеливание движением.</string>
+    <string name="gyro_profile_name">Название профиля</string>
+    <string name="gyro_profile_name_required">Введите название</string>
+    <string name="gyro_profile_axes_unique">Используйте X, Y и Z по одному разу.</string>
+    <string name="gyro_profile_axis_x">Вверх и вниз (X)</string>
+    <string name="gyro_profile_axis_y">Влево и вправо (Y)</string>
+    <string name="gyro_profile_axis_z">Наклон (Z)</string>
+    <string name="gyro_profile_source_axis">%1$s с осью %2$s</string>
+    <string name="gyro_profile_invert">Перевернуть</string>
+    <string name="gyro_profile_horizontal">Чувствительность влево-вправо</string>
+    <string name="gyro_profile_vertical">Чувствительность вверх-вниз</string>
+    <string name="gyro_profile_saved">Профиль сохранён. Применится со следующей трансляции.</string>
+
+    <!-- Настройки › Дополнительно › Диагностика › Показывать показания движения (GyroDiagnosticOverlay) -->
+    <string name="title_show_gyro_diagnostics">Показывать показания движения</string>
+    <string name="summary_show_gyro_diagnostics">Показывает значения движения, которые отправляет каждый контроллер во время трансляции, с кнопками для их записи и отправки в виде файла CSV. Закрывает верхний левый угол изображения. Оставьте выключенным, если только прицеливание движением не работает неправильно.</string>
+    <string name="gyro_diag_title">Показания движения</string>
+    <string name="gyro_diag_waiting">Ожидание движения контроллера…</string>
+    <string name="gyro_diag_record">Записать</string>
+    <string name="gyro_diag_stop">Остановить</string>
+    <string name="gyro_diag_recording">Идёт запись</string>
+    <string name="gyro_diag_mapping_settings">Назначение: настройки</string>
+    <string name="gyro_diag_mapping_flydigi">Назначение: Flydigi</string>
+    <string name="gyro_diag_identify">Контроллеры</string>
+    <string name="gyro_diag_devices">Подключённые контроллеры</string>
+    <string name="gyro_diag_share">Поделиться CSV</string>
+    <string name="gyro_diag_share_title">Поделиться показаниями движения</string>
+    <string name="gyro_diag_hide">Скрыть</string>
+    <string name="gyro_diag_show">Показать</string>
+</resources>

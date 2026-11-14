@@ -1572,4 +1572,11 @@ sudo sysctl -w net.core.rmem_max={}", "Alma arabelleği: sistem istenen {1} KiB'
     ("Turns the PC game’s SDR picture into HDR in HDR streams.", "HDR yayınlarda PC’deki oyunun SDR görüntüsünü HDR’ye dönüştürür."),
     ("Cleans up and sharpens the picture on the PC before it is encoded.", "Görüntüyü kodlanmadan önce PC’de temizler ve keskinleştirir."),
     ("{} is off for this stream: the GPU renderer could not be made while drawing straight to the display.", "{} bu yayında kapalı: doğrudan ekrana çizerken GPU oluşturucusu oluşturulamadı."),
+    ("Motion", "Hareket"),
+    ("Up and down (X)", "Yukarı ve aşağı (X)"),
+    ("Left and right (Y)", "Sol ve sağ (Y)"),
+    ("Tilt (Z)", "Eğme (Z)"),
+    ("Left and right sensitivity", "Sol ve sağ hassasiyeti"),
+    ("Up and down sensitivity", "Yukarı ve aşağı hassasiyeti"),
+    ("Speeds motion aiming up or slows it down; 100% sends the controller’s own speed.", "Hareketle nişan almayı hızlandırır veya yavaşlatır; %100, kumandanın kendi hızını iletir."),
 ];

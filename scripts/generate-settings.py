@@ -56,6 +56,7 @@ ADVICE = {
     "checkbox_flip_face_buttons": "Enable to swap A/B and X/Y on physical and on-screen gamepads.",
     "checkbox_gamepad_motion_sensors": "Enable for controller gyro/accelerometer input on Android 12+. Fresh Android 12 (API 31) installations override this to Off because of an OS sensor bug.",
     "checkbox_gamepad_motion_fallback": "Enable to use this device's motion sensors when a controller lacks them. Player 1 also switches to them when the controller's gyroscope reports only zeros for a second. Hidden if the device has neither gyro nor accelerometer.",
+    "gyro_mapping_profiles": "Standard by default for every controller. Pick a connected controller to use Standard, the Flydigi Apex 4 and Vader 4 Pro preset (Switch mode) or a custom profile, which chooses the controller axis behind each motion axis, inverts any of them and scales left-right and up-down speed from 0.10× to 3.00×. Saved per controller (per model for controllers Nightjar drives over USB itself) and applied from the next stream. Change it only when motion aiming turns on the wrong axis or too fast or too slowly.",
     "checkbox_vibrate_fallback": "Enable to feel host rumble on this device when the controller has no rumble motors.",
     "seekbar_vibrate_fallback_strength": "Adjust device rumble strength; 100% is normal strength.",
     "checkbox_gamepad_touchpad_as_mouse": "Enable to always move the host pointer with the controller touchpad instead of forwarding native touchpad input.",
@@ -196,6 +197,7 @@ ADVICE = {
     "checkbox_tell_host_link_speed": "On by default. Tells a Rubylight PC this device's wired port speed, so it never sends faster than the port can take. Other PCs are not told.",
     "list_fec_choice": "PC's setting by default: the PC adds the recovery data its own settings call for. Automatic asks it to follow the losses this device reports; 10, 20, 30 or 50 % fixes the share. Rubylight PCs and Sunshine-based PCs that accept it take this choice; other PCs use their own setting either way.",
     "checkbox_link_probe": "Off by default. A new stream at the automatic bitrate first times a short download from a Rubylight PC that offers it and starts at no more than 80 % of the result (never below 2 Mbit/s). Resumes, a bitrate you set and PyroWave are not tested. Off because it started streams lower, with more loss and freezes, in our measurement.",
+    "checkbox_show_gyro_diagnostics": "Off by default. Shows the motion values each controller sends while streaming, after its gyroscope mapping, with buttons to record them to a CSV file and share it, list the connected controllers and try the Flydigi preset until the stream ends. Covers the top left of the picture. Turn it on only to check a controller's motion.",
     "pin_lock": "Off until a PIN is set. Asks for a PIN to open Nightjar or to start a stream. A forgotten PIN can only be reset by clearing Nightjar's app data in Android's settings, which also removes paired PCs.",
 }
 

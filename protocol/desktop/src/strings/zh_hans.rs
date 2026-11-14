@@ -1572,4 +1572,11 @@ sudo sysctl -w net.core.rmem_max={}", "接收缓冲区：系统只分配了所�
     ("Turns the PC game’s SDR picture into HDR in HDR streams.", "在 HDR 串流中将电脑游戏的 SDR 画面转换为 HDR。"),
     ("Cleans up and sharpens the picture on the PC before it is encoded.", "在编码前于电脑上清理并锐化画面。"),
     ("{} is off for this stream: the GPU renderer could not be made while drawing straight to the display.", "此串流已关闭{}：直接绘制到显示器时无法创建 GPU 渲染器。"),
+    ("Motion", "体感"),
+    ("Up and down (X)", "上下（X）"),
+    ("Left and right (Y)", "左右（Y）"),
+    ("Tilt (Z)", "倾斜（Z）"),
+    ("Left and right sensitivity", "左右灵敏度"),
+    ("Up and down sensitivity", "上下灵敏度"),
+    ("Speeds motion aiming up or slows it down; 100% sends the controller’s own speed.", "加快或减慢体感瞄准；100% 表示使用手柄自身的速度。"),
 ];

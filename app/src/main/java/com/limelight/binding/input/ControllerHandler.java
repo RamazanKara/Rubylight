@@ -1045,6 +1045,8 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 ControllerButtonMap.deviceKey(context.vendorId, context.productId, null));
         context.axisMap = ControllerAxisMap.load(activityContext,
                 ControllerButtonMap.deviceKey(context.vendorId, context.productId, null));
+        context.gyroMapping = GyroMappingPreferences.transformerForModel(activityContext,
+                ControllerButtonMap.deviceKey(context.vendorId, context.productId, null));
 
         context.leftStickDeadzoneRadius = (float) stickDeadzone;
         context.rightStickDeadzoneRadius = (float) stickDeadzone;
@@ -3369,7 +3371,16 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     private MotionListener createSensorListener(final short controllerNumber, final byte motionType,
                                                 final boolean needsDeviceOrientationCorrection,
                                                 final InputDeviceContext livenessContext) {
-        return new MotionListener(controllerNumber, motionType, needsDeviceOrientationCorrection, livenessContext);
+        return createSensorListener(controllerNumber, motionType, needsDeviceOrientationCorrection, livenessContext, null);
+    }
+
+    /** {@code gyroMapping} is a controller's own gyroscope's mapping; null for accelerometers and this device's sensors. */
+    private MotionListener createSensorListener(final short controllerNumber, final byte motionType,
+                                                final boolean needsDeviceOrientationCorrection,
+                                                final InputDeviceContext livenessContext,
+                                                final GyroAxisTransformer gyroMapping) {
+        return new MotionListener(controllerNumber, motionType, needsDeviceOrientationCorrection, livenessContext,
+                gyroMapping);
     }
 
     /**
@@ -3382,8 +3393,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         private final byte motionType;
         private final boolean needsDeviceOrientationCorrection;
         private final InputDeviceContext livenessContext;
+        // Settings › Gyroscope mapping for a controller's gyroscope, fixed when the listener starts.
+        private final GyroAxisTransformer gyroMapping;
         // Only the thread delivering the events reads and writes these.
         private final float[] lastValues = new float[3];
+        private final float[] mapped = new float[3];
         private final GyroLivenessTracker liveness;
         // Set by closeMotionListener() on the thread that unregisters this listener.
         volatile boolean closed;
@@ -3391,11 +3405,12 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         boolean holdsRotation;
 
         MotionListener(short controllerNumber, byte motionType, boolean needsDeviceOrientationCorrection,
-                       InputDeviceContext livenessContext) {
+                       InputDeviceContext livenessContext, GyroAxisTransformer gyroMapping) {
             this.controllerNumber = controllerNumber;
             this.motionType = motionType;
             this.needsDeviceOrientationCorrection = needsDeviceOrientationCorrection;
             this.livenessContext = livenessContext;
+            this.gyroMapping = gyroMapping;
             this.liveness = livenessContext != null ? new GyroLivenessTracker() : null;
         }
 
@@ -3472,19 +3487,32 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 }
                 if (motionType == MoonBridge.LI_MOTION_TYPE_GYRO) {
                     // Convert from rad/s to deg/s
-                    conn.sendControllerMotionEvent((byte) controllerNumber,
-                            motionType,
-                            sensorEvent.values[x] * xFactor * 57.2957795f,
-                            sensorEvent.values[y] * yFactor * 57.2957795f,
-                            sensorEvent.values[z] * zFactor * 57.2957795f);
+                    float gx = sensorEvent.values[x] * xFactor * 57.2957795f;
+                    float gy = sensorEvent.values[y] * yFactor * 57.2957795f;
+                    float gz = sensorEvent.values[z] * zFactor * 57.2957795f;
+                    GyroAxisTransformer mapping = gyroMapping == null ? null
+                            : GyroDiagnosticOverlay.isFlydigiForced() ? GyroMappingPreferences.FLYDIGI_TRANSFORM
+                            : gyroMapping;
+                    if (mapping != null && !mapping.isIdentity()) {
+                        mapping.transform(gx, gy, gz, mapped);
+                        gx = mapped[0];
+                        gy = mapped[1];
+                        gz = mapped[2];
+                    }
+                    if (GyroDiagnosticOverlay.isEnabled()) {
+                        GyroDiagnosticOverlay.report("sensor", controllerNumber, motionType, gx, gy, gz);
+                    }
+                    conn.sendControllerMotionEvent((byte) controllerNumber, motionType, gx, gy, gz);
                 }
                 else {
                     // Pass m/s^2 directly without conversion
-                    conn.sendControllerMotionEvent((byte) controllerNumber,
-                            motionType,
-                            sensorEvent.values[x] * xFactor,
-                            sensorEvent.values[y] * yFactor,
-                            sensorEvent.values[z] * zFactor);
+                    float ax = sensorEvent.values[x] * xFactor;
+                    float ay = sensorEvent.values[y] * yFactor;
+                    float az = sensorEvent.values[z] * zFactor;
+                    if (GyroDiagnosticOverlay.isEnabled()) {
+                        GyroDiagnosticOverlay.report("sensor", controllerNumber, motionType, ax, ay, az);
+                    }
+                    conn.sendControllerMotionEvent((byte) controllerNumber, motionType, ax, ay, az);
                 }
             }
         }
@@ -3566,7 +3594,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                         Sensor gyroSensor = sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
                         if (sensorsEnabled && reportRateHz != 0 && gyroSensor != null) {
                             deviceContext.gyroListener = createSensorListener(controllerNumber, motionType, sm == deviceSensorManager,
-                                    checksGyroLiveness(controllerNumber, sm) ? deviceContext : null);
+                                    checksGyroLiveness(controllerNumber, sm) ? deviceContext : null,
+                                    sm == deviceSensorManager ? null
+                                            : GyroMappingPreferences.transformer(activityContext, deviceContext.inputDevice));
                             registerMotionListener(sm, gyroSensor, deviceContext.gyroListener, 1000000 / reportRateHz);
                         }
                         break;
@@ -4620,6 +4650,20 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         UsbDeviceContext context = usbDeviceContexts.get(controllerId);
         if (!stopped && inputEnabled && sensorsEnabled && prefConfig.gamepadMotionSensors && context != null &&
                 context.assignedControllerNumber && !dropsMotionAndTouchpad(context.buttonMap)) {
+            if (motionType == MoonBridge.LI_MOTION_TYPE_GYRO) {
+                GyroAxisTransformer mapping = GyroDiagnosticOverlay.isFlydigiForced()
+                        ? GyroMappingPreferences.FLYDIGI_TRANSFORM : context.gyroMapping;
+                if (!mapping.isIdentity()) {
+                    // One driver thread reports each pad, so its buffer is never shared.
+                    mapping.transform(x, y, z, context.mappedMotion);
+                    x = context.mappedMotion[0];
+                    y = context.mappedMotion[1];
+                    z = context.mappedMotion[2];
+                }
+            }
+            if (GyroDiagnosticOverlay.isEnabled()) {
+                GyroDiagnosticOverlay.report("usb", context.controllerNumber, motionType, x, y, z);
+            }
             conn.sendControllerMotionEvent((byte)context.controllerNumber, motionType, x, y, z);
         }
     }
@@ -5257,6 +5301,9 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         public AbstractController device;
         // Empty until createUsbDeviceContextForDevice loads the stored one, like InputDeviceContext's
         public ControllerButtonMap buttonMap = new ControllerButtonMap();
+        // Settings › Gyroscope mapping for this model; USB pads have no input descriptor.
+        GyroAxisTransformer gyroMapping = GyroAxisTransformer.identity();
+        final float[] mappedMotion = new float[3];
         private boolean arrivalPending;
         private long arrivalRetryAt;
         // Start+Back+LB+RB was held; the stream menu opens once every button is up.

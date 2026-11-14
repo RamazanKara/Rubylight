@@ -19,6 +19,7 @@ People who reported issues, tested builds and gave feedback on [Nightjar's issue
 - [Artemis Android](https://github.com/ClassicOldSong/moonlight-android) by [ClassicOldSong](https://github.com/ClassicOldSong)
 - [Moonlight V+](https://github.com/qiin2333/moonlight-vplus) and [Moonlight V+ PC](https://github.com/qiin2333/moonlight-qt) by [qiin2333](https://github.com/qiin2333)
 - [Moonlight X](https://github.com/MoreOrLessSoftware/moonlight-android/tree/mlsoft-x) by [MoreOrLessSoftware](https://github.com/MoreOrLessSoftware)
+- [jvanderv42's Nightjar fork](https://github.com/jvanderv42/nightjar) by [jvanderv42](https://github.com/jvanderv42)
 - [moonlight-noir](https://github.com/derflacco/moonlight-android) by [derflacco](https://github.com/derflacco)
 - [Nonary's moonlight-qt](https://github.com/Nonary/moonlight-qt) and [moonlight-common-c](https://github.com/Nonary/moonlight-common-c) by [Nonary](https://github.com/Nonary)
 - [PyroWave](https://github.com/Themaister/pyrowave) and [Granite](https://github.com/Themaister/Granite) by [Themaister](https://github.com/Themaister), with the PyroWave Moonlight protocol and clients by [joemossjr16](https://github.com/joemossjr16), and [volk](https://github.com/zeux/volk) by [zeux](https://github.com/zeux)

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Ayarlar › Kontroller › Jiroskop eşlemesi (GyroProfileEditor) -->
+    <string name="title_gyro_mapping">Jiroskop eşlemesi</string>
+    <string name="summary_gyro_mapping">Hareketle nişan almayı doğru yöne çevirir ve hızını belirler; her kumanda için geçerlidir. Nişan yanlış eksende hareket etmiyorsa ya da çok hızlı veya yavaş dönmüyorsa Standartta bırakın.</string>
+    <string name="gyro_mapping_device_row">%1$s: %2$s</string>
+    <string name="gyro_mapping_choice_title">%1$s jiroskopu</string>
+    <string name="gyro_choice_standard">Standart</string>
+    <string name="gyro_choice_flydigi">Flydigi Apex 4 ve Vader 4 Pro (Switch modu)</string>
+    <string name="gyro_choice_custom">%1$s (özel)</string>
+    <string name="gyro_choice_new">Yeni özel profil…</string>
+    <string name="gyro_mapping_saved">Kaydedildi. Sonraki yayından itibaren geçerli olur.</string>
+    <string name="gyro_profiles_title">Özel profiller</string>
+    <string name="gyro_profile_new">Yeni profil…</string>
+    <string name="gyro_profile_edit">Düzenle</string>
+    <string name="gyro_profile_duplicate">Çoğalt</string>
+    <string name="gyro_profile_delete">Sil</string>
+    <string name="gyro_profile_copy_name">%1$s kopyası</string>
+    <string name="gyro_profile_delete_title">Bu profil silinsin mi?</string>
+    <string name="gyro_profile_delete_message">%1$s kullanan kumandalar Standarda döner.</string>
+    <string name="gyro_profile_deleted">Profil silindi</string>
+    <string name="gyro_profile_create_title">Yeni jiroskop profili</string>
+    <string name="gyro_profile_edit_title">Jiroskop profilini düzenle</string>
+    <string name="gyro_profile_help">Oyunun okuduğu her yön için onu süren kumanda eksenini seçin, yanlış yöne dönüyorsa ters çevirin. Her ekseni bir kez kullanın. Hassasiyetler hareketle nişan almayı hızlandırır veya yavaşlatır.</string>
+    <string name="gyro_profile_name">Profil adı</string>
+    <string name="gyro_profile_name_required">Bir ad girin</string>
+    <string name="gyro_profile_axes_unique">X, Y ve Z’yi birer kez kullanın.</string>
+    <string name="gyro_profile_axis_x">Yukarı ve aşağı (X)</string>
+    <string name="gyro_profile_axis_y">Sol ve sağ (Y)</string>
+    <string name="gyro_profile_axis_z">Eğme (Z)</string>
+    <string name="gyro_profile_source_axis">%2$s ekseninden %1$s</string>
+    <string name="gyro_profile_invert">Ters çevir</string>
+    <string name="gyro_profile_horizontal">Sol ve sağ hassasiyeti</string>
+    <string name="gyro_profile_vertical">Yukarı ve aşağı hassasiyeti</string>
+    <string name="gyro_profile_saved">Profil kaydedildi. Sonraki yayından itibaren geçerli olur.</string>
+
+    <!-- Ayarlar › Gelişmiş › Tanılama › Hareket değerlerini göster (GyroDiagnosticOverlay) -->
+    <string name="title_show_gyro_diagnostics">Hareket değerlerini göster</string>
+    <string name="summary_show_gyro_diagnostics">Yayın sırasında her kumandanın gönderdiği hareket değerlerini, bunları kaydetme ve CSV dosyası olarak paylaşma düğmeleriyle gösterir. Görüntünün sol üst köşesini kaplar. Hareketle nişan alma sorun çıkarmıyorsa kapalı bırakın.</string>
+    <string name="gyro_diag_title">Hareket değerleri</string>
+    <string name="gyro_diag_waiting">Kumanda hareketi bekleniyor…</string>
+    <string name="gyro_diag_record">Kaydet</string>
+    <string name="gyro_diag_stop">Durdur</string>
+    <string name="gyro_diag_recording">Kaydediliyor</string>
+    <string name="gyro_diag_mapping_settings">Eşleme: ayarlar</string>
+    <string name="gyro_diag_mapping_flydigi">Eşleme: Flydigi</string>
+    <string name="gyro_diag_identify">Kumandalar</string>
+    <string name="gyro_diag_devices">Bağlı kumandalar</string>
+    <string name="gyro_diag_share">CSV’yi paylaş</string>
+    <string name="gyro_diag_share_title">Hareket değerlerini paylaş</string>
+    <string name="gyro_diag_hide">Gizle</string>
+    <string name="gyro_diag_show">Göster</string>
+</resources>

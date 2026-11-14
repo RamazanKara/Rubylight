@@ -96,7 +96,7 @@ impl Launcher {
     }
 
     pub(super) fn controllers_page(&mut self, ui: &mut Ui, pads: &crate::gamepad::Gamepads, commands: &mut Vec<Command>) {
-        use crate::gamepad::{AXIS_NAMES, BUTTON_MAP, BUTTON_NAMES, CONNECT_AS, MAX_TRIGGER_DEADZONE, Mapping};
+        use crate::gamepad::{AXIS_NAMES, BUTTON_MAP, BUTTON_NAMES, CONNECT_AS, GYRO_AXIS_NAMES, MAX_GYRO_SPEED, MAX_TRIGGER_DEADZONE, MIN_GYRO_SPEED, Mapping};
         let selected = if self.controller_key.is_empty() { tr("Choose a controller") } else { &self.controller_mapping.name };
         let chooser = Combo::from_id_salt("controller-model").selected_text(selected).show_ui(ui, |ui| {
             for pad in &pads.pads {
@@ -167,6 +167,30 @@ impl Launcher {
                     }).response
                 });
             }
+            section(ui, "Motion");
+            const SOURCES: [&str; 3] = ["X", "Y", "Z"];
+            let source_text = |source: i8| {
+                let axis = SOURCES[usize::from(source.unsigned_abs().clamp(1, 3)) - 1];
+                if source < 0 { trf("{} (inverted)", &[&axis]) } else { axis.to_owned() }
+            };
+            for (i, name) in GYRO_AXIS_NAMES.iter().enumerate() {
+                let mut chosen = mapping.gyro_axes[i];
+                row(ui, name, NO_HINT, |ui| {
+                    Combo::from_id_salt(("gyro-mapping", i)).selected_text(source_text(chosen)).show_ui(ui, |ui| {
+                        for source in [1i8, -1, 2, -2, 3, -3] {
+                            ui.selectable_value(&mut chosen, source, source_text(source));
+                        }
+                    }).response
+                });
+                if chosen != mapping.gyro_axes[i] { mapping.set_gyro_axis(i, chosen); }
+            }
+            let speed = en("Speeds motion aiming up or slows it down; 100% sends the controller’s own speed.");
+            row(ui, "Left and right sensitivity", speed, |ui| {
+                slider(ui, &mut mapping.gyro_yaw, MIN_GYRO_SPEED..=MAX_GYRO_SPEED, 5.0, percent, |rail| rail, |field| field.suffix("%"))
+            });
+            row(ui, "Up and down sensitivity", speed, |ui| {
+                slider(ui, &mut mapping.gyro_pitch, MIN_GYRO_SPEED..=MAX_GYRO_SPEED, 5.0, percent, |rail| rail, |field| field.suffix("%"))
+            });
             section(ui, "Buttons");
             for (i, name) in BUTTON_NAMES.iter().enumerate() {
                 let selected = match mapping.buttons[i] {

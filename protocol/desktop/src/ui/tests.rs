@@ -4864,6 +4864,10 @@ fn polish_screenshots() {
         f.l.controller_key = "demo-pad".into();
         f.l.controller_mapping = crate::gamepad::Mapping { name: "Xbox Wireless Controller".into(), ..Default::default() };
         shoot(&mut f, "controllers");
+        // Its Motion rows, below the stick axes: the gyroscope's axes and sensitivity.
+        let middle = (f.size / 2.0).to_pos2();
+        wheel(&mut f, middle, -900.0);
+        shoot(&mut f, "controllers-motion");
         f.l.go(Screen::Hosts);
         f.settle();
         f.press(Key::F2);

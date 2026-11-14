@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Réglages › Commandes › Attribution du gyroscope (GyroProfileEditor) -->
+    <string name="title_gyro_mapping">Attribution du gyroscope</string>
+    <string name="summary_gyro_mapping">Oriente la visée au mouvement dans le bon sens et règle sa vitesse, pour chaque manette. Laissez-la sur Standard, sauf si la visée part sur le mauvais axe ou tourne trop vite ou trop lentement.</string>
+    <string name="gyro_mapping_device_row">%1$s : %2$s</string>
+    <string name="gyro_mapping_choice_title">Gyroscope de %1$s</string>
+    <string name="gyro_choice_standard">Standard</string>
+    <string name="gyro_choice_flydigi">Flydigi Apex 4 et Vader 4 Pro (mode Switch)</string>
+    <string name="gyro_choice_custom">%1$s (personnalisé)</string>
+    <string name="gyro_choice_new">Nouveau profil personnalisé…</string>
+    <string name="gyro_mapping_saved">Enregistré. S’applique à partir du prochain stream.</string>
+    <string name="gyro_profiles_title">Profils personnalisés</string>
+    <string name="gyro_profile_new">Nouveau profil…</string>
+    <string name="gyro_profile_edit">Modifier</string>
+    <string name="gyro_profile_duplicate">Dupliquer</string>
+    <string name="gyro_profile_delete">Supprimer</string>
+    <string name="gyro_profile_copy_name">Copie de %1$s</string>
+    <string name="gyro_profile_delete_title">Supprimer ce profil ?</string>
+    <string name="gyro_profile_delete_message">Les manettes qui utilisent %1$s reviennent à Standard.</string>
+    <string name="gyro_profile_deleted">Profil supprimé</string>
+    <string name="gyro_profile_create_title">Nouveau profil de gyroscope</string>
+    <string name="gyro_profile_edit_title">Modifier le profil de gyroscope</string>
+    <string name="gyro_profile_help">Pour chaque direction lue par un jeu, choisissez l’axe de la manette qui la pilote, et inversez-le s’il va dans le mauvais sens. Utilisez chaque axe une fois. Les sensibilités accélèrent ou ralentissent la visée au mouvement.</string>
+    <string name="gyro_profile_name">Nom du profil</string>
+    <string name="gyro_profile_name_required">Saisissez un nom</string>
+    <string name="gyro_profile_axes_unique">Utilisez X, Y et Z une fois chacun.</string>
+    <string name="gyro_profile_axis_x">Haut et bas (X)</string>
+    <string name="gyro_profile_axis_y">Gauche et droite (Y)</string>
+    <string name="gyro_profile_axis_z">Inclinaison (Z)</string>
+    <string name="gyro_profile_source_axis">%1$s avec %2$s</string>
+    <string name="gyro_profile_invert">Inverser</string>
+    <string name="gyro_profile_horizontal">Sensibilité gauche et droite</string>
+    <string name="gyro_profile_vertical">Sensibilité haut et bas</string>
+    <string name="gyro_profile_saved">Profil enregistré. S’applique à partir du prochain stream.</string>
+
+    <!-- Réglages › Avancé › Diagnostic › Afficher les relevés de mouvement (GyroDiagnosticOverlay) -->
+    <string name="title_show_gyro_diagnostics">Afficher les relevés de mouvement</string>
+    <string name="summary_show_gyro_diagnostics">Affiche les valeurs de mouvement envoyées par chaque manette pendant un stream, avec des boutons pour les enregistrer et les partager en fichier CSV. Couvre le coin supérieur gauche de l’image. Laissez-le désactivé sauf si la visée au mouvement se comporte mal.</string>
+    <string name="gyro_diag_title">Relevés de mouvement</string>
+    <string name="gyro_diag_waiting">En attente du mouvement de la manette…</string>
+    <string name="gyro_diag_record">Enregistrer</string>
+    <string name="gyro_diag_stop">Arrêter</string>
+    <string name="gyro_diag_recording">Enregistrement</string>
+    <string name="gyro_diag_mapping_settings">Attribution : réglages</string>
+    <string name="gyro_diag_mapping_flydigi">Attribution : Flydigi</string>
+    <string name="gyro_diag_identify">Manettes</string>
+    <string name="gyro_diag_devices">Manettes connectées</string>
+    <string name="gyro_diag_share">Partager le CSV</string>
+    <string name="gyro_diag_share_title">Partager les relevés de mouvement</string>
+    <string name="gyro_diag_hide">Masquer</string>
+    <string name="gyro_diag_show">Afficher</string>
+</resources>

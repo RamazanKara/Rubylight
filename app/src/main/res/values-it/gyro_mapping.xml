@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Impostazioni › Comandi › Mappatura del giroscopio (GyroProfileEditor) -->
+    <string name="title_gyro_mapping">Mappatura del giroscopio</string>
+    <string name="summary_gyro_mapping">Indirizza correttamente la mira col movimento e ne imposta la velocità, per ogni controller. Lasciala su Standard, a meno che la mira si muova sull’asse sbagliato o ruoti troppo in fretta o troppo lentamente.</string>
+    <string name="gyro_mapping_device_row">%1$s: %2$s</string>
+    <string name="gyro_mapping_choice_title">Giroscopio di %1$s</string>
+    <string name="gyro_choice_standard">Standard</string>
+    <string name="gyro_choice_flydigi">Flydigi Apex 4 e Vader 4 Pro (modalità Switch)</string>
+    <string name="gyro_choice_custom">%1$s (personalizzato)</string>
+    <string name="gyro_choice_new">Nuovo profilo personalizzato…</string>
+    <string name="gyro_mapping_saved">Salvato. Si applica dal prossimo stream.</string>
+    <string name="gyro_profiles_title">Profili personalizzati</string>
+    <string name="gyro_profile_new">Nuovo profilo…</string>
+    <string name="gyro_profile_edit">Modifica</string>
+    <string name="gyro_profile_duplicate">Duplica</string>
+    <string name="gyro_profile_delete">Elimina</string>
+    <string name="gyro_profile_copy_name">Copia di %1$s</string>
+    <string name="gyro_profile_delete_title">Eliminare questo profilo?</string>
+    <string name="gyro_profile_delete_message">I controller che usano %1$s tornano a Standard.</string>
+    <string name="gyro_profile_deleted">Profilo eliminato</string>
+    <string name="gyro_profile_create_title">Nuovo profilo del giroscopio</string>
+    <string name="gyro_profile_edit_title">Modifica profilo del giroscopio</string>
+    <string name="gyro_profile_help">Per ogni direzione letta da un gioco, scegli l’asse del controller che la guida e invertilo se va nel verso sbagliato. Usa ogni asse una volta. Le sensibilità accelerano o rallentano la mira col movimento.</string>
+    <string name="gyro_profile_name">Nome del profilo</string>
+    <string name="gyro_profile_name_required">Inserisci un nome</string>
+    <string name="gyro_profile_axes_unique">Usa X, Y e Z una volta ciascuno.</string>
+    <string name="gyro_profile_axis_x">Su e giù (X)</string>
+    <string name="gyro_profile_axis_y">Sinistra e destra (Y)</string>
+    <string name="gyro_profile_axis_z">Inclinazione (Z)</string>
+    <string name="gyro_profile_source_axis">%1$s con %2$s</string>
+    <string name="gyro_profile_invert">Inverti</string>
+    <string name="gyro_profile_horizontal">Sensibilità sinistra e destra</string>
+    <string name="gyro_profile_vertical">Sensibilità su e giù</string>
+    <string name="gyro_profile_saved">Profilo salvato. Si applica dal prossimo stream.</string>
+
+    <!-- Impostazioni › Avanzate › Diagnostica › Mostra letture di movimento (GyroDiagnosticOverlay) -->
+    <string name="title_show_gyro_diagnostics">Mostra letture di movimento</string>
+    <string name="summary_show_gyro_diagnostics">Mostra i valori di movimento che ogni controller invia durante lo streaming, con pulsanti per registrarli e condividerli come file CSV. Copre l’angolo in alto a sinistra dell’immagine. Lascialo disattivato a meno che la mira col movimento non funzioni bene.</string>
+    <string name="gyro_diag_title">Letture di movimento</string>
+    <string name="gyro_diag_waiting">In attesa del movimento del controller…</string>
+    <string name="gyro_diag_record">Registra</string>
+    <string name="gyro_diag_stop">Ferma</string>
+    <string name="gyro_diag_recording">Registrazione</string>
+    <string name="gyro_diag_mapping_settings">Mappatura: impostazioni</string>
+    <string name="gyro_diag_mapping_flydigi">Mappatura: Flydigi</string>
+    <string name="gyro_diag_identify">Controller</string>
+    <string name="gyro_diag_devices">Controller collegati</string>
+    <string name="gyro_diag_share">Condividi CSV</string>
+    <string name="gyro_diag_share_title">Condividi letture di movimento</string>
+    <string name="gyro_diag_hide">Nascondi</string>
+    <string name="gyro_diag_show">Mostra</string>
+</resources>

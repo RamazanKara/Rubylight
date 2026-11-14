@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 설정 › 컨트롤 › 자이로 매핑 (GyroProfileEditor) -->
+    <string name="title_gyro_mapping">자이로 매핑</string>
+    <string name="summary_gyro_mapping">컨트롤러마다 모션 조준 방향을 바로잡고 속도를 설정합니다. 조준이 잘못된 축으로 움직이거나 너무 빠르거나 느릴 때만 표준에서 바꾸세요.</string>
+    <string name="gyro_mapping_device_row">%1$s: %2$s</string>
+    <string name="gyro_mapping_choice_title">%1$s의 자이로</string>
+    <string name="gyro_choice_standard">표준</string>
+    <string name="gyro_choice_flydigi">Flydigi Apex 4 및 Vader 4 Pro(Switch 모드)</string>
+    <string name="gyro_choice_custom">%1$s(사용자 지정)</string>
+    <string name="gyro_choice_new">새 사용자 지정 프로필…</string>
+    <string name="gyro_mapping_saved">저장했습니다. 다음 스트림부터 적용됩니다.</string>
+    <string name="gyro_profiles_title">사용자 지정 프로필</string>
+    <string name="gyro_profile_new">새 프로필…</string>
+    <string name="gyro_profile_edit">편집</string>
+    <string name="gyro_profile_duplicate">복제</string>
+    <string name="gyro_profile_delete">삭제</string>
+    <string name="gyro_profile_copy_name">%1$s 사본</string>
+    <string name="gyro_profile_delete_title">이 프로필을 삭제할까요?</string>
+    <string name="gyro_profile_delete_message">%1$s을(를) 사용하는 컨트롤러는 표준으로 돌아갑니다.</string>
+    <string name="gyro_profile_deleted">프로필 삭제됨</string>
+    <string name="gyro_profile_create_title">새 자이로 프로필</string>
+    <string name="gyro_profile_edit_title">자이로 프로필 편집</string>
+    <string name="gyro_profile_help">게임이 읽는 방향마다 이를 움직이는 컨트롤러 축을 고르고, 반대로 움직이면 반전하세요. 각 축은 한 번씩 사용하세요. 감도는 모션 조준을 빠르게 또는 느리게 합니다.</string>
+    <string name="gyro_profile_name">프로필 이름</string>
+    <string name="gyro_profile_name_required">이름을 입력하세요</string>
+    <string name="gyro_profile_axes_unique">X, Y, Z를 각각 한 번씩 사용하세요.</string>
+    <string name="gyro_profile_axis_x">위아래 (X)</string>
+    <string name="gyro_profile_axis_y">좌우 (Y)</string>
+    <string name="gyro_profile_axis_z">기울이기 (Z)</string>
+    <string name="gyro_profile_source_axis">%2$s 축의 %1$s</string>
+    <string name="gyro_profile_invert">반전</string>
+    <string name="gyro_profile_horizontal">좌우 감도</string>
+    <string name="gyro_profile_vertical">위아래 감도</string>
+    <string name="gyro_profile_saved">프로필을 저장했습니다. 다음 스트림부터 적용됩니다.</string>
+
+    <!-- 설정 › 고급 › 진단 › 모션 값 표시 (GyroDiagnosticOverlay) -->
+    <string name="title_show_gyro_diagnostics">모션 값 표시</string>
+    <string name="summary_show_gyro_diagnostics">스트리밍 중에 각 컨트롤러가 보내는 모션 값을 표시하며, 기록하고 CSV 파일로 공유하는 버튼이 있습니다. 화면 왼쪽 위를 가립니다. 모션 조준에 문제가 있을 때만 켜세요.</string>
+    <string name="gyro_diag_title">모션 값</string>
+    <string name="gyro_diag_waiting">컨트롤러 움직임을 기다리는 중…</string>
+    <string name="gyro_diag_record">기록</string>
+    <string name="gyro_diag_stop">중지</string>
+    <string name="gyro_diag_recording">기록 중</string>
+    <string name="gyro_diag_mapping_settings">매핑: 설정</string>
+    <string name="gyro_diag_mapping_flydigi">매핑: Flydigi</string>
+    <string name="gyro_diag_identify">컨트롤러</string>
+    <string name="gyro_diag_devices">연결된 컨트롤러</string>
+    <string name="gyro_diag_share">CSV 공유</string>
+    <string name="gyro_diag_share_title">모션 값 공유</string>
+    <string name="gyro_diag_hide">숨기기</string>
+    <string name="gyro_diag_show">표시</string>
+</resources>

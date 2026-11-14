@@ -1,4 +1,4 @@
-//! RTX Video enhancement through the NVIDIA build's NGX adapter: NVIDIA's
+//! RTX Video enhancement through the NVIDIA component's NGX adapter: NVIDIA's
 //! video super resolution (VSR) at the capture's own size, which sharpens and
 //! deblocks the picture before encoding. SDR pictures go to the model as
 //! they are; an FP16 HDR picture stays HDR, its SDR proxy is enhanced and
@@ -53,7 +53,7 @@ impl Filter {
             bail!("RTX Video enhancement needs an NVIDIA GPU");
         }
         let dll = crate::nvidia_enhance::load()?;
-        // SAFETY: The adapter's ABI 2 (checked by `load`) exports these symbols with these types,
+        // SAFETY: The adapter's ABI 3 (checked by `load`) exports these symbols with these types,
         // and Filter keeps `dll` and `device` while the pointers are used.
         unsafe {
             let create = *dll.get::<Create>(b"butterpollo_vsr_create\0")?;
@@ -89,52 +89,73 @@ impl Filter {
             bail!("RTX Video enhancement reads 8-bit SDR and FP16 HDR pictures only");
         }
         ready_for_d3d11(image)?;
-        // SAFETY: `state` is the live NGX state on this device, whose multithread lock is held for
-        // the whole enhancement; NGX's output is only borrowed while it is read.
+        // SAFETY: `state` is the live NGX state on this device and `image` a live picture on it.
+        // The adapter takes its own lock and then the device's multithread lock (ABI 3), so VSR
+        // runs with neither held here; this filter's own passes and the copy into the pool hold the
+        // device's lock. NGX's output is only borrowed while it is read.
         unsafe {
             let lock: ID3D11Multithread = self.device.context.cast()?;
-            lock.Enter();
-            let result = self.enhance(image);
+            let result = self.enhance(image, &lock);
             // The enhanced picture is read on the compute queue (a shared handle imported into
             // D3D12) while the D3D11 commands that wrote it sit in the context's buffer: hand them
             // to the GPU now, before the copy into the pool and the return to the caller.
+            lock.Enter();
             self.device.context.Flush();
             lock.Leave();
             result
         }
     }
     /// # Safety
-    /// The caller holds the device's multithread lock.
-    unsafe fn enhance(&mut self, image: &GpuImage) -> Result<GpuImage> {
-        // SAFETY: the caller holds the device's multithread lock, as `vsr` and the HDR passes
-        // require; `image` is a live picture on this device.
+    /// The caller holds no multithread lock of the device; `lock` is it.
+    unsafe fn enhance(&mut self, image: &GpuImage, lock: &ID3D11Multithread) -> Result<GpuImage> {
+        // SAFETY: the HDR passes and the pool copy run under the device's multithread lock, VSR
+        // outside it; `image` is a live picture on this device.
         unsafe {
+            let locked = |work: &mut dyn FnMut() -> Result<()>| {
+                lock.Enter();
+                let result = work();
+                lock.Leave();
+                result
+            };
             let texture = if image.pixel == Pixel::Bgra8 {
                 self.vsr(image.texture.as_raw())?
             } else {
-                if self.hdr.is_none() {
-                    self.hdr = Some(HdrPasses::new(&self.device)?);
-                }
-                let passes = self.hdr.as_mut().unwrap();
-                passes.size(&self.device, image.width, image.height)?;
-                let original = passes.original(&self.device, image)?;
-                passes.prepare(&self.device, &original, image.width, image.height);
-                let proxy = passes.proxy.as_raw();
+                let mut original = None;
+                locked(&mut || {
+                    if self.hdr.is_none() {
+                        self.hdr = Some(HdrPasses::new(&self.device)?);
+                    }
+                    let passes = self.hdr.as_mut().unwrap();
+                    passes.size(&self.device, image.width, image.height)?;
+                    let copy = passes.original(&self.device, image)?;
+                    passes.prepare(&self.device, &copy, image.width, image.height);
+                    original = Some(copy);
+                    Ok(())
+                })?;
+                let original = original.context("the HDR passes made no copy")?;
+                let proxy = self.hdr.as_ref().unwrap().proxy.as_raw();
                 let enhanced = self.vsr(proxy)?;
-                let passes = self.hdr.as_mut().unwrap();
-                passes.resolve(
-                    &self.device,
-                    &original,
-                    &enhanced,
-                    image.width,
-                    image.height,
-                )?;
-                passes.output.clone()
+                locked(&mut || {
+                    self.hdr.as_mut().unwrap().resolve(
+                        &self.device,
+                        &original,
+                        &enhanced,
+                        image.width,
+                        image.height,
+                    )
+                })?;
+                self.hdr.as_ref().unwrap().output.clone()
             };
-            let mut enhanced = self
-                .pool
-                .copy(&self.device, &texture)?
-                .context("the enhanced pictures are all still being encoded")?;
+            let mut enhanced = None;
+            locked(&mut || {
+                enhanced = Some(
+                    self.pool
+                        .copy(&self.device, &texture)?
+                        .context("the enhanced pictures are all still being encoded")?,
+                );
+                Ok(())
+            })?;
+            let mut enhanced = enhanced.context("the pool returned no picture")?;
             enhanced.inherit(image);
             Ok(enhanced)
         }
@@ -142,7 +163,8 @@ impl Filter {
     /// NGX's VSR over `input` at its own size.
     unsafe fn vsr(&mut self, input: *mut c_void) -> Result<ID3D11Texture2D> {
         // SAFETY: `state` is the live NGX state on this device and `input` a live texture on it;
-        // the caller holds the multithread lock. NGX's output is only borrowed while it is read.
+        // the caller holds no multithread lock, which the adapter takes after its own. NGX's
+        // output is only borrowed while it is read.
         unsafe {
             let mut error = 0;
             let output = (self.convert)(self.state, input, self.quality, &mut error);

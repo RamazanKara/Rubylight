@@ -106,7 +106,7 @@ pub(crate) fn effective_config(h: &Shared, launch: &Launch) -> Result<Config> {
                 peak_chosen |= target == "hdr_peak_brightness";
             }
         }
-        // The NVIDIA build's enhancements, marked as chosen: RTX HDR runs only
+        // The NVIDIA image enhancements, marked as chosen: RTX HDR runs only
         // for an app, device or stream that chose it.
         let inherited = config.clone();
         for (source, target) in butterpollo_core::nvidia_enhance::APP_KEYS {

@@ -15,6 +15,7 @@
   import SessionsPanel from '../components/maintenance/SessionsPanel.svelte';
   import UpdatesPanel from '../components/maintenance/UpdatesPanel.svelte';
   import VulkanPanel from '../components/maintenance/VulkanPanel.svelte';
+  import NvidiaPanel from '../components/maintenance/NvidiaPanel.svelte';
   import InternetPlayPanel from '../components/maintenance/InternetPlayPanel.svelte';
   import { reason } from '../components/maintenance/util';
   import { matchesSetting, matchesWords, searchWords } from '../components/settings/search';
@@ -54,7 +55,13 @@
   import { EXPERT_GROUPS } from '../lib/schema/main';
   import SaveBar from '../components/settings/SaveBar.svelte';
   import { SETTING as PRESET, covered, presetById, presetId, presetNotice, withPreset } from '../lib/stream-presets';
-  import { NATIVE_ENCODERS, NVIDIA_BUILD, NVIDIA_ENHANCEMENTS, type Setting } from '../lib/settings-types';
+  import {
+    NATIVE_ENCODERS,
+    NVIDIA_COMPONENT,
+    NVIDIA_ENHANCEMENTS,
+    componentGate,
+    type Setting,
+  } from '../lib/settings-types';
 
   const tabs = settingGroups;
   const byKey: ReadonlyMap<string, Setting> = new Map(schema.settings.map((setting) => [setting.key, setting]));
@@ -143,7 +150,7 @@
     );
     // RTX HDR and RTX Video settings show where the host offers them.
     current[NVIDIA_ENHANCEMENTS] = nvidiaEnhancements(session.metadata?.features);
-    current[NVIDIA_BUILD] = session.metadata?.nvidia_enhancements?.build === true;
+    current[NVIDIA_COMPONENT] = componentGate(session.metadata?.nvidia_enhancements?.component);
     return current;
   });
   const changes = $derived(stored ? computeChanges(defaults, edits, stored, new Set(covered)) : {});
@@ -361,6 +368,11 @@
   // ---------- panels that are not settings ----------
 
   let integrationsOpen = $state(false);
+  /** The NVIDIA components panel: on a PC with an NVIDIA graphics card, or wherever they are installed. */
+  const nvidiaShown = $derived.by(() => {
+    const component = session.metadata?.nvidia_enhancements?.component;
+    return !!component && (component.nvidia_gpu || component.installed || component.state !== 'missing');
+  });
   let customOpen = $state<boolean | null>(null);
   // Custom keys open by themselves while there are any.
   const customShown = $derived(customOpen ?? unknownKeys.length > 0);
@@ -822,7 +834,7 @@
           <Disclosure
             id={groupAnchor(INTEGRATIONS)}
             title={INTEGRATIONS}
-            meta="Vulkan HDR layer and RTSS"
+            meta={nvidiaShown ? 'Vulkan HDR layer, RTSS and NVIDIA components' : 'Vulkan HDR layer and RTSS'}
             level={3}
             open={integrationsOpen}
             ontoggle={(open) => (integrationsOpen = open)}
@@ -830,6 +842,9 @@
             <div class="integration-panels">
               <VulkanPanel />
               <LimiterPanel />
+              {#if nvidiaShown}
+                <NvidiaPanel />
+              {/if}
             </div>
           </Disclosure>
         {/if}

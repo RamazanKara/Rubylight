@@ -1,11 +1,11 @@
-//! The NVIDIA build's image enhancements before encoding: RTX HDR (an SDR
-//! capture for an HDR stream) and RTX Video enhancement (NVIDIA's video
-//! super resolution at the capture's own size). A build without the
-//! `nvidia-proprietary` feature offers neither and passes every picture
-//! through unchanged. The per-app enhancement design follows Foundation
-//! Sunshine's (AlkaidLab/foundation-sunshine, GPL-3.0) DLSS NR settings.
+//! The NVIDIA image enhancements before encoding: RTX HDR (an SDR capture for
+//! an HDR stream) and RTX Video enhancement (NVIDIA's video super resolution
+//! at the capture's own size). They need the NVIDIA component
+//! ([`crate::nvidia_component`]); without it neither is offered and every
+//! picture passes through unchanged. The per-app enhancement design follows
+//! Foundation Sunshine's (AlkaidLab/foundation-sunshine, GPL-3.0) DLSS NR
+//! settings.
 use crate::state::{Session, Shared};
-#[cfg(feature = "nvidia-proprietary")]
 use butterpollo_core::nvidia_enhance::Enhancement;
 use butterpollo_core::{
     config::Config,
@@ -21,7 +21,6 @@ const WARNING: &str = "nvidia_enhancement";
 /// Asks the GPU and driver which enhancements they offer, once at startup.
 /// NVIDIA's NGX runs in a process of its own (`--nvidia-probe`): a crash or
 /// hang inside it costs the enhancements, never the host.
-#[cfg(feature = "nvidia-proprietary")]
 pub(crate) fn probe(h: &Shared) {
     let started = std::time::Instant::now();
     let (offered, errors) = probe_child(&h.directory);
@@ -40,11 +39,22 @@ pub(crate) fn probe(h: &Shared) {
 
 /// The `--nvidia-probe` process: NGX's check, printed as one JSON line. A
 /// crash in it leaves a report in `profile`'s crashes folder.
-#[cfg(feature = "nvidia-proprietary")]
 pub(crate) fn probe_main(profile: &std::path::Path) -> i32 {
     // Without crash reports the check still runs; its exit code tells a crash.
     let _ = butterpollo_windows::crash::initialize(profile);
-    let (offered, errors) = butterpollo_windows::nvidia_enhance::probe();
+    let (offered, errors) = match crate::nvidia_component::component_for(profile) {
+        Ok(component) => {
+            butterpollo_windows::nvidia_enhance::set_component(Some(component));
+            butterpollo_windows::nvidia_enhance::probe()
+        }
+        Err(error) => (
+            0,
+            vec![
+                ("rtx_hdr", format!("{error:#}")),
+                ("rtx_video", format!("{error:#}")),
+            ],
+        ),
+    };
     let errors: serde_json::Map<String, serde_json::Value> = errors
         .into_iter()
         .map(|(feature, error)| (feature.to_owned(), error.into()))
@@ -57,7 +67,6 @@ pub(crate) fn probe_main(profile: &std::path::Path) -> i32 {
 }
 
 /// Runs NVIDIA's check in its own process, as this host's user.
-#[cfg(feature = "nvidia-proprietary")]
 fn probe_child(profile: &std::path::Path) -> nvidia_enhance::Offer {
     use nvidia_enhance::{PROBE_TIMEOUT_SECS, ProbeEnd, probe_failed, read_probe};
     use std::{io::BufRead, os::windows::process::CommandExt, process::Stdio, time::Instant};
@@ -106,8 +115,8 @@ fn probe_child(profile: &std::path::Path) -> nvidia_enhance::Offer {
     read_probe(line.as_deref(), ended)
 }
 
-/// The console's view: whether this is the NVIDIA build, what it offers and
-/// why the rest is missing.
+/// The console's view: the NVIDIA component's state, what the GPU and driver
+/// offer with it and why the rest is missing.
 pub(crate) fn status(h: &Shared) -> serde_json::Value {
     let offered = h.nvidia_enhancements.load(Ordering::Acquire);
     let errors: serde_json::Map<String, serde_json::Value> = h
@@ -118,7 +127,7 @@ pub(crate) fn status(h: &Shared) -> serde_json::Value {
         .map(|(feature, error)| ((*feature).to_owned(), error.as_str().into()))
         .collect();
     serde_json::json!({
-        "build": cfg!(feature = "nvidia-proprietary"),
+        "component": crate::nvidia_component::summary(h),
         "rtx_hdr": offered & RTX_HDR != 0,
         "rtx_video": offered & RTX_VIDEO != 0,
         "errors": errors,
@@ -140,7 +149,6 @@ pub(crate) fn source(pixel: Pixel) -> Source {
 /// the capture's texture).
 #[derive(Default)]
 pub(crate) struct Enhancer {
-    #[cfg(feature = "nvidia-proprietary")]
     inner: active::Inner,
 }
 
@@ -148,7 +156,6 @@ impl Enhancer {
     /// The picture to encode for `image`, and whether the encoder must be
     /// rebuilt for it. A failing enhancement is turned off for this capture
     /// with a session warning, and the original picture is encoded.
-    #[cfg_attr(not(feature = "nvidia-proprietary"), allow(unused_variables))]
     pub(crate) fn apply(
         &mut self,
         s: &Session,
@@ -161,51 +168,29 @@ impl Enhancer {
             Some(reason) => s.launch.warnings.set(WARNING, reason),
             None => s.launch.warnings.clear(WARNING),
         }
-        #[cfg(feature = "nvidia-proprietary")]
-        {
-            let wanted = nvidia_enhance::select(config, offered, s.config.hdr, source);
-            self.inner.apply(s, config, wanted, image)
-        }
-        #[cfg(not(feature = "nvidia-proprietary"))]
-        (image, false)
+        let wanted = nvidia_enhance::select(config, offered, s.config.hdr, source);
+        self.inner.apply(s, config, wanted, image)
     }
 
     /// The encoder's SDR white and linear scale while RTX HDR converts the
     /// picture; `None` leaves the encoder's own values.
-    #[cfg_attr(not(feature = "nvidia-proprietary"), allow(unused_variables))]
     pub(crate) fn luminance(&self, config: &Config) -> Option<(f32, f32)> {
-        #[cfg(feature = "nvidia-proprietary")]
-        {
-            (self.inner.selected == Enhancement::RtxHdr)
-                .then(|| nvidia_enhance::rtx_luminance(config))
-        }
-        #[cfg(not(feature = "nvidia-proprietary"))]
-        None
+        (self.inner.selected == Enhancement::RtxHdr).then(|| nvidia_enhance::rtx_luminance(config))
     }
 
     /// RTX HDR's values from the NVIDIA driver profile of the game in front,
     /// where the app or device did not choose them (polled every 250 ms
     /// while RTX HDR runs). Returns the stream's new runtime configuration.
-    #[cfg_attr(not(feature = "nvidia-proprietary"), allow(unused_variables))]
     pub(crate) fn tune(&mut self, h: &Shared, image: &GpuImage, base: &Config) -> Option<Config> {
-        #[cfg(feature = "nvidia-proprietary")]
-        {
-            self.inner.tune(h, image, base)
-        }
-        #[cfg(not(feature = "nvidia-proprietary"))]
-        None
+        self.inner.tune(h, image, base)
     }
 
     /// Drops the filters: the capture is recreated, possibly on a new device.
     pub(crate) fn reset(&mut self) {
-        #[cfg(feature = "nvidia-proprietary")]
-        {
-            self.inner = active::Inner::default();
-        }
+        self.inner = active::Inner::default();
     }
 }
 
-#[cfg(feature = "nvidia-proprietary")]
 mod active {
     use super::*;
     use anyhow::Context as _;
@@ -397,7 +382,7 @@ mod tests {
     }
 
     #[test]
-    fn a_build_without_the_enhancements_reports_nothing_offered() {
+    fn a_host_without_the_component_reports_nothing_offered() {
         let f = crate::state::test_support::Fixture::new();
         let h = &f.host;
         h.nvidia_enhancement_errors
@@ -405,7 +390,7 @@ mod tests {
             .unwrap()
             .push(("rtx_video", "the GPU does not support it".into()));
         let status = status(h);
-        assert_eq!(status["build"], cfg!(feature = "nvidia-proprietary"));
+        assert_eq!(status["component"]["state"], "missing");
         assert_eq!(status["rtx_hdr"], false);
         assert_eq!(status["rtx_video"], false);
         assert_eq!(status["errors"]["rtx_video"], "the GPU does not support it");

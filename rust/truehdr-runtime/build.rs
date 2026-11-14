@@ -1,8 +1,8 @@
 include!("../assets/version_info.rs");
 
 // Links NVIDIA's NGX library from the RTX Video SDK and gives the adapter DLL
-// the release's version information. Only Rubylight's separate, unsigned
-// NVIDIA build (`rust/build.ps1 -Nvidia`) builds this crate.
+// the release's version information and NVIDIA's application ID. Only the
+// NVIDIA component (`rust/build.ps1 -Nvidia`) builds this crate.
 fn main() {
     if !std::env::var("TARGET").unwrap().ends_with("windows-msvc") {
         panic!("NVIDIA's vendor library requires --target x86_64-pc-windows-msvc");
@@ -19,6 +19,24 @@ fn main() {
     }
     println!("cargo:rerun-if-changed=src/lib.rs");
     check_declarations(&sdk.join("include"));
+    // The NGX application ID NVIDIA assigns; without one, the SDK's default 0.
+    println!("cargo:rerun-if-env-changed=RUBYLIGHT_NGX_APPLICATION_ID");
+    let id = std::env::var("RUBYLIGHT_NGX_APPLICATION_ID").unwrap_or_default();
+    let id: u64 = match id.trim() {
+        "" => 0,
+        text => text
+            .parse()
+            .expect("RUBYLIGHT_NGX_APPLICATION_ID must be an unsigned 64-bit decimal number"),
+    };
+    let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    std::fs::write(
+        out.join("application_id.rs"),
+        format!(
+            "const NGX_APPLICATION_ID: u64 = {id};
+"
+        ),
+    )
+    .unwrap();
     println!(
         "cargo:rustc-link-search=native={}",
         sdk.join("lib/Windows/x64").display()

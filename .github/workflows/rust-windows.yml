@@ -467,16 +467,17 @@ jobs:
             ${{ runner.temp }}/butterpollo-rust-target/butterpollo-setup-*.exe
           if-no-files-found: error
           retention-days: 30
-  # The separate, unsigned NVIDIA build (rust/build.ps1 -Nvidia): RTX HDR and RTX
-  # Video enhancement through NVIDIA's RTX Video SDK, whose proprietary NGX
-  # library no signed build may contain (docs/code-signing-policy.md). It is
-  # never sent to SignPath. nvidia-assets attaches it to the published release
-  # beside the signed files; publish never waits on it.
+  # The NVIDIA component (rust/build.ps1 -Nvidia): the NGX adapter, which
+  # links NVIDIA's RTX Video SDK, with NVIDIA's runtime DLLs, in the one
+  # archive the console downloads for RTX HDR and RTX Video enhancement. No
+  # signed file contains it and it is never sent to SignPath
+  # (docs/code-signing-policy.md). nvidia-assets attaches it to the published
+  # release; publish never waits on it.
   nvidia:
     needs: tag
     if: ${{ !cancelled() && needs.tag.result != 'failure' && !needs.tag.outputs.run && !inputs.notes }}
     runs-on: windows-2022
-    timeout-minutes: 150
+    timeout-minutes: 45
     permissions:
       contents: read
     defaults:
@@ -484,70 +485,31 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-      - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e
-        id: msys
-        with:
-          msystem: UCRT64
-          update: true
-          install: >-
-            git
-            mingw-w64-ucrt-x86_64-gcc
-            mingw-w64-ucrt-x86_64-clang
-            mingw-w64-ucrt-x86_64-cmake
-            mingw-w64-ucrt-x86_64-ninja
-            mingw-w64-ucrt-x86_64-vulkan-headers
-            mingw-w64-ucrt-x86_64-opus
-            mingw-w64-ucrt-x86_64-nasm
-            make
-      - name: Rust toolchains
+      - name: Rust toolchain
         run: |
           rustup toolchain install 1.98.1-x86_64-pc-windows-gnu --profile minimal --component rustfmt --component clippy
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           rustup target add x86_64-pc-windows-msvc --toolchain 1.98.1-x86_64-pc-windows-gnu
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          rustup toolchain install 1.98.1-x86_64-pc-windows-msvc --profile minimal
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-      - name: Windows Driver Kit
-        run: |
-          $kits = "${env:ProgramFiles(x86)}\Windows Kits\10"
-          $ready = { (Test-Path "$kits\Lib\*\um\x64\iddcx\*\IddCxStub.lib") -and (Test-Path "$kits\bin\*\x86\Inf2Cat.exe") -and (Test-Path "$kits\bin\*\x64\stampinf.exe") }
-          if (& $ready) { exit 0 }
-          winget install --id Microsoft.WindowsWDK.10.0.26100 --exact --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
-          if (!(& $ready)) { throw 'The Windows Driver Kit is still missing after installing it' }
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
-        with:
-          node-version: 22
-      # A release builds from this run's downloads, as the signed build does.
+      # A release builds from this run's download of the SDK, as the signed build does.
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
         if: needs.tag.outputs.sign != 'true'
         with:
           path: |
-            ~/AppData/Local/ButterpolloRust/sdk
+            ~/AppData/Local/ButterpolloRust/sdk/RTX_Video_SDK_v1.1.0.zip
             ~/.cargo/registry
             ~/.cargo/git
-          key: rust-sdk-v5-pyro-502a3b52-patched-ffmpeg-8.1.3-nvidia-1.1.0
-      - name: List releases for the NVIDIA build
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" > "$env:RUNNER_TEMP\releases.json"
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          "BUTTERPOLLO_RELEASES_JSON=$env:RUNNER_TEMP\releases.json" >> $env:GITHUB_ENV
-      # Lint first: the NVIDIA feature's code compiles only in this build.
-      - name: Lint, build and package the NVIDIA build
+          key: nvidia-component-rtx-video-sdk-1.1.0-${{ hashFiles('rust/truehdr-runtime/Cargo.lock') }}
+      - name: Lint, test and build the NVIDIA component
         run: |
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
           Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
-          $target = "$env:RUNNER_TEMP\butterpollo-rust-target"
-          .\rust\build.ps1 -MsysRoot '${{ steps.msys.outputs.msys2-location }}' -FetchDependencies -Nvidia -Stage Lint -TargetDirectory $target
-          .\rust\build.ps1 -MsysRoot '${{ steps.msys.outputs.msys2-location }}' -FetchDependencies -Nvidia -Stage Build -Package -TargetDirectory $target
+          .\rust\build.ps1 -FetchDependencies -Nvidia -TargetDirectory "$env:RUNNER_TEMP\butterpollo-rust-target"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: butterpollo-rust-windows-x64-nvidia
-          path: |
-            ${{ runner.temp }}/butterpollo-rust-target/butterpollo-rust-nvidia-release.zip
-            ${{ runner.temp }}/butterpollo-rust-target/butterpollo-setup-nvidia-*.exe
+          path: ${{ runner.temp }}/butterpollo-rust-target/rubylight-nvidia-component-*.zip
           if-no-files-found: error
           retention-days: 30
   publish:
@@ -581,14 +543,12 @@ jobs:
           if [[ $VERSION == *-* ]]; then flags+=(--prerelease); else flags+=(--latest); fi
           gh release create "$TAG" --target "$GITHUB_SHA" --title "Rubylight $VERSION" --notes-file body.md "${flags[@]}" out/*
           echo "::notice::published $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG"
-  # Attaches the unsigned NVIDIA build to the release publish made. The release
-  # never waits on it or fails with it: an NGC outage or a failed NVIDIA build
-  # only delays these extra files, and running this job again attaches them.
-  # Nothing NVIDIA is published unless the repository variable
-  # PUBLISH_NVIDIA_BUILD is 'true'; the nvidia job's artifact is kept either way.
+  # Attaches the NVIDIA files to the release publish made. The release never
+  # waits on them or fails with them: an NGC outage or a failed NVIDIA job only
+  # delays them, and running this job again attaches them.
   nvidia-assets:
     needs: [tag, nvidia, publish]
-    if: ${{ vars.PUBLISH_NVIDIA_BUILD == 'true' && !cancelled() && needs.publish.result == 'success' && (needs.nvidia.result == 'success' || needs.tag.outputs.run) }}
+    if: ${{ !cancelled() && needs.publish.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -600,26 +560,45 @@ jobs:
       TAG: ${{ needs.tag.outputs.tag }}
       BUILD: ${{ needs.tag.outputs.run || github.run_id }}
     steps:
-      - name: Attach the NVIDIA build to the release
+      - name: Find the release
+        id: release
         run: |
           # The release publish made may take a moment to show; an older one
           # published under the bare version is found the same way.
-          release=
           for attempt in 1 2 3 4 5 6 7 8 9 10; do
             for name in "$TAG" "$VERSION"; do
-              if gh release view "$name" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then release=$name; break 2; fi
+              if gh release view "$name" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+                echo "name=$name" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
             done
             sleep 30
           done
-          if [[ -z $release ]]; then echo "::error::no release $TAG to attach the NVIDIA build to"; exit 1; fi
-          # Named apart from the signed files, so the updater never mixes the two.
-          gh run download "$BUILD" -R "$GITHUB_REPOSITORY" -n butterpollo-rust-windows-x64-nvidia -D nvidia
-          mkdir out
-          mv "nvidia/butterpollo-setup-nvidia-$VERSION.exe" "out/rubylight-nvidia-setup-$VERSION.exe"
-          mv nvidia/butterpollo-rust-nvidia-release.zip "out/rubylight-nvidia-$VERSION-windows-x64.zip"
+          echo "::error::no release $TAG to attach the NVIDIA files to"
+          exit 1
+      # Hosts of the former NVIDIA build (4.3.2 to 4.4.0) update only from an
+      # installer named rubylight-nvidia-setup: the signed installer under that
+      # name moves them to the signed host, whose setup removes the old build's
+      # NVIDIA files. Kept for a few releases, until those hosts have updated.
+      - name: Attach the signed installer for hosts of the former NVIDIA build
+        env:
+          RELEASE: ${{ steps.release.outputs.name }}
+        run: |
+          gh release download "$RELEASE" -R "$GITHUB_REPOSITORY" -p "rubylight-setup-$VERSION.exe" -D migrate
+          mv "migrate/rubylight-setup-$VERSION.exe" "migrate/rubylight-nvidia-setup-$VERSION.exe"
+          gh release upload "$RELEASE" -R "$GITHUB_REPOSITORY" --clobber "migrate/rubylight-nvidia-setup-$VERSION.exe"
+      # Nothing of NVIDIA's is published unless the repository variable
+      # PUBLISH_NVIDIA_BUILD is 'true'; the nvidia job's artifact is kept either way.
+      - name: Attach the NVIDIA component
+        if: ${{ vars.PUBLISH_NVIDIA_BUILD == 'true' && (needs.nvidia.result == 'success' || needs.tag.outputs.run) }}
+        env:
+          RELEASE: ${{ steps.release.outputs.name }}
+        run: |
+          gh run download "$BUILD" -R "$GITHUB_REPOSITORY" -n butterpollo-rust-windows-x64-nvidia -D out
+          test -f "out/rubylight-nvidia-component-$VERSION.zip"
           (cd out && sha256sum * > SHA256SUMS-nvidia)
-          gh release upload "$release" -R "$GITHUB_REPOSITORY" --clobber out/*
-          echo "::notice::attached the NVIDIA build to $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$release"
+          gh release upload "$RELEASE" -R "$GITHUB_REPOSITORY" --clobber out/*
+          echo "::notice::attached the NVIDIA component to $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$RELEASE"
   # Corrects a published release's text after the fact, keeping its assets
   # and its link to the run that built it.
   notes:

@@ -24,6 +24,7 @@ mod network_path;
 mod neural;
 mod nucleus;
 mod nvhttp;
+mod nvidia_component;
 mod nvidia_enhance;
 mod playnite;
 mod power_action;
@@ -112,9 +113,8 @@ struct Args {
     display_watch: Option<u32>,
     #[arg(long, hide = true)]
     crash_reporter: bool,
-    /// The NVIDIA build's startup check of NGX, in a process of its own; the
-    /// value is the profile folder, for its crash report.
-    #[cfg(feature = "nvidia-proprietary")]
+    /// The NVIDIA component's check of NGX, in a process of its own; the
+    /// value is the profile folder, for the component and its crash report.
     #[arg(long, hide = true, value_name = "PROFILE")]
     nvidia_probe: Option<PathBuf>,
     /// Run the display self-test and write its report; see
@@ -181,7 +181,6 @@ fn main() -> Result<()> {
     if args.crash_reporter {
         return butterpollo_windows::crash::reporter();
     }
-    #[cfg(feature = "nvidia-proprietary")]
     if let Some(profile) = &args.nvidia_probe {
         std::process::exit(nvidia_enhance::probe_main(profile));
     }
@@ -446,13 +445,10 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
     })
     .await
     .unwrap_or_default();
-    // The NVIDIA build asks the GPU and driver which image enhancements they offer, after the
-    // power profile, off startup's path: serverinfo and the console read the answer.
-    #[cfg(feature = "nvidia-proprietary")]
-    {
-        let h = h.clone();
-        std::thread::spawn(move || crate::nvidia_enhance::probe(&h));
-    }
+    // With the NVIDIA component installed, the GPU and driver are asked which image enhancements
+    // they offer, after the power profile, off startup's path: serverinfo and the console read
+    // the answer. An adapter from an earlier host version is replaced first.
+    crate::nvidia_component::start(&h);
     // The first launcher scan for the native library runs on its own thread, so the first request
     // finds it done and startup does not wait.
     library::installed(&h);

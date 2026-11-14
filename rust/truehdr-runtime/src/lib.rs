@@ -1,12 +1,23 @@
-//! MSVC Rust DLL adapting NVIDIA's NGX C ABI to the GNU Rust host, for
-//! Rubylight's separate, unsigned NVIDIA build only. No C++ adapter is
-//! compiled. ABI definitions are from RTX Video SDK 1.1.0: TrueHDR (RTX HDR)
-//! and VSR (RTX Video enhancement), both through NVIDIA's documented NGX
-//! entry points, with the feature DLLs (`nvngx_truehdr.dll`, `nvngx_vsr.dll`)
-//! beside the host as the SDK's guide describes.
+//! MSVC Rust DLL adapting NVIDIA's NGX C ABI to the GNU Rust host. It is the
+//! only code that links NVIDIA's NGX library, so it ships in Rubylight's
+//! NVIDIA component, which the console downloads at the user's request, and
+//! never in the signed installer. No C++ adapter is compiled. ABI definitions
+//! are from RTX Video SDK 1.1.0: TrueHDR (RTX HDR) and VSR (RTX Video
+//! enhancement), both through NVIDIA's documented NGX entry points.
 //!
-//! ABI 2 adds `butterpollo_ngx_available` and the VSR converter to ABI 1's
-//! TrueHDR converter.
+//! The feature DLLs (`nvngx_truehdr.dll`, `nvngx_vsr.dll`) sit in this DLL's
+//! own folder and are named to NGX as its feature path; NGX's logs go to the
+//! folder the host names with `butterpollo_ngx_configure`. The fixed feature
+//! path, the absolute data path, the D3D multithread lock around every NGX
+//! call (taken after this adapter's own lock, never before), the scratch
+//! buffer check and the 400 to 2000 nit peak follow Foundation Sunshine's
+//! TrueHDR adapter (AlkaidLab/foundation-sunshine, GPL-3.0,
+//! src/platform/windows/image_enhancement/rtx_hdr/adapter/src/truehdr_adapter.cpp).
+//!
+//! ABI 2 added `butterpollo_ngx_available` and the VSR converter to ABI 1's
+//! TrueHDR converter. ABI 3 adds `butterpollo_ngx_configure`, the minimum
+//! driver version `butterpollo_ngx_available` reports, and requires that the
+//! host holds no D3D multithread lock when it calls in.
 use std::{
     collections::BTreeMap,
     ffi::{CStr, c_char, c_void},
@@ -14,29 +25,41 @@ use std::{
     sync::Mutex,
 };
 use windows::{
-    Win32::Graphics::{
-        Direct3D11::*,
-        Dxgi::{Common::*, IDXGIDevice},
+    Win32::{
+        Foundation::HMODULE,
+        Graphics::{
+            Direct3D11::*,
+            Dxgi::{Common::*, IDXGIDevice},
+        },
+        System::LibraryLoader::{
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            GetModuleFileNameW, GetModuleHandleExW,
+        },
     },
-    core::Interface,
+    core::{Interface, PCWSTR},
 };
 // The declarations an application links against: the C branch of
 // nvsdk_ngx.h without NGX_SNIPPET_BUILD. build.rs checks each one's parameter
 // count against the SDK's headers.
 unsafe extern "C" {
-    /// `InFeatureInfo` (null: the feature DLLs beside the executable) comes
-    /// before the version. The snippet-build form without it is the feature
-    /// DLLs' own; called that way, NGX reads the version as the pointer.
+    /// `InFeatureInfo` comes before the version. The snippet-build form
+    /// without it is the feature DLLs' own; called that way, NGX reads the
+    /// version as the pointer.
     fn NVSDK_NGX_D3D11_Init(
         app: u64,
         path: *const u16,
         device: *mut c_void,
-        feature_info: *const c_void,
+        feature_info: *const FeatureCommonInfo,
         version: u32,
     ) -> u32;
     fn NVSDK_NGX_D3D11_Shutdown1(device: *mut c_void) -> u32;
     fn NVSDK_NGX_D3D11_GetCapabilityParameters(params: *mut *mut c_void) -> u32;
     fn NVSDK_NGX_D3D11_DestroyParameters(params: *mut c_void) -> u32;
+    fn NVSDK_NGX_D3D11_GetScratchBufferSize(
+        feature: u32,
+        params: *const c_void,
+        size: *mut usize,
+    ) -> u32;
     fn NVSDK_NGX_D3D11_CreateFeature(
         context: *mut c_void,
         feature: u32,
@@ -51,6 +74,7 @@ unsafe extern "C" {
         callback: *const c_void,
     ) -> u32;
     fn NVSDK_NGX_Parameter_GetI(params: *mut c_void, name: *const c_char, value: *mut i32) -> u32;
+    fn NVSDK_NGX_Parameter_GetUI(params: *mut c_void, name: *const c_char, value: *mut u32) -> u32;
     fn NVSDK_NGX_Parameter_SetUI(params: *mut c_void, name: *const c_char, value: u32);
     fn NVSDK_NGX_Parameter_SetD3d11Resource(
         params: *mut c_void,
@@ -58,8 +82,32 @@ unsafe extern "C" {
         value: *mut c_void,
     );
 }
+/// `NVSDK_NGX_PathListInfo` of nvsdk_ngx_defs.h.
+#[repr(C)]
+struct PathListInfo {
+    path: *const *const u16,
+    length: u32,
+}
+/// `NVSDK_NGX_LoggingInfo` of nvsdk_ngx_defs.h (SDK version 0x14 and later).
+#[repr(C)]
+struct LoggingInfo {
+    callback: *const c_void,
+    /// `NVSDK_NGX_Logging_Level`; 0 is `NVSDK_NGX_LOGGING_LEVEL_OFF`.
+    minimum_level: i32,
+    disable_other_sinks: bool,
+}
+/// `NVSDK_NGX_FeatureCommonInfo` of nvsdk_ngx_defs.h.
+#[repr(C)]
+struct FeatureCommonInfo {
+    path_list: PathListInfo,
+    internal: *mut c_void,
+    logging: LoggingInfo,
+}
 /// `NVSDK_NGX_Version_API` of the SDK's headers.
 const NGX_VERSION: u32 = 0x15;
+// `NGX_APPLICATION_ID`: NVIDIA's application ID for Rubylight, from the build's
+// `RUBYLIGHT_NGX_APPLICATION_ID`; 0, the SDK's default, without one.
+include!(concat!(env!("OUT_DIR"), "/application_id.rs"));
 /// NVIDIA's PCI vendor id.
 const NVIDIA: u32 = 0x10de;
 /// Errors of this adapter, apart from NGX's own result codes (0xbad0_00xx).
@@ -67,6 +115,12 @@ const ERROR_NULL_PARAMETERS: u32 = 0xbad1_0001;
 const ERROR_FORMAT: u32 = 0xbad1_0002;
 const ERROR_UNAVAILABLE: u32 = 0xbad1_0003;
 const ERROR_FEATURE: u32 = 0xbad1_0004;
+/// The host has not named NGX's data folder (`butterpollo_ngx_configure`).
+const ERROR_UNCONFIGURED: u32 = 0xbad1_0005;
+/// The driver is older than the feature needs; the minimum is reported.
+const ERROR_DRIVER: u32 = 0xbad1_0006;
+/// The feature asks for scratch memory, which this D3D11 path never gives.
+const ERROR_SCRATCH: u32 = 0xbad1_0007;
 
 /// The two NGX features this adapter runs.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -90,10 +144,24 @@ impl Feature {
             Self::Vsr => 16,
         }
     }
-    fn available(self) -> &'static CStr {
+    /// The capability parameters: available, needs an updated driver, the
+    /// minimum driver's major and minor version, and the init result.
+    fn capability(self) -> [&'static CStr; 5] {
         match self {
-            Self::TrueHdr => c"TrueHDR.Available",
-            Self::Vsr => c"VSR.Available",
+            Self::TrueHdr => [
+                c"TrueHDR.Available",
+                c"TrueHDR.NeedsUpdatedDriver",
+                c"TrueHDR.MinDriverVersionMajor",
+                c"TrueHDR.MinDriverVersionMinor",
+                c"TrueHDR.FeatureInitResult",
+            ],
+            Self::Vsr => [
+                c"VSR.Available",
+                c"VSR.NeedsUpdatedDriver",
+                c"VSR.MinDriverVersionMajor",
+                c"VSR.MinDriverVersionMinor",
+                c"VSR.FeatureInitResult",
+            ],
         }
     }
 }
@@ -103,10 +171,41 @@ struct Runtime {
     users: usize,
 }
 /// NGX is initialized once per D3D11 device and shut down when its last user
-/// goes. NGX is not thread safe: every call holds this lock.
+/// goes. NGX is not thread safe: every call holds this lock, and then the
+/// device's D3D multithread lock, in that order only.
 static DEVICES: Mutex<BTreeMap<usize, Runtime>> = Mutex::new(BTreeMap::new());
+/// NGX's data folder (its logs), NUL-terminated, from the host.
+static DATA_PATH: Mutex<Option<Vec<u16>>> = Mutex::new(None);
 fn check(code: u32) -> Result<(), u32> {
     if code == 1 { Ok(()) } else { Err(code) }
+}
+/// A device's D3D multithread lock, held while this lives. The adapter
+/// takes it only while it holds `DEVICES`, so the two are always taken in
+/// the same order.
+struct Locked(Option<ID3D11Multithread>);
+impl Locked {
+    fn new(device: &ID3D11Device) -> Self {
+        // SAFETY: `device` is a live D3D11 device; Enter is balanced by Drop.
+        unsafe {
+            let lock = device
+                .GetImmediateContext()
+                .ok()
+                .and_then(|context| context.cast::<ID3D11Multithread>().ok());
+            if let Some(lock) = &lock {
+                let _ = lock.SetMultithreadProtected(true);
+                lock.Enter();
+            }
+            Self(lock)
+        }
+    }
+}
+impl Drop for Locked {
+    fn drop(&mut self) {
+        if let Some(lock) = &self.0 {
+            // SAFETY: entered in `new`, on this thread.
+            unsafe { lock.Leave() };
+        }
+    }
 }
 /// Refuses another vendor's adapter before entering NGX.
 fn require_nvidia(device: &ID3D11Device) -> Result<(), u32> {
@@ -125,21 +224,73 @@ fn require_nvidia(device: &ID3D11Device) -> Result<(), u32> {
     }
     Ok(())
 }
+/// This DLL's folder, NUL-terminated: where the NVIDIA component keeps the
+/// feature DLLs beside it.
+fn own_folder() -> Result<Vec<u16>, u32> {
+    let mut module = HMODULE::default();
+    // SAFETY: the address is a function of this module, and the handle is not
+    // counted, so nothing is released.
+    unsafe {
+        GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            PCWSTR(own_folder as *const () as *const u16),
+            &mut module,
+        )
+        .map_err(|e| e.code().0 as u32)?;
+    }
+    let mut buffer = vec![0u16; 32768];
+    // SAFETY: `module` is this loaded module and `buffer` a writable slice.
+    let length = unsafe { GetModuleFileNameW(Some(module), &mut buffer) } as usize;
+    if length == 0 || length >= buffer.len() {
+        return Err(ERROR_UNAVAILABLE);
+    }
+    buffer.truncate(length);
+    let slash = buffer
+        .iter()
+        .rposition(|&c| c == b'\\' as u16 || c == b'/' as u16)
+        .ok_or(ERROR_UNAVAILABLE)?;
+    buffer.truncate(slash);
+    buffer.push(0);
+    Ok(buffer)
+}
 /// Counts one more user of NGX on `device`, initializing it for the first.
-/// The caller holds `devices`.
+/// The caller holds `devices` and the device's multithread lock.
 fn acquire(devices: &mut BTreeMap<usize, Runtime>, device: &ID3D11Device) -> Result<(), u32> {
     let id = device.as_raw() as usize;
     if let Some(runtime) = devices.get_mut(&id) {
         runtime.users += 1;
         return Ok(());
     }
-    // The feature DLLs and NGX's logs: the executable's folder, as the
-    // SDK's guide describes.
-    let path = [b'.' as u16, 0];
-    // SAFETY: `device` is a live D3D11 device, `path` a NUL-terminated wide
-    // string, and a null feature info is the SDK's default.
+    let data = DATA_PATH
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or(ERROR_UNCONFIGURED)?;
+    let folder = own_folder()?;
+    let paths = [folder.as_ptr()];
+    let info = FeatureCommonInfo {
+        path_list: PathListInfo {
+            path: paths.as_ptr(),
+            length: 1,
+        },
+        internal: ptr::null_mut(),
+        logging: LoggingInfo {
+            callback: ptr::null(),
+            minimum_level: 0,
+            disable_other_sinks: false,
+        },
+    };
+    // SAFETY: `device` is a live D3D11 device, `data` and `folder` are
+    // NUL-terminated wide strings and `info` a complete FeatureCommonInfo,
+    // all alive for the call.
     check(unsafe {
-        NVSDK_NGX_D3D11_Init(0, path.as_ptr(), device.as_raw(), ptr::null(), NGX_VERSION)
+        NVSDK_NGX_D3D11_Init(
+            NGX_APPLICATION_ID,
+            data.as_ptr(),
+            device.as_raw(),
+            &info,
+            NGX_VERSION,
+        )
     })?;
     devices.insert(
         id,
@@ -152,7 +303,8 @@ fn acquire(devices: &mut BTreeMap<usize, Runtime>, device: &ID3D11Device) -> Res
 }
 /// Counts one user of NGX on `device` gone. Once none is left anywhere, NGX
 /// shuts down, and the devices are returned to be released outside the lock:
-/// a final D3D device release can wait for display removal.
+/// a final D3D device release can wait for display removal. The caller holds
+/// `devices` and `device`'s multithread lock.
 fn release(
     devices: &mut BTreeMap<usize, Runtime>,
     device: &ID3D11Device,
@@ -162,6 +314,9 @@ fn release(
     }
     if devices.values().all(|d| d.users == 0) {
         for runtime in devices.values() {
+            // Another device's lock, after `devices`, like every other.
+            let _locked =
+                (runtime.device.as_raw() != device.as_raw()).then(|| Locked::new(&runtime.device));
             // SAFETY: NGX was initialized on this live device, and no feature on it remains.
             unsafe {
                 NVSDK_NGX_D3D11_Shutdown1(runtime.device.as_raw());
@@ -172,26 +327,57 @@ fn release(
         BTreeMap::new()
     }
 }
-/// Whether NGX reports `feature` available, from fresh capability parameters.
-/// The caller holds the lock and has acquired NGX on the device.
-unsafe fn feature_available(feature: Feature) -> Result<*mut c_void, u32> {
+/// The minimum driver a feature asks for, as major << 16 | minor.
+fn driver_version(major: u32, minor: u32) -> u32 {
+    (major.min(0xffff) << 16) | minor.min(0xffff)
+}
+/// NGX's capability parameters when `feature` is available. When it is not,
+/// the reason: an older driver than it needs (with `min_driver` set), NGX's
+/// own init result, or plain unavailability. The caller holds the locks and
+/// has acquired NGX on the device.
+unsafe fn feature_available(feature: Feature, min_driver: &mut u32) -> Result<*mut c_void, u32> {
     unsafe {
         let mut params = ptr::null_mut();
         check(NVSDK_NGX_D3D11_GetCapabilityParameters(&mut params))?;
         if params.is_null() {
             return Err(ERROR_NULL_PARAMETERS);
         }
-        let mut available = 0;
+        let [available, needs_driver, major, minor, init] = feature.capability();
+        let mut value = 0;
         let result = check(NVSDK_NGX_Parameter_GetI(
             params,
-            feature.available().as_ptr(),
-            &mut available,
+            available.as_ptr(),
+            &mut value,
         ));
-        if result.is_err() || available == 0 {
-            NVSDK_NGX_D3D11_DestroyParameters(params);
-            return Err(result.err().unwrap_or(ERROR_UNAVAILABLE));
+        if result.is_ok() && value != 0 {
+            return Ok(params);
         }
-        Ok(params)
+        let mut reason = result.err().unwrap_or(ERROR_UNAVAILABLE);
+        let mut needs = 0;
+        if check(NVSDK_NGX_Parameter_GetI(
+            params,
+            needs_driver.as_ptr(),
+            &mut needs,
+        ))
+        .is_ok()
+            && needs != 0
+        {
+            let (mut high, mut low) = (0u32, 0u32);
+            let _ = NVSDK_NGX_Parameter_GetUI(params, major.as_ptr(), &mut high);
+            let _ = NVSDK_NGX_Parameter_GetUI(params, minor.as_ptr(), &mut low);
+            *min_driver = driver_version(high, low);
+            reason = ERROR_DRIVER;
+        } else {
+            let mut code = 0;
+            // A failed init reports NGX's own result code (0xbadxxxxx).
+            if check(NVSDK_NGX_Parameter_GetI(params, init.as_ptr(), &mut code)).is_ok()
+                && (code as u32) & 0xfff0_0000 == 0xbad0_0000
+            {
+                reason = code as u32;
+            }
+        }
+        NVSDK_NGX_D3D11_DestroyParameters(params);
+        Err(reason)
     }
 }
 
@@ -225,11 +411,25 @@ impl Converter {
                 shape: (0, 0, DXGI_FORMAT_UNKNOWN),
                 acquired: false,
             });
-            // On failure, Drop releases what was made.
+            // On failure, Drop releases what was made, after these locks go.
             let mut devices = DEVICES.lock().unwrap();
+            let locked = Locked::new(&state.device);
             acquire(&mut devices, &state.device)?;
             state.acquired = true;
-            state.params = feature_available(feature)?;
+            state.params = feature_available(feature, &mut 0)?;
+            // TrueHDR asks for no scratch memory, and this adapter gives none:
+            // one that asks is refused before it is created.
+            if matches!(feature, Feature::TrueHdr) {
+                let mut scratch = 0;
+                check(NVSDK_NGX_D3D11_GetScratchBufferSize(
+                    feature.id(),
+                    state.params,
+                    &mut scratch,
+                ))?;
+                if scratch != 0 {
+                    return Err(ERROR_SCRATCH);
+                }
+            }
             check(NVSDK_NGX_D3D11_CreateFeature(
                 state.context.as_raw(),
                 feature.id(),
@@ -239,6 +439,7 @@ impl Converter {
             if state.handle.is_null() {
                 return Err(ERROR_FEATURE);
             }
+            drop(locked);
             drop(devices);
             Ok(state)
         }
@@ -306,6 +507,7 @@ impl Converter {
         }
         Ok(desc)
     }
+    /// Runs the feature. The caller holds `DEVICES` and the device's lock.
     unsafe fn evaluate(
         &mut self,
         input: &ID3D11Texture2D,
@@ -337,6 +539,7 @@ impl Converter {
     ) -> Result<*mut c_void, u32> {
         unsafe {
             let _devices = DEVICES.lock().unwrap();
+            let _locked = Locked::new(&self.device);
             if self.feature != Feature::TrueHdr {
                 return Err(ERROR_FEATURE);
             }
@@ -364,7 +567,8 @@ impl Converter {
                     (c"TrueHDR.Contrast", contrast.min(200)),
                     (c"TrueHDR.Saturation", saturation.min(200)),
                     (c"TrueHDR.MiddleGray", middle.clamp(10, 100)),
-                    (c"TrueHDR.MaxLuminance", peak.clamp(400, 1000)),
+                    // nvsdk_ngx_defs_truehdr.h: 400 to 2000 for the monitor's peak.
+                    (c"TrueHDR.MaxLuminance", peak.clamp(400, 2000)),
                 ],
             )
         }
@@ -378,6 +582,7 @@ impl Converter {
     ) -> Result<*mut c_void, u32> {
         unsafe {
             let _devices = DEVICES.lock().unwrap();
+            let _locked = Locked::new(&self.device);
             if self.feature != Feature::Vsr {
                 return Err(ERROR_FEATURE);
             }
@@ -410,6 +615,7 @@ impl Drop for Converter {
         self.output = None;
         let releases = {
             let mut devices = DEVICES.lock().unwrap();
+            let _locked = Locked::new(&self.device);
             // SAFETY: the handle and parameters came from NGX on this device and are released once.
             unsafe {
                 if !self.handle.is_null() {
@@ -439,21 +645,49 @@ fn report(error: *mut u32, code: u32) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn butterpollo_truehdr_abi() -> u32 {
-    2
+    3
+}
+/// Names NGX's data folder (its logs): an absolute, NUL-terminated wide
+/// path that exists. Call once before anything else; 1 if taken, 0 if not.
+/// # Safety
+/// `path` must be null or a NUL-terminated wide string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn butterpollo_ngx_configure(path: *const u16) -> u32 {
+    if path.is_null() {
+        return 0;
+    }
+    // SAFETY: the caller passes a NUL-terminated wide string.
+    let wide = PCWSTR(path);
+    let text = unsafe { wide.as_wide() }.to_vec();
+    // A drive (C:\...) or a UNC path (\\...): never the current folder,
+    // which is System32 for the service.
+    let absolute = (text.len() >= 3 && text[1] == b':' as u16 && text[2] == b'\\' as u16)
+        || text.starts_with(&[b'\\' as u16, b'\\' as u16]);
+    if !absolute {
+        return 0;
+    }
+    let mut text = text;
+    text.push(0);
+    *DATA_PATH.lock().unwrap() = Some(text);
+    1
 }
 /// Whether `feature` (0 TrueHDR, 1 VSR) is available on `device`: 1 if so, 0
-/// with `error` set otherwise. NGX is initialized for the check and shut down
-/// after it unless a converter still uses it.
+/// with `error` set otherwise, and `min_driver` (major << 16 | minor) set when
+/// the driver is older than the feature needs. NGX is initialized for the
+/// check and shut down after it unless a converter still uses it.
 /// # Safety
 /// `device` must be null or a valid ID3D11Device interface; a non-null `error`
-/// must point to a writable u32.
+/// or `min_driver` must point to a writable u32. The caller holds no D3D
+/// multithread lock.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn butterpollo_ngx_available(
     device: *mut c_void,
     feature: u32,
     error: *mut u32,
+    min_driver: *mut u32,
 ) -> u32 {
     report(error, 0);
+    report(min_driver, 0);
     // SAFETY: the caller passes null or a live device.
     let Some(device) = (unsafe { ID3D11Device::from_raw_borrowed(&device) }) else {
         report(error, ERROR_NULL_PARAMETERS);
@@ -467,13 +701,15 @@ pub unsafe extern "C" fn butterpollo_ngx_available(
         report(error, code);
         return 0;
     }
+    let mut minimum = 0;
     let (result, releases) = {
         let mut devices = DEVICES.lock().unwrap();
+        let _locked = Locked::new(device);
         match acquire(&mut devices, device) {
             Err(code) => (Err(code), BTreeMap::new()),
             Ok(()) => {
-                // SAFETY: the lock is held and NGX is acquired on `device`.
-                let result = unsafe { feature_available(feature) }.map(|params| {
+                // SAFETY: the locks are held and NGX is acquired on `device`.
+                let result = unsafe { feature_available(feature, &mut minimum) }.map(|params| {
                     // SAFETY: `params` came from GetCapabilityParameters.
                     unsafe { NVSDK_NGX_D3D11_DestroyParameters(params) };
                 });
@@ -482,6 +718,7 @@ pub unsafe extern "C" fn butterpollo_ngx_available(
         }
     };
     drop(releases);
+    report(min_driver, minimum);
     match result {
         Ok(()) => 1,
         Err(code) => {
@@ -517,7 +754,8 @@ fn finish(result: Result<*mut c_void, u32>, error: *mut u32) -> *mut c_void {
 /// Create a TrueHDR converter borrowing a D3D11 device for the duration of the call.
 /// # Safety
 /// `device` must be null or a valid ID3D11Device interface; a non-null `error`
-/// must point to a writable u32. Destroy the returned state exactly once.
+/// must point to a writable u32. Destroy the returned state exactly once. The
+/// caller holds no D3D multithread lock.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn butterpollo_truehdr_create(
     device: *mut c_void,
@@ -529,7 +767,8 @@ pub unsafe extern "C" fn butterpollo_truehdr_create(
 /// # Safety
 /// `state` must be null or a live state returned by create; `input` must be
 /// null or a valid ID3D11Texture2D on its device. A non-null `error` must be
-/// writable. Calls on one state must be serialized and use its owning thread.
+/// writable. Calls on one state must be serialized and use its owning thread,
+/// which holds no D3D multithread lock.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn butterpollo_truehdr_convert(
     state: *mut c_void,
@@ -558,7 +797,7 @@ pub unsafe extern "C" fn butterpollo_truehdr_convert(
 /// # Safety
 /// `state` must be null or a state returned by a create function, with no
 /// concurrent calls; a non-null state must be destroyed exactly once on its
-/// owning thread.
+/// owning thread, which holds no D3D multithread lock.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn butterpollo_truehdr_destroy(state: *mut c_void) {
     if !state.is_null() {
@@ -606,4 +845,13 @@ pub unsafe extern "C" fn butterpollo_vsr_convert(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn butterpollo_vsr_destroy(state: *mut c_void) {
     unsafe { butterpollo_truehdr_destroy(state) }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_minimum_driver_packs_major_over_minor() {
+        assert_eq!(super::driver_version(570, 2), (570 << 16) | 2);
+        assert_eq!(super::driver_version(0x1_0000, 0x1_0000), 0xffff_ffff);
+    }
 }

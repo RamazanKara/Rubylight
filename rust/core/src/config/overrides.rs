@@ -146,8 +146,8 @@ pub fn override_allowed(key: &str) -> bool {
         "encoder_focus",
         "frame_warp",
         "hdr_peak_brightness",
-        // The NVIDIA build's image enhancements (`nvidia_enhance`); other
-        // builds keep them and read nothing from them.
+        // The NVIDIA image enhancements (`nvidia_enhance`); without the
+        // NVIDIA component they are kept and read by nothing.
         "rtx_hdr",
         "rtx_hdr_sdr_brightness",
         "rtx_hdr_contrast",

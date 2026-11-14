@@ -76,7 +76,7 @@ const amfHint = 'Applies when AMD AMF encodes, as Automatic does on AMD graphics
 /** RTX Video enhancement's settings show where the host offers it. */
 const rtxVideo = (values: Values) => offersEnhancement(values, 'rtx_video');
 const RTX_VIDEO_HINT =
-  'Needs Rubylight’s separate NVIDIA build (rubylight-nvidia-setup on the release page) on an NVIDIA graphics card whose driver offers RTX Video enhancement.';
+  'Needs the NVIDIA components (Settings › Picture › Integrations) on an NVIDIA graphics card whose driver offers RTX Video enhancement.';
 /** PERFORMANCE.md, October 7: AMF split-frame encoding, pre-analysis row (4K60, RX 7900 XT). */
 const PREANALYSIS_COST = 'about 20 ms per 4K frame on 8-bit SDR streams (RX 7900 XT)';
 /**
@@ -372,7 +372,7 @@ const video: Setting[] = [
     key: 'rtx_video',
     label: 'RTX Video enhancement',
     description:
-      'NVIDIA build only: cleans up and sharpens the picture before it is encoded, and adds GPU work to every frame. Every app uses it unless the app or device turns it off.',
+      'Cleans up and sharpens the picture before it is encoded, and adds GPU work to every frame. Every app uses it unless the app or device turns it off.',
     details:
       'It reads SDR captures and the 16-bit HDR capture, not the 10-bit one. It works at the stream’s own size, without scaling, and adds its GPU work only while it runs. RTX HDR takes priority when both are on for an HDR stream of an SDR game.',
     category: 'video',

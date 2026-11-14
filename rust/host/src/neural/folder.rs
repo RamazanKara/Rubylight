@@ -826,7 +826,7 @@ pub(super) fn verdict(path: &Path, security: &Security) -> Result<(), String> {
 /// Whether administrators own `path` and alone may change it, or for a
 /// folder above the cache (not `whole`) move or delete it or what it holds
 /// ([`Rights::Move`], [`verdict`]); the cache's check ([`super::trusted_root`]).
-pub(super) fn administrators_hold(path: &Path, whole: bool) -> Result<(), String> {
+pub(crate) fn administrators_hold(path: &Path, whole: bool) -> Result<(), String> {
     hold(path, whole, security)
 }
 

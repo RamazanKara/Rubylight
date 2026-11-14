@@ -96,7 +96,7 @@ fn overrides_saved_for_rtx_hdr_are_chosen_and_the_peak_renamed() {
     super::apply_overrides(&mut config, overrides).unwrap();
     assert_eq!(config.integer("hdr_peak_brightness", 0), 1200);
     assert_eq!(config.get("encoder", ""), "amf");
-    // The NVIDIA build's RTX HDR reads them as the device's or app's choice.
+    // RTX HDR reads them as the device's or app's choice.
     assert!(butterpollo_core::nvidia_enhance::rtx_hdr_enabled(&config));
     assert_eq!(config.integer("rtx_hdr_contrast", 0), 14);
     let cleared = serde_json::json!({"rtx_hdr": null});

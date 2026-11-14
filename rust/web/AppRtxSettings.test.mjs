@@ -8,10 +8,11 @@ const { AppDraft } = await server.ssrLoadModule('/src/components/library/draft.s
 const RtxSettings = (await server.ssrLoadModule('/src/components/library/RtxSettings.svelte')).default;
 const app = extra => ({ name: 'Game', cmd: 'game.exe', 'working-dir': '', 'prep-cmd': [], uuid: 'a', ...extra });
 const body = (draft, offered) => render(RtxSettings, { props: { draft, offered } }).body;
+const ready = { state: 'ready', done: 0, total: 0, error: null, installed: true, outdated: false, nvidia_gpu: true };
 
 test('an enhancement this PC offers shows its controls, a missing one says why', () => {
   const html = body(new AppDraft(app({})), {
-    build: true,
+    component: ready,
     rtx_hdr: false,
     rtx_video: true,
     errors: { rtx_hdr: 'the NVIDIA driver is too old' },
@@ -22,6 +23,33 @@ test('an enhancement this PC offers shows its controls, a missing one says why',
   assert.match(html, /Use the host setting/);
   assert.match(html, /Strength/);
   assert.doesNotMatch(html, /experimental|beta|preview/i);
+});
+
+test('without the NVIDIA components the app says where to download them', () => {
+  for (const state of ['missing', 'download', 'failed']) {
+    const html = body(new AppDraft(app({})), {
+      component: { ...ready, state, installed: false },
+      rtx_hdr: false,
+      rtx_video: false,
+      errors: {},
+    });
+    assert.match(html, /Needs the NVIDIA components/, state);
+    assert.match(html, /href="\/settings\/picture#integrations"/, state);
+    assert.doesNotMatch(html, /unavailable on this PC|Use RTX HDR for this app/, state);
+  }
+});
+
+test('an installed component keeps its controls while a download or check runs', () => {
+  for (const state of ['download', 'check', 'failed']) {
+    const html = body(new AppDraft(app({})), {
+      component: { ...ready, state, outdated: state === 'download' },
+      rtx_hdr: true,
+      rtx_video: true,
+      errors: {},
+    });
+    assert.doesNotMatch(html, /Needs the NVIDIA components/, state);
+    assert.match(html, /Use RTX HDR for this app/, state);
+  }
 });
 
 test('RTX HDR is an opt-in, RTX Video follows the host until set, and both round-trip', () => {

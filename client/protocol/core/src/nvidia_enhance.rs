@@ -3,7 +3,7 @@
 //! video super resolution at the capture's own size, which cleans up and
 //! sharpens the picture before encoding).
 //!
-//! Only Rubylight's separate NVIDIA build has them, and only on a GPU and
+//! Only a Rubylight host with its NVIDIA components has them, and only on a GPU and
 //! driver whose runtime reports them available. Such a host lists
 //! `NvidiaEnhancements` in serverinfo, a mask of [`RTX_HDR`] and
 //! [`RTX_VIDEO`]; every other host, and stock Moonlight, sees nothing. A

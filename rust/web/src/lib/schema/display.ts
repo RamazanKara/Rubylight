@@ -15,7 +15,7 @@ function text(values: Values, key: string, fallback: string): string {
 /** RTX HDR's settings show where the host offers it. */
 const rtxHdr = (values: Values) => offersEnhancement(values, 'rtx_hdr');
 const RTX_HDR_HINT =
-  'Needs Rubylight’s separate NVIDIA build (rubylight-nvidia-setup on the release page) on an NVIDIA graphics card whose driver offers RTX HDR.';
+  'Needs the NVIDIA components (Settings › Picture › Integrations) on an NVIDIA graphics card whose driver offers RTX HDR.';
 
 /** A switch as the host reads it, including the spellings Vibepollo wrote. */
 function on(values: Values, key: string, fallback: boolean): boolean {
@@ -651,7 +651,7 @@ export const settings: Setting[] = [
     key: 'rtx_hdr',
     label: 'RTX HDR',
     description:
-      'NVIDIA build only: turns a game’s SDR picture into HDR, adding GPU work to every frame. It runs only where an app or device turns it on; this switch alone converts nothing.',
+      'Turns a game’s SDR picture into HDR, adding GPU work to every frame. It runs only where an app or device turns it on; this switch alone converts nothing.',
     details:
       'It converts only for a device that asks for HDR. While RTX HDR converts the picture, the streamed display stays in SDR and Prefer 10-bit SDR does not apply. It uses the peak brightness above.',
     category: 'hdr',

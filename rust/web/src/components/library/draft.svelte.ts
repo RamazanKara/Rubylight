@@ -42,7 +42,7 @@ export const FLAGS = {
   'frame-gen-limiter-fix': false,
   'lossless-scaling-enabled': false,
   'background-stream': false,
-  /** RTX HDR for this app (NVIDIA build); off leaves it to a device or stream. */
+  /** RTX HDR for this app (NVIDIA components); off leaves it to a device or stream. */
   'rtx-hdr': false,
   /** The game's "<name> (Co-op)" entry lists in the library. */
   'coop-entry': true,

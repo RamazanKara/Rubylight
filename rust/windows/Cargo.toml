@@ -53,10 +53,6 @@ windows = { version = "0.62.2", features = ["Win32_Graphics_Direct3D_Fxc"] }
 test-folder = []
 # `Route::detached`, for the host's audio route lifetime tests only.
 test-route = []
-# The separate, unsigned NVIDIA build (`rust/build.ps1 -Nvidia`): RTX HDR and
-# RTX Video enhancement through `butterpollo_truehdr.dll`, which links
-# NVIDIA's proprietary NGX library. Off in every signed build.
-nvidia-proprietary = []
 
 [dev-dependencies]
 tempfile = "3.23"

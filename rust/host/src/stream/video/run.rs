@@ -133,8 +133,8 @@ impl SessionThread<'_> {
         // still pins the allocation so its address can't be reused by a new
         // `GpuImage` and compare equal.
         let mut last_image: Option<std::sync::Weak<GpuImage>> = None;
-        // The NVIDIA build's RTX HDR or RTX Video enhancement; a no-op in
-        // every other build.
+        // RTX HDR or RTX Video enhancement; a no-op without the NVIDIA
+        // component or when neither runs.
         let mut enhancer = crate::nvidia_enhance::Enhancer::default();
         // The couch menu's panel; one atomic load a frame while closed.
         let mut menu = crate::couch_menu::VideoOverlay::default();

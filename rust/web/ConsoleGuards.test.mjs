@@ -50,7 +50,7 @@ test('the library loads what the host offers when opened directly', () => {
 test('a setting this host cannot run shows in search without its control', () => {
   const page = read('pages/Settings.svelte');
   assert.match(page, /unavailable=\{inactive \? setting\.hostGated\?\.\(values\) : undefined\}/);
-  assert.match(page, /current\[NVIDIA_BUILD\] = session\.metadata\?\.nvidia_enhancements\?\.build === true;/);
+  assert.match(page, /current\[NVIDIA_COMPONENT\] = componentGate\(session\.metadata\?\.nvidia_enhancements\?\.component\);/);
   const row = read('components/settings/SettingRow.svelte');
   assert.match(row, /\{#if !unavailable\}\s*<SettingControl/);
   assert.match(row, /\{#if unavailable\}<span class="tag" data-unavailable>\{unavailable\}<\/span>\{\/if\}/);

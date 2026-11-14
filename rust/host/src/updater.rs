@@ -17,15 +17,10 @@ mod schedule;
 /// The repository was RamazanKara/Butterpollo until the product became
 /// Rubylight. Before the rename only the old name answers; after it, the old
 /// name redirects to an API address `client` refuses, so the new one is first.
-const REPOSITORIES: [&str; 2] = ["RamazanKara/Rubylight", "RamazanKara/Butterpollo"];
+pub(crate) const REPOSITORIES: [&str; 2] = ["RamazanKara/Rubylight", "RamazanKara/Butterpollo"];
 /// Installer names, current first. Releases also carry the old name so that
 /// hosts from before the rename find them.
-/// The installer names this build updates from, current name first. The NVIDIA build updates
-/// only from the NVIDIA installer, so an update never swaps one build for the other.
-#[cfg(not(feature = "nvidia-proprietary"))]
 const INSTALLERS: &[&str] = &["rubylight-setup", "butterpollo-setup"];
-#[cfg(feature = "nvidia-proprietary")]
-const INSTALLERS: &[&str] = &["rubylight-nvidia-setup"];
 const MAX_INSTALLER: u64 = 512 * 1024 * 1024;
 const IDLE_SECONDS: u64 = 60;
 

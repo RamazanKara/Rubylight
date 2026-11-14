@@ -308,9 +308,28 @@ export interface Gpu {
   luid: [number, number];
   pnp_id: string | null;
 }
+/** `GET /api/nvidia-component`: the NVIDIA components RTX HDR and RTX Video enhancement need. */
+export interface NvidiaComponent {
+  /**
+   * `missing` until downloaded; `download`, `check` (asking the GPU and driver
+   * what they offer with it) or `remove` while one runs; `ready` when
+   * installed; `failed` when the last change or check failed (`error`).
+   */
+  state: 'missing' | 'download' | 'check' | 'remove' | 'ready' | 'failed';
+  /** Bytes downloaded of `total`. */
+  done: number;
+  total: number;
+  error: string | null;
+  /** Whether a component is installed and in use, whatever the job does. */
+  installed: boolean;
+  /** Whether the installed component is an earlier version's; the host fetches this version's. */
+  outdated: boolean;
+  /** Whether this PC has an NVIDIA graphics card. */
+  nvidia_gpu: boolean;
+}
 export interface NvidiaEnhancements {
-  /** Whether this is Rubylight's NVIDIA build, which carries them. */
-  build: boolean;
+  /** The NVIDIA components, without which neither is offered. */
+  component: NvidiaComponent;
   rtx_hdr: boolean;
   rtx_video: boolean;
   /** Why each enhancement this PC does not offer is missing, by name. */
@@ -351,7 +370,7 @@ export interface Metadata {
   audio_error: string | null;
   audio_enabled: boolean;
   features: { pyrowave: boolean; virtual_display: boolean; [key: string]: boolean };
-  /** The NVIDIA build's image enhancements: what this PC offers and why the rest is missing. */
+  /** The NVIDIA image enhancements: what this PC offers and why the rest is missing. */
   nvidia_enhancements?: NvidiaEnhancements;
   credentials_exists: boolean;
   webrtc?: { enabled: boolean; running: boolean; discovery: boolean; port: number; media_port: number; error: string | null };
@@ -1375,6 +1394,12 @@ export const api = {
     status: (uuid: string) => get<GameSettingsStatus>(`/api/game-settings?uuid=${encodeURIComponent(uuid)}`),
     /** Puts a waiting swap's files back without waiting for the process it waits for. */
     release: (id: string) => post<Ok>('/api/game-settings/release', { id }, ACTION_TIMEOUT_MS),
+  },
+  nvidiaComponent: {
+    status: () => get<NvidiaComponent>('/api/nvidia-component'),
+    /** Starts the download from this version's release; `status` shows its progress. */
+    install: () => post<Ok>('/api/nvidia-component/install', {}),
+    remove: () => post<Ok>('/api/nvidia-component/remove', {}),
   },
   health: {
     limiter: () => get<LimiterStatus>('/api/frame-limiter/status'),

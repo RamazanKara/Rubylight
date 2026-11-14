@@ -383,7 +383,7 @@ fn direct_driver_push_defaults_to_the_fence_ring_unless_turned_off() {
 #[test]
 fn rtx_hdr_settings_are_kept_and_its_peak_brightness_is_renamed() {
     // Profiles, apps and devices saved by Vibepollo and earlier Rubylight
-    // releases: the NVIDIA build reads them again, other builds keep them.
+    // releases: the NVIDIA image enhancements read them again.
     let mut config = super::Config::parse(
         "rtx_hdr = true
 rtx_hdr_contrast = 14

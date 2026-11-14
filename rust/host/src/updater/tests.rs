@@ -498,43 +498,33 @@ async fn official_release_download_verifies_with_github_digest() -> Result<()> {
     Ok(())
 }
 fn release() -> Value {
-    // Each build's own installer.
-    #[cfg(not(feature = "nvidia-proprietary"))]
     let (repository, name) = ("Butterpollo", "butterpollo-setup-2.0.0-rc.7.exe");
-    #[cfg(feature = "nvidia-proprietary")]
-    let (repository, name) = ("Rubylight", "rubylight-nvidia-setup-2.0.0-rc.7.exe");
     json!({"tag_name":"2.0.0-rc.7","assets":[{"name":name,"browser_download_url":format!("https://github.com/RamazanKara/{repository}/releases/download/2.0.0-rc.7/{name}"),"size":32,"digest":format!("sha256:{}", "ab".repeat(32))}]})
 }
 #[test]
-fn each_build_updates_only_from_its_own_installer() {
+fn the_installer_under_the_old_nvidia_name_is_never_taken() {
+    // Releases carry the signed installer under the former NVIDIA build's name too, so that
+    // hosts of that build update to it; this host takes only its own names.
     let url = |name: &str| {
         format!("https://github.com/RamazanKara/Rubylight/releases/download/2.0.0-rc.7/{name}")
     };
-    let mut both = release();
-    both["assets"] = json!([]);
+    let mut release = release();
+    release["assets"] = json!([]);
     for name in [
-        "rubylight-setup-2.0.0-rc.7.exe",
         "rubylight-nvidia-setup-2.0.0-rc.7.exe",
+        "rubylight-setup-2.0.0-rc.7.exe",
     ] {
-        let mut asset = release()["assets"][0].clone();
+        let mut asset = self::release()["assets"][0].clone();
         asset["name"] = json!(name);
         asset["browser_download_url"] = json!(url(name));
-        both["assets"].as_array_mut().unwrap().push(asset);
+        release["assets"].as_array_mut().unwrap().push(asset);
     }
-    let chosen = installer(&both).unwrap().url;
-    let own = if cfg!(feature = "nvidia-proprietary") {
-        "rubylight-nvidia-setup-2.0.0-rc.7.exe"
-    } else {
-        "rubylight-setup-2.0.0-rc.7.exe"
-    };
-    assert_eq!(chosen, url(own));
-    // A release without this build's installer offers no update instead of the other build.
-    let mut other = both.clone();
-    other["assets"]
-        .as_array_mut()
-        .unwrap()
-        .retain(|asset| asset["name"] != own);
-    assert!(installer(&other).is_err());
+    assert_eq!(
+        installer(&release).unwrap().url,
+        url("rubylight-setup-2.0.0-rc.7.exe")
+    );
+    release["assets"].as_array_mut().unwrap().pop();
+    assert!(installer(&release).is_err());
 }
 #[test]
 fn an_unresolved_rollback_cannot_be_overwritten_by_another_update() -> Result<()> {
@@ -624,7 +614,6 @@ fn only_exact_release_assets_with_digests_can_be_installed() {
     }
 }
 #[test]
-#[cfg(not(feature = "nvidia-proprietary"))]
 fn installers_from_before_and_after_the_rename_are_accepted() {
     for (repository, name) in [
         ("Rubylight", "rubylight-setup-2.0.0-rc.7.exe"),

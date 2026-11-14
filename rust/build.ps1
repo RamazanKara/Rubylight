@@ -11,10 +11,11 @@ param(
     # libvirtualgamepad 0.1.0-beta.10); fetched from Vibepollo 2.0.0 and,
     # for the gamepad driver, 2.0.6 otherwise.
     [string]$DriverRoot = $env:BUTTERPOLLO_DRIVER_ROOT,
-    # The separate, unsigned NVIDIA build: the host with the nvidia-proprietary
-    # feature, the NGX adapter (rust/truehdr-runtime, linking NVIDIA's RTX Video
-    # SDK) and NVIDIA's runtime DLLs, packaged under names with "nvidia". Signed
-    # releases never use it (docs/code-signing-policy.md).
+    # The NVIDIA component instead of the host: the NGX adapter
+    # (rust/truehdr-runtime, linking NVIDIA's RTX Video SDK) with NVIDIA's
+    # runtime DLLs, in rubylight-nvidia-component-<version>.zip, which the
+    # console downloads from the release. The signed host and installer never
+    # carry it (docs/code-signing-policy.md).
     [switch]$Nvidia,
     # An extracted RTX Video SDK 1.1.0; fetched and checked when not given.
     [string]$NvidiaRoot = $env:NV_RTX_VIDEO_SDK,
@@ -67,6 +68,90 @@ $env:PATH = "$MsysRoot\ucrt64\bin;$env:USERPROFILE\.cargo\bin;" + $env:PATH
 $env:LIBCLANG_PATH = "$MsysRoot\ucrt64\bin"
 $env:BUTTERPOLLO_VULKAN_INCLUDE = "$MsysRoot\ucrt64\include"
 $env:CARGO_TARGET_DIR = $TargetDirectory
+if ($Nvidia) {
+    # The NVIDIA component (rust/core/src/nvidia_component.rs), and no host:
+    # the NGX adapter (rust/truehdr-runtime, an MSVC DLL linking NVIDIA's RTX
+    # Video SDK) with NVIDIA's runtime DLLs and licence, in the one archive
+    # the console downloads from the release. NVIDIA's files go out only
+    # beside the adapter, never on their own (the SDK licence's section 4b).
+    if (!$NvidiaRoot) {
+        # NVIDIA's RTX Video SDK 1.1.0 (TrueHDR and VSR), pinned by hash.
+        $archive = Join-Path $Dependencies 'RTX_Video_SDK_v1.1.0.zip'
+        if (!(Test-Path -LiteralPath $archive)) {
+            $redirect = Invoke-WebRequest 'https://api.ngc.nvidia.com/v2/models/nvidia/multimedia/dlpp/versions/1.5/files/RTX_Video_SDK_v1.1.0.zip' -TimeoutSec 180
+            Invoke-WebRequest -Uri ([string]$redirect.Headers.Location) -OutFile $archive -TimeoutSec 180
+        }
+        if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'abf4f34e2b5a618e355b0d5a0365d8ecc3db4396e756e4c850a867e1ae2ed69e') {
+            throw "Checksum mismatch: $archive"
+        }
+        $NvidiaRoot = Join-Path $Dependencies 'rtx-video-sdk-1.1.0'
+        if (!(Test-Path -LiteralPath (Join-Path $NvidiaRoot 'include\nvsdk_ngx_defs_vsr.h'))) {
+            Expand-Archive -LiteralPath $archive -DestinationPath $NvidiaRoot -Force
+        }
+    }
+    Push-Location -LiteralPath $repo
+    try {
+        $env:NV_RTX_VIDEO_SDK = $NvidiaRoot
+        # The static C runtime: a PC without the Visual C++ Redistributable could not load an
+        # adapter that needs MSVCP140.dll and VCRUNTIME140.dll.
+        $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = '-C target-feature=+crt-static'
+        if ($MsvcSdk) {
+            $sysroot = & rustc $toolchain --print sysroot
+            $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER = Join-Path $sysroot 'lib\rustlib\x86_64-pc-windows-gnu\bin\rust-lld.exe'
+            $env:LIB = "$MsvcSdk\crt\lib\x86_64;$MsvcSdk\sdk\lib\um\x86_64;$MsvcSdk\sdk\lib\ucrt\x86_64;" + $env:LIB
+        }
+        $adapterManifest = Join-Path $repo 'rust\truehdr-runtime\Cargo.toml'
+        & cargo $toolchain fmt --manifest-path $adapterManifest -- --check
+        Assert-NativeExit 'NVIDIA adapter formatting'
+        if (!$SkipTests) {
+            & cargo $toolchain clippy --manifest-path $adapterManifest --target x86_64-pc-windows-msvc --locked -- -D warnings
+            Assert-NativeExit 'NVIDIA adapter lint'
+            & cargo $toolchain test --manifest-path $adapterManifest --target x86_64-pc-windows-msvc --locked
+            Assert-NativeExit 'NVIDIA adapter tests'
+        }
+        & cargo $toolchain build --manifest-path $adapterManifest --target x86_64-pc-windows-msvc --release --locked
+        Assert-NativeExit 'NVIDIA adapter build'
+        # NVIDIA's files must be exactly the ones the host trusts.
+        $pinned = [regex]::Matches(
+            [IO.File]::ReadAllText((Join-Path $repo 'rust\core\src\nvidia_component.rs')),
+            'name: "([^"]+)",\s*size: ([0-9_]+),\s*sha256: "([0-9a-f]{64})"')
+        if ($pinned.Count -ne 3) { throw "Expected 3 pinned NVIDIA files in nvidia_component.rs, found $($pinned.Count)" }
+        $version = (Select-String -LiteralPath (Join-Path $repo 'Cargo.toml') -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+        $component = Join-Path $TargetDirectory 'nvidia-component'
+        if (Test-Path -LiteralPath $component) { Remove-Item -LiteralPath $component -Recurse -Force }
+        New-Item -ItemType Directory -Path $component | Out-Null
+        Copy-Item -LiteralPath (Join-Path $TargetDirectory 'x86_64-pc-windows-msvc\release\butterpollo_truehdr.dll') -Destination $component
+        $expected = @{ 'butterpollo_truehdr.dll' = (Get-FileHash -LiteralPath (Join-Path $component 'butterpollo_truehdr.dll') -Algorithm SHA256).Hash.ToLowerInvariant() }
+        foreach ($pin in $pinned) {
+            $name = $pin.Groups[1].Value
+            $source = if ($name -like '*.pdf') { Join-Path $NvidiaRoot $name } else { Join-Path $NvidiaRoot "bin\Windows\x64\rel\$name" }
+            $file = Get-Item -LiteralPath $source
+            $hash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($file.Length -ne [int64]($pin.Groups[2].Value -replace '_') -or $hash -ne $pin.Groups[3].Value) {
+                throw "$name in the RTX Video SDK is not the file nvidia_component.rs pins"
+            }
+            Copy-Item -LiteralPath $source -Destination $component
+            $expected[$name] = $hash
+        }
+        $archive = Join-Path $TargetDirectory "rubylight-nvidia-component-$version.zip"
+        if (Test-Path -LiteralPath $archive) { Remove-Item -LiteralPath $archive -Force }
+        Compress-Archive -LiteralPath (Get-ChildItem -LiteralPath $component -File).FullName -DestinationPath $archive -CompressionLevel Optimal
+        # What the host will take from it: each file once, at the top level, unchanged.
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $zip = [IO.Compression.ZipFile]::OpenRead($archive)
+        try {
+            $names = @($zip.Entries | ForEach-Object FullName | Sort-Object)
+            if (($names -join '|') -ne (($expected.Keys | Sort-Object) -join '|')) { throw "The NVIDIA component archive holds $($names -join ', ')" }
+            foreach ($entry in $zip.Entries) {
+                $stream = $entry.Open()
+                try { $hash = (Get-FileHash -InputStream $stream -Algorithm SHA256).Hash.ToLowerInvariant() } finally { $stream.Dispose() }
+                if ($hash -ne $expected[$entry.FullName]) { throw "$($entry.FullName) changed in the NVIDIA component archive" }
+            }
+        } finally { $zip.Dispose() }
+        Write-Output "NVIDIA component: $archive"
+    } finally { Pop-Location }
+    return
+}
 if ($FetchDependencies) {
     if (!$PyrowaveRoot) {
         $PyrowaveRoot = Join-Path $Dependencies 'pyrowave-502a3b52'
@@ -93,24 +178,6 @@ if ($FetchDependencies) {
         Assert-NativeExit 'FFmpeg AC3 build'
     }
 }
-if ($Nvidia -and !$NvidiaRoot) {
-    # NVIDIA's RTX Video SDK 1.1.0 (TrueHDR and VSR), pinned by hash.
-    $archive = Join-Path $Dependencies 'RTX_Video_SDK_v1.1.0.zip'
-    if (!(Test-Path -LiteralPath $archive)) {
-        $redirect = Invoke-WebRequest 'https://api.ngc.nvidia.com/v2/models/nvidia/multimedia/dlpp/versions/1.5/files/RTX_Video_SDK_v1.1.0.zip' -TimeoutSec 180
-        Invoke-WebRequest -Uri ([string]$redirect.Headers.Location) -OutFile $archive -TimeoutSec 180
-    }
-    if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'abf4f34e2b5a618e355b0d5a0365d8ecc3db4396e756e4c850a867e1ae2ed69e') {
-        throw "Checksum mismatch: $archive"
-    }
-    $NvidiaRoot = Join-Path $Dependencies 'rtx-video-sdk-1.1.0'
-    if (!(Test-Path -LiteralPath (Join-Path $NvidiaRoot 'include\nvsdk_ngx_defs_vsr.h'))) {
-        Expand-Archive -LiteralPath $archive -DestinationPath $NvidiaRoot -Force
-    }
-}
-# The host's NVIDIA feature, for every cargo step of an NVIDIA build.
-$featureArgs = if ($Nvidia) { @('--features', 'butterpollo/nvidia-proprietary') } else { @() }
-$flavor = if ($Nvidia) { 'nvidia-' } else { '' }
 $runTests = !$SkipTests -and $Stage -in 'All', 'Test'
 $runLint = !$SkipTests -and $Stage -in 'All', 'Lint'
 $runBuild = $Stage -in 'All', 'Build'
@@ -196,7 +263,7 @@ try {
     Assert-NativeExit 'Service formatting'
     if ($runTests) {
         & (Join-Path $repo 'rust\drivers\usbip\test_usbip.ps1')
-        & cargo $toolchain test --workspace --locked @featureArgs
+        & cargo $toolchain test --workspace --locked
         Assert-NativeExit 'Rust tests'
         & cargo $toolchain test --manifest-path $serviceManifest --locked
         Assert-NativeExit 'Service tests'
@@ -204,17 +271,17 @@ try {
         # above reuses its build: -p would unify features differently and
         # rebuild the workspace crates. The encode-cost benchmark also needs
         # libopus and is run by hand.
-        & cargo $toolchain test --workspace --locked @featureArgs -- --ignored ffmpeg:: audio_encoder::tests::ffmpeg_ --skip passthrough_encode_cost
+        & cargo $toolchain test --workspace --locked -- --ignored ffmpeg:: audio_encoder::tests::ffmpeg_ --skip passthrough_encode_cost
         Assert-NativeExit 'FFmpeg tests'
     }
     if ($runLint) {
-        & cargo $toolchain clippy --workspace --all-targets --locked @featureArgs -- -D warnings
+        & cargo $toolchain clippy --workspace --all-targets --locked -- -D warnings
         Assert-NativeExit 'Rust lint'
         & cargo $toolchain clippy --manifest-path $serviceManifest --all-targets --locked -- -D warnings
         Assert-NativeExit 'Service lint'
     }
     if (!$runBuild) { return }
-    $buildArgs = @('build', '--workspace', '--locked') + $featureArgs
+    $buildArgs = @('build', '--workspace', '--locked')
     $profile = 'debug'
     if (!$DebugBuild) { $buildArgs += '--release'; $profile = 'release' }
     & cargo $toolchain @buildArgs
@@ -229,35 +296,8 @@ try {
     Copy-Item -LiteralPath (Join-Path "$MsysRoot\ucrt64\bin" 'libopus-0.dll') -Destination $output
     Copy-Item -LiteralPath (Join-Path $PyrowaveRoot 'bin\libpyrowave-shared-1.dll') -Destination $output
     foreach ($dll in $ffmpegDlls) { Copy-Item -LiteralPath (Join-Path $FfmpegRoot "bin\$dll") -Destination $output }
-    if ($Nvidia) {
-        # The NGX adapter is an MSVC DLL of its own (NVIDIA's static NGX library is MSVC-only);
-        # the GNU host loads it at run time.
-        $env:NV_RTX_VIDEO_SDK = $NvidiaRoot
-        # The static C runtime: a PC without the Visual C++ Redistributable could not load an
-        # adapter that needs MSVCP140.dll and VCRUNTIME140.dll.
-        $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = '-C target-feature=+crt-static'
-        if ($MsvcSdk) {
-            $sysroot = & rustc $toolchain --print sysroot
-            $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER = Join-Path $sysroot 'lib\rustlib\x86_64-pc-windows-gnu\bin\rust-lld.exe'
-            $env:LIB = "$MsvcSdk\crt\lib\x86_64;$MsvcSdk\sdk\lib\um\x86_64;$MsvcSdk\sdk\lib\ucrt\x86_64;" + $env:LIB
-        }
-        $adapterManifest = Join-Path $repo 'rust\truehdr-runtime\Cargo.toml'
-        & cargo $toolchain fmt --manifest-path $adapterManifest -- --check
-        Assert-NativeExit 'NVIDIA adapter formatting'
-        if (!$SkipTests) {
-            & cargo $toolchain clippy --manifest-path $adapterManifest --target x86_64-pc-windows-msvc --locked -- -D warnings
-            Assert-NativeExit 'NVIDIA adapter lint'
-        }
-        & cargo $toolchain build --manifest-path $adapterManifest --target x86_64-pc-windows-msvc --release --locked
-        Assert-NativeExit 'NVIDIA adapter build'
-        Copy-Item -LiteralPath (Join-Path $TargetDirectory 'x86_64-pc-windows-msvc\release\butterpollo_truehdr.dll') -Destination $output
-        foreach ($dll in @('nvngx_truehdr.dll', 'nvngx_vsr.dll')) {
-            Copy-Item -LiteralPath (Join-Path $NvidiaRoot "bin\Windows\x64\rel\$dll") -Destination $output
-        }
-        $runtimeDlls += @('butterpollo_truehdr.dll', 'nvngx_truehdr.dll', 'nvngx_vsr.dll')
-    }
     if ($Package) {
-        $distribution = Join-Path $TargetDirectory "butterpollo-rust-$flavor$profile"
+        $distribution = Join-Path $TargetDirectory "butterpollo-rust-$profile"
         if (Test-Path -LiteralPath $distribution) {
             $resolvedDistribution = (Resolve-Path -LiteralPath $distribution).ProviderPath
             if (!$resolvedDistribution.StartsWith($TargetDirectory.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Package cleanup escaped its output directory' }
@@ -306,7 +346,6 @@ try {
         Copy-Item -LiteralPath (Join-Path $repo 'rust\tests\ENVIRONMENT_REPORT.md') -Destination "$distribution\tools\README.md"
         Copy-Item -LiteralPath (Join-Path $repo 'rust\compatibility') -Destination "$distribution\compatibility" -Recurse
         Copy-Item -LiteralPath (Join-Path $repo 'rust\THIRD_PARTY.md') -Destination "$distribution\licenses"
-        if ($Nvidia) { Copy-Item -LiteralPath (Join-Path $NvidiaRoot 'NVIDIA_RTX_Video_SDK_License.pdf') -Destination "$distribution\licenses" }
         foreach ($header in @('nvEncodeAPI.h', 'dynlink_cuda.h')) {
             $text = [IO.File]::ReadAllText((Join-Path $repo "rust\windows\include\$header"))
             $notice = $text.Substring(0, $text.IndexOf('*/') + 2)
@@ -380,7 +419,7 @@ try {
         $packages | Select-Object name, version, license, repository, source | ConvertTo-Json | Set-Content -LiteralPath "$distribution\licenses\rust-dependencies.json" -Encoding utf8
         $version = (Select-String -LiteralPath (Join-Path $repo 'Cargo.toml') -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
         & (Join-Path $repo 'rust\release\package.ps1') -Distribution $distribution -TargetDirectory $TargetDirectory `
-            -Stub (Join-Path $output 'butterpollo-setup.exe') -Version $version -ProfileName $profile -Nvidia:$Nvidia
+            -Stub (Join-Path $output 'butterpollo-setup.exe') -Version $version -ProfileName $profile
     }
     Write-Output "Rust executables: $output"
 } finally { Pop-Location }

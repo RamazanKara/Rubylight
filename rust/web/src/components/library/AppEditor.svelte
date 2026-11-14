@@ -414,7 +414,7 @@
       <LosslessSettings {draft} />
     </Panel>
 
-    {#if session.metadata?.nvidia_enhancements?.build}
+    {#if session.metadata?.nvidia_enhancements?.component.nvidia_gpu || session.metadata?.nvidia_enhancements?.component.installed}
       <Panel collapsible title="NVIDIA image enhancement" description="RTX HDR and RTX Video enhancement for this app’s streams.">
         <RtxSettings {draft} offered={session.metadata.nvidia_enhancements} />
       </Panel>

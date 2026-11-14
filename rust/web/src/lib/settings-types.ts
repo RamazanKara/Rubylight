@@ -125,8 +125,8 @@ export const NATIVE_ENCODERS = '@native_encoders';
 
 /**
  * Not a setting: visibleWhen also gets the image enhancements this host
- * offers ('rtx_hdr', 'rtx_video') under this name. Only the NVIDIA build on
- * an NVIDIA GPU whose driver supports them offers any.
+ * offers ('rtx_hdr', 'rtx_video') under this name. Only a host with the
+ * NVIDIA components on an NVIDIA GPU whose driver supports them offers any.
  */
 export const NVIDIA_ENHANCEMENTS = '@nvidia_enhancements';
 
@@ -136,15 +136,35 @@ export function offersEnhancement(values: Record<string, ConfigValue>, name: str
   return Array.isArray(offered) && offered.includes(name);
 }
 
-/** Not a setting: visibleWhen also gets whether this host is the NVIDIA build under this name. */
-export const NVIDIA_BUILD = '@nvidia_build';
+/**
+ * Not a setting: visibleWhen also gets, under this name, what the RTX
+ * settings wait for: 'no_gpu' on a PC without an NVIDIA graphics card,
+ * otherwise the NVIDIA components' state ('missing', 'download', 'remove',
+ * 'failed', 'ready').
+ */
+export const NVIDIA_COMPONENT = '@nvidia_component';
 
 /**
- * The tag of an RTX setting this host cannot run: the signed build has
- * neither enhancement, so it names the build that does (issue #103).
+ * The [NVIDIA_COMPONENT] value for the host's report of its NVIDIA components:
+ * 'ready' while one is installed, whatever a download or check does meanwhile.
+ */
+export function componentGate(
+  component: { state: string; installed?: boolean; nvidia_gpu: boolean } | null | undefined,
+): string {
+  if (!component) return 'missing';
+  if (component.installed) return 'ready';
+  return component.nvidia_gpu ? component.state : 'no_gpu';
+}
+
+/**
+ * The tag of an RTX setting this host cannot run: what it needs, so a setting
+ * found by search says what to do (issue #103).
  */
 export function nvidiaGate(values: Record<string, ConfigValue>): string {
-  return values[NVIDIA_BUILD] === true ? 'Not available on this PC' : 'Only in the NVIDIA build';
+  const gate = values[NVIDIA_COMPONENT];
+  if (gate === 'no_gpu') return 'Needs an NVIDIA graphics card';
+  if (gate === 'ready') return 'Not available on this PC';
+  return 'Needs the NVIDIA components';
 }
 
 export interface Schema {

@@ -1,6 +1,6 @@
 //! RTX HDR's tuning from the NVIDIA driver profile of the game in front, as
 //! NVIDIA's own overlay sets it. Driver profile I/O stays on a disposable
-//! background thread, never encode. NVIDIA build only.
+//! background thread, never encode.
 use crate::nvidia_profile::{Drs, NvApi, Value};
 use std::{
     collections::BTreeMap,

@@ -535,7 +535,6 @@ pub struct Device {
 }
 impl Device {
     /// The D3D11 device's identity, to tell a recreated device from this one.
-    #[cfg(feature = "nvidia-proprietary")]
     pub fn key(&self) -> usize {
         self.device.as_raw() as usize
     }
@@ -1120,8 +1119,7 @@ impl GpuImage {
         })
     }
     /// Take `source`'s timing, pointer and focus for a picture made from it
-    /// (the NVIDIA build's enhancements).
-    #[cfg(feature = "nvidia-proprietary")]
+    /// (the NVIDIA image enhancements).
     pub(crate) fn inherit(&mut self, source: &GpuImage) {
         self.captured = source.captured;
         self.wgc_stamp = source.wgc_stamp;

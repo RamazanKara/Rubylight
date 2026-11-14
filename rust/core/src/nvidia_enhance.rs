@@ -1,9 +1,9 @@
-//! When the NVIDIA build's image enhancements apply, and with which values.
+//! When the NVIDIA image enhancements apply, and with which values.
 //!
 //! RTX HDR (NVIDIA TrueHDR) turns an SDR game into HDR for a device that asks
 //! for HDR. RTX Video enhancement runs NVIDIA's video super resolution at the
 //! capture's own size, cleaning up and sharpening SDR and HDR pictures before
-//! encoding. Both need Rubylight's separate NVIDIA build, an NVIDIA GPU and a
+//! encoding. Both need Rubylight's NVIDIA component, an NVIDIA GPU and a
 //! driver whose runtime reports the feature; this module only decides.
 //!
 //! The per-app enhancement design (an app setting, the stream's own choice
@@ -94,19 +94,15 @@ pub fn quality_for(intensity: i64) -> Option<u32> {
 }
 
 /// NGX's TrueHDR values: contrast and saturation (0 to 200, 100 neutral),
-/// middle gray (10 to 100 nits) and peak luminance (400 to 1000). A peak over
-/// 1000 nits is reached by scaling the output; middle gray is scaled down by
-/// as much, so mid-tones keep their brightness.
+/// middle gray (10 to 100 nits) and the device's peak (400 to 2000 nits, the
+/// range of `TrueHDR.MaxLuminance` in RTX Video SDK 1.1.0, as Foundation
+/// Sunshine and Vibepollo pass it).
 pub fn rtx_parameters(config: &Config) -> [u32; 4] {
-    let peak = peak_nits(config);
-    let scale = (peak as f32 / 1000.).max(1.);
     [
         (config.integer("rtx_hdr_contrast", 0) + 100).clamp(0, 200) as u32,
         (config.integer("rtx_hdr_saturation", 0) + 100).clamp(0, 200) as u32,
-        (config.integer("rtx_hdr_middle_gray", 50).clamp(10, 100) as f32 / scale)
-            .round()
-            .clamp(10., 100.) as u32,
-        peak.min(1000),
+        config.integer("rtx_hdr_middle_gray", 50).clamp(10, 100) as u32,
+        peak_nits(config),
     ]
 }
 
@@ -116,10 +112,11 @@ pub fn peak_nits(config: &Config) -> u32 {
 }
 
 /// The encoder's SDR white (nits) and linear scale for an RTX HDR picture.
+/// NGX reaches the device's peak itself, so the scale is 1.
 pub fn rtx_luminance(config: &Config) -> (f32, f32) {
     (
         100. + config.integer("rtx_hdr_sdr_brightness", 0).clamp(0, 100) as f32,
-        (peak_nits(config) as f32 / 1000.).max(1.),
+        1.,
     )
 }
 
@@ -244,7 +241,7 @@ pub fn unavailable(config: &Config, offered: u8, source: Source) -> Option<Strin
     (!reasons.is_empty()).then(|| reasons.join(" "))
 }
 
-/// How long the NVIDIA build's startup check may run. It takes a few
+/// How long the NVIDIA component's check may run. It takes a few
 /// hundred milliseconds; NGX's first start after a driver update can take
 /// seconds.
 pub const PROBE_TIMEOUT_SECS: u64 = 30;
@@ -253,7 +250,7 @@ pub const PROBE_TIMEOUT_SECS: u64 = 30;
 /// missing enhancement is missing.
 pub type Offer = (u8, Vec<(&'static str, String)>);
 
-/// How the NVIDIA build's check process (`--nvidia-probe`) ended.
+/// How the NVIDIA component's check process (`--nvidia-probe`) ended.
 #[derive(Clone, Copy, Debug)]
 pub enum ProbeEnd {
     Code(i32),
@@ -419,23 +416,39 @@ mod tests {
     }
 
     #[test]
-    fn parameters_scale_middle_gray_with_a_peak_over_1000_nits() {
+    fn parameters_pass_the_device_peak_up_to_2000_nits() {
         assert_eq!(rtx_parameters(&config("")), [100, 100, 50, 1000]);
         assert_eq!(
             rtx_parameters(&config(
-                "rtx_hdr_contrast = 14\nrtx_hdr_saturation = -300\nrtx_hdr_middle_gray = 60\nhdr_peak_brightness = 1500\n"
+                "rtx_hdr_contrast = 14
+rtx_hdr_saturation = -300
+rtx_hdr_middle_gray = 60
+hdr_peak_brightness = 1500
+"
             )),
-            [114, 0, 40, 1000]
+            [114, 0, 60, 1500]
         );
         assert_eq!(
-            rtx_parameters(&config("hdr_peak_brightness = 100\n"))[3],
+            rtx_parameters(&config(
+                "hdr_peak_brightness = 100
+"
+            ))[3],
             400
         );
         assert_eq!(
+            rtx_parameters(&config(
+                "hdr_peak_brightness = 4000
+"
+            ))[3],
+            2000
+        );
+        assert_eq!(
             rtx_luminance(&config(
-                "rtx_hdr_sdr_brightness = 30\nhdr_peak_brightness = 2000\n"
+                "rtx_hdr_sdr_brightness = 30
+hdr_peak_brightness = 2000
+"
             )),
-            (130., 2.)
+            (130., 1.)
         );
     }
 
@@ -466,7 +479,7 @@ mod tests {
         }
     }
 
-    /// Issue #103: the NVIDIA build's host did not start on an RTX card. Its
+    /// Issue #103: the former NVIDIA build's host did not start on an RTX card. Its
     /// check of NVIDIA's NGX runs in a process of its own, and only an
     /// answer from a check that ended normally reaches the host.
     #[test]

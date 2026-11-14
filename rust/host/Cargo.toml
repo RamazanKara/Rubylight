@@ -58,9 +58,6 @@ rubylight-traverse = { path = "../../client/protocol/traverse" }
 embed-resource = "3.0.12"
 
 [features]
-# The separate, unsigned NVIDIA build (`rust/build.ps1 -Nvidia`): RTX HDR and
-# RTX Video enhancement. Off by default and in every signed build.
-nvidia-proprietary = ["butterpollo-windows/nvidia-proprietary"]
 
 [dev-dependencies]
 # File transfer tests open their folder as the developer; session tests hold

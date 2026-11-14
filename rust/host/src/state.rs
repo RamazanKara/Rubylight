@@ -369,9 +369,9 @@ pub struct Host {
     /// The macroblocks per second the H.264, HEVC and AV1 encoders take (AMF throughput caps), 0 until probed.
     pub encoder_mb_rates: [std::sync::atomic::AtomicU64; 3],
     pub packed_modes: std::sync::atomic::AtomicU8,
-    /// The NVIDIA build's image enhancements the GPU and driver reported at
-    /// startup (`butterpollo_core::nvidia_enhance` bits); always 0 in other
-    /// builds and on other GPUs.
+    /// The NVIDIA image enhancements the GPU and driver reported with the
+    /// NVIDIA component (`butterpollo_core::nvidia_enhance` bits); 0 without
+    /// it and on other GPUs.
     pub nvidia_enhancements: std::sync::atomic::AtomicU8,
     /// Why the startup check found an enhancement unavailable, per
     /// enhancement, for the console; empty in other builds.
@@ -447,6 +447,8 @@ pub struct Host {
     pub nucleus: crate::nucleus::Registry,
     /// Neural Rendering: the GPU check, and each app's install or removal.
     pub neural: crate::neural::Neural,
+    /// The NVIDIA component's download, removal and last failure.
+    pub nvidia_component: crate::nvidia_component::NvidiaComponent,
     pub assets: PathBuf,
 }
 /// Why the running app is stopped, and the client that asked: each stop logs it.
@@ -919,6 +921,7 @@ impl Host {
             webhooks: crate::webhooks::Webhooks::new(crate::webhooks::Policy::DEFAULT)?,
             nucleus: crate::nucleus::Registry::on_pc(),
             neural: Default::default(),
+            nvidia_component: Default::default(),
             device_guests: Default::default(),
         }))
     }

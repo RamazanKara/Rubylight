@@ -57,7 +57,6 @@ pub mod net;
 pub mod net_adapter;
 pub mod nucleus;
 pub mod nvenc;
-#[cfg(feature = "nvidia-proprietary")]
 pub mod nvidia_enhance;
 pub mod nvidia_profile;
 pub mod nvidia_settings;
@@ -69,9 +68,7 @@ pub mod process;
 pub mod pyrowave;
 pub mod radeon;
 pub mod rtss;
-#[cfg(feature = "nvidia-proprietary")]
 pub mod rtx_profiles;
-#[cfg(feature = "nvidia-proprietary")]
 pub mod rtx_video;
 pub mod service;
 pub mod shared_folder;
@@ -81,7 +78,6 @@ mod text;
 pub mod text_focus;
 pub mod timing;
 pub mod tray;
-#[cfg(feature = "nvidia-proprietary")]
 pub mod truehdr;
 pub mod user_folder;
 pub mod vulkan;

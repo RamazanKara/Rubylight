@@ -643,13 +643,13 @@ class Signing(unittest.TestCase):
         self.assertTrue(steps)
         return {re.search(r'artifact-configuration-slug: (\S+)', step)[1]: step for step in steps}
 
-    def test_the_nvidia_build_is_never_signed(self):
+    def test_the_nvidia_component_is_never_signed(self):
         # NVIDIA's proprietary NGX library and runtime DLLs stay out of every
         # signed file (docs/code-signing-policy.md): their job never calls
         # SignPath, and neither sign-artifacts.ps1 nor .signpath names them.
         job = re.search(r'(?ms)^  nvidia:\n(.*?)(?=^  \S)', self.workflow)[1]
-        self.assertIn('-Nvidia -Stage Build -Package', job)
-        for word in ('SignPath', 'sign-artifacts', 'SIGNPATH'):
+        self.assertIn('.\\rust\\build.ps1 -FetchDependencies -Nvidia -TargetDirectory', job)
+        for word in ('SignPath', 'sign-artifacts', 'SIGNPATH', '-Package'):
             self.assertNotIn(word, job)
         script = (ROOT / 'rust/release/sign-artifacts.ps1').read_text(encoding='utf-8')
         self.assertIn("$distribution = Join-Path $TargetDirectory 'butterpollo-rust-release'", script)
@@ -658,16 +658,26 @@ class Signing(unittest.TestCase):
             for slug, root in self.configurations.items():
                 for include in root.iter(f'{NS}include'):
                     self.assertNotIn(name, include.get('path').lower(), slug)
-        # Its files carry "nvidia" in their names, apart from the signed ones.
+        # The signed host and installer carry none of it: -Nvidia builds only
+        # the component's archive, and the package has no NVIDIA flavour.
+        build = (ROOT / 'rust/build.ps1').read_text(encoding='utf-8')
+        self.assertNotIn('nvidia-proprietary', build)
+        component = re.search(r'(?ms)^if \(\$Nvidia\) \{\n(.*?)^\}\n', build)[1]
+        self.assertIn('rubylight-nvidia-component-$version.zip', component)
+        self.assertIn('    return\n', component)
+        host = build[build.index(component) + len(component):]
+        for name in ('nvngx', 'truehdr', 'NVIDIA_RTX_Video_SDK_License'):
+            self.assertNotIn(name, host)
         package = (ROOT / 'rust/release/package.ps1').read_text(encoding='utf-8')
-        self.assertIn("$flavor = if ($Nvidia) { 'nvidia-' } else { '' }", package)
-        self.assertIn('out/rubylight-nvidia-setup-$VERSION.exe', self.workflow)
-        self.assertIn('out/rubylight-nvidia-$VERSION-windows-x64.zip', self.workflow)
+        self.assertNotIn('nvidia', package.lower())
+        # The archive holds NVIDIA's files exactly as the host pins them.
+        self.assertIn("rust\\core\\src\\nvidia_component.rs", component)
+        self.assertIn('is not the file nvidia_component.rs pins', component)
 
-    def test_the_release_never_waits_on_the_nvidia_build(self):
-        # An NGC outage or a failed NVIDIA build only delays its extra files:
-        # publish neither needs nor downloads it, and nvidia-assets attaches
-        # it to the release publish made, without signing anything.
+    def test_the_release_never_waits_on_the_nvidia_component(self):
+        # An NGC outage or a failed NVIDIA job only delays its files: publish
+        # neither needs nor downloads them, and nvidia-assets attaches them to
+        # the release publish made, without signing anything.
         job = lambda name: re.search(rf'(?ms)^  {name}:\n(.*?)(?=^  \S)', self.workflow)[1]
         publish = job('publish')
         self.assertIn('    needs: [tag, test, lint, windows]\n', publish)
@@ -675,16 +685,32 @@ class Signing(unittest.TestCase):
         assets = job('nvidia-assets')
         self.assertIn('    needs: [tag, nvidia, publish]\n', assets)
         self.assertIn("needs.publish.result == 'success'", assets)
-        # Nothing NVIDIA is published until the repository variable says so;
-        # the nvidia job still builds and keeps its artifact.
-        self.assertIn("    if: ${{ vars.PUBLISH_NVIDIA_BUILD == 'true' && ", assets)
+        # Nothing of NVIDIA's is published until the repository variable says
+        # so; the nvidia job still builds and keeps its artifact.
+        step = re.search(r'(?ms)- name: Attach the NVIDIA component\n(.*?)(?=^      - |\Z)', assets)[1]
+        self.assertIn("if: ${{ vars.PUBLISH_NVIDIA_BUILD == 'true' && ", step)
+        self.assertIn('-n butterpollo-rust-windows-x64-nvidia', step)
+        self.assertIn('rubylight-nvidia-component-$VERSION.zip', step)
         nvidia = job('nvidia')
         self.assertNotIn('PUBLISH_NVIDIA_BUILD', nvidia)
         self.assertIn('name: butterpollo-rust-windows-x64-nvidia', nvidia)
-        self.assertIn('gh release upload "$release"', assets)
-        self.assertIn('-n butterpollo-rust-windows-x64-nvidia', assets)
+        self.assertIn('rubylight-nvidia-component-*.zip', nvidia)
         for word in ('SignPath', 'sign-artifacts', 'SIGNPATH', 'gh release create'):
             self.assertNotIn(word, assets)
+
+    def test_hosts_of_the_former_nvidia_build_get_the_signed_installer(self):
+        # 4.3.2 to 4.4.0's NVIDIA build updates only from rubylight-nvidia-setup:
+        # the signed installer is attached under that name too, whatever the
+        # nvidia job did and whatever the variable says.
+        assets = re.search(r'(?ms)^  nvidia-assets:\n(.*?)(?=^  \S)', self.workflow)[1]
+        step = re.search(r'(?ms)- name: Attach the signed installer for hosts of the former NVIDIA build\n(.*?)(?=^      - )', assets)[1]
+        self.assertNotIn('if:', step)
+        self.assertIn('-p "rubylight-setup-$VERSION.exe"', step)
+        self.assertIn('"migrate/rubylight-nvidia-setup-$VERSION.exe"', step)
+        self.assertNotIn("needs.nvidia.result", assets.split('steps:')[0])
+        # The host's own updater never takes that name.
+        updater = (ROOT / 'rust/host/src/updater.rs').read_text(encoding='utf-8')
+        self.assertIn('const INSTALLERS: &[&str] = &["rubylight-setup", "butterpollo-setup"];', updater)
 
     def test_only_release_runs_sign(self):
         # Every SignPath request waits for a manual approval, so only the tag

@@ -1,4 +1,4 @@
-//! RTX HDR (NVIDIA TrueHDR) through the NVIDIA build's NGX adapter: an SDR
+//! RTX HDR (NVIDIA TrueHDR) through the NVIDIA component's NGX adapter: an SDR
 //! capture turned into an FP16 HDR picture before encoding. Creation,
 //! conversion and teardown stay on one thread.
 use crate::capture::{Device, GpuImage, GpuPool, Pixel};
@@ -38,7 +38,7 @@ impl Filter {
             bail!("RTX HDR needs an NVIDIA GPU");
         }
         let dll = crate::nvidia_enhance::load()?;
-        // SAFETY: The adapter's ABI 2 (checked by `load`) exports these symbols with these types,
+        // SAFETY: The adapter's ABI 3 (checked by `load`) exports these symbols with these types,
         // and Filter keeps `dll` and `device` while the pointers are used.
         unsafe {
             let create = *dll.get::<Create>(b"butterpollo_truehdr_create\0")?;
@@ -67,25 +67,27 @@ impl Filter {
             bail!("RTX HDR needs an SDR picture on the capture's GPU");
         }
         crate::rtx_video::ready_for_d3d11(image)?;
-        // SAFETY: `state` is the live NGX state, created on this device, whose multithread lock is
-        // held; the returned texture is only borrowed while it is copied into the pool.
+        // SAFETY: `state` is the live NGX state, created on this device. The adapter takes its own
+        // lock and then the device's multithread lock (ABI 3), so this thread holds neither while
+        // it converts; the returned texture is only borrowed while it is copied into the pool,
+        // under the device's lock.
         unsafe {
+            let [contrast, saturation, middle, peak] = self.parameters;
+            let mut error = 0;
+            let output = (self.convert)(
+                self.state,
+                image.texture.as_raw(),
+                contrast,
+                saturation,
+                middle,
+                peak,
+                &mut error,
+            );
+            let texture = ID3D11Texture2D::from_raw_borrowed(&output)
+                .with_context(|| format!("RTX HDR conversion failed: {}", describe(error)))?;
             let lock: ID3D11Multithread = self.device.context.cast()?;
             lock.Enter();
             let result = (|| {
-                let [contrast, saturation, middle, peak] = self.parameters;
-                let mut error = 0;
-                let output = (self.convert)(
-                    self.state,
-                    image.texture.as_raw(),
-                    contrast,
-                    saturation,
-                    middle,
-                    peak,
-                    &mut error,
-                );
-                let texture = ID3D11Texture2D::from_raw_borrowed(&output)
-                    .with_context(|| format!("RTX HDR conversion failed: {}", describe(error)))?;
                 let mut converted = self
                     .pool
                     .copy(&self.device, texture)?

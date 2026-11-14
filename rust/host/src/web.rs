@@ -15,6 +15,7 @@ mod guests_tests;
 mod logs;
 mod maintenance;
 mod neural;
+mod nvidia_component;
 #[cfg(test)]
 mod parity_tests;
 mod power;
@@ -1074,6 +1075,9 @@ pub(crate) async fn api(
     }
     if path == "/api/neural" || path.starts_with("/api/neural/") {
         return neural::handle(&h, &method, path, &uri, &data).await;
+    }
+    if path == "/api/nvidia-component" || path.starts_with("/api/nvidia-component/") {
+        return nvidia_component::handle(&h, &method, path).await;
     }
     // The app editor's game settings files: which devices have a saved copy. Console-only.
     if method == Method::GET && path == "/api/game-settings" {

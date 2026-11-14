@@ -943,7 +943,7 @@ test('the mouse input method and device touchpads sit with the mouse, on Automat
 });
 
 test('RTX HDR and RTX Video settings show only where the host offers them, with their defaults', () => {
-  const { NVIDIA_BUILD, NVIDIA_ENHANCEMENTS } = types;
+  const { NVIDIA_COMPONENT, NVIDIA_ENHANCEMENTS, componentGate } = types;
   const expected = [
     ['rtx_hdr', 'rtx_hdr', false],
     ['rtx_hdr_sdr_brightness', 'rtx_hdr', 0],
@@ -961,18 +961,28 @@ test('RTX HDR and RTX Video settings show only where the host offers them, with 
     assert.equal(setting.visibleWhen({ [NVIDIA_ENHANCEMENTS]: [name] }), true, key);
     const other = name === 'rtx_hdr' ? 'rtx_video' : 'rtx_hdr';
     assert.equal(setting.visibleWhen({ [NVIDIA_ENHANCEMENTS]: [other] }), false, key);
-    assert.match(setting.inactiveHint, /NVIDIA build/, key);
-    // Issue #103: found by search on the signed build, its switch was set and did nothing,
-    // and "not available on this PC" read wrong beside an NVIDIA card: it names the build.
-    assert.equal(setting.hostGated({}), 'Only in the NVIDIA build', key);
-    assert.equal(setting.hostGated({ [NVIDIA_BUILD]: false }), 'Only in the NVIDIA build', key);
-    assert.equal(setting.hostGated({ [NVIDIA_BUILD]: true }), 'Not available on this PC', key);
-    assert.match(setting.inactiveHint, /rubylight-nvidia-setup/, key);
+    // Issue #103: found by search without what it needs, its switch was set and did
+    // nothing: the tag names what is missing and the hint where to get it.
+    assert.match(setting.inactiveHint, /NVIDIA components \(Settings › Picture › Integrations\)/, key);
+    assert.equal(setting.hostGated({}), 'Needs the NVIDIA components', key);
+    for (const state of ['missing', 'download', 'remove', 'failed']) {
+      assert.equal(setting.hostGated({ [NVIDIA_COMPONENT]: state }), 'Needs the NVIDIA components', key);
+    }
+    assert.equal(setting.hostGated({ [NVIDIA_COMPONENT]: 'no_gpu' }), 'Needs an NVIDIA graphics card', key);
+    assert.equal(setting.hostGated({ [NVIDIA_COMPONENT]: 'ready' }), 'Not available on this PC', key);
+    assert.doesNotMatch(`${setting.description} ${setting.inactiveHint}`, /NVIDIA build|nvidia-setup/, key);
     assert.doesNotMatch(`${setting.label} ${setting.description} ${setting.details ?? ''}`, /experimental|beta|preview/i, key);
   }
   assert.equal(settings.get('rtx_hdr').category, 'hdr');
   assert.equal(settings.get('rtx_video').category, 'video');
-  for (const key of ['rtx_hdr', 'rtx_video']) assert.match(settings.get(key).description, /^NVIDIA build only: /, key);
+  assert.equal(componentGate(undefined), 'missing');
+  assert.equal(componentGate({ state: 'missing', nvidia_gpu: false }), 'no_gpu');
+  assert.equal(componentGate({ state: 'failed', nvidia_gpu: false }), 'no_gpu');
+  assert.equal(componentGate({ state: 'ready', installed: true, nvidia_gpu: false }), 'ready');
+  assert.equal(componentGate({ state: 'download', nvidia_gpu: true }), 'download');
+  // An installed component stays ready while the host fetches the next version's.
+  assert.equal(componentGate({ state: 'download', installed: true, nvidia_gpu: true }), 'ready');
+  assert.equal(componentGate({ state: 'failed', installed: true, nvidia_gpu: true }), 'ready');
   assert.deepEqual(values.nvidiaEnhancements({ pyrowave: true, rtx_hdr: false, rtx_video: true }), ['rtx_video']);
   assert.deepEqual(values.nvidiaEnhancements({ rtx_hdr: true, rtx_video: true }), ['rtx_hdr', 'rtx_video']);
   assert.deepEqual(values.nvidiaEnhancements(undefined), []);

@@ -80,12 +80,19 @@ which is a driver of its own; Rubylight's is a USB device on its USB/IP server. 
 touchpad input packets 0x55000009 and 0x5500000A and their feature flags
 (rust/core/src/input.rs) are Foundation Sunshine's, as Moonlight V+ sends them.
 
-In the separate NVIDIA build, the per-application design of the NVIDIA image
-enhancements, the single pre-encode slot that RTX HDR takes first, and the HDR proxy
-through which RTX Video enhancement treats an HDR picture (rust/core/src/nvidia_enhance.rs,
-rust/host/src/nvidia_enhance.rs, rust/windows/src/rtx_video.rs and
-rust/windows/src/shaders/rtx_video.hlsl) follow Foundation Sunshine's
-src/platform/windows/image_enhancement/, including dlss_nr/hdr_filter.cpp.
+The per-application design of the NVIDIA image enhancements, the single pre-encode
+slot that RTX HDR takes first, and the HDR proxy through which RTX Video enhancement
+treats an HDR picture (rust/core/src/nvidia_enhance.rs, rust/host/src/nvidia_enhance.rs,
+rust/windows/src/rtx_video.rs and rust/windows/src/shaders/rtx_video.hlsl) follow
+Foundation Sunshine's src/platform/windows/image_enhancement/, including
+dlss_nr/hdr_filter.cpp. The NVIDIA component's design (rust/core/src/nvidia_component.rs,
+rust/host/src/nvidia_component.rs and rust/windows/src/nvidia_enhance.rs: NVIDIA's files
+trusted by digests in the host and kept apart from the adapter's build, fixed file roles
+in a fixed folder, a check before each load, installed only at the user's request)
+follows its docs/native_sideload_components.md, and the NGX adapter's set-up in rust/truehdr-runtime (NGX's
+data and feature paths, the device's multithread protection, the scratch-memory check
+and the 400 to 2000 nit peak) follows its
+src/platform/windows/image_enhancement/rtx_hdr/adapter/src/truehdr_adapter.cpp.
 Copyright (c) Foundation Sunshine authors, GPL-3.0.
 
 mac-precision-touchpad
@@ -251,18 +258,19 @@ are the ones Nonary/Vibepollo (GPL-3.0) writes for them.
 
 NVIDIA RTX Video SDK
 
-Only Rubylight's separate NVIDIA build (rust/build.ps1 -Nvidia, unsigned, files named
-rubylight-nvidia-*) includes NVIDIA RTX Video SDK 1.1.0 components for RTX HDR and
-RTX Video enhancement:
+Only Rubylight's NVIDIA component (rust/build.ps1 -Nvidia; unsigned, attached to each
+release as rubylight-nvidia-component-<version>.zip and downloaded only when the user
+asks for it on the console) includes NVIDIA RTX Video SDK 1.1.0 components for RTX HDR
+and RTX Video enhancement:
 
 - nvngx_truehdr.dll
 - nvngx_vsr.dll
 
-They are redistributed unmodified under the NVIDIA RTX Video SDK License, included as
-licenses/NVIDIA_RTX_Video_SDK_License.pdf. Rubylight's adapter
-(rust/truehdr-runtime, butterpollo_truehdr.dll) links NVIDIA's NGX import library and
-is the only part of that build that does. The signed Rubylight build contains none of
-these components.
+They are redistributed unmodified, only beside Rubylight's adapter, under the NVIDIA
+RTX Video SDK License, included in the same archive as NVIDIA_RTX_Video_SDK_License.pdf.
+Rubylight's adapter (rust/truehdr-runtime, butterpollo_truehdr.dll) links NVIDIA's NGX
+import library and is the only Rubylight code that does. The signed Rubylight host and
+installer contain none of these components.
 
 NVIDIA, NVIDIA RTX, GeForce RTX, and related marks are trademarks and/or registered
 trademarks of NVIDIA Corporation in the United States and other countries.

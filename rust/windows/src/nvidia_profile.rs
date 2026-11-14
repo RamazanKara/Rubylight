@@ -242,8 +242,7 @@ pub(crate) struct NvApi {
     set_setting: SetSetting,
     delete_setting: DeleteSetting,
     global_profile: Option<GlobalProfile>,
-    /// For RTX HDR's driver profile tuning, in the NVIDIA build only.
-    #[cfg_attr(not(feature = "nvidia-proprietary"), allow(dead_code))]
+    /// For RTX HDR's driver profile tuning.
     find_application: Option<FindApplication>,
     driver_version: Option<DriverVersion>,
     session: Handle,
@@ -360,7 +359,6 @@ impl NvApi {
 
     /// The profile the driver applies to `executable` (a full path or a file
     /// name), `None` when no profile names it.
-    #[cfg(feature = "nvidia-proprietary")]
     pub(crate) fn application_profile(&self, executable: &str) -> Result<Option<Handle>> {
         let find = self
             .find_application

@@ -107,9 +107,9 @@ pub struct Offered {
     /// Per-packet arrival feedback (0x5547) for congestion control, while
     /// `congestion_control` is on; a DESCRIBE id only, no serverinfo element.
     pub transport_feedback: bool,
-    /// `NvidiaEnhancements`: the NVIDIA build's image enhancements the GPU
-    /// and driver offer (`nvidia_enhance` bits), which a launch may ask for
-    /// with `rlRtxHdr` and `rlRtxVideo`. 0 in every other build.
+    /// `NvidiaEnhancements`: the NVIDIA image enhancements the GPU and
+    /// driver offer with the NVIDIA component (`nvidia_enhance` bits), which a
+    /// launch may ask for with `rlRtxHdr` and `rlRtxVideo`. 0 without it.
     pub nvidia_enhancements: u8,
 }
 

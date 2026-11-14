@@ -1,6 +1,6 @@
 # Nightjar documentation
 
-These pages describe the current Nightjar 4 release for Android, Android TV, Fire TV, Windows, Linux and macOS. Nightjar works with any Moonlight-compatible host, such as Sunshine, Apollo, Vibepollo, Rubylight and NVIDIA GameStream, and enables each host extension from the capabilities the host reports.
+These pages describe the current Nightjar release for Android, Android TV, Fire TV, Windows, Linux and macOS. Nightjar works with any Moonlight-compatible host, such as Sunshine, Apollo, Vibepollo, Rubylight and NVIDIA GameStream, and enables each host extension from the capabilities the host reports.
 
 Conventions used throughout:
 

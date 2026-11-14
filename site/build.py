@@ -66,8 +66,11 @@ LANDING_MEDIA = ["docs/media/demo.mp4"]
 # The documentation pages' top bar.
 NAV = [
     ("Docs", "docs/index.html"),
-    ("Performance", "docs/performance.html"),
+    ("Get started", "docs/getting-started.html"),
+    ("Configuration", "docs/configuration.html"),
+    ("Troubleshooting", "docs/troubleshooting.html"),
     ("Features", "docs/features.html"),
+    ("Performance", "docs/performance.html"),
     ("Release notes", "rust/RELEASE_NOTES.html"),
 ]
 

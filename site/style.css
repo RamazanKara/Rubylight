@@ -467,6 +467,8 @@ td { font-variant-numeric: tabular-nums; }
 }
 .links a:hover { border-color: var(--line-strong); background: var(--sunken); }
 .links span { color: var(--muted); font-size: 14px; }
+.links-title { margin: 32px 0 0; font-size: 17px; }
+.links-title + .links { margin-top: 12px; }
 
 .footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
 .footer-inner {

@@ -35,9 +35,10 @@ concurrency:
 env:
   HERMES_TAG: v0.23.1
   HERMES_COMMIT: 3b421578588243f920886e6fe79a6faa87ea026e
+  MAINTAINER: RamazanKara
   OTHER_REPO: RamazanKara/nightjar
   INSTRUCTIONS: .github/pretriage.md
-  DOCS: docs/troubleshooting.md,docs/getting-started.md,docs/features.md,docs/nvenc.md,docs/configuration.md@headings
+  DOCS: docs/code-map.md,docs/troubleshooting.md,docs/getting-started.md,docs/features.md,docs/nvenc.md,docs/configuration.md@headings
   CODE_DIRS: rust
   LABELS: bug,enhancement,question,documentation,duplicate,needs info,accessibility
 
@@ -48,7 +49,7 @@ jobs:
       (github.event.sender.type != 'Bot' &&
        (github.event.issue.author_association || github.event.pull_request.author_association) != 'OWNER')
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -83,6 +84,7 @@ jobs:
           OPENCODE_GO_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
           HERMES_HOME: ${{ runner.temp }}/hermes-home
           WORK: ${{ runner.temp }}/pretriage
+          ROOT: ${{ github.workspace }}
         run: |
           mkdir -p "$HERMES_HOME"
           cat > "$HERMES_HOME/config.yaml" <<'EOF'
@@ -94,12 +96,14 @@ jobs:
               model: glm-5.3
             - provider: opencode-go
               model: glm-5.3-flash
+          agent:
+            reasoning_effort: max
           approvals:
             mode: manual
           tools:
             tool_search:
               enabled: "off"
-          context_file_max_chars: 200000
+          context_file_max_chars: 450000
           memory:
             memory_enabled: false
             user_profile_enabled: false
@@ -109,8 +113,16 @@ jobs:
               send: false
           EOF
           cd "$WORK"
-          "$RUNNER_TEMP/hermes/.venv/bin/hermes" -z "$(cat prompt.txt)" -t todo > answer.txt
+          hermes="$RUNNER_TEMP/hermes/.venv/bin/hermes"
+          echo "::group::Investigation pass"
+          "$hermes" -z "$(cat plan-prompt.txt)" -t todo > plan-answer.txt || echo "investigation pass failed; answering without it"
+          cat plan-answer.txt
+          echo "::endgroup::"
+          node "$GITHUB_WORKSPACE/.github/scripts/pretriage.mjs" expand
+          echo "::group::Answer pass"
+          "$hermes" -z "$(cat prompt.txt)" -t todo > answer.txt
           cat answer.txt
+          echo "::endgroup::"
 
       - if: steps.gather.outputs.skip == 'false'
         id: app

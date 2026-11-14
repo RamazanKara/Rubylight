@@ -262,8 +262,10 @@ impl HostClient {
         limit: usize,
         read: Duration,
     ) -> Result<T, Error> {
+        // A query of the call's own goes before the identity's: one `?` in all.
+        let (path, query) = split_query(path);
         let path = format!("{}/{path}", PREFIX.trim_start_matches('/'));
-        let target = self.url_target(&path, None);
+        let target = self.url_target(&path, query);
         let request = Request {
             host: &self.host,
             port: self.https_port(true)?,
@@ -523,6 +525,22 @@ mod tests {
         }
     }
 
+    /// A native call's own query joins the identity's parameters with one `?`: `neural?app=`
+    /// once reached the host as `app=<id>?uniqueid=...`, a game it didn't have.
+    #[test]
+    fn a_native_query_and_the_identity_share_one_question_mark() {
+        let identity = std::sync::Arc::new(super::super::identity::tests::fixture());
+        let client = HostClient::new("127.0.0.1", 47989, identity).unwrap();
+        let app = url_component("1F2E3D4C-0000-4000-8000-00000000F011");
+        let call = format!("neural?app={app}");
+        let (path, query) = split_query(&call);
+        let target = client.url_target(&format!("api/v1/{path}"), query);
+        assert!(target.starts_with("api/v1/neural?app=1F2E3D4C-0000-4000-8000-00000000F011&uniqueid="), "{target}");
+        assert_eq!(target.matches('?').count(), 1, "{target}");
+        assert_eq!(split_query("library"), ("library", None));
+        assert_eq!(url_component("a b&c"), "a%20b%26c");
+    }
+
     #[test]
     fn a_library_keeps_collections_through_a_write_back() {
         let text = r#"{"revision":"r","games":[
@@ -713,6 +731,15 @@ mod tests {
                 Err(Error::InvalidArgument(_))
             ));
         }
+    }
+}
+
+/// `path?query` as the path and its query, for [`HostClient::url_target`] to join with the
+/// identity's parameters.
+fn split_query(path: &str) -> (&str, Option<&str>) {
+    match path.split_once('?') {
+        Some((path, query)) => (path, Some(query).filter(|q| !q.is_empty())),
+        None => (path, None),
     }
 }
 

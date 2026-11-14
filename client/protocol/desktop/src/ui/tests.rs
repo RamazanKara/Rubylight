@@ -3060,6 +3060,24 @@ fn a_network_rule_decides_the_profile_and_the_row_opens_the_profiles_page() {
     assert_eq!(f.l.profiles.active, Some(1), "nothing was changed");
 }
 
+/// The game page's profile row and its list (nightjar#61):
+/// `NIGHTJAR_SHOTS=<dir> cargo test -p nightjar-desktop game_profile_screenshots -- --ignored`.
+#[test]
+#[ignore = "writes PNGs; set NIGHTJAR_SHOTS"]
+fn game_profile_screenshots() {
+    let Some(dir) = std::env::var_os("NIGHTJAR_SHOTS").map(std::path::PathBuf::from) else { return };
+    std::fs::create_dir_all(&dir).expect("the folder for the screenshots");
+    let mut f = game_page_with_profiles(&["Couch", "Hotel Wi-Fi"]);
+    f.size = vec2(1280.0, 800.0);
+    f.l.profiles.active = Some(1);
+    f.settle();
+    f.shoot(&dir, "game-profile");
+    let at = last_text_at(&f, "Active profile");
+    f.click_at(at, egui::PointerButton::Primary);
+    f.settle();
+    f.shoot(&dir, "game-profile-list");
+}
+
 /// Play pressed before the PC's app list arrives holds, then starts when it lands; it asks for it too.
 #[test]
 fn play_before_the_list_arrives_starts_when_it_lands() {

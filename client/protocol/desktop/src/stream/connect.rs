@@ -1059,7 +1059,7 @@ pub(super) fn connect(plan: &mut LaunchPlan, shared: Arc<Shared>, interrupt: &In
     let session = Session::start(
         &host,
         config,
-        Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early).with_beam_race(slices).with_gpu_decoder(plan.gpu_decoder).with_dmabuf(plan.dmabuf).with_kms_planes(plan.kms_planes)),
+        Box::new(pipeline::Decoder::new(shared.clone(), plan.hardware).with_early_decode(early).with_beam_race(slices).with_gpu_decoder(plan.gpu_decoder).with_dmabuf(plan.dmabuf).with_kms_planes(plan.kms_planes).with_device(plan.device.clone())),
         pipeline::audio_renderer(shared.clone(), passthrough, settings.mute_audio),
         Arc::new(pipeline::Events::new(shared)),
         interrupt,

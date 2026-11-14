@@ -518,6 +518,12 @@ impl App {
                     if self.cancelled {
                         session.stop();
                         self.cancelled = false;
+                    } else if cfg!(windows) && connecting.plan().hardware != self.hardware(&connecting.plan().settings) {
+                        // SDL made its Direct3D 11 device again while connecting (a driver reset):
+                        // the decoder's pictures are on the old device, which nothing draws.
+                        eprintln!("nightjar: the renderer's Direct3D 11 device changed while connecting; the stream ends");
+                        session.stop();
+                        self.launcher.message(tr("The stream could not start"), tr("The graphics driver was reset, which ended the stream. Connect again."));
                     } else {
                         self.begin_stream(connecting, session, facts);
                         return;

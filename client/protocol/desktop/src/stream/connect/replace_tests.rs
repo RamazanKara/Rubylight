@@ -27,6 +27,7 @@ fn launch_plan() -> LaunchPlan {
         identity: Arc::new(ClientIdentity::generate().expect("an identity")),
         display: Display { width: 1920, height: 1080, refresh_hz: 60.0, refresh_reported: true },
         hardware: Hardware::None,
+        device: Default::default(),
         dmabuf: false,
         kms_planes: false,
         gpu_decoder: None,

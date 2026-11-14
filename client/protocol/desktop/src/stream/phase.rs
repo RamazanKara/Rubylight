@@ -186,6 +186,56 @@ pub fn held_latch(sync_ticks: u64, sync_refresh: u32, last: Option<u32>, held: u
     (sync_ticks.saturating_sub(since * period), period * u64::from(held))
 }
 
+/// Fractional V-Sync where the display tells when a picture reached it as a time rather than a
+/// refresh count: Wayland's presentation feedback, or a KMS commit, which returns at the refresh
+/// that shows it. The turns are `HeldAnchor::hold`'s, counted in refreshes of the display's period
+/// from the last picture's time (`shown`), or from the time its hold aimed it at until that comes.
+/// Times on the session clock, µs.
+#[derive(Debug, Default)]
+pub struct HeldClock {
+    picture: Option<u32>,
+    shown_us: Option<u64>,
+    aimed_us: Option<u64>,
+    pending_us: Option<u64>,
+    turns: HeldAnchor,
+}
+
+impl HeldClock {
+    /// The picture of stream frame `frame` went out.
+    pub fn presented(&mut self, frame: u32) {
+        (self.picture, self.shown_us, self.aimed_us) = (Some(frame), None, self.pending_us.take());
+    }
+
+    /// Frame `frame` reached the display at `at_us`; only the last picture's counts.
+    pub fn shown(&mut self, frame: u32, at_us: u64) {
+        if self.picture == Some(frame) { self.shown_us = Some(at_us); }
+    }
+
+    fn last_us(&self) -> Option<u64> { self.shown_us.or(self.aimed_us) }
+
+    /// `HeldAnchor::hold` for the next picture, `period_us` a refresh: how long it waits before its
+    /// present.
+    pub fn hold(&mut self, now_us: u64, held: u32, period_us: u64, margin_us: u64) -> u64 {
+        let Some(last) = self.last_us().filter(|_| held > 1 && period_us > 0) else {
+            self.pending_us = None;
+            return self.turns.hold(now_us, 0, 0, None, held, period_us, margin_us, EARLY_SPARE_US, EARLY_FOR_US);
+        };
+        let wait = self.turns.hold(now_us, last, 0, Some(0), held, period_us, margin_us, EARLY_SPARE_US, EARLY_FOR_US);
+        self.pending_us = self.turns.pending.take().map(|refresh| last + u64::from(refresh) * period_us);
+        wait
+    }
+
+    /// The phase report's latch and period for a held stream (`timing`'s): the latest refresh of the
+    /// grid the turns count on, at or before `now_us`, and `held` refreshes. None without a hold or a
+    /// last picture, or with one long gone.
+    pub fn timing(&self, now_us: u64, held: u32, period_us: u64) -> Option<(i64, i64)> {
+        let last = self.last_us().filter(|_| held > 1 && period_us > 0)?;
+        let grid = u64::from(held) * period_us;
+        let latch = if now_us >= last { last + (now_us - last) / grid * grid } else { last.checked_sub((last - now_us).div_ceil(grid) * grid)? };
+        (now_us - latch <= 100_000 + grid).then_some((latch as i64, (grid * 1000) as i64))
+    }
+}
+
 /// `HeldAnchor::hold` for the renderer's swap chain, in microseconds.
 #[cfg(windows)]
 pub fn held_wait_us(renderer: *mut SDL_Renderer, refresh_hz: f32, held: u32, margin_us: u64, anchor: &mut HeldAnchor) -> u64 {
@@ -543,6 +593,34 @@ mod tests {
         assert_eq!(anchor.hold(12_900, 12_000, 102, Some(100), 2, 1000, 300, u64::MAX, 0), 0);
         anchor.presented(5);
         assert_eq!(anchor.last_refresh(4, 101, 102), Some(104));
+    }
+
+    #[test]
+    fn a_clocked_hold_counts_its_turns_from_the_last_pictures_time() {
+        let mut clock = HeldClock::default();
+        assert_eq!(clock.hold(10_000, 2, 8_333, 5_000), 0, "no picture yet");
+        assert_eq!(clock.timing(10_000, 2, 8_333), None);
+        // Shown at 100_000; the next one's turn 116_666, its deadline 111_666.
+        clock.presented(1);
+        clock.shown(1, 100_000);
+        clock.shown(9, 105_000);
+        assert_eq!(clock.hold(103_000, 2, 8_333, 5_000), 8_666, "a refresh early is not long enough");
+        assert_eq!(clock.timing(103_000, 2, 8_333), Some((100_000, 16_666_000)));
+        assert_eq!(clock.timing(130_000, 2, 8_333), Some((116_666, 16_666_000)));
+        // Until its feedback comes, the next counts from the refresh the hold aimed this one at.
+        clock.presented(2);
+        assert_eq!(clock.hold(118_000, 2, 8_333, 5_000), 10_332, "from 116_666: turn 133_332");
+        assert_eq!(clock.timing(118_000, 2, 8_333), Some((116_666, 16_666_000)));
+        // The feedback says it was a refresh late: from there.
+        clock.shown(2, 124_999);
+        assert_eq!(clock.hold(126_000, 2, 8_333, 5_000), 10_665);
+        // A late picture aims at the first refresh whose deadline it makes, and counts on from it.
+        let mut clock = HeldClock::default();
+        clock.presented(1);
+        clock.shown(1, 100_000);
+        assert_eq!(clock.hold(113_000, 2, 8_333, 5_000), 0);
+        clock.presented(2);
+        assert_eq!(clock.timing(130_000, 2, 8_333), Some((124_999, 16_666_000)), "aimed at 124_999");
     }
 
     #[test]

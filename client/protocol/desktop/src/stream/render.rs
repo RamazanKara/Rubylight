@@ -255,17 +255,37 @@ impl Streaming {
     /// `nightjar_policy::vsync::refreshes_per_frame`): the multiple the display's refresh is of the
     /// stream's rate, with the setting on and V-Sync pacing (VRR shows pictures as they come).
     /// Windows' D3D11 swap chain takes it as the sync interval; elsewhere it is 1.
-    fn vsync_refreshes(&self) -> u32 {
-        if !cfg!(windows) { return 1; }
+    fn vsync_refreshes(&mut self) -> u32 {
         let Some(refresh_hz) = self.plan.display.reported_refresh_hz() else { return 1 };
         let fps = f64::from(self.shared.fps_millihz.load(Ordering::Relaxed)) / 1000.0;
-        nightjar_policy::vsync::refreshes_per_frame(f64::from(refresh_hz), fps, self.pacer.mode != PacingMode::Vsync, self.settings.fractional_vsync)
+        let refreshes = nightjar_policy::vsync::refreshes_per_frame(f64::from(refresh_hz), fps, self.pacer.mode != PacingMode::Vsync, self.settings.fractional_vsync);
+        if refreshes > 1 && !self.held_times() {
+            if !std::mem::replace(&mut self.held_untimed_logged, true) {
+                eprintln!("nightjar: pacing: fractional V-Sync needs the times the display shows pictures at (Windows, Wayland's presentation feedback, KMS), none here: each picture shows at the next refresh");
+            }
+            return 1;
+        }
+        refreshes
+    }
+
+    /// Whether this display tells when it showed a picture, which fractional V-Sync's turns count
+    /// from: Windows' swap chain statistics, a KMS commit, or Wayland's presentation feedback with
+    /// times in the last second.
+    fn held_times(&self) -> bool {
+        #[cfg(windows)]
+        { true }
+        #[cfg(target_os = "linux")]
+        { self.kms_engaged() || self.glass.timing(session::now_us()) }
+        #[cfg(not(any(windows, target_os = "linux")))]
+        { false }
     }
 
     /// How far ahead of its turn a picture fractional V-Sync holds goes out: the desktop's deadline,
     /// or 2 ms in exclusive fullscreen, which nothing composes (`NIGHTJAR_HELD_MARGIN_US` sets it for
     /// a measurement).
     fn held_margin_us(&self, renderer: *mut SDL_Renderer) -> u64 {
+        #[cfg(target_os = "linux")]
+        if self.kms_engaged() { return self.held_margin_us.unwrap_or(2_000); }
         // SAFETY: a live renderer and its window.
         let exclusive = unsafe {
             let window = SDL_GetRenderWindow(renderer);
@@ -280,7 +300,12 @@ impl Streaming {
         let held = self.vrr.held(self.pacer.mode);
         if held <= 1 { return; }
         let margin_us = self.held_margin_us(renderer);
-        let wait_us = phase::held_wait_us(renderer, self.plan.display.refresh_hz, held, margin_us, &mut self.held_anchor);
+        let refresh_hz = self.plan.display.refresh_hz;
+        let wait_us = if cfg!(windows) {
+            phase::held_wait_us(renderer, refresh_hz, held, margin_us, &mut self.held_anchor)
+        } else {
+            self.held_clock.hold(session::now_us(), held, (1e6 / f64::from(refresh_hz.max(1.0))) as u64, margin_us)
+        };
         self.held_wait_us = Some(wait_us);
         if wait_us > 0 {
             // SAFETY: a plain wait.
@@ -295,10 +320,11 @@ impl Streaming {
         let before = self.pacer.mode;
         let display_vrr = self.vrr.display_vrr();
         let now = session::now_us();
-        let probe = self.race_probe.as_ref();
         // Fractional V-Sync follows the display's refresh and the stream's rate as they change.
         let held = self.vrr.held(self.pacer.mode);
-        self.vrr.set_refreshes(self.vsync_refreshes());
+        let refreshes = self.vsync_refreshes();
+        self.vrr.set_refreshes(refreshes);
+        let probe = self.race_probe.as_ref();
         if self.vrr.held(self.pacer.mode) != held && self.vrr.refreshes > 1 {
             eprintln!("nightjar: pacing: fractional V-Sync, each picture shown for {} refreshes", self.vrr.refreshes);
         }
@@ -948,7 +974,13 @@ impl Streaming {
                     present::phase_lock_aim_us(skipping, exclusive, self.present_deadline_us, refresh_hz) + room_us
                 };
                 let report_held = if self.held_report_refresh { 1 } else { held };
-                let timing = phase::aimed(phase::timing(renderer, refresh_hz, report_held, &mut self.held_anchor), aim_us);
+                // Elsewhere a held stream's grid is the clocked one (`phase::HeldClock`).
+                let timing = if !cfg!(windows) && report_held > 1 {
+                    self.held_clock.timing(begin, report_held, (1e6 / f64::from(refresh_hz.max(1.0))) as u64)
+                } else {
+                    phase::timing(renderer, refresh_hz, report_held, &mut self.held_anchor)
+                };
+                let timing = phase::aimed(timing, aim_us);
                 let steady_windows = if skipping { self.phase_steady_windows } else { 0 };
                 if let Some(report) = self.phase.sample(p.decoded.ready_us, begin, timing, steady_windows) {
                     if self.timing_csv.is_some() {
@@ -991,14 +1023,20 @@ impl Streaming {
             if let Some(p) = &picture { warp.picture(p.decoded.number, p.decoded.race_seq, p.decoded.ready_us); }
             self.texture.warp = warp.draw(None);
         }
-        let flipped = match self.kms_flip(&mut draw_overlay) {
-            Some(flipped) => flipped,
-            None => self.render_flip(renderer, &mut draw_overlay, has_picture),
+        let (flipped, by_kms) = match self.kms_flip(&mut draw_overlay, has_picture) {
+            Some(flipped) => (flipped, true),
+            None => (self.render_flip(renderer, &mut draw_overlay, has_picture), false),
         };
         self.needs_redraw = false;
         // A held stream's turns count from its pictures, not its redraws (`phase::HeldAnchor`).
-        if has_picture && !flipped.refused && self.vrr.held(self.pacer.mode) > 1 {
-            self.held_anchor.presented(phase::last_present_count(renderer));
+        if let Some(p) = picture.as_ref().filter(|_| !flipped.refused && self.vrr.held(self.pacer.mode) > 1) {
+            if cfg!(windows) {
+                self.held_anchor.presented(phase::last_present_count(renderer));
+            } else {
+                self.held_clock.presented(p.decoded.number);
+                // A KMS commit returns at the refresh that shows it.
+                if by_kms { self.held_clock.shown(p.decoded.number, flipped.returned_us); }
+            }
         }
         // Every present starts a scan on a display that refreshes on present.
         if let Some(keeper) = self.keeper.as_mut().filter(|_| self.keeper_on && !flipped.refused) {
@@ -1013,7 +1051,10 @@ impl Streaming {
         let (glass_row, to_glass) = {
             let mut row = crate::timing_csv::Glass::default();
             for shown in self.glass.poll(flipped.returned_us) {
-                if let Some(glass_us) = shown.glass_us() { self.doctor.shown(0, shown.ready_us, glass_us); }
+                if let Some(glass_us) = shown.glass_us() {
+                    self.doctor.shown(0, shown.ready_us, glass_us);
+                    self.held_clock.shown(shown.frame, glass_us);
+                }
                 if let wl_presentation::Outcome::Presented { to_glass_ns, flags } = shown.outcome {
                     row = crate::timing_csv::Glass { frame: Some(shown.frame), to_glass_us: to_glass_ns.map(|ns| ns / 1000), flags: Some(flags) };
                 }
@@ -1144,7 +1185,7 @@ impl Streaming {
     /// it, in one commit; None while the planes do not show the stream, or when they just gave up
     /// (then the renderer draws this frame).
     #[cfg(target_os = "linux")]
-    fn kms_flip(&mut self, draw_overlay: &mut impl FnMut(&mut Self, *mut SDL_Renderer)) -> Option<Flipped> {
+    fn kms_flip(&mut self, draw_overlay: &mut impl FnMut(&mut Self, *mut SDL_Renderer), picture: bool) -> Option<Flipped> {
         if !self.kms_engaged() {
             return None;
         }
@@ -1159,6 +1200,8 @@ impl Streaming {
                 if let Some(kms) = self.kms.as_mut() { kms.overlay_hidden(); }
             }
         }
+        // KMS has no margin to call for a renderer: `held_margin_us` answers before it would.
+        if picture { self.hold_for_turn(std::ptr::null_mut()); }
         let issued_us = session::now_us();
         let committed = self.kms.as_mut().map_or(Ok(()), kms_scanout::Scanout::commit);
         let returned_us = session::now_us();
@@ -1171,7 +1214,7 @@ impl Streaming {
     }
 
     #[cfg(not(target_os = "linux"))]
-    fn kms_flip(&mut self, _draw_overlay: &mut impl FnMut(&mut Self, *mut SDL_Renderer)) -> Option<Flipped> {
+    fn kms_flip(&mut self, _draw_overlay: &mut impl FnMut(&mut Self, *mut SDL_Renderer), _picture: bool) -> Option<Flipped> {
         None
     }
 

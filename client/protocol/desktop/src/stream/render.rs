@@ -332,22 +332,31 @@ impl Streaming {
             }
         }
         if syncs { sample = self.wait_for_landing(&beam, sample); }
-        let Some(left) = beam.scan_left_ns(&sample) else { return 0 };
-        // A scan reading can be wrong (a mode switch, a wrapped counter): never hold the present
-        // thread for more than 2 ms over one. A wait past 500 µs sleeps most of it and spins only
-        // the last 250 µs; a shorter one spins whole, as a sleep cannot be that exact.
-        let left = left.min(2_000_000);
-        let spin = if left > 500_000 {
-            std::thread::sleep(Duration::from_nanos(left - 250_000));
-            250_000
-        } else {
-            left
-        };
-        let until = Instant::now() + Duration::from_nanos(spin);
-        while Instant::now() < until { std::hint::spin_loop(); }
+        let Some(first) = beam.scan_left_ns(&sample) else { return 0 };
+        // Until the beam leaves the last row, read again after each sleep (`scan_sync::scan_step`):
+        // at most one scan plus `SCAN_WAIT_SLACK_NS`, since a reading can be wrong.
+        let limit = first + scan_sync::SCAN_WAIT_SLACK_NS;
+        let begun = Instant::now();
+        let mut left = Some(first);
+        let mut read = true;
+        loop {
+            match scan_sync::scan_step(left, read, begun.elapsed().as_nanos() as u64, limit) {
+                scan_sync::ScanStep::Go => break,
+                scan_sync::ScanStep::CutShort => {
+                    self.scan_tally.cut_short += 1;
+                    break;
+                }
+                scan_sync::ScanStep::Sleep(ns) => std::thread::sleep(Duration::from_nanos(ns)),
+                scan_sync::ScanStep::Spin => std::hint::spin_loop(),
+            }
+            let reading = self.race_probe.as_ref().and_then(race_probe::RaceProbe::before);
+            read = reading.is_some();
+            left = reading.and_then(|reading| beam.scan_left_ns(&reading));
+        }
+        let waited = begun.elapsed().as_nanos() as u64;
         self.scan_waits.0 += 1;
-        self.scan_waits.1 += left;
-        left
+        self.scan_waits.1 += waited;
+        waited
     }
 
     /// How long ago the present before this one was issued (ns), while it is still on its way to a

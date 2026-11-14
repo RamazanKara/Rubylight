@@ -1,12 +1,18 @@
 # Captures the Google Play Android TV screenshots from the demo-mode debug build on an Android TV device or emulator
 # at 1920x1080 (the nj-tv AVD in docs/demo/README.md), straight into fastlane tvScreenshots. Play wants 16:9 JPEG or
 # 24-bit PNG without alpha, so each capture is redrawn without its alpha channel.
-# Usage: $env:ANDROID_SERIAL = 'emulator-5554'; pwsh scripts/store/tv-screenshots.ps1 [-Only home,detail]
-param([string[]]$Only)
+# -Tablet captures the touch UI on a landscape tablet at 1920x1080 instead (a phone AVD after
+# `adb shell wm size 1920x1080` and `adb shell wm density 240`) into both sevenInchScreenshots and tenInchScreenshots,
+# with the PC list as a fifth shot.
+# Usage: $env:ANDROID_SERIAL = 'emulator-5554'; pwsh scripts/store/tv-screenshots.ps1 [-Tablet] [-Only home,detail]
+param([string[]]$Only, [switch]$Tablet)
 . (Join-Path $PSScriptRoot '../demo/capture-common.ps1')
 Add-Type -AssemblyName System.Drawing
-$output = Join-Path $root 'fastlane/metadata/android/en-US/images/tvScreenshots'
-New-Item -ItemType Directory -Force $output | Out-Null
+$images = Join-Path $root 'fastlane/metadata/android/en-US/images'
+$outputs = if ($Tablet) { @('sevenInchScreenshots', 'tenInchScreenshots') } else { @('tvScreenshots') }
+$outputs = $outputs | ForEach-Object { Join-Path $images $_ }
+$outputs | ForEach-Object { New-Item -ItemType Directory -Force $_ | Out-Null }
+$ui = if ($Tablet) { @() } else { @('--es', 'ui', 'tv') }
 
 # (file, launcher extras, label that shows the screen is ready). All screens use the Rubylight-style demo library
 # (host native) so Home has its store shelves.
@@ -16,11 +22,15 @@ $shots = @(
     @{ File = '3_stream.png'; Extras = @('--es', 'state', 'compact'); Ready = "DEMO $([char]0x00B7) local sample $([char]0x00B7) scripted stats" },
     @{ File = '4_all_games.png'; Extras = @('--es', 'state', 'allgames'); Ready = 'Living-room PC' }
 )
+if ($Tablet) { $shots += @{ File = '5_pcs.png'; Extras = @('--es', 'state', 'hosts'); Ready = 'Living-room PC' } }
 
-if ((Invoke-Adb @('get-state')).Trim() -ne 'device') { throw 'Connect one authorized Android TV device or set ANDROID_SERIAL.' }
-if ((Invoke-Adb @('shell', 'pm', 'has-feature', 'android.software.leanback')).Trim() -ne 'true') { throw 'The device is not an Android TV.' }
+if ((Invoke-Adb @('get-state')).Trim() -ne 'device') { throw 'Connect one authorized device or set ANDROID_SERIAL.' }
+# pm has-feature exits 1 when the feature is missing, so it bypasses Invoke-Adb's exit-code check.
+$leanback = ((& $adb shell pm has-feature android.software.leanback 2>&1) -join '').Trim() -eq 'true'
+if (-not $Tablet -and -not $leanback) { throw 'The device is not an Android TV.' }
+if ($Tablet -and $leanback) { throw 'Use a phone or tablet device for -Tablet, not an Android TV.' }
 $size = Invoke-Adb @('shell', 'wm', 'size')
-if ($size -notmatch '1920x1080') { throw "The TV must be 1920x1080: $size" }
+if (($size -split "`n")[-1] -notmatch '1920x1080') { throw "The screen must be 1920x1080 (landscape): $size" }
 $oldImmersive = (Invoke-Adb @('shell', 'settings', 'get', 'secure', 'immersive_mode_confirmations')).Trim()
 $null = Invoke-Adb @('shell', 'settings', 'put', 'secure', 'immersive_mode_confirmations', 'confirmed')
 $null = Invoke-Adb @('shell', 'mkdir', '-p', $remote)
@@ -28,7 +38,7 @@ try {
     foreach ($shot in $shots) {
         if ($Only -and $shot.Extras[2] -notin $Only) { continue }
         $null = Invoke-Adb @('shell', 'am', 'force-stop', $package)
-        $result = Invoke-Adb (@('shell', 'am', 'start', '-W', '-n', $component, '--es', 'ui', 'tv', '--es', 'host', 'native',
+        $result = Invoke-Adb (@('shell', 'am', 'start', '-W', '-n', $component) + $ui + @('--es', 'host', 'native',
                 '--es', 'codec', 'h264') + $shot.Extras)
         if ($result -match 'Error|Exception') { throw "Install the demo debug APK first: $result" }
         $null = Find-Ui $shot.Ready
@@ -44,11 +54,13 @@ try {
             $graphics = [Drawing.Graphics]::FromImage($opaque)
             $graphics.DrawImage($source, 0, 0, 1920, 1080)
             $graphics.Dispose()
-            $path = Join-Path $output $shot.File
-            $opaque.Save($path, [Drawing.Imaging.ImageFormat]::Png)
+            foreach ($output in $outputs) {
+                $path = Join-Path $output $shot.File
+                $opaque.Save($path, [Drawing.Imaging.ImageFormat]::Png)
+                Write-Host "Saved $path"
+            }
             $opaque.Dispose()
         } finally { $source.Dispose() }
-        Write-Host "Saved $path"
     }
 } finally {
     $null = Invoke-Adb @('shell', 'am', 'force-stop', $package)

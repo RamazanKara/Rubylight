@@ -127,7 +127,7 @@ fn the_early_columns_say_how_the_frame_was_decoded() {
     let timed = Row {
         due_us: 1_008_000,
         begin_us: 1_008_100,
-        flip: Flip { present_count: 7, stat_present_count: 6, stat_present_refresh: 100, stat_sync_refresh: 101, stat_sync_us: 1_009_500 },
+        flip: Flip { present_count: 7, stat_present_count: 6, stat_present_refresh: 100, stat_sync_refresh: 101, stat_sync_us: 1_009_500, ..Flip::default() },
         ..row()
     };
     assert_eq!(extra_fields(&timed), "1,1000900000,1008000000,1008100000,7,6,100,101,1009500000,,,,,,,,,,,,,,");

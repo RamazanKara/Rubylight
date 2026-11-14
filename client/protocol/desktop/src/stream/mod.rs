@@ -492,6 +492,8 @@ pub struct Streaming {
     held_report_refresh: bool,
     /// The refresh a held stream's last picture was shown at (`phase::HeldAnchor`).
     held_anchor: phase::HeldAnchor,
+    /// How long the last picture fractional V-Sync held waited for its turn, for the timing CSV.
+    held_wait_us: Option<u64>,
     /// Whether the last present that tried it could go without waiting: not on Linux, nor on a
     /// renderer without a DXGI swap chain.
     no_wait_present: bool,
@@ -928,6 +930,7 @@ impl Streaming {
             held_margin_us: std::env::var("NIGHTJAR_HELD_MARGIN_US").ok().and_then(|us| us.parse().ok()),
             held_report_refresh: std::env::var_os("NIGHTJAR_HELD_REPORT").is_some_and(|v| v == "0"),
             held_anchor: phase::HeldAnchor::default(),
+            held_wait_us: None,
             no_wait_present: false,
             skipped: present::SkippedPicture::new(std::env::var("NIGHTJAR_PRESENT_HOLD_US").ok().and_then(|us| us.parse().ok()).map_or(present::REFUSED_HOLD, Duration::from_micros)),
             skipped_picture: None,

@@ -1,26 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The controllers and adapters Nightjar drives itself (UsbDriverService), by vendor. Android reads the ids as decimal.
-     Declared, the USB permission dialog offers "Always allow". 1118 (0x045e) is Microsoft: Xbox controllers and the Xbox Wireless Adapter. -->
+<!-- The controllers and adapters Nightjar drives itself (UsbDriverService). Declared, the USB permission dialog offers
+     "Always allow". Matched by what each driver claims (its canClaimDevice), not by vendor alone: a vendor-wide entry also
+     matched that vendor's keyboards, mice, webcams and headsets, and Android offered to open Nightjar for each of them.
+     A class, subclass and protocol entry matches a device with any interface of that kind. Android reads the ids as decimal. -->
 <resources>
-    <usb-device vendor-id="121" /> <!-- 0x0079 -->
-    <usb-device vendor-id="1103" /> <!-- 0x044f -->
-    <usb-device vendor-id="1118" /> <!-- 0x045e -->
-    <usb-device vendor-id="1133" /> <!-- 0x046d -->
-    <usb-device vendor-id="1356" /> <!-- 0x054c -->
-    <usb-device vendor-id="1390" /> <!-- 0x056e -->
-    <usb-device vendor-id="1406" /> <!-- 0x057e -->
-    <usb-device vendor-id="1699" /> <!-- 0x06a3 -->
-    <usb-device vendor-id="1848" /> <!-- 0x0738 -->
-    <usb-device vendor-id="2047" /> <!-- 0x07ff -->
-    <usb-device vendor-id="3695" /> <!-- 0x0e6f -->
-    <usb-device vendor-id="3853" /> <!-- 0x0f0d -->
-    <usb-device vendor-id="4152" /> <!-- 0x1038 -->
-    <usb-device vendor-id="4553" /> <!-- 0x11c9 -->
-    <usb-device vendor-id="5426" /> <!-- 0x1532 -->
-    <usb-device vendor-id="8406" /> <!-- 0x20d6 -->
-    <usb-device vendor-id="9414" /> <!-- 0x24c6 -->
-    <usb-device vendor-id="11720" /> <!-- 0x2dc8 -->
-    <usb-device vendor-id="11812" /> <!-- 0x2e24 -->
-    <usb-device vendor-id="12068" /> <!-- 0x2f24 -->
-    <usb-device vendor-id="13623" /> <!-- 0x3537 -->
+    <!-- Xbox One and Series controllers and the Xbox Wireless Adapter: vendor-specific interface 71/208 (XboxOneController). -->
+    <usb-device class="255" subclass="71" protocol="208" />
+    <!-- Wired Xbox 360 controllers: 93/1 (Xbox360Controller). -->
+    <usb-device class="255" subclass="93" protocol="1" />
+    <!-- Xbox 360 wireless receiver: 93/129 (Xbox360WirelessDongle). -->
+    <usb-device class="255" subclass="93" protocol="129" />
+    <!-- DualSense and DualSense Edge: Sony 0x054c, 0x0ce6 and 0x0df2 (DualSenseController). -->
+    <usb-device vendor-id="1356" product-id="3302" />
+    <usb-device vendor-id="1356" product-id="3570" />
+    <!-- Switch Pro Controller: Nintendo 0x057e, 0x2009 (SwitchProController). -->
+    <usb-device vendor-id="1406" product-id="8201" />
 </resources>

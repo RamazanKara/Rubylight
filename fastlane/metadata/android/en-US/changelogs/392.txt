@@ -1,0 +1,5 @@
+• Real VRR sizes its delay from your connection: on Wi-Fi fewer frames are off the game's rhythm, for about 1 ms more delay.
+• PyroWave streams follow Real VRR.
+• A game's own settings offer RTX HDR and RTX Video, on a PC that offers them.
+• Play over the internet takes video packets that arrive far out of order.
+• Dolby Vision decoder fixes, and a stream menu that no longer leaves its blur behind.

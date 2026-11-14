@@ -1,2 +1,0 @@
-## desktop
-- Linux: a new setting, High-performance GPU power while streaming (Advanced, off by default). With it on, an AMD graphics card that drives a connected display stays at its highest clocks for the whole stream, so it does not slow down between frames. It uses more power and shortens battery life. It changes nothing when the card's clocks are already set by hand, and it applies from the next stream.

@@ -32,6 +32,8 @@ type Viewport<'a> = dyn Fn((i32, i32), (i32, i32)) -> (f32, f32, f32, f32) + 'a;
 pub struct Wishes {
     /// V-Sync is off: pictures may tear in (async flips).
     pub tearing: bool,
+    /// Tear-free VRR: a VRR stream's pictures are shown whole (`plan::may_tear`).
+    pub tear_free: bool,
     /// The VRR setting.
     pub vrr: bool,
     /// The stream's frame rate, for the display mode.
@@ -176,6 +178,8 @@ struct Engaged {
     restore: Vec<(u32, u32, u64)>,
     /// The stream's properties must go out again (HDR changed).
     props_dirty: bool,
+    /// The stream's VRR is on at this display (`plan::vrr_engaged`).
+    vrr_on: bool,
 }
 
 pub struct Scanout {
@@ -184,6 +188,7 @@ pub struct Scanout {
     wishes: Wishes,
     async_cap: bool,
     async_failed: bool,
+    commit_times: plan::CommitTimes,
     /// The software renderer and its canvas the overlay is painted on.
     canvas: *mut SDL_Surface,
     overlay_renderer: *mut SDL_Renderer,
@@ -233,7 +238,7 @@ impl Scanout {
             mode.refresh_hz(),
             if async_cap { "available" } else { "unavailable" }
         );
-        Ok(Self { card, output, wishes, async_cap, async_failed: false, canvas, overlay_renderer, engaged: None, off: None })
+        Ok(Self { card, output, wishes, async_cap, async_failed: false, commit_times: plan::CommitTimes::default(), canvas, overlay_renderer, engaged: None, off: None })
     }
 
     /// The planes show the stream.
@@ -368,6 +373,7 @@ impl Scanout {
         };
         let rect = picture_rect(&snapshot.mode, layout, visible, viewport);
         let next_fb = fb.id;
+        let vrr_on = plan::vrr_engaged(&caps_of(&snapshot.connector, &snapshot.crtc), self.wishes.vrr);
         let mut engaged = Engaged {
             snapshot,
             layout: layouts[0].clone(),
@@ -387,6 +393,7 @@ impl Scanout {
             blobs: Vec::new(),
             restore: Vec::new(),
             props_dirty: true,
+            vrr_on,
         };
         // The display mode for the stream's rate, of the size in use.
         let plan_modes: Vec<plan::Mode> = engaged.snapshot.modes.iter().map(ModeInfo::plan).collect();
@@ -473,7 +480,12 @@ impl Scanout {
             plan::fourcc_name(layout.format),
             if layout.modifier == plan::MOD_INVALID { "implicit".to_owned() } else { format!("modifier {:#x}", layout.modifier) },
             if hdr.is_some() { "on" } else { "off" },
-            if self.wishes.vrr { "asked for" } else { "off" },
+            match (self.wishes.vrr, engaged.vrr_on) {
+                (false, _) => "off",
+                (true, false) => "asked for, which this display does not take",
+                (true, true) if plan::may_tear(self.wishes.tearing, true, self.wishes.tear_free) => "on, pictures at once (they can tear)",
+                (true, true) => "on, whole pictures",
+            },
         );
         self.engaged = Some(engaged);
         Ok(())
@@ -650,8 +662,9 @@ impl Scanout {
     }
 
     /// Shows what `prepare` and the overlay readied, in one atomic commit; blocking, as a V-Sync
-    /// present, or an async flip with V-Sync off where only the picture changes. Err gives the
-    /// planes up (logged), and the stream goes back to the renderer.
+    /// present, or an async flip with V-Sync off where only the picture changes and the stream is
+    /// not a VRR one that asks for whole frames (`plan::may_tear`). Err gives the planes up
+    /// (logged), and the stream goes back to the renderer.
     pub fn commit(&mut self) -> Result<(), String> {
         let result = self.commit_inner();
         if let Err(why) = &result {
@@ -661,7 +674,7 @@ impl Scanout {
     }
 
     fn commit_inner(&mut self) -> Result<(), String> {
-        let Self { card, output, wishes, engaged, async_cap, async_failed, off, .. } = self;
+        let Self { card, output, wishes, engaged, async_cap, async_failed, commit_times, off, .. } = self;
         if off.is_some() {
             return Ok(());
         }
@@ -691,8 +704,10 @@ impl Scanout {
             return Ok(());
         }
         let planes: Vec<Plane> = engaged.snapshot.planes.iter().map(|(p, _)| p.clone()).collect();
-        let tear = plan::async_flip(wishes.tearing, *async_cap && !*async_failed, engaged.layout.video_on_primary(&planes), only_fb);
+        let may_tear = plan::may_tear(wishes.tearing, engaged.vrr_on, wishes.tear_free);
+        let tear = plan::async_flip(may_tear, *async_cap && !*async_failed, engaged.layout.video_on_primary(&planes), only_fb);
         let flags = if tear { drm::ATOMIC_PAGE_FLIP_ASYNC } else if only_fb { 0 } else { drm::ATOMIC_ALLOW_MODESET };
+        let began = std::time::Instant::now();
         match card.commit(&sets, flags) {
             Ok(()) => {}
             Err(e) if tear => {
@@ -702,6 +717,7 @@ impl Scanout {
             }
             Err(e) => return Err(format!("the card refused a commit: {e}")),
         }
+        commit_times.add(began.elapsed());
         engaged.shown_fb = engaged.next_fb;
         engaged.shown_rect = Some(engaged.rect);
         engaged.props_dirty = false;
@@ -757,6 +773,9 @@ impl Scanout {
 
     /// Puts back what the stream changed, then frees its framebuffers and buffers.
     fn restore(&mut self) {
+        if let Some(times) = std::mem::take(&mut self.commit_times).summary() {
+            eprintln!("nightjar: kms: {times}");
+        }
         let Some(mut engaged) = self.engaged.take() else { return };
         let sets: Vec<(u32, u32, u64)> = std::mem::take(&mut engaged.restore);
         if !sets.is_empty() {

@@ -363,6 +363,41 @@ fn an_async_flip_needs_every_condition() {
 }
 
 #[test]
+fn a_vrr_stream_that_asks_for_whole_frames_does_not_tear() {
+    // V-Sync off, VRR on at the display, Tear-free VRR.
+    assert!(!may_tear(true, true, true), "synchronised flips: each picture whole");
+    assert!(may_tear(true, true, false), "Tear-free VRR off: pictures at once, torn");
+    assert!(may_tear(true, false, true), "no VRR at the display: a synchronised flip would wait for a fixed refresh");
+    assert!(may_tear(true, false, false));
+    for (vrr, tear_free) in [(true, true), (true, false), (false, true), (false, false)] {
+        assert!(!may_tear(false, vrr, tear_free), "V-Sync on");
+    }
+    // What stops the tearing wish also stops the async flip.
+    assert!(!async_flip(may_tear(true, true, true), true, true, true));
+    assert!(async_flip(may_tear(true, true, false), true, true, true));
+}
+
+#[test]
+fn vrr_is_engaged_only_where_the_crtc_and_the_display_take_it() {
+    let caps = |vrr_enabled, vrr_capable| Caps { vrr_enabled, vrr_capable, ..Caps::default() };
+    assert!(vrr_engaged(&caps(true, true), true));
+    assert!(!vrr_engaged(&caps(true, true), false), "the setting is off");
+    assert!(!vrr_engaged(&caps(false, true), true), "the CRTC has no VRR_ENABLED");
+    assert!(!vrr_engaged(&caps(true, false), true), "the display is not vrr_capable");
+}
+
+#[test]
+fn commit_times_sum_up_for_the_log() {
+    use std::time::Duration;
+    let mut times = CommitTimes::default();
+    assert_eq!(times.summary(), None);
+    times.add(Duration::from_micros(500));
+    times.add(Duration::from_micros(1500));
+    times.add(Duration::from_micros(4000));
+    assert_eq!(times.summary().as_deref(), Some("3 pictures committed, 2.00 ms each on average, 4.00 ms at worst"));
+}
+
+#[test]
 fn a_plane_rect_is_rounded_and_kept_inside_the_crtc() {
     let rect = plane_rect((1920, 1080), (0.0, 140.4, 2560.0, 1440.0), (2560, 1600));
     assert_eq!(rect, PlaneRect { src_w: 1920, src_h: 1080, crtc_x: 0, crtc_y: 140, crtc_w: 2560, crtc_h: 1440 });

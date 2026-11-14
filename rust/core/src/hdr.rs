@@ -36,10 +36,13 @@ impl Metadata {
             metadata.full_frame_nits = full_frame.clamp(1., metadata.maximum_nits as f32) as u16;
         }
         // The source panel's peak and full-frame luminance stand in for the content's light
-        // levels: Windows reports no MaxCLL or MaxFALL for the desktop, and a stream with both at 0
-        // leaves clients nothing to tone map against. Never 0, which CTA-861.3 reads as unknown.
+        // levels: Windows reports no MaxCLL or MaxFALL for the desktop. A full-frame level the
+        // panel does not report stays 0, which CTA-861.3 reads as unknown: 1 nit would be read as
+        // a real average, and the Dolby Vision and HDR10+ fallbacks (`dovi::Level1::from_static`,
+        // `hdr_dynamic::FrameStats::from_static`) would take the picture as nearly black instead
+        // of using the reference white.
         metadata.max_cll = metadata.maximum_nits.max(1);
-        metadata.max_fall = metadata.full_frame_nits.max(1);
+        metadata.max_fall = metadata.full_frame_nits;
         metadata
     }
     pub fn wire(self, enabled: bool) -> [u8; 27] {
@@ -92,7 +95,7 @@ mod tests {
             (broken.maximum_nits, broken.minimum, broken.full_frame_nits),
             (1000, 1, 0)
         );
-        assert_eq!((broken.max_cll, broken.max_fall), (1000, 1));
+        assert_eq!((broken.max_cll, broken.max_fall), (1000, 0));
         assert_eq!(Metadata::display(500., 0., 1000.).full_frame_nits, 500);
     }
 
@@ -115,8 +118,8 @@ mod tests {
         let unknown = Metadata::display(0., 0., 0.);
         assert_eq!(unknown.maximum_nits, 1000);
         assert_eq!(unknown.full_frame_nits, 0);
-        // CTA-861.3 reads 0 as unknown, so the light levels are never 0.
-        assert_eq!((unknown.max_cll, unknown.max_fall), (1000, 1));
+        // MaxCLL follows the default peak; MaxFALL stays unknown (0), never a 1-nit average.
+        assert_eq!((unknown.max_cll, unknown.max_fall), (1000, 0));
         // Mini-LED claims past the 16-bit wire range are clamped, not wrapped.
         assert_eq!(
             Metadata::display(100_000., 0.0001, 5000.).maximum_nits,

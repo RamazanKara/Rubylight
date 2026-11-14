@@ -391,3 +391,16 @@ fn the_writer_carries_the_static_metadata_and_target() {
     other.metadata.max_cll = 1000;
     assert_ne!(other.rpu(), frame.rpu());
 }
+
+/// A panel that reports no full-frame luminance leaves MaxFALL unknown, so the static
+/// fallback's average is the reference white, not a 1-nit picture (544cea4c7 sent 1).
+#[test]
+fn an_unreported_full_frame_level_keeps_the_reference_white_average() {
+    let unknown = Level1::from_static(&Metadata::display(1000., 0.005, 0.));
+    let reported = Level1::from_static(&Metadata {
+        max_fall: REFERENCE_WHITE_NITS as u16,
+        ..Metadata::display(1000., 0.005, 0.)
+    });
+    assert_eq!(unknown.avg_pq, reported.avg_pq);
+    assert!(unknown.avg_pq > 819, "{unknown:?}");
+}

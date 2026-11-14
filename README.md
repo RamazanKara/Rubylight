@@ -84,13 +84,14 @@ Nightjar doubles as the PC's remote. A device you authorise can approve another 
 
 Rubylight encodes H.264, HEVC and AV1 with AMF on Radeon and NVENC on NVIDIA, converts and scales each frame on the GPU beside the game, and on its virtual displays takes each frame straight from its own display driver. Wi-Fi clients are paced from the first frame, the bitrate follows what the link delivers and climbs back, a lost frame is repaired without waiting for a keyframe, and a scene cut too large to protect is encoded again so it arrives whole.
 
+- **PyroWave,** a wavelet codec for wired and fast Wi-Fi networks that spends bitrate to cut delay, with 4:4:4 and HDR, for Nightjar and other PyroWave clients. [Measured](#measured-performance)
 - **Frame Warp,** with Nightjar: a mouse or right-stick camera turn shows on your screen's next refresh, and the game's HUD stays in place. [How it works](docs/frame-warp.md)
 - **Real VRR,** with Nightjar: on a G-Sync, FreeSync or HDMI VRR screen, frames are shown on the game's own rhythm instead of the network's. [How it works](client/docs/real-vrr.md)
 - **Away from home.** Connect over a private VPN such as Tailscale, which keeps the PC off the open internet. Without one, Rubylight can ask your router to forward its ports, and where no port can be forwarded, Nightjar and the PC find a direct path through both routers, through public STUN servers and a public peer-to-peer directory that holds only encrypted notes, with no relay in between. [Play over the internet](docs/internet-play.md)
 
 ### The picture and sound your setup can play
 
-HDR10, HDR10+, Dolby Vision and HLG, with per-scene brightness measured on the GPU so the display tone-maps each scene. Full 4:4:4 colour, for Nightjar and PyroWave clients and natively from NVIDIA encoders, keeps small text and red-on-black HUDs sharp. Sound goes up to 7.1.4 surround, or as PCM and Dolby Digital straight to your receiver, soundbar or TV, and can carry only the game you launched.
+HDR10, HDR10+, Dolby Vision and HLG, with per-scene brightness measured on the GPU so the display tone-maps each scene. Full 4:4:4 colour, for Nightjar and PyroWave clients and natively from NVIDIA encoders, keeps small text and red-on-black HUDs sharp. Sound goes up to 7.1.4 surround, or as PCM and Dolby Digital straight to your receiver, soundbar or TV, and can carry only the game you launched. On a GeForce RTX card, the NVIDIA build can turn on RTX HDR, which turns an SDR game into HDR, and RTX Video enhancement, for the whole PC or one game.
 
 ### Every controller
 

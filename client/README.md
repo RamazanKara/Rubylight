@@ -29,6 +29,24 @@
   <sub><a href="https://ramazankara.github.io/nightjar/assets/trailer-16x9.mp4"><b>▶ Watch the full trailer</b></a></sub>
 </p>
 
+## At a glance
+
+Everything here works with any Moonlight-compatible host unless the line names one.
+
+- **Frame Warp.** A mouse or right-stick camera turn shows on your screen's next refresh. With a Rubylight PC. [More](#frame-warp)
+- **Real VRR.** On a G-Sync, FreeSync or HDMI VRR screen, frames land on the game's own rhythm instead of the network's. On by default with VRR. [More](#real-vrr)
+- **Every codec and HDR format.** H.264, HEVC, AV1 and PyroWave; HDR10, plus HDR10+, HLG and Dolby Vision where the PC sends them; full-chroma 4:4:4 for sharp text.
+- **Settings per PC and per game.** Profiles that switch by network: mobile data, home Wi-Fi or other Wi-Fi.
+- **Your own hotkeys.** Every stream hotkey can be changed or turned off, your keyboard shortcuts become stream-menu tiles, and controller chords open the menu.
+- **Touch, pen and touchpad.** Trackpad, direct, multi-touch and local-cursor modes, pinch zoom, pen pressure and tilt, and the PC's own touchpad gestures from a laptop's or keyboard cover's touchpad, on PCs that take them.
+- **Every controller.** Up to 16 players with mapping per model; motion, touchpads and DualSense adaptive triggers on Sunshine-based PCs; on Android, DualSense lightbar and haptics through Nightjar's own USB driver.
+- **Controls without the video.** An Input-only stream sends controls and feedback, on any PC.
+- **Stays in the game.** Recovers an interrupted stream into the running game and waits through up to 60 seconds of network silence. With a Rubylight PC, the stream follows your device to a new network, and **Continue here** moves a running game to the device in your hands.
+- **Clipboard, files and USB.** Clipboard text with Apollo, Vibepollo and Rubylight; clipboard sync, images, files, shared folders and USB forwarding with Rubylight.
+- **A full desktop app.** VRR and beam racing, HDR straight to the Linux desktop, Steam Deck Game Mode, native Windows ARM64, and moonlight-qt's `stream` command line, so launchers such as MoonDeck keep working.
+- **Diagnostics that explain.** A stream health report that says why a stream stuttered, an input latency test, a decoder benchmark and frame timings as CSV.
+- **Couch first.** Every screen works with a controller or TV remote; picture-in-picture, rotation and foldables on Android; 15 languages.
+
 ## Frame Warp
 
 <p align="center">
@@ -144,12 +162,12 @@ No accounts, advertising or analytics, and nothing sent to its developers. Video
 - **Timing.** Follows the display's refresh rate, including variable refresh rate (Android's adaptive refresh rate, VRR on the desktop). Hosts that support it receive phase-lock reports, so frames arrive just before the display needs them. The desktop client can also [beam race](docs/beam-racing.md).
 - **Network.** **Lower bitrate when the network is busy** adapts to loss, round-trip variation and decode headroom. Bitrate and frame rate can change during a stream, and error correction can follow measured loss, with hosts that accept it. **Recover interrupted streams**, on by default, returns to the running game after a transient failure, and **Wait through network dropouts** holds a stream through up to 60 seconds of silence.
 - **Sound.** Stereo, 5.1, 7.1 and 7.1.4. Passthrough of PCM, Dolby Digital or Dolby Digital Plus to a receiver, soundbar or TV. A microphone with echo cancellation on every platform, plus noise suppression, gain and one-tap mute on Android.
-- **Controls.** Up to 16 controllers with mapping per model. Direct USB drivers for DualSense (adaptive triggers, lightbar and haptics), Xbox and Switch Pro controllers. Trackpad, direct, multi-touch and local-cursor touch modes, native pen input, an on-screen pad on Android that can be its own player, and a soft keyboard that opens when a text field on the PC takes focus.
-- **Library.** With a Rubylight PC, Home merges every paired PC's games, with a shelf per store on a TV, Steam collections and Playnite categories, a page per game and Wake-on-LAN. Games from any host launch from Android TV's home screen, Beacon, ES-DE, Daijisho, Pegasus and the desktop command line.
+- **Controls.** Up to 16 controllers with mapping per model. Direct USB drivers for DualSense (adaptive triggers, lightbar and haptics), Xbox and Switch Pro controllers. Trackpad, direct, multi-touch and local-cursor touch modes, pinch zoom, native pen input with pressure and tilt, the PC's own touchpad gestures, an on-screen pad on Android that can be its own player, and a soft keyboard that opens when a text field on the PC takes focus. Stream hotkeys can each be changed or turned off, and **Input-only** sends controls without video to any PC.
+- **Library.** With a Rubylight PC, Home merges every paired PC's games, with a shelf per store on a TV, Steam collections and Playnite categories, a page per game and Wake-on-LAN. Games from any host launch from Android TV's home screen, Beacon, ES-DE, Daijisho, Pegasus and the desktop command line, which also takes moonlight-qt's `stream` options.
 - **Sharing.** With a Rubylight PC: clipboard sync in both directions, clipboard images, file transfer, the PC's shared folders, and USB devices forwarded to the PC.
 - **Co-op.** Take a free player slot in a Rubylight PC's split-screen co-op session, or go back to your own seat.
 - **Diagnostics.** A performance overlay in three levels of detail, a [stream health](docs/stream-health.md) report that explains stutter, an input latency test, a decoder benchmark that runs without a PC, frame timings as CSV, a network speed test and redacted problem reports.
-- **Comfort.** Every screen works with a controller or a TV remote as well as touch, mouse and keyboard. Layered settings with search and presets, high contrast, reduced motion, screen reader support, and 15 languages on Android, Windows, Linux and macOS.
+- **Comfort.** Every screen works with a controller or a TV remote as well as touch, mouse and keyboard. Layered settings with search and presets, settings per PC and per game with profiles chosen by network, high contrast, reduced motion, screen reader support, and 15 languages on Android, Windows, Linux and macOS.
 
 The [feature overview](docs/features.md) lists everything, with a link to each guide.
 

@@ -15,7 +15,7 @@ function text(values: Values, key: string, fallback: string): string {
 /** RTX HDR's settings show where the host offers it. */
 const rtxHdr = (values: Values) => offersEnhancement(values, 'rtx_hdr');
 const RTX_HDR_HINT =
-  'Shown when this PC runs Rubylight’s NVIDIA build on an NVIDIA graphics card whose driver offers RTX HDR.';
+  'Needs Rubylight’s NVIDIA build on an NVIDIA graphics card whose driver offers RTX HDR.';
 
 /** A switch as the host reads it, including the spellings Vibepollo wrote. */
 function on(values: Values, key: string, fallback: boolean): boolean {
@@ -659,6 +659,7 @@ export const settings: Setting[] = [
     control: { kind: 'toggle' },
     default: false,
     visibleWhen: rtxHdr,
+    hostGated: true,
     inactiveHint: RTX_HDR_HINT,
   },
   {
@@ -672,6 +673,7 @@ export const settings: Setting[] = [
     control: { kind: 'number', min: 0, max: 100, step: 1 },
     default: 0,
     visibleWhen: rtxHdr,
+    hostGated: true,
     inactiveHint: RTX_HDR_HINT,
   },
   {
@@ -684,6 +686,7 @@ export const settings: Setting[] = [
     control: { kind: 'number', min: -100, max: 100, step: 1 },
     default: 0,
     visibleWhen: rtxHdr,
+    hostGated: true,
     inactiveHint: RTX_HDR_HINT,
   },
   {
@@ -696,6 +699,7 @@ export const settings: Setting[] = [
     control: { kind: 'number', min: -100, max: 100, step: 1 },
     default: 0,
     visibleWhen: rtxHdr,
+    hostGated: true,
     inactiveHint: RTX_HDR_HINT,
   },
   {
@@ -708,6 +712,7 @@ export const settings: Setting[] = [
     control: { kind: 'number', min: 10, max: 100, step: 1 },
     default: 50,
     visibleWhen: rtxHdr,
+    hostGated: true,
     inactiveHint: RTX_HDR_HINT,
   },
 

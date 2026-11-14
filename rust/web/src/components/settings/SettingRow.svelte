@@ -14,6 +14,7 @@
     differs,
     showKey = false,
     inactive = false,
+    unavailable = false,
     missing = false,
     caution,
     invalidText,
@@ -37,6 +38,8 @@
     showKey?: boolean;
     /** Normally hidden by the current choices, but shown in search or while edited. */
     inactive?: boolean;
+    /** This host cannot run it (Setting.hostGated): the row explains, and has no control. */
+    unavailable?: boolean;
     /** Empty although the current choices need a value. */
     missing?: boolean;
     /** What the current value costs the stream (Setting.cautionWhen). */
@@ -76,12 +79,13 @@
       <div class="head" title={showKey ? undefined : `Config key: ${setting.key}`}>
         <!-- The finer points beside the name's last word, never a fold of their own. -->
         <span class="name">
-          {#if grouped}
+          {#if grouped || unavailable}
             <span class="label" id="{uid}-label">{setting.label}</span>
           {:else}
             <label class="label" for={id}>{setting.label}</label>
           {/if}{#if setting.details}<InfoTip label={setting.label} text={setting.details} />{/if}
         </span>
+        {#if unavailable}<span class="tag" data-unavailable>Not available on this PC</span>{/if}
         {#if setting.restart}<span class="tag">Applies after a restart</span>{/if}
       </div>
       {#if setting.description}<p class="description" id="{uid}-description">{setting.description}</p>{/if}
@@ -97,15 +101,17 @@
       role={grouped ? 'group' : undefined}
       aria-labelledby={grouped ? `${uid}-label` : undefined}
     >
-      <SettingControl
-        {setting}
-        {id}
-        {value}
-        {onchange}
-        {invalidText}
-        {oninvalid}
-        describedby={setting.description ? `${uid}-description` : undefined}
-      />
+      {#if !unavailable}
+        <SettingControl
+          {setting}
+          {id}
+          {value}
+          {onchange}
+          {invalidText}
+          {oninvalid}
+          describedby={setting.description ? `${uid}-description` : undefined}
+        />
+      {/if}
       {#if missing && invalidText === undefined}
         <p class="required">Required: streams fail until this has a value.</p>
       {/if}

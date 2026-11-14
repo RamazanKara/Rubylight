@@ -576,6 +576,7 @@
     differs={differsFromDefault(setting, edits, config)}
     showKey={showKeys || (searching && matchesWords(setting.key, words))}
     {inactive}
+    unavailable={inactive && setting.hostGated === true}
     missing={missing(setting)}
     caution={caution(setting, values)}
     invalidText={invalid[setting.key]}

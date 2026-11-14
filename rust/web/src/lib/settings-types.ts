@@ -94,6 +94,12 @@ export interface Setting {
   visibleWhen?: (values: Record<string, ConfigValue>) => boolean;
   /** Explain a hidden setting when search or review reveals it. */
   inactiveHint?: string;
+  /**
+   * visibleWhen asks what this host can run (its build, its GPU), not what
+   * else is chosen: where it hides the setting, search and review show the
+   * row without its control, so nobody sets what does nothing here.
+   */
+  hostGated?: boolean;
   /** Streams fail without a value while this holds, given the current (edited) values. */
   requiredWhen?: (values: Record<string, ConfigValue>) => boolean;
   /**

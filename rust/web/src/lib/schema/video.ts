@@ -76,7 +76,7 @@ const amfHint = 'Applies when AMD AMF encodes, as Automatic does on AMD graphics
 /** RTX Video enhancement's settings show where the host offers it. */
 const rtxVideo = (values: Values) => offersEnhancement(values, 'rtx_video');
 const RTX_VIDEO_HINT =
-  'Shown when this PC runs Rubylight’s NVIDIA build on an NVIDIA graphics card whose driver offers RTX Video enhancement.';
+  'Needs Rubylight’s NVIDIA build on an NVIDIA graphics card whose driver offers RTX Video enhancement.';
 /** PERFORMANCE.md, October 7: AMF split-frame encoding, pre-analysis row (4K60, RX 7900 XT). */
 const PREANALYSIS_COST = 'about 20 ms per 4K frame on 8-bit SDR streams (RX 7900 XT)';
 /**
@@ -380,6 +380,7 @@ const video: Setting[] = [
     control: { kind: 'toggle' },
     default: false,
     visibleWhen: rtxVideo,
+    hostGated: true,
     inactiveHint: RTX_VIDEO_HINT,
   },
   {
@@ -392,6 +393,7 @@ const video: Setting[] = [
     control: { kind: 'number', min: 0, max: 100, step: 1 },
     default: 100,
     visibleWhen: rtxVideo,
+    hostGated: true,
     inactiveHint: RTX_VIDEO_HINT,
   },
   {

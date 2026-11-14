@@ -962,6 +962,8 @@ test('RTX HDR and RTX Video settings show only where the host offers them, with 
     const other = name === 'rtx_hdr' ? 'rtx_video' : 'rtx_hdr';
     assert.equal(setting.visibleWhen({ [NVIDIA_ENHANCEMENTS]: [other] }), false, key);
     assert.match(setting.inactiveHint, /NVIDIA build/, key);
+    // Issue #103: found by search on the signed build, its switch was set and did nothing.
+    assert.equal(setting.hostGated, true, key);
     assert.doesNotMatch(`${setting.label} ${setting.description} ${setting.details ?? ''}`, /experimental|beta|preview/i, key);
   }
   assert.equal(settings.get('rtx_hdr').category, 'hdr');

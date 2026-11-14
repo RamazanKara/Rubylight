@@ -46,3 +46,10 @@ test('Settings can list only the settings changed from their defaults', () => {
 test('the library loads what the host offers when opened directly', () => {
   assert.match(read('pages/Library.svelte'), /if \(!session\.metadata\) refreshMetadata\(\)\.catch\(\(\) => \{\}\);/);
 });
+
+test('a setting this host cannot run shows in search without its control', () => {
+  assert.match(read('pages/Settings.svelte'), /unavailable=\{inactive && setting\.hostGated === true\}/);
+  const row = read('components/settings/SettingRow.svelte');
+  assert.match(row, /\{#if !unavailable\}\s*<SettingControl/);
+  assert.match(row, /\{#if unavailable\}<span class="tag" data-unavailable>Not available on this PC<\/span>\{\/if\}/);
+});

@@ -392,7 +392,10 @@ fn a_client_holding_each_frame_for_several_refreshes_locks_at_the_stream_period(
         (8_333_333, 25_000_000),
     ] {
         let mut sync = PhaseSync::default();
-        assert!(sync.on_payload(now, &report(client, lead)).is_some(), "{client} for {stream}");
+        assert!(
+            sync.on_payload(now, &report(client, lead)).is_some(),
+            "{client} for {stream}"
+        );
         let interval = sync.interval(now, Duration::from_nanos(stream)).unwrap();
         let off = (interval.as_nanos() as i64 - stream as i64).abs();
         assert!(off <= 2_000, "{client} for {stream}: {interval:?}");

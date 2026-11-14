@@ -342,10 +342,11 @@ final class GameConnection {
         boolean willStreamHdr = false;
         if (mediaStream && game.prefConfig.enableHdr) {
             // HLG stands in for HDR10 unless the Vulkan renderer draws the picture on a PQ-only surface.
+            // Frame Warp refuses no HDR here: whether it draws is known only once the PC offers it, and
+            // a wrong guess would cost all of HDR (pickHdrFormat counts on it to leave out Dolby Vision).
             HdrPolicy.Refusal refusal = HdrPolicy.displayRefusal(game.videoOutput.getVideoDisplay(), true,
                     cachedCaps == null ? 0 : cachedCaps.hdrFormats(),
-                    MediaCodecDecoderRenderer.vulkanSurface(game.prefConfig,
-                            cachedCaps != null && cachedCaps.has(HostCapabilities.Feature.FRAME_WARP)));
+                    MediaCodecDecoderRenderer.vulkanSurface(game.prefConfig, false));
             willStreamHdr = refusal == HdrPolicy.Refusal.NONE;
             if (!willStreamHdr) game.overlays.refuseHdr(refusal);
         }

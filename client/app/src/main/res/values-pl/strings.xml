@@ -3,7 +3,7 @@
     <string name="title_packed_444">Pełna chrominancja</string>
     <string name="summary_packed_444">Wymaga opcji pełnej chrominancji w Rubylight, nowego silnika streamingu i zgodnego sprzętowego dekodera HEVC/AV1. Jeśli komputer lub to urządzenie jej nie obsługuje, strumień startuje bez niej. HDR wymaga też zgodnej 10-bitowej powierzchni wyświetlania HDR.</string>
     <string name="title_frame_warp">Frame Warp</string>
-    <string name="summary_frame_warp">Pokazuje obroty kamery myszą i prawą gałką już przy następnym odświeżeniu, przesuwając obraz; HUD zostaje na miejscu, a krawędzie są podczas obrotu przybliżone. Wymaga obsługi przez komputer i opcji „Nowy silnik strumieniowania”.</string>
+    <string name="summary_frame_warp">Pokazuje obroty kamery myszą i prawą gałką już przy następnym odświeżeniu, przesuwając obraz; HUD zostaje na miejscu, a krawędzie są podczas obrotu przybliżone. Wymaga obsługi przez komputer i opcji „Nowy silnik strumieniowania”. Na ekranie Dolby Vision strumień jest wtedy w HDR10.</string>
     <string name="frame_warp_overlay_mouse">Frame Warp: dopasowany %1$s px/jednostkę, opóźnienie %2$s ms, przesunięcie %3$s px (szczyt %4$s)</string>
     <string name="frame_warp_overlay_stick">Frame Warp: dopasowany %1$s px/s, opóźnienie %2$s ms, przesunięcie %3$s px (szczyt %4$s)</string>
     <string name="frame_warp_overlay_learning">Frame Warp: uczy się</string>

@@ -22,6 +22,8 @@ public final class HostNotices {
         PYROWAVE_HDR_UNAVAILABLE,
         // Dolby Vision the screen has and Render through Vulkan cannot show.
         VULKAN_HDR_LIMIT,
+        // Dolby Vision the screen has, left out because Frame Warp draws through the Vulkan renderer.
+        FRAME_WARP_HDR_LIMIT,
         // Dolby Vision or HDR10+ the screen has and PyroWave cannot carry.
         PYROWAVE_HDR_LIMIT,
         // A codec forced in settings that this device cannot decode.

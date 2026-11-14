@@ -3,7 +3,7 @@
     <string name="title_packed_444">フルクロマ</string>
     <string name="summary_packed_444">Rubylight のフルクロマ設定、新しいストリーミングエンジン、対応する HEVC/AV1 ハードウェアデコーダーが必要です。PC またはこのデバイスが対応していない場合、ストリームはフルクロマなしで開始します。HDR には対応する 10 ビット HDR 表示サーフェスも必要です。</string>
     <string name="title_frame_warp">Frame Warp</string>
-    <string name="summary_frame_warp">マウスや右スティックでの視点の回転を、映像をずらして次のリフレッシュで表示します。HUD は動かず、回転中は画面の端が近似表示になります。PC の対応と「新しいストリーミングエンジン」が必要です。</string>
+    <string name="summary_frame_warp">マウスや右スティックでの視点の回転を、映像をずらして次のリフレッシュで表示します。HUD は動かず、回転中は画面の端が近似表示になります。PC の対応と「新しいストリーミングエンジン」が必要です。Dolby Vision対応の画面では、オンにするとストリームはHDR10になります。</string>
     <string name="frame_warp_overlay_mouse">Frame Warp: 確定 %1$s px/カウント、遅延 %2$s ms、シフト %3$s px（最大 %4$s）</string>
     <string name="frame_warp_overlay_stick">Frame Warp: 確定 %1$s px/秒、遅延 %2$s ms、シフト %3$s px（最大 %4$s）</string>
     <string name="frame_warp_overlay_learning">Frame Warp: 学習中</string>

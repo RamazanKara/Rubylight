@@ -3,7 +3,7 @@
     <string name="title_packed_444">전체 크로마</string>
     <string name="summary_packed_444">Rubylight의 전체 크로마 옵션, 새 스트리밍 엔진, 호환되는 HEVC/AV1 하드웨어 디코더가 필요합니다. PC 또는 이 기기가 지원하지 않으면 스트림은 전체 크로마 없이 시작합니다. HDR에는 호환되는 10비트 HDR 디스플레이 서피스도 필요합니다.</string>
     <string name="title_frame_warp">Frame Warp</string>
-    <string name="summary_frame_warp">마우스나 오른쪽 스틱으로 시점을 돌리면 화면을 옮겨 다음 새로 고침에 바로 보여 줍니다. HUD는 제자리에 있고, 시점을 돌리는 동안 화면 가장자리는 근사치로 표시됩니다. PC 지원과 ‘새 스트리밍 엔진’이 필요합니다.</string>
+    <string name="summary_frame_warp">마우스나 오른쪽 스틱으로 시점을 돌리면 화면을 옮겨 다음 새로 고침에 바로 보여 줍니다. HUD는 제자리에 있고, 시점을 돌리는 동안 화면 가장자리는 근사치로 표시됩니다. PC 지원과 ‘새 스트리밍 엔진’이 필요합니다. Dolby Vision 화면에서는 켜면 스트림이 HDR10이 됩니다.</string>
     <string name="frame_warp_overlay_mouse">Frame Warp: 고정 %1$s px/카운트, 지연 %2$s ms, 이동 %3$s px (최대 %4$s)</string>
     <string name="frame_warp_overlay_stick">Frame Warp: 고정 %1$s px/초, 지연 %2$s ms, 이동 %3$s px (최대 %4$s)</string>
     <string name="frame_warp_overlay_learning">Frame Warp: 학습 중</string>

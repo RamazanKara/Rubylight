@@ -3,7 +3,7 @@
     <string name="title_packed_444">Chroma complet</string>
     <string name="summary_packed_444">Nécessite l’option de chroma complet de Rubylight, le nouveau moteur de streaming et un décodeur matériel HEVC/AV1 compatible. Si le PC ou cet appareil ne le permet pas, le stream démarre sans. Le HDR nécessite aussi une surface d’affichage HDR 10 bits compatible.</string>
     <string name="title_frame_warp">Frame Warp</string>
-    <string name="summary_frame_warp">Affiche les rotations de caméra à la souris et au stick droit dès le prochain rafraîchissement en décalant l’image ; le HUD reste en place et les bords sont approximatifs pendant la rotation. Nécessite un PC compatible et le « Nouveau moteur de streaming ».</string>
+    <string name="summary_frame_warp">Affiche les rotations de caméra à la souris et au stick droit dès le prochain rafraîchissement en décalant l’image ; le HUD reste en place et les bords sont approximatifs pendant la rotation. Nécessite un PC compatible et le « Nouveau moteur de streaming ». Sur un écran Dolby Vision, le flux est en HDR10 quand cette option est activée.</string>
     <string name="frame_warp_overlay_mouse">Frame Warp : calé %1$s px/unité, délai %2$s ms, décalage %3$s px (pic %4$s)</string>
     <string name="frame_warp_overlay_stick">Frame Warp : calé %1$s px/s, délai %2$s ms, décalage %3$s px (pic %4$s)</string>
     <string name="frame_warp_overlay_learning">Frame Warp : apprentissage</string>

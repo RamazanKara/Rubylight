@@ -3,7 +3,7 @@
     <string name="title_packed_444">Sắc độ đầy đủ</string>
     <string name="summary_packed_444">Cần tùy chọn sắc độ đầy đủ của Rubylight, bộ máy truyền phát mới và bộ giải mã phần cứng HEVC/AV1 tương thích. Nếu PC hoặc thiết bị này không hỗ trợ, luồng sẽ bắt đầu mà không có tùy chọn này. HDR cũng cần bề mặt hiển thị HDR 10 bit tương thích.</string>
     <string name="title_frame_warp">Frame Warp</string>
-    <string name="summary_frame_warp">Dịch chuyển hình ảnh để các cú xoay camera bằng cần analog phải hoặc chuột hiện ngay ở lần làm mới màn hình kế tiếp; HUD giữ nguyên vị trí, còn các mép hình chỉ gần đúng khi đang xoay. Cần PC hỗ trợ và “Công cụ stream mới”.</string>
+    <string name="summary_frame_warp">Dịch chuyển hình ảnh để các cú xoay camera bằng cần analog phải hoặc chuột hiện ngay ở lần làm mới màn hình kế tiếp; HUD giữ nguyên vị trí, còn các mép hình chỉ gần đúng khi đang xoay. Cần PC hỗ trợ và “Công cụ stream mới”. Trên màn hình Dolby Vision, khi bật, luồng ở HDR10.</string>
     <string name="frame_warp_overlay_mouse">Frame Warp: đã khóa %1$s px/đơn vị, độ trễ %2$s ms, dịch %3$s px (đỉnh %4$s)</string>
     <string name="frame_warp_overlay_stick">Frame Warp: đã khóa %1$s px/giây, độ trễ %2$s ms, dịch %3$s px (đỉnh %4$s)</string>
     <string name="frame_warp_overlay_learning">Frame Warp: đang học</string>

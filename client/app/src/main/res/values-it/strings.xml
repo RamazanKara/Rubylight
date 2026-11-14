@@ -3,7 +3,7 @@
     <string name="title_packed_444">Crominanza completa</string>
     <string name="summary_packed_444">Richiede l’opzione di crominanza completa di Rubylight, il nuovo motore di streaming e un decoder hardware HEVC/AV1 compatibile. Se il PC o questo dispositivo non la supporta, lo streaming parte senza. HDR richiede anche una superficie di visualizzazione HDR a 10 bit compatibile.</string>
     <string name="title_frame_warp">Frame Warp</string>
-    <string name="summary_frame_warp">Mostra le rotazioni della visuale con mouse e levetta destra già al prossimo aggiornamento, spostando l’immagine; l’HUD resta al suo posto e i bordi sono approssimati mentre ruoti. Richiede il supporto del PC e il Nuovo motore di streaming.</string>
+    <string name="summary_frame_warp">Mostra le rotazioni della visuale con mouse e levetta destra già al prossimo aggiornamento, spostando l’immagine; l’HUD resta al suo posto e i bordi sono approssimati mentre ruoti. Richiede il supporto del PC e il Nuovo motore di streaming. Su uno schermo Dolby Vision, con questa opzione attiva lo stream è in HDR10.</string>
     <string name="frame_warp_overlay_mouse">Frame Warp: agganciato %1$s px/unità, ritardo %2$s ms, spostamento %3$s px (picco %4$s)</string>
     <string name="frame_warp_overlay_stick">Frame Warp: agganciato %1$s px/s, ritardo %2$s ms, spostamento %3$s px (picco %4$s)</string>
     <string name="frame_warp_overlay_learning">Frame Warp: in apprendimento</string>

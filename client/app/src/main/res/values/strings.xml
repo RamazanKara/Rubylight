@@ -3,7 +3,7 @@
     <string name="title_packed_444">Full chroma</string>
     <string name="summary_packed_444">Requires Rubylight’s full chroma option, the New streaming engine, and a compatible hardware HEVC/AV1 decoder. If the PC or this device can’t do it, the stream starts without it. HDR also requires a compatible 10-bit HDR display surface.</string>
     <string name="title_frame_warp">Frame Warp</string>
-    <string name="summary_frame_warp">Shows mouse and right-stick camera turns on the next refresh by shifting the picture; the HUD stays in place, and edges are approximate while turning. Needs PC support and the New streaming engine.</string>
+    <string name="summary_frame_warp">Shows mouse and right-stick camera turns on the next refresh by shifting the picture; the HUD stays in place, and edges are approximate while turning. Needs PC support and the New streaming engine. A Dolby Vision screen streams HDR10 with it on.</string>
     <string name="frame_warp_overlay_mouse">Frame Warp: locked %1$s px/count, lag %2$s ms, shift %3$s px (peak %4$s)</string>
     <string name="frame_warp_overlay_stick">Frame Warp: locked %1$s px/s, lag %2$s ms, shift %3$s px (peak %4$s)</string>
     <string name="frame_warp_overlay_learning">Frame Warp: learning</string>

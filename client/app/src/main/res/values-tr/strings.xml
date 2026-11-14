@@ -3,7 +3,7 @@
     <string name="title_packed_444">Tam kroma</string>
     <string name="summary_packed_444">Rubylight’ın tam kroma seçeneği, yeni akış motoru ve uyumlu bir HEVC/AV1 donanım çözücüsü gerekir. Bilgisayar veya bu cihaz desteklemiyorsa akış onsuz başlar. HDR ayrıca uyumlu bir 10 bit HDR görüntüleme yüzeyi gerektirir.</string>
     <string name="title_frame_warp">Frame Warp</string>
-    <string name="summary_frame_warp">Fare ve sağ çubukla yapılan kamera dönüşlerini, görüntüyü kaydırarak bir sonraki yenilemede gösterir; HUD yerinde kalır, dönerken kenarlar yaklaşık çizilir. Bilgisayar desteği ve “Yeni yayın motoru” gerekir.</string>
+    <string name="summary_frame_warp">Fare ve sağ çubukla yapılan kamera dönüşlerini, görüntüyü kaydırarak bir sonraki yenilemede gösterir; HUD yerinde kalır, dönerken kenarlar yaklaşık çizilir. Bilgisayar desteği ve “Yeni yayın motoru” gerekir. Dolby Vision ekranda açıkken yayın HDR10 olur.</string>
     <string name="frame_warp_overlay_mouse">Frame Warp: kilitli %1$s px/sayım, gecikme %2$s ms, kayma %3$s px (en çok %4$s)</string>
     <string name="frame_warp_overlay_stick">Frame Warp: kilitli %1$s px/sn, gecikme %2$s ms, kayma %3$s px (en çok %4$s)</string>
     <string name="frame_warp_overlay_learning">Frame Warp: öğreniyor</string>

@@ -3,7 +3,7 @@
     <string name="title_packed_444">Volle Farbauflösung</string>
     <string name="summary_packed_444">Benötigt Rubylights Option für volle Farbauflösung, die neue Streaming-Engine und einen kompatiblen HEVC/AV1-Hardwaredecoder. Kann der PC oder dieses Gerät das nicht, startet der Stream ohne sie. HDR benötigt zusätzlich eine kompatible 10-Bit-HDR-Anzeigefläche.</string>
     <string name="title_frame_warp">Frame Warp</string>
-    <string name="summary_frame_warp">Zeigt Kameradrehungen mit Maus und rechtem Stick schon bei der nächsten Bildwiederholung, indem es das Bild verschiebt; das HUD bleibt an seinem Platz, und die Ränder sind beim Drehen nur angenähert. Braucht Unterstützung durch den PC und die „Neue Streaming-Engine“.</string>
+    <string name="summary_frame_warp">Zeigt Kameradrehungen mit Maus und rechtem Stick schon bei der nächsten Bildwiederholung, indem es das Bild verschiebt; das HUD bleibt an seinem Platz, und die Ränder sind beim Drehen nur angenähert. Braucht Unterstützung durch den PC und die „Neue Streaming-Engine“. Auf einem Dolby-Vision-Bildschirm läuft der Stream damit in HDR10.</string>
     <string name="frame_warp_overlay_mouse">Frame Warp: erfasst %1$s px/Zähler, Verzögerung %2$s ms, Verschiebung %3$s px (Spitze %4$s)</string>
     <string name="frame_warp_overlay_stick">Frame Warp: erfasst %1$s px/s, Verzögerung %2$s ms, Verschiebung %3$s px (Spitze %4$s)</string>
     <string name="frame_warp_overlay_learning">Frame Warp: lernt</string>

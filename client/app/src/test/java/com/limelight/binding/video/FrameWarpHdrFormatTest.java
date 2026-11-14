@@ -71,7 +71,7 @@ public class FrameWarpHdrFormatTest {
         assertEquals("Frame Warp's Vulkan renderer draws the picture: HDR10, never Dolby Vision", 0,
                 renderer.pickHdrFormat(OFFERED, MoonBridge.VIDEO_FORMAT_H265_MAIN10, false, true));
         assertTrue("the notice names Frame Warp", renderer.vulkanForFrameWarp());
-        assertTrue("the HLG check before the stream sees the same renderer",
+        assertTrue("vulkanSurface counts Frame Warp when asked to",
                 MediaCodecDecoderRenderer.vulkanSurface(prefs(true, false), true) != HdrFormatPolicy.DrawnSurface.NONE);
     }
 

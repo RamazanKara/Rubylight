@@ -22,7 +22,7 @@ How Nightjar for Android asks the screen for the stream's frame rate and explain
 
 Before Android 12 no mode lists alternatives, so a blanking switch cannot be told from a seamless one: that case is never blamed and falls to "No reason given".
 
-- **Variable refresh rate** can be turned on only on Android 16 with a screen that supports adaptive refresh rate (ARR). Elsewhere the setting is greyed out, also in PC, game and profile settings, and a saved choice reads as off (and is kept for a screen that gains ARR), so a stream without ARR runs with the selected frame pacing and the votes above.
+- **Variable refresh rate** can be turned on from Android 6. On a screen without adaptive refresh rate (ARR) the stream asks for the screen's top mode and votes its highest rate, and frames stay on the refresh grid (`PANEL_WITHOUT_ARR`); frame pacing and the lower refresh rate don't apply. Before Android 6 the setting is greyed out, also in PC, game and profile settings, and a saved choice reads as off.
 - Under ARR the stream votes its own rate (`FRAME_RATE_COMPATIBILITY_FIXED_SOURCE`, `CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS`) instead of 0. A 0 vote clears the app's request, and Android 15 and newer hold games without one at 60 Hz (below). ARR has no mode to compare against, so the refresh switch check stays off there. Instead it compares the frames the compositor presented with those the decoder rendered: about half (40-60 %, 40 fps rendered or more) for 3 seconds while the display reports about half the stream rate or less flags it (with either rate unknown nothing is judged), so the log gets one `VRR: ARR shows` warning and the Statistics and debug overlays a status line until it recovers. A device that reports no presented frames is not judged, and a display at the full rate is not blamed: frames that arrive over Wi-Fi in pairs also leave about half presented there. Unit-tested only: no ARR device.
 
 ## Researched behaviour
@@ -39,7 +39,7 @@ Before Android 12 no mode lists alternatives, so a blanking switch cannot be tol
 
 ## Other displays
 
-Looked at, with no code change because nothing can be decided without the hardware: Android TV and Shield boxes (HDMI mode switches are never seamless and take seconds, so a vote may blank the TV), foldables (the mode list changes with the fold state, which the monitor re-reads every second), and tablets with a single 60 Hz mode (the monitor reports "No mode" for any other vote). Android 16 ARR is the one exception: VRR is offered only where a screen has it, and its vote changed (see above).
+Looked at, with no code change because nothing can be decided without the hardware: Android TV and Shield boxes (HDMI mode switches are never seamless and take seconds, so a vote may blank the TV), foldables (the mode list changes with the fold state, which the monitor re-reads every second), and tablets with a single 60 Hz mode (the monitor reports "No mode" for any other vote). Android 16 ARR is the one exception: its vote changed (see above).
 
 ## Checking it on a multi-rate phone
 

@@ -301,13 +301,13 @@
     <string name="title_virtual_display">虚拟显示器</string>
     <string name="summary_virtual_display">电脑从自己的一个虚拟显示器进行串流，它与串流的分辨率和帧率一致，与电脑接的是什么显示器无关。关闭则由电脑的显示设置决定。</string>
     <string name="title_vrr">可变刷新率</string>
-    <string name="summary_vrr">VRR：在 G-Sync、FreeSync 或自适应刷新屏幕上，帧无需等待下一次刷新即可显示，且不使用“帧速调节”。“开启”在游戏绘制每帧的时刻显示它，让动态保持平稳，会增加约 1 到 4 毫秒延迟；“最快”在每帧一到达时就显示，延迟最低。需要 Android 16 和支持自适应刷新的屏幕。</string>
+    <string name="summary_vrr">VRR：在 G-Sync、FreeSync 或自适应刷新屏幕上，帧无需等待下一次刷新即可显示，且不使用“帧速调节”。“开启”在游戏绘制每帧的时刻显示它，让动态保持平稳，会增加约 1 到 4 毫秒延迟；“最快”在每帧一到达时就显示，延迟最低。没有自适应刷新率的屏幕会改用其最高刷新率运行：每帧仍要等待下一次刷新（120 Hz 下不到 8.3 毫秒），屏幕也比 60 Hz 时更耗电。除非屏幕高于 60 Hz，否则请保持关闭。</string>
     <string-array name="vrr_choice_names">
         <item>关闭</item>
         <item>开启</item>
         <item>最快</item>
     </string-array>
-    <string name="summary_vrr_unavailable">需要 Android 16 和支持自适应刷新的屏幕。</string>
+    <string name="summary_vrr_unavailable">需要 Android 6 或更高版本。</string>
     <string name="title_host_frame_times">按电脑的帧时间显示画面</string>
     <string name="summary_host_frame_times">将每帧短暂保留，使其在游戏绘制它的时刻显示，让动态更平稳。会增加几毫秒延迟；动态看起来不均匀时请开启。</string>
     <string name="title_content_rate_frame_rate">让屏幕匹配游戏帧率</string>

@@ -23,8 +23,8 @@ final class SettingRules {
     private SettingRules() { }
 
     /**
-     * Whether adaptive refresh is on: chosen, and offered on this device. A choice saved where no
-     * screen has ARR is kept for a later Android that adds it, but reads as off until then.
+     * Whether Variable refresh rate is on: chosen, and offered on this device (vrrOffered). A choice
+     * saved where it isn't offered is kept, but reads as off there.
      */
     static boolean vrrOn(Context context, SharedPreferences prefs) {
         return prefs.getBoolean(PreferenceConfiguration.VRR_PREF_STRING, false) &&

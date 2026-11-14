@@ -30,7 +30,10 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-/** Adaptive refresh is offered only where a screen has ARR; elsewhere it is greyed and reads as off. */
+/**
+ * Variable refresh rate is offered from Android 6 on, with or without ARR; where it isn't offered
+ * (vrrOfferedOverride stands in for an older Android) it is greyed and reads as off.
+ */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 36, application = Application.class,
         shadows = {VrrOfferedTest.ArrDisplay.class, com.limelight.PcViewLifecycleTest.NoNativeMoonBridge.class},
@@ -48,6 +51,7 @@ public class VrrOfferedTest {
     @After
     public void reset() {
         ArrDisplay.supported = false;
+        DisplayFrameRatePolicy.vrrOfferedOverride = null;
         prefs().edit().clear().commit();
     }
 
@@ -64,21 +68,23 @@ public class VrrOfferedTest {
     }
 
     @Test
-    public void withoutArrASavedVrrReadsAsOff() {
+    public void aScreenWithoutArrOffersVrrAtItsTopRateAndTheSavedChoiceHolds() {
         prefs().edit().putBoolean(PreferenceConfiguration.VRR_PREF_STRING, true).commit();
-        assertFalse(DisplayFrameRatePolicy.vrrOffered(RuntimeEnvironment.getApplication()));
-        assertFalse(PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication()).vrr);
+        assertTrue(DisplayFrameRatePolicy.vrrOffered(RuntimeEnvironment.getApplication()));
+        assertTrue(PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication()).vrr);
+        assertFalse("the stream runs at the top rate, not on ARR",
+                DisplayFrameRatePolicy.useAdaptiveRefreshRate(36, true, false));
     }
 
     @Test
     @Config(sdk = 35)
-    public void androidBefore16NeverOffersVrr() {
-        ArrDisplay.supported = true;
-        assertFalse(DisplayFrameRatePolicy.vrrOffered(RuntimeEnvironment.getApplication()));
+    public void androidBefore16OffersVrr() {
+        assertTrue(DisplayFrameRatePolicy.vrrOffered(RuntimeEnvironment.getApplication()));
     }
 
     @Test
-    public void withoutArrTheSettingIsHiddenAndPacingShows() {
+    public void whereNotOfferedTheSettingIsHiddenAndPacingShows() {
+        DisplayFrameRatePolicy.vrrOfferedOverride = false;
         prefs().edit().putBoolean(PreferenceConfiguration.VRR_PREF_STRING, true).commit();
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             StreamSettings.SettingsFragment display = SettingsStructureTest.open(controller.get(), "display");
@@ -95,16 +101,17 @@ public class VrrOfferedTest {
             prefs().edit().putBoolean(PreferenceConfiguration.HOST_FRAME_TIMES_PREF_STRING, false).commit();
             assertTrue(SettingRules.framePacingApplies(controller.get(), prefs()));
         }
-        assertTrue("opening Settings keeps the saved choice for a screen that gains ARR",
+        assertTrue("opening Settings keeps the saved choice for when it is offered",
                 prefs().getBoolean(PreferenceConfiguration.VRR_PREF_STRING, false));
         assertTrue(SettingRules.framePacingApplies(RuntimeEnvironment.getApplication(), prefs()));
-        ArrDisplay.supported = true;
+        DisplayFrameRatePolicy.vrrOfferedOverride = null;
         assertTrue(PreferenceConfiguration.readPreferences(RuntimeEnvironment.getApplication()).vrr);
         assertFalse(SettingRules.framePacingApplies(RuntimeEnvironment.getApplication(), prefs()));
     }
 
     @Test
-    public void withoutArrAPcOrGameLayerCantTurnVrrOn() {
+    public void whereNotOfferedAPcOrGameLayerCantTurnVrrOn() {
+        DisplayFrameRatePolicy.vrrOfferedOverride = false;
         prefs().edit().putString(PreferenceConfiguration.FRAME_PACING_PREF_STRING, "balanced")
                 .putBoolean("checkbox_reduce_refresh_rate", true).commit();
         HostStreamProfile.deserialize("v2;vrr=true").save(RuntimeEnvironment.getApplication(), "vrr-pc");
@@ -116,7 +123,7 @@ public class VrrOfferedTest {
             assertEquals("pacing stays the chosen one", PreferenceConfiguration.FRAME_PACING_BALANCED, config.framePacing);
             assertTrue("the lower refresh rate stays allowed", config.reduceRefreshRate);
         }
-        ArrDisplay.supported = true;
+        DisplayFrameRatePolicy.vrrOfferedOverride = null;
         assertTrue(stream("vrr-pc", "desktop").vrr);
         assertTrue(stream("plain-pc", "game").vrr);
     }
@@ -138,11 +145,11 @@ public class VrrOfferedTest {
         prefs().edit().putBoolean(PreferenceConfiguration.VRR_PREF_STRING, false)
                 .putBoolean(PreferenceConfiguration.HOST_FRAME_TIMES_PREF_STRING, true).commit();
         assertTrue(PreferenceConfiguration.readPreferences(app).hostFrameTimes);
-        // A saved VRR reads as off without ARR, so the fixed refresh's switch decides there.
+        // A saved VRR reads as off where it isn't offered, so the fixed refresh's switch decides there.
         prefs().edit().putBoolean(PreferenceConfiguration.VRR_PREF_STRING, true)
                 .putBoolean(PreferenceConfiguration.REAL_VRR_PREF_STRING, true)
                 .putBoolean(PreferenceConfiguration.HOST_FRAME_TIMES_PREF_STRING, false).commit();
-        ArrDisplay.supported = false;
+        DisplayFrameRatePolicy.vrrOfferedOverride = false;
         assertFalse(PreferenceConfiguration.readPreferences(app).hostFrameTimes);
     }
 
@@ -184,7 +191,8 @@ public class VrrOfferedTest {
     }
 
     @Test
-    public void withoutArrThePcRowIsGreyedAndPacingIsntReplaced() {
+    public void whereNotOfferedThePcRowIsGreyedAndPacingIsntReplaced() {
+        DisplayFrameRatePolicy.vrrOfferedOverride = false;
         HostStreamProfile.deserialize("v2;vrr=true;real_vrr=false").save(RuntimeEnvironment.getApplication(), "vrr-pc");
         ActivityController<HostStreamSettings> controller = openPc("vrr-pc");
         try {
@@ -202,7 +210,7 @@ public class VrrOfferedTest {
         assertEquals("the PC's choice is kept", Boolean.TRUE, kept.vrr);
         assertEquals("with its Real VRR", Boolean.FALSE, kept.realVrr);
 
-        ArrDisplay.supported = true;
+        DisplayFrameRatePolicy.vrrOfferedOverride = null;
         controller = openPc("vrr-pc");
         try {
             HostStreamSettings.SettingsFragment settings = (HostStreamSettings.SettingsFragment)
@@ -225,7 +233,8 @@ public class VrrOfferedTest {
     }
 
     @Test
-    public void withoutArrTheRowsChoiceReadsAsOffAndTheSwitchesAreKept() {
+    public void whereNotOfferedTheRowsChoiceReadsAsOffAndTheSwitchesAreKept() {
+        DisplayFrameRatePolicy.vrrOfferedOverride = false;
         prefs().edit().putBoolean(PreferenceConfiguration.VRR_PREF_STRING, true)
                 .putBoolean(PreferenceConfiguration.REAL_VRR_PREF_STRING, false).commit();
         assertEquals(VrrChoice.OFF, VrrChoice.shown(prefs(), DisplayFrameRatePolicy.vrrOffered(RuntimeEnvironment.getApplication())));
@@ -234,7 +243,7 @@ public class VrrOfferedTest {
         }
         assertTrue(prefs().getBoolean(PreferenceConfiguration.VRR_PREF_STRING, false));
         assertFalse(prefs().getBoolean(PreferenceConfiguration.REAL_VRR_PREF_STRING, true));
-        ArrDisplay.supported = true;
+        DisplayFrameRatePolicy.vrrOfferedOverride = null;
         assertEquals(VrrChoice.FASTEST, VrrChoice.shown(prefs(), DisplayFrameRatePolicy.vrrOffered(RuntimeEnvironment.getApplication())));
     }
 

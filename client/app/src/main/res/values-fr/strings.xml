@@ -301,13 +301,13 @@
     <string name="title_virtual_display">Écran virtuel</string>
     <string name="summary_virtual_display">Le PC diffuse depuis son propre écran virtuel, à la résolution et à la fréquence d’images du stream, quel que soit l’écran du PC. Désactivé, ce sont les réglages d’affichage du PC qui décident.</string>
     <string name="title_vrr">Rafraîchissement variable</string>
-    <string name="summary_vrr">VRR : sur un écran G-Sync, FreeSync ou à rafraîchissement adaptatif, les images s’affichent sans attendre le prochain rafraîchissement et le frame pacing n’est pas utilisé. Activé affiche chaque image quand le jeu l’a dessinée, pour des mouvements réguliers, et ajoute environ 1 à 4 ms de latence ; Le plus rapide affiche chaque image dès son arrivée, pour la latence la plus faible. Nécessite Android 16 et un écran à rafraîchissement adaptatif.</string>
+    <string name="summary_vrr">VRR : sur un écran G-Sync, FreeSync ou à rafraîchissement adaptatif, les images s’affichent sans attendre le prochain rafraîchissement et le frame pacing n’est pas utilisé. Activé affiche chaque image quand le jeu l’a dessinée, pour des mouvements réguliers, et ajoute environ 1 à 4 ms de latence ; Le plus rapide affiche chaque image dès son arrivée, pour la latence la plus faible. Un écran sans rafraîchissement adaptatif tourne plutôt à sa fréquence maximale : chaque image attend toujours le prochain rafraîchissement (moins de 8,3 ms à 120 Hz) et l’écran consomme plus de batterie qu’à 60 Hz. Laissez-le désactivé sur un tel écran, sauf s’il dépasse 60 Hz.</string>
     <string-array name="vrr_choice_names">
         <item>Désactivé</item>
         <item>Activé</item>
         <item>Le plus rapide</item>
     </string-array>
-    <string name="summary_vrr_unavailable">Nécessite Android 16 et un écran à rafraîchissement adaptatif.</string>
+    <string name="summary_vrr_unavailable">Nécessite Android 6 ou plus récent.</string>
     <string name="title_host_frame_times">Afficher les images au rythme du PC</string>
     <string name="summary_host_frame_times">Retient brièvement chaque image pour qu’elle apparaisse quand le jeu l’a dessinée, ce qui régularise les mouvements. Ajoute quelques millisecondes de latence ; activez-le si les mouvements semblent irréguliers.</string>
     <string name="title_content_rate_frame_rate">Adapter l’écran à la cadence du jeu</string>

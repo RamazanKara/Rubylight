@@ -1,7 +1,6 @@
 package com.limelight.binding.video;
 
 import android.content.Context;
-import android.hardware.display.DisplayManager;
 import android.os.Build;
 import android.view.Display;
 
@@ -19,20 +18,15 @@ public final class DisplayFrameRatePolicy {
     public static Boolean vrrOfferedOverride;
 
     /**
-     * Whether adaptive refresh can be turned on: Android 16 and a screen of this device with ARR.
-     * Elsewhere the setting is greyed and reads as off, in the main settings and in a PC, game or
-     * profile layer alike; the saved choice is kept. Any screen counts, so a foldable whose
-     * settings open on the cover screen still offers it for the inner one.
+     * Whether Variable refresh rate can be turned on: Android 6 and newer, where the stream picks the
+     * screen's mode. A screen with ARR (Android 16) follows the stream (useAdaptiveRefreshRate); any
+     * other runs at its top rate, with frames on its refresh grid (ArrState.PANEL_WITHOUT_ARR). Before
+     * Android 6 the setting is greyed and reads as off, in the main settings and in a PC, game or
+     * profile layer alike; the saved choice is kept.
      */
     public static boolean vrrOffered(Context context) {
         if (vrrOfferedOverride != null) return vrrOfferedOverride;
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.BAKLAVA || context == null) return false;
-        DisplayManager displays = context.getSystemService(DisplayManager.class);
-        if (displays == null) return false;
-        for (Display display : displays.getDisplays()) {
-            if (display.hasArrSupport()) return true;
-        }
-        return false;
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.M;
     }
 
     public enum ArrState {

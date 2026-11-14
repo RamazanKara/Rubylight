@@ -301,13 +301,13 @@
     <string name="title_virtual_display">Pantalla virtual</string>
     <string name="summary_virtual_display">El PC transmite desde una pantalla virtual propia que coincide con la resolución y la velocidad de fotogramas de la transmisión, sea cual sea el monitor del PC. Desactivado, lo deciden los ajustes de pantalla del PC.</string>
     <string name="title_vrr">Frecuencia de actualización variable</string>
-    <string name="summary_vrr">VRR: en una pantalla G-Sync, FreeSync o de frecuencia adaptativa, los fotogramas se muestran sin esperar a la siguiente actualización y Ritmo de fotogramas no se usa. Activado muestra cada fotograma cuando el juego lo dibujó, para que el movimiento sea uniforme, y añade entre 1 y 4 ms de latencia; Más rápido muestra cada fotograma en cuanto llega, para la latencia más baja. Necesita Android 16 y una pantalla con frecuencia adaptativa.</string>
+    <string name="summary_vrr">VRR: en una pantalla G-Sync, FreeSync o de frecuencia adaptativa, los fotogramas se muestran sin esperar a la siguiente actualización y Ritmo de fotogramas no se usa. Activado muestra cada fotograma cuando el juego lo dibujó, para que el movimiento sea uniforme, y añade entre 1 y 4 ms de latencia; Más rápido muestra cada fotograma en cuanto llega, para la latencia más baja. Una pantalla sin frecuencia adaptativa funciona en su frecuencia más alta: cada fotograma sigue esperando a la siguiente actualización (menos de 8,3 ms a 120 Hz) y la pantalla gasta más batería que a 60 Hz. Déjalo desactivado ahí salvo que la pantalla supere los 60 Hz.</string>
     <string-array name="vrr_choice_names">
         <item>Desactivado</item>
         <item>Activado</item>
         <item>Más rápido</item>
     </string-array>
-    <string name="summary_vrr_unavailable">Necesita Android 16 y una pantalla con frecuencia adaptativa.</string>
+    <string name="summary_vrr_unavailable">Necesita Android 6 o posterior.</string>
     <string name="title_host_frame_times">Mostrar fotogramas al ritmo del PC</string>
     <string name="summary_host_frame_times">Retiene cada fotograma un instante para que aparezca cuando el juego lo dibujó, y así el movimiento es más uniforme. Añade unos milisegundos de latencia; actívalo si el movimiento se ve irregular.</string>
     <string name="title_content_rate_frame_rate">Ajustar la pantalla a la tasa del juego</string>

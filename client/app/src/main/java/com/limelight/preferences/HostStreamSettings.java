@@ -1129,7 +1129,7 @@ public class HostStreamSettings extends NightjarActivity {
             findPreference("vrr").setSummary(summary(HostStreamProfile.Field.VRR, own.vrr != null, vrrText(config)));
             String pacing = summary(HostStreamProfile.Field.PACING, own.pacing != null, pacingText(config));
             findPreference("pacing").setSummary(config.vrr ? pacing + "\n" + getString(R.string.layers_pacing_vrr) : pacing);
-            // Greyed where no screen has ARR, as in Settings; a value saved here is kept, and pacing applies.
+            // Greyed before Android 6 (vrrOffered), as in Settings; a value saved here is kept, and pacing applies.
             Preference vrr = findPreference("vrr");
             if (DisplayFrameRatePolicy.vrrOffered(activity)) {
                 vrr.setEnabled(true);

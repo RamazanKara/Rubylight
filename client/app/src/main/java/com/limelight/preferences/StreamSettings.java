@@ -616,7 +616,8 @@ public class StreamSettings extends NightjarActivity {
      * foot showed a row going down and a blank band, with the group's card cut, coming back up.
      */
     private int contentFoot(boolean rightPane, GlassForm form) {
-        if (rightPane && form != GlassForm.PHONE) return getResources().getDimensionPixelSize(R.dimen.space_xs);
+        // A TV's pane only: a handheld's foot keeps the system inset, or its last row ends under the navigation bar.
+        if (rightPane && form == GlassForm.TELEVISION) return getResources().getDimensionPixelSize(R.dimen.space_xs);
         return listFoot;
     }
 

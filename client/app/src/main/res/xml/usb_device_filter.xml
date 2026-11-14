@@ -4,8 +4,14 @@
      matched that vendor's keyboards, mice, webcams and headsets, and Android offered to open Nightjar for each of them.
      A class, subclass and protocol entry matches a device with any interface of that kind. Android reads the ids as decimal. -->
 <resources>
-    <!-- Xbox One and Series controllers and the Xbox Wireless Adapter: vendor-specific interface 71/208 (XboxOneController). -->
+    <!-- Xbox One and Series controllers: vendor-specific interface 71/208 (XboxOneController). -->
     <usb-device class="255" subclass="71" protocol="208" />
+    <!-- Xbox Wireless Adapters for Windows, by product, whatever interfaces they expose: Microsoft 0x02e6, 0x02f9, 0x02fe
+         and 0x091e. -->
+    <usb-device vendor-id="1118" product-id="742" />
+    <usb-device vendor-id="1118" product-id="761" />
+    <usb-device vendor-id="1118" product-id="766" />
+    <usb-device vendor-id="1118" product-id="2334" />
     <!-- Wired Xbox 360 controllers: 93/1 (Xbox360Controller). -->
     <usb-device class="255" subclass="93" protocol="1" />
     <!-- Xbox 360 wireless receiver: 93/129 (Xbox360WirelessDongle). -->

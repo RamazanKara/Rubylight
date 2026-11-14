@@ -149,6 +149,26 @@ final class FramePacingPolicy {
     }
 
     /**
+     * Fractional V-Sync: frames released {@link #EARLY_SPARE_NS} ahead of the deadline of the
+     * refresh before their turn for {@link #EARLY_FOR_NS} in a row move the turns a refresh earlier,
+     * once. A source whose clock runs ahead of the display brings them earlier and earlier, each
+     * waiting longer, up to the whole hold, until a host's phase lock moves them later, and a host
+     * without one never does. Longer than the lock takes (a report or two), so the two never take
+     * turns. The desktop's phase::HeldAnchor::hold does the same.
+     */
+    static final long EARLY_FOR_NS = 2_000_000_000L;
+    static final long EARLY_SPARE_NS = 3_000_000L;
+
+    /**
+     * Whether a frame released at {@code releaseNs} makes the refresh before its turn
+     * ({@code turnNs}), whose compositor deadline comes {@code deadlineNs} ahead of it, with
+     * {@link #EARLY_SPARE_NS} to spare.
+     */
+    static boolean earlyForTurn(long releaseNs, long turnNs, long intervalNs, long deadlineNs) {
+        return intervalNs > 0 && turnNs - intervalNs - deadlineNs - releaseNs >= EARLY_SPARE_NS;
+    }
+
+    /**
      * The refresh grid a phase report measures slack to with fractional V-Sync: a refresh of the
      * grid ({@code anchorNs}) put {@code periods} grid periods into the past, so a report never
      * counts from a refresh still to come, and the grid's period; the display's own refresh and

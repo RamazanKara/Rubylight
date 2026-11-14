@@ -226,6 +226,15 @@ public class FramePacingPolicyTest {
     private static boolean paces(int fpsMilliHz, long vsyncIntervalNs) {
         return FramePacingPolicy.balancedPacesOnVsync(true, true, fpsMilliHz, vsyncIntervalNs);
     }
+    @Test public void aFrameEarlyForTheRefreshBeforeItsTurnCountsOnlyWithTimeToSpare() {
+        long interval = 8_333_333L, deadline = 5_000_000L, turn = 100_000_000L;
+        // The refresh before the turn is at 91.67 ms, its deadline at 86.67 ms.
+        assertTrue(FramePacingPolicy.earlyForTurn(83_000_000L, turn, interval, deadline));
+        assertFalse("2.67 ms to spare", FramePacingPolicy.earlyForTurn(84_000_000L, turn, interval, deadline));
+        assertFalse(FramePacingPolicy.earlyForTurn(90_000_000L, turn, interval, deadline));
+        assertFalse("no refresh known", FramePacingPolicy.earlyForTurn(0L, turn, 0L, deadline));
+    }
+
     // Fractional V-Sync: the Java port of nightjar_policy::vsync::refreshes_per_frame.
     @Test public void fractionalVsyncHoldsFramesOnWholeMultiplesOnly() {
         assertEquals(2, FramePacingPolicy.refreshesPerFrame(120, 60, false, true));

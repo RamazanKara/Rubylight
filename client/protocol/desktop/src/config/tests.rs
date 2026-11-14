@@ -1199,3 +1199,13 @@ fn earlier_settings_read_as_the_merged_choices_in_every_layer() {
     assert_eq!(serde_json::to_value(profile).unwrap(), serde_json::json!({"prefer_yuv444": true, "experimental_packed_444": true, "network_grace_ms": 30000}));
     std::fs::remove_dir_all(dir).ok();
 }
+
+#[test]
+fn fractional_v_sync_is_off_in_settings_saved_before_it_and_keeps_a_choice() {
+    let old: Settings = serde_json::from_str(r#"{"vrr": false, "vsync": true}"#).unwrap();
+    assert!(!old.fractional_vsync, "off by default (latency rises: client/docs/settings.md)");
+    let on: Settings = serde_json::from_str(r#"{"fractional_vsync": true}"#).unwrap();
+    assert!(on.fractional_vsync);
+    let saved = serde_json::to_value(&on).unwrap();
+    assert_eq!(saved["fractional_vsync"], serde_json::Value::Bool(true), "saved under its own name");
+}

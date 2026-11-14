@@ -692,7 +692,7 @@ impl App {
         }
         self.launcher.latency_bench.step(Instant::now());
         if self.launcher.latency_bench.timing() {
-            let vblank = stream::phase::timing(self.renderer, display_of(self.window).refresh_hz, 1).map(|(latch_us, _)| latch_us.saturating_mul(1000));
+            let vblank = stream::phase::timing(self.renderer, display_of(self.window).refresh_hz, 1, &mut Default::default()).map(|(latch_us, _)| latch_us.saturating_mul(1000));
             self.launcher.latency_bench.frame(vblank, session_now_ns());
         }
     }

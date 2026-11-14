@@ -384,7 +384,7 @@ checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
 name = "butterpollo"
-version = "4.3.1"
+version = "4.3.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -436,7 +436,7 @@ dependencies = [
 
 [[package]]
 name = "butterpollo-core"
-version = "4.3.1"
+version = "4.3.2"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -472,7 +472,7 @@ dependencies = [
 
 [[package]]
 name = "butterpollo-probes"
-version = "4.3.1"
+version = "4.3.2"
 dependencies = [
  "anyhow",
  "butterpollo-core",
@@ -485,7 +485,7 @@ dependencies = [
 
 [[package]]
 name = "butterpollo-setup"
-version = "4.3.1"
+version = "4.3.2"
 dependencies = [
  "anyhow",
  "butterpollo-core",
@@ -500,7 +500,7 @@ dependencies = [
 
 [[package]]
 name = "butterpollo-vulkan-layer"
-version = "4.3.1"
+version = "4.3.2"
 dependencies = [
  "embed-resource",
  "windows",
@@ -508,7 +508,7 @@ dependencies = [
 
 [[package]]
 name = "butterpollo-windows"
-version = "4.3.1"
+version = "4.3.2"
 dependencies = [
  "anyhow",
  "bindgen",

@@ -1,6 +1,6 @@
 # Rubylight documentation
 
-[Rubylight](../README.md) · [Download 4.3.1](https://github.com/RamazanKara/Rubylight/releases/tag/v4.3.1) · [Release notes](../rust/RELEASE_NOTES.md)
+[Rubylight](../README.md) · [Download 4.3.2](https://github.com/RamazanKara/Rubylight/releases/tag/v4.3.2) · [Release notes](../rust/RELEASE_NOTES.md)
 
 Rubylight is a Moonlight-compatible game-streaming host for Windows 10 and 11 PCs with an AMD Radeon GPU that has a working AMF encoder or an NVIDIA GPU with NVENC ([NVENC](nvenc.md)). PCs with only Intel graphics use [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0).
 

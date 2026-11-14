@@ -164,6 +164,12 @@
         <Preference android:key="more_display" android:title="@string/settings_more" android:persistent="false" />
     </PreferenceCategory>
     <PreferenceCategory android:key="category_display_refresh" android:title="@string/settings_category_refresh">
+        <!-- V-Sync at a fraction of the refresh on a whole multiple of the stream (FramePacingPolicy.refreshesPerFrame). -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_fractional_vsync"
+            android:title="@string/title_fractional_vsync"
+            android:dialogMessage="@string/summary_fractional_vsync"
+            android:defaultValue="false" />
         <!-- Off, On or On, matched to the game: writes checkbox_reduce_refresh_rate and
              checkbox_content_rate_frame_rate (LowerRefreshChoice). The game's rate needs a host that sends frame
              times, and a vote never changes the mode with a blank screen. Hidden with Variable refresh rate. -->

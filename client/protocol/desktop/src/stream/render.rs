@@ -251,6 +251,37 @@ impl Streaming {
         }
     }
 
+    /// Refreshes each V-Sync picture is held for (fractional V-Sync,
+    /// `nightjar_policy::vsync::refreshes_per_frame`): the multiple the display's refresh is of the
+    /// stream's rate, with the setting on and V-Sync pacing (VRR shows pictures as they come).
+    /// Windows' D3D11 swap chain takes it as the sync interval; elsewhere it is 1.
+    fn vsync_refreshes(&self) -> u32 {
+        if !cfg!(windows) { return 1; }
+        let Some(refresh_hz) = self.plan.display.reported_refresh_hz() else { return 1 };
+        let fps = f64::from(self.shared.fps_millihz.load(Ordering::Relaxed)) / 1000.0;
+        nightjar_policy::vsync::refreshes_per_frame(f64::from(refresh_hz), fps, self.pacer.mode != PacingMode::Vsync, self.settings.fractional_vsync)
+    }
+
+    /// Fractional V-Sync: waits before the picture's present until its turn comes
+    /// (`phase::held_wait`), the desktop's deadline ahead of it, or 2 ms ahead in exclusive
+    /// fullscreen, which nothing composes (`NIGHTJAR_HELD_MARGIN_US` sets it for a measurement).
+    fn hold_for_turn(&mut self, renderer: *mut SDL_Renderer) {
+        let held = self.vrr.held(self.pacer.mode);
+        if held <= 1 { return; }
+        let refresh_hz = self.plan.display.refresh_hz;
+        // SAFETY: a live renderer and its window.
+        let exclusive = unsafe {
+            let window = SDL_GetRenderWindow(renderer);
+            SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN != 0 && !SDL_GetWindowFullscreenMode(window).is_null()
+        };
+        let margin_us = self.held_margin_us.unwrap_or(if exclusive { 2_000 } else { present::deadline_before_refresh(refresh_hz) as u64 });
+        let wait_us = phase::held_wait_us(renderer, refresh_hz, held, margin_us);
+        if wait_us > 0 {
+            // SAFETY: a plain wait.
+            unsafe { SDL_DelayPrecise(wait_us * 1000) };
+        }
+    }
+
     /// Turns a VRR stream to the pacing it would have without VRR once the display check finds the
     /// display scanning at its own rate (`present::VrrPacing`), and gives the renderer the sync
     /// interval the pacing and `NIGHTJAR_VRR_SYNC` ask for.
@@ -259,6 +290,12 @@ impl Streaming {
         let display_vrr = self.vrr.display_vrr();
         let now = session::now_us();
         let probe = self.race_probe.as_ref();
+        // Fractional V-Sync follows the display's refresh and the stream's rate as they change.
+        let held = self.vrr.held(self.pacer.mode);
+        self.vrr.set_refreshes(self.vsync_refreshes());
+        if self.vrr.held(self.pacer.mode) != held && self.vrr.refreshes > 1 {
+            eprintln!("nightjar: pacing: fractional V-Sync, each picture shown for {} refreshes", self.vrr.refreshes);
+        }
         let interval = self.vrr.step(&mut self.pacer.mode, probe.map(race_probe::RaceProbe::verdict), now);
         // MAILBOX for VRR on Wayland only while the display refreshes on present; a fixed refresh
         // one tears like any stream without V-Sync (`prefers_immediate`). SDL picks the mode
@@ -815,6 +852,7 @@ impl Streaming {
                 self.swapchain_hdr_metadata = Some(metadata);
             }
         }
+        if probe { self.hold_for_turn(renderer); }
         let issued_us = session::now_us();
         let blank = self.blank_present(renderer, probe);
         // SAFETY: a live renderer.
@@ -895,8 +933,11 @@ impl Streaming {
                 let skipping = self.no_wait_present && self.pacer.skips_instead_of_waiting(refresh_hz);
                 let exclusive = exclusive_fullscreen(renderer);
                 let room_us = if self.pacer.host_grid() { present::HOST_GRID_LATCH_ROOM_US } else { 0 };
+                // Fractional V-Sync: the lock aims at the refresh each picture's hold ends on.
+                let held = self.vrr.held(self.pacer.mode);
                 let aim_us = present::phase_lock_aim_us(skipping, exclusive, self.present_deadline_us, refresh_hz) + room_us;
-                let timing = phase::aimed(phase::timing(renderer, refresh_hz), aim_us);
+                let report_held = if self.held_report_refresh { 1 } else { held };
+                let timing = phase::aimed(phase::timing(renderer, refresh_hz, report_held), aim_us);
                 let steady_windows = if skipping { self.phase_steady_windows } else { 0 };
                 if let Some(report) = self.phase.sample(p.decoded.ready_us, begin, timing, steady_windows) {
                     let _ = self.session.send(ClientMessage::PhaseLockReport(report));

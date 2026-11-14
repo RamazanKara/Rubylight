@@ -331,6 +331,8 @@
     <string name="summary_phone_performance_hints">Báo cho Android biết giải mã mất bao lâu, để Android tăng tốc CPU khi giải mã bị chậm. Nên để bật; chỉ tắt để so sánh thời gian giải mã.</string>
     <string name="title_gpu_max_clocks">Tăng hiệu năng GPU cho PyroWave</string>
     <string name="summary_gpu_max_clocks">Xung nhịp GPU cao hơn để giải mã PyroWave nhanh hơn, đổi lại tốn điện và nóng hơn. Nên để tắt, trừ khi giải mã PyroWave quá chậm.</string>
+    <string name="title_fractional_vsync">V-Sync phân số</string>
+    <string name="summary_fractional_vsync">Trên màn hình có tần số gấp 2 đến 4 lần tốc độ khung hình của luồng (60 fps trên 120 Hz), mỗi khung hình được hiển thị trong cùng số lần làm mới để chuyển động luôn đều. Thêm 3 đến 10 ms độ trễ; hãy bật nếu chuyển động bị giật khi dùng V-Sync.</string>
     <string name="title_texture_view">Chế độ xem video tương thích</string>
     <string name="summary_texture_view">Dùng để khắc phục sự cố: thử nếu video bị đen, nhấp nháy hoặc lệch vị trí. Mỗi khung hình tốn thêm công xử lý, và không dùng được với HDR, “Giảm sọc màu” hay PyroWave.</string>
     <string name="title_unbatched_input">Đầu vào chuột và bút tức thì</string>

@@ -331,6 +331,8 @@
     <string name="summary_phone_performance_hints">告訴 Android 解碼需要多久，讓它在解碼跟不上時提高 CPU 速度。請保持開啟；僅在比較解碼時間時關閉。</string>
     <string name="title_gpu_max_clocks">提升 PyroWave 的 GPU 效能</string>
     <string name="summary_gpu_max_clocks">提高 GPU 時脈以加快 PyroWave 解碼，但耗電和發熱更多。除非 PyroWave 解碼太慢，否則請保持關閉。</string>
+    <string name="title_fractional_vsync">分數 V-Sync</string>
+    <string name="summary_fractional_vsync">螢幕更新率是串流影格率的 2 到 4 倍時(120 Hz 上的 60 fps),每個影格顯示相同次數的更新,讓動作保持平順。會增加 3 到 10 ms 延遲;如果開啟 V-Sync 後動作卡頓,請開啟。</string>
     <string name="title_texture_view">相容性視訊檢視</string>
     <string name="summary_texture_view">用於疑難排解：視訊全黑、閃爍或位置不對時可以試試。它會增加每個影格的處理負擔，且不會用於 HDR、「減少色帶」或 PyroWave。</string>
     <string name="title_unbatched_input">即時滑鼠和觸控筆輸入</string>

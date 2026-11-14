@@ -331,6 +331,8 @@
     <string name="summary_phone_performance_hints">디코딩에 걸리는 시간을 Android에 알려, 디코딩이 뒤처질 때 CPU 속도를 높일 수 있게 합니다. 켜 두고, 디코딩 시간을 비교할 때만 끄세요.</string>
     <string name="title_gpu_max_clocks">PyroWave용 GPU 성능 향상</string>
     <string name="summary_gpu_max_clocks">GPU 클럭을 높여 PyroWave 디코딩을 빠르게 하며, 전력 소비와 발열이 늘어납니다. PyroWave 디코딩이 너무 느린 경우가 아니면 꺼 두세요.</string>
+    <string name="title_fractional_vsync">분수 V-Sync</string>
+    <string name="summary_fractional_vsync">화면 주사율이 스트림 프레임 속도의 2~4배일 때(120 Hz에서 60 fps) 모든 프레임을 같은 횟수의 새로 고침 동안 보여 주어 움직임이 고르게 유지됩니다. 지연이 3~10 ms 늘어납니다. V-Sync에서 움직임이 끊겨 보이면 켜세요.</string>
     <string name="title_texture_view">호환성 비디오 뷰</string>
     <string name="summary_texture_view">문제 해결용입니다. 영상이 검게 나오거나 깜박이거나 위치가 어긋나면 사용해 보세요. 프레임마다 작업이 늘어나며, HDR, ‘색 밴딩 줄이기’, PyroWave에서는 사용되지 않습니다.</string>
     <string name="title_unbatched_input">즉시 마우스 및 펜 입력</string>

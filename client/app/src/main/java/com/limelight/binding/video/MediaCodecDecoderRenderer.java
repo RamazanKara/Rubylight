@@ -766,6 +766,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private int hdrStaticInfoOutputs;
     private long nextFrameTimeNanos;
     private int pacingFrameRateMilliHz;
+    // Fractional V-Sync: the refresh the last frame held for several was stamped for (decoder
+    // thread), and the refresh grid the phase report aims at with the refreshes a frame is held
+    // for (0 and 1 without a hold), from whichever thread released the frame.
+    private long heldTargetNs;
+    private volatile long heldAnchorNs;
+    private volatile int heldAnchorRefreshes = 1;
     private HandlerThread choreographerHandlerThread;
     private Handler choreographerHandler;
     private final Object vsyncMonitor = new Object();
@@ -3471,13 +3477,17 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         long roomNs = FramePacingPolicy.schedulesFrames(hostFrameTimes, prefs.framePacing) ?
                 SCHEDULED_LATCH_ROOM_NS : 0;
         long slackNs, intervalNs;
+        // Fractional V-Sync: slack to the refresh each frame's turn comes at, over its hold.
+        long anchorNs = heldAnchorNs;
+        int refreshes = heldAnchorRefreshes;
         synchronized (vsyncMonitor) {
             if (adaptiveInUse()) {
                 phaseLockOff = "adaptive screen";
                 return;
             }
-            intervalNs = vsyncIntervalNs;
-            slackNs = latchSlackNs(readyNs, vsyncTimeNs, intervalNs, vsyncPresentationDeadlineNs + roomNs);
+            long[] grid = FramePacingPolicy.heldReportGrid(vsyncTimeNs, vsyncIntervalNs, anchorNs, refreshes);
+            intervalNs = grid[1];
+            slackNs = latchSlackNs(readyNs, grid[0], intervalNs, vsyncPresentationDeadlineNs + roomNs);
         }
         if (slackNs >= 0 && MoonBridge.reportFrameSlack(slackNs, intervalNs)) {
             phaseReports++;
@@ -3576,7 +3586,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
 
         // Don't render unless a new frame is due. This prevents microstutter when streaming
-        // at a frame rate that doesn't match the display (such as 60 FPS on 120 Hz).
+        // at a frame rate that doesn't match the display (such as 60 FPS on 120 Hz): on a whole
+        // multiple each frame gets the same number of refreshes, as fractional V-Sync holds them,
+        // with the setting or without; the setting has the phase report aim at that cadence.
+        int heldRefreshes = FramePacingPolicy.refreshesPerFrame(1e9 / Math.max(1, vsyncIntervalNs),
+                fpsMilliHz / 1000.0, outputHasArrSupport, prefs.fractionalVsync);
         if (FramePacingPolicy.isFrameDue(nextFrameTimeNanos, frameTimeNanos, vsyncIntervalNs)) {
             // Render up to one frame when in frame pacing mode.
             //
@@ -3597,6 +3611,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                         releaseOutputFrame(nextOutputBuffer, System.nanoTime());
                         activeWindowVideoStats.totalFramesRendered++;
                     }
+                    // The phase report aims at the refresh the cadence shows this frame at.
+                    boolean held = heldRefreshes > 1;
+                    if (held) heldAnchorNs = frameTimeNanos + vsyncIntervalNs;
+                    heldAnchorRefreshes = held ? heldRefreshes : 1;
 
                     nextFrameTimeNanos = FramePacingPolicy.nextFrameTimeNsMilliHz(
                             nextFrameTimeNanos, frameTimeNanos, fpsMilliHz);
@@ -4050,8 +4068,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 // Use a PTS that will cause this frame to be dropped if another comes in within
                 // the same V-sync period. "Now" lets the compositor take it at its very next
                 // latch; a computed vsync target that errs late (a conservative deadline, a
-                // drifting phase estimate) holds frames back a whole refresh.
-                displayAtNs = releaseNs;
+                // drifting phase estimate) holds frames back a whole refresh. Fractional V-Sync
+                // holds it for its turn instead (heldDisplayNs).
+                displayAtNs = heldDisplayNs(releaseNs);
             }
             if (displayQueueDropDue(releaseNs)) {
                 dropForDisplayQueue(lastIndex, releaseNs);
@@ -4104,6 +4123,49 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         frameLatencyStats.onDropReason(index, "display_queue");
         frameLatencyStats.onOutputReleased(index, nowNs, false, reportsRenderTimes());
         videoDecoder.releaseOutputBuffer(index, false);
+    }
+
+    /**
+     * Fractional V-Sync: the refreshes each frame stays on this display, from its refresh and the
+     * stream's rate (FramePacingPolicy.refreshesPerFrame). A display that refreshes when a frame
+     * comes (Android 16 ARR) holds nothing.
+     */
+    private int heldRefreshes() {
+        long intervalNs;
+        boolean arr;
+        synchronized (vsyncMonitor) {
+            intervalNs = vsyncIntervalNs;
+            arr = outputHasArrSupport;
+        }
+        if (intervalNs <= 0) return 1;
+        return FramePacingPolicy.refreshesPerFrame(1e9 / intervalNs, streamFrameRateMilliHz / 1000.0,
+                arr, prefs.fractionalVsync);
+    }
+
+    /**
+     * When a frame released at releaseNs is to be shown: at once, or with fractional V-Sync at the
+     * refresh its turn comes (FramePacingPolicy.heldTargetNs), stamped half a refresh ahead of it
+     * so the compositor never rounds it to the next. The phase report then aims at that grid.
+     */
+    private long heldDisplayNs(long releaseNs) {
+        int refreshes = heldRefreshes();
+        long vsyncNs, intervalNs, deadlineNs;
+        synchronized (vsyncMonitor) {
+            vsyncNs = vsyncTimeNs;
+            intervalNs = vsyncIntervalNs;
+            deadlineNs = vsyncPresentationDeadlineNs;
+        }
+        if (refreshes <= 1 || vsyncNs == 0 || intervalNs <= 0 || !outputVsyncAvailable) {
+            heldTargetNs = 0;
+            heldAnchorRefreshes = 1;
+            return releaseNs;
+        }
+        long earliestNs = nextVsyncTimeNs(releaseNs, vsyncNs, intervalNs, deadlineNs);
+        long targetNs = FramePacingPolicy.heldTargetNs(earliestNs, heldTargetNs, vsyncNs, intervalNs, refreshes);
+        heldTargetNs = targetNs;
+        heldAnchorNs = targetNs;
+        heldAnchorRefreshes = refreshes;
+        return targetNs - intervalNs / 2;
     }
 
     /** Balanced, see FramePacingPolicy.balancedPacesOnVsync. Host frame times keep the vsync callback. */

@@ -1590,3 +1590,21 @@ fn the_fps_limit_gives_each_picture_its_own_slot_holding_it_at_most_a_frame() {
     pacer.accept(decoded(61_000));
     assert_eq!(pacer.take_due(100_000).1, 2, "pictures more than a frame old give way to the newest due one");
 }
+
+#[test]
+fn fractional_v_sync_holds_v_sync_pictures_only_and_follows_the_rates() {
+    let mut vrr = VrrPacing::new(false, PacingMode::Vsync, VrrSync::Off, PacingMode::Vsync).with_refreshes(2);
+    assert_eq!(vrr.held(PacingMode::Vsync), 2, "60 fps on 120 Hz");
+    assert_eq!(vrr.held(PacingMode::Immediate), 1, "VRR shows pictures as they come");
+    assert_eq!(vrr.held(PacingMode::HostTimes), 1);
+    vrr.set_refreshes(3);
+    assert_eq!(vrr.held(PacingMode::Vsync), 3, "the stream went to 40 fps");
+    vrr.set_refreshes(9);
+    assert_eq!(vrr.held(PacingMode::Vsync), 4, "at most 4");
+    vrr.set_refreshes(0);
+    assert_eq!(vrr.held(PacingMode::Vsync), 1);
+    // The renderer keeps sync interval 1: the stream waits for the turn itself.
+    let mut mode = PacingMode::Vsync;
+    let mut vrr = VrrPacing::new(false, PacingMode::Vsync, VrrSync::Off, PacingMode::Vsync).with_refreshes(2);
+    assert_eq!(vrr.step(&mut mode, None, 0), None);
+}

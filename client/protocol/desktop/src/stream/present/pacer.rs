@@ -124,6 +124,10 @@ pub struct VrrPacing {
     /// The stream repeats the held picture for a VRR panel itself (`stream::lfc`), which reads the
     /// scan line too.
     pub lfc: bool,
+    /// Refreshes each V-Sync picture stays on the display (fractional V-Sync,
+    /// `nightjar_policy::vsync::refreshes_per_frame`), given as its sync interval. 1 shows each
+    /// picture at the next refresh.
+    pub refreshes: u32,
 }
 
 /// The first recheck after a "no VRR" fall back, and the longest between two: each one doubles
@@ -137,8 +141,27 @@ impl VrrPacing {
         Self {
             check, fallback, fell_back: false, sync, interval: sync_interval(mode, VrrSync::Off),
             restore: None, recheck_us: None, recheck_every_us: RECHECK_FIRST_US, rechecks: true, recovered: false,
-            present_check: false, fixed_display: false, lfc: false,
+            present_check: false, fixed_display: false, lfc: false, refreshes: 1,
         }
+    }
+
+    /// Holds each V-Sync picture for `refreshes` refreshes (fractional V-Sync); the next `step`
+    /// gives the renderer the new interval.
+    #[cfg(test)]
+    pub fn with_refreshes(self, refreshes: u32) -> Self {
+        Self { refreshes: refreshes.clamp(1, nightjar_policy::vsync::MAX_REFRESHES), ..self }
+    }
+
+    /// The refreshes a picture is held for now: after a change of the display's refresh or the
+    /// stream's rate. The next `step` gives the renderer the interval when it changed.
+    pub fn set_refreshes(&mut self, refreshes: u32) {
+        self.refreshes = refreshes.clamp(1, nightjar_policy::vsync::MAX_REFRESHES);
+    }
+
+    /// The refreshes a picture is held for in `mode`: `refreshes` with V-Sync, else 1 (VRR shows
+    /// pictures as they come).
+    pub fn held(&self, mode: PacingMode) -> u32 {
+        if mode == PacingMode::Vsync { self.refreshes } else { 1 }
     }
 
     /// Has the stream repeat pictures for the panel (`stream::lfc`).
@@ -392,7 +415,9 @@ pub fn deadline_before_refresh(refresh_hz: f32) -> i64 {
 
 /// How far ahead of the refresh the phase lock aims: `set_us` (a measurement run's) or that deadline,
 /// for a stream whose presents skip. A waiting present and exclusive fullscreen, which nothing
-/// composes, keep the refresh itself.
+/// composes, keep the refresh itself, and so does a picture fractional V-Sync holds for its turn:
+/// aimed at the deadline as well, 60 fps on 120 Hz took 16 ms from arrival to the display, at the
+/// refresh 13 ms, and missed no more turns (`Streaming::hold_for_turn` presents it ahead of the deadline).
 pub fn phase_lock_aim_us(skipping: bool, exclusive: bool, set_us: Option<i64>, refresh_hz: f32) -> i64 {
     if !skipping || exclusive { return 0; }
     set_us.unwrap_or_else(|| deadline_before_refresh(refresh_hz))

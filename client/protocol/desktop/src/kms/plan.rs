@@ -45,17 +45,11 @@ pub struct Mode {
     pub preferred: bool,
 }
 
-/// How far a refresh may be from a whole multiple of the stream's rate and still count as one
-/// (59.94 against 60).
-const RATE_TOLERANCE_HZ: f64 = 0.5;
-
 /// The multiple of `fps` that `refresh_hz` is (1 for the same rate, 2 for twice it, up to 4), or
-/// None when it is none of them.
+/// None when it is none of them (`nightjar_policy::vsync::rate_multiple`, which fractional V-Sync
+/// shares).
 pub fn rate_multiple(refresh_hz: f64, fps: u32) -> Option<u32> {
-    if fps == 0 || refresh_hz <= 0.0 {
-        return None;
-    }
-    (1..=4).find(|&k| (refresh_hz - f64::from(fps) * f64::from(k)).abs() <= RATE_TOLERANCE_HZ * f64::from(k))
+    nightjar_policy::vsync::rate_multiple(refresh_hz, f64::from(fps))
 }
 
 /// The mode a stream at `fps` shows in: of the modes at the size of the one in use (`current`,

@@ -26,7 +26,7 @@ pub(super) const SECTION_KEYS: [&[&[&str]]; 8] = [
         &["prefer_yuv444", "experimental_packed_444"], &["sdr_10bit"], &["frame_warp"], &["adaptive_quality"], &["quality_min_short_edge"], &["quality_min_fps"],
         &["hdr_desktop_brightness"], &["rtx_hdr"], &["rtx_video"]],
     &[&["window_mode"], &["video_scaling"], &["vrr", "present_at_host_times", "vrr_tear_free"],
-        &["frame_pacing", "drop_late_frames", "host_frame_times"], &["vsync"],
+        &["frame_pacing", "drop_late_frames", "host_frame_times"], &["vsync"], &["fractional_vsync"],
         &["upscaling"], &["upscale_sharpness"], &["align_video_top"],
         &["virtual_display"], &["virtual_display_scale"], &["virtual_display_dpi"], &["host_display"]],
     &[&["mouse_mode"], &["controllers", "multi_controller"], &["clipboard_sync"],
@@ -897,6 +897,12 @@ impl Launcher {
             // the PC's frame times.
             rows.when(!vrr && !s.frame_pacing.forces_vsync() && !s.host_frame_times);
             setting_row(ui, s, &mut rows, &["vsync"], "V-Sync", "Waits for the screen’s refresh, so the picture never tears; the wait adds latency. Turn it off for the lowest latency if tearing doesn’t bother you.", |ui, s| toggle(ui, &mut s.vsync));
+            rows.always();
+            // Only where pictures wait for the refresh, and on Windows, whose swap chain says which refresh
+            // showed the last picture (`Streaming::hold_for_turn`).
+            rows.when(cfg!(windows) && !vrr);
+            rows.when(s.vsync || s.frame_pacing.forces_vsync());
+            setting_row(ui, s, &mut rows, &["fractional_vsync"], "Fractional V-Sync", "On a screen at 2 to 4 times the stream’s frame rate (60 fps on 120 Hz), shows every frame for the same number of refreshes, so motion stays even. It adds 3 to 10 ms of delay; turn it on if motion judders with V-Sync.", |ui, s| toggle(ui, &mut s.fractional_vsync));
             rows.always();
             rows.group(en("Image"));
             setting_row(ui, s, &mut rows, &["upscaling"], "Upscaling", "How a stream smaller than the screen is enlarged. FSR and SGSR sharpen edges at some GPU time and battery; HDR streams are enlarged without them.", |ui, s| {
@@ -2146,7 +2152,7 @@ pub(super) const ANDROID_KEYS: &[(&str, &str)] = &[
     ("quality_min_fps", "adaptive_quality_min_fps"),
     // Display & image
     ("video_scaling", "checkbox_stretch_video"), ("vrr", "checkbox_vrr"), ("present_at_host_times", "checkbox_real_vrr"),
-    ("frame_pacing", "frame_pacing"), ("upscaling", "upscaling_mode"),
+    ("frame_pacing", "frame_pacing"), ("fractional_vsync", "checkbox_fractional_vsync"), ("upscaling", "upscaling_mode"),
     ("upscale_sharpness", "upscaling_sharpness"),
     ("align_video_top", "video_alignment"), ("virtual_display", "checkbox_virtual_display"),
     ("virtual_display_scale", "seekbar_virtual_display_scale"), ("virtual_display_dpi", "list_virtual_display_dpi"),

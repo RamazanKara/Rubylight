@@ -331,6 +331,8 @@
     <string name="summary_phone_performance_hints">デコードにかかる時間を Android に伝え、デコードが遅れたときに CPU の速度を上げられるようにします。オンのままにし、デコード時間を比較するときにのみオフにしてください。</string>
     <string name="title_gpu_max_clocks">PyroWave の GPU パフォーマンスを向上</string>
     <string name="summary_gpu_max_clocks">GPU クロックを上げて PyroWave のデコードを速くします。消費電力と発熱は増えます。PyroWave のデコードが遅すぎる場合以外は、オフのままにしてください。</string>
+    <string name="title_fractional_vsync">分数V-Sync</string>
+    <string name="summary_fractional_vsync">画面のリフレッシュレートがストリームのフレームレートの2〜4倍のとき(120 Hzで60 fps)、各フレームを同じ回数のリフレッシュだけ表示し、動きを均一に保ちます。遅延が3〜10 ms増えます。V-Syncで動きがカクつく場合にオンにしてください。</string>
     <string name="title_texture_view">互換性の高い映像表示</string>
     <string name="summary_texture_view">トラブルシューティング用です。映像が黒い、ちらつく、または位置がずれる場合に試してください。フレームごとの処理が増えます。HDR、「色のバンディングを軽減」、PyroWave では使われません。</string>
     <string name="title_unbatched_input">マウスとペンの即時入力</string>

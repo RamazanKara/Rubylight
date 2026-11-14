@@ -331,6 +331,8 @@
     <string name="summary_phone_performance_hints">Повідомляє Android, скільки триває декодування, щоб система могла підвищити швидкість CPU, коли воно не встигає. Залиште ввімкненим; вимикайте лише для порівняння часу декодування.</string>
     <string name="title_gpu_max_clocks">Підвищити продуктивність GPU для PyroWave</string>
     <string name="summary_gpu_max_clocks">Вищі частоти GPU для швидшого декодування PyroWave ціною більшого енергоспоживання й нагрівання. Вмикайте, лише якщо декодування PyroWave надто повільне.</string>
+    <string name="title_fractional_vsync">Дробова V-Sync</string>
+    <string name="summary_fractional_vsync">На екрані з частотою у 2–4 рази вищою за частоту кадрів потоку (60 fps на 120 Гц) кожен кадр показується однакову кількість оновлень, і рух лишається рівним. Додає 3–10 мс затримки; увімкніть, якщо з V-Sync рух смикається.</string>
     <string name="title_texture_view">Сумісний відеовивід</string>
     <string name="summary_texture_view">Для усунення несправностей: спробуйте, якщо відео чорне, мерехтить або зміщене. Додає роботи на кожен кадр і не використовується з HDR, «Менше смуг на градієнтах» і PyroWave.</string>
     <string name="title_unbatched_input">Миттєве введення мишею та пером</string>

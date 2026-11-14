@@ -202,6 +202,9 @@ public class PreferenceConfiguration {
     // Opt-in: holding the GPU at full speed costs battery. Installs that stored a value keep it.
     static final boolean DEFAULT_GPU_MAX_CLOCKS = false;
     private static final String DROP_LATE_FRAMES_PREF_STRING = "checkbox_drop_late_frames";
+    // V-Sync at a fraction of the refresh when the display runs at a whole multiple of the stream (FramePacingPolicy.refreshesPerFrame).
+    static final String FRACTIONAL_VSYNC_PREF_STRING = "checkbox_fractional_vsync";
+    static final boolean DEFAULT_FRACTIONAL_VSYNC = false;
     // Lowest latency and Balanced: drop one frame when the display keeps one waiting too many (DisplayQueueWatch).
     static final String DISPLAY_QUEUE_RECOVERY_PREF_STRING = "checkbox_display_queue_recovery";
     private static final String TEXTURE_VIEW_PREF_STRING = "checkbox_texture_view";
@@ -485,6 +488,7 @@ public class PreferenceConfiguration {
     public boolean gpuMaxClocks;
     public boolean dropLateFrames, useTextureView, unbatchedInput, networkPriority;
     public boolean displayQueueRecovery;
+    public boolean fractionalVsync;
     public boolean submitHint, coveringDecoderSize, pyroWavePreacquire, codecDirect, receiveDecodePriority;
     public boolean clientRoaming, roamingMetered, receiveCoalescing;
     /** Play over the internet: a punched path to a PC that offers it, after every direct path (InternetPlay). */
@@ -1753,6 +1757,7 @@ public class PreferenceConfiguration {
         }
         config.dropLateFrames = prefs.getBoolean(DROP_LATE_FRAMES_PREF_STRING, true);
         config.displayQueueRecovery = prefs.getBoolean(DISPLAY_QUEUE_RECOVERY_PREF_STRING, true);
+        config.fractionalVsync = prefs.getBoolean(FRACTIONAL_VSYNC_PREF_STRING, DEFAULT_FRACTIONAL_VSYNC);
         // SurfaceView preserves HDR metadata (and 10-bit output: a SurfaceTexture takes 8-bit) and avoids TextureView's extra composition step.
         config.useTextureView = prefs.getBoolean(TEXTURE_VIEW_PREF_STRING, false) && !config.enableHdr && !config.enableSdr10Bit &&
                 config.videoFormat != FormatOption.FORCE_PYROWAVE;

@@ -616,6 +616,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Needs a one-time setup in the driver’s control panel", "ドライバーのコントロール パネルでの初回設定が必要です"),
     ("The PC does not accept that value.", "PC はこの値を受け付けません。"),
     ("This setting cannot be changed.", "この設定は変更できません。"),
+    ("The graphics driver was reset, which ended the stream. Connect again.", "グラフィックスドライバーがリセットされたため、ストリームが終了しました。もう一度接続してください。"),
     ("The graphics driver rejected this change.", "グラフィックス ドライバーがこの変更を拒否しました。"),
     ("Start or resume a session to change settings.", "設定を変更するには、セッションを開始または再開してください。"),
     ("The change could not be applied.", "変更を適用できませんでした。"),

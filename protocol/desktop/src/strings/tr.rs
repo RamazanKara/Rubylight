@@ -616,6 +616,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Needs a one-time setup in the driver’s control panel", "Sürücünün denetim masasında bir kez kurulum gerekir"),
     ("The PC does not accept that value.", "Bilgisayar bu değeri kabul etmiyor."),
     ("This setting cannot be changed.", "Bu ayar değiştirilemez."),
+    ("The graphics driver was reset, which ended the stream. Connect again.", "Grafik sürücüsü sıfırlandı ve yayın sona erdi. Yeniden bağlanın."),
     ("The graphics driver rejected this change.", "Grafik sürücüsü bu değişikliği reddetti."),
     ("Start or resume a session to change settings.", "Ayarları değiştirmek için bir oturum başlatın veya sürdürün."),
     ("The change could not be applied.", "Değişiklik uygulanamadı."),

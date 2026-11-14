@@ -616,6 +616,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Needs a one-time setup in the driver’s control panel", "Requiere una configuración única en el panel de control del controlador"),
     ("The PC does not accept that value.", "El PC no acepta ese valor."),
     ("This setting cannot be changed.", "Este ajuste no se puede cambiar."),
+    ("The graphics driver was reset, which ended the stream. Connect again.", "El controlador gráfico se reinició y el stream terminó. Vuelve a conectarte."),
     ("The graphics driver rejected this change.", "El controlador gráfico rechazó este cambio."),
     ("Start or resume a session to change settings.", "Inicia o reanuda una sesión para cambiar los ajustes."),
     ("The change could not be applied.", "No se pudo aplicar el cambio."),

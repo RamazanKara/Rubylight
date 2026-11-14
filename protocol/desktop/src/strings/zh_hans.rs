@@ -616,6 +616,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Needs a one-time setup in the driver’s control panel", "需要在驱动程序控制面板中进行一次性设置"),
     ("The PC does not accept that value.", "电脑不接受该值。"),
     ("This setting cannot be changed.", "此设置无法更改。"),
+    ("The graphics driver was reset, which ended the stream. Connect again.", "图形驱动程序已重置，串流因此结束。请重新连接。"),
     ("The graphics driver rejected this change.", "图形驱动程序拒绝了此更改。"),
     ("Start or resume a session to change settings.", "请开始或继续一个会话以更改设置。"),
     ("The change could not be applied.", "无法应用此更改。"),

@@ -382,7 +382,7 @@ Each is absent until the host offers it.
 | `DESCRIBE` | `a=x-rl-audio.layout714:…`, `a=x-rl-audio.layout714Hq:…`, then `a=fmtp:97 surround-params=12,8,4,0,…,11` and `…=12,12,0,0,…,11` | the 7.1.4 Opus layouts (Foundation Sunshine's): channels, streams, coupled streams and 12 mapping entries, comma-separated; the `surround-params` pair is what Foundation Sunshine sends and Moonlight V+ reads |
 | `ANNOUNCE` | `x-nv-audio.surround.numChannels:12`, `x-nv-audio.surround.channelMask:63039` | 7.1.4 (FL FR FC LFE BL BR SL SR TFL TFR TBL TBR); the launch says `surroundAudioInfo` = 0xF63F << 16 \| 12, Moonlight V+'s `AUDIO_CONFIGURATION_714_SURROUND`. The host reads the channel count only |
 | serverinfo | `BandwidthProbeVersion` | the host serves `GET /bandwidth-probe?bytes=N` on the paired port |
-| serverinfo | `NvidiaEnhancements` | the NVIDIA build's image enhancements this PC can run, as bits: 1 RTX HDR, 2 RTX Video enhancement; absent or 0 on the signed build and where neither runs |
+| serverinfo | `NvidiaEnhancements` | the NVIDIA image enhancements this PC can run, as bits: 1 RTX HDR, 2 RTX Video enhancement; absent or 0 without the NVIDIA components and where neither runs |
 | serverinfo | `DisplayScaleVersion` | the host reads `rlDisplayScale` |
 | serverinfo | `SecondScreenVersion` | the host reads `rlSecondScreen` |
 | serverinfo | `RustHostInternetPlayVersion` | paired only: `1` while `internet_play` is on (else `0`): the host serves `GET /internet-play/v1` on the paired port and answers hole punches ([Play over the internet](internet-play.md)) |

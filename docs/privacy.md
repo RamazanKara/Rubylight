@@ -22,7 +22,7 @@ Seven features contact services outside your network. The update check and Steam
 
 Their privacy policies: [GitHub](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement), [Valve](https://store.steampowered.com/privacy_agreement/), [IGDB, operated by Twitch](https://www.twitch.tv/p/legal/privacy-policy/). A cover image you upload yourself goes to your host only.
 
-RTX HDR and RTX Video enhancement, in Rubylight's separate NVIDIA build, run on your PC through NVIDIA's driver; Rubylight sends nothing for them. NVIDIA's driver and its NGX runtime follow [NVIDIA's privacy policy](https://www.nvidia.com/en-us/about-nvidia/privacy-policy/). Building that version yourself (`rust\build.ps1 -Nvidia`) downloads NVIDIA's RTX Video SDK from `api.ngc.nvidia.com` (NVIDIA NGC) once, which receives the download request and your IP address.
+RTX HDR and RTX Video enhancement run on your PC through NVIDIA's driver; Rubylight sends nothing for them. The NVIDIA components they need come from Rubylight's GitHub release: when you press **Download** on the console, and after a host update while they are installed, the host asks `api.github.com` for its version's release and downloads the archive from `github.com`, which receive the request and your IP address. NVIDIA's driver and its NGX runtime follow [NVIDIA's privacy policy](https://www.nvidia.com/en-us/about-nvidia/privacy-policy/). Building the component yourself (`rust\build.ps1 -Nvidia`) downloads NVIDIA's RTX Video SDK from `api.ngc.nvidia.com` (NVIDIA NGC) once, which receives the download request and your IP address.
 
 ## Your own devices
 

@@ -66,19 +66,21 @@ Useful options:
 | `-SkipTests` | Skip workspace tests and Clippy for a local iteration. Formatting still runs; this is not the release validation path. |
 | `-Stage Test\|Lint\|Build` | Run one stage: tests, Clippy, or the release build (with `-Package`). CI runs the three as parallel jobs; the default `All` runs them in order. |
 | `-Jobs <n>` | Parallel jobs for Cargo, CMake, PyroWave and FFmpeg (default 4). |
-| `-Nvidia` | Build the separate, unsigned NVIDIA build with RTX HDR and RTX Video enhancement (the host's `nvidia-proprietary` feature); see below. |
+| `-Nvidia` | Build the NVIDIA component's archive (the NGX adapter with NVIDIA's runtime DLLs) instead of the host; see below. |
 | `-NvidiaRoot <path>` | Reuse an extracted NVIDIA RTX Video SDK 1.1.0 instead of fetching it (only with `-Nvidia`). |
 | `-MsvcSdk <path>` | Use an xwin SDK layout containing `crt/lib/x86_64`, `sdk/lib/um/x86_64` and `sdk/lib/ucrt/x86_64` for the NVIDIA adapter instead of the developer shell's libraries. |
 
-### The NVIDIA build
+### The NVIDIA component
 
-RTX HDR and RTX Video enhancement call NVIDIA's proprietary NGX library, so they live behind the host's `nvidia-proprietary` Cargo feature, which is off by default and never part of the signed release ([code signing policy](code-signing-policy.md)):
+RTX HDR and RTX Video enhancement call NVIDIA's proprietary NGX library, so no signed file contains them ([code signing policy](code-signing-policy.md#the-nvidia-component)). Their code in the host is always built; what they need comes in the NVIDIA component, which the console downloads from the host's own release at the user's request:
 
 ```powershell
-.\rust\build.ps1 -FetchDependencies -Nvidia -Package
+.\rust\build.ps1 -FetchDependencies -Nvidia
 ```
 
-With `-Nvidia` the script fetches the pinned NVIDIA RTX Video SDK 1.1.0 (SHA-256 `abf4f34e2b5a618e355b0d5a0365d8ecc3db4396e756e4c850a867e1ae2ed69e`) from NVIDIA's NGC, tests, lints and builds the host with the feature, builds the adapter `rust/truehdr-runtime` (`butterpollo_truehdr.dll`, MSVC target, outside the workspace) and packages it with NVIDIA's `nvngx_truehdr.dll` and `nvngx_vsr.dll` and the SDK licence. Its outputs carry `nvidia` in their names: `butterpollo-rust-nvidia-release\`, `butterpollo-rust-nvidia-release.zip` and `butterpollo-setup-nvidia-<version>.exe`, which CI's `nvidia-assets` job attaches to the already published release as `rubylight-nvidia-setup-<version>.exe` and `rubylight-nvidia-<version>-windows-x64.zip`, with their own `SHA256SUMS-nvidia`. The release never waits on the NVIDIA build: if it fails, or NVIDIA's download is down, only these files come later, by running that job again. That job runs only while the repository variable `PUBLISH_NVIDIA_BUILD` is `true` (Settings, Secrets and variables, Actions, Variables); otherwise nothing NVIDIA is published, and the `nvidia` job's build stays a workflow artifact (`butterpollo-rust-windows-x64-nvidia`, kept 30 days). A host built this way updates only from those files, and the signed host never from them.
+With `-Nvidia` the script builds the component and no host: it fetches the pinned NVIDIA RTX Video SDK 1.1.0 (SHA-256 `abf4f34e2b5a618e355b0d5a0365d8ecc3db4396e756e4c850a867e1ae2ed69e`) from NVIDIA's NGC, checks formatting, lints, tests and builds the adapter `rust/truehdr-runtime` (`butterpollo_truehdr.dll`, MSVC target, outside the workspace), checks that NVIDIA's `nvngx_truehdr.dll`, `nvngx_vsr.dll` and the SDK licence are exactly the files `rust/core/src/nvidia_component.rs` pins, and writes `rubylight-nvidia-component-<version>.zip` with the four files at its top level, then reads every file back from it. NVIDIA's files go out only beside the adapter, never on their own. CI's `nvidia` job builds it in a developer shell and `nvidia-assets` attaches it to the already published release with its own `SHA256SUMS-nvidia`. The release never waits on it: if it fails, or NVIDIA's download is down, only the component comes later, by running that job again. It is attached only while the repository variable `PUBLISH_NVIDIA_BUILD` is `true` (Settings, Secrets and variables, Actions, Variables); otherwise the `nvidia` job's archive stays a workflow artifact (`butterpollo-rust-windows-x64-nvidia`, kept 30 days). `nvidia-assets` also attaches the signed installer as `rubylight-nvidia-setup-<version>.exe`, the name hosts of the former NVIDIA build (4.3.2 to 4.4.0) update from.
+
+To try an archive before a release, `BUTTERPOLLO_TEST_NVIDIA_COMPONENT=<zip> cargo test -p butterpollo -- --ignored the_built_archive` installs it through the host's own download code with the real pins.
 
 ## SDK environment
 
@@ -91,7 +93,8 @@ Cargo alone cannot build the Windows crates: their build scripts generate bindin
 | `LIBCLANG_PATH` | bindgen | MSYS2's `ucrt64\bin`, which holds `libclang.dll`. |
 | `BUTTERPOLLO_DRIVER_ROOT` | `rust/build.ps1` | Default for `-DriverRoot`. |
 | `BUTTERPOLLO_FFMPEG_ROOT` | `rust/build.ps1` | Default for `-FfmpegRoot`. |
-| `NV_RTX_VIDEO_SDK` | `rust/build.ps1`, `rust/truehdr-runtime/build.rs` | NVIDIA's RTX Video SDK, only for the NVIDIA build; default for `-NvidiaRoot`. |
+| `NV_RTX_VIDEO_SDK` | `rust/build.ps1`, `rust/truehdr-runtime/build.rs` | NVIDIA's RTX Video SDK, only for the NVIDIA component; default for `-NvidiaRoot`. |
+| `RUBYLIGHT_NGX_APPLICATION_ID` | `rust/truehdr-runtime/build.rs` | The NGX application ID the adapter gives NVIDIA's NGX; 0, the SDK's generic ID, when unset. |
 | `BUTTERPOLLO_MSVC_ROOT` | `rust/build.ps1` | Default for `-MsvcSdk`. |
 | `BUTTERPOLLO_TEST_FFMPEG_ROOT` | the ignored FFmpeg tests | The FFmpeg build's `bin` folder; `rust/build.ps1` sets it and runs them. |
 

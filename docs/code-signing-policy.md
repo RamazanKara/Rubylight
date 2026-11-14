@@ -31,15 +31,17 @@ Files from other projects ship as their projects released them and are never sig
 - the gamepad driver package (libvirtualgamepad 0.1.0-beta.10) from the Vibepollo 2.0.6 release, whose driver catalog and setup tool are signed by SignPath Foundation for that project, and `nefconc.exe` and the Playnite plugin from the Vibepollo 2.0.0 release;
 - the usbip-win2 installer and drivers, bundled unchanged.
 
-### The NVIDIA build
+### The NVIDIA component
 
-RTX HDR and RTX Video enhancement call NVIDIA's proprietary NGX library and need NVIDIA's `nvngx_truehdr.dll` and `nvngx_vsr.dll`, which may not be relicensed under the GPL. They are therefore built only into a separate NVIDIA build (`rust\build.ps1 -Nvidia`, the host's `nvidia-proprietary` feature), which is never signed:
+RTX HDR and RTX Video enhancement call NVIDIA's proprietary NGX library and need NVIDIA's `nvngx_truehdr.dll` and `nvngx_vsr.dll`, which may not be relicensed under the GPL. No signed file contains them: they ship in a separate, unsigned archive, the NVIDIA component (`rust\build.ps1 -Nvidia`):
 
-- its own workflow job builds it from the same commit, and another attaches it to the release after the signed files are published; neither calls SignPath, and the signed release never waits on them; `sign-artifacts.ps1` and the [artifact configurations](../.signpath/) name only the signed build's folder and files;
-- every file it publishes carries `nvidia` in its name (`rubylight-nvidia-setup-<version>.exe`, `rubylight-nvidia-<version>-windows-x64.zip`), and Windows shows it without a publisher;
-- a host from it updates only to the next NVIDIA build, and a signed host never to one.
+- its own workflow job builds it from the same commit, and another attaches it to the release after the signed files are published, as `rubylight-nvidia-component-<version>.zip`; neither calls SignPath, and the signed release never waits on them; `sign-artifacts.ps1` and the [artifact configurations](../.signpath/) name only the signed build's folder and files;
+- the signed host downloads it only when the user asks on the console, from the release of its own version; it checks the archive against GitHub's SHA-256 digest and NVIDIA's files against digests in the host's source, keeps it outside the signed installation in a folder only administrators may change, and checks every file again before each use;
+- the adapter in it (`butterpollo_truehdr.dll`, GPL-3.0, built from `rust/truehdr-runtime`) is Rubylight's only code that links NGX.
 
-The signed installer and its files contain no NVIDIA code. `rust/release/test_release.py` checks that the NVIDIA build never reaches signing.
+The signed installer and its files contain no NVIDIA code. `rust/release/test_release.py` checks that the NVIDIA component never reaches signing.
+
+Until hosts of the former, unsigned NVIDIA build (4.3.2 to 4.4.0) have updated, each release also carries the signed installer under the name those hosts update from, `rubylight-nvidia-setup-<version>.exe`: the same signed file under a second name.
 
 Libraries whose projects publish no signed builds ship unsigned: the Opus DLL and the GCC and winpthreads runtimes from MSYS2, and FFmpeg's `avcodec` and `avutil` and the PyroWave library, each built from pinned source. [Third-party components](../rust/THIRD_PARTY.md) lists them all with their licences.
 

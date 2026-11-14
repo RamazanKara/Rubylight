@@ -8,12 +8,11 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-c41242" alt="GPL-3.0"></a>
 </p>
 
-<h3 align="center">Turn the camera, and the stream turns with you.</h3>
+<h3 align="center">Every game. Every screen. Every player.</h3>
 
 <p align="center">
-  Rubylight is a free, open-source game-streaming host for Windows PCs with AMD Radeon or NVIDIA graphics.<br>
-  Play your PC games on the TV, a laptop, a phone, a handheld or in a browser, with Moonlight or any other Sunshine-compatible client.<br>
-  With <a href="https://github.com/RamazanKara/nightjar">Nightjar</a>, the client built alongside it, camera turns show on your screen's next refresh and frames keep the game's own rhythm.
+  Rubylight is a free, open-source game-streaming host for Windows PCs with AMD Radeon or NVIDIA graphics. It gathers every launcher's games, gives each TV, handheld, phone or laptop a display of its own, sets each game up for the device you play on, and puts your PC back exactly as it was when you're done.<br>
+  It works with Moonlight and every Sunshine-compatible client, and does even more with <a href="https://github.com/RamazanKara/nightjar">Nightjar</a>, the client built alongside it.
 </p>
 
 <p align="center">
@@ -31,58 +30,87 @@
   <sub><a href="https://ramazankara.github.io/Rubylight/#film"><b>▶ Watch the film</b></a> · 94 seconds, with sound: the console, pairing, per-game settings, displays, HDR, co-op, Nightjar and the measured results</sub>
 </p>
 
-## Why it feels different
-
-### Frame Warp: the camera turns on your next refresh
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/media/frame-warp/trail-dark.png">
-    <img src="docs/media/frame-warp/trail-light.png" width="900" alt="Chart of 6 seconds of turns: without Frame Warp the picture trails the mouse by up to 190 pixels; with Frame Warp it stays within about 20.">
-  </picture>
-</p>
-
-A streamed camera turn normally shows up a network round trip and the game's own delay after you move the mouse. Nightjar shifts each picture by the turn your mouse or right stick has made since the PC drew it, so the turn shows on your screen's next refresh. Rubylight learns, for the game you are playing, how far the picture moves per input and how long the game takes to show it, and keeps the HUD where it is.
-
-- **96% of the trail gone.** A test game with 50 ms of delay, streamed at 1440p and 60 fps, showed the picture a median 64.9 px behind the mouse while turning. With Frame Warp: 1.4 to 2.2 px.
-- **Learns each game by itself.** Sailing in Black Flag Resynced, streamed to a handheld and a laptop, it learned the camera as it turned and kept the quest text, compass and icon wheel in place.
-
-It costs 0.14 to 0.16 ms of GPU time a frame on the RX 7900 XT, from 1080p to 4K, and it is one switch: Nightjar › Settings › Video › Frame Warp. Rubylight is ready for it out of the box.
-
-[How Frame Warp works](docs/frame-warp.md) · [Measurements](rust/PERFORMANCE.md#november-12-frame-warp) · [The lens](rust/PERFORMANCE.md#november-12-frame-warp-lens)
-
-### Real VRR: your screen keeps the game's rhythm
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="client/docs/assets/real-vrr/chart-dark.png">
-    <img src="client/docs/assets/real-vrr/chart-light.png" width="900" alt="Chart: on the same PC, 2.5 to 3.1% of frames land more than 1 ms off the game's rhythm with Real VRR instead of 10.2 to 19.4% shown on arrival, for 1.3 to 1.5 ms of delay. Over Wi-Fi, 29 to 31% instead of 64 to 74%, for 2.6 to 4.2 ms.">
-  </picture>
-</p>
-
-With VRR, your screen refreshes whenever a frame arrives, so it follows the network's rhythm rather than the game's. Rubylight stamps every frame with the moment the game presented it on the PC, and Nightjar shows it at that moment plus a short, steady delay, so the screen refreshes in step with the game.
-
-- **97% of frames on the game's rhythm,** instead of 81 to 90% shown on arrival, for 1.3 to 1.5 ms of delay. PyroWave, HEVC and AV1 alike, measured on the same PC.
-- **On by default** in Nightjar whenever Variable refresh rate is on: a G-Sync, FreeSync or HDMI VRR display on Windows and Linux, or an Android 16 screen with adaptive refresh.
-
-[How Real VRR works](client/docs/real-vrr.md) · [Measurements](client/docs/pyrowave-decode.md#real-vrr-measured-cadence-and-a-link-with-a-long-tail)
-
-### Measured in the open
-
 <table>
   <tr>
-    <td align="center" width="50%"><h3>2.35&nbsp;ms</h3>median from capture to the client's screen<br><sub>PyroWave 1080p60, wired pace, over loopback</sub></td>
-    <td align="center" width="50%"><h3>0.25&nbsp;ms</h3>median picture age at the encoder with VRR<br><sub>120&nbsp;Hz game in a 60&nbsp;fps stream; 4.68&nbsp;ms before</sub></td>
-  </tr>
-  <tr>
-    <td align="center" width="50%"><h3>15 → 0</h3>freezes after scene cuts on a lossy link<br><sub>HEVC 1440p60, 0.3&nbsp;% loss</sub></td>
-    <td align="center" width="50%"><h3>17&nbsp;ms</h3>glass to glass in a web browser<br><sub>WebRTC, AV1 1080p60, over loopback</sub></td>
+    <td width="33%" valign="top"><img src="docs/media/showcase/console-home.png" alt="The Rubylight console's Home page: Ready to play, the last game played, the host name and paired devices, and the first games of the library with their covers."><br><sub><b>The console.</b> Home walks you through pairing and your first game.</sub></td>
+    <td width="33%" valign="top"><img src="client/docs/assets/shots/tv-home.png" alt="Nightjar's Home on a TV: a game in the hero and a Recently played row of posters with store badges (demo library)."><br><sub><b>Your library on the TV.</b> Every launcher's games, with their covers.</sub></td>
+    <td width="33%" valign="top"><img src="client/docs/assets/shots/stream-menu-radeon.png" alt="Nightjar's session menu over a running game: bitrate, the Wi-Fi link, and Radeon Anti-Lag, Radeon Chill and frame rate target changed during the stream (demo stream)."><br><sub><b>Tune it while you play.</b> Bitrate and Radeon settings without leaving the game.</sub></td>
   </tr>
 </table>
 
-<p align="center"><sub>Our own runs on an RX 7900 XT. Every figure links to its method and raw results under <a href="#measured-performance">Measured performance</a>, and the measurement record keeps every run, including changes that measured worse and were reverted.</sub></p>
+## Why Rubylight
+
+### Every launcher, one library
+
+Turn on a launcher and its installed games appear with their covers: Steam, Epic Games, Battle.net, EA app, Ubisoft Connect, GOG, Xbox and Microsoft Store, Playnite, and folders such as `D:\Games`. There is nothing to type in and no shortcut to make, each launcher can sync by itself, and Steam collections and Playnite categories come along. With Nightjar, the library becomes a Home with covers, a shelf per store on the TV and a page for each game, and picking a game on a sleeping PC wakes it.
+
+<p align="center">
+  <img src="docs/media/showcase/console-games.png" width="800" alt="Games: the library with covers from Steam, EA and other launchers, with search, sort and Add games.">
+</p>
+
+### A display for every device
+
+Each phone, TV or handheld gets a virtual display at its own resolution, refresh rate and HDR mode, so the game renders for the screen in your hands, not for the monitor on your desk. When the stream ends, or even after a crash, your monitors come back exactly as you left them.
+
+- **Move a game between devices.** From Nightjar, **Continue here** moves the running game to the device you are holding while it keeps running, and **Stream here too** joins it from a second one.
+- **Two screens on one device.** Nightjar's **Dual screen mode** streams a second display beside the game's.
+- **One window instead of a desktop.** An app can stream only its own window, followed through resizing, fullscreen switches and moves between monitors.
+
+### Set up for each game and each device
+
+Every game can carry its own stream, display, input and encoder settings, RTSS frame limits, a Lossless Scaling profile and a graphics driver profile. They apply when the game starts and are removed when it ends.
+
+- **Graphics driver profiles.** **Competitive**, **Smoothness**, **Quality** or your own list of Radeon or NVIDIA driver settings, such as Anti-Lag, Radeon Chill, Low Latency Mode and Smooth Motion. Rubylight records the PC's own values first and puts them back when the session ends, after a crash too.
+- **Game settings files per device.** A TV keeps its 4K settings and a handheld its 1080p ones, and the PC's own files come back when the game closes.
+- **Change it mid-game.** Nightjar's stream menu changes the bitrate, the frame rate and the driver settings without leaving the game.
+
+### Play together
+
+A game that Nucleus Co-op supports gets a "(Co-op)" entry. Each device that starts it joins as the next player, up to four, each in its own instance of the game with its own picture, sound and controller. Home shows who plays in which slot, and a player who steps away keeps their slot for two minutes.
+
+- **Guests on your game.** A second paired device can join the game you are playing as the next player, with its own controller. You decide what each guest may do, and can let guests in for a set time.
+- **Friends in a browser.** While you stream in the console, up to four friends open an invite link, type a name and watch in their own browsers, and play along with a controller or keyboard and mouse if you let them. They need no app, no account and no pairing.
+- **Play while the PC is in use.** A device can play its own instance of a game in the background while someone else keeps using the PC's displays, keyboard and mouse.
+
+<p align="center">
+  <img src="docs/media/showcase/coop-home.png" width="800" alt="A live co-op game on Home: Player 1 playing on the living room PC, Player 2 on a Retroid Pocket 5 away and keeping the slot, two free slots and one click to let another device join.">
+</p>
+
+### Run the PC from the couch
+
+Nightjar doubles as the PC's remote. A device you authorise can approve another device's pairing, close a game, put the PC to sleep and wake it, restart or shut down an idle PC, install a pending Rubylight update, run commands you set up on the PC, and serve as the PC's microphone with no stream running. Each action has its own permission. In any Moonlight client, holding L3+R3 opens a menu to go back to the game, disconnect, end the session or close the game.
+
+### Smooth on real networks
+
+Rubylight encodes H.264, HEVC and AV1 with AMF on Radeon and NVENC on NVIDIA, converts and scales each frame on the GPU beside the game, and on its virtual displays takes each frame straight from its own display driver. Wi-Fi clients are paced from the first frame, the bitrate follows what the link delivers and climbs back, a lost frame is repaired without waiting for a keyframe, and a scene cut too large to protect is encoded again so it arrives whole.
+
+- **Frame Warp,** with Nightjar: a mouse or right-stick camera turn shows on your screen's next refresh, and the game's HUD stays in place. [How it works](docs/frame-warp.md)
+- **Real VRR,** with Nightjar: on a G-Sync, FreeSync or HDMI VRR screen, frames are shown on the game's own rhythm instead of the network's. [How it works](client/docs/real-vrr.md)
+- **Away from home.** Rubylight can ask your router to forward its ports. Where no port can be forwarded, Nightjar and the PC find a direct path through both routers, through public STUN servers and a public peer-to-peer directory that holds only encrypted notes, with no relay in between. A VPN such as Tailscale works too. [Play over the internet](docs/internet-play.md)
+
+### The picture and sound your setup can play
+
+HDR10, HDR10+, Dolby Vision and HLG, with per-scene brightness measured on the GPU so the display tone-maps each scene. Full 4:4:4 colour, for Nightjar and PyroWave clients and natively from NVIDIA encoders, keeps small text and red-on-black HUDs sharp. Sound goes up to 7.1.4 surround, or as PCM and Dolby Digital straight to your receiver, soundbar or TV, and can carry only the game you launched.
+
+### Every controller
+
+Each device gets a matching virtual pad: a DualSense with adaptive triggers for PlayStation controllers, a Switch Pro controller for Nintendo ones and an Xbox Series pad for the rest, or a Steam Controller with both trackpads, back grips and motion. Tools such as reWASD that look for a USB controller get an Xbox 360 pad or a DualShock 4 through ViGEmBus, which you install separately. With Nightjar, the clipboard works both ways, files go to and from the PC, and USB devices plugged into your device reach the PC.
+
+### A console that explains itself
+
+Open **https://localhost:47990** on the PC and Home walks you through pairing, by QR code for Nightjar or PIN for Moonlight, and your first game. It lists what needs attention, each with a button that fixes it. **Settings** holds the few settings most people change and **All settings** every other one, with one line of explanation each; **Ctrl+K** finds any game, device or setting. When something goes wrong, **Help** reads the host log and explains what it found, with the fix.
+
+<table>
+  <tr>
+    <td><img src="docs/media/showcase/console-all-settings.png" alt="All settings: six tabs from This PC to Advanced, the Picture tab open with its topics, a search field and one line of explanation per setting."></td>
+    <td><img src="docs/media/showcase/console-help.png" alt="Help: what a device needs to connect to this PC, the known problems found in the host log, and the support bundle."></td>
+  </tr>
+</table>
+
+The [feature reference](docs/features.md) lists everything else, from streaming the lock screen to the [HTTP API](docs/api.md) and [webhooks](docs/webhooks.md), and the [release notes](rust/RELEASE_NOTES.md) what each release changed.
 
 ## What players are saying
+
 
 <table width="100%">
   <tr>
@@ -117,56 +145,12 @@ With VRR, your screen refreshes whenever a frame arrives, so it follows the netw
 
 </details>
 
-## Everything around the game
-
-<table>
-  <tr>
-    <td width="50%" valign="top"><h4>Built around your GPU</h4>AMF on Radeon and NVENC on NVIDIA encode H.264, HEVC and AV1 at 8 and 10 bits. Colour conversion and scaling run on D3D12 compute queues beside the game, and Rubylight's own display driver hands each frame to the host with no desktop capture in between. <a href="docs/nvenc.md">NVENC</a></td>
-    <td width="50%" valign="top"><h4>A display for every device</h4>Each phone, TV or handheld gets a virtual display at its own resolution, refresh rate and HDR mode, and Nightjar's <b>Dual screen mode</b> adds a second screen. When the stream ends, your monitors come back exactly as you left them.</td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top"><h4>The picture your screen can show</h4>HDR10, HDR10+, Dolby Vision and HLG, with per-scene brightness measured on the GPU. Full 4:4:4 colour, for Nightjar and PyroWave clients and natively from NVIDIA encoders, keeps small text and red-on-black HUDs sharp.</td>
-    <td width="50%" valign="top"><h4>Steady on real networks</h4>The bitrate follows what the link delivers, Wi-Fi clients are paced from the first frame, a lost frame is repaired without waiting for a keyframe, and a scene cut too large to protect is encoded again so it arrives whole.</td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top"><h4>Every launcher, one library</h4>Steam, Epic Games, Battle.net, EA app, Ubisoft Connect, GOG, Microsoft Store, Xbox and Playnite games, and folders such as <code>D:\Games</code>, appear with their covers: one switch per launcher, nothing to type in. Each device can keep its own copy of a game's settings files.</td>
-    <td width="50%" valign="top"><h4>Graphics driver settings per game</h4><b>Competitive</b>, <b>Smoothness</b>, <b>Quality</b> or your own list of Radeon or NVIDIA driver settings, such as Anti-Lag, Chill, Low Latency Mode and Smooth Motion, applies when a game starts. Nightjar's stream menu changes them while you play, and the PC's own values come back when the session ends, even after a crash.</td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top"><h4>Move a game between devices</h4><b>Continue here</b> moves the stream to another device while the game keeps running; <b>Stream here too</b> lets a second device join it.</td>
-    <td width="50%" valign="top"><h4>Play together</h4>Up to four devices each play their own instance of a game through Nucleus Co-op, with their own picture, sound and controller. Or play in the background while someone else keeps using the PC. <a href="docs/nucleus-coop.md">Co-op</a></td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top"><h4>Play in a browser, invite friends</h4>A PIN-paired play page for browsers, TVs and consoles, plus guest links with access controls; H.264, HEVC and AV1, with HDR where supported. <a href="docs/webrtc.md">Browser streaming</a></td>
-    <td width="50%" valign="top"><h4>Run the PC from the couch</h4>Authorised Nightjar devices can approve another device's pairing, restart or shut down an idle PC, install a pending host update and serve as the PC's microphone with no stream. Permissions control each action.</td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top"><h4>Every controller</h4>DualSense, Switch Pro and Xbox pads, a <a href="docs/configuration.md#controllers">Steam Controller (2026) profile</a> with trackpads, back grips, motion and haptics, and Xbox 360 or DualShock 4 on ViGEmBus for tools such as reWASD that look for a USB controller.</td>
-    <td width="50%" valign="top"><h4>A console that explains itself</h4>Home walks a new PC through pairing and lists what needs attention, each with a button that fixes it. <b>Help</b> reads the host log and explains what it found, with the fix, and <b>Ctrl+K</b> finds any game, device, setting or action.</td>
-  </tr>
-</table>
-
-Surround up to 7.1.4 with PCM and Dolby Digital passthrough, clipboard, files and USB forwarding, streaming to Samsung TVs, and an [HTTP API](docs/api.md) with [webhooks](docs/webhooks.md): the [feature reference](docs/features.md) lists everything the host does, and the [release notes](rust/RELEASE_NOTES.md) what each release changed.
-
-## A closer look
-
-<table>
-  <tr>
-    <td width="50%" valign="top"><img src="docs/media/showcase/console-home.png" alt="The Rubylight console's Home page: Ready to play, the last game played, the host name and paired devices, and the first games of the library with their covers."><br><sub><b>Ready to play in minutes.</b> Open <b>https://localhost:47990</b> on the PC and Home walks you through pairing and your first game. Nightjar pairs by scanning a QR code, Moonlight with a PIN.</sub></td>
-    <td width="50%" valign="top"><img src="docs/media/showcase/console-games.png" alt="Games: the library with covers from Steam, EA and other launchers, with search, sort and Add games."><br><sub><b>Every launcher, one library.</b> Each game can carry its own stream, display, input and encoder settings, RTSS frame limits, a Lossless Scaling profile and a graphics driver profile.</sub></td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top"><img src="docs/media/showcase/coop-home.png" alt="A live co-op game on Home: Player 1 playing on the living room PC, Player 2 on a Retroid Pocket 5 away and keeping the slot, two free slots and one click to let another device join."><br><sub><b>Co-op on one PC.</b> A game Nucleus Co-op supports gets a "(Co-op)" entry. Home shows who plays in which slot, and a player who steps away keeps their slot for two minutes.</sub></td>
-    <td width="50%" valign="top"><img src="docs/media/showcase/console-help.png" alt="Help: what a device needs to connect to this PC, the known problems found in the host log, and the support bundle."><br><sub><b>Help that reads the log.</b> An AMD encoder hang, lost capture, a port in use or network loss, each explained with its fix. Restarting Rubylight, display recovery and crash reports are under <b>Advanced › Troubleshoot</b>.</sub></td>
-  </tr>
-</table>
-
 ## Nightjar, the client built alongside it
 
 <table>
   <tr>
-    <td width="50%" valign="top"><img src="client/docs/assets/shots/tv-home.png" alt="Nightjar's Home on a TV: a game in the hero and a Recently played row of posters with store badges (demo library)."><br><sub><b>Your library on the TV.</b> Every launcher's games, with their covers.</sub></td>
-    <td width="50%" valign="top"><img src="client/docs/assets/shots/stream-menu-radeon.png" alt="Nightjar's session menu over a running game: bitrate, the Wi-Fi link, and Radeon Anti-Lag, Radeon Chill and frame rate target changed during the stream (demo stream)."><br><sub><b>Tune it while you play.</b> Bitrate and Radeon settings without leaving the game.</sub></td>
+    <td width="50%" valign="top"><img src="client/docs/assets/shots/handheld-home.png" alt="Nightjar's Home on a handheld: Racing Game running, with Resume, Favourite and Quit game, a Continue playing list and the Recently played row, under a glass top bar (demo library)."><br><sub><b>Made for handhelds.</b> Home, the library and the stream menu follow the controller.</sub></td>
+    <td width="50%" valign="top"><img src="client/docs/assets/shots/desktop-home.png" alt="Nightjar for Windows: Home tinted by Racing Game's cover, the game in progress with Resume, Favourite and Quit game, a Continue list and a row of cover art per store (demo library)."><br><sub><b>On the desktop too.</b> Windows, Linux and macOS, with a row per store on Home.</sub></td>
   </tr>
 </table>
 
@@ -212,7 +196,7 @@ Rubylight speaks the Moonlight protocol and keeps its protocol version, so unmod
 | **Operating system** | Windows 10 or Windows 11, x64. Virtual displays need Windows 11 23H2 or later. |
 | **Graphics** | An AMD Radeon GPU with an AMF video encoder and AMD Software, or an NVIDIA GPU with NVENC and the NVIDIA driver ([NVENC](docs/nvenc.md)). AV1 on Radeon needs an RX 7000 or RX 9000 series GPU or a Radeon 780M or 890M. |
 | **Intel** | PCs with only Intel graphics use [Rubylight 2.6.x](https://github.com/RamazanKara/Rubylight/releases/tag/v2.6.0). |
-| **Network** | A local network or your own VPN; a wired connection for the host is recommended. PyroWave needs a fast local network, about 400 Mbps for 1080p60. |
+| **Network** | A local network, your own VPN or [Play over the internet](docs/internet-play.md); a wired connection for the host is recommended. PyroWave needs a fast local network, about 400 Mbps for 1080p60. |
 | **Client** | Any Moonlight-compatible client; see [Works with the client you already have](#works-with-the-client-you-already-have). |
 
 The [hardware matrix](docs/hardware-matrix.md) records what has been tested on each GPU generation, Windows version and client, with the evidence for each entry.

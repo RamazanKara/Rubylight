@@ -6,6 +6,8 @@ import android.view.View;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.limelight.ui.GlassForm;
+
 import java.util.function.IntPredicate;
 
 /**
@@ -16,11 +18,14 @@ import java.util.function.IntPredicate;
  */
 final class HomeGridLayoutManager extends GridLayoutManager {
     private final IntPredicate cardBefore;
+    /** The scroll back to the top header is the TV grid's: a phone's first row sits under the glass top row. */
+    private final boolean television;
 
     /** @param cardBefore whether some card (not a header) is listed before the adapter position */
     HomeGridLayoutManager(Context context, int spanCount, IntPredicate cardBefore) {
         super(context, spanCount);
         this.cardBefore = cardBefore;
+        this.television = GlassForm.of(context) == GlassForm.TELEVISION;
     }
 
     @Override
@@ -34,14 +39,14 @@ final class HomeGridLayoutManager extends GridLayoutManager {
     }
 
     /**
-     * Back up to the first row, the whole top header shows: a plain grid stopped once the card was on screen and left the
-     * section's title above the list's edge.
+     * On a TV, back up to the first row, the whole top header shows: a plain grid stopped once the card was on screen and
+     * left the section's title above the list's edge.
      */
     @Override
     public boolean requestChildRectangleOnScreen(RecyclerView parent, View child, android.graphics.Rect rect, boolean immediate,
             boolean focusedChildVisible) {
         int position = getPosition(child);
-        if (position > 0 && !cardBefore.test(rowStart(position))) {
+        if (television && position > 0 && !cardBefore.test(rowStart(position))) {
             View header = findViewByPosition(0);
             if (header != null && header.getTop() < parent.getPaddingTop()) {
                 int dy = header.getTop() - parent.getPaddingTop();

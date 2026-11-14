@@ -28,6 +28,7 @@
     { value: 'vhf_switch', label: 'Switch Pro' },
     { value: 'vhf_steam', label: 'Steam Controller', hint: 'Requires the current virtual gamepad driver; run Rubylight setup again if the stream says the driver lacks it.' },
     { value: 'vigem_x360', label: 'Xbox 360 (ViGEmBus)', hint: 'Requires ViGEmBus on the host, for tools such as reWASD that may not see the other types.' },
+    { value: 'vigem_ds4', label: 'DualShock 4 (ViGEmBus)', hint: 'Requires ViGEmBus on the host, for tools such as reWASD that may not see the other types. Keeps the touchpad, motion and lightbar.' },
   ];
 </script>
 

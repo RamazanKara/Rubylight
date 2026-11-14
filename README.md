@@ -96,7 +96,7 @@ Rubylight 4.0 covers everything since 3.0. Nightjar 5.0 is the matching client. 
 - **Move a game between devices, or use two screens.** **Continue here** moves the stream while the game keeps running; **Stream here too** joins it. Nightjar's **Dual screen mode** gets a second virtual display, or the PC's other physical monitor.
 - **Play in a browser and invite friends.** A PIN-paired play page for browsers, TVs and consoles, plus guest links with access controls; H.264, HEVC and AV1, with HDR where supported. [Browser streaming](docs/webrtc.md)
 - **Every launcher works like Steam.** Epic Games, Battle.net, Microsoft Store and Xbox, EA app, Ubisoft Connect, GOG and your game folders each sync on their own terms, and each device can keep its own copy of a game's settings files. [Managed game files](docs/configuration.md#managed-game-files)
-- **More controller choices.** A [Steam Controller (2026) profile](docs/configuration.md#controllers) with trackpads, back grips, motion and haptics, plus **Xbox 360 (ViGEmBus)** for tools such as reWASD that look for a USB controller.
+- **More controller choices.** A [Steam Controller (2026) profile](docs/configuration.md#controllers) with trackpads, back grips, motion and haptics, plus **Xbox 360 (ViGEmBus)** and **DualShock 4 (ViGEmBus)**, with touchpad, motion and lightbar, for tools such as reWASD that look for a USB controller.
 - **Manage the PC from the couch.** Authorised Nightjar devices can approve another device's pairing, restart or shut down an idle PC, install a pending host update, and serve as the PC's microphone with no stream. Permissions control each action.
 - **Frames leave sooner.** 4K frames go out slice by slice, large frames start leaving before the whole frame is ready, and streams stay timed to the device's refresh after the PC was busy. [Performance](docs/performance.md)
 
@@ -154,7 +154,7 @@ A game that Nucleus Co-op supports gets a "(Co-op)" entry. Each device that star
 
 ### And everything around the game
 
-Surround up to 7.1.4 with PCM and Dolby Digital passthrough, DualSense, Switch Pro, Xbox, Steam Controller and Xbox 360 (ViGEmBus) pads, clipboard, files and USB forwarding, streaming to browsers and Samsung TVs, and an [HTTP API](docs/api.md) with [webhooks](docs/webhooks.md): the [feature reference](docs/features.md) lists everything the host does.
+Surround up to 7.1.4 with PCM and Dolby Digital passthrough, DualSense, Switch Pro, Xbox, Steam Controller, Xbox 360 and DualShock 4 (ViGEmBus) pads, clipboard, files and USB forwarding, streaming to browsers and Samsung TVs, and an [HTTP API](docs/api.md) with [webhooks](docs/webhooks.md): the [feature reference](docs/features.md) lists everything the host does.
 
 ## Works with the client you already have
 
@@ -301,6 +301,7 @@ Rubylight is licensed under **GPL-3.0**. Everyone who helped, with their GitHub 
 - PyroWave and Granite are by **Themaister** (MIT); the PyroWave Moonlight protocol and clients are **joemossjr16's** work.
 - Composite DualSense haptics draw on **Nonary's** Vibepollo protocol and its DualSense rumble-stop fix, **Chase Payne's** libvirtualgamepad USB reports and **HIDMaestro contributors'** composite descriptors.
 - The virtual Steam Controller is **jlobue10's** profile in Nonary's libvirtualgamepad, and the host maps clients onto it as **Nonary's** Vibepollo does.
+- The DualShock 4 on ViGEmBus follows **Nonary's** Vibepollo, built on **LizardByte and the Sunshine contributors'** DualShock 4 emulation.
 - The virtual Switch 2 Pro Controller follows **Alia5's** libVIIPER, **Luiz Filipe Bandeira's and the contributors'** Solstice and **SDL's** Switch 2 driver by **Sam Lantinga and the SDL contributors** (zlib).
 - The DSU motion server speaks the protocol of **Jays2Kings', Ryochan7's and schmaldeo's** DS4Windows, with the settings and port of **the Foundation Sunshine authors'** server.
 - Clipboard sync uses the control message frame of **qiin2333's** Moonlight V+ (GPL-3.0).

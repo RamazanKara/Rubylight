@@ -1143,7 +1143,7 @@ const input: Setting[] = [
     description:
       "The virtual controller games see. Leave it on Automatic, which matches each device's controller, unless a game needs a certain type; USB/IP and ViGEmBus types need a driver.",
     details:
-      'A type chosen here is used for all connected controllers; a device can set its own type in Devices, which wins over this one. A game that understands only Xbox controllers cannot see a DualSense. The DualSense USB/IP option and Switch 2 Pro (USB/IP) require usbip-win2. Xbox 360 (ViGEmBus) needs ViGEmBus installed separately, for tools such as reWASD that may not see the other types; without it controllers stop working and the stream says why. Automatic picks DualSense, with adaptive triggers, for PlayStation, Switch Pro for Nintendo, and Xbox Series otherwise, or DualSense when the motion or touchpad options below select it. Waveform-capable DualSense clients use native USB audio haptics when usbip-win2 is installed on the host. The DualSense USB/IP option exposes a DualSense audio device. A client\'s Switch 2 Pro Controller arrives as a Switch 2 Pro Controller with its C button, grip buttons, motion, rumble and battery when usbip-win2 is installed, and as Switch Pro otherwise; Switch 2 Pro (USB/IP) gives every controller one. Steam Controller presents a 2026 Steam Controller with both trackpads, grip and stick touch, motion and a battery; a client that has the real controller also gets Steam\'s pad haptics and settings, and others get rumble. Steam stable can list a virtual Xbox controller twice; the Steam beta lists it once.',
+      'A type chosen here is used for all connected controllers; a device can set its own type in Devices, which wins over this one. A game that understands only Xbox controllers cannot see a DualSense. The DualSense USB/IP option and Switch 2 Pro (USB/IP) require usbip-win2. Xbox 360 (ViGEmBus) and DualShock 4 (ViGEmBus) need ViGEmBus installed separately, for tools such as reWASD that may not see the other types; the DualShock 4 keeps the touchpad, motion, battery and lightbar. Without ViGEmBus, controllers stop working and the stream says why. Automatic picks DualSense, with adaptive triggers, for PlayStation, Switch Pro for Nintendo, and Xbox Series otherwise, or DualSense when the motion or touchpad options below select it. Waveform-capable DualSense clients use native USB audio haptics when usbip-win2 is installed on the host. The DualSense USB/IP option exposes a DualSense audio device. A client\'s Switch 2 Pro Controller arrives as a Switch 2 Pro Controller with its C button, grip buttons, motion, rumble and battery when usbip-win2 is installed, and as Switch Pro otherwise; Switch 2 Pro (USB/IP) gives every controller one. Steam Controller presents a 2026 Steam Controller with both trackpads, grip and stick touch, motion and a battery; a client that has the real controller also gets Steam\'s pad haptics and settings, and others get rumble. Steam stable can list a virtual Xbox controller twice; the Steam beta lists it once.',
     category: 'input',
     group: 'Controllers',
     control: {
@@ -1159,6 +1159,7 @@ const input: Setting[] = [
         { value: 'vhf_switch', label: 'Switch Pro' },
         { value: 'vhf_steam', label: 'Steam Controller' },
         { value: 'vigem_x360', label: 'Xbox 360 (ViGEmBus)' },
+        { value: 'vigem_ds4', label: 'DualShock 4 (ViGEmBus)' },
       ],
     },
     // input_policy.rs gamepad_profile: Sunshine, Apollo and Vibepollo names.
@@ -1194,6 +1195,19 @@ const input: Setting[] = [
     default: true,
     inactiveHint: "Turn on Controllers under Input devices to use this setting. Paired devices also need the Controllers permission.",
     visibleWhen: controllerOn,
+  },
+  {
+    key: 'ds4_back_as_touchpad_click',
+    label: 'Back clicks the touchpad',
+    description:
+      'With Controller type on DualShock 4 (ViGEmBus), Back also clicks the touchpad, for controllers without a touchpad button.',
+    details: 'Back still presses Share as well.',
+    category: 'input',
+    group: 'Controllers',
+    control: { kind: 'toggle' },
+    default: true,
+    inactiveHint: "Choose DualShock 4 (ViGEmBus) as Controller type to use this setting.",
+    visibleWhen: (values) => controllerOn(values) && values.gamepad === 'vigem_ds4',
   },
   {
     key: 'enable_dsu_server',

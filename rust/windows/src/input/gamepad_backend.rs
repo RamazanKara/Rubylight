@@ -2,7 +2,7 @@ use super::gamepads::{GamepadTouchRequest, request};
 use super::{open_interface, vigem};
 use anyhow::{Context, Result, bail};
 use butterpollo_core::input_policy::{
-    USBIP_DUALSENSE, USBIP_SWITCH2, VHF_AUTO, VHF_SWITCH, VIGEM_PROFILES, VIGEM_X360,
+    USBIP_DUALSENSE, USBIP_SWITCH2, VHF_AUTO, VHF_SWITCH, VIGEM_DS4, VIGEM_PROFILES, VIGEM_X360,
 };
 use windows::{
     Win32::{Foundation::*, System::IO::DeviceIoControl},
@@ -12,7 +12,7 @@ use windows::{
 /// A chosen ViGEmBus pad without the driver: no other pad stands in, which a
 /// tool waiting for this one wouldn't see either (#74).
 #[derive(Debug)]
-struct VigemMissing;
+struct VigemMissing(&'static str);
 impl std::fmt::Display for VigemMissing {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str("ViGEmBus could not be opened")
@@ -22,9 +22,9 @@ impl std::fmt::Display for VigemMissing {
 /// What the stream says about a driver that won't open, with what fixes it.
 pub(super) fn unavailable(error: &anyhow::Error) -> String {
     const IGNORED: &str = "controller input is ignored while keyboard and mouse remain available";
-    if error.downcast_ref::<VigemMissing>().is_some() {
+    if let Some(VigemMissing(pad)) = error.downcast_ref::<VigemMissing>() {
         format!(
-            "Xbox 360 (ViGEmBus) controller unavailable ({error:#}); {IGNORED}. Rubylight doesn't install ViGEmBus: install it from github.com/nefarius/ViGEmBus/releases, or choose another controller type."
+            "{pad} (ViGEmBus) controller unavailable ({error:#}); {IGNORED}. Rubylight doesn't install ViGEmBus: install it from github.com/nefarius/ViGEmBus/releases, or choose another controller type."
         )
     } else {
         format!(
@@ -38,12 +38,20 @@ pub(super) enum Backend {
     /// Series, DualShock 4, DualSense, Switch Pro and Steam Controller pads in
     /// 16 slots.
     Vhf(Option<HANDLE>),
-    /// ViGEmBus, only when `gamepad = vigem_x360` asks for it.
+    /// ViGEmBus, only when `gamepad = vigem_x360` or `vigem_ds4` asks for it.
     Vigem(vigem::Client),
 }
 impl Backend {
-    fn vigem(client: Result<vigem::Client>) -> Result<(Self, u32)> {
-        Ok((Self::Vigem(client.context(VigemMissing)?), VIGEM_PROFILES))
+    fn vigem(client: Result<vigem::Client>, profile: u16) -> Result<(Self, u32)> {
+        let pad = if profile == VIGEM_DS4 {
+            "DualShock 4"
+        } else {
+            "Xbox 360"
+        };
+        Ok((
+            Self::Vigem(client.context(VigemMissing(pad))?),
+            VIGEM_PROFILES,
+        ))
     }
     /// Whether another slot may help when the driver refuses one: each VHF
     /// slot is the driver's own, and ViGEmBus has none.
@@ -64,8 +72,8 @@ impl Backend {
         if profile == USBIP_SWITCH2 {
             return Ok((Self::Vhf(None), 1 << (VHF_SWITCH - 1)));
         }
-        if profile == VIGEM_X360 {
-            return Self::vigem(vigem::Client::open());
+        if matches!(profile, VIGEM_X360 | VIGEM_DS4) {
+            return Self::vigem(vigem::Client::open(), profile);
         }
         let mut backend = Self::Vhf(Some(open_interface(GUID::from_u128(
             0x27debbf5_1d1e_4e9c_906d_d104b1418b2b,
@@ -116,7 +124,7 @@ impl Backend {
     }
     pub(super) fn plug(&mut self, slot: u32, profile: u16) -> Result<()> {
         if let Self::Vigem(client) = self {
-            return client.plug(slot);
+            return client.plug(slot, profile);
         }
         let mut b = request(16, Some(slot));
         b.extend_from_slice(&profile.to_le_bytes());
@@ -152,6 +160,9 @@ impl Backend {
         Ok(())
     }
     pub(super) fn motion(&mut self, slot: u32, kind: u8, xyz: &[f32; 3]) -> Result<()> {
+        if let Self::Vigem(client) = self {
+            return client.motion(slot, kind, xyz);
+        }
         let mut b = request(28, Some(slot));
         b.extend_from_slice(&[kind, 0, 0, 0]);
         for f in xyz {
@@ -163,10 +174,16 @@ impl Backend {
         Ok(())
     }
     pub(super) fn touch(&mut self, update: &GamepadTouchRequest) -> Result<()> {
+        if let Self::Vigem(client) = self {
+            return client.touch(update.global, update.slot, update.event, update.position);
+        }
         self.ioctl(0x805, &update.packet, 0)?;
         Ok(())
     }
     pub(super) fn battery(&mut self, slot: u32, state: u8, percent: u8) -> Result<()> {
+        if let Self::Vigem(client) = self {
+            return client.battery(slot, state, percent);
+        }
         let mut b = request(16, Some(slot));
         b.extend_from_slice(&[percent, state, 0, 0]);
         self.ioctl(0x807, &b, 0)?;
@@ -209,6 +226,20 @@ impl Backend {
         match self {
             Self::Vigem(client) => client.feedback_ready(slot),
             Self::Vhf(_) => false,
+        }
+    }
+    /// Keeps a ViGEmBus DualShock 4's report flowing; VHF pads need nothing.
+    pub(super) fn refresh(&mut self) -> Result<()> {
+        match self {
+            Self::Vigem(client) => client.refresh(),
+            Self::Vhf(_) => Ok(()),
+        }
+    }
+    /// The slots whose client should be asked for motion again.
+    pub(super) fn motion_requests(&mut self) -> Vec<u32> {
+        match self {
+            Self::Vigem(client) => client.motion_requests(),
+            Self::Vhf(_) => Vec::new(),
         }
     }
 }

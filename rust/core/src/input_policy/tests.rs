@@ -25,6 +25,34 @@ fn vigem_x360_is_chosen_by_name_only_and_never_replaced() {
     let config = Config::parse("gamepad=vigem_x360\n").unwrap();
     assert_eq!(Policy::resolve(&config).unwrap().session_pad, VIGEM_X360);
 }
+/// #108: the ViGEmBus DualShock 4 is chosen by name only, whatever the client
+/// is; a co-op session, which needs XInput, gets ViGEmBus's Xbox 360 pad.
+#[test]
+fn vigem_ds4_is_chosen_by_name_only_and_never_replaced() {
+    assert_eq!(gamepad_profile("vigem_ds4"), VIGEM_DS4);
+    assert_eq!(gamepad_profile("ds4"), VHF_DS4);
+    let policy = Policy::resolve(&Config::default()).unwrap();
+    for kind in 0..=4 {
+        for caps in [0, 8, 0x30, 0x38] {
+            assert_eq!(
+                policy.controller_profile(VIGEM_DS4, kind, caps, VIGEM_PROFILES),
+                Some(VIGEM_DS4)
+            );
+            // Automatic never picks a ViGEmBus pad.
+            assert!(!matches!(
+                policy.controller_profile(0, kind, caps, VIGEM_PROFILES),
+                Some(VIGEM_X360 | VIGEM_DS4)
+            ));
+        }
+    }
+    let config = Config::parse("gamepad=vigem_ds4\n").unwrap();
+    let policy = Policy::resolve(&config).unwrap();
+    assert_eq!(policy.session_pad, VIGEM_X360);
+    // Vibepollo's default: Back also clicks the touchpad.
+    assert!(policy.ds4_back_as_touchpad_click);
+    let config = Config::parse("ds4_back_as_touchpad_click=false\n").unwrap();
+    assert!(!Policy::resolve(&config).unwrap().ds4_back_as_touchpad_click);
+}
 #[test]
 fn only_a_switch2_pro_or_the_named_choice_gets_the_usb_switch2_pad() {
     assert_eq!(gamepad_profile("usbip_switch2"), USBIP_SWITCH2);

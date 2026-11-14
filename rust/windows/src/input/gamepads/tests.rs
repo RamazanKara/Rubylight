@@ -576,15 +576,57 @@ fn a_pad_that_will_not_unplug_at_session_end_keeps_its_slot_until_it_does() {
 /// otherwise, and hears nothing about one.
 #[test]
 fn a_chosen_vigem_pad_is_never_replaced_by_a_steam_deck_pad() {
-    use butterpollo_core::input_policy::{CTYPE_STEAM, DeckPad, VIGEM_PROFILES, VIGEM_X360};
+    use butterpollo_core::input_policy::{
+        CTYPE_STEAM, DeckPad, VIGEM_DS4, VIGEM_PROFILES, VIGEM_X360,
+    };
+    for profile in [VIGEM_X360, VIGEM_DS4] {
+        let mut pads = broken_pads();
+        pads.profile = profile;
+        pads.available = VIGEM_PROFILES;
+        pads.policy.steam_deck = DeckPad::SteamDeck;
+        pads.arrivals.insert(0, (CTYPE_STEAM, 0));
+        assert!(!pads.ensure_deck(0).unwrap());
+        assert!(pads.deck_failed.is_empty(), "it never tried");
+        assert!(pads.warnings.snapshot().is_empty());
+    }
+}
+/// #108: the ViGEmBus DualShock 4 takes touch, motion and battery like the
+/// VHF PlayStation pads, its contacts with their driver slot and position.
+#[test]
+fn a_vigem_ds4_takes_touch_motion_and_battery() {
+    use butterpollo_core::input_policy::{VIGEM_DS4, VIGEM_X360};
+    let pointers = BTreeMap::new();
+    let update = gamepad_touch_request(&pointers, VIGEM_DS4, 3, &touch(0, 0, 1, 17), false)
+        .expect("a DS4 touch");
+    assert_eq!(
+        (update.global, update.slot, update.event, update.position),
+        (3, 0, 1, [0.25, 0.5])
+    );
+    // A client's second touchpad lands on the right half, as on the VHF pads.
+    let update = gamepad_touch_request(&pointers, VIGEM_DS4, 3, &touch(0, 1, 1, 18), true)
+        .expect("a second touchpad");
+    assert_eq!(update.position, [0.625, 0.5]);
+    assert!(gamepad_touch_request(&pointers, VIGEM_X360, 3, &touch(0, 0, 1, 17), false).is_none());
     let mut pads = broken_pads();
-    pads.profile = VIGEM_X360;
-    pads.available = VIGEM_PROFILES;
-    pads.policy.steam_deck = DeckPad::SteamDeck;
-    pads.arrivals.insert(0, (CTYPE_STEAM, 0));
-    assert!(!pads.ensure_deck(0).unwrap());
-    assert!(pads.deck_failed.is_empty(), "it never tried");
-    assert!(pads.warnings.snapshot().is_empty());
+    pads.profiles.insert(0, VIGEM_DS4);
+    pads.profiles.insert(1, VIGEM_X360);
+    assert!(pads.motion_supported(0));
+    assert!(!pads.motion_supported(1));
+}
+/// Vibepollo's manual DS4: Back also clicks the touchpad, for controllers
+/// without a touchpad button, unless the setting is off; no other pad's
+/// Back changes.
+#[test]
+fn back_clicks_a_vigem_ds4_touchpad_unless_turned_off() {
+    use butterpollo_core::input_policy::{VHF_DS4, VIGEM_DS4};
+    let mut pads = broken_pads();
+    pads.profiles.insert(0, VIGEM_DS4);
+    pads.profiles.insert(1, VHF_DS4);
+    assert_eq!(pads.profile_buttons(0, 0x1020), 0x10_1020);
+    assert_eq!(pads.profile_buttons(0, 0x1000), 0x1000);
+    assert_eq!(pads.profile_buttons(1, 0x20), 0x20);
+    pads.policy.ds4_back_as_touchpad_click = false;
+    assert_eq!(pads.profile_buttons(0, 0x20), 0x20);
 }
 /// The Steam Controller chosen by name is every client's pad, a Deck
 /// without a Steam Controller's capabilities included.

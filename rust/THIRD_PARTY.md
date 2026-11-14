@@ -366,7 +366,7 @@ Citation: C. Armstrong, L. Thresh, D. Murphy and G. Kearney, "A Perceptual Evalu
 
 ## ViGEmClient
 
-`windows/src/input/vigem.rs` ports the DeviceIoControl protocol and target lifecycle from [ViGEmClient](https://github.com/nefarius/ViGEmClient): `src/ViGEmClient.cpp`, `include/ViGEm/Common.h` and `include/ViGEm/km/BusShared.h`. It uses Windows APIs directly and does not link the C client. Controller mappings follow [Vibepollo's Windows input code](https://github.com/Nonary/Vibepollo/blob/master/src/platform/windows/input.cpp), under GPL-3.0. ViGEmBus itself is an optional, separately installed driver.
+`windows/src/input/vigem.rs` ports the DeviceIoControl protocol and target lifecycle from [ViGEmClient](https://github.com/nefarius/ViGEmClient): `src/ViGEmClient.cpp`, `include/ViGEm/Common.h` and `include/ViGEm/km/BusShared.h`. It uses Windows APIs directly and does not link the C client. Controller mappings follow [Vibepollo's Windows input code](https://github.com/Nonary/Vibepollo/blob/master/src/platform/windows/input.cpp), under GPL-3.0: the DualShock 4 report with its touchpad, motion (with the inverse of ViGEmBus's calibration), battery, keepalive and lightbar is ported from commit `5e6ed8594184212d429bb093d7fd47904c9a6fa6`, which carries LizardByte Sunshine's DualShock 4 emulation (GPL-3.0). ViGEmBus itself is an optional, separately installed driver.
 
 MIT License
 

@@ -1,7 +1,10 @@
 //! Virtual gamepad lifecycle, controller reports, and feedback.
 
 use super::*;
-use butterpollo_core::{input_policy::VHF_STEAM_CONTROLLER, steam_pad};
+use butterpollo_core::{
+    input_policy::{VHF_STEAM_CONTROLLER, VIGEM_DS4},
+    steam_pad,
+};
 
 mod driver_host;
 
@@ -249,7 +252,7 @@ impl Gamepads {
         // A pad chosen by name is the one every client gets.
         if matches!(
             self.profile,
-            USBIP_DUALSENSE | USBIP_SWITCH2 | VIGEM_X360 | VHF_STEAM_CONTROLLER
+            USBIP_DUALSENSE | USBIP_SWITCH2 | VIGEM_X360 | VIGEM_DS4 | VHF_STEAM_CONTROLLER
         ) {
             return Ok(false);
         }
@@ -750,7 +753,7 @@ impl Gamepads {
                 // have a battery.
                 if !matches!(
                     self.profiles.get(&u16::from(*id)).copied(),
-                    Some(5..=7 | VHF_STEAM_CONTROLLER)
+                    Some(5..=7 | VHF_STEAM_CONTROLLER | VIGEM_DS4)
                 ) {
                     return Ok(());
                 }
@@ -987,14 +990,24 @@ impl Gamepads {
         }
         // Only the Switch 2 Pro Controller has a C button.
         let buttons = buttons & !butterpollo_core::switch2::BUTTON_C;
-        let buttons = if self.profiles.get(&id) == Some(&VHF_STEAM_CONTROLLER) {
-            let (_, capabilities) = self.arrivals.get(&id).copied().unwrap_or_default();
-            steam_pad::buttons(buttons, capabilities)
-        } else {
-            buttons
-        };
+        let buttons = self.profile_buttons(id, buttons);
         self.backend
             .submit(self.slot(id)?, buttons, left, right, sticks)
+    }
+    /// The buttons as the pad's profile takes them: a Steam Controller's
+    /// own, and on a ViGEmBus DualShock 4 Back also clicking the touchpad
+    /// (Moonlight's touchpad button) unless `ds4_back_as_touchpad_click` is off.
+    fn profile_buttons(&self, id: u16, buttons: u32) -> u32 {
+        match self.profiles.get(&id).copied() {
+            Some(VHF_STEAM_CONTROLLER) => {
+                let (_, capabilities) = self.arrivals.get(&id).copied().unwrap_or_default();
+                steam_pad::buttons(buttons, capabilities)
+            }
+            Some(VIGEM_DS4) if self.policy.ds4_back_as_touchpad_click && buttons & 0x20 != 0 => {
+                buttons | 0x10_0000
+            }
+            _ => buttons,
+        }
     }
     /// The driver slot of a plugged-in pad. A pad whose re-plug failed has a
     /// state but no slot, and must not take the host down (panic = abort).
@@ -1005,6 +1018,7 @@ impl Gamepads {
             .ok_or_else(|| anyhow::anyhow!("controller {id} is not plugged in"))
     }
     pub(super) fn refresh(&mut self) -> Result<()> {
+        let keepalive = self.backend.refresh();
         let mut updates = Vec::new();
         for (id, (event, back)) in &mut self.states {
             if !self.active.contains_key(id) && !self.dualsenses.contains_key(id) {
@@ -1025,7 +1039,24 @@ impl Gamepads {
         for (id, buttons, left, right, sticks) in updates {
             self.submit(id, buttons, left, right, &sticks)?;
         }
-        Ok(())
+        keepalive
+    }
+    /// Controllers whose client is asked for motion again, with their
+    /// arrival capabilities: a ViGEmBus DualShock 4 whose gyro went silent,
+    /// when the client announced motion sensors.
+    pub(super) fn motion_requests(&mut self) -> Vec<(u8, u16)> {
+        let slots = self.backend.motion_requests();
+        if slots.is_empty() {
+            return Vec::new();
+        }
+        self.active
+            .iter()
+            .filter(|(_, global)| slots.contains(&u32::from(**global)))
+            .filter_map(|(&id, _)| {
+                let (_, capabilities) = self.arrivals.get(&id).copied().unwrap_or_default();
+                (capabilities & 0x30 != 0).then_some((id as u8, capabilities))
+            })
+            .collect()
     }
     pub fn motion_supported(&self, id: u16) -> bool {
         self.decks.contains_key(&id)
@@ -1033,7 +1064,7 @@ impl Gamepads {
             || self.switch2s.contains_key(&id)
             || matches!(
                 self.profiles.get(&id).copied(),
-                Some(5..=7 | VHF_STEAM_CONTROLLER)
+                Some(5..=7 | VHF_STEAM_CONTROLLER | VIGEM_DS4)
             )
     }
 }
@@ -1149,6 +1180,7 @@ fn poll_feedback(
 fn profile_name(profile: u16) -> &'static str {
     match profile {
         butterpollo_core::input_policy::VIGEM_X360 => "vigem_x360",
+        VIGEM_DS4 => "vigem_ds4",
         3 => "vhf_xbox_one",
         4 => "vhf_xbox",
         5 => "vhf_ds4",
@@ -1188,8 +1220,12 @@ pub(super) struct GamepadTouchRequest {
     pub(super) packet: Vec<u8>,
     id: u8,
     pointer: u32,
-    slot: u8,
-    event: u8,
+    pub(super) slot: u8,
+    pub(super) event: u8,
+    /// The driver slot and the contact's position in 0..1, which a ViGEmBus
+    /// DualShock 4 takes instead of the packet.
+    pub(super) global: u32,
+    pub(super) position: [f32; 2],
 }
 impl GamepadTouchRequest {
     fn submitted(self, pointers: &mut BTreeMap<(u8, u32), u8>) {
@@ -1230,7 +1266,7 @@ fn gamepad_touch_request(
         return None;
     };
     let steam = profile == VHF_STEAM_CONTROLLER;
-    if *touchpad > u8::from(dual) || !(matches!(profile, 5 | 6) || steam) {
+    if *touchpad > u8::from(dual) || !(matches!(profile, 5 | 6 | VIGEM_DS4) || steam) {
         return None;
     }
     let event = match event {
@@ -1287,6 +1323,8 @@ fn gamepad_touch_request(
         pointer,
         slot,
         event,
+        global: u32::from(global),
+        position: [x.clamp(0., 1.), y.clamp(0., 1.)],
     })
 }
 impl Drop for Gamepads {

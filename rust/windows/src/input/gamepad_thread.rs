@@ -63,6 +63,11 @@ pub(super) trait Pads {
     fn warnings(&mut self, _warnings: Arc<butterpollo_core::session::Warnings>) {}
     fn apply(&mut self, event: &Event) -> Result<()>;
     fn refresh(&mut self) -> Result<()>;
+    /// Controllers whose client should be asked for motion again, with their
+    /// arrival capabilities.
+    fn motion_requests(&mut self) -> Vec<(u8, u16)> {
+        Vec::new()
+    }
     fn feedback(&mut self) -> Vec<(u16, u16, Vec<u8>)>;
     /// Feedback reports read from the driver since the last call, coalesced
     /// or not.
@@ -111,6 +116,9 @@ impl Pads for Gamepads {
     fn refresh(&mut self) -> Result<()> {
         self.check_driver_host();
         Gamepads::refresh(self)
+    }
+    fn motion_requests(&mut self) -> Vec<(u8, u16)> {
+        Gamepads::motion_requests(self)
     }
     fn feedback(&mut self) -> Vec<(u16, u16, Vec<u8>)> {
         Gamepads::feedback(self)
@@ -908,6 +916,13 @@ fn run<P: Pads>(
         {
             if let Err(error) = pads.refresh() {
                 tracing::debug!(%error, "controller refresh failed");
+            }
+            for (id, capabilities) in pads.motion_requests() {
+                tracing::debug!(
+                    controller = id,
+                    "controller motion went silent; asking the client again"
+                );
+                report(PadReport::Motion { id, capabilities });
             }
             shared
                 .audio_ready

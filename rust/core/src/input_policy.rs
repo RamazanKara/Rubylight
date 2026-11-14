@@ -24,8 +24,12 @@ pub const VHF_STEAM_CONTROLLER: u16 = 9;
 /// An Xbox 360 pad on ViGEmBus, separately installed (`gamepad = vigem_x360`):
 /// an emulated USB device for tools that don't see a VHF pad (#74).
 pub const VIGEM_X360: u16 = 8;
+/// A DualShock 4 on ViGEmBus (`gamepad = vigem_ds4`): the same USB device for
+/// those tools, with touchpad, motion, battery and lightbar, as Vibepollo's
+/// (#108).
+pub const VIGEM_DS4: u16 = 13;
 /// What ViGEmBus offers, as a bit per profile.
-pub const VIGEM_PROFILES: u32 = 1 << (VIGEM_X360 - 1);
+pub const VIGEM_PROFILES: u32 = (1 << (VIGEM_X360 - 1)) | (1 << (VIGEM_DS4 - 1));
 /// Moonlight's `LI_CTYPE_STEAM`: a Valve controller such as the Steam Deck,
 /// with an Xbox layout, two trackpads, motion sensors and back grips.
 pub const CTYPE_STEAM: u8 = 4;
@@ -141,6 +145,7 @@ pub fn gamepad_profile(value: &str) -> u16 {
         "vhf_steam" => VHF_STEAM_CONTROLLER,
         "vhf" => VHF_AUTO,
         "vigem_x360" => VIGEM_X360,
+        "vigem_ds4" => VIGEM_DS4,
         other => {
             crate::config::fallback("gamepad", other, "auto");
             0
@@ -201,6 +206,10 @@ pub struct Policy {
     pub forward_rumble: bool,
     pub motion_as_ds4: bool,
     pub touchpad_as_ds4: bool,
+    /// `ds4_back_as_touchpad_click`: Back also clicks the touchpad of a
+    /// DualShock 4 chosen by name on ViGEmBus, for controllers without a
+    /// touchpad button, as Vibepollo's manual DS4 does.
+    pub ds4_back_as_touchpad_click: bool,
     /// `gamepad_feedback_fast_poll`: poll pad feedback every 2 ms for a
     /// moment after feedback came, not every 8 ms. Off until measured.
     pub feedback_fast_poll: bool,
@@ -219,8 +228,9 @@ pub struct Policy {
     pub back_grips: [Option<GripTarget>; 4],
     pub steam_deck: DeckPad,
     /// The profile of a Nucleus Co-op session's pads: Xbox pads whatever the
-    /// clients' controllers are, since only those reach XInput, and the
-    /// ViGEmBus one when `gamepad` chose it.
+    /// clients' controllers are, since only those reach XInput, and
+    /// ViGEmBus's Xbox 360 pad when `gamepad` chose a ViGEmBus pad, so a tool
+    /// that needs the USB pad still sees one.
     pub session_pad: u16,
     pub keybindings: BTreeMap<u16, u16>,
 }
@@ -274,6 +284,7 @@ impl Policy {
             forward_rumble: config.boolean("forward_rumble", true),
             motion_as_ds4: config.boolean("motion_as_ds4", true),
             touchpad_as_ds4: config.boolean("touchpad_as_ds4", true),
+            ds4_back_as_touchpad_click: config.boolean("ds4_back_as_touchpad_click", true),
             feedback_fast_poll: config.boolean("gamepad_feedback_fast_poll", false),
             driver_host_priority: config.boolean("gamepad_driver_host_priority", false),
             // As in Vibepollo: 0 turns host key repeat off and a negative
@@ -297,7 +308,7 @@ impl Policy {
             back_grips: BACK_GRIP_KEYS.map(|key| grip_target(key, config.get(key, "none"))),
             steam_deck: deck_pad(config.get("steam_deck_controller", "auto")),
             session_pad: match config.get("gamepad", "auto") {
-                "vigem_x360" => VIGEM_X360,
+                "vigem_x360" | "vigem_ds4" => VIGEM_X360,
                 _ => VHF_XBOX_SERIES,
             },
             keybindings,

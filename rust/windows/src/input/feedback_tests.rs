@@ -13,10 +13,14 @@ use windows::Win32::Storage::FileSystem::WriteFile;
 /// stands in, which the tool it was chosen for wouldn't see either.
 #[test]
 fn a_chosen_vigem_pad_without_its_driver_says_what_to_install() {
-    let Err(error) = Backend::vigem(Err(anyhow::anyhow!("ViGEmBus is not installed"))) else {
+    let Err(error) = Backend::vigem(
+        Err(anyhow::anyhow!("ViGEmBus is not installed")),
+        VIGEM_X360,
+    ) else {
         panic!("a backend without its driver");
     };
     let message = unavailable(&error);
+    assert!(message.starts_with("Xbox 360 (ViGEmBus)"), "{message}");
     assert!(message.contains("ViGEmBus is not installed"), "{message}");
     assert!(message.contains("nefarius/ViGEmBus/releases"), "{message}");
     assert!(
@@ -24,6 +28,13 @@ fn a_chosen_vigem_pad_without_its_driver_says_what_to_install() {
         "{message}"
     );
     assert!(!message.contains("Rubylight setup"), "{message}");
+    // #108: the DualShock 4 names itself.
+    let Err(error) = Backend::vigem(Err(anyhow::anyhow!("no bus")), VIGEM_DS4) else {
+        panic!("a backend without its driver");
+    };
+    let message = unavailable(&error);
+    assert!(message.starts_with("DualShock 4 (ViGEmBus)"), "{message}");
+    assert!(message.contains("nefarius/ViGEmBus/releases"), "{message}");
     // Setup does bring the other driver.
     let message = unavailable(&anyhow::anyhow!("no interface"));
     assert!(message.contains("no interface"), "{message}");

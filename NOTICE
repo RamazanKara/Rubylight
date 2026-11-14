@@ -220,6 +220,17 @@ split trackpads, haptic and settings forwarding, firmware attributes) follows
 Nonary/Vibepollo 2.0.6's docs/steam_controller.md (GPL-3.0). The wire format is the one
 rubylight_protocol::steam_controller already credits.
 
+DualShock 4 on ViGEmBus
+
+The DualShock 4 on ViGEmBus (rust/windows/src/input/vigem.rs: the report and its
+button, stick, motion, touch and battery conversions, the 100 ms keepalive, the stale
+gyro, the motion re-request and lightbar forwarding without repeats; Back as a touchpad
+click in rust/windows/src/input/gamepads.rs) was ported for Rubylight on 2026-11-14 from
+Nonary/Vibepollo commit 5e6ed8594184212d429bb093d7fd47904c9a6fa6
+src/platform/windows/input.cpp (GPL-3.0), which carries LizardByte Sunshine's DualShock 4
+emulation (GPL-3.0). Rubylight drives ViGEmBus through its own port of ViGEmClient's
+protocol, credited in rust/THIRD_PARTY.md.
+
 NVIDIA driver settings
 
 The driver settings keys of NVIDIA's Low Latency Mode and Smooth Motion in

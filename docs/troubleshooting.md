@@ -254,17 +254,17 @@ Check the stream card in the console first.
 
 - **"…its device permissions do not allow it"**: the device lacks that input permission. Devices paired after the first get the permissions chosen at pairing (**Watch only** has no input), or view-only permissions when no choice was made. Turn on **Controllers** (or Touch, Pen, Mouse, Keyboard) for it under **Devices**, then reconnect.
 - **"Virtual gamepad driver unavailable"**: the virtual gamepad driver could not be opened. Run the installer again with the gamepad driver selected.
-- **"Xbox 360 (ViGEmBus) controller unavailable"**: that controller type is chosen and ViGEmBus could not be opened. The installer doesn't bring it: install [ViGEmBus](https://github.com/nefarius/ViGEmBus/releases), or choose another controller type.
+- **"Xbox 360 (ViGEmBus) controller unavailable"** or **"DualShock 4 (ViGEmBus) controller unavailable"**: that controller type is chosen and ViGEmBus could not be opened. The installer doesn't bring it: install [ViGEmBus](https://github.com/nefarius/ViGEmBus/releases), or choose another controller type.
 
 ## reWASD or another tool doesn't see the virtual controller
 
-Windows lists the standard pads as HID devices of a virtual driver, not as USB devices, and some tools only look for USB controllers. Choose **Xbox 360 (ViGEmBus)** as the [controller type](configuration.md#controllers), with ViGEmBus installed: that pad is an emulated USB device. If the tool still doesn't list it, open an issue naming the tool and its version.
+Windows lists the standard pads as HID devices of a virtual driver, not as USB devices, and some tools only look for USB controllers. Choose **Xbox 360 (ViGEmBus)** or **DualShock 4 (ViGEmBus)** as the [controller type](configuration.md#controllers), with ViGEmBus installed: those pads are emulated USB devices. The DualShock 4 keeps the touchpad, motion and lightbar, so a tool's lightbar colour reaches the controller in your hand. If the tool still doesn't list it, open an issue naming the tool and its version.
 
 ## Steam shows two controllers
 
 Some Steam builds list one virtual Xbox controller twice: Steam's SDL controller discovery races its XInput and GameInput backends for the same device. Start+Select may then open both Xbox Game Bar and Steam's keyboard. SDL has an [upstream fix](https://github.com/libsdl-org/SDL/commit/c4cfb739), and users report that the Steam beta, which includes it, lists the pad once; switch to it under Steam → Settings → Interface → Client Beta Participation until the stable client carries the fix.
 
-Steam's `logs/controller.txt` shows each arrival. Rubylight uses ViGEmBus only when you choose Xbox 360 (ViGEmBus) as the [controller type](configuration.md#controllers); otherwise an installed copy can be uninstalled.
+Steam's `logs/controller.txt` shows each arrival. Rubylight uses ViGEmBus only when you choose Xbox 360 (ViGEmBus) or DualShock 4 (ViGEmBus) as the [controller type](configuration.md#controllers); otherwise an installed copy can be uninstalled.
 
 ## A DualSense keeps vibrating after Steam stops it
 

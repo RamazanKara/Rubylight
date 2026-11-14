@@ -167,7 +167,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "native_pen_touch", "Native pen and touch", Bool;
         "mouse_mode", "Mouse input method (auto: the virtual mouse when the USB/IP driver is installed)", Choice(&["auto","virtual_mouse","injection"]);
         "native_touchpad", "Touchpad gestures from devices", Bool;
-        "gamepad", "Controller profile (auto: DualSense for PlayStation-type or motion/touchpad, Switch 2 Pro over USB/IP for a Switch 2 Pro Controller, Switch Pro for other Nintendo, Xbox Series otherwise)", Choice(&["auto","vhf_xbox","vhf_xbox_one","vhf_ds4","vhf_ds5","usbip_ds5","usbip_switch2","vhf_switch","vhf_steam","vigem_x360"]);
+        "gamepad", "Controller profile (auto: DualSense for PlayStation-type or motion/touchpad, Switch 2 Pro over USB/IP for a Switch 2 Pro Controller, Switch Pro for other Nintendo, Xbox Series otherwise)", Choice(&["auto","vhf_xbox","vhf_xbox_one","vhf_ds4","vhf_ds5","usbip_ds5","usbip_switch2","vhf_switch","vhf_steam","vigem_x360","vigem_ds4"]);
         "keybindings", "Keyboard remapping pairs", Json;
         "always_send_scancodes", "Send keyboard scan codes", Bool;
         "key_rightalt_to_key_win", "Map right Alt to Windows key", Bool;
@@ -181,6 +181,7 @@ pub const GLOBAL: &[Setting] = settings! {
         "audio_haptics_gate", "Audio haptics noise gate (dBFS, -80 to -10)", Number;
         "motion_as_ds4", "Use PlayStation profile for motion input", Bool;
         "touchpad_as_ds4", "Use PlayStation profile for touchpad input", Bool;
+        "ds4_back_as_touchpad_click", "Back also clicks the touchpad (DualShock 4 on ViGEmBus)", Bool;
         "enable_dsu_server", "DSU motion server for emulators (UDP, every network interface)", Bool;
         "dsu_server_port", "DSU motion server port (UDP, 1024-65535)", Number;
         "back_button_timeout", "Hold Back to press Guide (milliseconds; -1 disables)", Number;
@@ -270,7 +271,7 @@ pub const APP: &[Setting] = settings! {
         "coop-entry", "Show the game's co-op entry in the library", Bool;
         "state-cmd", "App resume and pause commands", Json;
         "output", "App log path (null discards output)", Text;
-        "gamepad", "Controller profile override", Choice(&["auto","vhf_xbox","vhf_xbox_one","vhf_ds4","vhf_ds5","usbip_ds5","usbip_switch2","vhf_switch","vhf_steam","vigem_x360"]);
+        "gamepad", "Controller profile override", Choice(&["auto","vhf_xbox","vhf_xbox_one","vhf_ds4","vhf_ds5","usbip_ds5","usbip_switch2","vhf_switch","vhf_steam","vigem_x360","vigem_ds4"]);
     ]
     "App display and frame generation" => [
         "display-output", "Display override (sunshine:virtual_display selects a virtual display)", Text;
@@ -421,6 +422,7 @@ pub fn render(prefix: &str, schema: &[Setting], values: &Value) -> String {
                             "vhf_switch" => "Switch Pro",
                             "vhf_steam" => "Steam Controller",
                             "vigem_x360" => "Xbox 360 (ViGEmBus)",
+                            "vigem_ds4" => "DualShock 4 (ViGEmBus)",
                             "steam_deck" => "Steam Deck",
                             "virtual_pad" => "Virtual controller",
                             "a" => "A (Cross)",

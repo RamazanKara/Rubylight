@@ -531,4 +531,19 @@ public class TvSettingsFocusTest {
         assertTrue("no grey block inside it, a quiet tint", android.graphics.Color.alpha(row.getPixel(w / 2, h / 2)) < 0x40);
         chooser.dismiss();
     }
+
+    /**
+     * nightjar#7 (TCL C6K): the right pane kept a deep foot it did not clip to. A ListView fills that foot scrolling
+     * down and drops its rows scrolling up, so the bottom row showed one way and left a blank band the other. The pane
+     * now ends on the screen's edge, as a handheld's rail does; the rail keeps its foot for the expanding summary.
+     */
+    @Test
+    public void theRightPaneEndsOnTheScreensEdgeAndTheRailKeepsItsFoot() {
+        StreamSettings screen = open();
+        ListView pane = (ListView) screen.getFragmentManager().findFragmentById(R.id.stream_settings).getView()
+                .findViewById(android.R.id.list);
+        int small = screen.getResources().getDimensionPixelSize(R.dimen.space_xs);
+        assertEquals("the right pane's foot", small, pane.getPaddingBottom());
+        assertTrue("the rail keeps its foot", sections(screen).getPaddingBottom() > small);
+    }
 }

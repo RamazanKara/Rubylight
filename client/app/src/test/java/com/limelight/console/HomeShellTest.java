@@ -1363,4 +1363,41 @@ public class HomeShellTest {
         root.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY));
         root.layout(0, 0, w, h);
     }
+
+    /**
+     * nightjar#7 (TCL C6K): scrolled, the TV's shelves drew over the hero and the top row, since nothing clipped the
+     * list; and the last shelf could not reach the top. The list now clips at its own top, fades there, and has the
+     * foot to bring its last shelf up.
+     */
+    @Test
+    @Config(qualifiers = "television")
+    public void onTelevisionTheListClipsAndFadesAtItsTop() {
+        ActivityController<Home> controller = home();
+        try {
+            Home screen = controller.get();
+            androidx.recyclerview.widget.RecyclerView list = screen.findViewById(R.id.console_list);
+            assertTrue(list instanceof HomeList);
+            assertTrue("fades at its top", list.isVerticalFadingEdgeEnabled());
+            float density = screen.getResources().getDisplayMetrics().density;
+            assertTrue("room for the last shelf to reach the top", list.getPaddingBottom() >= Math.round(244 * density));
+            list.measure(View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY));
+            list.layout(0, 168, 800, 568);
+            assertEquals(new android.graphics.Rect(0, 0, 800, 400), list.getClipBounds());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    /** nightjar#7: a TV's grid and list ran into the overscan band; they stand back to it, the shelves as before. */
+    @Test
+    @Config(qualifiers = "television")
+    public void onTelevisionTheGridAndListStandBackToTheOverscanEdge() {
+        android.content.res.Resources res = context.getResources();
+        int overscan = res.getDimensionPixelSize(R.dimen.shell_overscan_horizontal);
+        int card = res.getDimensionPixelSize(R.dimen.cover_inset);
+        assertTrue(overscan > 0);
+        assertEquals(overscan - card, HomeChrome.listInset(res, com.limelight.ui.GlassForm.TELEVISION, false));
+        assertEquals(0, HomeChrome.listInset(res, com.limelight.ui.GlassForm.TELEVISION, true));
+    }
 }

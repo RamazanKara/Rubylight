@@ -572,4 +572,22 @@ public class HomeViewScreenTest {
         assertNull(prefs.getString(HomeView.KEY_LAYOUT, null));
         assertNull(prefs.getString(HomeView.KEY_SIZE, null));
     }
+
+    /** nightjar#7 (TCL C6K): a TV grid of five left PCs one per row in a narrow card; counts pair up from four on. */
+    @Test
+    public void aTvGridKeepsAnEvenCountAndPairsItsPcs() {
+        assertEquals(4, ConsoleHomeActivity.tvColumnsFor(1800, 360));
+        assertEquals(3, ConsoleHomeActivity.tvColumnsFor(1800, 600));
+        assertEquals(6, ConsoleHomeActivity.tvColumnsFor(1800, 257));
+        for (int columns : new int[]{2, 3, 4, 6, 8, 10}) {
+            int wide = ConsoleHomeActivity.spanOf(ConsoleHomeListAdapter.HOST, columns, true);
+            assertEquals(wide, ConsoleHomeActivity.spanOf(ConsoleHomeListAdapter.WIDE_GAME, columns, true));
+            assertEquals("wide cards fill rows evenly", 0, columns % wide);
+            assertTrue("at most two PCs across", columns / wide <= 2);
+            assertEquals(columns, ConsoleHomeActivity.spanOf(ConsoleHomeListAdapter.HEADER, columns, true));
+            assertEquals(1, ConsoleHomeActivity.spanOf(ConsoleHomeListAdapter.COVER_GAME, columns, true));
+        }
+        // A phone and a tablet keep their wide cards as they were.
+        assertEquals(2, ConsoleHomeActivity.spanOf(ConsoleHomeListAdapter.HOST, 6));
+    }
 }

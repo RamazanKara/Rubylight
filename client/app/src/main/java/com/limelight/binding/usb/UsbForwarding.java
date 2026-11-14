@@ -2,9 +2,11 @@ package com.limelight.binding.usb;
 
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.hardware.usb.UsbConstants;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
@@ -190,6 +192,38 @@ public final class UsbForwarding {
         this.messages = messages;
         this.auto = new HashSet<>(context.getSharedPreferences(AUTO_PREFS, Context.MODE_PRIVATE)
                 .getStringSet(AUTO_KEY, Collections.emptySet()));
+        syncPersistentPermission(context, prefConfig.usbForwarding || !auto.isEmpty());
+    }
+
+    /**
+     * Android offers "Always allow" in its USB permission dialog, and keeps the answer after the app restarts, only for
+     * a device an activity of the app is declared for. Any device may be forwarded, so the catch-all declaration is on
+     * while forwarding is: off, plugging in a keyboard or a drive asks nothing of Nightjar.
+     */
+    public static void syncPersistentPermission(Context context, boolean enabled) {
+        PackageManager packages = context.getPackageManager();
+        if (packages == null) return;
+        ComponentName component = new ComponentName(context, UsbAttachedActivity.Forwarding.class);
+        int wanted = enabled ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED : PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
+        try {
+            // The manifest declares it disabled, so the default state counts as off.
+            boolean on = packages.getComponentEnabledSetting(component) == PackageManager.COMPONENT_ENABLED_STATE_ENABLED;
+            if (on == enabled) return;
+            packages.setComponentEnabledSetting(component, wanted, PackageManager.DONT_KILL_APP);
+        } catch (RuntimeException e) {
+            // A device policy may forbid it; the permission is then asked for every time, as before.
+            LimeLog.warning("USB: cannot " + (enabled ? "enable" : "disable") + " the forwarding filter: " + e);
+        }
+    }
+
+    /** The same, following the setting and the automatic list. */
+    public static void syncPersistentPermission(Context context) {
+        if (context == null) return;
+        boolean auto = !context.getSharedPreferences(AUTO_PREFS, Context.MODE_PRIVATE)
+                .getStringSet(AUTO_KEY, Collections.emptySet()).isEmpty();
+        boolean forwarding = android.preference.PreferenceManager.getDefaultSharedPreferences(context)
+                .getBoolean("checkbox_usb_forwarding", false);
+        syncPersistentPermission(context, auto || forwarding);
     }
 
     /** What the automatic list remembers a device by: its vendor and product id, on any port (desktop's usb::auto_key). */
@@ -217,6 +251,7 @@ public final class UsbForwarding {
         }
         context.getSharedPreferences(AUTO_PREFS, Context.MODE_PRIVATE).edit()
                 .putStringSet(AUTO_KEY, new HashSet<>(auto)).apply();
+        syncPersistentPermission(context, prefConfig.usbForwarding || !auto.isEmpty());
         if (!added.isEmpty()) autoActive = true;
         for (UsbDevice device : added) attachIfIdle(device);
     }
@@ -227,6 +262,7 @@ public final class UsbForwarding {
      */
     public void startAuto() {
         if (stopped || autoActive || auto.isEmpty()) return;
+        syncPersistentPermission(context, true);
         autoActive = true;
         start();
         for (UsbDevice device : candidates()) {
@@ -286,6 +322,8 @@ public final class UsbForwarding {
             return;
         }
         if (!asking.add(device.getDeviceName())) return;
+        // Declared for the device first, so the dialog can offer to remember the answer.
+        syncPersistentPermission(context, true);
         try {
             int flags = 0;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {

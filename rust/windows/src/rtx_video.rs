@@ -95,6 +95,10 @@ impl Filter {
             let lock: ID3D11Multithread = self.device.context.cast()?;
             lock.Enter();
             let result = self.enhance(image);
+            // The enhanced picture is read on the compute queue (a shared handle imported into
+            // D3D12) while the D3D11 commands that wrote it sit in the context's buffer: hand them
+            // to the GPU now, before the copy into the pool and the return to the caller.
+            self.device.context.Flush();
             lock.Leave();
             result
         }
@@ -113,7 +117,7 @@ impl Filter {
                 }
                 let passes = self.hdr.as_mut().unwrap();
                 passes.size(&self.device, image.width, image.height)?;
-                let original = view(&self.device, image.texture.as_ref())?;
+                let original = passes.original(&self.device, image)?;
                 passes.prepare(&self.device, &original, image.width, image.height);
                 let proxy = passes.proxy.as_raw();
                 let enhanced = self.vsr(proxy)?;
@@ -183,6 +187,17 @@ struct HdrPasses {
     output: ID3D11Texture2D,
     output_target: ID3D11RenderTargetView,
     shape: (u32, u32),
+    /// Views of the pictures this pass prepared, kept while the capture pool hands the same
+    /// textures again: making one every frame cost the render thread a call and a lock turn.
+    originals: Vec<Original>,
+}
+/// A picture's view, with the texture, size and format it was made for.
+struct Original {
+    texture: usize,
+    width: u32,
+    height: u32,
+    pixel: Pixel,
+    view: ID3D11ShaderResourceView,
 }
 impl HdrPasses {
     fn new(device: &Device) -> Result<Self> {
@@ -219,14 +234,58 @@ impl HdrPasses {
                 output,
                 output_target,
                 shape: (1, 1),
+                originals: Vec::new(),
             })
         }
+    }
+    /// A shader view of `image`'s texture, kept while the capture pool hands the same picture.
+    ///
+    /// # Safety
+    /// The caller holds the device's multithread lock and `image` is a live picture on it.
+    unsafe fn original(
+        &mut self,
+        device: &Device,
+        image: &GpuImage,
+    ) -> Result<ID3D11ShaderResourceView> {
+        let key = (
+            image.texture.as_raw() as usize,
+            image.width,
+            image.height,
+            image.pixel,
+        );
+        if let Some(found) = self.originals.iter().find(|original| {
+            (
+                original.texture,
+                original.width,
+                original.height,
+                original.pixel,
+            ) == key
+        }) {
+            return Ok(found.view.clone());
+        }
+        // SAFETY: `image`'s texture is live on `device`.
+        let created = unsafe { view(device, image.texture.as_ref()) }?;
+        // The capture pool rotates a handful of textures; a view for each is enough, and they go
+        // when a new size or format replaces the pool.
+        if self.originals.len() >= 4 {
+            self.originals.clear();
+        }
+        self.originals.push(Original {
+            texture: key.0,
+            width: key.1,
+            height: key.2,
+            pixel: key.3,
+            view: created.clone(),
+        });
+        Ok(created)
     }
     /// Makes the proxy and output textures `width` by `height`.
     fn size(&mut self, device: &Device, width: u32, height: u32) -> Result<()> {
         if self.shape == (width, height) {
             return Ok(());
         }
+        // The capture pool replaces its textures at a new size: the views of the old ones go.
+        self.originals.clear();
         (self.proxy, self.proxy_view, self.proxy_target) =
             target(device, width, height, DXGI_FORMAT_B8G8R8A8_UNORM)?;
         let output = target(device, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT)?;

@@ -20,10 +20,11 @@
                 android:layout_marginTop="8dp" android:maxLines="1" android:ellipsize="end" android:textSize="14sp" android:fontFamily="?attr/nightjarFaceStrong"
                 android:textColor="@color/nj_color_label" />
         </LinearLayout>
-        <androidx.recyclerview.widget.RecyclerView android:id="@+id/console_list"
+        <com.limelight.console.HomeList android:id="@+id/console_list"
             android:layout_width="match_parent" android:layout_height="match_parent" android:layout_marginTop="168dp"
             android:clipToPadding="false" android:clipChildren="false" android:scrollbars="none"
-            android:focusable="false" android:descendantFocusability="afterDescendants" android:paddingBottom="160dp" />
+            android:requiresFadingEdge="vertical" android:fadingEdgeLength="@dimen/space_xl"
+            android:focusable="false" android:descendantFocusability="afterDescendants" android:paddingBottom="260dp" />
         <com.limelight.console.SearchResultsView android:id="@+id/home_search_results"
             android:layout_width="match_parent" android:layout_height="match_parent" android:visibility="gone"
             android:clipToPadding="false" android:clipChildren="false" android:scrollbars="none"

@@ -7,12 +7,21 @@ namespace vkr {
 
 void PresentScheduler::fix(int delayVsyncs, int64_t guardNs) {
     if (delayVsyncs > 0) {
-        delay_ = std::min(std::max(delayVsyncs, kMinDelay), kMaxDelay);
+        delay_ = std::min(std::max(delayVsyncs, kMinDelay), maxDelay_);
         delayFixed_ = true;
     }
     if (guardNs >= 0) {
         guardNs_ = guardNs;
         guardFixed_ = true;
+    }
+}
+
+void PresentScheduler::setMaxDelay(int maxDelay) {
+    maxDelay_ = std::min(std::max(maxDelay, kMinDelay), kMaxDelay);
+    if (delay_ > maxDelay_) {
+        delay_ = maxDelay_;
+        resetWindows();
+        resetGuardHistory();
     }
 }
 
@@ -265,7 +274,7 @@ void PresentScheduler::setAheadWindowNs(int64_t windowNs) {
 }
 
 void PresentScheduler::undoLowering() {
-    delay_++;
+    delay_ = std::min(delay_ + 1, maxDelay_);
     if (guardBeforeLower_ > 0 && !guardFixed_) {
         guardNs_ = guardBeforeLower_;
     }
@@ -316,7 +325,7 @@ void PresentScheduler::onPresented(int64_t vsyncNs, int delayUsed, int64_t perio
     raiseCount_++;
     raiseMisses_ += missed ? 1 : 0;
     if (raiseCount_ >= kRaiseWindow || raiseMisses_ >= kRaiseMisses) {
-        if (raiseMisses_ >= kRaiseMisses && delay_ < kMaxDelay) {
+        if (raiseMisses_ >= kRaiseMisses && delay_ < maxDelay_) {
             // A shorter delay that didn't hold: back to the guard from before it. It's tried
             // again after learning afresh for the usual time, not longer each time. A delay that
             // held for a while and then didn't is a compositor that slowed for a while, and a

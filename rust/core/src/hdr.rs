@@ -35,6 +35,11 @@ impl Metadata {
         if full_frame.is_finite() && full_frame > 0. {
             metadata.full_frame_nits = full_frame.clamp(1., metadata.maximum_nits as f32) as u16;
         }
+        // The source panel's peak and full-frame luminance stand in for the content's light
+        // levels: Windows reports no MaxCLL or MaxFALL for the desktop, and a stream with both at 0
+        // leaves clients nothing to tone map against. Never 0, which CTA-861.3 reads as unknown.
+        metadata.max_cll = metadata.maximum_nits.max(1);
+        metadata.max_fall = metadata.full_frame_nits.max(1);
         metadata
     }
     pub fn wire(self, enabled: bool) -> [u8; 27] {
@@ -78,19 +83,22 @@ mod tests {
         assert_eq!(
             fields,
             [
-                35400, 14600, 8500, 39850, 6550, 2300, 15635, 16450, 1499, 20, 0, 0, 800
+                35400, 14600, 8500, 39850, 6550, 2300, 15635, 16450, 1499, 20, 1499, 800, 800
             ]
         );
+        // A broken report keeps the defaults, light levels included.
+        let broken = Metadata::display(f32::NAN, f32::INFINITY, -1.);
         assert_eq!(
-            Metadata::display(f32::NAN, f32::INFINITY, -1.),
-            Metadata::default()
+            (broken.maximum_nits, broken.minimum, broken.full_frame_nits),
+            (1000, 1, 0)
         );
+        assert_eq!((broken.max_cll, broken.max_fall), (1000, 1));
         assert_eq!(Metadata::display(500., 0., 1000.).full_frame_nits, 500);
     }
 
     /// What `IDXGIOutput6::GetDesc1` reports for physical panels: an EDID
     /// without a luminance block gives zeros, which keep the 1000-nit default
-    /// instead of advertising a 0-nit or 1-nit display to the client.
+    /// instead of advertising an SDR-level display to the client.
     #[test]
     fn physical_panel_luminance_reports_are_usable_or_default() {
         // HDR400 panel: 400 peak, 0.1 nit black, 400 sustained.
@@ -99,12 +107,16 @@ mod tests {
             (hdr400.maximum_nits, hdr400.minimum, hdr400.full_frame_nits),
             (400, 1000, 400)
         );
+        // The panel's levels stand in for the content's light levels.
+        assert_eq!((hdr400.max_cll, hdr400.max_fall), (400, 400));
         // OLED: perfect black stays zero.
         assert_eq!(Metadata::display(1000., 0., 250.).minimum, 0);
         // No luminance block in the EDID: peak and full-frame unknown.
         let unknown = Metadata::display(0., 0., 0.);
         assert_eq!(unknown.maximum_nits, 1000);
         assert_eq!(unknown.full_frame_nits, 0);
+        // CTA-861.3 reads 0 as unknown, so the light levels are never 0.
+        assert_eq!((unknown.max_cll, unknown.max_fall), (1000, 1));
         // Mini-LED claims past the 16-bit wire range are clamped, not wrapped.
         assert_eq!(
             Metadata::display(100_000., 0.0001, 5000.).maximum_nits,

@@ -388,7 +388,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         grid.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
             @Override
             public int getSpanSize(int position) {
-                return spanOf(adapter.viewTypeAt(position), columns);
+                return spanOf(adapter.viewTypeAt(position), columns, isTelevision());
             }
         });
         list.setLayoutManager(grid);
@@ -410,6 +410,11 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
 
     /** Headers take the whole row; wide cards take two columns, or the whole row when it has at most three. */
     static int spanOf(int viewType, int columns) {
+        return spanOf(viewType, columns, false);
+    }
+
+    /** The same on a TV, where wide cards and PCs pair up at every width: four across left no room for a PC's name. */
+    static int spanOf(int viewType, int columns, boolean television) {
         switch (viewType) {
             case ConsoleHomeListAdapter.HEADER:
             case ConsoleHomeListAdapter.LIST_GAME:
@@ -417,7 +422,8 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             case ConsoleHomeListAdapter.COVER_GAME:
                 return 1;
             default:
-                return columns <= 3 ? columns : 2;
+                if (columns <= 3) return columns;
+                return television ? Math.max(2, columns / 2) : 2;
         }
     }
 
@@ -434,7 +440,9 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
 
     /** TV posters across a grid this wide: as many as fit at the shelves' width times the size, at least two. */
     static int tvColumnsFor(int contentPx, int cardPx) {
-        return Math.max(2, contentPx / Math.max(1, cardPx));
+        int columns = Math.max(2, contentPx / Math.max(1, cardPx));
+        // Even from four on, as on a tablet, so wide cards and PCs fill their rows.
+        return columns >= 4 && columns % 2 == 1 ? columns - 1 : columns;
     }
 
     private void fitColumns(int widthPx) {
@@ -574,7 +582,8 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         // (View, at the bar's end, included).
         // On a phone the tabs are at the foot: Up from the top card stays in the top row.
         if (chrome != null && chrome.form() != com.limelight.ui.GlassForm.PHONE
-                && com.limelight.ui.ShellFocus.upToCurrentTab(this, event, list, findViewById(R.id.console_view))) {
+                && com.limelight.ui.ShellFocus.upToCurrentTab(this, event, list,
+                        findViewById(R.id.home_top_row), findViewById(R.id.console_view))) {
             return true;
         }
         return super.dispatchKeyEvent(event);

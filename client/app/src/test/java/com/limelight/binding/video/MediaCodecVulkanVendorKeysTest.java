@@ -47,4 +47,12 @@ public class MediaCodecVulkanVendorKeysTest {
             assertFalse(MediaCodecHelper.usesVendorLowLatency(false, "c2.qti.hevc.decoder", vulkan));
         }
     }
+
+    @Test
+    public void theVulkanRendererTakesHdrMetadataWithoutADecoderRestart() {
+        // The Vulkan renderer passes the metadata to the compositor itself; only the SurfaceView
+        // path needs it in the decoder's output, and restarts a decoder whose output lacks it.
+        assertFalse(MediaCodecDecoderRenderer.decoderCarriesHdrMetadata(true));
+        assertTrue(MediaCodecDecoderRenderer.decoderCarriesHdrMetadata(false));
+    }
 }

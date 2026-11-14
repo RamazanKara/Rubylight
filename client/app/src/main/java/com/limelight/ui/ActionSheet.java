@@ -484,8 +484,9 @@ public final class ActionSheet extends BottomSheetDialog {
         button.setIconPadding(spacing / 2);
         button.setMinHeight(compactTile());
         // The icon sits above the label, so the label can use nearly the whole width of its share.
-        if (compact) button.setPaddingRelative(spacing, spacing / 2, spacing, spacing / 2);
-        else button.setPaddingRelative(spacing, button.getPaddingTop(), spacing, button.getPaddingBottom());
+        // A full step above the icon: half a step, or the button's own few pixels, left it against the tile's top edge.
+        if (compact) button.setPaddingRelative(spacing, spacing, spacing, spacing / 2);
+        else button.setPaddingRelative(spacing, Math.max(spacing, button.getPaddingTop()), spacing, button.getPaddingBottom());
         int[][] states = {new int[] {android.R.attr.state_checked}, new int[] {}};
         android.content.res.ColorStateList foreground = new android.content.res.ColorStateList(states, new int[] {
                 MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnPrimaryContainer, 0),

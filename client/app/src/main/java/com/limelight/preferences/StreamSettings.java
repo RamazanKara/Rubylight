@@ -605,8 +605,19 @@ public class StreamSettings extends NightjarActivity {
         // A handheld's rail ends on the screen's edge: nothing floats under it, and every row can fit.
         GlassForm form = chrome != null ? chrome.form() : GlassForm.of(this);
         boolean handheldRail = list == listOf(R.id.settings_sections) && form == GlassForm.HANDHELD;
-        int foot = handheldRail ? getResources().getDimensionPixelSize(R.dimen.space_xs) : listFoot;
+        boolean pane = twoPane && list == listOf(R.id.stream_settings);
+        int foot = handheldRail ? getResources().getDimensionPixelSize(R.dimen.space_xs) : contentFoot(pane, form);
         list.setPadding(list.getPaddingLeft(), list.getPaddingTop(), list.getPaddingRight(), foot);
+    }
+
+    /**
+     * What a list keeps under its last row. The right pane beside the rail ends on the screen's edge too: a ListView
+     * fills its padding while scrolling down (it does not clip to it) but drops the rows there on the way up, so a deep
+     * foot showed a row going down and a blank band, with the group's card cut, coming back up.
+     */
+    private int contentFoot(boolean rightPane, GlassForm form) {
+        if (rightPane && form != GlassForm.PHONE) return getResources().getDimensionPixelSize(R.dimen.space_xs);
+        return listFoot;
     }
 
     /**
@@ -1257,7 +1268,9 @@ public class StreamSettings extends NightjarActivity {
         list.setDividerHeight(0);
         list.setSelector(R.drawable.settings_row_focus);
         // The selector's inset puts rows on their group's edge; under the last one, what the chrome keeps.
-        int foot = ((StreamSettings) activity).listFoot;
+        StreamSettings settings = (StreamSettings) activity;
+        GlassForm form = settings.chrome != null ? settings.chrome.form() : GlassForm.of(activity);
+        int foot = settings.listFoot > 0 ? settings.contentFoot(contentPane && settings.twoPane, form) : 0;
         list.setPadding(0, 0, 0, foot > 0 ? foot : view.getResources().getDimensionPixelSize(R.dimen.grid_padding_bottom));
         list.setClipToPadding(false);
     }
@@ -1532,7 +1545,12 @@ public class StreamSettings extends NightjarActivity {
         private final Map<String, CharSequence> descriptions = new HashMap<>();
         private int codecSummaryGeneration;
         private final SharedPreferences.OnSharedPreferenceChangeListener summaryUpdater =
-                (prefs, key) -> refreshState();
+                (prefs, key) -> {
+                    refreshState();
+                    if (PreferenceConfiguration.USB_FORWARDING_PREF_STRING.equals(key)) {
+                        com.limelight.binding.usb.UsbForwarding.syncPersistentPermission(getActivity());
+                    }
+                };
 
         /** Values and summaries follow the stored settings; so do the settings that apply only given the others. */
         private void refreshState() {

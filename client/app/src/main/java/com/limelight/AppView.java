@@ -703,6 +703,11 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
     @Override
     public boolean dispatchKeyEvent(android.view.KeyEvent event) {
         if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) onInput(InputSource.of(event), InputSource.vendorOf(event));
+        // Up from the grid's first row goes to the current tab of the shell bar, as on Home; on a phone the tabs are at the foot.
+        if (GlassForm.of(this) != GlassForm.PHONE && com.limelight.ui.ShellFocus.upToCurrentTab(this, event, findViewById(R.id.fragmentView),
+                findViewById(R.id.library_options), findViewById(R.id.library_search_button))) {
+            return true;
+        }
         return super.dispatchKeyEvent(event);
     }
 

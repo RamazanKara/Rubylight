@@ -1930,7 +1930,12 @@ impl Session {
             // `sliceOffsets` is null or holds an entry per macroblock, and `lock` is versioned.
             let status =
                 unsafe { (self.functions.nvEncLockBitstream.unwrap())(self.raw, &mut lock) };
-            if status == _NVENCSTATUS_NV_ENC_ERR_LOCK_BUSY {
+            // The frame is not complete yet (the driver still wants input for it): it stays
+            // pending and the next picture's completion is asked for again, instead of ending
+            // the stream on a status that says "not yet".
+            if status == _NVENCSTATUS_NV_ENC_ERR_LOCK_BUSY
+                || status == _NVENCSTATUS_NV_ENC_ERR_NEED_MORE_INPUT
+            {
                 if pending.submitted.elapsed() > COMPLETION_TIMEOUT {
                     bail!("NVENC output lock timed out");
                 }

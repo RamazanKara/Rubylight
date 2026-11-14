@@ -271,6 +271,16 @@ mod active {
             if wanted == Enhancement::None {
                 return (image, changed);
             }
+            // RTX HDR's contrast, saturation, middle gray or peak changed while a still picture
+            // repeats: the cached copy was made with the old values, so it is made again rather
+            // than shown until the next picture is captured.
+            if wanted == Enhancement::RtxHdr
+                && self.rtx_hdr.as_ref().is_some_and(|filter| {
+                    filter.parameters() != nvidia_enhance::rtx_parameters(config)
+                })
+            {
+                self.last = None;
+            }
             if let Some((source, enhanced)) = &self.last
                 && std::ptr::eq(source.as_ptr(), Arc::as_ptr(&image))
             {

@@ -235,16 +235,20 @@ impl Returns {
     /// Release `mutex` with `key` once all compute work submitted so far,
     /// including every conversion that read its texture, has finished.
     pub(crate) fn hand_back(&mut self, mutex: &IDXGIKeyedMutex, key: u64) -> Result<()> {
-        self.value += 1;
         // SAFETY: Both fences are on the compute device and this context's device; the caller holds
         // `mutex` and releases it only here.
         let returned = return_after_reads(
             &self.compute.stuck,
             || unsafe {
+                // Only a value that is signalled advances: a failed hand-back leaves the next
+                // value for the frame that does signal, so the fences never wait on a value no
+                // queue will reach.
+                self.value += 1;
+                let value = self.value;
                 self.compute
                     .queue
-                    .Signal(&self.drained.0, self.value)
-                    .and_then(|()| self.context.Wait(&self.drained.1, self.value))
+                    .Signal(&self.drained.0, value)
+                    .and_then(|()| self.context.Wait(&self.drained.1, value))
                     .context("order shared texture return after GPU readers")
             },
             || unsafe {

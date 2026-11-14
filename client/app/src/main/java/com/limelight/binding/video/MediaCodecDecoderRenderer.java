@@ -1284,7 +1284,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             LimeLog.info("Using Vulkan renderer; the screen " + (vulkanPresentReports ?
                     "reports when frames are shown" : "does not report when frames are shown"));
             renderer.setVsyncOffset(outputDisplay.getAppVsyncOffsetNanos());
-            if (Boolean.TRUE.equals(currentHdrMode)) {
+            // A 10-bit stream starts in HDR10 before the PC's HDR report arrives, as the decoder is
+            // configured (assumesHdr), so the report doesn't recreate the swapchain a second in.
+            if (currentHdrMode != null ? currentHdrMode : assumesHdr()) {
                 renderer.setHdrMode(true, currentHdrMetadata);
             }
         }
@@ -4537,7 +4539,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     return;
                 }
                 currentHdrMetadata = metadata == null ? null : metadata.clone();
-                if (change == HdrChange.PARAMETERS && setRunningHdrStaticInfo(currentHdrMetadata)) {
+                if (change == HdrChange.PARAMETERS &&
+                        (!decoderCarriesHdrMetadata(vulkan != null) || setRunningHdrStaticInfo(currentHdrMetadata))) {
                     return;
                 }
 
@@ -4602,6 +4605,16 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return false;
     }
 
+    /**
+     * Whether the decoder's output must carry the PC's mastering metadata. Not with the Vulkan
+     * renderer: the decoder writes into its own buffers and the renderer hands the metadata to the
+     * compositor (vkSetHdrMetadataEXT), so a decoder whose output lacks it (the TCL C6K's
+     * c2.mtk.hevc.decoder) needs no restart, which would stall the stream as it starts.
+     */
+    static boolean decoderCarriesHdrMetadata(boolean vulkanPresents) {
+        return !vulkanPresents;
+    }
+
     // Outputs after setParameters before the metadata must show in the output format.
     static final int HDR_STATIC_INFO_OUTPUTS = 60;
 
@@ -4637,6 +4650,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             byte[] expected = uncheckedHdrStaticInfo;
             MediaFormat format = outputFormat;
             if (expected == null || codecRecoveryType.get() != CR_RECOVERY_TYPE_NONE) {
+                return;
+            }
+            if (!decoderCarriesHdrMetadata(vulkanRenderer != null)) {
+                uncheckedHdrStaticInfo = null;
                 return;
             }
             if (dolbyVisionActive && format != null && format.containsKey(MediaFormat.KEY_COLOR_TRANSFER) &&

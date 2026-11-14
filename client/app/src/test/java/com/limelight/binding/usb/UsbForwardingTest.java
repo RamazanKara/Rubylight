@@ -402,4 +402,47 @@ public class UsbForwardingTest {
         assertFalse(forwarding.isForwarded(tablet));
         assertNull("not even listening", bridge.listener);
     }
+
+    private boolean filterEnabled() {
+        return context.getPackageManager().getComponentEnabledSetting(
+                new android.content.ComponentName(context, UsbAttachedActivity.Forwarding.class))
+                == android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED;
+    }
+
+    /**
+     * nightjar#7: Android offered no "Always allow" and asked again after every restart, since no activity was declared
+     * for the device. The catch-all declaration follows forwarding: off by default, on once forwarding is.
+     */
+    @Test
+    public void theAlwaysAllowFilterFollowsForwarding() {
+        assertFalse("off while forwarding is", filterEnabled());
+        prefs.usbForwarding = true;
+        new UsbForwarding(context, usbManager, prefs, bridge, null, worker, text -> { });
+        assertTrue("on with the setting", filterEnabled());
+        prefs.usbForwarding = false;
+        new UsbForwarding(context, usbManager, prefs, bridge, null, worker, text -> { });
+        assertFalse(filterEnabled());
+        UsbForwarding.syncPersistentPermission(context, true);
+        assertTrue(filterEnabled());
+        UsbForwarding.syncPersistentPermission(context);
+        assertFalse("the stored setting and an empty list turn it off", filterEnabled());
+    }
+
+    @Test
+    public void choosingADeviceToAskForDeclaresItFirst() {
+        UsbDevice tablet = tablet();
+        shadowUsb().addOrUpdateUsbDevice(tablet, false);
+        forwarding.choose(tablet);
+        assertTrue(filterEnabled());
+    }
+
+    @Test
+    public void anAutomaticListTurnsTheFilterOn() {
+        UsbDevice tablet = tablet();
+        shadowUsb().addOrUpdateUsbDevice(tablet, true);
+        forwarding.setAuto(Collections.singletonList(tablet), new boolean[]{true});
+        assertTrue(filterEnabled());
+        forwarding.setAuto(Collections.singletonList(tablet), new boolean[]{false});
+        assertFalse(filterEnabled());
+    }
 }

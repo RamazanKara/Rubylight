@@ -25,6 +25,10 @@ impl Filter {
     pub fn set_parameters(&mut self, parameters: [u32; 4]) {
         self.parameters = parameters;
     }
+    /// The parameters the last conversion used.
+    pub fn parameters(&self) -> [u32; 4] {
+        self.parameters
+    }
     /// A converter on the capture's device.
     pub fn new_gpu(image: &GpuImage, parameters: [u32; 4]) -> Result<Self> {
         Self::new_device(image.gpu.clone(), parameters)
@@ -89,6 +93,9 @@ impl Filter {
                 converted.inherit(image);
                 Ok(converted)
             })();
+            // The HDR picture is read on the compute queue through a shared handle: flush the
+            // D3D11 commands that wrote it before it is handed on.
+            self.device.context.Flush();
             lock.Leave();
             result
         }

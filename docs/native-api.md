@@ -34,7 +34,7 @@ GET /api/native/v1/capabilities
 ```json
 {
   "api_version": 1,
-  "host": { "name": "GAMING-PC", "version": "4.0.2", "unique_id": "5E0F4B1C-..." },
+  "host": { "name": "GAMING-PC", "version": "4.3.3", "unique_id": "5E0F4B1C-..." },
   "features": ["library", "session", "session.close_game", "session.launcher", "wake",
                "audio.night_mode", "audio.headphone_surround", "session.mic_only",
                "session.continue_here", "power.restart", "power.shutdown",

@@ -145,6 +145,7 @@ Separate the host's HDR source, the negotiated stream and the client's display o
 - Check **Windows Settings → System → Display** for the **streamed display**. HDR on another monitor does not mean HDR on this one, and wide-gamut SDR is not HDR.
 - Check the client's HDR option and the Home stream card's **HDR** badge. In the host log, `hdr=true`, the codec and `source_pixel=RgbaF16` identify a negotiated HDR stream with floating-point capture. FP16 capture alone does not prove that the game produces HDR highlights.
 - Start with **All settings → Picture → HDR → Display HDR: Match the stream** and **HDR request: Follow the device**. A display-only override does not change what the client negotiated. Check app and device overrides too.
+- Some HDR TVs wash the picture out when the stream's HDR metadata carries no light levels (`MaxCLL` and `MaxFALL`). Windows reports only the display's levels, so since 4.3.3 Rubylight sends the display's peak and full-frame brightness when the content reports none; update an older host first.
 - Confirm the game's HDR setting and the receiving display's HDR mode. To compare two clients, keep the codec, scene and host display the same; AV1 HDR on one device against HEVC SDR on another is not an equivalent check.
 - Report whether black levels, mid-grey menus, bright highlights or colour saturation are wrong. Include the client app and version, device and display model, codec, stream resolution and rate, and the host log time.
 

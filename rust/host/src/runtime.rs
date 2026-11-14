@@ -430,6 +430,11 @@ pub async fn maintain(
     actions: Option<Receiver<Action>>,
     web_port: u16,
 ) {
+    {
+        // Rubylight 3.0's AMDNR download serves nothing any more.
+        let h = h.clone();
+        tokio::task::spawn_blocking(move || crate::neural::clear_legacy_cache(&h));
+    }
     let mut update_at = Instant::now();
     let mut steam_at = Instant::now() + Duration::from_secs(5);
     let mut launcher_at = Instant::now();

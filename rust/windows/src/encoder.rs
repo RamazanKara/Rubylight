@@ -835,6 +835,7 @@ mod tests {
             name: name.into(),
             vendor,
             dedicated_memory: 0,
+            device: 0,
             luid: (0, 0),
             pnp_id: None,
         }

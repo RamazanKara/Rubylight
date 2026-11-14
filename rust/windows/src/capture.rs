@@ -156,6 +156,9 @@ pub struct Gpu {
     pub name: String,
     pub vendor: u32,
     pub dedicated_memory: u64,
+    /// The PCI device ID (not in the console's GPU list).
+    #[serde(skip)]
+    pub device: u32,
     pub luid: (u32, i32),
     pub pnp_id: Option<String>,
 }
@@ -227,6 +230,7 @@ pub fn gpus() -> Result<Vec<Gpu>> {
                     name: from_wide(&info.Description),
                     vendor: info.VendorId,
                     dedicated_memory: info.DedicatedVideoMemory as u64,
+                    device: info.DeviceId,
                     luid: (info.AdapterLuid.LowPart, info.AdapterLuid.HighPart),
                     pnp_id: adapter_pnp_id(info.AdapterLuid),
                 });

@@ -1,6 +1,6 @@
 use super::folder::{Package, Request, Response, Writer, handle};
 use super::*;
-use butterpollo_core::neural::{MANIFEST, Manifest};
+use butterpollo_core::neural::{LEGACY_MANIFEST, MANIFEST, Manifest, Mode};
 use std::{io::Write as _, sync::Arc};
 
 /// A folder of its own under the temp folder, deleted when dropped.
@@ -25,7 +25,14 @@ fn sha(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
-/// A cached release `tag` in `root` with `files`, as [`extract`] leaves it.
+/// The provider's DLL, settings and a model file as the full package
+/// places them in a game.
+const PDLL: &str = "OptiScaler/custom/Apex Neural Rendering FG/dlssg/nvngx_dlssg.dll";
+const PINI: &str = "OptiScaler/custom/Apex Neural Rendering FG/dlssg/nr_fg.ini";
+const PAK: &str = "OptiScaler/custom/Apex Neural Rendering FG/dlssg/kernels/pack.nrx";
+
+/// A cached release `tag` in `root` with `files` (cache paths), as
+/// [`extract`] leaves it.
 fn package(root: &Path, tag: &str, files: &[(&str, &[u8])]) -> PathBuf {
     let folder = root.join(tag);
     let mut placed = BTreeMap::new();
@@ -43,10 +50,14 @@ fn package(root: &Path, tag: &str, files: &[(&str, &[u8])]) -> PathBuf {
     }
     let package = Package {
         tag: tag.into(),
-        asset: format!("AMDNR-v{tag}.zip"),
-        digest: String::new(),
-        runtime: None,
-        runtime_digest: None,
+        archives: ["full", "addon"]
+            .map(|part| {
+                (
+                    format!("anr-fg-{tag}-{part}.zip"),
+                    sha(format!("{tag} {part}").as_bytes()),
+                )
+            })
+            .into(),
         files: placed,
     };
     std::fs::write(
@@ -58,29 +69,59 @@ fn package(root: &Path, tag: &str, files: &[(&str, &[u8])]) -> PathBuf {
 }
 
 fn release(root: &Path, tag: &str, dll: &[u8]) -> PathBuf {
+    let (pdll, pini, pak) = (
+        format!("full/game/{PDLL}"),
+        format!("full/game/{PINI}"),
+        format!("full/game/{PAK}"),
+    );
     package(
         root,
         tag,
         &[
-            ("OptiScaler.dll", dll),
-            ("OptiScaler.ini", b"[Upscalers]\n"),
-            ("LmxxfNrRuntime.dll", b"runtime"),
-            ("LmxxfNrRuntime.pak", b"model"),
-            ("OptiScaler/libxess.dll", b"xess"),
-            ("README.md", b"the mod's readme"),
-            ("SHA256SUMS.txt", b"sums"),
+            ("full/game/dxgi.dll", dll),
+            ("full/game/OptiScaler.ini", b"[FrameGen]\nFGInput=nvngxfg\n"),
+            ("full/game/OptiScaler/libxess.dll", b"xess"),
+            (&pdll, b"provider"),
+            (&pini, b"path = auto\n"),
+            (&pak, b"model"),
+            ("full/LICENSES/OptiScaler-GPL-3.0.txt", b"GPL"),
+            (
+                "addon/Apex Neural Rendering FG/dlssg/nvngx_dlssg.dll",
+                b"addon provider",
+            ),
+            (
+                "addon/Apex Neural Rendering FG/dlssg/nr_fg.ini",
+                b"path = auto\n",
+            ),
+            (
+                "addon/Apex Neural Rendering FG/dlssg/kernels/pack.nrx",
+                b"addon model",
+            ),
         ],
     )
 }
 
-/// A game folder with its .exe, a game-owned README and ReShade as dxgi.dll,
-/// in a Steam library's `common`.
+/// Every file and folder below `folder` with each file's SHA-256.
+fn snapshot(folder: &Path) -> Vec<(String, Option<String>)> {
+    names(folder)
+        .into_iter()
+        .map(|name| {
+            let path = folder.join(&name);
+            let hash = path.is_file().then(|| sha(&std::fs::read(&path).unwrap()));
+            (name, hash)
+        })
+        .collect()
+}
+
+/// A game folder with its .exe, a game-owned README, its own DLSS frame
+/// generation and ReShade as dxgi.dll, in a Steam library's `common`.
 fn game(root: &Path) -> PathBuf {
     let folder = root.join("library/common/Game");
     std::fs::create_dir_all(&folder).unwrap();
     for (name, bytes) in [
         ("Game.exe", &b"MZ game"[..]),
         ("README.md", b"the game's readme"),
+        ("nvngx_dlssg.dll", b"NVIDIA's DLSS frame generation"),
         ("dxgi.dll", b"ReShade"),
     ] {
         std::fs::write(folder.join(name), bytes).unwrap();
@@ -156,75 +197,109 @@ fn the_mod_goes_beside_the_game_under_a_free_name_and_leaves_with_only_its_own_f
     let exe = game(temp.path());
     let folder = exe.parent().unwrap();
     let before = names(folder);
+    let game_files = snapshot(folder);
 
-    // ReShade holds dxgi.dll: the mod takes the next name and leaves it alone.
+    // ReShade holds dxgi.dll: OptiScaler takes the next name and leaves it
+    // alone, and the game's own DLSS frame generation stays as it is.
     assert_eq!(
         install(Some(&exe), None, &cache),
         Response::Placed {
             exe: exe.clone(),
             release: "Alpha0.3.5.8".into(),
-            proxy: "d3d12.dll".into(),
+            proxy: "winmm.dll".into(),
             updated: false,
+            mode: Mode::Full,
         }
     );
     assert_eq!(std::fs::read(folder.join("dxgi.dll")).unwrap(), b"ReShade");
     assert_eq!(
-        std::fs::read(folder.join("d3d12.dll")).unwrap(),
+        std::fs::read(folder.join("winmm.dll")).unwrap(),
         b"OptiScaler proxy"
     );
     assert_eq!(
-        std::fs::read(folder.join("README.md")).unwrap(),
-        b"the game's readme"
+        std::fs::read(folder.join("nvngx_dlssg.dll")).unwrap(),
+        b"NVIDIA's DLSS frame generation"
     );
-    assert_eq!(
-        names(folder),
+    assert_eq!(std::fs::read(folder.join(PDLL)).unwrap(), b"provider");
+    let provider = "OptiScaler/custom/Apex Neural Rendering FG";
+    let dlssg = format!("{provider}/dlssg");
+    let kernels = format!("{provider}/dlssg/kernels");
+    let mut expected = before.clone();
+    expected.extend(
         [
-            "LmxxfNrRuntime.dll",
-            "LmxxfNrRuntime.pak",
             "OptiScaler",
             "OptiScaler.ini",
+            "OptiScaler/LICENSES",
+            "OptiScaler/LICENSES/OptiScaler-GPL-3.0.txt",
+            "OptiScaler/custom",
+            provider,
+            dlssg.as_str(),
+            kernels.as_str(),
+            PDLL,
+            PINI,
+            PAK,
             "OptiScaler/libxess.dll",
-            "README.md",
-            "d3d12.dll",
-            "dxgi.dll",
-            "Game.exe",
+            "winmm.dll",
             MANIFEST,
         ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .collect::<Vec<_>>()
+        .map(|name: &str| name.to_owned()),
     );
+    expected.sort();
+    assert_eq!(names(folder), expected);
     let manifest =
         Manifest::parse(&std::fs::read_to_string(folder.join(MANIFEST)).unwrap()).unwrap();
-    assert!(
-        !manifest.files.contains_key("README.md") && !manifest.files.contains_key("SHA256SUMS.txt")
+    assert_eq!(
+        (manifest.mode, manifest.proxy.as_str()),
+        (Mode::Full, "winmm.dll")
     );
-    assert_eq!(manifest.folders, ["OptiScaler"]);
+    assert!(manifest.ini.is_none());
+    assert!(manifest.files.contains_key(PDLL));
+    assert!(!manifest.files.keys().any(|path| path.starts_with("addon")));
+    assert!(manifest.folders.iter().any(|f| f == "OptiScaler"));
 
-    // The menu saved settings, the mod logged, someone replaced the runtime
-    // and put a file of their own in the mod's folder.
+    // The menu saved settings, OptiScaler and the provider logged, someone
+    // replaced the provider and put a file of their own in the folder.
     std::fs::write(
         folder.join("OptiScaler.ini"),
-        "[Upscalers]\nDx12Upscaler=auto\n",
+        "[FrameGen]\nFGInput=nvngxfg\nEnabled=true\n",
     )
     .unwrap();
+    std::fs::write(folder.join(PINI), "path = gpu\n").unwrap();
     std::fs::write(folder.join("OptiScaler.log"), "log").unwrap();
-    std::fs::write(folder.join("LmxxfNrRuntime.dll"), "someone else's").unwrap();
+    std::fs::write(folder.join(format!("{provider}/dlssg/nr_fg.log")), "log").unwrap();
+    std::fs::write(folder.join(PDLL), "someone else's").unwrap();
     std::fs::write(folder.join("OptiScaler/user.txt"), "mine").unwrap();
     assert_eq!(
         remove(&exe),
         Response::Removed {
-            kept: vec!["LmxxfNrRuntime.dll".into()]
+            kept: vec![PDLL.into()]
         }
     );
     let mut expected = before.clone();
-    expected.extend(["LmxxfNrRuntime.dll", "OptiScaler", "OptiScaler/user.txt"].map(String::from));
+    expected.extend(
+        [
+            "OptiScaler",
+            "OptiScaler/custom",
+            provider,
+            dlssg.as_str(),
+            PDLL,
+            "OptiScaler/user.txt",
+        ]
+        .map(|name: &str| name.to_owned()),
+    );
     expected.sort();
     assert_eq!(names(folder), expected);
     // Nothing left to remove.
     assert_eq!(remove(&exe), Response::Removed { kept: vec![] });
+
+    // Without changes, the folder is again byte for byte as it was.
+    std::fs::remove_dir_all(folder.join("OptiScaler")).unwrap();
+    assert!(matches!(
+        install(Some(&exe), None, &cache),
+        Response::Placed { .. }
+    ));
+    assert_eq!(remove(&exe), Response::Removed { kept: vec![] });
+    assert_eq!(snapshot(folder), game_files);
 }
 
 #[test]
@@ -256,12 +331,15 @@ fn a_game_with_anti_cheat_or_another_upscaler_mod_is_refused() {
     };
     assert!(reason.contains("OptiScaler"), "{reason}");
     std::fs::remove_file(exe.with_file_name("OptiScaler.ini")).unwrap();
-    // Another OptiScaler under a proxy name.
+    // The user's own OptiScaler that can't load another frame generation.
     std::fs::write(exe.with_file_name("winmm.dll"), "MZ ... OptiScaler ...").unwrap();
     let Response::Refused { reason } = install(Some(&exe), None, &cache) else {
         panic!()
     };
-    assert!(reason.contains("another copy of OptiScaler"), "{reason}");
+    assert!(
+        reason.contains("can't load another frame generation"),
+        "{reason}"
+    );
     assert!(!exe.with_file_name(MANIFEST).exists());
 }
 
@@ -279,12 +357,12 @@ fn a_name_taken_by_the_game_is_never_overwritten() {
     };
     assert!(reason.contains("every name"), "{reason}");
     std::fs::remove_file(folder.join("version.dll")).unwrap();
-    // A file of the package the game has itself.
-    std::fs::write(folder.join("LmxxfNrRuntime.dll"), "the game's").unwrap();
+    // A folder of the package the game has itself.
+    std::fs::create_dir(folder.join("OptiScaler")).unwrap();
     let Response::Refused { reason } = install(Some(&exe), None, &cache) else {
         panic!()
     };
-    assert!(reason.contains("LmxxfNrRuntime.dll"), "{reason}");
+    assert!(reason.contains("OptiScaler"), "{reason}");
     for name in butterpollo_core::neural::PROXIES
         .iter()
         .filter(|n| **n != "version.dll")
@@ -294,17 +372,14 @@ fn a_name_taken_by_the_game_is_never_overwritten() {
             format!("game's {name}")
         );
     }
-    assert_eq!(
-        std::fs::read_to_string(folder.join("LmxxfNrRuntime.dll")).unwrap(),
-        "the game's"
-    );
+    assert!(!folder.join(MANIFEST).exists());
 }
 
 #[test]
 fn a_cached_file_that_changed_never_reaches_the_game() {
     let temp = tempdir();
     let cache = release(temp.path(), "Alpha0.3.5.8", b"OptiScaler proxy");
-    std::fs::write(cache.join("files/LmxxfNrRuntime.pak"), "tampered").unwrap();
+    std::fs::write(cache.join(format!("files/full/game/{PAK}")), "tampered").unwrap();
     let exe = game(temp.path());
     let folder = exe.parent().unwrap();
     let before = names(folder);
@@ -327,10 +402,10 @@ fn the_helper_checks_the_files_against_the_hashes_the_host_holds() {
     let temp = tempdir();
     let cache = release(temp.path(), "Alpha0.3.5.8", b"OptiScaler proxy");
     let held = cached_at(&cache);
-    std::fs::write(cache.join("files/LmxxfNrRuntime.pak"), "tampered").unwrap();
+    std::fs::write(cache.join(format!("files/full/game/{PAK}")), "tampered").unwrap();
     let mut rewritten = held.package.clone();
     rewritten.files.insert(
-        "LmxxfNrRuntime.pak".into(),
+        format!("full/game/{PAK}"),
         Placed {
             sha256: sha(b"tampered"),
             size: 8,
@@ -385,10 +460,10 @@ fn only_an_install_applies_another_release_and_a_launch_fails_on_a_changed_file(
     let folder = exe.parent().unwrap();
     std::fs::remove_file(folder.join("dxgi.dll")).unwrap();
     // The older release had a file the newer one dropped.
-    std::fs::write(old.join("files/old.dll"), "old").unwrap();
+    std::fs::write(old.join("files/full/game/old.dll"), "old").unwrap();
     let mut package = Package::read(&old).unwrap();
     package.files.insert(
-        "old.dll".into(),
+        "full/game/old.dll".into(),
         Placed {
             sha256: sha(b"old"),
             size: 3,
@@ -406,6 +481,7 @@ fn only_an_install_applies_another_release_and_a_launch_fails_on_a_changed_file(
             release: "Alpha0.3.5.7".into(),
             proxy: "dxgi.dll".into(),
             updated: false,
+            mode: Mode::Full,
         }
     );
     std::fs::write(folder.join("OptiScaler.ini"), "mine").unwrap();
@@ -418,6 +494,7 @@ fn only_an_install_applies_another_release_and_a_launch_fails_on_a_changed_file(
             release: "Alpha0.3.5.7".into(),
             proxy: "dxgi.dll".into(),
             updated: false,
+            mode: Mode::Full,
         }
     );
     assert_eq!(
@@ -431,6 +508,7 @@ fn only_an_install_applies_another_release_and_a_launch_fails_on_a_changed_file(
             release: "Alpha0.3.5.8".into(),
             proxy: "dxgi.dll".into(),
             updated: true,
+            mode: Mode::Full,
         }
     );
     assert_eq!(
@@ -447,11 +525,11 @@ fn only_an_install_applies_another_release_and_a_launch_fails_on_a_changed_file(
         Response::Placed { updated: false, .. }
     ));
 
-    std::fs::write(folder.join("LmxxfNrRuntime.dll"), "patched").unwrap();
+    std::fs::write(folder.join(PDLL), "patched").unwrap();
     let Response::Error { message } = prepare(&exe, Some(&new)) else {
         panic!()
     };
-    assert!(message.contains("LmxxfNrRuntime.dll changed"), "{message}");
+    assert!(message.contains("nvngx_dlssg.dll changed"), "{message}");
     std::fs::remove_file(folder.join(MANIFEST)).unwrap();
     let Response::Error { message } = prepare(&exe, None) else {
         panic!()
@@ -483,6 +561,7 @@ fn the_games_program_is_found_in_its_install_or_chosen() {
     std::fs::write(unreal.join("Game.exe"), "MZ").unwrap();
     let shipping = unreal.join("Game/Binaries/Win64/Game-Win64-Shipping.exe");
     std::fs::write(&shipping, "MZ").unwrap();
+    std::fs::write(shipping.with_file_name("nvngx_dlssg.dll"), "DLSS").unwrap();
     let Response::Placed { exe, .. } = install(None, Some(&unreal), &cache) else {
         panic!()
     };
@@ -492,6 +571,7 @@ fn the_games_program_is_found_in_its_install_or_chosen() {
     std::fs::create_dir_all(&unity).unwrap();
     std::fs::write(unity.join("Game.exe"), "MZ").unwrap();
     std::fs::write(unity.join("UnityCrashHandler64.exe"), "MZ").unwrap();
+    std::fs::write(unity.join("nvngx_dlssg.dll"), "DLSS").unwrap();
     let Response::Placed { exe, .. } = install(None, Some(&unity), &cache) else {
         panic!()
     };
@@ -579,12 +659,16 @@ fn anti_cheat_installed_for_every_game_does_not_refuse_one() {
     std::fs::create_dir_all(programs.join("Game")).unwrap();
     let exe = programs.join("Game/Game.exe");
     std::fs::write(&exe, "MZ").unwrap();
+    std::fs::write(exe.with_file_name("nvngx_dlssg.dll"), "DLSS").unwrap();
     assert!(matches!(
         install(Some(&exe), None, &cache),
         Response::Placed { .. }
     ));
     assert_eq!(remove(&exe), Response::Removed { kept: vec![] });
-    assert_eq!(names(&programs.join("Game")), ["Game.exe"]);
+    assert_eq!(
+        names(&programs.join("Game")),
+        ["Game.exe", "nvngx_dlssg.dll"]
+    );
 
     let studio = programs.join("Studio");
     std::fs::create_dir_all(studio.join("EasyAntiCheat")).unwrap();
@@ -663,12 +747,11 @@ fn an_update_cut_short_leaves_nothing_a_removal_misses() {
         &temp.path().join("new"),
         "Alpha0.3.5.8",
         &[
-            ("OptiScaler.dll", b"OptiScaler new"),
-            ("OptiScaler.ini", b"[Upscalers]\n"),
-            ("LmxxfNrRuntime.dll", b"runtime new"),
-            ("LmxxfNrRuntime.pak", b"model"),
-            ("OptiScaler/libxess.dll", b"xess new"),
-            ("README.md", b"the mod's readme"),
+            ("full/game/dxgi.dll", b"OptiScaler new"),
+            ("full/game/OptiScaler.ini", b"[FrameGen]\n"),
+            (&format!("full/game/{PDLL}"), b"provider new"),
+            (&format!("full/game/{PAK}"), b"model"),
+            ("full/game/OptiScaler/libxess.dll", b"xess new"),
         ],
     );
     let exe = game(temp.path());
@@ -686,10 +769,10 @@ fn an_update_cut_short_leaves_nothing_a_removal_misses() {
         };
         drop(held);
         assert!(message.contains("libxess.dll"), "{message}");
-        // The runtime is the new release's, the mod's DLL still the old
+        // The provider is the new release's, OptiScaler still the old
         // one's (it goes last), and no partial copy stayed.
-        assert_eq!(read("LmxxfNrRuntime.dll"), b"runtime new");
-        assert_eq!(read("d3d12.dll"), b"OptiScaler old");
+        assert_eq!(read(PDLL), b"provider new");
+        assert_eq!(read("winmm.dll"), b"OptiScaler old");
         assert_eq!(read("OptiScaler/libxess.dll"), b"xess");
         assert!(!names(folder).iter().any(|name| name.ends_with("-partial")));
         let Response::Error { message } = prepare(&exe, None) else {
@@ -702,11 +785,12 @@ fn an_update_cut_short_leaves_nothing_a_removal_misses() {
                 Response::Placed {
                     exe: exe.clone(),
                     release: "Alpha0.3.5.8".into(),
-                    proxy: "d3d12.dll".into(),
+                    proxy: "winmm.dll".into(),
                     updated: true,
+                    mode: Mode::Full,
                 }
             );
-            assert_eq!(read("d3d12.dll"), b"OptiScaler new");
+            assert_eq!(read("winmm.dll"), b"OptiScaler new");
             assert_eq!(read("OptiScaler/libxess.dll"), b"xess new");
             let manifest =
                 Manifest::parse(&std::fs::read_to_string(folder.join(MANIFEST)).unwrap()).unwrap();
@@ -868,7 +952,7 @@ fn a_link_that_leads_nowhere_is_unreachable() {
     );
     let app: App = serde_json::from_value(switched_on("Game", "game", &exe)).unwrap();
     drop(before_delete(h, &app).unwrap());
-    assert_eq!(pending(h), [Pending::of(&app).unwrap()]);
+    assert_eq!(pending(h), Pending::of(&app));
     std::fs::remove_dir(&linked).unwrap();
 }
 
@@ -1000,6 +1084,7 @@ fn a_folder_only_administrators_may_write_is_written_only_by_system_and_only_the
         release: "Alpha0.3.5.8".into(),
         proxy: "dxgi.dll".into(),
         updated: false,
+        mode: Mode::Full,
     };
     assert_eq!(as_system(denied.clone(), true, placed), placed());
     let Response::Refused { reason } = as_system(denied, false, || unreachable!()) else {
@@ -1213,13 +1298,6 @@ fn archive(path: &Path, files: &[(&str, &[u8])]) {
     writer.finish().unwrap();
 }
 
-fn sums(files: &[(&str, &[u8])]) -> String {
-    files
-        .iter()
-        .map(|(name, bytes)| format!("{}  {name}\n", sha(bytes)))
-        .collect()
-}
-
 fn file(asset: String) -> Download {
     Download {
         asset,
@@ -1229,143 +1307,103 @@ fn file(asset: String) -> Download {
     }
 }
 
-/// A release whose package carries the runtime and its own checksum list.
+/// The release `tag` with its two archives and checksum list.
 fn listed(tag: &str) -> Release {
     Release {
         tag: tag.into(),
-        package: file(format!("AMDNR-v{tag}.zip")),
-        runtime: None,
-        sums: None,
+        full: file(format!("anr-fg-{tag}-full.zip")),
+        addon: file(format!("anr-fg-{tag}-addon.zip")),
+        sums: file("SHA256SUMS.txt".into()),
     }
 }
 
+/// The cache takes from the full package what goes into a game (`game/`
+/// and OptiScaler's licence) and from the add-on only the provider, never
+/// their scripts or readmes; a release without the provider or with a
+/// path outside its folder is not cached.
 #[test]
-fn the_cache_takes_a_release_only_when_every_file_matches_its_checksums() {
+fn the_cache_takes_from_each_archive_only_what_goes_into_a_game() {
     let temp = tempdir();
-    let files: [(&str, &[u8]); 4] = [
-        ("OptiScaler.dll", b"dll"),
-        ("LmxxfNrRuntime.dll", b"runtime"),
-        ("LmxxfNrRuntime.pak", b"model"),
-        ("OptiScaler/libxess.dll", b"xess"),
-    ];
-    let text = sums(&files);
-    let mut good = files.to_vec();
-    good.push(("SHA256SUMS.txt", text.as_bytes()));
-    let zip = temp.path().join("good.zip");
-    archive(&zip, &good);
-    let extract = |zip: &Path, release: &Release| extract(&[zip.to_owned()], temp.path(), release);
-    let (folder, package) = extract(&zip, &listed("Alpha0.3.5.8")).unwrap();
-    assert_eq!(folder, temp.path().join("Alpha0.3.5.8"));
-    assert_eq!(package.files["LmxxfNrRuntime.pak"].sha256, sha(b"model"));
-    assert_eq!(
-        std::fs::read(folder.join("files/OptiScaler/libxess.dll")).unwrap(),
-        b"xess"
-    );
-    assert_eq!(cached(temp.path()).unwrap().1, package);
-
-    let mut changed = good.clone();
-    changed[2] = ("LmxxfNrRuntime.pak", b"other model");
-    let zip = temp.path().join("changed.zip");
-    archive(&zip, &changed);
-    let error = extract(&zip, &listed("Alpha0.3.5.9"))
-        .unwrap_err()
-        .to_string();
-    assert!(
-        error.contains("LmxxfNrRuntime.pak does not match"),
-        "{error}"
-    );
-    assert!(!temp.path().join("Alpha0.3.5.9").exists());
-
-    let mut outside = good.clone();
-    outside.push(("../evil.dll", b"evil"));
-    let zip = temp.path().join("outside.zip");
-    archive(&zip, &outside);
-    assert!(extract(&zip, &listed("Alpha0.4")).is_err());
-    assert!(!temp.path().join("evil.dll").exists());
-
-    // No checksum list in the archive and none in the release.
-    let zip = temp.path().join("unchecked.zip");
-    archive(&zip, &files);
-    let error = extract(&zip, &listed("Alpha0.5")).unwrap_err().to_string();
-    assert!(error.contains("neither"), "{error}");
-    // The good release is still the one cached.
-    assert_eq!(cached(temp.path()).unwrap().1.tag, "Alpha0.3.5.8");
-}
-
-/// 0.3.5.8R2's layout: the package without the runtime, the runtime in the
-/// release's component beside notes for the mod's launcher, and the
-/// release's checksum list (checked before the download) instead of the
-/// archives' own.
-#[test]
-fn a_release_with_a_runtime_component_takes_only_the_runtime_from_it() {
-    let temp = tempdir();
-    let package = temp.path().join("AMDNR-v0.3.5.8R2.zip.partial");
+    let provider = "game/OptiScaler/custom/Apex Neural Rendering FG/dlssg/nvngx_dlssg.dll";
+    let full = temp.path().join("full.zip");
     archive(
-        &package,
+        &full,
         &[
-            ("OptiScaler.dll", b"dll"),
-            ("OptiScaler.ini", b"[Upscalers]\n"),
-            ("Licenses/lmxxf_LICENSE.txt", b"MIT"),
-            ("R2-UPDATE.txt", b"the package's notes"),
+            ("game/dxgi.dll", b"OptiScaler"),
+            ("game/OptiScaler.ini", b"[FrameGen]\n"),
+            (provider, b"provider"),
+            ("LICENSES/OptiScaler-GPL-3.0.txt", b"GPL"),
+            ("install-fg.ps1", b"a script"),
+            ("README.md", b"the readme"),
         ],
     );
-    let component = temp.path().join("AMDNR-lmxxf-0.3.5.8R2.zip.partial");
+    let addon = temp.path().join("addon.zip");
     archive(
-        &component,
+        &addon,
         &[
             (
-                "Licenses/lmxxf_LICENSE.txt",
-                b"MIT, as the component has it",
+                "Apex Neural Rendering FG/dlssg/nvngx_dlssg.dll",
+                b"addon provider",
             ),
-            ("LmxxfNrRuntime.dll", b"runtime"),
-            ("LmxxfNrRuntime.pak", b"model"),
-            ("Licenses/AMDNR_NOTICE.txt", b"notice"),
-            ("README.txt", b"use the launcher"),
-            ("R2-UPDATE.txt", b"the component's notes"),
+            ("Apex Neural Rendering FG/dlssg/nr_fg.ini", b"path = auto\n"),
+            ("README.md", b"the readme"),
         ],
     );
-    let mut r2 = Release {
-        tag: "Alpha0.3.5.8R2".into(),
-        package: file("AMDNR-v0.3.5.8R2.zip".into()),
-        runtime: Some(file("AMDNR-lmxxf-0.3.5.8R2.zip".into())),
-        sums: Some(file("SHA256SUMS.txt".into())),
-    };
-    let (folder, taken) = extract(&[package.clone(), component.clone()], temp.path(), &r2).unwrap();
-    assert_eq!(taken.runtime.as_deref(), Some("AMDNR-lmxxf-0.3.5.8R2.zip"));
-    let names: Vec<_> = taken.files.keys().map(String::as_str).collect();
+    let root = temp.path().join("cache");
+    std::fs::create_dir(&root).unwrap();
+    let (folder, package) =
+        extract(&[full.clone(), addon.clone()], &root, &listed("V.B16")).unwrap();
+    assert_eq!(folder, root.join("V.B16"));
+    let in_full = format!("full/{provider}");
     assert_eq!(
-        names,
+        package.files.keys().map(String::as_str).collect::<Vec<_>>(),
         [
-            "Licenses/AMDNR_NOTICE.txt",
-            "Licenses/lmxxf_LICENSE.txt",
-            "LmxxfNrRuntime.dll",
-            "LmxxfNrRuntime.pak",
-            "OptiScaler.dll",
-            "OptiScaler.ini",
-            "R2-UPDATE.txt",
+            "addon/Apex Neural Rendering FG/dlssg/nr_fg.ini",
+            "addon/Apex Neural Rendering FG/dlssg/nvngx_dlssg.dll",
+            "full/LICENSES/OptiScaler-GPL-3.0.txt",
+            "full/game/OptiScaler.ini",
+            in_full.as_str(),
+            "full/game/dxgi.dll",
         ]
     );
-    let read = |path: &str| std::fs::read(folder.join("files").join(path)).unwrap();
-    assert_eq!(read("R2-UPDATE.txt"), b"the package's notes");
-    assert_eq!(read("Licenses/lmxxf_LICENSE.txt"), b"MIT");
-    assert_eq!(read("LmxxfNrRuntime.pak"), b"model");
+    assert_eq!(
+        package
+            .archives
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["anr-fg-V.B16-addon.zip", "anr-fg-V.B16-full.zip"]
+    );
+    assert_eq!(
+        package.files["full/game/dxgi.dll"].sha256,
+        sha(b"OptiScaler")
+    );
+    assert_eq!(
+        std::fs::read(folder.join("files").join(&in_full)).unwrap(),
+        b"provider"
+    );
+    assert_eq!(cached(&root).unwrap().1, package);
 
-    // The package alone, its runtime component left out: not the whole mod.
-    r2.runtime = None;
-    let error = extract(std::slice::from_ref(&package), temp.path(), &r2)
+    // The add-on without the provider: not the whole release.
+    let empty = temp.path().join("empty.zip");
+    archive(&empty, &[("README.md", b"the readme")]);
+    let error = extract(&[full.clone(), empty], &root, &listed("V.B17"))
         .unwrap_err()
         .to_string();
-    assert!(error.contains("no LmxxfNrRuntime.dll"), "{error}");
-    // A component without a checksum list of its own or the release's.
-    r2.runtime = Some(file("AMDNR-lmxxf-0.3.5.8R2.zip".into()));
-    r2.sums = None;
-    assert!(extract(&[package, component], temp.path(), &r2).is_err());
+    assert!(error.contains("the release has no addon/"), "{error}");
+    // A path outside the folder, in a part the cache doesn't take.
+    let outside = temp.path().join("outside.zip");
+    archive(&outside, &[("../evil.dll", b"evil")]);
+    assert!(extract(&[full, outside], &root, &listed("V.B18")).is_err());
+    assert!(!temp.path().join("evil.dll").exists());
+    // The good release is still the one cached.
+    assert_eq!(cached(&root).unwrap().1.tag, "V.B16");
 }
 
 #[test]
 fn a_download_must_match_its_published_digest_and_size() {
     let release = Download {
-        asset: "AMDNR-v0.3.5.8.zip".into(),
+        asset: "anr-fg-V.B16-full.zip".into(),
         url: String::new(),
         digest: sha(b"archive"),
         size: 7,
@@ -1391,7 +1429,7 @@ fn switched_on(name: &str, uuid: &str, exe: &Path) -> Value {
     json!({
         "name": name,
         "uuid": uuid,
-        KEY: {"exe": exe, "release": "Alpha0.3.5.8", "proxy": "d3d12.dll"},
+        KEY: {"exe": exe, "release": "Alpha0.3.5.8", "proxy": "winmm.dll"},
     })
 }
 
@@ -1563,6 +1601,7 @@ fn a_games_folder_linked_back_into_steams_library_is_still_asked_about() {
         *h.neural.steam_roots.lock().unwrap() = Some(roots.clone());
         let moved = tempdir();
         std::fs::write(moved.path().join("AC4BFSP.exe"), b"MZ game").unwrap();
+        std::fs::write(moved.path().join("sl.dlss_g.dll"), b"Streamline").unwrap();
         let linked = steam.path().join(r"steamapps\common\Black Flag");
         std::fs::remove_dir(&linked).unwrap();
         junction(&linked, moved.path());
@@ -1629,7 +1668,6 @@ async fn a_vac_game_is_refused_before_the_download() {
             compute_units: 84,
             luid: None,
         }],
-        driver: Some("26.10.1".into()),
         error: None,
     });
     accept(h).unwrap();
@@ -1637,15 +1675,16 @@ async fn a_vac_game_is_refused_before_the_download() {
     *h.neural.steam_roots.lock().unwrap() = Some(vec![steam.path().to_path_buf()]);
     let folder = steam.path().join(r"steamapps\common\Black Flag");
     std::fs::write(folder.join("AC4BFSP.exe"), b"MZ game").unwrap();
+    std::fs::write(folder.join("sl.dlss_g.dll"), b"Streamline").unwrap();
     crate::steam::update_library(h, |apps, _| {
         apps.push(json!({"name": "Black Flag", "uuid": "flag", "launcher-install-dir": folder}));
         true
     })
     .unwrap();
-    let files = r2_files();
+    let files = anr_files();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
-    let list = release_list(&base, "Alpha0.3.5.8R2", &files);
+    let list = release_list(&base, TAG, &files);
     pin_files(h, &files);
     let server = serve(listener, list, Arc::new(files)).await;
     *h.neural.origin.lock().unwrap() = Some(server.base);
@@ -1657,7 +1696,7 @@ async fn a_vac_game_is_refused_before_the_download() {
     assert!(error.starts_with("Steam lists Valve Anti-Cheat"), "{error}");
     assert!(server.log.lock().unwrap().is_empty());
     assert!(cached(&cache_root(h)).is_none());
-    assert_eq!(names(&folder), ["AC4BFSP.exe"]);
+    assert_eq!(names(&folder), ["AC4BFSP.exe", "sl.dlss_g.dll"]);
 }
 
 /// A launcher is never the game: an app whose command starts Steam or
@@ -1827,6 +1866,7 @@ fn an_install_whose_app_went_meanwhile_takes_the_mod_out_again() {
             release: "Alpha0.3.5.8".into(),
             proxy: "dxgi.dll".into(),
             updated: false,
+            mode: Mode::Full,
         }),
     );
     let job = h.neural.lock().jobs["gone"].clone();
@@ -1867,7 +1907,6 @@ async fn a_first_install_cut_short_is_taken_out_by_the_pending_removals() {
             compute_units: 84,
             luid: None,
         }],
-        driver: Some("26.10.1".into()),
         error: None,
     });
     accept(h).unwrap();
@@ -1896,11 +1935,11 @@ async fn a_first_install_cut_short_is_taken_out_by_the_pending_removals() {
     ));
     assert_eq!(h.neural.lock().jobs["game"].phase, "done");
     assert_eq!(remove(&exe), Response::Removed { kept: vec![] });
-    set_key(h, "game", None).unwrap();
+    set_key(h, "game", KEY, None).unwrap();
 
     // The cache, checked once at this host start, lost a file since: the
     // install fails partway.
-    std::fs::remove_file(cache.join("files/LmxxfNrRuntime.pak")).unwrap();
+    std::fs::remove_file(cache.join(format!("files/full/game/{PAK}"))).unwrap();
     enable(h, "game", Some(exe.clone())).unwrap();
     let job = ended(h, "game").await;
     assert_eq!(job.phase, "failed", "{job:?}");
@@ -1946,7 +1985,7 @@ fn a_removal_holds_the_switch_until_the_app_is_gone() {
     assert_eq!(h.neural.lock().jobs["game"].phase, "done");
 
     placed();
-    record_pending(h, &[Pending::of(&app).unwrap()]).unwrap();
+    record_pending(h, &Pending::of(&app)).unwrap();
     start_job(h, "game", "update", "place").unwrap();
     remove_pending(h);
     assert_ne!(names(folder), before);
@@ -2006,23 +2045,24 @@ fn the_console_cannot_set_the_hosts_key() {
 async fn the_switch_is_offered_only_on_a_capable_gpu_after_the_notice() {
     let f = crate::state::test_support::Fixture::new();
     let h = &f.host;
-    *h.neural.probe.lock().unwrap() = Some(Probe {
-        gpus: vec![Gpu {
-            name: "AMD Radeon RX 6800 XT".into(),
-            arch: "gfx1030".into(),
-            compute_units: 72,
-            luid: None,
-        }],
-        driver: Some("26.10.1".into()),
-        error: None,
-    });
+    let streams = |name: &str, vendor: u32, device: u32| {
+        *h.neural.streams.lock().unwrap() = Some(neural::Streams {
+            name: name.into(),
+            luid: 7,
+            vendor,
+            device,
+        });
+        h.neural.lock().probe = None;
+    };
+    streams("NVIDIA GeForce GTX 1080", neural::NVIDIA, 0x1B80);
     let status = status(h, "missing");
     assert_eq!(status["available"], false);
     assert!(
         status["reason"]
             .as_str()
             .unwrap()
-            .contains("RDNA 3 and RDNA 4")
+            .contains("which is older"),
+        "{status}"
     );
     assert_eq!(status["accepted"], false);
     assert!(matches!(
@@ -2035,20 +2075,64 @@ async fn the_switch_is_offered_only_on_a_capable_gpu_after_the_notice() {
         enable(h, "missing", None),
         Err(Refusal::Unavailable(_))
     ));
-    // The probe is kept: a new answer only after a while.
-    *h.neural.probe.lock().unwrap() = Some(Probe {
-        gpus: vec![Gpu {
-            name: "AMD Radeon RX 7900 XT".into(),
-            arch: "gfx1100".into(),
-            compute_units: 84,
-            luid: None,
-        }],
-        driver: Some("26.10.1".into()),
-        error: None,
+    // The answer is kept: a new one only after a while.
+    *h.neural.streams.lock().unwrap() = Some(neural::Streams {
+        name: "NVIDIA GeForce RTX 2060".into(),
+        luid: 7,
+        vendor: neural::NVIDIA,
+        device: 0x1F08,
     });
     assert!(capability(h).is_err());
     h.neural.lock().probe = None;
-    assert_eq!(capability(h), Ok("AMD Radeon RX 7900 XT".into()));
+    assert_eq!(capability(h), Ok("NVIDIA GeForce RTX 2060".into()));
+    // Without the Visual C++ runtime OptiScaler needs.
+    h.neural
+        .vc_missing
+        .lock()
+        .unwrap()
+        .push("VCRUNTIME140_1.dll");
+    h.neural.lock().probe = None;
+    let error = capability(h).unwrap_err();
+    assert!(error.contains("Visual C++"), "{error}");
+    h.neural.vc_missing.lock().unwrap().clear();
+
+    // AMD: the compute runtime's architecture of the GPU that streams.
+    let probe = |arch: Option<&str>| {
+        *h.neural.probe.lock().unwrap() = Some(match arch {
+            Some(arch) => Probe {
+                gpus: vec![Gpu {
+                    name: "AMD Radeon".into(),
+                    arch: arch.into(),
+                    compute_units: 60,
+                    luid: Some(7),
+                }],
+                error: None,
+            },
+            None => Probe {
+                gpus: Vec::new(),
+                error: Some("no compute runtime".into()),
+            },
+        });
+    };
+    probe(Some("gfx1030"));
+    streams("AMD Radeon RX 6800 XT", neural::AMD, 0);
+    assert_eq!(capability(h), Ok("AMD Radeon RX 6800 XT".into()));
+    probe(Some("gfx906"));
+    streams("AMD Radeon VII", neural::AMD, 0x66AF);
+    let error = capability(h).unwrap_err();
+    assert!(error.contains("which is older"), "{error}");
+    // The runtime can't say: the PCI device ID decides, else it is refused.
+    probe(None);
+    streams("AMD Radeon 780M Graphics", neural::AMD, 0x1900);
+    assert_eq!(capability(h), Ok("AMD Radeon 780M Graphics".into()));
+    streams("AMD Radeon VII", neural::AMD, 0x66AF);
+    let error = capability(h).unwrap_err();
+    assert!(error.contains("can't identify the GPU"), "{error}");
+    // Neither AMD nor NVIDIA.
+    streams("Intel Arc A770", 0x8086, 0x56A0);
+    let error = capability(h).unwrap_err();
+    assert!(error.contains("AMD Radeon RX 5000"), "{error}");
+    streams("AMD Radeon 780M Graphics", neural::AMD, 0x1900);
     assert!(matches!(enable(h, "missing", None), Err(Refusal::NotFound)));
 }
 
@@ -2067,7 +2151,6 @@ fn the_gpu_check_is_asked_again_once_the_streaming_gpu_is_set_otherwise() {
                 compute_units: 84,
                 luid: None,
             }],
-            driver: Some("26.10.1".into()),
             error: None,
         });
     };
@@ -2182,7 +2265,7 @@ fn a_cache_is_used_only_as_this_host_keeps_it() {
     // each file as it goes, so a changed one never reaches the game.
     assert_eq!(launch_cache(h).unwrap(), None);
     let folder = release(&cache_root(h), "Alpha0.3.5.8", b"OptiScaler proxy");
-    let pak = folder.join("files/LmxxfNrRuntime.pak");
+    let pak = folder.join(format!("files/full/game/{PAK}"));
     std::fs::write(&pak, "tampered").unwrap();
     // A release Rubylight does not pin is never applied.
     assert_eq!(launch_cache(h).unwrap(), None);
@@ -2199,42 +2282,46 @@ fn a_cache_is_used_only_as_this_host_keeps_it() {
     // A fetch's cache hit hashes it once per host start.
     let package = Package::read(&folder).unwrap();
     let error = format!("{:#}", verify_cache(h, &folder, &package).unwrap_err());
-    assert!(error.contains("LmxxfNrRuntime.pak in"), "{error}");
+    assert!(error.contains("pack.nrx in"), "{error}");
     std::fs::write(&pak, "model").unwrap();
     verify_cache(h, &folder, &package).unwrap();
     std::fs::write(&pak, "tampered").unwrap();
     verify_cache(h, &folder, &package).unwrap();
 
-    // The same tag with other archives is another release.
-    let mut package = Package::read(&cache_root(h).join("Alpha0.3.5.8")).unwrap();
+    // The same tag with other archives is another release; the checksum
+    // list is not cached and doesn't count.
+    let mut package = Package::read(&folder).unwrap();
+    let (full, addon) = (
+        "anr-fg-Alpha0.3.5.8-full.zip".to_owned(),
+        "anr-fg-Alpha0.3.5.8-addon.zip".to_owned(),
+    );
     let (one, two, three) = ("1".repeat(64), "2".repeat(64), "3".repeat(64));
-    package.digest = one.clone();
-    let asset = package.asset.clone();
+    package.archives = [(full.clone(), one.clone()), (addon.clone(), two.clone())].into();
     let mut pin = neural::Pin {
         tag: "Alpha0.3.5.8",
-        package: neural::PinnedFile {
-            asset: &asset,
+        full: neural::PinnedFile {
+            asset: &full,
             sha256: &one,
         },
-        runtime: Some(neural::PinnedFile {
-            asset: "AMDNR-lmxxf-0.3.5.8.zip",
+        addon: neural::PinnedFile {
+            asset: &addon,
             sha256: &two,
-        }),
+        },
+        sums: neural::PinnedFile {
+            asset: "SHA256SUMS.txt",
+            sha256: &three,
+        },
     };
     assert!(serves(&package, &pin));
-    package.runtime = Some("AMDNR-lmxxf-0.3.5.8.zip".into());
-    package.runtime_digest = Some(two.clone());
+    pin.sums.sha256 = &one;
     assert!(serves(&package, &pin));
-    pin.runtime.as_mut().unwrap().sha256 = &three;
+    pin.addon.sha256 = &three;
     assert!(!serves(&package, &pin));
-    pin.runtime = None;
-    assert!(!serves(&package, &pin));
-    package.runtime = None;
-    assert!(serves(&package, &pin));
-    pin.tag = "Alpha0.3.5.8R2";
+    pin.addon.sha256 = &two;
+    pin.tag = "FG-V.B17";
     assert!(!serves(&package, &pin));
     pin.tag = "Alpha0.3.5.8";
-    pin.package.sha256 = &three;
+    package.archives.remove(&addon);
     assert!(!serves(&package, &pin));
 }
 
@@ -2325,67 +2412,86 @@ fn pin(h: &Shared, folder: &Path) -> Using {
 /// it without asking GitHub.
 fn pin_to(h: &Shared, folder: &Path) {
     let package = Package::read(folder).unwrap();
-    let file = |asset: String, sha256: String| neural::PinnedFile {
-        asset: asset.leak(),
-        sha256: sha256.leak(),
+    let file = |part: &str| {
+        let (asset, sha256) = package
+            .archives
+            .iter()
+            .find(|(asset, _)| asset.ends_with(part))
+            .unwrap();
+        neural::PinnedFile {
+            asset: asset.clone().leak(),
+            sha256: sha256.clone().leak(),
+        }
     };
     *h.neural.pin.lock().unwrap() = Some(neural::Pin {
-        tag: package.tag.leak(),
-        package: file(package.asset, package.digest),
-        runtime: package
-            .runtime
-            .zip(package.runtime_digest)
-            .map(|(asset, sha256)| file(asset, sha256)),
+        tag: package.tag.clone().leak(),
+        full: file("-full.zip"),
+        addon: file("-addon.zip"),
+        sums: neural::PinnedFile {
+            asset: "SHA256SUMS.txt",
+            sha256: "",
+        },
     });
 }
 
-/// `files` as the release this host pins, 0.3.5.8R2's names with their
-/// digests.
+const TAG: &str = "FG-V.B16";
+const FULL: &str = "anr-fg-V.B16-full.zip";
+const ADDON: &str = "anr-fg-V.B16-addon.zip";
+
+/// `files` as the release this host pins, with their digests.
 fn pin_files(h: &Shared, files: &BTreeMap<String, Vec<u8>>) {
     let file = |asset: &'static str| neural::PinnedFile {
         asset,
         sha256: sha(&files[asset]).leak(),
     };
     *h.neural.pin.lock().unwrap() = Some(neural::Pin {
-        tag: "Alpha0.3.5.8R2",
-        package: file("AMDNR-v0.3.5.8R2.zip"),
-        runtime: Some(file("AMDNR-lmxxf-0.3.5.8R2.zip")),
+        tag: TAG,
+        full: file(FULL),
+        addon: file(ADDON),
+        sums: file("SHA256SUMS.txt"),
     });
 }
 
-/// 0.3.5.8R2 as GitHub lists it: the package without the runtime, the
-/// runtime component and the release's checksum list; `sums` may lie.
-fn r2_files() -> BTreeMap<String, Vec<u8>> {
+/// The release as GitHub lists it: the full package, the add-on and the
+/// checksum list naming both.
+fn anr_files() -> BTreeMap<String, Vec<u8>> {
     let temp = tempdir();
     let zip = |name: &str, files: &[(&str, &[u8])]| {
         let path = temp.path().join(name);
         archive(&path, files);
         (name.to_owned(), std::fs::read(path).unwrap())
     };
+    let (pdll, pak) = (format!("game/{PDLL}"), format!("game/{PAK}"));
     let mut files: BTreeMap<String, Vec<u8>> = [
         zip(
-            "AMDNR-v0.3.5.8R2.zip",
+            FULL,
             &[
-                ("OptiScaler.dll", b"dll"),
-                ("OptiScaler.ini", b"[Upscalers]\n"),
+                ("game/dxgi.dll", b"dll"),
+                ("game/OptiScaler.ini", b"[FrameGen]\n"),
+                (&pdll, b"provider"),
+                (&pak, b"model"),
             ],
         ),
         zip(
-            "AMDNR-lmxxf-0.3.5.8R2.zip",
-            &[
-                ("LmxxfNrRuntime.dll", b"runtime"),
-                ("LmxxfNrRuntime.pak", b"model"),
-            ],
+            ADDON,
+            &[(
+                "Apex Neural Rendering FG/dlssg/nvngx_dlssg.dll",
+                b"addon provider",
+            )],
         ),
     ]
     .into_iter()
     .collect();
-    let sums: String = files
+    files.insert("SHA256SUMS.txt".into(), sums_of(&files).into_bytes());
+    files
+}
+
+/// A checksum list naming `files`.
+fn sums_of(files: &BTreeMap<String, Vec<u8>>) -> String {
+    files
         .iter()
         .map(|(name, bytes)| format!("{}  {name}\n", sha(bytes)))
-        .collect();
-    files.insert("SHA256SUMS.txt".into(), sums.into_bytes());
-    files
+        .collect()
 }
 
 /// The release `tag` with `files` as GitHub lists it by its tag.
@@ -2421,23 +2527,22 @@ async fn github_gets_the_updaters_client() {
     assert!(error.is_builder(), "{error:#}");
 }
 
-/// The whole download against a server of its own: the pinned release, the
-/// archives' file lists, the checksum list checked against GitHub's digests
-/// before any archive comes, the archives, then the cache. An older release
-/// in the cache goes only once no copy reads it; GitHub listing other
-/// digests than the pin's, a lie in the checksum list or a file other than
-/// GitHub's digest says caches nothing.
+/// The whole download against a server of its own: the pinned release, its
+/// checksum list (itself pinned) checked against GitHub's digests before
+/// any archive comes, both archives, then the cache. An older release in
+/// the cache goes only once no copy reads it; GitHub listing other digests
+/// than the pin's, a checksum list that doesn't name an archive's digest
+/// or a file other than GitHub's digest says caches nothing.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_download_goes_list_checksums_archives_cache() {
     let f = crate::state::test_support::Fixture::new();
     let h = &f.host;
-    let tag = "Alpha0.3.5.8R2";
-    let files = r2_files();
+    let files = anr_files();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let server = serve(
         listener,
-        release_list(&base, tag, &files),
+        release_list(&base, TAG, &files),
         Arc::new(files.clone()),
     )
     .await;
@@ -2465,7 +2570,7 @@ async fn a_download_goes_list_checksums_archives_cache() {
         tokio::spawn(async move { fetch(&h, &|_, _| {}).await })
     };
     let deadline = Instant::now() + Duration::from_secs(20);
-    while server.log.lock().unwrap().len() < 6 && Instant::now() < deadline {
+    while server.log.lock().unwrap().len() < 4 && Instant::now() < deadline {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -2476,16 +2581,9 @@ async fn a_download_goes_list_checksums_archives_cache() {
     let (folder, package) = fetching.await.unwrap().unwrap();
     assert_eq!(
         *server.log.lock().unwrap(),
-        [
-            "list",
-            "AMDNR-v0.3.5.8R2.zip (part)",
-            "AMDNR-lmxxf-0.3.5.8R2.zip (part)",
-            "SHA256SUMS.txt",
-            "AMDNR-v0.3.5.8R2.zip",
-            "AMDNR-lmxxf-0.3.5.8R2.zip",
-        ]
+        ["list", "SHA256SUMS.txt", FULL, ADDON]
     );
-    assert_eq!(folder, cache_root(h).join(tag));
+    assert_eq!(folder, cache_root(h).join(TAG));
     assert!(!stale.exists());
     assert!(older.exists(), "an install was about to copy it");
     // It goes with the last install that held it; the newest stays.
@@ -2497,14 +2595,24 @@ async fn a_download_goes_list_checksums_archives_cache() {
     drop(pin(h, &folder));
     assert!(folder.exists());
     assert!(h.neural.lock().using.is_empty());
-    assert_eq!(package.digest, sha(&files["AMDNR-v0.3.5.8R2.zip"]));
     assert_eq!(
-        package.runtime_digest,
-        Some(sha(&files["AMDNR-lmxxf-0.3.5.8R2.zip"]))
+        package.archives,
+        BTreeMap::from([
+            (ADDON.to_owned(), sha(&files[ADDON])),
+            (FULL.to_owned(), sha(&files[FULL])),
+        ])
     );
     assert_eq!(
-        std::fs::read(folder.join("files/LmxxfNrRuntime.pak")).unwrap(),
+        std::fs::read(folder.join(format!("files/full/game/{PAK}"))).unwrap(),
         b"model"
+    );
+    assert_eq!(
+        std::fs::read(folder.join(format!(
+            "files/addon/{}/dlssg/nvngx_dlssg.dll",
+            neural::PROVIDER
+        )))
+        .unwrap(),
+        b"addon provider"
     );
     // The same release again: from the cache, without asking GitHub.
     server.log.lock().unwrap().clear();
@@ -2514,11 +2622,11 @@ async fn a_download_goes_list_checksums_archives_cache() {
     // its files open: it comes again, and the one there is never left half
     // deleted, whether or not it could be replaced meanwhile.
     let whole = names(&folder);
-    let ini = folder.join("files/OptiScaler.ini");
+    let ini = folder.join("files/full/game/OptiScaler.ini");
     std::fs::write(&ini, "changed").unwrap();
     h.neural.lock().verified = None;
     let using = pin(h, &folder);
-    let held = hold(&folder.join("files/LmxxfNrRuntime.pak"));
+    let held = hold(&folder.join(format!("files/full/game/{PAK}")));
     let again = fetch(h, &|_, _| {}).await.map(|(folder, _)| folder);
     drop(held);
     assert_eq!(names(&folder), whole, "{again:?}");
@@ -2528,7 +2636,7 @@ async fn a_download_goes_list_checksums_archives_cache() {
     }
     drop(using);
     assert_eq!(names(&folder), whole);
-    assert_eq!(std::fs::read(&ini).unwrap(), b"[Upscalers]\n");
+    assert_eq!(std::fs::read(&ini).unwrap(), b"[FrameGen]\n");
     assert_eq!(cached(&cache_root(h)).unwrap().0, folder);
     std::fs::remove_dir_all(cache_root(h)).unwrap();
 
@@ -2539,32 +2647,21 @@ async fn a_download_goes_list_checksums_archives_cache() {
     assert!(cached(&cache_root(h)).is_none());
     h.sessions.lock().unwrap().active.clear();
 
-    // The checksum list doesn't name the package's digest: no archive comes.
+    // A checksum list (as pinned) that doesn't name the full package's
+    // digest: no archive comes.
     let mut lying = files.clone();
-    lying.insert(
-        "SHA256SUMS.txt".into(),
-        format!(
-            "{}  AMDNR-v0.3.5.8R2.zip\n{}  AMDNR-lmxxf-0.3.5.8R2.zip\n",
-            sha(b"another"),
-            sha(&files["AMDNR-lmxxf-0.3.5.8R2.zip"])
-        )
-        .into_bytes(),
-    );
+    let mut named = files.clone();
+    named.insert(FULL.into(), b"another".to_vec());
+    named.remove("SHA256SUMS.txt");
+    lying.insert("SHA256SUMS.txt".into(), sums_of(&named).into_bytes());
     // A file other than GitHub's digest says, its file list the same.
     let mut tampered = files.clone();
-    let component = tampered.get_mut("AMDNR-lmxxf-0.3.5.8R2.zip").unwrap();
-    let at = component.windows(5).position(|w| w == b"model").unwrap();
-    component[at + 1] = b'a';
+    let add_on = tampered.get_mut(ADDON).unwrap();
+    let at = add_on.windows(5).position(|w| w == b"addon").unwrap();
+    add_on[at + 1] = b'x';
     // A package other than the pinned one, as GitHub lists it.
     let mut other = files.clone();
-    other.insert(
-        "AMDNR-v0.3.5.8R2.zip".into(),
-        files["AMDNR-v0.3.5.8R2.zip"]
-            .iter()
-            .rev()
-            .copied()
-            .collect(),
-    );
+    other.insert(FULL.into(), files[FULL].iter().rev().copied().collect());
     for (served, listed, problem) in [
         (other.clone(), other, "another SHA-256 than Rubylight pins"),
         (
@@ -2576,7 +2673,17 @@ async fn a_download_goes_list_checksums_archives_cache() {
     ] {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
-        let list = release_list(&base, tag, &listed);
+        let list = release_list(&base, TAG, &listed);
+        // The lying list as the pin has it: the pin names the list, the
+        // list names the archives.
+        pin_files(
+            h,
+            if problem.contains("SHA256SUMS") {
+                &listed
+            } else {
+                &files
+            },
+        );
         let server = serve(listener, list, Arc::new(served)).await;
         *h.neural.origin.lock().unwrap() = Some(server.base.clone());
         let error = format!("{:#}", fetch(h, &|_, _| {}).await.unwrap_err());
@@ -2587,13 +2694,13 @@ async fn a_download_goes_list_checksums_archives_cache() {
             assert_eq!(log, ["list"]);
         }
         if problem.contains("SHA256SUMS") {
-            assert_eq!(log.last().unwrap(), "SHA256SUMS.txt", "{log:?}");
+            assert_eq!(log, ["list", "SHA256SUMS.txt"]);
         }
     }
 }
 
 /// The switch's download waits until no stream runs, and one that fails
-/// tells the console so without the mod's file names; the log has them.
+/// tells the console so without the release's file names; the log has them.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_download_waits_for_no_stream_and_its_failure_names_no_files() {
     let f = crate::state::test_support::Fixture::new();
@@ -2605,7 +2712,6 @@ async fn a_download_waits_for_no_stream_and_its_failure_names_no_files() {
             compute_units: 84,
             luid: None,
         }],
-        driver: Some("26.10.1".into()),
         error: None,
     });
     accept(h).unwrap();
@@ -2617,8 +2723,8 @@ async fn a_download_waits_for_no_stream_and_its_failure_names_no_files() {
     f.session(f.client(u32::MAX), butterpollo_core::session::Role::Stream);
     assert!(matches!(enable(h, "game", None), Err(Refusal::Streaming)));
     assert!(!h.neural.lock().jobs.contains_key("game"));
-    // A release downloaded already changes nothing: its copy of about 1 GB
-    // into the game's folder would take the stream's disk.
+    // A release downloaded already changes nothing: its copy into the
+    // game's folder would take the stream's disk.
     let cache = release(&cache_root(h), "Alpha0.3.5.8", b"OptiScaler proxy");
     assert!(matches!(enable(h, "game", None), Err(Refusal::Streaming)));
     assert!(!h.neural.lock().jobs.contains_key("game"));
@@ -2631,19 +2737,14 @@ async fn a_download_waits_for_no_stream_and_its_failure_names_no_files() {
     assert!(job.choose_exe, "{job:?}");
     std::fs::remove_dir_all(cache.parent().unwrap()).unwrap();
 
-    let mut files = r2_files();
-    files.insert(
-        "SHA256SUMS.txt".into(),
-        format!(
-            "{}  AMDNR-v0.3.5.8R2.zip\n{}  AMDNR-lmxxf-0.3.5.8R2.zip\n",
-            sha(b"another"),
-            sha(&files["AMDNR-lmxxf-0.3.5.8R2.zip"])
-        )
-        .into_bytes(),
-    );
+    let mut files = anr_files();
+    let mut named = files.clone();
+    named.insert(FULL.into(), b"another".to_vec());
+    named.remove("SHA256SUMS.txt");
+    files.insert("SHA256SUMS.txt".into(), sums_of(&named).into_bytes());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
-    let list = release_list(&base, "Alpha0.3.5.8R2", &files);
+    let list = release_list(&base, TAG, &files);
     pin_files(h, &files);
     let server = serve(listener, list, Arc::new(files)).await;
     *h.neural.origin.lock().unwrap() = Some(server.base);
@@ -2662,116 +2763,446 @@ async fn a_download_waits_for_no_stream_and_its_failure_names_no_files() {
     assert_eq!(job.error.as_deref(), Some(DOWNLOAD_FAILED));
 }
 
-/// The real release into `C:\tests\neural\fakegame` and out again, then
-/// the update to it from an older form of it, cut short by a placed file
-/// held open, and turned off; then cut short, finished and turned off:
-/// `cargo test -p butterpollo neural::tests::real_release -- --ignored --nocapture`.
+/// The real pinned release from GitHub into a fake game in the temp folder
+/// and out again, byte for byte; then the add-on into a fake game with the
+/// release's own OptiScaler as the user's, its OptiScaler.ini restored
+/// exactly: `cargo test -p butterpollo neural::tests::real_release -- --ignored --nocapture`.
 #[tokio::test]
-#[ignore = "downloads about 1 GB from GitHub"]
+#[ignore = "downloads about 14 MB from GitHub"]
 async fn real_release_into_a_fake_game() {
     let f = crate::state::test_support::Fixture::new();
     let h = &f.host;
-    let base = PathBuf::from(r"C:\tests\neural");
+    let base = std::env::temp_dir().join("rubylight-neural-real");
+    let _ = std::fs::remove_dir_all(&base);
     let game = base.join("fakegame");
     std::fs::create_dir_all(&game).unwrap();
     let exe = game.join("FakeGame.exe");
     std::fs::write(&exe, "MZ dummy").unwrap();
+    std::fs::write(
+        game.join("nvngx_dlssg.dll"),
+        "the game's DLSS frame generation",
+    )
+    .unwrap();
     std::fs::write(game.join("dxgi.dll"), "a dummy loader of another program").unwrap();
-    let show = |when: &str| {
+    let show = |when: &str, folder: &Path| {
         println!("== {when}");
-        for name in names(&game) {
-            println!("   {name}");
+        for (name, hash) in snapshot(folder) {
+            println!("   {name} {}", hash.as_deref().unwrap_or("(folder)"));
         }
     };
-    show("before install");
+    let before = snapshot(&game);
+    show("before install", &game);
     let started = Instant::now();
     let (folder, package) = fetch(h, &|_, _| {}).await.unwrap();
     println!(
-        "cached {} from {} and {:?} ({} files) in {:?} at {}",
+        "cached {} from {:?} ({} files) in {:?} at {}",
         package.tag,
-        package.asset,
-        package.runtime,
+        package.archives,
         package.files.len(),
         started.elapsed(),
         folder.display()
     );
     let response = install(Some(&exe), None, &folder);
     println!("{response:?}");
-    assert!(matches!(response, Response::Placed { .. }));
-    show("after install");
+    assert!(matches!(
+        response,
+        Response::Placed {
+            mode: Mode::Full,
+            ..
+        }
+    ));
+    show("after install", &game);
     assert!(matches!(
         prepare(&exe, Some(&folder)),
         Response::Placed { updated: false, .. }
     ));
     assert_eq!(remove(&exe), Response::Removed { kept: vec![] });
-    show("after removal");
-    assert_eq!(names(&game), ["FakeGame.exe", "dxgi.dll"]);
+    show("after removal", &game);
+    assert_eq!(snapshot(&game), before);
 
-    // An older form of the release: its first file, the runtime and the
-    // mod's DLL differ. The update to the real one renames the first,
-    // fails on the runtime the game holds open, and never reaches the DLL.
-    let older = base.join("older");
-    let _ = std::fs::remove_dir_all(&older);
-    let mut previous = package.clone();
-    previous.tag = format!("{}-older", package.tag);
-    let first = previous.files.keys().next().unwrap().clone();
-    for (path, placed) in &mut previous.files {
-        let (source, copy) = (
-            folder.join("files").join(path),
-            older.join("files").join(path),
-        );
-        std::fs::create_dir_all(copy.parent().unwrap()).unwrap();
-        if [first.as_str(), "LmxxfNrRuntime.dll", "OptiScaler.dll"].contains(&path.as_str()) {
-            let mut bytes = std::fs::read(&source).unwrap();
-            bytes.extend_from_slice(b" older");
-            std::fs::write(&copy, &bytes).unwrap();
-            *placed = Placed {
-                sha256: sha(&bytes),
-                size: bytes.len() as u64,
-            };
-        } else {
-            std::fs::hard_link(&source, &copy)
-                .or_else(|_| std::fs::copy(&source, &copy).map(drop))
-                .unwrap();
-        }
-    }
+    // The add-on into the release's own OptiScaler, as a user installed it.
+    let addon = base.join("addongame");
+    std::fs::create_dir_all(&addon).unwrap();
+    let exe = addon.join("AddonGame.exe");
+    std::fs::write(&exe, "MZ dummy").unwrap();
     std::fs::write(
-        older.join(PACKAGE),
-        serde_json::to_string(&previous).unwrap(),
+        addon.join("nvngx_dlssg.dll"),
+        "the game's DLSS frame generation",
     )
     .unwrap();
-    let runtime = game.join("LmxxfNrRuntime.dll");
-    for finish in [false, true] {
-        assert!(matches!(
-            install(Some(&exe), None, &older),
-            Response::Placed { .. }
-        ));
-        show(&format!("after installing {}", previous.tag));
-        let held = hold(&runtime);
-        let response = install(Some(&exe), None, &folder);
-        drop(held);
-        println!(
-            "update to {} with the runtime held open: {response:?}",
-            package.tag
-        );
-        assert!(matches!(response, Response::Error { .. }));
-        let manifest =
-            Manifest::parse(&std::fs::read_to_string(game.join(MANIFEST)).unwrap()).unwrap();
-        println!(
-            "   manifest: release {}, both forms kept for {:?}",
-            manifest.release,
-            manifest.previous.keys().collect::<Vec<_>>()
-        );
-        show("after the update was cut short");
-        if finish {
-            let response = prepare(&exe, Some(&folder));
-            println!("the next launch: {response:?}");
-            assert!(matches!(response, Response::Placed { updated: true, .. }));
-            show("after the update finished");
-        }
-        assert_eq!(remove(&exe), Response::Removed { kept: vec![] });
-        show("after turning it off");
-        assert_eq!(names(&game), ["FakeGame.exe", "dxgi.dll"]);
+    let files = folder.join("files/full/game");
+    std::fs::copy(files.join("dxgi.dll"), addon.join("dxgi.dll")).unwrap();
+    let mut ini = std::fs::read(files.join("OptiScaler.ini")).unwrap();
+    // The user's own value for one of the three.
+    let at = ini
+        .windows(13)
+        .position(|w| w == b"FGInput=auto\r")
+        .or_else(|| ini.windows(12).position(|w| w == b"FGInput=auto"));
+    println!("FGInput=auto in the release's OptiScaler.ini: {at:?}");
+    if let Some(at) = at {
+        ini.splice(at..at + 12, b"FGInput=xefg".iter().copied());
     }
-    let _ = std::fs::remove_dir_all(&older);
+    std::fs::write(addon.join("OptiScaler.ini"), &ini).unwrap();
+    let before = snapshot(&addon);
+    let response = install(Some(&exe), None, &folder);
+    println!("{response:?}");
+    assert!(matches!(
+        response,
+        Response::Placed {
+            mode: Mode::Addon,
+            ..
+        }
+    ));
+    show("after the add-on", &addon);
+    let changed = String::from_utf8(std::fs::read(addon.join("OptiScaler.ini")).unwrap()).unwrap();
+    for value in [
+        "FGInput=nvngxfg",
+        "FGNvngxReplacement=Apex Neural Rendering FG",
+        "DisableHudless=false",
+    ] {
+        assert!(changed.contains(value), "{value}");
+    }
+    assert_eq!(remove(&exe), Response::Removed { kept: vec![] });
+    show("after the add-on's removal", &addon);
+    assert_eq!(snapshot(&addon), before);
+    assert_eq!(std::fs::read(addon.join("OptiScaler.ini")).unwrap(), ini);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// The user's own OptiScaler that can load another frame generation: only
+/// the provider goes into its `custom` folder and three values into its
+/// settings; a removal takes the provider out and puts the three back byte
+/// for byte, leaving what the user changed since.
+#[test]
+fn the_users_own_optiscaler_gets_the_provider_and_its_settings_back_exactly() {
+    let temp = tempdir();
+    let cache = release(temp.path(), "FG-V.B16", b"OptiScaler proxy");
+    let exe = game(temp.path());
+    let folder = exe.parent().unwrap();
+    std::fs::write(
+        folder.join("dxgi.dll"),
+        b"MZ OptiScaler ... Custom DLSSG ...",
+    )
+    .unwrap();
+    let ini: &[u8] = b"\xef\xbb\xbf[FrameGen]\r\nEnabled=auto\r\nFGInput=auto\r\n\r\n[DLSSG]\r\nDisableHudless=auto\r\n";
+    std::fs::write(folder.join("OptiScaler.ini"), ini).unwrap();
+    std::fs::create_dir(folder.join("OptiScaler")).unwrap();
+    std::fs::write(folder.join("OptiScaler/libxess.dll"), b"the user's").unwrap();
+    let before = snapshot(folder);
+
+    assert_eq!(
+        install(Some(&exe), None, &cache),
+        Response::Placed {
+            exe: exe.clone(),
+            release: "FG-V.B16".into(),
+            proxy: "dxgi.dll".into(),
+            updated: false,
+            mode: Mode::Addon,
+        }
+    );
+    let provider = "OptiScaler/custom/Apex Neural Rendering FG/dlssg";
+    assert_eq!(
+        std::fs::read(folder.join(format!("{provider}/nvngx_dlssg.dll"))).unwrap(),
+        b"addon provider"
+    );
+    assert_eq!(
+        std::fs::read(folder.join(format!("{provider}/kernels/pack.nrx"))).unwrap(),
+        b"addon model"
+    );
+    // The user's OptiScaler and its files stay theirs.
+    assert_eq!(
+        std::fs::read(folder.join("dxgi.dll")).unwrap(),
+        b"MZ OptiScaler ... Custom DLSSG ..."
+    );
+    assert_eq!(
+        std::fs::read(folder.join("OptiScaler/libxess.dll")).unwrap(),
+        b"the user's"
+    );
+    let changed = String::from_utf8(std::fs::read(folder.join("OptiScaler.ini")).unwrap()).unwrap();
+    let frame_gen = changed.split("[DLSSG]").next().unwrap();
+    for value in [
+        "FGInput=nvngxfg\r\n",
+        "FGNvngxReplacement=Apex Neural Rendering FG\r\n",
+        "DisableHudless=false\r\n",
+        "Enabled=auto\r\n",
+    ] {
+        assert!(frame_gen.contains(value), "{value:?} in {changed:?}");
+    }
+    assert!(!frame_gen.contains("FGInput=auto"), "{changed:?}");
+    assert!(
+        changed.ends_with("[DLSSG]\r\nDisableHudless=auto\r\n"),
+        "{changed:?}"
+    );
+    let manifest =
+        Manifest::parse(&std::fs::read_to_string(folder.join(MANIFEST)).unwrap()).unwrap();
+    assert_eq!(manifest.mode, Mode::Addon);
+    assert!(!manifest.files.contains_key("dxgi.dll"));
+    assert!(manifest.ini.is_some());
+    // Turned on again: nothing changes.
+    assert!(matches!(
+        install(Some(&exe), None, &cache),
+        Response::Placed { updated: false, .. }
+    ));
+    assert_eq!(remove(&exe), Response::Removed { kept: vec![] });
+    assert_eq!(snapshot(folder), before);
+
+    // The menu changed another value meanwhile: it stays as the user set it.
+    install(Some(&exe), None, &cache);
+    let menu = std::fs::read_to_string(folder.join("OptiScaler.ini"))
+        .unwrap()
+        .replace("Enabled=auto", "Enabled=true");
+    std::fs::write(folder.join("OptiScaler.ini"), menu).unwrap();
+    assert_eq!(remove(&exe), Response::Removed { kept: vec![] });
+    let expected = String::from_utf8(ini.to_vec())
+        .unwrap()
+        .replace("Enabled=auto", "Enabled=true");
+    assert_eq!(
+        std::fs::read_to_string(folder.join("OptiScaler.ini")).unwrap(),
+        expected
+    );
+
+    // A provider folder already there that is not Rubylight's is never
+    // written over.
+    std::fs::write(folder.join("OptiScaler.ini"), ini).unwrap();
+    std::fs::create_dir_all(folder.join(provider)).unwrap();
+    let Response::Refused { reason } = install(Some(&exe), None, &cache) else {
+        panic!()
+    };
+    assert!(reason.contains("not Rubylight's"), "{reason}");
+    assert_eq!(std::fs::read(folder.join("OptiScaler.ini")).unwrap(), ini);
+}
+
+/// A game without DLSS frame generation is refused; the game's own (a
+/// Streamline plugin deeper in its install counts) is what the provider
+/// takes the place of. A copy in OptiScaler's folder doesn't count.
+#[test]
+fn a_game_without_dlss_frame_generation_is_refused() {
+    let temp = tempdir();
+    let cache = release(temp.path(), "FG-V.B16", b"OptiScaler proxy");
+    let exe = game(temp.path());
+    let folder = exe.parent().unwrap();
+    std::fs::remove_file(folder.join("nvngx_dlssg.dll")).unwrap();
+    let before = snapshot(folder);
+    let Response::Refused { reason } = install(Some(&exe), None, &cache) else {
+        panic!()
+    };
+    assert!(reason.contains("no DLSS frame generation"), "{reason}");
+    assert_eq!(snapshot(folder), before);
+    let found = handle(
+        Request::Find {
+            exe: Some(exe.clone()),
+            install: None,
+        },
+        Writer::User,
+        &|_, _| {},
+    );
+    assert!(matches!(found, Response::Refused { .. }), "{found:?}");
+    std::fs::create_dir_all(folder.join("OptiScaler/custom/x/dlssg")).unwrap();
+    std::fs::write(
+        folder.join("OptiScaler/custom/x/dlssg/nvngx_dlssg.dll"),
+        "a provider",
+    )
+    .unwrap();
+    assert!(matches!(
+        install(Some(&exe), None, &cache),
+        Response::Refused { .. }
+    ));
+    std::fs::remove_dir_all(folder.join("OptiScaler")).unwrap();
+    std::fs::create_dir_all(folder.join("bin/plugins")).unwrap();
+    std::fs::write(folder.join("bin/plugins/SL.DLSS_G.DLL"), "Streamline").unwrap();
+    assert!(matches!(
+        install(Some(&exe), None, &cache),
+        Response::Placed { .. }
+    ));
+    assert_eq!(remove(&exe), Response::Removed { kept: vec![] });
+}
+
+/// A Vulkan game never gets dxgi.dll, which it doesn't load: OptiScaler
+/// goes under winmm.dll.
+#[test]
+fn a_vulkan_game_gets_optiscaler_under_a_name_it_loads() {
+    let temp = tempdir();
+    let cache = release(temp.path(), "FG-V.B16", b"OptiScaler proxy");
+    let exe = game(temp.path());
+    let folder = exe.parent().unwrap();
+    std::fs::remove_file(folder.join("dxgi.dll")).unwrap();
+    std::fs::write(&exe, b"MZ ... vulkan-1.dll ... kernel32.dll").unwrap();
+    let Response::Placed { proxy, .. } = install(Some(&exe), None, &cache) else {
+        panic!()
+    };
+    assert_eq!(proxy, "winmm.dll");
+    assert!(!folder.join("dxgi.dll").exists());
+    assert_eq!(remove(&exe), Response::Removed { kept: vec![] });
+    // A D3D12 game takes dxgi.dll.
+    std::fs::write(&exe, b"MZ ... d3d12.dll ... dxgi.dll").unwrap();
+    let Response::Placed { proxy, .. } = install(Some(&exe), None, &cache) else {
+        panic!()
+    };
+    assert_eq!(proxy, "dxgi.dll");
+    assert_eq!(remove(&exe), Response::Removed { kept: vec![] });
+}
+
+/// Rubylight 3.0's AMDNR in `folder`, its files and manifest as it wrote
+/// them, under `proxy`.
+fn amdnr(folder: &Path, proxy: &str) {
+    let files: [(&str, &[u8]); 5] = [
+        (proxy, b"AMDNR's OptiScaler"),
+        ("OptiScaler.ini", b"[Upscalers]\n"),
+        ("LmxxfNrRuntime.dll", b"runtime"),
+        ("LmxxfNrRuntime.pak", b"model"),
+        ("OptiScaler/libxess.dll", b"xess"),
+    ];
+    std::fs::create_dir_all(folder.join("OptiScaler")).unwrap();
+    let mut listed = Vec::new();
+    for (name, bytes) in files {
+        std::fs::write(folder.join(name), bytes).unwrap();
+        listed.push(format!(
+            r#""{name}": {{"sha256": "{}", "size": {}}}"#,
+            sha(bytes),
+            bytes.len()
+        ));
+    }
+    let manifest = format!(
+        r#"{{
+  "by": "Rubylight",
+  "release": "Alpha0.3.5.8R2",
+  "proxy": "{proxy}",
+  "files": {{ {} }},
+  "folders": ["OptiScaler"]
+}}"#,
+        listed.join(", ")
+    );
+    std::fs::write(folder.join(LEGACY_MANIFEST), manifest).unwrap();
+}
+
+/// Rubylight 3.0's AMDNR is still checked before a launch and removed
+/// byte for byte, the user's changed settings and logs with it; frame
+/// generation is refused while it is there.
+#[test]
+fn an_earlier_amdnr_install_is_still_removed_exactly() {
+    let temp = tempdir();
+    let cache = release(temp.path(), "FG-V.B16", b"OptiScaler proxy");
+    let exe = game(temp.path());
+    let folder = exe.parent().unwrap();
+    let before = snapshot(folder);
+    amdnr(folder, "winmm.dll");
+    assert!(matches!(
+        prepare(&exe, None),
+        Response::Placed { updated: false, .. }
+    ));
+    let Response::Refused { reason } = install(Some(&exe), None, &cache) else {
+        panic!()
+    };
+    assert!(
+        reason.contains("earlier Neural Rendering upscaling"),
+        "{reason}"
+    );
+    std::fs::write(
+        folder.join("OptiScaler.ini"),
+        "[Upscalers]\nDx12Upscaler=fsr31\n",
+    )
+    .unwrap();
+    std::fs::write(folder.join("OptiScaler.log"), "log").unwrap();
+    assert_eq!(remove(&exe), Response::Removed { kept: vec![] });
+    assert_eq!(snapshot(folder), before);
+}
+
+/// An upgrade changes no game folder: the host's own AMDNR download goes at
+/// start, the game keeps AMDNR and its app the record of it, and the
+/// console's page offers its removal.
+#[test]
+fn an_upgrade_touches_no_game_folder() {
+    let f = crate::state::test_support::Fixture::new();
+    let h = &f.host;
+    let temp = tempdir();
+    let exe = game(temp.path());
+    let folder = exe.parent().unwrap();
+    amdnr(folder, "winmm.dll");
+    let installed = snapshot(folder);
+    crate::steam::update_library(h, |apps, _| {
+        apps.push(json!({
+            "name": "Game",
+            "uuid": "game",
+            LEGACY_KEY: {"exe": exe, "release": "Alpha0.3.5.8R2", "proxy": "winmm.dll"},
+        }));
+        true
+    })
+    .unwrap();
+    let legacy = legacy_cache_root(h);
+    std::fs::create_dir_all(legacy.join("Alpha0.3.5.8R2/files")).unwrap();
+    std::fs::write(
+        legacy.join("Alpha0.3.5.8R2/files/LmxxfNrRuntime.pak"),
+        "model",
+    )
+    .unwrap();
+    let ours = release(&cache_root(h), "FG-V.B16", b"OptiScaler proxy");
+
+    clear_legacy_cache(h);
+    assert!(!legacy.exists());
+    assert!(ours.exists());
+    assert_eq!(snapshot(folder), installed);
+    let app = app(h, "game").unwrap();
+    assert_eq!(legacy_exe(&app), Some(exe.clone()));
+    assert_eq!(placed_exes(&app), std::slice::from_ref(&exe));
+    let status = status(h, "game");
+    assert_eq!(status["enabled"], false);
+    assert_eq!(status["earlier_upscaling"]["exe"], json!(exe));
+    assert_eq!(status["earlier_upscaling"]["release"], "Alpha0.3.5.8R2");
+    // Again: nothing there, nothing to do.
+    clear_legacy_cache(h);
+    assert_eq!(snapshot(folder), installed);
+}
+
+/// Turning frame generation on for a game with Rubylight 3.0's AMDNR takes
+/// AMDNR out first, in the same job, then puts frame generation in.
+#[tokio::test(flavor = "multi_thread")]
+async fn frame_generation_replaces_an_earlier_amdnr_install() {
+    let f = crate::state::test_support::Fixture::new();
+    let h = &f.host;
+    *h.neural.probe.lock().unwrap() = Some(Probe {
+        gpus: vec![Gpu {
+            name: "AMD Radeon RX 7900 XT".into(),
+            arch: "gfx1100".into(),
+            compute_units: 84,
+            luid: None,
+        }],
+        error: None,
+    });
+    accept(h).unwrap();
+    let temp = tempdir();
+    let exe = game(temp.path());
+    let folder = exe.parent().unwrap();
+    let before = snapshot(folder);
+    amdnr(folder, "winmm.dll");
+    crate::steam::update_library(h, |apps, _| {
+        apps.push(json!({
+            "name": "Game",
+            "uuid": "game",
+            LEGACY_KEY: {"exe": exe, "release": "Alpha0.3.5.8R2", "proxy": "winmm.dll"},
+        }));
+        true
+    })
+    .unwrap();
+    let cache = release(&cache_root(h), "FG-V.B16", b"OptiScaler proxy");
+    pin_to(h, &cache);
+
+    // The program comes from the earlier install's record.
+    enable(h, "game", None).unwrap();
+    let job = ended(h, "game").await;
+    assert_eq!(job.phase, "done", "{job:?}");
+    assert!(!folder.join(LEGACY_MANIFEST).exists());
+    assert!(!folder.join("LmxxfNrRuntime.pak").exists());
+    assert!(folder.join(MANIFEST).exists());
+    assert_eq!(
+        std::fs::read(folder.join("winmm.dll")).unwrap(),
+        b"OptiScaler proxy"
+    );
+    let app = app(h, "game").unwrap();
+    assert_eq!(placed_exe(&app), Some(exe.clone()));
+    assert_eq!(legacy_exe(&app), None);
+    assert!(status(h, "game")["earlier_upscaling"].is_null());
+    disable(h, "game").unwrap();
+    let job = ended(h, "game").await;
+    assert_eq!(job.phase, "done", "{job:?}");
+    assert_eq!(snapshot(folder), before);
 }

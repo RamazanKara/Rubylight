@@ -1,546 +1,190 @@
 use super::*;
 use serde_json::json;
-use std::io::Write;
+
+fn hash(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(text.as_bytes()))
+}
 
 #[test]
-fn only_the_mods_own_package_its_runtime_and_checksums_may_be_fetched() {
-    for (allowed, what) in [
-        ("AMDNR-v0.3.5.8.zip", Asset::Package("0.3.5.8")),
-        ("AMDNR-v0.3.5.8R4.zip", Asset::Package("0.3.5.8R4")),
-        ("AMDNR-v1.0.zip", Asset::Package("1.0")),
-        ("AMDNR-lmxxf-0.3.5.8R2.zip", Asset::Runtime("0.3.5.8R2")),
-        ("SHA256SUMS.txt", Asset::Sums),
-    ] {
-        assert_eq!(super::asset(allowed), Some(what), "{allowed}");
-        assert!(allowed_asset(allowed), "{allowed}");
-    }
-    // Everything else the releases carry: the launcher (all rights reserved),
-    // the danielblnc runtimes (licensed to the mod only), the capture host,
-    // the Mochi component, the source archive, and NVIDIA's files.
-    for refused in [
-        "AMDNR-Launcher.exe",
-        "v0.8.0-Runtime.zip",
-        "v0.6.0-Runtime.zip",
-        "Runtime.zip",
-        "AMDNR-lmxxf-0.3.5.8R2-Runtime.zip",
-        "Daniel-0.8.0-Manual-AMDNR-0.3.5.8.zip",
-        "AMDNR-Anywhere-0.3.5.8R2.zip",
-        "AMDNR-Mochi-0.3.5.8R2-component.zip",
-        "AMDNR-Mochi-0.0.7-component.zip",
-        "AMDNR-HelixSR-0.3.5.8R2.zip",
-        "AMDNR-v0.3.5.8R4-source.zip",
-        "Launcher/AMDNR-Launcher.zip",
-        "OptiPatcher.zip",
-        "nvngx_dlssnr.dll",
-        "nvngx_dlss.dll",
-        "SHA256SUMS.txt.exe",
+fn only_the_two_packages_and_the_checksums_may_be_fetched() {
+    assert_eq!(asset("anr-fg-V.B16-full.zip"), Some(Asset::Full("V.B16")));
+    assert_eq!(asset("anr-fg-V.B16-addon.zip"), Some(Asset::Addon("V.B16")));
+    assert_eq!(asset(SUMS), Some(Asset::Sums));
+    for name in [
+        "anr-fg-V.B16-kit-windows.zip",
+        "anr-fg-V.B16-kit-linux.tar.gz",
+        "anr-fg-V.B16-full-optiscaler-source.zip",
+        "anr-fg--full.zip",
+        "anr-fg-V/B16-full.zip",
+        "AMDNR-v0.3.5.8R2.zip",
+        "AMDNR-lmxxf-0.3.5.8R2.zip",
         "sha256sums.txt",
-        "AMDNR-v.zip",
-        "AMDNR-vR1.zip",
-        "AMDNR-lmxxf-.zip",
-        "AMDNR-lmxxf-v0.3.5.8.zip",
-        "AMDNR-v0.3.5.8.zip.exe",
-        "AMDNR-v0.3.5.8.exe",
-        "amdnr-v0.3.5.8.zip",
-        "AMDNR-v0.3.5.8R.zip",
-        "AMDNR-v0..3.zip",
-        "AMDNR-v0.3/../x.zip",
-        "AMDNR-v0.3.5.8 .zip",
-        "AMDNR-v12345.zip",
+        "install.ps1",
     ] {
-        assert!(!allowed_asset(refused), "{refused}");
+        assert!(!allowed_asset(name), "{name}");
+    }
+    // The pin names only files the allowlist takes.
+    for file in [PINNED.full, PINNED.addon, PINNED.sums] {
+        assert!(allowed_asset(file.asset), "{}", file.asset);
+        assert_eq!(file.sha256.len(), 64);
     }
 }
 
-fn asset(tag: &str, name: &str, size: u64) -> Value {
+fn listed(tag: &str, files: &[(&str, &str, u64)]) -> Value {
     json!({
-        "name": name,
-        "size": size,
-        "digest": format!("sha256:{}", "AB".repeat(32)),
-        "browser_download_url": format!("https://github.com/{REPOSITORY}/releases/download/{tag}/{name}"),
+        "tag_name": tag,
+        "draft": false,
+        "assets": files.iter().map(|(name, sha, size)| json!({
+            "name": name,
+            "size": size,
+            "digest": format!("sha256:{sha}"),
+            "browser_download_url": format!("{GITHUB}/{REPOSITORY}/releases/download/{tag}/{name}"),
+        })).collect::<Vec<_>>(),
     })
 }
 
-fn release(tag: &str, published: &str, assets: Vec<Value>) -> Value {
-    json!({"tag_name": tag, "published_at": published, "draft": false, "prerelease": false, "assets": assets})
+fn pinned_list() -> Value {
+    listed(
+        PINNED.tag,
+        &[
+            (PINNED.full.asset, PINNED.full.sha256, 10_782_205),
+            (PINNED.addon.asset, PINNED.addon.sha256, 3_156_952),
+            (PINNED.sums.asset, PINNED.sums.sha256, 500),
+            ("anr-fg-V.B16-kit-windows.zip", &"0".repeat(64), 1),
+        ],
+    )
 }
 
-/// Each release of `list` that offers the package ([`release`]), in order.
-fn releases(list: &Value) -> Vec<Release> {
-    list.as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|listed| super::release(listed, GITHUB))
-        .collect()
-}
-
-#[test]
-fn a_release_offers_only_the_package() {
-    let mut draft = release(
-        "Alpha0.9",
-        "2026-12-01T00:00:00Z",
-        vec![asset("Alpha0.9", "AMDNR-v0.9.zip", 10)],
-    );
-    draft["draft"] = json!(true);
-    let mut pre = release(
-        "Alpha0.8",
-        "2026-11-30T00:00:00Z",
-        vec![asset("Alpha0.8", "AMDNR-v0.8.zip", 10)],
-    );
-    pre["prerelease"] = json!(true);
-    let mut foreign_url = asset("Alpha0.7", "AMDNR-v0.7.zip", 10);
-    foreign_url["browser_download_url"] = json!("https://example.com/AMDNR-v0.7.zip");
-    let mut no_digest = asset("Alpha0.6", "AMDNR-v0.6.zip", 10);
-    no_digest.as_object_mut().unwrap().remove("digest");
-    let list = json!([
-        draft,
-        pre,
-        release("Alpha0.7", "2026-11-29T00:00:00Z", vec![foreign_url]),
-        release("Alpha0.6", "2026-11-28T00:00:00Z", vec![no_digest]),
-        release(
-            "Alpha0.5",
-            "2026-11-27T00:00:00Z",
-            vec![asset("Alpha0.5", "AMDNR-v0.5.zip", MAX_ARCHIVE + 1)]
-        ),
-        // Only refused assets: nothing to fetch.
-        release(
-            "Alpha0.4",
-            "2026-11-26T00:00:00Z",
-            vec![
-                asset("Alpha0.4", "AMDNR-Launcher.exe", 10),
-                asset("Alpha0.4", "v0.8.0-Runtime.zip", 10)
-            ]
-        ),
-        release(
-            "../evil",
-            "2026-11-25T00:00:00Z",
-            vec![asset("../evil", "AMDNR-v0.4.zip", 10)]
-        ),
-        // Two packages: ambiguous.
-        release(
-            "Alpha0.3",
-            "2026-11-24T00:00:00Z",
-            vec![
-                asset("Alpha0.3", "AMDNR-v0.3.zip", 10),
-                asset("Alpha0.3", "AMDNR-v0.3R1.zip", 10)
-            ]
-        ),
-        release(
-            "Alpha0.3.5.7",
-            "2026-10-22T18:09:28Z",
-            vec![
-                asset("Alpha0.3.5.7", "AMDNR-Launcher.exe", 10),
-                asset("Alpha0.3.5.7", "AMDNR-v0.3.5.7.zip", 20)
-            ]
-        ),
-        release(
-            "Alpha0.3.5.8",
-            "2026-10-23T16:57:26Z",
-            vec![
-                asset("Alpha0.3.5.8", "v0.8.0-Runtime.zip", 10),
-                asset("Alpha0.3.5.8", "AMDNR-v0.3.5.8.zip", 30),
-                asset("Alpha0.3.5.8", "AMDNR-Anywhere-0.3.5.8.zip", 10),
-            ]
-        ),
-    ]);
-    let found = releases(&list);
-    let tags: Vec<_> = found.iter().map(|r| r.tag.as_str()).collect();
-    // A pre-release is taken; a draft is not.
-    assert_eq!(tags, ["Alpha0.8", "Alpha0.3.5.7", "Alpha0.3.5.8"]);
-    assert_eq!(
-        found[2],
-        Release {
-            tag: "Alpha0.3.5.8".into(),
-            package: Download {
-                asset: "AMDNR-v0.3.5.8.zip".into(),
-                url: format!(
-                    "https://github.com/{REPOSITORY}/releases/download/Alpha0.3.5.8/AMDNR-v0.3.5.8.zip"
-                ),
-                digest: "ab".repeat(32),
-                size: 30,
-            },
-            runtime: None,
-            sums: None,
-        }
-    );
-    assert!(found.iter().all(|r| allowed_asset(&r.package.asset)));
-    assert!(releases(&json!({"message": "rate limited"})).is_empty());
-}
-
-/// Only the pinned release is taken, and only with GitHub's digest of each
-/// archive the pinned one; another release, another file or a runtime
-/// component the pin does not name is not.
 #[test]
 fn only_the_pinned_release_with_its_pinned_digests_is_taken() {
-    let list = split_releases();
-    let digest = "ab".repeat(32);
-    let file = |asset| PinnedFile {
-        asset,
-        sha256: &digest,
-    };
-    let pin = Pin {
-        tag: "Alpha0.3.5.8R2",
-        package: file("AMDNR-v0.3.5.8R2.zip"),
-        runtime: Some(file("AMDNR-lmxxf-0.3.5.8R2.zip")),
-    };
-    let found = pinned(&list[1], GITHUB, &pin).unwrap();
-    assert_eq!(found, releases(&list)[1]);
-    let error = pinned(&list[0], GITHUB, &pin).unwrap_err();
-    assert!(
-        error.contains("does not list the mod's release Alpha0.3.5.8R2"),
-        "{error}"
+    let release = pinned(&pinned_list(), GITHUB, &PINNED).unwrap();
+    assert_eq!(release.tag, "FG-V.B16");
+    assert_eq!(release.full.asset, PINNED.full.asset);
+    assert_eq!(release.full.digest, PINNED.full.sha256);
+    assert_eq!(release.addon.size, 3_156_952);
+    assert_eq!(
+        release.sums.url,
+        format!("{GITHUB}/apex-compute/ANR/releases/download/FG-V.B16/SHA256SUMS.txt")
     );
-    let other = "cd".repeat(32);
-    for changed in [
-        Pin {
-            package: PinnedFile {
-                asset: "AMDNR-v0.3.5.8R2.zip",
-                sha256: &other,
-            },
-            ..pin
-        },
-        Pin {
-            runtime: Some(PinnedFile {
-                asset: "AMDNR-lmxxf-0.3.5.8R2.zip",
-                sha256: &other,
-            }),
-            ..pin
-        },
-    ] {
-        let error = pinned(&list[1], GITHUB, &changed).unwrap_err();
-        assert!(
-            error.contains("another SHA-256 than Rubylight pins"),
-            "{error}"
-        );
-    }
-    let alone = Pin {
-        runtime: None,
-        ..pin
-    };
-    assert_eq!(pinned(&list[1], GITHUB, &alone).unwrap().runtime, None);
-    // The pinned tag marked a pre-release is still taken by its digests;
-    // a draft is not.
-    let mut pre = list[1].clone();
-    pre["prerelease"] = json!(true);
-    assert_eq!(super::release(&pre, GITHUB).as_ref(), Some(&found));
-    assert_eq!(pinned(&pre, GITHUB, &pin).unwrap(), found);
-    let mut draft = list[1].clone();
+    // Another tag, a draft, a changed digest, a missing file, an odd address.
+    let mut other = pinned_list();
+    other["tag_name"] = json!("FG-V.B17");
+    assert!(pinned(&other, GITHUB, &PINNED).is_err());
+    let mut draft = pinned_list();
     draft["draft"] = json!(true);
-    assert!(pinned(&draft, GITHUB, &pin).is_err());
-    // What Rubylight ships: R2's package and runtime component.
-    assert_eq!(PINNED.tag, "Alpha0.3.5.8R2");
-    for file in [Some(PINNED.package), PINNED.runtime] {
-        let file = file.unwrap();
-        assert!(allowed_asset(file.asset), "{}", file.asset);
-        assert!(file.asset.contains("0.3.5.8R2"), "{}", file.asset);
-        assert_eq!(file.sha256.len(), 64);
-        assert!(
-            file.sha256
-                .bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        );
-    }
-}
-
-/// The assets of 0.3.5.8R2 and R4 as GitHub lists them.
-fn split_releases() -> Value {
-    json!([
-        release(
-            "Alpha0.3.5.8R4",
-            "2026-10-29T14:07:20Z",
-            vec![
-                asset("Alpha0.3.5.8R4", "AMDNR-Launcher.exe", 10),
-                asset("Alpha0.3.5.8R4", "AMDNR-v0.3.5.8R4.zip", 535),
-                asset("Alpha0.3.5.8R4", "SHA256SUMS.txt", 5),
-                // A component of another release: never paired with R4's DLL.
-                asset("Alpha0.3.5.8R4", "AMDNR-lmxxf-0.3.5.8R2.zip", 766),
-            ]
-        ),
-        release(
-            "Alpha0.3.5.8R2",
-            "2026-10-28T03:54:54Z",
-            vec![
-                asset("Alpha0.3.5.8R2", "AMDNR-Anywhere-0.3.5.8R2.zip", 132),
-                asset("Alpha0.3.5.8R2", "AMDNR-Launcher.exe", 74),
-                asset("Alpha0.3.5.8R2", "AMDNR-lmxxf-0.3.5.8R2.zip", 766),
-                asset("Alpha0.3.5.8R2", "AMDNR-Mochi-0.3.5.8R2-component.zip", 36),
-                asset("Alpha0.3.5.8R2", "AMDNR-v0.3.5.8R2.zip", 243),
-                asset("Alpha0.3.5.8R2", "SHA256SUMS.txt", 5),
-            ]
-        ),
-    ])
-}
-
-#[test]
-fn a_release_pairs_its_package_only_with_its_own_runtime_component() {
-    let found = releases(&split_releases());
-    let (r4, r2) = (&found[0], &found[1]);
-    assert_eq!(r4.tag, "Alpha0.3.5.8R4");
-    assert_eq!(r4.runtime, None, "R2's component does not belong to R4");
-    assert_eq!(r4.sums.as_ref().unwrap().asset, SUMS);
-    assert_eq!(r2.package.asset, "AMDNR-v0.3.5.8R2.zip");
-    let runtime = r2.runtime.as_ref().unwrap();
-    assert_eq!(runtime.asset, "AMDNR-lmxxf-0.3.5.8R2.zip");
-    assert_eq!(
-        runtime.url,
-        format!(
-            "https://github.com/{REPOSITORY}/releases/download/Alpha0.3.5.8R2/AMDNR-lmxxf-0.3.5.8R2.zip"
-        )
-    );
-    // Mochi, Anywhere and the launcher are in no release the host takes.
-    for release in &found {
-        let fetched = [
-            Some(&release.package),
-            release.runtime.as_ref(),
-            release.sums.as_ref(),
-        ];
-        for download in fetched.into_iter().flatten() {
-            assert!(allowed_asset(&download.asset), "{}", download.asset);
-            assert!(!download.asset.contains("Mochi") && !download.asset.contains("Anywhere"));
-        }
-    }
-    // A checksum list too large to be one is left out.
-    let mut list = split_releases();
-    list[1]["assets"][5] = asset("Alpha0.3.5.8R2", "SHA256SUMS.txt", MAX_SUMS + 1);
-    assert_eq!(releases(&list)[1].sums, None);
-}
-
-/// The file lists of real releases: 0.3.5.8 has the whole mod in its
-/// package, 0.3.5.8R2 has its runtime in a separate component, 0.3.5.8R4
-/// has neither.
-#[test]
-fn the_whole_mod_is_in_the_package_or_in_its_releases_runtime_component() {
-    let names = |list: &[&str]| list.iter().map(|n| n.to_string()).collect::<Vec<_>>();
-    let found = releases(&split_releases());
-    let (r4, r2) = (&found[0], &found[1]);
-    let mut no_sums = r2.clone();
-    no_sums.sums = None;
-    let mut no_component = r2.clone();
-    no_component.runtime = None;
-
-    let whole = names(&[
-        "Licenses/lmxxf_LICENSE.txt",
-        "OptiScaler/libxess.dll",
-        "LmxxfNrRuntime.dll",
-        "LmxxfNrRuntime.pak",
-        "OptiScaler.dll",
-        "OptiScaler.ini",
-        "SHA256SUMS.txt",
-    ]);
-    assert_eq!(complete(&no_sums, &whole, None), Some(Runtime::Package));
-    // The package's own runtime wins over a component.
-    assert_eq!(complete(r2, &whole, Some(&whole)), Some(Runtime::Package));
-
-    let split = names(&[
-        "Licenses/lmxxf_LICENSE.txt",
-        "OptiScaler/libxess.dll",
-        "OptiScaler.dll",
-        "OptiScaler.ini",
-    ]);
-    let component = names(&[
-        "Licenses/lmxxf_LICENSE.txt",
-        "LmxxfNrRuntime.dll",
-        "LmxxfNrRuntime.pak",
-        "README.txt",
-        "R2-UPDATE.txt",
-    ]);
-    assert_eq!(
-        complete(r2, &split, Some(&component)),
-        Some(Runtime::Component)
-    );
-    // Without its component (R4), or with one that lacks the model: not whole.
-    assert_eq!(complete(r4, &split, None), None);
-    assert_eq!(
-        complete(r4, &split, Some(&component)),
-        None,
-        "R4 has no component of its own"
-    );
-    assert_eq!(complete(&no_component, &split, Some(&component)), None);
-    assert_eq!(
-        complete(r2, &split, Some(&names(&["LmxxfNrRuntime.dll"]))),
-        None
-    );
-    // Neither the release nor the archive has a checksum list.
-    assert_eq!(complete(&no_sums, &split, Some(&component)), None);
-    let unchecked = names(&["LmxxfNrRuntime.dll", "LmxxfNrRuntime.pak", "OptiScaler.dll"]);
-    assert_eq!(complete(&no_sums, &unchecked, None), None);
-    assert_eq!(
-        complete(
-            r2,
-            &names(&["LmxxfNrRuntime.dll", "LmxxfNrRuntime.pak"]),
-            None
-        ),
-        None
-    );
-
-    // Only the runtime and licences come out of a component.
-    assert!(from_component("LmxxfNrRuntime.pak") && from_component("Licenses/lmxxf_LICENSE.txt"));
-    assert!(
-        !from_component("README.txt")
-            && !from_component("R2-UPDATE.txt")
-            && !from_component("OptiScaler.dll")
-    );
+    assert!(pinned(&draft, GITHUB, &PINNED).is_err());
+    let mut changed = pinned_list();
+    changed["assets"][1]["digest"] = json!(format!("sha256:{}", "1".repeat(64)));
+    let error = pinned(&changed, GITHUB, &PINNED).unwrap_err();
+    assert!(error.contains("another SHA-256"), "{error}");
+    let mut sums = pinned_list();
+    sums["assets"][2]["digest"] = json!(format!("sha256:{}", "2".repeat(64)));
+    assert!(pinned(&sums, GITHUB, &PINNED).is_err());
+    let mut gone = pinned_list();
+    gone["assets"].as_array_mut().unwrap().remove(0);
+    assert!(pinned(&gone, GITHUB, &PINNED).is_err());
+    let mut moved = pinned_list();
+    moved["assets"][0]["browser_download_url"] = json!("https://example.com/x.zip");
+    assert!(pinned(&moved, GITHUB, &PINNED).is_err());
+    let mut huge = pinned_list();
+    huge["assets"][0]["size"] = json!(MAX_ARCHIVE + 1);
+    assert!(pinned(&huge, GITHUB, &PINNED).is_err());
 }
 
 #[test]
 fn every_archive_must_be_in_the_releases_checksums_with_its_digest() {
-    let found = releases(&split_releases());
-    let r2 = &found[1];
-    let (package, runtime) = (&r2.package, r2.runtime.as_ref().unwrap());
-    let listed = |runtime_digest: &str| {
-        sums(&format!(
-            "{}  AMDNR-Launcher.exe\n{runtime_digest}  AMDNR-lmxxf-0.3.5.8R2.zip\n{}  AMDNR-v0.3.5.8R2.zip\n",
-            "cd".repeat(32),
-            package.digest
-        ))
-        .unwrap()
-    };
+    let release = pinned(&pinned_list(), GITHUB, &PINNED).unwrap();
+    let text = format!(
+        "{}  {}\n{}  {}\n{}  anr-fg-V.B16-kit-windows.zip\n",
+        PINNED.full.sha256,
+        PINNED.full.asset,
+        PINNED.addon.sha256.to_uppercase(),
+        PINNED.addon.asset,
+        "8".repeat(64)
+    );
+    let list = sums(&text).unwrap();
     assert_eq!(
-        check_archives(&[package, runtime], &listed(&"AB".repeat(32))),
+        check_archives(&[&release.full, &release.addon], &list),
         Ok(())
     );
-    assert_eq!(
-        check_archives(&[package, runtime], &listed(&"ef".repeat(32))),
-        Err(format!(
-            "AMDNR-lmxxf-0.3.5.8R2.zip does not match the release's {SUMS}"
-        ))
-    );
-    let mut other = runtime.clone();
-    other.asset = "AMDNR-lmxxf-0.3.5.8R1.zip".into();
-    assert!(
-        check_archives(&[package, &other], &listed(&"ab".repeat(32)))
-            .unwrap_err()
-            .contains("is not in")
-    );
+    let without = sums(&format!("{}  {}\n", PINNED.full.sha256, PINNED.full.asset)).unwrap();
+    assert!(check_archives(&[&release.full, &release.addon], &without).is_err());
+    let wrong = sums(&format!("{}  {}\n", "9".repeat(64), PINNED.full.asset)).unwrap();
+    assert!(check_archives(&[&release.full], &wrong).is_err());
+    assert!(sums("not a checksum").is_err());
+    assert!(sums(&format!("{0}  a\n{1}  a\n", "1".repeat(64), "2".repeat(64))).is_err());
 }
 
-fn archive(names: &[&str], comment: &str) -> Vec<u8> {
-    let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-    let options =
-        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
-    for name in names {
-        writer.start_file(*name, options).unwrap();
-        writer.write_all(name.as_bytes()).unwrap();
+#[test]
+fn the_archives_give_only_optiscaler_the_provider_and_the_licence() {
+    for path in [
+        "game/dxgi.dll",
+        "game/OptiScaler.ini",
+        "game/OptiScaler/custom/Apex Neural Rendering FG/dlssg/nvngx_dlssg.dll",
+        "LICENSES/OptiScaler-GPL-3.0.txt",
+    ] {
+        assert!(Archive::Full.takes(path), "{path}");
     }
-    writer.set_comment(comment);
-    writer.finish().unwrap().into_inner()
-}
+    for path in [
+        "install.ps1",
+        "install.cmd",
+        "README.txt",
+        "nr_fg_package.json",
+    ] {
+        assert!(!Archive::Full.takes(path), "{path}");
+        assert!(!Archive::Addon.takes(path), "{path}");
+    }
+    assert!(Archive::Addon.takes("Apex Neural Rendering FG/dlssg/nr_fg.ini"));
+    assert!(!Archive::Addon.takes("game/dxgi.dll"));
 
-fn listed(bytes: &[u8], tail: usize) -> Result<Vec<String>, String> {
-    let tail = &bytes[bytes.len().saturating_sub(tail)..];
-    let (offset, length) = directory_span(tail, bytes.len() as u64)?;
-    directory_names(&bytes[offset as usize..(offset + length) as usize])
-}
-
-#[test]
-fn a_zip_lists_its_files_from_its_last_bytes() {
-    let names = [
-        "OptiScaler.dll",
-        "OptiScaler/D3D12_OptiScaler/D3D12Core.dll",
-        "Licenses/Привет.txt",
-    ];
-    let bytes = archive(&names, "");
-    assert_eq!(listed(&bytes, 64 * 1024).unwrap(), names);
-    // A comment, and a tail that ends just past the record.
-    let commented = archive(&names, "PK\x05\x06 looks like a record");
-    assert_eq!(listed(&commented, 22 + 26).unwrap(), names);
-    // Not a zip, or cut before its end record.
-    assert!(listed(b"not an archive at all, just text", 64).is_err());
-    assert!(listed(&bytes[..bytes.len() - 5], 64 * 1024).is_err());
-    // A directory that points past the end.
-    let mut wrong = bytes.clone();
-    let end = wrong.len() - 22;
-    wrong[end + 16..end + 20].copy_from_slice(&u32::MAX.to_le_bytes()[..]);
-    wrong[end + 12..end + 16].copy_from_slice(&5u32.to_le_bytes());
-    assert!(listed(&wrong, 64 * 1024).is_err());
-    let mut damaged = bytes.clone();
-    let (offset, _) = directory_span(&bytes, bytes.len() as u64).unwrap();
-    damaged[offset as usize] = b'X';
-    assert!(listed(&damaged, 64 * 1024).is_err());
-}
-
-#[test]
-fn a_zip64_end_record_gives_the_directory() {
-    // A directory of 100 bytes at 1000, then the zip64 record, its locator and the end record.
-    let size = 1000 + 100 + 56 + 20 + 22;
-    let mut tail = Vec::new();
-    let record_at = 1100u64;
-    tail.extend_from_slice(b"PK\x06\x06");
-    tail.extend_from_slice(&44u64.to_le_bytes());
-    tail.extend_from_slice(&[0; 2 + 2 + 4 + 4]);
-    tail.extend_from_slice(&3u64.to_le_bytes());
-    tail.extend_from_slice(&3u64.to_le_bytes());
-    tail.extend_from_slice(&100u64.to_le_bytes());
-    tail.extend_from_slice(&1000u64.to_le_bytes());
-    assert_eq!(tail.len(), 56);
-    tail.extend_from_slice(b"PK\x06\x07");
-    tail.extend_from_slice(&0u32.to_le_bytes());
-    tail.extend_from_slice(&record_at.to_le_bytes());
-    tail.extend_from_slice(&1u32.to_le_bytes());
-    tail.extend_from_slice(b"PK\x05\x06");
-    tail.extend_from_slice(&[0; 4]);
-    tail.extend_from_slice(&[0xff; 4]);
-    tail.extend_from_slice(&[0xff; 8]);
-    tail.extend_from_slice(&0u16.to_le_bytes());
-    assert_eq!(directory_span(&tail, size), Ok((1000, 100)));
-    // The record before the tail cannot be read.
-    assert!(directory_span(&tail[56..], size).is_err());
-}
-
-fn hash(text: &str) -> String {
-    use sha2::Digest;
-    hex::encode(sha2::Sha256::digest(text.as_bytes()))
-}
-
-#[test]
-fn every_file_must_match_the_release_checksums() {
-    let text = format!(
-        "\u{feff}{}  OptiScaler.dll\r\n{}  LmxxfNrRuntime.dll\n{} *LmxxfNrRuntime.pak\n{}  OptiScaler/libxess.dll\n{}  v0.8.0-Runtime/dlssnr_amd_pass1.dll\n\n",
-        hash("dll"),
-        hash("runtime"),
-        hash("pak"),
-        hash("xess").to_ascii_uppercase(),
-        hash("daniel"),
-    );
-    let sums = sums(&text).unwrap();
-    assert_eq!(sums["OptiScaler/libxess.dll"], hash("xess"));
-    let files: BTreeMap<String, String> = [
-        ("OptiScaler.dll", hash("dll")),
-        ("LmxxfNrRuntime.dll", hash("runtime")),
-        ("LmxxfNrRuntime.pak", hash("pak")),
-        ("OptiScaler/libxess.dll", hash("xess")),
-        (SUMS, hash("sums")),
-    ]
-    .into_iter()
-    .map(|(path, hash)| (path.to_string(), hash))
-    .collect();
-    // The runtime zip's file in the list has no file here: that is fine.
-    assert_eq!(check_files(&files, &sums), Ok(()));
+    let mut files: BTreeMap<String, ()> = required().into_iter().map(|p| (p, ())).collect();
     assert_eq!(check_whole(&files), Ok(()));
+    files.remove("addon/Apex Neural Rendering FG/dlssg/nvngx_dlssg.dll");
+    assert!(check_whole(&files).unwrap_err().contains("addon/"));
+}
 
-    let mut changed = files.clone();
-    changed.insert("LmxxfNrRuntime.pak".into(), hash("other pak"));
+#[test]
+fn each_file_goes_where_its_mode_places_it() {
+    let full = |path: &str| target(Mode::Full, path, "winmm.dll", "");
+    assert_eq!(full("full/game/dxgi.dll").as_deref(), Some("winmm.dll"));
     assert_eq!(
-        check_files(&changed, &sums),
-        Err("LmxxfNrRuntime.pak does not match the release's SHA256SUMS.txt".into())
+        full("full/game/OptiScaler.ini").as_deref(),
+        Some("OptiScaler.ini")
     );
-    let mut extra = files.clone();
-    extra.insert("payload.dll".into(), hash("payload"));
     assert_eq!(
-        check_files(&extra, &sums),
-        Err("payload.dll is not in the release's SHA256SUMS.txt".into())
+        full("full/game/OptiScaler/custom/Apex Neural Rendering FG/dlssg/x.nrx").as_deref(),
+        Some("OptiScaler/custom/Apex Neural Rendering FG/dlssg/x.nrx")
     );
-    let mut missing = files.clone();
-    missing.remove("LmxxfNrRuntime.dll");
-    assert_eq!(check_files(&missing, &sums), Ok(()));
     assert_eq!(
-        check_whole(&missing),
-        Err("the release has no LmxxfNrRuntime.dll".into())
+        full("full/LICENSES/OptiScaler-GPL-3.0.txt").as_deref(),
+        Some("OptiScaler/LICENSES/OptiScaler-GPL-3.0.txt")
     );
-
-    assert!(super::sums("not a checksum line").is_err());
-    let twice = format!("{}  a.dll\n{}  a.dll\n", hash("a"), hash("b"));
-    assert!(super::sums(&twice).is_err());
+    assert_eq!(full("addon/Apex Neural Rendering FG/dlssg/x.dll"), None);
+    let addon = |dir: &str| {
+        target(
+            Mode::Addon,
+            "addon/Apex Neural Rendering FG/dlssg/nvngx_dlssg.dll",
+            "",
+            dir,
+        )
+    };
+    assert_eq!(
+        addon("").as_deref(),
+        Some("custom/Apex Neural Rendering FG/dlssg/nvngx_dlssg.dll")
+    );
+    assert_eq!(
+        addon("OptiScaler").as_deref(),
+        Some("OptiScaler/custom/Apex Neural Rendering FG/dlssg/nvngx_dlssg.dll")
+    );
+    assert_eq!(target(Mode::Addon, "full/game/dxgi.dll", "", ""), None);
+    assert!(settings("OptiScaler.ini"));
+    assert!(settings(
+        "OptiScaler/custom/Apex Neural Rendering FG/dlssg/nr_fg.ini"
+    ));
+    assert!(!settings(
+        "OptiScaler/custom/Apex Neural Rendering FG/dlssg/path_table.json"
+    ));
 }
 
 #[test]
@@ -573,57 +217,87 @@ fn archive_paths_stay_inside_the_game_folder() {
     ] {
         assert_eq!(entry_path(bad), None, "{bad:?}");
     }
-    assert!(
-        document("README.md")
-            && document("LICENSE")
-            && document("Licenses/XeSS_LICENSE.txt")
-            && document("Docs/a.png")
-    );
-    assert!(
-        !document("OptiScaler.ini")
-            && !document("OptiScaler/x.md")
-            && !document("LmxxfNrRuntime.pak")
-    );
 }
 
 #[test]
-fn the_mod_never_takes_a_name_another_program_holds() {
-    let with = |taken: &'static [(&'static str, Occupant)]| {
-        proxy(move |name| {
+fn optiscaler_never_takes_a_name_another_program_holds() {
+    let with = |vulkan: bool, taken: &'static [(&'static str, Occupant)]| {
+        proxy(vulkan, move |name| {
             taken
                 .iter()
                 .find(|(n, _)| *n == name)
                 .map_or(Occupant::Free, |(_, o)| *o)
         })
     };
-    assert_eq!(with(&[]), Ok("dxgi.dll"));
+    assert_eq!(with(false, &[]), Ok("dxgi.dll"));
     // ReShade or a game's own DLL as dxgi.dll: the next name.
-    assert_eq!(with(&[("dxgi.dll", Occupant::Foreign)]), Ok("d3d12.dll"));
     assert_eq!(
-        with(&[
-            ("dxgi.dll", Occupant::Foreign),
-            ("d3d12.dll", Occupant::Foreign),
-            ("winmm.dll", Occupant::Foreign)
-        ]),
+        with(false, &[("dxgi.dll", Occupant::Foreign)]),
+        Ok("winmm.dll")
+    );
+    assert_eq!(
+        with(
+            false,
+            &[
+                ("dxgi.dll", Occupant::Foreign),
+                ("winmm.dll", Occupant::Foreign)
+            ]
+        ),
         Ok("version.dll")
     );
-    // An earlier install keeps its name.
-    assert_eq!(with(&[("winmm.dll", Occupant::Ours)]), Ok("winmm.dll"));
-    let error = with(&[("version.dll", Occupant::OptiScaler)]).unwrap_err();
-    assert!(
-        error.contains("another copy of OptiScaler") && error.contains("version.dll"),
-        "{error}"
+    // A game that only uses Vulkan never loads dxgi.dll.
+    assert_eq!(with(true, &[]), Ok("winmm.dll"));
+    assert_eq!(
+        with(true, &[("winmm.dll", Occupant::Foreign)]),
+        Ok("version.dll")
     );
-    let all: &'static [(&'static str, Occupant)] = &[
-        ("dxgi.dll", Occupant::Foreign),
-        ("d3d12.dll", Occupant::Foreign),
-        ("winmm.dll", Occupant::Foreign),
-        ("version.dll", Occupant::Foreign),
-        ("dbghelp.dll", Occupant::Foreign),
-        ("winhttp.dll", Occupant::Foreign),
-        ("wininet.dll", Occupant::Foreign),
-    ];
-    assert!(with(all).unwrap_err().contains("every name"));
+    let vulkan = with(
+        true,
+        &[
+            ("winmm.dll", Occupant::Foreign),
+            ("version.dll", Occupant::Foreign),
+        ],
+    )
+    .unwrap_err();
+    assert!(
+        vulkan.contains("every name") && !vulkan.contains("dxgi"),
+        "{vulkan}"
+    );
+    // An earlier install keeps its name.
+    assert_eq!(
+        with(false, &[("version.dll", Occupant::Ours)]),
+        Ok("version.dll")
+    );
+    assert!(
+        with(
+            false,
+            &[
+                ("dxgi.dll", Occupant::Foreign),
+                ("winmm.dll", Occupant::Foreign),
+                ("version.dll", Occupant::Foreign)
+            ]
+        )
+        .unwrap_err()
+        .contains("every name")
+    );
+}
+
+#[test]
+fn a_vulkan_game_and_an_optiscaler_with_providers_are_told_by_their_bytes() {
+    let wide = |text: &str| text.bytes().flat_map(|b| [b, 0]).collect::<Vec<u8>>();
+    assert!(vulkan_only(b"..VULKAN-1.dll..kernel32.dll"));
+    assert!(vulkan_only(&wide("vulkan-1.dll")));
+    assert!(!vulkan_only(b"vulkan-1.dll d3d12.dll"));
+    assert!(!vulkan_only(
+        &[b"vulkan-1.dll ".as_slice(), &wide("DXGI.dll")].concat()
+    ));
+    assert!(!vulkan_only(b"d3d11.dll"));
+    assert!(custom_providers(
+        b"..LoadLibraries Custom DLSSG {} initialized.."
+    ));
+    assert!(!custom_providers(b"FGNvngxReplacement Nukems Arturs"));
+    assert!(dlss_frame_generation("nvngx_dlssg.dll") && dlss_frame_generation("SL.DLSS_G.DLL"));
+    assert!(!dlss_frame_generation("nvngx_dlss.dll") && !dlss_frame_generation("sl.dlss.dll"));
 }
 
 #[test]
@@ -647,6 +321,8 @@ fn other_upscaler_mods_are_recognised_by_their_files() {
         "nvngx_dlss.dll",
         "Game.exe",
         "OptiScaler.log",
+        MANIFEST,
+        LEGACY_MANIFEST,
     ] {
         assert_eq!(other_mod(name), None, "{name}");
     }
@@ -698,26 +374,38 @@ fn anti_cheat_is_recognised_by_its_files_and_folders() {
     }
 }
 
-fn manifest() -> Manifest {
-    let placed = |text: &str| Placed {
+fn placed(text: &str) -> Placed {
+    Placed {
         sha256: hash(text),
         size: text.len() as u64,
-    };
+    }
+}
+
+fn manifest() -> Manifest {
     Manifest {
         by: PLACED_BY.into(),
-        release: "Alpha0.3.5.8".into(),
+        release: "FG-V.B16".into(),
         proxy: "dxgi.dll".into(),
+        mode: Mode::Full,
+        switches: vec![Switch::FrameGeneration],
         files: [
             ("dxgi.dll", placed("dll")),
             ("OptiScaler.ini", placed("ini")),
-            ("LmxxfNrRuntime.pak", placed("pak")),
-            ("OptiScaler/libxess.dll", placed("xess")),
+            (
+                "OptiScaler/custom/Apex Neural Rendering FG/dlssg/nr_fg.ini",
+                placed("fg ini"),
+            ),
+            (
+                "OptiScaler/custom/Apex Neural Rendering FG/dlssg/nvngx_dlssg.dll",
+                placed("fg"),
+            ),
         ]
         .into_iter()
         .map(|(path, placed)| (path.to_string(), placed))
         .collect(),
         previous: BTreeMap::new(),
         folders: vec!["OptiScaler".into()],
+        ini: None,
     }
 }
 
@@ -730,37 +418,33 @@ fn a_manifest_is_trusted_only_as_the_host_wrote_it() {
     other.by = "Someone".into();
     assert!(Manifest::parse(&serde_json::to_string(&other).unwrap()).is_err());
     let mut outside = good.clone();
-    outside.files.insert(
-        "../../Windows/System32/x.dll".into(),
-        Placed {
-            sha256: hash("x"),
-            size: 1,
-        },
-    );
+    outside
+        .files
+        .insert("../../Windows/System32/x.dll".into(), placed("x"));
     assert!(Manifest::parse(&serde_json::to_string(&outside).unwrap()).is_err());
     let mut folder = good.clone();
     folder.folders.push("C:/Windows".into());
     assert!(Manifest::parse(&serde_json::to_string(&folder).unwrap()).is_err());
+    let mut ini = good.clone();
+    ini.ini = Some(IniRecord {
+        path: "../OptiScaler.ini".into(),
+        before: BTreeMap::new(),
+        section_added: false,
+        break_added: false,
+    });
+    assert!(Manifest::parse(&serde_json::to_string(&ini).unwrap()).is_err());
     // An update's earlier forms only of files it names.
     let mut updating = good.clone();
-    updating.previous.insert(
-        "dxgi.dll".into(),
-        Placed {
-            sha256: hash("old dll"),
-            size: 7,
-        },
-    );
+    updating
+        .previous
+        .insert("dxgi.dll".into(), placed("old dll"));
     assert_eq!(
         Manifest::parse(&serde_json::to_string(&updating).unwrap()),
         Ok(updating.clone())
     );
-    updating.previous.insert(
-        "../../Windows/System32/x.dll".into(),
-        Placed {
-            sha256: hash("x"),
-            size: 1,
-        },
-    );
+    updating
+        .previous
+        .insert("../../Windows/System32/x.dll".into(), placed("x"));
     assert!(Manifest::parse(&serde_json::to_string(&updating).unwrap()).is_err());
     let mut name = good;
     name.proxy = "kernel32.dll".into();
@@ -768,133 +452,289 @@ fn a_manifest_is_trusted_only_as_the_host_wrote_it() {
     assert!(Manifest::parse("{").is_err());
 }
 
+/// Rubylight 3.0's AMDNR manifest, as it wrote it, still reads: its proxy
+/// may be any of the seven names, and it has no mode, switches or ini.
+#[test]
+fn a_rubylight_3_0_amdnr_manifest_still_reads() {
+    let text = format!(
+        r#"{{
+  "by": "Rubylight",
+  "release": "Alpha0.3.5.8R2",
+  "proxy": "winhttp.dll",
+  "files": {{
+    "winhttp.dll": {{"sha256": "{dll}", "size": 3}},
+    "OptiScaler.ini": {{"sha256": "{ini}", "size": 3}},
+    "LmxxfNrRuntime.pak": {{"sha256": "{pak}", "size": 3}}
+  }},
+  "folders": ["OptiScaler"]
+}}"#,
+        dll = hash("dll"),
+        ini = hash("ini"),
+        pak = hash("pak")
+    );
+    let legacy = Manifest::parse(&text).unwrap();
+    assert_eq!(legacy.proxy, "winhttp.dll");
+    assert_eq!(legacy.mode, Mode::Full);
+    assert!(legacy.switches.is_empty() && legacy.ini.is_none());
+    let removal = removal(&legacy, |path| match path {
+        "OptiScaler.ini" => Now::Changed,
+        "winhttp.dll" => Now::Changed,
+        _ => Now::Same,
+    });
+    assert_eq!(removal.delete, ["LmxxfNrRuntime.pak", "OptiScaler.ini"]);
+    assert_eq!(removal.keep, ["winhttp.dll"]);
+}
+
 #[test]
 fn removal_deletes_what_is_still_as_placed_and_keeps_what_changed() {
     let removal = removal(&manifest(), |path| match path {
         // Replaced by someone: no longer provably the mod.
         "dxgi.dll" => Now::Changed,
-        // The menu saved its settings.
+        // The menu saved its settings, and the user edited the provider's.
         "OptiScaler.ini" => Now::Changed,
-        "LmxxfNrRuntime.pak" => Now::Same,
+        "OptiScaler/custom/Apex Neural Rendering FG/dlssg/nr_fg.ini" => Now::Changed,
+        "OptiScaler/custom/Apex Neural Rendering FG/dlssg/nvngx_dlssg.dll" => Now::Same,
         _ => Now::Missing,
     });
-    assert_eq!(removal.delete, ["LmxxfNrRuntime.pak", "OptiScaler.ini"]);
+    assert_eq!(
+        removal.delete,
+        [
+            "OptiScaler.ini",
+            "OptiScaler/custom/Apex Neural Rendering FG/dlssg/nr_fg.ini",
+            "OptiScaler/custom/Apex Neural Rendering FG/dlssg/nvngx_dlssg.dll"
+        ]
+    );
     assert_eq!(removal.keep, ["dxgi.dll"]);
     assert!(
         logs("OptiScaler.log")
             && logs("lmxxf_backend.log")
             && logs("OptiScaler.previous-1.Game.exe.log")
     );
-    assert!(
-        !logs("Game.log") && !logs("AMDNR-report-Game.exe-2026.zip") && !logs("OptiScaler.ini")
-    );
+    assert!(!logs("Game.log") && !logs("OptiScaler.ini"));
+    assert!(provider_logs("nr_fg-20261114-101500.log") && !provider_logs("nr_fg.ini"));
 }
 
-fn gpu(name: &str, arch: &str, compute_units: u32) -> Gpu {
-    Gpu {
-        name: name.into(),
-        arch: arch.into(),
-        compute_units,
-        luid: None,
+/// An ini as `lines` joined with `ending`, a BOM in front when `bom`.
+fn ini(lines: &[&str], ending: &str, bom: bool, trailing: bool) -> Vec<u8> {
+    let mut text = lines.join(ending);
+    if trailing {
+        text.push_str(ending);
     }
-}
-
-/// The GPU that streams, by name only (the runtime reported no LUID).
-fn streams(name: &str) -> Streams {
-    Streams {
-        name: name.into(),
-        luid: 0x1_99dc,
-    }
-}
-
-#[test]
-fn the_switch_is_offered_by_what_the_compute_runtime_reports() {
-    let driver = Some("26.10.1");
-    for supported in [
-        gpu("AMD Radeon RX 9070 XT", "gfx1201", 64),
-        gpu("AMD Radeon RX 7900 XT", "gfx1100", 84),
-        gpu("AMD Radeon RX 7600", "gfx1102", 32),
-        gpu("AMD Radeon 780M Graphics", "gfx1103", 12),
-        gpu("AMD Radeon(TM) Graphics", "gfx1103", 12),
-        gpu("AMD Radeon 890M Graphics", "gfx1150", 16),
-        gpu("AMD Radeon 8060S Graphics", "gfx1151", 40),
-    ] {
-        assert_eq!(
-            capable(
-                std::slice::from_ref(&supported),
-                driver,
-                &streams(&supported.name)
-            ),
-            Ok(&supported)
-        );
-    }
-    let name = "AMD Radeon 760M Graphics";
-    let small = capable(&[gpu(name, "gfx1103", 8)], driver, &streams(name)).unwrap_err();
-    assert!(
-        small.contains("12 or more compute units")
-            && small.contains("760M")
-            && small.contains("has 8"),
-        "{small}"
-    );
-    let name = "AMD Radeon RX 6800 XT";
-    let rdna2 = capable(&[gpu(name, "gfx1030", 72)], driver, &streams(name)).unwrap_err();
-    assert!(
-        rdna2.contains("RDNA 3 and RDNA 4") && rdna2.contains("gfx1030"),
-        "{rdna2}"
-    );
-    let name = "Radeon Vega 8";
-    assert!(capable(&[gpu(name, "gfx90c", 8)], driver, &streams(name)).is_err());
-    assert!(
-        capable(&[], driver, &streams(name))
-            .unwrap_err()
-            .contains("finds no GPU")
-    );
-}
-
-/// Only the GPU the host streams with counts, and only with a driver whose
-/// AMD Software version is known and new enough.
-#[test]
-fn the_switch_needs_the_streaming_gpu_and_a_known_new_driver() {
-    let card = "AMD Radeon RX 7900 XT";
-    // An RDNA 2 integrated GPU beside an RX 7900 XT.
-    let mut both = [
-        gpu("AMD Radeon(TM) Graphics", "gfx1036", 2),
-        gpu(card, "gfx1100", 84),
-    ];
-    let driver = Some("26.10.1");
-    assert_eq!(capable(&both, driver, &streams(card)).unwrap().name, card);
-    // Streaming with the integrated GPU: the card doesn't make it capable.
-    let integrated = capable(&both, driver, &streams("AMD Radeon(TM) Graphics")).unwrap_err();
-    assert!(integrated.contains("RDNA 3 and RDNA 4"), "{integrated}");
-    // A GPU the runtime doesn't find at all.
-    let missing = capable(&both, driver, &streams("NVIDIA GeForce RTX 4090")).unwrap_err();
-    assert!(missing.contains("RTX 4090"), "{missing}");
-    // By LUID when the runtime reports one, whatever the names.
-    both[0].luid = Some(7);
-    both[1].luid = Some(0x1_99dc);
-    let by_luid = Streams {
-        name: "Another name".into(),
-        luid: 0x1_99dc,
+    let mut bytes = if bom {
+        b"\xef\xbb\xbf".to_vec()
+    } else {
+        Vec::new()
     };
-    assert_eq!(capable(&both, driver, &by_luid).unwrap().name, card);
-    // Two cards of one name and neither LUID: which streams is unknown.
-    let twins = [gpu(card, "gfx1100", 84), gpu(card, "gfx1100", 84)];
-    assert!(capable(&twins, driver, &streams(card)).is_err());
+    bytes.extend_from_slice(text.as_bytes());
+    bytes
+}
 
-    let one = [gpu(card, "gfx1100", 84)];
-    let old = capable(&one, Some("25.10.2"), &streams(card)).unwrap_err();
+fn values(bytes: &[u8]) -> Vec<Option<String>> {
+    let ini = Ini::read(bytes).unwrap();
+    INI_VALUES
+        .iter()
+        .map(|(key, _)| ini.get(INI_SECTION, key).unwrap())
+        .collect()
+}
+
+#[test]
+fn the_addon_sets_three_values_and_puts_back_exactly_what_was_there() {
+    let stock = [
+        "; OptiScaler",
+        "[FrameGen]",
+        "; Selected FG Input",
+        "FGInput = auto",
+        "",
+        "FGNvngxReplacement=auto",
+        "",
+        "DisableHudless=auto",
+        "",
+        "[DLSSG]",
+        "DisableHudless = auto",
+        "",
+        "[Libraries]",
+        "OptiDllPath=auto",
+    ];
+    let partial = [
+        "[FrameGen]",
+        "Enabled=true",
+        "",
+        "[Libraries]",
+        "OptiDllPath=auto",
+    ];
+    let none = ["[Upscalers]", "Dx12Upscaler=fsr31"];
+    for lines in [&stock[..], &partial[..], &none[..], &[][..]] {
+        for ending in ["\r\n", "\n"] {
+            for bom in [false, true] {
+                for trailing in [false, true] {
+                    let before = ini(lines, ending, bom, trailing);
+                    let (after, record) = ini_apply(&before, "OptiScaler.ini", None).unwrap();
+                    assert_eq!(
+                        values(&after),
+                        [
+                            Some("nvngxfg".into()),
+                            Some(PROVIDER.into()),
+                            Some("false".into())
+                        ],
+                        "{lines:?} {ending:?}"
+                    );
+                    // Its line endings and byte order mark stay.
+                    assert_eq!(after.starts_with(b"\xef\xbb\xbf"), bom);
+                    let text = String::from_utf8_lossy(&after);
+                    if ending == "\r\n" && !lines.is_empty() {
+                        assert!(!text.replace("\r\n", "").contains('\n'), "{text:?}");
+                    }
+                    // The other section's DisableHudless is not touched.
+                    if lines == stock {
+                        assert!(text.contains("DisableHudless = auto"), "{text:?}");
+                    }
+                    let restored = ini_restore(&after, &record).unwrap();
+                    assert_eq!(
+                        String::from_utf8_lossy(&restored),
+                        String::from_utf8_lossy(&before),
+                        "{lines:?} {ending:?} bom {bom} trailing {trailing}"
+                    );
+                    // A second apply keeps the first record.
+                    let (again, kept) = ini_apply(&after, "OptiScaler.ini", Some(&record)).unwrap();
+                    assert_eq!(again, after);
+                    assert_eq!(kept, record);
+                }
+            }
+        }
+    }
+    // OptiScaler's menu changed a value since: it is put back all the same.
+    let before = ini(&stock, "\r\n", false, true);
+    let (after, record) = ini_apply(&before, "OptiScaler.ini", None).unwrap();
+    let edited = String::from_utf8(after)
+        .unwrap()
+        .replace("FGInput=nvngxfg", "FGInput=fsrfg");
+    assert_eq!(ini_restore(edited.as_bytes(), &record).unwrap(), before);
+    // What it can't change and put back exactly, it refuses.
+    assert!(ini_apply(b"\xff\xfe[\x00", "OptiScaler.ini", None).is_err());
+    let twice = ini(&["[FrameGen]", "FGInput=a", "FGInput=b"], "\n", false, true);
     assert!(
-        old.contains("26.9.1 or newer") && old.contains("25.10.2"),
-        "{old}"
+        ini_apply(&twice, "OptiScaler.ini", None)
+            .unwrap_err()
+            .contains("twice")
     );
-    assert!(capable(&one, Some("26.9.1"), &streams(card)).is_ok());
-    for unknown in [None, Some("unknown"), Some("")] {
-        let error = capable(&one, unknown, &streams(card)).unwrap_err();
+    let sections = ini(&["[FrameGen]", "[framegen]"], "\n", false, true);
+    assert!(ini_apply(&sections, "OptiScaler.ini", None).is_err());
+}
+
+#[test]
+fn optiscalers_folder_comes_from_its_ini_and_stays_in_the_game_folder() {
+    let with = |value: &str| {
+        ini(
+            &["[Libraries]", &format!("OptiDllPath={value}")],
+            "\r\n",
+            false,
+            true,
+        )
+    };
+    assert_eq!(opti_dir(&with("auto"), true).as_deref(), Ok("OptiScaler"));
+    assert_eq!(opti_dir(&with("auto"), false).as_deref(), Ok(""));
+    assert_eq!(opti_dir(b"[FrameGen]\n", true).as_deref(), Ok("OptiScaler"));
+    assert_eq!(
+        opti_dir(&with(".\\Mods\\Opti\\"), false).as_deref(),
+        Ok("Mods/Opti")
+    );
+    assert_eq!(
+        opti_dir(&with("\".\\OptiScaler\""), false).as_deref(),
+        Ok("OptiScaler")
+    );
+    assert_eq!(opti_dir(&with("."), true).as_deref(), Ok(""));
+    for outside in [
+        "C:\\Mods",
+        "..\\Mods",
+        "\\\\server\\share",
+        "/x",
+        "a/../../b",
+    ] {
+        assert!(opti_dir(&with(outside), true).is_err(), "{outside}");
+    }
+}
+
+fn streams(vendor: u32, device: u32) -> Streams {
+    Streams {
+        name: "GPU".into(),
+        luid: 7,
+        vendor,
+        device,
+    }
+}
+
+fn gpu(arch: &str, luid: Option<u64>) -> Gpu {
+    Gpu {
+        name: "GPU".into(),
+        arch: arch.into(),
+        compute_units: 12,
+        luid,
+    }
+}
+
+#[test]
+fn the_switch_is_offered_on_the_gpus_the_provider_runs_on() {
+    let none: [&str; 0] = [];
+    // NVIDIA: Turing (GTX 16, RTX 20) and every newer device ID.
+    assert!(capable(&streams(NVIDIA, 0x1e04), Err("no HIP"), &none).is_ok());
+    assert!(capable(&streams(NVIDIA, 0x2684), Err("no HIP"), &none).is_ok());
+    assert!(capable(&streams(NVIDIA, 0x3100), Err("no HIP"), &none).is_ok());
+    let pascal = capable(&streams(NVIDIA, 0x1b80), Err("no HIP"), &none).unwrap_err();
+    assert!(pascal.contains("older"), "{pascal}");
+    // AMD by the compute runtime's architecture.
+    for arch in ["gfx1010", "gfx1030", "gfx1103", "gfx1151", "gfx1201"] {
         assert!(
-            error.contains("26.9.1 or newer") && error.contains("can't be read"),
-            "{error}"
+            capable(&streams(AMD, 0xffff), Ok(&[gpu(arch, Some(7))]), &none).is_ok(),
+            "{arch}"
         );
     }
-    assert_eq!(driver_version("26.10.1"), Some((26, 10, 1)));
-    assert_eq!(driver_version("26.9"), Some((26, 9, 0)));
+    let vega = capable(&streams(AMD, 0x15d8), Ok(&[gpu("gfx90c", Some(7))]), &none).unwrap_err();
+    assert!(vega.contains("older"), "{vega}");
+    // By name when the runtime gives no LUID, and only when the name is unique.
+    assert!(capable(&streams(AMD, 0xffff), Ok(&[gpu("gfx1100", None)]), &none).is_ok());
+    // The runtime can't say: the PCI device ID (this laptop's 780M is 0x1900).
+    for device in [0x1900, 0x15bf, 0x744c, 0x7550, 0x731f, 0x150e] {
+        assert!(
+            capable(&streams(AMD, device), Err("no HIP"), &none).is_ok(),
+            "{device:#x}"
+        );
+    }
+    let unknown = capable(&streams(AMD, 0x15d8), Err("no HIP"), &none).unwrap_err();
+    assert!(
+        unknown.contains("can't identify") && unknown.contains("no HIP"),
+        "{unknown}"
+    );
+    let twins = [gpu("gfx1100", None), gpu("gfx1100", None)];
+    assert!(
+        capable(&streams(AMD, 0x15d8), Ok(&twins), &none)
+            .unwrap_err()
+            .contains("can't identify")
+    );
+    // Neither AMD nor NVIDIA.
+    assert!(capable(&streams(0x8086, 0x56a0), Err("no HIP"), &none).is_err());
+    // The Visual C++ runtime OptiScaler links comes first.
+    let missing = capable(
+        &streams(NVIDIA, 0x2684),
+        Err("no HIP"),
+        &["VCRUNTIME140_1.dll"],
+    )
+    .unwrap_err();
+    assert!(
+        missing.contains("Visual C++") && missing.contains("VCRUNTIME140_1.dll"),
+        "{missing}"
+    );
+}
+
+#[test]
+fn switches_have_stable_ids() {
+    assert_eq!(Switch::FrameGeneration.id(), "frame-generation");
+    assert_eq!(
+        Switch::from_id("frame-generation"),
+        Some(Switch::FrameGeneration)
+    );
+    assert_eq!(Switch::from_id("upscaling"), None);
+    assert_eq!(
+        serde_json::to_value(Switch::FrameGeneration).unwrap(),
+        json!("frame-generation")
+    );
 }

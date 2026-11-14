@@ -1,17 +1,21 @@
-//! Neural Rendering: a per-app switch that puts a neural upscaling mod into
-//! the game's folder and takes it out again.
+//! Neural Rendering: a per-app switch that puts frame generation into the
+//! game's folder and takes it out again.
 //!
-//! The mod is AMDNR by 3zwr1 (https://github.com/3zwr1/AMD-NR---OptiScaler,
-//! GPL-3.0), an OptiScaler fork that loads as a proxy DLL. Rubylight never
-//! hosts, bundles, mirrors or modifies its files: when the user turns the
-//! switch on, this PC downloads the release Rubylight pins
-//! ([`butterpollo_core::neural::PINNED`]): its archive, and the release's own
-//! runtime component when the archive lacks the runtime, straight from that
-//! GitHub release ([`butterpollo_core::neural::asset`] says which), checks
-//! them against GitHub's digests and the release's SHA256SUMS.txt, keeps
-//! them in a cache and copies the files unmodified into the game's folder
-//! ([`folder`]). A launch checks them and finishes an update cut short;
-//! no other release is ever taken on its own.
+//! It is ANR FG by Apex Compute (https://github.com/apex-compute/ANR, no
+//! licence published), a DLSS frame generation provider that OptiScaler
+//! (GPL-3.0) loads in place of the game's own. Rubylight never hosts,
+//! bundles, mirrors or modifies its files: when the user turns the switch
+//! on, this PC downloads the release Rubylight pins
+//! ([`butterpollo_core::neural::PINNED`]): its full package and add-on,
+//! straight from that GitHub release ([`butterpollo_core::neural::asset`]
+//! says which), checks them against the pin, GitHub's digests and the
+//! release's SHA256SUMS.txt, keeps them in a cache and copies the files
+//! unmodified into the game's folder ([`folder`]). A launch checks them and
+//! finishes an update cut short; no other release is ever taken on its own.
+//!
+//! Rubylight 3.0 offered AMDNR (neural upscaling) here instead. Its
+//! installs stay until the user removes them ([`LEGACY_KEY`]); turning frame
+//! generation on for such a game takes AMDNR out first.
 pub mod folder;
 #[cfg(test)]
 mod tests;
@@ -34,15 +38,21 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// The app's setting: `{"exe", "release", "proxy"}` once the mod is in its
-/// folder. Only the host writes it.
-pub const KEY: &str = "neural-rendering";
+/// The app's setting: `{"exe", "release", "proxy", "mode", "switches"}`
+/// once the files are in its folder. Only the host writes it.
+pub const KEY: &str = "neural-anr";
+/// Rubylight 3.0's setting for the AMDNR it installed (`{"exe", "release",
+/// "proxy"}`): kept until the files are removed, never set again.
+pub const LEGACY_KEY: &str = "neural-rendering";
 /// The hidden flag that makes the host exe report what the compute runtime sees.
 #[cfg_attr(test, allow(dead_code, reason = "tests answer for the probe"))]
 const PROBE_FLAG: &str = "--neural-probe";
 const PROBE_ANSWER: &str = "NEURAL-PROBE ";
 /// The user's acceptance of the notice and the pending removals.
 const SETTINGS_FILE: &str = "neural.json";
+/// The record's acceptance of this release's notice. Rubylight 3.0's
+/// `accepted_at` was AMDNR's and does not count.
+const ACCEPTED: &str = "anr_accepted_at";
 /// A failed probe is asked again after this; a driver update needs no restart.
 const PROBE_RETRY: Duration = Duration::from_secs(300);
 /// The record's list of removals still to do.
@@ -66,6 +76,12 @@ pub struct Neural {
     cache: RwLock<()>,
     #[cfg(test)]
     pub probe: Mutex<Option<Probe>>,
+    /// A test's streaming GPU in place of this PC's.
+    #[cfg(test)]
+    pub streams: Mutex<Option<neural::Streams>>,
+    /// A test's missing Visual C++ runtime files in place of this PC's.
+    #[cfg(test)]
+    pub vc_missing: Mutex<Vec<&'static str>>,
     /// A test's server in place of GitHub.
     #[cfg(test)]
     pub origin: Mutex<Option<String>>,
@@ -141,7 +157,6 @@ pub struct Job {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Probe {
     pub gpus: Vec<Gpu>,
-    pub driver: Option<String>,
     pub error: Option<String>,
 }
 
@@ -157,22 +172,13 @@ impl Neural {
     }
 }
 
-/// `butterpollo.exe --neural-probe`: the GPUs the compute runtime finds and
-/// the AMD Software version, as one line.
+/// `butterpollo.exe --neural-probe`: the GPUs the AMD compute runtime
+/// finds, as one line.
 pub fn probe_main() -> i32 {
-    // AMD Software's own version: the Windows driver version is another scheme.
-    let driver = butterpollo_windows::radeon::adlx::amd_software_version()
-        .ok()
-        .flatten();
     let probe = match butterpollo_windows::hip::gpus() {
-        Ok(gpus) => Probe {
-            gpus,
-            driver,
-            error: None,
-        },
+        Ok(gpus) => Probe { gpus, error: None },
         Err(error) => Probe {
             gpus: Vec::new(),
-            driver,
             error: Some(format!("{error:#}")),
         },
     };
@@ -184,9 +190,10 @@ pub fn probe_main() -> i32 {
     }
 }
 
-/// The GPU Neural Rendering runs on, or why this PC cannot have it. Probed
-/// in a helper process once, again a while after a failure, and again once
-/// the GPU or display a stream uses is set otherwise. Blocks.
+/// The GPU Neural Rendering runs on, or why this PC cannot have it: the GPU
+/// a stream uses ([`neural::capable`]), an AMD one asked about in a helper
+/// process. Asked once, again a while after a failure, and again once the
+/// GPU or display a stream uses is set otherwise. Blocks.
 pub fn capability(h: &Shared) -> Result<String, String> {
     let setting = gpu_setting(h);
     if let Some((at, probed, result)) = &h.neural.lock().probe
@@ -195,14 +202,18 @@ pub fn capability(h: &Shared) -> Result<String, String> {
     {
         return result.clone();
     }
-    let result = run_probe(h).and_then(|probe| match probe.error {
-        Some(error) if probe.gpus.is_empty() => Err(error),
-        _ => neural::capable(
-            &probe.gpus,
-            probe.driver.as_deref(),
-            &streams_with(&setting, &probe)?,
-        )
-        .map(|gpu| gpu.name.clone()),
+    let result = streams_with(h, &setting).and_then(|streams| {
+        // Only an AMD GPU needs the compute runtime, which no other driver has.
+        let probe = if streams.vendor == neural::AMD {
+            run_probe(h).and_then(|probe| match probe.error {
+                Some(error) if probe.gpus.is_empty() => Err(error),
+                _ => Ok(probe.gpus),
+            })
+        } else {
+            Err("not an AMD GPU".into())
+        };
+        let missing = vc_missing(h);
+        neural::capable(&streams, probe.as_deref().map_err(String::as_str), &missing)
     });
     if let Err(reason) = &result {
         tracing::info!(%reason, "Neural Rendering is not available on this PC");
@@ -219,26 +230,55 @@ fn gpu_setting(h: &Shared) -> GpuSetting {
     ["output_name", "adapter_name", "adapter_pnp_id"].map(|key| config.get(key, "").to_string())
 }
 
+/// The Visual C++ runtime files OptiScaler needs that this PC lacks.
+#[cfg(not(test))]
+fn vc_missing(_: &Shared) -> Vec<&'static str> {
+    let system = std::env::var_os("SystemRoot")
+        .map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from)
+        .join("System32");
+    neural::VC_RUNTIME
+        .into_iter()
+        .filter(|file| !system.join(file).is_file())
+        .collect()
+}
+#[cfg(test)]
+fn vc_missing(h: &Shared) -> Vec<&'static str> {
+    h.neural.vc_missing.lock().unwrap().clone()
+}
+
 /// The GPU this host captures and encodes with: the Graphics card setting's,
 /// or the one that drives the display it streams.
 #[cfg(not(test))]
-fn streams_with(setting: &GpuSetting, _: &Probe) -> Result<neural::Streams, String> {
+fn streams_with(_: &Shared, setting: &GpuSetting) -> Result<neural::Streams, String> {
     let [display, adapter_name, pnp_id] = setting;
     let (name, (low, high)) =
         butterpollo_windows::capture::stream_gpu(display, adapter_name, pnp_id)
             .map_err(|e| format!("the GPU Rubylight streams with can't be found: {e:#}"))?;
+    let gpu = butterpollo_windows::capture::gpus()
+        .map_err(|e| format!("the GPUs can't be listed: {e:#}"))?
+        .into_iter()
+        .find(|gpu| gpu.luid == (low, high))
+        .ok_or_else(|| format!("the GPU Rubylight streams with ({name}) can't be identified"))?;
     Ok(neural::Streams {
         name,
         luid: (u64::from(high as u32) << 32) | u64::from(low),
+        vendor: gpu.vendor,
+        device: gpu.device,
     })
 }
-/// Tests stream with the probe's first GPU.
+/// Tests stream with their own GPU, else the probe's first one.
 #[cfg(test)]
-fn streams_with(_: &GpuSetting, probe: &Probe) -> Result<neural::Streams, String> {
+fn streams_with(h: &Shared, _: &GpuSetting) -> Result<neural::Streams, String> {
+    if let Some(streams) = h.neural.streams.lock().unwrap().clone() {
+        return Ok(streams);
+    }
+    let probe = run_probe(h)?;
     let gpu = probe.gpus.first().ok_or("no GPU in this test")?;
     Ok(neural::Streams {
         name: gpu.name.clone(),
         luid: gpu.luid.unwrap_or_default(),
+        vendor: neural::AMD,
+        device: 0,
     })
 }
 
@@ -435,14 +475,14 @@ fn update_settings(h: &Shared, change: impl FnOnce(&mut Value) -> Result<()>) ->
 }
 /// Whether the user accepted the notice that comes before the first download.
 pub fn accepted(h: &Shared) -> bool {
-    settings(h)["accepted_at"].as_u64().is_some()
+    settings(h)[ACCEPTED].as_u64().is_some()
 }
 pub fn accept(h: &Shared) -> Result<()> {
     update_settings(h, |value| {
-        value["accepted_at"] = json!(now());
+        value[ACCEPTED] = json!(now());
         Ok(())
     })?;
-    tracing::info!("Neural Rendering: the user accepted the third-party mod notice");
+    tracing::info!("Neural Rendering: the user accepted the third-party frame generation notice");
     Ok(())
 }
 fn now() -> u64 {
@@ -453,13 +493,38 @@ fn now() -> u64 {
 
 // ---- The cache ----
 
-/// `%ProgramData%\Butterpollo\neural` for the installed host, the profile's
-/// own `neural` folder for any other.
+/// `%ProgramData%\Butterpollo\neural-anr` for the installed host, the
+/// profile's own `neural-anr` folder for any other.
 pub fn cache_root(h: &Shared) -> PathBuf {
+    legacy_cache_root(h).with_file_name("neural-anr")
+}
+
+/// Where Rubylight 3.0 kept its AMDNR download: `neural` beside the cache.
+fn legacy_cache_root(h: &Shared) -> PathBuf {
     if h.directory == butterpollo_core::paths::installed_profile() {
         butterpollo_core::paths::data_root().join("neural")
     } else {
         h.directory.join("neural")
+    }
+}
+
+/// Delete Rubylight 3.0's AMDNR download, which nothing installs from any
+/// more, once the host starts: only from a cache this host trusts, never
+/// through a link on the way. Game folders keep their copies. Blocks.
+pub fn clear_legacy_cache(h: &Shared) {
+    let root = legacy_cache_root(h);
+    if !root.exists() {
+        return;
+    }
+    let cleared = trusted_root(&root, butterpollo_windows::process::is_system())
+        .and_then(|()| std::fs::remove_dir_all(&root).map_err(anyhow::Error::from));
+    match cleared {
+        Ok(()) => {
+            tracing::info!(folder = %root.display(), "Neural Rendering: deleted the earlier upscaling download")
+        }
+        Err(error) => {
+            tracing::warn!(folder = %root.display(), error = %format!("{error:#}"), "Neural Rendering: the earlier upscaling download could not be deleted")
+        }
     }
 }
 
@@ -531,18 +596,11 @@ fn pinned(h: &Shared) -> neural::Pin<'static> {
 /// Whether the cached `package` is the `pin`ned release: the same archives
 /// by name and SHA-256, not only the same tag.
 fn serves(package: &Package, pin: &neural::Pin) -> bool {
-    let runtime = match (&package.runtime, &pin.runtime) {
-        // The package held the runtime itself.
-        (None, _) => true,
-        (Some(asset), Some(runtime)) => {
-            asset == runtime.asset && package.runtime_digest.as_deref() == Some(runtime.sha256)
-        }
-        (Some(_), None) => false,
-    };
-    package.tag == pin.tag
-        && package.asset == pin.package.asset
-        && package.digest == pin.package.sha256
-        && runtime
+    let wanted: BTreeMap<String, String> = [pin.full, pin.addon]
+        .into_iter()
+        .map(|file| (file.asset.to_owned(), file.sha256.to_owned()))
+        .collect();
+    package.tag == pin.tag && package.archives == wanted
 }
 
 /// The cached release's files against its package.json, once per host
@@ -678,31 +736,19 @@ async fn fetch_locked(
         .error_for_status()?
         .json()
         .await?;
-    let mut release = neural::pinned(&listed, &files_origin, &pin).map_err(anyhow::Error::msg)?;
-    match whole(&api, &release).await? {
-        Some(neural::Runtime::Package) => release.runtime = None,
-        Some(neural::Runtime::Component) => {}
-        None => bail!(
-            "release {} lacks the neural runtime or checksums; nothing was downloaded",
-            release.tag
-        ),
-    }
-    let archives: Vec<&Download> = [Some(&release.package), release.runtime.as_ref()]
-        .into_iter()
-        .flatten()
-        .collect();
-    if let Some(sums) = &release.sums {
-        let path = root.join(format!("{}.partial", sums.asset));
-        let text = match download(h, sums, &path, &|_, _| {}).await {
-            Ok(()) => std::fs::read_to_string(&path)
-                .with_context(|| format!("the release's {} is unreadable", sums.asset)),
-            Err(error) => Err(error),
-        };
-        let _ = std::fs::remove_file(&path);
-        let sums = neural::sums(&text?).map_err(anyhow::Error::msg)?;
-        neural::check_archives(&archives, &sums)
-            .map_err(|e| anyhow!("{e}; nothing was downloaded"))?;
-    }
+    let release = neural::pinned(&listed, &files_origin, &pin).map_err(anyhow::Error::msg)?;
+    // The release's checksum list (itself pinned) names both archives with
+    // the digests GitHub reports.
+    let sums_path = root.join(format!("{}.partial", release.sums.asset));
+    let text = match download(h, &release.sums, &sums_path, &|_, _| {}).await {
+        Ok(()) => std::fs::read_to_string(&sums_path)
+            .with_context(|| format!("the release's {} is unreadable", release.sums.asset)),
+        Err(error) => Err(error),
+    };
+    let _ = std::fs::remove_file(&sums_path);
+    let sums = neural::sums(&text?).map_err(anyhow::Error::msg)?;
+    let archives = [&release.full, &release.addon];
+    neural::check_archives(&archives, &sums).map_err(|e| anyhow!("{e}; nothing was downloaded"))?;
     let paths: Vec<PathBuf> = archives
         .iter()
         .map(|archive| root.join(format!("{}.partial", archive.asset)))
@@ -748,71 +794,8 @@ async fn fetch_locked(
     }
     .inspect_err(|_| discard())?;
     discard();
-    tracing::info!(release = %release.tag, asset = %release.package.asset, runtime = release.runtime.as_ref().map(|r| r.asset.as_str()), folder = %folder.display(), "Neural Rendering: downloaded and checked the mod's release");
+    tracing::info!(release = %release.tag, folder = %folder.display(), "Neural Rendering: downloaded and checked the frame generation release");
     Ok((folder, package))
-}
-
-/// Whether the release has the whole mod and where its runtime is, from its
-/// archives' file lists read with range requests.
-async fn whole(api: &reqwest::Client, release: &Release) -> Result<Option<neural::Runtime>> {
-    let package = listing(api, &release.package).await?;
-    if let found @ Some(_) = neural::complete(release, &package, None) {
-        return Ok(found);
-    }
-    let Some(runtime) = &release.runtime else {
-        return Ok(None);
-    };
-    let component = listing(api, runtime).await?;
-    Ok(neural::complete(release, &package, Some(&component)))
-}
-
-/// An archive's file names, from its directory read with two range requests.
-async fn listing(api: &reqwest::Client, archive: &Download) -> Result<Vec<String>> {
-    let span = archive.size.min(22 + 65_535);
-    let start = archive.size - span;
-    let tail = range(api, &archive.url, start, span).await?;
-    let (offset, length) = neural::directory_span(&tail, archive.size)
-        .map_err(|e| anyhow!("{}: {e}", archive.asset))?;
-    ensure!(
-        length <= 16 << 20,
-        "{}'s file list is implausibly large",
-        archive.asset
-    );
-    let directory = if offset >= start {
-        tail[(offset - start) as usize..][..length as usize].to_vec()
-    } else {
-        range(api, &archive.url, offset, length).await?
-    };
-    neural::directory_names(&directory).map_err(|e| anyhow!("{}: {e}", archive.asset))
-}
-
-async fn range(api: &reqwest::Client, url: &str, start: u64, length: u64) -> Result<Vec<u8>> {
-    let response = api
-        .get(url)
-        .header("Range", format!("bytes={start}-{}", start + length - 1))
-        .send()
-        .await?
-        .error_for_status()?;
-    ensure!(
-        response.status() == reqwest::StatusCode::PARTIAL_CONTENT,
-        "GitHub answered a part of the archive with {}",
-        response.status()
-    );
-    let mut response = response;
-    let mut body = Vec::new();
-    while let Some(part) = response.chunk().await? {
-        ensure!(
-            body.len() + part.len() <= length as usize,
-            "GitHub sent more than the part asked for"
-        );
-        body.extend_from_slice(&part);
-    }
-    ensure!(
-        body.len() as u64 == length,
-        "GitHub sent {} of {length} bytes",
-        body.len()
-    );
-    Ok(body)
 }
 
 async fn download(
@@ -821,7 +804,7 @@ async fn download(
     path: &Path,
     progress: &(dyn Fn(u64, u64) + Sync),
 ) -> Result<()> {
-    // `releases` offers nothing else; this keeps it so.
+    // `pinned` offers nothing else; this keeps it so.
     ensure!(
         neural::allowed_asset(&release.asset),
         "{} is not a file Rubylight fetches",
@@ -875,12 +858,9 @@ fn verified(size: u64, sha256: &str, release: &Download) -> Result<()> {
     Ok(())
 }
 
-/// Unpack the release into the cache: the package's files and, from the
-/// runtime component when the release uses one, only the runtime and its
-/// licences. `archives` are the package and the component as downloaded
-/// (already checked against the release's SHA256SUMS.txt when it has one);
-/// an archive with its own checksum list has each file checked against it.
-/// Blocks.
+/// Unpack the release into the cache: from each archive (the full package,
+/// then the add-on, as downloaded and checked) what [`neural::Archive`]
+/// takes, under `files/<prefix>/`. Blocks.
 fn extract(archives: &[PathBuf], root: &Path, release: &Release) -> Result<(PathBuf, Package)> {
     let staging = root.join(format!("{}.partial", release.tag));
     if staging.exists() {
@@ -888,43 +868,25 @@ fn extract(archives: &[PathBuf], root: &Path, release: &Release) -> Result<(Path
     }
     let into = staging.join("files");
     std::fs::create_dir_all(&into)?;
-    let mut total = 0u64;
-    let [package, rest @ ..] = archives else {
-        bail!("no archive to unpack");
+    let [full, addon] = archives else {
+        bail!("the release's two archives are not there to unpack");
     };
-    let asset = &release.package.asset;
-    let (mut files, sums) = unpack(package, asset, &into, |_| true, &mut total)?;
-    checked(asset, &files, sums, release)?;
-    match (rest, &release.runtime) {
-        ([], None) => {}
-        ([component], Some(runtime)) => {
-            // The package's own licence files stay; the runtime is only in the component.
-            let (taken, sums) = unpack(
-                component,
-                &runtime.asset,
-                &into,
-                |path| neural::from_component(path) && !files.contains_key(path),
-                &mut total,
-            )?;
-            checked(&runtime.asset, &taken, sums, release)?;
-            files.extend(taken);
-        }
-        _ => bail!("the release's archives and its runtime component do not match"),
+    let mut total = 0u64;
+    let mut files = BTreeMap::new();
+    for (path, kind, download) in [
+        (full, neural::Archive::Full, &release.full),
+        (addon, neural::Archive::Addon, &release.addon),
+    ] {
+        files.extend(unpack(path, &download.asset, kind, &into, &mut total)?);
     }
     neural::check_whole(&files)
         .map_err(|e| anyhow!("{}: {e}; nothing was installed", release.tag))?;
     let package = Package {
         tag: release.tag.clone(),
-        asset: asset.clone(),
-        digest: release.package.digest.clone(),
-        runtime: release
-            .runtime
-            .as_ref()
-            .map(|runtime| runtime.asset.clone()),
-        runtime_digest: release
-            .runtime
-            .as_ref()
-            .map(|runtime| runtime.digest.clone()),
+        archives: [&release.full, &release.addon]
+            .into_iter()
+            .map(|download| (download.asset.clone(), download.digest.clone()))
+            .collect(),
         files,
     };
     butterpollo_core::state::write_json(&staging.join(PACKAGE), &package)?;
@@ -952,47 +914,30 @@ fn extract(archives: &[PathBuf], root: &Path, release: &Release) -> Result<(Path
     Ok((folder, package))
 }
 
-/// Unpack the entries of one archive that `take` accepts into `into`, with
-/// their SHA-256, and read the archive's own checksum list if it has one.
-/// Every entry must name a path inside the folder, taken or not. Blocks.
+/// Unpack the entries of one archive that `kind` takes into
+/// `into/<prefix>/`, with their SHA-256, keyed by that cache path. Every
+/// entry must name a path inside the folder, taken or not. Blocks.
 fn unpack(
     archive: &Path,
     asset: &str,
+    kind: neural::Archive,
     into: &Path,
-    take: impl Fn(&str) -> bool,
     total: &mut u64,
-) -> Result<(BTreeMap<String, Placed>, Option<String>)> {
+) -> Result<BTreeMap<String, Placed>> {
     let mut zip = zip::ZipArchive::new(std::fs::File::open(archive)?)
         .with_context(|| format!("{asset} is no zip archive"))?;
     let mut files = BTreeMap::new();
-    let mut sums = None;
     for index in 0..zip.len() {
         let mut entry = zip.by_index(index)?;
         let name = entry.name().to_owned();
         let path = neural::entry_path(&name)
             .with_context(|| format!("{asset} has a file outside its folder: {name:?}"))?;
-        if entry.is_dir() {
+        if entry.is_dir() || !kind.takes(&path) {
             continue;
         }
-        if path == neural::SUMS {
-            ensure!(sums.is_none(), "{asset} has {path} twice");
-            let mut text = String::new();
-            (&mut entry)
-                .take(neural::MAX_SUMS + 1)
-                .read_to_string(&mut text)
-                .with_context(|| format!("{asset}'s {path} is unreadable"))?;
-            ensure!(
-                text.len() as u64 <= neural::MAX_SUMS,
-                "{asset}'s {path} is implausibly large"
-            );
-            sums = Some(text);
-            continue;
-        }
-        if !take(&path) {
-            continue;
-        }
-        ensure!(!files.contains_key(&path), "{asset} has {path} twice");
-        let target = into.join(&path);
+        let cached = format!("{}/{path}", kind.prefix());
+        ensure!(!files.contains_key(&cached), "{asset} has {path} twice");
+        let target = into.join(&cached);
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -1016,38 +961,14 @@ fn unpack(
         }
         output.sync_all()?;
         files.insert(
-            path,
+            cached,
             Placed {
                 sha256: hex::encode(hash.finalize()),
                 size,
             },
         );
     }
-    Ok((files, sums))
-}
-
-/// An archive's files against its own checksum list; one without a list
-/// needs the release's, which [`fetch_using`] checked it against.
-fn checked(
-    asset: &str,
-    files: &BTreeMap<String, Placed>,
-    sums: Option<String>,
-    release: &Release,
-) -> Result<()> {
-    let Some(sums) = sums else {
-        ensure!(
-            release.sums.is_some(),
-            "neither {asset} nor its release has a {}; nothing was installed",
-            neural::SUMS
-        );
-        return Ok(());
-    };
-    let sums = neural::sums(&sums).map_err(anyhow::Error::msg)?;
-    let hashes = files
-        .iter()
-        .map(|(path, placed)| (path.clone(), placed.sha256.clone()))
-        .collect();
-    neural::check_files(&hashes, &sums).map_err(|e| anyhow!("{asset}: {e}; nothing was installed"))
+    Ok(files)
 }
 
 // ---- Apps ----
@@ -1178,13 +1099,37 @@ fn game_command(app: &App) -> Option<PathBuf> {
     })
 }
 
-/// The .exe the mod sits beside, once it is in.
+/// The .exe the files sit beside, once they are in.
 fn placed_exe(app: &App) -> Option<PathBuf> {
-    app.extra.get(KEY)?.get("exe")?.as_str().map(PathBuf::from)
+    exe_of(app, KEY)
 }
 
-/// Set or clear the app's [`KEY`] and save the apps.
-fn set_key(h: &Shared, uuid: &str, value: Option<Value>) -> Result<()> {
+/// The .exe Rubylight 3.0 placed AMDNR beside, until it is removed.
+fn legacy_exe(app: &App) -> Option<PathBuf> {
+    exe_of(app, LEGACY_KEY)
+}
+
+fn exe_of(app: &App, key: &str) -> Option<PathBuf> {
+    app.extra.get(key)?.get("exe")?.as_str().map(PathBuf::from)
+}
+
+/// Every folder the host placed files in for the app: this release's and
+/// Rubylight 3.0's, each once.
+fn placed_exes(app: &App) -> Vec<PathBuf> {
+    let mut exes: Vec<PathBuf> = placed_exe(app).into_iter().collect();
+    if let Some(legacy) = legacy_exe(app).filter(|legacy| !exes.contains(legacy)) {
+        exes.push(legacy);
+    }
+    exes
+}
+
+/// Whether the host placed files for the app, now or in Rubylight 3.0.
+fn has_files(app: &App) -> bool {
+    app.extra.contains_key(KEY) || app.extra.contains_key(LEGACY_KEY)
+}
+
+/// Set or clear the app's `key` and save the apps.
+fn set_key(h: &Shared, uuid: &str, key: &str, value: Option<Value>) -> Result<()> {
     h.reload_apps();
     let mut apps = h.apps.write().unwrap();
     let mut next = apps.clone();
@@ -1193,8 +1138,8 @@ fn set_key(h: &Shared, uuid: &str, value: Option<Value>) -> Result<()> {
         .find(|app| app.extra.get("uuid").and_then(Value::as_str) == Some(uuid))
         .context("application not found")?;
     match value {
-        Some(value) => app.extra.insert(KEY.into(), value),
-        None => app.extra.remove(KEY),
+        Some(value) => app.extra.insert(key.into(), value),
+        None => app.extra.remove(key),
     };
     h.assign_apps(&mut next)?;
     let mut doc = h.app_document.read().unwrap().clone();
@@ -1207,11 +1152,13 @@ fn set_key(h: &Shared, uuid: &str, value: Option<Value>) -> Result<()> {
     Ok(())
 }
 
-/// A saved app keeps the host's [`KEY`]: the console never sets it.
+/// A saved app keeps the host's keys: the console never sets them.
 pub fn keep_key(stored: Option<&App>, app: &mut App) {
-    app.extra.remove(KEY);
-    if let Some(value) = stored.and_then(|stored| stored.extra.get(KEY)) {
-        app.extra.insert(KEY.into(), value.clone());
+    for key in [KEY, LEGACY_KEY] {
+        app.extra.remove(key);
+        if let Some(value) = stored.and_then(|stored| stored.extra.get(key)) {
+            app.extra.insert(key.into(), value.clone());
+        }
     }
 }
 
@@ -1225,7 +1172,7 @@ pub enum Refusal {
     NotFound,
     Busy,
     /// A stream runs: the download would take its bandwidth, and the copy
-    /// of about 1 GB into the game's folder its disk.
+    /// into the game's folder its disk.
     Streaming,
 }
 
@@ -1250,7 +1197,7 @@ impl std::error::Error for Busy {}
 pub struct StreamStarted;
 impl std::fmt::Display for StreamStarted {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("a stream started, so the download stopped; turn Neural Rendering on again once the stream ends")
+        f.write_str("a stream started, so the download stopped; turn frame generation on again once the stream ends")
     }
 }
 impl std::error::Error for StreamStarted {}
@@ -1300,10 +1247,12 @@ fn fail_job(h: &Shared, uuid: &str, error: String, choose_exe: bool) {
 }
 
 /// What a second install for a game that has it is told.
-const ALREADY_ON: &str = "Neural Rendering is already on for this game; turn it off first";
+const ALREADY_ON: &str = "frame generation is already on for this game; turn it off first";
 
 /// Turn the switch on: download the release unless it is cached, then place
-/// it beside the game's .exe (`exe`, the user's pick, or found). Runs on.
+/// it beside the game's .exe (`exe`, the user's pick, or found). A game with
+/// Rubylight 3.0's AMDNR has it taken out first, once the game passed every
+/// check and the download is in. Runs on.
 pub fn enable(h: &Shared, uuid: &str, exe: Option<PathBuf>) -> Result<(), Refusal> {
     if !accepted(h) {
         return Err(Refusal::NotAccepted);
@@ -1321,10 +1270,14 @@ pub fn enable(h: &Shared, uuid: &str, exe: Option<PathBuf>) -> Result<(), Refusa
     start_job(h, uuid, "install", "download")?;
     let (h, uuid) = (h.clone(), uuid.to_owned());
     tokio::spawn(async move {
-        let (exe, install) = (exe.or_else(|| game_command(&app)), install(&app));
-        // The game's program and Valve Anti-Cheat before the download: a game
-        // that is refused never waits for about 1 GB. Asked again after it,
-        // as the game may have changed meanwhile.
+        // The earlier upscaling's folder is the game's.
+        let exe = exe
+            .or_else(|| legacy_exe(&app))
+            .or_else(|| game_command(&app));
+        let install = install(&app);
+        // The game's program, its DLSS frame generation and Valve Anti-Cheat
+        // before the download: a game that is refused never waits for it.
+        // Asked again after it, as the game may have changed meanwhile.
         let checked = {
             let (h, app, exe, install) = (h.clone(), app.clone(), exe.clone(), install.clone());
             tokio::task::spawn_blocking(move || find_game(&h, &app, exe, install)).await
@@ -1345,7 +1298,7 @@ pub fn enable(h: &Shared, uuid: &str, exe: Option<PathBuf>) -> Result<(), Refusa
         let (using, package) = match fetch_using(&h, &progress).await {
             Ok(cached) => cached,
             Err(error) => {
-                // The details name the mod's files; the console says what happened.
+                // The details name the release's files; the console says what happened.
                 tracing::warn!(app = %app.name, error = %format!("{error:#}"), "Neural Rendering: the download failed");
                 let shown = if error.is::<StreamStarted>() {
                     StreamStarted.to_string()
@@ -1371,13 +1324,30 @@ pub fn enable(h: &Shared, uuid: &str, exe: Option<PathBuf>) -> Result<(), Refusa
             let response = (|| {
                 let _reading = worker.neural.reading();
                 let _using = using;
-                // The game's program first: its removal is recorded before
-                // anything is written, so an install cut short (a timeout,
-                // a host restart) is taken out by the pending removals.
                 let exe = match find_game(&worker, &app, exe, install.clone())? {
                     Response::Found { exe } => exe,
                     other => return Ok(other),
                 };
+                // Rubylight 3.0's AMDNR goes first: the two can't share a
+                // game. Once it is out, the app no longer names it, whatever
+                // the install does next.
+                if let Some(legacy) = legacy_exe(&app) {
+                    update_job(&worker, &task_uuid, |job| job.phase = "remove");
+                    match remove_at(&app.name, &legacy)? {
+                        Removed::Done(_) => set_key(&worker, &task_uuid, LEGACY_KEY, None)?,
+                        Removed::Unreachable(folder) => {
+                            return Ok(Response::Error {
+                                message: format!(
+                                    "{folder} can't be reached, so the earlier upscaling could not be removed; connect its drive and try again"
+                                ),
+                            });
+                        }
+                    }
+                    update_job(&worker, &task_uuid, |job| job.phase = "place");
+                }
+                // The game's program first: its removal is recorded before
+                // anything is written, so an install cut short (a timeout,
+                // a host restart) is taken out by the pending removals.
                 let pending = Pending {
                     name: app.name.clone(),
                     exe: exe.clone(),
@@ -1403,9 +1373,20 @@ pub fn enable(h: &Shared, uuid: &str, exe: Option<PathBuf>) -> Result<(), Refusa
     Ok(())
 }
 
-/// The install's end: the app saved with the mod, or the job failed. The
-/// removal `recorded` before the install goes once the mod is in and saved,
-/// or nothing was written; otherwise it takes out what is left. Blocks.
+/// What the app's key says once the files are in.
+fn key_value(exe: &Path, release: &str, proxy: &str, mode: neural::Mode) -> Value {
+    json!({
+        "exe": exe,
+        "release": release,
+        "proxy": proxy,
+        "mode": mode,
+        "switches": [neural::Switch::FrameGeneration],
+    })
+}
+
+/// The install's end: the app saved with the files, or the job failed. The
+/// removal `recorded` before the install goes once the files are in and
+/// saved, or nothing was written; otherwise it takes out what is left. Blocks.
 fn finish_install(
     h: &Shared,
     uuid: &str,
@@ -1423,19 +1404,20 @@ fn finish_install(
             exe,
             release,
             proxy,
+            mode,
             ..
         }) => {
-            let value = json!({"exe": exe, "release": release, "proxy": proxy});
-            if let Err(error) = set_key(h, uuid, Some(value)) {
+            if let Err(error) = set_key(h, uuid, KEY, Some(key_value(&exe, &release, &proxy, mode)))
+            {
                 // The app went while the job ran (a library sync dropped it)
-                // or could not be saved: nothing would remove the mod later.
-                tracing::warn!(app = %app.name, error = %format!("{error:#}"), "Neural Rendering: the app could not be saved with the mod; taking it out again");
+                // or could not be saved: nothing would remove the files later.
+                tracing::warn!(app = %app.name, error = %format!("{error:#}"), "Neural Rendering: the app could not be saved with frame generation; taking it out again");
                 let after = match take_back(h, uuid, &app.name, &exe) {
                     Ok(true) => {
                         clear();
-                        "Neural Rendering was taken out again".to_owned()
+                        "frame generation was taken out again".to_owned()
                     }
-                    Ok(false) => "Neural Rendering's removal is pending until the game's folder can be changed".to_owned(),
+                    Ok(false) => "frame generation's removal is pending until the game's folder can be changed".to_owned(),
                     Err(error) => format!("{error:#}"),
                 };
                 return fail_job(
@@ -1446,7 +1428,7 @@ fn finish_install(
                 );
             }
             clear();
-            tracing::info!(app = %app.name, folder = %exe.parent().unwrap_or(&exe).display(), %release, %proxy, "Neural Rendering installed");
+            tracing::info!(app = %app.name, folder = %exe.parent().unwrap_or(&exe).display(), %release, %proxy, ?mode, "Neural Rendering: frame generation installed");
             update_job(h, uuid, |job| job.phase = "done");
         }
         // Refused before anything was written.
@@ -1477,27 +1459,29 @@ fn finish_install(
     }
 }
 
-/// Turn the switch off: remove what was placed. Runs on.
+/// Turn the switch off: remove what was placed, frame generation or
+/// Rubylight 3.0's upscaling. Runs on.
 pub fn disable(h: &Shared, uuid: &str) -> Result<(), Refusal> {
     let app = app(h, uuid).ok_or(Refusal::NotFound)?;
     start_job(h, uuid, "remove", "remove")?;
     let (h, uuid) = (h.clone(), uuid.to_owned());
     tokio::task::spawn_blocking(move || match remove(&app) {
-        Ok(Removed::Done(kept)) => match set_key(&h, &uuid, None) {
-            Ok(()) => update_job(&h, &uuid, |job| {
-                job.phase = "done";
-                job.kept = kept;
-            }),
-            Err(error) => fail_job(&h, &uuid, format!("{error:#}"), false),
-        },
+        Ok(Removed::Done(kept)) => {
+            match set_key(&h, &uuid, KEY, None).and_then(|()| set_key(&h, &uuid, LEGACY_KEY, None))
+            {
+                Ok(()) => update_job(&h, &uuid, |job| {
+                    job.phase = "done";
+                    job.kept = kept;
+                }),
+                Err(error) => fail_job(&h, &uuid, format!("{error:#}"), false),
+            }
+        }
         Ok(Removed::Unreachable(folder)) => {
             tracing::warn!(app = %app.name, %folder, "Neural Rendering could not be removed: the game's folder can't be reached");
             fail_job(
                 &h,
                 &uuid,
-                format!(
-                    "{folder} can't be reached; connect its drive and turn Neural Rendering off again"
-                ),
+                format!("{folder} can't be reached; connect its drive and turn it off again"),
                 false,
             )
         }
@@ -1515,14 +1499,20 @@ enum Removed {
     Unreachable(String),
 }
 
-/// Remove the mod from the app's game folder. Blocks.
+/// Remove what the host placed in the app's game folders. Blocks.
 fn remove(app: &App) -> Result<Removed> {
-    match placed_exe(app) {
-        Some(exe) => remove_at(&app.name, &exe),
-        None => Ok(Removed::Done(Vec::new())),
+    let mut kept = Vec::new();
+    for exe in placed_exes(app) {
+        match remove_at(&app.name, &exe)? {
+            Removed::Done(more) => kept.extend(more),
+            unreachable => return Ok(unreachable),
+        }
     }
+    Ok(Removed::Done(kept))
 }
 
+/// Remove whatever the host placed beside `exe`: frame generation, and
+/// Rubylight 3.0's AMDNR, each by its manifest. Blocks.
 fn remove_at(name: &str, exe: &Path) -> Result<Removed> {
     match run_folder(Request::Remove { exe: exe.into() }, &|_, _| {})? {
         Response::Removed { kept } => {
@@ -1549,7 +1539,7 @@ fn remove_at(name: &str, exe: &Path) -> Result<Removed> {
 
 /// Before an app is deleted: the switch's slot for it, held until the caller
 /// drops the [`Removing`], once the app is gone. A delete of several apps
-/// takes every slot before any mod is removed, so one busy app refuses the
+/// takes every slot before any file is removed, so one busy app refuses the
 /// delete with nothing changed. Then [`Removing::remove_mod`].
 pub fn reserve(h: &Shared, app: &App) -> Result<Removing> {
     let uuid = app.extra.get("uuid").and_then(Value::as_str);
@@ -1595,20 +1585,19 @@ impl Removing {
         })
     }
 
-    /// For an app with the switch on: take the mod out of its folder, or
-    /// keep the app (an error) so nothing is left behind unnoticed. A folder
-    /// on a drive that is not connected becomes a pending removal instead, so
-    /// a game on a drive that is gone for good can still be deleted. Blocks.
+    /// For an app with files placed: take them out of its folder, or keep
+    /// the app (an error) so nothing is left behind unnoticed. A folder on a
+    /// drive that is not connected becomes a pending removal instead, so a
+    /// game on a drive that is gone for good can still be deleted. Blocks.
     pub fn remove_mod(&self, app: &App) -> Result<()> {
-        if !app.extra.contains_key(KEY) {
+        if !has_files(app) {
             return Ok(());
         }
         let kept =
             "Neural Rendering could not be removed from the game's folder, so the app was kept";
         let removed = (|| {
             if let Removed::Unreachable(folder) = remove(app).context(kept)? {
-                let pending = Pending::of(app).context(kept)?;
-                record_pending(&self.h, std::slice::from_ref(&pending)).context(kept)?;
+                record_pending(&self.h, &Pending::of(app)).context(kept)?;
                 tracing::warn!(app = %app.name, %folder, "Neural Rendering: the game's folder can't be reached; its removal is pending");
             }
             anyhow::Ok(())
@@ -1637,8 +1626,9 @@ impl Drop for Removing {
 
 // ---- Removals left for later ----
 
-/// A game folder the mod is still to be removed from: its app left the
+/// A game folder the files are still to be removed from: its app left the
 /// library while the folder could not be reached or the removal failed.
+/// Rubylight 3.0's records name AMDNR's folders the same way.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Pending {
     name: String,
@@ -1648,16 +1638,21 @@ struct Pending {
     uuid: Option<String>,
 }
 impl Pending {
-    fn of(app: &App) -> Option<Self> {
-        Some(Self {
-            name: app.name.clone(),
-            exe: placed_exe(app)?,
-            uuid: app
-                .extra
-                .get("uuid")
-                .and_then(Value::as_str)
-                .map(str::to_owned),
-        })
+    /// One for each folder the host placed files in for the app.
+    fn of(app: &App) -> Vec<Self> {
+        let uuid = app
+            .extra
+            .get("uuid")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        placed_exes(app)
+            .into_iter()
+            .map(|exe| Self {
+                name: app.name.clone(),
+                exe,
+                uuid: uuid.clone(),
+            })
+            .collect()
     }
 }
 
@@ -1679,8 +1674,9 @@ fn pending(h: &Shared) -> Vec<Pending> {
     })
 }
 
-/// Take the mod placed beside `exe` out again (true), or leave its removal
-/// pending when that fails (false); Err only when neither worked. Blocks.
+/// Take the files placed beside `exe` out again (true), or leave their
+/// removal pending when that fails (false); Err only when neither worked.
+/// Blocks.
 fn take_back(h: &Shared, uuid: &str, name: &str, exe: &Path) -> Result<bool> {
     let why = match remove_at(name, exe) {
         Ok(Removed::Done(_)) => return Ok(true),
@@ -1694,15 +1690,15 @@ fn take_back(h: &Shared, uuid: &str, name: &str, exe: &Path) -> Result<bool> {
     };
     record_pending(h, std::slice::from_ref(&pending)).with_context(|| {
         format!(
-            "the mod could not be taken out of {} ({why}), and its removal could not be saved",
+            "frame generation could not be taken out of {} ({why}), and its removal could not be saved",
             exe.parent().unwrap_or(exe).display()
         )
     })?;
-    tracing::warn!(app = %name, reason = %why, "Neural Rendering: taking the mod out again failed; its removal is pending");
+    tracing::warn!(app = %name, reason = %why, "Neural Rendering: taking the files out again failed; their removal is pending");
     Ok(false)
 }
 
-/// Drop the removal beside `exe` from the record: the mod is meant to be
+/// Drop the removal beside `exe` from the record: the files are meant to be
 /// there, or nothing was written.
 fn clear_pending(h: &Shared, exe: &Path) {
     let saved = update_settings(h, |value| {
@@ -1730,7 +1726,7 @@ fn record_pending(h: &Shared, removals: &[Pending]) -> Result<()> {
     })
 }
 
-/// The apps with the switch on that a library change left out: an
+/// The apps with files placed that a library change left out: an
 /// uninstalled game the launcher sync dropped.
 pub fn dropped(before: &[App], after: &[App]) -> Vec<App> {
     let uuid = |app: &App| {
@@ -1741,7 +1737,7 @@ pub fn dropped(before: &[App], after: &[App]) -> Vec<App> {
     };
     before
         .iter()
-        .filter(|app| app.extra.contains_key(KEY))
+        .filter(|app| has_files(app))
         .filter(|app| {
             uuid(app).is_some_and(|id| {
                 !after
@@ -1753,16 +1749,16 @@ pub fn dropped(before: &[App], after: &[App]) -> Vec<App> {
         .collect()
 }
 
-/// Take the mod out of the folders of apps the library sync dropped, as a
+/// Take the files out of the folders of apps the library sync dropped, as a
 /// delete does. Each is recorded first; one that fails (a folder on a drive
 /// that is not connected) stays recorded for [`remove_pending`]. Blocks.
 pub fn remove_dropped(h: &Shared, apps: &[App]) {
-    let removals: Vec<Pending> = apps.iter().filter_map(Pending::of).collect();
+    let removals: Vec<Pending> = apps.iter().flat_map(Pending::of).collect();
     if removals.is_empty() {
         return;
     }
     for removal in &removals {
-        tracing::info!(app = %removal.name, "Neural Rendering: the library sync dropped the game; removing the mod");
+        tracing::info!(app = %removal.name, "Neural Rendering: the library sync dropped the game; removing its files");
     }
     if let Err(error) = record_pending(h, &removals) {
         tracing::warn!(error = %format!("{error:#}"), "Neural Rendering: the pending removals could not be saved");
@@ -1801,7 +1797,7 @@ fn try_pending(h: &Shared, also: &[Pending]) {
             removals.push(removal.clone());
         }
     }
-    // The mod an app has on stays: such a record is stale. The same folder
+    // The files an app has on stay: such a record is stale. The same folder
     // also when one path goes through a link (a game folder moved and linked
     // back) and the other doesn't.
     let wanted: Vec<PathBuf> = h
@@ -1809,7 +1805,7 @@ fn try_pending(h: &Shared, also: &[Pending]) {
         .read()
         .unwrap()
         .iter()
-        .filter_map(placed_exe)
+        .flat_map(placed_exes)
         .collect();
     let real = |exe: &Path| folder::real(exe.parent().unwrap_or(exe));
     let mut done = Vec::new();
@@ -1854,12 +1850,16 @@ fn try_pending(h: &Shared, also: &[Pending]) {
     }
 }
 
-/// Before a launch: the mod must still be as placed and the game must not
+/// Before a launch: the files must still be as placed and the game must not
 /// have gained anti-cheat; an update cut short is finished. No other
-/// release is applied. Fails the launch loudly otherwise. Blocks.
+/// release is applied. Rubylight 3.0's AMDNR is checked the same way, with
+/// nothing to finish an update from. Fails the launch loudly otherwise.
+/// Blocks.
 pub fn before_launch(h: &Shared, app: &App) -> Result<()> {
-    let Some(exe) = placed_exe(app) else {
-        return Ok(());
+    let (exe, legacy) = match (placed_exe(app), legacy_exe(app)) {
+        (Some(exe), _) => (exe, false),
+        (None, Some(exe)) => (exe, true),
+        (None, None) => return Ok(()),
     };
     let uuid = app
         .extra
@@ -1875,7 +1875,7 @@ pub fn before_launch(h: &Shared, app: &App) -> Result<()> {
             app.name
         );
     }
-    let result = launch_check(h, app, &uuid, exe);
+    let result = launch_check(h, app, &uuid, exe, legacy);
     match &result {
         Ok(()) => update_job(h, &uuid, |job| job.phase = "done"),
         Err(error) => fail_job(h, &uuid, format!("{error:#}"), false),
@@ -1883,11 +1883,15 @@ pub fn before_launch(h: &Shared, app: &App) -> Result<()> {
     result
 }
 
-fn launch_check(h: &Shared, app: &App, uuid: &str, exe: PathBuf) -> Result<()> {
+fn launch_check(h: &Shared, app: &App, uuid: &str, exe: PathBuf, legacy: bool) -> Result<()> {
     let _reading = h.neural.reading();
-    let package = launch_cache(h).context(
-        "Neural Rendering's download can't be used; turn Neural Rendering off and on again",
-    )?;
+    let package = if legacy {
+        None
+    } else {
+        launch_cache(h).context(
+            "Neural Rendering's download can't be used; turn frame generation off and on again",
+        )?
+    };
     let paths = reached_by(app, None, &exe);
     let response = match steam_refusal(app, &paths, &steam_roots(h)) {
         Some(reason) => Response::Refused { reason },
@@ -1906,11 +1910,12 @@ fn launch_check(h: &Shared, app: &App, uuid: &str, exe: PathBuf) -> Result<()> {
             release,
             proxy,
             updated,
+            mode,
         } => {
-            if updated {
+            if updated && !legacy {
                 tracing::info!(app = %app.name, %release, %proxy, "Neural Rendering updated");
-                let value = json!({"exe": exe, "release": release, "proxy": proxy});
-                if let Err(error) = set_key(h, uuid, Some(value)) {
+                let value = key_value(&exe, &release, &proxy, mode);
+                if let Err(error) = set_key(h, uuid, KEY, Some(value)) {
                     tracing::warn!(app = %app.name, error = %format!("{error:#}"), "Neural Rendering: the updated release could not be saved with the app");
                 }
             }
@@ -1918,8 +1923,13 @@ fn launch_check(h: &Shared, app: &App, uuid: &str, exe: PathBuf) -> Result<()> {
         }
         Response::Refused { reason } => {
             tracing::warn!(app = %app.name, %reason, "Neural Rendering refused the launch");
+            let what = if legacy {
+                "the earlier Neural Rendering upscaling is in"
+            } else {
+                "frame generation is on for"
+            };
             bail!(
-                "Neural Rendering is on for {}, but {reason}; turn it off for this game",
+                "{what} {}, but {reason}; remove it on the game's page",
                 app.name
             )
         }
@@ -1936,15 +1946,19 @@ fn launch_check(h: &Shared, app: &App, uuid: &str, exe: PathBuf) -> Result<()> {
     }
 }
 
-// ---- The console ----
+// ---- The console and Nightjar ----
 
-/// The switch as the console shows it for one app. Blocks (the first call
-/// probes the GPU).
+/// The switch as the console and Nightjar show it for one app. Blocks (the
+/// first call checks the GPU).
 pub fn status(h: &Shared, uuid: &str) -> Value {
     let capability = capability(h);
     let app = app(h, uuid);
     let state = h.neural.lock();
     let setting = app.as_ref().and_then(|app| app.extra.get(KEY)).cloned();
+    let legacy = app
+        .as_ref()
+        .and_then(|app| app.extra.get(LEGACY_KEY))
+        .cloned();
     json!({
         "accepted": accepted(h),
         "available": capability.is_ok(),
@@ -1954,6 +1968,11 @@ pub fn status(h: &Shared, uuid: &str) -> Value {
         "enabled": setting.is_some(),
         "exe": setting.as_ref().and_then(|s| s.get("exe")).cloned(),
         "release": setting.as_ref().and_then(|s| s.get("release")).cloned(),
+        "mode": setting.as_ref().and_then(|s| s.get("mode")).cloned(),
+        "earlier_upscaling": legacy.map(|legacy| json!({
+            "exe": legacy.get("exe"),
+            "release": legacy.get("release"),
+        })),
         "job": state.jobs.get(uuid),
     })
 }

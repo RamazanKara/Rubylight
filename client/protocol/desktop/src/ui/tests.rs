@@ -4866,7 +4866,7 @@ fn polish_screenshots() {
         shoot(&mut f, "controllers");
         // Its Motion rows, below the stick axes: the gyroscope's axes and sensitivity.
         let middle = (f.size / 2.0).to_pos2();
-        wheel(&mut f, middle, -900.0);
+        wheel(&mut f, middle, -720.0);
         shoot(&mut f, "controllers-motion");
         f.l.go(Screen::Hosts);
         f.settle();

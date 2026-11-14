@@ -284,7 +284,8 @@ public final class GyroProfileEditor {
             headingParams.topMargin = pad / 2;
             form.addView(heading, headingParams);
 
-            Slider slider = new Slider(context);
+            // The app's slider: no step dots, and a halo a TV remote can see while it has focus.
+            Slider slider = new StepSlider(context);
             slider.setValueFrom(Math.round(GyroAxisTransformer.MIN_SENSITIVITY * 100));
             slider.setValueTo(Math.round(GyroAxisTransformer.MAX_SENSITIVITY * 100));
             slider.setStepSize(5);

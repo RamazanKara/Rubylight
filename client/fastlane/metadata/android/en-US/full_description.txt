@@ -1,4 +1,4 @@
-Stream your PC games and desktop to your Android phone, handheld, tablet or TV. Nightjar works with Sunshine, Apollo, Vibepollo, Rubylight, GeForce Experience and other Moonlight-compatible hosts.
+Stream your PC games and desktop to your Android phone, handheld, tablet or Android TV. Nightjar works with Sunshine, Apollo, Vibepollo, Rubylight, GeForce Experience and other Moonlight-compatible hosts.
 
 Your library
 Home brings favourites, Continue playing and the games of every PC together, with covers kept on your device. On a TV, every store gets its own row: Steam, Epic Games, GOG, EA app, Ubisoft Connect, Battle.net and Xbox. Each game has a page with the PC and the exact stream settings it will use. Pick a sleeping PC's game and Nightjar wakes the PC and starts it. Starting a game while another runs asks first and names both.

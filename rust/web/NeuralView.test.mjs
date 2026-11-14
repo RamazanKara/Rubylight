@@ -6,7 +6,7 @@ import { createTestServer } from './test-server.mjs';
 globalThis.location = new URL('http://localhost/');
 globalThis.window = new EventTarget();
 const server = await createTestServer();
-const { neuralView, pollsNeural, NOTICE, ABOUT } = await server.ssrLoadModule('/src/lib/neural-view.ts');
+const { neuralView, pollsNeural, NOTICE, ABOUT, REPLACES } = await server.ssrLoadModule('/src/lib/neural-view.ts');
 const { render } = await server.ssrLoadModule('svelte/server');
 const NeuralRendering = (await server.ssrLoadModule('/src/components/library/NeuralRendering.svelte')).default;
 await server.close();
@@ -21,25 +21,43 @@ const status = (overrides = {}) => ({
   enabled: false,
   exe: null,
   release: null,
+  mode: null,
+  earlier_upscaling: null,
   job: null,
   ...overrides,
 });
 const job = (fields) => ({ action: 'install', phase: 'download', done: 0, total: 0, choose_exe: false, kept: [], ...fields });
 
 test('an older GPU gets the switch disabled with the plain reason', () => {
-  const reason = 'Neural Rendering runs on RDNA 3 and RDNA 4 Radeon graphics; this PC\'s AMD Radeon RX 6800 XT (gfx1030) is older';
+  const reason = 'frame generation runs on AMD Radeon RX 5000 and newer graphics (RDNA) and NVIDIA GeForce GTX 16, RTX 20 and newer; this PC streams with AMD Radeon VII (gfx906), which is older';
   const view = neuralView(status({ available: false, gpu: null, reason }));
-  assert.deepEqual(view, { kind: 'unavailable', reason: `${reason}.` });
+  assert.deepEqual(view, { kind: 'unavailable', reason: `${reason}.`, earlier: null });
   const html = render(NeuralRendering, { props: { uuid: 'game', initial: status({ available: false, reason }) } }).body;
   assert.match(html, /disabled/);
-  assert.match(html, /RX 6800 XT/);
+  assert.match(html, /Radeon VII/);
+  assert.match(html, /Frame generation/);
+});
+
+test('the earlier neural upscaling is offered only for removal, also where frame generation is not', () => {
+  const earlier_upscaling = { exe: 'C:\\Games\\Game.exe', release: 'Alpha0.3.5.8R2' };
+  assert.deepEqual(neuralView(status({ earlier_upscaling })), { kind: 'off', kept: [], earlier: 'Alpha0.3.5.8R2' });
+  const unavailable = neuralView(status({ available: false, reason: 'x', earlier_upscaling }));
+  assert.equal(unavailable.earlier, 'Alpha0.3.5.8R2');
+  const html = render(NeuralRendering, { props: { uuid: 'game', initial: status({ earlier_upscaling }) } }).body;
+  assert.match(html, /earlier neural upscaling \(release Alpha0\.3\.5\.8R2\) is still in the game’s folder/);
+  assert.match(html, />Remove</);
+  assert.ok(html.includes(REPLACES));
+  // Frame generation going in takes it out first, and says so.
+  const replacing = neuralView(status({ earlier_upscaling, job: job({ phase: 'remove' }) }));
+  assert.equal(replacing.label, 'Removing the earlier neural upscaling…');
+  assert.doesNotMatch(render(NeuralRendering, { props: { uuid: 'game', initial: status() } }).body, />Remove</);
 });
 
 test('the download, the install and the removal show their progress and poll', () => {
-  const download = neuralView(status({ job: job({ done: 504_000_000, total: 1_008_053_921 }) }));
+  const download = neuralView(status({ job: job({ done: 7_000_000, total: 13_939_157 }) }));
   assert.equal(download.kind, 'working');
   assert.equal(download.percent, 50);
-  assert.match(download.label, /504\u00a0MB of 1008\u00a0MB/);
+  assert.match(download.label, /^Downloading frame generation: 7\u00a0MB of 14\u00a0MB/);
   assert.ok(pollsNeural(download));
   assert.equal(neuralView(status({ job: job({}) })).percent, null);
   assert.match(neuralView(status({ job: job({ phase: 'place', done: 1, total: 4 }) })).label, /Installing into the game/);
@@ -49,27 +67,32 @@ test('the download, the install and the removal show their progress and poll', (
 });
 
 test('the switch shows where it is, what stayed and why it failed', () => {
-  assert.deepEqual(neuralView(status({ enabled: true, exe: 'C:\\Games\\Game.exe', release: 'Alpha0.3.5.8', job: job({ phase: 'done' }) })), {
+  assert.deepEqual(neuralView(status({ enabled: true, exe: 'C:\\Games\\Game.exe', release: 'FG-V.B16', mode: 'full', job: job({ phase: 'done' }) })), {
     kind: 'on',
     exe: 'C:\\Games\\Game.exe',
-    release: 'Alpha0.3.5.8',
+    release: 'FG-V.B16',
+    addon: false,
   });
+  const added = { enabled: true, exe: 'C:\\Games\\Game.exe', release: 'FG-V.B16', mode: 'addon' };
+  assert.equal(neuralView(status(added)).addon, true);
+  assert.match(render(NeuralRendering, { props: { uuid: 'game', initial: status(added) } }).body, /Added to the upscaler mod beside/);
   // Still on even if this PC can no longer run it, so it can be turned off.
   assert.equal(neuralView(status({ enabled: true, available: false, reason: 'x' })).kind, 'on');
-  assert.deepEqual(neuralView(status({ job: job({ action: 'remove', phase: 'done', kept: ['LmxxfNrRuntime.dll'] }) })), {
+  assert.deepEqual(neuralView(status({ job: job({ action: 'remove', phase: 'done', kept: ['nvngx_dlssg.dll'] }) })), {
     kind: 'off',
-    kept: ['LmxxfNrRuntime.dll'],
+    kept: ['nvngx_dlssg.dll'],
+    earlier: null,
   });
   const refused = neuralView(status({ job: job({ phase: 'failed', error: 'the game uses Easy Anti-Cheat (C:\\Games\\EasyAntiCheat)' }) }));
   assert.deepEqual(refused, {
     kind: 'failed',
-    title: 'Neural Rendering couldn’t be installed',
+    title: 'Frame generation couldn’t be installed',
     error: 'the game uses Easy Anti-Cheat (C:\\Games\\EasyAntiCheat).',
     on: false,
   });
   // A launch's check that failed removed nothing, and a removal that failed leaves the switch on.
   const checked = neuralView(status({ enabled: true, job: job({ action: 'update', phase: 'failed', error: 'a file changed' }) }));
-  assert.deepEqual(checked, { kind: 'failed', title: 'Neural Rendering couldn’t be checked for the launch', error: 'a file changed.', on: true });
+  assert.deepEqual(checked, { kind: 'failed', title: 'Frame generation couldn’t be checked for the launch', error: 'a file changed.', on: true });
   assert.equal(
     neuralView(status({ enabled: true, job: job({ action: 'remove', phase: 'failed', error: 'in use' }) })).title,
     'Neural Rendering couldn’t be removed',
@@ -81,15 +104,15 @@ test('the switch shows where it is, what stayed and why it failed', () => {
 });
 
 test('the notice says what it is, where it comes from and who does not stand behind it; no brand of the mod', () => {
-  for (const words of [/third-party mod/, /authors’ GitHub release/, /not made or endorsed by AMD or NVIDIA/, /anti-cheat/, /own risk/]) {
+  for (const words of [/third-party mod/, /DLSS frame generation/, /authors’ GitHub release/, /not made or endorsed by AMD or NVIDIA/, /anti-cheat/, /own risk/]) {
     assert.match(NOTICE.message, words);
   }
   assert.notEqual(NOTICE.confirm, 'Continue');
-  // GPL-3.0 §7(e) in the mod's license: its name is not ours to brand with. Credits live in NOTICE and AGENTS.md.
+  // GPL-3.0 §7(e) in the mods' licenses: their names are not ours to brand with. Credits live in NOTICE and AGENTS.md.
   const shown = [NOTICE.title, NOTICE.message, NOTICE.confirm, ABOUT].join('\n') +
     readFileSync(new URL('./src/components/library/NeuralRendering.svelte', import.meta.url), 'utf8') +
     readFileSync(new URL('./src/lib/neural-view.ts', import.meta.url), 'utf8');
-  assert.doesNotMatch(shown, /AMDNR|AMD-NR|3zwr1|OptiScaler/i);
+  assert.doesNotMatch(shown, /AMDNR|AMD-NR|3zwr1|OptiScaler|\bANR\b|Apex|experimental|\bbeta\b/i);
 });
 
 test('the text claims nothing the host neither checks nor measured', () => {

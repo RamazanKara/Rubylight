@@ -809,15 +809,19 @@ export interface GameSettingsStatus {
 export interface NeuralStatus {
   /** The one-time notice before the first download. */
   accepted: boolean;
-  /** Whether this PC's GPU and driver can run it; `reason` says why not. */
+  /** Whether this PC's GPU can run frame generation; `reason` says why not. */
   available: boolean;
   gpu: string | null;
   reason: string | null;
   found: boolean;
   enabled: boolean;
-  /** The program the mod sits beside, once it is in. */
+  /** The program frame generation sits beside, once it is in. */
   exe: string | null;
   release: string | null;
+  /** `full`: the host's own package; `addon`: added to an upscaler mod the user installed. */
+  mode: 'full' | 'addon' | null;
+  /** Rubylight 3.0's neural upscaling, still in the game's folder until the user removes it. */
+  earlier_upscaling: { exe: string | null; release: string | null } | null;
   job: NeuralJob | null;
 }
 /**

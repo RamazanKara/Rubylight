@@ -1,6 +1,6 @@
 <script lang="ts">
-  // The game page's Neural Rendering switch: the notice once, then download, install and removal
-  // with progress. States come from lib/neural-view.ts; this file only draws them and runs the actions.
+  // The game page's Neural Rendering panel: the frame generation switch (the notice once, then
+  // download, install and removal with progress) and the removal of Rubylight 3.0's upscaling. States come from lib/neural-view.ts; this file only draws them and runs the actions.
   import { onMount, untrack } from 'svelte';
   import Banner from '../Banner.svelte';
   import Button from '../Button.svelte';
@@ -11,7 +11,7 @@
   import { api, type NeuralStatus } from '../../lib/api';
   import { confirm, failed } from '../../lib/feedback.svelte';
   import { poll } from '../../lib/format';
-  import { ABOUT, NOTICE, neuralView, pollsNeural } from '../../lib/neural-view';
+  import { ABOUT, NOTICE, REPLACES, neuralView, pollsNeural } from '../../lib/neural-view';
   import { statusLoader } from '../maintenance/status-loader';
   import { reason } from '../maintenance/util';
 
@@ -57,7 +57,7 @@
       try {
         await api.neural.accept();
       } catch (error) {
-        failed('Neural Rendering failed', error);
+        failed('Frame generation failed', error);
         return;
       }
     }
@@ -66,7 +66,7 @@
       await api.neural.enable(uuid, program);
       pending = true;
     } catch (error) {
-      failed('Turning on Neural Rendering failed', error);
+      failed('Turning on frame generation failed', error);
     } finally {
       busy = false;
     }
@@ -79,7 +79,7 @@
       await api.neural.disable(uuid);
       pending = true;
     } catch (error) {
-      failed('Turning off Neural Rendering failed', error);
+      failed('Removing Neural Rendering failed', error);
     } finally {
       busy = false;
     }
@@ -112,7 +112,7 @@
   <Panel collapsible title="Neural Rendering" description={ABOUT}>
     <div class="neural">
       {#if view.kind === 'unavailable'}
-        <Toggle label="Neural Rendering" checked={false} disabled hint={view.reason} />
+        <Toggle label="Frame generation" checked={false} disabled hint={view.reason} />
       {:else if view.kind === 'working'}
         <p class="lead" role="status">{view.label}</p>
         <div
@@ -129,8 +129,14 @@
       {:else}
         {@const on = view.kind === 'on' || (view.kind === 'failed' && view.on)}
         <Toggle
-          label="Neural Rendering"
-          hint={view.kind === 'on' && view.release ? `Installed beside ${view.exe ?? 'the game'}; release ${view.release}.` : undefined}
+          label="Frame generation"
+          hint={view.kind === 'on' && view.release
+            ? view.addon
+              ? `Added to the upscaler mod beside ${view.exe ?? 'the game'}; release ${view.release}.`
+              : `Installed beside ${view.exe ?? 'the game'}; release ${view.release}.`
+            : view.kind === 'off' && view.earlier !== null
+              ? REPLACES
+              : undefined}
           checked={wanted ?? on}
           disabled={busy}
           onchange={change}
@@ -161,6 +167,15 @@
           </div>
         {/if}
       {/if}
+      {#if (view.kind === 'off' || view.kind === 'unavailable') && view.earlier !== null}
+        <div class="earlier">
+          <p class="muted note">
+            The earlier neural upscaling{view.earlier ? ` (release ${view.earlier})` : ''} is still in the game’s folder. Rubylight
+            no longer offers it; remove it here.
+          </p>
+          <Button busy={busy} onclick={turnOff}>Remove</Button>
+        </div>
+      {/if}
       {#if loadError}<p class="muted note" role="alert">Could not refresh Neural Rendering: {loadError}</p>{/if}
     </div>
   </Panel>
@@ -180,6 +195,12 @@
     margin: 0;
     font-size: var(--text-xs);
     line-height: var(--leading-snug);
+  }
+  .earlier {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: var(--space-3);
   }
   .choose {
     display: grid;

@@ -1,9 +1,11 @@
-//! The game page's Neural Rendering switch. `GET /api/neural?uuid=` shows
-//! whether this PC can have it and why not, whether the user accepted the
-//! notice, and the app's install with its progress. `POST /api/neural/accept`
-//! records the acceptance, `POST /api/neural/enable` (`uuid`, optional `exe`)
-//! downloads and installs, `POST /api/neural/disable` removes. Console-only:
-//! API tokens cannot reach them.
+//! The game page's Neural Rendering panel. `GET /api/neural?uuid=` shows
+//! whether this PC can have frame generation and why not, whether the user
+//! accepted the notice, the app's install with its progress and Rubylight
+//! 3.0's upscaling still in its folder. `POST /api/neural/accept` records the
+//! acceptance, `POST /api/neural/enable` (`uuid`, optional `exe`) downloads
+//! and installs frame generation (taking the earlier upscaling out first),
+//! `POST /api/neural/disable` removes both. Console-only: API tokens cannot
+//! reach them.
 
 use super::error;
 use crate::{
@@ -81,7 +83,7 @@ pub(super) async fn handle(
         ),
         Ok(Err(Refusal::Streaming)) => error(
             StatusCode::CONFLICT,
-            "Neural Rendering downloads and copies about 1 GB: turn it on when no stream is running",
+            "Neural Rendering downloads about 14 MB and copies it into the game's folder: turn it on when no stream is running",
         ),
         Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }

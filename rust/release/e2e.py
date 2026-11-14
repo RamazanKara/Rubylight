@@ -61,6 +61,7 @@ from e2e_host import installed_idle, prepare, receiver_environment
 from gpu_hang import EXIT_GPU_HANG, Guard, hang_result
 from machine_load import load_since, snapshot
 from timing_report import case_report, wait_for_footer
+import user_idle
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--package', required=True, type=pathlib.Path)
@@ -91,6 +92,8 @@ parser.add_argument('--ffplay', default='ffplay', help='the ffplay that plays --
 parser.add_argument('--quiet-wait', type=pathlib.Path, metavar='JSON',
                     help="machine_load.py's verdict before this stream (check.ps1), recorded as quiet_wait")
 args = parser.parse_args()
+# The host's stream start resets Windows' last-input time: that is this run's, not the user's.
+user_idle.mark_this_process()
 # Absolute: the host and the receiver run with the case folder as their working folder.
 args.package, args.work, args.client = args.package.resolve(), args.work.resolve(), args.client.resolve()
 quiet_wait = json.loads(args.quiet_wait.read_text()) if args.quiet_wait else None

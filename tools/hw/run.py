@@ -19,6 +19,8 @@ import urllib.request
 import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'rust' / 'release'))
+import user_idle  # noqa: E402
 CATALOG = pathlib.Path(__file__).resolve().parent / 'catalog.yaml'
 OUT_ROOT = pathlib.Path(r'C:\src\butterpollo-release\hw')
 GPU_LOCK = pathlib.Path(r'C:\src\butterpollo-release\GPU-LOCK')
@@ -155,13 +157,12 @@ def probe_serverinfo():
 
 
 def probe_input_idle():
-    class LastInput(ctypes.Structure):
-        _fields_ = [('cbSize', ctypes.c_uint), ('dwTime', ctypes.c_uint)]
-    info = LastInput(ctypes.sizeof(LastInput), 0)
-    if not ctypes.windll.user32.GetLastInputInfo(ctypes.byref(info)):
-        return False, 'GetLastInputInfo failed'
-    idle = ((ctypes.windll.kernel32.GetTickCount() - info.dwTime) & 0xFFFFFFFF) / 1000
-    return idle >= IDLE_SECONDS, f'no input for {idle / 60:.1f} min (needs {IDLE_SECONDS // 60})'
+    """The user's own idle time: a test host starting a stream resets Windows' (user_idle.py)."""
+    try:
+        away, reported = user_idle.idle()
+    except OSError as error:
+        return False, str(error)
+    return away >= IDLE_SECONDS, f'{user_idle.describe(away, reported)} (needs {IDLE_SECONDS // 60})'
 
 
 def probe_fullscreen():
@@ -357,9 +358,18 @@ def run_case(case, values, out, host_log=HOST_LOG):
     command = expand(case.command, values, case.id)
     start = log_mark(host_log)
     began = time.monotonic()
-    with open(out / 'output.log', 'w', encoding='utf-8', errors='replace') as log:
-        code = subprocess.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command],
-                              cwd=values['repo'], stdout=log, stderr=subprocess.STDOUT).returncode
+    # What the case does to Windows' last-input time is not the user's.
+    try:
+        ours = user_idle.begin()
+    except OSError:
+        ours = None
+    try:
+        with open(out / 'output.log', 'w', encoding='utf-8', errors='replace') as log:
+            code = subprocess.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command],
+                                  cwd=values['repo'], stdout=log, stderr=subprocess.STDOUT).returncode
+    finally:
+        if ours:
+            user_idle.end(ours)
     took = time.monotonic() - began
     output = (out / 'output.log').read_text(encoding='utf-8', errors='replace')
     copied = collect(case, values, out)

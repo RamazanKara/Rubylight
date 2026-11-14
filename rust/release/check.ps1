@@ -168,6 +168,8 @@ if (-not $NoInstall) {
         }).Count -eq 0
     $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
         [Security.Principal.WindowsBuiltInRole]::Administrator)
+    # The install resets Windows' last-input time: that is this check's, not the user's.
+    $ours = \(& $python "$tools\user_idle.py" begin) -split ' '
     $arguments = '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$tools\elevated.ps1`"",
         '-Package', "`"$package`"", '-Installer', "`"$installer`"", '-Version', $Version, '-Work', "`"$run`""
     if ($admin) {
@@ -192,6 +194,7 @@ if (-not $NoInstall) {
         if ((Get-Date) -gt $deadline) { throw 'The elevated step did not finish; was the UAC prompt declined?' }
         Start-Sleep -Seconds 2
     }
+    if ($ours.Count -eq 2) { & $python "$tools\user_idle.py" end \ours }
     if (-not (Test-Path "$run\elevated\installed.json")) { throw "The install did not finish; see $run\elevated\transcript.txt" }
     if (-not (Test-Path "$run\elevated\display-self-test.json")) {
         Write-Warning "The display self-test wrote no report; see $run\elevated\transcript.txt"

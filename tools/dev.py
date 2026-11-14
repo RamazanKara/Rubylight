@@ -40,7 +40,8 @@ SERVICE_INPUTS = ('rust/service/', 'rust/core/src/update_recovery.rs', 'rust/cor
                   'rust/core/src/state/file.rs', 'rust/assets/version_info.rs', 'rust/assets/butterpollo.ico',
                   'rust-toolchain.toml', '.cargo/')
 # The suites CI runs from rust/release.
-RELEASE_SUITES = ('test_release.py', 'test_gpu_hang.py', 'test_timing_report.py', 'test_cadence_matrix.py')
+RELEASE_SUITES = ('test_release.py', 'test_gpu_hang.py', 'test_timing_report.py', 'test_cadence_matrix.py',
+                  'test_user_idle.py')
 RELEASE_INPUTS = ('rust/release/', 'tools/nightjar_notes.py', '.github/workflows/rust-windows.yml') + SERVICE_INPUTS
 GRADLE_WIDE = ('client/build.gradle', 'client/settings.gradle', 'client/gradle.properties', 'client/gradle/',
                'client/app/build.gradle', 'client/app/proguard-rules.pro', 'client/app/src/main/res/',

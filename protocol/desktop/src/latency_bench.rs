@@ -240,6 +240,8 @@ pub struct Bench {
     pub device: Option<Device>,
     /// The stream's decoders, for the benchmark after the timing test.
     hardware: Option<media::Hardware>,
+    /// Keeps `hardware`'s device alive until the decoder benchmark, whose thread holds its own.
+    gpu: media::DeviceRef,
     wake: Option<crate::hosts::Waker>,
     decoders: Option<DecoderRun>,
     /// A stopped benchmark's thread, until it has seen its cancel flag ([`Self::finish`]).
@@ -260,6 +262,7 @@ impl Bench {
         self.decoders_measured = false;
         self.measured = true;
         self.hardware = Some(hardware);
+        self.gpu = media::DeviceRef::of(hardware);
         self.wake = Some(wake);
         let started = Instant::now();
         self.until = Some(started + TEST);
@@ -298,6 +301,7 @@ impl Bench {
             stop.store(true, Ordering::SeqCst);
         }
         self.hardware = None;
+        self.gpu = media::DeviceRef::default();
         if let Some(mut run) = self.decoders.take() {
             run.cancel.store(true, Ordering::Relaxed);
             self.results.extend(run.results.try_iter());
@@ -345,7 +349,7 @@ impl Bench {
             }
             self.show();
             if let Some(hardware) = self.hardware.take() {
-                self.decoders = Some(start_decoders(hardware, self.wake.clone()));
+                self.decoders = Some(start_decoders(hardware, std::mem::take(&mut self.gpu), self.wake.clone()));
             }
         } else if self.until.is_some() && self.shown_at.is_none_or(|at| now.duration_since(at) >= SHOW_EVERY) {
             self.show();
@@ -504,13 +508,15 @@ fn round(value: f64) -> f64 {
 }
 
 /// The decoder benchmark on its own thread; each codec's result comes as it is measured.
-fn start_decoders(hardware: media::Hardware, wake: Option<crate::hosts::Waker>) -> DecoderRun {
+/// `device` keeps `hardware`'s device alive while the thread decodes on it.
+fn start_decoders(hardware: media::Hardware, device: media::DeviceRef, wake: Option<crate::hosts::Waker>) -> DecoderRun {
     let cancel = Arc::new(AtomicBool::new(false));
     let (send, results) = channel();
     let flag = cancel.clone();
     let thread = std::thread::Builder::new()
         .name("latency-decoders".into())
         .spawn(move || {
+            let _device = device;
             for codec in Codec::ALL {
                 if flag.load(Ordering::Relaxed) {
                     return;

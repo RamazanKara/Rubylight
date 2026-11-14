@@ -625,3 +625,51 @@ fn a_failed_copy_drops_the_map_and_says_why_once() {
     assert!(!copy_or_drop_map(&mut map, &mut fallback, |_: &mut u32| { tried = true; Ok(()) }));
     assert!(!tried, "no map, no copy: the picture goes through memory");
 }
+
+/// Nightjar #115: SDL let go of its Direct3D 11 device (a driver reset) while a launch still
+/// had the old pointer, and FFmpeg's AddRef ran on freed memory. A launch's reference keeps the
+/// device alive past its maker's release, and tells it from the device made in its place.
+#[cfg(windows)]
+#[test]
+fn a_held_device_outlives_the_renderers_release() {
+    use windows::core::Interface;
+    use windows::Win32::Foundation::HMODULE;
+    use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE_WARP, D3D_FEATURE_LEVEL_11_0};
+    use windows::Win32::Graphics::Direct3D11::{D3D11CreateDevice, ID3D11Device, D3D11_CREATE_DEVICE_FLAG, D3D11_SDK_VERSION};
+    let make = || {
+        let mut device = None;
+        // SAFETY: A WARP device of this test's own.
+        unsafe {
+            D3D11CreateDevice(None, D3D_DRIVER_TYPE_WARP, HMODULE::default(), D3D11_CREATE_DEVICE_FLAG(0), Some(&[D3D_FEATURE_LEVEL_11_0]),
+                D3D11_SDK_VERSION, Some(&mut device), None, None).unwrap();
+        }
+        device.unwrap()
+    };
+    // The references on the device at `raw`, counted by an AddRef and its Release.
+    let references = |raw: *mut c_void| {
+        // SAFETY: A balanced AddRef and Release on a live device.
+        unsafe {
+            let device = ID3D11Device::from_raw_borrowed(&raw).unwrap();
+            (device.vtable().base__.AddRef)(raw);
+            (device.vtable().base__.Release)(raw)
+        }
+    };
+    let renderers = make();
+    let raw = renderers.as_raw();
+    let before = references(raw);
+    let held = DeviceRef::of(Hardware::D3d11(raw));
+    assert_eq!(references(raw), before + 1, "the launch holds one reference");
+    assert!(held.holds(raw));
+    // The renderer lets go of its device and makes another, as SDL does after a driver reset.
+    drop(renderers);
+    let again = make();
+    assert_eq!(references(raw), before, "the launch's reference keeps the old device alive");
+    assert!(!held.holds(again.as_raw()), "the launch sees the device changed");
+    assert!(!held.holds(std::ptr::null_mut()));
+    let copy = held.clone();
+    drop(held);
+    assert_eq!(references(raw), before, "the decoder's copy keeps it alive after the plan goes");
+    assert!(copy.holds(raw));
+    assert!(DeviceRef::of(Hardware::None).holds(std::ptr::null_mut()));
+    assert!(DeviceRef::of_device(std::ptr::null_mut()).holds(std::ptr::null_mut()));
+}

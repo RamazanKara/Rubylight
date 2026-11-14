@@ -376,3 +376,25 @@ fn logs_about_every_ten_seconds_while_locked() {
     sync.on_payload(now + Duration::from_secs(9), &report(8_333_333, 0));
     assert!(sync.log_due(now + Duration::from_secs(10)));
 }
+
+#[test]
+fn a_client_holding_each_frame_for_several_refreshes_locks_at_the_stream_period() {
+    // Fractional V-Sync: a client showing each frame for 2, 3 or 4 refreshes of its
+    // 120 Hz panel reports that many refreshes as its period, the stream's own; one
+    // showing them at every refresh reports the refresh. Both lock, at the stream rate.
+    let now = Instant::now();
+    let lead = PhaseLock::DEFAULT_MARGIN_NS as i32;
+    for (client, stream) in [
+        (16_666_667u32, 16_666_667u64),
+        (25_000_000, 25_000_000),
+        (33_333_333, 33_333_333),
+        (8_333_333, 16_666_667),
+        (8_333_333, 25_000_000),
+    ] {
+        let mut sync = PhaseSync::default();
+        assert!(sync.on_payload(now, &report(client, lead)).is_some(), "{client} for {stream}");
+        let interval = sync.interval(now, Duration::from_nanos(stream)).unwrap();
+        let off = (interval.as_nanos() as i64 - stream as i64).abs();
+        assert!(off <= 2_000, "{client} for {stream}: {interval:?}");
+    }
+}

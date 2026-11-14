@@ -43,9 +43,11 @@ pub const REST_PRESENTS: u32 = 300;
 pub const SCAN_WAIT_SLACK_NS: u64 = 1_000_000;
 
 /// Waits for a scan under way longer than this sleep most of it (ns)...
-const SLEEP_FROM_NS: u64 = 500_000;
-/// ...and spin the last of it, reading the beam, since a sleep cannot be that exact.
-const SPIN_LAST_NS: u64 = 250_000;
+const SLEEP_FROM_NS: u64 = 1_500_000;
+/// ...and spin the last millisecond, reading the beam: a sleep can overshoot, and on a display that
+/// scans back to back a present that goes out late lands in the next scan's rows instead of its
+/// blanking (0.5 ms of lines at 240 Hz). Nightjar 5.4.0 spun the whole wait.
+const SPIN_LAST_NS: u64 = 1_000_000;
 
 /// What the wait for a scan under way does next (`Streaming::wait_out_scan`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -81,6 +83,8 @@ pub struct Waited {
     pub ns: u64,
     /// It went out before the scan ended (`ScanStep::CutShort`).
     pub cut_short: bool,
+    /// It ended with the counter going back to the next scan rather than reading past the last row.
+    pub wrapped: bool,
 }
 
 /// Waits while the beam of `first` (a reading just now) is in the picture's rows, until it leaves
@@ -92,18 +96,18 @@ pub fn wait_out(beam: &super::scanline::Beam, first: super::scanline::Sample, mu
     mut sleep: impl FnMut(u64), mut elapsed: impl FnMut() -> u64) -> Option<Waited> {
     let first_left = beam.scan_left_ns(&first)?;
     let limit = first_left + SCAN_WAIT_SLACK_NS;
-    let (mut left, mut read_ok, mut line) = (Some(first_left), true, first.line);
+    let (mut left, mut read_ok, mut line, mut wrapped) = (Some(first_left), true, first.line, false);
     loop {
         match scan_step(left, read_ok, elapsed(), limit) {
-            ScanStep::Go => return Some(Waited { ns: elapsed(), cut_short: false }),
-            ScanStep::CutShort => return Some(Waited { ns: elapsed(), cut_short: true }),
+            ScanStep::Go => return Some(Waited { ns: elapsed(), cut_short: false, wrapped }),
+            ScanStep::CutShort => return Some(Waited { ns: elapsed(), cut_short: true, wrapped: false }),
             ScanStep::Sleep(ns) => sleep(ns),
             ScanStep::Spin => std::hint::spin_loop(),
         }
         let reading = read();
         read_ok = reading.is_some();
         left = reading.and_then(|reading| {
-            let wrapped = reading.line < line;
+            wrapped = reading.line < line;
             line = reading.line;
             if wrapped { None } else { beam.scan_left_ns(&reading) }
         });
@@ -191,6 +195,8 @@ pub struct Tally {
     pub rests: u32,
     /// Presents that waited for a scan under way and went out before it ended (`ScanStep::CutShort`).
     pub cut_short: u32,
+    /// Waits that ended with the counter going back to the next scan (`Waited::wrapped`).
+    pub wrapped: u32,
 }
 
 impl Tally {
@@ -228,6 +234,9 @@ impl Tally {
         let mut lines = Vec::new();
         if self.cut_short > 0 {
             lines.push(format!("VRR: {} presents went out before the scan under way had ended (the wait reached its limit or the scan line could not be read)", self.cut_short));
+        }
+        if self.wrapped > 0 {
+            lines.push(format!("VRR: {} waits ended as the display began its next scan, with no reading past the last row", self.wrapped));
         }
         if self.drawing.count() > 0 {
             lines.push(format!("VRR: a picture's drawing was finished before its present, after {} ({} not waited for)",

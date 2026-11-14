@@ -339,6 +339,7 @@ impl Streaming {
         let Some(waited) = scan_sync::wait_out(&beam, sample, || probe.and_then(race_probe::RaceProbe::before),
             |ns| std::thread::sleep(Duration::from_nanos(ns)), || begun.elapsed().as_nanos() as u64) else { return 0 };
         if waited.cut_short { self.scan_tally.cut_short += 1; }
+        if waited.wrapped { self.scan_tally.wrapped += 1; }
         self.scan_waits.0 += 1;
         self.scan_waits.1 += waited.ns;
         waited.ns

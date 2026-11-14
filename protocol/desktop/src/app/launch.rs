@@ -72,6 +72,10 @@ impl App {
     /// A plan made earlier, with this moment's display and controllers.
     pub(crate) fn refresh_plan(&mut self, plan: &mut LaunchPlan) {
         plan.display = display_of(self.window);
+        // The renderer's device now: SDL makes it again after a driver reset, and the old one is
+        // only kept alive, not drawn on.
+        plan.hardware = self.hardware(&plan.settings);
+        plan.device = media::DeviceRef::of(plan.hardware);
         plan.gamepad_mask = self.pads.launch_mask(&plan.settings);
         plan.prepared_controllers = self.pads.launch_controllers(&plan.settings);
     }
@@ -486,7 +490,8 @@ impl App {
             settings: settings.clone(),
             identity,
             display,
-            hardware: self.hardware(&settings),
+            hardware,
+            device: media::DeviceRef::of(hardware),
             dmabuf: self.dmabuf_import(),
             kms_planes: kms_planned(&settings, self.renderer),
             gpu_decoder,

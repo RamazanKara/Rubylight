@@ -218,6 +218,27 @@ impl VaapiNode {
     }
 }
 
+/// A reference held on [`Hardware::D3d11`]'s device, so the device outlives the renderer it came
+/// from while a launch or a decoder still uses it: SDL makes its Direct3D 11 device again after a
+/// driver reset, and a decoder opened on the old pointer would use freed memory. Elsewhere it
+/// holds nothing.
+#[derive(Clone, Default)]
+pub struct DeviceRef(#[cfg(windows)] #[allow(dead_code)] Option<windows::Win32::Graphics::Direct3D11::ID3D11Device>);
+
+impl DeviceRef {
+    /// Takes a reference on `hardware`'s device, read from the live renderer on the main thread.
+    pub fn of(hardware: Hardware) -> Self {
+        #[cfg(windows)]
+        if let Hardware::D3d11(raw) = hardware {
+            use windows::core::Interface;
+            // SAFETY: `raw` is the live renderer's device, just read from it.
+            return Self(unsafe { windows::Win32::Graphics::Direct3D11::ID3D11Device::from_raw_borrowed(&raw) }.cloned());
+        }
+        let _ = hardware;
+        Self::default()
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Hardware {
     None,

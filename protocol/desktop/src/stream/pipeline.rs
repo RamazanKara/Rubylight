@@ -375,6 +375,8 @@ pub struct Decoder {
     dmabuf: bool,
     /// The pictures go straight onto a display plane (`kms_scanout`), which takes 10-bit too.
     kms_planes: bool,
+    /// Keeps `hardware`'s device alive while this decoder may open on it.
+    _device: media::DeviceRef,
     /// Measurement: where the first `PYROWAVE_DUMP_FRAMES` envelopes go (`NIGHTJAR_PYROWAVE_DUMP`),
     /// and how many were written.
     dump: Option<(std::path::PathBuf, u32)>,
@@ -708,6 +710,7 @@ impl Decoder {
             gpu: None,
             dmabuf: false,
             kms_planes: false,
+            _device: media::DeviceRef::default(),
             dump: std::env::var_os("NIGHTJAR_PYROWAVE_DUMP").filter(|dir| !dir.is_empty()).map(|dir| (dir.into(), 0)),
             failing: Failing::default(),
             lost: false,
@@ -840,6 +843,11 @@ impl Decoder {
     /// VAAPI pictures go straight onto a display plane as DMA-BUFs (`kms_scanout`).
     pub fn with_kms_planes(mut self, kms_planes: bool) -> Self {
         self.kms_planes = kms_planes;
+        self
+    }
+
+    pub fn with_device(mut self, device: media::DeviceRef) -> Self {
+        self._device = device;
         self
     }
 }

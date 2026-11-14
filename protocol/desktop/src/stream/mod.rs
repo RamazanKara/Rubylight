@@ -183,6 +183,8 @@ pub struct LaunchPlan {
     pub identity: Arc<ClientIdentity>,
     pub display: Display,
     pub hardware: Hardware,
+    /// Keeps `hardware`'s device alive for the launch and its decoder ([`media::DeviceRef`]).
+    pub device: crate::media::DeviceRef,
     /// VAAPI pictures go to the renderer as DMA-BUFs (`crate::dmabuf`), not through memory.
     pub dmabuf: bool,
     /// Pictures go straight onto a display plane (`kms_scanout`): VAAPI exports them as DMA-BUFs

@@ -327,14 +327,16 @@ cases:
       ssh {{laptop}} "New-Item -ItemType Directory -Force C:\tests\hw | Out-Null"
       scp rust\release\smoke.ps1 "{{laptop}}:C:/tests/hw/smoke.ps1"
       if ($LASTEXITCODE) { exit 1 }
+      $probe = Start-Process pwsh -ArgumentList '-NoProfile', '-File', 'tools/hw/probe-on-new-display.ps1', '-Minutes', '5', '-Out', '{{out}}' -PassThru -WindowStyle Hidden
       ssh {{laptop}} "pwsh -NoProfile -File C:\tests\hw\smoke.ps1 -Out C:\tests\hw\smoke.json"
       $code = $LASTEXITCODE
       scp "{{laptop}}:C:/tests/hw/smoke.json" "{{out}}\smoke.json"
+      if (-not $probe.HasExited) { Stop-Process -Id $probe.Id -Force }
       exit $code
     preconditions: [idle]
     pass: exit 0, at least 115 fps received and host processing under 5 ms per codec (smoke.json)
     output: '{{out}}\smoke.json'
-    note: no -Version, so nothing is uploaded to the release
+    note: no -Version, so nothing is uploaded to the release (add it to the smoke.ps1 line in a copy of this catalog, with --catalog, to upload REAL-CLIENT.json). The probe helper draws on the laptop's virtual display when it appears.
 
   - id: net-fec-auto-nuc
     device: nuc

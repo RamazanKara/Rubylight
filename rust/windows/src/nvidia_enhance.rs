@@ -115,6 +115,9 @@ pub(crate) fn describe(code: u32) -> String {
         0xbad1_0005 => "the adapter was not told where NGX keeps its data".into(),
         0xbad1_0006 => "the NVIDIA driver is too old".into(),
         0xbad1_0007 => "the feature asks for scratch memory, which this host does not give".into(),
+        0xbad1_0008 => {
+            "the GPU cannot let NGX write the picture in this format (no typed UAV support)".into()
+        }
         // NVSDK_NGX_Result_FAIL_* from the RTX Video SDK's nvsdk_ngx_defs.h.
         0xbad0_0001 => "the GPU does not support it".into(),
         0xbad0_0002 => "NGX reported a platform error; update the NVIDIA driver".into(),
@@ -232,6 +235,8 @@ mod tests {
         assert!(super::describe(0xbad0_0004).contains("DLL"));
         assert!(super::describe(0xbad0_000c).contains("driver"));
         assert!(super::describe(0xbad1_0003).contains("does not offer"));
+        // The adapter's output texture without a typed UAV, which NGX must write.
+        assert!(super::describe(0xbad1_0008).contains("UAV"));
         assert_eq!(super::describe(0x1234), "NGX error 0x1234");
         assert_eq!(
             super::unavailable(0xbad1_0006, (570 << 16) | 2),

@@ -121,6 +121,9 @@ const ERROR_UNCONFIGURED: u32 = 0xbad1_0005;
 const ERROR_DRIVER: u32 = 0xbad1_0006;
 /// The feature asks for scratch memory, which this D3D11 path never gives.
 const ERROR_SCRATCH: u32 = 0xbad1_0007;
+/// The GPU cannot bind the output's format as a typed UAV, which NGX writes.
+/// An ABI 3 host without this code shows it as a plain NGX error number.
+const ERROR_OUTPUT_UAV: u32 = 0xbad1_0008;
 
 /// The two NGX features this adapter runs.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -166,8 +169,10 @@ impl Feature {
     }
 }
 
-struct Runtime {
-    device: ID3D11Device,
+/// A device's NGX instance and how many use it. The device type is a
+/// parameter only so the tests can count without a GPU.
+struct Runtime<D = ID3D11Device> {
+    device: D,
     users: usize,
 }
 /// NGX is initialized once per D3D11 device and shut down when its last user
@@ -301,30 +306,40 @@ fn acquire(devices: &mut BTreeMap<usize, Runtime>, device: &ID3D11Device) -> Res
     );
     Ok(())
 }
-/// Counts one user of NGX on `device` gone. Once none is left anywhere, NGX
-/// shuts down, and the devices are returned to be released outside the lock:
-/// a final D3D device release can wait for display removal. The caller holds
-/// `devices` and `device`'s multithread lock.
-fn release(
-    devices: &mut BTreeMap<usize, Runtime>,
-    device: &ID3D11Device,
-) -> BTreeMap<usize, Runtime> {
-    if let Some(runtime) = devices.get_mut(&(device.as_raw() as usize)) {
-        runtime.users = runtime.users.saturating_sub(1);
-    }
-    if devices.values().all(|d| d.users == 0) {
-        for runtime in devices.values() {
-            // Another device's lock, after `devices`, like every other.
-            let _locked =
-                (runtime.device.as_raw() != device.as_raw()).then(|| Locked::new(&runtime.device));
-            // SAFETY: NGX was initialized on this live device, and no feature on it remains.
-            unsafe {
-                NVSDK_NGX_D3D11_Shutdown1(runtime.device.as_raw());
-            }
-        }
-        std::mem::take(devices)
+/// Counts one user of the device `id` gone, and takes its entry out of
+/// `devices` when that was its last: the device to shut down. Other devices
+/// keep theirs, whatever their counts.
+fn count_down<D>(devices: &mut BTreeMap<usize, Runtime<D>>, id: usize) -> Option<Runtime<D>> {
+    let runtime = devices.get_mut(&id)?;
+    runtime.users = runtime.users.saturating_sub(1);
+    if runtime.users == 0 {
+        devices.remove(&id)
     } else {
-        BTreeMap::new()
+        None
+    }
+}
+/// Counts one user of NGX on `device` gone. After its last, NGX shuts down on
+/// that device alone ("Shutdown1(Device) only affects specified device",
+/// nvsdk_ngx.h), and its entry is returned to be released outside the lock: a
+/// final D3D device release can wait for display removal. The caller holds
+/// `devices` and `device`'s multithread lock.
+fn release(devices: &mut BTreeMap<usize, Runtime>, device: &ID3D11Device) -> Option<Runtime> {
+    let runtime = count_down(devices, device.as_raw() as usize)?;
+    // SAFETY: NGX was initialized on this live device, and no feature on it remains.
+    unsafe {
+        NVSDK_NGX_D3D11_Shutdown1(runtime.device.as_raw());
+    }
+    Some(runtime)
+}
+/// The error for an output texture D3D would not create: `ERROR_OUTPUT_UAV`
+/// when the device's format support (`support`, if it could be read) lacks a
+/// typed UAV, otherwise D3D's own result.
+fn output_failure(support: Option<u32>, hresult: u32) -> u32 {
+    match support {
+        Some(bits) if (bits & D3D11_FORMAT_SUPPORT_TYPED_UNORDERED_ACCESS_VIEW.0 as u32) == 0 => {
+            ERROR_OUTPUT_UAV
+        }
+        _ => hresult,
     }
 }
 /// The minimum driver a feature asks for, as major << 16 | minor.
@@ -454,7 +469,10 @@ impl Converter {
         unsafe {
             if self.shape != (width, height, format) || self.output.is_none() {
                 self.output = None;
-                let mut desc = D3D11_TEXTURE2D_DESC {
+                // NGX writes its destination as an unordered access view: "DX11 and DX12
+                // destination resources must be UAV" (the SDK guide, chapter 3), and NVIDIA's
+                // samples evaluate into a UAV texture of their own when the caller's has none.
+                let desc = D3D11_TEXTURE2D_DESC {
                     Width: width,
                     Height: height,
                     MipLevels: 1,
@@ -470,19 +488,14 @@ impl Converter {
                         | D3D11_BIND_UNORDERED_ACCESS.0) as u32,
                     ..Default::default()
                 };
-                if self
+                if let Err(error) = self
                     .device
                     .CreateTexture2D(&desc, None, Some(&mut self.output))
-                    .is_err()
                 {
-                    // An 8-bit BGRA texture can lack typed UAV support; NGX
-                    // then writes it as a render target.
-                    desc.BindFlags =
-                        (D3D11_BIND_SHADER_RESOURCE.0 | D3D11_BIND_RENDER_TARGET.0) as u32;
+                    // A texture without UAV would fail every evaluation, so none is made.
                     self.output = None;
-                    self.device
-                        .CreateTexture2D(&desc, None, Some(&mut self.output))
-                        .map_err(|e| e.code().0 as u32)?;
+                    let support = self.device.CheckFormatSupport(format).ok();
+                    return Err(output_failure(support, error.code().0 as u32));
                 }
                 self.shape = (width, height, format);
             }
@@ -628,7 +641,7 @@ impl Drop for Converter {
             if self.acquired {
                 release(&mut devices, &self.device)
             } else {
-                BTreeMap::new()
+                None
             }
         };
         // Never hold the NGX lock while a device goes.
@@ -706,7 +719,7 @@ pub unsafe extern "C" fn butterpollo_ngx_available(
         let mut devices = DEVICES.lock().unwrap();
         let _locked = Locked::new(device);
         match acquire(&mut devices, device) {
-            Err(code) => (Err(code), BTreeMap::new()),
+            Err(code) => (Err(code), None),
             Ok(()) => {
                 // SAFETY: the locks are held and NGX is acquired on `device`.
                 let result = unsafe { feature_available(feature, &mut minimum) }.map(|params| {
@@ -849,9 +862,72 @@ pub unsafe extern "C" fn butterpollo_vsr_destroy(state: *mut c_void) {
 
 #[cfg(test)]
 mod tests {
+    use super::{BTreeMap, Runtime, count_down};
+
     #[test]
     fn the_minimum_driver_packs_major_over_minor() {
         assert_eq!(super::driver_version(570, 2), (570 << 16) | 2);
         assert_eq!(super::driver_version(0x1_0000, 0x1_0000), 0xffff_ffff);
+    }
+
+    fn devices(entries: &[(usize, usize)]) -> BTreeMap<usize, Runtime<()>> {
+        entries
+            .iter()
+            .map(|&(id, users)| (id, Runtime { device: (), users }))
+            .collect()
+    }
+    fn users(devices: &BTreeMap<usize, Runtime<()>>) -> Vec<(usize, usize)> {
+        devices.iter().map(|(&id, d)| (id, d.users)).collect()
+    }
+
+    /// A device's last user shuts that device down even while another
+    /// device is still in use, and leaves the other one alone.
+    #[test]
+    fn a_device_shuts_down_after_its_own_last_user() {
+        let mut table = devices(&[(1, 1), (2, 3)]);
+        assert_eq!(count_down(&mut table, 1).map(|d| d.users), Some(0));
+        assert_eq!(users(&table), [(2, 3)]);
+    }
+
+    #[test]
+    fn a_device_with_users_left_stays() {
+        let mut table = devices(&[(1, 2), (2, 1)]);
+        assert!(count_down(&mut table, 1).is_none());
+        assert_eq!(users(&table), [(1, 1), (2, 1)]);
+    }
+
+    #[test]
+    fn an_unknown_device_changes_nothing() {
+        let mut table = devices(&[(1, 1)]);
+        assert!(count_down(&mut table, 9).is_none());
+        assert_eq!(users(&table), [(1, 1)]);
+    }
+
+    /// One device, as before: it shuts down after its last user and the table
+    /// is empty.
+    #[test]
+    fn a_single_device_shuts_down_after_its_last_user() {
+        let mut table = devices(&[(1, 2)]);
+        assert!(count_down(&mut table, 1).is_none());
+        assert!(count_down(&mut table, 1).is_some());
+        assert!(table.is_empty());
+    }
+
+    /// The output must be a UAV for NGX; a format the GPU cannot bind as one
+    /// gets its own error, and any other failure keeps D3D's result.
+    #[test]
+    fn an_output_without_typed_uav_gets_its_own_error() {
+        use super::{D3D11_FORMAT_SUPPORT_TYPED_UNORDERED_ACCESS_VIEW, ERROR_OUTPUT_UAV};
+        let uav = D3D11_FORMAT_SUPPORT_TYPED_UNORDERED_ACCESS_VIEW.0 as u32;
+        let out_of_memory = 0x8007_000e;
+        assert_eq!(
+            super::output_failure(Some(0), out_of_memory),
+            ERROR_OUTPUT_UAV
+        );
+        assert_eq!(
+            super::output_failure(Some(uav), out_of_memory),
+            out_of_memory
+        );
+        assert_eq!(super::output_failure(None, out_of_memory), out_of_memory);
     }
 }

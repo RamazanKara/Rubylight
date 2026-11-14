@@ -897,9 +897,9 @@ impl Launcher {
             rows.when(!s.frame_pacing.forces_vsync());
             setting_row(ui, s, &mut rows, &["vsync"], "V-Sync", "Waits for the screen’s refresh, so the picture never tears; the wait adds latency. Turn it off for the lowest latency if tearing doesn’t bother you.", |ui, s| toggle(ui, &mut s.vsync));
             rows.always();
-            // Only where pictures wait for the refresh, and on Windows, whose swap chain says which refresh
-            // showed the last picture (`Streaming::hold_for_turn`).
-            rows.when(cfg!(windows) && !vrr);
+            // Only where pictures wait for the refresh, on Windows and Linux, which say when the last
+            // picture was shown (`Streaming::held_times`; on Linux with Wayland or KMS only).
+            rows.when(cfg!(any(windows, target_os = "linux")) && !vrr);
             rows.when(s.vsync || s.frame_pacing.forces_vsync());
             setting_row(ui, s, &mut rows, &["fractional_vsync"], "Fractional V-Sync", "On a screen at 2 to 4 times the stream’s frame rate (60 fps on 120 Hz), shows every frame for the same number of refreshes, so motion stays even. It adds 3 to 10 ms of delay; turn it on if motion judders with V-Sync.", |ui, s| toggle(ui, &mut s.fractional_vsync));
             rows.always();

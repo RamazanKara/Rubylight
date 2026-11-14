@@ -37,6 +37,43 @@ pub const GIVE_UPS_IN_A_ROW: u32 = 3;
 /// Presents the wait rests for after that, before it is tried again.
 pub const REST_PRESENTS: u32 = 300;
 
+/// How far past the first reading's estimate the wait for a scan under way may run (ns) before
+/// the present goes out regardless: a reading can be wrong (a mode switch, a wrapped counter),
+/// and a sleep can overshoot. The wait is at most one scan plus this.
+pub const SCAN_WAIT_SLACK_NS: u64 = 1_000_000;
+
+/// Waits for a scan under way longer than this sleep most of it (ns)...
+const SLEEP_FROM_NS: u64 = 500_000;
+/// ...and spin the last of it, reading the beam, since a sleep cannot be that exact.
+const SPIN_LAST_NS: u64 = 250_000;
+
+/// What the wait for a scan under way does next (`Streaming::wait_out_scan`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScanStep {
+    /// The beam has left the picture's last row: present.
+    Go,
+    /// Sleep this long (ns), then read the beam again.
+    Sleep(u64),
+    /// Read the beam again at once.
+    Spin,
+    /// The wait reached its limit with the beam still in the picture's rows, or the scan line
+    /// could not be read: present anyway, counted (`Tally::cut_short`).
+    CutShort,
+}
+
+/// The next step of a wait for a scan under way, from the latest reading (`left_ns`: how long the
+/// beam takes to leave the last row, None once it has; `Beam::scan_left_ns`), `read` false when
+/// the scan line gave no reading, the time waited so far and the wait's limit. The beam is read
+/// again after every sleep, so a wait follows the scan to its end instead of trusting one reading.
+/// Nightjar 5.4.1 capped this wait at 2 ms, which let a picture that met a scan under way on a
+/// 120 Hz panel (8 ms a scan) go out into it and tear (Nightjar issue 111).
+pub fn scan_step(left_ns: Option<u64>, read: bool, waited_ns: u64, limit_ns: u64) -> ScanStep {
+    if !read { return ScanStep::CutShort; }
+    let Some(left) = left_ns else { return ScanStep::Go };
+    if waited_ns >= limit_ns { return ScanStep::CutShort; }
+    if left > SLEEP_FROM_NS { ScanStep::Sleep((left - SPIN_LAST_NS).min(limit_ns - waited_ns)) } else { ScanStep::Spin }
+}
+
 /// Whether the present issued `since_present_ns` ago has not started a scan yet, from a reading
 /// of an idling display whose last scan began `since_scan_ns` ago (`Beam::since_scan_ns`; the
 /// counter keeps walking while the display idles). A present is issued when the beam has left the
@@ -116,6 +153,8 @@ pub struct Tally {
     rest: u32,
     /// Times the wait went to rest.
     pub rests: u32,
+    /// Presents that waited for a scan under way and went out before it ended (`ScanStep::CutShort`).
+    pub cut_short: u32,
 }
 
 impl Tally {
@@ -151,6 +190,9 @@ impl Tally {
     /// The log's lines at the stream's end, none for a stream that never got this far.
     pub fn lines(&self) -> Vec<String> {
         let mut lines = Vec::new();
+        if self.cut_short > 0 {
+            lines.push(format!("VRR: {} presents went out before the scan under way had ended (the wait reached its limit or the scan line could not be read)", self.cut_short));
+        }
         if self.drawing.count() > 0 {
             lines.push(format!("VRR: a picture's drawing was finished before its present, after {} ({} not waited for)",
                 self.drawing.line(), self.undrawn));

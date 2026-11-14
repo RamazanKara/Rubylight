@@ -89,3 +89,28 @@ fn the_log_says_what_the_presents_met() {
         "VRR: 12 presents found the one before still on its way to the screen; 2 waited for it, 5.00 ms each, 1 of them for nothing (0 rests of 300 presents)",
     ]);
 }
+
+#[test]
+fn a_scan_under_way_is_waited_out_to_its_end() {
+    let limit = SCAN_NS + SCAN_WAIT_SLACK_NS;
+    // A picture that meets the scan just begun sleeps most of it, not 2 ms (Nightjar 5.4.1).
+    assert_eq!(scan_step(Some(SCAN_NS), true, 0, limit), ScanStep::Sleep(SCAN_NS - 250_000));
+    // The last quarter millisecond is spun, reading the beam.
+    assert_eq!(scan_step(Some(200_000), true, 7_800_000, limit), ScanStep::Spin);
+    // The beam has left the last row: present.
+    assert_eq!(scan_step(None, true, 8_000_000, limit), ScanStep::Go);
+    // A sleep never runs past the limit.
+    assert_eq!(scan_step(Some(SCAN_NS), true, 8_500_000, limit), ScanStep::Sleep(limit - 8_500_000));
+    // A reading that keeps the beam in the rows past one scan and the slack is wrong: go, counted.
+    assert_eq!(scan_step(Some(3_000_000), true, limit, limit), ScanStep::CutShort);
+    // So is a scan line that stops answering.
+    assert_eq!(scan_step(Some(3_000_000), false, 1_000_000, limit), ScanStep::CutShort);
+}
+
+#[test]
+fn the_log_counts_presents_that_went_out_into_a_scan() {
+    let tally = Tally { cut_short: 3, ..Tally::default() };
+    assert_eq!(tally.lines(), vec![
+        "VRR: 3 presents went out before the scan under way had ended (the wait reached its limit or the scan line could not be read)".to_string(),
+    ]);
+}

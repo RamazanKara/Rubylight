@@ -41,37 +41,36 @@ Rubylight is the Windows Rust host; Nightjar is the host-neutral client in `clie
 ### Layout and compatibility
 
 - Crates: `butterpollo-core` (`rust/core`), `butterpollo-windows` (`rust/windows`), `butterpollo` (`rust/host`). The virtual-display driver is outside the workspace. Internal crate, executable, environment, data-directory and service names stay Butterpollo/ApolloService; Rubylight is the product branding.
-- `client/` is the Nightjar Gradle root; `client/protocol` is a separate Cargo workspace. Host protocol changes land together with their client implementation. `C:\src\rubylight-android` is retired.
+- `client/` is the Nightjar Gradle root; `client/protocol` is a separate Cargo workspace. Host protocol changes land together with their client implementation.
 - Preserve `PROTOCOL_VERSION` and Moonlight compatibility; gate client extras through host capabilities.
-- Preserve AMD AMF and NVIDIA NVENC, Windows 10, physical displays, WGC, Desktop Duplication, D3D11 and the keyed-mutex ring. QSV/software encoders stay removed; Intel stays on 2.6.x unless requested. See `docs/nvenc.md`; no NVIDIA hardware is available here, so NVIDIA code is checked against the vendor's headers and samples instead of a run: compare every foreign declaration's parameters and the order of calls with them, as author and again in review, and give the reviewer their path (NVENC's are vendored, `rust/THIRD_PARTY.md`; the RTX Video SDK is `rtx-video-sdk-1.1.0` in the dependencies folder after `rust\build.ps1 -Nvidia`). NVAPI has no headers here; a report says which calls rest on other hosts' code alone.
+- Preserve AMD AMF and NVIDIA NVENC, Windows 10, physical displays, WGC, Desktop Duplication, D3D11 and the keyed-mutex ring. QSV/software encoders stay removed; Intel stays on 2.6.x unless requested.
+- No NVIDIA hardware is available (`docs/nvenc.md`), so NVIDIA code is checked against the vendor's headers and samples instead of a run: every foreign declaration's parameters and the order of calls, as author and again in review, with their path given to the reviewer (NVENC's are vendored, `rust/THIRD_PARTY.md`; the RTX Video SDK is `rtx-video-sdk-1.1.0` in the dependencies folder after `rust\build.ps1 -Nvidia`). NVAPI has no headers here; a report says which calls rest on other hosts' code alone.
 - Preserve attribution, fork history and license notices.
-- Fail visibly rather than silently switching encoders. Avoid added latency; prefer client-reported network hints. Performance claims need our own measurements; check `rust/PERFORMANCE.md` before repeating work. Do not install or benchmark competing hosts.
+- Fail visibly rather than silently switching encoders. Avoid added latency; prefer client-reported network hints. Performance claims need our own measurements on release builds; check `rust/PERFORMANCE.md` before repeating work. Do not install or benchmark competing hosts.
 - A setting's visible text says, in this order, what the user gets, what it costs (delay, picture quality, network, load, or what stops working) and when to change it ("Leave it on unless ..."); a value that can break streaming says so first. Facts from the code, the docs or our measurements only. Well-known terms (VRR, HDR, bitrate, HEVC) stay as they are, a lesser-known one gets a few words of explanation, and source-level internals belong in the console's details. `docs/configuration.md` repeats the console's descriptions; change both.
 - No "Experimental" labels in any UI or release notes; paths our devices can't test are marked Experimental only in the plan and hardware matrix.
 
 ### Build and verification
 
-- Use a native Windows checkout under `C:\src`; initialize submodules in a fresh clone. Use real paths where MSIX virtualizes `%LOCALAPPDATA%`.
-- Fast checks: `tools\dev.ps1 check` (`-DryRun` previews them; `-KeepGoing` continues past a failure). Choose checks for the affected behaviour and add meaningful regression tests. Logs and `summary.json` go to a separate folder per invocation.
+- Initialize submodules in a fresh clone. Use real paths where MSIX virtualizes `%LOCALAPPDATA%`.
+- Fast checks: `tools\dev.ps1 check` (`-DryRun` previews them; `-KeepGoing` continues past a failure). Choose checks for the affected behaviour and add meaningful regression tests.
 - `tools\dev.ps1 check`, `rust\build.ps1` and release checks share the machine-wide `BUILD-LOCK`. Wrap other heavy Cargo/Gradle/package commands with `python tools/build_lock.py -- <command>`; don't wrap `check.ps1` (it manages its own locks). Never remove a lock without checking its owner and surviving children.
-- Core tests outside a VS shell: `cargo +1.98.1-x86_64-pc-windows-msvc test -p butterpollo-core --locked --target-dir <shared-target>`.
 - Host formatting: `cargo fmt -- --check`, without `--all` (that would include the client workspace).
-- Full gate, one at a time, in a VS developer shell: `rust\build.ps1 -FetchDependencies -Dependencies <sdk> -TargetDirectory <target>` (SDK/toolchain setup in the build guide). Measure release builds.
-- Web (`rust/web`): `npm ci --no-audit --no-fund`, `npm run check`, `node --test "*.test.mjs"`, `npm run build`. Release Python: `python -m unittest discover -s rust/release -p test_release.py` and the same for `test_gpu_hang.py`.
-- Prefer shared build dependencies; put new disposable target directories under `D:\CodexArtifacts`. Preserve LF line endings. Never stash or overwrite unrelated work.
+- The full gate is `rust\build.ps1`, one at a time. Its arguments and the commands for one crate, the web console and the release scripts are in the [build guide](docs/building.md) and the [release guide](rust/release/README.md).
+- Prefer shared build dependencies. Preserve LF line endings. Never stash or overwrite unrelated work.
 
 ### CI and releases
 
-- Use `gh -R RamazanKara/Rubylight ...`. Host CI is `rust-windows.yml`, client CI `nightjar-android.yml` and `nightjar-macos.yml` (the Mac build; no Mac is available here); docs-only changes can skip host CI.
+- Use `gh -R RamazanKara/Rubylight ...`. Host CI is `rust-windows.yml`, client CI `nightjar-android.yml` and `nightjar-macos.yml`; docs-only changes can skip host CI.
 - Release work follows `rust/release/README.md`; notes go in `rust/release/notes.d` or `client/notes.d`, in English. Tag/publish only when requested, from the exact SHA whose main CI passed. Never move a published tag or delete a release without explicit authorization.
 - Nightjar's public home stays `RamazanKara/nightjar`. After main CI passes, mirror client changes with `tools\mirror-nightjar.ps1 -DryRun`, then without `-DryRun` (fast-forward-only incremental subtree split; never a full split or force-push). Pull mirror-side changes first with `git subtree pull --prefix client https://github.com/RamazanKara/nightjar main`.
 
 ### Hardware safety
 
-- This RX 7900 XT PC is also the user's gaming PC and release host. Before installing/restarting the host or starting a stream, check `http://127.0.0.1:47989/serverinfo`: RustHostSessionCount and RustHostPendingSessionCount must be zero. A lingering session in state `SUNSHINE_SERVER_FREE` with `currentgame` 0 is not a stream; isolated-host runs may proceed then. Never interrupt a stream.
-- Builds, tests and streams to isolated test hosts may run while the user games; prefer virtual-display captures. Restart, install drivers or change displays/controllers only when the host is idle and work can resume, and check the user is idle before showing test patterns: `python rust/release/user_idle.py`. Windows' own idle time is no measure, since a test host's stream start and an install reset it. Never upgrade Windows as part of a task.
+- Before installing or restarting the host or starting a stream, check `http://127.0.0.1:47989/serverinfo`: RustHostSessionCount and RustHostPendingSessionCount must be zero (a lingering session in state `SUNSHINE_SERVER_FREE` with `currentgame` 0 is not a stream). Never interrupt a stream.
+- Restart, install drivers or change displays/controllers only when the host is idle and work can resume, and check the user is idle before showing test patterns: `python rust/release/user_idle.py` (Windows' own idle time is no measure). Never upgrade Windows as part of a task.
 - Real-device streams use an isolated test host (own profile, port and `audio_sink_capture_only = true`), never the installed host, whose exclusive virtual-display layout blanks the user's monitors. Tests use isolated config directories and ports; keep virtual displays and display reconfiguration off unless required. Driver/virtual-display tests need SYSTEM: follow the release guide and `rust/release/elevated.ps1`.
 - App smoke tests redirect user data to a temp folder (`NIGHTJAR_CONFIG_DIR` for desktop Nightjar, plus `APPDATA`/`HOME`); never move or rename real app data.
 - Exit code 3 from `e2e.py` or `check.ps1` means an AMD encoder hang: stop and investigate; never retry blindly.
 - Desktop Nightjar test builds launch from fixed firewall-approved folders via `tools\nightjar-test-client.ps1 -From <zip|exe> [-Slot a|b]`; only the user answers firewall prompts.
-- Host log: `C:\ProgramData\Butterpollo\config\logs\butterpollo.log`. Read test `result.json` and stream-timing summaries. The user's phone needs their USB connection or pairing code; laptop `lap` (`ramaz@192.168.4.12`) uses `rust/release/smoke.ps1`, and `ssh nuc` is available for unattended client tests.
+- Host log: `C:\ProgramData\Butterpollo\config\logs\butterpollo.log`. Read test `result.json` and stream-timing summaries.

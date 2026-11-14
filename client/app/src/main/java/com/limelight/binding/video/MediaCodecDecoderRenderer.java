@@ -770,6 +770,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // thread), and the refresh grid the phase report aims at with the refreshes a frame is held
     // for (0 and 1 without a hold), from whichever thread released the frame.
     private long heldTargetNs;
+    /** Since when frames came a refresh early for their turn (FramePacingPolicy.earlyForTurn), 0 when not. */
+    private long heldEarlySinceNs;
     private volatile long heldAnchorNs;
     private volatile int heldAnchorRefreshes = 1;
     private HandlerThread choreographerHandlerThread;
@@ -4157,11 +4159,22 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
         if (refreshes <= 1 || vsyncNs == 0 || intervalNs <= 0 || !outputVsyncAvailable) {
             heldTargetNs = 0;
+            heldEarlySinceNs = 0;
             heldAnchorRefreshes = 1;
             return releaseNs;
         }
         long earliestNs = nextVsyncTimeNs(releaseNs, vsyncNs, intervalNs, deadlineNs);
         long targetNs = FramePacingPolicy.heldTargetNs(earliestNs, heldTargetNs, vsyncNs, intervalNs, refreshes);
+        if (FramePacingPolicy.earlyForTurn(releaseNs, targetNs, intervalNs, deadlineNs)) {
+            if (heldEarlySinceNs == 0) {
+                heldEarlySinceNs = releaseNs;
+            } else if (releaseNs - heldEarlySinceNs >= FramePacingPolicy.EARLY_FOR_NS) {
+                targetNs -= intervalNs;
+                heldEarlySinceNs = 0;
+            }
+        } else {
+            heldEarlySinceNs = 0;
+        }
         heldTargetNs = targetNs;
         heldAnchorNs = targetNs;
         heldAnchorRefreshes = refreshes;

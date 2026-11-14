@@ -10,6 +10,8 @@ struct Fake {
     calls: Mutex<Vec<String>>,
     /// The write's refusal.
     refuse: Option<String>,
+    /// Reads after the first one fail.
+    unreachable: bool,
     cancelled: std::sync::atomic::AtomicBool,
 }
 
@@ -39,6 +41,9 @@ impl NeuralSource for Fake {
     fn neural(&self, app: &str) -> Result<Neural, Error> {
         let mut calls = self.calls.lock().unwrap();
         calls.push(format!("read {app}"));
+        if self.unreachable && calls.len() > 1 {
+            return Err(Error::Cancelled);
+        }
         let wrote = calls.iter().any(|c| c.starts_with("write")) && self.refuse.is_none();
         let reads_since = calls
             .iter()
@@ -176,4 +181,24 @@ fn the_lines_say_the_job_and_the_switch() {
         switch_text(&switch),
         "Choose the game's program in the Rubylight console on the PC."
     );
+}
+
+/// A read that fails after a good one is shown and not repeated on its own.
+#[test]
+fn a_failed_read_is_not_retried_by_itself() {
+    let fake = Arc::new(Fake {
+        unreachable: true,
+        ..Fake::default()
+    });
+    let mut panel = NeuralPanel::default();
+    panel.open(1, 7, "uuid-1".into(), fake.clone(), waker());
+    settle(&mut panel);
+    panel.read(Duration::ZERO);
+    settle(&mut panel);
+    for _ in 0..20 {
+        panel.poll(Some((1, 7)));
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(panel.state_for(1, 7).unwrap().error.is_some());
+    assert_eq!(fake.calls.lock().unwrap().len(), 2);
 }

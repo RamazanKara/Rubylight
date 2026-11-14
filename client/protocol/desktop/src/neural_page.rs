@@ -41,8 +41,8 @@ impl NeuralSource for HostClient {
     }
 }
 
-/// The answer to read number `.0`.
-struct Answer(u64, Result<Neural, String>);
+/// The answer to request number `.0`, a write when `.1`.
+struct Answer(u64, bool, Result<Neural, String>);
 
 /// The Neural Rendering of the game page that opened it.
 #[derive(Default)]
@@ -162,7 +162,7 @@ impl NeuralPanel {
             if !delay.is_zero() {
                 std::thread::sleep(delay);
             }
-            let _ = sender.send(Answer(ask, source.neural(&app).map_err(|e| said(&e))));
+            let _ = sender.send(Answer(ask, false, source.neural(&app).map_err(|e| said(&e))));
             waker();
         });
         if let Err(e) = started {
@@ -200,7 +200,7 @@ impl NeuralPanel {
             open.waker.clone(),
         );
         let started = spawn("neural write", move || {
-            let _ = sender.send(Answer(ask, source.write(&write).map_err(|e| said(&e))));
+            let _ = sender.send(Answer(ask, true, source.write(&write).map_err(|e| said(&e))));
             waker();
         });
         if let Err(e) = started {
@@ -227,7 +227,7 @@ impl NeuralPanel {
             return;
         };
         let mut again = false;
-        while let Ok(Answer(ask, result)) = open.answers.try_recv() {
+        while let Ok(Answer(ask, wrote, result)) = open.answers.try_recv() {
             if ask != open.ask {
                 continue;
             }
@@ -241,7 +241,8 @@ impl NeuralPanel {
                 Err(error) => {
                     open.error = Some(error);
                     // A refused write may still have changed something: show it as it is now.
-                    again = open.state.is_some();
+                    // A failed read waits for the player's next visit or press instead.
+                    again = wrote;
                 }
             }
         }

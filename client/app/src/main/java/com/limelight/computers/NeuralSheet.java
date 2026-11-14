@@ -8,7 +8,6 @@ import android.os.Looper;
 import androidx.annotation.VisibleForTesting;
 
 import com.google.android.material.button.MaterialButton;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.limelight.LimeLog;
 import com.limelight.R;
 import com.limelight.binding.PlatformBinding;
@@ -19,6 +18,7 @@ import com.limelight.nativeapi.NativeApiException;
 import com.limelight.nativeapi.NativeNeural;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.ui.ActionSheet;
+import com.limelight.ui.NavigationDialogBuilder;
 
 import java.util.concurrent.Executor;
 
@@ -157,7 +157,7 @@ public final class NeuralSheet {
         } else {
             sheet.dismiss();
         }
-        new MaterialAlertDialogBuilder(activity)
+        new NavigationDialogBuilder(activity)
                 .setTitle(R.string.neural_problem)
                 .setMessage(CoopSheet.problemMessage(activity, error))
                 .setPositiveButton(android.R.string.ok, null)
@@ -198,7 +198,7 @@ public final class NeuralSheet {
         NativeNeural.Switch fg = state.frameGeneration;
         if (fg == null || writing) return;
         if (!fg.configurable()) {
-            new MaterialAlertDialogBuilder(activity)
+            new NavigationDialogBuilder(activity)
                     .setTitle(R.string.neural_frame_generation)
                     .setMessage(fg.reason != null ? fg.reason : activity.getString(R.string.neural_unavailable))
                     .setPositiveButton(android.R.string.ok, null)
@@ -211,7 +211,7 @@ public final class NeuralSheet {
             write(true, false);
         } else {
             // The host's one-time notice; Cancel is the default.
-            androidx.appcompat.app.AlertDialog notice = new MaterialAlertDialogBuilder(activity)
+            androidx.appcompat.app.AlertDialog notice = new NavigationDialogBuilder(activity)
                     .setTitle(R.string.neural_notice_title)
                     .setMessage(activity.getString(R.string.neural_notice))
                     .setNegativeButton(android.R.string.cancel, null)

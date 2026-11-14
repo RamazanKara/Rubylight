@@ -74,6 +74,42 @@ pub fn scan_step(left_ns: Option<u64>, read: bool, waited_ns: u64, limit_ns: u64
     if left > SLEEP_FROM_NS { ScanStep::Sleep((left - SPIN_LAST_NS).min(limit_ns - waited_ns)) } else { ScanStep::Spin }
 }
 
+/// How a wait for a scan under way ended (`wait_out`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Waited {
+    /// How long it waited (ns).
+    pub ns: u64,
+    /// It went out before the scan ended (`ScanStep::CutShort`).
+    pub cut_short: bool,
+}
+
+/// Waits while the beam of `first` (a reading just now) is in the picture's rows, until it leaves
+/// the last one: `read` reads the scan line again, `sleep` sleeps that many ns and `elapsed` is
+/// the time since the wait began (ns), so tests run it on a simulated beam. None when `first` is
+/// past the last row already. A counter that goes back has begun the next scan without reading
+/// past the last row (a display that scans back to back): the scan waited for has ended.
+pub fn wait_out(beam: &super::scanline::Beam, first: super::scanline::Sample, mut read: impl FnMut() -> Option<super::scanline::Sample>,
+    mut sleep: impl FnMut(u64), mut elapsed: impl FnMut() -> u64) -> Option<Waited> {
+    let first_left = beam.scan_left_ns(&first)?;
+    let limit = first_left + SCAN_WAIT_SLACK_NS;
+    let (mut left, mut read_ok, mut line) = (Some(first_left), true, first.line);
+    loop {
+        match scan_step(left, read_ok, elapsed(), limit) {
+            ScanStep::Go => return Some(Waited { ns: elapsed(), cut_short: false }),
+            ScanStep::CutShort => return Some(Waited { ns: elapsed(), cut_short: true }),
+            ScanStep::Sleep(ns) => sleep(ns),
+            ScanStep::Spin => std::hint::spin_loop(),
+        }
+        let reading = read();
+        read_ok = reading.is_some();
+        left = reading.and_then(|reading| {
+            let wrapped = reading.line < line;
+            line = reading.line;
+            if wrapped { None } else { beam.scan_left_ns(&reading) }
+        });
+    }
+}
+
 /// Whether the present issued `since_present_ns` ago has not started a scan yet, from a reading
 /// of an idling display whose last scan began `since_scan_ns` ago (`Beam::since_scan_ns`; the
 /// counter keeps walking while the display idles). A present is issued when the beam has left the

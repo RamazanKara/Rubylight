@@ -616,6 +616,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Needs a one-time setup in the driver’s control panel", "Cần thiết lập một lần trong bảng điều khiển của trình điều khiển"),
     ("The PC does not accept that value.", "PC không chấp nhận giá trị này."),
     ("This setting cannot be changed.", "Không thể thay đổi cài đặt này."),
+    ("The graphics driver was reset, which ended the stream. Connect again.", "Trình điều khiển đồ họa đã được đặt lại nên luồng đã kết thúc. Hãy kết nối lại."),
     ("The graphics driver rejected this change.", "Trình điều khiển đồ họa đã từ chối thay đổi này."),
     ("Start or resume a session to change settings.", "Hãy bắt đầu hoặc tiếp tục một phiên để thay đổi cài đặt."),
     ("The change could not be applied.", "Không thể áp dụng thay đổi."),

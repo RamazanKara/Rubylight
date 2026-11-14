@@ -37,7 +37,7 @@ pub const DMABUF_REALLOC_ENV: &str = "NIGHTJAR_WAYLAND_DMABUF_REALLOC";
 pub const SCANOUT_PROBE_ENV: &str = "NIGHTJAR_WAYLAND_SCANOUT_PROBE";
 /// The launcher's SDR white on a PQ renderer whose surface Mesa describes ([`launcher_color_scale`]).
 pub const LAUNCHER_WHITE_ENV: &str = "NIGHTJAR_PQ_LAUNCHER_WHITE";
-/// IMMEDIATE (tearing) for a VRR stream with V-Sync off ([`vrr_tearing`]).
+/// IMMEDIATE (tearing) for a VRR stream without Tear-free VRR ([`vrr_tearing`]).
 pub const VRR_TEARING_ENV: &str = "NIGHTJAR_WAYLAND_VRR_TEARING";
 /// Drawing in the compositor's gamma 2.2 blending space where it prefers one ([`HdrLabel::Blending`]).
 pub const GAMMA22_PRESENT_ENV: &str = "NIGHTJAR_WAYLAND_GAMMA22_PRESENT";
@@ -466,10 +466,12 @@ pub fn launcher_color_scale(pq_output: bool, gamescope: bool, described_referenc
 
 /// Whether a VRR stream on a Wayland desktop compositor presents IMMEDIATE instead of MAILBOX:
 /// Mesa then marks the surface's tearing hint async, and KWin flips without waiting for the scan
-/// out to end (AdaptiveAsync), a picture that comes during one tearing instead of waiting. Only with
-/// V-Sync off, the setting that accepts tearing; V-Sync on (the default) keeps MAILBOX as before.
-pub fn vrr_tearing(vsync: bool, switched_on: bool) -> bool {
-    !vsync && switched_on
+/// out to end (AdaptiveAsync), a picture that comes during one tearing instead of waiting. Only
+/// without Tear-free VRR (`vrr_tear_free`), the setting that asks for whole frames under VRR on
+/// every platform: with it (the default) the stream keeps MAILBOX, which the compositor shows
+/// whole. V-Sync is not asked: its row is hidden while VRR is on.
+pub fn vrr_tearing(tear_free: bool, switched_on: bool) -> bool {
+    !tear_free && switched_on
 }
 
 /// The swapchain's tearing for the log, from SDL's present mode number and whether the compositor

@@ -64,9 +64,9 @@ impl App {
         );
         // Without V-Sync the GPU renderer tears where it can (`prefers_immediate`); the property
         // holds for the stream, so the VRR pacing's later interval changes follow it too.
-        // V-Sync off accepts tearing, under VRR too (`wl_scanout::vrr_tearing`).
+        // A VRR stream without Tear-free VRR accepts tearing (`wl_scanout::vrr_tearing`).
         #[cfg(target_os = "linux")]
-        sdl::set_vrr_tearing(stream::wl_scanout::vrr_tearing(settings.vsync, stream::wl_scanout::env_on(stream::wl_scanout::VRR_TEARING_ENV)));
+        sdl::set_vrr_tearing(stream::wl_scanout::vrr_tearing(settings.vrr_tear_free, stream::wl_scanout::env_on(stream::wl_scanout::VRR_TEARING_ENV)));
         // "HDR brightness follows the desktop": an installed description follows it in place.
         #[cfg(target_os = "linux")]
         stream::wl_scanout::set_brightness(stream::wl_scanout::Brightness::of_setting(settings.hdr_desktop_brightness));
@@ -166,7 +166,7 @@ impl App {
         // Straight to the display, the pictures go on a display plane from the first one.
         #[cfg(target_os = "linux")]
         {
-            let wishes = stream::kms_scanout::Wishes { tearing: pacing != stream::present::PacingMode::Vsync, vrr: settings.vrr, fps: streaming.facts.fps.max(1) as u32 };
+            let wishes = stream::kms_scanout::Wishes { tearing: pacing != stream::present::PacingMode::Vsync, tear_free: settings.vrr_tear_free, vrr: settings.vrr, fps: streaming.facts.fps.max(1) as u32 };
             streaming.kms = stream::kms_scanout::Scanout::open(self.window, &sdl::renderer_name(self.renderer), &settings, wishes);
         }
         self.streaming = Some((streaming, TimerResolution::begin()));

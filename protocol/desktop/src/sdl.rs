@@ -249,8 +249,8 @@ pub fn prefer_immediate(renderer: *mut SDL_Renderer, prefer: bool) {
     unsafe { SDL_SetBooleanProperty(SDL_GetRendererProperties(renderer), PREFER_IMMEDIATE_PROPERTY.as_ptr(), prefer) };
 }
 
-/// The coming stream presents IMMEDIATE under VRR too (`stream::wl_scanout::vrr_tearing`: V-Sync
-/// off), where `present::prefers_immediate` keeps MAILBOX for a Wayland desktop's VRR.
+/// The coming stream presents IMMEDIATE under VRR too (`stream::wl_scanout::vrr_tearing`: without
+/// Tear-free VRR), where `present::prefers_immediate` keeps MAILBOX for a Wayland desktop's VRR.
 #[cfg(target_os = "linux")]
 static VRR_TEARING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 

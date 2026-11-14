@@ -529,7 +529,7 @@ pub fn stream_properties(caps: &Caps, stream: &Stream, video_plane: u32, color_p
         set(Object::Connector, "content type", Value::Enum("Game"));
     }
     if caps.vrr_enabled {
-        set(Object::Crtc, "VRR_ENABLED", Value::Number(u64::from(stream.vrr && caps.vrr_capable)));
+        set(Object::Crtc, "VRR_ENABLED", Value::Number(u64::from(vrr_engaged(caps, stream.vrr))));
     }
     if let Some((top, now)) = caps.max_bpc {
         // Raised to 10 for a 10-bit stream when lower; never lowered (moonlight-qt's rule).
@@ -551,9 +551,51 @@ pub fn stream_properties(caps: &Caps, stream: &Stream, video_plane: u32, color_p
     sets
 }
 
-/// Whether a picture's commit can be an async (tearing) flip: V-Sync is off, the kernel takes
-/// async atomic commits (`DRM_CAP_ATOMIC_ASYNC_PAGE_FLIP`), and the commit changes only the
-/// primary plane's framebuffer, which is all the kernel lets an async commit change.
+/// Whether the stream's VRR is on at the display: the setting is on, and the CRTC and the display
+/// take it. It is what `stream_properties` sets `VRR_ENABLED` to.
+pub fn vrr_engaged(caps: &Caps, vrr: bool) -> bool {
+    vrr && caps.vrr_enabled && caps.vrr_capable
+}
+
+/// Whether a stream's pictures may tear in: V-Sync is off, and it is not a VRR stream that asks
+/// for whole frames (Tear-free VRR, `vrr_tear_free`). With `VRR_ENABLED` set the display starts a
+/// scan when a picture is flipped to. A synchronised flip made during a scan is taken at that
+/// scan's end and starts the next one, so the picture is whole and waits at most one scan; an
+/// async flip changes the picture in the middle of the scan, which tears. Without VRR at the
+/// display a synchronised flip would wait for a fixed refresh, so V-Sync off keeps its async flips.
+pub fn may_tear(vsync_off: bool, vrr_engaged: bool, tear_free: bool) -> bool {
+    vsync_off && !(vrr_engaged && tear_free)
+}
+
+/// How long the pictures' commits took, for the log at the stream's end: a blocking commit holds
+/// the presenter until the display took the picture.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CommitTimes {
+    count: u64,
+    total: std::time::Duration,
+    worst: std::time::Duration,
+}
+
+impl CommitTimes {
+    pub fn add(&mut self, took: std::time::Duration) {
+        self.count += 1;
+        self.total += took;
+        self.worst = self.worst.max(took);
+    }
+
+    /// None before the first commit.
+    pub fn summary(&self) -> Option<String> {
+        (self.count > 0).then(|| {
+            let mean = self.total.as_secs_f64() * 1000.0 / self.count as f64;
+            format!("{} pictures committed, {mean:.2} ms each on average, {:.2} ms at worst", self.count, self.worst.as_secs_f64() * 1000.0)
+        })
+    }
+}
+
+/// Whether a picture's commit can be an async (tearing) flip: the stream's pictures may tear
+/// (`may_tear`), the kernel takes async atomic commits (`DRM_CAP_ATOMIC_ASYNC_PAGE_FLIP`), and
+/// the commit changes only the primary plane's framebuffer, which is all the kernel lets an async
+/// commit change.
 pub fn async_flip(tearing: bool, cap: bool, video_on_primary: bool, only_fb_changes: bool) -> bool {
     tearing && cap && video_on_primary && only_fb_changes
 }

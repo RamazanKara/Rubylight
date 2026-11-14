@@ -232,10 +232,10 @@ fn the_launcher_draws_its_white_at_the_described_reference() {
 }
 
 #[test]
-fn vrr_tears_only_with_vsync_off() {
+fn vrr_tears_only_without_tear_free_vrr() {
     assert!(vrr_tearing(false, true));
-    assert!(!vrr_tearing(true, true));
-    assert!(!vrr_tearing(false, false));
+    assert!(!vrr_tearing(true, true), "Tear-free VRR keeps Mailbox");
+    assert!(!vrr_tearing(false, false), "switched off");
     assert_eq!(tearing_state(Some(1), true), "on (Immediate, the driver's async hint)");
     assert_eq!(tearing_state(Some(2), true), "off (Mailbox)");
     assert_eq!(tearing_state(Some(2), false), "off (Mailbox); the compositor offers no tearing control");

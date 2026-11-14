@@ -300,18 +300,38 @@ impl Streaming {
     /// is shown whole. That wait is for `VrrSync::Scan` and for Real VRR on a display the keeper
     /// repeats pictures for, where a scan under way is rare; a stream that shows pictures as they
     /// come tears instead, as it asked to. Returns how long it waited (ns).
-    fn wait_out_scan(&mut self) -> u64 {
+    ///
+    /// The beam alone says too little (`scan_sync`): `VrrSync::Scan` also waits for the present
+    /// before this one to start its scan while that one is still on its way, and has the GPU
+    /// finish the drawing of a picture that waits, so that its present is all that is left.
+    fn wait_out_scan(&mut self, renderer: *mut SDL_Renderer) -> u64 {
         // The tearing modes that present whole pictures; the beam race times its own presents.
         if !matches!(self.pacer.mode, PacingMode::Immediate | PacingMode::HostTimes) { return 0; }
         let keeping = self.keeper_on && self.keeper.is_some();
-        if self.vrr.sync != present::VrrSync::Scan && !keeping { return 0; }
-        let Some(probe) = &self.race_probe else { return 0 };
-        let (Some(beam), Some(sample)) = (probe.beam(), probe.before()) else { return 0 };
+        let syncs = self.vrr.sync == present::VrrSync::Scan;
+        if !syncs && !keeping { return 0; }
+        let Some(beam) = self.race_probe.as_ref().and_then(race_probe::RaceProbe::beam) else { return 0 };
+        let Some(mut sample) = self.race_probe.as_ref().and_then(race_probe::RaceProbe::before) else { return 0 };
         if let Some(keeper) = self.keeper.as_mut().filter(|_| keeping) {
             let seen = keeper.observe(session::now_us(), beam.since_scan_ns(&sample) / 1000, beam.row_of(&sample).is_some(), true);
             if let Some(floor) = seen.floor_us { eprintln!("nightjar: VRR low frame rate: the panel refreshes by itself after {:.1} ms", floor as f64 / 1e3); }
         }
-        if self.vrr.sync != present::VrrSync::Scan && (self.pacer.mode != PacingMode::HostTimes || !self.keeper_repeats) { return 0; }
+        if !syncs && (self.pacer.mode != PacingMode::HostTimes || !self.keeper_repeats) { return 0; }
+        // A picture that has to wait has its drawing finished meanwhile, so that its present is
+        // all that is left when it goes out. One that meets an idle display goes out at once:
+        // finished first, it reached a 240 Hz display 1.5 ms later at the median on uneven content.
+        if syncs && self.scan_settles && (beam.scan_left_ns(&sample).is_some() || self.flip_on_its_way(&beam, &sample).is_some()) {
+            // SAFETY: the live renderer of this thread.
+            match unsafe { scan_sync::finish_drawing(renderer, Duration::from_nanos(scan_sync::DRAWING_LIMIT_NS)) } {
+                Some(took) => self.scan_tally.drawing.push(took.as_nanos() as u64),
+                None => self.scan_tally.undrawn += 1,
+            }
+            match self.race_probe.as_ref().and_then(race_probe::RaceProbe::before) {
+                Some(reading) => sample = reading,
+                None => return 0,
+            }
+        }
+        if syncs { sample = self.wait_for_landing(&beam, sample); }
         let Some(left) = beam.scan_left_ns(&sample) else { return 0 };
         // Spinning: the wait is under one scan (4.2 ms at 240 Hz), shorter than a sleep can be exact.
         let until = Instant::now() + Duration::from_nanos(left);
@@ -319,6 +339,57 @@ impl Streaming {
         self.scan_waits.0 += 1;
         self.scan_waits.1 += left;
         left
+    }
+
+    /// How long ago the present before this one was issued (ns), while it is still on its way to a
+    /// display that `sample` reads as idle (`scan_sync::on_its_way`); None once it has started its
+    /// scan, or `scan_sync::LANDING_LIMIT_NS` after it.
+    fn flip_on_its_way(&self, beam: &scanline::Beam, sample: &scanline::Sample) -> Option<u64> {
+        let since_present_ns = session::now_us().saturating_sub(self.flip_guard.last_flip_us?) * 1000;
+        let idle = beam.scan_left_ns(sample).is_none();
+        (idle && since_present_ns < scan_sync::LANDING_LIMIT_NS && scan_sync::on_its_way(beam.since_scan_ns(sample), since_present_ns, beam.scan_ns))
+            .then_some(since_present_ns)
+    }
+
+    /// The present before this one, seen from `sample` (a reading of the beam just now): timed if
+    /// it has started its scan, and waited for while it is still on its way to an idling display,
+    /// where a second present would land in the scan the first one starts
+    /// (`scan_sync::on_its_way`). Returns the reading to go on with: of the scan that began, or
+    /// the last one of a wait that saw none begin within `scan_sync::LANDING_LIMIT_NS` of that
+    /// present.
+    fn wait_for_landing(&mut self, beam: &scanline::Beam, sample: scanline::Sample) -> scanline::Sample {
+        let Some(since_present_ns) = self.flip_on_its_way(beam, &sample) else {
+            if let Some(last_us) = self.flip_guard.last_flip_us {
+                let since_present_ns = session::now_us().saturating_sub(last_us) * 1000;
+                if let Some(took) = scan_sync::landing_ns(beam.since_scan_ns(&sample), since_present_ns) { self.scan_tally.landing.push(took); }
+            }
+            self.scan_tally.found_landed();
+            return sample;
+        };
+        self.scan_tally.behind += 1;
+        if !self.scan_settles || !self.scan_tally.waits() { return sample; }
+        let Some(probe) = &self.race_probe else { return sample };
+        // Spinning, as the wait for the scan's end does: a flip lands within a millisecond or so.
+        let begun = Instant::now();
+        let limit = Duration::from_nanos(scan_sync::LANDING_LIMIT_NS - since_present_ns);
+        let mut last = sample;
+        let landed = loop {
+            if let Some(reading) = probe.before() {
+                last = reading;
+                if beam.scan_left_ns(&last).is_some() { break true; }
+            }
+            if begun.elapsed() >= limit { break false; }
+            std::hint::spin_loop();
+        };
+        let waited = begun.elapsed().as_nanos() as u64;
+        if landed {
+            if let Some(took) = scan_sync::landing_ns(beam.since_scan_ns(&last), since_present_ns + waited) { self.scan_tally.landing.push(took); }
+        }
+        if self.scan_tally.waited_for(waited, landed) {
+            eprintln!("nightjar: VRR: {} presents in a row started no scan within {} ms, the next {} do not wait for the one before",
+                scan_sync::GIVE_UPS_IN_A_ROW, scan_sync::LANDING_LIMIT_NS / 1_000_000, scan_sync::REST_PRESENTS);
+        }
+        last
     }
 
     /// `VrrSync::Blank` on Windows: presents with tearing only when the display is in its vertical
@@ -691,14 +762,17 @@ impl Streaming {
         if let (Some(topic), true, true) = (display_probe(self.facts.beam_race, &self.vrr), probe, self.race_probe.is_none()) {
             self.race_probe = Some(race_probe::RaceProbe::begin(renderer, self.pacer.mode != PacingMode::Vsync, f64::from(self.facts.fps), topic));
         }
-        if probe { self.wait_out_scan(); }
-        let beam_before = self.race_probe.as_ref().filter(|_| probe).and_then(race_probe::RaceProbe::before);
-        // Keys, clicks and controllers leave from their own threads while V-Sync holds the present.
+        // Keys, clicks and controllers leave from their own threads while V-Sync holds the present,
+        // and while a VRR present waits for the picture's drawing and the scan under way: nearly
+        // every present of a stream at the display's top rate does, for most of a scan.
         let mode_tears = self.pacer.mode != PacingMode::Vsync;
-        if !mode_tears {
+        let holds = !mode_tears || (probe && self.vrr.sync == present::VrrSync::Scan && self.scan_settles);
+        if holds {
             // SAFETY: a live renderer.
             self.direct_motion.presenting(Some(self.direct_rules(unsafe { SDL_GetRenderWindow(renderer) })));
         }
+        if probe { self.wait_out_scan(renderer); }
+        let beam_before = self.race_probe.as_ref().filter(|_| probe).and_then(race_probe::RaceProbe::before);
         let skips = probe && self.skip_over_waiting && !self.skipped.must_wait() && self.vrr.sync != present::VrrSync::Blank
             && self.pacer.skips_instead_of_waiting(self.plan.display.refresh_hz);
         #[cfg(target_os = "linux")]
@@ -742,7 +816,7 @@ impl Streaming {
             self.window_target.after_present(crate::sdl::window_target_frames(renderer));
             self.video_only_presented(renderer);
         }
-        if !mode_tears {
+        if holds {
             self.direct_motion.presenting(None);
         }
         let fps = f64::from(self.facts.fps);

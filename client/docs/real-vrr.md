@@ -70,7 +70,8 @@ to finish, at most one refresh, and is then shown whole. With **Fastest** it is 
 with tearing. How the wait is done depends on the system:
 
 - **Windows:** before each frame Nightjar reads where the screen is in its drawing, and holds a
-  frame until the drawing has finished.
+  frame until the drawing has finished. A frame that follows another closely is also held until
+  that one has reached the screen.
 - **Linux, drawing straight to the display** (KMS, without a desktop): Nightjar hands each picture
   to the display in step with it. A picture handed over during a refresh is taken when that
   refresh ends, and starts the next one. Up to Nightjar 5.3.0 every VRR stream there was shown at

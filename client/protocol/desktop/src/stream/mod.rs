@@ -51,6 +51,7 @@ pub mod scanline;
 pub mod race;
 pub mod race_probe;
 pub mod lfc;
+pub mod scan_sync;
 #[cfg(any(target_os = "linux", test))]
 pub mod drm_vrr;
 #[cfg(target_os = "linux")]
@@ -496,6 +497,13 @@ pub struct Streaming {
     phase_steady_windows: u32,
     /// Presents `VrrSync::Scan` held for a scan under way, and how long in all (ns).
     scan_waits: (u32, u64),
+    /// What those presents met besides the beam (`scan_sync`): how long the drawing and the flip
+    /// took, and the presents that found the one before still on its way.
+    scan_tally: scan_sync::Tally,
+    /// A `VrrSync::Scan` present has its drawing finished first and waits for the present before
+    /// it to start its scan. `NIGHTJAR_VRR_SETTLE=0` leaves it to the beam's reading alone, as
+    /// Nightjar 5.3.0 had it, and only counts (a measurement switch).
+    scan_settles: bool,
     /// Repeats the held picture before a VRR panel refreshes by itself (`lfc`), while the display
     /// check has the display's scan and found it refreshing on present.
     keeper: Option<lfc::Keeper>,
@@ -913,6 +921,8 @@ impl Streaming {
             miss_watch: present::MissWatch::default(),
             phase_steady_windows: std::env::var("NIGHTJAR_PHASE_STEADY_WINDOWS").ok().and_then(|windows| windows.parse().ok()).unwrap_or(phase::STEADY_WINDOWS),
             scan_waits: (0, 0),
+            scan_tally: scan_sync::Tally::default(),
+            scan_settles: env_flag("NIGHTJAR_VRR_SETTLE") != Some(false),
             keeper: None,
             keeper_on: false,
             keeper_repeats: lfc_repeats,
@@ -2174,6 +2184,7 @@ impl Streaming {
             let (waits, ns) = self.scan_waits;
             eprintln!("nightjar: VRR: {waits} presents waited for a scan under way, {:.2} ms each",
                 if waits > 0 { ns as f64 / f64::from(waits) / 1e6 } else { 0.0 });
+            for line in self.scan_tally.lines() { eprintln!("nightjar: {line}"); }
         }
         if let Some(keeper) = &self.keeper { eprintln!("nightjar: VRR low frame rate: {}", keeper.line()); }
         if self.vrr.sync == present::VrrSync::Blank {

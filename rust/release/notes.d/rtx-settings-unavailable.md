@@ -1,2 +1,0 @@
-# RTX settings on a PC that cannot run them
-- **RTX HDR and RTX Video settings have no switch where this PC cannot run them.** The settings search listed them with working controls on a PC without Rubylight's NVIDIA build, or without a graphics card whose driver offers them, and turning one on there changed nothing (issue #103). They now show as not available on this PC, with what they need, and a value saved there can still be reset.

@@ -332,31 +332,16 @@ impl Streaming {
             }
         }
         if syncs { sample = self.wait_for_landing(&beam, sample); }
-        let Some(first) = beam.scan_left_ns(&sample) else { return 0 };
-        // Until the beam leaves the last row, read again after each sleep (`scan_sync::scan_step`):
-        // at most one scan plus `SCAN_WAIT_SLACK_NS`, since a reading can be wrong.
-        let limit = first + scan_sync::SCAN_WAIT_SLACK_NS;
+        // Until the beam leaves the last row, reading it again after each sleep: at most one scan
+        // plus `SCAN_WAIT_SLACK_NS`, since a reading can be wrong (`scan_sync::wait_out`).
         let begun = Instant::now();
-        let mut left = Some(first);
-        let mut read = true;
-        loop {
-            match scan_sync::scan_step(left, read, begun.elapsed().as_nanos() as u64, limit) {
-                scan_sync::ScanStep::Go => break,
-                scan_sync::ScanStep::CutShort => {
-                    self.scan_tally.cut_short += 1;
-                    break;
-                }
-                scan_sync::ScanStep::Sleep(ns) => std::thread::sleep(Duration::from_nanos(ns)),
-                scan_sync::ScanStep::Spin => std::hint::spin_loop(),
-            }
-            let reading = self.race_probe.as_ref().and_then(race_probe::RaceProbe::before);
-            read = reading.is_some();
-            left = reading.and_then(|reading| beam.scan_left_ns(&reading));
-        }
-        let waited = begun.elapsed().as_nanos() as u64;
+        let probe = self.race_probe.as_ref();
+        let Some(waited) = scan_sync::wait_out(&beam, sample, || probe.and_then(race_probe::RaceProbe::before),
+            |ns| std::thread::sleep(Duration::from_nanos(ns)), || begun.elapsed().as_nanos() as u64) else { return 0 };
+        if waited.cut_short { self.scan_tally.cut_short += 1; }
         self.scan_waits.0 += 1;
-        self.scan_waits.1 += waited;
-        waited
+        self.scan_waits.1 += waited.ns;
+        waited.ns
     }
 
     /// How long ago the present before this one was issued (ns), while it is still on its way to a

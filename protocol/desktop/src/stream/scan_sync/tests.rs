@@ -114,3 +114,57 @@ fn the_log_counts_presents_that_went_out_into_a_scan() {
         "VRR: 3 presents went out before the scan under way had ended (the wait reached its limit or the scan line could not be read)".to_string(),
     ]);
 }
+
+/// The reporter's panel as a beam: 33 lines of blanking, 1080 rows, 138.2 lines a ms.
+fn panel() -> crate::stream::scanline::Beam {
+    crate::stream::scanline::Beam {
+        rows: 1080, blank_rows: 33, total_rows: 1113, scan_ns: 8_053_000, refresh_hz: 124.2, lines_per_ms: 138.2,
+        vblank_fraction: 0.4, scans: 30, idle_from: 1421, longest_idle_ns: 23_000_000, idle_scans: 10,
+    }
+}
+
+/// Runs `wait_out` on a simulated clock: a sleep moves it by its length (plus `oversleep`), a
+/// reading by 2 µs, and `line` gives the counter at a time (ns since the scan began).
+fn simulate(start_ns: u64, oversleep: u64, line: impl Fn(u64) -> Option<u32>) -> (Waited, u32) {
+    use std::cell::Cell;
+    let beam = panel();
+    let now = Cell::new(start_ns);
+    let sample = |at: u64| line(at).map(|line| crate::stream::scanline::Sample { at_ns: at, line, vblank: line < beam.blank_rows });
+    let first = sample(start_ns).unwrap();
+    let waited = wait_out(&beam, first, || { now.set(now.get() + 2_000); sample(now.get()) },
+        |ns| now.set(now.get() + ns + oversleep), || now.get() - start_ns).expect("a scan under way");
+    let end = sample(now.get()).map_or(0, |s| s.line);
+    (waited, end)
+}
+
+#[test]
+fn a_wait_follows_the_beam_past_the_last_row() {
+    let lines = |at: u64| Some((at as f64 * 138.2 / 1e6) as u32);
+    // Met 0.3 ms into the scan: it waits the 7.75 ms left, not 2 ms, and goes once the beam has
+    // left row 1080 (line 1113), before the slack runs out.
+    let (waited, line) = simulate(300_000, 0, lines);
+    assert!(!waited.cut_short);
+    assert!((7_700_000..8_100_000).contains(&waited.ns), "{waited:?}");
+    assert!((1113..1125).contains(&line), "went out at line {line}");
+    // A sleep 0.6 ms too long (a coarse timer) still goes, a little late, and never into the rows.
+    let (waited, line) = simulate(300_000, 600_000, lines);
+    assert!(!waited.cut_short && line >= 1113, "{waited:?} at line {line}");
+}
+
+#[test]
+fn a_counter_that_wraps_ends_the_wait() {
+    // Back to back scans: the counter goes from the last line straight to 0 and never reads past
+    // the last row. The wait ends at the wrap, not at its limit.
+    let (waited, line) = simulate(300_000, 0, |at| Some(((at as f64 * 138.2 / 1e6) as u32) % 1113));
+    assert!(!waited.cut_short, "{waited:?}");
+    assert!(waited.ns < 8_000_000 && line < 33, "{waited:?} at line {line}");
+}
+
+#[test]
+fn a_reading_that_never_moves_or_fails_goes_out_counted() {
+    let (waited, _) = simulate(300_000, 0, |_| Some(500));
+    assert!(waited.cut_short);
+    assert!(waited.ns <= 7_750_000 + SCAN_WAIT_SLACK_NS + 300_000, "{waited:?}");
+    let (waited, _) = simulate(300_000, 0, |at| (at == 300_000).then_some(41));
+    assert!(waited.cut_short, "no reading after the first: {waited:?}");
+}

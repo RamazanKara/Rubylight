@@ -1089,6 +1089,8 @@ fn expected(feature: Feature) -> Availability {
         Feature::MicOnly => Supported,
         // Always listed; the device has every permission, View and Launch among them.
         Feature::ContinueHere => Supported,
+        // Listed always; reading needs View streams, which every permission includes.
+        Feature::NeuralFrameGeneration => Supported,
     }
 }
 

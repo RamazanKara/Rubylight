@@ -17,6 +17,8 @@ fn main() {
             "SDK header {header} is missing"
         );
     }
+    println!("cargo:rerun-if-changed=src/lib.rs");
+    check_declarations(&sdk.join("include"));
     println!(
         "cargo:rustc-link-search=native={}",
         sdk.join("lib/Windows/x64").display()
@@ -45,4 +47,105 @@ fn main() {
     embed_resource::compile_for_cdylib(&rc, embed_resource::NONE)
         .manifest_optional()
         .unwrap();
+}
+
+/// Checks that each NGX function `src/lib.rs` declares takes as many
+/// parameters as the SDK declares for applications: the headers without the
+/// NGX_SNIPPET_BUILD branches, which declare the feature DLLs' own forms. A
+/// wrong count shifts every later argument: called with the snippet form,
+/// NVSDK_NGX_D3D11_Init read the version as its feature-info pointer and
+/// crashed (issue #103).
+fn check_declarations(include: &std::path::Path) {
+    let source = std::fs::read_to_string("src/lib.rs").expect("src/lib.rs");
+    let block = source
+        .split("unsafe extern \"C\" {")
+        .nth(1)
+        .and_then(|rest| rest.split("\n}").next())
+        .expect("src/lib.rs declares NGX's functions in an extern block");
+    let block: String = block
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    let mut headers = String::new();
+    for header in ["nvsdk_ngx.h", "nvsdk_ngx_params.h"] {
+        let text = std::fs::read_to_string(include.join(header))
+            .unwrap_or_else(|e| panic!("SDK header {header}: {e}"));
+        headers += &application_lines(&text);
+    }
+    let mut checked = 0;
+    for item in block.split("fn ").skip(1) {
+        let (name, rest) = item.split_once('(').expect("a declaration's parameters");
+        let name = name.trim();
+        let ours = parameter_count(rest);
+        // A declaration: `NVSDK_CONV`, any spacing, the name and its list.
+        let pattern = format!("{name}(");
+        let theirs: Vec<usize> = headers
+            .match_indices(&pattern)
+            .filter(|(at, _)| headers[..*at].trim_end().ends_with("NVSDK_CONV"))
+            .map(|(at, _)| parameter_count(&headers[at + pattern.len()..]))
+            .collect();
+        assert!(!theirs.is_empty(), "the SDK's headers declare no {name}");
+        assert!(
+            theirs.iter().all(|&count| count == ours),
+            "{name} takes {theirs:?} parameters in the SDK's headers but {ours} in src/lib.rs"
+        );
+        checked += 1;
+    }
+    assert!(checked > 0, "src/lib.rs declares no NGX function");
+}
+
+/// The header's lines outside its NGX_SNIPPET_BUILD branches.
+fn application_lines(header: &str) -> String {
+    // Per open #if: whether NGX_SNIPPET_BUILD decides it, and whether the
+    // current branch is the one taken when it is defined.
+    let mut open: Vec<(bool, bool)> = Vec::new();
+    let mut kept = String::new();
+    for line in header.lines() {
+        let directive = line.trim_start();
+        if directive.starts_with("#if") {
+            let snippet = directive.contains("NGX_SNIPPET_BUILD");
+            let negated = directive.starts_with("#ifndef") || directive.contains('!');
+            open.push((snippet, snippet && !negated));
+        } else if directive.starts_with("#el") {
+            if let Some((true, branch)) = open.last_mut() {
+                *branch = !*branch;
+            }
+        } else if directive.starts_with("#endif") {
+            open.pop();
+        } else if !open.iter().any(|&(_, branch)| branch) {
+            kept += line;
+            kept.push('\n');
+        }
+    }
+    kept
+}
+
+/// The number of parameters before the `)` that closes a list starting
+/// right after its `(`; `void` alone counts none.
+fn parameter_count(list: &str) -> usize {
+    let mut depth = 1;
+    let mut parameters = vec![String::new()];
+    for c in list.chars() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+            }
+            ',' if depth == 1 => {
+                parameters.push(String::new());
+                continue;
+            }
+            _ => {}
+        }
+        parameters.last_mut().unwrap().push(c);
+    }
+    parameters
+        .iter()
+        .map(|parameter| parameter.trim())
+        .filter(|parameter| !parameter.is_empty() && *parameter != "void")
+        .count()
 }

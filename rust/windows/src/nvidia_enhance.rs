@@ -68,11 +68,14 @@ pub(crate) fn describe(code: u32) -> String {
         0xbad0_0001 => "the GPU does not support it".into(),
         0xbad0_0002 => "NGX reported a platform error; update the NVIDIA driver".into(),
         0xbad0_0004 => "its NVIDIA runtime DLL is missing beside the host".into(),
+        0xbad0_0005 => "NGX rejected a parameter".into(),
         0xbad0_0007 => "NGX is not initialized".into(),
         0xbad0_0008 => "the picture's format is not supported".into(),
         0xbad0_000b => "NGX could not initialize the feature".into(),
         0xbad0_000c => "the NVIDIA driver is too old".into(),
         0xbad0_000d => "the GPU is out of memory".into(),
+        0xbad0_000f => "NGX cannot write to the host's folder".into(),
+        0xbad0_0011 => "NGX denied access to it".into(),
         code => format!("NGX error {code:#x}"),
     }
 }

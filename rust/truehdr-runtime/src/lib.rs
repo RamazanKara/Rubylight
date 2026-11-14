@@ -20,8 +20,20 @@ use windows::{
     },
     core::Interface,
 };
+// The declarations an application links against: the C branch of
+// nvsdk_ngx.h without NGX_SNIPPET_BUILD. build.rs checks each one's parameter
+// count against the SDK's headers.
 unsafe extern "C" {
-    fn NVSDK_NGX_D3D11_Init(app: u64, path: *const u16, device: *mut c_void, version: u32) -> u32;
+    /// `InFeatureInfo` (null: the feature DLLs beside the executable) comes
+    /// before the version. The snippet-build form without it is the feature
+    /// DLLs' own; called that way, NGX reads the version as the pointer.
+    fn NVSDK_NGX_D3D11_Init(
+        app: u64,
+        path: *const u16,
+        device: *mut c_void,
+        feature_info: *const c_void,
+        version: u32,
+    ) -> u32;
     fn NVSDK_NGX_D3D11_Shutdown1(device: *mut c_void) -> u32;
     fn NVSDK_NGX_D3D11_GetCapabilityParameters(params: *mut *mut c_void) -> u32;
     fn NVSDK_NGX_D3D11_DestroyParameters(params: *mut c_void) -> u32;
@@ -124,8 +136,11 @@ fn acquire(devices: &mut BTreeMap<usize, Runtime>, device: &ID3D11Device) -> Res
     // The feature DLLs and NGX's logs: the executable's folder, as the
     // SDK's guide describes.
     let path = [b'.' as u16, 0];
-    // SAFETY: `device` is a live D3D11 device and `path` a NUL-terminated wide string.
-    check(unsafe { NVSDK_NGX_D3D11_Init(0, path.as_ptr(), device.as_raw(), NGX_VERSION) })?;
+    // SAFETY: `device` is a live D3D11 device, `path` a NUL-terminated wide
+    // string, and a null feature info is the SDK's default.
+    check(unsafe {
+        NVSDK_NGX_D3D11_Init(0, path.as_ptr(), device.as_raw(), ptr::null(), NGX_VERSION)
+    })?;
     devices.insert(
         id,
         Runtime {

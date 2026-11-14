@@ -1125,7 +1125,7 @@ fn late_pictures_now_and_then_do_not_keep_a_hold_long() {
 
 /// Frame statistics for a picture on `refresh`, read on the same refresh.
 fn on_display(count: u32, refresh: u32, at_us: u64) -> crate::timing_csv::Flip {
-    crate::timing_csv::Flip { present_count: count.wrapping_add(1), stat_present_count: count, stat_present_refresh: refresh, stat_sync_refresh: refresh, stat_sync_us: at_us }
+    crate::timing_csv::Flip { present_count: count.wrapping_add(1), stat_present_count: count, stat_present_refresh: refresh, stat_sync_refresh: refresh, stat_sync_us: at_us, ..Default::default() }
 }
 
 /// The report: a picture presented 4 ms into a refresh reached the display two refreshes later.

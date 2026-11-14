@@ -262,20 +262,26 @@ impl Streaming {
         nightjar_policy::vsync::refreshes_per_frame(f64::from(refresh_hz), fps, self.pacer.mode != PacingMode::Vsync, self.settings.fractional_vsync)
     }
 
-    /// Fractional V-Sync: waits before the picture's present until its turn comes
-    /// (`phase::held_wait`), the desktop's deadline ahead of it, or 2 ms ahead in exclusive
-    /// fullscreen, which nothing composes (`NIGHTJAR_HELD_MARGIN_US` sets it for a measurement).
-    fn hold_for_turn(&mut self, renderer: *mut SDL_Renderer) {
-        let held = self.vrr.held(self.pacer.mode);
-        if held <= 1 { return; }
-        let refresh_hz = self.plan.display.refresh_hz;
+    /// How far ahead of its turn a picture fractional V-Sync holds goes out: the desktop's deadline,
+    /// or 2 ms in exclusive fullscreen, which nothing composes (`NIGHTJAR_HELD_MARGIN_US` sets it for
+    /// a measurement).
+    fn held_margin_us(&self, renderer: *mut SDL_Renderer) -> u64 {
         // SAFETY: a live renderer and its window.
         let exclusive = unsafe {
             let window = SDL_GetRenderWindow(renderer);
             SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN != 0 && !SDL_GetWindowFullscreenMode(window).is_null()
         };
-        let margin_us = self.held_margin_us.unwrap_or(if exclusive { 2_000 } else { present::deadline_before_refresh(refresh_hz) as u64 });
-        let wait_us = phase::held_wait_us(renderer, refresh_hz, held, margin_us, &mut self.held_anchor);
+        self.held_margin_us.unwrap_or(if exclusive { 2_000 } else { present::deadline_before_refresh(self.plan.display.refresh_hz) as u64 })
+    }
+
+    /// Fractional V-Sync: waits before the picture's present until its turn comes
+    /// (`phase::HeldAnchor::hold`), `held_margin_us` ahead of it.
+    fn hold_for_turn(&mut self, renderer: *mut SDL_Renderer) {
+        let held = self.vrr.held(self.pacer.mode);
+        if held <= 1 { return; }
+        let margin_us = self.held_margin_us(renderer);
+        let wait_us = phase::held_wait_us(renderer, self.plan.display.refresh_hz, held, margin_us, &mut self.held_anchor);
+        self.held_wait_us = Some(wait_us);
         if wait_us > 0 {
             // SAFETY: a plain wait.
             unsafe { SDL_DelayPrecise(wait_us * 1000) };
@@ -933,13 +939,22 @@ impl Streaming {
                 let skipping = self.no_wait_present && self.pacer.skips_instead_of_waiting(refresh_hz);
                 let exclusive = exclusive_fullscreen(renderer);
                 let room_us = if self.pacer.host_grid() { present::HOST_GRID_LATCH_ROOM_US } else { 0 };
-                // Fractional V-Sync: the lock aims at the refresh each picture's hold ends on.
+                // Fractional V-Sync: the lock aims at the deadline of the refresh each picture's hold
+                // ends on, which its present has to make.
                 let held = self.vrr.held(self.pacer.mode);
-                let aim_us = present::phase_lock_aim_us(skipping, exclusive, self.present_deadline_us, refresh_hz) + room_us;
+                let aim_us = if held > 1 {
+                    self.present_deadline_us.unwrap_or(self.held_margin_us(renderer) as i64)
+                } else {
+                    present::phase_lock_aim_us(skipping, exclusive, self.present_deadline_us, refresh_hz) + room_us
+                };
                 let report_held = if self.held_report_refresh { 1 } else { held };
                 let timing = phase::aimed(phase::timing(renderer, refresh_hz, report_held, &mut self.held_anchor), aim_us);
                 let steady_windows = if skipping { self.phase_steady_windows } else { 0 };
                 if let Some(report) = self.phase.sample(p.decoded.ready_us, begin, timing, steady_windows) {
+                    if self.timing_csv.is_some() {
+                        eprintln!("nightjar: phase report: lead {} us, spread {} us, period {} us, aim {aim_us} us, held {held}",
+                            report.lead_ns / 1000, report.spread_ns / 1000, report.period_ns / 1000);
+                    }
                     let _ = self.session.send(ClientMessage::PhaseLockReport(report));
                 }
             } else { self.phase.reset(); }
@@ -1020,7 +1035,8 @@ impl Streaming {
         let presented = flipped.returned_us;
         let scan = flipped.scan;
         let watches = has_picture && self.no_wait_present && self.pacer.skips_instead_of_waiting(self.plan.display.refresh_hz);
-        let flip = if (self.timing_csv.is_some() || watches) && picture.is_some() { phase::present_stats(renderer) } else { Default::default() };
+        let mut flip = if (self.timing_csv.is_some() || watches) && picture.is_some() { phase::present_stats(renderer) } else { Default::default() };
+        (flip.held_wait_us, flip.issued_us) = (self.held_wait_us.take(), flipped.issued_us);
         if watches {
             let refresh_us = (1_000_000.0 / self.plan.display.refresh_hz.max(1.0)) as u64;
             self.miss_watch.presented(flip.present_count, flipped.issued_us);

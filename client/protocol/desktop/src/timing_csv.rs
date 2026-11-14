@@ -37,7 +37,9 @@
 //! middle row minus when the slice that holds it was ready, for raced frames and for frames shown
 //! whole alike) and `late_slices` (slices the beam had already passed when they were ready).
 //! The seven present-scheduler columns Android appends to the host's (`sched_vsync_ns` to
-//! `drop_reason`) are empty here, so a reader that goes by name sees the same header.
+//! `drop_reason`) are empty here, so a reader that goes by name sees the same header, but for
+//! `sched_hold_ms`: how long fractional V-Sync held the picture for its turn. A frame the beam race
+//! did not present has its one present's issue time in `present_ns`.
 //!
 //! Seven more desktop columns break the wait between decoding and showing a picture down
 //! (docs/pyrowave-decode.md, "Where the time between decoded and shown goes"): `due_ns` (when the
@@ -186,6 +188,10 @@ pub struct Flip {
     pub stat_sync_refresh: u32,
     /// SyncQPCTime on the session clock, µs.
     pub stat_sync_us: u64,
+    /// How long fractional V-Sync held the picture before its present (`sched_hold_ms`).
+    pub held_wait_us: Option<u64>,
+    /// When the present call was issued (`present_ns` of a frame the beam race did not present).
+    pub issued_us: u64,
 }
 
 enum Message {
@@ -280,7 +286,7 @@ fn run(mut file: BufWriter<File>, inbox: std::sync::mpsc::Receiver<Message>, los
                 let fps = shown.push(row.render_us);
                 let line = own_fields(&row, lost.load(Ordering::Relaxed), previous_output, fps);
                 previous_output = row.output_us;
-                extras.push_back(format!("{},{}", scheduler_fields(), extra_fields(&row)));
+                extras.push_back(format!("{},{}", scheduler_fields(&row), extra_fields(&row)));
                 record.push(PendingRow {
                     number: row.number,
                     line,
@@ -384,9 +390,12 @@ pub fn own_fields(row: &Row, lost: u64, previous_output_us: u64, shown_fps: Opti
     fields.join(",")
 }
 
-/// The scheduler columns of one row: all empty.
-pub fn scheduler_fields() -> String {
-    vec![""; SCHEDULER_COLUMNS.len()].join(",")
+/// The scheduler columns of one row: all empty but `sched_hold_ms`, how long fractional V-Sync held
+/// the picture for its turn.
+pub fn scheduler_fields(row: &Row) -> String {
+    let mut fields = vec![String::new(); SCHEDULER_COLUMNS.len()];
+    fields[1] = row.flip.held_wait_us.map_or_else(String::new, |us| milliseconds(us * 1000));
+    fields.join(",")
 }
 
 /// The desktop columns of one row, comma separated.
@@ -404,7 +413,9 @@ pub fn extra_fields(row: &Row) -> String {
         row.scan.vblank.map_or("", |vblank| if vblank { "1" } else { "0" }),
         row.scan.reason,
         timestamp(row.presented.scan_start_us),
-        row.presented.presents_us[..usize::from(row.presented.count)].iter().map(|&us| timestamp(us)).collect::<Vec<_>>().join("|"),
+        if row.presented.count == 0 { timestamp(flip.issued_us) } else {
+            row.presented.presents_us[..usize::from(row.presented.count)].iter().map(|&us| timestamp(us)).collect::<Vec<_>>().join("|")
+        },
         row.presented.mid_row_age_ns.map_or_else(String::new, |ns| ns.to_string()),
         row.presented.late_slices.map_or_else(String::new, |n| n.to_string()),
         row.glass.frame.map_or_else(String::new, |n| n.to_string()),

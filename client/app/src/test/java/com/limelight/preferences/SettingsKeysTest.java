@@ -85,6 +85,7 @@ public class SettingsKeysTest {
             com.limelight.ui.AppTheme.OLED_BLACK, // the theme picker
             "checkbox_yuv444", "experimental_packed_444", // Sharper colored text
             "checkbox_multi_controller", "checkbox_send_controllers", // Controllers
+            "checkbox_real_vrr", // Variable refresh rate's On or Fastest (VrrChoice)
             com.limelight.console.HomeSettings.PREF_KEY)); // When Nightjar opens
     // Stored settings that are read outside PreferenceConfiguration.
     private static final Set<String> READ_ELSEWHERE = new HashSet<>(Arrays.asList(
@@ -653,6 +654,73 @@ public class SettingsKeysTest {
         ControllersChoice.save(editor, ControllersChoice.ONE_PLAYER);
         editor.commit();
         assertEquals(ControllersChoice.ONE_PLAYER, ControllersChoice.read(prefs()));
+    }
+
+    /** Variable refresh rate: Off, On or Fastest, read from and written to the two stored switches. */
+    @Test
+    public void variableRefreshRateIsOneChoiceOverTheTwoSwitches() {
+        Application app = RuntimeEnvironment.getApplication();
+        // checkbox_vrr, checkbox_real_vrr (null: never stored), the choice shown
+        Object[][] cases = {
+                {null, null, VrrChoice.OFF}, {false, true, VrrChoice.OFF}, {false, false, VrrChoice.OFF},
+                {true, true, VrrChoice.ON}, {true, false, VrrChoice.FASTEST}, {true, null, VrrChoice.ON}};
+        for (Object[] c : cases) {
+            SharedPreferences.Editor editor = prefs().edit().clear();
+            if (c[0] != null) editor.putBoolean("checkbox_vrr", (Boolean) c[0]);
+            if (c[1] != null) editor.putBoolean("checkbox_real_vrr", (Boolean) c[1]);
+            editor.commit();
+            String label = c[0] + "/" + c[1];
+            assertEquals(label, c[2], VrrChoice.read(prefs()));
+            assertEquals(label, c[2], VrrChoice.shown(prefs(), true));
+            assertEquals("where VRR isn't offered every store reads as Off", VrrChoice.OFF, VrrChoice.shown(prefs(), false));
+            assertEquals(label + " stays as stored", c[0], prefs().contains("checkbox_vrr") ? prefs().getBoolean("checkbox_vrr", false) : null);
+            assertEquals(label + " stays as stored", c[1], prefs().contains("checkbox_real_vrr") ? prefs().getBoolean("checkbox_real_vrr", true) : null);
+        }
+
+        prefs().edit().clear().commit();
+        SharedPreferences.Editor editor = prefs().edit();
+        VrrChoice.save(editor, VrrChoice.FASTEST);
+        editor.commit();
+        assertTrue(prefs().getBoolean("checkbox_vrr", false));
+        assertFalse(prefs().getBoolean("checkbox_real_vrr", true));
+        PreferenceConfiguration config = PreferenceConfiguration.readPreferences(app);
+        assertTrue(config.vrr && !config.realVrr && !config.hostFrameTimes);
+
+        editor = prefs().edit();
+        VrrChoice.save(editor, VrrChoice.ON);
+        editor.commit();
+        assertTrue(prefs().getBoolean("checkbox_vrr", false));
+        assertTrue(prefs().getBoolean("checkbox_real_vrr", false));
+        config = PreferenceConfiguration.readPreferences(app);
+        assertTrue(config.vrr && config.realVrr && config.hostFrameTimes);
+
+        // Off leaves Real VRR as it was, both after On and after Fastest.
+        for (int before : new int[] {VrrChoice.ON, VrrChoice.FASTEST}) {
+            editor = prefs().edit();
+            VrrChoice.save(editor, before);
+            editor.commit();
+            editor = prefs().edit();
+            VrrChoice.save(editor, VrrChoice.OFF);
+            editor.commit();
+            assertFalse(prefs().getBoolean("checkbox_vrr", true));
+            assertEquals(before == VrrChoice.ON, prefs().getBoolean("checkbox_real_vrr", before != VrrChoice.ON));
+            assertEquals(VrrChoice.OFF, VrrChoice.read(prefs()));
+            assertFalse(PreferenceConfiguration.readPreferences(app).vrr);
+        }
+        // A PC, game or profile layer streams with both of its values; one saved before keeps the Real VRR below.
+        PreferenceConfiguration layered = PreferenceConfiguration.readPreferences(app);
+        layered.realVrr = true;
+        HostStreamProfile.deserialize("v2;vrr=true;real_vrr=false").applyTo(layered);
+        layered.resolveHostFrameTimes();
+        assertTrue(layered.vrr && !layered.realVrr && !layered.hostFrameTimes);
+        PreferenceConfiguration older = PreferenceConfiguration.readPreferences(app);
+        older.realVrr = false;
+        HostStreamProfile.deserialize("v2;vrr=true").applyTo(older);
+        assertTrue(older.vrr && !older.realVrr);
+
+        assertEquals(java.util.Arrays.asList(VrrChoice.VALUES),
+                java.util.Arrays.asList(app.getResources().getStringArray(R.array.vrr_choice_values)));
+        assertEquals(VrrChoice.VALUES.length, app.getResources().getStringArray(R.array.vrr_choice_names).length);
     }
 
     /** When Nightjar opens: the stored pair reads as one choice, and nothing is rewritten on load. */

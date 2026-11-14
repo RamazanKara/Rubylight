@@ -83,6 +83,9 @@ public final class DemoLauncherActivity extends Activity {
         DemoFixtures.noArt = getIntent().getBooleanExtra("noart", false);
         DemoFixtures.roleTiles = getIntent().getBooleanExtra("roles", false);
         DemoFixtures.sunshineHost = "sunshine".equals(getIntent().getStringExtra("host"));
+        // "arr": a screen with adaptive refresh, so Variable refresh rate is offered on any device.
+        com.limelight.binding.video.DisplayFrameRatePolicy.vrrOfferedOverride =
+                getIntent().getBooleanExtra("arr", false) ? Boolean.TRUE : null;
         // "--ez asleep true": the Laptop is away with a saved library and wakes a few seconds after Wake (DemoAsleep).
         boolean asleep = getIntent().getBooleanExtra("asleep", false);
         DemoFixtures.nativeApiHost = "native".equals(getIntent().getStringExtra("host")) || asleep;

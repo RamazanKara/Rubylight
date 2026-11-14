@@ -140,25 +140,23 @@
             android:entries="@array/stream_orientation_names"
             android:entryValues="@array/stream_orientation_values"
             android:defaultValue="auto" />
-        <!-- Adaptive refresh replaces frame pacing and the lower refresh rate; host frame times replace only frame pacing (StreamSettings, SettingRules). -->
-        <com.limelight.preferences.MaterialSwitchPreference
+        <!-- Adaptive refresh replaces frame pacing and the lower refresh rate; host frame times replace only frame pacing (StreamSettings, SettingRules).
+             Off, On or Fastest: writes checkbox_vrr and checkbox_real_vrr (Real VRR) and stores nothing else (VrrChoice). -->
+        <com.limelight.preferences.VrrPreference
             android:key="checkbox_vrr"
             android:title="@string/title_vrr"
             android:dialogMessage="@string/summary_vrr"
-            android:defaultValue="false" />
+            android:entries="@array/vrr_choice_names"
+            android:entryValues="@array/vrr_choice_values"
+            android:defaultValue="off" />
     </PreferenceCategory>
     <PreferenceCategory android:key="category_more_display">
         <Preference android:key="more_display" android:title="@string/settings_more" android:persistent="false" />
     </PreferenceCategory>
     <PreferenceCategory android:key="category_display_refresh" android:title="@string/settings_category_refresh">
-        <!-- Real VRR: with adaptive refresh, frames are released at their host frame times. Shown only with it, and
-             the fixed refresh's switch below only without it (StreamSettings, SettingRules,
+        <!-- The fixed refresh's switch for frames at the host's frame times, shown only without adaptive refresh; with it
+             the Variable refresh rate row's On does the same (StreamSettings, SettingRules,
              PreferenceConfiguration.resolveHostFrameTimes). -->
-        <com.limelight.preferences.MaterialSwitchPreference
-            android:key="checkbox_real_vrr"
-            android:title="@string/title_real_vrr"
-            android:dialogMessage="@string/summary_real_vrr"
-            android:defaultValue="true" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_host_frame_times"
             android:title="@string/title_host_frame_times"

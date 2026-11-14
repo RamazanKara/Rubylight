@@ -301,12 +301,15 @@
     <string name="title_virtual_display">Ekran wirtualny</string>
     <string name="summary_virtual_display">Komputer strumieniuje z własnego ekranu wirtualnego o rozdzielczości i liczbie klatek strumienia, niezależnie od tego, jaki ma monitor. Po wyłączeniu decydują ustawienia ekranu komputera.</string>
     <string name="title_vrr">Zmienna częstotliwość odświeżania</string>
-    <string name="summary_vrr">VRR: wyświetla każdą klatkę zaraz po nadejściu na ekranie z G-Sync, FreeSync lub adaptacyjnym odświeżaniem, bez czekania na następne odświeżenie. Gdy jest włączone, „Tempo klatek” nie jest używane.</string>
+    <string name="summary_vrr">VRR: na ekranie z G-Sync, FreeSync lub adaptacyjnym odświeżaniem klatki są wyświetlane bez czekania na następne odświeżenie, a „Tempo klatek” nie jest używane. „Wł.” pokazuje każdą klatkę wtedy, gdy gra ją narysowała, więc ruch pozostaje równy, i dodaje około 1–4 ms opóźnienia; „Najszybciej” wyświetla każdą klatkę zaraz po nadejściu, dla najniższego opóźnienia. Wymaga Androida 16 i ekranu z adaptacyjnym odświeżaniem.</string>
+    <string-array name="vrr_choice_names">
+        <item>Wyłączone</item>
+        <item>Wł.</item>
+        <item>Najszybciej</item>
+    </string-array>
     <string name="summary_vrr_unavailable">Wymaga Androida 16 i ekranu z adaptacyjnym odświeżaniem.</string>
     <string name="title_host_frame_times">Pokazuj klatki w rytmie komputera</string>
     <string name="summary_host_frame_times">Krótko przytrzymuje każdą klatkę, aby pojawiła się wtedy, gdy gra ją narysowała, co wyrównuje ruch. Dodaje kilka milisekund opóźnienia; włącz, jeśli ruch wygląda nierówno.</string>
-    <string name="title_real_vrr">Prawdziwe VRR</string>
-    <string name="summary_real_vrr">Pokazuje każdą klatkę wtedy, gdy gra ją narysowała, więc ruch pozostaje równy. Dodaje około 1–4 ms opóźnienia; zostaw włączone, chyba że zależy ci na najniższym opóźnieniu.</string>
     <string name="title_content_rate_frame_rate">Dopasuj ekran do liczby klatek gry</string>
     <string name="summary_content_rate_frame_rate">Przełącza ekran na częstotliwość odświeżania pasującą do rzeczywistej liczby klatek gry, np. 60 Hz dla gry w 60 FPS w strumieniu 120 FPS. Wymaga obsługi przez komputer.</string>
     <string name="title_virtual_display_scale">Rozdzielczość renderowania komputera</string>

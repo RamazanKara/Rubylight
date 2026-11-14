@@ -78,6 +78,7 @@ public enum StreamPreset {
                 .putInt(PreferenceConfiguration.BITRATE_PREF_STRING,
                         PreferenceConfiguration.getShownDefaultBitrate(preferences, nativeResolution, fps, null))
                 .putBoolean(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING, false)
+                // Variable refresh rate Off: Real VRR stays as it was (VrrChoice).
                 .putBoolean("checkbox_vrr", false)
                 .putString(PreferenceConfiguration.UPSCALING_PREF_STRING, "off")
                 .putString(PreferenceConfiguration.FRAME_PACING_PREF_STRING, pacing())

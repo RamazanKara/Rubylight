@@ -161,7 +161,7 @@ public class SettingsBatchTest {
             ((SwitchPreference) display.findPreference("checkbox_reduce_refresh_rate")).setChecked(true);
             assertNotNull(display.findPreference("checkbox_content_rate_frame_rate"));
             // Variable refresh rate replaces both rows.
-            ((SwitchPreference) display.findPreference("checkbox_vrr")).setChecked(true);
+            ((android.preference.ListPreference) display.findPreference("checkbox_vrr")).setValue("fastest");
             assertNull(display.findPreference("checkbox_reduce_refresh_rate"));
             assertNull(display.findPreference("checkbox_content_rate_frame_rate"));
         }

@@ -831,7 +831,7 @@ public class HostStreamSettings extends NightjarActivity {
             row(stream, "upscaling", R.string.title_upscaling, this::showUpscaling);
             row(stream, "sharpness", R.string.title_upscaling_sharpness, this::showSharpness);
             row(stream, "hdr", R.string.title_enable_hdr, () -> showSwitch("hdr", R.string.title_enable_hdr));
-            row(stream, "vrr", R.string.title_vrr, () -> showSwitch("vrr", R.string.title_vrr));
+            row(stream, "vrr", R.string.title_vrr, this::showVrr);
             row(stream, "pacing", R.string.title_frame_pacing, this::showPacing);
             row(stream, "yuv444", R.string.title_sharp_color, () -> showSwitch("yuv444", R.string.title_sharp_color));
             // A PC's or game's own choice over its app setting, for the image enhancements its host offers
@@ -1034,7 +1034,6 @@ public class HostStreamSettings extends NightjarActivity {
         private static HostStreamProfile.Field switchField(String key) {
             switch (key) {
                 case "hdr": return HostStreamProfile.Field.HDR;
-                case "vrr": return HostStreamProfile.Field.VRR;
                 case "virtual": return HostStreamProfile.Field.VIRTUAL_DISPLAY;
                 case "yuv444": return HostStreamProfile.Field.YUV444;
                 default: return HostStreamProfile.Field.FULL_RANGE;
@@ -1074,7 +1073,6 @@ public class HostStreamSettings extends NightjarActivity {
         private boolean switchValue(PreferenceConfiguration config, String key) {
             switch (key) {
                 case "hdr": return config.enableHdr;
-                case "vrr": return config.vrr;
                 case "virtual": return config.virtualDisplay;
                 case "yuv444": return config.enableYuv444;
                 default: return config.fullRange;
@@ -1085,7 +1083,6 @@ public class HostStreamSettings extends NightjarActivity {
             HostStreamProfile own = activity.overrides;
             switch (key) {
                 case "hdr": return own.hdr;
-                case "vrr": return own.vrr;
                 case "virtual": return own.virtualDisplay;
                 case "yuv444": return own.yuv444;
                 default: return own.fullRange;
@@ -1096,7 +1093,6 @@ public class HostStreamSettings extends NightjarActivity {
             HostStreamProfile own = activity.overrides;
             switch (key) {
                 case "hdr": own.hdr = value; break;
-                case "vrr": own.vrr = value; break;
                 case "virtual": own.virtualDisplay = value; break;
                 case "yuv444": own.yuv444 = value; break;
                 default: own.fullRange = value; break;
@@ -1127,9 +1123,10 @@ public class HostStreamSettings extends NightjarActivity {
                     getString(R.string.upscaling_sharpness_value, config.upscalingSharpness)));
             findPreference("sharpness").setEnabled(config.upscalingMode == UpscalingPolicy.Mode.FSR1 ||
                     config.upscalingMode == UpscalingPolicy.Mode.SGSR1);
-            for (String key : new String[] {"hdr", "vrr", "yuv444", "full_range"}) {
+            for (String key : new String[] {"hdr", "yuv444", "full_range"}) {
                 findPreference(key).setSummary(summary(switchField(key), switchOverride(key) != null, switchText(key, switchValue(config, key))));
             }
+            findPreference("vrr").setSummary(summary(HostStreamProfile.Field.VRR, own.vrr != null, vrrText(config)));
             String pacing = summary(HostStreamProfile.Field.PACING, own.pacing != null, pacingText(config));
             findPreference("pacing").setSummary(config.vrr ? pacing + "\n" + getString(R.string.layers_pacing_vrr) : pacing);
             // Greyed where no screen has ARR, as in Settings; a value saved here is kept, and pacing applies.
@@ -1223,6 +1220,31 @@ public class HostStreamSettings extends NightjarActivity {
             new NavigationDialogBuilder(activity).setTitle(title)
                     .setSingleChoiceItems(items, checked, (dialog, which) -> {
                         setSwitchOverride(key, which == 0 ? null : which == 1);
+                        updateSummaries();
+                        dialog.dismiss();
+                    }).setNegativeButton(android.R.string.cancel, null).show();
+        }
+
+        /** Off, On or Fastest as {@code config} streams it; Off where no screen has ARR. */
+        private String vrrText(PreferenceConfiguration config) {
+            return getResources().getStringArray(R.array.vrr_choice_names)[
+                    VrrChoice.of(config.vrr && DisplayFrameRatePolicy.vrrOffered(activity), config.realVrr)];
+        }
+
+        /**
+         * Variable refresh rate: the layers below, Off, On or Fastest. On and Fastest set VRR and Real VRR together,
+         * Off sets VRR off (VrrChoice). A layer that sets VRR on without Real VRR, as saved before, shows the Real VRR
+         * it streams with.
+         */
+        private void showVrr() {
+            HostStreamProfile own = activity.overrides;
+            String[] names = getResources().getStringArray(R.array.vrr_choice_names);
+            CharSequence[] items = {sameAs(vrrText(activity.global)), names[VrrChoice.OFF], names[VrrChoice.ON], names[VrrChoice.FASTEST]};
+            int checked = own.vrr == null ? 0 : 1 + VrrChoice.of(own.vrr,
+                    own.realVrr != null ? own.realVrr : activity.effective().realVrr);
+            new NavigationDialogBuilder(activity).setTitle(R.string.title_vrr)
+                    .setSingleChoiceItems(items, checked, (dialog, which) -> {
+                        VrrChoice.save(own, which == 0 ? null : which - 1);
                         updateSummaries();
                         dialog.dismiss();
                     }).setNegativeButton(android.R.string.cancel, null).show();

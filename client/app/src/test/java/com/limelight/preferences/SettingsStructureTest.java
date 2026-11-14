@@ -409,15 +409,60 @@ public class SettingsStructureTest {
         try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
             // Rows that do not apply are hidden, not greyed (SettingRules), and come back in place.
             PreferenceScreen display = open(controller.get(), "display").getPreferenceScreen();
-            SwitchPreference vrr = (SwitchPreference) display.findPreference("checkbox_vrr");
+            android.preference.ListPreference vrr = (android.preference.ListPreference) display.findPreference("checkbox_vrr");
             assertNotNull(display.findPreference("frame_pacing"));
             assertNotNull(display.findPreference("checkbox_reduce_refresh_rate"));
-            vrr.setChecked(true);
-            assertNull(display.findPreference("frame_pacing"));
-            assertNull(display.findPreference("checkbox_reduce_refresh_rate"));
-            vrr.setChecked(false);
-            assertNotNull(display.findPreference("frame_pacing"));
-            assertNotNull(display.findPreference("checkbox_reduce_refresh_rate"));
+            for (String on : new String[] {"on", "fastest"}) {
+                vrr.setValue(on);
+                assertNull(on, display.findPreference("frame_pacing"));
+                assertNull(on, display.findPreference("checkbox_reduce_refresh_rate"));
+                vrr.setValue("off");
+                assertNotNull(on, display.findPreference("frame_pacing"));
+                assertNotNull(on, display.findPreference("checkbox_reduce_refresh_rate"));
+            }
+        }
+    }
+
+    /** Variable refresh rate is one row of Off, On and Fastest over checkbox_vrr and checkbox_real_vrr. */
+    @Test
+    public void variableRefreshRateIsOneRowOverBothSwitches() {
+        try (ActivityController<StreamSettings> controller = Robolectric.buildActivity(StreamSettings.class).setup()) {
+            StreamSettings.SettingsFragment fragment = open(controller.get(), "display");
+            assertNull("no row of its own for Real VRR", fragment.findPreference("checkbox_real_vrr"));
+            android.preference.ListPreference vrr = (android.preference.ListPreference) fragment.findPreference("checkbox_vrr");
+            assertNotNull(vrr);
+            String[] names = controller.get().getResources().getStringArray(R.array.vrr_choice_names);
+            assertEquals(3, vrr.getEntries().length);
+            assertEquals("off", vrr.getValue());
+            assertEquals(names[0], String.valueOf(vrr.getEntry()));
+            assertTrue("Real VRR keeps its default until a choice writes it", prefs().getBoolean("checkbox_real_vrr", true));
+
+            // Each choice writes exactly its two values; Off leaves Real VRR as it was.
+            vrr.setValue("fastest");
+            assertTrue(prefs().getBoolean("checkbox_vrr", false));
+            assertFalse(prefs().getBoolean("checkbox_real_vrr", true));
+            vrr.setValue("off");
+            assertFalse(prefs().getBoolean("checkbox_vrr", true));
+            assertFalse("Off keeps Fastest's Real VRR", prefs().getBoolean("checkbox_real_vrr", true));
+            vrr.setValue("on");
+            assertTrue(prefs().getBoolean("checkbox_vrr", false));
+            assertTrue(prefs().getBoolean("checkbox_real_vrr", false));
+            vrr.setValue("off");
+            assertTrue("Off keeps On's Real VRR", prefs().getBoolean("checkbox_real_vrr", false));
+            assertFalse("no string is stored under the row's key", prefs().getAll().get("checkbox_vrr") instanceof String);
+
+            // The row follows the switches when something else writes them, such as a preset.
+            prefs().edit().putBoolean("checkbox_vrr", true).putBoolean("checkbox_real_vrr", false).commit();
+            assertEquals("fastest", vrr.getValue());
+            assertEquals(names[2], String.valueOf(vrr.getEntry()));
+            prefs().edit().putBoolean("checkbox_real_vrr", true).commit();
+            assertEquals(names[1], String.valueOf(vrr.getEntry()));
+            // The last value the list saw still writes when chosen again after an outside change.
+            vrr.setValue("on");
+            prefs().edit().putBoolean("checkbox_vrr", false).commit();
+            assertEquals("off", vrr.getValue());
+            vrr.setValue("on");
+            assertTrue(prefs().getBoolean("checkbox_vrr", false));
         }
     }
 

@@ -15,10 +15,13 @@ public class StreamPresetTest {
         Map<String, Object> values = new HashMap<>();
         for (String key : StreamPreset.LATENCY_SWITCHES) values.put(key, false);
         values.put("checkbox_vrr", true);
+        values.put("checkbox_real_vrr", false);
         values.put("upscaling_mode", "fsr1");
         values.put("frame_pacing", "balanced");
         int[] applies = {0};
         StreamPreset.NATIVE.apply(preferences(values, applies), PHONE, 120);
+        // Variable refresh rate Off: Real VRR (Fastest's off) stays for when VRR comes back.
+        assertEquals(false, values.get("checkbox_real_vrr"));
         assertEquals(1, applies[0]);
         assertEquals(PHONE, values.get("list_resolution"));
         assertEquals("120", values.get("list_fps"));

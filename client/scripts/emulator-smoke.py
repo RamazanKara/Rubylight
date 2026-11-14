@@ -1242,11 +1242,16 @@ def main():
             find_text(r"^(\d+×\d+|\d+p) · \d+ FPS · 81 Mbps · Automatic")
             find("Custom")
             tap("Display & image")
-            vrr = "Adaptive refresh (ARR / VRR)"
+            # Off, On or Fastest, stored in checkbox_vrr and checkbox_real_vrr (VrrChoice).
+            vrr = "Variable refresh rate"
             tap(vrr, scroll=True)
-            prefs(f"{PACKAGE}_preferences", lambda root: any(
-                n.get("name") == "checkbox_vrr" and n.get("value") == "true" for n in root),
-                "VRR preference was not enabled")
+            tap("Fastest")
+            prefs(f"{PACKAGE}_preferences", lambda root: pref_value(root, "checkbox_vrr") == "true" and
+                  pref_value(root, "checkbox_real_vrr") == "false", "VRR Fastest was not stored")
+            tap(vrr, scroll=True)
+            tap("On")
+            prefs(f"{PACKAGE}_preferences", lambda root: pref_value(root, "checkbox_vrr") == "true" and
+                  pref_value(root, "checkbox_real_vrr") == "true", "VRR On was not stored")
             screenshot("21-host-display-vrr")
             adb("shell", "am", "force-stop", PACKAGE)
             adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/com.limelight.PcView")
@@ -1254,18 +1259,17 @@ def main():
             tap(f"{PACKAGE}:id/shell_settings")
             tap("Display & image")
             find(vrr, scroll=True)
-            # The row is exposed either as a clickable container or, since the accessibility pass, as a checkable switch.
-            row = next(n for n in tree().iter("node") if "true" in (n.get("clickable"), n.get("checkable")) and
+            # The row says its choice at its end.
+            row = next(n for n in tree().iter("node") if n.get("clickable") == "true" and
                        any(child.get("text") == vrr for child in n.iter("node")))
-            assert any(n.get("checked") == "true" for n in row.iter("node")), \
-                "VRR switch was not restored after restarting the app"
-            prefs(f"{PACKAGE}_preferences", lambda root: any(
-                n.get("name") == "checkbox_vrr" and n.get("value") == "true" for n in root),
-                "VRR preference did not persist after restarting the app")
+            assert any(n.get("text") == "On" for n in row.iter("node")), \
+                "VRR On was not restored after restarting the app"
+            prefs(f"{PACKAGE}_preferences", lambda root: pref_value(root, "checkbox_vrr") == "true",
+                  "VRR preference did not persist after restarting the app")
             tap(vrr)
-            prefs(f"{PACKAGE}_preferences", lambda root: any(
-                n.get("name") == "checkbox_vrr" and n.get("value") == "false" for n in root),
-                "VRR preference could not be disabled")
+            tap("Off")
+            prefs(f"{PACKAGE}_preferences", lambda root: pref_value(root, "checkbox_vrr") == "false" and
+                  pref_value(root, "checkbox_real_vrr") == "true", "VRR Off did not keep Real VRR")
             navigate_up()
             tap("Advanced", scroll=True)
             decoding = "Low-latency decoding"

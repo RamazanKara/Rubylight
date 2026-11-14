@@ -23,11 +23,20 @@ steady delay, so the screen refreshes in step with the game.
 
 ## Turning it on or off
 
-Real VRR is in **Settings → Display & image**, among the refresh rate settings (under **More
-settings**), on Android and the desktop. It shows while **Variable refresh rate** is on and is on
-by default. Settings saved before it became the default have it turned on once; if you turn it off
-afterwards, it stays off. Turn it off for the lowest latency, when you would rather see each frame
-the moment it is decoded.
+Real VRR is the **On** choice of **Variable refresh rate**, in **Settings → Display & image** on
+Android and the desktop:
+
+- **Off:** the screen keeps a fixed refresh, and Frame pacing applies.
+- **On:** Real VRR. Each frame is shown at the game's timing, and whole.
+- **Fastest:** each frame is shown the moment it is decoded, for the lowest latency. On Windows
+  and Linux such a frame can tear ([whole frames](#tear-free-vrr-on-windows)).
+
+Up to Nightjar 5.3.0 these were separate switches: Variable refresh rate, Real VRR and, on
+Windows, Tear-free VRR. What you chose there is kept: Real VRR on reads as On and Real VRR off as
+Fastest. On the desktop, where Tear-free VRR counts too, both on read as On and both off as
+Fastest; another mix shows as **Custom** and works as before until you choose one of the three.
+settings.json holds the same three values as before (`vrr`, `present_at_host_times`,
+`vrr_tear_free`). Settings saved before Real VRR became the default had it turned on once.
 
 What it needs:
 
@@ -47,7 +56,8 @@ On Android with Variable refresh rate off, the matching setting is **Show frames
 frame times** (off by default): it shows each frame on the refresh nearest its time on the PC. See
 [refresh rate and VRR](video-and-latency.md#refresh-rate-and-vrr).
 
-## Tear-free VRR on Windows
+<a id="tear-free-vrr-on-windows"></a>
+## Whole frames
 
 A VRR screen starts drawing a frame the moment it is presented and needs one refresh to draw it
 (4.2 ms at 240 Hz). A frame presented while the screen is still drawing the last one is torn: the
@@ -55,11 +65,24 @@ part of the screen not yet drawn shows the new frame, the rest shows it only on 
 That happens when two frames arrive close together, and often below the screen's range, where the
 graphics driver repeats the last frame by itself.
 
-**Tear-free VRR** is in the same place as Real VRR, shows while **Variable refresh rate** is on,
-and is on by default. Before each frame Nightjar reads where the screen is in its drawing. A frame
-that arrives while the screen is drawing waits for it to finish, at most one refresh, and is then
-shown whole. Turn it off to show every frame at once, with tearing. It works with Real VRR on or
-off. Linux and Android compose whole frames by themselves.
+With Variable refresh rate **On**, a frame that arrives while the screen is drawing waits for it
+to finish, at most one refresh, and is then shown whole. With **Fastest** it is shown at once,
+with tearing. How the wait is done depends on the system:
+
+- **Windows:** before each frame Nightjar reads where the screen is in its drawing, and holds a
+  frame until the drawing has finished.
+- **Linux, drawing straight to the display** (KMS, without a desktop): Nightjar hands each picture
+  to the display in step with it. A picture handed over during a refresh is taken when that
+  refresh ends, and starts the next one. Up to Nightjar 5.3.0 every VRR stream there was shown at
+  once, with tearing. The log's `kms:` lines say which of the two a stream does and, at its end,
+  how long the hand-overs took. It has not been measured on a screen: if you try it, tell us what
+  you see.
+- **Linux on a Wayland desktop:** the compositor shows whole frames. Fastest presents with tearing
+  where the compositor allows it. Up to Nightjar 5.3.0, V-Sync off decided that; its switch is
+  hidden while Variable refresh rate is on.
+- **Linux under gamescope or X11:** frames are presented at once with both choices. gamescope
+  shows them whole unless Steam's **Allow tearing** is on.
+- **Android and macOS:** the system shows whole frames with both choices.
 
 ## How it works
 
@@ -148,7 +171,7 @@ PyroWave on that monitor both rules showed the same share (10.7 and 10.9%).
 The method, the raw figures and the replays behind the 2 ms bound are in
 [PyroWave decoding: Real VRR](pyrowave-decode.md#real-vrr-measured-cadence-and-a-link-with-a-long-tail).
 
-**Tear-free VRR** (a laptop streams HEVC over Wi-Fi to the PC's 240 Hz VRR monitor, whose
+**Whole frames on Windows** (a laptop streams HEVC over Wi-Fi to the PC's 240 Hz VRR monitor, whose
 drawing position is recorded every 40 µs for 12 seconds of each 35-second run):
 
 | Test animation | Frames torn: off | On | From frame ready to whole on screen, median / 19 of 20: off | On |
@@ -168,13 +191,13 @@ wait gives up is the part of a torn frame that would have appeared up to one ref
 ## Limits
 
 - **It adds delay:** about 1.3 to 1.5 ms on a clean link and 2.6 to 3.5 ms over Wi-Fi in the runs
-  above (19 of 20 frames within 5.6 to 7.1 ms). That is the price of the steady rhythm; turn Real VRR off if you would rather have each
+  above (19 of 20 frames within 5.6 to 7.1 ms). That is the price of the steady rhythm; choose **Fastest** if you would rather have each
   frame the moment it is decoded.
 - **Over Wi-Fi some frames stay off the rhythm.** A frame later than the delay is shown when it is
   ready, and one more than 6 ms later than the typical frame raises the delay no further: about
   10% of frame gaps stayed more than 1 ms off their timestamps in the runs above.
 - **Below the screen's range the graphics driver repeats pictures,** and a frame that arrives
-  during such a refresh waits for it to end with Tear-free VRR, or tears without it. On a 240 Hz
+  during such a refresh waits for it to end with **On**, or tears with **Fastest**. On a 240 Hz
   monitor whose range ends at 80 Hz, 23 to 39% of frames arrived that way, with test animations of
   54 to 85 fps. Nightjar repeating the picture itself on Windows,
   timed from the frame rate and the screen's scan line, brought a 60 fps animation to 16% and

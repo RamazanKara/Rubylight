@@ -301,12 +301,15 @@
     <string name="title_virtual_display">Màn hình ảo</string>
     <string name="summary_virtual_display">PC stream từ một màn hình ảo riêng khớp với độ phân giải và tốc độ khung hình của stream, bất kể PC có màn hình nào. Khi tắt, việc này tùy theo cài đặt hiển thị của PC.</string>
     <string name="title_vrr">Tần số quét biến thiên</string>
-    <string name="summary_vrr">VRR: hiển thị từng khung hình ngay khi đến trên màn hình G-Sync, FreeSync hoặc có tần số quét thích ứng, không chờ lần làm mới kế tiếp. Khi bật, “Nhịp độ khung hình” không được dùng.</string>
+    <string name="summary_vrr">VRR: trên màn hình G-Sync, FreeSync hoặc có tần số quét thích ứng, khung hình được hiển thị mà không chờ lần làm mới kế tiếp, và “Nhịp độ khung hình” không được dùng. “Bật” hiển thị mỗi khung hình đúng lúc trò chơi đã vẽ, giúp chuyển động luôn đều, và thêm khoảng 1–4 mili giây độ trễ; “Nhanh nhất” hiển thị từng khung hình ngay khi đến, cho độ trễ thấp nhất. Cần Android 16 và màn hình có tần số quét thích ứng.</string>
+    <string-array name="vrr_choice_names">
+        <item>Tắt</item>
+        <item>Bật</item>
+        <item>Nhanh nhất</item>
+    </string-array>
     <string name="summary_vrr_unavailable">Cần Android 16 và màn hình có tần số quét thích ứng.</string>
     <string name="title_host_frame_times">Hiển thị khung hình theo nhịp của PC</string>
     <string name="summary_host_frame_times">Giữ mỗi khung hình trong chốc lát để nó hiện ra đúng nhịp trò chơi đã vẽ, giúp chuyển động đều hơn. Thêm vài mili giây độ trễ; bật nếu chuyển động trông không đều.</string>
-    <string name="title_real_vrr">VRR thực</string>
-    <string name="summary_real_vrr">Hiển thị mỗi khung hình đúng lúc trò chơi đã vẽ, giúp chuyển động luôn đều. Thêm khoảng 1–4 mili giây độ trễ; hãy để bật trừ khi bạn muốn độ trễ thấp nhất.</string>
     <string name="title_content_rate_frame_rate">Khớp màn hình với tốc độ khung hình của trò chơi</string>
     <string name="summary_content_rate_frame_rate">Chuyển màn hình sang tần số quét khớp với tốc độ khung hình thực của trò chơi, chẳng hạn 60 Hz cho trò chơi 60 FPS trong stream 120 FPS. Cần PC hỗ trợ.</string>
     <string name="title_virtual_display_scale">Độ phân giải kết xuất trên PC</string>

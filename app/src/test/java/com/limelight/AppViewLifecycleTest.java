@@ -330,6 +330,122 @@ public class AppViewLifecycleTest {
         }
     }
 
+    private static com.google.android.material.button.MaterialButton sheetRow(android.app.Dialog sheet, String start) {
+        List<com.google.android.material.button.MaterialButton> found = new java.util.ArrayList<>();
+        findRows(sheet.findViewById(android.R.id.content), start, found);
+        return found.isEmpty() ? null : found.get(0);
+    }
+
+    private static void findRows(View view, String start, List<com.google.android.material.button.MaterialButton> found) {
+        if (view instanceof com.google.android.material.button.MaterialButton) {
+            if (((TextView) view).getText().toString().startsWith(start)) {
+                found.add((com.google.android.material.button.MaterialButton) view);
+            }
+        } else if (view instanceof android.view.ViewGroup) {
+            for (int i = 0; i < ((android.view.ViewGroup) view).getChildCount(); i++) {
+                findRows(((android.view.ViewGroup) view).getChildAt(i), start, found);
+            }
+        }
+    }
+
+    private static android.app.Dialog openGameSheet(android.widget.GridView grid, String name) {
+        int position = position(grid, name);
+        grid.getOnItemLongClickListener().onItemLongClick(grid, null, position, position);
+        return org.robolectric.shadows.ShadowDialog.getLatestDialog();
+    }
+
+    private static void idle() {
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+    }
+
+    @Test public void theGameSheetOffersNoProfileRowWithoutProfiles() {
+        Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)
+                .putExtra(AppView.UUID_EXTRA, "running-host").putExtra(AppView.NAME_EXTRA, "PC");
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup();
+        try {
+            Library screen = controller.get();
+            android.widget.GridView grid = libraryWithRunningGame(screen, "sunshine-serverinfo.xml");
+            android.app.Dialog sheet = openGameSheet(grid, "Desktop");
+            assertNull(sheetRow(sheet, screen.getString(R.string.profiles_subtitle)));
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test public void theGameSheetShowsTheProfileInUseAndPickingOneSetsIt() {
+        android.content.Context app = RuntimeEnvironment.getApplication();
+        String home = com.limelight.preferences.StreamProfiles.create(app, "Home", new com.limelight.preferences.HostStreamProfile());
+        String hotel = com.limelight.preferences.StreamProfiles.create(app, "Hotel", new com.limelight.preferences.HostStreamProfile());
+        com.limelight.preferences.StreamProfiles.setActive(app, home);
+        Intent intent = new Intent(app, Library.class)
+                .putExtra(AppView.UUID_EXTRA, "running-host").putExtra(AppView.NAME_EXTRA, "PC");
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup();
+        try {
+            Library screen = controller.get();
+            android.widget.GridView grid = libraryWithRunningGame(screen, "sunshine-serverinfo.xml");
+            android.app.Dialog sheet = openGameSheet(grid, "Desktop");
+            com.google.android.material.button.MaterialButton row = sheetRow(sheet, screen.getString(R.string.profiles_subtitle));
+            assertNotNull(row);
+            assertTrue(row.getText().toString().contains("Home"));
+            row.performClick();
+            idle();
+            android.app.Dialog picker = org.robolectric.shadows.ShadowDialog.getLatestDialog();
+            assertNotSame(sheet, picker);
+            assertNotNull(sheetRow(picker, screen.getString(R.string.profiles_none)));
+            com.google.android.material.button.MaterialButton choice = sheetRow(picker, "Hotel");
+            assertNotNull(choice);
+            choice.performClick();
+            idle();
+            assertEquals(hotel, com.limelight.preferences.StreamProfiles.load(app).activeId);
+            // Picking None clears the selection, as the Profiles page does.
+            android.app.Dialog again = openGameSheet(grid, "Desktop");
+            sheetRow(again, screen.getString(R.string.profiles_subtitle)).performClick();
+            idle();
+            sheetRow(org.robolectric.shadows.ShadowDialog.getLatestDialog(), screen.getString(R.string.profiles_none)).performClick();
+            idle();
+            assertNull(com.limelight.preferences.StreamProfiles.load(app).activeId);
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
+    @Test public void withAChosenByNetworkRuleTheProfileRowOpensTheProfilesPage() {
+        android.content.Context app = RuntimeEnvironment.getApplication();
+        String wifi = com.limelight.preferences.StreamProfiles.create(app, "Couch", new com.limelight.preferences.HostStreamProfile());
+        com.limelight.preferences.StreamProfiles.setAuto(app, true);
+        com.limelight.preferences.StreamProfiles.setRule(app, com.limelight.preferences.StreamLayers.Network.WIFI, wifi);
+        android.net.ConnectivityManager connectivity =
+                (android.net.ConnectivityManager) app.getSystemService(android.content.Context.CONNECTIVITY_SERVICE);
+        android.net.NetworkInfo info = org.robolectric.shadows.ShadowNetworkInfo.newInstance(
+                android.net.NetworkInfo.DetailedState.CONNECTED, android.net.ConnectivityManager.TYPE_WIFI, 0, true,
+                android.net.NetworkInfo.State.CONNECTED);
+        org.robolectric.shadows.ShadowConnectivityManager shadow = org.robolectric.Shadows.shadowOf(connectivity);
+        android.net.Network network = org.robolectric.shadows.ShadowNetwork.newInstance(1);
+        android.net.NetworkCapabilities caps = org.robolectric.shadows.ShadowNetworkCapabilities.newInstance();
+        org.robolectric.Shadows.shadowOf(caps).addTransportType(android.net.NetworkCapabilities.TRANSPORT_WIFI);
+        shadow.addNetwork(network, info);
+        shadow.setNetworkCapabilities(network, caps);
+        shadow.setActiveNetworkInfo(info);
+        Intent intent = new Intent(app, Library.class)
+                .putExtra(AppView.UUID_EXTRA, "running-host").putExtra(AppView.NAME_EXTRA, "PC");
+        ActivityController<Library> controller = Robolectric.buildActivity(Library.class, intent).setup();
+        try {
+            Library screen = controller.get();
+            android.widget.GridView grid = libraryWithRunningGame(screen, "sunshine-serverinfo.xml");
+            android.app.Dialog sheet = openGameSheet(grid, "Desktop");
+            com.google.android.material.button.MaterialButton row = sheetRow(sheet, screen.getString(R.string.profiles_subtitle));
+            assertNotNull(row);
+            assertTrue("shows the profile the next stream uses: " + row.getText(), row.getText().toString().contains("Couch"));
+            row.performClick();
+            idle();
+            Intent started = org.robolectric.Shadows.shadowOf(screen).getNextStartedActivity();
+            assertNotNull(started);
+            assertEquals(com.limelight.preferences.StreamProfilesActivity.class.getName(), started.getComponent().getClassName());
+        } finally {
+            controller.pause().stop().destroy();
+        }
+    }
+
     /** A PC's cached list is in the adapter before the grid exists: its cards came in without their rise. */
     @Test public void aListThatWasCachedStillBringsItsCardsIn() {
         Intent intent = new Intent(RuntimeEnvironment.getApplication(), Library.class)

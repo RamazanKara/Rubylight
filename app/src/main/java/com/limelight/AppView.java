@@ -958,6 +958,7 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
                     R.drawable.ic_play, getString(R.string.library_play));
         }
         addSmallStreamInputOnlyAction(sheet, selectedApp);
+        addProfileAction(sheet);
         if (LaunchPolicy.offersQuitOnLeave(canLaunch, selectedApp.app.getControl(), selectedApp.app.getRole())) {
             addQuitOnLeaveAction(sheet, selectedApp);
         }
@@ -1110,6 +1111,55 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
             sheet.dismiss();
             HostStreamSettings.showGame(this, uuidString, getIntent().getStringExtra(NAME_EXTRA), appUuid, appId,
                     app.app.getAppName());
+        });
+    }
+
+    /**
+     * Switches the profile in use before a stream, as the Profiles page does. Not offered without profiles. When "Choose by
+     * network" has a rule for this network the rule decides, so the entry shows what the next stream uses and opens the page.
+     */
+    private void addProfileAction(ActionSheet sheet) {
+        com.limelight.preferences.StreamProfiles.Snapshot profiles = com.limelight.preferences.StreamProfiles.load(this);
+        if (profiles.names.isEmpty()) return;
+        com.limelight.preferences.StreamLayers.Input input = new com.limelight.preferences.StreamLayers.Input();
+        input.profiles = profiles;
+        com.limelight.preferences.StreamNetwork.fill(this, input);
+        com.limelight.preferences.StreamLayers.Result result = com.limelight.preferences.StreamLayers.resolve(input);
+        boolean byNetwork = profiles.auto && profiles.rule(input.network) != null;
+        String shown = byNetwork ? (result.profileName != null ? result.profileName : getString(R.string.profiles_none)) :
+                profiles.exists(profiles.activeId) ? profiles.name(profiles.activeId) : getString(R.string.profiles_none);
+        sheet.addAction(R.drawable.ic_folder, getString(R.string.profiles_subtitle), shown).setOnClickListener(v -> {
+            sheet.dismiss();
+            if (byNetwork) {
+                startActivity(new Intent(this, com.limelight.preferences.StreamProfilesActivity.class));
+            } else {
+                showProfilePicker();
+            }
+        });
+    }
+
+    private void showProfilePicker() {
+        com.limelight.preferences.StreamProfiles.Snapshot profiles = com.limelight.preferences.StreamProfiles.load(this);
+        ActionSheet picker = new ActionSheet(this, getString(R.string.profiles_subtitle));
+        suspendGridUpdates = true;
+        String current = profiles.exists(profiles.activeId) ? profiles.activeId : null;
+        addProfileChoice(picker, null, getString(R.string.profiles_none), current == null);
+        for (java.util.Map.Entry<String, String> entry : profiles.names.entrySet()) {
+            addProfileChoice(picker, entry.getKey(), entry.getValue(), entry.getKey().equals(current));
+        }
+        picker.setOnDismissListener(dialog -> {
+            suspendGridUpdates = false;
+            if (poller != null && inForeground) poller.pollNow();
+        });
+        picker.show();
+    }
+
+    private void addProfileChoice(ActionSheet picker, String id, String name, boolean inUse) {
+        com.google.android.material.button.MaterialButton row = inUse ? picker.addAction(R.drawable.ic_folder, name, getString(R.string.profiles_marker_in_use)) :
+                picker.addAction(R.drawable.ic_folder, name);
+        row.setOnClickListener(v -> {
+            com.limelight.preferences.StreamProfiles.setActive(this, id);
+            picker.dismiss();
         });
     }
 

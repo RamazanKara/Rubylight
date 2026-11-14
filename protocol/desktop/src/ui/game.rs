@@ -94,6 +94,11 @@ enum RowAct {
         host: u64,
         app: u32,
     },
+    /// The profile the next stream uses: a list of the profiles, or, when the network's rule picks
+    /// the profile (`decided`), the Profiles page where the rules are.
+    Profile {
+        decided: bool,
+    },
     Nothing,
 }
 
@@ -574,6 +579,36 @@ impl Launcher {
             enabled: classic.is_some(),
             act: classic.map_or(RowAct::Nothing, |app| RowAct::Settings(app.clone())),
         }];
+        if !self.profiles.entries.is_empty() {
+            let decided = self.profiles.automatic
+                && match kind {
+                    crate::network::Kind::Mobile => self.profiles.mobile,
+                    crate::network::Kind::HomeWifi => self.profiles.home,
+                    crate::network::Kind::Wifi => self.profiles.wifi,
+                    crate::network::Kind::Other => None,
+                }
+                .is_some();
+            let shown = if decided {
+                self.profiles.selected(kind)
+            } else {
+                self.profiles.active
+            };
+            let name = self
+                .profiles
+                .entries
+                .iter()
+                .find(|p| Some(p.id) == shown)
+                .map_or(tr("Main settings"), |p| p.name.as_str())
+                .to_owned();
+            rows.push(ArtRow {
+                key: "profile".into(),
+                label: tr("Active profile").to_owned(),
+                sub: Some((name, *ON_SURFACE_VARIANT)),
+                said: None,
+                enabled: true,
+                act: RowAct::Profile { decided },
+            });
+        }
         if let Some(app) = classic {
             if launch::offers_quit_on_leave(
                 host.paired(),
@@ -875,7 +910,40 @@ impl Launcher {
                         host: *host,
                         app: *app,
                     }),
+                    RowAct::Profile { decided } => {
+                        if *decided {
+                            self.open(Screen::Profiles);
+                        }
+                    }
                     RowAct::Nothing => {}
+                }
+            }
+            if matches!(row.act, RowAct::Profile { decided: false }) {
+                // The click above opens the list (the popup toggles on it); a pick is what the
+                // Profiles page's Active profile does.
+                let active = self.profiles.active;
+                let choices: Vec<(Option<u64>, String)> =
+                    std::iter::once((None, tr("Main settings").to_owned()))
+                        .chain(
+                            self.profiles
+                                .entries
+                                .iter()
+                                .map(|p| (Some(p.id), p.name.clone())),
+                        )
+                        .collect();
+                let mut picked = None;
+                let _ = egui::Popup::menu(&response).show(|ui| {
+                    for (id, name) in choices {
+                        if ui.selectable_label(active == id, name).clicked() {
+                            picked = Some(id);
+                        }
+                    }
+                });
+                if let Some(id) = picked {
+                    if id != active {
+                        self.profiles.active = id;
+                        commands.push(Command::SaveProfiles);
+                    }
                 }
             }
             y += h;

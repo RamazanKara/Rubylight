@@ -301,13 +301,13 @@
     <string name="title_virtual_display">仮想ディスプレイ</string>
     <string name="summary_virtual_display">PC のモニターに関係なく、ストリームの解像度とフレームレートに合わせた専用の仮想ディスプレイから PC がストリーミングします。オフでは PC のディスプレイ設定に任せます。</string>
     <string name="title_vrr">可変リフレッシュレート</string>
-    <string name="summary_vrr">VRR：G-Sync、FreeSync、または可変リフレッシュレート対応の画面で、次のリフレッシュを待たずにフレームを表示し、「フレームペーシング」は使われません。「オン」は各フレームをゲームが描画したタイミングで表示して動きを均一に保ち、遅延が約1〜4ミリ秒増えます。「最速」は各フレームを届いた時点で表示し、遅延が最小になります。Android 16 と可変リフレッシュレート対応の画面が必要です。</string>
+    <string name="summary_vrr">VRR：G-Sync、FreeSync、または可変リフレッシュレート対応の画面で、次のリフレッシュを待たずにフレームを表示し、「フレームペーシング」は使われません。「オン」は各フレームをゲームが描画したタイミングで表示して動きを均一に保ち、遅延が約1〜4ミリ秒増えます。「最速」は各フレームを届いた時点で表示し、遅延が最小になります。可変リフレッシュレートのない画面では、代わりに最高リフレッシュレートで動作します。各フレームは次のリフレッシュを待ち（120 Hz で 8.3 ms 未満）、60 Hz より電池を多く使います。画面が 60 Hz を超えない場合はオフのままにしてください。</string>
     <string-array name="vrr_choice_names">
         <item>オフ</item>
         <item>オン</item>
         <item>最速</item>
     </string-array>
-    <string name="summary_vrr_unavailable">Android 16 と可変リフレッシュレート対応の画面が必要です。</string>
+    <string name="summary_vrr_unavailable">Android 6 以降が必要です。</string>
     <string name="title_host_frame_times">PCのフレームタイミングで表示</string>
     <string name="summary_host_frame_times">各フレームを少しだけ保持してゲームが描画したタイミングで表示し、動きを均一にします。遅延が数ミリ秒増えます。動きにムラがある場合はオンにしてください。</string>
     <string name="title_content_rate_frame_rate">画面をゲームのフレームレートに合わせる</string>

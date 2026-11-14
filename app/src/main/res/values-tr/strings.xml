@@ -301,13 +301,13 @@
     <string name="title_virtual_display">Sanal ekran</string>
     <string name="summary_virtual_display">Bilgisayar, monitörü ne olursa olsun, yayının çözünürlüğüne ve kare hızına uyan kendine ait bir sanal ekrandan yayın yapar. Kapalıyken bu, bilgisayarın ekran ayarlarına bırakılır.</string>
     <string name="title_vrr">Değişken yenileme hızı</string>
-    <string name="summary_vrr">VRR: G-Sync, FreeSync veya uyarlanabilir yenileme hızlı bir ekranda kareler sonraki yenilemeyi beklemeden gösterilir ve “Kare zamanlama” kullanılmaz. “Açık” her kareyi oyunun çizdiği anda gösterir; böylece hareket dengeli kalır, yaklaşık 1-4 ms gecikme ekler. “En hızlı” her kareyi geldiği anda gösterir ve en düşük gecikmeyi verir. Android 16 ve uyarlanabilir yenileme destekleyen bir ekran gerekir.</string>
+    <string name="summary_vrr">VRR: G-Sync, FreeSync veya uyarlanabilir yenileme hızlı bir ekranda kareler sonraki yenilemeyi beklemeden gösterilir ve “Kare zamanlama” kullanılmaz. “Açık” her kareyi oyunun çizdiği anda gösterir; böylece hareket dengeli kalır, yaklaşık 1-4 ms gecikme ekler. “En hızlı” her kareyi geldiği anda gösterir ve en düşük gecikmeyi verir. Uyarlanabilir yenileme hızı olmayan bir ekran bunun yerine en yüksek yenileme hızında çalışır: her kare yine bir sonraki yenilemeyi bekler (120 Hz’de 8,3 ms’den az) ve ekran 60 Hz’e göre daha fazla pil harcar. Ekran 60 Hz’in üzerine çıkmıyorsa kapalı bırakın.</string>
     <string-array name="vrr_choice_names">
         <item>Kapalı</item>
         <item>Açık</item>
         <item>En hızlı</item>
     </string-array>
-    <string name="summary_vrr_unavailable">Android 16 ve uyarlanabilir yenileme destekleyen bir ekran gerekir.</string>
+    <string name="summary_vrr_unavailable">Android 6 veya üstü gerekir.</string>
     <string name="title_host_frame_times">Kareleri bilgisayarın zamanlamasıyla göster</string>
     <string name="summary_host_frame_times">Her kareyi kısa süre tutar; böylece kare, oyunun çizdiği zamanlamayla görünür ve hareket dengelenir. Birkaç milisaniye gecikme ekler; hareket düzensiz görünüyorsa açın.</string>
     <string name="title_content_rate_frame_rate">Ekranı oyunun kare hızına uydur</string>

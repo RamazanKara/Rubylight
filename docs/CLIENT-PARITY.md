@@ -97,7 +97,7 @@ Both clients have one setting, **Sharper colored text** (Off or Automatic), deci
 ### Variable refresh rate
 
 - **Desktop.** Frames are presented on decode with tearing for VRR, with host-time pacing, or with V-Sync. On a display that keeps its own refresh rate, the stream waits for each refresh: on Windows in fullscreen when it runs below about 70% of that rate (a faster stream there still tears), on Linux when the graphics driver reports that the display is not running VRR.
-- **Android.** **Variable refresh rate** can be turned on only on Android 16 with a screen that supports adaptive refresh rate (ARR); elsewhere the setting is greyed out, also in PC and game settings, and a saved choice is kept for later. The stream votes for its own frame rate instead of 0, which would leave a game at Android's 60 Hz default. The overlay flags a screen that presents only half the rendered frames for 3 seconds.
+- **Android.** **Variable refresh rate** can be turned on from Android 6. On Android 16 with a screen that supports adaptive refresh rate (ARR) Android matches the refresh rate to the stream; on any other screen the stream runs at the screen's highest refresh rate, with frames still on its refresh grid. Under ARR the stream votes for its own frame rate instead of 0, which would leave a game at Android's 60 Hz default. The overlay flags a screen that presents only half the rendered frames for 3 seconds.
 
 Android needs no scan-line check: SurfaceFlinger never flips mid-scan.
 

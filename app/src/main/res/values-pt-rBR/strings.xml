@@ -301,13 +301,13 @@
     <string name="title_virtual_display">Tela virtual</string>
     <string name="summary_virtual_display">O PC transmite de uma tela virtual própria que corresponde à resolução e à taxa de quadros da transmissão, seja qual for o monitor do PC. Desativado, quem decide são as configurações de tela do PC.</string>
     <string name="title_vrr">Taxa de atualização variável</string>
-    <string name="summary_vrr">VRR: em uma tela G-Sync, FreeSync ou com atualização adaptável, os quadros são exibidos sem esperar a próxima atualização e Ritmo de quadros não é usado. Ativado mostra cada quadro quando o jogo o desenhou, para um movimento uniforme, e adiciona cerca de 1 a 4 ms de latência; Mais rápido exibe cada quadro assim que chega, para a menor latência. Requer Android 16 e uma tela com atualização adaptável.</string>
+    <string name="summary_vrr">VRR: em uma tela G-Sync, FreeSync ou com atualização adaptável, os quadros são exibidos sem esperar a próxima atualização e Ritmo de quadros não é usado. Ativado mostra cada quadro quando o jogo o desenhou, para um movimento uniforme, e adiciona cerca de 1 a 4 ms de latência; Mais rápido exibe cada quadro assim que chega, para a menor latência. Uma tela sem taxa adaptativa roda na sua taxa de atualização mais alta: cada quadro ainda espera a próxima atualização (menos de 8,3 ms a 120 Hz) e a tela gasta mais bateria do que a 60 Hz. Deixe desativado nela, a menos que a tela passe de 60 Hz.</string>
     <string-array name="vrr_choice_names">
         <item>Desativado</item>
         <item>Ativado</item>
         <item>Mais rápido</item>
     </string-array>
-    <string name="summary_vrr_unavailable">Requer Android 16 e uma tela com atualização adaptável.</string>
+    <string name="summary_vrr_unavailable">Requer Android 6 ou mais recente.</string>
     <string name="title_host_frame_times">Mostrar quadros no ritmo do PC</string>
     <string name="summary_host_frame_times">Segura cada quadro por um instante para que apareça quando o jogo o desenhou, deixando o movimento mais uniforme. Adiciona alguns milissegundos de latência; ative se o movimento parecer irregular.</string>
     <string name="title_content_rate_frame_rate">Ajustar a tela à taxa do jogo</string>

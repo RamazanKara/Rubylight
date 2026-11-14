@@ -301,13 +301,13 @@
     <string name="title_virtual_display">Virtuelles Display</string>
     <string name="summary_virtual_display">Der PC streamt von einem eigenen virtuellen Display, das zu Auflösung und Bildrate des Streams passt, egal welchen Monitor der PC hat. Ausgeschaltet entscheiden die Display-Einstellungen des PCs.</string>
     <string name="title_vrr">Variable Bildwiederholrate</string>
-    <string name="summary_vrr">VRR: Auf einem Bildschirm mit G-Sync, FreeSync oder adaptiver Bildwiederholrate erscheinen Bilder, ohne auf die nächste Bildwiederholung zu warten, und Frame-Pacing wird nicht genutzt. „An“ zeigt jedes Bild dann, wenn das Spiel es gezeichnet hat, damit Bewegungen gleichmäßig bleiben, und kostet etwa 1 bis 4 ms Latenz; „Am schnellsten“ zeigt jedes Bild, sobald es ankommt, für die geringste Latenz. Braucht Android 16 und ein Display mit adaptiver Bildwiederholrate.</string>
+    <string name="summary_vrr">VRR: Auf einem Bildschirm mit G-Sync, FreeSync oder adaptiver Bildwiederholrate erscheinen Bilder, ohne auf die nächste Bildwiederholung zu warten, und Frame-Pacing wird nicht genutzt. „An“ zeigt jedes Bild dann, wenn das Spiel es gezeichnet hat, damit Bewegungen gleichmäßig bleiben, und kostet etwa 1 bis 4 ms Latenz; „Am schnellsten“ zeigt jedes Bild, sobald es ankommt, für die geringste Latenz. Ein Bildschirm ohne adaptive Bildwiederholrate läuft stattdessen mit seiner höchsten Bildwiederholrate: Jedes Bild wartet weiter auf die nächste Bildwiederholung (unter 8,3 ms bei 120 Hz), und der Bildschirm braucht mehr Akku als bei 60 Hz. Lass es dort aus, außer der Bildschirm schafft mehr als 60 Hz.</string>
     <string-array name="vrr_choice_names">
         <item>Aus</item>
         <item>An</item>
         <item>Am schnellsten</item>
     </string-array>
-    <string name="summary_vrr_unavailable">Braucht Android 16 und ein Display mit adaptiver Bildwiederholrate.</string>
+    <string name="summary_vrr_unavailable">Braucht Android 6 oder neuer.</string>
     <string name="title_host_frame_times">Bilder im Takt des PCs zeigen</string>
     <string name="summary_host_frame_times">Hält jedes Bild kurz zurück, damit es im Takt des Spiels erscheint und Bewegungen gleichmäßig wirken. Kostet ein paar Millisekunden Latenz; schalte es ein, wenn Bewegungen ungleichmäßig wirken.</string>
     <string name="title_content_rate_frame_rate">Bildwiederholrate an die Spielrate anpassen</string>

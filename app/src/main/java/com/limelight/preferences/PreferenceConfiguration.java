@@ -1045,7 +1045,7 @@ public class PreferenceConfiguration {
             HostStreamProfile profile = layers.values;
             boolean followedScreen = config.resolutionFollowsScreen;
             profile.applyTo(config);
-            // A PC, game or profile layer saved with VRR on can't turn it on where no screen has ARR.
+            // A PC, game or profile layer saved with VRR on can't turn it on before Android 6 (vrrOffered).
             config.vrr &= com.limelight.binding.video.DisplayFrameRatePolicy.vrrOffered(context);
             config.resolveHostFrameTimes();
             StreamLayers.Source resolution = layers.source(HostStreamProfile.Field.RESOLUTION);
@@ -1767,7 +1767,7 @@ public class PreferenceConfiguration {
         config.virtualDisplayScale = Math.max(50, Math.min(200, prefs.getInt(VIRTUAL_DISPLAY_SCALE_PREF_STRING, 100)));
         config.virtualDisplayDpi = virtualDisplayDpi(prefs.getString(VIRTUAL_DISPLAY_DPI_PREF_STRING, "0"));
         config.enableYuv444 = config.experimentalPacked444;
-        // Adaptive refresh needs a screen with ARR; the settings screen greys it elsewhere.
+        // Variable refresh rate needs Android 6 (vrrOffered); the settings screen hides it before.
         config.vrr = prefs.getBoolean(VRR_PREF_STRING, false) && com.limelight.binding.video.DisplayFrameRatePolicy.vrrOffered(context);
         config.upscalingMode = UpscalingPolicy.Mode.fromPreference(prefs.getString(UPSCALING_PREF_STRING, "off"));
         config.upscalingSharpness = Math.max(0, Math.min(100, prefs.getInt(UPSCALING_SHARPNESS_PREF_STRING, 50)));

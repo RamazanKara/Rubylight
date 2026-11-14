@@ -301,13 +301,13 @@
     <string name="title_virtual_display">가상 디스플레이</string>
     <string name="summary_virtual_display">PC에 어떤 모니터가 있든, PC가 스트림의 해상도와 프레임 속도에 맞춘 자체 가상 디스플레이에서 스트리밍합니다. 끄면 PC의 디스플레이 설정을 따릅니다.</string>
     <string name="title_vrr">가변 주사율</string>
-    <string name="summary_vrr">VRR: G-Sync, FreeSync 또는 가변 주사율 화면에서 다음 새로 고침을 기다리지 않고 프레임을 표시하며 ‘프레임 페이싱’을 사용하지 않습니다. ‘사용’은 각 프레임을 게임이 그린 시점에 표시해 움직임을 고르게 유지하며 지연 시간이 약 1~4ms 늘어납니다. ‘가장 빠르게’는 각 프레임을 도착하는 대로 표시해 지연 시간이 가장 낮습니다. Android 16과 적응형 주사율을 지원하는 화면이 필요합니다.</string>
+    <string name="summary_vrr">VRR: G-Sync, FreeSync 또는 가변 주사율 화면에서 다음 새로 고침을 기다리지 않고 프레임을 표시하며 ‘프레임 페이싱’을 사용하지 않습니다. ‘사용’은 각 프레임을 게임이 그린 시점에 표시해 움직임을 고르게 유지하며 지연 시간이 약 1~4ms 늘어납니다. ‘가장 빠르게’는 각 프레임을 도착하는 대로 표시해 지연 시간이 가장 낮습니다. 적응형 주사율이 없는 화면은 대신 최고 주사율로 동작합니다. 각 프레임은 여전히 다음 화면 갱신을 기다리고(120 Hz에서 8.3 ms 미만), 60 Hz보다 배터리를 더 씁니다. 화면이 60 Hz를 넘지 않으면 꺼 두세요.</string>
     <string-array name="vrr_choice_names">
         <item>사용 안함</item>
         <item>사용</item>
         <item>가장 빠르게</item>
     </string-array>
-    <string name="summary_vrr_unavailable">Android 16과 적응형 주사율을 지원하는 화면이 필요합니다.</string>
+    <string name="summary_vrr_unavailable">Android 6 이상이 필요합니다.</string>
     <string name="title_host_frame_times">PC의 프레임 타이밍으로 표시</string>
     <string name="summary_host_frame_times">각 프레임을 잠시 붙잡아 게임이 그린 시점에 표시해 움직임을 고르게 합니다. 지연 시간이 몇 밀리초 늘어납니다. 움직임이 고르지 않아 보이면 켜세요.</string>
     <string name="title_content_rate_frame_rate">화면을 게임의 프레임 속도에 맞추기</string>

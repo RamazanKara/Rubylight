@@ -345,13 +345,13 @@
     <string name="title_virtual_display">Virtual display</string>
     <string name="summary_virtual_display">The PC streams from a virtual display of its own that matches the stream’s resolution and frame rate, whatever monitor the PC has. Off leaves it to the PC’s display settings.</string>
     <string name="title_vrr">Variable refresh rate</string>
-    <string name="summary_vrr">VRR: on a G-Sync, FreeSync or adaptive-refresh screen, frames show without waiting for the next refresh, and frame pacing is not used. On shows each frame when the game drew it, so motion stays even, for about 1 to 4 ms of latency; Fastest shows each frame the moment it arrives, for the lowest latency. Needs Android 16 and a screen with adaptive refresh.</string>
+    <string name="summary_vrr">VRR: on a G-Sync, FreeSync or adaptive-refresh screen, frames show without waiting for the next refresh, and frame pacing is not used. On shows each frame when the game drew it, so motion stays even, for about 1 to 4 ms of latency; Fastest shows each frame the moment it arrives, for the lowest latency. A screen without adaptive refresh runs at its highest refresh rate instead: each frame still waits for the next refresh (under 8.3 ms at 120 Hz), and the screen uses more battery than at 60 Hz. Leave it off there unless the screen goes above 60 Hz.</string>
     <string-array name="vrr_choice_names">
         <item>Off</item>
         <item>On</item>
         <item>Fastest</item>
     </string-array>
-    <string name="summary_vrr_unavailable">Needs Android 16 and a screen with adaptive refresh.</string>
+    <string name="summary_vrr_unavailable">Needs Android 6 or newer.</string>
     <string name="title_host_frame_times">Show frames at the PC’s frame times</string>
     <string name="summary_host_frame_times">Holds each frame briefly so it appears when the game drew it, evening out motion. Adds a few milliseconds of latency; turn it on if motion looks uneven.</string>
     <string name="title_content_rate_frame_rate">Match the screen to the game’s frame rate</string>

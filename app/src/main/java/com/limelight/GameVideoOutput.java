@@ -593,8 +593,7 @@ final class GameVideoOutput {
         if (game.prefConfig.vrr) {
             com.limelight.binding.video.DisplayFrameRatePolicy.ArrState arr =
                     com.limelight.binding.video.DisplayFrameRatePolicy.arrState(Build.VERSION.SDK_INT, true, arrSupported);
-            // VRR is offered only where a screen has ARR (vrrOffered); a stream on another screen of the
-            // device runs at its top rate, which the overlay's VRR line shows.
+            // Without ARR the stream runs at the screen's top rate, which the overlay's VRR line shows.
             LimeLog.info(game.useArr ? "VRR: ARR (Android automatic policy)" :
                     "VRR: max Hz (ARR unavailable: " + arr + ")");
         }

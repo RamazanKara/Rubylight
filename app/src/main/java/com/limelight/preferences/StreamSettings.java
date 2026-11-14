@@ -2915,12 +2915,12 @@ public class StreamSettings extends NightjarActivity {
                 removeValue(PreferenceConfiguration.AUDIO_CONFIG_PREF_STRING, PreferenceConfiguration.AUDIO_CONFIG_714, () -> { });
             }
 
-            // Adaptive refresh only where a screen has ARR (Android 16): elsewhere it can't be turned on,
-            // and a choice saved before reads as off (PreferenceConfiguration and SettingRules do the same).
-            // The row shows off without saving that, so the choice returns if Android later adds ARR.
+            // Variable refresh rate needs Android 6 (vrrOffered): before it, it can't be turned on, and a
+            // choice saved before reads as off (PreferenceConfiguration and SettingRules do the same).
+            // The row shows off without saving that, so the choice returns on a newer Android.
             Preference vrr = findPreference(PreferenceConfiguration.VRR_PREF_STRING);
             if (vrr != null && !DisplayFrameRatePolicy.vrrOffered(getActivity())) {
-                LimeLog.info("Hiding adaptive refresh: no screen has ARR");
+                LimeLog.info("Hiding variable refresh rate: needs Android 6");
                 vrr.setPersistent(false);
                 removeSetting(PreferenceConfiguration.VRR_PREF_STRING);
             }

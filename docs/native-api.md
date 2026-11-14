@@ -54,6 +54,7 @@ GET /api/native/v1/capabilities
 | `library`, `session`, `session.close_game`, `session.launcher`, `session.mic_only`, `session.continue_here` | always | [Library](#library), [Session](#session) |
 | `wake`, `audio.night_mode`, `audio.headphone_surround` | always | [Wake targets](#wake-targets-wake), [Audio processing](#audio-processing-audionight_mode-audioheadphone_surround) |
 | `power.restart`, `power.shutdown` | always | [Power and update](#power-and-update-powerrestart-powershutdown-update) |
+| `neural.frame_generation` | always (whether this PC's GPU can run it is in the answer) | [Neural Rendering](#neural-rendering-neuralframe_generation) |
 | `radeon.read`, `radeon.write`, `radeon.profile` | where the host started its Radeon worker | [Radeon state and writes](#radeon-state-and-writes) |
 | `files.upload`, `files.download` | while the host's `file_transfer` setting is on | [Files](#files) |
 | `session.couch_menu` | to a device with View or Launch whose `couch_menu` setting (host or device) is on | [Session](#session) |
@@ -86,6 +87,8 @@ All paths start with `/api/native/v1`. "Owner" means the caller owns the current
 | GET | `/radeon` | View or Launch | Radeon |
 | POST | `/radeon/settings` | View + **host control**, owner of a `streaming` or `suspended` session | Radeon |
 | POST | `/radeon/restore` | View + **host control**, owner | Radeon |
+| GET | `/neural?app=` | View | Neural: the game's switches, each with its state, and the job (feature `neural.frame_generation`) |
+| POST | `/neural/settings` `{"app", "switch", "on", "accept_notice"?}` | View + **host control**, no stream running | 202 Neural. 409 `host_in_use` while a stream runs, 422 `not_writable` (the notice, or this PC can't run it) or `invalid_value` (a switch the host doesn't have), 503 `temporarily_unavailable` while busy with the game |
 | GET | `/wake` | List, View or Launch | Wake (feature `wake`) |
 | GET | `/audio` | View or Launch | Audio (features `audio.night_mode`, `audio.headphone_surround`) |
 | POST | `/audio/settings` | View or Launch, owner of a `streaming` or `suspended` session | Audio |
@@ -448,6 +451,45 @@ POST /api/native/v1/audio/settings
 - Refusals: `no_session` when the caller has no live Stream session of its own (none, a suspended one, only another device's, or only a monitor or input session); `not_found` for an id the host doesn't list; `invalid_value` for a value that isn't a boolean; `invalid_request` for unknown fields.
 
 **Launch parameters.** `/launch` and `/resume` take `audioNightMode=on|off` and `audioHeadphoneSurround=on|off`, the session choice above. A client sends them only when the host lists the feature and the user picked something other than the host setting. Other values are logged and ignored, and hosts without the features ignore the parameters.
+
+## Neural Rendering (`neural.frame_generation`)
+
+A game's Neural Rendering switches, as the console's game page has them. Today the host has one, `frame_generation`: frame generation for a game that offers DLSS frame generation, through a third-party mod the host downloads at the user's request (about 14 MB, pinned by SHA-256) and puts into the game's folder. A client says so in a notice before the first write that turns it on.
+
+```http
+GET /api/native/v1/neural?app=6F1D2C3B-4A59-4E2B-9C1D-2B3A4C5D6E7F
+```
+
+```json
+{
+  "app": "6F1D2C3B-4A59-4E2B-9C1D-2B3A4C5D6E7F",
+  "accepted": true,
+  "gpu": "AMD Radeon RX 7900 XT",
+  "switches": [
+    { "id": "frame_generation", "state": "needs_external_setup", "on": false,
+      "reason": "Choose the game's program in the Rubylight console on the PC." }
+  ],
+  "replaces_earlier_upscaling": true,
+  "job": { "action": "install", "phase": "failed", "done": 0, "total": 0,
+           "error": "Rubylight doesn't know where this game is installed." }
+}
+```
+
+- `app` is the id `/library` lists. 400 `invalid_request` without one, 404 `not_found` for an id the host doesn't have.
+- `switches` lists what the host offers for the game; a client draws each id it knows and leaves out the rest. `state` is `configurable`, `unsupported` (this PC's GPU can't run it; `reason` says why), `temporarily_unavailable` (a stream runs, or the host is busy with the game) or `needs_external_setup` (the host could not tell which program is the game: the user chooses it in the console). `on` is whether it is in the game's folder.
+- `accepted` is whether the notice was accepted on this host, in the console or on a device. `gpu` names the GPU that streams when the switch can run on it.
+- `replaces_earlier_upscaling`: Rubylight 3.0's neural upscaling is still in the game's folder. Turning the switch on removes it first, in the same job; a client says so before the write. Turning the switch off removes both.
+- `job` is what the host is doing for the game, or how it last ended: `action` (`install`, `remove`, `update` for a launch's check), `phase` (`download`, `place`, `remove`, `done`, `failed`), `done` and `total` bytes while it downloads or copies, and `error` in words. A client reads `GET /neural` about every 1.5 s while `phase` is neither `done` nor `failed`.
+
+```http
+POST /api/native/v1/neural/settings
+{"app": "6F1D2C3B-4A59-4E2B-9C1D-2B3A4C5D6E7F", "switch": "frame_generation", "on": true, "accept_notice": true}
+```
+
+- The write needs View streams and Host control, judged again right before it runs, and answers 202 with the state. It is refused with 409 `host_in_use` while any stream runs: the download and the copy would take the stream's network and disk.
+- `accept_notice` records that the user accepted the notice on the device just now. Without it, a host where nobody accepted it yet answers 422 `not_writable`.
+- The body never names a file on the PC, and an unknown field (such as `exe`) is 400 `invalid_request`. When the host can't find the game's program, the job fails with the switch in `needs_external_setup`; the console's game page picks the program.
+- The host refuses games with a known anti-cheat, games without DLSS frame generation and a GPU it can't run on, as the console does; the job's `error` or the switch's `reason` says which.
 
 ## Files
 

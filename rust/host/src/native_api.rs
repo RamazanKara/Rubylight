@@ -12,6 +12,7 @@ pub(crate) mod coop;
 pub(crate) mod files;
 mod folders;
 mod guests;
+mod neural;
 pub(crate) mod pairing;
 mod power;
 pub(crate) mod radeon;
@@ -190,6 +191,11 @@ pub fn router() -> Router<Shared> {
         .route(
             &path("/radeon/restore"),
             post(radeon::restore).fallback(unknown),
+        )
+        .route(&path("/neural"), get(neural::read).fallback(unknown))
+        .route(
+            &path("/neural/settings"),
+            post(neural::write).fallback(unknown),
         )
         // An upload streams to disk: the inner limit replaces the 1 MiB one
         // `nvhttp::router` sets, and the route checks Content-Length itself.
@@ -434,6 +440,10 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
                 // Each device needs its own Restart and shut down PC grant.
                 feature::POWER_RESTART,
                 feature::POWER_SHUTDOWN,
+                // A game's frame generation; reading needs View streams, a
+                // write Host control too. Whether this PC's GPU can run it is
+                // in the answer, which the first time of a host start asks.
+                feature::NEURAL_FRAME_GENERATION,
             ]
             .into_iter()
             // The Radeon endpoints answer only where the host started its Radeon worker.

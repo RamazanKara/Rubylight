@@ -33,6 +33,7 @@ mod files;
 mod folders;
 mod guests;
 mod launcher;
+mod neural;
 mod pairing;
 mod power;
 mod radeon;
@@ -244,6 +245,8 @@ async fn an_unpaired_request_gets_403_not_paired_on_every_endpoint() {
         ("GET", "/radeon"),
         ("POST", "/radeon/settings"),
         ("POST", "/radeon/restore"),
+        ("GET", "/neural?app=game"),
+        ("POST", "/neural/settings"),
         ("GET", "/wake"),
         ("GET", "/audio"),
         ("POST", "/audio/settings"),
@@ -405,6 +408,7 @@ async fn capabilities_list_the_features_and_the_callers_permissions() {
             "session.continue_here",
             "power.restart",
             "power.shutdown",
+            "neural.frame_generation",
             "session.couch_menu",
             "pairing.approve",
             "clipboard.image"
@@ -452,6 +456,7 @@ async fn capabilities_list_the_features_and_the_callers_permissions() {
             "session.continue_here",
             "power.restart",
             "power.shutdown",
+            "neural.frame_generation",
             "session.couch_menu",
             "coop",
             "pairing.approve",

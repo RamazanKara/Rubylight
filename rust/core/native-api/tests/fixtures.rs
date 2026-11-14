@@ -5,6 +5,7 @@ use rubylight_native_api::error::{ErrorBody, ErrorCode};
 use rubylight_native_api::files::{FileList, Uploaded};
 use rubylight_native_api::folders::{EntryKind, FolderAccess, FolderEntries, FolderList};
 use rubylight_native_api::library::Library;
+use rubylight_native_api::neural::{self, Neural};
 use rubylight_native_api::pairing::{PairingApprove, PairingDeny, PairingRequests};
 use rubylight_native_api::power::{Power, PowerRequest, Update};
 use rubylight_native_api::radeon::{Change, ControlState, Kind, Radeon, SettingsWrite, Value};
@@ -532,4 +533,46 @@ fn power_and_update_round_trip() {
     assert_eq!((refused, refused.status()), (ErrorCode::HostInUse, 409));
     assert_eq!(ErrorCode::TokenExpired.status(), 409);
     assert_eq!(ErrorCode::UpdateUnavailable.status(), 409);
+}
+
+/// `GET /neural`: one switch by its id, what its state needs, and the job.
+#[test]
+fn neural_round_trips_and_a_write_names_no_file() {
+    let state: Neural = round_trip("neural");
+    let switch = &state.switches[0];
+    assert_eq!(switch.id, neural::FRAME_GENERATION);
+    assert_eq!(switch.state, ControlState::NeedsExternalSetup);
+    assert_eq!(state.job.as_ref().unwrap().phase, neural::Phase::Failed);
+    // A newer host's state, action and phase read as unknown.
+    let newer: Neural = serde_json::from_value(json!({
+        "app": "a", "accepted": false,
+        "switches": [{"id": "upscaling", "state": "later", "on": false}],
+        "job": {"action": "tune", "phase": "warming"}
+    }))
+    .unwrap();
+    assert_eq!(newer.switches[0].state, ControlState::Unknown);
+    let job = newer.job.unwrap();
+    assert_eq!(
+        (job.action, job.phase),
+        (neural::Action::Unknown, neural::Phase::Unknown)
+    );
+    assert!(!newer.replaces_earlier_upscaling);
+    // A write is strict: no program path, no unknown field.
+    let write: neural::SettingsWrite = serde_json::from_str(
+        r#"{"app":"a","switch":"frame_generation","on":true,"accept_notice":true}"#,
+    )
+    .unwrap();
+    assert!(write.accept_notice);
+    assert!(serde_json::from_str::<neural::SettingsWrite>(
+        r#"{"app":"a","switch":"frame_generation","on":true,"exe":"C:\x.exe"}"#
+    )
+    .is_err());
+    assert_eq!(
+        serde_json::to_string(&neural::SettingsWrite {
+            accept_notice: false,
+            ..write
+        })
+        .unwrap(),
+        r#"{"app":"a","switch":"frame_generation","on":true}"#
+    );
 }

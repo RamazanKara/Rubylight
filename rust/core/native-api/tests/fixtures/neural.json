@@ -1,0 +1,12 @@
+{
+  "app": "6F1D2C3B-4A59-4E2B-9C1D-2B3A4C5D6E7F",
+  "accepted": true,
+  "gpu": "AMD Radeon RX 7900 XT",
+  "switches": [
+    { "id": "frame_generation", "state": "needs_external_setup", "on": false,
+      "reason": "Choose the game's program in the Rubylight console on the PC." }
+  ],
+  "replaces_earlier_upscaling": true,
+  "job": { "action": "install", "phase": "failed", "done": 0, "total": 0,
+           "error": "Rubylight doesn't know where this game is installed." }
+}

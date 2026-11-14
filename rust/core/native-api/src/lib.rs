@@ -15,6 +15,7 @@ pub mod files;
 pub mod folders;
 pub mod guests;
 pub mod library;
+pub mod neural;
 pub mod pairing;
 pub mod power;
 pub mod radeon;
@@ -41,6 +42,9 @@ pub mod feature {
     pub const SESSION_LAUNCHER: &str = "session.launcher";
     /// `Session::radeon_profile` is filled in, and apps carry a Radeon profile.
     pub const RADEON_PROFILE: &str = "radeon.profile";
+    /// [`crate::neural`]: `GET /neural` and `POST /neural/settings` turn a
+    /// game's frame generation on and off.
+    pub const NEURAL_FRAME_GENERATION: &str = "neural.frame_generation";
     /// `POST /session/couch-menu` opens and closes the menu the host draws into
     /// the stream (since 1.1.0).
     pub const COUCH_MENU: &str = "session.couch_menu";

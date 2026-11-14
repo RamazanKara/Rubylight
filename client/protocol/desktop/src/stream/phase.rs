@@ -123,6 +123,7 @@ impl HeldAnchor {
     /// `present_refresh`) and the latest refresh: the one it was shown at, else the one its hold aimed
     /// it at, while it waits or once a redraw passed it unseen, else the next one while it waits, and
     /// None when it is not known (no picture yet, or an unaimed one a redraw passed unseen).
+    #[cfg_attr(not(windows), allow(dead_code))] // Only Windows counts refreshes.
     pub fn last_refresh(&mut self, present_count: u32, present_refresh: u32, sync_refresh: u32) -> Option<u32> {
         if self.picture == 0 || present_refresh == 0 { return None; }
         if present_count == self.picture { self.shown_at = Some(present_refresh); }
@@ -180,6 +181,7 @@ impl HeldAnchor {
 /// (`last`, `HeldAnchor::last_refresh`), so the latch is the latest refresh of that grid,
 /// `sync_refresh` being the latest refresh at `sync_ticks`. The refresh itself, and its period, for
 /// `held` 1 or no known refresh of the last picture. Ticks and periods in the clock's own units.
+#[cfg_attr(not(windows), allow(dead_code))] // Only Windows counts refreshes.
 pub fn held_latch(sync_ticks: u64, sync_refresh: u32, last: Option<u32>, held: u32, period: u64) -> (u64, u64) {
     let Some(last) = last.filter(|_| held > 1) else { return (sync_ticks, period) };
     let since = u64::from(sync_refresh.wrapping_sub(last) % held);

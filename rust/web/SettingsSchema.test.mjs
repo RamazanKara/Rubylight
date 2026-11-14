@@ -943,7 +943,7 @@ test('the mouse input method and device touchpads sit with the mouse, on Automat
 });
 
 test('RTX HDR and RTX Video settings show only where the host offers them, with their defaults', () => {
-  const { NVIDIA_ENHANCEMENTS } = types;
+  const { NVIDIA_BUILD, NVIDIA_ENHANCEMENTS } = types;
   const expected = [
     ['rtx_hdr', 'rtx_hdr', false],
     ['rtx_hdr_sdr_brightness', 'rtx_hdr', 0],
@@ -962,12 +962,17 @@ test('RTX HDR and RTX Video settings show only where the host offers them, with 
     const other = name === 'rtx_hdr' ? 'rtx_video' : 'rtx_hdr';
     assert.equal(setting.visibleWhen({ [NVIDIA_ENHANCEMENTS]: [other] }), false, key);
     assert.match(setting.inactiveHint, /NVIDIA build/, key);
-    // Issue #103: found by search on the signed build, its switch was set and did nothing.
-    assert.equal(setting.hostGated, true, key);
+    // Issue #103: found by search on the signed build, its switch was set and did nothing,
+    // and "not available on this PC" read wrong beside an NVIDIA card: it names the build.
+    assert.equal(setting.hostGated({}), 'Only in the NVIDIA build', key);
+    assert.equal(setting.hostGated({ [NVIDIA_BUILD]: false }), 'Only in the NVIDIA build', key);
+    assert.equal(setting.hostGated({ [NVIDIA_BUILD]: true }), 'Not available on this PC', key);
+    assert.match(setting.inactiveHint, /rubylight-nvidia-setup/, key);
     assert.doesNotMatch(`${setting.label} ${setting.description} ${setting.details ?? ''}`, /experimental|beta|preview/i, key);
   }
   assert.equal(settings.get('rtx_hdr').category, 'hdr');
   assert.equal(settings.get('rtx_video').category, 'video');
+  for (const key of ['rtx_hdr', 'rtx_video']) assert.match(settings.get(key).description, /^NVIDIA build only: /, key);
   assert.deepEqual(values.nvidiaEnhancements({ pyrowave: true, rtx_hdr: false, rtx_video: true }), ['rtx_video']);
   assert.deepEqual(values.nvidiaEnhancements({ rtx_hdr: true, rtx_video: true }), ['rtx_hdr', 'rtx_video']);
   assert.deepEqual(values.nvidiaEnhancements(undefined), []);

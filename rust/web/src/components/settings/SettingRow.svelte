@@ -14,7 +14,7 @@
     differs,
     showKey = false,
     inactive = false,
-    unavailable = false,
+    unavailable,
     missing = false,
     caution,
     invalidText,
@@ -38,8 +38,8 @@
     showKey?: boolean;
     /** Normally hidden by the current choices, but shown in search or while edited. */
     inactive?: boolean;
-    /** This host cannot run it (Setting.hostGated): the row explains, and has no control. */
-    unavailable?: boolean;
+    /** What this host lacks to run it (Setting.hostGated), as its tag: the row explains, and has no control. */
+    unavailable?: string;
     /** Empty although the current choices need a value. */
     missing?: boolean;
     /** What the current value costs the stream (Setting.cautionWhen). */
@@ -85,7 +85,7 @@
             <label class="label" for={id}>{setting.label}</label>
           {/if}{#if setting.details}<InfoTip label={setting.label} text={setting.details} />{/if}
         </span>
-        {#if unavailable}<span class="tag" data-unavailable>Not available on this PC</span>{/if}
+        {#if unavailable}<span class="tag" data-unavailable>{unavailable}</span>{/if}
         {#if setting.restart}<span class="tag">Applies after a restart</span>{/if}
       </div>
       {#if setting.description}<p class="description" id="{uid}-description">{setting.description}</p>{/if}

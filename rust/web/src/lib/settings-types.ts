@@ -97,9 +97,10 @@ export interface Setting {
   /**
    * visibleWhen asks what this host can run (its build, its GPU), not what
    * else is chosen: where it hides the setting, search and review show the
-   * row without its control, so nobody sets what does nothing here.
+   * row without its control, so nobody sets what does nothing here. Gives
+   * the row's tag, what the host lacks, from the same values.
    */
-  hostGated?: boolean;
+  hostGated?: (values: Record<string, ConfigValue>) => string;
   /** Streams fail without a value while this holds, given the current (edited) values. */
   requiredWhen?: (values: Record<string, ConfigValue>) => boolean;
   /**
@@ -133,6 +134,17 @@ export const NVIDIA_ENHANCEMENTS = '@nvidia_enhancements';
 export function offersEnhancement(values: Record<string, ConfigValue>, name: string): boolean {
   const offered = values[NVIDIA_ENHANCEMENTS];
   return Array.isArray(offered) && offered.includes(name);
+}
+
+/** Not a setting: visibleWhen also gets whether this host is the NVIDIA build under this name. */
+export const NVIDIA_BUILD = '@nvidia_build';
+
+/**
+ * The tag of an RTX setting this host cannot run: the signed build has
+ * neither enhancement, so it names the build that does (issue #103).
+ */
+export function nvidiaGate(values: Record<string, ConfigValue>): string {
+  return values[NVIDIA_BUILD] === true ? 'Not available on this PC' : 'Only in the NVIDIA build';
 }
 
 export interface Schema {

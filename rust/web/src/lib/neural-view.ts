@@ -34,8 +34,8 @@ export const NOTICE = {
 
 /** What the panel says it is for. */
 export const ABOUT =
-  'Frame generation for games that offer DLSS frame generation, through a third-party mod Rubylight puts in the game’s folder and takes out again. ' +
-  'Like any frame generation it holds a frame back to place one between, so the game responds a little later. Leave it off for online games: one may treat a mod as cheating.';
+  'Frame generation for games that offer DLSS frame generation, through a third-party mod Rubylight puts in the game’s folder and takes out again: turn on DLSS frame generation in the game, and this takes its place. ' +
+  'Leave it off for online games: one may treat a mod as cheating.';
 
 /** What turning the switch on does to the earlier upscaling. */
 export const REPLACES = 'Turning on frame generation removes the earlier neural upscaling from the game’s folder first.';

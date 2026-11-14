@@ -725,6 +725,33 @@ fn the_switch_is_offered_on_the_gpus_the_provider_runs_on() {
     );
 }
 
+/// What reaches a console or a client never names the mod: a path through
+/// its folder shows as its file's name.
+#[test]
+fn shown_text_names_no_mod() {
+    let dll = format!("OptiScaler/custom/{PROVIDER}/dlssg/nvngx_dlssg.dll");
+    assert_eq!(shown(&dll), "frame generation's nvngx_dlssg.dll");
+    assert_eq!(
+        shown(&format!(
+            "{dll} changed since it was placed; nothing was removed."
+        )),
+        "frame generation's nvngx_dlssg.dll changed since it was placed; nothing was removed."
+    );
+    assert_eq!(
+        shown(&format!(
+            "custom/{PROVIDER} is already in the game's folder"
+        )),
+        "frame generation's folder is already in the game's folder"
+    );
+    assert_eq!(
+        shown(&format!(
+            r"cannot write C:\Games\X\OptiScaler\custom\{PROVIDER}\dlssg\nr_fg.ini: denied"
+        )),
+        "cannot write frame generation's nr_fg.ini: denied"
+    );
+    assert_eq!(shown("the game uses BattlEye"), "the game uses BattlEye");
+}
+
 #[test]
 fn switches_have_stable_ids() {
     assert_eq!(Switch::FrameGeneration.id(), "frame-generation");

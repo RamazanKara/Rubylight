@@ -3206,3 +3206,135 @@ async fn frame_generation_replaces_an_earlier_amdnr_install() {
     assert_eq!(job.phase, "done", "{job:?}");
     assert_eq!(snapshot(folder), before);
 }
+
+/// The console's Remove for a game that has only Rubylight 3.0's
+/// upscaling: the job ends done, the folder is as it was and the record goes.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_earlier_upscaling_alone_is_removed_from_the_game_page() {
+    let f = crate::state::test_support::Fixture::new();
+    let h = &f.host;
+    let temp = tempdir();
+    let exe = game(temp.path());
+    let folder = exe.parent().unwrap();
+    let before = snapshot(folder);
+    amdnr(folder, "winmm.dll");
+    crate::steam::update_library(h, |apps, _| {
+        apps.push(json!({
+            "name": "Game",
+            "uuid": "game",
+            LEGACY_KEY: {"exe": exe, "release": "Alpha0.3.5.8R2", "proxy": "winmm.dll"},
+        }));
+        true
+    })
+    .unwrap();
+    disable(h, "game").unwrap();
+    let job = ended(h, "game").await;
+    assert_eq!(job.phase, "done", "{job:?}");
+    assert_eq!(snapshot(folder), before);
+    let app = app(h, "game").unwrap();
+    assert!(!app.extra.contains_key(LEGACY_KEY) && !app.extra.contains_key(KEY));
+    assert!(status(h, "game")["earlier_upscaling"].is_null());
+}
+
+/// A game with only Rubylight 3.0's upscaling that the library sync drops
+/// loses it all the same; one on a drive that is not connected stays a
+/// pending removal.
+#[test]
+fn a_dropped_game_loses_the_earlier_upscaling_or_has_its_removal_pending() {
+    let f = crate::state::test_support::Fixture::new();
+    let h = &f.host;
+    let temp = tempdir();
+    let exe = game(temp.path());
+    let folder = exe.parent().unwrap();
+    let before = snapshot(folder);
+    amdnr(folder, "winmm.dll");
+    let away = unconnected_drive().join(r"Games\Away\Away.exe");
+    let legacy = |name: &str, uuid: &str, exe: &Path| {
+        json!({
+            "name": name,
+            "uuid": uuid,
+            LEGACY_KEY: {"exe": exe, "release": "Alpha0.3.5.8R2", "proxy": "winmm.dll"},
+        })
+    };
+    crate::steam::update_library(h, |apps, _| {
+        apps.push(legacy("Game", "game", &exe));
+        apps.push(legacy("Away", "away", &away));
+        true
+    })
+    .unwrap();
+    crate::steam::update_library(h, |apps, _| {
+        apps.clear();
+        true
+    })
+    .unwrap();
+    assert_eq!(snapshot(folder), before);
+    assert_eq!(
+        pending(h),
+        [Pending {
+            name: "Away".into(),
+            exe: away,
+            uuid: Some("away".into()),
+        }]
+    );
+}
+
+/// Every text the console or a client shows of a failure or of what stayed
+/// behind names no mod: the provider's folder shows as its file's name.
+#[tokio::test(flavor = "multi_thread")]
+async fn no_text_the_console_shows_names_the_mod() {
+    let f = crate::state::test_support::Fixture::new();
+    let h = &f.host;
+    let temp = tempdir();
+    let cache = release(temp.path(), "FG-V.B16", b"OptiScaler proxy");
+    let exe = game(temp.path());
+    let folder = exe.parent().unwrap();
+    assert!(matches!(
+        install(Some(&exe), None, &cache),
+        Response::Placed { .. }
+    ));
+    crate::steam::update_library(h, |apps, _| {
+        apps.push(json!({
+            "name": "Game",
+            "uuid": "game",
+            KEY: {"exe": exe, "release": "FG-V.B16", "proxy": "winmm.dll", "mode": "full"},
+        }));
+        true
+    })
+    .unwrap();
+    // A launch's check finds the provider changed, then the removal keeps it.
+    std::fs::write(folder.join(PDLL), "someone else's").unwrap();
+    let Response::Error { message } = prepare(&exe, Some(&cache)) else {
+        panic!()
+    };
+    assert!(
+        message.contains(neural::PROVIDER),
+        "the log has the path: {message}"
+    );
+    fail_job_for_test(h, "game", message);
+    disable(h, "game").unwrap();
+    let job = ended(h, "game").await;
+    assert_eq!(job.phase, "done", "{job:?}");
+    assert_eq!(job.kept, ["frame generation's nvngx_dlssg.dll"]);
+    // And a refusal over the provider's folder.
+    std::fs::remove_dir_all(folder.join("OptiScaler")).unwrap();
+    std::fs::write(
+        folder.join("dxgi.dll"),
+        b"MZ OptiScaler ... Custom DLSSG ...",
+    )
+    .unwrap();
+    std::fs::write(folder.join("OptiScaler.ini"), b"[FrameGen]\n").unwrap();
+    std::fs::create_dir_all(folder.join(format!("custom/{}", neural::PROVIDER))).unwrap();
+    let Response::Refused { reason } = install(Some(&exe), None, &cache) else {
+        panic!()
+    };
+    fail_job_for_test(h, "game", reason);
+    let shown = serde_json::to_string(&status(h, "game")).unwrap();
+    assert!(!shown.contains("Apex") && !shown.contains("ANR"), "{shown}");
+    assert!(shown.contains("frame generation's folder"), "{shown}");
+}
+
+/// A job that failed with `error`, as an install or a launch's check ends.
+fn fail_job_for_test(h: &Shared, uuid: &str, error: String) {
+    start_job(h, uuid, "update", "place").unwrap();
+    fail_job(h, uuid, error, false);
+}

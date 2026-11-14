@@ -662,6 +662,36 @@ pub fn logs(name: &str) -> bool {
         || (name.starts_with("OptiScaler.previous") && name.ends_with(".log"))
 }
 
+/// `text` as a console or a client may show it: a path through the
+/// provider's folder, whose name is the mod's, becomes its file's name with
+/// "frame generation's" before it (the log keeps the whole path).
+pub fn shown(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(at) = rest.find(PROVIDER) {
+        let stop = |c: char| c.is_whitespace() || "\"'(),;".contains(c);
+        let start = rest[..at].rfind(stop).map_or(0, |i| i + 1);
+        let tail = &rest[at + PROVIDER.len()..];
+        let end = tail.find(stop).unwrap_or(tail.len());
+        let file = tail[..end]
+            .trim_end_matches(['.', ':'])
+            .rsplit(['/', '\\'])
+            .find(|part| !part.is_empty());
+        out.push_str(&rest[..start]);
+        match file {
+            Some(file) => {
+                out.push_str("frame generation's ");
+                out.push_str(file);
+            }
+            None => out.push_str("frame generation's folder"),
+        }
+        let cut = tail[..end].len() - tail[..end].trim_end_matches(['.', ':']).len();
+        rest = &tail[end - cut..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Whether `name` in the provider's `dlssg` folder is one of its logs
 /// (`nr_fg-<time>.log`), which go with it.
 pub fn provider_logs(name: &str) -> bool {

@@ -1241,7 +1241,7 @@ fn update_job(h: &Shared, uuid: &str, change: impl FnOnce(&mut Job)) {
 fn fail_job(h: &Shared, uuid: &str, error: String, choose_exe: bool) {
     update_job(h, uuid, |job| {
         job.phase = "failed";
-        job.error = Some(error);
+        job.error = Some(neural::shown(&error));
         job.choose_exe = choose_exe;
     });
 }
@@ -1471,7 +1471,7 @@ pub fn disable(h: &Shared, uuid: &str) -> Result<(), Refusal> {
             {
                 Ok(()) => update_job(&h, &uuid, |job| {
                     job.phase = "done";
-                    job.kept = kept;
+                    job.kept = kept.iter().map(|path| neural::shown(path)).collect();
                 }),
                 Err(error) => fail_job(&h, &uuid, format!("{error:#}"), false),
             }

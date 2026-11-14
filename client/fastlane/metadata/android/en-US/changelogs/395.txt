@@ -1,0 +1,3 @@
+• Gyroscope mapping (Settings → Controls) fixes motion aiming that turns the wrong way and sets its speed per controller, with a Flydigi preset or your own profiles.
+• Show motion readings (Diagnostics) shows and records each controller's motion.
+• Variable refresh rate can be turned on again on screens without adaptive refresh, where frames wait for the next refresh.

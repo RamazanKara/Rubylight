@@ -1580,4 +1580,6 @@ sudo sysctl -w net.core.rmem_max={2}"),
     ("Left and right sensitivity", "Empfindlichkeit für links und rechts"),
     ("Up and down sensitivity", "Empfindlichkeit für hoch und runter"),
     ("Speeds motion aiming up or slows it down; 100% sends the controller’s own speed.", "Beschleunigt das Zielen per Bewegung oder bremst es; 100 % gibt die eigene Geschwindigkeit des Controllers weiter."),
+    ("Fractional V-Sync", "Fraktionales V-Sync"),
+    ("On a screen at 2 to 4 times the stream’s frame rate (60 fps on 120 Hz), shows every frame for the same number of refreshes, so motion stays even. It adds 3 to 10 ms of delay; turn it on if motion judders with V-Sync.", "Auf einem Bildschirm mit dem 2- bis 4-Fachen der Bildrate des Streams (60 fps auf 120 Hz) bleibt jeder Frame gleich viele Bildwechsel lang stehen, damit Bewegungen gleichmäßig bleiben. Das kostet 3 bis 10 ms Verzögerung; schalte es ein, wenn Bewegungen mit V-Sync ruckeln."),
 ];

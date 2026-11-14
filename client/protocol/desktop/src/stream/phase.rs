@@ -90,8 +90,63 @@ pub fn aimed(timing: Option<(i64, i64)>, aim_us: i64) -> Option<(i64, i64)> {
     timing.map(|(latch_us, period_ns)| (latch_us - aim_us, period_ns))
 }
 
+/// The refresh a picture held for `held` refreshes is due at, and that many refreshes as the
+/// period (fractional V-Sync): a sync interval counts from the refresh the last picture was shown
+/// at (`present_refresh`), so the latch is the last refresh of that grid, `sync_refresh` being the
+/// latest refresh at `sync_ticks`. The refresh itself, and its period, for `held` 1 or no known
+/// refresh of the last picture. Ticks and periods in the clock's own units.
+pub fn held_latch(sync_ticks: u64, sync_refresh: u32, present_refresh: u32, held: u32, period: u64) -> (u64, u64) {
+    if held <= 1 || present_refresh == 0 { return (sync_ticks, period); }
+    let since = u64::from(sync_refresh.wrapping_sub(present_refresh) % held);
+    (sync_ticks.saturating_sub(since * period), period * u64::from(held))
+}
+
+/// Fractional V-Sync: how long a picture waits before its present, which then goes out at the next
+/// refresh, so it is shown at its turn: `held` refreshes after the refresh the last picture was
+/// shown at (`present_refresh`), or the next one for a last picture still waiting (`pending`),
+/// `margin` ahead of it for the desktop's deadline. Nothing for a picture later than that, which
+/// the next ones then count from, or with no hold or no picture shown yet. A swap chain's own sync
+/// interval holds the picture too, but a picture early for its turn waits in the swap chain's queue,
+/// where each one after it waits as well and the phase report, which counts within the hold, never
+/// sees it: 60 fps on 120 Hz went from 9 to 36 ms that way. Ticks of the clock of `now` and
+/// `sync_ticks`, the latest refresh `sync_refresh`'s time; at most `held` refreshes, one more behind a
+/// last picture still waiting.
+#[allow(clippy::too_many_arguments)]
+pub fn held_wait(now: u64, sync_ticks: u64, sync_refresh: u32, present_refresh: u32, pending: bool, held: u32, period: u64, margin: u64) -> u64 {
+    if held <= 1 || present_refresh == 0 || period == 0 { return 0; }
+    let last = if pending { sync_refresh.wrapping_add(1) } else { present_refresh };
+    let ahead = i64::from(last.wrapping_add(held).wrapping_sub(sync_refresh) as i32);
+    let turn = sync_ticks as i64 + ahead * period as i64;
+    (turn - margin as i64 - now as i64).clamp(0, i64::from(held + 1) * period as i64) as u64
+}
+
+/// `held_wait` for the renderer's swap chain, in microseconds.
 #[cfg(windows)]
-pub fn timing(renderer: *mut SDL_Renderer, refresh_hz: f32) -> Option<(i64, i64)> {
+pub fn held_wait_us(renderer: *mut SDL_Renderer, refresh_hz: f32, held: u32, margin_us: u64) -> u64 {
+    use windows::core::Interface;
+    use windows::Win32::Graphics::Dxgi::{IDXGISwapChain, DXGI_FRAME_STATISTICS};
+    if held <= 1 || refresh_hz <= 0.0 { return 0; }
+    // SAFETY: the chain pointer comes from the live renderer and is only borrowed for these calls.
+    unsafe {
+        let chain = crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_D3D11_SWAPCHAIN_POINTER);
+        let Some(chain) = IDXGISwapChain::from_raw_borrowed(&chain) else { return 0 };
+        let mut stats = DXGI_FRAME_STATISTICS::default();
+        if chain.GetFrameStatistics(&mut stats).is_err() || stats.SyncQPCTime <= 0 { return 0; }
+        let pending = chain.GetLastPresentCount().is_ok_and(|last| last > stats.PresentCount);
+        let freq = SDL_GetPerformanceFrequency() as f64;
+        let ticks = |us: f64| (us * freq / 1e6) as u64;
+        let wait = held_wait(SDL_GetPerformanceCounter(), stats.SyncQPCTime as u64, stats.SyncRefreshCount, stats.PresentRefreshCount,
+            pending, held, ticks(1e6 / f64::from(refresh_hz)), ticks(margin_us as f64));
+        (wait as f64 * 1e6 / freq) as u64
+    }
+}
+
+/// Only Windows holds pictures for their turn.
+#[cfg(not(windows))]
+pub fn held_wait_us(_: *mut SDL_Renderer, _: f32, _: u32, _: u64) -> u64 { 0 }
+
+#[cfg(windows)]
+pub fn timing(renderer: *mut SDL_Renderer, refresh_hz: f32, held: u32) -> Option<(i64, i64)> {
     use windows::core::Interface;
     use windows::Win32::Graphics::Dxgi::{IDXGISwapChain, DXGI_FRAME_STATISTICS};
     use windows::Win32::Graphics::Dwm::{DwmGetCompositionTimingInfo, DWM_TIMING_INFO};
@@ -102,8 +157,14 @@ pub fn timing(renderer: *mut SDL_Renderer, refresh_hz: f32) -> Option<(i64, i64)
             let mut stats = DXGI_FRAME_STATISTICS::default();
             chain.GetFrameStatistics(&mut stats).ok().map(|_| stats)
         });
-        let latch = stats.filter(|s| s.SyncQPCTime > 0).map(|s| s.SyncQPCTime as u64);
-        let (latch, period_ns) = if let Some(latch) = latch { (latch, period_ns) } else {
+        let held_stats = stats.filter(|s| s.SyncQPCTime > 0).map(|s| {
+            let ticks_per_refresh = (period_ns as f64 * SDL_GetPerformanceFrequency() as f64 / 1e9) as u64;
+            let (latch, _) = held_latch(s.SyncQPCTime as u64, s.SyncRefreshCount, s.PresentRefreshCount, held, ticks_per_refresh);
+            let (_, period) = held_latch(0, s.SyncRefreshCount, s.PresentRefreshCount, held, period_ns as u64);
+            (latch, period as i64)
+        });
+        // DWM's clock knows no refresh of the last picture, so it keeps the refresh itself.
+        let (latch, period_ns) = if let Some(held) = held_stats { held } else {
             let window = SDL_GetRenderWindow(renderer);
             // DWM exposes the primary compositor's clock, not the phase of another monitor.
             if SDL_GetDisplayForWindow(window) != SDL_GetPrimaryDisplay() { return None; }
@@ -150,7 +211,7 @@ pub fn present_stats(renderer: *mut SDL_Renderer) -> crate::timing_csv::Flip {
 pub fn present_stats(_: *mut SDL_Renderer) -> crate::timing_csv::Flip { Default::default() }
 
 #[cfg(not(windows))]
-pub fn timing(renderer: *mut SDL_Renderer, _: f32) -> Option<(i64, i64)> {
+pub fn timing(renderer: *mut SDL_Renderer, _: f32, _held: u32) -> Option<(i64, i64)> {
     type Sync = unsafe extern "C" fn(*mut std::ffi::c_void, libc::c_ulong, *mut i64, *mut i64, *mut i64) -> i32;
     type Rate = unsafe extern "C" fn(*mut std::ffi::c_void, libc::c_ulong, *mut i32, *mut i32) -> i32;
     // Looked up once, when a context has them; a missing one is looked up again next time.
@@ -303,5 +364,53 @@ mod tests {
             report = phase.sample(now - 7000, now, aimed(Some((now as i64, 10_000_000)), 5_000), 0).or(report);
         }
         assert_eq!(report.unwrap().lead_ns, 2_000_000, "ready 7 ms before the refresh is 2 ms before a deadline 5 ms ahead of it");
+    }
+
+    #[test]
+    fn a_held_picture_latches_on_the_refresh_its_hold_ends_on() {
+        // Shown at refresh 100, held for 2: the grid is 100, 102, 104...
+        assert_eq!(held_latch(10_000, 105, 100, 2, 1000), (9_000, 2000), "latest refresh 105: the grid's 104");
+        assert_eq!(held_latch(10_000, 104, 100, 2, 1000), (10_000, 2000));
+        assert_eq!(held_latch(10_000, 107, 100, 3, 1000), (9_000, 3000), "held 3: 106");
+        assert_eq!(held_latch(10_000, 100, 100, 4, 1000), (10_000, 4000), "the refresh it was shown at");
+        assert_eq!(held_latch(10_000, 1, u32::MAX, 2, 1000), (10_000, 2000), "across the counter's wrap");
+    }
+
+    #[test]
+    fn without_a_hold_or_a_known_refresh_the_latch_is_the_refresh() {
+        assert_eq!(held_latch(10_000, 105, 100, 1, 1000), (10_000, 1000));
+        assert_eq!(held_latch(10_000, 105, 0, 2, 1000), (10_000, 1000), "no picture shown yet");
+    }
+
+    #[test]
+    fn a_held_stream_reports_its_slack_over_the_held_period() {
+        let mut phase = Phase::default();
+        let mut report = None;
+        for n in 1..=61 {
+            let now = n * 16_667;
+            // Latched every 16.7 ms (60 fps held 2 refreshes on 120 Hz), ready 3 ms before.
+            report = phase.sample(now - 3000, now, Some((now as i64, 16_666_666)), 0).or(report);
+        }
+        let report = report.unwrap();
+        assert_eq!((report.period_ns, report.lead_ns), (16_666_666, 3_000_000));
+        assert!(Report::decode(&report.encode()).is_some(), "the host takes a period of a stream frame");
+    }
+
+    #[test]
+    fn a_held_picture_waits_for_its_turn_and_a_late_one_goes_at_once() {
+        // Refresh 100 at tick 10_000, 1000 ticks a refresh, margin 300; last picture shown at 100.
+        assert_eq!(held_wait(10_100, 10_000, 100, 100, false, 2, 1000, 300), 1_600, "turn 102 at 12_000");
+        assert_eq!(held_wait(10_100, 10_000, 101, 100, false, 2, 1000, 300), 600, "latest 101 at 10_000: turn at 11_000");
+        assert_eq!(held_wait(10_100, 10_000, 100, 100, false, 3, 1000, 300), 2_600, "held 3");
+        assert_eq!(held_wait(10_800, 10_000, 102, 100, false, 2, 1000, 300), 0, "past its turn's deadline: at once");
+        assert_eq!(held_wait(10_100, 10_000, 100, 99, true, 2, 1000, 300), 2_600, "the last one still waits for 101");
+        assert_eq!(held_wait(10_100, 10_000, 0, u32::MAX, false, 2, 1000, 300), 600, "across the counter's wrap: turn 1");
+    }
+
+    #[test]
+    fn without_a_hold_or_a_shown_picture_nothing_waits() {
+        assert_eq!(held_wait(10_100, 10_000, 100, 100, false, 1, 1000, 300), 0);
+        assert_eq!(held_wait(10_100, 10_000, 100, 0, false, 2, 1000, 300), 0);
+        assert_eq!(held_wait(0, 50_000, 100, 100, false, 2, 1000, 0), 3_000, "never more than the hold and one refresh");
     }
 }

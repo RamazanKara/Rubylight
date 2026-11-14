@@ -226,4 +226,44 @@ public class FramePacingPolicyTest {
     private static boolean paces(int fpsMilliHz, long vsyncIntervalNs) {
         return FramePacingPolicy.balancedPacesOnVsync(true, true, fpsMilliHz, vsyncIntervalNs);
     }
+    // Fractional V-Sync: the Java port of nightjar_policy::vsync::refreshes_per_frame.
+    @Test public void fractionalVsyncHoldsFramesOnWholeMultiplesOnly() {
+        assertEquals(2, FramePacingPolicy.refreshesPerFrame(120, 60, false, true));
+        assertEquals(3, FramePacingPolicy.refreshesPerFrame(120, 40, false, true));
+        assertEquals(4, FramePacingPolicy.refreshesPerFrame(240, 60, false, true));
+        assertEquals(2, FramePacingPolicy.refreshesPerFrame(119.88, 59.94, false, true));
+        assertEquals(1, FramePacingPolicy.refreshesPerFrame(120, 120, false, true));
+        assertEquals(1, FramePacingPolicy.refreshesPerFrame(121.5, 60, false, true));
+        assertEquals(1, FramePacingPolicy.refreshesPerFrame(144, 60, false, true));
+        assertEquals(1, FramePacingPolicy.refreshesPerFrame(240, 50, false, true));
+        assertEquals("VRR", 1, FramePacingPolicy.refreshesPerFrame(120, 60, true, true));
+        assertEquals("off", 1, FramePacingPolicy.refreshesPerFrame(120, 60, false, false));
+        assertEquals(1, FramePacingPolicy.refreshesPerFrame(0, 60, false, true));
+        assertEquals(1, FramePacingPolicy.refreshesPerFrame(Double.NaN, 60, false, true));
+    }
+
+    @Test public void aHeldFrameWaitsForItsTurnAndALateOneCountsTheNextFromItself() {
+        long interval = 8_333_333L, vsync = 1_000_000_000L;
+        long last = vsync + 10 * interval;
+        // Early: the turn two refreshes after the last frame's.
+        assertEquals(last + 2 * interval, FramePacingPolicy.heldTargetNs(last + interval, last, vsync, interval, 2));
+        assertEquals(last + 3 * interval, FramePacingPolicy.heldTargetNs(last + interval, last, vsync, interval, 3));
+        // Late: the first refresh it can still make.
+        assertEquals(last + 3 * interval, FramePacingPolicy.heldTargetNs(last + 3 * interval, last, vsync, interval, 2));
+        // No hold, or no frame shown yet.
+        assertEquals(last + interval, FramePacingPolicy.heldTargetNs(last + interval, last, vsync, interval, 1));
+        assertEquals(last + interval, FramePacingPolicy.heldTargetNs(last + interval, 0, vsync, interval, 2));
+        // A turn off the grid by a rounded interval goes back onto it.
+        assertEquals(last + 2 * interval, FramePacingPolicy.heldTargetNs(last, last + 3_000, vsync, interval, 2));
+    }
+
+    @Test public void theHeldPhaseReportCountsOverTheHoldFromAPastRefreshOfTheGrid() {
+        long interval = 8_333_333L;
+        assertArrayEquals(new long[] {500, interval}, FramePacingPolicy.heldReportGrid(500, interval, 9_000_000_000L, 1));
+        assertArrayEquals(new long[] {500, interval}, FramePacingPolicy.heldReportGrid(500, interval, 0, 2));
+        long[] grid = FramePacingPolicy.heldReportGrid(500, interval, 9_000_000_000L, 2);
+        assertEquals(2 * interval, grid[1]);
+        assertEquals(9_000_000_000L - 8 * interval, grid[0]);
+        assertEquals(0, (9_000_000_000L - grid[0]) % grid[1]);
+    }
 }

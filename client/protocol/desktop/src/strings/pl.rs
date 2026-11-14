@@ -1580,4 +1580,6 @@ sudo sysctl -w net.core.rmem_max={}", "Bufor odbioru: system przydzielił {0} Ki
     ("Left and right sensitivity", "Czułość w poziomie"),
     ("Up and down sensitivity", "Czułość w pionie"),
     ("Speeds motion aiming up or slows it down; 100% sends the controller’s own speed.", "Przyspiesza lub spowalnia celowanie ruchem; 100% przekazuje własną prędkość kontrolera."),
+    ("Fractional V-Sync", "Ułamkowy V-Sync"),
+    ("On a screen at 2 to 4 times the stream’s frame rate (60 fps on 120 Hz), shows every frame for the same number of refreshes, so motion stays even. It adds 3 to 10 ms of delay; turn it on if motion judders with V-Sync.", "Na ekranie odświeżanym 2–4 razy szybciej niż liczba klatek strumienia (60 fps przy 120 Hz) pokazuje każdą klatkę przez tyle samo odświeżeń, więc ruch jest równy. Dodaje 3–10 ms opóźnienia; włącz, jeśli ruch z V-Sync się zacina."),
 ];

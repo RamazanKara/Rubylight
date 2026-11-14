@@ -1580,4 +1580,6 @@ sudo sysctl -w net.core.rmem_max={}", "Alma arabelleği: sistem istenen {1} KiB'
     ("Left and right sensitivity", "Sol ve sağ hassasiyeti"),
     ("Up and down sensitivity", "Yukarı ve aşağı hassasiyeti"),
     ("Speeds motion aiming up or slows it down; 100% sends the controller’s own speed.", "Hareketle nişan almayı hızlandırır veya yavaşlatır; %100, kumandanın kendi hızını iletir."),
+    ("Fractional V-Sync", "Kesirli V-Sync"),
+    ("On a screen at 2 to 4 times the stream’s frame rate (60 fps on 120 Hz), shows every frame for the same number of refreshes, so motion stays even. It adds 3 to 10 ms of delay; turn it on if motion judders with V-Sync.", "Akışın kare hızının 2-4 katında çalışan bir ekranda (120 Hz’de 60 fps) her kareyi aynı sayıda yenileme boyunca gösterir, böylece hareket düzgün kalır. 3-10 ms gecikme ekler; V-Sync ile hareket takılıyorsa açın."),
 ];

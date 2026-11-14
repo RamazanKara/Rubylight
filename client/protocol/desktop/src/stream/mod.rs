@@ -484,6 +484,12 @@ pub struct Streaming {
     /// `NIGHTJAR_PRESENT_DEADLINE_US` for measurement runs, in place of
     /// `present::deadline_before_refresh`.
     present_deadline_us: Option<i64>,
+    /// `NIGHTJAR_HELD_MARGIN_US` for measurement runs: how long before its turn a picture held
+    /// by fractional V-Sync is presented (`Streaming::hold_for_turn`).
+    held_margin_us: Option<u64>,
+    /// `NIGHTJAR_HELD_REPORT=0` for measurement runs: a held stream's phase reports count to
+    /// each refresh instead of each turn (60 fps on 120 Hz then missed 6.7% of turns, against 0.2%).
+    held_report_refresh: bool,
     /// Whether the last present that tried it could go without waiting: not on Linux, nor on a
     /// renderer without a DXGI swap chain.
     no_wait_present: bool,
@@ -917,6 +923,8 @@ impl Streaming {
             vrr: present::VrrPacing::new(vrr_check, vrr_fallback, vrr_sync, connecting.pacing).with_present_check(present_check).with_lfc(vrr_lfc),
             skip_over_waiting: env_flag("NIGHTJAR_PRESENT_SKIP").unwrap_or(true),
             present_deadline_us: std::env::var("NIGHTJAR_PRESENT_DEADLINE_US").ok().and_then(|us| us.parse().ok()),
+            held_margin_us: std::env::var("NIGHTJAR_HELD_MARGIN_US").ok().and_then(|us| us.parse().ok()),
+            held_report_refresh: std::env::var_os("NIGHTJAR_HELD_REPORT").is_some_and(|v| v == "0"),
             no_wait_present: false,
             skipped: present::SkippedPicture::new(std::env::var("NIGHTJAR_PRESENT_HOLD_US").ok().and_then(|us| us.parse().ok()).map_or(present::REFUSED_HOLD, Duration::from_micros)),
             skipped_picture: None,

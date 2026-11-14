@@ -1580,4 +1580,6 @@ sudo sysctl -w net.core.rmem_max={}", "Буфер приёма: система �
     ("Left and right sensitivity", "Чувствительность влево-вправо"),
     ("Up and down sensitivity", "Чувствительность вверх-вниз"),
     ("Speeds motion aiming up or slows it down; 100% sends the controller’s own speed.", "Ускоряет или замедляет прицеливание движением; 100 % передаёт собственную скорость контроллера."),
+    ("Fractional V-Sync", "Дробная V-Sync"),
+    ("On a screen at 2 to 4 times the stream’s frame rate (60 fps on 120 Hz), shows every frame for the same number of refreshes, so motion stays even. It adds 3 to 10 ms of delay; turn it on if motion judders with V-Sync.", "На экране с частотой в 2–4 раза выше частоты кадров потока (60 fps на 120 Гц) каждый кадр показывается одинаковое число обновлений, и движение остаётся ровным. Добавляет 3–10 мс задержки; включите, если с V-Sync движение дёргается."),
 ];

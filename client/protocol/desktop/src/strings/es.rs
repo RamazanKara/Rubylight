@@ -1580,4 +1580,6 @@ sudo sysctl -w net.core.rmem_max={}", "Búfer de recepción: el sistema concedi�
     ("Left and right sensitivity", "Sensibilidad izquierda y derecha"),
     ("Up and down sensitivity", "Sensibilidad arriba y abajo"),
     ("Speeds motion aiming up or slows it down; 100% sends the controller’s own speed.", "Acelera o frena la puntería con movimiento; el 100 % usa la velocidad propia del mando."),
+    ("Fractional V-Sync", "V-Sync fraccional"),
+    ("On a screen at 2 to 4 times the stream’s frame rate (60 fps on 120 Hz), shows every frame for the same number of refreshes, so motion stays even. It adds 3 to 10 ms of delay; turn it on if motion judders with V-Sync.", "En una pantalla a entre 2 y 4 veces la tasa de fotogramas del stream (60 fps a 120 Hz), muestra cada fotograma durante el mismo número de refrescos, para que el movimiento sea uniforme. Añade de 3 a 10 ms de retraso; actívalo si el movimiento da tirones con V-Sync."),
 ];

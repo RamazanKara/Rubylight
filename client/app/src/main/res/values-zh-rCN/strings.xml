@@ -337,6 +337,8 @@
     <string name="summary_gpu_max_clocks">提高 GPU 频率以加快 PyroWave 解码，但耗电和发热更多。除非 PyroWave 解码太慢，否则请保持关闭。</string>
     <string name="title_drop_late_frames">仅保留最新的帧</string>
     <string name="summary_drop_late_frames">跳过屏幕已无法及时显示的帧，让画面始终不落后。请保持开启；关闭后会依次显示每一帧，可能增加延迟。</string>
+    <string name="title_fractional_vsync">分数 V-Sync</string>
+    <string name="summary_fractional_vsync">屏幕刷新率是串流帧率的 2 到 4 倍时(120 Hz 上的 60 fps),每帧显示相同次数的刷新,让动作保持均匀。会增加 3 到 10 ms 延迟;如果开启 V-Sync 后动作卡顿,请打开。</string>
     <string name="title_texture_view">兼容视频视图</string>
     <string name="summary_texture_view">用于排查问题：视频黑屏、闪烁或位置不对时可以试试。它会增加每帧的处理开销，且不用于 HDR、“减少色带”或 PyroWave。</string>
     <string name="title_unbatched_input">即时鼠标和触控笔输入</string>

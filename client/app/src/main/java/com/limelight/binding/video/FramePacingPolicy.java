@@ -113,6 +113,53 @@ final class FramePacingPolicy {
         return enqueueNs > 0 && nowNs > enqueueNs && nowNs - enqueueNs > maximumAgeNs;
     }
 
+    /** How far a refresh may be from a whole multiple of the stream's rate, per multiple. */
+    static final double RATE_TOLERANCE_HZ = 0.5;
+    /** The most refreshes fractional V-Sync holds a frame for. */
+    static final int MAX_HELD_REFRESHES = 4;
+
+    /**
+     * Fractional V-Sync: the refreshes each frame stays on a display that refreshes at a whole
+     * multiple of the stream's rate (2 for 60 fps on 120 Hz), else 1. VRR and the setting off take
+     * 1 too. Java port of nightjar_policy::vsync::refreshes_per_frame (client/protocol/policy).
+     */
+    static int refreshesPerFrame(double refreshHz, double fps, boolean vrr, boolean fractional) {
+        if (!fractional || vrr || !(refreshHz > 0) || !(fps > 0)) return 1;
+        for (int k = 1; k <= MAX_HELD_REFRESHES; k++) {
+            if (Math.abs(refreshHz - fps * k) <= RATE_TOLERANCE_HZ * k) return k;
+        }
+        return 1;
+    }
+
+    /**
+     * The time to stamp a frame held for {@code refreshes} refreshes with (fractional V-Sync): the
+     * refresh {@code refreshes} after the last frame's ({@code lastTargetNs}), or the first one it
+     * can still make ({@code earliestNs}, the next refresh past the compositor's deadline) when it
+     * comes later than that, which the next frames then count from. The compositor shows a frame
+     * at the refresh its time asks for, so a frame that comes early waits for its turn instead of
+     * cutting the last one's short. The turn is put on the refresh grid of {@code vsyncNs}, so a
+     * rounded interval never drifts off it.
+     */
+    static long heldTargetNs(long earliestNs, long lastTargetNs, long vsyncNs, long intervalNs, int refreshes) {
+        if (refreshes <= 1 || intervalNs <= 0 || lastTargetNs == 0) return earliestNs;
+        long turnNs = lastTargetNs + refreshes * intervalNs;
+        long offsetNs = turnNs - vsyncNs;
+        turnNs = vsyncNs + Math.floorDiv(offsetNs + intervalNs / 2, intervalNs) * intervalNs;
+        return Math.max(earliestNs, turnNs);
+    }
+
+    /**
+     * The refresh grid a phase report measures slack to with fractional V-Sync: a refresh of the
+     * grid ({@code anchorNs}) put {@code periods} grid periods into the past, so a report never
+     * counts from a refresh still to come, and the grid's period; the display's own refresh and
+     * interval without a hold. Returns {anchor, period}.
+     */
+    static long[] heldReportGrid(long vsyncNs, long intervalNs, long anchorNs, int refreshes) {
+        if (refreshes <= 1 || anchorNs == 0 || intervalNs <= 0) return new long[] {vsyncNs, intervalNs};
+        long periodNs = intervalNs * refreshes;
+        return new long[] {anchorNs - 4 * periodNs, periodNs};
+    }
+
     static boolean hasOutputDrainTimeRemaining(long elapsedNs, int fpsMilliHz) {
         // A slow discard can otherwise keep chasing newly decoded outputs without ever
         // presenting. One codec call can exceed this budget; after it returns, hand off the

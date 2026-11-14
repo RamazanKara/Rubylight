@@ -52,7 +52,7 @@ public class SettingsKeysTest {
             "checkbox_enable_pip", "list_languages", "checkbox_small_icon_mode", "help", "latency_benchmark",
             "report_problem", "about_app", "reset_all", "frame_pacing", "checkbox_codec_low_latency",
             "checkbox_vendor_low_latency", "checkbox_codec_performance", "checkbox_phone_performance_hints",
-            "checkbox_gpu_max_clocks", "checkbox_drop_late_frames", "checkbox_unbatched_input",
+            "checkbox_gpu_max_clocks", "checkbox_drop_late_frames", "checkbox_fractional_vsync", "checkbox_unbatched_input",
             "checkbox_network_priority", "checkbox_texture_view", "checkbox_unlock_fps",
             "checkbox_reduce_refresh_rate", "checkbox_full_range", "checkbox_usb_driver", "checkbox_usb_dualsense",
             "checkbox_usb_dualsense_haptics", "checkbox_usb_bind_all", "checkbox_enable_sops",
@@ -400,6 +400,7 @@ public class SettingsKeysTest {
         reads.put("checkbox_codec_performance", new Read(true, false, c -> c.codecPerformance));
         reads.put("checkbox_gpu_max_clocks", new Read(false, true, c -> c.gpuMaxClocks));
         reads.put("checkbox_drop_late_frames", new Read(true, false, c -> c.dropLateFrames));
+        reads.put("checkbox_fractional_vsync", new Read(false, true, c -> c.fractionalVsync));
         reads.put("checkbox_display_queue_recovery", new Read(true, false, c -> c.displayQueueRecovery));
         reads.put("checkbox_texture_view", new Read(false, true, c -> c.useTextureView));
         reads.put("checkbox_vulkan_render", new Read(false, true, c -> c.vulkanRender));

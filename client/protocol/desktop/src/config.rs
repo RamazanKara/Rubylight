@@ -368,6 +368,10 @@ pub struct Settings {
     /// pacing, the newest picture at each refresh. Off: each picture in turn, one a refresh, as
     /// Smoothest video waits (`stream::present::Pacer::take_due`). On by default.
     pub drop_late_frames: bool,
+    /// Fractional V-Sync (Android's `checkbox_fractional_vsync`): with V-Sync pacing on a display
+    /// that refreshes at 2 to 4 times the stream's rate, each picture stays for exactly that many
+    /// refreshes (`nightjar_policy::vsync::refreshes_per_frame`, the sync interval on Windows).
+    pub fractional_vsync: bool,
     /// The performance overlay is on (Android's `checkbox_enable_perf_overlay`), showing
     /// `overlay_mode` in the `overlay_position` corner. The stream menu and its shortcut change
     /// these and keep them.
@@ -1075,6 +1079,7 @@ impl Default for Settings {
             vsync: true,
             frame_pacing: FramePacing::Latency,
             drop_late_frames: true,
+            fractional_vsync: false,
             overlay: false,
             overlay_mode: OverlayMode::Compact,
             overlay_position: OverlayCorner::TopLeft,

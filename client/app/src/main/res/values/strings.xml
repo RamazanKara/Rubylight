@@ -413,6 +413,8 @@
     <string name="summary_gpu_max_clocks">Higher GPU clocks for faster PyroWave decoding, at more power and heat. Leave it off unless PyroWave decoding is too slow.</string>
     <string name="title_drop_late_frames">Keep only the newest frame</string>
     <string name="summary_drop_late_frames">Skips frames the screen can no longer show in time, so the picture never falls behind. Leave it on; off shows every frame in turn and can add delay.</string>
+    <string name="title_fractional_vsync">Fractional V-Sync</string>
+    <string name="summary_fractional_vsync">On a screen at 2 to 4 times the stream’s frame rate (60 fps on 120 Hz), shows every frame for the same number of refreshes, so motion stays even. It adds 3 to 10 ms of delay; turn it on if motion judders with V-Sync.</string>
     <string name="title_texture_view">Compatibility video view</string>
     <string name="summary_texture_view">For troubleshooting: try it if video is black, flickers or is misplaced. It adds work per frame and is not used with HDR, Less color banding or PyroWave.</string>
     <string name="title_unbatched_input">Instant mouse and pen input</string>

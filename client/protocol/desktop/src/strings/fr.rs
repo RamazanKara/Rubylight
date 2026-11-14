@@ -1580,4 +1580,6 @@ sudo sysctl -w net.core.rmem_max={}", "Tampon de réception : le système a acco
     ("Left and right sensitivity", "Sensibilité gauche et droite"),
     ("Up and down sensitivity", "Sensibilité haut et bas"),
     ("Speeds motion aiming up or slows it down; 100% sends the controller’s own speed.", "Accélère ou ralentit la visée au mouvement ; 100 % transmet la vitesse propre de la manette."),
+    ("Fractional V-Sync", "V-Sync fractionnaire"),
+    ("On a screen at 2 to 4 times the stream’s frame rate (60 fps on 120 Hz), shows every frame for the same number of refreshes, so motion stays even. It adds 3 to 10 ms of delay; turn it on if motion judders with V-Sync.", "Sur un écran à 2 à 4 fois la fréquence d’images du flux (60 fps sur 120 Hz), affiche chaque image pendant le même nombre de rafraîchissements, pour un mouvement régulier. Cela ajoute 3 à 10 ms de délai ; activez-le si le mouvement saccade avec la V-Sync."),
 ];

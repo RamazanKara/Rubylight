@@ -176,6 +176,12 @@
             android:title="@string/title_drop_late_frames"
             android:dialogMessage="@string/summary_drop_late_frames"
             android:defaultValue="true" />
+        <!-- V-Sync at a fraction of the refresh on a whole multiple of the stream (FramePacingPolicy.refreshesPerFrame). -->
+        <com.limelight.preferences.MaterialSwitchPreference
+            android:key="checkbox_fractional_vsync"
+            android:title="@string/title_fractional_vsync"
+            android:dialogMessage="@string/summary_fractional_vsync"
+            android:defaultValue="false" />
         <com.limelight.preferences.MaterialSwitchPreference
             android:key="checkbox_reduce_refresh_rate"
             android:title="@string/title_checkbox_reduce_refresh_rate"

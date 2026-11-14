@@ -169,7 +169,7 @@ if (-not $NoInstall) {
     $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
         [Security.Principal.WindowsBuiltInRole]::Administrator)
     # The install resets Windows' last-input time: that is this check's, not the user's.
-    $ours = \(& $python "$tools\user_idle.py" begin) -split ' '
+    $ours = (& $python "$tools\user_idle.py" begin) -split ' '
     $arguments = '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$tools\elevated.ps1`"",
         '-Package', "`"$package`"", '-Installer', "`"$installer`"", '-Version', $Version, '-Work', "`"$run`""
     if ($admin) {

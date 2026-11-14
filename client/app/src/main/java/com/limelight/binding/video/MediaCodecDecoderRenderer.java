@@ -76,6 +76,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private volatile int announcedHdrFormat;
     // What the Vulkan renderer leaves out of this screen's HDR, set by pickHdrFormat and said once
     private volatile HdrFormatPolicy.DrawnLimit vulkanHdrLimit = HdrFormatPolicy.DrawnLimit.NONE;
+    // pickHdrFormat counted on the Vulkan renderer for Frame Warp, not for "Render through Vulkan".
+    private volatile boolean vulkanForFrameWarp;
     // The same for PyroWave, and whether an HLG-only screen gets HDR10 there for want of a host update.
     private volatile HdrFormatPolicy.DrawnLimit pyroWaveHdrLimit = HdrFormatPolicy.DrawnLimit.NONE;
     private volatile boolean pyroWaveHlgNeedsHostUpdate;
@@ -2009,13 +2011,23 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     }
 
     /**
-     * The Vulkan renderer will present a HEVC or AV1 stream that is not packed, as setupUpscaling
-     * then chooses it. Game asks before the stream (vulkanSurface).
+     * The Vulkan renderer will present a HEVC or AV1 HDR stream that is not packed, as setupUpscaling
+     * then chooses it: with "Render through Vulkan" on, or for Frame Warp, which draws through it
+     * unasked. Game asks before the stream (vulkanSurface), before the PC has offered Frame Warp, so
+     * asking for it stands in for the offer: a Dolby Vision decoder must never be drawn by Vulkan
+     * (HdrFormatPolicy), which a Lenovo TB323FU showed as flicker in HDR alone (Rubylight #104).
+     *
+     * @param frameWarpListed the PC's serverinfo lists Frame Warp (HostCapabilities.Feature.FRAME_WARP)
      */
-    public static boolean vulkanPresents(PreferenceConfiguration prefs) {
+    public static boolean vulkanPresents(PreferenceConfiguration prefs, boolean frameWarpListed) {
         return VideoRendererChoice.choose(prefs.vulkanRender, false, Build.VERSION.SDK_INT,
-                VulkanRendererBridge::isSupported, false, prefs.upscalingMode).renderer ==
-                VideoRendererChoice.Renderer.VULKAN;
+                VulkanRendererBridge::isSupported, false, prefs.upscalingMode,
+                frameWarpAsked(prefs, frameWarpListed), true).renderer == VideoRendererChoice.Renderer.VULKAN;
+    }
+
+    /** Frame Warp is asked for the next stream, as NvConnection asks it (MoonBridge.requestFrameWarp). */
+    static boolean frameWarpAsked(PreferenceConfiguration prefs, boolean frameWarpListed) {
+        return prefs.frameWarp && prefs.rustEngine && frameWarpListed;
     }
 
     /**
@@ -2023,16 +2035,19 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
      * HLG or PQ only (VulkanRendererBridge.drawsHlg), or the decoder. Game asks before the stream to
      * refuse HDR on a screen that has HLG alone where the surface is PQ only
      * (HdrPolicy.Refusal.HLG_NEEDS_DIRECT_OUTPUT).
+     *
+     * @param frameWarpListed the PC's serverinfo lists Frame Warp (vulkanPresents)
      */
-    public static HdrFormatPolicy.DrawnSurface vulkanSurface(PreferenceConfiguration prefs) {
-        if (!vulkanPresents(prefs)) return HdrFormatPolicy.DrawnSurface.NONE;
+    public static HdrFormatPolicy.DrawnSurface vulkanSurface(PreferenceConfiguration prefs, boolean frameWarpListed) {
+        if (!vulkanPresents(prefs, frameWarpListed)) return HdrFormatPolicy.DrawnSurface.NONE;
         return VulkanRendererBridge.drawsHlg() ? HdrFormatPolicy.DrawnSurface.PQ_HLG :
                 HdrFormatPolicy.DrawnSurface.PQ_ONLY;
     }
 
     @Override
-    public int pickHdrFormat(int hostHdrFormats, int videoFormats, boolean packed444) {
+    public int pickHdrFormat(int hostHdrFormats, int videoFormats, boolean packed444, boolean frameWarpListed) {
         vulkanHdrLimit = HdrFormatPolicy.DrawnLimit.NONE;
+        vulkanForFrameWarp = false;
         pyroWaveHdrLimit = HdrFormatPolicy.DrawnLimit.NONE;
         pyroWaveHlgNeedsHostUpdate = false;
         pyroWaveHlgWindow = null;
@@ -2062,9 +2077,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                         pyroWaveHlgWindow);
             }
             pyroWave = true;
-        } else if (vulkanPresents(prefs)) {
-            drawer = "the Vulkan renderer";
-            surface = vulkanSurface(prefs);
+        } else if (vulkanPresents(prefs, frameWarpListed)) {
+            // Without "Render through Vulkan", only Frame Warp brings the Vulkan renderer.
+            vulkanForFrameWarp = !prefs.vulkanRender;
+            drawer = vulkanForFrameWarp ? "the Vulkan renderer for Frame Warp" : "the Vulkan renderer";
+            surface = vulkanSurface(prefs, frameWarpListed);
             if (HdrFormatPolicy.vulkanNeedsHlgProbe(hostHdrFormats, displayTypes, surface)) {
                 HdrFormatPolicy.HlgWindow window = displayHlgWindow();
                 surface = HdrFormatPolicy.vulkanSurface(surface, window);
@@ -2225,6 +2242,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         HdrFormatPolicy.DrawnLimit limit = vulkanHdrLimit;
         vulkanHdrLimit = HdrFormatPolicy.DrawnLimit.NONE;
         return limit;
+    }
+
+    /** The Vulkan renderer of takeVulkanHdrLimit draws for Frame Warp, with "Render through Vulkan" off. */
+    public boolean vulkanForFrameWarp() {
+        return vulkanForFrameWarp;
     }
 
     /**

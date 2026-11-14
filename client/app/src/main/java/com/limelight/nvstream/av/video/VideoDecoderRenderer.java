@@ -38,9 +38,12 @@ public abstract class VideoDecoderRenderer {
     /**
      * The one HdrFormatPolicy bit an HDR stream asks for among the PC's HdrFormats (0 when it
      * lists none), or 0 for stock HDR10. Called after prepareVideoFormats with the negotiated
-     * video formats.
+     * video formats. {@code frameWarpListed}: the PC's serverinfo lists Frame Warp, whose renderer
+     * draws the picture itself.
      */
-    public int pickHdrFormat(int hostHdrFormats, int videoFormats, boolean packed444) { return 0; }
+    public int pickHdrFormat(int hostHdrFormats, int videoFormats, boolean packed444, boolean frameWarpListed) {
+        return 0;
+    }
 
     /** The video formats to negotiate once pickHdrFormat chose {@code hdrFormat}: the same unless it needs another codec. */
     public int videoFormatsForHdrFormat(int hdrFormat, int videoFormats) { return videoFormats; }

@@ -262,7 +262,7 @@ public class DecoderLowLatencyCorruptionTest {
 
         assertTrue("the offer carries HEVC", renderer.isHevcMain10Supported());
         int offered = MoonBridge.VIDEO_FORMAT_H265_MAIN10 | MoonBridge.VIDEO_FORMAT_AV1_MAIN10;
-        int hdrFormat = renderer.pickHdrFormat(HdrFormatPolicy.DV_81 | HdrFormatPolicy.PQ, offered, false);
+        int hdrFormat = renderer.pickHdrFormat(HdrFormatPolicy.DV_81 | HdrFormatPolicy.PQ, offered, false, false);
         assertEquals(HdrFormatPolicy.DV_81, hdrFormat);
         assertEquals("only the automatic codec moves", offered, renderer.videoFormatsForHdrFormat(hdrFormat, offered));
         assertTrue("declared", rfi(renderer, MoonBridge.VIDEO_FORMAT_AV1_MAIN10, hdrFormat, AV1_RFI));

@@ -95,7 +95,8 @@ public class NvConnectionHostNoticeTest {
             @Override public int preparePacked444Modes(int formats, int width, int height, int fps) {
                 return devicePackedModes;
             }
-            @Override public int pickHdrFormat(int hostHdrFormats, int videoFormats, boolean packed444) {
+            @Override public int pickHdrFormat(int hostHdrFormats, int videoFormats, boolean packed444,
+                                               boolean frameWarpListed) {
                 return pickedHdrFormat;
             }
             @Override public int videoFormatsForHdrFormat(int hdrFormat, int videoFormats) {

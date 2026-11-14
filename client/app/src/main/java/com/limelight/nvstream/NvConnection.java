@@ -1047,8 +1047,10 @@ public class NvConnection {
             context.negotiated10Bit = (context.negotiatedVideoFormats & MoonBridge.VIDEO_FORMAT_MASK_10BIT) != 0;
             // 10-bit SDR offers 10-bit formats without asking for HDR in the launch.
             context.negotiatedHdr = context.negotiated10Bit && !context.streamConfig.isSdr10Bit();
+            // Frame Warp's renderer draws the picture itself, which rules out Dolby Vision.
             context.hdrFormat = context.negotiatedHdr ? renderer.pickHdrFormat(details.caps.hdrFormats(),
-                    context.negotiatedVideoFormats, context.streamConfig.isPacked444()) : 0;
+                    context.negotiatedVideoFormats, context.streamConfig.isPacked444(),
+                    details.caps.has(HostCapabilities.Feature.FRAME_WARP)) : 0;
             int hdrFormatVideoFormats = renderer.videoFormatsForHdrFormat(context.hdrFormat, context.negotiatedVideoFormats);
             if (hdrFormatVideoFormats != context.negotiatedVideoFormats) {
                 // Dolby Vision on the automatic codec: the codec that carries it (HEVC for profile 8, AV1 for

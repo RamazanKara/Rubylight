@@ -1256,7 +1256,8 @@ final class GameVideoOutput {
             // MediaCodecDecoderRenderer log why).
             if (game.decoderRenderer.isPyroWaveHlgLost()) text = game.getString(R.string.stream_hdr_pyrowave_hlg_lost);
             // Plain words, once per PC, for what the Vulkan renderer cannot show of this screen's HDR.
-            int limit = Game.vulkanHdrLimitText(game.decoderRenderer.takeVulkanHdrLimit());
+            int limit = Game.vulkanHdrLimitText(game.decoderRenderer.takeVulkanHdrLimit(),
+                    game.decoderRenderer.vulkanForFrameWarp());
             if (limit != 0) game.overlays.hostNotice(HostNotices.Notice.VULKAN_HDR_LIMIT, limit);
             // Once per stream on the status line (and once per PC as a message): the output window
             // refused HDR10+, so the picture keeps HDR10's static metadata alone.

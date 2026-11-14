@@ -1597,9 +1597,11 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
         }
     }
 
-    static int vulkanHdrLimitText(HdrFormatPolicy.DrawnLimit limit) {
+    /** The once-per-PC words for a Vulkan renderer limit, naming Frame Warp when it brought the renderer. */
+    static int vulkanHdrLimitText(HdrFormatPolicy.DrawnLimit limit, boolean forFrameWarp) {
         switch (limit) {
-            case DOLBY_VISION: return R.string.stream_hdr_vulkan_no_dolby_vision;
+            case DOLBY_VISION: return forFrameWarp ? R.string.stream_hdr_frame_warp_no_dolby_vision :
+                    R.string.stream_hdr_vulkan_no_dolby_vision;
             default: return 0;
         }
     }

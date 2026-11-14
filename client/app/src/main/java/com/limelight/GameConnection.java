@@ -344,7 +344,8 @@ final class GameConnection {
             // HLG stands in for HDR10 unless the Vulkan renderer draws the picture on a PQ-only surface.
             HdrPolicy.Refusal refusal = HdrPolicy.displayRefusal(game.videoOutput.getVideoDisplay(), true,
                     cachedCaps == null ? 0 : cachedCaps.hdrFormats(),
-                    MediaCodecDecoderRenderer.vulkanSurface(game.prefConfig));
+                    MediaCodecDecoderRenderer.vulkanSurface(game.prefConfig,
+                            cachedCaps != null && cachedCaps.has(HostCapabilities.Feature.FRAME_WARP)));
             willStreamHdr = refusal == HdrPolicy.Refusal.NONE;
             if (!willStreamHdr) game.overlays.refuseHdr(refusal);
         }

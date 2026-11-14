@@ -86,11 +86,15 @@ public class GameExpectedVideoTest {
         assertEquals("HLG shown as SDR: the display refused HDR from “Render through Vulkan”.",
                 game.getString(Game.hdrStatusText(HdrPolicy.Status.SHOWN_AS_SDR), "HLG"));
         assertEquals(R.string.stream_hdr_vulkan_no_dolby_vision,
-                Game.vulkanHdrLimitText(com.limelight.binding.video.HdrFormatPolicy.DrawnLimit.DOLBY_VISION));
+                Game.vulkanHdrLimitText(com.limelight.binding.video.HdrFormatPolicy.DrawnLimit.DOLBY_VISION, false));
+        // Frame Warp brings the renderer with "Render through Vulkan" off: the words name it instead.
+        assertEquals("Dolby Vision needs Frame Warp off, so the stream is HDR10.", game.getString(
+                Game.vulkanHdrLimitText(com.limelight.binding.video.HdrFormatPolicy.DrawnLimit.DOLBY_VISION, true)));
         // HDR10+ is left out only when the window refuses it (Game.checkHdrStatus).
         assertEquals("HDR10+ is not passed on with “Render through Vulkan” on this Android version, so the stream is "
                 + "HDR10 without it.", game.getString(R.string.stream_hdr_vulkan_no_hdr10_plus));
-        assertEquals(0, Game.vulkanHdrLimitText(com.limelight.binding.video.HdrFormatPolicy.DrawnLimit.NONE));
+        assertEquals(0, Game.vulkanHdrLimitText(com.limelight.binding.video.HdrFormatPolicy.DrawnLimit.NONE, false));
+        assertEquals(0, Game.vulkanHdrLimitText(com.limelight.binding.video.HdrFormatPolicy.DrawnLimit.NONE, true));
     }
 
     @Test public void pyroWaveNamesWhatItLeavesOutAndTheHostUpdateForHlg() {

@@ -218,24 +218,51 @@ impl VaapiNode {
     }
 }
 
-/// A reference held on [`Hardware::D3d11`]'s device, so the device outlives the renderer it came
-/// from while a launch or a decoder still uses it: SDL makes its Direct3D 11 device again after a
-/// driver reset, and a decoder opened on the old pointer would use freed memory. Elsewhere it
-/// holds nothing.
+/// A reference held on the renderer's Direct3D 11 device ([`Hardware::D3d11`]'s, and PyroWave's
+/// GPU decoder's), so the device outlives the renderer's use of it while a launch, a decoder or a
+/// benchmark still uses it: SDL makes its Direct3D 11 device again after a driver reset, and a
+/// decoder opened on the old pointer would use freed memory. Elsewhere it holds nothing.
 #[derive(Clone, Default)]
-pub struct DeviceRef(#[cfg(windows)] #[allow(dead_code)] Option<windows::Win32::Graphics::Direct3D11::ID3D11Device>);
+pub struct DeviceRef(#[cfg(windows)] Option<windows::Win32::Graphics::Direct3D11::ID3D11Device>);
 
 impl DeviceRef {
     /// Takes a reference on `hardware`'s device, read from the live renderer on the main thread.
     pub fn of(hardware: Hardware) -> Self {
-        #[cfg(windows)]
-        if let Hardware::D3d11(raw) = hardware {
-            use windows::core::Interface;
-            // SAFETY: `raw` is the live renderer's device, just read from it.
-            return Self(unsafe { windows::Win32::Graphics::Direct3D11::ID3D11Device::from_raw_borrowed(&raw) }.cloned());
+        match hardware {
+            Hardware::D3d11(raw) => Self::of_device(raw),
+            _ => Self::default(),
         }
-        let _ = hardware;
-        Self::default()
+    }
+
+    /// Takes a reference on the Direct3D 11 device at `raw`, just read from the live renderer on
+    /// the main thread; none for null.
+    pub fn of_device(raw: *mut c_void) -> Self {
+        #[cfg(windows)]
+        {
+            use windows::core::Interface;
+            // SAFETY: `raw` is null or the live renderer's device, just read from it.
+            Self(unsafe { windows::Win32::Graphics::Direct3D11::ID3D11Device::from_raw_borrowed(&raw) }.cloned())
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = raw;
+            Self::default()
+        }
+    }
+
+    /// Whether this holds the device at `raw` (null: whether it holds none). A held device is never
+    /// freed, so a device made later cannot take its address. Always true off Windows.
+    pub fn holds(&self, raw: *mut c_void) -> bool {
+        #[cfg(windows)]
+        {
+            use windows::core::Interface;
+            self.0.as_ref().map_or(std::ptr::null_mut(), Interface::as_raw) == raw
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = raw;
+            true
+        }
     }
 }
 

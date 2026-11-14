@@ -75,7 +75,8 @@ impl App {
         // The renderer's device now: SDL makes it again after a driver reset, and the old one is
         // only kept alive, not drawn on.
         plan.hardware = self.hardware(&plan.settings);
-        plan.device = media::DeviceRef::of(plan.hardware);
+        plan.gpu_decoder = plan.gpu_decoder.and(self.gpu_device());
+        plan.device = media::DeviceRef::of_device(self.renderer_device());
         plan.gamepad_mask = self.pads.launch_mask(&plan.settings);
         plan.prepared_controllers = self.pads.launch_controllers(&plan.settings);
     }
@@ -491,7 +492,8 @@ impl App {
             identity,
             display,
             hardware,
-            device: media::DeviceRef::of(hardware),
+            // Both decoders' device: D3D11VA's (`hardware`) and PyroWave's (`gpu_decoder`).
+            device: media::DeviceRef::of_device(self.renderer_device()),
             dmabuf: self.dmabuf_import(),
             kms_planes: kms_planned(&settings, self.renderer),
             gpu_decoder,

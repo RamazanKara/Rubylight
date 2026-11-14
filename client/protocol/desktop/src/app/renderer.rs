@@ -337,6 +337,12 @@ impl App {
         renderer_gpu_device(self.renderer)
     }
 
+    /// The renderer's device as it is now (null: none): the one a launch holds and decodes on
+    /// ([`media::DeviceRef`]).
+    pub(crate) fn renderer_device(&self) -> *mut std::ffi::c_void {
+        renderer_gpu_device(self.renderer).map_or(std::ptr::null_mut(), |device| device.0)
+    }
+
     pub(crate) fn hardware(&self, settings: &config::Settings) -> Hardware {
         if settings.decoder == DecoderPreference::Software {
             return Hardware::None;

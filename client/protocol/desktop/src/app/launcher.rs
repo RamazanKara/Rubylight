@@ -518,7 +518,7 @@ impl App {
                     if self.cancelled {
                         session.stop();
                         self.cancelled = false;
-                    } else if cfg!(windows) && connecting.plan().hardware != self.hardware(&connecting.plan().settings) {
+                    } else if decodes_on_device(connecting.plan()) && !connecting.plan().device.holds(self.renderer_device()) {
                         // SDL made its Direct3D 11 device again while connecting (a driver reset):
                         // the decoder's pictures are on the old device, which nothing draws.
                         eprintln!("nightjar: the renderer's Direct3D 11 device changed while connecting; the stream ends");
@@ -732,6 +732,12 @@ impl App {
 }
 
 /// The key egui gets for a controller button's launcher action (`shortcuts::PAD`).
+/// Whether `plan`'s decoder makes its pictures on the renderer's device (D3D11VA, PyroWave on the
+/// GPU), so that a stream whose device changed while connecting cannot show them.
+fn decodes_on_device(plan: &LaunchPlan) -> bool {
+    matches!(plan.hardware, Hardware::D3d11(_)) || plan.gpu_decoder.is_some()
+}
+
 fn nav_key(action: Action) -> Option<egui::Key> {
     match action {
         Action::Select => Some(egui::Key::Enter),

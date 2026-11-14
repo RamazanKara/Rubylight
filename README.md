@@ -54,7 +54,7 @@ Each phone, TV or handheld gets a virtual display at its own resolution, refresh
 
 - **Move a game between devices.** From Nightjar, **Continue here** moves the running game to the device you are holding while it keeps running, and **Stream here too** joins it from a second one.
 - **Two screens on one device.** Nightjar's **Dual screen mode** streams a second display beside the game's.
-- **One window instead of a desktop.** An app can stream only its own window, followed through resizing, fullscreen switches and moves between monitors.
+- **Play in a browser.** A PIN-paired play page streams to browsers, Samsung TVs and consoles, with H.264, HEVC or AV1, HDR where supported, surround sound and gamepads. [Browser streaming](docs/webrtc.md)
 
 ### Set up for each game and each device
 
@@ -86,7 +86,7 @@ Rubylight encodes H.264, HEVC and AV1 with AMF on Radeon and NVENC on NVIDIA, co
 
 - **Frame Warp,** with Nightjar: a mouse or right-stick camera turn shows on your screen's next refresh, and the game's HUD stays in place. [How it works](docs/frame-warp.md)
 - **Real VRR,** with Nightjar: on a G-Sync, FreeSync or HDMI VRR screen, frames are shown on the game's own rhythm instead of the network's. [How it works](client/docs/real-vrr.md)
-- **Away from home.** Rubylight can ask your router to forward its ports. Where no port can be forwarded, Nightjar and the PC find a direct path through both routers, through public STUN servers and a public peer-to-peer directory that holds only encrypted notes, with no relay in between. A VPN such as Tailscale works too. [Play over the internet](docs/internet-play.md)
+- **Away from home.** Connect over a private VPN such as Tailscale, which keeps the PC off the open internet. Without one, Rubylight can ask your router to forward its ports, and where no port can be forwarded, Nightjar and the PC find a direct path through both routers, through public STUN servers and a public peer-to-peer directory that holds only encrypted notes, with no relay in between. [Play over the internet](docs/internet-play.md)
 
 ### The picture and sound your setup can play
 

@@ -1,18 +1,19 @@
 //! Draws hardware-decoded pictures straight into SDL's back buffer on Windows, instead of
 //! handing SDL a video texture to draw.
 //!
-//! Ported from Moonlight V+ PC's D3D11 renderer (d3d11va.cpp): with bound decoder textures the
-//! pass reads the picture from its slice of the decoder's texture array through shader resource
-//! views, so the per-frame copy into the video texture goes away. V+ binds by default only on
-//! Intel GPUs and copies elsewhere (moonlight-qt issue 1304); `NIGHTJAR_D3D11_BIND=1` or `=0`
-//! overrides that, as V+'s `D3D11VA_FORCE_BIND` does. Without binding the pass reads the copy in
-//! SDL's video texture. Its color conversion follows SDL's D3D11 shaders, so a picture looks the
-//! same as SDL draws it, but its tone map takes the content peak per frame: from the stream's
-//! Dolby Vision RPU (profiles 8.1 and 10.1 have an HDR10 base layer, drawn as PQ), else its
-//! HDR10+ metadata, else measured on the picture, as V+'s libplacebo renderer does (plvk.cpp,
-//! with libplacebo's peak detection defaults: 20 frames of smoothing, scene changes at 1 and
-//! 3 dB). HLG pictures go through BT.2100's inverse OETF and OOTF for the display's peak, SDL
-//! has no HLG. `NIGHTJAR_D3D11_PASS=0` leaves drawing to SDL, as before.
+//! Ported from Moonlight V+ PC's D3D11 renderer (d3d11va.cpp): the pass reads the picture from
+//! its slice of the decoder's texture array through shader resource views, so the per-frame copy
+//! into the video texture goes away. V+ bound those textures on Intel GPUs and copied elsewhere
+//! (moonlight-qt issue 1304), but binding them removed Intel's device while the decoder wrote
+//! other slices of the same array (Nightjar #112): every GPU copies by default now, and
+//! `NIGHTJAR_D3D11_BIND=1` or `=0` overrides that, as V+'s `D3D11VA_FORCE_BIND` does. Without
+//! binding the pass reads the copy in SDL's video texture. Its color conversion follows SDL's
+//! D3D11 shaders, so a picture looks the same as SDL draws it, but its tone map takes the content
+//! peak per frame: from the stream's Dolby Vision RPU (profiles 8.1 and 10.1 have an HDR10 base
+//! layer, drawn as PQ), else its HDR10+ metadata, else measured on the picture, as V+'s libplacebo
+//! renderer does (plvk.cpp, with libplacebo's peak detection defaults: 20 frames of smoothing,
+//! scene changes at 1 and 3 dB). HLG pictures go through BT.2100's inverse OETF and OOTF for the
+//! display's peak, SDL has no HLG. `NIGHTJAR_D3D11_PASS=0` leaves drawing to SDL, as before.
 
 use std::ffi::c_void;
 
@@ -24,7 +25,6 @@ use windows::Win32::Graphics::Dxgi::{IDXGIDevice, DXGI_ERROR_WAS_STILL_DRAWING};
 
 use super::d3d11::compile;
 
-const VENDOR_INTEL: u32 = 0x8086;
 const BINS: usize = 256;
 /// The share of sampled pixels allowed above the measured peak (libplacebo's 99.995th percentile).
 const ABOVE_PEAK: f64 = 0.00005;
@@ -49,13 +49,37 @@ pub fn bind_decoder_textures(device: &ID3D11Device) -> bool {
     bind
 }
 
-fn binds(vendor: u32, pass: bool, setting: Option<&str>) -> bool {
+fn binds(_vendor: u32, pass: bool, setting: Option<&str>) -> bool {
     if !pass { return false; }
-    match setting.map(str::trim) {
-        Some("1") => true,
-        Some("0") => false,
-        _ => vendor == VENDOR_INTEL,
+    // Nightjar #112: binding a slice of the decoder's texture array to the pass while the D3D11VA
+    // decoder wrote other slices of it removed Intel's device (DXGI_ERROR_DEVICE_REMOVED), the
+    // one vendor V+ bound by default. Every GPU copies unless asked to bind.
+    setting.map(str::trim) == Some("1")
+}
+
+/// The luma and chroma views of slice `slice` of `texture`, ten or eight bits a channel.
+///
+/// # Safety
+/// `texture` must be a live NV12 or P010 texture array on `device`.
+unsafe fn create_views(device: &ID3D11Device, texture: &ID3D11Texture2D, slice: u32, ten_bit: bool) -> Result<Planes, String> {
+    let formats = if ten_bit { [DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16G16_UNORM] } else { [DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8_UNORM] };
+    let mut made: Planes = [None, None];
+    for (view, format) in made.iter_mut().zip(formats) {
+        // SAFETY: `texture` is a live picture texture on `device`, and each view covers one slice.
+        unsafe {
+            device.CreateShaderResourceView(texture, Some(&D3D11_SHADER_RESOURCE_VIEW_DESC {
+                Format: format, ViewDimension: D3D11_SRV_DIMENSION_TEXTURE2DARRAY,
+                Anonymous: D3D11_SHADER_RESOURCE_VIEW_DESC_0 { Texture2DArray: D3D11_TEX2D_ARRAY_SRV {
+                    MostDetailedMip: 0, MipLevels: 1, FirstArraySlice: slice, ArraySize: 1 } },
+            }), Some(view)).map_err(|e| {
+                // The device's own reason names what the call's failure cannot (a TDR, a driver
+                // reset, a removed adapter), so a lost stream is diagnosable from its log.
+                let reason = device.GetDeviceRemovedReason();
+                format!("cannot read slice {slice} of the picture texture: {e} (device reason {reason:?})")
+            })?;
+        }
     }
+    Ok(made)
 }
 
 /// The picture to draw: `texture` is an NV12 or P010 texture (array) and `slice` the picture's
@@ -320,7 +344,7 @@ impl Direct {
     /// # Safety
     /// As `draw`.
     pub unsafe fn convert(&mut self, target: &ID3D11RenderTargetView, size: (u32, u32), picture: &Picture,
-        white_nits: f32, headroom: f32, lock: impl FnOnce(&mut dyn FnMut())) -> Result<(), String> {
+        white_nits: f32, headroom: f32, lock: impl FnMut(&mut dyn FnMut())) -> Result<(), String> {
         let hlg = picture.transfer == Transfer::Hlg;
         let output = Output { linear: hlg, color_scale: 1.0, headroom: if hlg { headroom } else { 1.0 } };
         let tone = Tone { white_nits, ..Tone::default() };
@@ -331,8 +355,9 @@ impl Direct {
     #[cfg(test)]
     pub fn measured_peak(&self) -> Option<f32> { self.tracker.value() }
 
-    /// The luma and chroma views of `picture`'s slice.
-    unsafe fn views(&mut self, picture: &Picture) -> Result<Planes, String> {
+    /// The luma and chroma views of `picture`'s slice. `lock` runs work under the decoder's
+    /// context lock when the picture is the decoder's texture.
+    unsafe fn views(&mut self, picture: &Picture, lock: &mut dyn FnMut(&mut dyn FnMut())) -> Result<Planes, String> {
         let key = picture.texture as usize;
         if !self.views.as_ref().is_some_and(|(texture, ten, _)| *texture == key && *ten == picture.ten_bit) {
             self.views = Some((key, picture.ten_bit, Default::default()));
@@ -340,15 +365,12 @@ impl Direct {
         let (_, _, views) = self.views.as_mut().unwrap();
         if let Some(found) = views.get(&picture.slice) { return Ok(found.clone()); }
         let texture = ID3D11Texture2D::from_raw_borrowed(&picture.texture).ok_or("no picture texture")?;
-        let formats = if picture.ten_bit { [DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16G16_UNORM] } else { [DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8_UNORM] };
-        let mut made: Planes = [None, None];
-        for (view, format) in made.iter_mut().zip(formats) {
-            self.device.CreateShaderResourceView(texture, Some(&D3D11_SHADER_RESOURCE_VIEW_DESC {
-                Format: format, ViewDimension: D3D11_SRV_DIMENSION_TEXTURE2DARRAY,
-                Anonymous: D3D11_SHADER_RESOURCE_VIEW_DESC_0 { Texture2DArray: D3D11_TEX2D_ARRAY_SRV {
-                    MostDetailedMip: 0, MipLevels: 1, FirstArraySlice: picture.slice, ArraySize: 1 } },
-            }), Some(view)).map_err(|e| format!("cannot read slice {} of the picture texture: {e}", picture.slice))?;
-        }
+        let (device, slice, ten_bit) = (&self.device, picture.slice, picture.ten_bit);
+        let mut made: Result<Planes, String> = Err("the picture's views were not made".into());
+        // A view of the decoder's texture made beside its own use of the device removed Intel's
+        // device (Nightjar #112): it is made under the lock FFmpeg holds while it decodes.
+        lock(&mut || made = create_views(device, texture, slice, ten_bit));
+        let made = made?;
         views.insert(picture.slice, made.clone());
         Ok(made)
     }
@@ -375,13 +397,14 @@ impl Direct {
         }
     }
 
-    /// Draws `picture` into `target` at `viewport` (x, y, width, height). `lock` runs the
-    /// submission (the decoder's context lock when the texture is the decoder's).
+    /// Draws `picture` into `target` at `viewport` (x, y, width, height). `lock` runs work under
+    /// the decoder's context lock when the picture is the decoder's texture: the submit below,
+    /// and the views of a slice not seen before.
     ///
     /// # Safety
     /// The picture texture and the target must belong to this pass's device, on this thread.
     pub unsafe fn draw(&mut self, target: &ID3D11RenderTargetView, viewport: [f32; 4], picture: &Picture,
-        output: Output, tone: Tone, lock: impl FnOnce(&mut dyn FnMut())) -> Result<(), String> {
+        output: Output, tone: Tone, lock: impl FnMut(&mut dyn FnMut())) -> Result<(), String> {
         self.draw_warped(target, viewport, picture, output, tone, &super::frame_warp::WarpDraw::default(), lock)
     }
 
@@ -391,8 +414,8 @@ impl Direct {
     /// As `draw`.
     #[allow(clippy::too_many_arguments)] // `draw`'s arguments plus the warp
     unsafe fn draw_warped(&mut self, target: &ID3D11RenderTargetView, viewport: [f32; 4], picture: &Picture,
-        output: Output, tone: Tone, warp: &super::frame_warp::WarpDraw, lock: impl FnOnce(&mut dyn FnMut())) -> Result<(), String> {
-        let planes = self.views(picture)?;
+        output: Output, tone: Tone, warp: &super::frame_warp::WarpDraw, mut lock: impl FnMut(&mut dyn FnMut())) -> Result<(), String> {
+        let planes = self.views(picture, &mut lock)?;
         let mut desc = D3D11_TEXTURE2D_DESC::default();
         ID3D11Texture2D::from_raw_borrowed(&picture.texture).ok_or("no picture texture")?.GetDesc(&mut desc);
         let texture_size = (desc.Width, desc.Height);
@@ -470,7 +493,7 @@ impl Direct {
     /// # Safety
     /// `renderer` is the live D3D11 renderer of this thread, whose device made this pass.
     pub unsafe fn present(&mut self, renderer: *mut sdl3_sys::everything::SDL_Renderer, destination: &sdl3_sys::everything::SDL_FRect,
-        picture: &Picture, tone: Tone, warp: &super::frame_warp::WarpDraw, lock: impl FnOnce(&mut dyn FnMut())) -> Result<(), String> {
+        picture: &Picture, tone: Tone, warp: &super::frame_warp::WarpDraw, lock: impl FnMut(&mut dyn FnMut())) -> Result<(), String> {
         use sdl3_sys::everything::*;
         let properties = SDL_GetRendererProperties(renderer);
         let swapchain_raw = SDL_GetPointerProperty(properties, SDL_PROP_RENDERER_D3D11_SWAPCHAIN_POINTER, std::ptr::null_mut());
@@ -525,10 +548,13 @@ mod tests {
     #[test]
     fn the_switches_follow_v_plus() {
         assert!(pass_wanted(None) && pass_wanted(Some("1")) && !pass_wanted(Some("0")) && !pass_wanted(Some(" 0 ")));
-        assert!(binds(VENDOR_INTEL, true, None), "V+ binds on Intel");
-        assert!(!binds(0x1002, true, None) && !binds(0x10de, true, None), "and copies elsewhere");
-        assert!(binds(0x1002, true, Some("1")) && !binds(VENDOR_INTEL, true, Some("0")), "unless told");
-        assert!(!binds(VENDOR_INTEL, false, Some("1")), "without the pass nothing reads the decoder's textures");
+        // Nightjar #112: Intel UHD Graphics removed the device with the decoder's textures bound,
+        // so every vendor copies unless told to bind.
+        assert!(!binds(0x8086, true, None), "copies on Intel too");
+        assert!(!binds(0x1002, true, None) && !binds(0x10de, true, None), "and on AMD and NVIDIA");
+        assert!(binds(0x8086, true, Some("1")) && binds(0x10de, true, Some("1")), "unless told");
+        assert!(!binds(0x8086, true, Some("0")) && !binds(0x10de, true, Some("0")));
+        assert!(!binds(0x8086, false, Some("1")), "without the pass nothing reads the decoder's textures");
     }
 
     #[test]

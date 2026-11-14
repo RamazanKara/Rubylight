@@ -34,6 +34,13 @@ public:
 
     int delayVsyncs() const { return delay_; }
 
+    // The longest delay the swapchain can hold: each vsync of delay keeps one more presented
+    // image queued, and one more is drawn while another is on screen. A device that caps the
+    // swapchain at 4 images can't take kMaxDelay, or vkAcquireNextImageKHR waits and frames
+    // come at 3/4 of the refresh rate. Clamps the current delay too.
+    void setMaxDelay(int maxDelay);
+    int maxDelay() const { return maxDelay_; }
+
     // Holds the delay (in vsyncs) or the guard (in ns) at a value rather than learning it, for
     // trying a setting on a device. Either can be left out (0, or below 0 for the guard).
     void fix(int delayVsyncs, int64_t guardNs);
@@ -159,6 +166,7 @@ private:
     void considerLowering(int64_t vsyncNs, int64_t periodNs);
 
     int delay_ = 2;
+    int maxDelay_ = kMaxDelay;
     bool delayFixed_ = false;
     bool guardFixed_ = false;
     bool aheadSeen_ = false;  // Frames are presented ahead, so considerLowering() decides

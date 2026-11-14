@@ -1094,8 +1094,11 @@ void VulkanRenderer::setHdrMode(bool enabled, const uint8_t* metadata, size_t me
             parsed.vk.whitePoint = xy(v[6], v[7]);
             parsed.vk.maxLuminance = v[8];
             parsed.vk.minLuminance = v[9] * 0.0001f;
-            parsed.vk.maxContentLightLevel = v[10];
-            parsed.vk.maxFrameAverageLightLevel = v[11];
+            // Windows reports no MaxCLL or MaxFALL for the desktop (0). Passed on as 0 nits, a TV
+            // such as the TCL C6K takes the content as unknown and tone maps it washed out, so a
+            // missing light level falls back to the display's peak.
+            parsed.vk.maxContentLightLevel = v[10] != 0 ? v[10] : v[8];
+            parsed.vk.maxFrameAverageLightLevel = v[11] != 0 ? v[11] : v[8];
 
             if (v[10] != 0) {
                 parsed.contentPeakNits = v[10];
@@ -2649,6 +2652,9 @@ bool VulkanRenderer::createSwapchain() {
     vk_.vkGetSwapchainImagesKHR(device_, swapchain_, &count, nullptr);
     std::vector<VkImage> images(count);
     vk_.vkGetSwapchainImagesKHR(device_, swapchain_, &count, images.data());
+    // A driver may cap the swapchain below the 6 images asked for: the present delay must leave
+    // one image to draw into and one on screen, or acquiring an image waits a vsync each time.
+    presentScheduler_.setMaxDelay(static_cast<int>(images.size()) - 2);
 
     for (VkImage image : images) {
         VkImageViewCreateInfo viewInfo {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};

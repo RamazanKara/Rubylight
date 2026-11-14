@@ -52,8 +52,15 @@ final class HomeChrome {
     HomeChrome(Activity activity, RecyclerView list, boolean shelves) {
         this.activity = activity;
         this.list = list;
-        listInset = shelves ? 0 : activity.getResources().getDimensionPixelSize(R.dimen.home_list_inset);
+        android.content.res.Resources res = activity.getResources();
         form = GlassForm.of(activity);
+        listInset = listInset(res, form, shelves);
+        if (form == GlassForm.TELEVISION) {
+            // Home's content doesn't clip its children, for the focus rings: the list does, at its own top, so scrolled
+            // shelves never draw over the hero and the top row.
+            list.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) ->
+                    list.setClipBounds(new android.graphics.Rect(0, 0, r - l, b - t)));
+        }
         host = activity.findViewById(R.id.glass_host);
         topRow = activity.findViewById(R.id.home_top_row);
         bottomRow = activity.findViewById(R.id.home_bottom_row);
@@ -74,6 +81,18 @@ final class HomeChrome {
     private void stepDown(GlassTier lower) {
         host.setTier(lower);
         probe = GlassProbe.continueAt(activity, lower, this::stepDown);
+    }
+
+    /**
+     * The list's side padding. Shelves keep their own; a TV's grid and list stand back to the overscan edge, less the
+     * inset each card already has, so headers, covers and wide cards line up with the shelves and the hero.
+     */
+    static int listInset(android.content.res.Resources res, GlassForm form, boolean shelves) {
+        if (shelves) return 0;
+        if (form == GlassForm.TELEVISION) {
+            return Math.max(0, res.getDimensionPixelSize(R.dimen.shell_overscan_horizontal) - res.getDimensionPixelSize(R.dimen.cover_inset));
+        }
+        return res.getDimensionPixelSize(R.dimen.home_list_inset);
     }
 
     GlassForm form() {
@@ -230,7 +249,7 @@ final class HomeChrome {
         int gap = res.getDimensionPixelSize(R.dimen.space_s);
         if (form == GlassForm.TELEVISION) {
             topRow.setPadding(left, top, right, 0);
-            list.setPadding(left + list.getPaddingLeft(), list.getPaddingTop(), right + list.getPaddingRight(), list.getPaddingBottom());
+            list.setPadding(left + listInset, list.getPaddingTop(), right + listInset, list.getPaddingBottom());
             ViewGroup.MarginLayoutParams row = (ViewGroup.MarginLayoutParams) topRow.getLayoutParams();
             placeSearch(left, right, top + row.topMargin, capsule, gap, bottom + res.getDimensionPixelSize(R.dimen.space_xl), row.getMarginStart());
             return;

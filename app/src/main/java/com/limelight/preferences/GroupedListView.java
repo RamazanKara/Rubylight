@@ -94,8 +94,9 @@ public final class GroupedListView extends ListView {
         View top = getChildAt(from);
         View bottom = getChildAt(to);
         // A group running past the list's edge keeps its corners out of sight.
-        float y0 = top.getTop() - (grouped(first + from - 1) ? radius * 2 : 0);
-        float y1 = bottom.getBottom() + (grouped(first + to + 1) ? radius * 2 : 0);
+        // A row cut at the edge, or dropped there while scrolling, never closes the card on screen.
+        float y0 = grouped(first + from - 1) ? Math.min(top.getTop(), 0) - radius * 2 : top.getTop();
+        float y1 = grouped(first + to + 1) ? Math.max(bottom.getBottom(), getHeight()) + radius * 2 : bottom.getBottom();
         box.set(top.getLeft(), y0, top.getRight(), y1);
         canvas.drawRoundRect(box, radius, radius, fill);
         float half = rim.getStrokeWidth() / 2;

@@ -138,6 +138,33 @@
 
         <activity android:name=".RemoteSetupActivity" android:exported="false" android:resizeableActivity="true" />
         <activity android:name=".FolderBrowserActivity" android:exported="false" android:resizeableActivity="true" />
+        <!-- Declares the USB devices Nightjar drives, so the permission dialog offers "Always allow" (UsbAttachedActivity). -->
+        <activity
+            android:name=".binding.usb.UsbAttachedActivity"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:launchMode="singleInstance"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" android:resource="@xml/usb_device_filter" />
+        </activity>
+        <!-- Any device, while USB forwarding is on: UsbForwarding enables it. -->
+        <activity
+            android:name=".binding.usb.UsbAttachedActivity$Forwarding"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:launchMode="singleInstance"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" android:resource="@xml/usb_forwarding_device_filter" />
+        </activity>
         <activity
             android:name=".PcView"
             android:exported="true"

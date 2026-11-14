@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The controllers and adapters Nightjar drives itself (UsbDriverService), by vendor. Android reads the ids as decimal.
+     Declared, the USB permission dialog offers "Always allow". 1118 (0x045e) is Microsoft: Xbox controllers and the Xbox Wireless Adapter. -->
+<resources>
+    <usb-device vendor-id="121" /> <!-- 0x0079 -->
+    <usb-device vendor-id="1103" /> <!-- 0x044f -->
+    <usb-device vendor-id="1118" /> <!-- 0x045e -->
+    <usb-device vendor-id="1133" /> <!-- 0x046d -->
+    <usb-device vendor-id="1356" /> <!-- 0x054c -->
+    <usb-device vendor-id="1390" /> <!-- 0x056e -->
+    <usb-device vendor-id="1406" /> <!-- 0x057e -->
+    <usb-device vendor-id="1699" /> <!-- 0x06a3 -->
+    <usb-device vendor-id="1848" /> <!-- 0x0738 -->
+    <usb-device vendor-id="2047" /> <!-- 0x07ff -->
+    <usb-device vendor-id="3695" /> <!-- 0x0e6f -->
+    <usb-device vendor-id="3853" /> <!-- 0x0f0d -->
+    <usb-device vendor-id="4152" /> <!-- 0x1038 -->
+    <usb-device vendor-id="4553" /> <!-- 0x11c9 -->
+    <usb-device vendor-id="5426" /> <!-- 0x1532 -->
+    <usb-device vendor-id="8406" /> <!-- 0x20d6 -->
+    <usb-device vendor-id="9414" /> <!-- 0x24c6 -->
+    <usb-device vendor-id="11720" /> <!-- 0x2dc8 -->
+    <usb-device vendor-id="11812" /> <!-- 0x2e24 -->
+    <usb-device vendor-id="12068" /> <!-- 0x2f24 -->
+    <usb-device vendor-id="13623" /> <!-- 0x3537 -->
+</resources>

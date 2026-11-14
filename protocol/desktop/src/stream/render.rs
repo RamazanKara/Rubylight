@@ -333,8 +333,17 @@ impl Streaming {
         }
         if syncs { sample = self.wait_for_landing(&beam, sample); }
         let Some(left) = beam.scan_left_ns(&sample) else { return 0 };
-        // Spinning: the wait is under one scan (4.2 ms at 240 Hz), shorter than a sleep can be exact.
-        let until = Instant::now() + Duration::from_nanos(left);
+        // A scan reading can be wrong (a mode switch, a wrapped counter): never hold the present
+        // thread for more than 2 ms over one. A wait past 500 µs sleeps most of it and spins only
+        // the last 250 µs; a shorter one spins whole, as a sleep cannot be that exact.
+        let left = left.min(2_000_000);
+        let spin = if left > 500_000 {
+            std::thread::sleep(Duration::from_nanos(left - 250_000));
+            250_000
+        } else {
+            left
+        };
+        let until = Instant::now() + Duration::from_nanos(spin);
         while Instant::now() < until { std::hint::spin_loop(); }
         self.scan_waits.0 += 1;
         self.scan_waits.1 += left;

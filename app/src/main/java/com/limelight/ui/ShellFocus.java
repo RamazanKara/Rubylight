@@ -22,23 +22,28 @@ public final class ShellFocus {
      * Call it from {@code dispatchKeyEvent}; true when it moved focus and the press is used up.
      */
     public static boolean upToCurrentTab(Activity activity, KeyEvent event, View content) {
-        return upToCurrentTab(activity, event, content, null);
+        return upToCurrentTab(activity, event, content, (View) null);
     }
 
     /** The same where {@code beside}, a control next to the bar (Home's View), counts as the bar too. */
     public static boolean upToCurrentTab(Activity activity, KeyEvent event, View content, View beside) {
-        if (event.getAction() != KeyEvent.ACTION_DOWN || event.getKeyCode() != KeyEvent.KEYCODE_DPAD_UP
+        return upToCurrentTab(activity, event, content, new View[] {beside});
+    }
+
+    /** The same where any of {@code beside}, the controls next to the bar (a library's options and search), count too. */
+    public static boolean upToCurrentTab(Activity activity, KeyEvent event, View content, View... beside) {
+        if (content == null || event.getAction() != KeyEvent.ACTION_DOWN || event.getKeyCode() != KeyEvent.KEYCODE_DPAD_UP
                 || !event.hasNoModifiers()) {
             return false;
         }
         // The content's own focus, so a window that is not focused yet (or a test) behaves like a live one.
         View focused = content.findFocus();
         View bar = activity.findViewById(R.id.shell_bar);
-        if (focused == null || bar == null) {
+        if (focused == null || bar == null || !onFirstRow(focused)) {
             return false;
         }
         View next = focused.focusSearch(View.FOCUS_UP);
-        if (next == null || !(isInside(bar, next) || (beside != null && isInside(beside, next)))) {
+        if (next == null || !(isInside(bar, next) || isInsideAny(beside, next))) {
             return false;
         }
         View current = currentTab(bar);
@@ -53,6 +58,27 @@ public final class ShellFocus {
             if (tab.isSelected() && tab.getVisibility() == View.VISIBLE && tab.isFocusable()) return tab;
         }
         return null;
+    }
+
+    /** A grid holds the focus itself and moves its selection: Up leaves it only from the first row. */
+    static boolean onFirstRow(View focused) {
+        if (focused instanceof android.widget.GridView) {
+            android.widget.GridView grid = (android.widget.GridView) focused;
+            int position = grid.getSelectedItemPosition();
+            return position < Math.max(1, grid.getNumColumns());
+        }
+        if (focused instanceof android.widget.AbsListView) {
+            return ((android.widget.AbsListView) focused).getSelectedItemPosition() <= 0;
+        }
+        return true;
+    }
+
+    private static boolean isInsideAny(View[] parents, View child) {
+        if (parents == null) return false;
+        for (View parent : parents) {
+            if (parent != null && isInside(parent, child)) return true;
+        }
+        return false;
     }
 
     private static boolean isInside(View parent, View child) {

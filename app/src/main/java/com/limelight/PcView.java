@@ -649,6 +649,11 @@ public class PcView extends NightjarActivity implements AdapterFragmentCallbacks
             }
             setKeysAreLastInput(true);
         }
+        // Up from the grid's first row goes to the current tab of the shell bar, as on Home; on a phone the tabs are at the foot.
+        if (GlassForm.of(this) != GlassForm.PHONE && com.limelight.ui.ShellFocus.upToCurrentTab(this, event, findViewById(R.id.fragmentView),
+                findViewById(R.id.manuallyAddPc))) {
+            return true;
+        }
         return super.dispatchKeyEvent(event);
     }
 

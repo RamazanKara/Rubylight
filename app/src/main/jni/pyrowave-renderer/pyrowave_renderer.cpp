@@ -3347,8 +3347,10 @@ namespace {
                 parsed.whitePoint = {word(12) / 50000, word(14) / 50000};
                 parsed.maxLuminance = word(16);
                 parsed.minLuminance = word(18) / 10000;
-                parsed.maxContentLightLevel = word(20);
-                parsed.maxFrameAverageLightLevel = word(22);
+                // Windows reports no MaxCLL or MaxFALL for the desktop (0); as 0 nits a TV takes the
+                // content as unknown and tone maps it washed out, so they fall back to the peak.
+                parsed.maxContentLightLevel = word(20) > 0 ? word(20) : parsed.maxLuminance;
+                parsed.maxFrameAverageLightLevel = word(22) > 0 ? word(22) : parsed.maxLuminance;
             }
             // The present thread applies it before its next frame.
             std::lock_guard<std::mutex> lock(slotMutex);
@@ -3447,9 +3449,10 @@ namespace {
             }
         }
 
-        // HLG carries no static metadata: the host's mastering data describes PQ.
+        // HLG carries no static metadata: the host's mastering data describes PQ. Without the
+        // host's metadata none is passed, rather than all zeros, so the display uses its own.
         void applyHdrMetadata() {
-            if (tenBit && !hlg && vk.SetHdrMetadataEXT && swapchain) {
+            if (tenBit && !hlg && vk.SetHdrMetadataEXT && swapchain && hdrMetadata.maxLuminance > 0) {
                 vk.SetHdrMetadataEXT(device, 1, &swapchain, &hdrMetadata);
             }
         }

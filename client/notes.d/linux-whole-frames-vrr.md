@@ -1,2 +1,0 @@
-## desktop
-- Linux: with Variable refresh rate On, a stream drawn straight to the display (KMS) hands each picture over in step with the display, so a picture that arrives during a refresh is shown whole when that refresh ends instead of torn. Fastest shows pictures at once as before. On a Wayland desktop, Fastest now decides whether a VRR stream may tear, where V-Sync off did. The log names the choice and how long the hand-overs took.

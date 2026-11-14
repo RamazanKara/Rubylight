@@ -1571,8 +1571,10 @@ class CheckStreams(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         self.assertIn('waiting for the build lock', run.stdout)
         self.assertTrue(held[0]['GPU-LOCK'] and held[0]['BUILD-LOCK'].startswith('check '), held)
-        # Held only for the instant of each try while the build runs.
-        self.assertGreater(gpu_while_waiting.count(False), 15, gpu_while_waiting)
+        # Held only for the instant of each try while the build runs. A check that kept the
+        # GPU lock while it waited would show none free; a slow runner's first try held it
+        # for half a second (5 of the 20 samples).
+        self.assertGreater(gpu_while_waiting.count(False), 10, gpu_while_waiting)
         self.assertReleased()
 
     def test_a_lock_taken_over_by_another_session_is_left_alone_and_reported(self):

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="neural_menu">Generación de fotogramas</string>
+    <string name="neural_menu_note">Movimiento más fluido mediante un mod que el PC coloca en la carpeta del juego</string>
+    <string name="neural_title">Generación de fotogramas · %1$s</string>
+    <string name="neural_loading">Cargando…</string>
+    <string name="neural_turning_on">Activando la generación de fotogramas…</string>
+    <string name="neural_turning_off">Desactivando la generación de fotogramas…</string>
+    <string name="neural_problem">La generación de fotogramas no cambió</string>
+    <string name="neural_about">Movimiento más fluido en juegos que ofrecen generación de fotogramas DLSS, mediante un mod que el PC coloca en la carpeta del juego. Déjalo desactivado en juegos en línea: alguno puede considerar un mod como trampa.</string>
+    <string name="neural_not_offered">El PC no ofrece generación de fotogramas para este juego.</string>
+    <string name="neural_frame_generation">Generación de fotogramas</string>
+    <string name="neural_replaces">Al activarla, primero se quita el escalado neuronal anterior de la carpeta del juego.</string>
+    <string name="neural_refresh">Actualizar</string>
+    <string name="neural_unavailable">El PC no puede cambiarlo ahora mismo.</string>
+    <string name="neural_notice_title">¿Instalar un mod de terceros?</string>
+    <string name="neural_notice">La generación de fotogramas coloca un mod de terceros en la carpeta del juego, que este carga en lugar de su propia generación de fotogramas DLSS. El PC lo descarga de la versión de GitHub de sus autores; no está hecho ni respaldado por AMD ni NVIDIA.\n\nEl PC rechaza los juegos con un antitrampas conocido en su instalación y los juegos para los que Steam indica Valve Anti-Cheat, pero un juego en línea aún puede considerar un mod como trampa. Úsalo bajo tu propia responsabilidad.</string>
+    <string name="neural_notice_accept">Aceptar e instalar</string>
+    <string name="neural_on">Activado</string>
+    <string name="neural_off">Desactivada</string>
+    <string name="neural_downloading_of">Descargando: %1$.1f de %2$.1f MB</string>
+    <string name="neural_downloading">Descargando…</string>
+    <string name="neural_copying">Copiando a la carpeta del juego…</string>
+    <string name="neural_removing">Quitando de la carpeta del juego…</string>
+    <string name="neural_failed">El último cambio falló.</string>
+</resources>

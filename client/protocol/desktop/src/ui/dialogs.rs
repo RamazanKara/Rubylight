@@ -230,6 +230,9 @@ impl GameAction {
     }
 }
 
+/// The PC's one-time notice before frame generation's first install.
+const NEURAL_NOTICE: &str = en("Frame generation puts a third-party mod into the game’s folder, where the game loads it in place of its own DLSS frame generation. The PC downloads it from its authors’ GitHub release; it is not made or endorsed by AMD or NVIDIA.\n\nThe PC refuses games with a known anti-cheat in their install and games Steam lists Valve Anti-Cheat for, but an online game may still treat a mod as cheating. Use it at your own risk.");
+
 /// A caller without List or View is told that its stream moved, not where to.
 pub(super) fn now_playing_title(device: &str) -> String {
     if device.is_empty() {
@@ -453,6 +456,32 @@ impl Launcher {
                             }
                         }
                         if quiet_button(ui, "Cancel").clicked() {
+                            close = true;
+                        }
+                    });
+                });
+            }
+            Dialog::ConfirmNeural { host, game } => {
+                let (host, game) = (*host, *game);
+                modal(ctx, "confirm-neural", |ui| {
+                    ui.set_width(480.0);
+                    ui.label(
+                        RichText::new(tr("Install a third-party game mod?"))
+                            .font(semibold(text::SECTION)),
+                    );
+                    ui.label(RichText::new(tr(NEURAL_NOTICE)).color(ON_SURFACE_VARIANT));
+                    dialog_buttons(ui, |ui| {
+                        if primary_button(ui, "Accept and install").clicked() {
+                            self.neural.write(host, game, true, true);
+                            close = true;
+                        }
+                        // Cancel is the default.
+                        let cancel = quiet_button(ui, "Cancel");
+                        if focus_first {
+                            cancel.request_focus();
+                            focused = true;
+                        }
+                        if cancel.clicked() {
                             close = true;
                         }
                     });

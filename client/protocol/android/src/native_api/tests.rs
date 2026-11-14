@@ -124,6 +124,23 @@ impl Host for Fake {
             app_id: 7,
         })
     }
+    fn neural(&self, app: &str) -> Result<nightjar_core::http::Neural, Error> {
+        self.note(&format!("neural {app}"));
+        Ok(serde_json::from_str(&format!(
+            r#"{{"app":"{app}","accepted":false,"switches":[{{"id":"frame_generation","state":"configurable","on":false}}],"replaces_earlier_upscaling":true}}"#
+        ))
+        .unwrap())
+    }
+    fn write_neural(
+        &self,
+        write: &nightjar_core::http::NeuralWrite,
+    ) -> Result<nightjar_core::http::Neural, Error> {
+        self.note(&format!(
+            "neural.write {} {} {}",
+            write.app, write.on, write.accept_notice
+        ));
+        self.neural(&write.app)
+    }
     fn power_capabilities(&self) -> Result<PowerReply, PowerError> {
         self.note("power");
         Ok(power_reply(200, "", Some(TOKEN)))
@@ -696,4 +713,39 @@ fn a_generated_identity_reaches_the_certificate_check() {
     let reply = parse(&request(&endpoint, "library", ""));
     assert_ne!(reply["error"]["kind"], Value::Null);
     assert!(reply.get("ok").is_none());
+}
+
+#[test]
+fn neural_reads_by_app_and_writes_without_a_program_path() {
+    let fake = Fake::default();
+    let reply = parse(&execute(&fake, "neural", "game"));
+    assert_eq!(reply["ok"]["switches"][0]["id"], "frame_generation");
+    assert_eq!(reply["ok"]["replaces_earlier_upscaling"], true);
+    assert_eq!(
+        parse(&execute(&fake, "neural", " "))["error"]["kind"],
+        "invalid_argument"
+    );
+    let reply = parse(&execute(
+        &fake,
+        "neural.write",
+        r#"{"app":"game","switch":"frame_generation","on":true,"accept_notice":true}"#,
+    ));
+    assert_eq!(reply["ok"]["app"], "game");
+    assert!(fake
+        .calls
+        .lock()
+        .unwrap()
+        .contains(&"neural.write game true true".to_owned()));
+    let calls = fake.calls.lock().unwrap().len();
+    let refused = parse(&execute(
+        &fake,
+        "neural.write",
+        r#"{"app":"game","switch":"frame_generation","on":true,"exe":"C:\x.exe"}"#,
+    ));
+    assert_eq!(refused["error"]["kind"], "invalid_argument");
+    assert_eq!(
+        fake.calls.lock().unwrap().len(),
+        calls,
+        "never reaches the host"
+    );
 }

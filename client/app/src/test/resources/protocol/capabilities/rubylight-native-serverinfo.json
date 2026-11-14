@@ -50,6 +50,7 @@
     "image_clipboard": "unknown",
     "shared_folders": "unknown",
     "coop": "unknown",
+    "neural_frame_generation": "unknown",
     "mic_only": "unknown",
     "continue_here": {"only": "rust", "availability": "unknown", "comment": "Android reads the native list itself: NativeCapabilities.offersContinueHere"},
     "pc_restart": {"only": "java", "availability": "unknown", "comment": "Desktop reads power.restart, power.shutdown and update from the native capabilities itself"},

@@ -165,6 +165,12 @@ pub enum Command {
     FolderUpload(u64),
     /// Open the details page's list of a PC's Nucleus Co-op sessions.
     Coop(u64),
+    /// Open a game page's Neural Rendering: the PC, the library app id and its install id.
+    Neural {
+        host: u64,
+        game: u32,
+        app: String,
+    },
     CancelPair,
     /// An address, or a QR pairing link to add and pair with (see `hosts::parse_entry`).
     AddHost(String),
@@ -297,6 +303,9 @@ pub enum Dialog {
     /// dialog can offer to carry on with it instead.
     ConfirmQuit { host: u64, start: Option<(i32, String)>, running: String, resume: Option<i32>, named: Option<i32> },
     ConfirmAction { host: u64, app: i32, name: String },
+    /// The PC's one-time notice before frame generation's first install in a game (library app
+    /// id `game`): Accept turns it on, anything else leaves it off.
+    ConfirmNeural { host: u64, game: u32 },
     /// The PC refused to start `app` until the user confirms closing `running`. Closing the
     /// dialog any other way than confirming cancels the launch.
     ConfirmReplace { app: String, running: String },
@@ -527,6 +536,8 @@ pub struct Launcher {
     pub folders: crate::folders_page::SharedFolders,
     /// The details page's list of Nucleus Co-op sessions.
     pub coop: crate::coop_page::CoopSessions,
+    /// The game page's Neural Rendering.
+    pub neural: crate::neural_page::NeuralPanel,
     /// The Files page and its transfers.
     pub files: files::Files,
     /// The latency benchmark page's test and results (`crate::latency_bench`); app/launcher.rs feeds it.
@@ -630,6 +641,7 @@ impl Launcher {
             remote: Default::default(),
             folders: Default::default(),
             coop: Default::default(),
+            neural: Default::default(),
             files: Default::default(),
             latency_bench: Default::default(),
             toast: None,
@@ -1084,6 +1096,11 @@ impl Launcher {
         if let Some((host, app)) = self.coop.poll(page) {
             commands.push(Command::Launch { host, app, resume: false });
         }
+        // Likewise a game page that was left closes its Neural Rendering.
+        self.neural.poll(match self.screen {
+            Screen::Game { host, app } => Some((host, app)),
+            _ => None,
+        });
         // Likewise a Files page that was left cancels its transfers.
         let files = std::iter::once(&self.screen).chain(self.trail.iter().map(|(screen, _)| screen)).find_map(|screen| match screen {
             Screen::Files(id) => Some(*id),

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A game's frame generation from the library's game menu (computers/NeuralSheet). -->
+<resources>
+    <string name="neural_menu">Frame generation</string>
+    <string name="neural_menu_note">Smoother motion through a mod the PC puts in the game’s folder</string>
+    <string name="neural_title">Frame generation · %1$s</string>
+    <string name="neural_loading">Loading…</string>
+    <string name="neural_turning_on">Turning on frame generation…</string>
+    <string name="neural_turning_off">Turning off frame generation…</string>
+    <string name="neural_problem">Frame generation didn’t change</string>
+    <string name="neural_about">Smoother motion in games that offer DLSS frame generation, through a mod the PC puts in the game’s folder. Leave it off for online games: one may treat a mod as cheating.</string>
+    <string name="neural_not_offered">The PC offers no frame generation for this game.</string>
+    <string name="neural_frame_generation">Frame generation</string>
+    <string name="neural_replaces">Turning it on removes the earlier neural upscaling from the game’s folder first.</string>
+    <string name="neural_refresh">Refresh</string>
+    <string name="neural_unavailable">The PC can’t change it right now.</string>
+    <string name="neural_notice_title">Install a third-party game mod?</string>
+    <string name="neural_notice">Frame generation puts a third-party mod into the game’s folder, where the game loads it in place of its own DLSS frame generation. The PC downloads it from its authors’ GitHub release; it is not made or endorsed by AMD or NVIDIA.\n\nThe PC refuses games with a known anti-cheat in their install and games Steam lists Valve Anti-Cheat for, but an online game may still treat a mod as cheating. Use it at your own risk.</string>
+    <string name="neural_notice_accept">Accept and install</string>
+    <string name="neural_on">On</string>
+    <string name="neural_off">Off</string>
+    <string name="neural_downloading_of">Downloading: %1$.1f of %2$.1f MB</string>
+    <string name="neural_downloading">Downloading…</string>
+    <string name="neural_copying">Copying into the game’s folder…</string>
+    <string name="neural_removing">Removing from the game’s folder…</string>
+    <string name="neural_failed">The last change failed.</string>
+</resources>

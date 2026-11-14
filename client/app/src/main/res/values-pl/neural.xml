@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="neural_menu">Generowanie klatek</string>
+    <string name="neural_menu_note">Płynniejszy ruch dzięki modowi, który PC umieszcza w folderze gry</string>
+    <string name="neural_title">Generowanie klatek · %1$s</string>
+    <string name="neural_loading">Wczytywanie…</string>
+    <string name="neural_turning_on">Włączanie generowania klatek…</string>
+    <string name="neural_turning_off">Wyłączanie generowania klatek…</string>
+    <string name="neural_problem">Generowanie klatek nie zostało zmienione</string>
+    <string name="neural_about">Płynniejszy ruch w grach z generowaniem klatek DLSS, dzięki modowi, który PC umieszcza w folderze gry. W grach online zostaw wyłączone: któraś może uznać moda za oszustwo.</string>
+    <string name="neural_not_offered">PC nie oferuje generowania klatek dla tej gry.</string>
+    <string name="neural_frame_generation">Generowanie klatek</string>
+    <string name="neural_replaces">Włączenie najpierw usuwa z folderu gry wcześniejsze neuronowe skalowanie.</string>
+    <string name="neural_refresh">Odśwież</string>
+    <string name="neural_unavailable">PC nie może tego teraz zmienić.</string>
+    <string name="neural_notice_title">Zainstalować moda innej firmy?</string>
+    <string name="neural_notice">Generowanie klatek umieszcza moda innej firmy w folderze gry, który gra wczytuje zamiast własnego generowania klatek DLSS. PC pobiera go z wydania jego autorów na GitHubie; nie jest stworzony ani zatwierdzony przez AMD ani NVIDIA.\n\nPC odrzuca gry ze znanym systemem anti-cheat w instalacji oraz gry, dla których Steam podaje Valve Anti-Cheat, ale gra online może mimo to uznać moda za oszustwo. Używasz go na własne ryzyko.</string>
+    <string name="neural_notice_accept">Zaakceptuj i zainstaluj</string>
+    <string name="neural_on">Wł.</string>
+    <string name="neural_off">Wyłączone</string>
+    <string name="neural_downloading_of">Pobieranie: %1$.1f z %2$.1f MB</string>
+    <string name="neural_downloading">Pobieranie…</string>
+    <string name="neural_copying">Kopiowanie do folderu gry…</string>
+    <string name="neural_removing">Usuwanie z folderu gry…</string>
+    <string name="neural_failed">Ostatnia zmiana się nie powiodła.</string>
+</resources>

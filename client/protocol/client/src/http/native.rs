@@ -19,6 +19,7 @@ use super::native_api::radeon::{Radeon, SettingsWrite};
 use super::native_api::session::{ActionId, CouchMenu, CouchMenuRequest, Session, SessionApp};
 use super::native_api::wake::Wake;
 use super::native_api::PREFIX;
+use super::neural::{Neural, NeuralWrite};
 use super::transport::{self, Body, Request, Timeouts};
 use super::{Error, HostClient, LONG_CONNECT_TIMEOUT, READ_TIMEOUT};
 use serde::de::{DeserializeOwned, Error as _};
@@ -439,6 +440,31 @@ impl HostClient {
         self.native("coop/join", Some(&body), MAX_JSON_BYTES, ACTION_READ_TIMEOUT)
     }
 
+    /// A game's Neural Rendering switches. Only when the capabilities list
+    /// `neural.frame_generation`; reading needs View streams.
+    pub fn neural(&self, app: &str) -> Result<Neural, Error> {
+        let app: String = url_component(app);
+        self.native(
+            &format!("neural?app={app}"),
+            None,
+            MAX_JSON_BYTES,
+            READ_TIMEOUT,
+        )
+    }
+
+    /// Turns a game's switch on or off; the host then downloads, installs or removes on its own.
+    /// Needs View streams and Host control, and no stream running on the PC.
+    pub fn write_neural(&self, write: &NeuralWrite) -> Result<Neural, Error> {
+        let body = serde_json::to_vec(write)
+            .map_err(|e| Error::InvalidArgument(format!("Neural Rendering write: {e}")))?;
+        self.native(
+            "neural/settings",
+            Some(&body),
+            MAX_JSON_BYTES,
+            ACTION_READ_TIMEOUT,
+        )
+    }
+
     /// The encode GPU's Radeon settings.
     pub fn radeon(&self) -> Result<Radeon, Error> {
         self.native("radeon", None, MAX_JSON_BYTES, READ_TIMEOUT)
@@ -688,4 +714,16 @@ mod tests {
             ));
         }
     }
+}
+
+/// `text` percent-encoded for a query value: unreserved characters as they are.
+fn url_component(text: &str) -> String {
+    text.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
 }

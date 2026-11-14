@@ -27,6 +27,7 @@ use nightjar_core::http::{
     HostUpdate, NativeCapabilities, NativeLibrary, PairingApprove, PairingApproved, PairingRequests, PcPower, PcPowerOffer, PowerError, PowerReply, Refusal, StreamMove,
     GuestAction, SessionGuests,
 };
+use nightjar_core::http::{Neural, NeuralWrite};
 
 /// What the client of one host needs; Java builds it from the paired host's stored data.
 pub struct Endpoint {
@@ -66,6 +67,8 @@ pub trait Host {
     fn wake(&self) -> Result<Wake, Error>;
     fn coop(&self) -> Result<Coop, Error>;
     fn join_coop(&self, session: u32) -> Result<CoopJoined, Error>;
+    fn neural(&self, app: &str) -> Result<Neural, Error>;
+    fn write_neural(&self, write: &NeuralWrite) -> Result<Neural, Error>;
     fn audio(&self) -> Result<Audio, Error>;
     fn write_audio(&self, write: &AudioWrite) -> Result<Audio, Error>;
 }
@@ -142,6 +145,12 @@ impl Host for HostClient {
     }
     fn join_coop(&self, session: u32) -> Result<CoopJoined, Error> {
         HostClient::join_coop(self, session)
+    }
+    fn neural(&self, app: &str) -> Result<Neural, Error> {
+        HostClient::neural(self, app)
+    }
+    fn write_neural(&self, write: &NeuralWrite) -> Result<Neural, Error> {
+        HostClient::write_neural(self, write)
     }
     fn audio(&self) -> Result<Audio, Error> {
         HostClient::audio(self)
@@ -308,7 +317,8 @@ fn power(result: Result<PowerReply, PowerError>) -> String {
 /// (argument: the token from `power.capabilities`), `pc_power`, `pc_power.restart` and
 /// `pc_power.shutdown` (argument: the token from `pc_power`; `{}` once the PC took it), `update`
 /// (argument: the version an install follows, or empty) and `update.install` (both as
-/// [`update_json`]), `coop` and `coop.join` (argument: the session id), `audio` and
+/// [`update_json`]), `coop` and `coop.join` (argument: the session id), `neural` (argument: the
+/// app id) and `neural.write` (argument: the `NeuralWrite` JSON), `audio` and
 /// `audio_write` (argument: the `AudioWrite` JSON). Gate Sleep on `Feature::Sleep`, Restart and
 /// Shut down on the capabilities' `power.restart` and `power.shutdown`, the update ones on
 /// `update`, the co-op ones on `Feature::Coop` and the audio ones on the capabilities'
@@ -375,6 +385,12 @@ pub fn execute(host: &dyn Host, op: &str, argument: &str) -> String {
         "coop.join" => match argument.trim().parse::<u32>() {
             Ok(session) => ok(host.join_coop(session)),
             Err(_) => argument_error(format!("co-op session id: {argument:?}")),
+        },
+        "neural" if !argument.trim().is_empty() => ok(host.neural(argument.trim())),
+        "neural" => argument_error("Neural Rendering: name the app".to_owned()),
+        "neural.write" => match serde_json::from_str::<NeuralWrite>(argument) {
+            Ok(write) => ok(host.write_neural(&write)),
+            Err(e) => argument_error(format!("Neural Rendering write: {e}")),
         },
         "audio" => ok(host.audio()),
         "audio_write" => match serde_json::from_str::<AudioWrite>(argument) {

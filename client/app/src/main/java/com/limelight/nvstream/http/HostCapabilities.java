@@ -121,6 +121,12 @@ public final class HostCapabilities {
          */
         COOP(0),
         /**
+         * A game's frame generation, turned from this device (native "neural.frame_generation"). Known only after
+         * {@link #withNativeCapabilities}; reading needs View streams, a write Host control too, which the host's
+         * answer says.
+         */
+        NEURAL_FRAME_GENERATION(0),
+        /**
          * Microphone-only sessions (native "session.mic_only"): the PC hears this device's microphone and nothing
          * else. Known only after {@link #withNativeCapabilities}, and only for a device with the launch permission.
          */
@@ -438,6 +444,7 @@ public final class HostCapabilities {
         boolean imageClipboard = false;
         boolean folders = false;
         boolean coop = false;
+        boolean neural = false;
         boolean micOnly = false;
         boolean restart = false;
         boolean shutdown = false;
@@ -454,6 +461,7 @@ public final class HostCapabilities {
             imageClipboard |= "clipboard.image".equals(feature);
             folders |= "folders".equals(feature);
             coop |= "coop".equals(feature);
+            neural |= "neural.frame_generation".equals(feature);
             micOnly |= "session.mic_only".equals(feature);
             restart |= "power.restart".equals(feature);
             shutdown |= "power.shutdown".equals(feature);
@@ -480,6 +488,8 @@ public final class HostCapabilities {
         native_.foldersOffered = folders;
         native_.folderPermission = folderPermission;
         native_.coopOffered = coop;
+        native_.neuralOffered = neural;
+        native_.viewPermission = granted(permissions, "view");
         // Starting one takes the launch permission, so it is offered only with that.
         native_.micOnlyOffered = micOnly && typed(permissions, "launch", Boolean.class);
         native_.restartOffered = restart;
@@ -692,6 +702,10 @@ public final class HostCapabilities {
         boolean folderPermission;
         /** coop in the native features. */
         boolean coopOffered;
+        /** neural.frame_generation in the native features. */
+        boolean neuralOffered;
+        /** The native View streams permission, which reading a game's switches needs. */
+        boolean viewPermission;
         /** session.mic_only in the native features, with the launch permission. */
         boolean micOnlyOffered;
         /** power.restart and power.shutdown in the native features, and this device's restart_shutdown grant. */
@@ -1079,6 +1093,8 @@ public final class HostCapabilities {
                     // No permission reason: a device without Join co-op still sees the sessions and returns to its
                     // own slot; each session says why it cannot take a free one.
                     return nativeFeature(coopOffered, null);
+                case NEURAL_FRAME_GENERATION:
+                    return nativeFeature(neuralOffered, viewPermission ? null : Reason.VIEW_PERMISSION);
                 case MIC_ONLY:
                     return nativeFeature(micOnlyOffered, null);
                 case PC_RESTART:
@@ -1152,7 +1168,8 @@ public final class HostCapabilities {
                     .put("usbOffered", usbOffered)
                     .put("usbPermission", usbPermission).put("imageClipboardOffered", imageClipboardOffered)
                     .put("foldersOffered", foldersOffered).put("folderPermission", folderPermission)
-                    .put("coopOffered", coopOffered).put("micOnlyOffered", micOnlyOffered);
+                    .put("coopOffered", coopOffered).put("micOnlyOffered", micOnlyOffered)
+                    .put("neuralOffered", neuralOffered).put("viewPermission", viewPermission);
             if (rustHostVersion != null) object.put("rustHostVersion", rustHostVersion);
             if (frameLimiter != null) object.put("frameLimiter", frameLimiter);
             if (virtualDisplayCapable != null) object.put("virtualDisplayCapable", virtualDisplayCapable);
@@ -1215,6 +1232,8 @@ public final class HostCapabilities {
             evidence.foldersOffered = object.optBoolean("foldersOffered", false);
             evidence.folderPermission = object.optBoolean("folderPermission", false);
             evidence.coopOffered = object.optBoolean("coopOffered", false);
+            evidence.neuralOffered = object.optBoolean("neuralOffered", false);
+            evidence.viewPermission = object.optBoolean("viewPermission", false);
             evidence.micOnlyOffered = object.optBoolean("micOnlyOffered", false);
             if (evidence.permission < -1 || evidence.permission > 0xFFFFFFFFL || evidence.serverCommands < 0 ||
                     (evidence.rustHostVersion != null && evidence.rustHostVersion.isEmpty())) {
@@ -1266,7 +1285,8 @@ public final class HostCapabilities {
                     usbOffered == that.usbOffered &&
                     usbPermission == that.usbPermission && imageClipboardOffered == that.imageClipboardOffered &&
                     foldersOffered == that.foldersOffered && folderPermission == that.folderPermission &&
-                    coopOffered == that.coopOffered && micOnlyOffered == that.micOnlyOffered;
+                    coopOffered == that.coopOffered && micOnlyOffered == that.micOnlyOffered &&
+                    neuralOffered == that.neuralOffered && viewPermission == that.viewPermission;
         }
 
         @Override
@@ -1279,7 +1299,8 @@ public final class HostCapabilities {
                     filesDownload, fileUploadPermission, fileDownloadPermission, hdrFormats, fecControlVersion,
                     bandwidthProbeVersion, audioCodecs, audioLayouts, textInputVersion, keyboardLayoutVersion,
                     penBarrelRollVersion, controllerIdentityVersion, pipelineRatesVersion, displayScaleVersion, secondScreenVersion, nvidiaEnhancements, internetPlayVersion, usbOffered,
-                    usbPermission, imageClipboardOffered, foldersOffered, folderPermission, coopOffered, micOnlyOffered);
+                    usbPermission, imageClipboardOffered, foldersOffered, folderPermission, coopOffered, micOnlyOffered,
+                    neuralOffered, viewPermission);
         }
     }
 }

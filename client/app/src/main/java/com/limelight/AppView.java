@@ -964,6 +964,7 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
         }
         if (selectedApp.app.getControl() == NvApp.Control.NONE) {
             addGameSettingsAction(sheet, selectedApp);
+            addNeuralAction(sheet, selectedApp);
         }
         if (selectedApp.app.getRole() != NvApp.Role.REMOTE_MONITOR) {
             sheet.addAction(R.drawable.ic_touch_controls, getString(R.string.library_import_controls),
@@ -1098,6 +1099,38 @@ public class AppView extends NightjarActivity implements AdapterFragmentCallback
             sheet.setActionText(action, getString(R.string.library_quit_on_leave), quitOnLeaveNote(enabled));
             action.announceForAccessibility(quitOnLeaveNote(enabled));
         });
+    }
+
+    /** Opens the game's frame generation on the PC, while the PC offers it to this device. */
+    private void addNeuralAction(ActionSheet sheet, AppObject app) {
+        String appUuid = app.app.getAppUuid();
+        if (appUuid == null || appUuid.isEmpty() || managerBinder == null || !offersNeural()) {
+            return;
+        }
+        sheet.addAction(R.drawable.ic_tune, getString(R.string.neural_menu), getString(R.string.neural_menu_note))
+                .setOnClickListener(v -> {
+                    sheet.dismiss();
+                    ComputerManagerService.ComputerManagerBinder binder = managerBinder;
+                    if (binder == null) {
+                        showAppListStatus(R.string.library_offline);
+                        return;
+                    }
+                    com.limelight.computers.NeuralSheet.show(this, computer, binder.getUniqueId(), appUuid,
+                            app.app.getAppName());
+                });
+    }
+
+    /** The PC lists frame generation in its native capabilities and lets this device view streams. */
+    private boolean offersNeural() {
+        String known = com.limelight.nativeapi.KnownCapabilities.of(computer.uuid);
+        if (known == null) return false;
+        try {
+            return computer.caps.withNativeCapabilities(known)
+                    .has(com.limelight.nvstream.http.HostCapabilities.Feature.NEURAL_FRAME_GENERATION);
+        } catch (org.json.JSONException e) {
+            LimeLog.warning("Unreadable native capabilities of " + computer.uuid + ": " + e.getMessage());
+            return false;
+        }
     }
 
     /** Opens this game's own stream values; the note says whether it has any. */

@@ -56,6 +56,7 @@
     "image_clipboard": "unsupported:clipboard_permission",
     "shared_folders": "unsupported:folder_permission",
     "coop": "unsupported",
+    "neural_frame_generation": "unsupported",
     "mic_only": "unsupported",
     "continue_here": {"only": "rust", "availability": "unsupported", "comment": "Android reads the native list itself: NativeCapabilities.offersContinueHere"},
     "pc_restart": {"only": "java", "availability": "unsupported", "comment": "Desktop reads power.restart, power.shutdown and update from the native capabilities itself"},

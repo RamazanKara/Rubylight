@@ -40,7 +40,7 @@ fn the_language_setting_follows_the_system_only_on_auto() {
 // ---- The table against the sources. ----
 
 /// The UI sources, up to their test modules.
-const SOURCES: [(&str, &str); 52] = [
+const SOURCES: [(&str, &str); 53] = [
     ("open_play.rs", include_str!("../open_play.rs")),
     ("full_chroma.rs", include_str!("../full_chroma.rs")),
     ("autostart.rs", include_str!("../autostart.rs")),
@@ -62,6 +62,7 @@ const SOURCES: [(&str, &str); 52] = [
     ("host_page.rs", include_str!("../host_page.rs")),
     ("folders_page.rs", include_str!("../folders_page.rs")),
     ("coop_page.rs", include_str!("../coop_page.rs")),
+    ("neural_page.rs", include_str!("../neural_page.rs")),
     ("session_ui.rs", include_str!("../session_ui.rs")),
     ("session_page.rs", include_str!("../session_page.rs")),
     ("main.rs", include_str!("../main.rs")),

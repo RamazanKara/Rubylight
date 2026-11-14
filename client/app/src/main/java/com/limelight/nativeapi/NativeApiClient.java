@@ -159,6 +159,30 @@ public final class NativeApiClient {
         }
     }
 
+    /** A game's Neural Rendering switches; {@code app} is the library's app id. */
+    public NativeNeural neural(String app) throws NativeApiException {
+        try {
+            return NativeNeural.parse(call("neural", app));
+        } catch (JSONException e) {
+            throw malformed("Neural Rendering", e);
+        }
+    }
+
+    /** Turns the game's frame generation on or off; needs View streams and Host control. */
+    public NativeNeural writeNeural(String app, boolean on, boolean acceptNotice) throws NativeApiException {
+        String body;
+        try {
+            body = NativeNeural.writeJson(app, on, acceptNotice);
+        } catch (JSONException e) {
+            throw new NativeApiException(NativeApiException.Kind.INVALID_ARGUMENT, "Neural write: " + e.getMessage());
+        }
+        try {
+            return NativeNeural.parse(call("neural.write", body));
+        } catch (JSONException e) {
+            throw malformed("Neural Rendering", e);
+        }
+    }
+
     public NativeRadeon radeon() throws NativeApiException {
         return parseRadeon(call("radeon", ""));
     }

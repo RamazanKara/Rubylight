@@ -99,6 +99,12 @@ enum RowAct {
     Profile {
         decided: bool,
     },
+    /// Frame generation in library app `game`: on, and whether the PC's notice was accepted.
+    Neural {
+        game: u32,
+        on: bool,
+        accepted: bool,
+    },
     Nothing,
 }
 
@@ -116,8 +122,70 @@ struct ArtRow {
 impl ArtRow {
     fn switch(&self) -> Option<bool> {
         match self.act {
-            RowAct::QuitOnLeave { on, .. } | RowAct::Hide { on, .. } => Some(on),
+            RowAct::QuitOnLeave { on, .. } | RowAct::Hide { on, .. } | RowAct::Neural { on, .. } => {
+                Some(on)
+            }
             _ => None,
+        }
+    }
+}
+
+/// The PC lists Neural Rendering's frame generation for this device.
+fn offers_neural(host: &Host) -> bool {
+    host.info.as_ref().is_some_and(|info| {
+        info.capabilities
+            .has(nightjar_core::http::Feature::NeuralFrameGeneration)
+    })
+}
+
+impl Launcher {
+    /// The frame generation row: its switch, and the line that says why it can't change, what
+    /// the PC is doing, what turning it on replaces, or what it is for.
+    fn neural_row(&self, host: &Host, game: u32) -> ArtRow {
+        use crate::neural_page::{configurable, job_text, switch_text};
+        let open = self.neural.state_for(host.id, game);
+        let state = open.and_then(|open| open.state.as_ref());
+        let switch = state.and_then(|state| state.frame_generation());
+        let busy = open.is_some_and(|open| open.writing) || state.is_some_and(|s| s.working());
+        let failure = self.neural.failure_for(host.id, game).map(str::to_owned);
+        let (line, ink) = if let Some(error) = failure.or_else(|| open.and_then(|o| o.error.clone())) {
+            (error, *ERROR)
+        } else if let Some(job) = state.and_then(job_text) {
+            let failed = state.and_then(|s| s.job.as_ref()).is_some_and(|job| {
+                job.phase == nightjar_core::http::NeuralPhase::Failed
+            });
+            (job, if failed { *ERROR } else { *ON_SURFACE_VARIANT })
+        } else if let Some(switch) = switch.filter(|s| !configurable(s)) {
+            (switch_text(switch), *ON_SURFACE_VARIANT)
+        } else if state.is_some_and(|s| s.replaces_earlier_upscaling) && !switch.is_some_and(|s| s.on) {
+            (
+                tr("Turning it on removes the earlier neural upscaling from the game’s folder first.").to_owned(),
+                *ON_SURFACE_VARIANT,
+            )
+        } else if state.is_none() {
+            (tr("Loading…").to_owned(), *ON_SURFACE_VARIANT)
+        } else if switch.is_none() {
+            (tr("The PC offers no frame generation for this game.").to_owned(), *ON_SURFACE_VARIANT)
+        } else {
+            (
+                tr("Smoother motion in games that offer DLSS frame generation, through a mod the PC puts in the game’s folder. Leave it off for online games: one may treat a mod as cheating.").to_owned(),
+                *ON_SURFACE_VARIANT,
+            )
+        };
+        ArtRow {
+            key: "neural".into(),
+            label: tr("Frame generation").to_owned(),
+            sub: Some((line, ink)),
+            said: None,
+            enabled: switch.is_some_and(configurable) && !busy,
+            act: match switch {
+                Some(switch) => RowAct::Neural {
+                    game,
+                    on: switch.on,
+                    accepted: state.is_some_and(|s| s.accepted),
+                },
+                None => RowAct::Nothing,
+            },
         }
     }
 }
@@ -203,6 +271,14 @@ impl Launcher {
             return;
         };
         let state = self.play_state(host, source, game);
+        // Neural Rendering reads the PC while the page is open, if the PC offers it.
+        if offers_neural(host) && self.neural.wanted(host_id, app_id) {
+            commands.push(Command::Neural {
+                host: host_id,
+                game: app_id,
+                app: game.install_id.clone(),
+            });
+        }
         // Play starts from the PC's app list: read it while the player is here, not on the press.
         if state.detail.can_start && matches!(host.apps, Apps::NotLoaded) {
             commands.push(Command::LoadApps(host_id));
@@ -684,6 +760,9 @@ impl Launcher {
                 });
             }
         }
+        if offers_neural(host) {
+            rows.push(self.neural_row(host, game.app_id));
+        }
         // Hidden or not: the other PCs' copies are named either way.
         let merged = self.library.get(sources, &self.hidden_games);
         let others = merged
@@ -913,6 +992,18 @@ impl Launcher {
                     RowAct::Profile { decided } => {
                         if *decided {
                             self.open(Screen::Profiles);
+                        }
+                    }
+                    RowAct::Neural { game, on, accepted } => {
+                        if *on {
+                            self.neural.write(host.id, *game, false, false);
+                        } else if *accepted {
+                            self.neural.write(host.id, *game, true, false);
+                        } else {
+                            self.ask(Dialog::ConfirmNeural {
+                                host: host.id,
+                                game: *game,
+                            });
                         }
                     }
                     RowAct::Nothing => {}

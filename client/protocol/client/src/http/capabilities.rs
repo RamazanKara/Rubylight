@@ -97,6 +97,10 @@ pub enum Feature {
     /// Nucleus Co-op sessions to list and join (native `coop`). Known only after
     /// [`HostCapabilities::with_native`]. Whether this device may take a free slot is per session.
     Coop,
+    /// A game's frame generation, turned from this device (native `neural.frame_generation`).
+    /// Known only after [`HostCapabilities::with_native`]; reading needs View streams, a write
+    /// Host control too, which the host's answer says.
+    NeuralFrameGeneration,
     /// Microphone-only sessions (native `session.mic_only`): the PC hears this device's
     /// microphone and nothing else. Known only after [`HostCapabilities::with_native`], and
     /// only for a device with the launch permission.
@@ -109,7 +113,7 @@ pub enum Feature {
 }
 
 impl Feature {
-    pub const ALL: [Feature; 49] = [
+    pub const ALL: [Feature; 50] = [
         Feature::Permissions,
         Feature::OtpPairing,
         Feature::Clipboard,
@@ -156,6 +160,7 @@ impl Feature {
         Feature::ImageClipboard,
         Feature::SharedFolders,
         Feature::Coop,
+        Feature::NeuralFrameGeneration,
         Feature::MicOnly,
         Feature::ContinueHere,
         Feature::InternetPlay,
@@ -298,6 +303,10 @@ pub struct Evidence {
     pub folder_permission: bool,
     /// `coop` in the native features.
     pub coop_offered: bool,
+    /// `neural.frame_generation` in the native features.
+    pub neural_offered: bool,
+    /// The View streams permission, which reading a game's switches needs.
+    pub view_permission: bool,
     /// `session.mic_only` in the native features, with the launch permission.
     pub mic_only_offered: bool,
     pub continue_here_offered: bool,
@@ -893,6 +902,10 @@ impl Evidence {
             // No permission reason: a device without Join co-op still sees the sessions and
             // returns to its own slot; each session says why it cannot take a free one.
             Feature::Coop => self.native_feature(self.coop_offered, None),
+            Feature::NeuralFrameGeneration => {
+                let refused = (!self.view_permission).then_some(Reason::ViewPermission);
+                self.native_feature(self.neural_offered, refused)
+            }
             Feature::MicOnly => self.native_feature(self.mic_only_offered, None),
             Feature::ContinueHere => self.native_feature(self.continue_here_offered, None),
         }
@@ -969,6 +982,8 @@ impl HostCapabilities {
         evidence.folders_offered = listed("folders");
         evidence.folder_permission = native.files.shared_folders;
         evidence.coop_offered = listed("coop");
+        evidence.neural_offered = listed("neural.frame_generation");
+        evidence.view_permission = native.capabilities.permissions.view;
         // Starting one takes the launch permission, so it is offered only with that.
         evidence.mic_only_offered = listed("session.mic_only") && native.capabilities.permissions.launch;
         // The host refuses a press without View and Launch.
@@ -1164,6 +1179,7 @@ mod tests {
             Feature::ImageClipboard,
             Feature::SharedFolders,
             Feature::Coop,
+            Feature::NeuralFrameGeneration,
             Feature::MicOnly,
             Feature::ContinueHere,
         ] {

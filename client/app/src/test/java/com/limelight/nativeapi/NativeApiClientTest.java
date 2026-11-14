@@ -363,6 +363,50 @@ public class NativeApiClientTest {
         assertEquals(-12, new JSONObject(transport.arguments.get(transport.arguments.size() - 1)).getInt("gpu"));
     }
 
+    @Test
+    public void neuralRendersTheSwitchAndAWriteCarriesTheNoticeOnlyWhenAccepted() throws Exception {
+        String working = "{\"app\":\"uuid-1\",\"accepted\":false,\"gpu\":\"AMD Radeon 780M\","
+                + "\"switches\":[{\"id\":\"frame_generation\",\"state\":\"temporarily_unavailable\",\"on\":true,"
+                + "\"reason\":\"Neural Rendering is busy with this game.\"},{\"id\":\"upscaling\",\"state\":\"configurable\"}],"
+                + "\"replaces_earlier_upscaling\":true,"
+                + "\"job\":{\"action\":\"install\",\"phase\":\"download\",\"done\":7000000,\"total\":14000000}}";
+        transport.reply("pc", "neural", ok(working));
+        NativeNeural state = client().neural("uuid-1");
+        assertEquals("uuid-1", state.app);
+        assertFalse(state.accepted);
+        assertTrue(state.replacesEarlierUpscaling);
+        assertTrue(state.working());
+        assertFalse(state.frameGeneration.configurable());
+        assertEquals("Neural Rendering is busy with this game.", state.frameGeneration.reason);
+        assertEquals(14000000, state.total);
+        assertEquals("uuid-1", transport.arguments.get(0));
+
+        String done = "{\"app\":\"uuid-1\",\"accepted\":true,\"switches\":[{\"id\":\"frame_generation\","
+                + "\"state\":\"configurable\",\"on\":true}],\"job\":{\"action\":\"install\",\"phase\":\"done\"}}";
+        transport.reply("pc", "neural.write", ok(done));
+        NativeNeural on = client().writeNeural("uuid-1", true, true);
+        assertTrue(on.frameGeneration.on && on.frameGeneration.configurable() && !on.working());
+        JSONObject sent = new JSONObject(transport.arguments.get(1));
+        // The host's write: no program path, and the notice only when the user just accepted it.
+        assertEquals(4, sent.length());
+        assertEquals("frame_generation", sent.getString("switch"));
+        assertTrue(sent.getBoolean("accept_notice"));
+        client().writeNeural("uuid-1", false, false);
+        JSONObject off = new JSONObject(transport.arguments.get(2));
+        assertEquals(3, off.length());
+        assertFalse(off.has("accept_notice"));
+
+        transport.reply("pc", "neural.write", "{\"error\":{\"kind\":\"api\",\"message\":\"Turn it on when no stream is running.\","
+                + "\"http_status\":409,\"code\":\"host_in_use\",\"setting\":\"frame_generation\"}}");
+        try {
+            client().writeNeural("uuid-1", true, false);
+            fail();
+        } catch (NativeApiException e) {
+            assertEquals("host_in_use", e.getCode());
+            assertEquals("Turn it on when no stream is running.", e.getMessage());
+        }
+    }
+
     private static String capabilities(boolean hostControl) {
         return ok("{\"api_version\":1,\"host\":{\"name\":\"GAMING-PC\",\"version\":\"3.0.0\",\"unique_id\":\"U\"},"
                 + "\"features\":[\"library\",\"session.close_game\"],\"permissions\":{\"list\":true,\"view\":true,"

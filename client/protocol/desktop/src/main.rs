@@ -27,6 +27,7 @@ mod demo_driver;
 mod console;
 mod coop_page;
 mod folders_page;
+mod neural_page;
 mod full_chroma;
 mod controller_audio;
 mod controller_mouse;

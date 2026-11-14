@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="neural_menu">Генерація кадрів</string>
+    <string name="neural_menu_note">Плавніший рух завдяки моду, який ПК розміщує в теці гри</string>
+    <string name="neural_title">Генерація кадрів · %1$s</string>
+    <string name="neural_loading">Завантаження…</string>
+    <string name="neural_turning_on">Увімкнення генерації кадрів…</string>
+    <string name="neural_turning_off">Вимкнення генерації кадрів…</string>
+    <string name="neural_problem">Генерація кадрів не змінилася</string>
+    <string name="neural_about">Плавніший рух в іграх із генерацією кадрів DLSS завдяки моду, який ПК розміщує в теці гри. Не вмикайте в онлайн-іграх: якась може вважати мод шахрайством.</string>
+    <string name="neural_not_offered">ПК не пропонує генерацію кадрів для цієї гри.</string>
+    <string name="neural_frame_generation">Генерація кадрів</string>
+    <string name="neural_replaces">Під час увімкнення спершу видаляється попереднє нейронне масштабування з теки гри.</string>
+    <string name="neural_refresh">Оновити</string>
+    <string name="neural_unavailable">ПК зараз не може це змінити.</string>
+    <string name="neural_notice_title">Установити сторонній мод для гри?</string>
+    <string name="neural_notice">Генерація кадрів розміщує сторонній мод у теці гри, і гра завантажує його замість власної генерації кадрів DLSS. ПК завантажує його з релізу авторів на GitHub; його не створено й не схвалено AMD чи NVIDIA.\n\nПК відмовляє іграм з відомим античитом у встановленні та іграм, для яких Steam вказує Valve Anti-Cheat, але онлайн-гра все одно може вважати мод шахрайством. Використовуйте на власний ризик.</string>
+    <string name="neural_notice_accept">Прийняти й установити</string>
+    <string name="neural_on">Увімкнено</string>
+    <string name="neural_off">Вимкнено</string>
+    <string name="neural_downloading_of">Завантаження: %1$.1f з %2$.1f МБ</string>
+    <string name="neural_downloading">Завантаження…</string>
+    <string name="neural_copying">Копіювання в теку гри…</string>
+    <string name="neural_removing">Видалення з теки гри…</string>
+    <string name="neural_failed">Остання зміна не вдалася.</string>
+</resources>

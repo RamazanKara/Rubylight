@@ -89,6 +89,7 @@ public class HostCapabilitiesContractTest {
             case IMAGE_CLIPBOARD: return "image_clipboard";
             case SHARED_FOLDERS: return "shared_folders";
             case COOP: return "coop";
+            case NEURAL_FRAME_GENERATION: return "neural_frame_generation";
             case MIC_ONLY: return "mic_only";
             case PC_RESTART: return "pc_restart";
             case PC_SHUTDOWN: return "pc_shutdown";

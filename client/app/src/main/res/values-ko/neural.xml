@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="neural_menu">프레임 생성</string>
+    <string name="neural_menu_note">PC가 게임 폴더에 넣는 모드로 더 부드러운 움직임</string>
+    <string name="neural_title">프레임 생성 · %1$s</string>
+    <string name="neural_loading">불러오는 중…</string>
+    <string name="neural_turning_on">프레임 생성을 켜는 중…</string>
+    <string name="neural_turning_off">프레임 생성을 끄는 중…</string>
+    <string name="neural_problem">프레임 생성이 변경되지 않았습니다</string>
+    <string name="neural_about">DLSS 프레임 생성을 지원하는 게임에서 PC가 게임 폴더에 넣는 모드로 움직임이 더 부드러워집니다. 온라인 게임에서는 끈 채로 두세요. 모드를 부정행위로 간주하는 게임이 있을 수 있습니다.</string>
+    <string name="neural_not_offered">이 PC는 이 게임에 프레임 생성을 제공하지 않습니다.</string>
+    <string name="neural_frame_generation">프레임 생성</string>
+    <string name="neural_replaces">켜면 먼저 이전 뉴럴 업스케일링이 게임 폴더에서 제거됩니다.</string>
+    <string name="neural_refresh">새로 고침</string>
+    <string name="neural_unavailable">PC가 지금은 변경할 수 없습니다.</string>
+    <string name="neural_notice_title">타사 게임 모드를 설치할까요?</string>
+    <string name="neural_notice">프레임 생성은 타사 모드를 게임 폴더에 넣으며, 게임은 자체 DLSS 프레임 생성 대신 이를 불러옵니다. PC는 제작자의 GitHub 릴리스에서 이를 다운로드합니다. AMD나 NVIDIA가 만들거나 보증한 것이 아닙니다.\n\nPC는 설치에 알려진 안티치트가 있는 게임과 Steam에 Valve Anti-Cheat가 표시된 게임을 거부하지만, 온라인 게임은 여전히 모드를 부정행위로 간주할 수 있습니다. 사용에 따른 책임은 본인에게 있습니다.</string>
+    <string name="neural_notice_accept">동의하고 설치</string>
+    <string name="neural_on">사용</string>
+    <string name="neural_off">사용 안함</string>
+    <string name="neural_downloading_of">다운로드 중: %1$.1f / %2$.1f MB</string>
+    <string name="neural_downloading">다운로드 중…</string>
+    <string name="neural_copying">게임 폴더에 복사 중…</string>
+    <string name="neural_removing">게임 폴더에서 제거 중…</string>
+    <string name="neural_failed">마지막 변경에 실패했습니다.</string>
+</resources>

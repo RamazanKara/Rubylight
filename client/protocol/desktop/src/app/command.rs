@@ -331,6 +331,18 @@ Redacted logs, oldest line first; addresses, PC names, PINs and credentials are 
                     coop_page::start(&mut self.launcher.coop, self.hosts.identity(), host, self.waker.clone());
                 }
             }
+            Command::Neural { host, game, app } => {
+                if let Some(host) = self.hosts.get(host) {
+                    neural_page::start(
+                        &mut self.launcher.neural,
+                        self.hosts.identity(),
+                        host,
+                        game,
+                        app,
+                        self.waker.clone(),
+                    );
+                }
+            }
             Command::OpenFiles(id) => {
                 if let Some(host) = self.hosts.get(id) {
                     ui::files::open(&mut self.launcher, self.hosts.identity(), host, self.waker.clone());

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="neural_menu">Генерация кадров</string>
+    <string name="neural_menu_note">Более плавное движение благодаря моду, который ПК помещает в папку игры</string>
+    <string name="neural_title">Генерация кадров · %1$s</string>
+    <string name="neural_loading">Загрузка…</string>
+    <string name="neural_turning_on">Включение генерации кадров…</string>
+    <string name="neural_turning_off">Отключение генерации кадров…</string>
+    <string name="neural_problem">Генерация кадров не изменилась</string>
+    <string name="neural_about">Более плавное движение в играх с генерацией кадров DLSS благодаря моду, который ПК помещает в папку игры. Не включайте в онлайн-играх: какая-нибудь может счесть мод читерством.</string>
+    <string name="neural_not_offered">ПК не предлагает генерацию кадров для этой игры.</string>
+    <string name="neural_frame_generation">Генерация кадров</string>
+    <string name="neural_replaces">При включении сначала удаляется прежнее нейронное масштабирование из папки игры.</string>
+    <string name="neural_refresh">Обновить</string>
+    <string name="neural_unavailable">ПК сейчас не может это изменить.</string>
+    <string name="neural_notice_title">Установить сторонний мод для игры?</string>
+    <string name="neural_notice">Генерация кадров помещает сторонний мод в папку игры, и игра загружает его вместо собственной генерации кадров DLSS. ПК скачивает его из релиза авторов на GitHub; он не создан и не одобрен AMD или NVIDIA.\n\nПК отказывает играм с известной античит-системой в установке и играм, для которых Steam указывает Valve Anti-Cheat, но онлайн-игра всё равно может счесть мод читерством. Используйте на свой страх и риск.</string>
+    <string name="neural_notice_accept">Принять и установить</string>
+    <string name="neural_on">Вкл.</string>
+    <string name="neural_off">Выкл.</string>
+    <string name="neural_downloading_of">Загрузка: %1$.1f из %2$.1f МБ</string>
+    <string name="neural_downloading">Загрузка…</string>
+    <string name="neural_copying">Копирование в папку игры…</string>
+    <string name="neural_removing">Удаление из папки игры…</string>
+    <string name="neural_failed">Последнее изменение не удалось.</string>
+</resources>

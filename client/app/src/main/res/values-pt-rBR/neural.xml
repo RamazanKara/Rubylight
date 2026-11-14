@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="neural_menu">Geração de quadros</string>
+    <string name="neural_menu_note">Movimento mais suave por meio de um mod que o PC coloca na pasta do jogo</string>
+    <string name="neural_title">Geração de quadros · %1$s</string>
+    <string name="neural_loading">Carregando…</string>
+    <string name="neural_turning_on">Ativando a geração de quadros…</string>
+    <string name="neural_turning_off">Desativando a geração de quadros…</string>
+    <string name="neural_problem">A geração de quadros não foi alterada</string>
+    <string name="neural_about">Movimento mais suave em jogos que oferecem geração de quadros DLSS, por meio de um mod que o PC coloca na pasta do jogo. Deixe desativado em jogos online: algum pode considerar um mod como trapaça.</string>
+    <string name="neural_not_offered">O PC não oferece geração de quadros para este jogo.</string>
+    <string name="neural_frame_generation">Geração de quadros</string>
+    <string name="neural_replaces">Ao ativar, o upscaling neural anterior é removido primeiro da pasta do jogo.</string>
+    <string name="neural_refresh">Atualizar</string>
+    <string name="neural_unavailable">O PC não pode alterar isso agora.</string>
+    <string name="neural_notice_title">Instalar um mod de terceiros?</string>
+    <string name="neural_notice">A geração de quadros coloca um mod de terceiros na pasta do jogo, que o jogo carrega no lugar da sua própria geração de quadros DLSS. O PC o baixa da versão no GitHub de seus autores; ele não é feito nem endossado pela AMD ou NVIDIA.\n\nO PC recusa jogos com um anti-cheat conhecido na instalação e jogos para os quais a Steam indica Valve Anti-Cheat, mas um jogo online ainda pode considerar um mod como trapaça. Use por sua conta e risco.</string>
+    <string name="neural_notice_accept">Aceitar e instalar</string>
+    <string name="neural_on">Ativado</string>
+    <string name="neural_off">Desativado</string>
+    <string name="neural_downloading_of">Baixando: %1$.1f de %2$.1f MB</string>
+    <string name="neural_downloading">Baixando…</string>
+    <string name="neural_copying">Copiando para a pasta do jogo…</string>
+    <string name="neural_removing">Removendo da pasta do jogo…</string>
+    <string name="neural_failed">A última alteração falhou.</string>
+</resources>

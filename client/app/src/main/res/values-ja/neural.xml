@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="neural_menu">フレーム生成</string>
+    <string name="neural_menu_note">PC がゲームのフォルダーに置く MOD で動きをより滑らかに</string>
+    <string name="neural_title">フレーム生成 · %1$s</string>
+    <string name="neural_loading">読み込み中…</string>
+    <string name="neural_turning_on">フレーム生成をオンにしています…</string>
+    <string name="neural_turning_off">フレーム生成をオフにしています…</string>
+    <string name="neural_problem">フレーム生成は変更されませんでした</string>
+    <string name="neural_about">DLSS フレーム生成に対応したゲームで、PC がゲームのフォルダーに置く MOD により動きがより滑らかになります。オンラインゲームではオフのままにしてください。MOD を不正行為とみなすゲームがあります。</string>
+    <string name="neural_not_offered">この PC はこのゲームのフレーム生成を提供していません。</string>
+    <string name="neural_frame_generation">フレーム生成</string>
+    <string name="neural_replaces">オンにすると、まず以前のニューラルアップスケーリングがゲームのフォルダーから削除されます。</string>
+    <string name="neural_refresh">更新</string>
+    <string name="neural_unavailable">PC は今これを変更できません。</string>
+    <string name="neural_notice_title">サードパーティ製のゲーム MOD をインストールしますか？</string>
+    <string name="neural_notice">フレーム生成は、サードパーティ製の MOD をゲームのフォルダーに置き、ゲームは自身の DLSS フレーム生成の代わりにそれを読み込みます。PC は作者の GitHub リリースからダウンロードします。AMD や NVIDIA が作成・承認したものではありません。\n\nPC は、インストールに既知のアンチチートがあるゲームや、Steam が Valve Anti-Cheat を表示しているゲームを拒否しますが、オンラインゲームが MOD を不正行為とみなす可能性は残ります。自己責任でお使いください。</string>
+    <string name="neural_notice_accept">同意してインストール</string>
+    <string name="neural_on">オン</string>
+    <string name="neural_off">オフ</string>
+    <string name="neural_downloading_of">ダウンロード中: %1$.1f / %2$.1f MB</string>
+    <string name="neural_downloading">ダウンロード中…</string>
+    <string name="neural_copying">ゲームのフォルダーにコピー中…</string>
+    <string name="neural_removing">ゲームのフォルダーから削除中…</string>
+    <string name="neural_failed">前回の変更に失敗しました。</string>
+</resources>

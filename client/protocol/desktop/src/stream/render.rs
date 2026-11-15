@@ -259,25 +259,30 @@ impl Streaming {
         let Some(refresh_hz) = self.plan.display.reported_refresh_hz() else { return 1 };
         let fps = f64::from(self.shared.fps_millihz.load(Ordering::Relaxed)) / 1000.0;
         let refreshes = nightjar_policy::vsync::refreshes_per_frame(f64::from(refresh_hz), fps, self.pacer.mode != PacingMode::Vsync, self.settings.fractional_vsync);
-        if refreshes > 1 && !self.held_times() {
-            if !std::mem::replace(&mut self.held_untimed_logged, true) {
-                eprintln!("nightjar: pacing: fractional V-Sync needs the times the display shows pictures at (Windows, Wayland's presentation feedback, KMS), none here: each picture shows at the next refresh");
+        if refreshes <= 1 { return refreshes; }
+        match self.held_times() {
+            phase::HeldTimes::Told => refreshes,
+            // Wayland's feedback before its first answer was due: nothing to say yet.
+            phase::HeldTimes::Unknown => 1,
+            phase::HeldTimes::Untold => {
+                if !std::mem::replace(&mut self.held_untimed_logged, true) {
+                    eprintln!("nightjar: pacing: fractional V-Sync needs the times the display shows pictures at (Windows' swap chain statistics, Wayland's presentation feedback, KMS), none here: each picture shows at the next refresh");
+                }
+                1
             }
-            return 1;
         }
-        refreshes
     }
 
     /// Whether this display tells when it showed a picture, which fractional V-Sync's turns count
-    /// from: Windows' swap chain statistics, a KMS commit, or Wayland's presentation feedback with
-    /// times in the last second.
-    fn held_times(&self) -> bool {
+    /// from: Windows' swap chain statistics while they can be read, a KMS commit, or Wayland's
+    /// presentation feedback with times in the last second.
+    fn held_times(&self) -> phase::HeldTimes {
         #[cfg(windows)]
-        { true }
+        { self.held_stats.times(session::now_us()) }
         #[cfg(target_os = "linux")]
-        { self.kms_engaged() || self.glass.timing(session::now_us()) }
+        { if self.kms_engaged() { phase::HeldTimes::Told } else { self.glass.times(session::now_us()) } }
         #[cfg(not(any(windows, target_os = "linux")))]
-        { false }
+        { phase::HeldTimes::Untold }
     }
 
     /// How far ahead of its turn a picture fractional V-Sync holds goes out: the desktop's deadline,
@@ -302,7 +307,11 @@ impl Streaming {
         let margin_us = self.held_margin_us(renderer);
         let refresh_hz = self.plan.display.refresh_hz;
         let wait_us = if cfg!(windows) {
-            phase::held_wait_us(renderer, refresh_hz, held, margin_us, &mut self.held_anchor)
+            // Without the statistics nothing is held: the next pictures show at the next refresh
+            // and the phase report aims at it (`held_times`).
+            let wait = phase::held_wait_us(renderer, refresh_hz, held, margin_us, &mut self.held_anchor);
+            self.held_stats.read(wait.is_some(), session::now_us());
+            wait.unwrap_or(0)
         } else {
             self.held_clock.hold(session::now_us(), held, (1e6 / f64::from(refresh_hz.max(1.0))) as u64, margin_us)
         };
@@ -325,7 +334,9 @@ impl Streaming {
         let refreshes = self.vsync_refreshes();
         self.vrr.set_refreshes(refreshes);
         let probe = self.race_probe.as_ref();
-        if self.vrr.held(self.pacer.mode) != held && self.vrr.refreshes > 1 {
+        // Once per hold: a swap chain whose statistics failed tries the hold again every few seconds.
+        if self.vrr.held(self.pacer.mode) != held && self.vrr.refreshes > 1
+            && std::mem::replace(&mut self.held_logged, self.vrr.refreshes) != self.vrr.refreshes {
             eprintln!("nightjar: pacing: fractional V-Sync, each picture shown for {} refreshes", self.vrr.refreshes);
         }
         let interval = self.vrr.step(&mut self.pacer.mode, probe.map(race_probe::RaceProbe::verdict), now);
@@ -884,7 +895,8 @@ impl Streaming {
                 self.swapchain_hdr_metadata = Some(metadata);
             }
         }
-        if probe { self.hold_for_turn(renderer); }
+        // With Frame Warp the hold came before its shift (`present`).
+        if probe && self.frame_warp.is_none() { self.hold_for_turn(renderer); }
         let issued_us = session::now_us();
         let blank = self.blank_present(renderer, probe);
         // SAFETY: a live renderer.
@@ -965,20 +977,23 @@ impl Streaming {
                 let skipping = self.no_wait_present && self.pacer.skips_instead_of_waiting(refresh_hz);
                 let exclusive = exclusive_fullscreen(renderer);
                 let room_us = if self.pacer.host_grid() { present::HOST_GRID_LATCH_ROOM_US } else { 0 };
+                let held = self.vrr.held(self.pacer.mode);
+                let refresh_us = (1e6 / f64::from(refresh_hz.max(1.0))) as u64;
+                // A hold longer than a report's period (20 fps held 3 refreshes of 60 Hz) reports
+                // over a refresh instead.
+                let mut report_held = if self.held_report_refresh { 1 } else { nightjar_policy::vsync::report_refreshes(held, refresh_us * 1000) };
+                // Elsewhere a held stream's grid is the clocked one (`phase::HeldClock`); until its
+                // clock knows a picture's time nothing is held, and the report counts refreshes.
+                let clocked = if !cfg!(windows) && report_held > 1 { self.held_clock.timing(begin, report_held, refresh_us) } else { None };
+                let unclocked = !cfg!(windows) && held > 1 && clocked.is_none();
+                if unclocked { report_held = 1; }
+                let timing = clocked.or_else(|| phase::timing(renderer, refresh_hz, report_held, &mut self.held_anchor));
                 // Fractional V-Sync: the lock aims at the deadline of the refresh each picture's hold
                 // ends on, which its present has to make.
-                let held = self.vrr.held(self.pacer.mode);
-                let aim_us = if held > 1 {
+                let aim_us = if held > 1 && !unclocked {
                     self.present_deadline_us.unwrap_or(self.held_margin_us(renderer) as i64)
                 } else {
                     present::phase_lock_aim_us(skipping, exclusive, self.present_deadline_us, refresh_hz) + room_us
-                };
-                let report_held = if self.held_report_refresh { 1 } else { held };
-                // Elsewhere a held stream's grid is the clocked one (`phase::HeldClock`).
-                let timing = if !cfg!(windows) && report_held > 1 {
-                    self.held_clock.timing(begin, report_held, (1e6 / f64::from(refresh_hz.max(1.0))) as u64)
-                } else {
-                    phase::timing(renderer, refresh_hz, report_held, &mut self.held_anchor)
                 };
                 let timing = phase::aimed(timing, aim_us);
                 let steady_windows = if skipping { self.phase_steady_windows } else { 0 };
@@ -1018,6 +1033,30 @@ impl Streaming {
         }
         #[cfg(target_os = "linux")]
         if let Some(p) = &picture { self.glass.next_picture(p.decoded.number, p.decoded.ready_us); }
+        // The pictures the compositor answered for: the doctor's display time runs to the glass.
+        // Before the present and its hold, which count the turn from the last picture's answer:
+        // it comes at that picture's refresh, after the poll that followed its own present.
+        #[cfg(target_os = "linux")]
+        let (glass_row, to_glass) = {
+            let now = session::now_us();
+            let mut row = crate::timing_csv::Glass::default();
+            for shown in self.glass.poll(now) {
+                if let Some(glass_us) = shown.glass_us() {
+                    self.doctor.shown(0, shown.ready_us, glass_us);
+                    self.held_clock.shown(shown.frame, glass_us);
+                }
+                if let wl_presentation::Outcome::Presented { to_glass_ns, flags } = shown.outcome {
+                    row = crate::timing_csv::Glass { frame: Some(shown.frame), to_glass_us: to_glass_ns.map(|ns| ns / 1000), flags: Some(flags) };
+                }
+            }
+            (row, self.glass.timing(now))
+        };
+        #[cfg(not(target_os = "linux"))]
+        let (glass_row, to_glass) = (crate::timing_csv::Glass::default(), false);
+        // Fractional V-Sync holds the picture before Frame Warp's shift, so the shift is as fresh as
+        // without the hold. Without Frame Warp it holds after the draw (`render_flip`, `kms_flip`),
+        // whose time then stays out of the hold's margin.
+        if has_picture && self.frame_warp.is_some() { self.hold_for_turn(renderer); }
         // Frame Warp's shift for the picture, as late before its draw as it can be.
         if let Some(warp) = self.frame_warp.as_mut() {
             if let Some(p) = &picture { warp.picture(p.decoded.number, p.decoded.race_seq, p.decoded.ready_us); }
@@ -1046,23 +1085,6 @@ impl Streaming {
                 None => keeper.redrawn(flipped.issued_us),
             }
         }
-        // The pictures the compositor answered for: the doctor's display time runs to the glass.
-        #[cfg(target_os = "linux")]
-        let (glass_row, to_glass) = {
-            let mut row = crate::timing_csv::Glass::default();
-            for shown in self.glass.poll(flipped.returned_us) {
-                if let Some(glass_us) = shown.glass_us() {
-                    self.doctor.shown(0, shown.ready_us, glass_us);
-                    self.held_clock.shown(shown.frame, glass_us);
-                }
-                if let wl_presentation::Outcome::Presented { to_glass_ns, flags } = shown.outcome {
-                    row = crate::timing_csv::Glass { frame: Some(shown.frame), to_glass_us: to_glass_ns.map(|ns| ns / 1000), flags: Some(flags) };
-                }
-            }
-            (row, self.glass.timing(flipped.returned_us))
-        };
-        #[cfg(not(target_os = "linux"))]
-        let (glass_row, to_glass) = (crate::timing_csv::Glass::default(), false);
         if flipped.refused {
             self.skipped_picture = picture;
             let refresh_us = (1_000_000.0 / self.plan.display.refresh_hz.max(1.0)) as u64;
@@ -1201,7 +1223,7 @@ impl Streaming {
             }
         }
         // KMS has no margin to call for a renderer: `held_margin_us` answers before it would.
-        if picture { self.hold_for_turn(std::ptr::null_mut()); }
+        if picture && self.frame_warp.is_none() { self.hold_for_turn(std::ptr::null_mut()); }
         let issued_us = session::now_us();
         let committed = self.kms.as_mut().map_or(Ok(()), kms_scanout::Scanout::commit);
         let returned_us = session::now_us();

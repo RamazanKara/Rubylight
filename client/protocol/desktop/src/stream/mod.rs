@@ -499,6 +499,10 @@ pub struct Streaming {
     held_clock: phase::HeldClock,
     /// Fractional V-Sync was asked for where pictures can't be held, and the log said so.
     held_untimed_logged: bool,
+    /// The hold the log last named.
+    held_logged: u32,
+    /// Whether the swap chain's statistics, which Windows' held turns count from, can be read.
+    held_stats: phase::StatsWatch,
     /// Whether the last present that tried it could go without waiting: not on Linux, nor on a
     /// renderer without a DXGI swap chain.
     no_wait_present: bool,
@@ -941,6 +945,8 @@ impl Streaming {
             held_wait_us: None,
             held_clock: phase::HeldClock::default(),
             held_untimed_logged: false,
+            held_logged: 1,
+            held_stats: phase::StatsWatch::default(),
             no_wait_present: false,
             skipped: present::SkippedPicture::new(std::env::var("NIGHTJAR_PRESENT_HOLD_US").ok().and_then(|us| us.parse().ok()).map_or(present::REFUSED_HOLD, Duration::from_micros)),
             skipped_picture: None,
@@ -1221,6 +1227,8 @@ impl Streaming {
         // The swapchain's HDR answer may have changed with the display: ask SDL again.
         crate::sdl::forget_swapchain_answers();
         self.phase.reset();
+        // Fractional V-Sync's turns count on the old display's refreshes: they start over.
+        (self.held_anchor, self.held_clock, self.held_stats) = Default::default();
         self.display_change = Some(Instant::now());
         if self.facts.display_caps && self.facts.role != AppRole::InputOnly {
             let _ = self.session.send(ClientMessage::DisplayCaps(crate::sdl::display_caps(renderer)));

@@ -3078,6 +3078,74 @@ fn game_profile_screenshots() {
     f.shoot(&dir, "game-profile-list");
 }
 
+/// A PC whose game's frame generation answers `state` to every read and write.
+struct FixedNeural(std::sync::Mutex<nightjar_core::http::Neural>);
+impl crate::neural_page::NeuralSource for FixedNeural {
+    fn neural(&self, _: &str) -> Result<nightjar_core::http::Neural, nightjar_core::http::Error> {
+        Ok(self.0.lock().unwrap().clone())
+    }
+    fn write(&self, _: &nightjar_core::http::NeuralWrite) -> Result<nightjar_core::http::Neural, nightjar_core::http::Error> {
+        Ok(self.0.lock().unwrap().clone())
+    }
+    fn cancel(&self) {}
+}
+
+/// The game's page on a PC that lists frame generation, its panel open with `on` and `reason`.
+fn game_page_with_neural(on: bool, state: nightjar_core::http::native_api::radeon::ControlState, reason: Option<&str>) -> Frames {
+    let mut f = home_with_games(1);
+    let pc = f.hosts.list[0].id;
+    f.hosts.list[0].apps = Apps::Loaded(vec![nightjar_core::http::App { name: "Game 00".into(), uuid: "install-0".into(), ..game(1000) }]);
+    f.hosts.list[0].info = Some(answer(true, 0));
+    let info = f.hosts.list[0].info.as_mut().unwrap();
+    let evidence = info.capabilities.evidence().unwrap().clone();
+    info.capabilities = nightjar_core::http::HostCapabilities::from_evidence(nightjar_core::http::Evidence { paired: true, view_permission: true, native_api_version: 1, native_capabilities: true, neural_offered: true, ..evidence });
+    let neural = nightjar_core::http::Neural {
+        app: "install-0".into(),
+        accepted: true,
+        gpu: Some("AMD Radeon 780M Graphics".into()),
+        switches: vec![nightjar_core::http::NeuralSwitch { id: nightjar_core::http::FRAME_GENERATION.into(), state, on, reason: reason.map(str::to_owned) }],
+        replaces_earlier_upscaling: false,
+        job: None,
+    };
+    f.l.go(Screen::Game { host: pc, app: 1000 });
+    f.l.neural.open(pc, 1000, "install-0".into(), std::sync::Arc::new(FixedNeural(std::sync::Mutex::new(neural))), std::sync::Arc::new(|| {}));
+    for _ in 0..400 {
+        f.l.neural.poll(Some((pc, 1000)));
+        if f.l.neural.state_for(pc, 1000).is_some_and(|open| open.state.is_some()) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    f.size = vec2(1280.0, 1000.0);
+    f.settle();
+    f
+}
+
+/// The frame generation row's line is sentences a player reads whole: it wraps, never cut.
+#[test]
+fn the_frame_generation_row_shows_its_whole_line() {
+    use nightjar_core::http::native_api::radeon::ControlState;
+    let f = game_page_with_neural(false, ControlState::Configurable, None);
+    let about = f.placed.iter().find(|(text, _, _)| text.starts_with("Frame generation for games that offer DLSS frame generation")).unwrap_or_else(|| panic!("{:?}", f.drawn));
+    assert!(about.1.height() > 2.0 * super::design_tokens::TYPE_SUB_SIZE, "one line, cut: {:?}", about.1);
+    let f = game_page_with_neural(false, ControlState::ReadOnly, Some("Turn on Host control for this device in the Rubylight console to change it."));
+    assert!(shows(&f, "Turn on Host control for this device in the Rubylight console to change it."), "{:?}", f.drawn);
+}
+
+/// The game page's frame generation row:
+/// `NIGHTJAR_SHOTS=<dir> cargo test -p nightjar-desktop frame_generation_screenshots -- --ignored`.
+#[test]
+#[ignore = "writes PNGs; set NIGHTJAR_SHOTS"]
+fn frame_generation_screenshots() {
+    use nightjar_core::http::native_api::radeon::ControlState;
+    let Some(dir) = std::env::var_os("NIGHTJAR_SHOTS").map(std::path::PathBuf::from) else { return };
+    std::fs::create_dir_all(&dir).expect("the folder for the screenshots");
+    game_page_with_neural(false, ControlState::Configurable, None).shoot(&dir, "frame-generation-off");
+    game_page_with_neural(true, ControlState::Configurable, None).shoot(&dir, "frame-generation-on");
+    game_page_with_neural(false, ControlState::ReadOnly, Some("Turn on Host control for this device in the Rubylight console to change it.")).shoot(&dir, "frame-generation-needs-host-control");
+    game_page_with_neural(false, ControlState::TemporarilyUnavailable, Some("Frame generation downloads about 14 MB and copies it into the game's folder: turn it on when no stream is running.")).shoot(&dir, "frame-generation-streaming");
+}
+
 /// Play pressed before the PC's app list arrives holds, then starts when it lands; it asks for it too.
 #[test]
 fn play_before_the_list_arrives_starts_when_it_lands() {

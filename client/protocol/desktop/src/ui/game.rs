@@ -115,6 +115,8 @@ struct ArtRow {
     /// The line under the label, with its ink, and what a pointer or a screen reader gets if it is cut.
     sub: Option<(String, Color32)>,
     said: Option<String>,
+    /// The line under the label wraps, all of it shown, instead of being cut to one line.
+    wrap: bool,
     enabled: bool,
     act: RowAct,
 }
@@ -177,6 +179,8 @@ impl Launcher {
             label: tr("Frame generation").to_owned(),
             sub: Some((line, ink)),
             said: None,
+            // What it is for and why it can't change are sentences a player reads whole.
+            wrap: true,
             enabled: switch.is_some_and(configurable) && !busy,
             act: match switch {
                 Some(switch) => RowAct::Neural {
@@ -652,6 +656,7 @@ impl Launcher {
             label: tr("Stream settings").to_owned(),
             sub: Some((summary, *ON_SURFACE_VARIANT)),
             said: None,
+            wrap: false,
             enabled: classic.is_some(),
             act: classic.map_or(RowAct::Nothing, |app| RowAct::Settings(app.clone())),
         }];
@@ -681,6 +686,7 @@ impl Launcher {
                 label: tr("Active profile").to_owned(),
                 sub: Some((name, *ON_SURFACE_VARIANT)),
                 said: None,
+                wrap: false,
                 enabled: true,
                 act: RowAct::Profile { decided },
             });
@@ -704,6 +710,7 @@ impl Launcher {
                         }
                         .to_owned(),
                     ),
+                    wrap: false,
                     enabled: true,
                     act: RowAct::QuitOnLeave {
                         uuid: app.uuid.clone(),
@@ -724,6 +731,7 @@ impl Launcher {
                 label: tr("Hide game").to_owned(),
                 sub: None,
                 said: None,
+                wrap: false,
                 enabled: true,
                 act: RowAct::Hide {
                     games: hide_keys_of(host, target, sources),
@@ -752,6 +760,7 @@ impl Launcher {
                     label: tr("Input-only").to_owned(),
                     sub: Some((note, ink)),
                     said: None,
+                    wrap: false,
                     enabled: blocker.is_none() && state.can_play,
                     act: RowAct::InputOnly {
                         app: app.id,
@@ -793,6 +802,7 @@ impl Launcher {
                 label: tr("Also on").to_owned(),
                 sub: Some((name, *ON_SURFACE_VARIANT)),
                 said: None,
+                wrap: false,
                 enabled: true,
                 act: RowAct::Copy {
                     host: copy.host,
@@ -836,12 +846,22 @@ impl Launcher {
                 label.wrap.overflow_character = Some('\u{2026}');
                 let label = ui.painter().layout_job(label);
                 let sub = row.sub.as_ref().map(|(words, sub_ink)| {
-                    let mut job = egui::text::LayoutJob::simple_singleline(
-                        words.clone(),
-                        regular(t::TYPE_SUB_SIZE),
-                        *sub_ink,
-                    );
-                    job.wrap = egui::text::TextWrapping::truncate_at_width(room);
+                    let job = if row.wrap {
+                        egui::text::LayoutJob::simple(
+                            words.clone(),
+                            regular(t::TYPE_SUB_SIZE),
+                            *sub_ink,
+                            room,
+                        )
+                    } else {
+                        let mut job = egui::text::LayoutJob::simple_singleline(
+                            words.clone(),
+                            regular(t::TYPE_SUB_SIZE),
+                            *sub_ink,
+                        );
+                        job.wrap = egui::text::TextWrapping::truncate_at_width(room);
+                        job
+                    };
                     ui.painter().layout_job(job)
                 });
                 let words = label.size().y + sub.as_ref().map_or(0.0, |s| s.size().y + 2.0);

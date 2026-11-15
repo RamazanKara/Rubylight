@@ -3144,6 +3144,11 @@ fn frame_generation_screenshots() {
     game_page_with_neural(true, ControlState::Configurable, None).shoot(&dir, "frame-generation-on");
     game_page_with_neural(false, ControlState::ReadOnly, Some("Turn on Host control for this device in the Rubylight console to change it.")).shoot(&dir, "frame-generation-needs-host-control");
     game_page_with_neural(false, ControlState::TemporarilyUnavailable, Some("Frame generation downloads about 14 MB and copies it into the game's folder: turn it on when no stream is running.")).shoot(&dir, "frame-generation-streaming");
+    // The harness's default window: the taller row still leaves the page whole.
+    let mut f = game_page_with_neural(false, ControlState::TemporarilyUnavailable, Some("Frame generation downloads about 14 MB and copies it into the game's folder: turn it on when no stream is running."));
+    f.size = vec2(1280.0, 720.0);
+    f.settle();
+    f.shoot(&dir, "frame-generation-streaming-720");
 }
 
 /// Play pressed before the PC's app list arrives holds, then starts when it lands; it asks for it too.

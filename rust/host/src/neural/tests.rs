@@ -2060,6 +2060,7 @@ fn launch_and_delete_errors_name_no_provider_folder() {
         .unwrap();
     let error = format!("{:#}", before_delete(h, &app).err().unwrap());
     drop(held);
+    assert!(error.contains("pack.nrx"), "{error}");
     assert!(!error.contains(neural::PROVIDER), "{error}");
     let job = h.neural.lock().jobs["game"].clone();
     assert!(!job.error.unwrap_or_default().contains(neural::PROVIDER));

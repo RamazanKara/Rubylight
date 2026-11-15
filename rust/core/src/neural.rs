@@ -670,7 +670,12 @@ pub fn shown(text: &str) -> String {
     let mut rest = text;
     while let Some(at) = rest.find(PROVIDER) {
         let stop = |c: char| c.is_whitespace() || "\"'(),;".contains(c);
-        let start = rest[..at].rfind(stop).map_or(0, |i| i + 1);
+        // After the stop character, however many bytes it takes (U+3000, U+00A0).
+        let start = rest[..at]
+            .char_indices()
+            .rev()
+            .find(|(_, c)| stop(*c))
+            .map_or(0, |(i, c)| i + c.len_utf8());
         let tail = &rest[at + PROVIDER.len()..];
         let end = tail.find(stop).unwrap_or(tail.len());
         let file = tail[..end]
@@ -1055,12 +1060,19 @@ pub fn capable(
     gpus: Result<&[Gpu], &str>,
     missing: &[&str],
 ) -> Result<String, String> {
+    // The GPU first: a runtime to install helps no PC whose GPU can't run it.
+    let name = gpu_capable(streams, gpus)?;
     if !missing.is_empty() {
         return Err(format!(
             "frame generation needs the Microsoft Visual C++ 2015-2022 Redistributable (x64), which this PC lacks ({})",
             missing.join(", ")
         ));
     }
+    Ok(name)
+}
+
+/// [`capable`]'s GPU half.
+fn gpu_capable(streams: &Streams, gpus: Result<&[Gpu], &str>) -> Result<String, String> {
     let name = &streams.name;
     let supported = "frame generation runs on AMD Radeon RX 5000 and newer graphics (RDNA) and NVIDIA GeForce GTX 16, RTX 20 and newer";
     match streams.vendor {

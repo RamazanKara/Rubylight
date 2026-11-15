@@ -549,7 +549,12 @@ fn the_addon_sets_three_values_and_puts_back_exactly_what_was_there() {
         "",
         "DisableHudless=auto",
         "",
+        // As the release's OptiScaler.ini has them: [DLSSG] without the key,
+        // [NvngxFG] with its own DisableHudless.
         "[DLSSG]",
+        "Enabled=auto",
+        "",
+        "[NvngxFG]",
         "DisableHudless = auto",
         "",
         "[Libraries]",
@@ -712,7 +717,18 @@ fn the_switch_is_offered_on_the_gpus_the_provider_runs_on() {
     );
     // Neither AMD nor NVIDIA.
     assert!(capable(&streams(0x8086, 0x56a0), Err("no HIP"), &none).is_err());
-    // The Visual C++ runtime OptiScaler links comes first.
+    // The GPU comes before the Visual C++ runtime OptiScaler links: a PC
+    // whose GPU can't run it is not sent to install the runtime.
+    let older = capable(
+        &streams(NVIDIA, 0x1b80),
+        Err("no HIP"),
+        &["VCRUNTIME140_1.dll"],
+    )
+    .unwrap_err();
+    assert!(
+        older.contains("which is older") && !older.contains("Visual C++"),
+        "{older}"
+    );
     let missing = capable(
         &streams(NVIDIA, 0x2684),
         Err("no HIP"),
@@ -749,6 +765,13 @@ fn shown_text_names_no_mod() {
         )),
         "cannot write frame generation's nr_fg.ini: denied"
     );
+    // A stop character of more than one byte before the path.
+    for stop in ['\u{3000}', '\u{a0}'] {
+        assert_eq!(
+            shown(&format!("missing{stop}D:\\G\\OptiScaler\\custom\\{PROVIDER}\\dlssg\\x.dll")),
+            format!("missing{stop}frame generation's x.dll")
+        );
+    }
     assert_eq!(shown("the game uses BattlEye"), "the game uses BattlEye");
 }
 

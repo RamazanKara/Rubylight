@@ -1581,5 +1581,5 @@ sudo sysctl -w net.core.rmem_max={}", "Buffer di ricezione: il sistema ha conces
     ("Up and down sensitivity", "Sensibilità su e giù"),
     ("Speeds motion aiming up or slows it down; 100% sends the controller’s own speed.", "Accelera o rallenta la mira con il movimento; il 100% usa la velocità propria del controller."),
     ("Fractional V-Sync", "V-Sync frazionario"),
-    ("On a screen at 2 to 4 times the stream’s frame rate (60 fps on 120 Hz), shows every frame for the same number of refreshes, so motion stays even. It adds 3 to 10 ms of delay; turn it on if motion judders with V-Sync.", "Su uno schermo a 2-4 volte la frequenza dei fotogrammi dello stream (60 fps a 120 Hz), mostra ogni fotogramma per lo stesso numero di aggiornamenti, così il movimento resta regolare. Aggiunge da 3 a 10 ms di ritardo; attivalo se il movimento scatta con il V-Sync."),
+    ("On a screen at 2 to 4 times the stream’s frame rate (60 fps on 120 Hz), shows every frame for the same number of refreshes, so motion stays even. It adds 1 to 2 ms of delay; turn it on if motion judders with V-Sync.", "Su uno schermo a 2-4 volte la frequenza dei fotogrammi dello stream (60 fps a 120 Hz), mostra ogni fotogramma per lo stesso numero di aggiornamenti, così il movimento resta regolare. Aggiunge da 1 a 2 ms di ritardo; attivalo se il movimento scatta con il V-Sync."),
 ];

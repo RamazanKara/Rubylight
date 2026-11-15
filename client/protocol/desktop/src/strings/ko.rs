@@ -1581,5 +1581,5 @@ sudo sysctl -w net.core.rmem_max={}", "수신 버퍼: 시스템이 요청한 {1}
     ("Up and down sensitivity", "위아래 감도"),
     ("Speeds motion aiming up or slows it down; 100% sends the controller’s own speed.", "모션 조준을 빠르게 또는 느리게 합니다. 100%이면 컨트롤러 자체 속도로 움직입니다."),
     ("Fractional V-Sync", "분수 V-Sync"),
-    ("On a screen at 2 to 4 times the stream’s frame rate (60 fps on 120 Hz), shows every frame for the same number of refreshes, so motion stays even. It adds 3 to 10 ms of delay; turn it on if motion judders with V-Sync.", "화면 주사율이 스트림 프레임 속도의 2~4배일 때(120 Hz에서 60 fps) 모든 프레임을 같은 횟수의 새로 고침 동안 보여 주어 움직임이 고르게 유지됩니다. 지연이 3~10 ms 늘어납니다. V-Sync에서 움직임이 끊겨 보이면 켜세요."),
+    ("On a screen at 2 to 4 times the stream’s frame rate (60 fps on 120 Hz), shows every frame for the same number of refreshes, so motion stays even. It adds 1 to 2 ms of delay; turn it on if motion judders with V-Sync.", "화면 주사율이 스트림 프레임 속도의 2~4배일 때(120 Hz에서 60 fps) 모든 프레임을 같은 횟수의 새로 고침 동안 보여 주어 움직임이 고르게 유지됩니다. 지연이 1~2 ms 늘어납니다. V-Sync에서 움직임이 끊겨 보이면 켜세요."),
 ];

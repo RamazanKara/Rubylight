@@ -1581,5 +1581,5 @@ sudo sysctl -w net.core.rmem_max={}", "接收緩衝區：系統只分配了所�
     ("Up and down sensitivity", "上下靈敏度"),
     ("Speeds motion aiming up or slows it down; 100% sends the controller’s own speed.", "加快或減慢體感瞄準；100% 表示使用控制器本身的速度。"),
     ("Fractional V-Sync", "分數 V-Sync"),
-    ("On a screen at 2 to 4 times the stream’s frame rate (60 fps on 120 Hz), shows every frame for the same number of refreshes, so motion stays even. It adds 3 to 10 ms of delay; turn it on if motion judders with V-Sync.", "螢幕更新率是串流影格率的 2 到 4 倍時(120 Hz 上的 60 fps),每個影格顯示相同次數的更新,讓動作保持平順。會增加 3 到 10 ms 延遲;如果開啟 V-Sync 後動作卡頓,請開啟。"),
+    ("On a screen at 2 to 4 times the stream’s frame rate (60 fps on 120 Hz), shows every frame for the same number of refreshes, so motion stays even. It adds 1 to 2 ms of delay; turn it on if motion judders with V-Sync.", "螢幕更新率是串流影格率的 2 到 4 倍時(120 Hz 上的 60 fps),每個影格顯示相同次數的更新,讓動作保持平順。會增加 1 到 2 ms 延遲;如果開啟 V-Sync 後動作卡頓,請開啟。"),
 ];

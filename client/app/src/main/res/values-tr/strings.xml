@@ -338,7 +338,7 @@
     <string name="title_drop_late_frames">Yalnızca en yeni kareyi tut</string>
     <string name="summary_drop_late_frames">Ekranın artık zamanında gösteremeyeceği kareleri atlar; böylece görüntü hiç geride kalmaz. Açık bırakın; kapalıyken her kare sırayla gösterilir ve gecikme artabilir.</string>
     <string name="title_fractional_vsync">Kesirli V-Sync</string>
-    <string name="summary_fractional_vsync">Akışın kare hızının 2-4 katında çalışan bir ekranda (120 Hz’de 60 fps) her kareyi aynı sayıda yenileme boyunca gösterir, böylece hareket düzgün kalır. 3-10 ms gecikme ekler; V-Sync ile hareket takılıyorsa açın.</string>
+    <string name="summary_fractional_vsync">Akışın kare hızının 2-4 katında çalışan bir ekranda (120 Hz’de 60 fps) her kareyi aynı sayıda yenileme boyunca gösterir, böylece hareket düzgün kalır. 1-2 ms gecikme ekler; V-Sync ile hareket takılıyorsa açın.</string>
     <string name="title_texture_view">Uyumluluk video görünümü</string>
     <string name="summary_texture_view">Sorun giderme içindir: video siyahsa, titriyorsa veya yanlış yerdeyse deneyin. Her karede ek iş yükü getirir; HDR, “Daha az renk bantlanması” veya PyroWave ile kullanılmaz.</string>
     <string name="title_unbatched_input">Anında fare ve kalem girişi</string>

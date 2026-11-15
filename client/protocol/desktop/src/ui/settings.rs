@@ -901,7 +901,7 @@ impl Launcher {
             // picture was shown (`Streaming::held_times`; on Linux with Wayland or KMS only).
             rows.when(cfg!(any(windows, target_os = "linux")) && !vrr);
             rows.when(s.vsync || s.frame_pacing.forces_vsync());
-            setting_row(ui, s, &mut rows, &["fractional_vsync"], "Fractional V-Sync", "On a screen at 2 to 4 times the stream’s frame rate (60 fps on 120 Hz), shows every frame for the same number of refreshes, so motion stays even. It adds 3 to 10 ms of delay; turn it on if motion judders with V-Sync.", |ui, s| toggle(ui, &mut s.fractional_vsync));
+            setting_row(ui, s, &mut rows, &["fractional_vsync"], "Fractional V-Sync", "On a screen at 2 to 4 times the stream’s frame rate (60 fps on 120 Hz), shows every frame for the same number of refreshes, so motion stays even. It adds 1 to 2 ms of delay; turn it on if motion judders with V-Sync.", |ui, s| toggle(ui, &mut s.fractional_vsync));
             rows.always();
             rows.group(en("Image"));
             setting_row(ui, s, &mut rows, &["upscaling"], "Upscaling", "How a stream smaller than the screen is enlarged. FSR and SGSR sharpen edges at some GPU time and battery; HDR streams are enlarged without them.", |ui, s| {

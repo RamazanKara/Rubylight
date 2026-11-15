@@ -146,6 +146,33 @@ public class MediaCodecPhaseReportTest {
         }
     }
 
+    @Test public void fractionalVsyncHoldsNothingWithVrrChosenOnADisplayWithoutArr() {
+        try (ActivityController<Activity> controller = Robolectric.buildActivity(Activity.class).create()) {
+            MediaCodecDecoderRenderer renderer = renderer(controller.get(), false);
+            PreferenceConfiguration prefs = ReflectionHelpers.getField(renderer, "prefs");
+            prefs.fractionalVsync = true;
+            renderer.setStreamFrameRateMilliHz(60_000);
+            ReflectionHelpers.setField(renderer, "vsyncIntervalNs", 8_333_333L);
+            ReflectionHelpers.setField(renderer, "outputHasArrSupport", false);
+            assertEquals("VRR off: 60 fps on 120 Hz holds 2 refreshes", 2, heldRefreshes(renderer));
+            // VRR Fastest (Real VRR off) on a phone without ARR: the row is hidden, nothing holds.
+            prefs.vrr = true;
+            prefs.realVrr = false;
+            assertEquals(1, heldRefreshes(renderer));
+            prefs.vrr = false;
+            ReflectionHelpers.setField(renderer, "outputHasArrSupport", true);
+            assertEquals("ARR refreshes when a frame comes", 1, heldRefreshes(renderer));
+            prefs.arrFixedTiming = true;
+            assertEquals("ARR timed as a fixed refresh", 2, heldRefreshes(renderer));
+            prefs.vrr = true;
+            assertEquals("and VRR chosen", 1, heldRefreshes(renderer));
+        }
+    }
+
+    private static int heldRefreshes(MediaCodecDecoderRenderer renderer) {
+        return ReflectionHelpers.callInstanceMethod(renderer, "heldRefreshes");
+    }
+
     private static MediaCodecDecoderRenderer renderer(Activity activity, boolean hostFrameTimes) {
         ReflectionHelpers.setStaticField(MediaCodecHelper.class, "initialized", true);
         PreferenceConfiguration prefs = new PreferenceConfiguration();

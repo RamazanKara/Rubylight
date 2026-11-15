@@ -413,6 +413,14 @@ pub fn deadline_before_refresh(refresh_hz: f32) -> i64 {
     (3_000.0 + refresh_us / 4.0).min(refresh_us * 3.0 / 5.0) as i64
 }
 
+/// Whether fractional V-Sync stands aside for VRR: the user chose VRR where this display offers it
+/// (the launch plan's `vrr`, which the settings screen hides the row on), even where the display
+/// check turned the stream to V-Sync pacing, or the pacing shows pictures as they come. A row the
+/// screen hides never holds a picture.
+pub fn fractional_vsync_vrr(vrr_chosen: bool, mode: PacingMode) -> bool {
+    vrr_chosen || mode != PacingMode::Vsync
+}
+
 /// How far ahead of the refresh the phase lock aims: `set_us` (a measurement run's) or that deadline,
 /// for a stream whose presents skip. A waiting present and exclusive fullscreen, which nothing
 /// composes, keep the refresh itself. A picture fractional V-Sync holds for its turn is aimed at

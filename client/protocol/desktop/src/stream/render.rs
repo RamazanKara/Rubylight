@@ -253,12 +253,14 @@ impl Streaming {
 
     /// Refreshes each V-Sync picture is held for (fractional V-Sync,
     /// `nightjar_policy::vsync::refreshes_per_frame`): the multiple the display's refresh is of the
-    /// stream's rate, with the setting on and V-Sync pacing (VRR shows pictures as they come).
+    /// stream's rate, with the setting on, V-Sync pacing and VRR not chosen (VRR shows pictures as
+    /// they come; chosen, the settings screen hides the row, also where the display falls back).
     /// Windows' D3D11 swap chain takes it as the sync interval; elsewhere it is 1.
     fn vsync_refreshes(&mut self) -> u32 {
         let Some(refresh_hz) = self.plan.display.reported_refresh_hz() else { return 1 };
         let fps = f64::from(self.shared.fps_millihz.load(Ordering::Relaxed)) / 1000.0;
-        let refreshes = nightjar_policy::vsync::refreshes_per_frame(f64::from(refresh_hz), fps, self.pacer.mode != PacingMode::Vsync, self.settings.fractional_vsync);
+        let vrr = present::fractional_vsync_vrr(self.plan.vrr, self.pacer.mode);
+        let refreshes = nightjar_policy::vsync::refreshes_per_frame(f64::from(refresh_hz), fps, vrr, self.settings.fractional_vsync);
         if refreshes <= 1 { return refreshes; }
         match self.held_times() {
             phase::HeldTimes::Told => refreshes,

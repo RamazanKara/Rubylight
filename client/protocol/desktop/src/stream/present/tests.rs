@@ -1231,6 +1231,14 @@ fn the_desktop_deadline_stays_under_most_of_a_refresh() {
 }
 
 #[test]
+fn fractional_vsync_stands_aside_for_a_chosen_vrr_even_once_the_display_falls_back() {
+    assert!(!fractional_vsync_vrr(false, PacingMode::Vsync), "VRR off, V-Sync pacing: held");
+    assert!(fractional_vsync_vrr(true, PacingMode::Vsync), "VRR chosen, display fell back to V-Sync: the row is hidden");
+    assert!(fractional_vsync_vrr(false, PacingMode::Immediate));
+    assert!(fractional_vsync_vrr(true, PacingMode::HostTimes));
+}
+
+#[test]
 fn the_phase_lock_aims_at_the_deadline_only_where_a_picture_has_to_make_it() {
     assert_eq!(phase_lock_aim_us(true, false, None, 120.0), 5_000);
     assert_eq!(phase_lock_aim_us(true, false, Some(1_000), 120.0), 1_000, "a measurement run's");

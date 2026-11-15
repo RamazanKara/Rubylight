@@ -3592,7 +3592,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         // multiple each frame gets the same number of refreshes, as fractional V-Sync holds them,
         // with the setting or without; the setting has the phase report aim at that cadence.
         int heldRefreshes = FramePacingPolicy.refreshesPerFrame(1e9 / Math.max(1, vsyncIntervalNs),
-                fpsMilliHz / 1000.0, outputHasArrSupport, prefs.fractionalVsync);
+                fpsMilliHz / 1000.0, vrrForHolds(adaptiveInUse()), prefs.fractionalVsync);
         if (FramePacingPolicy.isFrameDue(nextFrameTimeNanos, frameTimeNanos, vsyncIntervalNs)) {
             // Render up to one frame when in frame pacing mode.
             //
@@ -4130,18 +4130,28 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     /**
      * Fractional V-Sync: the refreshes each frame stays on this display, from its refresh and the
      * stream's rate (FramePacingPolicy.refreshesPerFrame). A display that refreshes when a frame
-     * comes (Android 16 ARR) holds nothing.
+     * comes (Android 16 ARR, unless timed as fixed: adaptiveInUse) holds nothing, nor does a stream
+     * with VRR chosen (vrrForHolds).
      */
     private int heldRefreshes() {
         long intervalNs;
         boolean arr;
         synchronized (vsyncMonitor) {
             intervalNs = vsyncIntervalNs;
-            arr = outputHasArrSupport;
+            arr = adaptiveInUse();
         }
         if (intervalNs <= 0) return 1;
         return FramePacingPolicy.refreshesPerFrame(1e9 / intervalNs, streamFrameRateMilliHz / 1000.0,
-                arr, prefs.fractionalVsync);
+                vrrForHolds(arr), prefs.fractionalVsync);
+    }
+
+    /**
+     * Whether fractional V-Sync stands aside for VRR: the user's VRR choice (VRR Fastest too, which
+     * forces Lowest latency on a phone without ARR) or a screen timed as adaptive. The settings screen hides
+     * the row with VRR chosen (SettingRules.fractionalVsyncApplies), so a saved choice never holds.
+     */
+    private boolean vrrForHolds(boolean arr) {
+        return prefs.vrr || arr;
     }
 
     /**

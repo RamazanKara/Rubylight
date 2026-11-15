@@ -421,6 +421,45 @@ pub fn fractional_vsync_vrr(vrr_chosen: bool, mode: PacingMode) -> bool {
     vrr_chosen || mode != PacingMode::Vsync
 }
 
+/// The draws a held picture's margin follows (`DrawTime`): 32, half a second at 60 fps.
+pub const DRAW_TIMES: usize = 32;
+
+/// How long the draws that come after fractional V-Sync's hold took: with Frame Warp the hold runs
+/// before the shift, the upscaler or AI enhancement and the overlay, so their time comes out of
+/// the margin unless it is added to it (`held_margin_us`).
+#[derive(Clone, Debug, Default)]
+pub struct DrawTime {
+    times: VecDeque<u64>,
+}
+
+impl DrawTime {
+    pub fn record(&mut self, us: u64) {
+        if self.times.len() == DRAW_TIMES { self.times.pop_front(); }
+        self.times.push_back(us);
+    }
+
+    /// The 90th percentile of the last `DRAW_TIMES` draws, None before the first.
+    pub fn p90_us(&self) -> Option<u64> {
+        if self.times.is_empty() { return None; }
+        let mut sorted: Vec<u64> = self.times.iter().copied().collect();
+        sorted.sort_unstable();
+        Some(sorted[(sorted.len() * 9).div_ceil(10) - 1])
+    }
+
+    pub fn reset(&mut self) {
+        self.times.clear();
+    }
+}
+
+/// How far ahead of its turn a held picture goes out: `base_us` (the desktop's deadline, or 2 ms
+/// where nothing composes), plus the draws after the hold (`draw_us`, with Frame Warp). The sum
+/// stays under 4/5 of a refresh, and never under `base_us`: a slow AI enhancement draw would
+/// otherwise aim a picture at the refresh before its turn.
+pub fn held_margin_us(base_us: u64, draw_us: Option<u64>, refresh_us: u64) -> u64 {
+    let Some(draw_us) = draw_us else { return base_us };
+    (base_us + draw_us).min((refresh_us * 4 / 5).max(base_us))
+}
+
 /// How far ahead of the refresh the phase lock aims: `set_us` (a measurement run's) or that deadline,
 /// for a stream whose presents skip. A waiting present and exclusive fullscreen, which nothing
 /// composes, keep the refresh itself. A picture fractional V-Sync holds for its turn is aimed at

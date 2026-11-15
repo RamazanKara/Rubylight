@@ -288,8 +288,9 @@ impl Streaming {
     }
 
     /// How far ahead of its turn a picture fractional V-Sync holds goes out: the desktop's deadline,
-    /// or 2 ms in exclusive fullscreen, which nothing composes (`NIGHTJAR_HELD_MARGIN_US` sets it for
-    /// a measurement).
+    /// or 2 ms in exclusive fullscreen, which nothing composes (`NIGHTJAR_HELD_MARGIN_US` sets this
+    /// base for a measurement). With Frame Warp the hold comes before the draw, so the draw's recent
+    /// time is added (`present::held_margin_us`).
     fn held_margin_us(&self, renderer: *mut SDL_Renderer) -> u64 {
         #[cfg(target_os = "linux")]
         if self.kms_engaged() { return self.held_margin_us.unwrap_or(2_000); }
@@ -298,7 +299,10 @@ impl Streaming {
             let window = SDL_GetRenderWindow(renderer);
             SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN != 0 && !SDL_GetWindowFullscreenMode(window).is_null()
         };
-        self.held_margin_us.unwrap_or(if exclusive { 2_000 } else { present::deadline_before_refresh(self.plan.display.refresh_hz) as u64 })
+        let refresh_hz = self.plan.display.refresh_hz;
+        let base_us = self.held_margin_us.unwrap_or(if exclusive { 2_000 } else { present::deadline_before_refresh(refresh_hz) as u64 });
+        let draw_us = if self.frame_warp.is_some() { self.held_draw.p90_us() } else { None };
+        present::held_margin_us(base_us, draw_us, (1e6 / f64::from(refresh_hz.max(1.0))) as u64)
     }
 
     /// Fractional V-Sync: waits before the picture's present until its turn comes
@@ -1058,7 +1062,9 @@ impl Streaming {
         // Fractional V-Sync holds the picture before Frame Warp's shift, so the shift is as fresh as
         // without the hold. Without Frame Warp it holds after the draw (`render_flip`, `kms_flip`),
         // whose time then stays out of the hold's margin.
-        if has_picture && self.frame_warp.is_some() { self.hold_for_turn(renderer); }
+        let held_before_draw = has_picture && self.frame_warp.is_some() && self.vrr.held(self.pacer.mode) > 1;
+        if held_before_draw { self.hold_for_turn(renderer); }
+        let draw_begin_us = session::now_us();
         // Frame Warp's shift for the picture, as late before its draw as it can be.
         if let Some(warp) = self.frame_warp.as_mut() {
             if let Some(p) = &picture { warp.picture(p.decoded.number, p.decoded.race_seq, p.decoded.ready_us); }
@@ -1069,6 +1075,12 @@ impl Streaming {
             None => (self.render_flip(renderer, &mut draw_overlay, has_picture), false),
         };
         self.needs_redraw = false;
+        // The draw after the hold, which the hold's margin has to leave time for.
+        if held_before_draw && !flipped.refused {
+            self.held_draw.record(flipped.issued_us.saturating_sub(draw_begin_us));
+        } else if self.frame_warp.is_none() {
+            self.held_draw.reset();
+        }
         // A held stream's turns count from its pictures, not its redraws (`phase::HeldAnchor`).
         if let Some(p) = picture.as_ref().filter(|_| !flipped.refused && self.vrr.held(self.pacer.mode) > 1) {
             if cfg!(windows) {

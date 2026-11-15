@@ -494,6 +494,8 @@ pub struct Streaming {
     held_anchor: phase::HeldAnchor,
     /// How long the last picture fractional V-Sync held waited for its turn, for the timing CSV.
     held_wait_us: Option<u64>,
+    /// How long the draws after a hold took, with Frame Warp (`present::DrawTime`).
+    held_draw: present::DrawTime,
     /// The turns of a held stream on a display that tells the time it showed a picture, not its
     /// refresh (`phase::HeldClock`: Wayland's presentation feedback, a KMS commit).
     held_clock: phase::HeldClock,
@@ -943,6 +945,7 @@ impl Streaming {
             held_report_refresh: std::env::var_os("NIGHTJAR_HELD_REPORT").is_some_and(|v| v == "0"),
             held_anchor: phase::HeldAnchor::default(),
             held_wait_us: None,
+            held_draw: present::DrawTime::default(),
             held_clock: phase::HeldClock::default(),
             held_untimed_logged: false,
             held_logged: 1,

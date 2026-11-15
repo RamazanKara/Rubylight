@@ -1239,6 +1239,23 @@ fn fractional_vsync_stands_aside_for_a_chosen_vrr_even_once_the_display_falls_ba
 }
 
 #[test]
+fn a_hold_before_the_draw_adds_the_draw_time_to_its_margin() {
+    let mut draws = DrawTime::default();
+    assert_eq!(draws.p90_us(), None);
+    assert_eq!(held_margin_us(5_000, draws.p90_us(), 8_333), 5_000, "after the draw: the deadline alone");
+    for us in [900, 1_000, 1_100, 1_200, 1_000, 1_000, 1_000, 1_000, 1_000, 4_000] { draws.record(us); }
+    assert_eq!(draws.p90_us(), Some(1_200), "one slow draw in ten is above the 90th percentile");
+    assert_eq!(held_margin_us(5_000, draws.p90_us(), 8_333), 6_200);
+    assert_eq!(held_margin_us(2_000, Some(1_200), 8_333), 3_200, "exclusive fullscreen");
+    assert_eq!(held_margin_us(5_000, Some(4_000), 8_333), 6_666, "capped at 4/5 of a refresh");
+    assert_eq!(held_margin_us(7_166, Some(9_000), 8_333), 7_166, "never under the deadline");
+    for _ in 0..DRAW_TIMES { draws.record(500); }
+    assert_eq!(draws.p90_us(), Some(500), "only the last draws count");
+    draws.reset();
+    assert_eq!(draws.p90_us(), None);
+}
+
+#[test]
 fn the_phase_lock_aims_at_the_deadline_only_where_a_picture_has_to_make_it() {
     assert_eq!(phase_lock_aim_us(true, false, None, 120.0), 5_000);
     assert_eq!(phase_lock_aim_us(true, false, Some(1_000), 120.0), 1_000, "a measurement run's");

@@ -129,7 +129,12 @@ impl HeldAnchor {
         if present_count == self.picture { self.shown_at = Some(present_refresh); }
         if self.shown_at.is_some() { return self.shown_at; }
         let waiting = (self.picture.wrapping_sub(present_count) as i32) > 0;
-        self.aimed.or_else(|| waiting.then(|| sync_refresh.wrapping_add(1)))
+        if !waiting { return self.aimed; }
+        // Still unseen once its aimed refresh has come: it missed that, and shows at the next at
+        // the earliest. Counted from the aimed one, the next picture came a refresh early (holds
+        // of 3 and 1 in turn at 60 fps on 120 Hz).
+        let next = sync_refresh.wrapping_add(1);
+        Some(self.aimed.filter(|&aimed| (aimed.wrapping_sub(next) as i32) > 0).unwrap_or(next))
     }
 
     /// Fractional V-Sync: how long a picture waits before its present, which then goes out at the
@@ -581,6 +586,7 @@ mod tests {
         // The statistics still name present 7 at the latest refresh 101: its turn, not 102.
         assert_eq!(anchor.last_refresh(7, 100, 101), Some(102), "aimed at 102");
         assert_eq!(anchor.last_refresh(7, 100, 100), Some(102), "even read a refresh behind");
+        assert_eq!(anchor.last_refresh(7, 100, 102), Some(103), "102 came and it is still unseen: missed, 103 at the earliest");
         // A redraw (present 9) passed it unseen: still its aimed refresh, not unknown.
         assert_eq!(anchor.last_refresh(9, 103, 103), Some(102));
         // Seen a refresh late: the refresh it was shown at.

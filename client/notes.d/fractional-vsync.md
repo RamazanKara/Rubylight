@@ -1,2 +1,2 @@
 ## en
-- New setting Fractional V-Sync (off by default): on a screen at 2 to 4 times the stream's frame rate, such as 60 fps on 120 Hz, every frame stays for the same number of refreshes, so motion no longer judders when V-Sync is on and VRR is off. It adds 1 to 2 ms of delay. On desktop it works on Windows and on Linux with Wayland or KMS.
+- New setting Fractional V-Sync (off by default): on a screen at 2 to 4 times the stream's frame rate, such as 60 fps on 120 Hz, every frame stays for the same number of refreshes, so motion no longer judders when V-Sync is on and VRR is off. Measured on Windows, it adds 1 to 2 ms of delay on most frames and 2.5 to 4 ms on the slowest ones. On desktop it works on Windows and on Linux with Wayland or KMS.

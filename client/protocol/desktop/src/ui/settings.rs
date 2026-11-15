@@ -897,11 +897,11 @@ impl Launcher {
             rows.when(!s.frame_pacing.forces_vsync());
             setting_row(ui, s, &mut rows, &["vsync"], "V-Sync", "Waits for the screen’s refresh, so the picture never tears; the wait adds latency. Turn it off for the lowest latency if tearing doesn’t bother you.", |ui, s| toggle(ui, &mut s.vsync));
             rows.always();
-            // Only where pictures wait for the refresh, on Windows and Linux, which say when the last
-            // picture was shown (`Streaming::held_times`; on Linux with Wayland or KMS only).
-            rows.when(cfg!(any(windows, target_os = "linux")) && !vrr);
+            // Only where pictures wait for the refresh and the display says when the last picture
+            // was shown (`Streaming::held_times`).
+            rows.when(fractional_vsync_applies(&video_driver()) && !vrr);
             rows.when(s.vsync || s.frame_pacing.forces_vsync());
-            setting_row(ui, s, &mut rows, &["fractional_vsync"], "Fractional V-Sync", "On a screen at 2 to 4 times the stream’s frame rate (60 fps on 120 Hz), shows every frame for the same number of refreshes, so motion stays even. It adds 1 to 2 ms of delay; turn it on if motion judders with V-Sync.", |ui, s| toggle(ui, &mut s.fractional_vsync));
+            setting_row(ui, s, &mut rows, &["fractional_vsync"], "Fractional V-Sync", "On a screen at 2 to 4 times the stream’s frame rate (60 fps on 120 Hz), shows every frame for the same number of refreshes, so motion stays even. Measured on Windows, it adds 1 to 2 ms of delay on most frames and 2.5 to 4 ms on the slowest ones; turn it on if motion judders with V-Sync.", |ui, s| toggle(ui, &mut s.fractional_vsync));
             rows.always();
             rows.group(en("Image"));
             setting_row(ui, s, &mut rows, &["upscaling"], "Upscaling", "How a stream smaller than the screen is enlarged. FSR and SGSR sharpen edges at some GPU time and battery; HDR streams are enlarged without them.", |ui, s| {
@@ -1859,6 +1859,21 @@ impl VrrChoice {
 /// under way; macOS has no such wait, so the key reads as nothing there.
 pub(super) const fn vrr_tear_free_applies() -> bool {
     cfg!(any(windows, target_os = "linux"))
+}
+
+/// Whether fractional V-Sync can hold pictures under SDL's video driver `video_driver`: Windows'
+/// swap chain statistics, and on Linux Wayland's presentation feedback or KMS, not X11, which
+/// tells no time a picture was shown; macOS presents without telling either.
+pub(super) fn fractional_vsync_applies(video_driver: &str) -> bool {
+    cfg!(windows) || (cfg!(target_os = "linux") && video_driver != "x11")
+}
+
+/// SDL's video driver, which only Linux asks for.
+fn video_driver() -> String {
+    #[cfg(target_os = "linux")]
+    return crate::sdl::video_driver();
+    #[cfg(not(target_os = "linux"))]
+    String::new()
 }
 
 /// The choice the saved keys make, on this platform.

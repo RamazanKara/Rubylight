@@ -338,7 +338,7 @@
     <string name="title_drop_late_frames">Zachowuj tylko najnowszą klatkę</string>
     <string name="summary_drop_late_frames">Pomija klatki, których ekran nie zdąży już wyświetlić, więc obraz nigdy nie zostaje w tyle. Zostaw włączone; po wyłączeniu wyświetlane są wszystkie klatki po kolei, co może dodać opóźnienie.</string>
     <string name="title_fractional_vsync">Ułamkowy V-Sync</string>
-    <string name="summary_fractional_vsync">Na ekranie odświeżanym 2–4 razy szybciej niż liczba klatek strumienia (60 fps przy 120 Hz) pokazuje każdą klatkę przez tyle samo odświeżeń, więc ruch jest równy. Dodaje 1–2 ms opóźnienia; włącz, jeśli ruch z V-Sync się zacina.</string>
+    <string name="summary_fractional_vsync">Na ekranie odświeżanym 2–4 razy szybciej niż liczba klatek strumienia (60 fps przy 120 Hz) pokazuje każdą klatkę przez tyle samo odświeżeń, więc ruch jest równy. Według pomiarów w Windows dodaje 1–2 ms opóźnienia w większości klatek i 2,5–4 ms w najwolniejszych; włącz, jeśli ruch z V-Sync się zacina.</string>
     <string name="title_texture_view">Zgodny widok wideo</string>
     <string name="summary_texture_view">Do rozwiązywania problemów: wypróbuj, jeśli wideo jest czarne, miga lub jest przesunięte. Dodaje pracy przy każdej klatce i nie jest używane z HDR, opcją „Mniej pasmowania kolorów” ani PyroWave.</string>
     <string name="title_unbatched_input">Natychmiastowe sterowanie myszą i rysikiem</string>

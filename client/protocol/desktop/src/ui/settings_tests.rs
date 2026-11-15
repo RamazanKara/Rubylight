@@ -1481,3 +1481,15 @@ fn a_games_settings_offer_the_rtx_enhancements_its_host_reports() {
         assert_eq!(rows(&mut f, page), (true, true), "{page:?} offers RTX HDR and RTX Video");
     }
 }
+
+#[test]
+fn fractional_vsync_is_offered_only_where_it_holds_pictures() {
+    for driver in ["windows", "wayland", "kmsdrm", "x11", "cocoa"] {
+        let expected = cfg!(windows) || (cfg!(target_os = "linux") && driver != "x11");
+        assert_eq!(fractional_vsync_applies(driver), expected, "{driver}");
+    }
+    if cfg!(target_os = "linux") {
+        assert!(!fractional_vsync_applies("x11"), "X11 tells no time a picture was shown");
+        assert!(fractional_vsync_applies("wayland"));
+    }
+}

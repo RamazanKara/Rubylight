@@ -14,6 +14,7 @@ import com.limelight.binding.video.DisplayFrameRatePolicy;
  */
 final class SettingRules {
     static final String DROP_LATE_FRAMES = "checkbox_drop_late_frames";
+    static final String FRACTIONAL_VSYNC = PreferenceConfiguration.FRACTIONAL_VSYNC_PREF_STRING;
     static final String FRAME_PACING = PreferenceConfiguration.FRAME_PACING_PREF_STRING;
     static final String HOST_FRAME_TIMES = PreferenceConfiguration.HOST_FRAME_TIMES_PREF_STRING;
     static final String ADAPTIVE_QUALITY = "adaptive_quality_mode";
@@ -40,6 +41,17 @@ final class SettingRules {
     static boolean dropLateFramesApplies(Context context, SharedPreferences prefs) {
         return framePacingApplies(context, prefs) &&
                 "balanced".equals(prefs.getString(FRAME_PACING, PreferenceConfiguration.DEFAULT_FRAME_PACING));
+    }
+
+    /**
+     * Fractional V-Sync holds Lowest latency frames for their turn and has Balanced's phase report
+     * aim at its cadence; Smoothest and FPS-capped pacing, and frame pacing replaced by adaptive
+     * refresh or host frame times, show frames without it.
+     */
+    static boolean fractionalVsyncApplies(Context context, SharedPreferences prefs) {
+        if (!framePacingApplies(context, prefs)) return false;
+        String pacing = prefs.getString(FRAME_PACING, PreferenceConfiguration.DEFAULT_FRAME_PACING);
+        return "latency".equals(pacing) || "balanced".equals(pacing);
     }
 
     /**

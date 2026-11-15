@@ -1581,5 +1581,5 @@ sudo sysctl -w net.core.rmem_max={}", "受信バッファー：システムは�
     ("Up and down sensitivity", "上下の感度"),
     ("Speeds motion aiming up or slows it down; 100% sends the controller’s own speed.", "モーションによる照準を速くしたり遅くしたりします。100% ではコントローラ本来の速さで動きます。"),
     ("Fractional V-Sync", "分数V-Sync"),
-    ("On a screen at 2 to 4 times the stream’s frame rate (60 fps on 120 Hz), shows every frame for the same number of refreshes, so motion stays even. It adds 1 to 2 ms of delay; turn it on if motion judders with V-Sync.", "画面のリフレッシュレートがストリームのフレームレートの2〜4倍のとき(120 Hzで60 fps)、各フレームを同じ回数のリフレッシュだけ表示し、動きを均一に保ちます。遅延が1〜2 ms増えます。V-Syncで動きがカクつく場合にオンにしてください。"),
+    ("On a screen at 2 to 4 times the stream’s frame rate (60 fps on 120 Hz), shows every frame for the same number of refreshes, so motion stays even. Measured on Windows, it adds 1 to 2 ms of delay on most frames and 2.5 to 4 ms on the slowest ones; turn it on if motion judders with V-Sync.", "画面のリフレッシュレートがストリームのフレームレートの2〜4倍のとき(120 Hzで60 fps)、各フレームを同じ回数のリフレッシュだけ表示し、動きを均一に保ちます。Windowsでの測定では、遅延がほとんどのフレームで1〜2 ms、最も遅いフレームで2.5〜4 ms増えます。V-Syncで動きがカクつく場合にオンにしてください。"),
 ];

@@ -338,7 +338,7 @@
     <string name="title_drop_late_frames">Manter só o quadro mais recente</string>
     <string name="summary_drop_late_frames">Descarta quadros que a tela não consegue mais exibir a tempo, para a imagem nunca ficar para trás. Deixe ativado; desativado, exibe todos os quadros em ordem e pode adicionar atraso.</string>
     <string name="title_fractional_vsync">V-Sync fracionado</string>
-    <string name="summary_fractional_vsync">Em uma tela com 2 a 4 vezes a taxa de quadros do stream (60 fps em 120 Hz), mostra cada quadro pelo mesmo número de atualizações, para o movimento ficar uniforme. Adiciona de 1 a 2 ms de atraso; ative se o movimento engasgar com o V-Sync.</string>
+    <string name="summary_fractional_vsync">Em uma tela com 2 a 4 vezes a taxa de quadros do stream (60 fps em 120 Hz), mostra cada quadro pelo mesmo número de atualizações, para o movimento ficar uniforme. Medido no Windows, adiciona de 1 a 2 ms de atraso na maioria dos quadros e de 2,5 a 4 ms nos mais lentos; ative se o movimento engasgar com o V-Sync.</string>
     <string name="title_texture_view">Visualização de vídeo compatível</string>
     <string name="summary_texture_view">Para solução de problemas: tente se o vídeo ficar preto, piscar ou aparecer fora do lugar. Adiciona trabalho por quadro e não é usado com HDR, Menos faixas de cor ou PyroWave.</string>
     <string name="title_unbatched_input">Entrada instantânea de mouse e caneta</string>

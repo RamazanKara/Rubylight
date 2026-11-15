@@ -1601,9 +1601,15 @@ impl Removing {
                 tracing::warn!(app = %app.name, %folder, "Neural Rendering: the game's folder can't be reached; its removal is pending");
             }
             anyhow::Ok(())
-        })();
+        })()
+        .map_err(|error| {
+            // The app delete's answer names no provider path; the log has it.
+            let full = format!("{error:#}");
+            tracing::warn!(app = %app.name, error = %full, "Neural Rendering could not be removed for the app's delete");
+            anyhow!(neural::shown(&full))
+        });
         if let (Err(error), Some(uuid)) = (&removed, &self.uuid) {
-            fail_job(&self.h, uuid, format!("{error:#}"), false);
+            fail_job(&self.h, uuid, error.to_string(), false);
         }
         removed
     }
@@ -1875,10 +1881,16 @@ pub fn before_launch(h: &Shared, app: &App) -> Result<()> {
             app.name
         );
     }
-    let result = launch_check(h, app, &uuid, exe, legacy);
+    // The error reaches the client as the launch's status message: it names
+    // no provider path, which carries the mod's name; the log has the whole.
+    let result = launch_check(h, app, &uuid, exe, legacy).map_err(|error| {
+        let full = format!("{error:#}");
+        tracing::warn!(app = %app.name, error = %full, "Neural Rendering's launch check failed");
+        anyhow!(neural::shown(&full))
+    });
     match &result {
         Ok(()) => update_job(h, &uuid, |job| job.phase = "done"),
-        Err(error) => fail_job(h, &uuid, format!("{error:#}"), false),
+        Err(error) => fail_job(h, &uuid, error.to_string(), false),
     }
     result
 }

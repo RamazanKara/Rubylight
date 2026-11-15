@@ -2023,6 +2023,48 @@ fn a_launch_holds_the_switch_while_it_checks() {
     assert_eq!(h.neural.lock().jobs["game"].action, "remove");
 }
 
+/// A launch's failed check and an app delete's failed removal reach the
+/// client and the console without the provider's folder, whose name is the
+/// mod's.
+#[test]
+fn launch_and_delete_errors_name_no_provider_folder() {
+    use std::os::windows::fs::OpenOptionsExt as _;
+    let f = crate::state::test_support::Fixture::new();
+    let h = &f.host;
+    let temp = tempdir();
+    let cache = release(temp.path(), "FG-V.B16", b"OptiScaler proxy");
+    let exe = game(temp.path());
+    let folder = exe.parent().unwrap().to_path_buf();
+    assert!(matches!(
+        install(Some(&exe), None, &cache),
+        Response::Placed { .. }
+    ));
+    let mut app = app_named("Game", "game");
+    app.extra.insert(KEY.into(), json!({"exe": exe}));
+
+    std::fs::remove_file(folder.join(PDLL)).unwrap();
+    let error = format!("{:#}", before_launch(h, &app).unwrap_err());
+    assert!(error.contains("nvngx_dlssg.dll"), "{error}");
+    assert!(!error.contains(neural::PROVIDER), "{error}");
+    let job = h.neural.lock().jobs["game"].clone();
+    assert!(!job.error.unwrap().contains(neural::PROVIDER));
+    update_job(h, "game", |job| job.phase = "done");
+
+    // A placed file another program holds, sharing it for reading only, is
+    // still the one placed but can't be deleted.
+    std::fs::write(folder.join(PDLL), b"provider").unwrap();
+    let held = std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(1) // FILE_SHARE_READ
+        .open(folder.join(PAK))
+        .unwrap();
+    let error = format!("{:#}", before_delete(h, &app).err().unwrap());
+    drop(held);
+    assert!(!error.contains(neural::PROVIDER), "{error}");
+    let job = h.neural.lock().jobs["game"].clone();
+    assert!(!job.error.unwrap_or_default().contains(neural::PROVIDER));
+}
+
 #[test]
 fn the_console_cannot_set_the_hosts_key() {
     let app = |exe: &str| {

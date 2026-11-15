@@ -768,7 +768,9 @@ fn shown_text_names_no_mod() {
     // A stop character of more than one byte before the path.
     for stop in ['\u{3000}', '\u{a0}'] {
         assert_eq!(
-            shown(&format!("missing{stop}D:\\G\\OptiScaler\\custom\\{PROVIDER}\\dlssg\\x.dll")),
+            shown(&format!(
+                "missing{stop}D:\\G\\OptiScaler\\custom\\{PROVIDER}\\dlssg\\x.dll"
+            )),
             format!("missing{stop}frame generation's x.dll")
         );
     }

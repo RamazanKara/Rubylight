@@ -176,7 +176,10 @@ fn the_lines_say_the_job_and_the_switch() {
     );
     neural.job.as_mut().unwrap().phase = NeuralPhase::Failed;
     neural.job.as_mut().unwrap().error = Some("The game uses BattlEye.".into());
-    assert_eq!(job_text(&neural).as_deref(), Some("The game uses BattlEye."));
+    assert_eq!(
+        job_text(&neural).as_deref(),
+        Some("The game uses BattlEye.")
+    );
     neural.job = None;
     assert_eq!(job_text(&neural), None);
     let mut switch = neural.switches[0].clone();
@@ -191,7 +194,10 @@ fn the_lines_say_the_job_and_the_switch() {
     switch.state = ControlState::ReadOnly;
     switch.reason = Some("Turn on Host control for this device.".into());
     assert!(!configurable(&switch));
-    assert_eq!(switch_text(&switch), "Turn on Host control for this device.");
+    assert_eq!(
+        switch_text(&switch),
+        "Turn on Host control for this device."
+    );
 }
 
 /// A write refused while the PC works on the game keeps its words through the read after it,
@@ -210,7 +216,14 @@ fn a_refusal_during_a_job_polls_at_its_pace_and_clears() {
     // Until the read after the refusal is in (settle would wait out the next poll).
     for _ in 0..800 {
         panel.poll(Some((1, 7)));
-        if panel.state_for(1, 7).unwrap().state.as_ref().unwrap().working() {
+        if panel
+            .state_for(1, 7)
+            .unwrap()
+            .state
+            .as_ref()
+            .unwrap()
+            .working()
+        {
             break;
         }
         std::thread::sleep(Duration::from_millis(5));

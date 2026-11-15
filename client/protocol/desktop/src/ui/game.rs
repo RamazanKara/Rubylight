@@ -124,9 +124,9 @@ struct ArtRow {
 impl ArtRow {
     fn switch(&self) -> Option<bool> {
         match self.act {
-            RowAct::QuitOnLeave { on, .. } | RowAct::Hide { on, .. } | RowAct::Neural { on, .. } => {
-                Some(on)
-            }
+            RowAct::QuitOnLeave { on, .. }
+            | RowAct::Hide { on, .. }
+            | RowAct::Neural { on, .. } => Some(on),
             _ => None,
         }
     }
@@ -150,16 +150,20 @@ impl Launcher {
         let switch = state.and_then(|state| state.frame_generation());
         let busy = open.is_some_and(|open| open.writing) || state.is_some_and(|s| s.working());
         let failure = self.neural.failure_for(host.id, game).map(str::to_owned);
-        let (line, ink) = if let Some(error) = failure.or_else(|| open.and_then(|o| o.error.clone())) {
+        let (line, ink) = if let Some(error) =
+            failure.or_else(|| open.and_then(|o| o.error.clone()))
+        {
             (error, *ERROR)
         } else if let Some(job) = state.and_then(job_text) {
-            let failed = state.and_then(|s| s.job.as_ref()).is_some_and(|job| {
-                job.phase == nightjar_core::http::NeuralPhase::Failed
-            });
+            let failed = state
+                .and_then(|s| s.job.as_ref())
+                .is_some_and(|job| job.phase == nightjar_core::http::NeuralPhase::Failed);
             (job, if failed { *ERROR } else { *ON_SURFACE_VARIANT })
         } else if let Some(switch) = switch.filter(|s| !configurable(s)) {
             (switch_text(switch), *ON_SURFACE_VARIANT)
-        } else if state.is_some_and(|s| s.replaces_earlier_upscaling) && !switch.is_some_and(|s| s.on) {
+        } else if state.is_some_and(|s| s.replaces_earlier_upscaling)
+            && !switch.is_some_and(|s| s.on)
+        {
             (
                 tr("Turning it on removes the earlier neural upscaling from the game’s folder first.").to_owned(),
                 *ON_SURFACE_VARIANT,
@@ -167,7 +171,10 @@ impl Launcher {
         } else if state.is_none() {
             (tr("Loading…").to_owned(), *ON_SURFACE_VARIANT)
         } else if switch.is_none() {
-            (tr("The PC offers no frame generation for this game.").to_owned(), *ON_SURFACE_VARIANT)
+            (
+                tr("The PC offers no frame generation for this game.").to_owned(),
+                *ON_SURFACE_VARIANT,
+            )
         } else {
             (
                 tr("Frame generation for games that offer DLSS frame generation, through a mod the PC puts in the game’s folder and takes out again: turn on DLSS frame generation in the game, and this takes its place. Leave it off for online games: one may treat a mod as cheating.").to_owned(),

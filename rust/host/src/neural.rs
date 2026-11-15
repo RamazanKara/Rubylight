@@ -236,8 +236,9 @@ pub fn offered(h: &Shared) -> bool {
     {
         return *offered;
     }
-    let offered = streams_with(h, &setting)
-        .map_or(true, |streams| matches!(streams.vendor, neural::AMD | neural::NVIDIA));
+    let offered = streams_with(h, &setting).map_or(true, |streams| {
+        matches!(streams.vendor, neural::AMD | neural::NVIDIA)
+    });
     h.neural.lock().offered = Some((setting, offered));
     offered
 }

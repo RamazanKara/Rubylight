@@ -35,13 +35,15 @@ const CHOOSE: &str = "Choose the game's program in the Rubylight console on the 
 /// What a switch that is off says while a stream runs.
 const STREAMING_ON: &str = "Frame generation downloads about 14 MB and copies it into the game's folder: turn it on when no stream is running.";
 /// What a switch that is on says while a stream runs.
-const STREAMING_OFF: &str = "The game may be running with frame generation loaded: turn it off when no stream is running.";
+const STREAMING_OFF: &str =
+    "The game may be running with frame generation loaded: turn it off when no stream is running.";
 /// What a switch now `on` says while a stream runs.
 fn streaming(on: bool) -> &'static str {
     if on { STREAMING_OFF } else { STREAMING_ON }
 }
 /// What a switch says to a device without Host control.
-const NO_HOST_CONTROL: &str = "Turn on Host control for this device in the Rubylight console to change it.";
+const NO_HOST_CONTROL: &str =
+    "Turn on Host control for this device in the Rubylight console to change it.";
 
 fn reader(client: &Client) -> Result<(), Failure> {
     require(client, VIEW, "View streams")
@@ -69,8 +71,8 @@ pub async fn read(
     tokio::task::spawn_blocking(move || {
         state(&h, &app, host_control).map(|state| json(StatusCode::OK, &state))
     })
-        .await
-        .map_err(|error| Failure::internal("read Neural Rendering", error))?
+    .await
+    .map_err(|error| Failure::internal("read Neural Rendering", error))?
 }
 
 pub async fn write(

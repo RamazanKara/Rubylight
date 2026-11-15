@@ -151,13 +151,14 @@ public class NeuralSheetTest {
         String text = texts(sheet);
         assertTrue(text, text.contains("Turn on Host control"));
         assertFalse(sheet.shown().frameGeneration.configurable());
-        MaterialButton fg = fg(sheet);
-        if (fg != null) {
-            fg.performClick();
-            Shadows.shadowOf(Looper.getMainLooper()).idle();
-        }
-        AlertDialog notice = (AlertDialog) ShadowDialog.getLatestDialog();
-        assertTrue(notice == null || !notice.isShowing());
+        // Choosing it says why instead of showing the notice, and sends nothing.
+        fg(sheet).performClick();
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
+        AlertDialog why = (AlertDialog) ShadowDialog.getLatestDialog();
+        assertTrue(why.isShowing());
+        TextView message = why.findViewById(android.R.id.message);
+        assertNotNull(message);
+        assertTrue(message.getText().toString(), message.getText().toString().startsWith("Turn on Host control"));
         assertEquals(Arrays.asList("neural uuid-1"), calls);
     }
 

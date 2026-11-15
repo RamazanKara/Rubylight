@@ -3251,7 +3251,10 @@ async fn frame_generation_replaces_an_earlier_amdnr_install() {
     enable(h, "game", None).unwrap();
     let job = ended(h, "game").await;
     assert_eq!(job.phase, "failed", "{job:?}");
-    assert!(job.error.as_deref().unwrap().contains("BattlEye"), "{job:?}");
+    assert!(
+        job.error.as_deref().unwrap().contains("BattlEye"),
+        "{job:?}"
+    );
     std::fs::remove_file(folder.join("BEClient_x64.dll")).unwrap();
     assert_eq!(snapshot(folder), with_amdnr);
     assert!(legacy_exe(&app(h, "game").unwrap()).is_some());

@@ -165,7 +165,11 @@ impl NeuralPanel {
             if !delay.is_zero() {
                 std::thread::sleep(delay);
             }
-            let _ = sender.send(Answer(ask, false, source.neural(&app).map_err(|e| said(&e))));
+            let _ = sender.send(Answer(
+                ask,
+                false,
+                source.neural(&app).map_err(|e| said(&e)),
+            ));
             waker();
         });
         if let Err(e) = started {
@@ -203,7 +207,11 @@ impl NeuralPanel {
             open.waker.clone(),
         );
         let started = spawn("neural write", move || {
-            let _ = sender.send(Answer(ask, true, source.write(&write).map_err(|e| said(&e))));
+            let _ = sender.send(Answer(
+                ask,
+                true,
+                source.write(&write).map_err(|e| said(&e)),
+            ));
             waker();
         });
         if let Err(e) = started {
@@ -215,7 +223,11 @@ impl NeuralPanel {
     /// Takes in what the workers found. `page` is the game whose page is open: leaving it closes
     /// the panel, which cancels what is running.
     pub fn poll(&mut self, page: Option<(u64, u32)>) {
-        if self.failed.as_ref().is_some_and(|(key, _)| page != Some(*key)) {
+        if self
+            .failed
+            .as_ref()
+            .is_some_and(|(key, _)| page != Some(*key))
+        {
             self.failed = None;
         }
         if self

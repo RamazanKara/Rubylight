@@ -167,7 +167,7 @@
           </div>
         {/if}
       {/if}
-      {#if (view.kind === 'off' || view.kind === 'unavailable') && view.earlier !== null}
+      {#if 'earlier' in view && view.earlier !== null}
         <div class="earlier">
           <p class="muted note">
             The earlier neural upscaling{view.earlier ? ` (release ${view.earlier})` : ''} is still in the game’s folder. Rubylight

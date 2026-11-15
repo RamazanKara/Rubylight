@@ -51,6 +51,19 @@ test('the earlier neural upscaling is offered only for removal, also where frame
   const replacing = neuralView(status({ earlier_upscaling, job: job({ phase: 'remove' }) }));
   assert.equal(replacing.label, 'Removing the earlier neural upscaling…');
   assert.doesNotMatch(render(NeuralRendering, { props: { uuid: 'game', initial: status() } }).body, />Remove</);
+  // A failure that tells the user to remove it on the game's page (a refusal, a drive offline) and a
+  // program to choose keep its Remove.
+  const told = 'the earlier Neural Rendering upscaling is in the game\'s folder: remove it on the game\'s page first';
+  for (const failed of [
+    job({ phase: 'failed', error: told }),
+    job({ action: 'remove', phase: 'failed', error: 'the game\'s folder can\'t be reached' }),
+    job({ phase: 'failed', choose_exe: true, error: 'which' }),
+  ]) {
+    const view = neuralView(status({ earlier_upscaling, job: failed }));
+    assert.equal(view.earlier, 'Alpha0.3.5.8R2', JSON.stringify(view));
+    const page = render(NeuralRendering, { props: { uuid: 'game', initial: status({ earlier_upscaling, job: failed }) } }).body;
+    assert.match(page, />Remove</, view.kind);
+  }
 });
 
 test('the download, the install and the removal show their progress and poll', () => {
@@ -89,10 +102,11 @@ test('the switch shows where it is, what stayed and why it failed', () => {
     title: 'Frame generation couldn’t be installed',
     error: 'the game uses Easy Anti-Cheat (C:\\Games\\EasyAntiCheat).',
     on: false,
+    earlier: null,
   });
   // A launch's check that failed removed nothing, and a removal that failed leaves the switch on.
   const checked = neuralView(status({ enabled: true, job: job({ action: 'update', phase: 'failed', error: 'a file changed' }) }));
-  assert.deepEqual(checked, { kind: 'failed', title: 'Frame generation couldn’t be checked for the launch', error: 'a file changed.', on: true });
+  assert.deepEqual(checked, { kind: 'failed', title: 'Frame generation couldn’t be checked for the launch', error: 'a file changed.', on: true, earlier: null });
   assert.equal(
     neuralView(status({ enabled: true, job: job({ action: 'remove', phase: 'failed', error: 'in use' }) })).title,
     'Neural Rendering couldn’t be removed',

@@ -11,15 +11,15 @@ import { megabytes, sentence } from './coop-view';
  * program could not be found: the user picks it) and `failed` (the install, the removal or a
  * launch's check failed or was refused; the switch shows where it is and `title` says which of them
  * it was). `earlier` is the release of Rubylight 3.0's neural upscaling still in the game's folder,
- * which the panel offers only to remove.
+ * which the panel offers only to remove, also after a failure that tells the user to remove it.
  */
 export type NeuralView =
   | { kind: 'unavailable'; reason: string; earlier: string | null }
   | { kind: 'off'; kept: string[]; earlier: string | null }
   | { kind: 'on'; release: string | null; exe: string | null; addon: boolean }
   | { kind: 'working'; label: string; percent: number | null }
-  | { kind: 'choose'; reason: string }
-  | { kind: 'failed'; title: string; error: string; on: boolean };
+  | { kind: 'choose'; reason: string; earlier: string | null }
+  | { kind: 'failed'; title: string; error: string; on: boolean; earlier: string | null };
 
 /** The notice the user accepts once, before the first download. Cancel is the dialog's default. */
 export const NOTICE = {
@@ -57,7 +57,7 @@ export function neuralView(status: NeuralStatus): NeuralView {
             : 'Removing from the game’s folder…';
     return { kind: 'working', label, percent: job.phase === 'remove' ? null : percent };
   }
-  if (job?.phase === 'failed' && job.choose_exe) return { kind: 'choose', reason: sentence(job.error ?? '') };
+  if (job?.phase === 'failed' && job.choose_exe) return { kind: 'choose', reason: sentence(job.error ?? ''), earlier };
   if (job?.phase === 'failed') {
     const title =
       job.action === 'remove'
@@ -65,7 +65,7 @@ export function neuralView(status: NeuralStatus): NeuralView {
         : job.action === 'update'
           ? 'Frame generation couldn’t be checked for the launch'
           : 'Frame generation couldn’t be installed';
-    return { kind: 'failed', title, error: sentence(job.error ?? 'It failed.'), on: status.enabled };
+    return { kind: 'failed', title, error: sentence(job.error ?? 'It failed.'), on: status.enabled, earlier };
   }
   if (status.enabled) return { kind: 'on', release: status.release, exe: status.exe, addon: status.mode === 'addon' };
   if (!status.available) return { kind: 'unavailable', reason: sentence(status.reason ?? 'This PC can’t run it.'), earlier };

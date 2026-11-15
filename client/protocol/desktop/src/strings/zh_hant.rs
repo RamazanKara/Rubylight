@@ -1593,5 +1593,5 @@ sudo sysctl -w net.core.rmem_max={}", "接收緩衝區：系統只分配了所�
     ("The PC offers no frame generation for this game.", "此 PC 未為此遊戲提供幀生成。"),
     ("Frame generation for games that offer DLSS frame generation, through a mod the PC puts in the game’s folder and takes out again: turn on DLSS frame generation in the game, and this takes its place. Leave it off for online games: one may treat a mod as cheating.", "為提供 DLSS 幀生成的遊戲提供幀生成，透過 PC 放進遊戲資料夾、之後再取出的模組實現：在遊戲中開啟 DLSS 幀生成，由它來代替。線上遊戲請保持關閉：有些遊戲可能將模組視為作弊。"),
     ("Fractional V-Sync", "分數 V-Sync"),
-    ("On a screen at 2 to 4 times the stream’s frame rate (60 fps on 120 Hz), shows every frame for the same number of refreshes, so motion stays even. It adds 3 to 10 ms of delay; turn it on if motion judders with V-Sync.", "螢幕更新率是串流影格率的 2 到 4 倍時(120 Hz 上的 60 fps),每個影格顯示相同次數的更新,讓動作保持平順。會增加 3 到 10 ms 延遲;如果開啟 V-Sync 後動作卡頓,請開啟。"),
+    ("On a screen at 2 to 4 times the stream’s frame rate (60 fps on 120 Hz), shows every frame for the same number of refreshes, so motion stays even. It adds 1 to 2 ms of delay; turn it on if motion judders with V-Sync.", "螢幕更新率是串流影格率的 2 到 4 倍時(120 Hz 上的 60 fps),每個影格顯示相同次數的更新,讓動作保持平順。會增加 1 到 2 ms 延遲;如果開啟 V-Sync 後動作卡頓,請開啟。"),
 ];

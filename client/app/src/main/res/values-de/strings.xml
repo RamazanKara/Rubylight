@@ -332,7 +332,7 @@
     <string name="title_gpu_max_clocks">GPU-Leistung für PyroWave steigern</string>
     <string name="summary_gpu_max_clocks">Höhere GPU-Takte für schnelleres PyroWave-Dekodieren, bei mehr Energieverbrauch und Wärme. Lass es aus, solange das PyroWave-Dekodieren nicht zu langsam ist.</string>
     <string name="title_fractional_vsync">Fraktionales V-Sync</string>
-    <string name="summary_fractional_vsync">Auf einem Bildschirm mit dem 2- bis 4-Fachen der Bildrate des Streams (60 fps auf 120 Hz) bleibt jeder Frame gleich viele Bildwechsel lang stehen, damit Bewegungen gleichmäßig bleiben. Das kostet 3 bis 10 ms Verzögerung; schalte es ein, wenn Bewegungen mit V-Sync ruckeln.</string>
+    <string name="summary_fractional_vsync">Auf einem Bildschirm mit dem 2- bis 4-Fachen der Bildrate des Streams (60 fps auf 120 Hz) bleibt jeder Frame gleich viele Bildwechsel lang stehen, damit Bewegungen gleichmäßig bleiben. Das kostet 1 bis 2 ms Verzögerung; schalte es ein, wenn Bewegungen mit V-Sync ruckeln.</string>
     <string name="title_texture_view">Alternative Videoanzeige</string>
     <string name="summary_texture_view">Zur Fehlersuche: Probiere es, wenn das Video schwarz ist, flackert oder verschoben sitzt. Es kostet zusätzliche Arbeit pro Bild und wird mit HDR, „Weniger Farbbänder“ oder PyroWave nicht genutzt.</string>
     <string name="title_unbatched_input">Maus und Stift ohne Wartezeit</string>

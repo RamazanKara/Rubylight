@@ -1593,5 +1593,5 @@ sudo sysctl -w net.core.rmem_max={}", "受信バッファー：システムは�
     ("The PC offers no frame generation for this game.", "この PC はこのゲームのフレーム生成を提供していません。"),
     ("Frame generation for games that offer DLSS frame generation, through a mod the PC puts in the game’s folder and takes out again: turn on DLSS frame generation in the game, and this takes its place. Leave it off for online games: one may treat a mod as cheating.", "DLSS フレーム生成に対応したゲーム向けのフレーム生成です。PC がゲームのフォルダーに置き、また取り除く MOD を使います。ゲームで DLSS フレーム生成をオンにすると、これが代わりに働きます。オンラインゲームではオフのままにしてください。MOD を不正行為とみなすゲームがあります。"),
     ("Fractional V-Sync", "分数V-Sync"),
-    ("On a screen at 2 to 4 times the stream’s frame rate (60 fps on 120 Hz), shows every frame for the same number of refreshes, so motion stays even. It adds 3 to 10 ms of delay; turn it on if motion judders with V-Sync.", "画面のリフレッシュレートがストリームのフレームレートの2〜4倍のとき(120 Hzで60 fps)、各フレームを同じ回数のリフレッシュだけ表示し、動きを均一に保ちます。遅延が3〜10 ms増えます。V-Syncで動きがカクつく場合にオンにしてください。"),
+    ("On a screen at 2 to 4 times the stream’s frame rate (60 fps on 120 Hz), shows every frame for the same number of refreshes, so motion stays even. It adds 1 to 2 ms of delay; turn it on if motion judders with V-Sync.", "画面のリフレッシュレートがストリームのフレームレートの2〜4倍のとき(120 Hzで60 fps)、各フレームを同じ回数のリフレッシュだけ表示し、動きを均一に保ちます。遅延が1〜2 ms増えます。V-Syncで動きがカクつく場合にオンにしてください。"),
 ];

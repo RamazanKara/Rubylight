@@ -2926,10 +2926,26 @@ fn the_users_own_optiscaler_gets_the_provider_and_its_settings_back_exactly() {
         b"MZ OptiScaler ... Custom DLSSG ...",
     )
     .unwrap();
-    let ini: &[u8] = b"\xef\xbb\xbf[FrameGen]\r\nEnabled=auto\r\nFGInput=auto\r\n\r\n[DLSSG]\r\nDisableHudless=auto\r\n";
+    let ini: &[u8] = b"\xef\xbb\xbf[FrameGen]\r\nEnabled=auto\r\nFGInput=auto\r\nDisableHudless=auto\r\n\r\n[NvngxFG]\r\nDisableHudless = auto\r\n";
     std::fs::write(folder.join("OptiScaler.ini"), ini).unwrap();
     std::fs::create_dir(folder.join("OptiScaler")).unwrap();
     std::fs::write(folder.join("OptiScaler/libxess.dll"), b"the user's").unwrap();
+    // fakenvapi beside it is OptiScaler's own add-on; another mod is refused.
+    std::fs::write(folder.join("fakenvapi.ini"), b"").unwrap();
+    for (file, other) in [
+        ("SpecialK64.dll", "Special K"),
+        ("dlssg_to_fsr3_amd_is_better.dll", "dlssg-to-fsr3"),
+        ("dlss-enabler.dll", "DLSS Enabler"),
+    ] {
+        std::fs::write(folder.join(file), b"another mod").unwrap();
+        let mine = snapshot(folder);
+        let Response::Refused { reason } = install(Some(&exe), None, &cache) else {
+            panic!("{file} beside the user's OptiScaler was not refused")
+        };
+        assert!(reason.contains(other), "{reason}");
+        assert_eq!(snapshot(folder), mine);
+        std::fs::remove_file(folder.join(file)).unwrap();
+    }
     let before = snapshot(folder);
 
     assert_eq!(
@@ -2961,7 +2977,7 @@ fn the_users_own_optiscaler_gets_the_provider_and_its_settings_back_exactly() {
         b"the user's"
     );
     let changed = String::from_utf8(std::fs::read(folder.join("OptiScaler.ini")).unwrap()).unwrap();
-    let frame_gen = changed.split("[DLSSG]").next().unwrap();
+    let frame_gen = changed.split("[NvngxFG]").next().unwrap();
     for value in [
         "FGInput=nvngxfg\r\n",
         "FGNvngxReplacement=Apex Neural Rendering FG\r\n",
@@ -2971,8 +2987,9 @@ fn the_users_own_optiscaler_gets_the_provider_and_its_settings_back_exactly() {
         assert!(frame_gen.contains(value), "{value:?} in {changed:?}");
     }
     assert!(!frame_gen.contains("FGInput=auto"), "{changed:?}");
+    assert!(!frame_gen.contains("DisableHudless=auto"), "{changed:?}");
     assert!(
-        changed.ends_with("[DLSSG]\r\nDisableHudless=auto\r\n"),
+        changed.ends_with("[NvngxFG]\r\nDisableHudless = auto\r\n"),
         "{changed:?}"
     );
     let manifest =
@@ -3227,6 +3244,17 @@ async fn frame_generation_replaces_an_earlier_amdnr_install() {
     .unwrap();
     let cache = release(&cache_root(h), "FG-V.B16", b"OptiScaler proxy");
     pin_to(h, &cache);
+
+    // A game that gained anti-cheat keeps AMDNR and is refused.
+    let with_amdnr = snapshot(folder);
+    std::fs::write(folder.join("BEClient_x64.dll"), "").unwrap();
+    enable(h, "game", None).unwrap();
+    let job = ended(h, "game").await;
+    assert_eq!(job.phase, "failed", "{job:?}");
+    assert!(job.error.as_deref().unwrap().contains("BattlEye"), "{job:?}");
+    std::fs::remove_file(folder.join("BEClient_x64.dll")).unwrap();
+    assert_eq!(snapshot(folder), with_amdnr);
+    assert!(legacy_exe(&app(h, "game").unwrap()).is_some());
 
     // The program comes from the earlier install's record.
     enable(h, "game", None).unwrap();

@@ -180,8 +180,11 @@ pub fn handle(request: Request, writer: Writer, progress: &dyn Fn(u64, u64)) -> 
     let result = match request {
         // As the install places it: where a linked game folder leads, so the
         // removal recorded first names the folder the mod goes to.
+        // Every refusal the install gives, before an install takes Rubylight
+        // 3.0's AMDNR out: a game that gained anti-cheat keeps it and is refused.
         Request::Find { exe, install } => find_exe(exe, install.as_deref()).and_then(|exe| {
             let exe = followed(exe, writer);
+            refuse_anti_cheat(&exe, install.as_deref())?;
             refuse_without_frame_generation(&exe, install.as_deref())?;
             Ok(Response::Found { exe })
         }),
@@ -1081,6 +1084,22 @@ fn layout(folder: &Path, exe: &Path, old: Option<&Manifest>, writer: Writer) -> 
             }
         };
         guard(folder, &proxy, writer)?;
+        // Another mod beside the user's OptiScaler is refused as in full mode;
+        // OptiScaler's own files and its fakenvapi add-on are what it needs.
+        for entry in std::fs::read_dir(folder)
+            .map_err(|e| Failure::Error(format!("cannot read {}: {e}", folder.display())))?
+            .flatten()
+        {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if let Some(other) = neural::other_mod(&name)
+                && other != "OptiScaler"
+                && !other.starts_with("fakenvapi")
+            {
+                return Err(Failure::Refused(format!(
+                    "{other} is installed in the game's folder ({name}): remove it first"
+                )));
+            }
+        }
         let dll = std::fs::read(folder.join(&proxy))
             .map_err(|e| Failure::Error(format!("cannot read {proxy}: {e}")))?;
         if !neural::custom_providers(&dll) {

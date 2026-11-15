@@ -139,13 +139,21 @@ final class FramePacingPolicy {
      * at the refresh its time asks for, so a frame that comes early waits for its turn instead of
      * cutting the last one's short. The turn is put on the refresh grid of {@code vsyncNs}, so a
      * rounded interval never drifts off it.
+     *
+     * A frame waits at most {@code refreshes - 1} refreshes past the first it can make, as long as a
+     * frame that comes right after the last one was shown would: frames a burst brings a few ms
+     * apart would otherwise each take the next turn, and the compositor, which never drops a frame
+     * stamped for a later refresh, would keep that backlog for good (3 frames at 60 fps on 120 Hz:
+     * about 33 ms more delay). A later frame of the burst takes the same refresh and replaces the
+     * earlier one there.
      */
     static long heldTargetNs(long earliestNs, long lastTargetNs, long vsyncNs, long intervalNs, int refreshes) {
         if (refreshes <= 1 || intervalNs <= 0 || lastTargetNs == 0) return earliestNs;
         long turnNs = lastTargetNs + refreshes * intervalNs;
         long offsetNs = turnNs - vsyncNs;
         turnNs = vsyncNs + Math.floorDiv(offsetNs + intervalNs / 2, intervalNs) * intervalNs;
-        return Math.max(earliestNs, turnNs);
+        long latestNs = earliestNs + (refreshes - 1) * intervalNs;
+        return Math.max(earliestNs, Math.min(turnNs, latestNs));
     }
 
     /**
@@ -157,6 +165,8 @@ final class FramePacingPolicy {
      * turns. The desktop's phase::HeldAnchor::hold does the same.
      */
     static final long EARLY_FOR_NS = 2_000_000_000L;
+    /** The longest period a phase report carries (24 Hz), as the protocol's Report decodes it. */
+    static final long MAX_REPORT_PERIOD_NS = 41_700_000L;
     static final long EARLY_SPARE_NS = 3_000_000L;
 
     /**
@@ -172,10 +182,14 @@ final class FramePacingPolicy {
      * The refresh grid a phase report measures slack to with fractional V-Sync: a refresh of the
      * grid ({@code anchorNs}) put {@code periods} grid periods into the past, so a report never
      * counts from a refresh still to come, and the grid's period; the display's own refresh and
-     * interval without a hold. Returns {anchor, period}.
+     * interval without a hold, or with a hold longer than a report's period may be
+     * ({@link #MAX_REPORT_PERIOD_NS}: 20 fps held 3 refreshes of 60 Hz), which the host would drop.
+     * Returns {anchor, period}. The desktop's nightjar_policy::vsync::report_refreshes is the same rule.
      */
     static long[] heldReportGrid(long vsyncNs, long intervalNs, long anchorNs, int refreshes) {
-        if (refreshes <= 1 || anchorNs == 0 || intervalNs <= 0) return new long[] {vsyncNs, intervalNs};
+        if (refreshes <= 1 || anchorNs == 0 || intervalNs <= 0 || refreshes * intervalNs > MAX_REPORT_PERIOD_NS) {
+            return new long[] {vsyncNs, intervalNs};
+        }
         long periodNs = intervalNs * refreshes;
         return new long[] {anchorNs - 4 * periodNs, periodNs};
     }

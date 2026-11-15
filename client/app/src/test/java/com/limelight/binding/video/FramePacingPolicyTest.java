@@ -263,7 +263,29 @@ public class FramePacingPolicyTest {
         assertEquals(last + interval, FramePacingPolicy.heldTargetNs(last + interval, last, vsync, interval, 1));
         assertEquals(last + interval, FramePacingPolicy.heldTargetNs(last + interval, 0, vsync, interval, 2));
         // A turn off the grid by a rounded interval goes back onto it.
-        assertEquals(last + 2 * interval, FramePacingPolicy.heldTargetNs(last, last + 3_000, vsync, interval, 2));
+        assertEquals(last + 2 * interval, FramePacingPolicy.heldTargetNs(last + interval, last + 3_000, vsync, interval, 2));
+    }
+
+    /** A Wi-Fi stall delivers 3 frames a few ms apart at 60 fps on 120 Hz. */
+    @Test public void aBurstOfFramesBuildsNoBacklog() {
+        long interval = 8_333_333L;
+        long vsync = 1_000_000_000L;
+        long last = vsync + 10 * interval;
+        // All three can make the refresh `earliest`, well past the last frame's turn.
+        long earliest = last + 6 * interval;
+        long a = FramePacingPolicy.heldTargetNs(earliest, last, vsync, interval, 2);
+        long b = FramePacingPolicy.heldTargetNs(earliest, a, vsync, interval, 2);
+        long c = FramePacingPolicy.heldTargetNs(earliest, b, vsync, interval, 2);
+        assertEquals(earliest, a);
+        // Without the cap: earliest + 2 and + 4 refreshes, a backlog every later frame keeps.
+        assertEquals(earliest + interval, b);
+        assertEquals("the later frame replaces the earlier one at that refresh", b, c);
+        // The next frame, 16.7 ms on, is back on its turn: at most a refresh past the first it can make.
+        long next = FramePacingPolicy.heldTargetNs(earliest + 2 * interval, c, vsync, interval, 2);
+        assertEquals(earliest + 3 * interval, next);
+        // Held 3 (40 fps on 120 Hz): at most two refreshes past the first it can make.
+        long held3 = FramePacingPolicy.heldTargetNs(earliest, earliest, vsync, interval, 3);
+        assertEquals(earliest + 2 * interval, FramePacingPolicy.heldTargetNs(earliest, held3, vsync, interval, 3));
     }
 
     @Test public void theHeldPhaseReportCountsOverTheHoldFromAPastRefreshOfTheGrid() {
@@ -274,5 +296,13 @@ public class FramePacingPolicyTest {
         assertEquals(2 * interval, grid[1]);
         assertEquals(9_000_000_000L - 8 * interval, grid[0]);
         assertEquals(0, (9_000_000_000L - grid[0]) % grid[1]);
+    }
+
+    @Test public void aHoldLongerThanAReportsPeriodReportsOverARefresh() {
+        long interval = 16_666_667L;
+        assertEquals(2 * interval, FramePacingPolicy.heldReportGrid(500, interval, 9_000_000_000L, 2)[1]);
+        // 20 fps held 3 refreshes of 60 Hz is 50 ms, past the 41.7 ms a report carries.
+        assertArrayEquals(new long[] {500, interval}, FramePacingPolicy.heldReportGrid(500, interval, 9_000_000_000L, 3));
+        assertArrayEquals(new long[] {500, interval}, FramePacingPolicy.heldReportGrid(500, interval, 9_000_000_000L, 4));
     }
 }

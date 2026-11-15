@@ -142,6 +142,8 @@ pub struct Glass {
     stats: Stats,
     /// When the last picture was reported on the glass with a time (session clock, µs).
     last_timed_us: Option<u64>,
+    /// When the first picture's feedback was asked for (session clock, µs).
+    first_request_us: Option<u64>,
     /// What the compositor says about direct scanout, opened with the feedback; None while
     /// switched off (`NIGHTJAR_WAYLAND_SCANOUT_PROBE=0`) or before the first picture.
     scanout: Option<Result<super::wl_scanout::Probe, String>>,
@@ -172,6 +174,7 @@ impl Glass {
         if let Ok(feedback) = feedback {
             feedback.request(frame, ready_us, now_us);
         }
+        self.first_request_us.get_or_insert(now_us);
         use super::wl_scanout::{env_on, Probe, SCANOUT_PROBE_ENV};
         if self.pictures == 0 && env_on(SCANOUT_PROBE_ENV) {
             self.scanout = Some(Probe::open(window));
@@ -202,6 +205,13 @@ impl Glass {
     /// the last second), so the doctor's display time runs to the glass.
     pub fn timing(&self, now_us: u64) -> bool {
         self.last_timed_us.is_some_and(|at| now_us.saturating_sub(at) < 1_000_000)
+    }
+
+    /// Whether the glass times can count fractional V-Sync's turns (`phase::glass_times`): not
+    /// known until an answer was due.
+    pub fn times(&self, now_us: u64) -> super::phase::HeldTimes {
+        let offered = self.feedback.as_ref().map(|feedback| feedback.as_ref().is_ok_and(Feedback::timed));
+        super::phase::glass_times(offered, self.first_request_us, self.last_timed_us, now_us)
     }
 
     /// The end-of-stream line, None when no picture was presented.

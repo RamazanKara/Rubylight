@@ -29,9 +29,30 @@ pub fn refreshes_per_frame(refresh_hz: f64, fps: f64, vrr: bool, fractional: boo
     rate_multiple(refresh_hz, fps).unwrap_or(1)
 }
 
+/// The longest period a phase report carries (`rubylight_protocol::phase_lock::Report`: 24 Hz), ns.
+pub const MAX_REPORT_PERIOD_NS: u64 = 41_700_000;
+
+/// The refreshes a held stream's phase report counts its slack over: the hold, or one refresh when
+/// the hold is longer than a report's period may be (20 fps held 3 refreshes of 60 Hz, 15 fps held
+/// 4), which the host would drop. `refresh_period_ns` is the display's. Android's
+/// `FramePacingPolicy.heldReportGrid` takes the same rule.
+pub fn report_refreshes(held: u32, refresh_period_ns: u64) -> u32 {
+    if held > 1 && u64::from(held).saturating_mul(refresh_period_ns) > MAX_REPORT_PERIOD_NS { 1 } else { held }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_hold_longer_than_a_reports_period_reports_over_a_refresh() {
+        assert_eq!(report_refreshes(2, 8_333_333), 2, "60 fps on 120 Hz");
+        assert_eq!(report_refreshes(3, 8_333_333), 3, "40 fps on 120 Hz");
+        assert_eq!(report_refreshes(2, 16_666_667), 2, "30 fps on 60 Hz: 33 ms");
+        assert_eq!(report_refreshes(3, 16_666_667), 1, "20 fps on 60 Hz: 50 ms");
+        assert_eq!(report_refreshes(4, 16_666_667), 1, "15 fps on 60 Hz: 67 ms");
+        assert_eq!(report_refreshes(1, 50_000_000), 1);
+    }
 
     #[test]
     fn whole_multiples_hold_a_picture_that_many_refreshes() {

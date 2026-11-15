@@ -189,7 +189,9 @@ impl HeldAnchor {
 #[cfg_attr(not(windows), allow(dead_code))] // Only Windows counts refreshes.
 pub fn held_latch(sync_ticks: u64, sync_refresh: u32, last: Option<u32>, held: u32, period: u64) -> (u64, u64) {
     let Some(last) = last.filter(|_| held > 1) else { return (sync_ticks, period) };
-    let since = u64::from(sync_refresh.wrapping_sub(last) % held);
+    // Signed: the last picture may still wait for a refresh after the latest one (`last_refresh`),
+    // and a remainder of the unsigned difference is right only where `held` divides 2^32.
+    let since = i64::from(sync_refresh.wrapping_sub(last) as i32).rem_euclid(i64::from(held)) as u64;
     (sync_ticks.saturating_sub(since * period), period * u64::from(held))
 }
 
@@ -201,21 +203,34 @@ pub fn held_latch(sync_ticks: u64, sync_refresh: u32, last: Option<u32>, held: u
 #[derive(Debug, Default)]
 pub struct HeldClock {
     picture: Option<u32>,
+    /// The picture before `picture`, whose feedback may still come after `picture` went out.
+    before: Option<u32>,
     shown_us: Option<u64>,
     aimed_us: Option<u64>,
     pending_us: Option<u64>,
+    /// The last hold's refreshes and refresh period, µs.
+    held: u32,
+    period_us: u64,
     turns: HeldAnchor,
 }
 
 impl HeldClock {
     /// The picture of stream frame `frame` went out.
     pub fn presented(&mut self, frame: u32) {
+        self.before = self.picture;
         (self.picture, self.shown_us, self.aimed_us) = (Some(frame), None, self.pending_us.take());
     }
 
-    /// Frame `frame` reached the display at `at_us`; only the last picture's counts.
+    /// Frame `frame` reached the display at `at_us`. The last picture's time is where the next turn
+    /// counts from. The feedback of the picture before it may come only after the last one went out
+    /// (the compositor answers at the refresh, the poll runs after a present): with nothing else
+    /// known of the last picture, it shows a hold after that one.
     pub fn shown(&mut self, frame: u32, at_us: u64) {
-        if self.picture == Some(frame) { self.shown_us = Some(at_us); }
+        if self.picture == Some(frame) {
+            self.shown_us = Some(at_us);
+        } else if self.before == Some(frame) && self.shown_us.is_none() && self.aimed_us.is_none() && self.held > 1 {
+            self.aimed_us = Some(at_us + u64::from(self.held) * self.period_us);
+        }
     }
 
     fn last_us(&self) -> Option<u64> { self.shown_us.or(self.aimed_us) }
@@ -223,6 +238,7 @@ impl HeldClock {
     /// `HeldAnchor::hold` for the next picture, `period_us` a refresh: how long it waits before its
     /// present.
     pub fn hold(&mut self, now_us: u64, held: u32, period_us: u64, margin_us: u64) -> u64 {
+        (self.held, self.period_us) = (held, period_us);
         let Some(last) = self.last_us().filter(|_| held > 1 && period_us > 0) else {
             self.pending_us = None;
             return self.turns.hold(now_us, 0, 0, None, held, period_us, margin_us, EARLY_SPARE_US, EARLY_FOR_US);
@@ -243,24 +259,87 @@ impl HeldClock {
     }
 }
 
-/// `HeldAnchor::hold` for the renderer's swap chain, in microseconds.
+/// Whether the display tells when it showed a picture, which fractional V-Sync's turns count from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HeldTimes {
+    /// It does: pictures are held for their turns.
+    Told,
+    /// Not known yet (Wayland's feedback before the first answer was due): nothing held, nothing said.
+    Unknown,
+    /// It does not (X11, a compositor without timed feedback, swap chain statistics failing): each
+    /// picture shows at the next refresh, and the log says why once.
+    Untold,
+}
+
+/// How long a stream's first feedback request may wait for a timed answer before the display
+/// counts as giving none (`glass_times`), µs.
+pub const FEEDBACK_DUE_US: u64 = 1_000_000;
+
+/// `HeldTimes` of Wayland's presentation feedback: `offered` None before the first request,
+/// Some(false) where it is not offered or carries no times, else timed answers since
+/// `last_timed_us`, the first request at `first_request_us`. Times on the session clock, µs.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))] // Only Linux has the feedback.
+pub fn glass_times(offered: Option<bool>, first_request_us: Option<u64>, last_timed_us: Option<u64>, now_us: u64) -> HeldTimes {
+    match offered {
+        None => HeldTimes::Unknown,
+        Some(false) => HeldTimes::Untold,
+        Some(true) if last_timed_us.is_some_and(|at| now_us.saturating_sub(at) < FEEDBACK_DUE_US) => HeldTimes::Told,
+        // Answers that stopped are as overdue as a first one that never came.
+        Some(true) if now_us.saturating_sub(last_timed_us.or(first_request_us).unwrap_or(now_us)) < FEEDBACK_DUE_US => HeldTimes::Unknown,
+        Some(true) => HeldTimes::Untold,
+    }
+}
+
+/// How long a swap chain whose statistics failed holds nothing before it is tried again
+/// (`StatsWatch`), µs.
+pub const STATS_RETRY_US: u64 = 2_000_000;
+
+/// Whether the swap chain's statistics, which fractional V-Sync's turns count from, can be read. A
+/// single failure passes (the first read after a mode change may fail); two in a row hold nothing
+/// for `STATS_RETRY_US`, then the next held picture tries again.
+#[derive(Debug, Default)]
+pub struct StatsWatch {
+    fails: u32,
+    since_us: Option<u64>,
+}
+
+impl StatsWatch {
+    /// A held picture read the statistics (`ok`) or could not.
+    pub fn read(&mut self, ok: bool, now_us: u64) {
+        if ok { *self = Self::default(); return; }
+        self.fails = self.fails.saturating_add(1);
+        // A failed try after the wait starts a new one.
+        if self.since_us.is_none_or(|since| now_us.saturating_sub(since) >= STATS_RETRY_US) { self.since_us = Some(now_us); }
+    }
+
+    #[cfg_attr(not(windows), allow(dead_code))] // Only Windows reads the statistics.
+    pub fn times(&self, now_us: u64) -> HeldTimes {
+        match self.since_us {
+            Some(since) if self.fails >= 2 && now_us.saturating_sub(since) < STATS_RETRY_US => HeldTimes::Untold,
+            _ => HeldTimes::Told,
+        }
+    }
+}
+
+/// `HeldAnchor::hold` for the renderer's swap chain, in microseconds; None when its statistics
+/// cannot be read (`StatsWatch`).
 #[cfg(windows)]
-pub fn held_wait_us(renderer: *mut SDL_Renderer, refresh_hz: f32, held: u32, margin_us: u64, anchor: &mut HeldAnchor) -> u64 {
+pub fn held_wait_us(renderer: *mut SDL_Renderer, refresh_hz: f32, held: u32, margin_us: u64, anchor: &mut HeldAnchor) -> Option<u64> {
     use windows::core::Interface;
     use windows::Win32::Graphics::Dxgi::{IDXGISwapChain, DXGI_FRAME_STATISTICS};
-    if held <= 1 || refresh_hz <= 0.0 { return 0; }
+    if held <= 1 || refresh_hz <= 0.0 { return Some(0); }
     // SAFETY: the chain pointer comes from the live renderer and is only borrowed for these calls.
     unsafe {
         let chain = crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_D3D11_SWAPCHAIN_POINTER);
-        let Some(chain) = IDXGISwapChain::from_raw_borrowed(&chain) else { return 0 };
+        let chain = IDXGISwapChain::from_raw_borrowed(&chain)?;
         let mut stats = DXGI_FRAME_STATISTICS::default();
-        if chain.GetFrameStatistics(&mut stats).is_err() || stats.SyncQPCTime <= 0 { return 0; }
+        if chain.GetFrameStatistics(&mut stats).is_err() || stats.SyncQPCTime <= 0 { return None; }
         let last = anchor.last_refresh(stats.PresentCount, stats.PresentRefreshCount, stats.SyncRefreshCount);
         let freq = SDL_GetPerformanceFrequency() as f64;
         let ticks = |us: f64| (us * freq / 1e6) as u64;
         let wait = anchor.hold(SDL_GetPerformanceCounter(), stats.SyncQPCTime as u64, stats.SyncRefreshCount, last,
             held, ticks(1e6 / f64::from(refresh_hz)), ticks(margin_us as f64), ticks(EARLY_SPARE_US as f64), ticks(EARLY_FOR_US as f64));
-        (wait as f64 * 1e6 / freq) as u64
+        Some((wait as f64 * 1e6 / freq) as u64)
     }
 }
 
@@ -282,7 +361,7 @@ pub fn last_present_count(_: *mut SDL_Renderer) -> u32 { 0 }
 
 /// Only Windows holds pictures for their turn.
 #[cfg(not(windows))]
-pub fn held_wait_us(_: *mut SDL_Renderer, _: f32, _: u32, _: u64, _: &mut HeldAnchor) -> u64 { 0 }
+pub fn held_wait_us(_: *mut SDL_Renderer, _: f32, _: u32, _: u64, _: &mut HeldAnchor) -> Option<u64> { Some(0) }
 
 #[cfg(windows)]
 pub fn timing(renderer: *mut SDL_Renderer, refresh_hz: f32, held: u32, anchor: &mut HeldAnchor) -> Option<(i64, i64)> {
@@ -514,6 +593,15 @@ mod tests {
         assert_eq!(held_latch(10_000, 107, Some(100), 3, 1000), (9_000, 3000), "held 3: 106");
         assert_eq!(held_latch(10_000, 100, Some(100), 4, 1000), (10_000, 4000), "the refresh it was shown at");
         assert_eq!(held_latch(10_000, 1, Some(u32::MAX), 2, 1000), (10_000, 2000), "across the counter's wrap");
+        assert_eq!(held_latch(10_000, 2, Some(u32::MAX), 3, 1000), (10_000, 3000), "held 3 across the counter's wrap");
+    }
+
+    #[test]
+    fn a_last_picture_still_waiting_latches_on_its_grids_refresh_before() {
+        // The last picture waits for 101, the latest refresh is 100: held 3, its grid is 95, 98, 101.
+        assert_eq!(held_latch(10_000, 100, Some(101), 3, 1000), (8_000, 3000), "98, not 100");
+        assert_eq!(held_latch(10_000, 100, Some(101), 2, 1000), (9_000, 2000), "held 2: 99");
+        assert_eq!(held_latch(10_000, 100, Some(102), 4, 1000), (8_000, 4000), "held 4: 98");
     }
 
     #[test]
@@ -629,6 +717,112 @@ mod tests {
         assert_eq!(clock.hold(113_000, 2, 8_333, 5_000), 0);
         clock.presented(2);
         assert_eq!(clock.timing(130_000, 2, 8_333), Some((124_999, 16_666_000)), "aimed at 124_999");
+    }
+
+    /// Wayland in the order the renderer runs: the hold, the present, and the poll of the answers,
+    /// which comes before the next picture's hold.
+    #[test]
+    fn a_clocked_hold_engages_in_the_renderers_order() {
+        const P: u64 = 8_333;
+        let mut clock = HeldClock::default();
+        // Picture 1 at 100_000 (nothing known: at once), shown at the refresh 108_333.
+        assert_eq!(clock.hold(100_000, 2, P, 5_000), 0);
+        clock.presented(1);
+        // Picture 2, 16.7 ms on: the poll before its hold brings 1's answer.
+        clock.shown(1, 108_333);
+        assert_eq!(clock.hold(116_000, 2, P, 5_000), 124_999 - 5_000 - 116_000, "turn 108_333 + 2 refreshes");
+        assert_eq!(clock.timing(116_000, 2, P), Some((108_333, 16_666_000)), "the report has a grid");
+        clock.presented(2);
+        // Picture 3 before 2's answer came: from the refresh 2 was aimed at.
+        assert_eq!(clock.hold(132_000, 2, P, 5_000), 141_665 - 5_000 - 132_000);
+        clock.presented(3);
+        assert!(clock.timing(140_000, 2, P).is_some());
+    }
+
+    /// Answers that come only after the next picture went out (the old order, or a compositor that
+    /// answers late) still start the turns: the last picture shows a hold after the one answered.
+    #[test]
+    fn a_late_answer_for_the_picture_before_starts_the_turns() {
+        const P: u64 = 8_333;
+        let mut clock = HeldClock::default();
+        assert_eq!(clock.hold(100_000, 2, P, 5_000), 0);
+        clock.presented(1);
+        assert_eq!(clock.hold(116_000, 2, P, 5_000), 0, "nothing known yet");
+        clock.presented(2);
+        clock.shown(1, 108_333);
+        // 2 counts as shown at 108_333 + 2 refreshes = 124_999: 3's turn 141_665.
+        assert_eq!(clock.hold(132_000, 2, P, 5_000), 141_665 - 5_000 - 132_000);
+        assert_eq!(clock.timing(132_000, 2, P), Some((124_999, 16_666_000)));
+        // An answer for an older picture, or one the last picture already has, changes nothing.
+        clock.presented(3);
+        clock.shown(1, 200_000);
+        clock.shown(2, 124_999);
+        assert_eq!(clock.timing(145_000, 2, P), Some((141_665, 16_666_000)));
+    }
+
+    #[test]
+    fn the_feedback_is_unknown_until_an_answer_was_due() {
+        assert_eq!(glass_times(None, None, None, 5_000_000), HeldTimes::Unknown, "no picture yet");
+        assert_eq!(glass_times(Some(true), Some(1_000_000), None, 1_500_000), HeldTimes::Unknown, "the first answer not due yet");
+        assert_eq!(glass_times(Some(true), Some(1_000_000), None, 2_000_000), HeldTimes::Untold, "due and absent");
+        assert_eq!(glass_times(Some(true), Some(1_000_000), Some(1_020_000), 1_500_000), HeldTimes::Told);
+        assert_eq!(glass_times(Some(true), Some(1_000_000), Some(1_020_000), 2_100_000), HeldTimes::Untold, "answers stopped");
+        assert_eq!(glass_times(Some(false), Some(1_000_000), None, 1_000_000), HeldTimes::Untold, "not offered, or untimed");
+    }
+
+    #[test]
+    fn statistics_that_keep_failing_hold_nothing_for_a_while() {
+        let mut stats = StatsWatch::default();
+        assert_eq!(stats.times(0), HeldTimes::Told);
+        stats.read(false, 1_000);
+        assert_eq!(stats.times(2_000), HeldTimes::Told, "a single failure passes");
+        stats.read(true, 3_000);
+        stats.read(false, 4_000);
+        assert_eq!(stats.times(5_000), HeldTimes::Told, "failures not in a row");
+        stats.read(false, 6_000);
+        assert_eq!(stats.times(7_000), HeldTimes::Untold);
+        assert_eq!(stats.times(4_000 + STATS_RETRY_US), HeldTimes::Told, "tried again");
+        stats.read(false, 4_000 + STATS_RETRY_US);
+        assert_eq!(stats.times(5_000 + STATS_RETRY_US), HeldTimes::Untold, "still failing: another wait");
+        stats.read(true, 6_000 + STATS_RETRY_US);
+        stats.read(false, 7_000 + STATS_RETRY_US);
+        assert_eq!(stats.times(8_000 + STATS_RETRY_US), HeldTimes::Told);
+    }
+
+    /// The span of `source` from `from` to the next `fn ` at the same indent.
+    fn function<'a>(source: &'a str, from: &str) -> &'a str {
+        let start = source.find(from).unwrap_or_else(|| panic!("{from}"));
+        let rest = &source[start + from.len()..];
+        &rest[..rest.find("\n    pub fn ").or_else(|| rest.find("\n    fn ")).unwrap_or(rest.len())]
+    }
+
+    #[test]
+    fn the_answers_are_polled_before_the_hold_and_the_present() {
+        let present = function(include_str!("render.rs"), "pub fn present(");
+        let poll = present.find("self.glass.poll(").expect("present polls the answers");
+        assert!(poll < present.find("self.hold_for_turn(").unwrap(), "before the hold with Frame Warp");
+        assert!(poll < present.find("self.kms_flip(").unwrap(), "before the present and its hold");
+        assert!(present.find("self.held_clock.presented(").unwrap() > present.find("self.kms_flip(").unwrap());
+    }
+
+    #[test]
+    fn with_frame_warp_the_hold_comes_before_its_shift() {
+        let render = include_str!("render.rs");
+        let present = function(render, "pub fn present(");
+        assert!(present.find("self.hold_for_turn(").unwrap() < present.find("warp.draw(None)").unwrap());
+        // Held once: the presents themselves hold only without Frame Warp.
+        for flip in ["fn render_flip(", "fn kms_flip(&mut self, draw_overlay"] {
+            let body = function(render, flip);
+            for (at, _) in body.match_indices("self.hold_for_turn(") {
+                assert!(body[..at].rsplit('\n').next().unwrap().contains("self.frame_warp.is_none()"), "{flip}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_display_change_starts_the_held_turns_over() {
+        let changed = function(include_str!("mod.rs"), "pub fn display_changed(");
+        assert!(changed.contains("(self.held_anchor, self.held_clock, self.held_stats) = Default::default();"));
     }
 
     #[test]

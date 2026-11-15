@@ -259,7 +259,7 @@ impl Streaming {
     fn vsync_refreshes(&mut self) -> u32 {
         let Some(refresh_hz) = self.plan.display.reported_refresh_hz() else { return 1 };
         let fps = f64::from(self.shared.fps_millihz.load(Ordering::Relaxed)) / 1000.0;
-        let vrr = present::fractional_vsync_vrr(self.plan.vrr, self.pacer.mode);
+        let vrr = present::fractional_vsync_stands_aside(self.plan.vrr, self.pacer.mode, self.settings.host_frame_times);
         let refreshes = nightjar_policy::vsync::refreshes_per_frame(f64::from(refresh_hz), fps, vrr, self.settings.fractional_vsync);
         if refreshes <= 1 { return refreshes; }
         match self.held_times() {
@@ -584,7 +584,8 @@ impl Streaming {
         let deadline_us = if exclusive_fullscreen(renderer) { 0 } else {
             self.present_deadline_us.unwrap_or_else(|| present::deadline_before_refresh(refresh_hz))
         };
-        let grid = phase::timing(renderer, refresh_hz).map(|(refresh_us, period_ns)| present::refresh_grid(refresh_us, period_ns));
+        // The refresh grid itself: a hold of 1 never reads the anchor.
+        let grid = phase::timing(renderer, refresh_hz, 1, &mut self.held_anchor).map(|(refresh_us, period_ns)| present::refresh_grid(refresh_us, period_ns));
         self.pacer.set_grid(grid, deadline_us);
     }
 

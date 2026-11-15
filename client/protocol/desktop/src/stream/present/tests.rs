@@ -1232,10 +1232,11 @@ fn the_desktop_deadline_stays_under_most_of_a_refresh() {
 
 #[test]
 fn fractional_vsync_stands_aside_for_a_chosen_vrr_even_once_the_display_falls_back() {
-    assert!(!fractional_vsync_vrr(false, PacingMode::Vsync), "VRR off, V-Sync pacing: held");
-    assert!(fractional_vsync_vrr(true, PacingMode::Vsync), "VRR chosen, display fell back to V-Sync: the row is hidden");
-    assert!(fractional_vsync_vrr(false, PacingMode::Immediate));
-    assert!(fractional_vsync_vrr(true, PacingMode::HostTimes));
+    assert!(!fractional_vsync_stands_aside(false, PacingMode::Vsync, false), "VRR off, V-Sync pacing: held");
+    assert!(fractional_vsync_stands_aside(true, PacingMode::Vsync, false), "VRR chosen, display fell back to V-Sync: the row is hidden");
+    assert!(fractional_vsync_stands_aside(false, PacingMode::Immediate, false));
+    assert!(fractional_vsync_stands_aside(true, PacingMode::HostTimes, false));
+    assert!(fractional_vsync_stands_aside(false, PacingMode::Vsync, true), "the PC's frame times: the row is hidden");
 }
 
 #[test]

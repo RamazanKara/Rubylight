@@ -415,10 +415,11 @@ pub fn deadline_before_refresh(refresh_hz: f32) -> i64 {
 
 /// Whether fractional V-Sync stands aside for VRR: the user chose VRR where this display offers it
 /// (the launch plan's `vrr`, which the settings screen hides the row on), even where the display
-/// check turned the stream to V-Sync pacing, or the pacing shows pictures as they come. A row the
-/// screen hides never holds a picture.
-pub fn fractional_vsync_vrr(vrr_chosen: bool, mode: PacingMode) -> bool {
-    vrr_chosen || mode != PacingMode::Vsync
+/// check turned the stream to V-Sync pacing, or the pacing shows pictures as they come. The PC's
+/// frame times place each picture on a refresh of their own (`Pacer::host_grid`), so it stands
+/// aside for them too. A row the screen hides never holds a picture.
+pub fn fractional_vsync_stands_aside(vrr_chosen: bool, mode: PacingMode, host_frame_times: bool) -> bool {
+    vrr_chosen || mode != PacingMode::Vsync || host_frame_times
 }
 
 /// The draws a held picture's margin follows (`DrawTime`): 32, half a second at 60 fps.

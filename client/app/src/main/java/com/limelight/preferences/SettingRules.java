@@ -16,6 +16,7 @@ import com.limelight.binding.video.VideoRendererChoice;
  */
 final class SettingRules {
     static final String DROP_LATE_FRAMES = "checkbox_drop_late_frames";
+    static final String FRACTIONAL_VSYNC = PreferenceConfiguration.FRACTIONAL_VSYNC_PREF_STRING;
     static final String FRAME_PACING = PreferenceConfiguration.FRAME_PACING_PREF_STRING;
     static final String HOST_FRAME_TIMES = PreferenceConfiguration.HOST_FRAME_TIMES_PREF_STRING;
     static final String ADAPTIVE_QUALITY = "adaptive_quality_mode";
@@ -83,6 +84,18 @@ final class SettingRules {
             return context.getString(R.string.tag_every_frame_with, context.getString(vulkan));
         }
         return null;
+    }
+
+    /**
+     * Fractional V-Sync holds Lowest latency frames for their turn and has Balanced's phase report
+     * aim at its cadence; Smoothest and FPS-capped pacing, the PC's frame times and adaptive refresh
+     * show frames without it.
+     */
+    static boolean fractionalVsyncApplies(Context context, SharedPreferences prefs) {
+        if (!framePacingApplies(context, prefs)) return false;
+        String choice = FramePacingChoice.read(prefs);
+        return FramePacingChoice.LATENCY.equals(choice) || FramePacingChoice.BALANCED.equals(choice) ||
+                FramePacingChoice.BALANCED_EVERY_FRAME.equals(choice);
     }
 
     /**

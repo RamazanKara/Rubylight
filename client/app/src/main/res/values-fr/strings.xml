@@ -332,7 +332,7 @@
     <string name="title_gpu_max_clocks">Améliorer les performances du GPU pour PyroWave</string>
     <string name="summary_gpu_max_clocks">Des fréquences GPU plus élevées pour un décodage PyroWave plus rapide, au prix de plus d’énergie et de chaleur. Laissez-le désactivé sauf si le décodage PyroWave est trop lent.</string>
     <string name="title_fractional_vsync">V-Sync fractionnaire</string>
-    <string name="summary_fractional_vsync">Sur un écran à 2 à 4 fois la fréquence d’images du flux (60 fps sur 120 Hz), affiche chaque image pendant le même nombre de rafraîchissements, pour un mouvement régulier. Cela ajoute 1 à 2 ms de délai ; activez-le si le mouvement saccade avec la V-Sync.</string>
+    <string name="summary_fractional_vsync">Sur un écran à 2 à 4 fois la fréquence d’images du flux (60 fps sur 120 Hz), affiche chaque image pendant le même nombre de rafraîchissements, pour un mouvement régulier. Mesuré sous Windows, cela ajoute 1 à 2 ms de délai sur la plupart des images et 2,5 à 4 ms sur les plus lentes ; activez-le si le mouvement saccade avec la V-Sync.</string>
     <string name="title_texture_view">Vue vidéo de compatibilité</string>
     <string name="summary_texture_view">Pour le dépannage : essayez-le si la vidéo est noire, scintille ou est mal placée. Il ajoute du travail à chaque image et n’est pas utilisé avec le HDR, « Moins de bandes de couleur » ou PyroWave.</string>
     <string name="title_unbatched_input">Souris et stylet instantanés</string>

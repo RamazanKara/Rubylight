@@ -76,6 +76,22 @@ public class SettingsBatchTest {
     }
 
     @Test
+    public void fractionalVsyncIsShownOnlyWherePacingUsesIt() {
+        android.app.Application app = RuntimeEnvironment.getApplication();
+        SharedPreferences p = prefs();
+        p.edit().clear().commit();
+        assertTrue("Lowest latency, the default", SettingRules.fractionalVsyncApplies(app, p));
+        p.edit().putString("frame_pacing", "balanced").commit();
+        assertTrue(SettingRules.fractionalVsyncApplies(app, p));
+        for (String pacing : new String[] {"cap-fps", "smoothness"}) {
+            p.edit().putString("frame_pacing", pacing).commit();
+            assertFalse(pacing, SettingRules.fractionalVsyncApplies(app, p));
+        }
+        p.edit().putString("frame_pacing", "latency").putBoolean("checkbox_host_frame_times", true).commit();
+        assertFalse("host frame times", SettingRules.fractionalVsyncApplies(app, p));
+    }
+
+    @Test
     public void ruleFunctionsFollowTheStoredChoices() {
         SharedPreferences p = prefs();
         p.edit().clear().commit();

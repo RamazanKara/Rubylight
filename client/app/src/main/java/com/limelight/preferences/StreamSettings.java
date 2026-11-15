@@ -1677,6 +1677,7 @@ public class StreamSettings extends NightjarActivity {
             for (String key : SettingRules.MIC_ROWS) setShown(key, mic);
             setShown("performance_overlay_position", SettingRules.overlayOn(prefs));
             setShown("list_resolution_screen2", prefs.getBoolean("checkbox_dual_screen", false));
+            setShown(SettingRules.FRACTIONAL_VSYNC, SettingRules.fractionalVsyncApplies(getActivity(), prefs));
             setShown(PreferenceConfiguration.UPSCALING_SHARPNESS_PREF_STRING, SettingRules.upscalingUsesSharpness(prefs));
             boolean limits = SettingRules.qualityLimitsApply(prefs);
             setShown(SettingRules.ADAPTIVE_QUALITY_MIN_RESOLUTION, limits);

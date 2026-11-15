@@ -332,7 +332,7 @@
     <string name="title_gpu_max_clocks">PyroWave için GPU performansını artır</string>
     <string name="summary_gpu_max_clocks">Daha hızlı PyroWave kod çözme için daha yüksek GPU saat hızları; karşılığında daha fazla güç tüketimi ve ısı. PyroWave kod çözme çok yavaş değilse kapalı bırakın.</string>
     <string name="title_fractional_vsync">Kesirli V-Sync</string>
-    <string name="summary_fractional_vsync">Akışın kare hızının 2-4 katında çalışan bir ekranda (120 Hz’de 60 fps) her kareyi aynı sayıda yenileme boyunca gösterir, böylece hareket düzgün kalır. 1-2 ms gecikme ekler; V-Sync ile hareket takılıyorsa açın.</string>
+    <string name="summary_fractional_vsync">Akışın kare hızının 2-4 katında çalışan bir ekranda (120 Hz’de 60 fps) her kareyi aynı sayıda yenileme boyunca gösterir, böylece hareket düzgün kalır. Windows’ta ölçüldüğünde karelerin çoğunda 1-2 ms, en yavaşlarında 2,5-4 ms gecikme ekler; V-Sync ile hareket takılıyorsa açın.</string>
     <string name="title_texture_view">Uyumluluk video görünümü</string>
     <string name="summary_texture_view">Sorun giderme içindir: video siyahsa, titriyorsa veya yanlış yerdeyse deneyin. Her karede ek iş yükü getirir; HDR, “Daha az renk bantlanması” veya PyroWave ile kullanılmaz.</string>
     <string name="title_unbatched_input">Anında fare ve kalem girişi</string>

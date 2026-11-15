@@ -1171,8 +1171,9 @@ pub enum Refusal {
     Unavailable(String),
     NotFound,
     Busy,
-    /// A stream runs: the download would take its bandwidth, and the copy
-    /// into the game's folder its disk.
+    /// A stream runs. Turning on, the download would take its bandwidth and
+    /// the copy into the game's folder its disk; turning off, the streamed
+    /// game may hold the provider's DLL loaded, which can't be deleted.
     Streaming,
 }
 
@@ -1463,6 +1464,11 @@ fn finish_install(
 /// Rubylight 3.0's upscaling. Runs on.
 pub fn disable(h: &Shared, uuid: &str) -> Result<(), Refusal> {
     let app = app(h, uuid).ok_or(Refusal::NotFound)?;
+    // The streamed game may be the one: it holds the provider's DLL loaded, so
+    // the ini would be put back and the DLL's delete fail, half removed.
+    if crate::updater::streaming(h) {
+        return Err(Refusal::Streaming);
+    }
     start_job(h, uuid, "remove", "remove")?;
     let (h, uuid) = (h.clone(), uuid.to_owned());
     tokio::task::spawn_blocking(move || match remove(&app) {

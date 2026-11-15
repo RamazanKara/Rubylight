@@ -70,10 +70,20 @@ async fn the_switch_shows_what_this_pc_and_the_game_allow() {
     host(&s, "AMD Radeon 780M Graphics", AMD, 0x1900);
     let state = neural(&s.get("/neural?app=old").await);
     assert_eq!(state.gpu.as_deref(), Some("AMD Radeon 780M Graphics"));
-    assert_eq!(state.switches[0].state, ControlState::Configurable);
     assert!(state.replaces_earlier_upscaling);
-    // While a stream runs it can't be turned.
+    // A device without Host control sees it read-only, and why, so it never
+    // shows the notice for a write it would be refused.
+    let switch = &state.switches[0];
+    assert_eq!(switch.state, ControlState::ReadOnly);
+    assert!(
+        switch.reason.as_deref().unwrap().contains("Host control"),
+        "{switch:?}"
+    );
     s.host_control(true);
+    let state = neural(&s.get("/neural?app=old").await);
+    assert_eq!(state.switches[0].state, ControlState::Configurable);
+    assert_eq!(state.switches[0].reason, None);
+    // While a stream runs it can't be turned, on or off.
     s.streaming();
     let state = neural(&s.get("/neural?app=game").await);
     assert_eq!(
@@ -87,6 +97,22 @@ async fn the_switch_shows_what_this_pc_and_the_game_allow() {
     )
     .await
     .assert_error(409, "host_in_use");
+    let reply = write(
+        &s,
+        &s.connection,
+        r#"{"app":"game","switch":"frame_generation","on":false}"#,
+    )
+    .await;
+    reply.assert_error(409, "host_in_use");
+    assert!(
+        reply.json()["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("turn it off"),
+        "{}",
+        reply.text()
+    );
+    assert!(crate::neural::status(s.host(), "game")["job"].is_null());
 
     s.get("/neural?app=missing")
         .await

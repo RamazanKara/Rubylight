@@ -52,6 +52,10 @@ public class NeuralSheetTest {
     private static final String ON = "{\"ok\":{\"app\":\"uuid-1\",\"accepted\":true,\"switches\":[{\"id\":"
             + "\"frame_generation\",\"state\":\"configurable\",\"on\":true}],\"job\":{\"action\":\"install\",\"phase\":\"done\"}}}";
 
+    private static final String READ_ONLY = "{\"ok\":{\"app\":\"uuid-1\",\"accepted\":false,\"switches\":[{\"id\":"
+            + "\"frame_generation\",\"state\":\"read_only\",\"on\":false,\"reason\":"
+            + "\"Turn on Host control for this device in the Rubylight console to change it.\"}]}}";
+
     private ActivityController<ToolbarIconTintTest.Screen> controller;
     private ToolbarIconTintTest.Screen screen;
     private final Map<String, ArrayDeque<String>> replies = new HashMap<>();
@@ -136,6 +140,24 @@ public class NeuralSheetTest {
         assertTrue(notice.isShowing());
         notice.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
         Shadows.shadowOf(Looper.getMainLooper()).idle();
+        assertEquals(Arrays.asList("neural uuid-1"), calls);
+    }
+
+    /** A device without Host control sees why and gets no notice for a write it would be refused. */
+    @Test
+    public void withoutHostControlItSaysWhyAndShowsNoNotice() {
+        script("neural", READ_ONLY);
+        NeuralSheet sheet = sheet();
+        String text = texts(sheet);
+        assertTrue(text, text.contains("Turn on Host control"));
+        assertFalse(sheet.shown().frameGeneration.configurable());
+        MaterialButton fg = fg(sheet);
+        if (fg != null) {
+            fg.performClick();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+        }
+        AlertDialog notice = (AlertDialog) ShadowDialog.getLatestDialog();
+        assertTrue(notice == null || !notice.isShowing());
         assertEquals(Arrays.asList("neural uuid-1"), calls);
     }
 

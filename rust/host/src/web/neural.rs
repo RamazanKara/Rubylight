@@ -81,6 +81,10 @@ pub(super) async fn handle(
             StatusCode::CONFLICT,
             "Neural Rendering is busy with this game",
         ),
+        Ok(Err(Refusal::Streaming)) if path == "/api/neural/disable" => error(
+            StatusCode::CONFLICT,
+            "the game may be running with Neural Rendering loaded: remove it when no stream is running",
+        ),
         Ok(Err(Refusal::Streaming)) => error(
             StatusCode::CONFLICT,
             "Neural Rendering downloads about 14 MB and copies it into the game's folder: turn it on when no stream is running",
@@ -146,6 +150,39 @@ mod tests {
             assert!(busy["error"].as_str().unwrap().contains("busy"), "{busy}");
         }
         assert!(stored("busy"));
+    }
+
+    /// While a stream runs the switch is refused both ways: the streamed game
+    /// may hold the provider loaded, so a removal would be left half done.
+    #[tokio::test]
+    async fn the_switch_is_refused_both_ways_while_streaming() {
+        let f = Fixture::new();
+        let h = &f.host;
+        crate::steam::update_library(h, |apps, _| {
+            apps.push(json!({"name": "Game", "uuid": "game"}));
+            true
+        })
+        .unwrap();
+        f.session(f.client(u32::MAX), butterpollo_core::session::Role::Stream);
+        let refused = value(
+            request(&f, "POST", "/api/neural/disable", json!({"uuid": "game"})).await,
+            StatusCode::CONFLICT,
+        )
+        .await;
+        assert!(
+            refused["error"]
+                .as_str()
+                .unwrap()
+                .contains("no stream is running"),
+            "{refused}"
+        );
+        assert!(crate::neural::status(h, "game")["job"].is_null());
+        assert!(matches!(
+            crate::neural::disable(h, "game"),
+            Err(crate::neural::Refusal::Streaming)
+        ));
+        h.sessions.lock().unwrap().active.clear();
+        crate::neural::disable(h, "game").unwrap();
     }
 
     /// API tokens never reach the switch, and a browser session needs its

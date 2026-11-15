@@ -32,8 +32,16 @@ use serde_json::Value;
 const BUSY_RETRY_MS: u64 = 1500;
 /// What a switch says when the host could not find the game's program.
 const CHOOSE: &str = "Choose the game's program in the Rubylight console on the PC.";
-/// What a switch says while a stream runs.
-const STREAMING: &str = "Frame generation downloads about 14 MB and copies it into the game's folder: turn it on when no stream is running.";
+/// What a switch that is off says while a stream runs.
+const STREAMING_ON: &str = "Frame generation downloads about 14 MB and copies it into the game's folder: turn it on when no stream is running.";
+/// What a switch that is on says while a stream runs.
+const STREAMING_OFF: &str = "The game may be running with frame generation loaded: turn it off when no stream is running.";
+/// What a switch now `on` says while a stream runs.
+fn streaming(on: bool) -> &'static str {
+    if on { STREAMING_OFF } else { STREAMING_ON }
+}
+/// What a switch says to a device without Host control.
+const NO_HOST_CONTROL: &str = "Turn on Host control for this device in the Rubylight console to change it.";
 
 fn reader(client: &Client) -> Result<(), Failure> {
     require(client, VIEW, "View streams")
@@ -57,7 +65,10 @@ pub async fn read(
         .map(|(_, value)| value.into_owned())
         .filter(|app| !app.is_empty())
         .ok_or_else(|| Failure::new(ErrorCode::InvalidRequest, "Name the game: ?app=<id>."))?;
-    tokio::task::spawn_blocking(move || state(&h, &app).map(|state| json(StatusCode::OK, &state)))
+    let host_control = butterpollo_core::native::host_control(&client);
+    tokio::task::spawn_blocking(move || {
+        state(&h, &app, host_control).map(|state| json(StatusCode::OK, &state))
+    })
         .await
         .map_err(|error| Failure::internal("read Neural Rendering", error))?
 }
@@ -104,15 +115,16 @@ fn apply(h: &Shared, connection: &Connection, body: &[u8]) -> Reply {
     } else {
         neural::disable(h, &request.app)
     };
-    done.map_err(|refusal| refused(refusal).for_setting(FRAME_GENERATION))?;
-    Ok(json(StatusCode::ACCEPTED, &state(h, &request.app)?))
+    done.map_err(|refusal| refused(refusal, !request.on).for_setting(FRAME_GENERATION))?;
+    Ok(json(StatusCode::ACCEPTED, &state(h, &request.app, true)?))
 }
 
 fn not_found() -> Failure {
     Failure::new(ErrorCode::NotFound, "This host has no such game.")
 }
 
-fn refused(refusal: Refusal) -> Failure {
+/// `on`: the switch is on, so the refused write turned it off.
+fn refused(refusal: Refusal, on: bool) -> Failure {
     match refusal {
         Refusal::NotAccepted => Failure::new(
             ErrorCode::NotWritable,
@@ -125,7 +137,7 @@ fn refused(refusal: Refusal) -> Failure {
             "Neural Rendering is busy with this game. Try again in a moment.",
         )
         .retry_after(BUSY_RETRY_MS),
-        Refusal::Streaming => Failure::new(ErrorCode::HostInUse, STREAMING),
+        Refusal::Streaming => Failure::new(ErrorCode::HostInUse, streaming(on)),
     }
 }
 
@@ -143,8 +155,9 @@ fn sentence(text: &str) -> String {
 }
 
 /// The game's switches as the console's game page has them. Blocks: the
-/// first answer of a host start asks which GPU streams.
-fn state(h: &Shared, app: &str) -> Result<Neural, Failure> {
+/// first answer of a host start asks which GPU streams. host_control:
+/// the caller may write it.
+fn state(h: &Shared, app: &str, host_control: bool) -> Result<Neural, Failure> {
     let status = neural::status(h, app);
     if status["found"] != true {
         return Err(not_found());
@@ -189,8 +202,14 @@ fn state(h: &Shared, app: &str) -> Result<Neural, Failure> {
                 status["reason"].as_str().unwrap_or("This PC can't run it"),
             )),
         )
+    } else if !host_control {
+        // As Radeon's: the device can see the switch but would be refused a write.
+        (ControlState::ReadOnly, Some(NO_HOST_CONTROL.into()))
     } else if crate::updater::streaming(h) {
-        (ControlState::TemporarilyUnavailable, Some(STREAMING.into()))
+        (
+            ControlState::TemporarilyUnavailable,
+            Some(streaming(on).into()),
+        )
     } else if choose && !on {
         (ControlState::NeedsExternalSetup, Some(CHOOSE.into()))
     } else {

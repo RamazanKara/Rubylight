@@ -14,7 +14,7 @@ public final class NativeNeural {
 
     /** One switch; null when the host's answer has no frame generation switch. */
     public static final class Switch {
-        /** {@code configurable}, {@code unsupported}, {@code temporarily_unavailable} or {@code needs_external_setup}. */
+        /** {@code configurable}, {@code read_only} (no Host control), {@code unsupported}, {@code temporarily_unavailable} or {@code needs_external_setup}. */
         public final String state;
         public final boolean on;
         /** Why it can't change now, in the host's words; null when it can. */

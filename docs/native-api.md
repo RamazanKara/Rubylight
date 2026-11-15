@@ -476,7 +476,7 @@ GET /api/native/v1/neural?app=6F1D2C3B-4A59-4E2B-9C1D-2B3A4C5D6E7F
 ```
 
 - `app` is the id `/library` lists. 400 `invalid_request` without one, 404 `not_found` for an id the host doesn't have.
-- `switches` lists what the host offers for the game; a client draws each id it knows and leaves out the rest. `state` is `configurable`, `unsupported` (this PC's GPU can't run it; `reason` says why), `temporarily_unavailable` (a stream runs, or the host is busy with the game) or `needs_external_setup` (the host could not tell which program is the game: the user chooses it in the console). `on` is whether it is in the game's folder.
+- `switches` lists what the host offers for the game; a client draws each id it knows and leaves out the rest. `state` is `configurable`, `unsupported` (this PC's GPU can't run it; `reason` says why), `read_only` (the device lacks Host control; `reason` says to turn it on), `temporarily_unavailable` (a stream runs, or the host is busy with the game) or `needs_external_setup` (the host could not tell which program is the game: the user chooses it in the console). `on` is whether it is in the game's folder.
 - `accepted` is whether the notice was accepted on this host, in the console or on a device. `gpu` names the GPU that streams when the switch can run on it.
 - `replaces_earlier_upscaling`: Rubylight 3.0's neural upscaling is still in the game's folder. Turning the switch on removes it first, in the same job; a client says so before the write. Turning the switch off removes both.
 - `job` is what the host is doing for the game, or how it last ended: `action` (`install`, `remove`, `update` for a launch's check), `phase` (`download`, `place`, `remove`, `done`, `failed`), `done` and `total` bytes while it downloads or copies, and `error` in words. A client reads `GET /neural` about every 1.5 s while `phase` is neither `done` nor `failed`.
@@ -486,7 +486,7 @@ POST /api/native/v1/neural/settings
 {"app": "6F1D2C3B-4A59-4E2B-9C1D-2B3A4C5D6E7F", "switch": "frame_generation", "on": true, "accept_notice": true}
 ```
 
-- The write needs View streams and Host control, judged again right before it runs, and answers 202 with the state. It is refused with 409 `host_in_use` while any stream runs: the download and the copy would take the stream's network and disk.
+- The write needs View streams and Host control, judged again right before it runs, and answers 202 with the state. It is refused with 409 `host_in_use` while any stream runs, both ways: turning on, the download and the copy would take the stream's network and disk; turning off, the streamed game may hold the mod loaded, so its removal would be left half done.
 - `accept_notice` records that the user accepted the notice on the device just now. Without it, a host where nobody accepted it yet answers 422 `not_writable`.
 - The body never names a file on the PC, and an unknown field (such as `exe`) is 400 `invalid_request`. When the host can't find the game's program, the job fails with the switch in `needs_external_setup`; the console's game page picks the program.
 - The host refuses games with a known anti-cheat, games without DLSS frame generation and a GPU it can't run on, as the console does; the job's `error` or the switch's `reason` says which.

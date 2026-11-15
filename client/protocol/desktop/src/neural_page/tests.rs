@@ -12,6 +12,8 @@ struct Fake {
     refuse: Option<String>,
     /// Reads after the first one fail.
     unreachable: bool,
+    /// Reads after the first one find the PC busy with the game until this many were made.
+    busy_until: usize,
     cancelled: std::sync::atomic::AtomicBool,
 }
 
@@ -43,6 +45,10 @@ impl NeuralSource for Fake {
         calls.push(format!("read {app}"));
         if self.unreachable && calls.len() > 1 {
             return Err(Error::Cancelled);
+        }
+        let reads = calls.iter().filter(|c| c.starts_with("read")).count();
+        if reads > 1 && reads <= self.busy_until {
+            return Ok(state(false, Some(NeuralPhase::Remove)));
         }
         let wrote = calls.iter().any(|c| c.starts_with("write")) && self.refuse.is_none();
         let reads_since = calls
@@ -181,6 +187,53 @@ fn the_lines_say_the_job_and_the_switch() {
         switch_text(&switch),
         "Choose the game's program in the Rubylight console on the PC."
     );
+    // A device without Host control can't press it, so it never shows the notice.
+    switch.state = ControlState::ReadOnly;
+    switch.reason = Some("Turn on Host control for this device.".into());
+    assert!(!configurable(&switch));
+    assert_eq!(switch_text(&switch), "Turn on Host control for this device.");
+}
+
+/// A write refused while the PC works on the game keeps its words through the read after it,
+/// reads again at the polling pace, not in a tight loop, and a later good read clears them.
+#[test]
+fn a_refusal_during_a_job_polls_at_its_pace_and_clears() {
+    let fake = Arc::new(Fake {
+        refuse: Some("Neural Rendering is busy with this game.".into()),
+        busy_until: 3,
+        ..Fake::default()
+    });
+    let mut panel = NeuralPanel::default();
+    panel.open(1, 7, "uuid-1".into(), fake.clone(), waker());
+    settle(&mut panel);
+    panel.write(1, 7, true, false);
+    // Until the read after the refusal is in (settle would wait out the next poll).
+    for _ in 0..800 {
+        panel.poll(Some((1, 7)));
+        if panel.state_for(1, 7).unwrap().state.as_ref().unwrap().working() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let open = panel.state_for(1, 7).unwrap();
+    assert_eq!(
+        open.error.as_deref(),
+        Some("Neural Rendering is busy with this game.")
+    );
+    assert!(open.state.as_ref().unwrap().working());
+    for _ in 0..40 {
+        panel.poll(Some((1, 7)));
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    // read, write, the read after it; the next waits for POLL.
+    assert_eq!(fake.calls.lock().unwrap().len(), 3);
+    let deadline = std::time::Instant::now() + POLL * 4;
+    while panel.state_for(1, 7).unwrap().error.is_some() {
+        assert!(std::time::Instant::now() < deadline, "the error stayed");
+        panel.poll(Some((1, 7)));
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(fake.calls.lock().unwrap().len(), 4);
 }
 
 /// A read that fails after a good one is shown and not repeated on its own.

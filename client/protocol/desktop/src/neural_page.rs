@@ -67,6 +67,8 @@ pub struct Open {
     ask: u64,
     /// Why the last read or write failed, in the PC's words.
     pub error: Option<String>,
+    /// The error is a refused write's: it stays through the read that shows the game after it.
+    refused: bool,
     answers: Receiver<Answer>,
     sender: Sender<Answer>,
 }
@@ -121,6 +123,7 @@ impl NeuralPanel {
             writing: false,
             ask: 0,
             error: None,
+            refused: false,
             answers,
             sender,
         });
@@ -226,7 +229,8 @@ impl NeuralPanel {
         let Some(open) = self.open.as_mut() else {
             return;
         };
-        let mut again = false;
+        // The next read's delay, from the answer that asks for it.
+        let mut again = None;
         while let Ok(Answer(ask, wrote, result)) = open.answers.try_recv() {
             if ask != open.ask {
                 continue;
@@ -235,23 +239,24 @@ impl NeuralPanel {
             open.writing = false;
             match result {
                 Ok(state) => {
-                    again = state.working();
+                    // A good answer ends an earlier failure, except a refusal's words, which
+                    // stay through the read that follows it.
+                    if !std::mem::take(&mut open.refused) {
+                        open.error = None;
+                    }
+                    again = state.working().then_some(POLL);
                     open.state = Some(state);
                 }
                 Err(error) => {
                     open.error = Some(error);
+                    open.refused = wrote;
                     // A refused write may still have changed something: show it as it is now.
                     // A failed read waits for the player's next visit or press instead.
-                    again = wrote;
+                    again = wrote.then_some(Duration::ZERO);
                 }
             }
         }
-        if again {
-            let delay = if open.error.is_some() {
-                Duration::ZERO
-            } else {
-                POLL
-            };
+        if let Some(delay) = again {
             self.read(delay);
         }
     }

@@ -234,3 +234,26 @@ async fn the_capability_is_listed_for_amd_and_nvidia_only() {
         );
     }
 }
+
+/// The id a client sends is the `<UUID>` `/applist` gives the game (Android's
+/// `NvApp.getAppUuid()`, desktop's `install_id`): the app's `extra["uuid"]`.
+#[tokio::test]
+async fn the_applist_uuid_opens_the_games_switch() {
+    let s = Setup::new();
+    host(&s, "AMD Radeon 780M Graphics", AMD, 0x1900);
+    let applist = send(&s.f, true, &s.connection, "GET", "/applist", None, vec![])
+        .await
+        .text();
+    let game = applist
+        .split("<App>")
+        .find(|app| app.contains("<AppTitle>Game</AppTitle>"))
+        .unwrap_or_else(|| panic!("{applist}"));
+    let uuid = game
+        .split("<UUID>")
+        .nth(1)
+        .and_then(|rest| rest.split("</UUID>").next())
+        .unwrap();
+    assert_eq!(uuid, "game");
+    let state = neural(&s.get(&format!("/neural?app={uuid}")).await);
+    assert_eq!(state.app, uuid);
+}

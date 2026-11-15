@@ -97,6 +97,9 @@ pub struct Neural {
 struct State {
     /// The last probe's answer, when it came and the settings it holds for.
     probe: Option<(Instant, GpuSetting, Result<String, String>)>,
+    /// Whether the GPU a stream uses is AMD's or NVIDIA's ([`offered`]),
+    /// and the settings it holds for.
+    offered: Option<(GpuSetting, bool)>,
     jobs: BTreeMap<String, Job>,
     /// When the pending removals are tried next.
     removal_at: Option<Instant>,
@@ -220,6 +223,23 @@ pub fn capability(h: &Shared) -> Result<String, String> {
     }
     h.neural.lock().probe = Some((Instant::now(), setting, result.clone()));
     result
+}
+
+/// Whether devices are offered frame generation at all: the GPU a stream
+/// uses is AMD's or NVIDIA's, by its DXGI vendor ID alone, with no probe. A
+/// GPU that can't be found keeps it offered, and the switch says why. Asked
+/// again once the GPU or display a stream uses is set otherwise. Blocks.
+pub fn offered(h: &Shared) -> bool {
+    let setting = gpu_setting(h);
+    if let Some((held, offered)) = &h.neural.lock().offered
+        && *held == setting
+    {
+        return *offered;
+    }
+    let offered = streams_with(h, &setting)
+        .map_or(true, |streams| matches!(streams.vendor, neural::AMD | neural::NVIDIA));
+    h.neural.lock().offered = Some((setting, offered));
+    offered
 }
 
 /// The settings that pick the GPU a stream uses: the display, and the

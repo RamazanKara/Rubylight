@@ -213,13 +213,24 @@ async fn a_write_names_no_file_and_needs_the_notice() {
     assert!(!switch.on);
 }
 
+/// Listed where the GPU a stream uses is AMD's or NVIDIA's (an older one
+/// too: the switch says why), left out for any other.
 #[tokio::test]
-async fn the_capability_is_listed() {
-    let s = Setup::with(VIEW_BIT);
-    let caps: Caps = serde_json::from_slice(&s.get("/capabilities").await.body).unwrap();
-    assert!(
-        caps.features
-            .iter()
-            .any(|f| f == feature::NEURAL_FRAME_GENERATION)
-    );
+async fn the_capability_is_listed_for_amd_and_nvidia_only() {
+    for (vendor, device, listed) in [
+        (AMD, 0x1900, true),
+        (NVIDIA, 0x1B80, true),
+        (0x8086, 0x56a0, false),
+    ] {
+        let s = Setup::with(VIEW_BIT);
+        host(&s, "GPU", vendor, device);
+        let caps: Caps = serde_json::from_slice(&s.get("/capabilities").await.body).unwrap();
+        assert_eq!(
+            caps.features
+                .iter()
+                .any(|f| f == feature::NEURAL_FRAME_GENERATION),
+            listed,
+            "{vendor:#x}"
+        );
+    }
 }

@@ -410,6 +410,14 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
     };
     let coop = h.nucleus.unavailable().is_none();
     let update = crate::updater::install_supported(&h);
+    // Frame generation only where the GPU a stream uses is AMD's or NVIDIA's,
+    // by its DXGI vendor ID (no probe; one that can't be found stays offered).
+    let neural = {
+        let h = h.clone();
+        tokio::task::spawn_blocking(move || crate::neural::offered(&h))
+            .await
+            .unwrap_or(true)
+    };
     Ok(json(
         StatusCode::OK,
         &Capabilities {
@@ -440,12 +448,12 @@ async fn capabilities(State(h): State<Shared>, Extension(c): Extension<Connectio
                 // Each device needs its own Restart and shut down PC grant.
                 feature::POWER_RESTART,
                 feature::POWER_SHUTDOWN,
-                // A game's frame generation; reading needs View streams, a
-                // write Host control too. Whether this PC's GPU can run it is
-                // in the answer, which the first time of a host start asks.
-                feature::NEURAL_FRAME_GENERATION,
             ]
             .into_iter()
+            // A game's frame generation; reading needs View streams, a write
+            // Host control too. Whether this PC's GPU can run it is in the
+            // answer, which the first time of a host start asks.
+            .chain(neural.then_some(feature::NEURAL_FRAME_GENERATION))
             // The Radeon endpoints answer only where the host started its Radeon worker.
             .chain(
                 h.radeon

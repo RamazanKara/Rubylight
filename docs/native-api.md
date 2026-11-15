@@ -54,7 +54,7 @@ GET /api/native/v1/capabilities
 | `library`, `session`, `session.close_game`, `session.launcher`, `session.mic_only`, `session.continue_here` | always | [Library](#library), [Session](#session) |
 | `wake`, `audio.night_mode`, `audio.headphone_surround` | always | [Wake targets](#wake-targets-wake), [Audio processing](#audio-processing-audionight_mode-audioheadphone_surround) |
 | `power.restart`, `power.shutdown` | always | [Power and update](#power-and-update-powerrestart-powershutdown-update) |
-| `neural.frame_generation` | always (whether this PC's GPU can run it is in the answer) | [Neural Rendering](#neural-rendering-neuralframe_generation) |
+| `neural.frame_generation` | where the GPU the host streams with is AMD's or NVIDIA's (whether that GPU can run it is in the answer) | [Neural Rendering](#neural-rendering-neuralframe_generation) |
 | `radeon.read`, `radeon.write`, `radeon.profile` | where the host started its Radeon worker | [Radeon state and writes](#radeon-state-and-writes) |
 | `files.upload`, `files.download` | while the host's `file_transfer` setting is on | [Files](#files) |
 | `session.couch_menu` | to a device with View or Launch whose `couch_menu` setting (host or device) is on | [Session](#session) |

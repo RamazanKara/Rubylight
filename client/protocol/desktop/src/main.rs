@@ -140,8 +140,8 @@ struct App {
     hosts: Hosts,
     launcher: Launcher,
     pads: Gamepads,
-    connecting: Option<Connecting>,
-    cancelled: bool,
+    /// The starts connecting and those just cancelled or timed out, whose workers may still run.
+    attempts: stream::Attempts,
     /// The PC being woken and the clock of its resends ("Waking <PC>…").
     waking: wol::Wakes,
     streaming: Option<(Streaming, TimerResolution)>,
@@ -884,8 +884,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         hosts,
         launcher,
         pads,
-        connecting: None,
-        cancelled: false,
+        attempts: stream::Attempts::default(),
         waking: wol::Wakes::default(),
         streaming: None,
         abr_stops: Vec::new(),
@@ -962,7 +961,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     }
 
     while app.running {
-        app.updates.hold(app.streaming.is_some() || app.connecting.is_some() || app.network_launch.is_some());
+        app.updates.hold(app.streaming.is_some() || app.attempts.is_connecting() || app.network_launch.is_some());
         if app.streaming.is_some() {
             // The stream watches the network itself (`RoamWatch`), and the launcher's pages are
             // not on screen to show it.

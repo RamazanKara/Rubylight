@@ -217,7 +217,7 @@ impl App {
         });
         let display_hdr = settings.hdr && handheld::hdr_display(handheld::gamescope(), sdl::any_display_hdr());
         // The quit-and-start prompt's plan holds the renderer's device.
-        let busy = self.streaming.is_some() || self.connecting.is_some() || self.pending_replace.is_some();
+        let busy = self.streaming.is_some() || self.attempts.is_busy() || self.pending_replace.is_some();
         let Some(switch) = handheld::renderer_switch(state.choice, now, need, settings.hdr && !planes, display_hdr && !planes, busy) else { return };
         if let Err(why) = self.rebuild_renderer(true, settings.hdr, display_hdr, vulkan_video, switch.reason()) {
             self.renderer_state.gpu_failed = Some(why.clone());
@@ -227,7 +227,7 @@ impl App {
 
     #[cfg(target_os = "macos")]
     pub(crate) fn switch_for_stream(&mut self, settings: &config::Settings) {
-        if self.streaming.is_some() || self.connecting.is_some() || self.pending_replace.is_some() {
+        if self.streaming.is_some() || self.attempts.is_busy() || self.pending_replace.is_some() {
             return;
         }
         let shaders = settings.codec.is_pyrowave() || settings.experimental_packed_444
@@ -245,7 +245,7 @@ impl App {
     #[cfg(windows)]
     pub(crate) fn apply_graphics_card(&mut self) {
         let choice = self.launcher.settings.graphics_card;
-        if choice == self.graphics_card || self.streaming.is_some() || self.connecting.is_some() || self.pending_replace.is_some() {
+        if choice == self.graphics_card || self.streaming.is_some() || self.attempts.is_busy() || self.pending_replace.is_some() {
             return;
         }
         self.graphics_card = choice;
@@ -262,7 +262,7 @@ impl App {
     #[cfg(target_os = "linux")]
     pub(crate) fn apply_renderer_choice(&mut self) {
         let choice = self.launcher.settings.renderer;
-        if choice == self.renderer_state.choice || self.streaming.is_some() || self.connecting.is_some() || self.pending_replace.is_some() {
+        if choice == self.renderer_state.choice || self.streaming.is_some() || self.attempts.is_busy() || self.pending_replace.is_some() {
             return;
         }
         self.renderer_state.choice = choice;
@@ -397,10 +397,9 @@ impl App {
         let why = self.launch_devices().find_map(|device| device.removed_reason());
         let why = why.map_or(String::new(), |why| format!(" ({why})"));
         eprintln!("nightjar: the renderer's Direct3D 11 device was lost{why}; the renderer is made again");
-        if let Some(connecting) = &self.connecting {
+        if let Some(connecting) = self.attempts.take() {
             eprintln!("nightjar: the launch connecting on the lost device ends");
-            connecting.cancel();
-            self.cancelled = true;
+            self.attempts.end(connecting);
             self.launcher.message(tr("The stream could not start"), tr("The graphics driver was reset, which ended the stream. Connect again."));
         }
         if !self.remakes.allow(Instant::now()) {
@@ -455,10 +454,10 @@ impl App {
     }
 
     /// The holds launches keep on the renderer's device (`LaunchPlan::device`): a start
-    /// connecting, and one waiting to replace a game.
+    /// connecting or ending, and one waiting to replace a game.
     #[cfg(windows)]
     fn launch_devices(&self) -> impl Iterator<Item = &media::DeviceRef> {
-        let connecting = self.connecting.iter().map(|connecting| &connecting.plan().device);
+        let connecting = self.attempts.devices();
         connecting.chain(self.pending_replace.iter().map(|plan| &plan.device))
     }
 

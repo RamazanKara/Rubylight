@@ -72,22 +72,20 @@ impl App {
         self.gui_back_from_overlay();
         let mut abr_stops: Vec<_> = self.abr_stops.drain(..).map(|(_, stop)| stop).collect();
         abr_stops.extend(self.streaming.take().and_then(|(streaming, _)| streaming.finish(self.window, &mut self.pads)));
-        if let Some(c) = &self.connecting {
-            c.cancel();
-        }
         self.save_hosts_and_place();
         self.pads.close_all();
         self.gui.destroy();
-        if self.connecting.is_some() {
+        if self.attempts.is_busy() {
             // Ending a launch can take seconds: the window goes now rather than sitting frozen meanwhile.
             // SAFETY: the window run() created, still alive.
             unsafe { SDL_HideWindow(self.window) };
         }
         // The connect thread may be using the renderer's GPU device (a decoder being made on it),
-        // so a launch in progress ends, and a session it started stops, before the renderer goes.
+        // so every launch in progress or ending ends, and a session one started stops, before the
+        // renderer goes.
         let (renderer, window) = (self.renderer, self.window);
         // SAFETY: tearing down what run() created, with nothing else using it any more.
-        stream::end_before(self.connecting.take(), stream::LEAVE_WAIT, || unsafe {
+        stream::end_all_before(self.attempts.take_all(), stream::LEAVE_WAIT, || unsafe {
             crate::sdl::destroy_renderer(renderer);
             SDL_DestroyWindow(window);
             SDL_Quit();
@@ -117,7 +115,7 @@ impl App {
     /// Shows a link the system opened with Nightjar, once nothing else is in the way: a stream
     /// (this runs only between them), a stream being started, an open dialog or the PIN screen.
     fn open_waiting_link(&mut self) {
-        if self.connecting.is_some() || self.network_launch.is_some() || !self.launcher.can_open_link() {
+        if self.attempts.is_connecting() || self.network_launch.is_some() || !self.launcher.can_open_link() {
             return;
         }
         let Some(link) = self.links.take() else { return };

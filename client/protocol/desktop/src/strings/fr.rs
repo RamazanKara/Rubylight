@@ -605,6 +605,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("The PC does not accept that value.", "Le PC n’accepte pas cette valeur."),
     ("This setting cannot be changed.", "Ce paramètre ne peut pas être modifié."),
     ("The graphics driver was reset, which ended the stream. Connect again.", "Le pilote graphique a été réinitialisé, ce qui a mis fin au stream. Reconnectez-vous."),
+    ("The PC stopped answering while Nightjar started the stream, so Nightjar ended the attempt. Connect again; if it keeps happening, restart the PC.", "Le PC a cessé de répondre pendant que Nightjar démarrait le stream, Nightjar a donc mis fin à la tentative. Reconnectez-vous ; si cela se reproduit, redémarrez le PC."),
     ("The graphics driver rejected this change.", "Le pilote graphique a refusé cette modification."),
     ("Start or resume a session to change settings.", "Démarrez ou reprenez une session pour modifier les paramètres."),
     ("The change could not be applied.", "La modification n’a pas pu être appliquée."),

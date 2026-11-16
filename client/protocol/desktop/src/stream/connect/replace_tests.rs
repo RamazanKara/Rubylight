@@ -1,6 +1,6 @@
 use super::*;
 
-fn launch_plan() -> LaunchPlan {
+pub(super) fn launch_plan() -> LaunchPlan {
     let xml = r#"<?xml version="1.0" encoding="utf-8"?><root status_code="200"><hostname>PC</hostname><uniqueid>uid</uniqueid><HttpsPort>47984</HttpsPort><ExternalPort>47989</ExternalPort><PairStatus>1</PairStatus><currentgame>7</currentgame><state>SUNSHINE_SERVER_BUSY</state><RustHostVersion>3.0.0</RustHostVersion></root>"#;
     LaunchPlan {
         host_id: 1,
@@ -298,7 +298,7 @@ fn a_dropped_stream_reconnects_without_focus_but_not_minimized() {
 
 type ConnectResult = Result<(Session, Facts, LaunchPlan), ConnectError>;
 
-fn connecting(result: Receiver<ConnectResult>, worker: Option<std::thread::JoinHandle<()>>) -> Connecting {
+pub(super) fn connecting(result: Receiver<ConnectResult>, worker: Option<std::thread::JoinHandle<()>>) -> Connecting {
     let plan = launch_plan();
     Connecting {
         shared: Shared::new(Arc::new(|| {}), 2),
@@ -311,6 +311,7 @@ fn connecting(result: Receiver<ConnectResult>, worker: Option<std::thread::JoinH
         settings: plan.settings.clone(),
         plan,
         result,
+        started: Instant::now(),
         worker,
     }
 }

@@ -3,6 +3,9 @@
 
 use super::*;
 
+mod attempts;
+pub use attempts::Attempts;
+
 fn stage_text(stage: Stage) -> &'static str {
     match stage {
         Stage::PlatformInit | Stage::NameResolution => en("Finding the PC"),
@@ -76,25 +79,53 @@ pub struct Connecting {
     pub settings: Settings,
     pub(super) plan: LaunchPlan,
     pub(super) result: Receiver<Result<(Session, Facts, LaunchPlan), ConnectError>>,
-    /// The worker, joined when the app leaves (`end_before`); None if it could not be started.
+    /// When the worker started: [`CONNECT_TIMEOUT`] counts from here (`Attempts::overdue`).
+    pub(super) started: Instant,
+    /// The worker, joined when the app leaves (`end_all_before`); None if it could not be started.
     pub(super) worker: Option<std::thread::JoinHandle<()>>,
 }
 
 /// How long leaving waits for a launch in progress to end after cancelling it.
 pub const LEAVE_WAIT: Duration = Duration::from_secs(5);
 
-/// Leaving: the launch in progress (if any) is cancelled and ends, and a session it started stops
-/// (`Connecting::finish`), before `teardown` destroys the renderer, whose GPU device the worker
-/// may be using (a PyroWave decoder being made on it on Linux). Past `wait` the launch is still
-/// running, so `teardown` is skipped, loudly, and the process exit reclaims the renderer instead.
-/// True when `teardown` ran.
-pub fn end_before(connecting: Option<Connecting>, wait: Duration, teardown: impl FnOnce()) -> bool {
-    if connecting.is_some_and(|connecting| !connecting.finish(wait)) {
-        eprintln!("nightjar: the connection attempt did not end within {} ms of leaving; the window and its GPU device stay until the process exits, as it may still be using them", wait.as_millis());
-        return false;
+/// How long a launch may wait for its worker before the app ends it. Longer than a launch's
+/// 120 s read (`LAUNCH_READ_TIMEOUT`) and the handshake's timeouts together, so only a call that
+/// cannot answer reaches it: a decoder being made or a device created while the graphics driver
+/// resets. The player's Cancel ends the attempt at once and never waits for this.
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Whether a launch started at `started` has waited [`CONNECT_TIMEOUT`] at `now`.
+pub fn connect_overdue(started: Instant, now: Instant) -> bool {
+    now.saturating_duration_since(started) >= CONNECT_TIMEOUT
+}
+
+/// What the app says when it ends a start that stopped answering (`Attempts::overdue`).
+pub fn connect_timeout_text() -> String {
+    tr("The PC stopped answering while Nightjar started the stream, so Nightjar ended the attempt. Connect again; if it keeps happening, restart the PC.").to_owned()
+}
+
+/// Leaving: the launches in progress (if any) are cancelled and end, and a session one started
+/// stops (`Connecting::finish`), before `teardown` destroys the renderer, whose GPU device a worker
+/// may be using (a decoder being made on it). Past `wait` in all, a launch is still running, so
+/// `teardown` is skipped, loudly, and the process exit reclaims the renderer instead. True when
+/// `teardown` ran.
+pub fn end_all_before(attempts: Vec<Connecting>, wait: Duration, teardown: impl FnOnce()) -> bool {
+    let deadline = Instant::now() + wait;
+    for connecting in attempts {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if !connecting.finish(left) {
+            eprintln!("nightjar: a connection attempt did not end within {} ms of leaving; the window and its GPU device stay until the process exits, as it may still be using them", wait.as_millis());
+            return false;
+        }
     }
     teardown();
     true
+}
+
+/// Leaving with one launch in progress: [`end_all_before`].
+#[cfg(test)]
+pub fn end_before(connecting: Option<Connecting>, wait: Duration, teardown: impl FnOnce()) -> bool {
+    end_all_before(connecting.into_iter().collect(), wait, teardown)
 }
 
 impl Connecting {
@@ -135,8 +166,16 @@ impl Connecting {
         let worker = std::thread::Builder::new()
             .name("connect".into())
             .spawn(move || {
-                let result = connect_with_recovery(&mut worker_plan, worker_shared, &worker_interrupt)
-                    .map(|(session, facts)| (session, facts, worker_plan));
+                let result: Result<(Session, Facts, LaunchPlan), ConnectError> = match connect_with_recovery(&mut worker_plan, worker_shared, &worker_interrupt) {
+                    // The screen left this start before it made a stream: nobody waits for its
+                    // pictures, and a session nobody holds would stream unseen.
+                    Ok((session, _)) if worker_interrupt.is_interrupted() => {
+                        session.stop();
+                        Err("Cancelled.".into())
+                    }
+                    Ok((session, facts)) => Ok((session, facts, worker_plan)),
+                    Err(e) => Err(e),
+                };
                 let _ = sender.send(result);
                 waker();
             })
@@ -153,6 +192,7 @@ impl Connecting {
             settings,
             plan,
             result,
+            started: Instant::now(),
             worker,
         }
     }
@@ -1515,6 +1555,9 @@ mod capability_tests {
 
 #[cfg(test)]
 mod replace_tests;
+
+#[cfg(test)]
+mod attempts_tests;
 
 #[cfg(test)]
 mod audio_tests {

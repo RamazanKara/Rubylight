@@ -35,7 +35,7 @@ impl App {
     /// Drives the unattended measurement start (see `autostream`); does nothing otherwise.
     pub(crate) fn autostream_step(&mut self) {
         let Some(auto) = self.autostream.as_mut() else { return };
-        if auto.failed || self.connecting.is_some() || self.network_launch.is_some() {
+        if auto.failed || self.attempts.is_connecting() || self.network_launch.is_some() {
             return;
         }
         if let Some(why) = self.launcher.message_shown() {
@@ -107,7 +107,7 @@ impl App {
         }
         let message = self.launcher.message_shown();
         // The stream and any reconnect are over: --quit-on-exit closes Nightjar.
-        if self.streaming.is_none() && self.connecting.is_none() && cli.stream_ended(message.clone()) {
+        if self.streaming.is_none() && !self.attempts.is_connecting() && cli.stream_ended(message.clone()) {
             self.running = false;
             return;
         }
@@ -115,7 +115,7 @@ impl App {
             identity: self.hosts.identity().is_some(),
             host: cli.host_seen(&self.hosts),
             message,
-            busy: self.streaming.is_some() || self.connecting.is_some() || self.network_launch.is_some(),
+            busy: self.streaming.is_some() || self.attempts.is_connecting() || self.network_launch.is_some(),
             confirming: self.pending_replace.is_some() || self.pin_pending.is_some(),
         };
         match cli.next(&seen) {
@@ -151,7 +151,7 @@ impl App {
     }
 
     pub(crate) fn launch(&mut self, host_id: u64, app_id: i32, resume: bool, kind: LaunchKind, from: LaunchFrom) {
-        let busy = self.connecting.is_some() || self.network_launch.is_some();
+        let busy = self.attempts.is_connecting() || self.network_launch.is_some();
         // A new start asks for full chroma as its settings say, and waits for the HDR report anew.
         if !busy { self.full_chroma_off = None; self.hdr_wait = None; }
         eprintln!("nightjar: {}{}", launch_line(from, app_id, resume, busy), kind.log_suffix());
@@ -256,7 +256,7 @@ impl App {
     pub(crate) fn launch_ready(&mut self, host_id: u64, app_id: i32, resume: bool, kind: LaunchKind) {
         let small = kind == LaunchKind::SmallInputOnly;
         let mic_only = kind == LaunchKind::MicOnly;
-        if self.connecting.is_some() {
+        if self.attempts.is_connecting() {
             return;
         }
         let Some(host) = self.hosts.get(host_id) else {
@@ -527,8 +527,7 @@ impl App {
             resume_bitrate_kbps: None,
             resume_quality: None,
         };
-        self.cancelled = false;
-        self.connecting = Some(Connecting::start(plan, self.waker.clone()));
+        self.attempts.begin(Connecting::start(plan, self.waker.clone()));
     }
 }
 

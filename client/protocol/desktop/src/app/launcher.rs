@@ -29,14 +29,14 @@ impl App {
                         // What the other buttons do is the binding list's (shortcuts.rs, which Help shows).
                         _ => match shortcuts::Button::from_sdl(button).and_then(|b| shortcuts::pad_action(b, swap)) {
                             Some(Action::OpenSettings) => {
-                                if self.streaming.is_none() && matches!(self.launcher.dialog, Dialog::None) && self.connecting.is_none() {
+                                if self.streaming.is_none() && matches!(self.launcher.dialog, Dialog::None) && !self.attempts.is_connecting() {
                                     if let Some(command) = self.launcher.screen.save_command() { self.command(command); }
                                     self.launcher.open_settings();
                                 }
                                 None
                             }
                             Some(action @ (Action::PreviousTab | Action::NextTab)) => {
-                                if self.streaming.is_none() && self.connecting.is_none() {
+                                if self.streaming.is_none() && !self.attempts.is_connecting() {
                                     let mut commands = Vec::new();
                                     self.launcher.step_destination(&self.gui.ctx, action == Action::NextTab, &mut commands);
                                     for command in commands { self.command(command); }
@@ -223,7 +223,7 @@ impl App {
         #[cfg(windows)]
         self.apply_graphics_card();
         // Wait for input or a worker; animate the spinner while something runs.
-        let busy = self.connecting.is_some() || self.waking.host().is_some() || self.network_launch.is_some() || self.network_test.is_some()
+        let busy = self.attempts.is_connecting() || self.waking.host().is_some() || self.network_launch.is_some() || self.network_test.is_some()
             || self.launcher.remote.running() || self.launcher.files.busy()
             || matches!(self.launcher.dialog, Dialog::Pairing { .. })
             || self.identity.is_some() || self.autostream.is_some()
@@ -373,7 +373,7 @@ impl App {
         }
         // While the window is minimized or hidden only the PC being woken and those just quit or
         // left are polled: the others are asked again, all at once, when it is back.
-        if self.connecting.is_none() {
+        if !self.attempts.is_connecting() {
             // SAFETY: a live window, read on the main thread.
             let shown = window_shown(unsafe { SDL_GetWindowFlags(self.window) });
             self.hosts.poll(shown, self.waking.host());
@@ -466,7 +466,7 @@ impl App {
                 HostEvent::ContinueHere { id, app, result: Ok(()) } => self.launch(id, app, true, LaunchKind::Stream, LaunchFrom::Launcher),
                 HostEvent::SelectRead { id, app, resume, too, read } => {
                     self.select_read = false;
-                    if self.streaming.is_some() || self.connecting.is_some() {
+                    if self.streaming.is_some() || self.attempts.is_connecting() {
                         eprintln!("nightjar: another stream started while the PC said who plays; this start is dropped");
                         continue;
                     }
@@ -488,7 +488,7 @@ impl App {
                         SelectStep::Start => self.launch(id, app, resume, LaunchKind::Stream, LaunchFrom::Launcher),
                     }
                 }
-                HostEvent::StreamMoved { id, app, device: Some(device) } if self.streaming.is_none() && self.connecting.is_none() => {
+                HostEvent::StreamMoved { id, app, device: Some(device) } if self.streaming.is_none() && !self.attempts.is_connecting() => {
                     eprintln!("nightjar: the stream moved to {device}");
                     self.show_moved(id, app, device);
                 }
@@ -531,14 +531,25 @@ impl App {
         self.autostream_step();
         self.cli_step();
         self.second_screen_step();
-        if let Some(c) = &mut self.connecting {
+        // A cancelled start's worker may still be inside a call that cannot be stopped; it ends on
+        // its own, and a stream it makes late is stopped there.
+        self.attempts.reap();
+        if self.attempts.overdue(Instant::now()) {
+            // The worker stopped answering (a decoder made or a device created while the driver
+            // resets): the screen ends the attempt and says so instead of waiting for ever.
+            let connecting = self.attempts.take().expect("an overdue start");
+            eprintln!("nightjar: the start did not answer within {} s; the attempt ends", stream::CONNECT_TIMEOUT.as_secs());
+            let plan = connecting.plan();
+            let launch = (plan.host_id, plan.app.id, plan.resume, LaunchKind::of_plan(plan.join, plan.small_stream_input_only, plan.mic_only));
+            let mode = stream::stream_mode(&connecting.settings, plan.display);
+            let name = connecting.app_name.clone();
+            self.attempts.end(connecting);
+            self.start_failed(launch, Some(name), Some(mode), stream::connect_timeout_text());
+        } else if let Some(c) = self.attempts.current_mut() {
             match c.poll() {
                 Ok(Some((session, facts))) => {
-                    let connecting = self.connecting.take().expect("connecting");
-                    if self.cancelled {
-                        session.stop();
-                        self.cancelled = false;
-                    } else if decodes_on_device(connecting.plan()) && !connecting.plan().device.holds(self.renderer_device()) {
+                    let connecting = self.attempts.take().expect("connecting");
+                    if decodes_on_device(connecting.plan()) && !connecting.plan().device.holds(self.renderer_device()) {
                         // SDL made its Direct3D 11 device again while connecting (a driver reset):
                         // the decoder's pictures are on the old device, which nothing draws.
                         let why = connecting.plan().device.removed_reason().map_or(String::new(), |why| format!(" (the old one was removed: {why})"));
@@ -552,32 +563,30 @@ impl App {
                 }
                 Ok(None) => {}
                 Err(failed) => {
-                    let gone = self.connecting.take();
-                    if !std::mem::take(&mut self.cancelled) {
-                        match failed {
-                            ConnectFailed::Message(e) => match gone {
-                                Some(c) => {
-                                    let plan = c.plan();
-                                    let launch = (plan.host_id, plan.app.id, plan.resume, LaunchKind::of_plan(plan.join, plan.small_stream_input_only, plan.mic_only));
-                                    let mode = stream::stream_mode(&c.settings, plan.display);
-                                    self.start_failed(launch, Some(c.app_name.clone()), Some(mode), e);
-                                }
-                                None => self.launcher.message(tr("The stream could not start"), e),
-                            },
-                            ConnectFailed::ConfirmReplace(plan) => {
-                                if !self.open_play_game_running() {
-                                    self.ask_replace(plan);
-                                }
+                    let gone = self.attempts.take();
+                    match failed {
+                        ConnectFailed::Message(e) => match gone {
+                            Some(c) => {
+                                let plan = c.plan();
+                                let launch = (plan.host_id, plan.app.id, plan.resume, LaunchKind::of_plan(plan.join, plan.small_stream_input_only, plan.mic_only));
+                                let mode = stream::stream_mode(&c.settings, plan.display);
+                                self.start_failed(launch, Some(c.app_name.clone()), Some(mode), e);
                             }
-                            ConnectFailed::Moved { host, app, device } => self.show_moved(host, app, device),
-                            ConnectFailed::PackedRefused(plan) => self.restart_without_full_chroma(&plan),
+                            None => self.launcher.message(tr("The stream could not start"), e),
+                        },
+                        ConnectFailed::ConfirmReplace(plan) => {
+                            if !self.open_play_game_running() {
+                                self.ask_replace(plan);
+                            }
                         }
+                        ConnectFailed::Moved { host, app, device } => self.show_moved(host, app, device),
+                        ConnectFailed::PackedRefused(plan) => self.restart_without_full_chroma(&plan),
                     }
                 }
             }
         }
 
-        let connecting = self.connecting.as_ref().map(|c| ConnectingView {
+        let connecting = self.attempts.current().map(|c| ConnectingView {
             app: c.app_name.clone(),
             host: c.host_name.clone(),
             stage: c.stage.clone(),
@@ -695,7 +704,7 @@ impl App {
     /// start under way, stops it; on the page the device it reports is read once, the test
     /// advances, and while the timing test runs this frame is a sample.
     fn latency_bench_frame(&mut self) {
-        if self.launcher.screen != Screen::LatencyBenchmark || self.connecting.is_some() || self.network_launch.is_some() {
+        if self.launcher.screen != Screen::LatencyBenchmark || self.attempts.is_connecting() || self.network_launch.is_some() {
             let bench = &mut self.launcher.latency_bench;
             if bench.running() || bench.device.is_some() {
                 bench.leave();

@@ -261,7 +261,7 @@ impl App {
     /// screen that failed says so.
     pub(crate) fn second_screen_step(&mut self) {
         let Some(companion) = self.second_screen.as_mut() else { return };
-        if self.streaming.is_none() && self.connecting.is_none() {
+        if self.streaming.is_none() && !self.attempts.is_connecting() {
             if let Some(companion) = self.second_screen.take() {
                 companion.end();
                 self.second_screen_gone();
@@ -393,8 +393,7 @@ impl App {
         }
         if let Some(mut plan) = reconnect {
             self.refresh_plan(&mut plan);
-            self.cancelled = false;
-            self.connecting = Some(Connecting::start(plan, self.waker.clone()));
+            self.attempts.begin(Connecting::start(plan, self.waker.clone()));
         } else {
         // A failure the PC ended the stream on: the message waits for the poll just started,
         // which carries the PC's own words for it where it says them.
@@ -591,7 +590,7 @@ impl App {
             self.end_stream(exit);
             // A dropped stream may reconnect (end_stream started it); a failed reconnect ends the
             // run through its message, in autostream_step.
-            let reconnecting = self.connecting.is_some();
+            let reconnecting = self.attempts.is_connecting();
             if let Some(auto) = self.autostream.as_mut() {
                 if !auto.stream_ended(planned, reconnecting) { self.running = false; }
             }

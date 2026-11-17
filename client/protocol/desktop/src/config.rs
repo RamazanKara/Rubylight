@@ -187,10 +187,11 @@ impl GraphicsCard {
 /// How Tear-free VRR (`vrr_tear_free`, Windows) waits for a scan under way, "Whole frames under
 /// VRR" in Display & image: Automatic is the wait for the beam (`present::VrrSync::Scan`) that turns
 /// to sync interval 1 on a display whose presents start no scan (`scan_sync::UNTRUSTED_MISSES`,
-/// kept across starts); Scan keeps that wait and does not take that switch, VSync presents with
-/// sync interval 1 from the start (`VrrSync::Present1`). Both waits present with sync interval 1
-/// when waiting for the scan would cost the next picture its turn (`scan_sync::scan_wait`), shown
-/// whole at the next refresh. `NIGHTJAR_VRR_SYNC` overrides it.
+/// kept across starts); Scan keeps that wait and does not take that switch. Scan, and Automatic
+/// while it keeps the beam's wait, present with sync interval 1 instead when that wait would cost
+/// the next picture its turn (`scan_sync::scan_wait`), which shows the picture whole at the next
+/// refresh; VSync presents with sync interval 1 from the start (`VrrSync::Present1`).
+/// `NIGHTJAR_VRR_SYNC` overrides it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VrrWait {
     #[default]

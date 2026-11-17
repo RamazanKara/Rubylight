@@ -175,7 +175,7 @@ impl VrrPacing {
     }
 
     /// Applies Whole frames under VRR (`config::VrrWait`) to Tear-free VRR's wait: Automatic leaves
-    /// the turn to `distrust_scan`, Scan keeps the beam's wait and does not take that turn (a wait
+    /// the turn to `distrust_scan`, Scan keeps the beam's wait and does not take that switch (a wait
     /// that would cost the next picture its turn still presents with sync interval 1,
     /// `scan_sync::scan_wait`), VSync presents with sync interval 1 from the start. A sync
     /// `NIGHTJAR_VRR_SYNC` set (`env_set`) stays as set.

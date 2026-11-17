@@ -2,38 +2,70 @@ use crate::media;
 use sdl3_sys::everything::*;
 use std::ptr;
 
+/// The fixtures: HEVC and AV1, 8- and 10-bit (`mode % 2`), each decoded once and drawn with both
+/// packings.
+const FIXTURES: [(media::Codec, &[u8]); 4] = [
+    (
+        media::Codec::Hevc,
+        include_bytes!("../../../../app/src/main/assets/packed444/hevc-8.bin"),
+    ),
+    (
+        media::Codec::Hevc,
+        include_bytes!("../../../../app/src/main/assets/packed444/hevc-10.bin"),
+    ),
+    (
+        media::Codec::Av1,
+        include_bytes!("../../../../app/src/main/assets/packed444/av1-8.bin"),
+    ),
+    (
+        media::Codec::Av1,
+        include_bytes!("../../../../app/src/main/assets/packed444/av1-10.bin"),
+    ),
+];
+
+/// One fixture's decoded picture, or why it did not decode, with its mode: the bit in the packed
+/// check's answer, and `mode % 2` its depth.
+pub type Decoded = (usize, Result<media::Frame, String>);
+
+/// Every fixture's result (`decode_all`).
+pub type Decodes = Vec<Decoded>;
+
+/// The packed check, decoded and drawn on the calling thread. A launch splits it instead
+/// ([`decode_all`] on a worker, [`draw_decoded`] on the renderer's thread), so a driver reset in a
+/// decoder call does not hold the frame that draws the window and carries Cancel.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // macOS checks it at start; tests elsewhere.
 pub fn probe(renderer: *mut SDL_Renderer, hardware: media::Hardware) -> Result<u8, String> {
+    draw_decoded(renderer, decode_all(hardware)?)
+}
+
+/// The packed check's fixtures decoded with `hardware`, each with its mode (the bit in the answer;
+/// `mode % 2` is its depth), and why it did not decode. The renderer's SDL GPU device is not
+/// needed: VAAPI pictures map into the GPU device `Hardware::Auto` names, as on the stream.
+pub fn decode_all(hardware: media::Hardware) -> Result<Decodes, String> {
     if hardware == media::Hardware::None {
         return Err("Packed full chroma requires hardware decoding".into());
     }
-    let fixtures: [(media::Codec, &[u8]); 4] = [
-        (
-            media::Codec::Hevc,
-            include_bytes!("../../../../app/src/main/assets/packed444/hevc-8.bin"),
-        ),
-        (
-            media::Codec::Hevc,
-            include_bytes!("../../../../app/src/main/assets/packed444/hevc-10.bin"),
-        ),
-        (
-            media::Codec::Av1,
-            include_bytes!("../../../../app/src/main/assets/packed444/av1-8.bin"),
-        ),
-        (
-            media::Codec::Av1,
-            include_bytes!("../../../../app/src/main/assets/packed444/av1-10.bin"),
-        ),
-    ];
+    Ok(FIXTURES
+        .iter()
+        .enumerate()
+        .map(|(mode, &(codec, data))| (mode, decode(hardware, codec, data, mode % 2 != 0)))
+        .collect())
+}
+
+/// Draws [`decode_all`]'s pictures and reads them back on `renderer`'s thread, which owns its
+/// targets: the modes whose pictures came out right, or why none did.
+pub fn draw_decoded(renderer: *mut SDL_Renderer, decoded: Decodes) -> Result<u8, String> {
     let mut modes = 0;
     let mut failures = Vec::new();
-    for (mode, (codec, data)) in fixtures.into_iter().enumerate() {
-        match [1, 2].into_iter().try_for_each(|packing| verify(renderer, hardware, codec, data, mode % 2 != 0, packing)) {
+    for (mode, outcome) in decoded {
+        let label = fixture_label(mode);
+        let result = outcome.and_then(|frame| {
+            [1, 2].into_iter().try_for_each(|packing| draw(renderer, &frame, mode % 2 != 0, packing))
+        });
+        match result {
             Ok(()) => modes |= 1 << mode,
             Err(reason) => {
-                let failure = format!(
-                    "{codec:?} {}-bit: {reason}",
-                    if mode % 2 == 0 { 8 } else { 10 }
-                );
+                let failure = format!("{label}: {reason}");
                 eprintln!("packed full chroma: {failure}");
                 failures.push(failure);
             }
@@ -46,16 +78,12 @@ pub fn probe(renderer: *mut SDL_Renderer, hardware: media::Hardware) -> Result<u
     }
 }
 
-fn verify(
-    renderer: *mut SDL_Renderer,
-    hardware: media::Hardware,
-    codec: media::Codec,
-    data: &[u8],
-    ten_bit: bool,
-    packing: u32,
-) -> Result<(), String> {
-    // On the device and path a stream takes (`pipeline`): VAAPI on the GPU renderer's device with
-    // its pictures mapped into Vulkan, or Vulkan video, is drawn from the planes; the rest from memory.
+fn fixture_label(mode: usize) -> String {
+    format!("{:?} {}-bit", FIXTURES[mode].0, if mode.is_multiple_of(2) { 8 } else { 10 })
+}
+
+/// The fixture `data` decoded with `hardware` as a packed 4:2:0 picture of the mode's depth.
+fn decode(hardware: media::Hardware, codec: media::Codec, data: &[u8], ten_bit: bool) -> Result<media::Frame, String> {
     let pictures = media::Pictures { ten_bit, chroma444: false, packed: true, waiting: 0, vaapi_node: media::vaapi_node(hardware) };
     let mut decoder = media::VideoDecoder::open_first(codec, pictures, hardware, true, |_, _| {})?;
     #[cfg(target_os = "linux")]
@@ -84,6 +112,14 @@ fn verify(
             info.width, info.height, info.ten_bit
         ));
     }
+    Ok(frame)
+}
+
+/// Draws `frame` into `target` as packing `packing` and reads it back, comparing every sample:
+/// what the stream's presenter does with this renderer.
+fn draw(renderer: *mut SDL_Renderer, frame: &media::Frame, ten_bit: bool, packing: u32) -> Result<(), String> {
+    #[cfg(unix)]
+    let info = frame.info();
     // SAFETY: The temporary target and readback surfaces belong to this renderer thread.
     unsafe {
         let target = SDL_CreateTexture(
@@ -114,7 +150,7 @@ fn verify(
             0,
         ];
         #[cfg(unix)]
-        let mapped = media::PlanarLayout::of_vulkan(&info).map(|layout| draw_mapped(renderer, target, &frame, layout, &parameters));
+        let mapped = media::PlanarLayout::of_vulkan(&info).map(|layout| draw_mapped(renderer, target, frame, layout, &parameters));
         #[cfg(not(unix))]
         let mapped: Option<Result<(Reconstruction, ()), String>> = None;
         let mut failed = None;
@@ -123,7 +159,7 @@ fn verify(
             Some(Err(error)) => { failed = Some(error); (None, false, None) }
             None => {
                 let mut reconstruction = Reconstruction::new(renderer, target, &parameters);
-                let valid = reconstruction.as_mut().is_some_and(|r| r.draw(renderer, target, &frame, &parameters));
+                let valid = reconstruction.as_mut().is_some_and(|r| r.draw(renderer, target, frame, &parameters));
                 (reconstruction, valid, None)
             }
         };

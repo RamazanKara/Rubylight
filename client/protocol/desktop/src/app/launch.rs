@@ -35,7 +35,7 @@ impl App {
     /// Drives the unattended measurement start (see `autostream`); does nothing otherwise.
     pub(crate) fn autostream_step(&mut self) {
         let Some(auto) = self.autostream.as_mut() else { return };
-        if auto.failed || self.attempts.is_connecting() || self.network_launch.is_some() {
+        if auto.failed || self.attempts.is_connecting() || self.network_launch.is_some() || self.probe.is_some() {
             return;
         }
         if let Some(why) = self.launcher.message_shown() {
@@ -115,7 +115,7 @@ impl App {
             identity: self.hosts.identity().is_some(),
             host: cli.host_seen(&self.hosts),
             message,
-            busy: self.streaming.is_some() || self.attempts.is_connecting() || self.network_launch.is_some(),
+            busy: self.streaming.is_some() || self.attempts.is_connecting() || self.network_launch.is_some() || self.probe.is_some(),
             confirming: self.pending_replace.is_some() || self.pin_pending.is_some(),
         };
         match cli.next(&seen) {
@@ -151,7 +151,7 @@ impl App {
     }
 
     pub(crate) fn launch(&mut self, host_id: u64, app_id: i32, resume: bool, kind: LaunchKind, from: LaunchFrom) {
-        let busy = self.attempts.is_connecting() || self.network_launch.is_some();
+        let busy = self.attempts.is_connecting() || self.network_launch.is_some() || self.probe.is_some();
         // A new start asks for full chroma as its settings say, and waits for the HDR report anew.
         if !busy { self.full_chroma_off = None; self.hdr_wait = None; }
         eprintln!("nightjar: {}{}", launch_line(from, app_id, resume, busy), kind.log_suffix());
@@ -251,6 +251,73 @@ impl App {
         pin.ask_for_stream(&key, &name);
         self.pin_pending = Some(pending);
         true
+    }
+
+    /// The renderer's device for a decoder check's plane shader: Direct3D 11 on Windows, the SDL
+    /// GPU device on Unix (null for a renderer without one, which the check then refuses). Read on
+    /// the main thread; the worker gets it with a `DeviceRef` that holds it while it runs.
+    fn probe_device(&self) -> *mut std::ffi::c_void {
+        #[cfg(windows)]
+        {
+            self.renderer_device()
+        }
+        #[cfg(unix)]
+        {
+            crate::sdl::renderer_pointer(self.renderer, SDL_PROP_RENDERER_GPU_DEVICE_POINTER)
+        }
+        #[cfg(not(any(windows, unix)))]
+        {
+            std::ptr::null_mut()
+        }
+    }
+
+    /// Runs the start's decoder checks on a worker (`LaunchProbe`): the connecting screen shows
+    /// them and Cancel ends them. The start goes on when `probe_step` reads their result.
+    fn decoder_probe(&mut self, work: ProbeWork, hardware: Hardware, launch: (u64, i32, bool, LaunchKind), app_name: String) {
+        eprintln!("nightjar: checking this device's decoders before the start, on a worker thread");
+        self.probe = Some(LaunchProbe::start(work, media::DeviceRef::of_device(self.renderer_device()), launch, app_name, hardware));
+    }
+
+    /// Reads a decoder check's result and goes on with its start; reaps checks let go of after a
+    /// Cancel, a timeout or a lost device. Runs once a frame, before the launcher's steps.
+    pub(crate) fn probe_step(&mut self) {
+        self.ending_probes.retain_mut(|probe| !probe.ended());
+        let Some(mut probe) = self.probe.take() else { return };
+        match probe.poll() {
+            ProbeStep::Waiting => self.probe = Some(probe),
+            ProbeStep::Overdue => {
+                let (launch, app_name) = (probe.launch(), probe.app_name().to_owned());
+                eprintln!("nightjar: the decoder checks did not answer within {} s; the start ends", PROBE_TIMEOUT.as_secs());
+                self.ending_probes.push(probe);
+                self.start_failed(launch, Some(app_name), None, stream::connect_timeout_text());
+            }
+            ProbeStep::Failed => {
+                let (launch, app_name) = (probe.launch(), probe.app_name().to_owned());
+                eprintln!("nightjar: a decoder check ended without an answer");
+                self.start_failed(launch, Some(app_name), None, tr("The decoder checks could not finish. Connect again.").to_owned());
+            }
+            ProbeStep::Done(result) => {
+                let (host, app, resume, kind) = probe.launch();
+                match result {
+                    ProbeResult::ColorAndBase { color, base } => {
+                        if let Some((key, found)) = color { self.color_probed = Some((key, found)); }
+                        if let Some((key, found)) = base { self.base_probed = Some((key, found)); }
+                    }
+                    ProbeResult::Packed(decoded) => {
+                        // The draw and readback belong to the renderer's own thread: its targets do.
+                        let hardware = probe.hardware();
+                        let found = decoded
+                            .and_then(|decoded| stream::packed444::draw_decoded(self.renderer, decoded))
+                            .map_err(|reason| {
+                                eprintln!("nightjar: full chroma: no decoder passed the check: {reason}");
+                                reason
+                            });
+                        self.packed_probed = Some((hardware, found));
+                    }
+                }
+                self.launch_ready(host, app, resume, kind);
+            }
+        }
     }
 
     pub(crate) fn launch_ready(&mut self, host_id: u64, app_id: i32, resume: bool, kind: LaunchKind) {
@@ -422,31 +489,48 @@ impl App {
         media::use_vulkan_video_settings(settings.vulkan_video_first, settings.vulkan_rfi);
         // Before the launch: a stream that cannot have sharper colored text starts without it,
         // instead of launching the game and being refused in the handshake.
-        let refused_now = self.full_chroma_off.take() == Some(host_id);
-        let (hardware, renderer, size) = (self.hardware(&settings), self.renderer, (settings.width, settings.height));
+        let refused_now = self.full_chroma_off == Some(host_id);
+        let (hardware, size) = (self.hardware(&settings), (settings.width, settings.height));
         // It tries the codec's own 4:4:4 first: what this device decodes of it, and of the plain
         // formats, as a stream without packing has them. Offers follow what the decoder decodes
-        // here, not what it is said to.
+        // here, not what it is said to. The checks decode on a worker (`LaunchProbe`): a driver
+        // reset inside a decoder call must not hold this frame, which draws the window and carries
+        // Cancel and the deadline. Their results are kept per decoder and renderer device.
         let native = full_chroma::native_probe_settings(&settings);
-        let color_decodable = if !packed_without_gpu && stream::probes_color(&native) {
-            let wanted = stream::color_probe_formats(&native);
-            probed_once(&mut self.color_probed, probe_key(hardware, wanted, &native), || {
-                stream::color_probe::probe(hardware, wanted, |ten_bit| stream::color_probe::planes_drawable(renderer, ten_bit))
-            })
-        } else {
-            (0, String::new())
+        let color_wanted = stream::color_probe_formats(&native);
+        let color_key = probe_key(hardware, color_wanted, &native);
+        let color_asked = !packed_without_gpu && stream::probes_color(&native);
+        let base_wanted = stream::base_probe_formats(&native);
+        let base_key = probe_key(hardware, base_wanted, &native);
+        let cached_color = self.color_probed.as_ref().filter(|(key, _)| *key == color_key).map(|(_, found)| found.clone());
+        let cached_base = self.base_probed.as_ref().filter(|(key, _)| *key == base_key).map(|(_, found)| found.clone());
+        let color_missing = color_asked && cached_color.is_none();
+        let base_missing = hardware != Hardware::None && cached_base.is_none();
+        if color_missing || base_missing {
+            self.decoder_probe(
+                ProbeWork::ColorAndBase {
+                    color: color_missing.then_some((color_key, color_wanted)),
+                    base: base_missing.then_some((base_key, base_wanted)),
+                    device: self.probe_device(),
+                },
+                hardware,
+                (host_id, app_id, resume, kind),
+                app.name.clone(),
+            );
+            return;
+        }
+        let color_decodable = if color_asked { cached_color.unwrap_or_default() } else { (0, String::new()) };
+        let plain_decodable = match hardware {
+            Hardware::None => stream::color_probe::Base::software(),
+            _ => cached_base.unwrap_or_else(stream::color_probe::Base::software),
         };
-        let plain_decodable = match (hardware, stream::base_probe_formats(&native)) {
-            (Hardware::None, _) => stream::color_probe::Base::software(),
-            (hardware, wanted) => {
-                let key = probe_key(hardware, wanted, &native);
-                probed_once(&mut self.base_probed, key, || stream::color_probe::probe_base(hardware, wanted))
-            }
+        // An update on either side since the PC refused full chroma: it is asked again. Written
+        // before the packed check, whose answer the renewed record changes.
+        let renewed = {
+            let Some(host) = self.hosts.get_mut(host_id) else { return };
+            full_chroma::automatic(&settings) && full_chroma::renew(&mut host.record, VERSION, info.capabilities.host_version())
         };
-        let Some(host) = self.hosts.get_mut(host_id) else { return };
-        // An update on either side since the PC refused full chroma: it is asked again.
-        let renewed = full_chroma::automatic(&settings)
-            && full_chroma::renew(&mut host.record, VERSION, info.capabilities.host_version());
+        if renewed { self.save_hosts(); }
         let known = full_chroma::Known {
             serverinfo_modes: info.packed444_modes,
             host_scm: info.trusted_codec_mode_support(),
@@ -454,24 +538,42 @@ impl App {
             hardware_decodable: plain_decodable.decodable,
             renderer_missing: packed_without_gpu,
         };
+        // The packed check decodes too, and only some launches need it: the same decision says so
+        // before the decode is started (`full_chroma::needs_device_modes`).
+        let packed_cached = self.packed_probed.as_ref().filter(|(device, _)| *device == hardware).map(|(_, found)| found.clone());
+        let packed_missing = packed_cached.is_none() && {
+            let Some(host) = self.hosts.get(host_id) else { return };
+            full_chroma::needs_device_modes(&settings, &host.record, &known, refused_now)
+        };
+        if packed_missing {
+            self.decoder_probe(ProbeWork::Packed { hardware }, hardware, (host_id, app_id, resume, kind), app.name.clone());
+            return;
+        }
+        let Some(host) = self.hosts.get_mut(host_id) else { return };
         let chroma = full_chroma::decide(&mut settings, &mut host.record, &known, refused_now, || {
             if packed_without_gpu {
                 eprintln!("nightjar: full chroma: no GPU renderer for its shader pass");
                 return (0, None);
             }
-            let modes = stream::packed444::probe(renderer, hardware).unwrap_or_else(|reason| {
-                eprintln!("nightjar: full chroma: no decoder passed the check: {reason}");
-                0
-            });
+            let modes = match packed_cached {
+                Some(Ok(modes)) => modes,
+                Some(Err(reason)) => {
+                    eprintln!("nightjar: full chroma: no decoder passed the check: {reason}");
+                    0
+                }
+                None => 0,
+            };
             packed_modes_that_fit(hardware, modes, size)
         });
         if chroma.record_changed || renewed {
             self.save_hosts();
         }
+        // The restart after a refusal decided without full chroma; the next start is a new one.
+        if refused_now { self.full_chroma_off = None; }
         self.packed_note = chroma.note;
         let packed_modes = chroma.modes;
-        // Packed full chroma checks its own formats (`stream::packed444::probe`) and offers the
-        // plain ones whatever the decoder check found.
+        // Packed full chroma checks its own formats (`stream::packed444::decode_all`, drawn and
+        // read back on this thread) and offers the plain ones whatever the decoder check found.
         let base_decodable = if settings.experimental_packed_444 && hardware != Hardware::None {
             stream::color_probe::Base { decodable: 0, reason: String::new(), backends: Vec::new() }
         } else {
@@ -573,6 +675,7 @@ pub(crate) fn hdr_wait_goes_on(wait: &mut Option<Instant>, now: Instant, may_com
 }
 
 /// `probe`'s answer for `hardware`, from `cache` when it was the last decoder checked.
+#[cfg(test)]
 pub(crate) fn probed_once<K: PartialEq, T: Clone>(cache: &mut Option<(K, T)>, hardware: K, probe: impl FnOnce() -> T) -> T {
     match cache {
         Some((probed, result)) if *probed == hardware => result.clone(),

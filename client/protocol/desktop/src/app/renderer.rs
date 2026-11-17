@@ -216,8 +216,9 @@ impl App {
                 .then_some("Vulkan video")
         });
         let display_hdr = settings.hdr && handheld::hdr_display(handheld::gamescope(), sdl::any_display_hdr());
-        // The quit-and-start prompt's plan holds the renderer's device.
-        let busy = self.streaming.is_some() || self.attempts.is_busy() || self.pending_replace.is_some();
+        // The quit-and-start prompt's plan holds the renderer's device, and a launch's checks may
+        // still decode on it.
+        let busy = self.streaming.is_some() || self.attempts.is_busy() || self.probe.is_some() || !self.ending_probes.is_empty() || self.pending_replace.is_some();
         let Some(switch) = handheld::renderer_switch(state.choice, now, need, settings.hdr && !planes, display_hdr && !planes, busy) else { return };
         if let Err(why) = self.rebuild_renderer(true, settings.hdr, display_hdr, vulkan_video, switch.reason()) {
             self.renderer_state.gpu_failed = Some(why.clone());
@@ -227,7 +228,7 @@ impl App {
 
     #[cfg(target_os = "macos")]
     pub(crate) fn switch_for_stream(&mut self, settings: &config::Settings) {
-        if self.streaming.is_some() || self.attempts.is_busy() || self.pending_replace.is_some() {
+        if self.streaming.is_some() || self.attempts.is_busy() || self.probe.is_some() || !self.ending_probes.is_empty() || self.pending_replace.is_some() {
             return;
         }
         let shaders = settings.codec.is_pyrowave() || settings.experimental_packed_444
@@ -245,9 +246,26 @@ impl App {
     #[cfg(windows)]
     pub(crate) fn apply_graphics_card(&mut self) {
         let choice = self.launcher.settings.graphics_card;
-        if choice == self.graphics_card || self.streaming.is_some() || self.attempts.is_busy() || self.pending_replace.is_some() {
+        if choice == self.graphics_card || self.streaming.is_some() || self.pending_replace.is_some() {
             return;
         }
+        // A start still connecting uses the device it would replace; a start that was cancelled or
+        // timed out and whose worker has not let go of the graphics card blocks the change, and
+        // says so once (it applies when that worker ends).
+        if self.attempts.is_connecting() || self.probe.is_some() {
+            return;
+        }
+        if self.attempts.is_busy() {
+            if self.graphics_card_blocked != Some(choice) {
+                self.graphics_card_blocked = Some(choice);
+                self.launcher.notify(
+                    tr("Graphics card not changed"),
+                    tr("A start that has ended is still using the graphics card, so it cannot be switched yet. The change is kept and applied when that start stops; if it does not stop, restart Nightjar."),
+                );
+            }
+            return;
+        }
+        self.graphics_card_blocked = None;
         self.graphics_card = choice;
         if gpu_adapters::choose_now(choice, any_yuv444_asked(&self.store, &self.launcher.settings), self.store.dir()) {
             // The new start reads the choice back, whatever order this frame's commands run in.
@@ -262,9 +280,25 @@ impl App {
     #[cfg(target_os = "linux")]
     pub(crate) fn apply_renderer_choice(&mut self) {
         let choice = self.launcher.settings.renderer;
-        if choice == self.renderer_state.choice || self.streaming.is_some() || self.attempts.is_busy() || self.pending_replace.is_some() {
+        if choice == self.renderer_state.choice || self.streaming.is_some() || self.pending_replace.is_some() {
             return;
         }
+        // As `apply_graphics_card`: a start still connecting waits; one that ended (its worker or
+        // a decoder check) and has not let go of the device blocks the change, and says so once.
+        if self.attempts.is_connecting() || self.probe.is_some() {
+            return;
+        }
+        if self.attempts.is_busy() || !self.ending_probes.is_empty() {
+            if self.renderer_choice_blocked != Some(choice) {
+                self.renderer_choice_blocked = Some(choice);
+                self.launcher.notify(
+                    tr("Renderer not changed"),
+                    tr("A start that has ended is still using the graphics card, so it cannot be switched yet. The change is kept and applied when that start stops; if it does not stop, restart Nightjar."),
+                );
+            }
+            return;
+        }
+        self.renderer_choice_blocked = None;
         self.renderer_state.choice = choice;
         let Some(gpu) = handheld::renderer_for_choice(choice, sdl::renderer_name(self.renderer) == "gpu") else { return };
         match self.rebuild_renderer(gpu, false, false, self.renderer_state.vulkan_video, "the Renderer setting") {
@@ -351,6 +385,7 @@ impl App {
         self.launcher.gpu_device = renderer_gpu_device(made);
         self.color_probed = None;
         self.base_probed = None;
+        self.packed_probed = None;
         self.window_changed = true;
         let to = sdl::renderer_name(made);
         #[cfg(target_os = "linux")]
@@ -388,9 +423,9 @@ impl App {
     /// itself, with every texture gone; when that fails its renderer has no device and never
     /// presents again, and the window kept its last picture with nothing on it answering
     /// (nightjar#115: the connecting screen, frozen, Cancel unanswered). A launch still connecting
-    /// ends, as its decoder is on the old device, which the launch holds (`media::DeviceRef`).
-    /// With no renderer to be had, or a driver that loses each new one (`RemakeGuard`), Nightjar
-    /// ends, loudly.
+    /// ends, as its decoder is on the old device, which the launch holds (`media::DeviceRef`); so
+    /// do the decoder checks before one. With no renderer to be had, or a driver that loses each
+    /// new one (`RemakeGuard`), Nightjar ends, loudly.
     #[cfg(windows)]
     pub(crate) fn recover_renderer(&mut self) {
         // Direct3D's reason, from a launch's hold on the old device; with none, SDL let it go.
@@ -401,6 +436,12 @@ impl App {
             eprintln!("nightjar: the launch connecting on the lost device ends");
             self.attempts.end(connecting);
             self.launcher.message(tr("The stream could not start"), tr("The graphics driver was reset, which ended the stream. Connect again."));
+        }
+        if let Some(probe) = self.probe.take() {
+            let (launch, name) = (probe.launch(), probe.app_name().to_owned());
+            eprintln!("nightjar: the decoder checks on the lost device end");
+            self.ending_probes.push(probe);
+            self.start_failed(launch, Some(name), None, tr("The graphics driver was reset, which ended the stream. Connect again.").to_owned());
         }
         if !self.remakes.allow(Instant::now()) {
             no_renderer(&format!(
@@ -424,9 +465,8 @@ impl App {
         // else holds its device (a launch's `LaunchPlan::device`, its decoder): Direct3D destroys
         // it at the device's next flush. A stream's decoder lets go of it as the stream ends; the
         // remake's tries wait for one that is slow to.
-        for device in self.launch_devices() {
-            device.flush_released();
-        }
+        let devices: Vec<_> = self.launch_devices().cloned().collect();
+        Self::flush_released(devices, Self::FLUSH_WAIT);
         let made = sdl::remake_renderer(self.window, linear, &kind, Duration::from_secs(10));
         if made.is_null() {
             no_renderer(&format!("the {kind:?} renderer could not be made again after its device was lost ({})", sdl::error()));
@@ -446,6 +486,7 @@ impl App {
         // What the probes found was found on the old device, or its loss.
         self.color_probed = None;
         self.base_probed = None;
+        self.packed_probed = None;
         self.window_changed = true;
         // SAFETY: on the main thread. What the old renderer queued is about it.
         unsafe { SDL_FlushEvents(SDL_EVENT_RENDER_TARGETS_RESET.0, SDL_EVENT_RENDER_DEVICE_LOST.0) };
@@ -453,12 +494,44 @@ impl App {
         eprintln!("nightjar: renderer {} made again on {gpu}, tearing {}", sdl::renderer_name(made), self.launcher.tearing_supported);
     }
 
+    /// How long a remake waits for the old devices to flush what their users let go of: the flush
+    /// takes a decoder's lock, which a start stuck in a driver call may hold.
+    #[cfg(windows)]
+    const FLUSH_WAIT: Duration = Duration::from_secs(2);
+
+    /// Flushes `devices` on a thread of their own, waited for at most `wait`: the remake then goes
+    /// on even when a stuck decoder holds the device's lock, instead of freezing the window before
+    /// it. What a device still holds when the wait ends stays on the window; the remake's tries
+    /// say what they made of it.
+    #[cfg(windows)]
+    fn flush_released(devices: Vec<media::DeviceRef>, wait: Duration) {
+        if devices.is_empty() {
+            return;
+        }
+        let (sender, flushed) = channel();
+        let spawned = std::thread::Builder::new().name("renderer flush".into()).spawn(move || {
+            for device in devices {
+                device.flush_released();
+            }
+            let _ = sender.send(());
+        });
+        match spawned {
+            Ok(_) => match flushed.recv_timeout(wait) {
+                Ok(()) => {}
+                Err(_) => eprintln!("nightjar: the old device did not flush within {} ms (a decoder still holds it); the renderer is made again without waiting", wait.as_millis()),
+            },
+            Err(e) => eprintln!("nightjar: the device flush thread cannot start: {e}"),
+        }
+    }
+
     /// The holds launches keep on the renderer's device (`LaunchPlan::device`): a start
-    /// connecting or ending, and one waiting to replace a game.
+    /// connecting or ending, a decoder check running or let go of, and one waiting to replace a
+    /// game.
     #[cfg(windows)]
     fn launch_devices(&self) -> impl Iterator<Item = &media::DeviceRef> {
         let connecting = self.attempts.devices();
-        connecting.chain(self.pending_replace.iter().map(|plan| &plan.device))
+        let probes = self.probe.iter().chain(self.ending_probes.iter()).map(LaunchProbe::device);
+        connecting.chain(self.pending_replace.iter().map(|plan| &plan.device)).chain(probes)
     }
 
     /// The renderer's device, for PyroWave decoding on the GPU.

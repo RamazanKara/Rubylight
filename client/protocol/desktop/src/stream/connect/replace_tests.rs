@@ -311,7 +311,7 @@ pub(super) fn connecting(result: Receiver<ConnectResult>, worker: Option<std::th
         settings: plan.settings.clone(),
         plan,
         result,
-        started: Instant::now(),
+        progress: Instant::now(),
         worker,
     }
 }

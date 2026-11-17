@@ -36,12 +36,20 @@ pub fn read_serverinfo_modes(value: Option<&str>) -> Option<u8> {
     (parsed >= 0).then(|| (parsed & i64::from(ALL_MODES)) as u8)
 }
 
+/// Whether [`before_launch`] would call `device_modes`: the PC does not rule packed out. The check
+/// costs a decode, so a launch starts it on a worker only when this says it is needed.
+pub fn device_modes_needed(host_modes: Option<u8>, refused_before: bool) -> bool {
+    let host_modes = host_modes.map(|modes| modes & ALL_MODES);
+    !(host_modes == Some(0) || (host_modes.is_none() && refused_before))
+}
+
 /// Decides before the launch whether the stream asks for full chroma.
 ///
 /// `host_modes`: the PC's packed modes, from its serverinfo, else its last DESCRIBE
 /// ([`Memory::known`]), else None. `refused_before`: the PC refused the last stream that asked;
 /// it counts only while the PC does not say its modes. `device_modes`: the modes this device
-/// verified, asked only when the PC does not rule it out, since verifying costs a decode.
+/// verified, asked only when the PC does not rule it out ([`device_modes_needed`]), since
+/// verifying costs a decode.
 ///
 /// Ok with the device's modes for the handshake, or why the stream starts without it.
 pub fn before_launch(
@@ -49,10 +57,10 @@ pub fn before_launch(
     refused_before: bool,
     device_modes: impl FnOnce() -> u8,
 ) -> Result<u8, Unavailable> {
-    let host_modes = host_modes.map(|modes| modes & ALL_MODES);
-    if host_modes == Some(0) || (host_modes.is_none() && refused_before) {
+    if !device_modes_needed(host_modes, refused_before) {
         return Err(Unavailable::Host);
     }
+    let host_modes = host_modes.map(|modes| modes & ALL_MODES);
     let device = device_modes() & ALL_MODES;
     if device == 0 {
         return Err(Unavailable::Device);
@@ -177,7 +185,19 @@ mod tests {
             Err(Unavailable::Host)
         );
         assert!(!checked, "the PC ruled it out: no decode is spent");
+        assert!(!device_modes_needed(Some(0), false));
         assert!(Unavailable::Host.from_host());
+    }
+
+    /// The pre-check a launch starts its packed decode from agrees with `before_launch`: only a
+    /// PC that did not rule packed out needs the device's modes.
+    #[test]
+    fn the_device_check_is_needed_only_where_the_pc_did_not_rule_packed_out() {
+        assert!(device_modes_needed(None, false));
+        assert!(device_modes_needed(Some(HEVC8), false));
+        assert!(!device_modes_needed(Some(0), false));
+        assert!(!device_modes_needed(None, true), "a refusal the PC has not lifted");
+        assert!(device_modes_needed(Some(HEVC8), true), "the PC's modes outrank the refusal");
     }
 
     #[test]

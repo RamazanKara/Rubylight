@@ -106,6 +106,24 @@ impl From<Unavailable> for Why {
     }
 }
 
+/// The codec's own 4:4:4 for `input`: the formats to offer, or why not. HDR takes priority over
+/// it and is not asked here.
+fn native_offer(input: &Input) -> Result<u32, Why> {
+    let wants = Wants { yuv444: true, sdr10: input.sdr10, hdr: false, packed444: false, pyrowave: false };
+    // A PC that would stream AV1 without the 4:4:4 format it encodes only for HEVC streams
+    // HEVC instead, as `NvConnection.negotiateVideoFormats` and desktop's offer do.
+    let mut base = input.base;
+    if color::av1_given_up(base, wants, input.decodable, input.host_scm) != 0 {
+        base &= !crate::sdp::VIDEO_FORMAT_AV1_MAIN8;
+    }
+    let offer = color::offer(base, wants, input.decodable, &input.decoder_reason, input.host_scm);
+    match offer.yuv444 {
+        Ok(()) => Ok(offer.formats),
+        Err(Refusal::Decoder(reason)) => Err(Why::Decoder(reason)),
+        Err(_) => Err(Why::Host),
+    }
+}
+
 /// How the stream for `input` gets sharper colored text. `device_packed` verifies the packed modes
 /// this device decodes; it costs a decode, so it runs only when the packed step needs it.
 pub fn decide(input: &Input, device_packed: impl FnOnce() -> u8) -> Pick {
@@ -118,18 +136,9 @@ pub fn decide(input: &Input, device_packed: impl FnOnce() -> u8) -> Pick {
     // The codec's own 4:4:4. HDR takes priority over it.
     let mut native_refusal = None;
     if !input.hdr {
-        let wants = Wants { yuv444: true, sdr10: input.sdr10, hdr: false, packed444: false, pyrowave: false };
-        // A PC that would stream AV1 without the 4:4:4 format it encodes only for HEVC streams
-        // HEVC instead, as `NvConnection.negotiateVideoFormats` and desktop's offer do.
-        let mut base = input.base;
-        if color::av1_given_up(base, wants, input.decodable, input.host_scm) != 0 {
-            base &= !crate::sdp::VIDEO_FORMAT_AV1_MAIN8;
-        }
-        let offer = color::offer(base, wants, input.decodable, &input.decoder_reason, input.host_scm);
-        match offer.yuv444 {
-            Ok(()) => return Pick::Native { formats: offer.formats },
-            Err(Refusal::Decoder(reason)) => native_refusal = Some(Why::Decoder(reason)),
-            Err(_) => native_refusal = Some(Why::Host),
+        match native_offer(input) {
+            Ok(formats) => return Pick::Native { formats },
+            Err(why) => native_refusal = Some(why),
         }
     }
     let mut packed_refusal = None;
@@ -146,6 +155,19 @@ pub fn decide(input: &Input, device_packed: impl FnOnce() -> u8) -> Pick {
         }
     }
     Pick::Without(limit(native_refusal, packed_refusal))
+}
+
+/// Whether [`decide`] would run its `device_packed` check for `input`: the codec's own 4:4:4 is
+/// not the way, the packed step is, and the PC does not rule packed out. A launch asks before it
+/// decides, so the decode the check costs runs where it does not hold the caller's thread.
+pub fn needs_device_modes(input: &Input) -> bool {
+    if !input.auto || input.pyrowave || !input.packed_engine {
+        return false;
+    }
+    if !input.hdr && native_offer(input).is_ok() {
+        return false;
+    }
+    full_chroma::device_modes_needed(input.host_packed, input.packed_refused_before)
 }
 
 /// The side that rules a stream out, from each step's refusal (None: the step did not run). Packed
@@ -271,13 +293,15 @@ mod tests {
         }
     }
 
-    /// The decision, and whether the packed check ran.
+    /// The decision, and whether the packed check ran; `needs_device_modes` must agree with the
+    /// check `decide` runs, since a launch starts it before deciding.
     fn decided(input: &Input, device: u8) -> (Pick, bool) {
         let mut asked = false;
         let pick = decide(input, || {
             asked = true;
             device
         });
+        assert_eq!(needs_device_modes(input), asked, "the pre-check names the decode decide runs");
         (pick, asked)
     }
 

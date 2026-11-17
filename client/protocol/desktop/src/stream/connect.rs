@@ -79,8 +79,9 @@ pub struct Connecting {
     pub settings: Settings,
     pub(super) plan: LaunchPlan,
     pub(super) result: Receiver<Result<(Session, Facts, LaunchPlan), ConnectError>>,
-    /// When the worker started: [`CONNECT_TIMEOUT`] counts from here (`Attempts::overdue`).
-    pub(super) started: Instant,
+    /// The worker's last sign of progress (its start, a stage it reached, a reconnect): [`CONNECT_TIMEOUT`]
+    /// counts from here, so a slow but alive start is not reported as stuck (`Attempts::overdue`).
+    pub(super) progress: Instant,
     /// The worker, joined when the app leaves (`end_all_before`); None if it could not be started.
     pub(super) worker: Option<std::thread::JoinHandle<()>>,
 }
@@ -88,35 +89,45 @@ pub struct Connecting {
 /// How long leaving waits for a launch in progress to end after cancelling it.
 pub const LEAVE_WAIT: Duration = Duration::from_secs(5);
 
-/// How long a launch may wait for its worker before the app ends it. Longer than a launch's
-/// 120 s read (`LAUNCH_READ_TIMEOUT`) and the handshake's timeouts together, so only a call that
-/// cannot answer reaches it: a decoder being made or a device created while the graphics driver
-/// resets. The player's Cancel ends the attempt at once and never waits for this.
+/// How long a launch may go without a sign of progress before the app ends it. It counts from the
+/// worker's last stage notice (`Connecting::progress`), and is longer than a launch's 120 s read
+/// (`LAUNCH_READ_TIMEOUT`) and the handshake's timeouts together, so only a call that cannot
+/// answer reaches it: a decoder being made or a device created while the graphics driver resets.
+/// The player's Cancel ends the attempt at once and never waits for this.
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(300);
 
-/// Whether a launch started at `started` has waited [`CONNECT_TIMEOUT`] at `now`.
-pub fn connect_overdue(started: Instant, now: Instant) -> bool {
-    now.saturating_duration_since(started) >= CONNECT_TIMEOUT
+/// Whether a launch last showed progress at `progress` has waited [`CONNECT_TIMEOUT`] at `now`.
+pub fn connect_overdue(progress: Instant, now: Instant) -> bool {
+    now.saturating_duration_since(progress) >= CONNECT_TIMEOUT
 }
 
-/// What the app says when it ends a start that stopped answering (`Attempts::overdue`).
+/// What the app says when it ends a start that stopped answering (`Attempts::overdue`): a launch
+/// that is still unanswered after five minutes is inside a local decoder or device call (the
+/// network reads are bounded well below it), so the words name this device's graphics driver as
+/// the likely cause and its update as the remedy, not the PC.
 pub fn connect_timeout_text() -> String {
-    tr("The PC stopped answering while Nightjar started the stream, so Nightjar ended the attempt. Connect again; if it keeps happening, restart the PC.").to_owned()
+    tr("The graphics driver or a video decoder stopped answering while Nightjar started the stream, so Nightjar stopped waiting. Connect again; if it keeps happening, update the graphics driver or restart this PC.").to_owned()
 }
 
 /// Leaving: the launches in progress (if any) are cancelled and end, and a session one started
 /// stops (`Connecting::finish`), before `teardown` destroys the renderer, whose GPU device a worker
-/// may be using (a decoder being made on it). Past `wait` in all, a launch is still running, so
-/// `teardown` is skipped, loudly, and the process exit reclaims the renderer instead. True when
-/// `teardown` ran.
+/// may be using (a decoder being made on it). Every attempt is cancelled before any is waited for,
+/// so one that cannot answer does not leave the others running; all waits share `wait`. Past it, a
+/// launch is still running, so `teardown` is skipped, loudly, and the process exit reclaims the
+/// renderer instead. True when `teardown` ran.
 pub fn end_all_before(attempts: Vec<Connecting>, wait: Duration, teardown: impl FnOnce()) -> bool {
     let deadline = Instant::now() + wait;
+    for connecting in &attempts {
+        connecting.cancel();
+    }
+    let mut stopped = true;
     for connecting in attempts {
         let left = deadline.saturating_duration_since(Instant::now());
-        if !connecting.finish(left) {
-            eprintln!("nightjar: a connection attempt did not end within {} ms of leaving; the window and its GPU device stay until the process exits, as it may still be using them", wait.as_millis());
-            return false;
-        }
+        if !connecting.finish(left) { stopped = false; }
+    }
+    if !stopped {
+        eprintln!("nightjar: a connection attempt did not end within {} ms of leaving; the window and its GPU device stay until the process exits, as it may still be using them", wait.as_millis());
+        return false;
     }
     teardown();
     true
@@ -192,7 +203,7 @@ impl Connecting {
             settings,
             plan,
             result,
-            started: Instant::now(),
+            progress: Instant::now(),
             worker,
         }
     }
@@ -236,11 +247,15 @@ impl Connecting {
         let mut decoder_failed = None;
         for notice in notices {
             match notice {
-                Notice::Stage(stage) => self.stage = stage_text(stage).into(),
+                Notice::Stage(stage) => {
+                    self.stage = stage_text(stage).into();
+                    self.progress = Instant::now();
+                }
                 Notice::Reconnecting(attempt) => {
                     keep.clear();
                     decoder_failed = None;
                     self.stage = trf("Reconnecting · attempt {} of {}", &[&attempt, &nightjar_policy::recovery::MAX_ATTEMPTS]);
+                    self.progress = Instant::now();
                 }
                 Notice::DecoderFailed(text) => {
                     decoder_failed.get_or_insert_with(|| text.clone());

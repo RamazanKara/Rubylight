@@ -142,6 +142,13 @@ struct App {
     pads: Gamepads,
     /// The starts connecting and those just cancelled or timed out, whose workers may still run.
     attempts: stream::Attempts,
+    /// A start's decoder checks, on a worker thread (`LaunchProbe`); the start waits for them.
+    probe: Option<LaunchProbe>,
+    /// The packed full-chroma check's answer per decoder and renderer device, as `color_probed`
+    /// keeps its own; None until the first launch that needs it.
+    packed_probed: Option<(Hardware, Result<u8, String>)>,
+    /// Decoder checks let go of (cancelled, timed out, or their device was lost) whose workers run on.
+    ending_probes: Vec<LaunchProbe>,
     /// The PC being woken and the clock of its resends ("Waking <PC>…").
     waking: wol::Wakes,
     streaming: Option<(Streaming, TimerResolution)>,
@@ -220,6 +227,12 @@ struct App {
     /// The Graphics card setting last applied: a change is applied once, with nothing streaming.
     #[cfg(windows)]
     graphics_card: config::GraphicsCard,
+    /// A Graphics card change a start that is still ending blocks, said once.
+    #[cfg(windows)]
+    graphics_card_blocked: Option<config::GraphicsCard>,
+    /// A Renderer change a start that is still ending blocks, said once.
+    #[cfg(target_os = "linux")]
+    renderer_choice_blocked: Option<config::Renderer>,
     /// The stream start that waits for the PIN screen.
     pin_pending: Option<PinPending>,
     /// Selecting a game waits for the PC to say who plays it.
@@ -885,6 +898,9 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         launcher,
         pads,
         attempts: stream::Attempts::default(),
+        probe: None,
+        packed_probed: None,
+        ending_probes: Vec::new(),
         waking: wol::Wakes::default(),
         streaming: None,
         abr_stops: Vec::new(),
@@ -936,6 +952,10 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
         gpu_failure: None,
         #[cfg(windows)]
         graphics_card: settings.graphics_card,
+        #[cfg(windows)]
+        graphics_card_blocked: None,
+        #[cfg(target_os = "linux")]
+        renderer_choice_blocked: None,
         pin_pending: None,
         select_read: false,
         move_watch: Default::default(),
@@ -961,7 +981,7 @@ fn run(launch: Option<cli::Launch>, started: open_play::Started, link: Option<St
     }
 
     while app.running {
-        app.updates.hold(app.streaming.is_some() || app.attempts.is_connecting() || app.network_launch.is_some());
+        app.updates.hold(app.streaming.is_some() || app.attempts.is_connecting() || app.network_launch.is_some() || app.probe.is_some());
         if app.streaming.is_some() {
             // The stream watches the network itself (`RoamWatch`), and the launcher's pages are
             // not on screen to show it.

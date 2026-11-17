@@ -69,22 +69,8 @@ pub struct Decision {
     pub record_changed: bool,
 }
 
-/// Decides sharper colored text for a launch of `settings` on the PC of `record`, and leaves the
-/// pick in `settings` for the rest of the start: the codec's own 4:4:4 (`prefer_yuv444` alone),
-/// packed full chroma (`experimental_packed_444` alone, with [`Decision::modes`]) or neither.
-/// `device_modes` checks the packed modes this device's decoders pass (and what to say when none
-/// did); it costs a decode, so it runs only when the packed step needs it. `refused_now`: the PC
-/// refused packed after this start's launch, and the start runs once more without it (the native
-/// step had already ruled itself out). A decision before the launch is said once per PC, until a
-/// stream there starts with it or the setting is switched; a refusal after the launch is always said.
-pub fn decide(settings: &mut Settings, record: &mut HostRecord, known: &Known, refused_now: bool,
-    device_modes: impl FnOnce() -> (u8, Option<String>)) -> Decision {
-    let auto = automatic(settings);
-    if refused_now && auto {
-        eprintln!("nightjar: full chroma: the PC refused it after the launch; starting again without it");
-        (settings.prefer_yuv444, settings.experimental_packed_444) = (false, false);
-        return Decision { pick: Pick::Without(Why::Host), modes: 0, note: Some(tr(HOST_NOTICE).to_owned()), record_changed: false };
-    }
+/// The decision's input, from the settings, the PC's record and what the launch found.
+fn input<'a>(settings: &Settings, record: &HostRecord, known: &'a Known<'a>) -> Input {
     let memory = &record.full_chroma;
     let (host_packed, refused_before) = (memory.known(known.serverinfo_modes), memory.refused_before(known.serverinfo_modes));
     let (decodable, decoder_reason) = if known.renderer_missing {
@@ -92,8 +78,8 @@ pub fn decide(settings: &mut Settings, record: &mut HostRecord, known: &Known, r
     } else {
         known.color_decodable.clone()
     };
-    let input = Input {
-        auto,
+    Input {
+        auto: automatic(settings),
         hdr: settings.hdr,
         sdr10: settings.sdr_10bit,
         pyrowave: settings.codec.is_pyrowave(),
@@ -104,7 +90,32 @@ pub fn decide(settings: &mut Settings, record: &mut HostRecord, known: &Known, r
         host_scm: known.host_scm,
         host_packed,
         packed_refused_before: refused_before,
-    };
+    }
+}
+
+/// Whether [`decide`] would run its `device_modes` check for this launch. It costs a decode, so a
+/// start asks first and runs it on a worker before deciding; `refused_now` decides without it.
+pub fn needs_device_modes(settings: &Settings, record: &HostRecord, known: &Known, refused_now: bool) -> bool {
+    !refused_now && !known.renderer_missing && sharp_color::needs_device_modes(&input(settings, record, known))
+}
+
+/// Decides sharper colored text for a launch of `settings` on the PC of `record`, and leaves the
+/// pick in `settings` for the rest of the start: the codec's own 4:4:4 (`prefer_yuv444` alone),
+/// packed full chroma (`experimental_packed_444` alone, with [`Decision::modes`]) or neither.
+/// `device_modes` checks the packed modes this device's decoders pass (and what to say when none
+/// did); it costs a decode, so it runs only when the packed step needs it ([`needs_device_modes`]
+/// says so before the start runs it elsewhere). `refused_now`: the PC refused packed after this
+/// start's launch, and the start runs once more without it (the native step had already ruled
+/// itself out). A decision before the launch is said once per PC, until a stream there starts
+/// with it or the setting is switched; a refusal after the launch is always said.
+pub fn decide(settings: &mut Settings, record: &mut HostRecord, known: &Known, refused_now: bool,
+    device_modes: impl FnOnce() -> (u8, Option<String>)) -> Decision {
+    if refused_now && automatic(settings) {
+        eprintln!("nightjar: full chroma: the PC refused it after the launch; starting again without it");
+        (settings.prefer_yuv444, settings.experimental_packed_444) = (false, false);
+        return Decision { pick: Pick::Without(Why::Host), modes: 0, note: Some(tr(HOST_NOTICE).to_owned()), record_changed: false };
+    }
+    let input = input(settings, record, known);
     let mut device_note = None;
     let pick = sharp_color::decide(&input, || {
         let (modes, note) = device_modes();
@@ -125,9 +136,9 @@ pub fn decide(settings: &mut Settings, record: &mut HostRecord, known: &Known, r
         }
         Pick::Without(Why::Off) => (false, false, 0, None),
         Pick::Without(why) => {
-            let from = if known.serverinfo_modes.is_some() { "serverinfo" } else if refused_before { "a refusal before" } else { "last stream" };
+            let from = if known.serverinfo_modes.is_some() { "serverinfo" } else if input.packed_refused_before { "a refusal before" } else { "last stream" };
             eprintln!("nightjar: sharper colored text: starting without it ({why:?}): PC packed modes {} ({from}), 4:4:4 decodable {:#x}",
-                host_packed.map_or_else(|| "unknown".to_owned(), |modes| format!("{modes:#x}")), input.decodable);
+                input.host_packed.map_or_else(|| "unknown".to_owned(), |modes| format!("{modes:#x}")), input.decodable);
             let note = match notice(why) {
                 Some(text) if record.claim_notice(NOTICE_PACKED_UNAVAILABLE) => {
                     record_changed = true;
@@ -250,6 +261,33 @@ mod tests {
             assert_eq!(decision, Decision { pick: Pick::Packed { modes: HEVC8 }, modes: HEVC8, note: None, record_changed: false });
             assert!(settings.experimental_packed_444 && !settings.prefer_yuv444, "the launch asks for packing and offers no 4:4:4");
         }
+    }
+
+    /// A launch starts the packed decode on a worker only where `decide` would run it; deciding
+    /// without it would show the device as the side that ruled sharper colored text out.
+    #[test]
+    fn the_packed_decode_is_started_exactly_where_the_decision_needs_it() {
+        fn agreeing(settings: &Settings, known: &Known) -> bool {
+            let record = HostRecord::default();
+            let needed = needs_device_modes(settings, &record, known, false);
+            let mut asked = false;
+            let mut settings = settings.clone();
+            let mut record = record.clone();
+            decide(&mut settings, &mut record, known, false, || { asked = true; (HEVC8, None) });
+            assert_eq!(needed, asked, "{settings:?}");
+            needed
+        }
+        assert!(!agreeing(&on(), &known(SCM_444, Some(HEVC8), &DECODES_444)), "the codec's own 4:4:4");
+        assert!(agreeing(&on(), &packed_pc(Some(HEVC8))), "packed is the way left");
+        assert!(!agreeing(&on(), &packed_pc(Some(0))), "the PC rules packed out");
+        assert!(agreeing(&Settings { hdr: true, ..on() }, &known(SCM_444, Some(HEVC10), &DECODES_444)), "HDR packs in 10 bits");
+        assert!(!agreeing(&Settings::default(), &packed_pc(Some(HEVC8))), "the setting is off");
+        // The restart after a refusal decides without it, and Linux without the GPU renderer has
+        // nothing to probe (its check would only say so).
+        let record = HostRecord::default();
+        assert!(!needs_device_modes(&on(), &record, &packed_pc(Some(HEVC8)), true));
+        let missing = Known { renderer_missing: true, ..packed_pc(Some(HEVC8)) };
+        assert!(!needs_device_modes(&on(), &record, &missing, false));
     }
 
     #[test]

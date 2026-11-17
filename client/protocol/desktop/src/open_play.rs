@@ -579,7 +579,7 @@ impl crate::App {
             }),
             network: !holding || host.is_none_or(|h| crate::network::has_route(&h.record.address)),
             waking: self.waking.host().is_some(),
-            busy: self.attempts.is_connecting() || self.network_launch.is_some() || self.pin_pending.is_some() || self.pending_replace.is_some() || self.pending_launch.is_some(),
+            busy: self.attempts.is_connecting() || self.network_launch.is_some() || self.probe.is_some() || self.pin_pending.is_some() || self.pending_replace.is_some() || self.pending_launch.is_some(),
             streaming: self.streaming.is_some(),
             left_by_player: self.open_play.left_by_player,
         }

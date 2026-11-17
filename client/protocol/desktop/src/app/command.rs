@@ -81,7 +81,7 @@ impl App {
             }
             Command::ConfirmReplace => {
                 if let Some(mut plan) = self.pending_replace.take() {
-                    if self.attempts.is_connecting() || self.network_launch.is_some() {
+                    if self.attempts.is_connecting() || self.network_launch.is_some() || self.probe.is_some() {
                         eprintln!("nightjar: another launch is under way; not launching app {} again", plan.app.id);
                         return;
                     }
@@ -430,6 +430,10 @@ Redacted logs, oldest line first; addresses, PC names, PINs and credentials are 
                 if let Some(cli) = self.cli.as_mut() { cli.cancel(); }
                 self.network_launch = None;
                 self.hdr_wait = None;
+                if let Some(probe) = self.probe.take() {
+                    eprintln!("nightjar: the start was cancelled while its decoder checks ran; they finish on their own");
+                    self.ending_probes.push(probe);
+                }
                 if self.attempts.cancel() {
                     eprintln!("nightjar: the start was cancelled; the connecting screen ends and its worker finishes on its own");
                 }

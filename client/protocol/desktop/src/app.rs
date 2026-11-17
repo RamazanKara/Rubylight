@@ -8,12 +8,14 @@ use super::*;
 
 mod command;
 mod launch;
+mod launch_probe;
 mod launcher;
 mod overlay;
 mod renderer;
 mod session;
 
 pub(crate) use launch::*;
+pub(crate) use launch_probe::*;
 pub(crate) use launcher::*;
 pub(crate) use overlay::*;
 pub(crate) use renderer::*;
@@ -75,20 +77,36 @@ impl App {
         self.save_hosts_and_place();
         self.pads.close_all();
         self.gui.destroy();
-        if self.attempts.is_busy() {
-            // Ending a launch can take seconds: the window goes now rather than sitting frozen meanwhile.
+        if self.attempts.is_busy() || self.probe.is_some() || !self.ending_probes.is_empty() {
+            // Ending a launch or its decoder checks can take seconds: the window goes now rather
+            // than sitting frozen meanwhile.
             // SAFETY: the window run() created, still alive.
             unsafe { SDL_HideWindow(self.window) };
         }
-        // The connect thread may be using the renderer's GPU device (a decoder being made on it),
-        // so every launch in progress or ending ends, and a session one started stops, before the
-        // renderer goes.
+        // The connect thread and the decoder checks may be using the renderer's GPU device (a
+        // decoder being made on it), so every launch in progress or ending ends first, and a
+        // session one started stops, before the renderer goes.
+        let wait = stream::LEAVE_WAIT;
+        let deadline = Instant::now() + wait;
+        let mut checks_stopped = self.probe.take().is_none_or(|probe| probe.finish_until(deadline));
+        for probe in std::mem::take(&mut self.ending_probes) {
+            checks_stopped &= probe.finish_until(deadline);
+        }
         let (renderer, window) = (self.renderer, self.window);
-        // SAFETY: tearing down what run() created, with nothing else using it any more.
-        stream::end_all_before(self.attempts.take_all(), stream::LEAVE_WAIT, || unsafe {
-            crate::sdl::destroy_renderer(renderer);
-            SDL_DestroyWindow(window);
-            SDL_Quit();
+        if !checks_stopped {
+            eprintln!("nightjar: a decoder check did not end within {} ms of leaving; the window and its GPU device stay until the process exits, as it may still be using them", wait.as_millis());
+        }
+        // The launches are cancelled and waited for either way; the renderer goes only when no
+        // decoder check is still inside a call that may use it.
+        stream::end_all_before(self.attempts.take_all(), deadline.saturating_duration_since(Instant::now()), || {
+            if checks_stopped {
+                // SAFETY: tearing down what run() created, with nothing else using it any more.
+                unsafe {
+                    crate::sdl::destroy_renderer(renderer);
+                    SDL_DestroyWindow(window);
+                    SDL_Quit();
+                }
+            }
         });
         for stop in abr_stops { stop.wait(); }
     }
@@ -115,7 +133,7 @@ impl App {
     /// Shows a link the system opened with Nightjar, once nothing else is in the way: a stream
     /// (this runs only between them), a stream being started, an open dialog or the PIN screen.
     fn open_waiting_link(&mut self) {
-        if self.attempts.is_connecting() || self.network_launch.is_some() || !self.launcher.can_open_link() {
+        if self.attempts.is_connecting() || self.network_launch.is_some() || self.probe.is_some() || !self.launcher.can_open_link() {
             return;
         }
         let Some(link) = self.links.take() else { return };

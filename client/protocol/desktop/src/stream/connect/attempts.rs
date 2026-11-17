@@ -7,9 +7,10 @@
 use super::*;
 
 impl Connecting {
-    /// Whether the worker has not answered by `now`, [`CONNECT_TIMEOUT`] after the attempt began.
+    /// Whether the worker has not answered by `now`, [`CONNECT_TIMEOUT`] after its last sign of
+    /// progress ([`Connecting::progress`]).
     pub fn overdue(&self, now: Instant) -> bool {
-        connect_overdue(self.started, now)
+        connect_overdue(self.progress, now)
     }
 
     /// Reaps an attempt that left the screen before its worker answered: true once the worker
@@ -60,9 +61,13 @@ impl Attempts {
         self.current.is_some() || !self.ending.is_empty()
     }
 
-    /// Shows `connecting` on the connecting screen. One start connects at a time.
+    /// Shows `connecting` on the connecting screen. One start connects at a time: an attempt still
+    /// on the screen is kept as ending, so its worker and its device hold are not dropped.
     pub fn begin(&mut self, connecting: Connecting) {
-        debug_assert!(self.current.is_none(), "two starts connecting at once");
+        if let Some(previous) = self.current.take() {
+            eprintln!("nightjar: two starts connecting at once; the older one ends");
+            self.end(previous);
+        }
         self.current = Some(connecting);
     }
 
@@ -86,7 +91,7 @@ impl Attempts {
         self.ending.push(connecting);
     }
 
-    /// Whether the attempt on the screen has waited past [`CONNECT_TIMEOUT`].
+    /// Whether the attempt on the screen has shown no progress for [`CONNECT_TIMEOUT`].
     pub fn overdue(&self, now: Instant) -> bool {
         self.current.as_ref().is_some_and(|connecting| connecting.overdue(now))
     }

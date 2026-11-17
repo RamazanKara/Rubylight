@@ -363,29 +363,45 @@ fn keeps_depth(info: &media::FrameInfo, ten_bit: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// Whether `renderer` draws planar pictures: the plane shader pass of its renderer.
+/// Whether `renderer` draws planar pictures: the plane shader pass of its renderer. The renderer's
+/// device is passed to [`planes_drawable_device`], which a launch's worker runs with the device it
+/// holds (the renderer itself stays on its own thread).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // macOS checks it at start.
 pub fn planes_drawable(renderer: *mut SDL_Renderer, ten_bit: bool) -> Result<(), String> {
+    #[cfg(windows)]
+    let device = crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_D3D11_DEVICE_POINTER);
+    #[cfg(unix)]
+    let device = crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_GPU_DEVICE_POINTER);
+    #[cfg(not(any(windows, unix)))]
+    let device = std::ptr::null_mut();
+    planes_drawable_device(device, ten_bit)
+}
+
+/// [`planes_drawable`] from the renderer's device alone: the Direct3D 11 device on Windows, the
+/// SDL GPU device on Unix. Null is a renderer without the device the pass needs. The Windows pass
+/// only compiles its shaders; the Unix one builds the plane shader on SDL's GPU device, which the
+/// settings probe also does off the presenting thread (`pyrowave_mode::settings_probe`).
+pub fn planes_drawable_device(device: *mut std::ffi::c_void, ten_bit: bool) -> Result<(), String> {
+    if device.is_null() {
+        return Err(if cfg!(windows) {
+            "drawing these pictures needs the Direct3D 11 renderer".into()
+        } else {
+            "drawing these pictures needs the SDL GPU renderer".into()
+        });
+    }
     #[cfg(windows)]
     {
         let _ = ten_bit;
-        if crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_D3D11_DEVICE_POINTER).is_null()
-        {
-            return Err("drawing these pictures needs the Direct3D 11 renderer".into());
-        }
         super::d3d11::PlanesPass::compiles()
     }
     #[cfg(unix)]
     {
-        let device = crate::sdl::renderer_pointer(renderer, SDL_PROP_RENDERER_GPU_DEVICE_POINTER);
-        if device.is_null() {
-            return Err("drawing these pictures needs the SDL GPU renderer".into());
-        }
-        // SAFETY: The renderer's live GPU device, on the renderer's thread.
+        // SAFETY: The renderer's live GPU device, held by the probe's caller for the whole check.
         unsafe { super::planes_gpu::PlanesPass::compiles(device.cast(), ten_bit) }
     }
     #[cfg(not(any(windows, unix)))]
     {
-        let _ = (renderer, ten_bit);
+        let _ = (device, ten_bit);
         Err("this platform has no plane shader pass".into())
     }
 }

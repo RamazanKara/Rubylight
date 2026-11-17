@@ -29,14 +29,14 @@ impl App {
                         // What the other buttons do is the binding list's (shortcuts.rs, which Help shows).
                         _ => match shortcuts::Button::from_sdl(button).and_then(|b| shortcuts::pad_action(b, swap)) {
                             Some(Action::OpenSettings) => {
-                                if self.streaming.is_none() && matches!(self.launcher.dialog, Dialog::None) && !self.attempts.is_connecting() {
+                                if self.streaming.is_none() && matches!(self.launcher.dialog, Dialog::None) && !self.attempts.is_connecting() && self.probe.is_none() {
                                     if let Some(command) = self.launcher.screen.save_command() { self.command(command); }
                                     self.launcher.open_settings();
                                 }
                                 None
                             }
                             Some(action @ (Action::PreviousTab | Action::NextTab)) => {
-                                if self.streaming.is_none() && !self.attempts.is_connecting() {
+                                if self.streaming.is_none() && !self.attempts.is_connecting() && self.probe.is_none() {
                                     let mut commands = Vec::new();
                                     self.launcher.step_destination(&self.gui.ctx, action == Action::NextTab, &mut commands);
                                     for command in commands { self.command(command); }
@@ -218,12 +218,16 @@ impl App {
     }
 
     pub(crate) fn launcher_frame(&mut self) {
+        // Ending attempts that their workers let go of since the last frame (a stuck one stays):
+        // the settings below must see what is still in use, not what ended moments ago.
+        self.attempts.reap();
         #[cfg(target_os = "linux")]
         self.apply_renderer_choice();
         #[cfg(windows)]
         self.apply_graphics_card();
         // Wait for input or a worker; animate the spinner while something runs.
         let busy = self.attempts.is_connecting() || self.waking.host().is_some() || self.network_launch.is_some() || self.network_test.is_some()
+            || self.probe.is_some()
             || self.launcher.remote.running() || self.launcher.files.busy()
             || matches!(self.launcher.dialog, Dialog::Pairing { .. })
             || self.identity.is_some() || self.autostream.is_some()
@@ -295,6 +299,8 @@ impl App {
         if let Some(network) = self.network_watch.latest() {
             self.launcher.network = network;
         }
+        // A start's decoder checks, run on a worker since the last frame.
+        self.probe_step();
         if let Some(receiver) = &self.network_query {
             if let Ok(network) = receiver.try_recv() {
                 self.launcher.network = network;
@@ -534,20 +540,13 @@ impl App {
         // A cancelled start's worker may still be inside a call that cannot be stopped; it ends on
         // its own, and a stream it makes late is stopped there.
         self.attempts.reap();
-        if self.attempts.overdue(Instant::now()) {
-            // The worker stopped answering (a decoder made or a device created while the driver
-            // resets): the screen ends the attempt and says so instead of waiting for ever.
-            let connecting = self.attempts.take().expect("an overdue start");
-            eprintln!("nightjar: the start did not answer within {} s; the attempt ends", stream::CONNECT_TIMEOUT.as_secs());
-            let plan = connecting.plan();
-            let launch = (plan.host_id, plan.app.id, plan.resume, LaunchKind::of_plan(plan.join, plan.small_stream_input_only, plan.mic_only));
-            let mode = stream::stream_mode(&connecting.settings, plan.display);
-            let name = connecting.app_name.clone();
-            self.attempts.end(connecting);
-            self.start_failed(launch, Some(name), Some(mode), stream::connect_timeout_text());
-        } else if let Some(c) = self.attempts.current_mut() {
+        // The worker's answer comes first: one that arrives just as its deadline passes is a
+        // result, not silence (a start that keeps reporting stages moves its deadline, `poll`).
+        let mut answered = false;
+        if let Some(c) = self.attempts.current_mut() {
             match c.poll() {
                 Ok(Some((session, facts))) => {
+                    answered = true;
                     let connecting = self.attempts.take().expect("connecting");
                     if decodes_on_device(connecting.plan()) && !connecting.plan().device.holds(self.renderer_device()) {
                         // SDL made its Direct3D 11 device again while connecting (a driver reset):
@@ -563,6 +562,7 @@ impl App {
                 }
                 Ok(None) => {}
                 Err(failed) => {
+                    answered = true;
                     let gone = self.attempts.take();
                     match failed {
                         ConnectFailed::Message(e) => match gone {
@@ -585,6 +585,18 @@ impl App {
                 }
             }
         }
+        if !answered && self.attempts.overdue(Instant::now()) {
+            // The worker stopped answering (a decoder made or a device created while the driver
+            // resets): the screen ends the attempt and says so instead of waiting for ever.
+            let connecting = self.attempts.take().expect("an overdue start");
+            eprintln!("nightjar: the start did not answer within {} s; the attempt ends", stream::CONNECT_TIMEOUT.as_secs());
+            let plan = connecting.plan();
+            let launch = (plan.host_id, plan.app.id, plan.resume, LaunchKind::of_plan(plan.join, plan.small_stream_input_only, plan.mic_only));
+            let mode = stream::stream_mode(&connecting.settings, plan.display);
+            let name = connecting.app_name.clone();
+            self.attempts.end(connecting);
+            self.start_failed(launch, Some(name), Some(mode), stream::connect_timeout_text());
+        }
 
         let connecting = self.attempts.current().map(|c| ConnectingView {
             app: c.app_name.clone(),
@@ -592,7 +604,17 @@ impl App {
             stage: c.stage.clone(),
             host_id: c.host_id,
             app_id: c.plan().app.id,
-        }).or_else(|| self.network_launch.map(|(host, app, ..)| {
+        }).or_else(|| self.probe.as_ref().map(|probe| {
+            let (host, app, ..) = probe.launch();
+            let pc = self.hosts.get(host);
+            ConnectingView {
+                app: pc.and_then(|h| app_name_of(h, app)).unwrap_or_else(|| probe.app_name().to_owned()),
+                host: pc.map_or(String::new(), |h| h.display_name().to_owned()),
+                stage: strings::en("Connecting").into(),
+                host_id: host,
+                app_id: app,
+            }
+        })).or_else(|| self.network_launch.map(|(host, app, ..)| {
             let pc = self.hosts.get(host);
             ConnectingView {
                 app: pc.and_then(|h| app_name_of(h, app)).unwrap_or_else(|| tr("Starting stream").into()),
@@ -704,7 +726,7 @@ impl App {
     /// start under way, stops it; on the page the device it reports is read once, the test
     /// advances, and while the timing test runs this frame is a sample.
     fn latency_bench_frame(&mut self) {
-        if self.launcher.screen != Screen::LatencyBenchmark || self.attempts.is_connecting() || self.network_launch.is_some() {
+        if self.launcher.screen != Screen::LatencyBenchmark || self.attempts.is_connecting() || self.network_launch.is_some() || self.probe.is_some() {
             let bench = &mut self.launcher.latency_bench;
             if bench.running() || bench.device.is_some() {
                 bench.leave();

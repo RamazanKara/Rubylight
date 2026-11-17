@@ -67,8 +67,8 @@ fn the_timeout_names_the_graphics_driver_and_its_remedy() {
     let text = connect_timeout_text();
     assert!(text.contains("graphics driver"), "{text}");
     assert!(text.contains("decoder"), "{text}");
-    assert!(text.contains("update the graphics driver"), "{text}");
-    assert!(!text.contains("PC stopped answering"), "{text}");
+    assert!(text.contains("update or reinstall the graphics driver"), "{text}");
+    assert!(!text.contains("restart this PC"), "{text}");
 }
 
 /// The result is read before the deadline is applied (`App::launcher_frame`): a worker that

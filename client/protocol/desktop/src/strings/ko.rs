@@ -605,7 +605,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("The PC does not accept that value.", "PC가 이 값을 받아들이지 않습니다."),
     ("This setting cannot be changed.", "이 설정은 변경할 수 없습니다."),
     ("The graphics driver was reset, which ended the stream. Connect again.", "그래픽 드라이버가 재설정되어 스트림이 종료되었습니다. 다시 연결하세요."),
-    ("The graphics driver or a video decoder stopped answering while Nightjar started the stream, so Nightjar stopped waiting. Connect again; if it keeps happening, update the graphics driver or restart this PC.", "Nightjar가 스트림을 시작하는 동안 그래픽 드라이버나 비디오 디코더가 응답을 멈춰 Nightjar가 기다리기를 멈췄습니다. 다시 연결하세요. 계속 발생하면 그래픽 드라이버를 업데이트하거나 이 PC를 다시 시작하세요."),
+    ("The graphics driver or a video decoder stopped answering while Nightjar started the stream, so Nightjar stopped waiting. Connect again; if it keeps happening, update or reinstall the graphics driver.", "Nightjar가 스트림을 시작하는 동안 그래픽 드라이버나 비디오 디코더가 응답을 멈춰 Nightjar가 기다리기를 멈췄습니다. 다시 연결하세요. 계속 발생하면 그래픽 드라이버를 업데이트하거나 다시 설치하세요."),
     ("The decoder checks could not finish. Connect again.", "디코더 확인을 끝내지 못했습니다. 다시 연결하세요."),
     ("Graphics card not changed", "그래픽 카드가 변경되지 않았습니다"),
     ("Renderer not changed", "렌더러가 변경되지 않았습니다"),

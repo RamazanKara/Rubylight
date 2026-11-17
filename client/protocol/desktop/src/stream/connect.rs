@@ -104,9 +104,9 @@ pub fn connect_overdue(progress: Instant, now: Instant) -> bool {
 /// What the app says when it ends a start that stopped answering (`Attempts::overdue`): a launch
 /// that is still unanswered after five minutes is inside a local decoder or device call (the
 /// network reads are bounded well below it), so the words name this device's graphics driver as
-/// the likely cause and its update as the remedy, not the PC.
+/// the likely cause and its update or reinstall as the remedy, not the PC.
 pub fn connect_timeout_text() -> String {
-    tr("The graphics driver or a video decoder stopped answering while Nightjar started the stream, so Nightjar stopped waiting. Connect again; if it keeps happening, update the graphics driver or restart this PC.").to_owned()
+    tr("The graphics driver or a video decoder stopped answering while Nightjar started the stream, so Nightjar stopped waiting. Connect again; if it keeps happening, update or reinstall the graphics driver.").to_owned()
 }
 
 /// Leaving: the launches in progress (if any) are cancelled and end, and a session one started

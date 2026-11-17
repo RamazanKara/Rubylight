@@ -605,7 +605,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("The PC does not accept that value.", "電腦不接受該值。"),
     ("This setting cannot be changed.", "此設定無法變更。"),
     ("The graphics driver was reset, which ended the stream. Connect again.", "圖形驅動程式已重設，串流因此結束。請重新連線。"),
-    ("The graphics driver or a video decoder stopped answering while Nightjar started the stream, so Nightjar stopped waiting. Connect again; if it keeps happening, update the graphics driver or restart this PC.", "Nightjar 啟動串流時，顯示卡驅動程式或視訊解碼器停止回應，因此 Nightjar 停止了等待。請再次連線；如果反覆發生，請更新顯示卡驅動程式或重新啟動此電腦。"),
+    ("The graphics driver or a video decoder stopped answering while Nightjar started the stream, so Nightjar stopped waiting. Connect again; if it keeps happening, update or reinstall the graphics driver.", "Nightjar 啟動串流時，顯示卡驅動程式或視訊解碼器停止回應，因此 Nightjar 停止了等待。請再次連線；如果反覆發生，請更新或重新安裝顯示卡驅動程式。"),
     ("The decoder checks could not finish. Connect again.", "無法完成解碼器檢查。請再次連線。"),
     ("Graphics card not changed", "顯示卡未變更"),
     ("Renderer not changed", "轉譯器未變更"),

@@ -81,6 +81,20 @@ This is the dated measurement record. For a guided comparison, start with the [p
 | Temporal upscaler for Nightjar (SGSR 2 adaptation), not landed | [November 16, temporal upscaler](#november-16-a-temporal-upscaler-for-nightjar-measured-offline-not-landed) |
 | A capped path and a busy PC | [November 17, a capped path holds its learned rate](#november-17-a-capped-path-holds-its-learned-rate-and-a-busy-pc-is-not-the-network) |
 
+## November 18: a still picture's resend holds the stream rate with arrival pacing (#110)
+
+Issue #110: with the still-picture resend (`minimum_fps_target` at the stream rate) and the default **Frame pacing** `arrival`, a desktop where nothing moved streamed at 170-178 fps on a 180 fps stream. `f35d47144` kept the resend on its slot grid only with Fixed grid pacing; with arrival pacing each resend was due one period after the previous one began (`encoded_at = begin` in `rust/host/src/stream/video/run.rs`), so the loop's wake-up and claim time added up every frame. Both pacings now use `stream_policy::resend_anchor`: a resend less than a period late keeps its slot, a longer stall restarts the grid at the claim (one picture, no burst), and a new picture or a recovery re-encode anchors at its claim as before.
+
+Measured on this PC (RX 7900 XT, 2560x1440 120 Hz monitor), `rust/release/e2e.py` with HEVC at 2560x1440, an isolated test host (`audio_sink_capture_only = true`, its own config and ports, the installed host idle), `minimum_fps_target` at the stream rate, `frame_pacing` at its default. Both arms are `cargo build -p butterpollo --release` executables in the 6.0.0 package, from this change and from `origin/main` at `a8005b7d4`. A whole-monitor capture is not still on a PC in use (WGC delivered 120 fresh frames a second, repeats near 0), so the host captured only a motion_probe window animated at 1 Hz (`output_name = window:<hwnd>/<pid>@\\.\DISPLAY1`): about one new picture a second, everything else resends. One run each; receiver steady fps, receiver interval p99 / max, and the host's 5 s `stream timings` output_fps range:
+
+| Stream | Run | Before | After |
+| --- | --- | --- | --- |
+| 120 fps | 45 s | 115.68 fps, p99 9.27 / max 9.83 ms, host 115.3-115.8 | 120.12 fps, p99 9.11 / max 14.48 ms, host 119.9-120.2 |
+| 180 fps | 35 s | 174.44 fps, p99 6.47 / max 10.44 ms, host 173.3-175.3 | 180.11 fps, p99 6.21 / max 7.65 ms, host 178.4-180.2 |
+
+The 180 fps runs exceed the 120 Hz monitor, which a still source does not need (`e2e.py`'s refresh check was bypassed for them). Moving content, unchanged: the same whole-monitor stream at 120 fps with 120 fresh frames a second received 120.07 fps before and 120.12 after (p99 9.77 and 9.93 ms). The pacer's credit stays funded with resends on the grid: a new picture half a period after a resend waits only for the spacing bound (`resends_on_their_grid_leave_a_new_picture_only_the_spacing_wait`). Logs: `D:/CodexArtifacts/rl110-resend/runs/`.
+
+Not measured: Direct Driver Push (the reporter's capture; the resend path is the same session loop), VRR, the 780M laptop.
 ## November 18: HDR chroma filtered in light (#130), conversion cost
 
 Issue #130: with HDR on, ClearType text (File Explorer) looked magenta on the device. The host's 4:2:0 chroma filter (`leftChroma` in `rust/windows/src/shaders/color.hlsl`, and PyroWave's 2x2 mean `pyroBlock`) averaged PQ or HLG codes; it now turns each sample back into display light (`chromaLight`: `depq`, or HLG's inverse OETF and the 1000-nit reference OOTF), averages, and codes the mean again (`chromaCodes`). SDR streams take a uniform branch past both curves.

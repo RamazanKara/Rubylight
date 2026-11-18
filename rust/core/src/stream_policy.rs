@@ -957,6 +957,28 @@ pub fn reencode_at(
         repeat_due
     }
 }
+/// Where the next still-picture resend counts from after an encode that
+/// began at `begin`; the resend is due one `static_period` later. A static
+/// resend (not `fresh`, not a `recovery` re-encode) stays on the grid of the
+/// slot it filled while it was less than a period late, so the loop's wake-up
+/// and encode time do not add up to a slower stream (a still desktop at about
+/// 170 on a 180 fps stream); a resend a period or more late starts the grid
+/// over at `begin`, one picture and never a burst. A new picture or a recovery
+/// re-encode anchors at `begin`, so a real frame is never followed early.
+/// Fixed grid and arrival pacing share this.
+pub fn resend_anchor(
+    previous: Instant,
+    begin: Instant,
+    static_period: Duration,
+    fresh: bool,
+    recovery: bool,
+) -> Instant {
+    if fresh || recovery {
+        begin
+    } else {
+        crate::capture_policy::grid_next(previous + static_period, begin, static_period)
+    }
+}
 /// Whether an encode spends arrival pacing credit. New pictures and static
 /// repeats do, so repeats stay within the stream rate. A picture encoded
 /// again only for the client's recovery request does not: it would hold the

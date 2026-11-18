@@ -1,0 +1,1 @@
+- **A still picture keeps the full frame rate with the still-picture resend.** With the default frame pacing, a desktop where nothing moves now holds the stream's rate when the still-picture resend rate matches it: 180 instead of about 174 on a 180 fps stream, and 120 instead of about 116 at 120 fps (6.0.0 fixed this only for Fixed grid pacing and constant-rate capture).

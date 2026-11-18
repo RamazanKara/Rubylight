@@ -3702,3 +3702,85 @@ fn the_source_phase_learns_only_the_focus_pictures() {
         }
     }
 }
+
+/// Resends of a still picture at 180 fps whose loop wakes `late` after each
+/// due slot: how many go out in one second.
+fn still_resends_in_a_second(late: impl Fn(u32) -> Duration) -> u32 {
+    let period = Duration::from_secs_f64(1. / 180.);
+    let start = Instant::now();
+    let mut anchor = start;
+    let mut sent = 0;
+    loop {
+        let begin = anchor + period + late(sent);
+        if begin > start + Duration::from_secs(1) {
+            return sent;
+        }
+        sent += 1;
+        anchor = resend_anchor(anchor, begin, period, false, false);
+    }
+}
+
+#[test]
+fn a_still_picture_resent_with_arrival_pacing_holds_the_stream_rate() {
+    // Issue #110: each resend counted from when the previous one began, so
+    // 0.3 ms of wake-up latency a resend sent about 170 of 180 fps.
+    let steady = still_resends_in_a_second(|_| Duration::from_micros(300));
+    assert!((179..=180).contains(&steady), "{steady} resends a second");
+    // Uneven wake-ups up to most of a period still keep the rate.
+    let uneven = still_resends_in_a_second(|n| {
+        Duration::from_micros([200, 1_500, 4_000, 600][n as usize % 4])
+    });
+    assert!((179..=180).contains(&uneven), "{uneven} resends a second");
+}
+
+#[test]
+fn a_resend_restarts_its_grid_after_a_stall_and_a_new_picture_anchors_at_its_claim() {
+    let period = Duration::from_secs_f64(1. / 180.);
+    let previous = Instant::now();
+    let due = previous + period;
+    // A little late: the next resend stays on the grid.
+    assert_eq!(
+        resend_anchor(
+            previous,
+            due + Duration::from_millis(1),
+            period,
+            false,
+            false
+        ),
+        due
+    );
+    // A period or more late (a stall): restart at the claim, no burst.
+    let stalled = due + period * 3;
+    assert_eq!(
+        resend_anchor(previous, stalled, period, false, false),
+        stalled
+    );
+    // Early (the due slot moved, e.g. a shorter resend period): no slot in the past is owed.
+    let early = previous + period / 2;
+    assert_eq!(resend_anchor(previous, early, period, false, false), early);
+    // A new picture and a recovery re-encode count from their own claim.
+    let late = due + Duration::from_millis(2);
+    assert_eq!(resend_anchor(previous, late, period, true, false), late);
+    assert_eq!(resend_anchor(previous, late, period, false, true), late);
+}
+
+#[test]
+fn resends_on_their_grid_leave_a_new_picture_only_the_spacing_wait() {
+    // Resends on the grid spend a claim each period with no surplus to
+    // refill the pacer's credit, unlike resends that drifted late. A new
+    // picture half a period after the last resend still waits only for the
+    // spacing bound, never for credit.
+    let period = Duration::from_secs_f64(1. / 180.);
+    let start = Instant::now();
+    let mut pacer = Pacer::new(start, period).with_spacing(0.75);
+    let mut anchor = start;
+    let mut last = start;
+    for n in 0..180usize {
+        let late = Duration::from_micros([200, 1_500, 2_000, 600][n % 4]);
+        last = anchor + period + late;
+        pacer.claimed(last);
+        anchor = resend_anchor(anchor, last, period, false, false);
+    }
+    let arrives = last + period / 2;
+    assert_eq!(pacer.allowed_at(arrives), last + period.mul_f64(0.75));
+}

@@ -20,7 +20,9 @@ Nightjar opens on Home when a paired PC supports the native API. Home has four p
 **View** on Home sets how the library is laid out, on Android and on Windows and Linux:
 
 - **Layout.** **Grid**, **Rows**, or **List**: a line per game with a small cover, its store and, from a Rubylight PC that sends it, when you last played it.
-- **Group by.** **Store** (a row per store), **Type** (games apart from other apps such as launchers and the desktop), **Collection** (below) or **None** (one library).
+- **Group by.** **Store** (a row per store), **Type** (games apart from other apps such as launchers and the desktop), **Collection** (below), **Installation** (the installed games, then the rest; offered while the library has both) or **None** (one library).
+- **Sort by.** **Title**, **Last played** or **Play time**, as the PCs report them (Steam and Playnite on a Rubylight PC). Within a row the installed games still come first. All games follows the same order. A game no PC reports a time for counts as never played.
+- **Order.** **Ascending** (A to Z, oldest first, least played first) or **Descending**. On Android, choosing the sort already chosen turns its order around, and its arrow shows which way.
 - **Card size.** Small, medium or large.
 
 Phones, tablets and TVs keep their usual look until you change it.
@@ -78,7 +80,7 @@ Home and the PC list have dedicated TV layouts, chosen by Android's television m
 
 - **Library rows.** Recently played, one row per store, Other apps (games no store owns), and On your PCs, not added (games the host found in a store but has not added). A row shows up to 20 games; a longer row ends in an **All N games** tile that opens All games with that row's filter.
 - **Cards.** Each card shows a store chip. A game that is not installed is dimmed and says so. Selecting a game marked Not added asks the host to add it, when this device may launch games and the host supports it; otherwise the card says **Add it on the PC**.
-- **All games.** Every game of the paired PCs in a poster grid, filtered by All, Installed, each store in the library, Other apps or Not added. Focus stays on the same card when the library refreshes.
+- **All games.** Every game of the paired PCs in a poster grid, filtered by All, Installed, Not installed, each store in the library, Other apps or Not added. Focus stays on the same card when the library refreshes.
 - **PCs.** Large tiles, three to a row, inside the TV's safe area. A PC with a running game shows that game's cover behind its name. Each state has a word and a symbol as well as a color. **Add PC** sits below the tiles.
 - **Settings.** The sections form a rail on the left. Right moves into a section, Left returns to the rail, and Back returns to the rail before leaving Settings.
 
@@ -89,7 +91,7 @@ Home and the PC list have dedicated TV layouts, chosen by Android's television m
 ## On Windows and Linux
 
 - **Library rows.** Under Favourites, Continue playing and Recently played, Home shows one row per store in the library (Steam, Epic Games, GOG, EA app, Ubisoft Connect, Battle.net, Xbox), the largest first, then **Other apps** for the apps no store owns, then the PCs. Installed games come first in a row. A row is as wide as the window; when it holds more games than fit, its last tile reads **All N** and opens All games with that store's filter. A library without stores is one **Library** row, and a library from a single store is that store's row; either is shown whole, with no **All N** tile.
-- **All games.** Opens from **All games** at the right of Home's top bar, shown once any PC has a game, or from a row's **All N** tile. Every game of the paired PCs as covers, by title, under filter chips: **All**, **Installed** (when some game is not installed), one chip per store, and **Other apps** (beside stores). Each chip shows how many games it holds. A game that is not installed is dimmed and says **Not installed**; its page says **Not installed on** the PC and offers no Play until the PC installs it (a running game still resumes). The first game has focus when the page opens, Up reaches the chips, and Back returns to Home.
+- **All games.** Opens from **All games** at the right of Home's top bar, shown once any PC has a game, or from a row's **All N** tile. Every game of the paired PCs as covers, in the order **View** sets, under filter chips: **All**, **Installed** and **Not installed** (when some games are installed and some not), one chip per store, and **Other apps** (beside stores). Each chip shows how many games it holds. A game that is not installed is dimmed and says **Not installed**; its page says **Not installed on** the PC and offers no Play until the PC installs it (a running game still resumes). The first game has focus when the page opens, Up reaches the chips, and Back returns to Home.
 - **Menus.** A game's or PC's menu opens by its card; see [PC and game menus on Windows and Linux](#pc-and-game-menus-on-windows-and-linux).
 - **Starting a stream.** **Play** fills the window with the game's cover, the PC and the current step until the stream takes over; **Cancel** stops the start. A start that fails turns into a card beside the cover with the reason, **Try again**, **Stream settings** (the stream's resolution, frame rate and bitrate; it opens Settings) and **Test the network**, which asks Moonlight's port-test server whether a firewall blocks the streaming ports and shows the answer in place. **Back** closes the card. See [troubleshooting](TROUBLESHOOTING.md#nightjar-for-windows-and-linux).
 

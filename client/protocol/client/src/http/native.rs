@@ -205,8 +205,8 @@ impl<'de> Deserialize<'de> for NativeCapabilities {
     }
 }
 
-/// `GET /library` with each game's `last_played`, read from the same body: the pinned `Game`
-/// predates it. Written back, the times sit in their games again, so Android's Java and a saved
+/// `GET /library` with each game's `last_played`, `playtime_minutes` and `collections`, read from
+/// the same body: the pinned `Game` predates them. Written back, the times sit in their games again, so Android's Java and a saved
 /// library read them as a host sends them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NativeLibrary {
@@ -215,6 +215,9 @@ pub struct NativeLibrary {
     /// host says never played. A game the host says nothing about (an older host, a manual app)
     /// is not in it.
     pub last_played: BTreeMap<String, u64>,
+    /// How long each game has been played, by install id, in minutes: `0` when the host says
+    /// never played. A game the host says nothing about is not in it.
+    pub playtime_minutes: BTreeMap<String, u64>,
     /// The collections each game is in, by install id, as the host names them. A game in none (and
     /// every game of an older host) is not in it.
     pub collections: BTreeMap<String, Vec<String>>,
@@ -222,7 +225,7 @@ pub struct NativeLibrary {
 
 impl From<Library> for NativeLibrary {
     fn from(library: Library) -> Self {
-        Self { library, last_played: BTreeMap::new(), collections: BTreeMap::new() }
+        Self { library, last_played: BTreeMap::new(), playtime_minutes: BTreeMap::new(), collections: BTreeMap::new() }
     }
 }
 
@@ -230,12 +233,17 @@ impl<'de> Deserialize<'de> for NativeLibrary {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = serde_json::Value::deserialize(deserializer)?;
         let mut last_played = BTreeMap::new();
+        let mut playtime_minutes = BTreeMap::new();
         let mut collections = BTreeMap::new();
         for game in value["games"].as_array().into_iter().flatten() {
             let Some(id) = game["install_id"].as_str() else { continue };
             // Anything but a whole number of seconds reads as unknown.
             if let Some(at) = game["last_played"].as_u64() {
                 last_played.insert(id.to_owned(), at);
+            }
+            // Anything but a whole number of minutes reads as unknown.
+            if let Some(minutes) = game["playtime_minutes"].as_u64() {
+                playtime_minutes.insert(id.to_owned(), minutes);
             }
             // Anything but names reads as none.
             let names: Vec<String> =
@@ -247,6 +255,7 @@ impl<'de> Deserialize<'de> for NativeLibrary {
         Ok(Self {
             library: Library::deserialize(value).map_err(D::Error::custom)?,
             last_played,
+            playtime_minutes,
             collections,
         })
     }
@@ -259,10 +268,14 @@ impl Serialize for NativeLibrary {
         if let Some(games) = value["games"].as_array_mut() {
             for game in games {
                 let at = game["install_id"].as_str().and_then(|id| self.last_played.get(id)).copied();
+                let minutes = game["install_id"].as_str().and_then(|id| self.playtime_minutes.get(id)).copied();
                 let names = game["install_id"].as_str().and_then(|id| self.collections.get(id)).cloned();
                 let Some(fields) = game.as_object_mut() else { continue };
                 if let Some(at) = at {
                     fields.insert("last_played".into(), at.into());
+                }
+                if let Some(minutes) = minutes {
+                    fields.insert("playtime_minutes".into(), minutes.into());
                 }
                 if let Some(names) = names {
                     fields.insert("collections".into(), names.into());
@@ -629,6 +642,26 @@ mod tests {
         assert_eq!(serde_json::from_value::<NativeLibrary>(written).unwrap(), library);
         let old: NativeLibrary = serde_json::from_str(r#"{"revision":"r","games":[]}"#).unwrap();
         assert!(old.last_played.is_empty());
+    }
+
+    #[test]
+    fn a_library_keeps_playtime_through_a_write_back() {
+        let body = r#"{"revision":"r","games":[
+            {"install_id":"a","app_id":1,"title":"A","game_id":"steam:1","store":null,"installed":true,"running":false,"artwork":{"version":"1"},"playtime_minutes":5412},
+            {"install_id":"b","app_id":2,"title":"B","game_id":null,"store":null,"installed":null,"running":false,"artwork":{"version":"2"},"playtime_minutes":0},
+            {"install_id":"c","app_id":3,"title":"C","game_id":null,"store":null,"installed":null,"running":false,"artwork":{"version":"3"}},
+            {"install_id":"d","app_id":4,"title":"D","game_id":null,"store":null,"installed":null,"running":false,"artwork":{"version":"4"},"playtime_minutes":-3}]}"#;
+        let library: NativeLibrary = decode(response(200, body), "api/native/v1/library").unwrap();
+        assert_eq!(
+            library.playtime_minutes,
+            BTreeMap::from([("a".to_owned(), 5412), ("b".to_owned(), 0)]),
+            "0 is never played; absent and malformed are unknown"
+        );
+        let written = serde_json::to_value(&library).unwrap();
+        assert_eq!(written["games"][0]["playtime_minutes"], 5412);
+        assert_eq!(written["games"][1]["playtime_minutes"], 0);
+        assert!(written["games"][2].get("playtime_minutes").is_none());
+        assert_eq!(serde_json::from_value::<NativeLibrary>(written).unwrap(), library);
     }
 
     #[test]

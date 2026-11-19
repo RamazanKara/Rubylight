@@ -240,15 +240,17 @@ impl Hosts {
                                         changed = true;
                                     }
                                 }
-                                if let Some(NativeLibrary { library, last_played, collections }) = read.library {
+                                if let Some(NativeLibrary { library, last_played, playtime_minutes, collections }) = read.library {
                                     // The classic list a launch goes through follows the library.
                                     reload_apps = !host.native.library_live
                                         || host.native.library.as_ref().is_none_or(|old| old.revision != library.revision);
                                     save = host.native.library.as_ref() != Some(&library)
                                         || host.native.last_played != last_played
+                                        || host.native.playtime_minutes != playtime_minutes
                                         || host.native.collections != collections;
                                     host.native.library = Some(library);
                                     host.native.last_played = last_played;
+                                    host.native.playtime_minutes = playtime_minutes;
                                     host.native.collections = collections;
                                     host.native.library_live = true;
                                 }

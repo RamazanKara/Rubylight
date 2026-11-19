@@ -226,6 +226,7 @@ impl Hosts {
             if host.record.server_certificate.is_some() && !host.record.unique_id.is_empty() {
                 let saved = store.library(&host.record.unique_id);
                 host.native.last_played = saved.as_ref().map(|l| l.last_played.clone()).unwrap_or_default();
+                host.native.playtime_minutes = saved.as_ref().map(|l| l.playtime_minutes.clone()).unwrap_or_default();
                 host.native.collections = saved.as_ref().map(|l| l.collections.clone()).unwrap_or_default();
                 // A PC without the native library: the app list it sent last.
                 let classic = saved.is_none().then(|| store.classic_apps(&host.record.unique_id)).flatten();
@@ -258,7 +259,7 @@ impl Hosts {
                 let host = self.get(id)?;
                 // A PC unpaired while its read was in flight must not get its library back.
                 host.record.server_certificate.as_ref()?;
-                let library = NativeLibrary { library: host.native.library.clone()?, last_played: host.native.last_played.clone(), collections: host.native.collections.clone() };
+                let library = NativeLibrary { library: host.native.library.clone()?, last_played: host.native.last_played.clone(), playtime_minutes: host.native.playtime_minutes.clone(), collections: host.native.collections.clone() };
                 Some((host.record.unique_id.clone(), library))
             })
             .filter(|(unique_id, _)| !unique_id.is_empty())

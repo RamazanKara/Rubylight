@@ -23,4 +23,11 @@
     <string name="home_view_group_collection">컬렉션</string>
     <string name="console_row_no_collection">컬렉션 없음</string>
     <string name="console_filter_hidden">숨김</string>
+    <string name="home_view_group_installation">설치 상태</string>
+    <string name="home_view_sort">정렬 기준</string>
+    <string name="home_view_sort_title">제목</string>
+    <string name="home_view_sort_last_played">마지막 플레이</string>
+    <string name="home_view_sort_playtime">플레이 시간</string>
+    <string name="home_view_order_ascending">오름차순</string>
+    <string name="home_view_order_descending">내림차순</string>
 </resources>

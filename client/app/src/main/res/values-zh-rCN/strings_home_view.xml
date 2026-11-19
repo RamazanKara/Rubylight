@@ -23,4 +23,11 @@
     <string name="home_view_group_collection">收藏夹</string>
     <string name="console_row_no_collection">未分类</string>
     <string name="console_filter_hidden">已隐藏</string>
+    <string name="home_view_group_installation">安装状态</string>
+    <string name="home_view_sort">排序方式</string>
+    <string name="home_view_sort_title">标题</string>
+    <string name="home_view_sort_last_played">最近游玩</string>
+    <string name="home_view_sort_playtime">游戏时长</string>
+    <string name="home_view_order_ascending">升序</string>
+    <string name="home_view_order_descending">降序</string>
 </resources>

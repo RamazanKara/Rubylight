@@ -16,9 +16,15 @@ public final class HomeView {
 
     /**
      * A part per store, the games apart from the apps of no store (launchers, the desktop), a part per collection the
-     * PCs name, or one library. Stored by name.
+     * PCs name, the installed games apart from the rest, or one library. Stored by name.
      */
-    public enum Group { STORE, TYPE, COLLECTION, NONE }
+    public enum Group { STORE, TYPE, COLLECTION, INSTALLATION, NONE }
+
+    /** What the library's parts and All games sort by. Stored by name. */
+    public enum Sort { TITLE, LAST_PLAYED, PLAYTIME }
+
+    /** Which way: ascending is A to Z, oldest first and least played first. Stored by name. */
+    public enum Order { ASCENDING, DESCENDING }
 
     public enum Size {
         SMALL(0.75f), MEDIUM(1f), LARGE(1.3f);
@@ -34,15 +40,25 @@ public final class HomeView {
     public static final String KEY_LAYOUT = "home_view_layout";
     public static final String KEY_GROUP = "home_view_group";
     public static final String KEY_SIZE = "home_view_size";
+    public static final String KEY_SORT = "home_view_sort";
+    public static final String KEY_ORDER = "home_view_order";
 
     public final Layout layout;
     public final Group group;
     public final Size size;
+    public final Sort sort;
+    public final Order order;
 
     public HomeView(Layout layout, Group group, Size size) {
+        this(layout, group, size, Sort.TITLE, Order.ASCENDING);
+    }
+
+    public HomeView(Layout layout, Group group, Size size, Sort sort, Order order) {
         this.layout = layout;
         this.group = group;
         this.size = size;
+        this.sort = sort;
+        this.order = order;
     }
 
     /** The look Home had before it could be changed: the phone's grid, the TV's shelves per store. */
@@ -56,30 +72,61 @@ public final class HomeView {
         HomeView base = defaults(television);
         return new HomeView(parse(Layout.class, prefs.getString(KEY_LAYOUT, null), base.layout),
                 parse(Group.class, prefs.getString(KEY_GROUP, null), base.group),
-                parse(Size.class, prefs.getString(KEY_SIZE, null), base.size));
+                parse(Size.class, prefs.getString(KEY_SIZE, null), base.size),
+                parse(Sort.class, prefs.getString(KEY_SORT, null), base.sort),
+                parse(Order.class, prefs.getString(KEY_ORDER, null), base.order));
     }
 
     public void save(SharedPreferences prefs) {
         prefs.edit().putString(KEY_LAYOUT, layout.name().toLowerCase(java.util.Locale.ROOT))
                 .putString(KEY_GROUP, group.name().toLowerCase(java.util.Locale.ROOT))
-                .putString(KEY_SIZE, size.name().toLowerCase(java.util.Locale.ROOT)).apply();
+                .putString(KEY_SIZE, size.name().toLowerCase(java.util.Locale.ROOT))
+                .putString(KEY_SORT, sort.name().toLowerCase(java.util.Locale.ROOT))
+                .putString(KEY_ORDER, order.name().toLowerCase(java.util.Locale.ROOT)).apply();
     }
 
     /** The groupings the View sheet offers: Collection only while the PCs name any. */
     public static Group[] offeredGroups(boolean collections) {
-        return collections ? Group.values() : new Group[] {Group.STORE, Group.TYPE, Group.NONE};
+        return offeredGroups(collections, false);
+    }
+
+    /**
+     * The groupings the View sheet offers: Collection only while the PCs name any, Installation only while the library
+     * has games installed and games not.
+     */
+    public static Group[] offeredGroups(boolean collections, boolean installationSplit) {
+        java.util.List<Group> offered = new java.util.ArrayList<>();
+        for (Group group : Group.values()) {
+            if (group == Group.COLLECTION && !collections) continue;
+            if (group == Group.INSTALLATION && !installationSplit) continue;
+            offered.add(group);
+        }
+        return offered.toArray(new Group[0]);
     }
 
     public HomeView with(Layout next) {
-        return new HomeView(next, group, size);
+        return new HomeView(next, group, size, sort, order);
     }
 
     public HomeView with(Group next) {
-        return new HomeView(layout, next, size);
+        return new HomeView(layout, next, size, sort, order);
     }
 
     public HomeView with(Size next) {
-        return new HomeView(layout, group, next);
+        return new HomeView(layout, group, next, sort, order);
+    }
+
+    public HomeView with(Sort next) {
+        return new HomeView(layout, group, size, next, order);
+    }
+
+    public HomeView with(Order next) {
+        return new HomeView(layout, group, size, sort, next);
+    }
+
+    /** The order the merge already lists in: nothing to sort. */
+    public boolean byTitle() {
+        return sort == Sort.TITLE && order == Order.ASCENDING;
     }
 
     private static <E extends Enum<E>> E parse(Class<E> type, String stored, E fallback) {
@@ -94,16 +141,18 @@ public final class HomeView {
     public boolean equals(Object other) {
         if (!(other instanceof HomeView)) return false;
         HomeView view = (HomeView) other;
-        return view.layout == layout && view.group == group && view.size == size;
+        return view.layout == layout && view.group == group && view.size == size && view.sort == sort
+                && view.order == order;
     }
 
     @Override
     public int hashCode() {
-        return (layout.ordinal() * 31 + group.ordinal()) * 31 + size.ordinal();
+        return (((layout.ordinal() * 31 + group.ordinal()) * 31 + size.ordinal()) * 31 + sort.ordinal()) * 31
+                + order.ordinal();
     }
 
     @Override
     public String toString() {
-        return layout + "/" + group + "/" + size;
+        return layout + "/" + group + "/" + size + "/" + sort + "/" + order;
     }
 }

@@ -125,6 +125,17 @@ public final class HomeModel {
                     addable, hostUuids, lastPlayed, copies);
         }
 
+        /** How long its PCs say it was played, the longest (minutes, 0 for never); null when none says. */
+        public Long playtimeMinutes() {
+            Long longest = null;
+            for (ConsoleSnapshot.Source copy : copies) {
+                if (copy.playtimeMinutes != null && (longest == null || copy.playtimeMinutes > longest)) {
+                    longest = copy.playtimeMinutes.longValue();
+                }
+            }
+            return longest;
+        }
+
         /** The collections its PCs keep it in, as they name them. */
         public List<String> collections() {
             List<String> names = new ArrayList<>();
@@ -165,9 +176,10 @@ public final class HomeModel {
 
     /**
      * Which of the library's rows: one per store, the apps of no store, the host's last played, the games not added,
-     * every store's games in one (grouped by type), a collection's games or the games in none (grouped by collection).
+     * every store's games in one (grouped by type), a collection's games or the games in none (grouped by collection),
+     * the installed games or the rest (grouped by installation).
      */
-    public enum RowKind { RECENT, STORE, OTHER, UNADDED, GAMES, COLLECTION, NO_COLLECTION }
+    public enum RowKind { RECENT, STORE, OTHER, UNADDED, GAMES, COLLECTION, NO_COLLECTION, INSTALLED, NOT_INSTALLED }
 
     /** A library row on TV Home: at most {@link #ROW_CAP} cards, then an "All N" tile when there are more. */
     public static final class Row {
@@ -185,6 +197,8 @@ public final class HomeModel {
         public final String filter;
         /** The row's cards before the cap: a grid shows them all. */
         final List<GameCard> all;
+        /** The row stops at {@link #ROW_CAP} and ends in an "All N" tile; a row shown whole does not. */
+        final boolean capped;
 
         Row(String key, RowKind kind, String store, String storeName, List<GameCard> all, String filter, boolean capped) {
             this.key = key;
@@ -196,6 +210,7 @@ public final class HomeModel {
             this.cards = Collections.unmodifiableList(capped && all.size() > ROW_CAP
                     ? new ArrayList<>(all.subList(0, ROW_CAP)) : all);
             this.filter = filter;
+            this.capped = capped;
         }
 
         /** True when the row ends in an "All N" tile. */
@@ -224,6 +239,8 @@ public final class HomeModel {
     public static final String LIBRARY_ROW = "shelf:library";
     public static final String FILTER_ALL = "all";
     public static final String FILTER_INSTALLED = "installed";
+    /** The games no PC has installed, offered beside {@link #FILTER_INSTALLED}. */
+    public static final String FILTER_NOT_INSTALLED = "not-installed";
     public static final String FILTER_OTHER = "other";
     /** Every store's games, without the apps of no store: the Games row's chip. */
     public static final String FILTER_GAMES = "games";
@@ -245,6 +262,7 @@ public final class HomeModel {
         if (card.notAdded()) return false;
         if (filter == null || FILTER_ALL.equals(filter)) return true;
         if (FILTER_INSTALLED.equals(filter)) return !card.notInstalled();
+        if (FILTER_NOT_INSTALLED.equals(filter)) return card.notInstalled();
         if (FILTER_GAMES.equals(filter)) return card.store() != null;
         if (FILTER_OTHER.equals(filter)) return card.store() == null;
         if (filter.startsWith(STORE_FILTER)) return filter.substring(STORE_FILTER.length()).equals(card.store());
@@ -341,6 +359,7 @@ public final class HomeModel {
     public List<Row> rows(HomeView.Group group) {
         if (group == HomeView.Group.STORE) return rows;
         if (group == HomeView.Group.COLLECTION) return collectionRows();
+        if (group == HomeView.Group.INSTALLATION) return installationRows();
         if (group == HomeView.Group.NONE) {
             if (library.isEmpty()) return Collections.emptyList();
             return Collections.singletonList(new Row(LIBRARY_ROW, RowKind.OTHER, null, null, library, FILTER_INSTALLED, true));
@@ -378,6 +397,70 @@ public final class HomeModel {
                     none ? FILTER_NO_COLLECTION : COLLECTION_FILTER + group.name, true));
         }
         return parts;
+    }
+
+    /** The installed games, then the rest, each in the model's order; by store while the library is one or the other. */
+    private List<Row> installationRows() {
+        if (!hasInstallationSplit()) return rows;
+        List<GameCard> installed = new ArrayList<>();
+        List<GameCard> not = new ArrayList<>();
+        for (GameCard card : shownGames(allGames)) (card.notInstalled() ? not : installed).add(card);
+        List<Row> parts = new ArrayList<>();
+        parts.add(new Row("shelf:installed", RowKind.INSTALLED, null, null, installed, FILTER_INSTALLED, true));
+        parts.add(new Row("shelf:not-installed", RowKind.NOT_INSTALLED, null, null, not, FILTER_NOT_INSTALLED, true));
+        return parts;
+    }
+
+    /** Whether Home can sort by play time: some PC says how long a game it shows was played. */
+    public boolean hasPlaytime() {
+        for (GameCard card : shownGames(allGames)) {
+            if (card.playtimeMinutes() != null) return true;
+        }
+        return false;
+    }
+
+    /** Whether Home can group by installation: the games it shows are some installed and some not. */
+    public boolean hasInstallationSplit() {
+        boolean installed = false;
+        boolean not = false;
+        for (GameCard card : shownGames(allGames)) {
+            if (card.notInstalled()) not = true;
+            else installed = true;
+        }
+        return installed && not;
+    }
+
+    /**
+     * This model with its games in {@code view}'s order, through the rule desktop Nightjar sorts with too: the phone's
+     * grid, All games, each collection's chip, and each row but Recently played, whose games stay newest first. Within
+     * a row the installed games still come first. By title A to Z, the order the model already has, it is this model.
+     */
+    public HomeModel sorted(HomeView view) {
+        // Play time chosen while no PC sends any sorts by title, as Collection chosen without collections shows stores.
+        if (view.sort == HomeView.Sort.PLAYTIME && !hasPlaytime()) view = view.with(HomeView.Sort.TITLE);
+        if (view.byTitle()) return this;
+        List<Row> sortedRows = new ArrayList<>(rows.size());
+        for (Row row : rows) {
+            sortedRows.add(row.kind == RowKind.RECENT ? row : new Row(row.key, row.kind, row.store, row.storeName,
+                    installedFirst(order(row.all, view)), row.filter, row.capped));
+        }
+        Map<String, List<GameCard>> sortedGroups = new HashMap<>();
+        for (Map.Entry<String, List<GameCard>> part : grouped.entrySet()) {
+            sortedGroups.put(part.getKey(), order(part.getValue(), view));
+        }
+        return new HomeModel(favourites, continuePlaying, order(library, view), hosts, sortedRows, order(allGames, view),
+                filters, sortedGroups, hostFilter);
+    }
+
+    /** {@code cards} in {@code view}'s order; as they are when the shared code cannot answer. */
+    private static List<GameCard> order(List<GameCard> cards, HomeView view) {
+        List<LibraryOrder.Facts> facts = new ArrayList<>(cards.size());
+        for (GameCard card : cards) facts.add(new LibraryOrder.Facts(card.title, card.lastPlayed, card.playtimeMinutes()));
+        int[] places = LibraryOrder.of(facts, view.sort, view.order);
+        if (places == null) return cards;
+        List<GameCard> sorted = new ArrayList<>(cards.size());
+        for (int at : places) sorted.add(cards.get(at));
+        return sorted;
     }
 
     /** Whether Home can group by collection: its PCs name any for the games it shows. */
@@ -756,8 +839,9 @@ public final class HomeModel {
         List<Filter> filters = new ArrayList<>();
         if (added == 0 && unadded == 0 && hidden == 0) return filters;
         filters.add(new Filter(FILTER_ALL, null, added));
-        // Installed narrows only when something is not.
+        // Installed narrows only when something is not, and Not installed only beside it.
         if (installed < added) filters.add(new Filter(FILTER_INSTALLED, null, installed));
+        if (installed < added && installed > 0) filters.add(new Filter(FILTER_NOT_INSTALLED, null, added - installed));
         // Games, the Games row's chip, narrows only when the library has apps of no store beside stores.
         if (other > 0 && !stores.isEmpty()) filters.add(new Filter(FILTER_GAMES, null, added - other));
         List<String> order = new ArrayList<>(stores.keySet());

@@ -93,6 +93,8 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
     private volatile ConsoleRepository repository;
     private CoverLoaders covers;
     private HomeModel model = HomeModel.empty();
+    /** Home's View, whose Sort by and Order All games follows. */
+    private HomeView view = HomeView.defaults(false);
     private String filter = HomeModel.FILTER_ALL;
     // Genre and Length (IGDB facts): the chips show only while a game has facts, and only with IGDB keys set.
     private static final String TAG_GENRE = "game_info:genre";
@@ -201,6 +203,7 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
         if (requested != null) filter = requested;
         setContentView(R.layout.activity_all_games);
         UiHelper.notifyNewRootView(this);
+        view = HomeView.read(android.preference.PreferenceManager.getDefaultSharedPreferences(this), isTelevision());
 
         TopAppBar.configure(this, R.id.all_games_toolbar, getString(R.string.console_all_games_title), 0);
         // All games belongs to Home: Home in the bar is the page it came from, so it closes this one.
@@ -599,10 +602,10 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
         if (refresh) loading.setVisibility(View.VISIBLE);
         worker.execute(() -> {
             try {
-                show(mine, HomeModel.of(repo.cached(hosts), online, HomeModel.launchDenied(hosts), hostFilter), !refresh);
+                show(mine, HomeModel.of(repo.cached(hosts), online, HomeModel.launchDenied(hosts), hostFilter).sorted(view), !refresh);
                 if (refresh) {
                     ConsoleSnapshot fresh = repo.refresh(hosts);
-                    show(mine, HomeModel.of(fresh, online, HomeModel.launchDenied(hosts), hostFilter), true);
+                    show(mine, HomeModel.of(fresh, online, HomeModel.launchDenied(hosts), hostFilter).sorted(view), true);
                     redrawAtNextPoll(mine);
                 }
             } catch (InterruptedException e) {
@@ -833,6 +836,8 @@ public class AllGamesActivity extends NightjarActivity implements HostFeed.Liste
         switch (f.key) {
             case HomeModel.FILTER_INSTALLED:
                 return context.getString(R.string.console_filter_installed);
+            case HomeModel.FILTER_NOT_INSTALLED:
+                return context.getString(R.string.console_chip_not_installed);
             case HomeModel.FILTER_GAMES:
                 return context.getString(R.string.console_row_games);
             case HomeModel.FILTER_OTHER:

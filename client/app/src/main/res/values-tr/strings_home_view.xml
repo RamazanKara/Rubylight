@@ -24,4 +24,11 @@
     <string name="home_view_group_collection">Koleksiyon</string>
     <string name="console_row_no_collection">Koleksiyonsuz</string>
     <string name="console_filter_hidden">Gizli</string>
+    <string name="home_view_group_installation">Kurulum</string>
+    <string name="home_view_sort">Sırala</string>
+    <string name="home_view_sort_title">Başlık</string>
+    <string name="home_view_sort_last_played">Son oynama</string>
+    <string name="home_view_sort_playtime">Oynama süresi</string>
+    <string name="home_view_order_ascending">Artan</string>
+    <string name="home_view_order_descending">Azalan</string>
 </resources>

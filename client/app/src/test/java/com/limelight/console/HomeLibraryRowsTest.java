@@ -315,7 +315,7 @@ public class HomeLibraryRowsTest {
         HomeModel model = model();
         List<String> filters = new ArrayList<>();
         for (HomeModel.Filter filter : model.filters) filters.add(filter.key + "=" + filter.count);
-        assertEquals(Arrays.asList("all=4", "installed=3", "games=3", "store:steam=2", "store:epic=1", "other=1", "unadded=1"),
+        assertEquals(Arrays.asList("all=4", "installed=3", "not-installed=1", "games=3", "store:steam=2", "store:epic=1", "other=1", "unadded=1"),
                 filters);
         List<String> steam = new ArrayList<>();
         for (HomeModel.GameCard card : model.allGames) {
@@ -325,7 +325,7 @@ public class HomeLibraryRowsTest {
         int installed = 0;
         for (HomeModel.GameCard card : model.allGames) if (HomeModel.matches("installed", card)) installed++;
         assertEquals(3, installed);
-        assertNotNull(model.filters.get(3).storeName);
+        assertNotNull(AllGamesActivity.filterOf(model, "store:steam").storeName);
         // Games is every store's games, without Desktop.
         int games = 0;
         for (HomeModel.GameCard card : model.allGames) if (HomeModel.matches(HomeModel.FILTER_GAMES, card)) games++;
@@ -541,5 +541,123 @@ public class HomeLibraryRowsTest {
         assertEquals(recent.toString(), 10, recent.size());
         assertFalse(recent.contains("Game 1"));
         assertTrue("the place goes to the next one", recent.contains("Game 11"));
+    }
+
+    @After
+    public void forgetTheOrder() {
+        LibraryOrder.use(null);
+    }
+
+    private static String playedFor(String game, long minutes) {
+        return game.substring(0, game.length() - 1) + ",\"playtime_minutes\":" + minutes + "}";
+    }
+
+    /** The shared rule for last played, newest first, as libnightjar_core answers it: never played last, ties A to Z. */
+    private static void newestFirst() {
+        LibraryOrder.use(request -> {
+            try {
+                org.json.JSONObject asked = new org.json.JSONObject(request);
+                assertEquals("last_played", asked.getString("key"));
+                assertEquals("descending", asked.getString("direction"));
+                org.json.JSONArray games = asked.getJSONArray("games");
+                long[] played = new long[games.length()];
+                String[] titles = new String[games.length()];
+                List<Integer> order = new ArrayList<>();
+                for (int i = 0; i < games.length(); i++) {
+                    played[i] = games.getJSONObject(i).optLong("last_played", 0);
+                    titles[i] = games.getJSONObject(i).getString("title").toLowerCase(java.util.Locale.ROOT);
+                    order.add(i);
+                }
+                order.sort((a, b) -> played[a] != played[b] ? Long.compare(played[b], played[a]) : titles[a].compareTo(titles[b]));
+                return "{\"ok\":{\"order\":" + new org.json.JSONArray(order) + "}}";
+            } catch (org.json.JSONException e) {
+                throw new AssertionError(e);
+            }
+        });
+    }
+
+    private void fourGames() {
+        tower(Collections.emptyList(), playedFor(game(1, "Hades", "steam", true, 300L), 40),
+                game(2, "Celeste", "steam", false, 900L), playedFor(game(3, "balatro", "steam", true, 0L), 600),
+                game(4, "Apex", "steam", false, null));
+    }
+
+    private static final HomeView NEWEST = new HomeView(HomeView.Layout.ROWS, HomeView.Group.STORE, HomeView.Size.MEDIUM,
+            HomeView.Sort.LAST_PLAYED, HomeView.Order.DESCENDING);
+
+    @Test
+    public void rowsAndAllGamesFollowTheChosenSortWithTheInstalledFirst() throws Exception {
+        fourGames();
+        newestFirst();
+        HomeModel model = model();
+        assertEquals(Long.valueOf(40), model.row("shelf:store:steam").cards.get(1).playtimeMinutes());
+        HomeModel sorted = model.sorted(NEWEST);
+        assertEquals(Arrays.asList("Hades", "balatro", "Celeste", "Apex"), titles(sorted.row("shelf:store:steam").cards));
+        assertEquals(Arrays.asList("Celeste", "Hades", "Apex", "balatro"), titles(sorted.allGames));
+        assertEquals("Recently played keeps its own order", titles(model.row("shelf:recent").cards),
+                titles(sorted.row("shelf:recent").cards));
+        assertTrue("by title, A to Z, is the model as it is",
+                model == model.sorted(new HomeView(HomeView.Layout.ROWS, HomeView.Group.STORE, HomeView.Size.MEDIUM)));
+    }
+
+    @Test
+    public void groupedByInstallationTheInstalledComeInARowOfTheirOwn() throws Exception {
+        fourGames();
+        newestFirst();
+        HomeModel model = model().sorted(NEWEST);
+        assertTrue(model.hasInstallationSplit());
+        List<HomeModel.Row> rows = model.rows(HomeView.Group.INSTALLATION);
+        assertEquals(2, rows.size());
+        assertEquals(HomeModel.RowKind.INSTALLED, rows.get(0).kind);
+        assertEquals(Arrays.asList("Hades", "balatro"), titles(rows.get(0).cards));
+        assertEquals(HomeModel.RowKind.NOT_INSTALLED, rows.get(1).kind);
+        assertEquals(Arrays.asList("Celeste", "Apex"), titles(rows.get(1).cards));
+        // Each row is exactly its chip.
+        for (HomeModel.Row row : rows) {
+            assertNotNull(row.filter, AllGamesActivity.filterOf(model, row.filter));
+            assertEquals(row.total, AllGamesActivity.cardsOf(model, row.filter).size());
+        }
+    }
+
+    @Test
+    public void withEveryGameInstalledInstallationIsNotOfferedAndShowsStores() throws Exception {
+        tower(Collections.emptyList(), game(1, "Alpha", "steam", true, null), game(2, "Beta", "steam", true, null));
+        HomeModel model = model();
+        assertFalse(model.hasInstallationSplit());
+        assertEquals(model.rows, model.rows(HomeView.Group.INSTALLATION));
+    }
+
+    @Test
+    public void aLibraryThatCannotSortKeepsTheTitles() throws Exception {
+        fourGames();
+        LibraryOrder.use(request -> "{\"error\":\"invalid\",\"detail\":\"no\"}");
+        HomeModel model = model();
+        assertEquals(titles(model.allGames), titles(model.sorted(NEWEST).allGames));
+    }
+
+    @Test
+    public void aSortedRowOverTheCapStillEndsInItsAllTile() throws Exception {
+        String[] games = new String[HomeModel.ROW_CAP + 5];
+        for (int i = 0; i < games.length; i++) games[i] = game(i + 1, "Game " + (100 + i), "steam", true, 1000L + i);
+        tower(Collections.emptyList(), games);
+        newestFirst();
+        HomeModel.Row steam = model().sorted(NEWEST).row("shelf:store:steam");
+        assertTrue(steam.hasMore());
+        assertEquals(HomeModel.ROW_CAP, steam.cards.size());
+        assertEquals(games.length, steam.total);
+        assertEquals("Game " + (100 + games.length - 1), steam.cards.get(0).title);
+    }
+
+    @Test
+    public void playTimeSortsOnlyWhenSomePcSendsIt() throws Exception {
+        tower(Collections.emptyList(), game(1, "Beta", "steam", true, null), game(2, "Alpha", "steam", true, null));
+        LibraryOrder.use(request -> {
+            throw new AssertionError("asked: " + request);
+        });
+        HomeModel model = model();
+        assertFalse(model.hasPlaytime());
+        HomeView byPlaytime = new HomeView(HomeView.Layout.ROWS, HomeView.Group.STORE, HomeView.Size.MEDIUM,
+                HomeView.Sort.PLAYTIME, HomeView.Order.ASCENDING);
+        assertTrue("by title, A to Z, without asking", model == model.sorted(byPlaytime));
     }
 }

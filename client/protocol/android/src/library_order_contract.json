@@ -6,7 +6,7 @@
   },
   {
     "name": "play time, least first, unknown with never",
-    "request": {"key": "playtime", "direction": "ascending", "games": [{"title": "B", "playtime_minutes": 60}, {"title": "A", "playtime_minutes": null}, {"title": "C", "playtime_minutes": 0}]},
+    "request": {"key": "playtime", "direction": "ascending", "games": [{"title": "B", "playtime_minutes": 60}, {"title": "A"}, {"title": "C", "playtime_minutes": 0}]},
     "response": {"ok": {"order": [1, 2, 0]}}
   },
   {

@@ -388,6 +388,7 @@ public final class ConsoleRepository {
                     game.coverPath, game.coverVersion, game.installed, "", false, game.storeSource, game.storeName,
                     game.added, game.lastPlayed, game.launchable, game.collections, game.added && away.contains(game.appId));
             source.storeId = game.storeId;
+            source.playtimeMinutes = game.playtimeMinutes;
             sources.add(source);
         }
         return sources;

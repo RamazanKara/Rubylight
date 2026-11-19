@@ -26,4 +26,11 @@
     <string name="home_view_group_collection">Колекція</string>
     <string name="console_row_no_collection">Без колекції</string>
     <string name="console_filter_hidden">Приховані</string>
+    <string name="home_view_group_installation">Встановлення</string>
+    <string name="home_view_sort">Сортувати за</string>
+    <string name="home_view_sort_title">Назва</string>
+    <string name="home_view_sort_last_played">Остання гра</string>
+    <string name="home_view_sort_playtime">Час у грі</string>
+    <string name="home_view_order_ascending">За зростанням</string>
+    <string name="home_view_order_descending">За спаданням</string>
 </resources>

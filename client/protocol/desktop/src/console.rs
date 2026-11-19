@@ -6,8 +6,8 @@ use nightjar_core::http::native_api::library::{Game, Library};
 use nightjar_core::http::native_api::session::{ActionId, Session, State};
 
 use crate::strings::{en, tr, trf};
-use crate::config::{Favourite, HomeGroup, Recent};
-use nightjar_policy::collections;
+use crate::config::{Favourite, HomeGroup, HomeOrder, HomeSort, Recent};
+use nightjar_policy::{collections, library_order};
 use crate::hosts::{Host, Reach};
 
 /// One PC as the console sees it.
@@ -24,6 +24,8 @@ pub struct Source<'a> {
     pub classic: bool,
     /// When the library's games were last played, by install id (`Native::last_played`).
     pub last_played: Option<&'a std::collections::BTreeMap<String, u64>>,
+    /// How long the library's games were played, by install id (`Native::playtime_minutes`).
+    pub playtime_minutes: Option<&'a std::collections::BTreeMap<String, u64>>,
     /// The collections the library's games are in, by install id (`Native::collections`).
     pub collections: Option<&'a std::collections::BTreeMap<String, Vec<String>>>,
     /// The session, only while the PC is reachable (an old one is not shown for a PC that is away).
@@ -44,6 +46,7 @@ impl<'a> Source<'a> {
             library: host.library().filter(|_| host.paired()),
             classic: host.native.library.is_none() && host.classic.is_some(),
             last_played: host.paired().then_some(&host.native.last_played),
+            playtime_minutes: host.paired().then_some(&host.native.playtime_minutes),
             collections: host.paired().then_some(&host.native.collections),
             session: host.native.session.as_ref().filter(|_| online),
             host_control: host.native.host_control(),
@@ -122,6 +125,9 @@ pub struct Copy {
     /// When the PC says the game was last played (seconds since the epoch, `0` for never), None
     /// when it says nothing.
     pub last_played: Option<u64>,
+    /// How long the PC says the game was played, in minutes (`0` for never), None when it says
+    /// nothing.
+    pub playtime_minutes: Option<u64>,
     /// The collections its PC keeps it in, by name.
     pub collections: Vec<String>,
 }
@@ -148,6 +154,16 @@ impl Entry {
     /// Some PC has it installed; one that is not shows, but cannot start until it is.
     pub fn installed(&self) -> bool {
         self.copies.iter().any(|c| c.installed)
+    }
+
+    /// When its PCs say it was last played, the newest (`0` for never); None when none says.
+    pub fn pc_last_played(&self) -> Option<u64> {
+        self.copies.iter().filter_map(|c| c.last_played).max()
+    }
+
+    /// How long its PCs say it was played, the longest (`0` for never); None when none says.
+    pub fn playtime_minutes(&self) -> Option<u64> {
+        self.copies.iter().filter_map(|c| c.playtime_minutes).max()
     }
 
     /// The store of the copy that is opened first: the entry's row and filter.
@@ -209,6 +225,8 @@ pub enum LibraryFilter {
     All,
     /// Only what some PC has installed; offered only when something is not.
     Installed,
+    /// Only what no PC has installed; offered beside Installed.
+    NotInstalled,
     /// One store's games, by its key.
     Store(String),
     /// Every store's games, without the apps of no store: the Games row's chip; offered only
@@ -230,6 +248,7 @@ impl LibraryFilter {
         match self {
             Self::All => true,
             Self::Installed => entry.installed(),
+            Self::NotInstalled => !entry.installed(),
             Self::Store(key) => entry.store() == Some(key.as_str()),
             Self::Games => entry.store().is_some(),
             Self::Other => entry.store().is_none(),
@@ -244,6 +263,7 @@ impl LibraryFilter {
         match self {
             Self::All => "filter:all".into(),
             Self::Installed => "filter:installed".into(),
+            Self::NotInstalled => "filter:not-installed".into(),
             Self::Store(key) => format!("filter:store:{key}"),
             Self::Games => "filter:games".into(),
             Self::Other => "filter:other".into(),
@@ -277,8 +297,8 @@ fn stores_by_size(entries: &[Entry]) -> Vec<(String, String, usize)> {
     stores
 }
 
-/// The chips above All games for what the library has: All, Installed (only when something is
-/// not), Games, each store largest first, Other apps (Games and Other apps only when the library
+/// The chips above All games for what the library has: All, Installed and Not installed (only when
+/// the library has both), Games, each store largest first, Other apps (Games and Other apps only when the library
 /// has both), each collection by name, then the games in none. None for an empty library.
 pub fn library_filters(entries: &[Entry]) -> Vec<FilterChip> {
     if entries.is_empty() {
@@ -288,6 +308,9 @@ pub fn library_filters(entries: &[Entry]) -> Vec<FilterChip> {
     let installed = entries.iter().filter(|e| e.installed()).count();
     if installed < entries.len() {
         chips.push(FilterChip { filter: LibraryFilter::Installed, store_name: None, count: installed });
+        if installed > 0 {
+            chips.push(FilterChip { filter: LibraryFilter::NotInstalled, store_name: None, count: entries.len() - installed });
+        }
     }
     let stores = stores_by_size(entries);
     let other = entries.iter().filter(|e| e.store().is_none()).count();
@@ -316,24 +339,76 @@ fn collection_groups(entries: &[Entry]) -> Vec<collections::Group> {
     collections::groups(&names)
 }
 
-/// The grouping Home shows under the chosen one: by collection only while its PCs name any. The
-/// choice itself stays, for when they do again.
+/// The grouping Home shows under the chosen one: by collection only while its PCs name any, by
+/// installation only while the library has games installed and games not. The choice itself
+/// stays, for when it applies again.
 pub fn shown_group(group: HomeGroup, entries: &[Entry]) -> HomeGroup {
-    if group == HomeGroup::Collection && entries.iter().all(Entry::in_no_collection) {
-        HomeGroup::Store
-    } else {
+    let shown = match group {
+        HomeGroup::Collection => !entries.iter().all(Entry::in_no_collection),
+        HomeGroup::Installation => entries.iter().any(Entry::installed) && !entries.iter().all(Entry::installed),
+        _ => true,
+    };
+    if shown {
         group
+    } else {
+        HomeGroup::Store
     }
 }
 
-/// The groupings the View menu steps through: Collection only while the PCs name any.
+/// The groupings the View menu steps through: Collection only while the PCs name any, Installation
+/// only while the library has games installed and games not.
 pub fn offered_groups(entries: &[Entry]) -> Vec<HomeGroup> {
     HomeGroup::ALL.into_iter().filter(|group| shown_group(*group, entries) == *group).collect()
 }
 
-/// The games a filter shows, in the order All games lists them (by title).
-pub fn filtered<'a>(entries: &'a [Entry], filter: &LibraryFilter) -> Vec<&'a Entry> {
-    entries.iter().filter(|e| filter.matches(e)).collect()
+/// How Home's rows and All games are sorted: the View's Sort by and Order.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Sort {
+    pub by: HomeSort,
+    pub order: HomeOrder,
+}
+
+impl Sort {
+    pub fn of(settings: &crate::config::Settings) -> Self {
+        Self { by: settings.home_sort, order: settings.home_order }
+    }
+
+    /// The sort Home shows under the chosen one: by play time only while some PC says how long a
+    /// game of `entries` was played, else by title, as [`shown_group`] does for collections.
+    pub fn shown(settings: &crate::config::Settings, entries: &[Entry]) -> Self {
+        let chosen = Self::of(settings);
+        if offered_sorts(entries).contains(&chosen.by) {
+            chosen
+        } else {
+            Self { by: HomeSort::Title, ..chosen }
+        }
+    }
+
+    /// `games` in this order, through the rule Android sorts with too
+    /// (`nightjar_policy::library_order`): the newest time and longest play any PC says.
+    pub fn apply(self, games: Vec<&Entry>) -> Vec<&Entry> {
+        if self == Self::default() {
+            // The merge already lists by title.
+            return games;
+        }
+        let facts: Vec<library_order::Facts> = games
+            .iter()
+            .map(|e| library_order::Facts { title: e.title.clone(), last_played: e.pc_last_played(), playtime_minutes: e.playtime_minutes() })
+            .collect();
+        library_order::order(&facts, self.by.key(), self.order.direction()).into_iter().map(|at| games[at]).collect()
+    }
+}
+
+/// The sorts the View menu steps through: Play time only while some PC says how long a game was
+/// played.
+pub fn offered_sorts(entries: &[Entry]) -> Vec<HomeSort> {
+    let timed = entries.iter().any(|e| e.playtime_minutes().is_some());
+    HomeSort::ALL.into_iter().filter(|sort| *sort != HomeSort::Playtime || timed).collect()
+}
+
+/// The games a filter shows, in the order All games lists them.
+pub fn filtered<'a>(entries: &'a [Entry], filter: &LibraryFilter, sort: Sort) -> Vec<&'a Entry> {
+    sort.apply(entries.iter().filter(|e| filter.matches(e)).collect())
 }
 
 /// Which of Home's library rows: one per store, every store's games in one, or the apps of no store.
@@ -350,6 +425,10 @@ pub enum RowKind {
     Collection { name: String },
     /// The games in no collection, after the collections.
     NoCollection,
+    /// The games some PC has installed (Home grouped by installation).
+    Installed,
+    /// The games no PC has installed, after them.
+    NotInstalled,
 }
 
 /// A library row on Home: its games, installed first, and the All games filter its "All N"
@@ -371,6 +450,8 @@ impl LibraryRow<'_> {
             RowKind::Library => "row:library".into(),
             RowKind::Collection { name } => format!("row:collection:{}", name.to_lowercase()),
             RowKind::NoCollection => "row:no-collection".into(),
+            RowKind::Installed => "row:installed".into(),
+            RowKind::NotInstalled => "row:not-installed".into(),
         }
     }
 
@@ -388,15 +469,15 @@ pub fn fit_row(games: usize, room: usize) -> (usize, bool) {
 }
 
 /// Home's library rows: one per store, largest first (ties by key), then the apps of no store.
-/// Within a row the installed games come first, each part by title. Android's TV Home rows.
-pub fn library_rows(entries: &[Entry]) -> Vec<LibraryRow<'_>> {
+/// Within a row the installed games come first, each part in `sort`'s order. Android's TV Home rows.
+pub fn library_rows(entries: &[Entry], sort: Sort) -> Vec<LibraryRow<'_>> {
     let stores = stores_by_size(entries);
     let mut rows: Vec<LibraryRow<'_>> = stores
         .iter()
         .map(|(key, name, _)| LibraryRow {
             kind: RowKind::Store { key: key.clone(), name: name.clone() },
             filter: LibraryFilter::Store(key.clone()),
-            games: installed_first(entries.iter().filter(|e| e.store() == Some(key.as_str())).collect()),
+            games: arrange(entries.iter().filter(|e| e.store() == Some(key.as_str())).collect(), sort),
         })
         .collect();
     let other: Vec<&Entry> = entries.iter().filter(|e| e.store().is_none()).collect();
@@ -405,7 +486,7 @@ pub fn library_rows(entries: &[Entry]) -> Vec<LibraryRow<'_>> {
         rows.push(LibraryRow {
             kind: if plain { RowKind::Library } else { RowKind::Other },
             filter: if plain { LibraryFilter::All } else { LibraryFilter::Other },
-            games: installed_first(other),
+            games: arrange(other, sort),
         });
     }
     rows
@@ -413,22 +494,31 @@ pub fn library_rows(entries: &[Entry]) -> Vec<LibraryRow<'_>> {
 
 /// Home's library rows under its View: [`library_rows`] by store; by type, the games of every
 /// store in one Games row and the apps of no store (launchers, the desktop) in Other apps; or the
-/// whole library as one Library row that opens All games. Installed first, each part by title;
+/// whole library as one Library row that opens All games. Installed first, each part in `sort`'s
+/// order;
 /// every entry, installed or not, as by store (Android's ungrouped grid alone keeps to installed
 /// games). A title is a game when its PC says which store it is from: PCs send nothing else that
 /// tells games from apps. A library with no stores at all is one Library row by type too. By
 /// collection, a row per collection by name, a game in several in each, then the games in none;
-/// by store while no game is in one ([`shown_group`]).
-pub fn home_rows(entries: &[Entry], group: HomeGroup) -> Vec<LibraryRow<'_>> {
+/// by store while no game is in one ([`shown_group`]). By installation, the installed games, then
+/// the rest, each in `sort`'s order; by store while the library is all one or the other.
+pub fn home_rows(entries: &[Entry], group: HomeGroup, sort: Sort) -> Vec<LibraryRow<'_>> {
     let group = shown_group(group, entries);
     if group == HomeGroup::Store {
-        return library_rows(entries);
+        return library_rows(entries, sort);
+    }
+    if group == HomeGroup::Installation {
+        let (installed, not): (Vec<&Entry>, Vec<&Entry>) = entries.iter().partition(|e| e.installed());
+        return vec![
+            LibraryRow { kind: RowKind::Installed, filter: LibraryFilter::Installed, games: sort.apply(installed) },
+            LibraryRow { kind: RowKind::NotInstalled, filter: LibraryFilter::NotInstalled, games: sort.apply(not) },
+        ];
     }
     if group == HomeGroup::Collection {
         return collection_groups(entries)
             .into_iter()
             .map(|part| {
-                let games = installed_first(part.games.iter().map(|at| &entries[*at]).collect());
+                let games = arrange(part.games.iter().map(|at| &entries[*at]).collect(), sort);
                 match part.name {
                     Some(name) => LibraryRow { filter: LibraryFilter::Collection(name.clone()), kind: RowKind::Collection { name }, games },
                     None => LibraryRow { kind: RowKind::NoCollection, filter: LibraryFilter::NoCollection, games },
@@ -439,7 +529,7 @@ pub fn home_rows(entries: &[Entry], group: HomeGroup) -> Vec<LibraryRow<'_>> {
     if entries.is_empty() {
         return Vec::new();
     }
-    let whole = || LibraryRow { kind: RowKind::Library, filter: LibraryFilter::All, games: installed_first(entries.iter().collect()) };
+    let whole = || LibraryRow { kind: RowKind::Library, filter: LibraryFilter::All, games: arrange(entries.iter().collect(), sort) };
     if group == HomeGroup::None {
         return vec![whole()];
     }
@@ -449,15 +539,17 @@ pub fn home_rows(entries: &[Entry], group: HomeGroup) -> Vec<LibraryRow<'_>> {
     }
     // Its All tile opens the Games chip, which is there only beside apps; without them All is the same.
     let filter = if apps.is_empty() { LibraryFilter::All } else { LibraryFilter::Games };
-    let mut rows = vec![LibraryRow { kind: RowKind::Games, filter, games: installed_first(games) }];
+    let mut rows = vec![LibraryRow { kind: RowKind::Games, filter, games: arrange(games, sort) }];
     if !apps.is_empty() {
-        rows.push(LibraryRow { kind: RowKind::Other, filter: LibraryFilter::Other, games: installed_first(apps) });
+        rows.push(LibraryRow { kind: RowKind::Other, filter: LibraryFilter::Other, games: arrange(apps, sort) });
     }
     rows
 }
 
-fn installed_first(mut games: Vec<&Entry>) -> Vec<&Entry> {
-    // Stable: the titles stay in order within each part.
+/// A row's games in `sort`'s order, the installed ones first.
+fn arrange(games: Vec<&Entry>, sort: Sort) -> Vec<&Entry> {
+    let mut games = sort.apply(games);
+    // Stable: the sort's order stays within each part.
     games.sort_by_key(|e| !e.installed());
     games
 }
@@ -519,6 +611,7 @@ pub fn merge_library(sources: &[Source<'_>]) -> Vec<Entry> {
                 store_name: game.store.as_ref().filter(|s| !s.source.is_empty()).map(|s| store_name(&s.source, &s.name)),
                 has_cover: game.artwork.cover.is_some(),
                 last_played: source.last_played.and_then(|played| played.get(&game.install_id).copied()),
+                playtime_minutes: source.playtime_minutes.and_then(|minutes| minutes.get(&game.install_id).copied()),
                 collections: source.collections.and_then(|names| names.get(&game.install_id).cloned()).unwrap_or_default(),
             };
             match index.get(&key) {
@@ -767,6 +860,7 @@ struct Seen {
     library: Option<Library>,
     classic: bool,
     last_played: Option<std::collections::BTreeMap<String, u64>>,
+    playtime_minutes: Option<std::collections::BTreeMap<String, u64>>,
     collections: Option<std::collections::BTreeMap<String, Vec<String>>>,
     session: Option<Session>,
     host_control: bool,
@@ -776,7 +870,7 @@ impl Seen {
     // Both ways take a `Source` apart by name, with no `..`: a field added to it does not build
     // until it is kept and compared here, so the merge cannot come to read something this misses.
     fn of(source: &Source<'_>) -> Self {
-        let Source { id, unique_id, name, online, paired, library, classic, last_played, collections, session, host_control } = *source;
+        let Source { id, unique_id, name, online, paired, library, classic, last_played, playtime_minutes, collections, session, host_control } = *source;
         Self {
             id,
             unique_id: unique_id.to_owned(),
@@ -786,6 +880,7 @@ impl Seen {
             library: library.cloned(),
             classic,
             last_played: last_played.cloned(),
+            playtime_minutes: playtime_minutes.cloned(),
             collections: collections.cloned(),
             session: session.cloned(),
             host_control,
@@ -793,7 +888,7 @@ impl Seen {
     }
 
     fn is(&self, source: &Source<'_>) -> bool {
-        let Source { id, unique_id, name, online, paired, library, classic, last_played, collections, session, host_control } = *source;
+        let Source { id, unique_id, name, online, paired, library, classic, last_played, playtime_minutes, collections, session, host_control } = *source;
         self.id == id
             && self.unique_id == unique_id
             && self.name == name
@@ -803,6 +898,7 @@ impl Seen {
             && self.classic == classic
             && self.session.as_ref() == session
             && self.last_played.as_ref() == last_played
+            && self.playtime_minutes.as_ref() == playtime_minutes
             && self.collections.as_ref() == collections
             && self.library.as_ref() == library
     }

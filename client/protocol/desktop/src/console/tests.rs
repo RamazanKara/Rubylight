@@ -22,7 +22,7 @@ fn idle() -> Session {
 }
 
 fn source<'a>(id: u64, name: &'a str, online: bool, library: Option<&'a Library>, session: Option<&'a Session>) -> Source<'a> {
-    Source { id, unique_id: "", name, online, paired: true, library, classic: false, last_played: None, collections: None, session, host_control: false }
+    Source { id, unique_id: "", name, online, paired: true, library, classic: false, last_played: None, playtime_minutes: None, collections: None, session, host_control: false }
 }
 
 const DOTA: u32 = 1093052211;
@@ -43,15 +43,15 @@ fn home_groups_by_collection_with_a_game_in_each_and_the_rest_last() {
     let names = in_collections(&lib);
     let sources = [Source { collections: Some(&names), ..source(1, "A", true, Some(&lib), None) }];
     let entries = merge_library(&sources);
-    let rows = home_rows(&entries, HomeGroup::Collection);
+    let rows = home_rows(&entries, HomeGroup::Collection, Sort::default());
     let kinds: Vec<&RowKind> = rows.iter().map(|r| &r.kind).collect();
     assert_eq!(kinds, [&RowKind::Collection { name: "Couch".into() }, &RowKind::Collection { name: "VR".into() }, &RowKind::NoCollection]);
     assert_eq!(rows[0].games[0].title, lib.games[0].title);
     assert_eq!(rows[1].games[0].title, lib.games[0].title, "in each of its collections");
     assert_eq!(rows[2].games.len(), entries.len() - 1, "every other game once, last");
     assert_eq!(rows[0].filter, LibraryFilter::Collection("Couch".into()));
-    assert_eq!(filtered(&entries, &rows[0].filter).len(), 1);
-    assert_eq!(filtered(&entries, &LibraryFilter::NoCollection).len(), entries.len() - 1);
+    assert_eq!(filtered(&entries, &rows[0].filter, Sort::default()).len(), 1);
+    assert_eq!(filtered(&entries, &LibraryFilter::NoCollection, Sort::default()).len(), entries.len() - 1);
     let chips = library_filters(&entries);
     assert!(chips.iter().any(|c| c.filter == LibraryFilter::Collection("VR".into()) && c.count == 1), "{chips:?}");
     assert!(chips.iter().any(|c| c.filter == LibraryFilter::NoCollection), "{chips:?}");
@@ -65,8 +65,8 @@ fn with_no_collections_the_grouping_is_not_offered_and_a_saved_choice_shows_stor
     let entries = merge_library(&sources);
     assert!(!offered_groups(&entries).contains(&HomeGroup::Collection));
     assert_eq!(shown_group(HomeGroup::Collection, &entries), HomeGroup::Store);
-    let chosen: Vec<RowKind> = home_rows(&entries, HomeGroup::Collection).into_iter().map(|r| r.kind).collect();
-    let by_store: Vec<RowKind> = home_rows(&entries, HomeGroup::Store).into_iter().map(|r| r.kind).collect();
+    let chosen: Vec<RowKind> = home_rows(&entries, HomeGroup::Collection, Sort::default()).into_iter().map(|r| r.kind).collect();
+    let by_store: Vec<RowKind> = home_rows(&entries, HomeGroup::Store, Sort::default()).into_iter().map(|r| r.kind).collect();
     assert_eq!(chosen, by_store);
     assert!(!library_filters(&entries).iter().any(|c| matches!(c.filter, LibraryFilter::Collection(_) | LibraryFilter::NoCollection)));
 }
@@ -342,6 +342,7 @@ fn the_filters_are_all_installed_each_store_by_size_and_other_apps() {
         [
             (LibraryFilter::All, None, 8),
             (LibraryFilter::Installed, None, 6),
+            (LibraryFilter::NotInstalled, None, 2),
             (LibraryFilter::Games, None, 7),
             (store("steam"), Some("Steam"), 3),
             (store("microsoft"), Some("Xbox"), 2),
@@ -353,9 +354,9 @@ fn the_filters_are_all_installed_each_store_by_size_and_other_apps() {
     );
     // Every chip shows exactly as many games as it says, by title.
     for chip in &chips {
-        assert_eq!(filtered(&entries, &chip.filter).len(), chip.count, "{:?}", chip.filter);
+        assert_eq!(filtered(&entries, &chip.filter, Sort::default()).len(), chip.count, "{:?}", chip.filter);
     }
-    let titles = |f: &LibraryFilter| filtered(&entries, f).iter().map(|e| e.title.as_str()).collect::<Vec<_>>();
+    let titles = |f: &LibraryFilter| filtered(&entries, f, Sort::default()).iter().map(|e| e.title.as_str()).collect::<Vec<_>>();
     assert_eq!(titles(&store("steam")), ["Celeste", "Hades", "Portal"]);
     assert_eq!(titles(&LibraryFilter::Installed), ["Celeste", "Fortnite", "Forza", "Halo", "Notepad", "Portal"]);
     assert_eq!(titles(&LibraryFilter::Other), ["Notepad"]);
@@ -367,7 +368,7 @@ fn epic_battle_net_and_xbox_behave_exactly_like_steam() {
     let sources = [source(1, "A", true, Some(&lib), None)];
     let entries = merge_library(&sources);
     let chips = library_filters(&entries);
-    let rows = library_rows(&entries);
+    let rows = library_rows(&entries, Sort::default());
     for key in ["steam", "epic", "battlenet", "microsoft"] {
         let filter = LibraryFilter::Store(key.into());
         assert_eq!(chips.iter().filter(|c| c.filter == filter).map(|c| c.count).collect::<Vec<_>>(), [1], "{key}: one chip");
@@ -382,7 +383,7 @@ fn home_rows_are_one_per_store_largest_first_installed_first_then_other_apps() {
     let lib = mixed();
     let sources = [source(1, "A", true, Some(&lib), None)];
     let entries = merge_library(&sources);
-    let rows = library_rows(&entries);
+    let rows = library_rows(&entries, Sort::default());
     let got: Vec<(String, Vec<&str>)> = rows.iter().map(|r| (r.key(), r.games.iter().map(|e| e.title.as_str()).collect())).collect();
     assert_eq!(
         got,
@@ -400,7 +401,7 @@ fn home_rows_are_one_per_store_largest_first_installed_first_then_other_apps() {
     let plain = store_library(&[("B", "", "", true), ("A", "", "", true)]);
     let sources = [source(1, "A", true, Some(&plain), None)];
     let entries = merge_library(&sources);
-    let rows = library_rows(&entries);
+    let rows = library_rows(&entries, Sort::default());
     assert_eq!(rows.len(), 1);
     assert_eq!((rows[0].kind.clone(), rows[0].filter.clone()), (RowKind::Library, LibraryFilter::All));
     assert_eq!(library_filters(&entries).len(), 1, "only All: no Other chip without stores");
@@ -411,15 +412,15 @@ fn home_rows_not_by_store_are_one_library_row_of_every_game_installed_first() {
     let lib = mixed();
     let sources = [source(1, "A", true, Some(&lib), None)];
     let entries = merge_library(&sources);
-    assert_eq!(home_rows(&entries, HomeGroup::Store), library_rows(&entries));
-    let rows = home_rows(&entries, HomeGroup::None);
+    assert_eq!(home_rows(&entries, HomeGroup::Store, Sort::default()), library_rows(&entries, Sort::default()));
+    let rows = home_rows(&entries, HomeGroup::None, Sort::default());
     assert_eq!(rows.len(), 1);
     assert_eq!((rows[0].kind.clone(), rows[0].filter.clone(), rows[0].key()), (RowKind::Library, LibraryFilter::All, "row:library".to_owned()));
     assert_eq!(rows[0].games.len(), entries.len(), "every game, whatever its store");
     let installed: Vec<bool> = rows[0].games.iter().map(|e| e.installed()).collect();
     assert!(installed.windows(2).all(|w| w[0] || !w[1]), "installed first: {installed:?}");
     assert!(installed.contains(&false), "the fixture has a game that is not installed");
-    assert!(home_rows(&[], HomeGroup::None).is_empty());
+    assert!(home_rows(&[], HomeGroup::None, Sort::default()).is_empty());
 }
 
 #[test]
@@ -427,7 +428,7 @@ fn home_rows_by_type_are_every_stores_games_then_the_apps_of_no_store() {
     let lib = mixed();
     let sources = [source(1, "A", true, Some(&lib), None)];
     let entries = merge_library(&sources);
-    let rows = home_rows(&entries, HomeGroup::Type);
+    let rows = home_rows(&entries, HomeGroup::Type, Sort::default());
     let got: Vec<(String, LibraryFilter)> = rows.iter().map(|r| (r.key(), r.filter.clone())).collect();
     assert_eq!(got, [("row:games".to_owned(), LibraryFilter::Games), ("row:other".to_owned(), LibraryFilter::Other)]);
     // Each row is exactly its All tile's chip: the same games, the same count.
@@ -435,7 +436,7 @@ fn home_rows_by_type_are_every_stores_games_then_the_apps_of_no_store() {
     for row in &rows {
         let chip = chips.iter().find(|c| c.filter == row.filter).expect("the row's chip");
         assert_eq!(chip.count, row.games.len(), "{:?}", row.filter);
-        let mut shown: Vec<&str> = filtered(&entries, &row.filter).iter().map(|e| e.title.as_str()).collect();
+        let mut shown: Vec<&str> = filtered(&entries, &row.filter, Sort::default()).iter().map(|e| e.title.as_str()).collect();
         let mut held: Vec<&str> = row.games.iter().map(|e| e.title.as_str()).collect();
         shown.sort_unstable();
         held.sort_unstable();
@@ -450,13 +451,13 @@ fn home_rows_by_type_are_every_stores_games_then_the_apps_of_no_store() {
     let plain = store_library(&[("B", "", "", true), ("A", "", "", true)]);
     let sources = [source(1, "A", true, Some(&plain), None)];
     let entries = merge_library(&sources);
-    assert_eq!(home_rows(&entries, HomeGroup::Type), home_rows(&entries, HomeGroup::None));
+    assert_eq!(home_rows(&entries, HomeGroup::Type, Sort::default()), home_rows(&entries, HomeGroup::None, Sort::default()));
     // Only games: just the Games row.
     let games = store_library(&[("Portal", "steam", "", true)]);
     let sources = [source(1, "A", true, Some(&games), None)];
     let entries = merge_library(&sources);
-    assert_eq!(home_rows(&entries, HomeGroup::Type).iter().map(LibraryRow::key).collect::<Vec<_>>(), ["row:games"]);
-    assert!(home_rows(&[], HomeGroup::Type).is_empty());
+    assert_eq!(home_rows(&entries, HomeGroup::Type, Sort::default()).iter().map(LibraryRow::key).collect::<Vec<_>>(), ["row:games"]);
+    assert!(home_rows(&[], HomeGroup::Type, Sort::default()).is_empty());
 }
 
 #[test]
@@ -464,12 +465,12 @@ fn a_row_shows_what_fits_and_ends_in_the_all_tile_when_more_follow() {
     let lib = mixed();
     let sources = [source(1, "A", true, Some(&lib), None)];
     let entries = merge_library(&sources);
-    let steam = &library_rows(&entries)[0];
+    let steam = &library_rows(&entries, Sort::default())[0];
     assert_eq!(fit_row(steam.games.len(), 3), (3, false), "three fit whole");
     assert_eq!(fit_row(steam.games.len(), 8), (3, false));
     assert_eq!(fit_row(steam.games.len(), 2), (1, true), "one game and the All tile");
     assert_eq!(fit_row(steam.games.len(), 0), (0, true), "a window too narrow for two still shows the tile");
-    assert!(library_filters(&[]).is_empty() && library_rows(&[]).is_empty());
+    assert!(library_filters(&[]).is_empty() && library_rows(&[], Sort::default()).is_empty());
 }
 
 #[test]
@@ -604,7 +605,7 @@ fn host_cards_say_what_they_know() {
     some_missing.games[1].installed = Some(false);
     assert_eq!(host_line(&source(1, "A", true, Some(&some_missing), None)), HostLine::Games(2));
     let entries = merge_library(&[source(1, "A", true, Some(&some_missing), None)]);
-    assert_eq!(library_rows(&entries).iter().map(|r| r.games.len()).sum::<usize>(), 2);
+    assert_eq!(library_rows(&entries, Sort::default()).iter().map(|r| r.games.len()).sum::<usize>(), 2);
 }
 
 #[test]
@@ -857,6 +858,7 @@ struct Pc {
     library: Option<Library>,
     classic: bool,
     last_played: Option<std::collections::BTreeMap<String, u64>>,
+    playtime_minutes: Option<std::collections::BTreeMap<String, u64>>,
     collections: Option<std::collections::BTreeMap<String, Vec<String>>>,
     session: Option<Session>,
     host_control: bool,
@@ -873,6 +875,7 @@ fn sources_of(pcs: &[Pc]) -> Vec<Source<'_>> {
             library: pc.library.as_ref(),
             classic: pc.classic,
             last_played: pc.last_played.as_ref(),
+            playtime_minutes: pc.playtime_minutes.as_ref(),
             collections: pc.collections.as_ref(),
             session: pc.session.as_ref(),
             host_control: pc.host_control,
@@ -892,6 +895,7 @@ fn two_pcs() -> (Vec<Pc>, Vec<Favourite>) {
         library: Some(lib.clone()),
         classic: false,
         last_played: Some([(lib.games[0].install_id.clone(), 100)].into()),
+        playtime_minutes: Some([(lib.games[0].install_id.clone(), 30)].into()),
         collections: Some(in_collections(&lib)),
         session: Some(idle()),
         host_control: false,
@@ -928,6 +932,8 @@ const CHANGES: &[(&str, bool, Change)] = &[
     ("a library goes", true, |pcs, _| pcs[1].library = None),
     ("a game was played", true, |pcs, _| *pcs[0].last_played.as_mut().unwrap().values_mut().next().unwrap() = 200),
     ("the last played times go", true, |pcs, _| pcs[0].last_played = None),
+    ("a game's play time grew", true, |pcs, _| *pcs[0].playtime_minutes.as_mut().unwrap().values_mut().next().unwrap() = 90),
+    ("the play times go", true, |pcs, _| pcs[0].playtime_minutes = None),
     ("a game leaves a collection", true, |pcs, _| drop(pcs[0].collections.as_mut().unwrap().values_mut().next().unwrap().pop())),
     ("the collections go", true, |pcs, _| pcs[0].collections = None),
     ("a session starts", true, |pcs, _| pcs[1].session = Some(session())),
@@ -1015,4 +1021,62 @@ fn the_kept_library_is_the_merge_and_its_split() {
     let merged = memo.get(&sources, &[]);
     assert_eq!(merged.shown(), merge_library(&sources));
     assert!(merged.hidden().is_empty());
+}
+/// Four games of one PC: two installed, times as the PC says them.
+fn sortable() -> (Library, std::collections::BTreeMap<String, u64>, std::collections::BTreeMap<String, u64>) {
+    let game = |id: &str, title: &str, installed: bool| {
+        serde_json::json!({"install_id": id, "app_id": id.parse::<u32>().unwrap(), "title": title, "game_id": format!("steam:{id}"),
+            "store": {"source": "steam", "id": id, "name": "Steam"}, "installed": installed, "running": false, "artwork": {"version": id}})
+    };
+    let library: Library = serde_json::from_value(serde_json::json!({"revision": "r", "games": [
+        game("1", "Hades", true), game("2", "Celeste", false), game("3", "balatro", true), game("4", "Apex", false)]}))
+    .unwrap();
+    let played = [("1", 300), ("2", 900), ("3", 0)].map(|(id, at)| (id.to_owned(), at)).into();
+    let minutes = [("1", 40), ("2", 10), ("3", 600)].map(|(id, at)| (id.to_owned(), at)).into();
+    (library, played, minutes)
+}
+
+#[test]
+fn rows_and_all_games_follow_the_chosen_sort_with_the_installed_first() {
+    let (lib, played, minutes) = sortable();
+    let sources = [Source { last_played: Some(&played), playtime_minutes: Some(&minutes), ..source(1, "A", true, Some(&lib), None) }];
+    let entries = merge_library(&sources);
+    let titles = |games: &[&Entry]| games.iter().map(|e| e.title.clone()).collect::<Vec<_>>();
+    let by = |by: HomeSort, order: HomeOrder| Sort { by, order };
+    let row = |sort: Sort| titles(&library_rows(&entries, sort)[0].games);
+    assert_eq!(row(Sort::default()), ["balatro", "Hades", "Apex", "Celeste"], "installed first, each part A to Z");
+    assert_eq!(row(by(HomeSort::LastPlayed, HomeOrder::Descending)), ["Hades", "balatro", "Celeste", "Apex"]);
+    assert_eq!(row(by(HomeSort::Playtime, HomeOrder::Descending)), ["balatro", "Hades", "Celeste", "Apex"]);
+    assert_eq!(row(by(HomeSort::Title, HomeOrder::Descending)), ["Hades", "balatro", "Celeste", "Apex"]);
+    let all = filtered(&entries, &LibraryFilter::All, by(HomeSort::LastPlayed, HomeOrder::Descending));
+    assert_eq!(titles(&all), ["Celeste", "Hades", "Apex", "balatro"], "All games sorts without putting the installed first");
+}
+
+#[test]
+fn grouped_by_installation_the_installed_come_in_a_row_of_their_own() {
+    let (lib, played, minutes) = sortable();
+    let sources = [Source { last_played: Some(&played), playtime_minutes: Some(&minutes), ..source(1, "A", true, Some(&lib), None) }];
+    let entries = merge_library(&sources);
+    assert!(offered_groups(&entries).contains(&HomeGroup::Installation));
+    let rows = home_rows(&entries, HomeGroup::Installation, Sort { by: HomeSort::LastPlayed, order: HomeOrder::Descending });
+    let got: Vec<(RowKind, Vec<&str>)> = rows.iter().map(|r| (r.kind.clone(), r.games.iter().map(|e| e.title.as_str()).collect())).collect();
+    assert_eq!(got, [(RowKind::Installed, vec!["Hades", "balatro"]), (RowKind::NotInstalled, vec!["Celeste", "Apex"])]);
+    for row in &rows {
+        assert_eq!(filtered(&entries, &row.filter, Sort::default()).len(), row.games.len(), "its All tile opens its games");
+    }
+    let installed: Vec<Entry> = entries.iter().filter(|e| e.installed()).cloned().collect();
+    assert_eq!(shown_group(HomeGroup::Installation, &installed), HomeGroup::Store, "all installed: nothing to split");
+    assert!(!offered_groups(&installed).contains(&HomeGroup::Installation));
+}
+
+#[test]
+fn play_time_is_offered_only_while_some_pc_sends_it() {
+    let (lib, played, minutes) = sortable();
+    let timed = merge_library(&[Source { last_played: Some(&played), playtime_minutes: Some(&minutes), ..source(1, "A", true, Some(&lib), None) }]);
+    assert_eq!(offered_sorts(&timed), HomeSort::ALL);
+    let untimed = merge_library(&[source(1, "A", true, Some(&lib), None)]);
+    assert_eq!(offered_sorts(&untimed), [HomeSort::Title, HomeSort::LastPlayed]);
+    let settings = crate::config::Settings { home_sort: HomeSort::Playtime, home_order: HomeOrder::Descending, ..Default::default() };
+    assert_eq!(Sort::shown(&settings, &timed), Sort { by: HomeSort::Playtime, order: HomeOrder::Descending });
+    assert_eq!(Sort::shown(&settings, &untimed), Sort { by: HomeSort::Title, order: HomeOrder::Descending }, "the choice stays for when it does");
 }

@@ -437,7 +437,7 @@ const SAME_IN_ENGLISH: &[&str] = &[
     "Options", "Axes", "Compact", "Direct", "{} minutes", "Passphrase", "Home", "Upscaling", "Folder", "Layout", "Logs", "Link",
     "5.1 surround", "7.1 surround", "7.1.4 surround", "Game Bar", "Collection", "Online", "Desktop", "Renderer", "PC",
     "Low Latency Mode", "Smooth Motion", "PyroWave", "USB", "Decoder", "Image", "System", "Frame Warp", "RTX HDR", "RTX Video",
-    "Online · {}", "Internet (IPv6)", "Controller", "Details", "Standard", "Genre", "Genres", "{} h",
+    "Online · {}", "Internet (IPv6)", "Controller", "Details", "Standard", "Genre", "Genres", "{} h", "Installation",
 ];
 
 #[test]

@@ -1,0 +1,17 @@
+[
+  {
+    "name": "last played, newest first, never played last, ties by title",
+    "request": {"key": "last_played", "direction": "descending", "games": [{"title": "hades", "last_played": 300}, {"title": "Celeste", "last_played": 0}, {"title": "Balatro", "last_played": 900}, {"title": "Apex", "last_played": 300}]},
+    "response": {"ok": {"order": [2, 3, 0, 1]}}
+  },
+  {
+    "name": "play time, least first, unknown with never",
+    "request": {"key": "playtime", "direction": "ascending", "games": [{"title": "B", "playtime_minutes": 60}, {"title": "A", "playtime_minutes": null}, {"title": "C", "playtime_minutes": 0}]},
+    "response": {"ok": {"order": [1, 2, 0]}}
+  },
+  {
+    "name": "title by default",
+    "request": {"games": [{"title": "b"}, {"title": "A"}]},
+    "response": {"ok": {"order": [1, 0]}}
+  }
+]

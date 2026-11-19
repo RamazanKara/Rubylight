@@ -15,6 +15,7 @@ pub mod continue_here;
 pub mod controllers;
 pub mod game_info;
 pub mod launch;
+pub mod library_order;
 pub mod open_play;
 pub mod overlay;
 pub mod presets;

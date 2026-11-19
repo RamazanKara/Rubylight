@@ -26,7 +26,8 @@ pub struct Game {
     pub categories: Vec<String>,
     pub plugin_id: String,
     pub plugin_name: String,
-    pub playtime_minutes: u64,
+    /// Minutes played, `None` when the plugin sent none or one that doesn't parse.
+    pub playtime_minutes: Option<u64>,
     /// Unix seconds, if Playnite has a valid last played time.
     pub last_played: Option<i64>,
     /// Playnite sent a last played time that doesn't parse: when is unknown, not never.
@@ -151,7 +152,7 @@ fn game(value: &Value, local: &dyn Fn(i64) -> Option<i64>) -> Option<Game> {
             .unwrap_or_default(),
         plugin_id: text(value, "pluginId"),
         plugin_name: text(value, "pluginName"),
-        playtime_minutes: text(value, "playtimeMinutes").parse().unwrap_or(0),
+        playtime_minutes: text(value, "playtimeMinutes").trim().parse().ok(),
         last_played,
         last_played_unknown: !played.trim().is_empty() && last_played.is_none(),
         box_art_path: text(value, "boxArtPath"),

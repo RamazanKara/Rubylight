@@ -560,6 +560,20 @@ pub fn last_played() -> Vec<(String, u64)> {
         })
         .collect()
 }
+/// How long Playnite says each game it last reported was played, in minutes, for the native
+/// library's `playtime_minutes` (`native::Scan::played_for`). Nothing before the plugin's first
+/// snapshot, nor for a game whose time the plugin didn't send.
+pub fn playtime() -> Vec<(String, u64)> {
+    let catalog = CATALOG.lock().unwrap();
+    catalog
+        .games
+        .iter()
+        .filter_map(|game| {
+            let minutes = game.playtime_minutes?;
+            Some((butterpollo_core::native::playnite_key(&game.id), minutes))
+        })
+        .collect()
+}
 /// The categories of the games the plugin last reported, by [`butterpollo_core::native::playnite_key`].
 #[cfg(not(test))]
 pub fn collections() -> Vec<(String, Vec<String>)> {

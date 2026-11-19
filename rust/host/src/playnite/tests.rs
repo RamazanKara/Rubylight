@@ -28,6 +28,29 @@ fn last_played_is_per_game_zero_for_never_and_absent_when_unknown() {
     );
 }
 
+#[test]
+fn playtime_is_per_game_and_absent_when_not_sent() {
+    let game = |id: &str, minutes: Option<u64>| Game {
+        id: id.into(),
+        playtime_minutes: minutes,
+        ..Game::default()
+    };
+    CATALOG.lock().unwrap().games = vec![
+        game("AA-bb", Some(90)),
+        game("cc", Some(0)),
+        game("dd", None),
+    ];
+    let minutes = playtime();
+    CATALOG.lock().unwrap().games.clear();
+    assert_eq!(
+        minutes,
+        [
+            ("playnite:aa-bb".to_owned(), 90),
+            ("playnite:cc".to_owned(), 0),
+        ]
+    );
+}
+
 fn launch_state() -> LaunchState {
     LaunchState::default()
 }

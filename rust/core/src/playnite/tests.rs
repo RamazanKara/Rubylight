@@ -111,7 +111,11 @@ fn messages_and_times_parse_like_vibepollo() {
     };
     assert_eq!(games.len(), 2);
     assert!(games[0].installed && !games[1].installed);
-    assert_eq!(games[0].playtime_minutes, 42);
+    assert_eq!(games[0].playtime_minutes, Some(42));
+    assert_eq!(
+        games[1].playtime_minutes, None,
+        "not sent: unknown, not never"
+    );
     assert_eq!(games[0].last_played, Some(1788025796));
     assert_eq!(
         parse(

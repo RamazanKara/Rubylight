@@ -94,6 +94,14 @@ fn scan_installed(settings: library::Settings) -> Scan {
                 .map(|game| (format!("steam:{}", game.appid), game.last_played)),
         )
         .playing(crate::playnite::last_played())
+        // Steam's minutes count only when its play history was read.
+        .played_for(
+            steam
+                .iter()
+                .filter(|game| game.history)
+                .map(|game| (format!("steam:{}", game.appid), game.playtime_minutes)),
+        )
+        .played_for(crate::playnite::playtime())
         .collecting(
             collections
                 .apps

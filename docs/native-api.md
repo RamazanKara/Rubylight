@@ -134,7 +134,8 @@ GET /api/native/v1/library
         "cover": "/appasset?appid=1093052211&AssetType=2&AssetIdx=0",
         "version": "a41c09e2"
       },
-      "last_played": 1788025796
+      "last_played": 1788025796,
+      "playtime_minutes": 5412
     },
     {
       "install_id": "8d4b3f55-0c2e-4f8a-9a61-2f1c6f0e9b17",
@@ -164,8 +165,9 @@ The entries are the host's configured apps (`h.apps`), in console order. The syn
 - `running`: the app is the host's current game (`remote_game`), whoever owns it.
 - `artwork.cover` is a path on the same HTTPS origin and is fetched with the same certificate. It is absent (and `version` empty) when the app has no cover of its own, where `/appasset` would send the host's placeholder; clients show the title instead. `artwork.version` changes when the image file changes (a hash of its path, size and mtime), so clients can cache covers offline. v1 has covers only.
 - `last_played`: when the game was last played, in seconds since the epoch, from its store: Steam's `LastPlayed` for a Steam game, Playnite's last activity for an app linked to a Playnite game (the later of the two when both say). `0` means the store says never played. The field is absent when no store says (a manual app, a store that keeps no such time, Steam history that couldn't be read, a Playnite time that doesn't parse, before the first scan) and from older hosts; clients show nothing then. It comes with the cached launcher scan, so it can be up to 5 minutes old.
+- `playtime_minutes`: how long the game has been played, in minutes, from its store: Steam's `Playtime` for a Steam game, Playnite's play time for an app linked to a Playnite game (the longer of the two when both say, since Playnite imports the store's time rather than adding to it). `0` means the store says never played. Absent when no store says (a manual app, a store that keeps no such time, Steam history that couldn't be read, a Playnite plugin that sent none, before the first scan) and from older hosts. Like `last_played`, it comes with the cached launcher scan.
 - `collections`: the names of the Steam collections or Playnite categories the game is in, absent when none. Steam's come from its cloud-storage file, read only: that of the account `loginusers.vdf` marks `MostRecent`, or where it marks none or that account has no file, the one Steam wrote last of any account. When the file can't be read, the last collections it gave stay for two more scans at most; the third failed scan in a row drops them. At most 20 names a game, 100 bytes a name and 1 MiB of JSON for all of a scan's names; the host logs what it cuts. Part of `revision`.
-- `revision` is a hash of the whole response body without `running` and `last_played`. Clients refetch when it changes.
+- `revision` is a hash of the whole response body without `running`, `last_played` and `playtime_minutes`. Clients refetch when it changes.
 
 ## Session
 

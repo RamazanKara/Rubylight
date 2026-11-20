@@ -10,17 +10,28 @@ import com.limelight.R;
 import com.limelight.ui.AppTheme;
 import com.limelight.ui.GlassForm;
 
+import java.util.function.IntFunction;
 import java.util.function.IntPredicate;
+import java.util.function.ToIntFunction;
 
 /**
- * The phone's Home grid, with one rule added to the D-pad: when no card lies above the focused one, Up leaves the grid
+ * Home's grid and list, with two rules added to the D-pad. When no card lies above the focused one, Up leaves the grid
  * for the shell bar. A plain grid answers such a press with the section header above the first row, which cannot take
  * focus, so it scrolled to the header and kept focus on the card for every further press: a controller could not reach
- * the Home, PCs and Settings tabs from a long list.
+ * the Home, PCs and Settings tabs from a long list. And Up from the card a Down press landed on goes back to the card it
+ * came from.
  */
 final class HomeGridLayoutManager extends GridLayoutManager {
     private final IntPredicate cardBefore;
     private final IntPredicate heading;
+    private final IntFunction<String> keyAt;
+    private final ToIntFunction<String> positionOfKey;
+    /** The card the last Down left and the card it landed on, by stable key; null when focus has moved on since. */
+    private String downFrom;
+    private String downTo;
+    /** The direction and starting card of the focus search under way, until a card takes the focus. */
+    private int searchDirection;
+    private String searchFrom;
     /** The keyline a focused card is brought to is the TV grid's: a phone's first row sits under the glass top row. */
     private final boolean television;
     /** How much a focused TV card grows, and the gap and ring drawn around it outside its bounds. */
@@ -30,16 +41,62 @@ final class HomeGridLayoutManager extends GridLayoutManager {
     /**
      * @param cardBefore whether some card (not a header) is listed before the adapter position
      * @param heading whether the adapter position is a section's heading
+     * @param keyAt the stable key of the card at the adapter position, null for a heading
+     * @param positionOfKey the adapter position of the card with the key, or -1
      */
-    HomeGridLayoutManager(Context context, int spanCount, IntPredicate cardBefore, IntPredicate heading) {
+    HomeGridLayoutManager(Context context, int spanCount, IntPredicate cardBefore, IntPredicate heading,
+            IntFunction<String> keyAt, ToIntFunction<String> positionOfKey) {
         super(context, spanCount);
         this.cardBefore = cardBefore;
         this.heading = heading;
+        this.keyAt = keyAt;
+        this.positionOfKey = positionOfKey;
         this.television = GlassForm.of(context) == GlassForm.TELEVISION;
         android.content.res.Resources res = context.getResources();
         focusScale = androidx.core.content.res.ResourcesCompat.getFloat(res, R.dimen.nj_focus_scale_cover_tv);
         ring = res.getDimensionPixelSize(R.dimen.glass_ring_gap) + res.getDimensionPixelSize(
                 AppTheme.isHighContrast(context) ? R.dimen.nj_hc_focus_ring_width : R.dimen.glass_ring_width);
+    }
+
+    /**
+     * Up from the card a Down press landed on goes back to the card it came from (nightjar#7). The platform's search
+     * takes the card nearest the middle of the one focused: from a List line as wide as the screen that was the second
+     * card of the row above, not the first one focus had come down from.
+     */
+    @Override
+    public View onInterceptFocusSearch(View focused, int direction) {
+        View card = findContainingItemView(focused);
+        int position = card == null ? RecyclerView.NO_POSITION : getPosition(card);
+        searchDirection = direction;
+        searchFrom = position == RecyclerView.NO_POSITION ? null : keyAt.apply(position);
+        if (direction == View.FOCUS_UP && searchFrom != null && searchFrom.equals(downTo)) {
+            int back = positionOfKey.applyAsInt(downFrom);
+            View view = back >= 0 && row(back) < row(position) ? findViewByPosition(back) : null;
+            if (view != null && view.isFocusable()) return view;
+        }
+        return super.onInterceptFocusSearch(focused, direction);
+    }
+
+    @Override
+    public boolean onRequestChildFocus(RecyclerView parent, RecyclerView.State state, View child, View focused) {
+        int position = getPosition(child);
+        String key = position == RecyclerView.NO_POSITION ? null : keyAt.apply(position);
+        int from = searchFrom == null ? -1 : positionOfKey.applyAsInt(searchFrom);
+        if (searchDirection == View.FOCUS_DOWN && key != null && from >= 0 && row(position) > row(from)) {
+            downFrom = searchFrom;
+            downTo = key;
+        } else if (key == null || !key.equals(downTo)) {
+            downFrom = null;
+            downTo = null;
+        }
+        searchDirection = 0;
+        searchFrom = null;
+        return super.onRequestChildFocus(parent, state, child, focused);
+    }
+
+    /** The grid row of the adapter position. */
+    private int row(int position) {
+        return getSpanSizeLookup().getSpanGroupIndex(position, getSpanCount());
     }
 
     @Override

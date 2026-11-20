@@ -170,4 +170,51 @@ public class HomeTvGridFocusTest {
             controller.pause().stop().destroy();
         }
     }
+
+    /**
+     * The reporter's Home: Desktop and Playnite to continue, the library as List lines. Down from Desktop and back Up went
+     * to Playnite, the poster nearest the middle of a line as wide as the screen.
+     */
+    @Test
+    public void upFromTheLineDownLandedOnGoesBackToTheCardItCameFrom() throws Exception {
+        prefs.edit().putString(HomeView.KEY_LAYOUT, "list").putString(HomeView.KEY_GROUP, "none").commit();
+        ActivityController<HomeShellTest.Home> controller = Robolectric.buildActivity(HomeShellTest.Home.class).setup().visible();
+        ConsoleRig rig = new ConsoleRig(temporary.newFolder());
+        try {
+            rig.recents.add(new com.limelight.nativeapi.RecentsStore.Recent("tower", "Tower", 1, "Desktop", 20));
+            rig.recents.add(new com.limelight.nativeapi.RecentsStore.Recent("tower", "Tower", 2, "Playnite", 10));
+            HomeShellTest.Home home = open(controller, model(rig));
+            ConsoleHomeListAdapter adapter = ReflectionHelpers.getField(home, "adapter");
+            RecyclerView list = home.findViewById(R.id.console_list);
+            int desktop = adapter.firstCard();
+            assertEquals("continue:tower:1", adapter.keyAt(desktop));
+            assertEquals("continue:tower:2", adapter.keyAt(desktop + 1));
+            assertEquals(ConsoleHomeListAdapter.LIST_GAME, adapter.viewTypeAt(desktop + 3));
+
+            assertTrue(laidOut(list, desktop).requestFocus());
+            ShadowLooper.idleMainLooper(600, TimeUnit.MILLISECONDS);
+            View line = press(list, View.FOCUS_DOWN);
+            assertEquals("Down goes to the first line", desktop + 3, list.getChildAdapterPosition(line));
+            View back = press(list, View.FOCUS_UP);
+            assertEquals("Up goes back to Desktop, not to Playnite", desktop, list.getChildAdapterPosition(back));
+
+            // From Playnite the same way back leads to Playnite.
+            assertEquals(desktop + 1, list.getChildAdapterPosition(press(list, View.FOCUS_RIGHT)));
+            press(list, View.FOCUS_DOWN);
+            assertEquals(desktop + 1, list.getChildAdapterPosition(press(list, View.FOCUS_UP)));
+
+            // A line reached otherwise than by Down from a card keeps the platform's search.
+            press(list, View.FOCUS_DOWN);
+            press(list, View.FOCUS_DOWN);
+            View up = press(list, View.FOCUS_UP);
+            assertEquals("Up from the second line is the first line", desktop + 3, list.getChildAdapterPosition(up));
+            press(list, View.FOCUS_UP);
+            assertTrue("and from the first line, a card of the row above",
+                    list.getChildAdapterPosition(list.getFocusedChild()) == desktop
+                            || list.getChildAdapterPosition(list.getFocusedChild()) == desktop + 1);
+        } finally {
+            rig.close();
+            controller.pause().stop().destroy();
+        }
+    }
 }

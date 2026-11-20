@@ -1,6 +1,7 @@
 //! The launcher's tests: what each page and dialog draws, its focus and its commands.
 
 use super::*;
+use crate::config::HomeSort;
 
 #[test]
 fn the_stand_in_names_fit_their_sentences() {
@@ -5807,7 +5808,38 @@ fn home_groups_by_collection_only_when_the_pc_names_any() {
     assert_eq!(f.l.settings.home_group, HomeGroup::Type);
     let at = row(&f, "Group by");
     f.click_at(at.center(), egui::PointerButton::Primary);
-    assert_eq!(f.l.settings.home_group, HomeGroup::None, "no Collection to step through");
+    assert_eq!(f.l.settings.home_group, HomeGroup::Installation, "no Collection to step through");
+    let at = row(&f, "Group by");
+    f.click_at(at.center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.settings.home_group, HomeGroup::None);
+}
+
+/// Installation joins Group by while some game is not installed: the installed games, then the
+/// rest. Sort by and Order step through their choices and Home follows at once.
+#[test]
+fn home_groups_by_installation_and_sorts_from_the_view_menu() {
+    let mut f = store_mix();
+    f.size = vec2(1280.0, 2400.0);
+    f.l.settings.home_group = HomeGroup::Installation;
+    // A play time from the PC: Sort by offers Play time only then.
+    f.hosts.list[0].native.playtime_minutes = [("install-0".to_owned(), 90)].into();
+    f.settle();
+    let shelf = |f: &Frames, name: &str| f.placed.iter().find(|(t, r, _)| t == name && r.center().y > 80.0).map(|p| p.1.top()).expect(name);
+    assert!(shelf(&f, "Installed") < shelf(&f, "Not installed"), "{:?}", f.drawn);
+    let view = f.placed.iter().find(|(t, ..)| t == "View").map(|p| p.1).expect("View in the top row");
+    f.click_at(view.center(), egui::PointerButton::Primary);
+    let row = |f: &Frames, label: &str| f.placed.iter().find(|(t, ..)| t == label).map(|p| p.1).expect(label);
+    assert!(shows(&f, "Title") && shows(&f, "Ascending"), "{:?}", f.drawn);
+    for (next, says) in [(HomeSort::LastPlayed, "Last played"), (HomeSort::Playtime, "Play time"), (HomeSort::Title, "Title")] {
+        let at = row(&f, "Sort by");
+        f.click_at(at.center(), egui::PointerButton::Primary);
+        assert_eq!(f.l.settings.home_sort, next);
+        assert!(shows(&f, says), "{says}: {:?}", f.drawn);
+    }
+    let at = row(&f, "Order");
+    f.click_at(at.center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.settings.home_order, HomeOrder::Descending);
+    assert!(shows(&f, "Descending"), "{:?}", f.drawn);
 }
 
 /// A game in several rows is a card of its own in each: focus comes back to the one it left, and
@@ -6631,6 +6663,11 @@ fn home_view_changes_layout_grouping_and_card_size_in_place() {
     assert_eq!(f.l.settings.home_group, HomeGroup::Type);
     assert!(shows(&f, "Type"), "the row says the grouping now: {:?}", f.drawn);
     assert_eq!(shelves(&f), ["Games", "Other apps"], "{:?}", f.drawn);
+
+    // Group by: installation, offered since a game is not installed. Then none.
+    let at = row(&f, "Group by");
+    f.click_at(at.center(), egui::PointerButton::Primary);
+    assert_eq!(f.l.settings.home_group, HomeGroup::Installation);
 
     // Group by: none. One Library part, no store's.
     let at = row(&f, "Group by");

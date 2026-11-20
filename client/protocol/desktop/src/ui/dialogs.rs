@@ -376,9 +376,13 @@ impl Launcher {
                 let entries = library.shown();
                 let groups = console::offered_groups(entries);
                 let group = console::shown_group(s.home_group, entries);
+                let sorts = console::offered_sorts(entries);
+                let sort = console::Sort::shown(s, entries).by;
                 let mut rows = vec![
                     MenuRow { icon: Icon::Grid, label: en("Layout"), hint: Some(s.home_layout.label()), destructive: false, blocked: None },
                     MenuRow { icon: Icon::Folder, label: en("Group by"), hint: Some(group.label()), destructive: false, blocked: None },
+                    MenuRow { icon: Icon::Sliders, label: en("Sort by"), hint: Some(sort.label()), destructive: false, blocked: None },
+                    MenuRow { icon: Icon::Down, label: en("Order"), hint: Some(s.home_order.label()), destructive: false, blocked: None },
                 ];
                 // A list's lines have one size, so Card size shows only for the covers' layouts.
                 if s.home_layout != HomeLayout::List {
@@ -392,6 +396,8 @@ impl Launcher {
                         match n {
                             0 => s.home_layout = next_of(&HomeLayout::ALL, s.home_layout),
                             1 => s.home_group = next_of(&groups, group),
+                            2 => s.home_sort = next_of(&sorts, sort),
+                            3 => s.home_order = next_of(&HomeOrder::ALL, s.home_order),
                             _ => s.home_card_size = next_of(&CardSize::ALL, s.home_card_size),
                         }
                         commands.push(Command::SaveSettings);

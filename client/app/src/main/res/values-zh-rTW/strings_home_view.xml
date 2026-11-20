@@ -23,4 +23,11 @@
     <string name="home_view_group_collection">收藏集</string>
     <string name="console_row_no_collection">未分類</string>
     <string name="console_filter_hidden">已隱藏</string>
+    <string name="home_view_group_installation">安裝狀態</string>
+    <string name="home_view_sort">排序方式</string>
+    <string name="home_view_sort_title">標題</string>
+    <string name="home_view_sort_last_played">最近遊玩</string>
+    <string name="home_view_sort_playtime">遊戲時數</string>
+    <string name="home_view_order_ascending">遞增</string>
+    <string name="home_view_order_descending">遞減</string>
 </resources>

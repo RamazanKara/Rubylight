@@ -357,20 +357,24 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
                     for (View part : sizeSection) part.setVisibility(view.layout == HomeView.Layout.LIST ? View.GONE : View.VISIBLE);
                 });
         sheet.addSection(R.string.home_view_group);
-        HomeView.Group[] groups = HomeView.offeredGroups(model.hasCollections());
+        HomeView.Group[] groups = HomeView.offeredGroups(model.hasCollections(), model.hasInstallationSplit());
         int[] groupIcons = new int[groups.length];
         int[] groupLabels = new int[groups.length];
         for (int i = 0; i < groups.length; i++) {
             groupIcons[i] = groups[i] == HomeView.Group.STORE ? R.drawable.ic_view_group_store
                     : groups[i] == HomeView.Group.TYPE ? R.drawable.ic_view_group_type
-                    : groups[i] == HomeView.Group.COLLECTION ? R.drawable.ic_folder : R.drawable.ic_view_group_none;
+                    : groups[i] == HomeView.Group.COLLECTION ? R.drawable.ic_folder
+                    : groups[i] == HomeView.Group.INSTALLATION ? R.drawable.ic_download : R.drawable.ic_view_group_none;
             groupLabels[i] = groups[i] == HomeView.Group.STORE ? R.string.home_view_group_store
                     : groups[i] == HomeView.Group.TYPE ? R.string.home_view_group_type
-                    : groups[i] == HomeView.Group.COLLECTION ? R.string.home_view_group_collection : R.string.home_view_group_none;
+                    : groups[i] == HomeView.Group.COLLECTION ? R.string.home_view_group_collection
+                    : groups[i] == HomeView.Group.INSTALLATION ? R.string.home_view_group_installation : R.string.home_view_group_none;
         }
         // Collection chosen while no PC names any shows by store, and says so.
         addChoices(sheet, groupIcons, groupLabels, Math.max(0, java.util.Arrays.asList(groups).indexOf(view.group)),
                 at -> view = view.with(groups[at]));
+        sheet.addSection(R.string.home_view_sort);
+        addSortChoices(sheet);
         sizeSection[0] = sheet.addSection(R.string.home_view_size);
         sizeSection[1] = addChoices(sheet, new int[] {R.drawable.ic_view_size_small, R.drawable.ic_view_size_medium, R.drawable.ic_view_size_large},
                 new int[] {R.string.home_view_size_small, R.string.home_view_size_medium, R.string.home_view_size_large},
@@ -384,6 +388,52 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             }
         });
         sheet.show();
+    }
+
+    /**
+     * Sort by: Title, Last played or Play time, one row. Choosing the one already chosen turns its order around, as a
+     * column header does; the chosen one's arrow shows which way. One row, not two, so the sheet still fits a TV whole.
+     */
+    private void addSortChoices(ActionSheet sheet) {
+        // Play time only while some PC sends it, as Group by offers Collection only with collections.
+        java.util.List<HomeView.Sort> sorts = new java.util.ArrayList<>(java.util.Arrays.asList(HomeView.Sort.TITLE, HomeView.Sort.LAST_PLAYED));
+        if (model.hasPlaytime()) sorts.add(HomeView.Sort.PLAYTIME);
+        android.widget.LinearLayout row = sheet.addToggleRow();
+        com.google.android.material.button.MaterialButton[] toggles =
+                new com.google.android.material.button.MaterialButton[sorts.size()];
+        Runnable mark = () -> {
+            HomeView.Sort shown = sorts.contains(view.sort) ? view.sort : HomeView.Sort.TITLE;
+            for (int i = 0; i < toggles.length; i++) {
+                boolean chosen = sorts.get(i) == shown;
+                toggles[i].setChecked(chosen);
+                toggles[i].setIconResource(!chosen ? sortIcon(sorts.get(i))
+                        : view.order == HomeView.Order.ASCENDING ? R.drawable.ic_expand_less : R.drawable.ic_expand_more);
+                String label = getString(sortLabel(sorts.get(i)));
+                toggles[i].setContentDescription(!chosen ? label : label + ", " + getString(view.order == HomeView.Order.ASCENDING
+                        ? R.string.home_view_order_ascending : R.string.home_view_order_descending));
+            }
+        };
+        for (int i = 0; i < toggles.length; i++) {
+            final HomeView.Sort sort = sorts.get(i);
+            toggles[i] = sheet.addToggle(row, sortIcon(sort), getString(sortLabel(sort)), false);
+            toggles[i].setOnClickListener(v -> {
+                HomeView.Sort shown = sorts.contains(view.sort) ? view.sort : HomeView.Sort.TITLE;
+                view = sort == shown ? view.with(sort).with(view.order == HomeView.Order.ASCENDING
+                        ? HomeView.Order.DESCENDING : HomeView.Order.ASCENDING) : view.with(sort);
+                mark.run();
+            });
+        }
+        mark.run();
+    }
+
+    private static int sortIcon(HomeView.Sort sort) {
+        return sort == HomeView.Sort.TITLE ? R.drawable.ic_view_list
+                : sort == HomeView.Sort.LAST_PLAYED ? R.drawable.ic_refresh : R.drawable.ic_timer;
+    }
+
+    private static int sortLabel(HomeView.Sort sort) {
+        return sort == HomeView.Sort.TITLE ? R.string.home_view_sort_title
+                : sort == HomeView.Sort.LAST_PLAYED ? R.string.home_view_sort_last_played : R.string.home_view_sort_playtime;
     }
 
     /** One choice of the View sheet: a row of toggles of which exactly one is on; the row is returned. */
@@ -823,10 +873,10 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
             try {
                 Set<String> denied = HomeModel.launchDenied(hosts);
                 ConsoleSnapshot saved = repo.cached(hosts);
-                show(mine, saved, HomeModel.of(saved, online, denied, hostFilter), hosts.isEmpty(), !refresh);
+                show(mine, saved, HomeModel.of(saved, online, denied, hostFilter).sorted(view), hosts.isEmpty(), !refresh);
                 if (refresh) {
                     ConsoleSnapshot fresh = repo.refresh(hosts);
-                    show(mine, fresh, HomeModel.of(fresh, online, denied, hostFilter), hosts.isEmpty(), true);
+                    show(mine, fresh, HomeModel.of(fresh, online, denied, hostFilter).sorted(view), hosts.isEmpty(), true);
                     redrawAtNextPoll(mine);
                 }
             } catch (InterruptedException e) {
@@ -1298,7 +1348,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         starWorker.execute(() -> {
             try {
                 repo.setHidden(copies, hide);
-                HomeModel model = HomeModel.of(repo.cached(hosts), online, HomeModel.launchDenied(hosts), hostFilter);
+                HomeModel model = HomeModel.of(repo.cached(hosts), online, HomeModel.launchDenied(hosts), hostFilter).sorted(view);
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) {
                         return;
@@ -1332,7 +1382,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         starWorker.execute(() -> {
             try {
                 repo.setFavourite(card.hostUuid, card.hostName, key, card.appId, card.title, starred);
-                HomeModel model = HomeModel.of(repo.cached(hosts), online, HomeModel.launchDenied(hosts), hostFilter);
+                HomeModel model = HomeModel.of(repo.cached(hosts), online, HomeModel.launchDenied(hosts), hostFilter).sorted(view);
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) {
                         return;

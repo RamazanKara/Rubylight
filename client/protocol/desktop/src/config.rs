@@ -698,6 +698,9 @@ pub struct Settings {
     pub home_layout: HomeLayout,
     pub home_group: HomeGroup,
     pub home_card_size: CardSize,
+    /// What Home's rows and All games sort by, and which way.
+    pub home_sort: HomeSort,
+    pub home_order: HomeOrder,
     /// Settings' "More settings" fold, as the user last chose it (Android keeps it the same way): no
     /// setting, so no row, reset, profile or per-PC or per-game value has it. A search or a link
     /// that opens the fold for a section behind it does not change it.
@@ -870,6 +873,8 @@ pub enum HomeGroup {
     /// A row per Steam collection or Playnite category the PCs name, a game in several in each,
     /// then the games in none. Offered while they name any.
     Collection,
+    /// The games some PC has installed, then the rest. Offered while the library has both.
+    Installation,
     /// A row per store, then the apps of no store. Also what an unknown value reads as; keep it
     /// last: serde wants the catch-all there.
     #[default]
@@ -878,14 +883,81 @@ pub enum HomeGroup {
 }
 
 impl HomeGroup {
-    pub const ALL: [Self; 4] = [Self::Store, Self::Type, Self::Collection, Self::None];
+    pub const ALL: [Self; 5] = [Self::Store, Self::Type, Self::Collection, Self::Installation, Self::None];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Store => en("Store"),
             Self::Type => en("Type"),
             Self::Collection => en("Collection"),
+            Self::Installation => en("Installation"),
             Self::None => en("None"),
+        }
+    }
+}
+
+/// What Home's rows and All games sort by (Android's `home_view_sort`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HomeSort {
+    /// When the PCs say the game was last played.
+    LastPlayed,
+    /// How long the PCs say the game was played.
+    Playtime,
+    /// Also what an unknown value reads as; keep it last: serde wants the catch-all there.
+    #[default]
+    #[serde(other)]
+    Title,
+}
+
+impl HomeSort {
+    pub const ALL: [Self; 3] = [Self::Title, Self::LastPlayed, Self::Playtime];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Title => en("Title"),
+            Self::LastPlayed => en("Last played"),
+            Self::Playtime => en("Play time"),
+        }
+    }
+
+    pub fn key(self) -> nightjar_policy::library_order::SortKey {
+        use nightjar_policy::library_order::SortKey;
+        match self {
+            Self::Title => SortKey::Title,
+            Self::LastPlayed => SortKey::LastPlayed,
+            Self::Playtime => SortKey::Playtime,
+        }
+    }
+}
+
+/// Which way Home sorts (Android's `home_view_order`): ascending is A to Z, oldest first and least
+/// played first.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HomeOrder {
+    Descending,
+    /// Also what an unknown value reads as; keep it last: serde wants the catch-all there.
+    #[default]
+    #[serde(other)]
+    Ascending,
+}
+
+impl HomeOrder {
+    pub const ALL: [Self; 2] = [Self::Ascending, Self::Descending];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Ascending => en("Ascending"),
+            Self::Descending => en("Descending"),
+        }
+    }
+
+    pub fn direction(self) -> nightjar_policy::library_order::Direction {
+        use nightjar_policy::library_order::Direction;
+        match self {
+            Self::Ascending => Direction::Ascending,
+            Self::Descending => Direction::Descending,
         }
     }
 }
@@ -1291,6 +1363,8 @@ impl Default for Settings {
             home_layout: HomeLayout::Rows,
             home_group: HomeGroup::Store,
             home_card_size: CardSize::Medium,
+            home_sort: HomeSort::Title,
+            home_order: HomeOrder::Ascending,
             settings_more_open: false,
             setup_card_host: None,
             setup_card_seen: false,

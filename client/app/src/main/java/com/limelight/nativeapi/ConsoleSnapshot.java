@@ -46,6 +46,8 @@ public final class ConsoleSnapshot {
         public final boolean added;
         /** Seconds since the epoch it last ran on the host, or null when the host does not say. */
         public final Long lastPlayed;
+        /** Minutes it was played, 0 for never, or null when the host does not say; set by the library reader. */
+        public Integer playtimeMinutes;
         /** False when the host says it cannot start the game; null when it does not say. */
         public final Boolean launchable;
         /** The Steam collections or Playnite categories the host keeps it in, by name. */

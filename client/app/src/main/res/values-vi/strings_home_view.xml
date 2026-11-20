@@ -23,4 +23,11 @@
     <string name="home_view_group_collection">Bộ sưu tập</string>
     <string name="console_row_no_collection">Không có bộ sưu tập</string>
     <string name="console_filter_hidden">Đã ẩn</string>
+    <string name="home_view_group_installation">Trạng thái cài đặt</string>
+    <string name="home_view_sort">Sắp xếp theo</string>
+    <string name="home_view_sort_title">Tên</string>
+    <string name="home_view_sort_last_played">Chơi lần cuối</string>
+    <string name="home_view_sort_playtime">Thời gian chơi</string>
+    <string name="home_view_order_ascending">Tăng dần</string>
+    <string name="home_view_order_descending">Giảm dần</string>
 </resources>

@@ -200,7 +200,7 @@ impl Launcher {
         } = data;
         let entries = library.shown();
         let group = console::shown_group(self.settings.home_group, entries);
-        let rows = console::home_rows(entries, group);
+        let rows = console::home_rows(entries, group, console::Sort::shown(&self.settings, entries));
         let loading = library_loading(view);
         // The rest of the running games and recents: the panel first, a shelf for what it cannot hold.
         let has_cover = |host: u64, app: u32| {
@@ -345,6 +345,8 @@ impl Launcher {
                             console::RowKind::Library => tr("Library"),
                             console::RowKind::Collection { name } => name.as_str(),
                             console::RowKind::NoCollection => tr("No collection"),
+                            console::RowKind::Installed => tr("Installed"),
+                            console::RowKind::NotInstalled => tr("Not installed"),
                         };
                         this.shelf_head(ui, name, Some(row.games.len()), &mut actions_shown);
                         // The List layout: every game of the row as a line, under each other.
@@ -368,7 +370,11 @@ impl Launcher {
                         let said = match &row.kind {
                             console::RowKind::Store { name, .. } | console::RowKind::Collection { name } => trf("All {} games, {}", &[name, &row.games.len()]),
                             console::RowKind::Other => trf("All other apps, {}", &[&row.games.len()]),
-                            console::RowKind::Games | console::RowKind::Library | console::RowKind::NoCollection => trf("All games, {}", &[&row.games.len()]),
+                            console::RowKind::Games
+                            | console::RowKind::Library
+                            | console::RowKind::NoCollection
+                            | console::RowKind::Installed
+                            | console::RowKind::NotInstalled => trf("All games, {}", &[&row.games.len()]),
                         };
                         let games = &games[..shown];
                         // At one column no cover fits beside the tile: the tile is the row.

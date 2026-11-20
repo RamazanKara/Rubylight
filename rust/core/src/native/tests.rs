@@ -164,6 +164,42 @@ fn last_played_comes_from_the_stores_and_stays_out_of_the_revision() {
 }
 
 #[test]
+fn playtime_is_the_longer_of_the_stores_and_stays_out_of_the_revision() {
+    let never = app(json!({"name": "Never", "uuid": "n", "steam-id": 440}));
+    let kart =
+        app(json!({"name": "My Kart", "uuid": "k", "playnite-id": "AA-bb", "cmd": "kart.exe"}));
+    let both = app(json!({"name": "Both", "uuid": "b", "steam-id": 620, "playnite-id": "cc"}));
+    let manual = app(json!({"name": "Desktop", "uuid": "d"}));
+    let apps = [dota(), never, kart, both, manual];
+    let scan = Scan::new(["steam:570".into()]).played_for([
+        ("steam:570".into(), 300),
+        ("steam:440".into(), 0),
+        (playnite_key("aa-BB"), 45),
+        ("steam:570".into(), 120),
+        ("steam:620".into(), 30),
+        (playnite_key("CC"), 75),
+    ]);
+    let library = library(&apps, Some(&scan), None);
+    let minutes: Vec<_> = library.games.iter().map(|g| g.playtime_minutes).collect();
+    assert_eq!(
+        minutes,
+        [Some(300), Some(0), Some(45), Some(75), None],
+        "the longer time of a key seen twice and of a store and Playnite game, 0 for never, \
+         none when no store says"
+    );
+    let text = serde_json::to_string(&library.games[4]).unwrap();
+    assert!(
+        !text.contains("playtime_minutes"),
+        "absent, not null: {text}"
+    );
+    let unplayed = super::library(&apps, Some(&Scan::new(["steam:570".into()])), None);
+    assert_eq!(
+        unplayed.revision, library.revision,
+        "playing a game does not change the revision"
+    );
+}
+
+#[test]
 fn collections_join_a_games_store_and_playnite_names_and_change_the_revision() {
     let both = app(json!({"name": "Dota", "uuid": "b", "steam-id": 570, "playnite-id": "AA-bb"}));
     let kart = app(json!({"name": "Kart", "uuid": "k", "playnite-id": "cc", "cmd": "kart.exe"}));

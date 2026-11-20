@@ -492,7 +492,8 @@ public class HomeViewScreenTest {
         for (int label : new int[] {R.string.home_view_layout_grid, R.string.home_view_layout_rows,
                 R.string.home_view_layout_list, R.string.home_view_group_store, R.string.home_view_group_type, R.string.home_view_group_none,
                 R.string.home_view_size_small,
-                R.string.home_view_size_medium, R.string.home_view_size_large}) {
+                R.string.home_view_size_medium, R.string.home_view_size_large, R.string.home_view_sort_title,
+                R.string.home_view_sort_last_played}) {
             assertNotNull(home.getString(label), button(content, home.getString(label)));
         }
         MaterialButton grid = button(content, home.getString(R.string.home_view_layout_grid));
@@ -517,6 +518,19 @@ public class HomeViewScreenTest {
         assertTrue(button(content, home.getString(R.string.home_view_size_large)).performClick());
         assertTrue(button(content, home.getString(R.string.home_view_size_large)).isChecked());
         assertFalse(button(content, home.getString(R.string.home_view_size_medium)).isChecked());
+        // No PC here sends play time, so Sort by offers Title and Last played.
+        assertNull(button(content, home.getString(R.string.home_view_sort_playtime)));
+        // By title, A to Z, until another is chosen; choosing the chosen one again turns its order around.
+        MaterialButton title = button(content, home.getString(R.string.home_view_sort_title));
+        MaterialButton played = button(content, home.getString(R.string.home_view_sort_last_played));
+        assertTrue(title.isChecked());
+        assertTrue(played.performClick());
+        assertTrue(played.isChecked());
+        assertFalse(title.isChecked());
+        assertTrue(played.performClick());
+        assertTrue(played.isChecked());
+        assertEquals(home.getString(R.string.home_view_sort_last_played) + ", " + home.getString(R.string.home_view_order_descending),
+                played.getContentDescription().toString());
         // Nothing is stored or rebuilt until the sheet closes.
         assertNull(prefs.getString(HomeView.KEY_LAYOUT, null));
         sheet.dismiss();
@@ -524,8 +538,11 @@ public class HomeViewScreenTest {
         assertEquals("rows", prefs.getString(HomeView.KEY_LAYOUT, null));
         assertEquals("store", prefs.getString(HomeView.KEY_GROUP, null));
         assertEquals("large", prefs.getString(HomeView.KEY_SIZE, null));
+        assertEquals("last_played", prefs.getString(HomeView.KEY_SORT, null));
+        assertEquals("descending", prefs.getString(HomeView.KEY_ORDER, null));
         HomeShellTest.Home rebuilt = controller.get();
-        assertEquals(new HomeView(HomeView.Layout.ROWS, HomeView.Group.STORE, HomeView.Size.LARGE), rebuilt.view());
+        assertEquals(new HomeView(HomeView.Layout.ROWS, HomeView.Group.STORE, HomeView.Size.LARGE,
+                HomeView.Sort.LAST_PLAYED, HomeView.Order.DESCENDING), rebuilt.view());
         RecyclerView list = rebuilt.findViewById(R.id.console_list);
         assertTrue(list.getLayoutManager() instanceof ShelfLayoutManager);
     }
@@ -558,25 +575,29 @@ public class HomeViewScreenTest {
         home.findViewById(R.id.console_view).performClick();
         ActionSheet sheet = openSheet();
         assertNotNull(sheet);
-        View decor = sheet.getWindow().getDecorView();
-        decor.measure(View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY));
-        decor.layout(0, 0, 1920, 1080);
-        View size = button(sheet.findViewById(android.R.id.content), home.getString(R.string.home_view_size_large));
-        assertEquals(View.VISIBLE, ((View) size.getParent()).getVisibility());
-        androidx.core.widget.NestedScrollView scroll = null;
-        for (android.view.ViewParent at = size.getParent(); at != null; at = at.getParent()) {
-            if (at instanceof androidx.core.widget.NestedScrollView) scroll = (androidx.core.widget.NestedScrollView) at;
+        // Closed even when an assertion fails: a sheet drawn natively and left open starves the tests after it of memory.
+        try {
+            View decor = sheet.getWindow().getDecorView();
+            decor.measure(View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY));
+            decor.layout(0, 0, 1920, 1080);
+            View size = button(sheet.findViewById(android.R.id.content), home.getString(R.string.home_view_size_large));
+            assertEquals(View.VISIBLE, ((View) size.getParent()).getVisibility());
+            androidx.core.widget.NestedScrollView scroll = null;
+            for (android.view.ViewParent at = size.getParent(); at != null; at = at.getParent()) {
+                if (at instanceof androidx.core.widget.NestedScrollView) scroll = (androidx.core.widget.NestedScrollView) at;
+            }
+            assertNotNull(scroll);
+            assertTrue("rows " + scroll.getChildAt(0).getHeight() + " px in a scroll of " + scroll.getHeight(),
+                    scroll.getChildAt(0).getHeight() <= scroll.getHeight());
+            View body = (View) scroll.getParent();
+            int[] at = new int[2];
+            body.getLocationInWindow(at);
+            assertTrue("the panel stays on screen: " + (at[1] + body.getHeight()), at[1] + body.getHeight() <= 1080);
+        } finally {
+            sheet.dismiss();
+            shadowOf(Looper.getMainLooper()).idle();
         }
-        assertNotNull(scroll);
-        assertTrue("rows " + scroll.getChildAt(0).getHeight() + " px in a scroll of " + scroll.getHeight(),
-                scroll.getChildAt(0).getHeight() <= scroll.getHeight());
-        View body = (View) scroll.getParent();
-        int[] at = new int[2];
-        body.getLocationInWindow(at);
-        assertTrue("the panel stays on screen: " + (at[1] + body.getHeight()), at[1] + body.getHeight() <= 1080);
-        sheet.dismiss();
-        shadowOf(Looper.getMainLooper()).idle();
     }
 
     @Test

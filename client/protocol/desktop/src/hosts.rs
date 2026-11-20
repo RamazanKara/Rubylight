@@ -102,6 +102,8 @@ pub struct Native {
     pub library: Option<Library>,
     /// When the library's games were last played, by install id (`NativeLibrary::last_played`).
     pub last_played: BTreeMap<String, u64>,
+    /// How long the library's games were played, by install id (`NativeLibrary::playtime_minutes`).
+    pub playtime_minutes: BTreeMap<String, u64>,
     /// The collections the library's games are in, by install id (`NativeLibrary::collections`).
     pub collections: BTreeMap<String, Vec<String>>,
     /// The library was read from the PC in this run (not loaded from disk).

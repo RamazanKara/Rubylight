@@ -23,4 +23,11 @@
     <string name="home_view_group_collection">コレクション</string>
     <string name="console_row_no_collection">コレクションなし</string>
     <string name="console_filter_hidden">非表示</string>
+    <string name="home_view_group_installation">インストール状況</string>
+    <string name="home_view_sort">並べ替え</string>
+    <string name="home_view_sort_title">タイトル</string>
+    <string name="home_view_sort_last_played">最終プレイ</string>
+    <string name="home_view_sort_playtime">プレイ時間</string>
+    <string name="home_view_order_ascending">昇順</string>
+    <string name="home_view_order_descending">降順</string>
 </resources>

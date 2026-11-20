@@ -26,4 +26,11 @@
     <string name="home_view_group_collection">Коллекция</string>
     <string name="console_row_no_collection">Без коллекции</string>
     <string name="console_filter_hidden">Скрытые</string>
+    <string name="home_view_group_installation">Установка</string>
+    <string name="home_view_sort">Сортировать по</string>
+    <string name="home_view_sort_title">Название</string>
+    <string name="home_view_sort_last_played">Последний запуск</string>
+    <string name="home_view_sort_playtime">Время в игре</string>
+    <string name="home_view_order_ascending">По возрастанию</string>
+    <string name="home_view_order_descending">По убыванию</string>
 </resources>

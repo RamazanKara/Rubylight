@@ -34,6 +34,34 @@ public class HomeViewTest {
         assertEquals(HomeView.Group.NONE, HomeView.read(prefs, false).group);
     }
 
+    @Test
+    public void installationIsOfferedOnlyWithBothKindsOfGames() {
+        assertFalse(java.util.Arrays.asList(HomeView.offeredGroups(true, false)).contains(HomeView.Group.INSTALLATION));
+        assertEquals(java.util.Arrays.asList(HomeView.Group.STORE, HomeView.Group.TYPE, HomeView.Group.INSTALLATION,
+                HomeView.Group.NONE), java.util.Arrays.asList(HomeView.offeredGroups(false, true)));
+        new HomeView(HomeView.Layout.ROWS, HomeView.Group.INSTALLATION, HomeView.Size.MEDIUM).save(prefs);
+        assertEquals("installation", prefs.getString(HomeView.KEY_GROUP, null));
+        assertEquals(HomeView.Group.INSTALLATION, HomeView.read(prefs, false).group);
+    }
+
+    @Test
+    public void theSortIsStoredByNameAndTitleAToZWithoutOne() {
+        HomeView read = HomeView.read(prefs, false);
+        assertEquals(HomeView.Sort.TITLE, read.sort);
+        assertEquals(HomeView.Order.ASCENDING, read.order);
+        assertTrue(read.byTitle());
+        read.with(HomeView.Sort.PLAYTIME).with(HomeView.Order.DESCENDING).save(prefs);
+        assertEquals("playtime", prefs.getString(HomeView.KEY_SORT, null));
+        assertEquals("descending", prefs.getString(HomeView.KEY_ORDER, null));
+        HomeView back = HomeView.read(prefs, true);
+        assertEquals(HomeView.Sort.PLAYTIME, back.sort);
+        assertEquals(HomeView.Order.DESCENDING, back.order);
+        assertFalse(back.byTitle());
+        // A value this version does not know keeps the default.
+        prefs.edit().putString(HomeView.KEY_SORT, "rating").commit();
+        assertEquals(HomeView.Sort.TITLE, HomeView.read(prefs, false).sort);
+    }
+
     @Before
     public void setUp() {
         prefs = PreferenceManager.getDefaultSharedPreferences(RuntimeEnvironment.getApplication());

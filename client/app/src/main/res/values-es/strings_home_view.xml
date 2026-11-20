@@ -25,4 +25,11 @@
     <string name="home_view_group_collection">Colección</string>
     <string name="console_row_no_collection">Sin colección</string>
     <string name="console_filter_hidden">Ocultos</string>
+    <string name="home_view_group_installation">Instalación</string>
+    <string name="home_view_sort">Ordenar por</string>
+    <string name="home_view_sort_title">Título</string>
+    <string name="home_view_sort_last_played">Jugado por última vez</string>
+    <string name="home_view_sort_playtime">Tiempo de juego</string>
+    <string name="home_view_order_ascending">Ascendente</string>
+    <string name="home_view_order_descending">Descendente</string>
 </resources>

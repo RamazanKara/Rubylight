@@ -50,6 +50,8 @@ pub struct Scan {
     /// When the stores say each game was last played, in seconds since the epoch, `0` for
     /// never: by `game_id` (`steam:570`) and by Playnite game ([`playnite_key`]).
     played: BTreeMap<String, u64>,
+    /// How long the stores say each game was played, in minutes, keyed like `played`.
+    playtime: BTreeMap<String, u64>,
     /// The collections and categories each game is in, keyed like `played`.
     collections: BTreeMap<String, BTreeSet<String>>,
     /// How many collection names [`Self::collecting`] left out or shortened.
@@ -64,6 +66,7 @@ impl Scan {
             skipped: BTreeSet::new(),
             folders: None,
             played: BTreeMap::new(),
+            playtime: BTreeMap::new(),
             collections: BTreeMap::new(),
             collections_cut: 0,
             collections_bytes: 0,
@@ -140,23 +143,25 @@ impl Scan {
     /// When the stores say these games were last played (`0` for never), by `game_id` or
     /// [`playnite_key`]. A key seen twice keeps the later time.
     pub fn playing(mut self, played: impl IntoIterator<Item = (String, u64)>) -> Self {
-        for (key, at) in played {
-            let kept = self.played.entry(key).or_insert(at);
-            *kept = (*kept).max(at);
-        }
+        keep_max(&mut self.played, played);
+        self
+    }
+    /// How long the stores say these games were played, in minutes (`0` for never), by
+    /// `game_id` or [`playnite_key`]. A key seen twice keeps the longer time.
+    pub fn played_for(mut self, minutes: impl IntoIterator<Item = (String, u64)>) -> Self {
+        keep_max(&mut self.playtime, minutes);
         self
     }
     /// When the app's game was last played (`0` for never), the later of its store's and its
     /// Playnite game's; `None` when no store says.
     pub fn last_played(&self, app: &App) -> Option<u64> {
-        let store = store_of(app).and_then(|(_, game_id)| self.played.get(&game_id).copied());
-        let playnite = app
-            .extra
-            .get("playnite-id")
-            .and_then(Value::as_str)
-            .filter(|id| !id.is_empty())
-            .and_then(|id| self.played.get(&playnite_key(id)).copied());
-        store.max(playnite)
+        app_max(&self.played, app)
+    }
+    /// How long the app's game was played, in minutes (`0` for never), the longer of its
+    /// store's and its Playnite game's, since Playnite imports the stores' times rather than
+    /// adding to them; `None` when no store says.
+    pub fn playtime_minutes(&self, app: &App) -> Option<u64> {
+        app_max(&self.playtime, app)
     }
     /// The scan did not read these sources, so it says nothing about their games.
     pub fn skipping(mut self, sources: impl IntoIterator<Item = Source>) -> Self {
@@ -198,7 +203,27 @@ impl Scan {
     }
 }
 
-/// The key [`Scan::playing`] takes a Playnite game's last played time by.
+/// Adds the values to `map`, keeping the larger one for a key seen twice.
+fn keep_max(map: &mut BTreeMap<String, u64>, values: impl IntoIterator<Item = (String, u64)>) {
+    for (key, value) in values {
+        let kept = map.entry(key).or_insert(value);
+        *kept = (*kept).max(value);
+    }
+}
+/// The larger of the values `map` holds for the app's store game and its Playnite game,
+/// `None` when it holds neither.
+fn app_max(map: &BTreeMap<String, u64>, app: &App) -> Option<u64> {
+    let store = store_of(app).and_then(|(_, game_id)| map.get(&game_id).copied());
+    let playnite = app
+        .extra
+        .get("playnite-id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .and_then(|id| map.get(&playnite_key(id)).copied());
+    store.max(playnite)
+}
+
+/// The key [`Scan::playing`] and [`Scan::played_for`] take a Playnite game's times by.
 pub fn playnite_key(id: &str) -> String {
     format!("playnite:{}", id.to_ascii_lowercase())
 }
@@ -328,16 +353,20 @@ pub fn library_with(
                 },
             },
             last_played: None,
+            playtime_minutes: None,
             collections: scan.map(|scan| scan.collections(app)).unwrap_or_default(),
         });
-        played.push(scan.and_then(|scan| scan.last_played(app)));
+        played.push(scan.map_or((None, None), |scan| {
+            (scan.last_played(app), scan.playtime_minutes(app))
+        }));
     }
-    // The revision leaves `running` and `last_played` out, so starting a game
-    // doesn't make every client refetch the covers.
+    // The revision leaves `running`, `last_played` and `playtime_minutes` out, so
+    // starting or playing a game doesn't make every client refetch the covers.
     let revision = hash(&serde_json::to_vec(&games).unwrap_or_default());
-    for (game, last_played) in games.iter_mut().zip(played) {
+    for (game, (last_played, playtime_minutes)) in games.iter_mut().zip(played) {
         game.running = current == Some(game.app_id);
         game.last_played = last_played;
+        game.playtime_minutes = playtime_minutes;
     }
     Library { revision, games }
 }

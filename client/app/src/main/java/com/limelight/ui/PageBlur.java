@@ -7,10 +7,13 @@ import android.graphics.Shader;
 import android.os.Build;
 import android.provider.Settings;
 import android.view.View;
+import android.view.ViewTreeObserver;
 import android.view.Window;
 import android.view.WindowManager;
 
 import androidx.annotation.RequiresApi;
+
+import com.limelight.R;
 
 import java.util.Map;
 import java.util.WeakHashMap;
@@ -150,10 +153,56 @@ final class PageBlur {
         if (holds <= 0) {
             pageHolds.remove(page);
             page.setRenderEffect(null);
+            WholeRepaint.stop(page);
         } else {
             pageHolds.put(page, holds);
-            // Clamped, so the screen's edges stay as bright as its middle.
-            if (holds == 1) page.setRenderEffect(RenderEffect.createBlurEffect(radius, radius, Shader.TileMode.CLAMP));
+            if (holds == 1) {
+                WholeRepaint.start(page);
+                // Clamped, so the screen's edges stay as bright as its middle.
+                page.setRenderEffect(RenderEffect.createBlurEffect(radius, radius, Shader.TileMode.CLAMP));
+            }
+        }
+    }
+
+    /**
+     * Keeps a blurred page blurred as a whole (#61). A phone redraws only the part of a window that changed, while a blur
+     * spreads every pixel over its radius: the tapped row's press, fading out under the dialog, was redrawn and blurred on
+     * its own, and the row read as a dark bar inside the blurred glow of its press around it. While the page is blurred,
+     * press feedback ends at once instead of fading, and a frame that changes anything in the page redraws all of it. A
+     * page that does not change draws nothing more.
+     */
+    private static final class WholeRepaint implements ViewTreeObserver.OnPreDrawListener {
+        private final View page;
+
+        private WholeRepaint(View page) {
+            this.page = page;
+        }
+
+        static void start(View page) {
+            if (page.getTag(R.id.page_blur_repaint) != null) return;
+            WholeRepaint repaint = new WholeRepaint(page);
+            page.setTag(R.id.page_blur_repaint, repaint);
+            page.getViewTreeObserver().addOnPreDrawListener(repaint);
+            // A press shows until the dialog it opened is up; its fade is the change the blur must not see.
+            page.jumpDrawablesToCurrentState();
+        }
+
+        static void stop(View page) {
+            Object repaint = page.getTag(R.id.page_blur_repaint);
+            if (!(repaint instanceof WholeRepaint)) return;
+            page.setTag(R.id.page_blur_repaint, null);
+            page.getViewTreeObserver().removeOnPreDrawListener((WholeRepaint) repaint);
+        }
+
+        @Override
+        public boolean onPreDraw() {
+            if (page.isDirty()) {
+                // A press released now (the window losing focus to the dialog) would fade in frames the render thread
+                // draws alone, each one redrawing just the row: it ends here, and this frame redraws the whole page.
+                page.jumpDrawablesToCurrentState();
+                page.invalidate();
+            }
+            return true;
         }
     }
 

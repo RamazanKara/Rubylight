@@ -23,6 +23,7 @@ import org.robolectric.annotation.GraphicsMode;
 import org.robolectric.shadows.ShadowLooper;
 
 import static org.junit.Assert.*;
+import static org.robolectric.Shadows.shadowOf;
 
 /**
  * The page blurs behind a dialog and a sheet (Nightjar #61) where the device affords live glass and the system's switch is
@@ -163,6 +164,93 @@ public class PageBlurTest {
             sheet.dismiss();
             ShadowLooper.idleMainLooper();
             assertFalse("gone with the last window", PageBlur.pageBlurred(activity));
+        }
+    }
+
+    /** A row's press feedback: counts how often it is told to end its animation. */
+    private static final class Press extends android.graphics.drawable.ColorDrawable {
+        int jumps;
+
+        @Override
+        public void jumpToCurrentState() {
+            jumps++;
+        }
+    }
+
+    /** Draws the page as a screen does: only a drawn view passes an invalidation on to its window. */
+    private static void draw(View page) {
+        page.draw(new android.graphics.Canvas(android.graphics.Bitmap.createBitmap(
+                page.getWidth(), page.getHeight(), android.graphics.Bitmap.Config.ARGB_8888)));
+    }
+
+    @Test
+    public void aRowRepaintedUnderTheDialogRedrawsTheWholeBlurredPage() {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup().visible()) {
+            Activity activity = page(controller);
+            Press press = new Press();
+            View row = new View(activity);
+            row.setBackground(press);
+            activity.setContentView(row);
+            ShadowLooper.idleMainLooper();
+            View page = activity.getWindow().getDecorView();
+            // A phone on Android 12+ without the system's window blur: the app blurs the page (Settings, #61).
+            MenuBlurWindow.enabledForTest = false;
+            PageBlur.blursOffForTest = false;
+            AlertDialog dialog = new NavigationDialogBuilder(activity).setTitle("Stream smoothness").create();
+            int beforeBlur = press.jumps;
+            dialog.show();
+            ShadowLooper.idleMainLooper();
+            assertTrue(PageBlur.pageBlurred(activity));
+            assertTrue("the tapped row's press ends as the blur starts, instead of fading under it", press.jumps > beforeBlur);
+
+            // The row repaints on its own, as its press does when the window loses focus to the dialog.
+            draw(page);
+            shadowOf(page).clearWasInvalidated();
+            int jumps = press.jumps;
+            row.invalidate();
+            assertTrue(page.isDirty());
+            page.getViewTreeObserver().dispatchOnPreDraw();
+            assertTrue("the whole page redraws, so its blur has no edge at the row", shadowOf(page).wasInvalidated());
+            assertTrue("and the press ends at once", press.jumps > jumps);
+
+            // A page that does not change draws nothing more.
+            draw(page);
+            shadowOf(page).clearWasInvalidated();
+            page.getViewTreeObserver().dispatchOnPreDraw();
+            assertFalse(shadowOf(page).wasInvalidated());
+
+            // Without the blur, a row redraws on its own again.
+            dialog.dismiss();
+            ShadowLooper.idleMainLooper();
+            assertFalse(PageBlur.pageBlurred(activity));
+            draw(page);
+            shadowOf(page).clearWasInvalidated();
+            row.invalidate();
+            page.getViewTreeObserver().dispatchOnPreDraw();
+            assertFalse(shadowOf(page).wasInvalidated());
+        }
+    }
+
+    @Test
+    public void whereTheSystemBlursThePageItRedrawsAsEver() {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup().visible()) {
+            Activity activity = page(controller);
+            View row = new View(activity);
+            activity.setContentView(row);
+            ShadowLooper.idleMainLooper();
+            View page = activity.getWindow().getDecorView();
+            // The system composes its blur from the whole screen on every frame: nothing to add.
+            MenuBlurWindow.enabledForTest = true;
+            AlertDialog dialog = new NavigationDialogBuilder(activity).setTitle("Stream smoothness").create();
+            dialog.show();
+            ShadowLooper.idleMainLooper();
+            assertTrue(blurred(dialog.getWindow()));
+            draw(page);
+            shadowOf(page).clearWasInvalidated();
+            row.invalidate();
+            page.getViewTreeObserver().dispatchOnPreDraw();
+            assertFalse(shadowOf(page).wasInvalidated());
+            dialog.dismiss();
         }
     }
 

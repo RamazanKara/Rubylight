@@ -1,3 +1,4 @@
 <resources>
     <item name="action_sheet_close" type="id" />
+    <item name="page_blur_repaint" type="id" />
 </resources>

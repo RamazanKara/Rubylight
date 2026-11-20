@@ -33,6 +33,35 @@ pub(super) fn unavailable(error: &anyhow::Error) -> String {
     }
 }
 
+/// The VHF gamepad driver's device interface.
+pub(super) const VHF_INTERFACE: GUID = GUID::from_u128(0x27debbf5_1d1e_4e9c_906d_d104b1418b2b);
+
+/// The VHF driver no longer accepts this client's handle: it answers every
+/// request on it with ERROR_INVALID_HANDLE, as it did about half a second
+/// after a pad was plugged following a boot (#138). Only a new handle can
+/// help; the pads on this one are closed and the driver opened again.
+#[derive(Debug)]
+pub(super) struct DriverLost;
+impl std::fmt::Display for DriverLost {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("the virtual gamepad driver no longer accepts the host's handle")
+    }
+}
+/// Whether an error is the VHF driver refusing the host's handle itself.
+pub(super) fn driver_lost(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<DriverLost>().is_some()
+}
+/// A VHF driver's answer, marked [`DriverLost`] when it refused the handle.
+/// Only a real handle reaches the driver: the USB/IP profiles' placeholder
+/// fails with its own error before any request.
+pub(super) fn driver_error(error: windows::core::Error) -> anyhow::Error {
+    if error.code() == E_HANDLE {
+        anyhow::Error::new(error).context(DriverLost)
+    } else {
+        error.into()
+    }
+}
+
 pub(super) enum Backend {
     /// The VHF gamepad driver, which the installer brings: Xbox One, Xbox
     /// Series, DualShock 4, DualSense, Switch Pro and Steam Controller pads in
@@ -79,9 +108,7 @@ impl Backend {
         if matches!(profile, VIGEM_X360 | VIGEM_DS4) {
             return Self::vigem(vigem::Client::open(), profile);
         }
-        let mut backend = Self::Vhf(Some(open_interface(GUID::from_u128(
-            0x27debbf5_1d1e_4e9c_906d_d104b1418b2b,
-        ))?));
+        let mut backend = Self::Vhf(Some(open_interface(VHF_INTERFACE)?));
         let out = backend.ioctl(0x800, &request(8, None), 28)?;
         if out.len() != 28 || u16::from_le_bytes(out[4..6].try_into().unwrap()) != 2 {
             bail!("incompatible VHF gamepad protocol");
@@ -114,7 +141,14 @@ impl Backend {
             DeviceIoControl(
                 match self {
                     Self::Vhf(Some(handle)) => *handle,
-                    _ => return Err(windows::core::Error::from_hresult(E_HANDLE)),
+                    // Not ERROR_INVALID_HANDLE: that is the driver's own
+                    // answer when it lost a real handle (#138).
+                    _ => {
+                        return Err(windows::core::Error::new(
+                            ERROR_NOT_SUPPORTED.to_hresult(),
+                            "no VHF gamepad device: a USB/IP controller profile opens none",
+                        ));
+                    }
                 },
                 (0x22 << 16) | (3 << 14) | (function << 2),
                 Some(data.as_ptr().cast()),
@@ -128,6 +162,10 @@ impl Backend {
             Ok(result)
         }
     }
+    /// A request to the VHF driver, its refusal of the handle marked.
+    fn call(&mut self, function: u32, data: &[u8], output: usize) -> Result<Vec<u8>> {
+        self.ioctl(function, data, output).map_err(driver_error)
+    }
     pub(super) fn plug(&mut self, slot: u32, profile: u16) -> Result<()> {
         #[cfg(test)]
         if let Self::Fake(driver) = self {
@@ -139,7 +177,7 @@ impl Backend {
         let mut b = request(16, Some(slot));
         b.extend_from_slice(&profile.to_le_bytes());
         b.extend_from_slice(&0u16.to_le_bytes());
-        self.ioctl(0x801, &b, 0)?;
+        self.call(0x801, &b, 0)?;
         Ok(())
     }
     pub(super) fn unplug(&mut self, slot: u32) -> Result<()> {
@@ -150,7 +188,7 @@ impl Backend {
         if let Self::Vigem(client) = self {
             return client.unplug(slot);
         }
-        self.ioctl(0x802, &request(12, Some(slot)), 0)?;
+        self.call(0x802, &request(12, Some(slot)), 0)?;
         Ok(())
     }
     pub(super) fn submit(
@@ -174,7 +212,7 @@ impl Backend {
             b.extend_from_slice(&stick.to_le_bytes());
         }
         b.extend_from_slice(&[left, right, 0, 0]);
-        self.ioctl(0x803, &b, 0)?;
+        self.call(0x803, &b, 0)?;
         Ok(())
     }
     pub(super) fn motion(&mut self, slot: u32, kind: u8, xyz: &[f32; 3]) -> Result<()> {
@@ -192,7 +230,7 @@ impl Backend {
                 &((*f as f64 * 1000.).clamp(i32::MIN as f64, i32::MAX as f64) as i32).to_le_bytes(),
             );
         }
-        self.ioctl(0x806, &b, 0)?;
+        self.call(0x806, &b, 0)?;
         Ok(())
     }
     pub(super) fn touch(&mut self, update: &GamepadTouchRequest) -> Result<()> {
@@ -203,7 +241,7 @@ impl Backend {
         if let Self::Vigem(client) = self {
             return client.touch(update.global, update.slot, update.event, update.position);
         }
-        self.ioctl(0x805, &update.packet, 0)?;
+        self.call(0x805, &update.packet, 0)?;
         Ok(())
     }
     pub(super) fn battery(&mut self, slot: u32, state: u8, percent: u8) -> Result<()> {
@@ -216,7 +254,7 @@ impl Backend {
         }
         let mut b = request(16, Some(slot));
         b.extend_from_slice(&[percent, state, 0, 0]);
-        self.ioctl(0x807, &b, 0)?;
+        self.call(0x807, &b, 0)?;
         Ok(())
     }
     /// The real Steam Controller's firmware attributes for a Steam Controller
@@ -232,7 +270,7 @@ impl Backend {
         if let Self::Fake(_) = self {
             return Ok(());
         }
-        self.ioctl(ATTRIBUTES_IOCTL, &attributes_request(slot, attributes), 0)?;
+        self.call(ATTRIBUTES_IOCTL, &attributes_request(slot, attributes), 0)?;
         Ok(())
     }
     pub(super) fn feedback(&mut self, slot: u32) -> Result<Option<(u16, Vec<u8>)>> {
@@ -295,7 +333,7 @@ fn decode_feedback(result: windows::core::Result<Vec<u8>>) -> Result<Option<(u16
         // libvirtualgamepad's poll_feedback consumes one pending event, or
         // returns STATUS_NO_MORE_ENTRIES. An empty queue is normal at 125 Hz.
         Err(error) if error.code() == ERROR_NO_MORE_ITEMS.to_hresult() => return Ok(None),
-        result => result?,
+        result => result.map_err(driver_error)?,
     };
     if b.len() == 48 {
         let kind = u16::from_le_bytes(b[12..14].try_into().unwrap());

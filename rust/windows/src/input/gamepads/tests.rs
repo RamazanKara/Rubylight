@@ -497,20 +497,102 @@ fn the_steam_controllers_left_grip_bit_reaches_its_own_pad() {
 
 /// Windows retires the virtual pads when it leaves D0; the driver answers every
 /// request with ERROR_DEVICE_REMOVED until its slot is created again, and no
-/// other driver error is a reason to create one.
+/// other driver error is a reason to create one. The driver refusing the
+/// handle itself (#138) closes the pads instead, which only its answer marks.
 #[test]
 fn only_the_drivers_device_removed_error_creates_the_pad_again() {
+    use gamepad_backend::{driver_error, driver_lost};
     use windows::Win32::Foundation::{E_HANDLE, ERROR_DEVICE_REMOVED};
     let removed = anyhow::Error::new(windows::core::Error::from_hresult(
         ERROR_DEVICE_REMOVED.to_hresult(),
     ));
     assert!(device_removed(&removed));
+    assert!(!driver_lost(&removed));
     assert!(device_removed(
         &removed.context("the gamepad driver could not report feedback")
     ));
-    let missing = anyhow::Error::new(windows::core::Error::from_hresult(E_HANDLE));
-    assert!(!device_removed(&missing));
+    let refused = driver_error(windows::core::Error::from_hresult(E_HANDLE));
+    assert!(!device_removed(&refused));
+    assert!(driver_lost(&refused));
+    assert!(format!("{refused:#}").contains("0x80070006"), "{refused:#}");
+    let refused = refused.context("the gamepad driver could not plug a vhf_ds5 controller");
+    assert!(driver_lost(&refused), "through added context");
+    assert!(!device_removed(&refused));
+    // A bare E_HANDLE, not from the driver, is neither.
+    let bare = anyhow::Error::new(windows::core::Error::from_hresult(E_HANDLE));
+    assert!(!device_removed(&bare));
+    assert!(!driver_lost(&bare));
+    assert!(!driver_lost(&driver_error(ERROR_DEVICE_REMOVED.into())));
     assert!(!device_removed(&anyhow::anyhow!("injected failure")));
+    assert!(!driver_lost(&anyhow::anyhow!("injected failure")));
+}
+
+fn refused_error() -> anyhow::Error {
+    gamepad_backend::driver_error(windows::core::Error::from_hresult(
+        windows::Win32::Foundation::E_HANDLE,
+    ))
+}
+
+/// #138: a state the driver refuses the handle for marks the pads lost for
+/// the gamepad thread to close; the pad is not created again in place.
+#[test]
+fn a_refused_handle_marks_the_pads_lost_without_creating_the_pad_again() {
+    use super::super::gamepad_thread::Pads;
+    let mut pads = scripted_pads();
+    pads.active.insert(0, 2);
+    pads.profiles.insert(0, 4);
+    script(&mut pads).submits.push_back(Err(refused_error()));
+    let error = Pads::apply(&mut pads, &state(0, 1)).unwrap_err();
+    assert!(gamepad_backend::driver_lost(&error));
+    assert!(Pads::lost(&pads));
+    assert_eq!(script(&mut pads).calls, ["submit 2"], "no plug, no retry");
+    assert!(!pads.recreated_at.contains_key(&0));
+    // Slot 2 was never reserved here: closing must not free it.
+    pads.active.clear();
+    // Any other failure leaves the pads open.
+    let mut pads = scripted_pads();
+    pads.active.insert(0, 2);
+    pads.profiles.insert(0, 4);
+    script(&mut pads)
+        .submits
+        .push_back(Err(anyhow::anyhow!("injected failure")));
+    assert!(Pads::apply(&mut pads, &state(0, 1)).is_err());
+    assert!(!Pads::lost(&pads));
+    pads.active.clear();
+}
+
+/// #138: the refusal showed first in the feedback poll, 118 times a second.
+/// One poll marks the pads lost, and none is a pad to create again.
+#[test]
+fn a_feedback_poll_refused_the_handle_marks_the_pads_lost() {
+    let mut pads = scripted_pads();
+    pads.active.insert(0, 2);
+    pads.profiles.insert(0, 4);
+    script(&mut pads)
+        .feedback
+        .insert(2, VecDeque::from([Err(refused_error())]));
+    assert!(pads.feedback().is_empty());
+    assert!(pads.lost());
+    assert_eq!(script(&mut pads).calls, ["feedback 2"], "no plug");
+    pads.active.clear();
+}
+
+/// Lost pads are closed without unplug requests on the refused handle, and
+/// their slots are free for the pads opened next rather than stranded.
+#[test]
+fn lost_pads_free_their_slots_without_unplugging() {
+    let slot = Slot::reserve().unwrap();
+    let global = slot.id();
+    std::mem::forget(slot);
+    let mut pads = scripted_pads();
+    pads.active.insert(0, global);
+    script(&mut pads)
+        .unplugs
+        .push_back(Err(anyhow::anyhow!("unplug sent on a refused handle")));
+    pads.lost = true;
+    drop(pads);
+    assert!(!STRANDED.lock().unwrap().contains(&global));
+    assert!(!SLOTS.lock().unwrap()[global as usize]);
 }
 
 /// A re-creation the driver refuses keeps the pad, so its next input tries

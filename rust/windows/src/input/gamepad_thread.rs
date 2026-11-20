@@ -28,6 +28,14 @@ const POLL: Duration = Duration::from_millis(8);
 /// How long to wait before opening a driver that failed to open again:
 /// opening enumerates devices.
 const RETRY: Duration = Duration::from_secs(10);
+/// How long after the driver refused the pads' handle it is opened again,
+/// while it has done so fewer than LOST_LIMIT times within LOST_SPAN; then
+/// every RETRY, with a warning (#138).
+const REOPEN: Duration = Duration::from_secs(1);
+const LOST_LIMIT: usize = 3;
+const LOST_SPAN: Duration = Duration::from_secs(60);
+/// The warning for a driver that keeps refusing the pads' handle.
+const DRIVER_LOST: &str = "input_gamepad_driver";
 /// Events waiting for a stalled driver beyond this many are dropped.
 const QUEUE_LIMIT: usize = 1024;
 /// Moonlight's rumble packet, which synthesized Steam Controller rumble uses.
@@ -107,6 +115,16 @@ pub(super) trait Pads {
     /// Whether any pad is plugged in, and so feedback needs polling.
     fn plugged(&self) -> bool;
     fn release_all(&mut self) -> Result<()>;
+    /// Whether the driver refused these pads' handle: the thread closes them
+    /// and opens the driver again (#138).
+    fn lost(&self) -> bool {
+        false
+    }
+    /// Whether the driver's device is still present, for the log line when
+    /// it refused the handle.
+    fn driver_present(&self) -> bool {
+        true
+    }
 }
 impl Pads for Gamepads {
     fn warnings(&mut self, warnings: Arc<butterpollo_core::session::Warnings>) {
@@ -115,11 +133,12 @@ impl Pads for Gamepads {
     fn apply(&mut self, event: &Event) -> Result<()> {
         let applied = Gamepads::apply(self, event);
         self.follow_driver_host();
-        applied
+        self.note(applied)
     }
     fn refresh(&mut self) -> Result<()> {
         self.check_driver_host();
-        Gamepads::refresh(self)
+        let refreshed = Gamepads::refresh(self);
+        self.note(refreshed)
     }
     fn motion_requests(&mut self) -> Vec<(u8, u16)> {
         Gamepads::motion_requests(self)
@@ -164,7 +183,14 @@ impl Pads for Gamepads {
             || !self.switch2s.is_empty()
     }
     fn release_all(&mut self) -> Result<()> {
-        Gamepads::release_all(self)
+        let released = Gamepads::release_all(self);
+        self.note(released)
+    }
+    fn lost(&self) -> bool {
+        Gamepads::lost(self)
+    }
+    fn driver_present(&self) -> bool {
+        Gamepads::driver_present(self)
     }
 }
 
@@ -742,6 +768,129 @@ fn wait<'a>(
     shared.queue.lock().unwrap()
 }
 
+/// The driver's recent refusals of the pads' handle.
+#[derive(Default)]
+struct Losses {
+    at: VecDeque<Instant>,
+    /// Whether the warning for repeated refusals is up.
+    warned: bool,
+}
+impl Losses {
+    /// Records a refusal at `now`. Returns whether it is the LOST_LIMIT'th
+    /// or later within LOST_SPAN, when the driver is opened again only
+    /// every RETRY.
+    fn record(&mut self, now: Instant) -> bool {
+        while self
+            .at
+            .front()
+            .is_some_and(|at| now.saturating_duration_since(*at) >= LOST_SPAN)
+        {
+            self.at.pop_front();
+        }
+        self.at.push_back(now);
+        let backing_off = self.at.len() >= LOST_LIMIT;
+        self.warned |= backing_off;
+        backing_off
+    }
+    /// Whether the warning should go: true once, after LOST_SPAN without a
+    /// refusal.
+    fn recovered(&mut self, now: Instant) -> bool {
+        if !self.warned
+            || self
+                .at
+                .back()
+                .is_some_and(|at| now.saturating_duration_since(*at) < LOST_SPAN)
+        {
+            return false;
+        }
+        self.warned = false;
+        self.at.clear();
+        true
+    }
+}
+
+/// The console warning for a driver that keeps refusing the pads' handle.
+fn lost_warning(present: bool) -> String {
+    format!(
+        "The virtual gamepad driver (Vibeshine Virtual Gamepad) keeps refusing the host's connection (0x80070006){}; controllers may not respond while keyboard and mouse remain available. Rubylight opens the driver again every {} seconds. If controllers stay unavailable, disable and re-enable Vibeshine Virtual Gamepad under System devices in Device Manager, or run Rubylight setup again.",
+        if present {
+            ""
+        } else {
+            ", and its device is gone"
+        },
+        RETRY.as_secs()
+    )
+}
+
+/// Closes pads whose driver refused their handle, so their requests stop
+/// and the handle is released, and sets when the driver is opened again
+/// (#138). Returns whether it did.
+fn forget_lost<P: Pads>(
+    shared: &Shared,
+    pads: &mut Option<P>,
+    losses: &mut Losses,
+    retry: &mut Option<Instant>,
+) -> bool {
+    if !pads.as_ref().is_some_and(P::lost) {
+        return false;
+    }
+    let present = pads.as_ref().is_some_and(P::driver_present);
+    // Dropping the pads closes the handle the driver no longer knows.
+    *pads = None;
+    let now = Instant::now();
+    let backing_off = losses.record(now);
+    let wait = if backing_off { RETRY } else { REOPEN };
+    *retry = Some(now + wait);
+    shared.audio_ready.store(0, Ordering::Release);
+    tracing::warn!(
+        device = if present { "present" } else { "gone" },
+        refusals = losses.at.len(),
+        reopen_in_s = wait.as_secs(),
+        "the virtual gamepad driver refused the host's handle (0x80070006): its controllers are closed and the driver will be opened again"
+    );
+    if backing_off {
+        shared
+            .warnings
+            .lock()
+            .unwrap()
+            .set(DRIVER_LOST, lost_warning(present));
+    }
+    true
+}
+
+/// The controller a setup event (identity, arrival, Steam Controller
+/// attributes) is for.
+fn setup_id(event: &Event) -> Option<u8> {
+    match event {
+        Event::Arrival { id, .. } => Some(*id),
+        Event::ControllerIdentity(identity) => Some(identity.controller),
+        Event::SteamAttributes(attributes) => Some(attributes.controller),
+        _ => None,
+    }
+}
+
+/// Keeps each controller's latest identity, arrival and Steam Controller
+/// attributes while it stays connected. Pads opened anew get them again
+/// before any other event, so every pad comes back as the type it was.
+fn keep_setup(setup: &mut Vec<Event>, event: &Event) {
+    if let Event::Controller { active, .. } = event {
+        // Identities stay, as the pads keep them: one comes just before its
+        // controller's arrival, which another's state may precede.
+        setup.retain(|kept| {
+            matches!(kept, Event::ControllerIdentity(_))
+                || setup_id(kept).is_some_and(|id| id < 16 && active & (1 << id) != 0)
+        });
+        return;
+    }
+    let Some(id) = setup_id(event) else {
+        return;
+    };
+    setup.retain(|kept| {
+        setup_id(kept) != Some(id) || std::mem::discriminant(kept) != std::mem::discriminant(event)
+    });
+    setup.push(event.clone());
+}
+
 fn run<P: Pads>(
     shared: &Shared,
     mut open: impl FnMut() -> Result<P>,
@@ -783,6 +932,10 @@ fn run<P: Pads>(
     let mut stats = Stats::default();
     let mut queued = None;
     let mut fast_until = None;
+    // What pads opened anew need to plug each controller as the type it was,
+    // and the driver's recent refusals of the pads' handle (#138).
+    let mut setup = Vec::new();
+    let mut losses = Losses::default();
     let stopping = || shared.stop.load(Ordering::Acquire);
     loop {
         let release = {
@@ -823,7 +976,9 @@ fn run<P: Pads>(
             // The old iteration may already have drained audio when release
             // was queued. Only replay after the device has been suspended.
             shared.audio_input.lock().unwrap().replay_status();
-            if let Err(error) = released {
+            if let Err(error) = released
+                && !pads.lost()
+            {
                 shared.warnings.lock().unwrap().event("input_gamepad_injection", format!("Controller release failed ({error:#}); held controls may remain active. Check the virtual gamepad driver."), butterpollo_core::session::EVENT_PERIOD);
             }
         }
@@ -832,8 +987,13 @@ fn run<P: Pads>(
             steam.retain(0);
             send_steam(&mut steam);
         }
+        if forget_lost(shared, &mut pads, &mut losses, &mut retry) {
+            (known_controllers, polling) = (0, false);
+            steam.retain(0);
+            send_steam(&mut steam);
+        }
         let depth = events.len();
-        for event in events.drain(..) {
+        while let Some(event) = events.pop_front() {
             if stopping() {
                 return;
             }
@@ -843,12 +1003,23 @@ fn run<P: Pads>(
             if pads.is_none() {
                 let now = Instant::now();
                 if retry.is_some_and(|at| now < at) {
+                    keep_setup(&mut setup, &event);
                     continue;
                 }
                 match open() {
                     Ok(opened) => {
                         shared.warnings.lock().unwrap().clear("input_gamepad");
                         pads = Some(opened);
+                        if !setup.is_empty() {
+                            // The controllers arrive again first, on pads
+                            // opened after the driver refused the last ones'
+                            // handle or after it could not be opened.
+                            events.push_front(event);
+                            for kept in std::mem::take(&mut setup).into_iter().rev() {
+                                events.push_front(kept);
+                            }
+                            continue;
+                        }
                     }
                     Err(error) => {
                         shared
@@ -857,12 +1028,13 @@ fn run<P: Pads>(
                             .unwrap()
                             .set("input_gamepad", super::gamepad_backend::unavailable(&error));
                         retry = Some(now + RETRY);
+                        keep_setup(&mut setup, &event);
                         continue;
                     }
                 }
             }
-            let Some(pads) = &mut pads else { continue };
-            pads.warnings(shared.warnings.lock().unwrap().clone());
+            let Some(pads_now) = &mut pads else { continue };
+            pads_now.warnings(shared.warnings.lock().unwrap().clone());
             match &event {
                 Event::Arrival { id, .. } if *id < 16 => {
                     shared
@@ -880,16 +1052,30 @@ fn run<P: Pads>(
                 }
                 _ => {}
             }
-            let applied = pads.apply(&event);
+            let applied = pads_now.apply(&event);
             shared
                 .audio_ready
-                .store(pads.audio_ready(), Ordering::Release);
+                .store(pads_now.audio_ready(), Ordering::Release);
             shared
                 .steam_pads
-                .store(pads.steam_pads(), Ordering::Release);
+                .store(pads_now.steam_pads(), Ordering::Release);
+            keep_setup(&mut setup, &event);
+            if pads_now.lost() {
+                // Not the profile's fault: the pads are closed and the
+                // driver opened again, which the log says.
+                if forget_lost(shared, &mut pads, &mut losses, &mut retry) {
+                    (known_controllers, polling) = (0, false);
+                    steam.retain(0);
+                    send_steam(&mut steam);
+                }
+                continue;
+            }
             match applied {
                 Err(error) => shared.warnings.lock().unwrap().event("input_gamepad_injection", format!("Controller input failed ({error:#}); some controls may not work. Check the selected gamepad profile and virtual driver."), butterpollo_core::session::EVENT_PERIOD),
                 Ok(()) => {
+                    if losses.recovered(Instant::now()) {
+                        shared.warnings.lock().unwrap().clear(DRIVER_LOST);
+                    }
                     match &event {
                         Event::Arrival { id, .. } if *id < 16 => {
                             known_controllers |= 1 << *id;
@@ -915,13 +1101,15 @@ fn run<P: Pads>(
                     if let Event::Arrival {
                         id, capabilities, ..
                     } = event
-                        && pads.motion_supported(u16::from(id))
+                        && pads_now.motion_supported(u16::from(id))
                     {
                         report(PadReport::Motion { id, capabilities });
                     }
                 }
             }
         }
+        // What a release left unapplied is not applied later.
+        events.clear();
         let now = Instant::now();
         if let Some(queued) = queued.take()
             && depth > 0
@@ -1002,6 +1190,12 @@ fn run<P: Pads>(
                 // The last pad left: the next line covers only the next pads.
                 stats = Stats::default();
             }
+        }
+        // A feedback poll the driver refused: no more polls on that handle.
+        if forget_lost(shared, &mut pads, &mut losses, &mut retry) {
+            (known_controllers, polling) = (0, false);
+            steam.retain(0);
+            send_steam(&mut steam);
         }
     }
 }

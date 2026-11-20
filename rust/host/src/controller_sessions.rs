@@ -296,10 +296,12 @@ pub fn prepare(h: &Shared, launch: &Launch, value: &str) -> Result<()> {
 /// driver or USB/IP client has raised its own warning by then, and that
 /// warning says what to install: a reconnect alone would only fail the same
 /// way again (#80). The driver that could not be opened comes first, then the
-/// DualSense that needs USB/IP, then whatever else refused the controller.
+/// one that keeps refusing the host's handle (#138), the DualSense that needs
+/// USB/IP, and whatever else refused the controller.
 fn not_ready(warnings: &[Warning]) -> String {
     let reason = [
         "input_gamepad",
+        "input_gamepad_driver",
         "input_dualsense",
         "input_gamepad_injection",
     ]
@@ -494,6 +496,12 @@ mod tests {
             "Controller setup has not finished: run setup again"
         );
         warnings.clear("input_gamepad");
+        warnings.set("input_gamepad_driver", "the driver keeps refusing");
+        assert_eq!(
+            not_ready(&warnings.snapshot()),
+            "Controller setup has not finished: the driver keeps refusing"
+        );
+        warnings.clear("input_gamepad_driver");
         warnings.clear("input_dualsense");
         assert_eq!(
             not_ready(&warnings.snapshot()),

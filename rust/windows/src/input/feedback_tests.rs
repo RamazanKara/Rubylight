@@ -64,6 +64,28 @@ fn only_an_empty_feedback_queue_is_not_a_poll_failure() {
     }
 }
 
+/// #138: ERROR_INVALID_HANDLE from the VHF driver means it refused the host's
+/// handle, so the USB/IP profiles' placeholder, which has none, answers with
+/// another error and never makes the gamepad thread reopen the driver.
+#[test]
+fn only_the_driver_refusing_its_handle_is_a_lost_driver() {
+    let mut placeholder = Backend::Vhf(None);
+    let error = placeholder.ioctl(0x803, &[], 0).unwrap_err();
+    assert_ne!(error.code(), E_HANDLE);
+    assert_eq!(error.code(), ERROR_NOT_SUPPORTED.to_hresult());
+    let error = placeholder.submit(0, 0, 0, 0, &[0; 4]).unwrap_err();
+    assert!(!driver_lost(&error), "{error:#}");
+    let error = placeholder.plug(0, 4).unwrap_err();
+    assert!(!driver_lost(&error), "{error:#}");
+    // The driver's own answer to a poll on a handle it no longer knows.
+    let error = decode_feedback(Err(E_HANDLE.into())).unwrap_err();
+    assert!(driver_lost(&error), "{error:#}");
+    assert_eq!(
+        error.downcast_ref::<windows::core::Error>().unwrap().code(),
+        E_HANDLE
+    );
+}
+
 #[test]
 fn pending_feedback_preserves_the_driver_kind_and_strengths() {
     for (kind, size) in [(4u16, 8u16), (5, 32)] {

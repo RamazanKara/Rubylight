@@ -47,6 +47,28 @@ pub fn open_interface(guid: GUID) -> Result<HANDLE> {
         result
     }
 }
+/// Whether a device offering this interface is present, without opening it.
+pub(super) fn interface_present(guid: GUID) -> bool {
+    // SAFETY: the sized interface structure stays live through the call, and
+    // the device set is destroyed once, after it.
+    unsafe {
+        let Ok(set) = SetupDiGetClassDevsW(
+            Some(&guid),
+            PCWSTR::null(),
+            None,
+            DIGCF_DEVICEINTERFACE | DIGCF_PRESENT,
+        ) else {
+            return false;
+        };
+        let mut interface = SP_DEVICE_INTERFACE_DATA {
+            cbSize: size_of::<SP_DEVICE_INTERFACE_DATA>() as u32,
+            ..Default::default()
+        };
+        let present = SetupDiEnumDeviceInterfaces(set, None, &guid, 0, &mut interface).is_ok();
+        let _ = SetupDiDestroyDeviceInfoList(set);
+        present
+    }
+}
 pub(super) fn request(size: u32, id: Option<u32>) -> Vec<u8> {
     let mut b = size.to_le_bytes().to_vec();
     b.extend_from_slice(&2u16.to_le_bytes());
@@ -121,6 +143,9 @@ pub struct Gamepads {
     /// Whether the installed driver answered the attributes request as one
     /// that predates it; logged once.
     steam_attributes_unsupported: bool,
+    /// The driver refused this handle ([`gamepad_backend::DriverLost`]): the
+    /// gamepad thread closes these pads and opens the driver again (#138).
+    lost: bool,
 }
 #[derive(Default)]
 struct FeedbackFailure {
@@ -264,6 +289,7 @@ impl Gamepads {
             steam_attributes: BTreeMap::new(),
             steam_haptics: Vec::new(),
             steam_attributes_unsupported: false,
+            lost: false,
         })
     }
     /// Attaches a real Steam Deck controller for a Steam Deck client when
@@ -992,6 +1018,7 @@ impl Gamepads {
     pub fn feedback(&mut self) -> Vec<(u16, u16, Vec<u8>)> {
         let mut drained = 0;
         let mut removed = Vec::new();
+        let mut lost = false;
         let mut reports = poll_feedback(
             &self.active,
             &mut self.last_feedback,
@@ -1004,10 +1031,14 @@ impl Gamepads {
                 if report.as_ref().is_err_and(device_removed) {
                     removed.push(slot);
                 }
+                lost |= report.as_ref().is_err_and(gamepad_backend::driver_lost);
                 report
             },
         );
         self.feedback_drained += drained;
+        // A refused handle is no pad to create again: the gamepad thread
+        // closes these pads and opens the driver anew.
+        self.lost |= lost;
         // A poll that finds the pad's device gone is what the machine's sleep
         // leaves behind; create the slot again so a game's rumble works before
         // the player touches anything.
@@ -1085,6 +1116,20 @@ impl Gamepads {
             );
         }
         reports
+    }
+    /// Marks the pads lost when `result` is the driver refusing their handle.
+    pub(super) fn note(&mut self, result: Result<()>) -> Result<()> {
+        self.lost |= result.as_ref().is_err_and(gamepad_backend::driver_lost);
+        result
+    }
+    /// Whether the driver refused this handle, so the pads must be closed.
+    pub(super) fn lost(&self) -> bool {
+        self.lost
+    }
+    /// Whether the VHF driver's device is still there once it refused the
+    /// handle: the driver lost the host's open, or its device failed.
+    pub(super) fn driver_present(&self) -> bool {
+        interface_present(gamepad_backend::VHF_INTERFACE)
     }
     /// Hold the gamepad driver's WUDFHost raised while a VHF pad is plugged,
     /// with `gamepad_driver_host_priority` on.
@@ -1666,6 +1711,17 @@ fn gamepad_touch_request(
 }
 impl Drop for Gamepads {
     fn drop(&mut self) {
+        if self.lost {
+            // The driver refuses this handle, so no unplug goes through it:
+            // closing the handle is what releases its pads. A slot the driver
+            // still holds is refused at the next plug, which takes another;
+            // stranded, it would stay reserved here for good.
+            let mut slots = SLOTS.lock().unwrap();
+            for &global in self.active.values() {
+                slots[global as usize] = false;
+            }
+            return;
+        }
         for (i, global) in self.active.clone() {
             match self.backend.unplug(u32::from(global)) {
                 Ok(()) => SLOTS.lock().unwrap()[global as usize] = false,

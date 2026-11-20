@@ -167,13 +167,14 @@ public class PageBlurTest {
         }
     }
 
-    /** A row's press feedback: counts how often it is told to end its animation. */
+    /** A row's press feedback: counts how often it is told to end, and redraws its row then, as a ripple does. */
     private static final class Press extends android.graphics.drawable.ColorDrawable {
         int jumps;
 
         @Override
         public void jumpToCurrentState() {
             jumps++;
+            invalidateSelf();
         }
     }
 
@@ -181,6 +182,27 @@ public class PageBlurTest {
     private static void draw(View page) {
         page.draw(new android.graphics.Canvas(android.graphics.Bitmap.createBitmap(
                 page.getWidth(), page.getHeight(), android.graphics.Bitmap.Config.ARGB_8888)));
+    }
+
+    /** The page's window loses its focus, as to a dialog: what its window tells its tree observer (hidden API). */
+    private static void loseFocus(View page) {
+        try {
+            java.lang.reflect.Method dispatch = android.view.ViewTreeObserver.class
+                    .getDeclaredMethod("dispatchOnWindowFocusChange", boolean.class);
+            dispatch.setAccessible(true);
+            dispatch.invoke(page.getViewTreeObserver(), false);
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    /** One frame of the page's window: true when it asked to redraw the page whole. */
+    private static boolean frame(View page) {
+        shadowOf(page).clearWasInvalidated();
+        page.getViewTreeObserver().dispatchOnPreDraw();
+        boolean whole = shadowOf(page).wasInvalidated();
+        draw(page);
+        return whole;
     }
 
     @Test
@@ -193,6 +215,8 @@ public class PageBlurTest {
             activity.setContentView(row);
             ShadowLooper.idleMainLooper();
             View page = activity.getWindow().getDecorView();
+            draw(page);
+            row.setPressed(true);
             // A phone on Android 12+ without the system's window blur: the app blurs the page (Settings, #61).
             MenuBlurWindow.enabledForTest = false;
             PageBlur.blursOffForTest = false;
@@ -202,32 +226,37 @@ public class PageBlurTest {
             ShadowLooper.idleMainLooper();
             assertTrue(PageBlur.pageBlurred(activity));
             assertTrue("the tapped row's press ends as the blur starts, instead of fading under it", press.jumps > beforeBlur);
+            assertTrue("the press that ended redraws the whole page", frame(page));
+            for (int i = 0; i < 5; i++) assertFalse("then a still page is left alone, frame " + i, frame(page));
 
-            // The row repaints on its own, as its press does when the window loses focus to the dialog.
-            draw(page);
-            shadowOf(page).clearWasInvalidated();
+            // A pressed view lets go as the page's window loses its focus to the dialog: its press ends at once.
             int jumps = press.jumps;
-            row.invalidate();
-            assertTrue(page.isDirty());
-            page.getViewTreeObserver().dispatchOnPreDraw();
-            assertTrue("the whole page redraws, so its blur has no edge at the row", shadowOf(page).wasInvalidated());
-            assertTrue("and the press ends at once", press.jumps > jumps);
+            row.setPressed(false);
+            loseFocus(page);
+            assertTrue(press.jumps > jumps);
+            assertTrue(frame(page));
+            for (int i = 0; i < 5; i++) assertFalse("no redraw feeds the next, frame " + i, frame(page));
 
-            // A page that does not change draws nothing more.
-            draw(page);
-            shadowOf(page).clearWasInvalidated();
-            page.getViewTreeObserver().dispatchOnPreDraw();
-            assertFalse(shadowOf(page).wasInvalidated());
+            // Something that keeps changing (a spinner behind the dialog) redraws the page whole on each of its frames,
+            // and its drawables are not ended over and over.
+            jumps = press.jumps;
+            for (int i = 0; i < 5; i++) {
+                row.invalidate();
+                assertTrue("the whole page redraws, so its blur has no edge at the row, frame " + i, frame(page));
+            }
+            assertEquals(jumps, press.jumps);
+            assertFalse(frame(page));
 
-            // Without the blur, a row redraws on its own again.
+            // Without the blur, a row redraws on its own again, and the window's focus ends nothing.
             dialog.dismiss();
             ShadowLooper.idleMainLooper();
             assertFalse(PageBlur.pageBlurred(activity));
             draw(page);
-            shadowOf(page).clearWasInvalidated();
+            jumps = press.jumps;
+            loseFocus(page);
+            assertEquals(jumps, press.jumps);
             row.invalidate();
-            page.getViewTreeObserver().dispatchOnPreDraw();
-            assertFalse(shadowOf(page).wasInvalidated());
+            assertFalse(frame(page));
         }
     }
 

@@ -55,6 +55,11 @@ pub(crate) struct Fixture {
     video_after_input_release: AtomicUsize,
     /// The stream's encoder fails for good, as one that keeps failing past its recovery.
     fail_encoder: AtomicBool,
+    /// The session thread body panics on its next loop pass, as a bug in setup or
+    /// the loop does: teardown must still release the capture.
+    session_body_panics: AtomicBool,
+    /// Session teardowns that have run, so a test can assert teardown runs exactly once.
+    teardowns: AtomicUsize,
     hold_teardown: AtomicBool,
     in_teardown: AtomicBool,
     reset: Mutex<Option<String>>,
@@ -205,6 +210,9 @@ impl Fixture {
     }
     pub(crate) fn retain_resources(&self) {
         self.resources_retained.fetch_add(1, Ordering::AcqRel);
+    }
+    pub(crate) fn count_teardown(&self) {
+        self.teardowns.fetch_add(1, Ordering::AcqRel);
     }
     pub(crate) async fn before_rtsp_cleanup(&self) {
         if !self.hold_rtsp_cleanup.swap(false, Ordering::AcqRel) {
@@ -394,6 +402,9 @@ impl Fixture {
         // probes are answered from here on.
         *s.media_epoch.write().unwrap() = Some(Instant::now());
         while !h.stop.load(Ordering::Acquire) && !s.stopping() {
+            if self.session_body_panics.swap(false, Ordering::AcqRel) {
+                panic!("the fixture made the session body panic");
+            }
             if self.fail_encoder.load(Ordering::Acquire) {
                 return Err(anyhow::anyhow!("AMF error AMF_FAIL (1)").context(
                     butterpollo_core::session::EncoderFailure("the encoder kept failing"),
@@ -1646,6 +1657,51 @@ async fn failure_during_control_connect_preserves_the_host_termination_reason() 
     .await;
     assert_eq!(client.reason.load(Ordering::Acquire), FAILED);
     drop(client);
+    h.finish().await
+}
+
+/// A panic in the session thread still tears the session down: the capture is
+/// released (`owns_capture` clears) and teardown runs exactly once, so the host
+/// does not stay latched until a restart. The panic is still delivered to the
+/// client as a failed stream, and a later normal session tears down once too.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_thread_panic_releases_capture_and_tears_down_once() -> Result<()> {
+    let h = Harness::new(10_000, 1).await?;
+    let launch = h.launch(0, false).await?;
+    let (session, client) = h.play(&launch).await?;
+    assert_eq!(h.fixture.teardowns.load(Ordering::Acquire), 0);
+    h.fixture.session_body_panics.store(true, Ordering::Release);
+    until("the panicked session releases the capture", WAIT, || {
+        !h.h.sessions.lock().unwrap().owns_capture()
+    })
+    .await;
+    assert_eq!(
+        h.fixture.teardowns.load(Ordering::Acquire),
+        1,
+        "teardown runs exactly once after the panic"
+    );
+    assert!(session.failed(), "a panicked session is recorded as failed");
+    assert_eq!(h.fixture.displays.load(Ordering::Acquire), 0);
+    assert_eq!(h.fixture.audios.load(Ordering::Acquire), 0);
+    until(
+        "the panicked session's failure reaches the client",
+        WAIT,
+        || client.reason.load(Ordering::Acquire) != 0,
+    )
+    .await;
+    assert_eq!(client.reason.load(Ordering::Acquire), FAILED);
+    drop(client);
+    h.empty().await?;
+    // A normal session still tears down exactly once, and the host stays usable.
+    let launch = h.launch(0, false).await?;
+    let (session, client) = h.play(&launch).await?;
+    assert_eq!(h.fixture.teardowns.load(Ordering::Acquire), 1);
+    h.end(&session, client).await?;
+    assert_eq!(
+        h.fixture.teardowns.load(Ordering::Acquire),
+        2,
+        "a normal session tears down exactly once"
+    );
     h.finish().await
 }
 

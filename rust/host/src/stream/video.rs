@@ -643,6 +643,46 @@ impl Workers {
     }
 }
 
+/// Runs [`SessionThread::teardown`] exactly once on every way out of the session
+/// thread. The setup-and-loop result is recorded into it and teardown runs when
+/// the guard drops, so a panic part way through setup or the loop still releases
+/// the capture and display instead of leaving `owns_capture` latched. A panic
+/// inside teardown while the thread is already unwinding would be a second panic
+/// and abort the process, so teardown is caught then (its own panic is already
+/// logged by the hook before the catch).
+struct TeardownGuard<'a> {
+    session: SessionThread<'a>,
+    result: Option<Result<()>>,
+    workers: Option<Workers>,
+    leases: Option<Leases>,
+}
+
+impl TeardownGuard<'_> {
+    fn run(&mut self) {
+        let (Some(workers), Some(leases)) = (self.workers.take(), self.leases.take()) else {
+            return;
+        };
+        let result = self
+            .result
+            .take()
+            .unwrap_or_else(|| anyhow::anyhow!("the session thread panicked"));
+        let session = &self.session;
+        if std::thread::panicking() {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                session.teardown(result, workers, leases);
+            }));
+        } else {
+            session.teardown(result, workers, leases);
+        }
+    }
+}
+
+impl Drop for TeardownGuard<'_> {
+    fn drop(&mut self) {
+        self.run();
+    }
+}
+
 impl Media {
     pub(super) fn spawn_session(
         self: &Arc<Self>,
@@ -664,8 +704,15 @@ impl Media {
                 };
                 tracing::info!(client=%s.launch.client.name,"CLIENT CONNECTED");
                 session.record_last_seen();
-                let mut leases = Leases::default();
-                let mut workers = Workers::new(&s);
+                let mut teardown = TeardownGuard {
+                    session,
+                    result: None,
+                    workers: Some(Workers::new(&s)),
+                    leases: Some(Leases::default()),
+                };
+                let session = &teardown.session;
+                let workers = teardown.workers.as_mut().unwrap();
+                let leases = teardown.leases.as_mut().unwrap();
                 let result = (|| -> Result<()> {
                     workers.coop_watch = crate::nucleus::Watch::start(&h, &s)?;
                     #[cfg(test)]
@@ -706,7 +753,7 @@ impl Media {
                         media,
                     )
                 })();
-                session.teardown(result, workers, leases);
+                teardown.result = Some(result);
             })
     }
 }

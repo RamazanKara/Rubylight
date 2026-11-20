@@ -13,6 +13,10 @@ impl SessionThread<'_> {
     #[rustfmt::skip]
     pub(super) fn teardown(&self, result: Result<()>, workers: Workers, leases: Leases) {
         let SessionThread { m, h, s } = *self;
+        #[cfg(test)]
+        if let Some(fixture) = &h.reconnect_fixture {
+            fixture.count_teardown();
+        }
         let Leases { com, stream_preparation, app_window, latest, encoder } = leases;
         let Workers {
             client_commands,

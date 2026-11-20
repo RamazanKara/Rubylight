@@ -1,0 +1,2 @@
+# A stream that hit an internal error no longer blocks the next one
+- **When the stream thread hit an unexpected error, the host stayed busy until it was restarted.** The stream kept its display and capture resources, so a new stream could not start, and the PC would not lock or sleep on its own. The host now finishes tearing the session down however the thread ends, so the next stream starts normally.

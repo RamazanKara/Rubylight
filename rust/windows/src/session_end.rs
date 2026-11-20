@@ -1,4 +1,4 @@
-//! The end of the Windows session (sign-out or shutdown), heard by a hidden window.
+//! The end of the Windows session (shutdown, restart or sign-out), heard by a hidden window.
 //!
 //! Windows announces it with WM_QUERYENDSESSION and WM_ENDSESSION, sent only to top-level
 //! windows: a process that loads user32 gets no console control event for it, and
@@ -23,7 +23,7 @@ pub struct Ending {
     pub logoff: bool,
     /// Windows ends the session whatever the programs answer.
     pub critical: bool,
-    /// Restart Manager asks the program itself to close.
+    /// Restart Manager asks the program itself to close as well.
     pub close_app: bool,
 }
 impl Ending {
@@ -45,6 +45,11 @@ pub enum Reaction {
     End(Ending),
     /// WM_ENDSESSION with wParam FALSE: another program cancelled the end; nothing happens.
     Cancelled,
+    /// WM_ENDSESSION with ENDSESSION_CLOSEAPP and no ENDSESSION_LOGOFF: Restart Manager asks
+    /// the program to close, as an installer replacing files in use does, and the session goes
+    /// on. Allowed as before, with no shutdown: an installer of some other program must not end
+    /// a stream.
+    CloseApp,
     /// Any other message goes to DefWindowProcW.
     Default,
 }
@@ -53,7 +58,14 @@ pub enum Reaction {
 pub fn reaction(message: u32, wparam: usize, lparam: isize) -> Reaction {
     match message {
         WM_QUERYENDSESSION => Reaction::Allow,
-        WM_ENDSESSION if wparam != 0 => Reaction::End(Ending::from_lparam(lparam as u32)),
+        WM_ENDSESSION if wparam != 0 => {
+            let ending = Ending::from_lparam(lparam as u32);
+            if ending.close_app && !ending.logoff {
+                Reaction::CloseApp
+            } else {
+                Reaction::End(ending)
+            }
+        }
         WM_ENDSESSION => Reaction::Cancelled,
         _ => Reaction::Default,
     }
@@ -87,6 +99,12 @@ unsafe extern "system" fn window(
             LRESULT(0)
         }
         Reaction::Cancelled => LRESULT(0),
+        Reaction::CloseApp => {
+            tracing::info!(
+                "Restart Manager asked the host to close; the session goes on, so no shutdown starts"
+            );
+            LRESULT(0)
+        }
         // SAFETY: The arguments are the ones Windows passed to this window procedure.
         Reaction::Default => unsafe { DefWindowProcW(hwnd, message, wparam, lparam) },
     }
@@ -230,6 +248,19 @@ mod tests {
                 ..Ending::default()
             })
         );
+        // Restart Manager closing the program for an installer: the session goes on.
+        assert_eq!(
+            reaction(WM_ENDSESSION, 1, ENDSESSION_CLOSEAPP as isize),
+            Reaction::CloseApp
+        );
+        assert_eq!(
+            reaction(
+                WM_ENDSESSION,
+                1,
+                (ENDSESSION_CLOSEAPP | ENDSESSION_CRITICAL) as isize
+            ),
+            Reaction::CloseApp
+        );
         // Another program refused: the session goes on.
         assert_eq!(
             reaction(WM_ENDSESSION, 0, ENDSESSION_LOGOFF as isize),
@@ -238,9 +269,52 @@ mod tests {
         assert_eq!(reaction(WM_CLOSE, 1, 0), Reaction::Default);
     }
 
+    /// The watch's own window: found by its class, among windows of that class other tests or
+    /// processes may hold, by the thread that owns it.
+    fn window_of(watch: &SessionEndWatch) -> HWND {
+        let mut after = None;
+        loop {
+            // SAFETY: CLASS is a static terminated string; `after` is a window this loop found.
+            let found = unsafe { FindWindowExW(None, after, CLASS, windows::core::PCWSTR::null()) }
+                .expect("the session-end window, by its class");
+            // SAFETY: `found` is a window handle; no out pointer is passed.
+            if unsafe { GetWindowThreadProcessId(found, None) } == watch.thread {
+                return found;
+            }
+            after = Some(found);
+        }
+    }
+
     #[test]
-    fn the_window_starts_and_closes() {
-        let watch = SessionEndWatch::start(|_| {}).expect("session-end window");
+    fn the_handler_runs_once_and_before_windows_hears_the_reply() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        let runs = Arc::new(AtomicUsize::new(0));
+        let watch = {
+            let runs = runs.clone();
+            // No assertion in here: a panic in a window procedure aborts the test process.
+            SessionEndWatch::start(move |_| {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                runs.fetch_add(1, Ordering::SeqCst);
+            })
+            .expect("session-end window")
+        };
+        let hwnd = window_of(&watch);
+        // SAFETY: `hwnd` is the watch's live window; the message carries no pointers.
+        unsafe {
+            assert_eq!(
+                SendMessageW(hwnd, WM_QUERYENDSESSION, Some(WPARAM(0)), Some(LPARAM(0))),
+                LRESULT(1)
+            );
+            SendMessageW(hwnd, WM_ENDSESSION, Some(WPARAM(1)), Some(LPARAM(0)));
+        }
+        // SendMessageW returns with the window's reply, so the handler had finished by then.
+        assert_eq!(runs.load(Ordering::SeqCst), 1);
+        // SAFETY: As above.
+        unsafe { SendMessageW(hwnd, WM_ENDSESSION, Some(WPARAM(1)), Some(LPARAM(0))) };
+        assert_eq!(runs.load(Ordering::SeqCst), 1);
         drop(watch);
     }
 }

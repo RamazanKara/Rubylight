@@ -625,8 +625,10 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
             }
         });
     }
-    // Windows ends the host with the session at sign-out or shutdown, before the service hears
-    // of it: the session's end runs the shutdown below as the service's stop does.
+    // Windows ends the host with the session when it shuts down, before the service hears of
+    // it: the session's end runs the shutdown below as the service's stop does. Whether Windows
+    // also sends the end-session messages at sign-out to this host, which runs with SYSTEM's
+    // token, is unverified; without them a sign-out ends the host as before.
     let session_end = std::sync::Arc::new(session_end::SessionEnd::default());
     let session_end_watch = {
         let session_end = session_end.clone();

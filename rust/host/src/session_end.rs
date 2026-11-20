@@ -1,6 +1,6 @@
 //! Shutting down for the end of the Windows session.
 //!
-//! At sign-out or shutdown Windows ends the console session's processes, the host among them,
+//! When Windows shuts down it ends the console session's processes, the host among them,
 //! before the service hears of the shutdown. Without this the host died mid-stream: clients
 //! waited out their connection timeout and saw forwarded USB devices fail instead of detach.
 //! The session-end window (butterpollo_windows::session_end) asks the host's normal shutdown

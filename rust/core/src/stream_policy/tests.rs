@@ -3764,23 +3764,73 @@ fn a_resend_restarts_its_grid_after_a_stall_and_a_new_picture_anchors_at_its_cla
     assert_eq!(resend_anchor(previous, late, period, false, true), late);
 }
 
-#[test]
-fn resends_on_their_grid_leave_a_new_picture_only_the_spacing_wait() {
-    // Resends on the grid spend a claim each period with no surplus to
-    // refill the pacer's credit, unlike resends that drifted late. A new
-    // picture half a period after the last resend still waits only for the
-    // spacing bound, never for credit.
-    let period = Duration::from_secs_f64(1. / 180.);
+/// Resends of a still picture on their grid under arrival pacing, whose loop
+/// wakes `late` after each time the pacer allows: after every resend, how
+/// long a new picture arriving half a period later waits past the spacing
+/// bound (the longest such wait), the closest two resends came, and how many
+/// resends went out in the first second.
+fn paced_resends(fps: f64, spacing: f64, late: [u64; 4]) -> (Duration, Duration, u32) {
+    let period = Duration::from_secs_f64(1. / fps);
     let start = Instant::now();
-    let mut pacer = Pacer::new(start, period).with_spacing(0.75);
+    let mut pacer = Pacer::new(start, period).with_spacing(spacing);
     let mut anchor = start;
-    let mut last = start;
-    for n in 0..180usize {
-        let late = Duration::from_micros([200, 1_500, 2_000, 600][n % 4]);
-        last = anchor + period + late;
-        pacer.claimed(last);
-        anchor = resend_anchor(anchor, last, period, false, false);
+    let mut previous: Option<Instant> = None;
+    let (mut extra, mut closest, mut in_first_second) = (Duration::ZERO, Duration::MAX, 0);
+    for n in 0..(fps as usize * 2) {
+        let due = anchor + period;
+        let begin = pacer.resend_at(due, due) + Duration::from_micros(late[n % 4]);
+        if let Some(previous) = previous {
+            closest = closest.min(begin - previous);
+        }
+        if begin <= start + Duration::from_secs(1) {
+            in_first_second += 1;
+        }
+        pacer.claimed(begin);
+        anchor = resend_anchor(anchor, begin, period, false, false);
+        previous = Some(begin);
+        let arrives = begin + period / 2;
+        let bound = arrives.max(begin + period.mul_f64(spacing));
+        extra = extra.max(pacer.allowed_at(arrives).saturating_duration_since(bound));
     }
-    let arrives = last + period / 2;
-    assert_eq!(pacer.allowed_at(arrives), last + period.mul_f64(0.75));
+    (extra, closest, in_first_second)
+}
+
+#[test]
+fn resends_on_their_grid_never_come_closer_than_a_claim_nor_hold_back_a_new_picture() {
+    // One resend 4 ms late and the next on time on the grid went out 1.6 ms
+    // apart at 180 fps: two claims' credit spent, and the next new picture
+    // waited up to 2.7 ms past the spacing bound for it.
+    for (fps, spacing) in [(180., 0.75), (180., 0.5), (120., 0.5), (120., 0.75)] {
+        let period = Duration::from_secs_f64(1. / fps);
+        for late in [
+            [200, 1_500, 4_000, 600],
+            [300, 300, 300, 300],
+            [200, 1_500, 2_000, 600],
+        ] {
+            let (extra, closest, sent) = paced_resends(fps, spacing, late);
+            assert_eq!(
+                extra,
+                Duration::ZERO,
+                "{fps} fps, spacing {spacing}, {late:?}"
+            );
+            assert!(
+                closest >= period.mul_f64(spacing),
+                "{fps} fps, spacing {spacing}, {late:?}: {closest:?}"
+            );
+            // Steady lateness (issue #110) keeps the full rate; uneven
+            // wake-ups the credit cannot absorb never fall below the rate
+            // the resends drifted to when each counted from the last.
+            let wakes: u64 = late.iter().sum();
+            let drifted = 1. / (period.as_secs_f64() + wakes as f64 / 4e6);
+            let floor = if late.iter().all(|l| *l == late[0]) {
+                fps - 1.
+            } else {
+                drifted
+            };
+            assert!(
+                sent as f64 >= floor,
+                "{fps} fps, spacing {spacing}, {late:?}: {sent} resends"
+            );
+        }
+    }
 }

@@ -655,6 +655,28 @@ impl Pacer {
         };
         spaced.max(funded)
     }
+    /// When a still-picture resend due at `due` may go out, asked at `now`:
+    /// no closer than the spacing to the last claim, and only with enough
+    /// credit left that a new picture a spacing after it is claimed at once.
+    /// A resend spends a claim's credit but is never paced by
+    /// [`Self::decide`]; on its slot grid, a late resend and an on-time one
+    /// went out less than the spacing apart, and the next new picture waited
+    /// up to half a period for the credit they spent.
+    pub fn resend_at(&self, due: Instant, now: Instant) -> Instant {
+        let spaced = self
+            .last_claim
+            .map_or(now, |claim| claim + self.period.mul_f64(self.spacing));
+        // Spent, the resend leaves `reserve - 1`; a spacing later (at the
+        // slowest refill, one claim a period) that is a claim's credit.
+        let reserve = (1. + Self::CLAIM_CREDIT - self.spacing).min(Self::CREDIT_CAP);
+        let credit = self.credit(now);
+        let funded = if credit >= reserve {
+            now
+        } else {
+            now + self.period.mul_f64(reserve - credit)
+        };
+        due.max(spaced).max(funded)
+    }
     /// Give an imminent fresh capture a bounded chance to replace an unchanged
     /// image before a minimum-rate repeat consumes its pacing credit. `due`
     /// must be the original repeat deadline, not the current polling time or a
@@ -963,9 +985,11 @@ pub fn reencode_at(
 /// slot it filled while it was less than a period late, so the loop's wake-up
 /// and encode time do not add up to a slower stream (a still desktop at about
 /// 170 on a 180 fps stream); a resend a period or more late starts the grid
-/// over at `begin`, one picture and never a burst. A new picture or a recovery
-/// re-encode anchors at `begin`, so a real frame is never followed early.
-/// Fixed grid and arrival pacing share this.
+/// over at `begin`, one picture and never a catch-up of missed slots. A new
+/// picture or a recovery re-encode anchors at `begin`, so a real frame is never
+/// followed early. Fixed grid and arrival pacing share this; under arrival
+/// pacing [`Pacer::resend_at`] also keeps a resend that falls due soon after a
+/// late one to the claim spacing and credit.
 pub fn resend_anchor(
     previous: Instant,
     begin: Instant,

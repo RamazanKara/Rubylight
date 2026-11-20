@@ -1309,8 +1309,11 @@ impl SessionThread<'_> {
                 // A changed menu panel is encoded at once, like a recovery.
                 menu.poll(&s.couch_menu, [stream.width, stream.height]);
                 let recovering = menu.dirty || s.idr.load(Ordering::Acquire) || s.invalidation.lock().unwrap().is_some();
+                // A still resend spends a claim's credit, so under arrival
+                // pacing it waits as a claim would: on its slot grid a late
+                // resend and an on-time one came closer than the spacing.
                 let reencode_at = if !recovering {
-                    repeat_due
+                    if arrival_pacing { pacer.resend_at(repeat_due, Instant::now()) } else { repeat_due }
                 } else if arrival_pacing {
                     butterpollo_core::stream_policy::reencode_at(true, image.captured, period, latest.source_interval(), repeat_due)
                 } else {

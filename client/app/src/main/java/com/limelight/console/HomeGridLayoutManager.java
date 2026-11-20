@@ -81,6 +81,15 @@ final class HomeGridLayoutManager extends GridLayoutManager {
     public boolean onRequestChildFocus(RecyclerView parent, RecyclerView.State state, View child, View focused) {
         int position = getPosition(child);
         String key = position == RecyclerView.NO_POSITION ? null : keyAt.apply(position);
+        // The search is this move's only while focus still sits on the card it started from: a probe that moved nothing,
+        // a press that left the list, focus coming in from the tabs or after a refresh leave it behind.
+        View before = parent.getFocusedChild();
+        int beforeAt = before == null ? RecyclerView.NO_POSITION : getPosition(before);
+        String beforeKey = beforeAt == RecyclerView.NO_POSITION ? null : keyAt.apply(beforeAt);
+        if (searchFrom != null && !searchFrom.equals(beforeKey)) {
+            searchDirection = 0;
+            searchFrom = null;
+        }
         int from = searchFrom == null ? -1 : positionOfKey.applyAsInt(searchFrom);
         if (searchDirection == View.FOCUS_DOWN && key != null && from >= 0 && row(position) > row(from)) {
             downFrom = searchFrom;

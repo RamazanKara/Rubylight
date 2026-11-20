@@ -1244,7 +1244,8 @@ public final class ActionSheet extends BottomSheetDialog {
      * row clear of the fading edge, so focus reaching the stream menu's Bitrate slid the tiles under the head for a few
      * pixels' fade although everything fitted.
      */
-    static final class StillScroll extends NestedScrollView {
+    // Not final: a test records the sounds the scroll itself would play.
+    static class StillScroll extends NestedScrollView {
         StillScroll(Context context) {
             super(context);
         }
@@ -1259,17 +1260,26 @@ public final class ActionSheet extends BottomSheetDialog {
         /**
          * Up and Down inside a sheet that scrolls are this scroll's own move: it takes the key before the window does, so
          * the window's navigation sound, which Left and Right still get, never played for them (nightjar#7). A move that
-         * lands focus on another row plays it here; a press that only scrolls stays silent, as the window's would.
+         * lands focus on another row plays it here; a press that only scrolls stays silent, as the window's would, also
+         * when it scrolls the focused row away and the scroll itself takes the focus.
          */
         @Override
         public boolean arrowScroll(int direction) {
             android.view.View before = findFocus();
             boolean handled = super.arrowScroll(direction);
             android.view.View after = findFocus();
-            if (handled && after != null && after != before) {
+            if (handled && after != null && after != before && inside(after)) {
                 after.playSoundEffect(android.view.SoundEffectConstants.getContantForFocusDirection(direction));
             }
             return handled;
+        }
+
+        /** Whether {@code view} is one of this scroll's rows or within one, not the scroll itself. */
+        private boolean inside(android.view.View view) {
+            for (android.view.ViewParent parent = view.getParent(); parent instanceof android.view.View; parent = parent.getParent()) {
+                if (parent == this) return true;
+            }
+            return false;
         }
     }
 

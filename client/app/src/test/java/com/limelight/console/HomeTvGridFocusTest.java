@@ -77,7 +77,13 @@ public class HomeTvGridFocusTest {
 
     /** Three apps on Steam and thirty Epic games: the Epic part comes first, as the larger one. */
     private static HomeModel model(ConsoleRig rig) throws Exception {
+        return model(rig, 0);
+    }
+
+    /** The same with {@code later} more games whose titles sort last. */
+    private static HomeModel model(ConsoleRig rig, int later) throws Exception {
         List<String> games = new ArrayList<>();
+        for (int i = 0; i < later; i++) games.add(HomeLibraryRowsTest.game(100 + i, "Zz " + i, "epic", true, null));
         games.add(HomeLibraryRowsTest.game(1, "Desktop", "steam", true, null));
         games.add(HomeLibraryRowsTest.game(2, "Playnite", "steam", true, null));
         games.add(HomeLibraryRowsTest.game(3, "Steam Big Picture", "steam", true, null));
@@ -103,16 +109,18 @@ public class HomeTvGridFocusTest {
         return home;
     }
 
+    /** The whole window at the screen's size. */
     private static void layOut(HomeShellTest.Home home) {
         View root = home.getWindow().getDecorView();
-        root.measure(View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY));
-        root.layout(0, 0, 1920, 1080);
+        android.util.DisplayMetrics screen = home.getResources().getDisplayMetrics();
+        root.measure(View.MeasureSpec.makeMeasureSpec(screen.widthPixels, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(screen.heightPixels, View.MeasureSpec.EXACTLY));
+        root.layout(0, 0, screen.widthPixels, screen.heightPixels);
     }
 
     /** As a key does: the window's focus search and the move, then the scroll it starts runs to its end. */
     private static View press(RecyclerView list, int direction) {
-        View next = list.findFocus().focusSearch(direction);
+        View next = list.getRootView().findFocus().focusSearch(direction);
         if (next != null) next.requestFocus(direction);
         ShadowLooper.idleMainLooper(600, TimeUnit.MILLISECONDS);
         return next;
@@ -216,5 +224,77 @@ public class HomeTvGridFocusTest {
             rig.close();
             controller.pause().stop().destroy();
         }
+    }
+
+    /**
+     * A phone's grid, its tabs at the foot. A Down search that moves nothing (Home's own probes ask where a press would
+     * go) left its state behind; focus that then came in from the tabs after a refresh was taken for that Down's landing,
+     * and Up from it went back to the card the probe started on instead of the card above.
+     */
+    @Test
+    @Config(qualifiers = "w400dp-h800dp-port-xhdpi")
+    public void onAPhoneUpFromTheTabsAfterARefreshThenUpAgainGoesToTheCardAbove() throws Exception {
+        prefs.edit().putString(HomeView.KEY_LAYOUT, "grid").putString(HomeView.KEY_GROUP, "none").commit();
+        ActivityController<HomeShellTest.Home> controller = Robolectric.buildActivity(HomeShellTest.Home.class).setup().visible();
+        ConsoleRig rig = new ConsoleRig(temporary.newFolder());
+        try {
+            HomeShellTest.Home home = open(controller, model(rig));
+            ConsoleHomeListAdapter adapter = ReflectionHelpers.getField(home, "adapter");
+            RecyclerView list = home.findViewById(R.id.console_list);
+            int columns = ((androidx.recyclerview.widget.GridLayoutManager) list.getLayoutManager()).getSpanCount();
+            View tabs = home.findViewById(R.id.shell_bar);
+            int first = adapter.firstCard();
+            View start = laidOut(list, first);
+            assertTrue(start.requestFocus());
+            ShadowLooper.idleMainLooper(600, TimeUnit.MILLISECONDS);
+            String probed = adapter.keyAt(first);
+            // Where would Down go? Asked, not pressed.
+            assertNotNull(start.focusSearch(View.FOCUS_DOWN));
+            assertTrue(start.isFocused());
+            // Over to the tabs, and the library refreshes.
+            View tab = null;
+            View items = home.findViewById(R.id.shell_bar_items);
+            for (int i = 0; i < ((android.view.ViewGroup) items).getChildCount(); i++) {
+                View child = ((android.view.ViewGroup) items).getChildAt(i);
+                if (child.isFocusable() && child.getVisibility() == View.VISIBLE) {
+                    tab = child;
+                    break;
+                }
+            }
+            // Home itself saw no PC in this rig and shows its empty panel's button, which a model handed in skips.
+            home.findViewById(R.id.console_empty).setVisibility(View.GONE);
+            assertTrue(tab.requestFocus());
+            adapter.submit(model(rig, 2 * columns), home.view().group);
+            layOut(home);
+            ShadowLooper.idleMainLooper(600, TimeUnit.MILLISECONDS);
+            layOut(home);
+
+            // Up from the tabs: the window's search lands on a card of the list's lowest rows (here the fourth row's
+            // first card); this harness's window search does not reach the list from the foot bar, so the landing is
+            // made as the window makes it.
+            int entry = first + 3 * columns;
+            View in = laidOut(list, entry);
+            assertNotNull("the fourth row is on screen", in);
+            assertTrue(in.requestFocus(View.FOCUS_UP));
+            ShadowLooper.idleMainLooper(600, TimeUnit.MILLISECONDS);
+            assertTrue("Up from the tabs comes back into the list", list.hasFocus() && !isInside(tabs, list.findFocus()));
+            int at = list.getChildAdapterPosition(list.getFocusedChild());
+            assertTrue("the fixture enters at least two rows below the probed card, at " + at,
+                    at - columns > adapter.positionOfKey(probed));
+            press(list, View.FOCUS_UP);
+            int now = list.getChildAdapterPosition(list.getFocusedChild());
+            assertEquals("Up goes to the card above " + adapter.keyAt(at) + ", not back to " + probed + " (got "
+                    + adapter.keyAt(now) + ")", at - columns, now);
+        } finally {
+            rig.close();
+            controller.pause().stop().destroy();
+        }
+    }
+
+    private static boolean isInside(View parent, View view) {
+        for (View at = view; at != null; at = at.getParent() instanceof View ? (View) at.getParent() : null) {
+            if (at == parent) return true;
+        }
+        return false;
     }
 }

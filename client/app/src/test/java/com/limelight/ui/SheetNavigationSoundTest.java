@@ -45,6 +45,18 @@ public class SheetNavigationSoundTest {
         }
     }
 
+    /** A sheet's scroll that records the sounds played for itself. */
+    private static final class RecordingScroll extends ActionSheet.StillScroll {
+        RecordingScroll(Context context) {
+            super(context);
+        }
+
+        @Override
+        public void playSoundEffect(int soundConstant) {
+            SOUNDS.add(soundConstant);
+        }
+    }
+
     private static boolean press(View scroll, int key) {
         boolean handled = scroll.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, key));
         scroll.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, key));
@@ -87,6 +99,38 @@ public class SheetNavigationSoundTest {
             press(scroll, KeyEvent.KEYCODE_DPAD_UP);
             assertTrue(row[0].isFocused());
             assertEquals(2, SOUNDS.size());
+        }
+    }
+
+    /** Down past the last row through text only scrolls; once the row has left, the scroll holds the focus, silently. */
+    @Test
+    public void scrollingPastTheLastRowIntoTextPlaysNoSound() {
+        SOUNDS.clear();
+        try (var controller = Robolectric.buildActivity(Activity.class).setup().visible()) {
+            Activity activity = controller.get();
+            ActionSheet.StillScroll scroll = new RecordingScroll(activity);
+            LinearLayout rows = new LinearLayout(activity);
+            rows.setOrientation(LinearLayout.VERTICAL);
+            Row[] row = new Row[2];
+            for (int i = 0; i < row.length; i++) {
+                row[i] = new Row(activity);
+                rows.addView(row[i], new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 200));
+            }
+            android.widget.TextView text = new android.widget.TextView(activity);
+            text.setText("Facts about the connection");
+            rows.addView(text, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1500));
+            scroll.addView(rows, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            FrameLayout root = new FrameLayout(activity);
+            root.addView(scroll, new FrameLayout.LayoutParams(600, 500));
+            activity.setContentView(root);
+            root.measure(View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(500, View.MeasureSpec.EXACTLY));
+            root.layout(0, 0, 600, 500);
+            assertTrue(row[1].requestFocus());
+
+            for (int i = 0; i < 6; i++) press(scroll, KeyEvent.KEYCODE_DPAD_DOWN);
+            assertTrue("the press scrolled the last row away and the scroll took the focus", scroll.isFocused());
+            assertTrue("no row was reached, so nothing sounded: " + SOUNDS, SOUNDS.isEmpty());
         }
     }
 }

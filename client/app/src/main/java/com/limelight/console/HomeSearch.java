@@ -50,8 +50,6 @@ final class HomeSearch {
     private final View hero;
     private final View bottomRow;
     private final View footFade;
-    /** The TV list's top scrim, which would show over the backdrop between the results. */
-    private final View topFade;
     private final Runnable onOpen;
     private final Runnable onClose;
     private final GridLayoutManager grid;
@@ -86,7 +84,6 @@ final class HomeSearch {
         hero = activity.findViewById(R.id.home_hero);
         bottomRow = activity.findViewById(R.id.home_bottom_row);
         footFade = activity.findViewById(R.id.home_foot_fade);
-        topFade = activity.findViewById(R.id.home_top_fade);
         adapter = new ShelfAdapter(env);
         grid = new GridLayoutManager(activity, 2);
         results.setLayoutManager(grid);
@@ -140,7 +137,6 @@ final class HomeSearch {
         if (hero != null) hero.setVisibility(View.INVISIBLE);
         if (bottomRow != null) bottomRow.setVisibility(View.GONE);
         if (footFade != null) footFade.setVisibility(View.GONE);
-        if (topFade != null) topFade.setVisibility(View.GONE);
         list.setVisibility(View.INVISIBLE);
         bar.setVisibility(View.VISIBLE);
         results.setVisibility(View.VISIBLE);
@@ -165,7 +161,6 @@ final class HomeSearch {
         none.setVisibility(View.GONE);
         topRow.setVisibility(View.VISIBLE);
         if (hero != null) hero.setVisibility(View.VISIBLE);
-        if (topFade != null) topFade.setVisibility(View.VISIBLE);
         list.setVisibility(View.VISIBLE);
         onClose.run();
         if (opener != null && !opener.isInTouchMode()) opener.requestFocus();

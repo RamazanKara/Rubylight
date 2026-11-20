@@ -101,16 +101,6 @@ public class HomeScreenTest {
         assertTrue("fading", ConsoleHomeListAdapter.headerAlpha(-15, 45) > 0f && ConsoleHomeListAdapter.headerAlpha(-15, 45) < 1f);
     }
 
-    /** nightjar#7: the TV scrim covered the first row at rest, a dark strip under the hero over a bright ambient. */
-    @Test
-    public void theTvTopScrimRisesOnlyWithContentPastTheListEdge() {
-        assertEquals("nothing is cut while the first row starts at the edge", 0f, HomeChrome.topScrimAlpha(0, 48), 0f);
-        assertEquals("nor when it starts below it", 0f, HomeChrome.topScrimAlpha(12, 48), 0f);
-        assertEquals("a quarter of a row past", 0.25f, HomeChrome.topScrimAlpha(-12, 48), 0.001f);
-        assertEquals("a whole scrim past", 1f, HomeChrome.topScrimAlpha(-48, 48), 0f);
-        assertEquals("never more than full", 1f, HomeChrome.topScrimAlpha(-200, 48), 0f);
-        assertEquals("no height yet: nothing to paint", 0f, HomeChrome.topScrimAlpha(-20, 0), 0f);
-    }
 
     @Test
     public void anEmptyHomeHasNoSectionToShow() {

@@ -37,9 +37,6 @@ final class HomeChrome {
     /** The fade under the tab bar: where it lands on the canvas, on the design's stops. */
     static final float[] FOOT_STOPS = {0f, 0.42f, 0.72f, 1f};
     static final float[] FOOT_ALPHAS = {0f, 0.62f, 0.92f, 1f};
-    /** The TV list's top: the canvas over the cut, thinning downward. */
-    static final float[] TOP_STOPS = {0f, 0.45f, 1f};
-    static final float[] TOP_ALPHAS = {1f, 0.55f, 0f};
 
     private final Activity activity;
     private final GlassForm form;
@@ -79,7 +76,6 @@ final class HomeChrome {
         com.limelight.LimeLog.info("Glass tier: " + tier);
         placeTabs();
         fadeFoot();
-        fadeTop();
         card = activity.findViewById(R.id.home_setup_card);
         // Its size is known a layout after it shows; the list's padding cannot change inside that layout.
         card.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
@@ -340,51 +336,6 @@ final class HomeChrome {
         if (searching) return height;
         if (first == null) return rows == 0 ? 0 : height;
         return Math.max(0, Math.min(height, rest - first.getTop()));
-    }
-
-    /** The TV list's top: a scrim of the canvas so shelves scrolled under the hero fade out instead of being cut. */
-    private void fadeTop() {
-        View fade = activity.findViewById(R.id.home_top_fade);
-        if (fade == null || fade.getVisibility() != View.VISIBLE) return;
-        int canvas = MaterialColors.getColor(fade, R.attr.glassCanvas);
-        int[] colors = topColors(canvas);
-        android.graphics.drawable.ShapeDrawable gradient = new android.graphics.drawable.ShapeDrawable(new android.graphics.drawable.shapes.RectShape());
-        gradient.setShaderFactory(new android.graphics.drawable.ShapeDrawable.ShaderFactory() {
-            @Override public android.graphics.Shader resize(int width, int height) {
-                return new android.graphics.LinearGradient(0, 0, 0, height, colors, TOP_STOPS, android.graphics.Shader.TileMode.CLAMP);
-            }
-        });
-        fade.setBackground(gradient);
-        // At rest the list's first row starts at the top edge and nothing is cut, so the scrim must not paint over it
-        // (a black strip over the ambient, nightjar#7). It rises only as far as content has passed the edge.
-        list.addOnScrollListener(new RecyclerView.OnScrollListener() {
-            @Override public void onScrolled(RecyclerView view, int dx, int dy) {
-                fitTopFade(fade);
-            }
-        });
-        list.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> fitTopFade(fade));
-        fitTopFade(fade);
-    }
-
-    private void fitTopFade(View fade) {
-        View first = list.getChildAt(0);
-        int firstTop = first == null ? 0 : first.getTop() - list.getPaddingTop();
-        fade.setAlpha(topScrimAlpha(firstTop, fade.getHeight()));
-    }
-
-    /**
-     * How strong the top scrim stands: nothing while the list's first row starts at its top edge, full once content has
-     * passed that edge by the scrim's height. A row that starts exactly there is not cut, so it is not dimmed either.
-     */
-    static float topScrimAlpha(int firstTop, int height) {
-        if (height <= 0 || firstTop >= 0) return 0f;
-        return Math.min(1f, -firstTop / (float) height);
-    }
-
-    static int[] topColors(int canvas) {
-        int[] colors = new int[TOP_ALPHAS.length];
-        for (int i = 0; i < colors.length; i++) colors[i] = ColorUtils.setAlphaComponent(canvas, Math.round(255 * TOP_ALPHAS[i]));
-        return colors;
     }
 
     /** The lists run edge to edge under the chrome; their padding and the chrome keep the safe area. */

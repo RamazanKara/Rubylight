@@ -25,10 +25,6 @@
             android:clipToPadding="false" android:clipChildren="false" android:scrollbars="none"
             android:requiresFadingEdge="vertical" android:fadingEdgeLength="@dimen/space_xl"
             android:focusable="false" android:descendantFocusability="afterDescendants" android:paddingBottom="260dp" />
-        <!-- Shelves scrolled up under the hero dissolve here instead of being cut at the list's top; HomeChrome draws
-             the canvas' gradient, and HomeSearch hides it while the search results show. -->
-        <View android:id="@+id/home_top_fade" android:layout_width="match_parent" android:layout_height="@dimen/home_top_fade"
-            android:layout_gravity="top" android:layout_marginTop="168dp" android:importantForAccessibility="no" />
         <com.limelight.console.SearchResultsView android:id="@+id/home_search_results"
             android:layout_width="match_parent" android:layout_height="match_parent" android:visibility="gone"
             android:clipToPadding="false" android:clipChildren="false" android:scrollbars="none"

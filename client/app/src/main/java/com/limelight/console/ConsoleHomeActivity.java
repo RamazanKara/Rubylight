@@ -406,7 +406,7 @@ public class ConsoleHomeActivity extends NightjarActivity implements HostFeed.Li
         grid = new HomeGridLayoutManager(this, columns, position -> {
             int first = adapter.firstCard();
             return first >= 0 && first < position;
-        });
+        }, position -> position < adapter.getItemCount() && adapter.viewTypeAt(position) == ConsoleHomeListAdapter.HEADER);
         grid.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
             @Override
             public int getSpanSize(int position) {

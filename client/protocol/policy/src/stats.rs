@@ -56,7 +56,8 @@ pub struct Stats {
 /// comes off instead, which covers only packetizing.
 ///
 /// Once the host has sent a report, a frame waits for its own (reports follow the frame's last
-/// packet) until frames [`REPORT_WAIT_US`] newer arrive, then counts without it. A late frame
+/// packet) for [`REPORT_WAIT_US`] on the arrivals' clock, then counts without it: when a frame
+/// that much newer arrives, or at a tick that much later, as when the picture stops. A late frame
 /// counts in the tick it is judged in.
 #[derive(Clone, Debug, Default)]
 pub struct LateFrames {
@@ -87,7 +88,7 @@ struct Arrival {
 
 /// Timestamp steps longer than this start over (a new stream or a long pause).
 const MAX_HOST_STEP_US: u64 = 1_000_000;
-/// A frame waits for its timing report until a frame this much newer arrives.
+/// How long a frame waits for its timing report, on the arrivals' clock.
 pub const REPORT_WAIT_US: u64 = 250_000;
 /// Frames waiting for reports past this count without them: a quarter second at 2000 fps.
 const MAX_PENDING: usize = 512;
@@ -180,8 +181,10 @@ impl LateFrames {
         self.last = Some(frame);
     }
 
-    /// The late frames judged since the last tick, then starts the next one.
-    pub fn tick(&mut self) -> u32 {
+    /// The late frames judged since the last tick, then starts the next one. `now_us`, on the
+    /// arrivals' clock, first judges the frames that waited [`REPORT_WAIT_US`] for a report.
+    pub fn tick(&mut self, now_us: Option<u64>) -> u32 {
+        self.settle(now_us);
         std::mem::take(&mut self.count)
     }
 
@@ -219,7 +222,12 @@ impl Subject for LateFrames {
             }
             "tick" => {
                 Args::new(args, 0)?;
-                Ok(self.tick().into())
+                Ok(self.tick(None).into())
+            }
+            // `tick` at a time on the arrivals' clock.
+            "tick_at" => {
+                let a = Args::new(args, 1)?;
+                Ok(self.tick(Some(a.int(0)?)).into())
             }
             _ => Err(format!("unknown method {method}")),
         }
@@ -366,19 +374,19 @@ mod tests {
         for (rtp, at) in frames {
             late.push(0, rtp, 0, at, 60);
         }
-        assert_eq!(late.tick(), 1, "only the frame after the hold is late");
-        assert_eq!(late.tick(), 0, "a tick starts the count over");
+        assert_eq!(late.tick(None), 1, "only the frame after the hold is late");
+        assert_eq!(late.tick(None), 0, "a tick starts the count over");
         // A still desktop or a capture stall: the timestamps step as far as the arrivals.
         late.push(0, 7500 + 9000, 0, 174_500, 60);
         // A timestamp from before the last one is not judged; then the RTP clock wraps.
         late.push(0, u32::MAX - 499, 0, 180_000, 60);
         late.push(0, 1000, 0, 196_700, 60);
-        assert_eq!(late.tick(), 0);
+        assert_eq!(late.tick(None), 0);
         // A new stream's clock is not judged either.
         late.push(0, 1_000_000, 0, 200_000, 60);
         late.push(0, 1_000_000 + 1500, 0, 400_000, 60);
         late.push(0, 1_000_000 + 900_000, 0, 900_000, 60);
-        assert_eq!(late.tick(), 1, "only the 183 ms hold of one frame interval");
+        assert_eq!(late.tick(None), 1, "only the 183 ms hold of one frame interval");
         assert_eq!(late_threshold_us(60), 12_500);
         assert_eq!(late_threshold_us(120), 8_000);
         assert_eq!(late_threshold_us(0), u64::MAX);
@@ -400,17 +408,17 @@ mod tests {
         for (rtp, processing, at) in frames {
             late.push(0, rtp, processing, at, 60);
         }
-        assert_eq!(late.tick(), 0, "the host's processing spike alone is no late frame");
+        assert_eq!(late.tick(None), 0, "the host's processing spike alone is no late frame");
         // The same arrivals without a processing time are judged by the timestamps alone.
         late.clear();
         for (rtp, _, at) in frames {
             late.push(0, rtp, 0, at, 60);
         }
-        assert_eq!(late.tick(), 1);
+        assert_eq!(late.tick(None), 1);
         // A network hold on top of a faster frame still counts: 40 ms late, 5 ms quicker to process.
         late.clear();
         late.push(0, 20_000, 8_000, 300_000, 60);
         late.push(0, 21_500, 3_000, 356_700, 60);
-        assert_eq!(late.tick(), 1);
+        assert_eq!(late.tick(None), 1);
     }
 }

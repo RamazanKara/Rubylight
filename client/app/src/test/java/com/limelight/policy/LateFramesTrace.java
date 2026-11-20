@@ -24,4 +24,8 @@ final class LateFramesTrace {
     int tick() {
         return late.tick();
     }
+
+    int tickAt(long nowUs) {
+        return late.tick(nowUs);
+    }
 }

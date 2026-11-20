@@ -19,14 +19,15 @@ import java.util.Iterator;
  * covers only packetizing.
  * <p>
  * Once the host has sent a report, a frame waits for its own (reports follow the frame's last
- * packet) until a frame {@link #REPORT_WAIT_US} newer arrives, then counts without it. A late frame
+ * packet) for {@link #REPORT_WAIT_US} on the arrivals' clock, then counts without it: when a frame
+ * that much newer arrives, or at a tick that much later, as when the picture stops. A late frame
  * counts in the tick it is judged in. Fed by the decoder and control threads, read by the health
  * sample.
  */
 public final class LateFrames {
     /** Timestamp steps longer than this start over (a new stream or a long pause). */
     private static final long MAX_HOST_STEP_US = 1_000_000;
-    /** A frame waits for its timing report until a frame this much newer arrives. */
+    /** How long a frame waits for its timing report, on the arrivals' clock. */
     public static final long REPORT_WAIT_US = 250_000;
     /** Frames waiting for reports past this count without them: a quarter second at 2000 fps. */
     private static final int MAX_PENDING = 512;
@@ -152,8 +153,18 @@ public final class LateFrames {
         last = frame;
     }
 
-    /** The late frames judged since the last tick, then starts the next one. */
-    public synchronized int tick() {
+    /** {@link #tick(long)} without a time: no waiting frame times out. */
+    public int tick() {
+        return tick(-1);
+    }
+
+    /**
+     * The late frames judged since the last tick, then starts the next one. {@code nowUs}, on the
+     * arrivals' clock (-1 for none), first judges the frames that waited {@link #REPORT_WAIT_US} for a
+     * report.
+     */
+    public synchronized int tick(long nowUs) {
+        settle(nowUs);
         int late = count;
         count = 0;
         return late;

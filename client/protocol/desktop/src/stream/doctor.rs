@@ -59,16 +59,17 @@ impl Doctor {
     }
 
     /// Fills the tick's host and display p95 over the last two ticks and its late frames, then
-    /// starts the next one.
+    /// starts the next one. `now_us` is the session clock, the frames' arrival clock: frames that
+    /// waited long enough for a timing report count without it.
     /// As on Android, the host is judged by its present to last packet sent while it reports
     /// that, otherwise by the header's processing time. A spike counts in its own tick only
     /// (`RecentP95::tick_once`): in both ticks of the window it gave two votes, a finding alone.
-    pub fn timings(&mut self, tick: &mut Stats) {
+    pub fn timings(&mut self, tick: &mut Stats, now_us: u64) {
         tick.host_includes_send = self.sent.has_samples();
         let (sent, header) = (self.sent.tick_once(), self.header.tick_once());
         tick.host_p95_ms = if tick.host_includes_send { sent } else { header };
         tick.display_p95_ms = self.display.tick_once();
-        tick.late_frames = Some(self.late.tick());
+        tick.late_frames = Some(self.late.tick(Some(now_us)));
     }
 
     /// One stats tick, from [`WARMUP_MS`] after the first on.
@@ -320,19 +321,19 @@ mod tests {
         }
         doctor.shown(0, 0, 9_000);
         let mut first = Stats::default();
-        doctor.timings(&mut first);
+        doctor.timings(&mut first, 0);
         assert_eq!((first.host_p95_ms, first.host_includes_send), (Some(4.0), false), "the header's 4 ms, 100 us units");
         assert_eq!(first.display_p95_ms, Some(5.0), "frames without a decode time are not counted");
         doctor.host_sent(1, 12_000, 500);
         let mut second = Stats::default();
-        doctor.timings(&mut second);
+        doctor.timings(&mut second, 0);
         assert_eq!((second.host_p95_ms, second.host_includes_send), (Some(12.0), true));
         assert_eq!(second.display_p95_ms, None, "a spike counts in its own tick only");
         let mut third = Stats::default();
-        doctor.timings(&mut third);
+        doctor.timings(&mut third, 0);
         assert_eq!((third.host_p95_ms, third.host_includes_send), (None, true), "reports from the last two ticks, counted once");
         let mut fourth = Stats::default();
-        doctor.timings(&mut fourth);
+        doctor.timings(&mut fourth, 0);
         assert_eq!((fourth.host_p95_ms, fourth.host_includes_send, fourth.display_p95_ms), (None, false, None));
     }
 
@@ -359,7 +360,7 @@ mod tests {
                     frame += 1;
                 }
                 let mut stats = tick(n * 1000, 0.0);
-                doctor.timings(&mut stats);
+                doctor.timings(&mut stats, u64::from(frame) * 16_667);
                 let expected = u32::from(!reports) + u32::from(network_hold);
                 assert_eq!(stats.late_frames, Some(expected), "second {n}, reports {reports}, hold {network_hold}");
                 doctor.add(&stats);
@@ -384,7 +385,7 @@ mod tests {
         // The first two seconds are warm-up.
         for n in 1..=7 {
             let mut stats = tick(n * 1000, 6.0);
-            doctor.timings(&mut stats);
+            doctor.timings(&mut stats, 0);
             doctor.add(&stats);
         }
         let report = doctor.report(7000);
@@ -410,7 +411,7 @@ mod tests {
                     doctor.shown(if n == spike_at { 700 } else { 30 }, 1_000, 3_000);
                 }
                 let mut stats = tick(n * 1000, 0.0);
-                doctor.timings(&mut stats);
+                doctor.timings(&mut stats, 0);
                 doctor.add(&stats);
             }
             doctor.report(8000)
@@ -482,7 +483,7 @@ mod tests {
         let mut doctor = Doctor::default();
         for n in 1..=7 {
             let mut stats = tick(n * 1000, 6.0);
-            doctor.timings(&mut stats);
+            doctor.timings(&mut stats, 0);
             doctor.add(&stats);
         }
         let lossy = doctor.report(7000);

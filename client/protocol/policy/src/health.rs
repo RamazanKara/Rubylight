@@ -730,7 +730,7 @@ mod tests {
             at_us += us.parse::<u64>().unwrap();
             while at_us >= tick_us {
                 let now_ms = tick_us / 1000;
-                health.add(&Stats { late_frames: Some(late.tick()), fps, ..sample(now_ms, 0.5) });
+                health.add(&Stats { late_frames: Some(late.tick(None)), fps, ..sample(now_ms, 0.5) });
                 reports.push(health.report(now_ms));
                 tick_us += 1_000_000;
             }

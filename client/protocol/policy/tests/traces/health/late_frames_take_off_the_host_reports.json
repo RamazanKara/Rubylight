@@ -1,5 +1,5 @@
 {
-  "source": "Late frames take off the host's own time from its timing reports, matched by frame number: a host spike, a wait for the turn or a key frame's long send is no late frame, a network hold still is, and a frame whose report is lost counts by its header after a quarter second",
+  "source": "Late frames take off the host's own time from its timing reports, matched by frame number: a host spike, a wait for the turn or a key frame's long send is no late frame, a network hold still is, and a frame whose report is lost counts by its header after a quarter second, at the next frame or at a tick",
   "rust": "stats::LateFrames",
   "java": "com.limelight.policy.LateFramesTrace",
   "new": [],
@@ -188,6 +188,10 @@
     {"call": "report", "args": [88, 3500, 500], "expect": null},
     {"call": "push_frame", "args": [89, 66750, 600, 1744666, 120], "expect": null},
     {"call": "report", "args": [89, 3500, 500], "expect": null},
-    {"call": "tick", "args": [], "expect": 1}
+    {"call": "tick", "args": [], "expect": 1},
+    {"call": "push_frame", "args": [90, 67500, 600, 1783000, 120], "expect": null},
+    {"call": "tick_at", "args": [1883000], "expect": 0},
+    {"call": "tick_at", "args": [2033000], "expect": 1},
+    {"call": "tick_at", "args": [2783000], "expect": 0}
   ]
 }

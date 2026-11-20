@@ -387,6 +387,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private final QueueDelayTracker queueDelay = new QueueDelayTracker();
     /** Frames that arrived late against the host's clock, for the stream doctor's BURSTS vote. */
     private final com.limelight.utils.LateFrames lateFrames = new com.limelight.utils.LateFrames();
+    /**
+     * The native receive clock (CLOCK_MONOTONIC_RAW microseconds, which lateFrames gets) less
+     * System.nanoTime's, from the last frame: a health tick times out frames on the arrivals' clock.
+     */
+    private volatile long lateFramesClockOffsetUs;
     private volatile float queueDelayMs = -1;
     // Precise decode time: drives adaptive bitrate and quality, the stream doctor and the health dot.
     private volatile float decodeTimeMs = -1;
@@ -795,7 +800,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ? getPyroWaveLossPercent() : getNetworkFrameLossPercent(),
                 jitterMs, getDecodeTimeMs(), hostP95Ms,
                 timing[2][0] > 0 ? (float) timing[2][2] : -1, rates[0], rates[1], rates[2], getThermalLevel(),
-                hostReports, lateFrames.tick(),
+                hostReports, lateFrames.tick(lateFramesNowUs(nowNs)),
                 timing[FrameLatencyStats.SCREEN_STAGE][0] > 0 ? (float) timing[FrameLatencyStats.SCREEN_STAGE][2] : -1);
     }
 
@@ -804,7 +809,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
      * still running) ends its tick all the same: its late frames must not count in the next sample.
      */
     public void skipHealthSample() {
-        lateFrames.tick();
+        lateFrames.tick(lateFramesNowUs(System.nanoTime()));
+    }
+
+    /** {@code nowNs} (System.nanoTime) on the clock lateFrames gets its arrivals in. */
+    private long lateFramesNowUs(long nowNs) {
+        return nowNs / 1000 + lateFramesClockOffsetUs;
     }
 
     public LatencyProbe getLatencyProbe() {
@@ -5790,6 +5800,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         if (frameNumber != lastFrameNumber) {
             queueDelay.onFrame(receiveTimeUs, presentationTimeUs, frameHostProcessingLatency * 100L);
+            if (receiveTimeNs > 0) lateFramesClockOffsetUs = receiveTimeUs - receiveTimeNs / 1000;
             lateFrames.push(frameNumber, presentationTimeUs, frameHostProcessingLatency * 100L, receiveTimeUs,
                     (streamFrameRateMilliHz + 500) / 1000);
         }

@@ -460,7 +460,7 @@ impl Streaming {
             shown_fps: Some((f64::from(w.shown) / secs) as f32),
             ..Default::default()
         };
-        self.doctor.timings(&mut tick);
+        self.doctor.timings(&mut tick, now_us);
         let client = self.host_abr.is_some().then(|| lock(&self.shared.host_client).clone()).flatten();
         if let (Some(abr), Some(client)) = (&mut self.host_abr, client) {
             abr.add(completed, drops, decoded);

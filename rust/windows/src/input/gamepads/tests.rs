@@ -1278,6 +1278,28 @@ fn a_steam_controls_warning_from_refused_pads_clears_when_its_controller_leaves(
     pads.apply(&state(0, 0)).unwrap();
     assert!(warnings.snapshot().is_empty(), "{:?}", warnings.snapshot());
 }
+/// #138: pads refused again before every carried arrival was replayed hand on the answers
+/// not yet replayed beside their own, their own winning.
+#[test]
+fn memory_keeps_carried_steam_answers_not_yet_replayed() {
+    fn running() -> bool {
+        true
+    }
+    let _stranded = stranded_slots();
+    let mut pads = steam_controls_pads(true, running);
+    pads.remember(PadMemory {
+        steam_at_arrival: [(0, false)].into(),
+        ..Default::default()
+    });
+    pads.apply(&steam_controls_arrival(1, 0x600)).unwrap();
+    assert_eq!(
+        pads.memory().steam_at_arrival,
+        [(0, false), (1, true)].into()
+    );
+    // The pads' own answer wins over a carried one.
+    pads.carried_steam.insert(1, false);
+    assert!(pads.memory().steam_at_arrival[&1]);
+}
 /// The Desktop or an app that starts a program itself: Steam would give such a program its
 /// desktop layout, so the controls keep an Xbox-type pad, though Steam runs, and nobody is
 /// warned or asks whether Steam runs.

@@ -1360,8 +1360,8 @@ fn pads_the_driver_refused_open_again_without_input_with_every_arrival() {
 }
 
 /// #138: from the STOP_LIMIT'th refusal without working pads in between,
-/// the thread stops opening the driver and says so, until the next stream
-/// or launch begins.
+/// the thread opens the driver only at input, SLOW_RETRY RETRYs apart, and
+/// says so, until the next stream or launch begins.
 #[test]
 fn a_driver_that_refuses_every_reopen_is_left_alone_until_the_next_stream() {
     let poll = Polling {
@@ -1385,12 +1385,13 @@ fn a_driver_that_refuses_every_reopen_is_left_alone_until_the_next_stream() {
         warnings
             .snapshot()
             .iter()
-            .any(|warning| warning.message.contains("stopped opening it"))
+            .any(|warning| warning.message.contains("only when a controller is used"))
     });
-    // Neither by itself nor at input.
-    std::thread::sleep(poll.retry * 3);
+    let stopped = Instant::now();
+    // Not by itself, nor at input before the slow retry.
+    std::thread::sleep(poll.retry * 2);
     pads.send(state(0, 1, 9, 0));
-    std::thread::sleep(poll.retry * 3);
+    std::thread::sleep(poll.retry * 2);
     assert_eq!(opens(&log), STOP_LIMIT);
     let entries = warnings.snapshot();
     assert_eq!(entries.len(), 1);
@@ -1402,17 +1403,85 @@ fn a_driver_that_refuses_every_reopen_is_left_alone_until_the_next_stream() {
         "{}",
         entries[0].message
     );
+    // Past the slow retry, input opens it again within the stream: a device
+    // restarted meanwhile would play. This one refuses again.
+    std::thread::sleep(
+        (poll.retry * SLOW_RETRY).saturating_sub(stopped.elapsed()) + Duration::from_millis(30),
+    );
+    pads.send(state(0, 1, 10, 0));
+    let closed = format!("{} closed", STOP_LIMIT + 1);
+    gate.wait_until(|| logged_line(&log, &closed));
     // A new stream: the driver opens at its first input, and the warning goes.
     refuse.store(false, Ordering::SeqCst);
     pads.activate();
-    pads.send(state(0, 1, 10, 0));
-    let last = format!("{} {:?}", STOP_LIMIT + 1, state(0, 1, 10, 0));
+    pads.send(state(0, 1, 11, 0));
+    let last = format!("{} {:?}", STOP_LIMIT + 2, state(0, 1, 11, 0));
     gate.wait_until(|| logged_line(&log, &last));
     assert!(logged_line(
         &log,
-        &format!("{} {DUALSENSE_ARRIVAL:?}", STOP_LIMIT + 1)
+        &format!("{} {DUALSENSE_ARRIVAL:?}", STOP_LIMIT + 2)
     ));
     assert!(warnings.snapshot().is_empty());
+}
+
+/// #138: a driver whose device is gone after a refusal (0x80070103 at open,
+/// as in the report) is not a refusal: it is tried every RETRY, by itself,
+/// for as long as it takes, and opens once the device is back.
+#[test]
+fn a_driver_that_will_not_open_after_a_refusal_is_tried_every_retry_without_stopping() {
+    let poll = Polling {
+        every: POLL,
+        fast: false,
+        retry: Duration::from_millis(30),
+        reopen: Duration::from_millis(10),
+    };
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let device_back = Arc::new(AtomicBool::new(false));
+    let warnings = Arc::new(butterpollo_core::session::Warnings::default());
+    let pads = GamepadThread::spawn_polled(
+        {
+            let (log, attempts, device_back) = (log.clone(), attempts.clone(), device_back.clone());
+            move || {
+                let opened = attempts.fetch_add(1, Ordering::SeqCst) + 1;
+                if opened > 1 && !device_back.load(Ordering::SeqCst) {
+                    anyhow::bail!("no device interface (0x80070103)");
+                }
+                log.lock().unwrap().push(format!("{opened} opened"));
+                Ok(Refusing {
+                    log: log.clone(),
+                    refuse: Arc::new(AtomicBool::new(opened == 1)),
+                    opened,
+                    lost: false,
+                })
+            }
+        },
+        warnings.clone(),
+        poll,
+    )
+    .unwrap();
+    let gate = Gate::default();
+    pads.send(DUALSENSE_ARRIVAL);
+    pads.send(state(0, 1, 1, 0));
+    gate.wait_until(|| logged_line(&log, "1 closed"));
+    gate.wait_until(|| attempts.load(Ordering::SeqCst) > STOP_LIMIT + 3);
+    let entries = warnings.snapshot();
+    assert!(
+        entries
+            .iter()
+            .any(|warning| warning.code == "input_gamepad"),
+        "the open failure is shown"
+    );
+    assert!(
+        !entries.iter().any(|warning| warning.code == DRIVER_LOST),
+        "failed opens are no refusals"
+    );
+    device_back.store(true, Ordering::SeqCst);
+    gate.wait_until(|| {
+        log.lock().unwrap().iter().any(|line| {
+            !line.starts_with("1 ") && line.ends_with(&format!("{DUALSENSE_ARRIVAL:?}"))
+        })
+    });
 }
 
 #[test]
@@ -1429,27 +1498,22 @@ fn refusals_back_off_then_stop_unless_pads_work_a_minute_in_between() {
         losses.opened(at);
         at += Duration::from_secs(5);
         let expected = if n >= STOP_LIMIT {
-            None
+            RETRY * SLOW_RETRY
         } else if n >= LOST_LIMIT {
-            Some(RETRY)
+            RETRY
         } else {
-            Some(REOPEN)
+            REOPEN
         };
         assert_eq!(losses.record(at, &poll), expected, "refusal {n}");
     }
     assert!(losses.stopped() && losses.warned);
-    // A failed open after a refusal counts as one too.
-    let mut failed = Losses::default();
-    for _ in 0..STOP_LIMIT {
-        failed.record(at, &poll);
-    }
-    assert!(failed.stopped());
+    assert_eq!(RETRY * SLOW_RETRY, Duration::from_secs(60));
     // Pads that worked a minute in between start the count again.
     let mut losses = Losses::default();
     for _ in 0..10 {
         losses.opened(at);
         at += LOST_SPAN;
-        assert_eq!(losses.record(at, &poll), Some(REOPEN));
+        assert_eq!(losses.record(at, &poll), REOPEN);
     }
     assert!(!losses.warned);
     // The warning goes, once, when reopened pads have worked a minute.
@@ -1471,9 +1535,14 @@ fn refusals_back_off_then_stop_unless_pads_work_a_minute_in_between() {
     assert!(!backing_off.contains("device is gone"));
     assert!(backing_off.contains("up to 2 more times, at least 10 seconds apart"));
     assert!(lost_warning(true, 1, RETRY).contains("up to 1 more time,"));
+    assert!(
+        backing_off.contains("then only when a controller is used, at most once every 60 seconds")
+    );
     let stopped = lost_warning(false, 0, RETRY);
     assert!(stopped.contains("device is gone"));
-    assert!(stopped.contains("stopped opening it until the next stream or game launch starts"));
+    assert!(stopped.contains(
+        "only when a controller is used, at most once every 60 seconds, until the next stream or game launch starts"
+    ));
 }
 
 #[test]

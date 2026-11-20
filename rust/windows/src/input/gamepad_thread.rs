@@ -32,11 +32,13 @@ const RETRY: Duration = Duration::from_secs(10);
 /// How long after the driver refused the pads' handle it is opened again
 /// (#138). From the LOST_LIMIT'th refusal without pads that worked for
 /// LOST_SPAN in between, it waits RETRY and the console warns; from the
-/// STOP_LIMIT'th, it is opened again only once the next stream or launch
-/// begins.
+/// STOP_LIMIT'th, it is opened again only at input, SLOW_RETRY RETRYs (a
+/// minute) apart, until the next stream or launch begins. Only refusals
+/// count: a driver that won't open is tried every RETRY, as ever.
 const REOPEN: Duration = Duration::from_secs(1);
 const LOST_LIMIT: usize = 3;
 const STOP_LIMIT: usize = 5;
+const SLOW_RETRY: u32 = 6;
 const LOST_SPAN: Duration = Duration::from_secs(60);
 /// The warning for a driver that keeps refusing the pads' handle.
 const DRIVER_LOST: &str = "input_gamepad_driver";
@@ -231,7 +233,7 @@ struct Shared {
     /// [`Pads::steam_pads`] as the thread last saw it, for the back grip hint.
     steam_pads: AtomicU16,
     /// A stream or launch began: the driver's refusals count from none again,
-    /// and one the thread stopped opening is opened again (#138).
+    /// and one opened only seldom is opened at the next input (#138).
     fresh: AtomicBool,
 }
 impl Shared {
@@ -818,10 +820,10 @@ impl Losses {
         self.opened
             .is_some_and(|at| now.saturating_duration_since(at) >= LOST_SPAN)
     }
-    /// Records a refusal, or a failed open after one, at `now`. Returns how
-    /// long to wait before opening the driver again: `poll.reopen`, from the
-    /// LOST_LIMIT'th `poll.retry`, and from the STOP_LIMIT'th never.
-    fn record(&mut self, now: Instant, poll: &Polling) -> Option<Duration> {
+    /// Records a refusal at `now`. Returns how long to wait before opening
+    /// the driver again: `poll.reopen`, from the LOST_LIMIT'th `poll.retry`,
+    /// and from the STOP_LIMIT'th SLOW_RETRY times that, at input only.
+    fn record(&mut self, now: Instant, poll: &Polling) -> Duration {
         if self.worked(now) {
             self.count = 0;
         }
@@ -829,14 +831,15 @@ impl Losses {
         self.count += 1;
         self.warned |= self.count >= LOST_LIMIT;
         if self.count >= STOP_LIMIT {
-            None
+            poll.retry * SLOW_RETRY
         } else if self.count >= LOST_LIMIT {
-            Some(poll.retry)
+            poll.retry
         } else {
-            Some(poll.reopen)
+            poll.reopen
         }
     }
-    /// Whether the driver is no longer opened again until the next stream.
+    /// Whether the driver is opened again only at input, and seldom, until
+    /// the next stream.
     fn stopped(&self) -> bool {
         self.count >= STOP_LIMIT
     }
@@ -860,10 +863,13 @@ fn lost_warning(present: bool, left: usize, retry: Duration) -> String {
     } else {
         ", and its device is gone"
     };
+    let slow = (retry * SLOW_RETRY).as_secs();
     let next = match left {
-        0 => "Rubylight stopped opening it until the next stream or game launch starts, so controllers do not work; keyboard and mouse remain available".to_string(),
+        0 => format!(
+            "Rubylight now opens it again only when a controller is used, at most once every {slow} seconds, until the next stream or game launch starts; controllers may not work meanwhile, while keyboard and mouse remain available"
+        ),
         left => format!(
-            "Rubylight opens it again up to {left} more time{}, at least {} seconds apart, then stops until the next stream or game launch starts; meanwhile controllers may not respond, while keyboard and mouse remain available",
+            "Rubylight opens it again up to {left} more time{}, at least {} seconds apart, then only when a controller is used, at most once every {slow} seconds, until the next stream or game launch starts; meanwhile controllers may not respond, while keyboard and mouse remain available",
             if left == 1 { "" } else { "s" },
             retry.as_secs()
         ),
@@ -873,18 +879,18 @@ fn lost_warning(present: bool, left: usize, retry: Duration) -> String {
     )
 }
 
-/// Counts a refusal, or a failed open after one, and sets when the driver
-/// is opened again; the console warns from the LOST_LIMIT'th.
+/// Counts a refusal and sets when the driver is opened again; the console
+/// warns from the LOST_LIMIT'th.
 fn count_refusal(
     shared: &Shared,
     losses: &mut Losses,
     retry: &mut Option<Instant>,
     present: bool,
     poll: &Polling,
-) -> Option<Duration> {
+) -> Duration {
     let now = Instant::now();
     let wait = losses.record(now, poll);
-    *retry = wait.map(|wait| now + wait);
+    *retry = Some(now + wait);
     if losses.warned {
         shared.warnings.lock().unwrap().set(
             DRIVER_LOST,
@@ -917,18 +923,19 @@ fn forget_lost<P: Pads>(
         device = if present { "present" } else { "gone" },
         refusals = losses.count,
         reopen_in = ?wait,
-        "the virtual gamepad driver refused the host's handle (0x80070006): its controllers are closed{}",
-        if wait.is_some() {
-            " and the driver will be opened again"
+        "the virtual gamepad driver refused the host's handle (0x80070006): its controllers are closed and the driver will be opened again{}",
+        if losses.stopped() {
+            " at input only, until the next stream or game launch starts"
         } else {
-            "; it is opened again when the next stream or game launch starts"
+            ""
         }
     );
     true
 }
 
-/// Opens the pads' driver. One that won't open says so and is tried again
-/// after `poll.retry`, or as a refusal while the driver keeps refusing.
+/// Opens the pads' driver. One that won't open (its device gone) says so
+/// and is tried again after `poll.retry`, for as long as it takes: only a
+/// driver refusing an open handle counts toward STOP_LIMIT.
 fn open_driver<P: Pads>(
     shared: &Shared,
     open: &mut impl FnMut() -> Result<P>,
@@ -952,11 +959,7 @@ fn open_driver<P: Pads>(
                 .lock()
                 .unwrap()
                 .set("input_gamepad", super::gamepad_backend::unavailable(&error));
-            if losses.count > 0 {
-                count_refusal(shared, losses, retry, false, poll);
-            } else {
-                *retry = Some(now + poll.retry);
-            }
+            *retry = Some(now + poll.retry);
             None
         }
     }
@@ -1131,8 +1134,8 @@ fn run<P: Pads>(
             send_steam(&mut steam);
         }
         if shared.fresh.swap(false, Ordering::AcqRel) {
-            // A new stream or launch: pads the driver refused, even those the
-            // thread stopped opening, open at its first input, and refusals
+            // A new stream or launch: pads the driver refused, even those
+            // opened only seldom, open at its first input, and refusals
             // count anew.
             if pads.is_none() && losses.count > 0 {
                 retry = None;
@@ -1162,7 +1165,8 @@ fn run<P: Pads>(
                 break;
             }
             if pads.is_none() {
-                if losses.stopped() || retry.is_some_and(|at| Instant::now() < at) {
+                // Stopped, the driver waits SLOW_RETRY RETRYs for input.
+                if retry.is_some_and(|at| Instant::now() < at) {
                     keep_setup(&mut setup, &event);
                     continue;
                 }

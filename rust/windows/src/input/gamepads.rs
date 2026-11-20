@@ -1140,8 +1140,12 @@ impl Gamepads {
     }
     /// What the pads opened after these must keep (#138).
     pub(super) fn memory(&self) -> PadMemory {
+        // Answers carried from the pads before whose arrival was not replayed
+        // yet stay; the pads' own answer wins.
+        let mut steam_at_arrival = self.carried_steam.clone();
+        steam_at_arrival.extend(&self.steam_at_arrival);
         PadMemory {
-            steam_at_arrival: self.steam_at_arrival.clone(),
+            steam_at_arrival,
             steam_fallbacks: self.steam_fallbacks.clone(),
         }
     }

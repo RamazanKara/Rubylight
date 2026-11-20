@@ -3721,7 +3721,9 @@ fn still_resends_in_a_second(late: impl Fn(u32) -> Duration) -> u32 {
 }
 
 #[test]
-fn a_still_picture_resent_with_arrival_pacing_holds_the_stream_rate() {
+fn resends_anchored_on_their_grid_hold_the_stream_rate() {
+    // `resend_anchor` alone, without the pacer's `resend_at` (see
+    // `resends_on_their_grid_never_come_closer_than_a_claim_nor_hold_back_a_new_picture`).
     // Issue #110: each resend counted from when the previous one began, so
     // 0.3 ms of wake-up latency a resend sent about 170 of 180 fps.
     let steady = still_resends_in_a_second(|_| Duration::from_micros(300));
@@ -3800,13 +3802,24 @@ fn resends_on_their_grid_never_come_closer_than_a_claim_nor_hold_back_a_new_pict
     // One resend 4 ms late and the next on time on the grid went out 1.6 ms
     // apart at 180 fps: two claims' credit spent, and the next new picture
     // waited up to 2.7 ms past the spacing bound for it.
-    for (fps, spacing) in [(180., 0.75), (180., 0.5), (120., 0.5), (120., 0.75)] {
+    // The resend rate is what gives way: steady lateness (issue #110) keeps
+    // 179 of 180 (119 of 120) resends a second, the 2 ms pattern 179 at
+    // spacing 0.75 and 163 at 0.5, and the 4 ms pattern 158 and 150 at
+    // 180 fps (116 and 108 at 120). Each floor is two under what this model
+    // sends.
+    let lates = [
+        [200, 1_500, 4_000, 600],
+        [300, 300, 300, 300],
+        [200, 1_500, 2_000, 600],
+    ];
+    for (fps, spacing, floors) in [
+        (180., 0.75, [156, 177, 177]),
+        (180., 0.5, [148, 177, 161]),
+        (120., 0.5, [106, 117, 113]),
+        (120., 0.75, [114, 117, 117]),
+    ] {
         let period = Duration::from_secs_f64(1. / fps);
-        for late in [
-            [200, 1_500, 4_000, 600],
-            [300, 300, 300, 300],
-            [200, 1_500, 2_000, 600],
-        ] {
+        for (late, floor) in lates.into_iter().zip(floors) {
             let (extra, closest, sent) = paced_resends(fps, spacing, late);
             assert_eq!(
                 extra,
@@ -3817,18 +3830,8 @@ fn resends_on_their_grid_never_come_closer_than_a_claim_nor_hold_back_a_new_pict
                 closest >= period.mul_f64(spacing),
                 "{fps} fps, spacing {spacing}, {late:?}: {closest:?}"
             );
-            // Steady lateness (issue #110) keeps the full rate; uneven
-            // wake-ups the credit cannot absorb never fall below the rate
-            // the resends drifted to when each counted from the last.
-            let wakes: u64 = late.iter().sum();
-            let drifted = 1. / (period.as_secs_f64() + wakes as f64 / 4e6);
-            let floor = if late.iter().all(|l| *l == late[0]) {
-                fps - 1.
-            } else {
-                drifted
-            };
             assert!(
-                sent as f64 >= floor,
+                sent >= floor,
                 "{fps} fps, spacing {spacing}, {late:?}: {sent} resends"
             );
         }

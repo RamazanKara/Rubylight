@@ -513,7 +513,7 @@ mod tests {
         let text = report_text(&doctor.report(7000));
         assert!(text.contains("Bildverlust: 2,5 %"), "{text}");
         assert!(text.contains("Host bis Netzwerk p95: 30,0 ms"), "{text}");
-        assert!(text.contains("PC: langsamere Verarbeitungszeiten"), "{text}");
+        assert!(text.contains("PC: die langsameren Bilder des PCs"), "{text}");
         assert_eq!(period(150_000), "2,5 min");
         assert_eq!(period(120_400), "2 min");
         assert_eq!(period(45_000), "45 s");

@@ -1255,6 +1255,22 @@ public final class ActionSheet extends BottomSheetDialog {
             if (rect.top >= top && rect.bottom <= top + getHeight()) return 0;
             return super.computeScrollDeltaToGetChildRectOnScreen(rect);
         }
+
+        /**
+         * Up and Down inside a sheet that scrolls are this scroll's own move: it takes the key before the window does, so
+         * the window's navigation sound, which Left and Right still get, never played for them (nightjar#7). A move that
+         * lands focus on another row plays it here; a press that only scrolls stays silent, as the window's would.
+         */
+        @Override
+        public boolean arrowScroll(int direction) {
+            android.view.View before = findFocus();
+            boolean handled = super.arrowScroll(direction);
+            android.view.View after = findFocus();
+            if (handled && after != null && after != before) {
+                after.playSoundEffect(android.view.SoundEffectConstants.getContantForFocusDirection(direction));
+            }
+            return handled;
+        }
     }
 
     /** The gap a TV's sheet keeps from the screen's top and bottom edges. */

@@ -786,12 +786,17 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         boolean hostReports = timing[FrameLatencyStats.HOST_SENT_STAGE][0] > 0;
         int hostStage = hostReports ? FrameLatencyStats.HOST_SENT_STAGE : 4;
         float hostP95Ms = timing[hostStage][0] > 0 ? (float) timing[hostStage][2] : -1;
+        // The spread of the host's reports over this one-second tick, as the late frames count it: a
+        // late frame the host itself sent late is no burst.
+        float hostSentSpreadMs = frameLatencyStats.recentSpreadMs(FrameLatencyStats.HOST_SENT_STAGE, nowNs,
+                1_000_000_000L);
         return new com.limelight.utils.StreamHealth.Sample(nowMs, hasRecentVideoFrames(nowMs), fps,
                 (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ? getPyroWaveLossPercent() : getNetworkFrameLossPercent(),
                 jitterMs, getDecodeTimeMs(), hostP95Ms,
                 timing[2][0] > 0 ? (float) timing[2][2] : -1, rates[0], rates[1], rates[2], getThermalLevel(),
                 hostReports, lateFrames.tick(),
-                timing[FrameLatencyStats.SCREEN_STAGE][0] > 0 ? (float) timing[FrameLatencyStats.SCREEN_STAGE][2] : -1);
+                timing[FrameLatencyStats.SCREEN_STAGE][0] > 0 ? (float) timing[FrameLatencyStats.SCREEN_STAGE][2] : -1,
+                hostSentSpreadMs);
     }
 
     /**

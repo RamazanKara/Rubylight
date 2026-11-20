@@ -38,6 +38,12 @@ pub struct Stats {
     pub thermal_level: u32,
     /// Frames of this tick that arrived late against the host's clock ([`LateFrames`]).
     pub late_frames: Option<u32>,
+    /// The spread (largest minus smallest) of this tick's host timing reports, present to last
+    /// packet sent; `None` without reports ([`RecentP95::spread_ms`]). The frame header's host
+    /// time covers only packetizing, so a frame the host held back (a slower encode, a wait for
+    /// its turn, paced sending) shows only here: when it reaches [`late_threshold_us`], the
+    /// tick's late frames may be the host's own and are no evidence of bursts.
+    pub host_sent_spread_ms: Option<f32>,
 }
 
 /// Frames that arrived at least [`late_threshold_us`] later than the host's timestamps put them
@@ -147,6 +153,14 @@ impl RecentP95 {
         if self.current.len() < Self::MAX_SAMPLES {
             self.current.push(u32::try_from(us).unwrap_or(u32::MAX));
         }
+    }
+
+    /// The largest minus the smallest sample of the current tick in ms, `None` without any.
+    /// Read it before [`tick`](Self::tick) or [`tick_once`](Self::tick_once) ends the tick.
+    pub fn spread_ms(&self) -> Option<f32> {
+        let min = self.current.iter().min()?;
+        let max = self.current.iter().max()?;
+        Some((max - min) as f32 / 1000.0)
     }
 
     /// Whether this tick or the previous one has a sample.

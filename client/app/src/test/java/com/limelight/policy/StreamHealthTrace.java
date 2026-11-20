@@ -24,6 +24,15 @@ final class StreamHealthTrace {
                 displayP95Ms, receivedFps, releasedFps, shownFps, thermal, hostIncludesSend, lateFrames));
     }
 
+    /** {@code addLate} with the spread of the tick's host timing reports last (-1 without reports). */
+    void addLateSpread(long atMs, boolean fresh, int fps, float lossPercent, float jitterMs, float decodeMs,
+                       float hostP95Ms, float displayP95Ms, float receivedFps, float releasedFps, float shownFps,
+                       int thermal, boolean hostIncludesSend, int lateFrames, float hostSentSpreadMs) {
+        health.add(new StreamHealth.Sample(atMs, fresh, fps, lossPercent, jitterMs, decodeMs, hostP95Ms,
+                displayP95Ms, receivedFps, releasedFps, shownFps, thermal, hostIncludesSend, lateFrames, -1,
+                hostSentSpreadMs));
+    }
+
     /** The same sample {@code count} times, {@code stepMs} apart, as steady stats ticks. */
     void addSeries(long firstMs, long count, long stepMs, boolean fresh, int fps, float lossPercent,
                    float jitterMs, float decodeMs, float hostP95Ms, float displayP95Ms, float receivedFps,

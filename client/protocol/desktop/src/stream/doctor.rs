@@ -54,12 +54,16 @@ impl Doctor {
         self.sent.push(u64::from(host_us));
     }
 
-    /// Fills the tick's host and display p95 over the last two ticks, then starts the next one.
+    /// Fills the tick's host and display p95 over the last two ticks, its late frames and the
+    /// spread of its host reports, then starts the next one.
     /// As on Android, the host is judged by its present to last packet sent while it reports
     /// that, otherwise by the header's processing time. A spike counts in its own tick only
     /// (`RecentP95::tick_once`): in both ticks of the window it gave two votes, a finding alone.
     pub fn timings(&mut self, tick: &mut Stats) {
         tick.host_includes_send = self.sent.has_samples();
+        // Read before the tick ends: the spread of this tick's reports tells a late frame the
+        // host sent late from one the network held back.
+        tick.host_sent_spread_ms = self.sent.spread_ms();
         let (sent, header) = (self.sent.tick_once(), self.header.tick_once());
         tick.host_p95_ms = if tick.host_includes_send { sent } else { header };
         tick.display_p95_ms = self.display.tick_once();
@@ -329,6 +333,39 @@ mod tests {
         let mut fourth = Stats::default();
         doctor.timings(&mut fourth);
         assert_eq!((fourth.host_p95_ms, fourth.host_includes_send, fourth.display_p95_ms), (None, false, None));
+    }
+
+    /// One frame a second arrives 15 ms late (8 ms at least, 12.5 ms at 60 fps, counts). When the
+    /// host's own report for that second says it took 15 ms longer to send one frame, the late frames
+    /// are the host's and no burst; without reports they still are.
+    #[test]
+    fn a_host_send_spike_each_second_is_no_burst() {
+        let run = |reports: bool| {
+            let mut doctor = Doctor::default();
+            let mut frame = 0u32;
+            for n in 1..=20u64 {
+                for i in 0..60u32 {
+                    let late_us = if i == 30 { 15_000 } else { 0 };
+                    doctor.arrived(frame.wrapping_mul(1500), 6, u64::from(frame) * 16_667 + late_us, 60);
+                    if reports {
+                        doctor.host_sent(if i == 30 { 18_000 } else { 3_000 });
+                    }
+                    frame += 1;
+                }
+                let mut stats = tick(n * 1000, 0.0);
+                doctor.timings(&mut stats);
+                assert_eq!(stats.late_frames, Some(1), "one late frame each second");
+                assert_eq!(stats.host_sent_spread_ms, reports.then_some(15.0));
+                doctor.add(&stats);
+            }
+            doctor.report(20_000)
+        };
+        let spiky_host = run(true);
+        assert!(!spiky_host.findings.contains(&Finding::Bursts), "{spiky_host:?}");
+        assert_eq!(spiky_host.late_samples, 0);
+        let unreported = run(false);
+        assert!(unreported.findings.contains(&Finding::Bursts), "{unreported:?}");
+        assert_eq!(unreported.late_samples, 18, "every second after the warm-up");
     }
 
     #[test]

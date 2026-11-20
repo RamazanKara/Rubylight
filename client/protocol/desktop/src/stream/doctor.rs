@@ -32,10 +32,11 @@ pub struct Doctor {
 const WARMUP_MS: u64 = 2_000;
 
 impl Doctor {
-    /// A decoded frame: its RTP timestamp, the frame header's host processing time (0.1 ms, 0
-    /// unknown) and when its first packet arrived (session clock), at the stream's frame rate.
-    pub fn arrived(&mut self, rtp: u32, host_latency: u16, receive_us: u64, fps: u32) {
-        self.late.push(rtp, u32::from(host_latency) * 100, receive_us, fps);
+    /// A decoded frame: the host's frame number, its RTP timestamp, the frame header's host
+    /// processing time (0.1 ms, 0 unknown) and when its first packet arrived (session clock), at
+    /// the stream's frame rate.
+    pub fn arrived(&mut self, frame: u32, rtp: u32, host_latency: u16, receive_us: u64, fps: u32) {
+        self.late.push(frame, rtp, u32::from(host_latency) * 100, receive_us, fps);
     }
 
     /// A picture was shown: its header's processing time (100 us units, 0 when the host sends
@@ -49,21 +50,21 @@ impl Doctor {
         }
     }
 
-    /// One of the host's timing reports: present to last packet sent, in microseconds.
-    pub fn host_sent(&mut self, host_us: u32) {
+    /// One of the host's timing reports for frame `frame`: present to last packet sent and its
+    /// send stage, first to last packet, in microseconds. The late frames take off what the
+    /// host's own time added to the frame.
+    pub fn host_sent(&mut self, frame: u32, host_us: u32, send_us: u32) {
         self.sent.push(u64::from(host_us));
+        self.late.report(frame, host_us, send_us);
     }
 
-    /// Fills the tick's host and display p95 over the last two ticks, its late frames and the
-    /// spread of its host reports, then starts the next one.
+    /// Fills the tick's host and display p95 over the last two ticks and its late frames, then
+    /// starts the next one.
     /// As on Android, the host is judged by its present to last packet sent while it reports
     /// that, otherwise by the header's processing time. A spike counts in its own tick only
     /// (`RecentP95::tick_once`): in both ticks of the window it gave two votes, a finding alone.
     pub fn timings(&mut self, tick: &mut Stats) {
         tick.host_includes_send = self.sent.has_samples();
-        // Read before the tick ends: the spread of this tick's reports tells a late frame the
-        // host sent late from one the network held back.
-        tick.host_sent_spread_ms = self.sent.spread_ms();
         let (sent, header) = (self.sent.tick_once(), self.header.tick_once());
         tick.host_p95_ms = if tick.host_includes_send { sent } else { header };
         tick.display_p95_ms = self.display.tick_once();
@@ -322,7 +323,7 @@ mod tests {
         doctor.timings(&mut first);
         assert_eq!((first.host_p95_ms, first.host_includes_send), (Some(4.0), false), "the header's 4 ms, 100 us units");
         assert_eq!(first.display_p95_ms, Some(5.0), "frames without a decode time are not counted");
-        doctor.host_sent(12_000);
+        doctor.host_sent(1, 12_000, 500);
         let mut second = Stats::default();
         doctor.timings(&mut second);
         assert_eq!((second.host_p95_ms, second.host_includes_send), (Some(12.0), true));
@@ -335,37 +336,45 @@ mod tests {
         assert_eq!((fourth.host_p95_ms, fourth.host_includes_send, fourth.display_p95_ms), (None, false, None));
     }
 
-    /// One frame a second arrives 15 ms late (8 ms at least, 12.5 ms at 60 fps, counts). When the
-    /// host's own report for that second says it took 15 ms longer to send one frame, the late frames
-    /// are the host's and no burst; without reports they still are.
+    /// Each second the host sends one frame, the 31st, 15 ms later after its capture than the one
+    /// before (a wait for its turn), so it arrives 15 ms late (12.5 ms at 60 fps counts). The
+    /// host's report for that frame takes it off; without reports it still counts. A frame the
+    /// network held back 40 ms in the same seconds counts either way: the slow host frame cancels
+    /// no other frame's lateness.
     #[test]
     fn a_host_send_spike_each_second_is_no_burst() {
-        let run = |reports: bool| {
+        let run = |reports: bool, network_hold: bool| {
             let mut doctor = Doctor::default();
             let mut frame = 0u32;
             for n in 1..=20u64 {
                 for i in 0..60u32 {
-                    let late_us = if i == 30 { 15_000 } else { 0 };
-                    doctor.arrived(frame.wrapping_mul(1500), 6, u64::from(frame) * 16_667 + late_us, 60);
+                    let host_late_us = if i == 30 { 15_000 } else { 0 };
+                    let network_us = if network_hold && i == 10 { 40_000 } else { 0 };
+                    let receive_us = u64::from(frame) * 16_667 + u64::from(host_late_us) + network_us;
+                    doctor.arrived(frame, frame * 1500, 6, receive_us, 60);
                     if reports {
-                        doctor.host_sent(if i == 30 { 18_000 } else { 3_000 });
+                        // Present to last packet sent, with a 0.5 ms send stage.
+                        doctor.host_sent(frame, 3_500 + host_late_us, 500);
                     }
                     frame += 1;
                 }
                 let mut stats = tick(n * 1000, 0.0);
                 doctor.timings(&mut stats);
-                assert_eq!(stats.late_frames, Some(1), "one late frame each second");
-                assert_eq!(stats.host_sent_spread_ms, reports.then_some(15.0));
+                let expected = u32::from(!reports) + u32::from(network_hold);
+                assert_eq!(stats.late_frames, Some(expected), "second {n}, reports {reports}, hold {network_hold}");
                 doctor.add(&stats);
             }
             doctor.report(20_000)
         };
-        let spiky_host = run(true);
+        let spiky_host = run(true, false);
         assert!(!spiky_host.findings.contains(&Finding::Bursts), "{spiky_host:?}");
         assert_eq!(spiky_host.late_samples, 0);
-        let unreported = run(false);
+        let unreported = run(false, false);
         assert!(unreported.findings.contains(&Finding::Bursts), "{unreported:?}");
         assert_eq!(unreported.late_samples, 18, "every second after the warm-up");
+        let network = run(true, true);
+        assert!(network.findings.contains(&Finding::Bursts), "{network:?}");
+        assert_eq!(network.late_samples, 18, "the network's frame counts beside the host's spike");
     }
 
     #[test]

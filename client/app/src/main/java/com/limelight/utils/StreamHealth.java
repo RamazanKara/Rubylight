@@ -14,8 +14,8 @@ public final class StreamHealth {
     private static final int MAX_STALLS = 64;
     public enum Finding { NETWORK, DECODER, HOST, PRESENTATION, HEAT, PERIODIC, BURSTS }
     /**
-     * BURSTS needs this many votes and a third of the samples. A sample with late frames is a vote
-     * unless the host's own reports vary as much (hostMadeLate), but a run of consecutive late samples gives at most {@link #BURST_RUN_VOTES} unless it is
+     * BURSTS needs this many votes and a third of the samples. A sample with late frames is a vote,
+     * but a run of consecutive late samples gives at most {@link #BURST_RUN_VOTES} unless it is
      * longer than {@link #BURST_LONG_RUN}: a launch or a switch to fullscreen holds frames back for
      * a few seconds in a row once, a Wi-Fi that bunches packets does it again and again, or without
      * a break. As nightjar-policy's health.rs.
@@ -36,8 +36,6 @@ public final class StreamHealth {
         public final float budgetMs, lossPercent, jitterMs, decodeMs, hostP95Ms, displayP95Ms;
         public final float receivedFps, releasedFps, shownFps;
         public final int thermal;
-        /** The stream's frame rate, 0 when unknown. */
-        public final int fps;
         /** True when hostP95Ms runs to the last packet sent, as the host's timing reports measure it. */
         public final boolean hostIncludesSend;
         /** Frames of this tick that arrived late against the host's clock (LateFrames), -1 when unknown. */
@@ -47,14 +45,6 @@ public final class StreamHealth {
          * finding judges it when known; display wait (displayP95Ms) ends at Nightjar's hand-off.
          */
         public final float screenP95Ms;
-        /**
-         * The spread (largest minus smallest) of this tick's host timing reports, present to last packet
-         * sent, -1 without reports. The frame header's host time covers only packetizing, so a frame the
-         * host held back (a slower encode, a wait for its turn, paced sending) shows only here: when it
-         * reaches LateFrames.thresholdUs, the tick's late frames may be the host's own and are no
-         * evidence of bursts. As nightjar-policy's Stats::host_sent_spread_ms.
-         */
-        public final float hostSentSpreadMs;
         public Sample(long atMs, boolean fresh, int fps, float lossPercent, float jitterMs,
                       float decodeMs, float hostP95Ms, float displayP95Ms,
                       float receivedFps, float releasedFps, float shownFps, int thermal,
@@ -73,16 +63,7 @@ public final class StreamHealth {
                       float decodeMs, float hostP95Ms, float displayP95Ms,
                       float receivedFps, float releasedFps, float shownFps, int thermal,
                       boolean hostIncludesSend, int lateFrames, float screenP95Ms) {
-            this(atMs, fresh, fps, lossPercent, jitterMs, decodeMs, hostP95Ms, displayP95Ms, receivedFps,
-                    releasedFps, shownFps, thermal, hostIncludesSend, lateFrames, screenP95Ms, -1);
-        }
-        public Sample(long atMs, boolean fresh, int fps, float lossPercent, float jitterMs,
-                      float decodeMs, float hostP95Ms, float displayP95Ms,
-                      float receivedFps, float releasedFps, float shownFps, int thermal,
-                      boolean hostIncludesSend, int lateFrames, float screenP95Ms, float hostSentSpreadMs) {
             this.lateFrames = lateFrames;
-            this.hostSentSpreadMs = hostSentSpreadMs;
-            this.fps = fps;
             this.screenP95Ms = screenP95Ms;
             this.atMs = atMs;
             this.fresh = fresh;
@@ -110,7 +91,7 @@ public final class StreamHealth {
         public final long stallPeriodMs;
         /** True when worstHostP95Ms comes from a sample whose host time includes the send. */
         public final boolean hostIncludesSend;
-        /** Counted samples with late frames the host's reports do not explain, the evidence of BURSTS. */
+        /** Counted samples with late frames, the evidence of BURSTS. */
         public final int lateSamples;
         private Report(List<Finding> findings, int samples, boolean recent, float loss,
                        float decode, float host, float display, int stalls, long stallPeriodMs,
@@ -167,16 +148,6 @@ public final class StreamHealth {
         return stallPeriodMs;
     }
 
-    /**
-     * Whether the host's own timing reports of the tick vary by at least the lateness that makes a
-     * frame late (Sample.hostSentSpreadMs): its late frames may then be the host's, sent late after a
-     * slower encode, a wait or paced sending, and are no BURSTS vote. Without reports the late frames
-     * vote as before.
-     */
-    private static boolean hostMadeLate(Sample s) {
-        return valid(s.hostSentSpreadMs) && (double) s.hostSentSpreadMs * 1000 >= LateFrames.thresholdUs(s.fps);
-    }
-
     private static boolean networkEvidence(Sample s) {
         return (valid(s.lossPercent) && s.lossPercent >= 2) ||
                 (valid(s.jitterMs) && s.jitterMs >= Math.max(8, s.budgetMs));
@@ -210,7 +181,7 @@ public final class StreamHealth {
                 votes[Finding.PRESENTATION.ordinal()]++;
             }
             if (s.thermal >= 2) votes[Finding.HEAT.ordinal()]++;
-            if (s.lateFrames > 0 && !hostMadeLate(s)) {
+            if (s.lateFrames > 0) {
                 votes[Finding.BURSTS.ordinal()]++;
                 run++;
             } else {

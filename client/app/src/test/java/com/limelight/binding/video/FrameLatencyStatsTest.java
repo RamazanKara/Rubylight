@@ -1051,17 +1051,6 @@ public class FrameLatencyStatsTest {
     }
 
     @Test
-    public void theHostReportsSpreadCoversOnlyTheTicksWindow() {
-        FrameLatencyStats stats = new FrameLatencyStats();
-        assertEquals(-1, stats.recentSpreadMs(FrameLatencyStats.HOST_SENT_STAGE, 3_000_000_000L, 1_000_000_000L), 0);
-        // An 18 ms report a second and a half ago is outside the tick; 3 and 4.5 ms are inside it.
-        stats.onHostTiming(report(new long[] {1, 18000, 0, 0, 0}), 1_500_000_000L);
-        stats.onHostTiming(report(new long[] {2, 3000, 0, 0, 0}, new long[] {3, 4500, 0, 0, 0}), 2_500_000_000L);
-        assertEquals(1.5, stats.recentSpreadMs(FrameLatencyStats.HOST_SENT_STAGE, 3_000_000_000L, 1_000_000_000L), 0.00001);
-        assertEquals(15, stats.recentSpreadMs(FrameLatencyStats.HOST_SENT_STAGE, 3_000_000_000L, 2_000_000_000L), 0.00001);
-    }
-
-    @Test
     public void hostTimingReportsFillTheirOwnStagesAndTheCsvColumns() throws Exception {
         FrameLatencyStats stats = new FrameLatencyStats();
         // The report can arrive before or after its frame; the header says 5 ms (50 x 100 us).

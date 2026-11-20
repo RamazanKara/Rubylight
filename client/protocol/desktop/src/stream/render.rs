@@ -238,7 +238,7 @@ impl Streaming {
                 self.fps_evidence_step(ticks);
             }
             self.last_arrival = Some((decoded.rtp, decoded.receive_us));
-            self.doctor.arrived(decoded.rtp, decoded.host_latency, decoded.receive_us, self.facts.fps.max(0) as u32);
+            self.doctor.arrived(decoded.number, decoded.rtp, decoded.host_latency, decoded.receive_us, self.facts.fps.max(0) as u32);
             // Frames still waiting to be decoded: a queue that stays non-empty makes this
             // picture's lateness the backlog's.
             if self.pacer.mode == PacingMode::HostTimes || self.pacer.host_grid() {

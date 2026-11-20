@@ -254,7 +254,7 @@ impl Streaming {
                     self.window.timing_host_us += u64::from(r.host_us);
                     self.window.timing_encode_us += u64::from(r.encode_us);
                     self.window.timing_n += 1;
-                    self.doctor.host_sent(r.host_us);
+                    self.doctor.host_sent(r.frame, r.host_us, r.send_us);
                     self.timings.push_back((r.frame, u64::from(r.host_us)));
                     if self.timings.len() > 64 {
                         self.timings.pop_front();

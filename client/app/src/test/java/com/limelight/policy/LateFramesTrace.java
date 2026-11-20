@@ -13,6 +13,14 @@ final class LateFramesTrace {
         late.push(rtp * 1000 / 90, processingUs, receiveUs, fps);
     }
 
+    void pushFrame(int frame, long rtp, long processingUs, long receiveUs, int fps) {
+        late.push(frame, rtp * 1000 / 90, processingUs, receiveUs, fps);
+    }
+
+    void report(int frame, long hostUs, long sendUs) {
+        late.report(frame, hostUs, sendUs);
+    }
+
     int tick() {
         return late.tick();
     }

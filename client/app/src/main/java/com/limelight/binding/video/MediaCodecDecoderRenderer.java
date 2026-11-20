@@ -703,6 +703,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     @Override
     public void onHostTiming(HostTimingReport report) {
         frameLatencyStats.onHostTiming(report, System.nanoTime());
+        // The stream doctor's late frames take off what the host's own time added to each frame.
+        for (int i = 0; i < report.size(); i++) {
+            HostTimingReport.Record record = report.get(i);
+            lateFrames.report(record.frame, record.hostUs, record.sendUs);
+        }
     }
 
     public static String formatLatencyOverlay(Context context, double[][] summary) {
@@ -786,17 +791,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         boolean hostReports = timing[FrameLatencyStats.HOST_SENT_STAGE][0] > 0;
         int hostStage = hostReports ? FrameLatencyStats.HOST_SENT_STAGE : 4;
         float hostP95Ms = timing[hostStage][0] > 0 ? (float) timing[hostStage][2] : -1;
-        // The spread of the host's reports over this one-second tick, as the late frames count it: a
-        // late frame the host itself sent late is no burst.
-        float hostSentSpreadMs = frameLatencyStats.recentSpreadMs(FrameLatencyStats.HOST_SENT_STAGE, nowNs,
-                1_000_000_000L);
         return new com.limelight.utils.StreamHealth.Sample(nowMs, hasRecentVideoFrames(nowMs), fps,
                 (videoFormat & MoonBridge.VIDEO_FORMAT_MASK_PYROWAVE) != 0 ? getPyroWaveLossPercent() : getNetworkFrameLossPercent(),
                 jitterMs, getDecodeTimeMs(), hostP95Ms,
                 timing[2][0] > 0 ? (float) timing[2][2] : -1, rates[0], rates[1], rates[2], getThermalLevel(),
                 hostReports, lateFrames.tick(),
-                timing[FrameLatencyStats.SCREEN_STAGE][0] > 0 ? (float) timing[FrameLatencyStats.SCREEN_STAGE][2] : -1,
-                hostSentSpreadMs);
+                timing[FrameLatencyStats.SCREEN_STAGE][0] > 0 ? (float) timing[FrameLatencyStats.SCREEN_STAGE][2] : -1);
     }
 
     /**
@@ -5790,7 +5790,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         if (frameNumber != lastFrameNumber) {
             queueDelay.onFrame(receiveTimeUs, presentationTimeUs, frameHostProcessingLatency * 100L);
-            lateFrames.push(presentationTimeUs, frameHostProcessingLatency * 100L, receiveTimeUs, (streamFrameRateMilliHz + 500) / 1000);
+            lateFrames.push(frameNumber, presentationTimeUs, frameHostProcessingLatency * 100L, receiveTimeUs,
+                    (streamFrameRateMilliHz + 500) / 1000);
         }
         lastFrameNumber = frameNumber;
 

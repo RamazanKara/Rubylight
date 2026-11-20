@@ -1,5 +1,7 @@
 //! The once-a-second stats tick every policy reads.
 
+use std::collections::VecDeque;
+
 use serde_json::Value;
 
 use crate::trace::{Args, Subject};
@@ -38,32 +40,59 @@ pub struct Stats {
     pub thermal_level: u32,
     /// Frames of this tick that arrived late against the host's clock ([`LateFrames`]).
     pub late_frames: Option<u32>,
-    /// The spread (largest minus smallest) of this tick's host timing reports, present to last
-    /// packet sent; `None` without reports ([`RecentP95::spread_ms`]). The frame header's host
-    /// time covers only packetizing, so a frame the host held back (a slower encode, a wait for
-    /// its turn, paced sending) shows only here: when it reaches [`late_threshold_us`], the
-    /// tick's late frames may be the host's own and are no evidence of bursts.
-    pub host_sent_spread_ms: Option<f32>,
 }
 
 /// Frames that arrived at least [`late_threshold_us`] later than the host's timestamps put them
 /// after the frame before, for [`Stats::late_frames`]: a network (or this device's Wi-Fi)
-/// holding frames back and handing them over in a burst, or the host sending a frame late. A
-/// still desktop, a game that slows down or a capture stall, where the timestamps step as far
-/// as the arrivals, is never late. The timestamps are taken at capture, so a frame the host took
-/// longer to process than the one before also arrives later: the change of the frame header's
-/// processing time comes off, but that time covers only packetizing. A slower encode, a wait for
-/// the frame's turn or paced sending shows in the host's timing reports instead, which the stream
-/// doctor reads through [`Stats::host_sent_spread_ms`].
+/// holding frames back and handing them over in a burst. A still desktop, a game that slows down
+/// or a capture stall, where the timestamps step as far as the arrivals, is never late.
+///
+/// The timestamps are taken at capture, so a frame the host itself sent later after its capture
+/// than the frame before (a slower encode, a wait for its turn, paced sending after a loss) also
+/// arrives later, and that change comes off. The host's timing report for the frame tells it:
+/// present to last packet sent less the send stage, i.e. present to the first packet sent, which
+/// is when the measured first packet left. Frames and reports are matched by frame number. Without
+/// a report for the frame or the one before, the change of the frame header's processing time
+/// comes off instead, which covers only packetizing.
+///
+/// Once the host has sent a report, a frame waits for its own (reports follow the frame's last
+/// packet) until frames [`REPORT_WAIT_US`] newer arrive, then counts without it. A late frame
+/// counts in the tick it is judged in.
 #[derive(Clone, Debug, Default)]
 pub struct LateFrames {
-    /// The last frame's RTP timestamp (90 kHz), arrival and host processing time (µs, 0 unknown).
-    last: Option<(u32, u64, u32)>,
+    /// The last frame judged.
+    last: Option<Arrival>,
+    /// Frames waiting for their timing report, oldest first.
+    pending: VecDeque<Arrival>,
+    /// Reports that came before their frame: frame number, present to first packet sent (µs).
+    early: VecDeque<(u32, u32)>,
+    /// The host sends timing reports: frames wait for theirs.
+    reports: bool,
     count: u32,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Arrival {
+    frame: u32,
+    /// RTP timestamp (90 kHz).
+    rtp: u32,
+    /// The first packet's arrival (µs).
+    receive_us: u64,
+    /// The frame header's host processing time (µs, 0 unknown).
+    processing_us: u32,
+    /// The timing report's present to first packet sent (µs).
+    first_sent_us: Option<u32>,
+    fps: u32,
 }
 
 /// Timestamp steps longer than this start over (a new stream or a long pause).
 const MAX_HOST_STEP_US: u64 = 1_000_000;
+/// A frame waits for its timing report until a frame this much newer arrives.
+pub const REPORT_WAIT_US: u64 = 250_000;
+/// Frames waiting for reports past this count without them: a quarter second at 2000 fps.
+const MAX_PENDING: usize = 512;
+/// Reports kept for frames that have not arrived yet.
+const MAX_EARLY: usize = 64;
 
 /// How late a frame must be to count: three quarters of a frame interval, at least 8 ms. At
 /// that delay the frame misses its refresh and the one before is shown twice.
@@ -75,34 +104,88 @@ pub fn late_threshold_us(fps: u32) -> u64 {
 }
 
 impl LateFrames {
-    /// A frame arrived (its first packet, at `receive_us`) with the RTP timestamp `rtp` after
-    /// `processing_us` of host processing (0 when the host does not report it).
-    pub fn push(&mut self, rtp: u32, processing_us: u32, receive_us: u64, fps: u32) {
-        if let Some((last_rtp, last_us, last_processing_us)) = self.last {
-            let ticks = rtp.wrapping_sub(last_rtp) as i32;
+    /// Frame `frame` arrived (its first packet, at `receive_us`) with the RTP timestamp `rtp`
+    /// after `processing_us` of host processing as its header says (0 when the host does not
+    /// report it).
+    pub fn push(&mut self, frame: u32, rtp: u32, processing_us: u32, receive_us: u64, fps: u32) {
+        let at = self.early.iter().position(|&(early, _)| early == frame);
+        let first_sent_us = at.and_then(|at| self.early.remove(at)).map(|(_, us)| us);
+        self.pending.push_back(Arrival {
+            frame,
+            rtp,
+            receive_us,
+            processing_us,
+            first_sent_us,
+            fps,
+        });
+        self.settle(Some(receive_us));
+    }
+
+    /// The host's timing report for frame `frame`: present to last packet sent (`host_us`) and
+    /// its send stage, first to last packet (`send_us`).
+    pub fn report(&mut self, frame: u32, host_us: u32, send_us: u32) {
+        self.reports = true;
+        let first_sent_us = host_us.saturating_sub(send_us);
+        if let Some(waiting) = self.pending.iter_mut().find(|p| p.frame == frame) {
+            waiting.first_sent_us = Some(first_sent_us);
+        } else if self
+            .last
+            .map_or(true, |last| frame.wrapping_sub(last.frame) as i32 > 0)
+        {
+            if self.early.len() == MAX_EARLY {
+                self.early.pop_front();
+            }
+            self.early.push_back((frame, first_sent_us));
+        }
+        self.settle(None);
+    }
+
+    /// Judges the waiting frames, oldest first, that have their report, have waited until the
+    /// arrival at `now_us`, or need none because the host sends no reports.
+    fn settle(&mut self, now_us: Option<u64>) {
+        while let Some(&next) = self.pending.front() {
+            let ready = !self.reports
+                || next.first_sent_us.is_some()
+                || now_us.is_some_and(|now| now.saturating_sub(next.receive_us) >= REPORT_WAIT_US)
+                || self.pending.len() > MAX_PENDING;
+            if !ready {
+                break;
+            }
+            self.pending.pop_front();
+            self.judge(next);
+        }
+    }
+
+    fn judge(&mut self, frame: Arrival) {
+        if let Some(last) = self.last {
+            let ticks = frame.rtp.wrapping_sub(last.rtp) as i32;
             let host_us = u64::from(ticks.max(0) as u32) * 1000 / 90;
-            if ticks > 0 && host_us <= MAX_HOST_STEP_US && receive_us >= last_us {
-                // Only a change of processing time moves the arrival, and only when both are known.
-                let processing_step_us = if processing_us > 0 && last_processing_us > 0 {
-                    i64::from(processing_us) - i64::from(last_processing_us)
-                } else {
-                    0
+            if ticks > 0 && host_us <= MAX_HOST_STEP_US && frame.receive_us >= last.receive_us {
+                // Only a change of the host's own time moves the arrival, and only when both are
+                // known: from the reports, else from the headers.
+                let host_step_us = match (frame.first_sent_us, last.first_sent_us) {
+                    (Some(sent), Some(last_sent)) => i64::from(sent) - i64::from(last_sent),
+                    _ if frame.processing_us > 0 && last.processing_us > 0 => {
+                        i64::from(frame.processing_us) - i64::from(last.processing_us)
+                    }
+                    _ => 0,
                 };
-                let late_us = (receive_us - last_us) as i64 - host_us as i64 - processing_step_us;
-                if late_us >= 0 && late_us as u64 >= late_threshold_us(fps) {
+                let late_us =
+                    (frame.receive_us - last.receive_us) as i64 - host_us as i64 - host_step_us;
+                if late_us >= 0 && late_us as u64 >= late_threshold_us(frame.fps) {
                     self.count += 1;
                 }
             }
         }
-        self.last = Some((rtp, receive_us, processing_us));
+        self.last = Some(frame);
     }
 
-    /// The late frames since the last tick, then starts the next one.
+    /// The late frames judged since the last tick, then starts the next one.
     pub fn tick(&mut self) -> u32 {
         std::mem::take(&mut self.count)
     }
 
-    /// Forgets the last frame, as when the stream changes mode.
+    /// Forgets every frame and report, as when the stream changes mode.
     pub fn clear(&mut self) {
         *self = Self::default();
     }
@@ -118,9 +201,20 @@ pub(crate) fn traced_late(args: &Value) -> Result<Box<dyn Subject>, String> {
 impl Subject for LateFrames {
     fn call(&mut self, method: &str, args: &Value) -> Result<Value, String> {
         match method {
+            // A frame without its number, as from a host that sends no timing reports.
             "push" => {
                 let a = Args::new(args, 4)?;
-                self.push(a.int(0)?, a.int(1)?, a.int(2)?, a.int(3)?);
+                self.push(0, a.int(0)?, a.int(1)?, a.int(2)?, a.int(3)?);
+                Ok(Value::Null)
+            }
+            "push_frame" => {
+                let a = Args::new(args, 5)?;
+                self.push(a.int(0)?, a.int(1)?, a.int(2)?, a.int(3)?, a.int(4)?);
+                Ok(Value::Null)
+            }
+            "report" => {
+                let a = Args::new(args, 3)?;
+                self.report(a.int(0)?, a.int(1)?, a.int(2)?);
                 Ok(Value::Null)
             }
             "tick" => {
@@ -155,14 +249,6 @@ impl RecentP95 {
         if self.current.len() < Self::MAX_SAMPLES {
             self.current.push(u32::try_from(us).unwrap_or(u32::MAX));
         }
-    }
-
-    /// The largest minus the smallest sample of the current tick in ms, `None` without any.
-    /// Read it before [`tick`](Self::tick) or [`tick_once`](Self::tick_once) ends the tick.
-    pub fn spread_ms(&self) -> Option<f32> {
-        let min = self.current.iter().min()?;
-        let max = self.current.iter().max()?;
-        Some((max - min) as f32 / 1000.0)
     }
 
     /// Whether this tick or the previous one has a sample.
@@ -278,20 +364,20 @@ mod tests {
         // back to back behind it.
         let frames = [(0u32, 0u64), (1500, 16_700), (3000, 33_300), (4500, 73_300), (6000, 73_900), (7500, 74_500)];
         for (rtp, at) in frames {
-            late.push(rtp, 0, at, 60);
+            late.push(0, rtp, 0, at, 60);
         }
         assert_eq!(late.tick(), 1, "only the frame after the hold is late");
         assert_eq!(late.tick(), 0, "a tick starts the count over");
         // A still desktop or a capture stall: the timestamps step as far as the arrivals.
-        late.push(7500 + 9000, 0, 174_500, 60);
+        late.push(0, 7500 + 9000, 0, 174_500, 60);
         // A timestamp from before the last one is not judged; then the RTP clock wraps.
-        late.push(u32::MAX - 499, 0, 180_000, 60);
-        late.push(1000, 0, 196_700, 60);
+        late.push(0, u32::MAX - 499, 0, 180_000, 60);
+        late.push(0, 1000, 0, 196_700, 60);
         assert_eq!(late.tick(), 0);
         // A new stream's clock is not judged either.
-        late.push(1_000_000, 0, 200_000, 60);
-        late.push(1_000_000 + 1500, 0, 400_000, 60);
-        late.push(1_000_000 + 900_000, 0, 900_000, 60);
+        late.push(0, 1_000_000, 0, 200_000, 60);
+        late.push(0, 1_000_000 + 1500, 0, 400_000, 60);
+        late.push(0, 1_000_000 + 900_000, 0, 900_000, 60);
         assert_eq!(late.tick(), 1, "only the 183 ms hold of one frame interval");
         assert_eq!(late_threshold_us(60), 12_500);
         assert_eq!(late_threshold_us(120), 8_000);
@@ -312,19 +398,19 @@ mod tests {
             (7500, 3_000, 86_300),
         ];
         for (rtp, processing, at) in frames {
-            late.push(rtp, processing, at, 60);
+            late.push(0, rtp, processing, at, 60);
         }
         assert_eq!(late.tick(), 0, "the host's processing spike alone is no late frame");
         // The same arrivals without a processing time are judged by the timestamps alone.
         late.clear();
         for (rtp, _, at) in frames {
-            late.push(rtp, 0, at, 60);
+            late.push(0, rtp, 0, at, 60);
         }
         assert_eq!(late.tick(), 1);
         // A network hold on top of a faster frame still counts: 40 ms late, 5 ms quicker to process.
         late.clear();
-        late.push(20_000, 8_000, 300_000, 60);
-        late.push(21_500, 3_000, 356_700, 60);
+        late.push(0, 20_000, 8_000, 300_000, 60);
+        late.push(0, 21_500, 3_000, 356_700, 60);
         assert_eq!(late.tick(), 1);
     }
 }

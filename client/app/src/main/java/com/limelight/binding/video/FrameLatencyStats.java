@@ -1066,22 +1066,6 @@ class FrameLatencyStats {
         return summarize(nowNs, Math.max(0, windowNs), true, false);
     }
 
-    /**
-     * The largest minus the smallest sample of {@code stage} observed in the last {@code windowNs}, in
-     * milliseconds, -1 without any: the stream doctor's spread of the host's timing reports in a tick.
-     */
-    synchronized float recentSpreadMs(int stage, long nowNs, long windowNs) {
-        long min = Long.MAX_VALUE, max = Long.MIN_VALUE;
-        for (int i = 0; i < counts[stage]; i++) {
-            long observedAt = sampleTimes[stage][i];
-            if (observedAt > 0 && observedAt <= nowNs && nowNs - observedAt <= windowNs) {
-                min = Math.min(min, samples[stage][i]);
-                max = Math.max(max, samples[stage][i]);
-            }
-        }
-        return min > max ? -1 : (max - min) / 1_000_000f;
-    }
-
     private double[][] summarize(long nowNs, long windowNs, boolean recentOnly, boolean median) {
         long[][] snapshot = new long[samples.length][];
         synchronized (this) {

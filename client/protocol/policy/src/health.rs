@@ -10,7 +10,7 @@ use std::collections::VecDeque;
 
 use serde_json::Value;
 
-use crate::stats::{late_threshold_us, Stats};
+use crate::stats::Stats;
 use crate::trace::{Args, Subject};
 
 pub const HISTORY_MS: u64 = 30_000;
@@ -48,8 +48,7 @@ pub enum Finding {
 }
 
 /// [`Finding::Bursts`] needs this many votes and a third of the samples. A sample with late frames
-/// ([`Stats::late_frames`]) is a vote unless the host's own reports vary as much (see
-/// `host_made_late`), but a run of consecutive late samples gives at most
+/// ([`Stats::late_frames`]) is a vote, but a run of consecutive late samples gives at most
 /// [`BURST_RUN_VOTES`] unless it is longer than [`BURST_LONG_RUN`]: a launch or a switch to
 /// fullscreen holds frames back for a few seconds in a row once, a Wi-Fi that bunches packets does
 /// it again and again, or without a break.
@@ -113,8 +112,7 @@ pub struct Report {
     pub stall_period_ms: u64,
     /// True when `worst_host_p95_ms` comes from a sample whose host time includes the send.
     pub host_includes_send: bool,
-    /// Counted samples with late frames the host's reports do not explain, the evidence of
-    /// [`Finding::Bursts`].
+    /// Counted samples with late frames, the evidence of [`Finding::Bursts`].
     pub late_samples: usize,
 }
 
@@ -236,7 +234,7 @@ impl StreamHealth {
             if s.thermal_level >= 2 {
                 votes[Finding::Heat as usize] += 1;
             }
-            if s.late_frames.is_some_and(|late| late > 0) && !host_made_late(s) {
+            if s.late_frames.is_some_and(|late| late > 0) {
                 votes[Finding::Bursts as usize] += 1;
                 run += 1;
             } else {
@@ -277,15 +275,6 @@ impl StreamHealth {
             late_samples: votes[Finding::Bursts as usize] as usize,
         }
     }
-}
-
-/// Whether the host's own timing reports of the tick vary by at least the lateness that makes a
-/// frame late ([`Stats::host_sent_spread_ms`]): its late frames may then be the host's, sent late
-/// after a slower encode, a wait or paced sending, and are no vote for [`Finding::Bursts`]. Without
-/// reports the late frames vote as before.
-fn host_made_late(s: &Stats) -> bool {
-    measured(s.host_sent_spread_ms)
-        .is_some_and(|spread| f64::from(spread) * 1000.0 >= late_threshold_us(s.fps) as f64)
 }
 
 fn network_evidence(s: &Stats) -> bool {
@@ -573,18 +562,6 @@ impl Subject for StreamHealth {
                 });
                 Ok(Value::Null)
             }
-            // `add_late` with the spread of the tick's host timing reports last (Java's -1 when
-            // the host sent none).
-            "add_late_spread" => {
-                let a = Args::new(args, 15)?;
-                let late: i64 = a.int(13)?;
-                self.add(&Stats {
-                    late_frames: u32::try_from(late).ok(),
-                    host_sent_spread_ms: float(args, 14)?,
-                    ..traced_sample(&a, args, 1, a.int(0)?)?
-                });
-                Ok(Value::Null)
-            }
             // The same sample `count` times, `step_ms` apart, as steady stats ticks.
             "add_series" => {
                 let a = Args::new(args, 15)?;
@@ -757,7 +734,7 @@ mod tests {
                 reports.push(health.report(now_ms));
                 tick_us += 1_000_000;
             }
-            late.push(rtp, 0, at_us, fps);
+            late.push(0, rtp, 0, at_us, fps);
         }
         reports
     }

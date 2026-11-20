@@ -47,12 +47,14 @@ pub struct Stats {
 }
 
 /// Frames that arrived at least [`late_threshold_us`] later than the host's timestamps put them
-/// after the frame before, for [`Stats::late_frames`]. That is a network (or this device's Wi-Fi)
-/// holding frames back and handing them over in a burst: the host sent them on time, so a
+/// after the frame before, for [`Stats::late_frames`]: a network (or this device's Wi-Fi)
+/// holding frames back and handing them over in a burst, or the host sending a frame late. A
 /// still desktop, a game that slows down or a capture stall, where the timestamps step as far
 /// as the arrivals, is never late. The timestamps are taken at capture, so a frame the host took
-/// longer to encode and send than the one before also arrives later: its processing time
-/// (the frame header's, as for the queue delay) comes off.
+/// longer to process than the one before also arrives later: the change of the frame header's
+/// processing time comes off, but that time covers only packetizing. A slower encode, a wait for
+/// the frame's turn or paced sending shows in the host's timing reports instead, which the stream
+/// doctor reads through [`Stats::host_sent_spread_ms`].
 #[derive(Clone, Debug, Default)]
 pub struct LateFrames {
     /// The last frame's RTP timestamp (90 kHz), arrival and host processing time (µs, 0 unknown).

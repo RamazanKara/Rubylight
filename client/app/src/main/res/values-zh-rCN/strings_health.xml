@@ -6,7 +6,7 @@
     <string name="health_no_issue">在现有测量数据中未发现反复出现的瓶颈。短暂的峰值和未测量的环节仍可能导致卡顿。</string>
     <string name="health_network">网络：反复丢帧或往返时间波动。请尝试降低码率、用有线网络连接电脑或使用不太拥挤的 Wi-Fi。</string>
     <string name="health_decoder">解码：输出多次耗时至少一个帧间隔。请尝试降低分辨率或帧率；仅降低码率可能无效。</string>
-    <string name="health_host">主机：较慢的处理样本超过了帧间隔。请对比游戏/GPU 负载，并尝试降低游戏帧率上限。此测量值包含的不仅是编码。</string>
+    <string name="health_host">主机：电脑较慢的帧耗时超过了帧间隔。电脑发送时间报告时，此时间从画面帧开始到最后一个数据包发出为止，因此包含等待和发送，而不只是编码。请对比游戏/GPU 负载，并尝试降低游戏帧率上限。</string>
     <string name="health_presentation">呈现：帧的释放速度快于显示速度，且上屏较晚。请对比不同的帧速调节模式和屏幕刷新率。</string>
     <string name="health_heat">温度：Android 报告热压力较高。请降低帧率/分辨率或停用开销较大的客户端处理；让设备降温。</string>
     <string name="health_evidence">观察到的最大值：\n丢帧：%1$s %%\n解码：%2$s ms\n主机处理 p95：%3$s ms\n显示等待 p95：%4$s ms\n这些环节的总和并不等于输入到画面的延迟。</string>
@@ -18,5 +18,5 @@
     <string name="health_trial_replaced">试验后电脑的码率已发生变化。为保留该变化，已取消撤消。</string>
     <string name="health_bitrate_minimum">编码器已处于最低试验码率。未进行任何更改。</string>
     <string name="health_periodic">周期性卡顿：过去 20 分钟内有 %2$d 次网络卡顿，大约每 %1$s 出现一次。这种稳定的节奏通常来自此设备或电脑上的后台 Wi-Fi 扫描。减少方法：\n• Android：设置 → 位置信息 → 位置信息服务，关闭 WLAN 扫描和蓝牙扫描。\n• Android：保持开启开发者选项 → WLAN 扫描调节。\n• 串流时关闭会搜索网络或附近设备的应用。\n• 电脑：使用网线连接，或停止扫描 Wi-Fi 网络的工具。\nNightjar 在串流时已持有 Android 的低延迟 Wi-Fi 锁，请求系统推迟扫描；但有些设备仍会扫描。</string>
-    <string name="health_bursts">突发到达：在最近 %2$d 秒中有 %1$d 秒，电脑按时发送了画面，但网络把画面扣住后多帧一起送达；使用有线连接或较空闲的 5 或 6 GHz Wi-Fi 信道会有帮助。</string>
+    <string name="health_bursts">突发到达：在最近 %2$d 秒中有 %1$d 秒，画面成批到达，多帧一起送达。电脑发送时间报告时，报告中没有显示能解释这一点的电脑端延迟。使用有线连接或较空闲的 5 或 6 GHz Wi-Fi 信道可能会有帮助。</string>
 </resources>

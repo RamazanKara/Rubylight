@@ -2,13 +2,14 @@ package com.limelight.utils;
 
 /**
  * Frames that arrived at least {@link #thresholdUs} later than the host's timestamps put them after
- * the frame before, for the stream doctor's BURSTS vote (nightjar-policy's stats::LateFrames). That
- * is a network, or this device's Wi-Fi, holding frames back and handing them over in a burst: the
- * host sent them on time, so a still desktop, a game that slows down or a capture stall, where the
+ * the frame before, for the stream doctor's BURSTS vote (nightjar-policy's stats::LateFrames): a
+ * network, or this device's Wi-Fi, holding frames back and handing them over in a burst, or the host
+ * sending a frame late. A still desktop, a game that slows down or a capture stall, where the
  * timestamps step as far as the arrivals, is never late. The timestamps are taken at capture, so a
- * frame the host took longer to encode and send than the one before also arrives later: its
- * processing time (the frame header's, as for the queue delay) comes off. Fed by the decoder thread,
- * read by the health sample.
+ * frame the host took longer to process than the one before also arrives later: the change of the
+ * frame header's processing time comes off, but that time covers only packetizing. A slower encode,
+ * a wait for the frame's turn or paced sending shows in the host's timing reports instead
+ * (StreamHealth.Sample.hostSentSpreadMs). Fed by the decoder thread, read by the health sample.
  */
 public final class LateFrames {
     /** Timestamp steps longer than this start over (a new stream or a long pause). */

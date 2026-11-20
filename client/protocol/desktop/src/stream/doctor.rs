@@ -145,10 +145,10 @@ pub fn report_text(report: &Report) -> String {
         match finding {
             Finding::Network => text.push_str(tr("Network: repeated frame loss or round-trip variation. Try a lower bitrate, a wired PC or a less congested Wi-Fi connection.")),
             Finding::Decoder => text.push_str(tr("Decode: output repeatedly took at least one frame interval. Try a lower resolution or frame rate; lowering bitrate alone may not help.")),
-            Finding::Host => text.push_str(tr("Host: the slower processing samples exceeded the frame interval. Compare game/GPU load and a lower game frame limit. This measurement includes more than encoding.")),
+            Finding::Host => text.push_str(tr("Host: the PC's slower frames took longer than the frame interval. When the PC sends timing reports, this time runs from the frame to its last packet sent, so it includes waiting and sending, not only encoding. Compare game/GPU load and a lower game frame limit.")),
             Finding::Presentation => text.push_str(tr("Presentation: frames were released faster than they were shown, with long display waits. Compare frame-pacing modes and the screen refresh rate.")),
             Finding::Heat => text.push_str(tr("Temperature: this device reported high thermal pressure. Lower frame rate/resolution or disable expensive client processing; allow the device to cool.")),
-            Finding::Bursts => text.push_str(&trf("Bursts: in {} of the last {} seconds, the network held frames back and delivered several at once, although the PC sent them on time; a cable or a less busy 5 or 6 GHz Wi-Fi channel helps.", &[&report.late_samples, &report.samples])),
+            Finding::Bursts => text.push_str(&trf("Bursts: in {} of the last {} seconds, frames arrived bunched together, several at once. When the PC sends timing reports, they show no delay on its side that explains this. A cable or a less busy 5 or 6 GHz Wi-Fi channel may help.", &[&report.late_samples, &report.samples])),
             Finding::Periodic => text.push_str(&trf("Repeating stalls: {} network stalls in the last 20 minutes started about every {}. A steady rhythm like this usually comes from background Wi-Fi scans on this device or on the PC. To reduce them:\n• Connect this device or the PC by cable.\n• Stop tools that scan for Wi-Fi networks or nearby devices while streaming.", &[&report.stalls, &period(report.stall_period_ms)])),
         }
     }

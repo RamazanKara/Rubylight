@@ -6,7 +6,7 @@
     <string name="health_no_issue">在現有的測量結果中沒有觀察到重複的瓶頸。短暫的尖峰和未測量的階段仍可能造成卡頓。</string>
     <string name="health_network">網路：反覆發生影格遺失或來回時間變動。請嘗試降低位元速率、讓電腦使用有線連線，或使用較不壅塞的 Wi-Fi 連線。</string>
     <string name="health_decoder">解碼：輸出反覆花費至少一個影格間隔。請嘗試降低解析度或影格速率；只降低位元速率可能沒有幫助。</string>
-    <string name="health_host">主機：較慢的處理樣本超過了影格間隔。請比較遊戲/GPU 負載，並嘗試降低遊戲的影格限制。這項測量涵蓋的不只是編碼。</string>
+    <string name="health_host">主機：電腦較慢的影格耗時超過了影格間隔。電腦傳送時間報告時，這段時間從影格開始到最後一個封包送出為止，因此包含等待和傳送，而不只是編碼。請比較遊戲/GPU 負載，並嘗試降低遊戲的影格限制。</string>
     <string name="health_presentation">呈現：影格釋出的速度比顯示的速度快，且較晚才出現在螢幕上。請比較不同的影格調步模式和螢幕更新率。</string>
     <string name="health_heat">溫度：Android 回報熱壓力偏高。請降低影格速率/解析度，或停用耗資源的用戶端處理；讓裝置降溫。</string>
     <string name="health_evidence">觀察到的最大值：\n影格遺失：%1$s %%\n解碼：%2$s ms\n主機處理 p95：%3$s ms\n顯示等待 p95：%4$s ms\n這些階段的總和並不等於輸入到畫面的延遲。</string>
@@ -18,5 +18,5 @@
     <string name="health_trial_replaced">試用後電腦的位元速率已變更。已取消復原以保留該變更。</string>
     <string name="health_bitrate_minimum">編碼器已經是最低的試用位元速率。未進行任何變更。</string>
     <string name="health_periodic">週期性卡頓：過去 20 分鐘內有 %2$d 次網路卡頓，大約每 %1$s 發生一次。這種穩定的節奏通常來自這部裝置或電腦上的背景 Wi-Fi 掃描。若要減少卡頓：\n• Android：設定 → 位置 → 定位服務，關閉 Wi-Fi 掃描和藍牙掃描。\n• Android：讓開發人員選項 → Wi-Fi 掃描節流保持開啟。\n• 串流時關閉會搜尋網路或附近裝置的應用程式。\n• 電腦：改用網路線連接，或停止會掃描 Wi-Fi 網路的工具。\nNightjar 在串流時已啟用 Android 的低延遲 Wi-Fi 鎖定，要求系統延後掃描；但有些裝置仍會掃描。</string>
-    <string name="health_bursts">突發到達：在最近 %2$d 秒中有 %1$d 秒，電腦準時送出了畫面，但網路把畫面扣住後多格一起送達；使用有線連線或較空閒的 5 或 6 GHz Wi-Fi 頻道會有幫助。</string>
+    <string name="health_bursts">突發到達：在最近 %2$d 秒中有 %1$d 秒，畫面成批到達，多格一起送達。電腦傳送時間報告時，報告中沒有顯示能解釋這一點的電腦端延遲。使用有線連線或較空閒的 5 或 6 GHz Wi-Fi 頻道可能會有幫助。</string>
 </resources>

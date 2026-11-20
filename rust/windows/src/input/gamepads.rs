@@ -123,6 +123,10 @@ pub struct Gamepads {
     /// Controllers whose on-screen Steam Controller controls got another pad in an app started
     /// through Steam: the session's warning stays while any does.
     steam_fallbacks: BTreeSet<u16>,
+    /// [`Gamepads::steam_at_arrival`] of the pads before, closed after the
+    /// driver refused their handle: each controller's replayed arrival keeps
+    /// its answer instead of asking again (#138).
+    carried_steam: BTreeMap<u16, bool>,
     pub(super) dualsenses: BTreeMap<u16, dualsense_pad::DualSensePad>,
     dualsense_failed: BTreeSet<u16>,
     /// Controllers attached as Switch 2 Pro Controllers over usbip-win2.
@@ -146,6 +150,15 @@ pub struct Gamepads {
     /// The driver refused this handle ([`gamepad_backend::DriverLost`]): the
     /// gamepad thread closes these pads and opens the driver again (#138).
     lost: bool,
+}
+/// What pads closed after the driver refused their handle hand to the pads
+/// opened next (#138).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(super) struct PadMemory {
+    /// Whether Steam was running at each controller's arrival.
+    pub(super) steam_at_arrival: BTreeMap<u16, bool>,
+    /// Controllers left without a Steam Controller, whose warning is up.
+    pub(super) steam_fallbacks: BTreeSet<u16>,
 }
 #[derive(Default)]
 struct FeedbackFailure {
@@ -280,6 +293,7 @@ impl Gamepads {
             steam_at_arrival: BTreeMap::new(),
             steam_running: steam_deck_pad::steam_running,
             steam_fallbacks: BTreeSet::new(),
+            carried_steam: BTreeMap::new(),
             dualsenses: BTreeMap::new(),
             dualsense_failed: BTreeSet::new(),
             switch2s: BTreeMap::new(),
@@ -705,6 +719,7 @@ impl Gamepads {
                 self.switch2_failed.retain(|i| active & (1 << *i) != 0);
                 self.arrivals.retain(|i, _| active & (1 << *i) != 0);
                 self.steam_at_arrival.retain(|i, _| active & (1 << *i) != 0);
+                self.carried_steam.retain(|i, _| active & (1 << *i) != 0);
                 // A USB/IP pad that leaves is never forgotten through `forget_pad`.
                 if self.steam_fallbacks.iter().any(|i| active & (1 << *i) == 0) {
                     self.steam_fallbacks.retain(|i| active & (1 << *i) != 0);
@@ -815,7 +830,13 @@ impl Gamepads {
                 // Switch 2 Pro Controller again, and asks again whether Steam runs.
                 self.deck_failed.remove(&id);
                 self.switch2_failed.remove(&id);
-                self.steam_at_arrival.remove(&id);
+                // An arrival replayed on pads opened after the driver refused
+                // the last ones' handle keeps their answer: Steam starting
+                // meanwhile must not make the pad a Steam Controller (#138).
+                match self.carried_steam.remove(&id) {
+                    Some(running) => self.steam_at_arrival.insert(id, running),
+                    None => self.steam_at_arrival.remove(&id),
+                };
                 // The client says this controller is here, whatever a
                 // removal whose unplug failed left behind.
                 self.dropped.remove(&id);
@@ -1116,6 +1137,20 @@ impl Gamepads {
             );
         }
         reports
+    }
+    /// What the pads opened after these must keep (#138).
+    pub(super) fn memory(&self) -> PadMemory {
+        PadMemory {
+            steam_at_arrival: self.steam_at_arrival.clone(),
+            steam_fallbacks: self.steam_fallbacks.clone(),
+        }
+    }
+    /// Takes over what the pads before kept: their Steam answers for the
+    /// replayed arrivals, and the controllers whose warning is still up, so
+    /// it clears when they leave.
+    pub(super) fn remember(&mut self, memory: PadMemory) {
+        self.carried_steam = memory.steam_at_arrival;
+        self.steam_fallbacks.extend(memory.steam_fallbacks);
     }
     /// Marks the pads lost when `result` is the driver refusing their handle.
     pub(super) fn note(&mut self, result: Result<()>) -> Result<()> {

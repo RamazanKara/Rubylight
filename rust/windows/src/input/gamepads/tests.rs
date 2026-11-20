@@ -1222,6 +1222,62 @@ fn steam_controls_keep_the_pad_steam_gave_them_until_they_arrive_again() {
     assert_eq!(ASKED.load(Ordering::SeqCst), 2);
     assert!(pads.steam_at_arrival.is_empty());
 }
+/// #138: pads opened after the driver refused the last ones' handle get each arrival
+/// replayed. It keeps the answer the pads before had, so Steam starting meanwhile never makes
+/// the pad a Steam Controller mid-stream; the client's own next arrival asks again.
+#[test]
+fn a_replayed_arrival_keeps_the_steam_answer_of_the_refused_pads() {
+    use butterpollo_core::input_policy::{VHF_STEAM_CONTROLLER, VHF_XBOX_SERIES};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    static RUNNING: AtomicBool = AtomicBool::new(false);
+    static ASKED: AtomicUsize = AtomicUsize::new(0);
+    fn running() -> bool {
+        ASKED.fetch_add(1, Ordering::SeqCst);
+        RUNNING.load(Ordering::SeqCst)
+    }
+    let _stranded = stranded_slots();
+    let mut before = steam_controls_pads(true, running);
+    before.apply(&steam_controls_arrival(0, 0x600)).unwrap();
+    assert_eq!(before.profiles[&0], VHF_XBOX_SERIES);
+    assert_eq!(ASKED.load(Ordering::SeqCst), 1);
+    let memory = before.memory();
+    let warnings = before.warnings.clone();
+    drop(before);
+    RUNNING.store(true, Ordering::SeqCst);
+    let mut pads = steam_controls_pads(true, running);
+    pads.warnings = warnings;
+    pads.remember(memory);
+    pads.apply(&steam_controls_arrival(0, 0x600)).unwrap();
+    assert_eq!(
+        pads.profiles[&0], VHF_XBOX_SERIES,
+        "no Steam Controller mid-stream"
+    );
+    assert_eq!(ASKED.load(Ordering::SeqCst), 1, "not asked again");
+    pads.apply(&steam_controls_arrival(0, 0x600)).unwrap();
+    assert_eq!(pads.profiles[&0], VHF_STEAM_CONTROLLER);
+    assert_eq!(ASKED.load(Ordering::SeqCst), 2);
+}
+/// #138: the refused pads raised the warning for a controller whose on-screen Steam
+/// Controller controls got another pad, and it left before its arrival was replayed. The pads
+/// opened next still clear the warning.
+#[test]
+fn a_steam_controls_warning_from_refused_pads_clears_when_its_controller_leaves() {
+    fn not_running() -> bool {
+        false
+    }
+    let _stranded = stranded_slots();
+    let mut before = steam_controls_pads(true, not_running);
+    before.apply(&steam_controls_arrival(0, 0x600)).unwrap();
+    assert_eq!(before.warnings.snapshot()[0].code, "input_steam_controls");
+    let memory = before.memory();
+    let warnings = before.warnings.clone();
+    drop(before);
+    let mut pads = steam_controls_pads(true, not_running);
+    pads.warnings = warnings.clone();
+    pads.remember(memory);
+    pads.apply(&state(0, 0)).unwrap();
+    assert!(warnings.snapshot().is_empty(), "{:?}", warnings.snapshot());
+}
 /// The Desktop or an app that starts a program itself: Steam would give such a program its
 /// desktop layout, so the controls keep an Xbox-type pad, though Steam runs, and nobody is
 /// warned or asks whether Steam runs.

@@ -1,6 +1,7 @@
 //! Drive the virtual gamepads off the input thread. Blocking VHF driver
 //! calls must not delay keyboard, mouse, touch or the control stream's
 //! acknowledgements.
+use super::gamepads::PadMemory;
 use super::{Event, Gamepads};
 use anyhow::Result;
 use butterpollo_core::input::Batch;
@@ -128,6 +129,12 @@ pub(super) trait Pads {
     fn driver_present(&self) -> bool {
         true
     }
+    /// What the pads opened after these must keep.
+    fn memory(&self) -> PadMemory {
+        PadMemory::default()
+    }
+    /// Takes over what the pads before these kept.
+    fn remember(&mut self, _memory: PadMemory) {}
 }
 impl Pads for Gamepads {
     fn warnings(&mut self, warnings: Arc<butterpollo_core::session::Warnings>) {
@@ -194,6 +201,12 @@ impl Pads for Gamepads {
     }
     fn driver_present(&self) -> bool {
         Gamepads::driver_present(self)
+    }
+    fn memory(&self) -> PadMemory {
+        Gamepads::memory(self)
+    }
+    fn remember(&mut self, memory: PadMemory) {
+        Gamepads::remember(self, memory);
     }
 }
 
@@ -793,6 +806,8 @@ struct Losses {
     opened: Option<Instant>,
     /// Whether the warning for repeated refusals is up.
     warned: bool,
+    /// What the refused pads kept, for the pads opened next.
+    memory: Option<PadMemory>,
 }
 impl Losses {
     fn opened(&mut self, now: Instant) {
@@ -893,6 +908,7 @@ fn forget_lost<P: Pads>(
         return false;
     }
     let present = pads.as_ref().is_some_and(P::driver_present);
+    losses.memory = pads.as_ref().map(P::memory);
     // Dropping the pads closes the handle the driver no longer knows.
     *pads = None;
     shared.audio_ready.store(0, Ordering::Release);
@@ -922,9 +938,12 @@ fn open_driver<P: Pads>(
 ) -> Option<P> {
     let now = Instant::now();
     match open() {
-        Ok(opened) => {
+        Ok(mut opened) => {
             shared.warnings.lock().unwrap().clear("input_gamepad");
             losses.opened(now);
+            if let Some(memory) = losses.memory.take() {
+                opened.remember(memory);
+            }
             Some(opened)
         }
         Err(error) => {
@@ -1118,9 +1137,12 @@ fn run<P: Pads>(
             if pads.is_none() && losses.count > 0 {
                 retry = None;
             }
+            // What the refused pads kept still goes to the next ones.
+            let memory = losses.memory.take();
             if std::mem::take(&mut losses).warned {
                 shared.warnings.lock().unwrap().clear(DRIVER_LOST);
             }
+            losses.memory = memory;
         }
         if reopen_at(pads.is_some(), retry, &setup, &losses).is_some_and(|at| Instant::now() >= at)
             && let Some(opened) = open_driver(shared, &mut open, &mut losses, &mut retry, &poll)

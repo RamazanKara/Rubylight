@@ -1153,6 +1153,19 @@ impl Pads for Refusing {
     fn lost(&self) -> bool {
         self.lost
     }
+    /// Each pads' memory names them, so the log shows whose the next took.
+    fn memory(&self) -> PadMemory {
+        PadMemory {
+            steam_at_arrival: [(0, self.opened % 2 == 1)].into(),
+            steam_fallbacks: [self.opened as u16].into(),
+        }
+    }
+    fn remember(&mut self, memory: PadMemory) {
+        self.log.lock().unwrap().push(format!(
+            "{} remembers {:?} {:?}",
+            self.opened, memory.steam_at_arrival, memory.steam_fallbacks
+        ));
+    }
 }
 impl Drop for Refusing {
     fn drop(&mut self) {
@@ -1250,6 +1263,9 @@ fn a_driver_that_refuses_the_handle_is_closed_and_opened_again_with_its_arrivals
             format!("1 {:?}", state(0, 1, 1, 0)),
             "1 closed".into(),
             "2 opened".into(),
+            // What the refused pads kept (Steam's answer at each arrival,
+            // the controllers whose warning is up) goes to the next ones.
+            "2 remembers {0: true} {1}".into(),
             format!("2 {DUALSENSE_ARRIVAL:?}"),
             last,
         ]
@@ -1336,6 +1352,7 @@ fn pads_the_driver_refused_open_again_without_input_with_every_arrival() {
             format!("1 {:?}", state(0, 1, 1, 0)),
             "1 closed".into(),
             "2 opened".into(),
+            "2 remembers {0: true} {1}".into(),
             format!("2 {DUALSENSE_ARRIVAL:?}"),
             format!("2 {second:?}"),
         ]

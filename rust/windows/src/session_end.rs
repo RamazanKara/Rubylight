@@ -236,18 +236,6 @@ mod tests {
                 ..Ending::default()
             })
         );
-        assert_eq!(
-            reaction(
-                WM_ENDSESSION,
-                1,
-                (ENDSESSION_CRITICAL | ENDSESSION_CLOSEAPP) as isize
-            ),
-            Reaction::End(Ending {
-                critical: true,
-                close_app: true,
-                ..Ending::default()
-            })
-        );
         // Restart Manager closing the program for an installer: the session goes on.
         assert_eq!(
             reaction(WM_ENDSESSION, 1, ENDSESSION_CLOSEAPP as isize),

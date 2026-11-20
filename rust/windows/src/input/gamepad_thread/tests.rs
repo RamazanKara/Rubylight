@@ -322,6 +322,8 @@ fn fast_polling_follows_feedback_only_when_switched_on() {
     let off = Polling {
         every: POLL,
         fast: false,
+        retry: RETRY,
+        reopen: REOPEN,
     };
     let on = Polling { fast: true, ..off };
     assert_eq!(off.next(now, feedback), now + POLL);
@@ -436,6 +438,8 @@ fn a_drivers_feedback_event_is_forwarded_without_waiting_for_the_poll() {
         Polling {
             every: Duration::from_secs(3600),
             fast: false,
+            retry: RETRY,
+            reopen: REOPEN,
         },
     )
     .unwrap();
@@ -1166,11 +1170,22 @@ type RefusingThread = (
     Arc<butterpollo_core::session::Warnings>,
 );
 fn refusing(refuse: bool) -> RefusingThread {
+    refusing_with(
+        refuse,
+        Polling {
+            every: POLL,
+            fast: false,
+            retry: RETRY,
+            reopen: REOPEN,
+        },
+    )
+}
+fn refusing_with(refuse: bool, poll: Polling) -> RefusingThread {
     let log = Arc::new(Mutex::new(Vec::new()));
     let refuse = Arc::new(AtomicBool::new(refuse));
     let warnings = Arc::new(butterpollo_core::session::Warnings::default());
     let mut opened = 0;
-    let pads = GamepadThread::spawn_reported(
+    let pads = GamepadThread::spawn_polled(
         {
             let (log, refuse) = (log.clone(), refuse.clone());
             move || {
@@ -1185,6 +1200,7 @@ fn refusing(refuse: bool) -> RefusingThread {
             }
         },
         warnings.clone(),
+        poll,
     )
     .unwrap();
     (pads, log, refuse, warnings)
@@ -1279,6 +1295,13 @@ fn a_driver_that_keeps_refusing_the_handle_backs_off_and_is_named() {
         "{}",
         entries[0].message
     );
+    assert!(
+        entries[0]
+            .message
+            .contains("up to 2 more times, at least 10 seconds apart"),
+        "{}",
+        entries[0].message
+    );
     // Backing off: past REOPEN, input does not open it again.
     std::thread::sleep(REOPEN + Duration::from_millis(100));
     pads.send(state(0, 1, 9, 0));
@@ -1286,32 +1309,154 @@ fn a_driver_that_keeps_refusing_the_handle_backs_off_and_is_named() {
     assert_eq!(opens(&log), LOST_LIMIT);
 }
 
+/// #138: the reopen does not wait for input. A controller that arrives
+/// while the thread waits to reopen, with nothing after it, is plugged on the
+/// pads opened again, and a launch waiting for it sees it.
 #[test]
-fn refusals_back_off_only_when_close_together_and_the_warning_goes_after_a_quiet_span() {
-    let start = Instant::now();
-    let mut losses = Losses::default();
-    let mut at = start;
-    for _ in 1..LOST_LIMIT {
-        assert!(!losses.record(at));
-        at += Duration::from_secs(2);
-    }
-    assert!(
-        losses.record(at),
-        "the LOST_LIMIT'th refusal within LOST_SPAN"
+fn pads_the_driver_refused_open_again_without_input_with_every_arrival() {
+    let (pads, log, refuse, _warnings) = refusing(true);
+    let gate = Gate::default();
+    pads.send(DUALSENSE_ARRIVAL);
+    pads.send(state(0, 1, 1, 0));
+    gate.wait_until(|| logged_line(&log, "1 closed"));
+    refuse.store(false, Ordering::SeqCst);
+    let second = Event::Arrival {
+        id: 1,
+        kind: 1,
+        capabilities: 0,
+        buttons: 0,
+    };
+    pads.send(second.clone());
+    assert!(pads.wait_ready(0b11, REOPEN + Duration::from_secs(5)));
+    assert_eq!(
+        *log.lock().unwrap(),
+        [
+            "1 opened".to_string(),
+            format!("1 {DUALSENSE_ARRIVAL:?}"),
+            format!("1 {:?}", state(0, 1, 1, 0)),
+            "1 closed".into(),
+            "2 opened".into(),
+            format!("2 {DUALSENSE_ARRIVAL:?}"),
+            format!("2 {second:?}"),
+        ]
     );
+}
+
+/// #138: from the STOP_LIMIT'th refusal without working pads in between,
+/// the thread stops opening the driver and says so, until the next stream
+/// or launch begins.
+#[test]
+fn a_driver_that_refuses_every_reopen_is_left_alone_until_the_next_stream() {
+    let poll = Polling {
+        every: POLL,
+        fast: false,
+        retry: Duration::from_millis(60),
+        reopen: Duration::from_millis(20),
+    };
+    let (pads, log, refuse, warnings) = refusing_with(true, poll);
+    let gate = Gate::default();
+    pads.send(DUALSENSE_ARRIVAL);
+    for open in 1..=STOP_LIMIT {
+        // Each reopen comes by itself, with the arrival; a state is refused.
+        let opened = format!("{open} opened");
+        gate.wait_until(|| logged_line(&log, &opened));
+        pads.send(state(0, 1, open as u32, 0));
+        let closed = format!("{open} closed");
+        gate.wait_until(|| logged_line(&log, &closed));
+    }
+    gate.wait_until(|| {
+        warnings
+            .snapshot()
+            .iter()
+            .any(|warning| warning.message.contains("stopped opening it"))
+    });
+    // Neither by itself nor at input.
+    std::thread::sleep(poll.retry * 3);
+    pads.send(state(0, 1, 9, 0));
+    std::thread::sleep(poll.retry * 3);
+    assert_eq!(opens(&log), STOP_LIMIT);
+    let entries = warnings.snapshot();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].code, DRIVER_LOST);
+    assert!(
+        entries[0]
+            .message
+            .contains("until the next stream or game launch starts"),
+        "{}",
+        entries[0].message
+    );
+    // A new stream: the driver opens at its first input, and the warning goes.
+    refuse.store(false, Ordering::SeqCst);
+    pads.activate();
+    pads.send(state(0, 1, 10, 0));
+    let last = format!("{} {:?}", STOP_LIMIT + 1, state(0, 1, 10, 0));
+    gate.wait_until(|| logged_line(&log, &last));
+    assert!(logged_line(
+        &log,
+        &format!("{} {DUALSENSE_ARRIVAL:?}", STOP_LIMIT + 1)
+    ));
+    assert!(warnings.snapshot().is_empty());
+}
+
+#[test]
+fn refusals_back_off_then_stop_unless_pads_work_a_minute_in_between() {
+    let poll = Polling {
+        every: POLL,
+        fast: false,
+        retry: RETRY,
+        reopen: REOPEN,
+    };
+    let mut at = Instant::now();
+    let mut losses = Losses::default();
+    for n in 1..=STOP_LIMIT {
+        losses.opened(at);
+        at += Duration::from_secs(5);
+        let expected = if n >= STOP_LIMIT {
+            None
+        } else if n >= LOST_LIMIT {
+            Some(RETRY)
+        } else {
+            Some(REOPEN)
+        };
+        assert_eq!(losses.record(at, &poll), expected, "refusal {n}");
+    }
+    assert!(losses.stopped() && losses.warned);
+    // A failed open after a refusal counts as one too.
+    let mut failed = Losses::default();
+    for _ in 0..STOP_LIMIT {
+        failed.record(at, &poll);
+    }
+    assert!(failed.stopped());
+    // Pads that worked a minute in between start the count again.
+    let mut losses = Losses::default();
+    for _ in 0..10 {
+        losses.opened(at);
+        at += LOST_SPAN;
+        assert_eq!(losses.record(at, &poll), Some(REOPEN));
+    }
+    assert!(!losses.warned);
+    // The warning goes, once, when reopened pads have worked a minute.
+    let mut losses = Losses::default();
+    for _ in 0..LOST_LIMIT {
+        losses.opened(at);
+        at += Duration::from_secs(1);
+        losses.record(at, &poll);
+    }
+    losses.opened(at);
     assert!(!losses.recovered(at + LOST_SPAN - Duration::from_millis(1)));
     assert!(losses.recovered(at + LOST_SPAN));
     assert!(!losses.recovered(at + LOST_SPAN), "once");
-    // Refusals further apart than half the span never back off.
-    let mut losses = Losses::default();
-    for i in 0..10 {
-        assert!(!losses.record(start + (LOST_SPAN / 2 + Duration::from_secs(1)) * i));
-    }
-    assert!(!losses.recovered(start + LOST_SPAN * 10), "never warned");
-    // The warning says what the driver is and whether its device is there.
-    assert!(lost_warning(true).contains("Vibeshine Virtual Gamepad"));
-    assert!(!lost_warning(true).contains("device is gone"));
-    assert!(lost_warning(false).contains("device is gone"));
+    assert!(!losses.stopped());
+    // The warning names the driver, says whether its device is there and
+    // how many reopens are left.
+    let backing_off = lost_warning(true, 2, RETRY);
+    assert!(backing_off.contains("Vibeshine Virtual Gamepad"));
+    assert!(!backing_off.contains("device is gone"));
+    assert!(backing_off.contains("up to 2 more times, at least 10 seconds apart"));
+    assert!(lost_warning(true, 1, RETRY).contains("up to 1 more time,"));
+    let stopped = lost_warning(false, 0, RETRY);
+    assert!(stopped.contains("device is gone"));
+    assert!(stopped.contains("stopped opening it until the next stream or game launch starts"));
 }
 
 #[test]
@@ -1327,7 +1472,11 @@ fn the_setup_replayed_on_reopened_pads_keeps_only_connected_controllers() {
     keep_setup(&mut setup, &arrival(1, 2));
     keep_setup(&mut setup, &motion(0, 1, 1.));
     keep_setup(&mut setup, &arrival(0, 2));
-    assert_eq!(setup, [arrival(1, 2), arrival(0, 2)], "the latest arrival");
+    assert_eq!(
+        setup,
+        [arrival(0, 2), arrival(1, 2)],
+        "the latest arrival, where the first stood: player numbers stay"
+    );
     keep_setup(&mut setup, &state(0, 1, 0, 0));
     assert_eq!(setup, [arrival(0, 2)], "controller 1 left");
     keep_setup(&mut setup, &arrival(20, 1));

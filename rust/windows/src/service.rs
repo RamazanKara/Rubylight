@@ -30,6 +30,12 @@ pub fn name() -> &'static str {
 /// The exit code with which the host asks the service to start it again at
 /// once, as in rust/service/src/supervisor.rs.
 pub const RESTART_EXIT_CODE: u32 = 75;
+/// The exit code with which a supervised host leaves after it shut down for the end of its
+/// Windows session: the code Windows gives a process it ends with the session
+/// (DBG_TERMINATE_PROCESS), so the service starts the next session's host exactly as when
+/// Windows had ended this one (rust/service/src/supervisor.rs). An exit code of 0 would stop
+/// the service.
+pub const SESSION_ENDED_EXIT_CODE: u32 = windows::Win32::Foundation::DBG_TERMINATE_PROCESS.0 as u32;
 
 /// Put back the compatibility settings a Nucleus Co-op session left for the
 /// user at the console when its host stopped mid-session

@@ -71,6 +71,7 @@ pub mod rtss;
 pub mod rtx_profiles;
 pub mod rtx_video;
 pub mod service;
+pub mod session_end;
 pub mod shared_folder;
 pub mod steam;
 pub mod telemetry;

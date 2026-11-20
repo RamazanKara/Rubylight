@@ -39,6 +39,7 @@ mod rtsp_server;
 mod runtime;
 mod service_tasks;
 mod session_control;
+mod session_end;
 mod session_history;
 mod session_notes;
 mod settings_backup;
@@ -624,8 +625,35 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
             }
         });
     }
+    // Windows ends the host with the session at sign-out or shutdown, before the service hears
+    // of it: the session's end runs the shutdown below as the service's stop does.
+    let session_end = std::sync::Arc::new(session_end::SessionEnd::default());
+    let session_end_watch = {
+        let session_end = session_end.clone();
+        butterpollo_windows::session_end::SessionEndWatch::start(move |ending| {
+            tracing::info!(
+                logoff = ending.logoff,
+                critical = ending.critical,
+                close_app = ending.close_app,
+                "Windows is ending the session; the host shuts down and tells its clients"
+            );
+            if !session_end.ended(session_end::WAIT) {
+                tracing::warn!("the clients had not been told when the session's end went on");
+            }
+        })
+    };
+    let session_end_watch = session_end_watch
+        .inspect_err(|error| {
+            tracing::warn!(%error, "the end of the Windows session cannot be heard; clients learn of it by their timeout")
+        })
+        .ok();
+    let mut session_ended = false;
     let outcome: Result<()> = tokio::select! {
         signal=tokio::signal::ctrl_c()=>signal.context("waiting for shutdown"),
+        _=session_end.requested()=>{
+            session_ended = true;
+            Ok(())
+        },
         task=tasks.join_next()=>{
             match task {
                 Some(Ok(Err(error))) => Err(error.context("host listener failed")),
@@ -672,6 +700,8 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
     butterpollo_windows::display_arrangement::close_wake_watch();
     let canceled = h.sessions.lock().unwrap().request_stop(None);
     drop(canceled);
+    // The clients know, and the session's end, if it waits, may go on.
+    session_end.clients_told();
     // The Radeon settings and game file keys the sessions changed go back from now on, on
     // their own threads, while the streams and the game close: neither needs the game gone
     // (End session puts them back under a running game too).
@@ -744,6 +774,11 @@ async fn run(args: Args, assets: PathBuf) -> Result<()> {
         port_forward.finish(left(Duration::from_secs(10))).await;
     }
     drop(tray);
+    drop(session_end_watch);
+    if let Some(code) = session_end::exit_code(supervised, session_ended) {
+        drop(_log_guard);
+        std::process::exit(code as i32);
+    }
     if h.restart.load(Ordering::Acquire) {
         if supervised {
             drop(_log_guard);

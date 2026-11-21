@@ -65,6 +65,9 @@ if (-not $Version) {
 }
 # UMDF 2.15 matches the crate's target-umdf-version-minor and Windows 10 19041+ support.
 Invoke-Tool "$bin\x64\stampinf.exe" @('-f', "$package\rubylight_vgamepad.inf", '-a', 'amd64', '-d', '*', '-v', $Version, '-u', '2.15.0')
+if (-not ((Get-Content -LiteralPath "$package\rubylight_vgamepad.inf") -match '^\s*UmdfLibraryVersion\s*=\s*2\.15\.0\s*$')) {
+    throw 'rubylight_vgamepad.inf was not stamped with UmdfLibraryVersion = 2.15.0'
+}
 if (Test-Path $infverif) {
     Invoke-Tool $infverif @('/v', "$package\rubylight_vgamepad.inf")
 }

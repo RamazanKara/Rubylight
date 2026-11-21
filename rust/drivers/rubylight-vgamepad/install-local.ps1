@@ -41,7 +41,7 @@ function Get-Packages {
     } | ForEach-Object Name
 }
 function Get-Device {
-    Get-PnpDevice -Class System -ErrorAction SilentlyContinue | Where-Object { $_.HardwareID -contains $hardwareId }
+    Get-PnpDevice -ErrorAction SilentlyContinue | Where-Object { $_.HardwareID -contains $hardwareId }
 }
 function Invoke-Checked([string] $exe, [string[]] $arguments, [int[]] $ok = @(0)) {
     & $exe @arguments | Out-Host

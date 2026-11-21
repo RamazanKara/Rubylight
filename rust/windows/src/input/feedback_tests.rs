@@ -304,12 +304,13 @@ fn hid_rumble_reaches_feedback_for_each_profile() -> Result<()> {
                     (0x8000, 0x4000)
                 }
                 7 => {
+                    // Per-band HD rumble (SDL amplitude table, max across sides):
+                    // left low-band index 100 (0x40 + 50 -> 65535), right high-band index 68 (68 << 1 -> 32861).
                     output[0] = 0x10;
-                    output[3] = if running { 200 } else { 0 };
-                    output[5] = 0x40;
-                    output[7] = if running { 100 } else { 0 };
+                    output[5] = if running { 0x40 + 50 } else { 0x40 };
+                    output[7] = if running { 68 << 1 } else { 0 };
                     output[9] = 0x40;
-                    (65535, 32767)
+                    (65535, 32861)
                 }
                 _ => unreachable!(),
             };

@@ -94,7 +94,7 @@ UmdfFsContextUsePolicy     = CannotUseFsContexts
 HKR,,Security,,"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)(A;;GA;;;UD)"
 
 [rubylight_vgamepad_Install]
-UmdfLibraryVersion = $UMDFCOINSTALLERVERSION$
+UmdfLibraryVersion = $UMDFVERSION$
 ServiceBinary      = %13%\rubylight_vgamepad.dll
 
 [UMDriverCopy]

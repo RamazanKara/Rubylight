@@ -967,6 +967,11 @@ class Signing(unittest.TestCase):
         rollback = installer[installer.index('    } catch {\n        $failure = $_'):]
         for step in ("pnputil /remove-device", "Where-Object { $_ -notin $before }", "Remove-Trust $signer.Thumbprint", "Set-Problem"):
             self.assertIn(step, rollback)
+        inx = (ROOT / 'rust/drivers/rubylight-vgamepad/rubylight_vgamepad.inx').read_text(encoding='utf-8')
+        self.assertIn('$UMDFVERSION$', inx)
+        self.assertNotIn('$UMDFCOINSTALLERVERSION$', inx)
+        get_device = re.search(r'(?s)function Get-Device \{(.*?)\n\}', installer)[1]
+        self.assertNotIn('-Class System', get_device)
 
 
 @unittest.skipUnless(os.name == 'nt', 'Windows PowerShell')

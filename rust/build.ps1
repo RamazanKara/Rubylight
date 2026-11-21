@@ -6,10 +6,8 @@ param(
     [string]$PyrowaveRoot = $env:BUTTERPOLLO_PYROWAVE_ROOT,
     # FFmpeg's LGPL AC3 and E-AC3 codecs for audio passthrough (rust/tools/build_ffmpeg.sh).
     [string]$FfmpegRoot = $env:BUTTERPOLLO_FFMPEG_ROOT,
-    # Signed virtual display and gamepad driver packages (a Vibepollo
-    # installation's drivers folder, whose gamepad driver must be the pinned
-    # libvirtualgamepad 0.1.0-beta.10); fetched from Vibepollo 2.0.0 and,
-    # for the gamepad driver, 2.0.6 otherwise.
+    # Third-party tools folder (nefconc.exe and the Playnite plugin from
+    # Vibepollo 2.0.0); fetched and pinned when -FetchDependencies is passed.
     [string]$DriverRoot = $env:BUTTERPOLLO_DRIVER_ROOT,
     # The NVIDIA component instead of the host: the NGX adapter
     # (rust/truehdr-runtime, linking NVIDIA's RTX Video SDK) with NVIDIA's
@@ -196,31 +194,10 @@ function Expand-VibepolloDrivers([string]$Version, [string]$Hash) {
     if ($process.ExitCode -ne 0) { throw "Extracting the Vibepollo $Version driver packages failed with $($process.ExitCode)" }
     Join-Path $expanded 'Apollo\drivers'
 }
-$gamepadRoot = $null
 if ($FetchDependencies -and !$DriverRoot -and $runBuild) {
-    # nefconc.exe and the Playnite plugin from Vibepollo 2.0.0, and the
-    # gamepad driver (libvirtualgamepad 0.1.0-beta.10, MIT) as signed for
-    # Vibepollo 2.0.6 by the SignPath Foundation. Upstream archives are
-    # unsigned, so take them from the releases.
+    # nefconc.exe and the Playnite plugin from Vibepollo 2.0.0. Rubylight's own
+    # virtual display and virtual gamepad drivers are built from source below.
     $DriverRoot = Expand-VibepolloDrivers '2.0.0' '7b3500ec0c774644ce5a435a48f61c046c48494d0f18b67afa0b3561931794b7'
-    $gamepadRoot = Join-Path (Expand-VibepolloDrivers '2.0.6' 'c488977ac49e391dfd963d97439a01a9c56d4ff21a6061226adb6d69d0aae9e4') 'vhf-gamepad'
-}
-if ($DriverRoot) {
-    if (!$gamepadRoot) { $gamepadRoot = Join-Path $DriverRoot 'vhf-gamepad' }
-    foreach ($catalog in @('driver\VibeshineVhfGamepad.cat', 'tools\VibeshineVhfGamepadDeviceSetup.exe')) {
-        $signature = Get-AuthenticodeSignature -LiteralPath (Join-Path $gamepadRoot $catalog)
-        if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch '^CN=SignPath Foundation') { throw "Driver file is not signed as expected: $catalog" }
-    }
-    # The files libvirtualgamepad v0.1.0-beta.10 released (its manifest.json),
-    # which the signed catalog covers.
-    foreach ($pinned in @(
-        @('driver\VibeshineVhfGamepad.dll', 'd5075fc7f74e9c7ebe6abc46b4db9a6ae690885315ea9538ec3610891dbc676b'),
-        @('driver\VibeshineVhfGamepad.inf', '01fe8a807b0f19c8b10854d24ccd0d46c5320a1705c16a3c44b0c304dbdcf48d')
-    )) {
-        if ((Get-FileHash -LiteralPath (Join-Path $gamepadRoot $pinned[0]) -Algorithm SHA256).Hash.ToLowerInvariant() -ne $pinned[1]) {
-            throw "The gamepad driver is not libvirtualgamepad 0.1.0-beta.10: $($pinned[0])"
-        }
-    }
 }
 if (!$PyrowaveRoot) { throw 'Provide the PyroWave SDK path, or use -FetchDependencies' }
 $pyrowaveInfo = Join-Path $PyrowaveRoot 'share\pyrowave-shared\build-info.txt'
@@ -257,10 +234,13 @@ try {
     # dependency's whole workspace), which keeps its own formatting.
     & cargo $toolchain fmt -- --check
     Assert-NativeExit 'Rust formatting'
-    # The service is a workspace of its own (rust/service).
+    # The service and driver workspaces keep their own manifests.
     $serviceManifest = Join-Path $repo 'rust\service\Cargo.toml'
     & cargo $toolchain fmt --manifest-path $serviceManifest -- --check
     Assert-NativeExit 'Service formatting'
+    $vgamepadManifest = Join-Path $repo 'rust\drivers\rubylight-vgamepad\Cargo.toml'
+    & cargo $toolchain fmt --manifest-path $vgamepadManifest -- --check
+    Assert-NativeExit 'Virtual gamepad driver formatting'
     if ($runTests) {
         & (Join-Path $repo 'rust\drivers\usbip\test_usbip.ps1')
         & cargo $toolchain test --workspace --locked
@@ -359,49 +339,46 @@ try {
             $source = Join-Path "$MsysRoot\ucrt64\share\licenses" $library
             if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination "$distribution\licenses\$library" -Recurse -Force }
         }
+        New-Item -ItemType Directory -Path "$distribution\drivers" -Force | Out-Null
         if ($DriverRoot) {
-            # Setup installs the gamepad driver with Vibepollo's own scripts
-            # (2.0.6's take the same -InstallerBestEffort and
-            # -AllowLocalTestCertificate as 2.0.0's).
-            New-Item -ItemType Directory -Path "$distribution\drivers" -Force | Out-Null
-            Copy-Item -LiteralPath $gamepadRoot -Destination "$distribution\drivers\gamepad" -Recurse -Force
-            # The Playnite plugin from the same release; the host installs it
-            # into Playnite.
+            # The Playnite plugin from the Vibepollo 2.0.0 tools extract; the host installs it into Playnite.
             $playnitePlugin = Join-Path (Split-Path -Parent $DriverRoot) 'plugins\playnite\SunshinePlaynite'
             if (Test-Path -LiteralPath $playnitePlugin) {
                 New-Item -ItemType Directory -Path "$distribution\plugins\playnite" -Force | Out-Null
                 Copy-Item -LiteralPath $playnitePlugin -Destination "$distribution\plugins\playnite\SunshinePlaynite" -Recurse -Force
             }
             @(
-                'Virtual gamepad driver: https://github.com/Nonary/libvirtualgamepad v0.1.0-beta.10 (MIT).',
-                'Driver catalog, tools and install scripts as released in Vibepollo 2.0.6 (GPL-3.0),',
-                'https://github.com/Nonary/Vibepollo, signed by the SignPath Foundation.',
                 'Playnite plugin (plugins\playnite): Sunshine Playnite Connector from the Vibepollo 2.0.0 release (GPL-3.0).',
                 'nefconc.exe: https://github.com/nefarius/nefcon by Nefarius Software Solutions.'
             ) | Set-Content -LiteralPath "$distribution\licenses\drivers.txt" -Encoding utf8
         }
-        # Rubylight's own display driver, unsigned: setup installs it with
-        # install-local.ps1, signing the catalog on the user's PC, and removes
-        # the libvirtualdisplay driver earlier versions installed itself
-        # (rust/setup/src/libvirtualdisplay.rs). A signed release replaces the catalog with SignPath's
+        # Rubylight's own display and virtual gamepad drivers, unsigned: setup
+        # installs each with its install-local.ps1 (signing the catalog on the
+        # user's PC), and removes earlier drivers once each new device runs. A
+        # signed release replaces both catalogs with SignPath's / Certum's
         # (rust/release/sign-artifacts.ps1), which install-local.ps1 then keeps.
-        # A child PowerShell: the driver's MSVC environment stays out of this one.
-        # DriverVer is the release (2.4.0-rc.1 is 2.4.0) plus the build hour, so a release's
-        # driver outranks the 0.1.0.x development builds and each earlier release.
-        $vdisplay = Join-Path $repo 'rust\drivers\rubylight-vdisplay'
         $release = (Select-String -LiteralPath (Join-Path $repo 'Cargo.toml') -Pattern '^version = "(\d+)\.(\d+)\.(\d+)').Matches[0].Groups
         $hour = [int]((Get-Date).ToUniversalTime() - [datetime]'2026-01-01').TotalHours
         $driverVersion = "$($release[1].Value).$($release[2].Value).$($release[3].Value).$hour"
+        if (!$DriverRoot) { throw 'The drivers need nefconc.exe: pass -DriverRoot or -FetchDependencies' }
+        $vdisplay = Join-Path $repo 'rust\drivers\rubylight-vdisplay'
         & (Get-Process -Id $PID).Path -NoProfile -ExecutionPolicy Bypass -File (Join-Path $vdisplay 'build-package.ps1') -Version $driverVersion
         Assert-NativeExit 'Display driver build'
         $displayDriver = Join-Path $distribution 'drivers\rubylight-display'
         New-Item -ItemType Directory -Path $displayDriver -Force | Out-Null
         Copy-Item -Path (Join-Path $vdisplay 'target\package\*') -Destination $displayDriver
         Copy-Item -LiteralPath (Join-Path $vdisplay 'install-local.ps1') -Destination $displayDriver
-        # install-local.ps1 creates the device with it on a PC that never had one.
-        if (!$DriverRoot) { throw 'The display driver needs nefconc.exe: pass -DriverRoot or -FetchDependencies' }
         Copy-Item -LiteralPath (Join-Path $DriverRoot 'sunshine\nefconc.exe') -Destination $displayDriver
         Copy-Item -LiteralPath (Join-Path $vdisplay 'LICENSE-MIT') -Destination "$distribution\licenses\rubylight-display-MIT.txt"
+        $vgamepad = Join-Path $repo 'rust\drivers\rubylight-vgamepad'
+        & (Get-Process -Id $PID).Path -NoProfile -ExecutionPolicy Bypass -File (Join-Path $vgamepad 'build-package.ps1') -Version $driverVersion
+        Assert-NativeExit 'Virtual gamepad driver build'
+        $gamepadDriver = Join-Path $distribution 'drivers\rubylight-gamepad'
+        New-Item -ItemType Directory -Path $gamepadDriver -Force | Out-Null
+        Copy-Item -Path (Join-Path $vgamepad 'target\package\*') -Destination $gamepadDriver
+        Copy-Item -LiteralPath (Join-Path $vgamepad 'install-local.ps1') -Destination $gamepadDriver
+        Copy-Item -LiteralPath (Join-Path $DriverRoot 'sunshine\nefconc.exe') -Destination $gamepadDriver
+        Copy-Item -LiteralPath (Join-Path $vgamepad 'LICENSE-MIT') -Destination "$distribution\licenses\rubylight-gamepad-MIT.txt"
         # The shared USB/IP installer is carried offline in both packages.
         # Bundling validates the original release without running it.
         & (Join-Path $repo 'rust\drivers\usbip\bundle.ps1') -Cache $Dependencies `

@@ -1302,7 +1302,7 @@ fn a_driver_that_keeps_refusing_the_handle_backs_off_and_is_named() {
     assert_eq!(entries.len(), 1, "only the driver warning");
     assert_eq!(entries[0].code, DRIVER_LOST);
     assert!(
-        entries[0].message.contains("Vibeshine Virtual Gamepad"),
+        entries[0].message.contains("Rubylight Virtual Gamepad"),
         "{}",
         entries[0].message
     );
@@ -1531,7 +1531,7 @@ fn refusals_back_off_then_stop_unless_pads_work_a_minute_in_between() {
     // The warning names the driver, says whether its device is there and
     // how many reopens are left.
     let backing_off = lost_warning(true, 2, RETRY);
-    assert!(backing_off.contains("Vibeshine Virtual Gamepad"));
+    assert!(backing_off.contains("Rubylight Virtual Gamepad"));
     assert!(!backing_off.contains("device is gone"));
     assert!(backing_off.contains("up to 2 more times, at least 10 seconds apart"));
     assert!(lost_warning(true, 1, RETRY).contains("up to 1 more time,"));

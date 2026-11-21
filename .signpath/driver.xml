@@ -26,10 +26,17 @@
     <parameter name="version" required="true" />
   </parameters>
   <zip-file>
-    <pe-file path="*.dll" product-name="Rubylight" product-version="${version}">
-      <authenticode-verify />
-    </pe-file>
-    <catalog-file path="*.cat">
+    <pe-file-set product-name="Rubylight" product-version="${version}">
+      <include path="rubylight_vdisplay.dll" min-matches="0" max-matches="1" />
+      <include path="rubylight_vgamepad.dll" min-matches="0" max-matches="1" />
+      <for-each>
+        <authenticode-verify />
+      </for-each>
+    </pe-file-set>
+    <catalog-file path="rubylight_vdisplay.cat">
+      <authenticode-sign />
+    </catalog-file>
+    <catalog-file path="rubylight_vgamepad.cat">
       <authenticode-sign />
     </catalog-file>
   </zip-file>

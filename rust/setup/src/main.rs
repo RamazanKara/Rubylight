@@ -21,6 +21,7 @@ mod gpu;
 mod host_service;
 mod install;
 mod libvirtualdisplay;
+mod libvirtualgamepad;
 mod log;
 // Shared with the host's butterpollo-windows, which uses more of them.
 #[allow(dead_code)]

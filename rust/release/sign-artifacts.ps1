@@ -20,15 +20,28 @@ $binaries = @(
 # then the "driver" request signs it (.signpath/driver.xml); install-local.ps1
 # installs a signed catalog as it is. Packages without the folder skip this.
 $driver = Join-Path $distribution 'drivers\rubylight-display'
+$gamepadDriver = Join-Path $distribution 'drivers\rubylight-gamepad'
+$drivers = @(
+    @{ Path = $driver; Name = 'drivers/rubylight-display'; Os = '10_X64' },
+    @{ Path = $gamepadDriver; Name = 'drivers/rubylight-gamepad'; Os = '10_VB_X64,10_CO_X64,10_NI_X64,10_GE_X64' }
+)
 function Get-DriverFile([string]$Directory, [string]$Extension) {
     $files = @(Get-ChildItem -LiteralPath $Directory -File -Filter "*$Extension")
     if ($files.Count -ne 1) { throw "Expected one $Extension file in $Directory, found $($files.Count)" }
     $files[0]
 }
+function Get-CatalogName([IO.FileInfo]$Inf) {
+    foreach ($line in Get-Content -LiteralPath $Inf.FullName) {
+        if ($line -match '^\s*CatalogFile(?:\.\w+)?\s*=\s*([^\s;]+)') { return $Matches[1] }
+    }
+    throw "$($Inf.Name) does not declare CatalogFile"
+}
 function Get-Release {
     # The first-party binaries this package ships, relative to the distribution.
     $names = @($binaries)
-    if (Test-Path -LiteralPath $driver) { $names += 'drivers/rubylight-display/' + (Get-DriverFile $driver '.dll').Name }
+    foreach ($d in $drivers) {
+        if (Test-Path -LiteralPath $d.Path) { $names += "$($d.Name)/" + (Get-DriverFile $d.Path '.dll').Name }
+    }
     $names
 }
 function Assert-Signed([string]$Path) {
@@ -93,29 +106,36 @@ if ($Phase -eq 'CheckMetadata') {
 } elseif ($Phase -eq 'StageDriver') {
     # Microsoft's order: sign the DLL, make the catalog, sign the catalog. No
     # signature then changes a file after the catalog has hashed it.
-    $inf = Get-DriverFile $driver '.inf'
-    $dll = Get-DriverFile $driver '.dll'
-    Assert-Signed $dll.FullName
-    Get-ChildItem -LiteralPath $driver -File -Filter '*.cat' | Remove-Item -Force
-    $inf2cat = Get-KitTool 'Inf2Cat.exe' 'x86'
-    & $inf2cat "/driver:$driver" '/os:10_X64' '/uselocaltime' | Out-Host
-    if ($LASTEXITCODE -ne 0) { throw "Inf2Cat failed with exit code $LASTEXITCODE" }
-    $catalog = Get-DriverFile $driver '.cat'
-    $named = "^\s*CatalogFile(\.\w+)?\s*=\s*$([regex]::Escape($catalog.Name))\s*(;.*)?$"
-    if (!((Get-Content -LiteralPath $inf.FullName) -match $named)) { throw "$($inf.Name) does not name the catalog $($catalog.Name)" }
     New-Item -ItemType Directory -Path $SigningDirectory -Force | Out-Null
-    foreach ($file in $inf, $dll, $catalog) { Copy-Item -LiteralPath $file.FullName -Destination $SigningDirectory }
-} elseif ($Phase -eq 'ApplyDriver') {
-    $catalog = Get-DriverFile $SigningDirectory '.cat'
-    Assert-Signed $catalog.FullName
-    # The signed catalog must still cover the packaged INF and signed DLL.
-    $signtool = Get-KitTool 'signtool.exe' 'x64'
-    foreach ($extension in '.inf', '.dll') {
-        $file = (Get-DriverFile $driver $extension).FullName
-        $output = & $signtool verify /pa /c $catalog.FullName $file 2>&1
-        if ($LASTEXITCODE -ne 0) { throw "The signed catalog does not cover $file`n$($output -join "`n")" }
+    $inf2cat = Get-KitTool 'Inf2Cat.exe' 'x86'
+    foreach ($d in $drivers) {
+        if (!(Test-Path -LiteralPath $d.Path)) { continue }
+        $inf = Get-DriverFile $d.Path '.inf'
+        $dll = Get-DriverFile $d.Path '.dll'
+        Assert-Signed $dll.FullName
+        Get-ChildItem -LiteralPath $d.Path -File -Filter '*.cat' | Remove-Item -Force
+        & $inf2cat "/driver:$($d.Path)" "/os:$($d.Os)" '/uselocaltime' | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw "Inf2Cat failed with exit code $LASTEXITCODE" }
+        $catalog = Get-DriverFile $d.Path '.cat'
+        if ((Get-CatalogName $inf) -ne $catalog.Name) { throw "$($inf.Name) does not name the catalog $($catalog.Name)" }
+        foreach ($file in $inf, $dll, $catalog) { Copy-Item -LiteralPath $file.FullName -Destination $SigningDirectory }
     }
-    Copy-Item -LiteralPath $catalog.FullName -Destination $driver -Force
+} elseif ($Phase -eq 'ApplyDriver') {
+    $signtool = Get-KitTool 'signtool.exe' 'x64'
+    foreach ($d in $drivers) {
+        if (!(Test-Path -LiteralPath $d.Path)) { continue }
+        $inf = Get-DriverFile $d.Path '.inf'
+        $catalog = Join-Path $SigningDirectory (Get-CatalogName $inf)
+        if (!(Test-Path -LiteralPath $catalog -PathType Leaf)) { throw "Missing signed catalog: $catalog" }
+        Assert-Signed $catalog
+        # The signed catalog must still cover the packaged INF and signed DLL.
+        foreach ($extension in '.inf', '.dll') {
+            $file = (Get-DriverFile $d.Path $extension).FullName
+            $output = & $signtool verify /pa /c $catalog $file 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "The signed catalog does not cover $file`n$($output -join "`n")" }
+        }
+        Copy-Item -LiteralPath $catalog -Destination $d.Path -Force
+    }
 } else {
     $name = "butterpollo-setup-$Version.exe"
     $source = Join-Path $SigningDirectory $name

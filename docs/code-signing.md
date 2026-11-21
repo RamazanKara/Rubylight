@@ -20,7 +20,7 @@ A signed release:
 2. Checks that every Rubylight binary names the product **Rubylight** and the release version (every build runs this check, signed or not, with `sign-artifacts.ps1 -Phase CheckMetadata`). The service is the exception: it carries its own version from `rust/service/Cargo.toml`, so its file can stay the same from release to release. SignPath refuses files whose version information doesn't match.
 3. Uploads Rubylight's own executables and DLLs as a GitHub artifact and submits them with the [`binaries`](../.signpath/binaries.xml) artifact configuration. The request passes the release version as the `version` parameter and the service's as `service_version`, and waits up to an hour for the approval. A package that ships the previous release's signed service ([previous_service.py](../rust/release/previous_service.py)) leaves it out of the request.
 4. Checks every returned signature and timestamp, puts the signed files in the package and regenerates its SHA-256 manifest.
-5. Catalogs Rubylight's own display driver, which every package carries, and signs the catalog with the [`driver`](../.signpath/driver.xml) configuration. See [Rubylight's display driver](#rubylights-display-driver).
+5. Catalogs Rubylight's own display and virtual gamepad drivers, which every package carries, and signs both catalogs with the [`driver`](../.signpath/driver.xml) configuration. See [Rubylight's drivers](#rubylights-drivers).
 6. Builds the ZIP and the self-extracting installer, submits the installer with the [`installer`](../.signpath/installer.xml) configuration, and checks its signature.
 7. Publishes the release only if all of that succeeded. A configured signing request that fails, times out, lacks a file, or returns an invalid or untimestamped signature fails the build; it never publishes unsigned binaries.
 
@@ -38,7 +38,7 @@ Do these in order. Steps 1 to 5 can happen before applying; steps 7 to 18 need t
 2. **Turn on two-factor authentication on GitHub** (Settings, Password and authentication). The Foundation requires multi-factor authentication for the repository and for SignPath.
 3. **Protect `main` and the release tags.** In the repository's Settings, Rules, Rulesets, add a branch ruleset for `main` and a tag ruleset for `v*`, both active with **Restrict deletions** and **Block force pushes** (for tags also **Restrict updates**). Direct pushes to `main` keep working. SignPath's origin check trusts the branch or tag name, so these refs must not be rewritable.
 4. **Publish the policy pages.** Merge this work to `main`; the Pages workflow publishes [the code signing policy](https://ramazankara.github.io/Rubylight/docs/code-signing-policy.html) and [the privacy statement](https://ramazankara.github.io/Rubylight/docs/privacy.html), and the landing page's install section shows the SignPath attribution. Check all three load. The next release's notes link the policy too.
-5. **Tell users about system changes in the installer: done.** The Foundation asks software to warn before changing system configuration, and to show a privacy policy during installation when it sends user data to systems the user didn't choose. Setup's confirmation summary (`SYSTEM_CHANGES` in [detect.rs](../rust/setup/src/detect.rs)) names the service, the firewall rule, the virtual display driver, the two certificates it trusts and the daily update check, and links the privacy statement. The [code signing policy](code-signing-policy.md#certificates-the-installer-trusts) describes the certificates.
+5. **Tell users about system changes in the installer: done.** The Foundation asks software to warn before changing system configuration, and to show a privacy policy during installation when it sends user data to systems the user didn't choose. Setup's confirmation summary (`SYSTEM_CHANGES` in [detect.rs](../rust/setup/src/detect.rs)) names the service, the firewall rule, the virtual display and virtual gamepad drivers, the certificates it trusts and the daily update check, and links the privacy statement. The [code signing policy](code-signing-policy.md#certificates-the-installer-trusts) describes the certificates.
 
 ### Apply
 
@@ -52,7 +52,7 @@ Do these in order. Steps 1 to 5 can happen before applying; steps 7 to 18 need t
 10. **Create the artifact configurations.** In the project, add three artifact configurations with these slugs, choosing the custom XML option and pasting the file from the repository:
     - `binaries`: [.signpath/binaries.xml](../.signpath/binaries.xml)
     - `installer`: [.signpath/installer.xml](../.signpath/installer.xml)
-    - `driver`: [.signpath/driver.xml](../.signpath/driver.xml), for the display driver's catalog.
+    - `driver`: [.signpath/driver.xml](../.signpath/driver.xml), for the display and virtual gamepad drivers' catalogs.
 
     SignPath's copy is the one that signs. When a file in `.signpath/` changes, paste it again.
 11. **Create the CI user.** Under **Users**, add a CI user such as `rubylight-github`, generate its API token and keep it for step 13. It needs no other role.
@@ -89,15 +89,14 @@ Do these in order. Steps 1 to 5 can happen before applying; steps 7 to 18 need t
 17. **Check the result.** Download both release files and run `Get-AuthenticodeSignature` on the installer and on the executables and DLLs in the ZIP: each must be `Valid`, signed by SignPath Foundation, with a timestamp. Install, update and uninstall on a clean Windows PC, check the installed `uninstall.exe` the same way, and note what SmartScreen shows.
 18. **Record it.** Name the first signed version in the [code signing policy](code-signing-policy.md) and add the change to the release notes.
 
-## Rubylight's display driver
+## Rubylight's drivers
 
-[build.ps1](../rust/build.ps1) builds Rubylight's user-mode (UMDF IddCx) display driver from `rust/drivers/rubylight-vdisplay` into every package, so the driver steps of a signed release run by themselves:
+[build.ps1](../rust/build.ps1) builds Rubylight's user-mode display driver (`rust/drivers/rubylight-vdisplay`, IddCx) and virtual gamepad driver (`rust/drivers/rubylight-vgamepad`, UMDF2 VHF) into every package, so the driver steps of a signed release cover both:
 
-- **Package layout.** `drivers/rubylight-display/` in the package holds one `.inf`, one `.dll` and their unsigned `.cat` (`CatalogFile=rubylight_vdisplay.cat`), plus `install-local.ps1` and `nefconc.exe`. `StageDriver` makes the catalog again from the signed DLL for `10_X64`.
-- **Version information.** The DLL carries the same VERSIONINFO as every other binary: ProductName `Rubylight` and ProductVersion equal to the release version. The driver's build script writes it with [version_info.rs](../rust/assets/version_info.rs) and compiles it with the Windows Kit's `rc.exe`.
-- **Signing order.** The `binaries` request signs the DLL. Inf2Cat then makes the catalog from the INF and the signed DLL, and the `driver` request signs the catalog after checking the DLL's signature and version information. This is the order Microsoft documents: signing the DLL after the catalog would change bytes the catalog has hashed. [sign-artifacts.ps1](../rust/release/sign-artifacts.ps1) checks that the signed catalog covers the INF and the DLL before the package is built.
-- **SignPath.** Create the `driver` artifact configuration (step 10) before the first signed release, or that release fails at signing.
-- **Tools.** The driver build and the signing steps take stampinf, Inf2Cat, signtool, rc.exe and the IddCx stub library from the Windows Driver Kit. The workflow installs the kit when the runner image lacks it.
+- **Package layout.** `drivers/rubylight-display/` and `drivers/rubylight-gamepad/` in the package each hold one `.inf`, one `.dll` and their unsigned `.cat`, plus `install-local.ps1` and `nefconc.exe`. `StageDriver` remakes each catalog from its signed DLL.
+- **Version information.** Each driver DLL carries the same VERSIONINFO as every other binary: ProductName `Rubylight` and ProductVersion equal to the release version. Their build scripts write it with [version_info.rs](../rust/assets/version_info.rs) and compile it with the Windows Kit's `rc.exe`.
+- **Signing order.** The `binaries` request signs both DLLs. Inf2Cat then makes each catalog from its INF and signed DLL, and the `driver` request signs both catalogs after checking the DLLs' signatures and version information. Signing a DLL after its catalog would change bytes the catalog has hashed. [sign-artifacts.ps1](../rust/release/sign-artifacts.ps1) verifies that each signed catalog covers its packaged INF and DLL before packaging.
+- **Tools.** The driver builds and signing steps take `stampinf`, `Inf2Cat`, `signtool`, `rc.exe`, `VhfUm.lib` and the IddCx stub library from the Windows Driver Kit. The workflow installs the kit when the runner image lacks it.
 - **Unsigned builds.** In releases up to 4.7.1 and in every `main` and local build, the catalog is unsigned. Setup's `install-local.ps1` signs it on the user's PC with a key it deletes at once (see the driver's README, [Unsigned packages](../rust/drivers/rubylight-vdisplay/README.md#unsigned-packages-signed-on-the-users-pc)).
 - **Installing silently.** Windows asks before installing a driver from a publisher it doesn't trust yet. For a signed catalog `install-local.ps1` adds that exact signer certificate to the machine's `TrustedPublisher` store before `pnputil`, as Vibepollo's installer does, and its `-Uninstall` removes the certificate again if it added it.
 

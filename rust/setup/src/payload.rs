@@ -501,7 +501,7 @@ mod tests {
     #[test]
     fn manifest_paths_cannot_escape_the_package() {
         let root = Path::new("C:\\package");
-        assert!(safe_join(root, "drivers\\gamepad\\install.ps1").is_ok());
+        assert!(safe_join(root, "drivers\\rubylight-gamepad\\install-local.ps1").is_ok());
         assert!(safe_join(root, "..\\Windows\\evil.dll").is_err());
         assert!(safe_join(root, "C:\\Windows\\evil.dll").is_err());
         assert!(safe_join(root, "").is_err());

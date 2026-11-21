@@ -518,49 +518,45 @@ fn the_result_gives_the_address_with_its_port() {
     let alone = side_by_side_result(48590, "PC", &[]);
     assert!(alone.contains("Rubylight runs as the"), "{alone}");
 }
-/// The script reloads the device, and Vibepollo's family shares it.
+/// Rubylight's own virtual gamepad driver fails or gets refused -> becomes a setup note,
+/// and the earlier gamepad driver stays installed until replacement succeeds without reboot.
 #[test]
-fn the_gamepad_device_tool_says_whether_its_device_answers() {
-    let answered = r#"{"root_device_count":1,"phantom_root_devices":0,"source_interface_ready":true,"source_interface_state":"answered","instance_id":"ROOT\\VIBESHINEVIRTUALGAMEPAD\\0000","device_status":25174027,"problem_code":0}"#;
-    assert_eq!(gamepad_device_ready(answered), Some(true));
-    // #86: the package stayed in the Driver Store, its device went with Vibepollo.
-    let missing = "note on stderr\r\n{\"root_device_count\":0,\"phantom_root_devices\":0,\"source_interface_ready\":false,\"source_interface_state\":\"absent\"}\r\n";
-    assert_eq!(gamepad_device_ready(missing), Some(false));
+fn a_failed_rubylight_gamepad_install_becomes_a_setup_note() {
+    let mut notes = Vec::new();
+    let output = "WARNING: [RubylightVirtualGamepad] DRIVER_WARNING: Rubylight virtual gamepad driver setup did not complete.\nWARNING: [RubylightVirtualGamepad] Installer best-effort driver action failed: pnputil /add-driver failed with exit code 5\n";
+    assert!(!driver_result(0, output, &mut notes, "virtual gamepad"));
     assert_eq!(
-        gamepad_device_ready("Usage:\n  VibeshineVhfGamepadDeviceSetup.exe status"),
-        None
+        notes,
+        [
+            "The virtual gamepad driver could not be set up: pnputil /add-driver failed with exit code 5 Run setup again; the setup log has the details."
+        ]
     );
+    assert!(!libvirtualdisplay_replaced(false, true, false));
+    assert!(!libvirtualdisplay_replaced(false, false, true));
+    assert!(!libvirtualdisplay_replaced(true, false, false));
+    assert!(libvirtualdisplay_replaced(false, false, false));
 }
 
 #[test]
-fn a_side_by_side_host_reuses_the_shared_gamepad_device_or_installs_one() {
-    let device = |text: &str| {
-        let text = text.to_owned();
-        move || -> Result<Vec<String>> { Ok(vec![text.clone()]) }
+fn a_failed_libvirtualgamepad_removal_is_a_note_about_removing_it() {
+    use crate::libvirtualdisplay::Removal;
+    let failed = Removal {
+        restart: false,
+        error: Some(anyhow::anyhow!(
+            "pnputil /delete-driver oem9.inf /uninstall /force failed with exit code 5"
+        )),
     };
-    let vhf = r"ROOT\VIBESHINEVIRTUALGAMEPAD\0000";
-    assert!(matches!(
-        gamepad_step(false, || panic!("a normal install does not look")),
-        GamepadStep::Install
-    ));
-    assert!(matches!(
-        gamepad_step(true, device(vhf)),
-        GamepadStep::Reuse
-    ));
-    assert!(matches!(
-        gamepad_step(true, device(r"root\vibeshinevirtualgamepad\0001")),
-        GamepadStep::Reuse
-    ));
-    assert!(matches!(
-        gamepad_step(true, device(r"ROOT\RUBYLIGHTVDISPLAY\0000")),
-        GamepadStep::Install
-    ));
-    assert!(matches!(
-        gamepad_step(true, || bail!("denied")),
-        GamepadStep::Unknown(_)
-    ));
-    // The prefix the bundled scripts own their device by.
-    assert_eq!(GAMEPAD_DEVICE_PREFIX, "ROOT\\VIBESHINEVIRTUALGAMEPAD\\");
+    assert_eq!(
+        driver_removal_note(&failed, LIBVIRTUALGAMEPAD).as_deref(),
+        Some(
+            "The earlier virtual gamepad driver could not be removed: pnputil /delete-driver oem9.inf /uninstall /force failed with exit code 5 Setup tries again when it next runs; the setup log has the details."
+        )
+    );
+    let later = Removal {
+        restart: true,
+        error: None,
+    };
+    assert_eq!(driver_removal_note(&later, LIBVIRTUALGAMEPAD), None);
 }
 #[test]
 fn a_failed_libvirtualdisplay_removal_is_a_note_about_removing_it() {

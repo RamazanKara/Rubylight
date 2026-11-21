@@ -538,13 +538,6 @@ fn install_with(
                 Duration::from_secs(60),
             );
         }
-        // A package without drivers reuses the signed drivers already
-        // installed with Vibepollo.
-        for (from, to) in [("drivers\\vhf-gamepad", "drivers\\gamepad")] {
-            if !staging.path().join(to).exists() && root.join(from).is_dir() {
-                copy_tree(&root.join(from), &staging.path().join(to))?;
-            }
-        }
     }
 
     undo_import_on_error(&profile, previous.is_some() || new_profile, || {
@@ -1578,30 +1571,8 @@ fn run_drivers(
     if display {
         restart_needed |= display_step(install, progress, notes).0;
     }
-    if gamepad && install.join("drivers\\gamepad\\install.ps1").is_file() {
-        match gamepad_step(detect::side_by_side(), crate::libvirtualdisplay::present_devices) {
-            GamepadStep::Install => {
-                progress.set("Installing the virtual gamepad driver…");
-                let before = notes.len();
-                let restart = run_driver_script(
-                    &install.join("drivers\\gamepad\\install.ps1"),
-                    &["-InstallerBestEffort", "-AllowLocalTestCertificate:0"],
-                    notes,
-                    "virtual gamepad",
-                );
-                restart_needed |= restart;
-                // A restart to come or a refused package is reported already.
-                if !restart && notes.len() == before {
-                    restart_needed |= ensure_gamepad_device(install, progress, notes);
-                }
-            }
-            GamepadStep::Reuse => line(
-                "the virtual gamepad driver is already here, and another host may use it: using it as it is",
-            ),
-            GamepadStep::Unknown(error) => notes.push(format!(
-                "Setup could not tell whether the virtual gamepad driver is installed ({error:#}), so it left the driver another host may use alone. Controllers need it; if they do not work in a stream, run setup again."
-            )),
-        }
+    if gamepad {
+        restart_needed |= gamepad_step(install, progress, notes).0;
     }
 
     if usbip {
@@ -1615,105 +1586,43 @@ fn run_drivers(
     }
     restart_needed
 }
-/// The instance ids of the virtual gamepad's source device start with this:
-/// the driver's own cleanup script goes by the same prefix.
-const GAMEPAD_DEVICE_PREFIX: &str = "ROOT\\VIBESHINEVIRTUALGAMEPAD\\";
-#[derive(Debug)]
-enum GamepadStep {
-    Install,
-    /// The device is here. Vibepollo's family shares this driver, and its
-    /// script reloads the device under whoever uses it, so a side-by-side host
-    /// uses it as it is.
-    Reuse,
-    /// Side by side, and the devices could not be read.
-    Unknown(anyhow::Error),
-}
-fn gamepad_step(side_by_side: bool, devices: impl FnOnce() -> Result<Vec<String>>) -> GamepadStep {
-    if !side_by_side {
-        return GamepadStep::Install;
+
+/// Rubylight's virtual gamepad driver, then the removal of the earlier virtual
+/// gamepad driver it replaces. Returns whether Windows must restart and how
+/// many notes the driver's own step added.
+fn gamepad_step(install: &Path, progress: &Progress, notes: &mut Vec<String>) -> (bool, usize) {
+    let before = notes.len();
+    let mut restart_needed = rubylight_gamepad_driver(install, progress, notes);
+    let gamepad_notes = notes.len() - before;
+    // Rubylight's own driver uses Root\RubylightVirtualGamepad cleanly alongside
+    // another host. Remove the legacy virtual gamepad driver only when not
+    // installing side by side and the new driver started cleanly without reboot.
+    if libvirtualdisplay_replaced(detect::side_by_side(), gamepad_notes > 0, restart_needed) {
+        restart_needed |= remove_libvirtualgamepad(progress, notes);
     }
-    match devices() {
-        Ok(devices)
-            if devices.iter().any(|device| {
-                device
-                    .to_ascii_uppercase()
-                    .starts_with(GAMEPAD_DEVICE_PREFIX)
-            }) =>
-        {
-            GamepadStep::Reuse
-        }
-        Ok(_) => GamepadStep::Install,
-        Err(error) => GamepadStep::Unknown(error),
-    }
+    (restart_needed, gamepad_notes)
 }
 
-/// libvirtualgamepad's own tool for its source device, and the package it
-/// binds to that device.
-const GAMEPAD_DEVICE_TOOL: &str = "drivers\\gamepad\\tools\\VibeshineVhfGamepadDeviceSetup.exe";
-const GAMEPAD_INF: &str = "drivers\\gamepad\\driver\\VibeshineVhfGamepad.inf";
-/// Whether the device tool's `status` says the source device answers: its
-/// JSON line's `source_interface_ready`, or `None` when there is no such line.
-fn gamepad_device_ready(status: &str) -> Option<bool> {
-    status.lines().find_map(|line| {
-        serde_json::from_str::<serde_json::Value>(line.trim())
-            .ok()?
-            .get("source_interface_ready")?
-            .as_bool()
-    })
-}
-/// The gamepad driver's script skips when Windows' Driver Store already holds
-/// the same or a newer package, without looking for the device that runs it.
-/// Uninstalling another host that shared the driver (Vibepollo) takes that
-/// device away and leaves the package, so no controller can be opened (#86):
-/// the driver's own tool then creates the device. Returns whether Windows
-/// must restart.
-fn ensure_gamepad_device(install: &Path, progress: &Progress, notes: &mut Vec<String>) -> bool {
-    let (tool, inf) = (install.join(GAMEPAD_DEVICE_TOOL), install.join(GAMEPAD_INF));
-    if !tool.is_file() || !inf.is_file() {
+/// The installer of Rubylight's own virtual gamepad driver in a package.
+pub(crate) const RUBYLIGHT_GAMEPAD_SCRIPT: &str = "drivers\\rubylight-gamepad\\install-local.ps1";
+/// The earlier gamepad driver's name in notes about removal.
+pub(crate) const LIBVIRTUALGAMEPAD: &str = "earlier virtual gamepad";
+
+fn rubylight_gamepad_driver(install: &Path, progress: &Progress, notes: &mut Vec<String>) -> bool {
+    let script = install.join(RUBYLIGHT_GAMEPAD_SCRIPT);
+    if !script.is_file() {
+        notes.push("The virtual gamepad driver is missing from this package. Run the complete Rubylight installer to add it.".into());
         return false;
     }
-    let tool = tool.display().to_string();
-    let ready = || {
-        system::run_as_system(&tool, &["status"], Duration::from_secs(60))
-            .map(|(_, output)| gamepad_device_ready(&output))
-    };
-    match ready() {
-        Ok(Some(false)) => {}
-        Ok(Some(true)) => return false,
-        Ok(None) => {
-            line("the virtual gamepad device tool gave no status; leaving the device as it is");
-            return false;
-        }
-        Err(error) => {
-            line(format!(
-                "warning: the virtual gamepad device status: {error:#}"
-            ));
-            return false;
-        }
-    }
-    line("the virtual gamepad driver is installed, but no device runs it: setting the device up");
-    progress.set("Setting up the virtual gamepad device…");
-    let inf = inf.display().to_string();
-    let code =
-        match system::run_as_system(&tool, &["install", "--inf", &inf], Duration::from_secs(600)) {
-            Ok((code, _)) => code,
-            Err(error) => {
-                line(format!("warning: {error:#}"));
-                notes.push(driver_error_note(&error, "virtual gamepad"));
-                return false;
-            }
-        };
-    if code == 3010 {
-        return true;
-    }
-    // A newer package another host left runs the device instead of this one,
-    // which the tool reports as a failure although the device answers.
-    if code != 0 && !matches!(ready(), Ok(Some(true))) {
-        notes.push(
-            "The virtual gamepad device could not be set up, and controllers need it. Restart Windows and run setup again; the setup log has the details.".into(),
-        );
-    }
-    false
+    progress.set("Installing the virtual gamepad driver…");
+    run_driver_script(&script, &["-InstallerBestEffort"], notes, "virtual gamepad")
+}
+
+fn remove_libvirtualgamepad(progress: &Progress, notes: &mut Vec<String>) -> bool {
+    progress.set("Removing the earlier virtual gamepad driver…");
+    let removal = crate::libvirtualgamepad::remove(&mut crate::libvirtualdisplay::Native);
+    notes.extend(driver_removal_note(&removal, LIBVIRTUALGAMEPAD));
+    removal.restart
 }
 
 /// Rubylight's display driver, then the removal of libvirtualdisplay it
@@ -1763,12 +1672,13 @@ fn remove_libvirtualdisplay(progress: &Progress, notes: &mut Vec<String>) -> boo
 }
 /// The note for a removal that failed: setup tries again on its next run.
 fn libvirtualdisplay_note(removal: &crate::libvirtualdisplay::Removal) -> Option<String> {
+    driver_removal_note(removal, LIBVIRTUALDISPLAY)
+}
+fn driver_removal_note(removal: &crate::libvirtualdisplay::Removal, name: &str) -> Option<String> {
     let error = removal.error.as_ref()?;
-    line(format!(
-        "warning: removing the {LIBVIRTUALDISPLAY} driver: {error:#}"
-    ));
+    line(format!("warning: removing the {name} driver: {error:#}"));
     Some(format!(
-        "The {LIBVIRTUALDISPLAY} driver could not be removed: {error:#} Setup tries again when it next runs; the setup log has the details."
+        "The {name} driver could not be removed: {error:#} Setup tries again when it next runs; the setup log has the details."
     ))
 }
 /// Run a Vibepollo driver script as SYSTEM. A failure is reported, not

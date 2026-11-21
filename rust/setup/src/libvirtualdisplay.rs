@@ -62,20 +62,7 @@ pub fn remove(windows: &mut impl Windows) -> Removal {
 }
 
 fn steps(windows: &mut impl Windows, restart: &mut bool) -> Result<()> {
-    for device in windows.devices(HARDWARE_ID)? {
-        line(format!("Removing the libvirtualdisplay device {device}."));
-        pnputil(windows, &["/remove-device", &device], restart)?;
-    }
-    for inf in packages(&windows.oem_infs()?) {
-        line(format!(
-            "Removing the libvirtualdisplay driver package {inf}."
-        ));
-        pnputil(
-            windows,
-            &["/delete-driver", &inf, "/uninstall", "/force"],
-            restart,
-        )?;
-    }
+    remove_driver_package(windows, HARDWARE_ID, CATALOG, "libvirtualdisplay", restart)?;
     // Both registry views; Rubylight registers its own layer.
     for view in [View::Native64, View::Wow32] {
         let Some(names) = windows.layers(view)? else {
@@ -93,6 +80,29 @@ fn steps(windows: &mut impl Windows, restart: &mut bool) -> Result<()> {
     Ok(())
 }
 
+/// Remove every device matching `hardware_id` and every INF package naming `catalog`.
+pub(crate) fn remove_driver_package(
+    windows: &mut impl Windows,
+    hardware_id: &str,
+    catalog: &str,
+    label: &str,
+    restart: &mut bool,
+) -> Result<()> {
+    for device in windows.devices(hardware_id)? {
+        line(format!("Removing the {label} device {device}."));
+        pnputil(windows, &["/remove-device", &device], restart)?;
+    }
+    for inf in packages_for(&windows.oem_infs()?, catalog) {
+        line(format!("Removing the {label} driver package {inf}."));
+        pnputil(
+            windows,
+            &["/delete-driver", &inf, "/uninstall", "/force"],
+            restart,
+        )?;
+    }
+    Ok(())
+}
+
 fn pnputil(windows: &mut impl Windows, args: &[&str], restart: &mut bool) -> Result<()> {
     let code = windows.pnputil(args)?;
     if code == RESTART {
@@ -103,25 +113,36 @@ fn pnputil(windows: &mut impl Windows, args: &[&str], restart: &mut bool) -> Res
     Ok(())
 }
 
-/// The driver store's names of libvirtualdisplay's packages. pnputil's own
-/// listing is localized; each INF names its original catalog.
+/// The driver store's names of libvirtualdisplay's packages.
+#[cfg_attr(not(test), allow(dead_code))]
 fn packages(infs: &[(String, String)]) -> Vec<String> {
+    packages_for(infs, CATALOG)
+}
+
+/// The driver store's names of packages whose INF names `catalog`.
+fn packages_for(infs: &[(String, String)], catalog: &str) -> Vec<String> {
     infs.iter()
-        .filter(|(_, text)| names_catalog(text))
+        .filter(|(_, text)| names_catalog_for(text, catalog))
         .map(|(name, _)| name.clone())
         .collect()
 }
 
-/// Whether a line of `text` reads `CatalogFile = SunshineVirtualDisplayDriver.cat`,
-/// with any spacing and case, and anything after it.
+/// Whether a line of `text` reads `CatalogFile = SunshineVirtualDisplayDriver.cat`.
+#[cfg_attr(not(test), allow(dead_code))]
 fn names_catalog(text: &str) -> bool {
+    names_catalog_for(text, CATALOG)
+}
+
+/// Whether a line of `text` reads `CatalogFile = <catalog>`,
+/// with any spacing and case, and anything after it.
+fn names_catalog_for(text: &str, catalog: &str) -> bool {
     text.lines().any(|line| {
         line.split_once('=').is_some_and(|(key, value)| {
             key.trim().eq_ignore_ascii_case("CatalogFile")
                 && value
                     .trim_start()
-                    .get(..CATALOG.len())
-                    .is_some_and(|value| value.eq_ignore_ascii_case(CATALOG))
+                    .get(..catalog.len())
+                    .is_some_and(|value| value.eq_ignore_ascii_case(catalog))
         })
     })
 }
@@ -298,14 +319,6 @@ fn readable(
 fn all_devices() -> Result<Vec<(String, Vec<String>)>> {
     use windows::Win32::Devices::DeviceAndDriverInstallation::DIGCF_ALLCLASSES;
     devices_with(DIGCF_ALLCLASSES)
-}
-/// The instance ids of the devices present now.
-pub fn present_devices() -> Result<Vec<String>> {
-    use windows::Win32::Devices::DeviceAndDriverInstallation::{DIGCF_ALLCLASSES, DIGCF_PRESENT};
-    Ok(devices_with(DIGCF_ALLCLASSES | DIGCF_PRESENT)?
-        .into_iter()
-        .map(|(instance, _)| instance)
-        .collect())
 }
 fn devices_with(
     flags: windows::Win32::Devices::DeviceAndDriverInstallation::SETUP_DI_GET_CLASS_DEVS_FLAGS,

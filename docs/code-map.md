@@ -28,7 +28,7 @@ Each Rust module opens with a `//!` header saying what it owns. The index is bui
 | `butterpollo-windows` | `rust/windows/` | Everything that calls Windows, a GPU or a driver. |
 | `butterpollo` | `rust/host/` | Servers, sessions and threads: it asks core what to do and windows to do it. `nightjar-core` is a test dependency, for [the interop tests](../rust/host/src/stream/reconnect_tests/interop_tests.rs). |
 | console | `rust/web/` | The Svelte console, built with Vite and served by the host from files. |
-| service, setup, driver | `rust/service/`, `rust/setup/`, `rust/drivers/` | The Windows service and the display driver are workspaces of their own. |
+| service, setup, drivers | `rust/service/`, `rust/setup/`, `rust/drivers/` | The Windows service and the display and virtual gamepad drivers are workspaces of their own. |
 | NVIDIA NGX adapter | `rust/truehdr-runtime/` | An MSVC DLL between NVIDIA's NGX and the host, shipped in the NVIDIA component's archive (`build.ps1 -Nvidia`); outside the workspace. |
 
 A behaviour usually has three homes. `rust/core/src/encoder_policy.rs` decides, `rust/windows/src/amf.rs` applies it and `rust/host/src/stream.rs` calls both; displays (`display_policy.rs`, `display.rs`, `display_session.rs`) and input (`input_policy.rs`, `input.rs`, `stream/control.rs`) follow the same split. Put the decision in core, where its test needs no hardware.
@@ -63,7 +63,7 @@ Deadlines, by name: [`ENCODER_RECOVERY`](../rust/host/src/stream/video.rs), [`RE
 | NVIDIA component (download, checks, install) | `nvidia_component.rs` | `nvidia_enhance.rs` (loads the adapter) | `nvidia_component.rs`, `web/nvidia_component.rs` |
 | Displays | `display_policy.rs`, `display_caps.rs`, `edid.rs`, `topology.rs` | `display.rs`, `display/`, `display_arrangement.rs`, `display_recovery.rs` | `display_session.rs`, `remote_display.rs` |
 | Pacing, bitrate, loss | `stream_policy.rs`, `network_pacing.rs`, `adaptive_bitrate.rs`, `adaptive_fec.rs`, `link_rate.rs`, `ltr.rs`, `congestion.rs` | `timing.rs`, `limiter.rs` | `video_send.rs`, `video_send/`, `stream/qos.rs` |
-| Input, controllers | `input.rs`, `input_policy.rs`, `steam_pad.rs`, `dualsense.rs`, `switch2.rs`, `virtual_hid.rs` (virtual mouse and touchpad), `usbip.rs`, `dsu.rs` | `input.rs`, `input/` (`input/virtual_hid.rs`, `input/switch2_pad.rs`), `local_input.rs` | `stream/control.rs`, `controller_sessions.rs`, `dsu.rs` |
+| Input, controllers | `input.rs`, `input_policy.rs`, `steam_pad.rs`, `dualsense.rs`, `switch2.rs`, `virtual_hid.rs` (virtual mouse and touchpad), `usbip.rs`, `dsu.rs` | `input.rs`, `input/` (`input/virtual_hid.rs`, `input/gamepad_backend.rs`, `input/switch2_pad.rs`), `local_input.rs` | `stream/control.rs`, `controller_sessions.rs`, `dsu.rs` |
 | Audio, microphone | `audio.rs`, `audio_dsp/`, `audio_passthrough.rs`, `mic.rs` | `audio.rs`, `audio_app_route.rs`, `mic.rs` | `stream/audio.rs`, `stream/audio_sink.rs`, `mic.rs` |
 | Sessions, pairing | `session.rs`, `session/`, `session_state.rs`, `session_history.rs` (the ended streams the console lists), `pairing.rs`, `auth.rs`, `crypto.rs`, `state.rs`, `multiclient.rs` (guests), `auto_lock.rs` | | `nvhttp.rs`, `nvhttp/`, `rtsp_server.rs`, `session_control.rs`, `session_history.rs`, `state.rs`, `multiclient.rs`, `web/session_guests.rs`, `native_api/guests.rs`, `auto_lock.rs` |
 | Settings | `config.rs`, `config/`, `device_overrides.rs`, `stream_preset.rs`, `settings_backup.rs` | | `web/config.rs`, `console/settings.rs`, `stream/config.rs`, `settings_backup.rs`, `web/backup.rs` |
@@ -76,7 +76,7 @@ Deadlines, by name: [`ENCODER_RECOVERY`](../rust/host/src/stream/video.rs), [`RE
 | Browser play | `webrtc/` | | `webrtc/` |
 | Update, service | `update_files.rs`, `update_recovery.rs` | `service.rs` | `updater.rs`, `updater/`, `maintenance.rs`, `service_tasks.rs` |
 
-Outside the three crates: the installer in `rust/setup/src/`, the service in `rust/service/src/`, the display driver and its ring protocol in `rust/drivers/`, capture and encoder probes in `rust/windows/examples/` (run with `cargo run -p butterpollo-windows --example <name>`; several change real settings and say so in their header).
+Outside the three crates: the installer in `rust/setup/src/`, the service in `rust/service/src/`, the display and virtual gamepad drivers and their protocols in `rust/drivers/`, capture and encoder probes in `rust/windows/examples/` (run with `cargo run -p butterpollo-windows --example <name>`; several change real settings and say so in their header).
 
 ## Checklists
 

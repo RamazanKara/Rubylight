@@ -875,7 +875,7 @@ fn lost_warning(present: bool, left: usize, retry: Duration) -> String {
         ),
     };
     format!(
-        "The virtual gamepad driver (Vibeshine Virtual Gamepad) keeps refusing the host's connection (0x80070006){gone}. {next}. If controllers stay unavailable, disable and re-enable Vibeshine Virtual Gamepad under System devices in Device Manager, or run Rubylight setup again."
+        "The virtual gamepad driver (Rubylight Virtual Gamepad) keeps refusing the host's connection (0x80070006){gone}. {next}. If controllers stay unavailable, disable and re-enable Rubylight Virtual Gamepad under System devices in Device Manager, or run Rubylight setup again."
     )
 }
 

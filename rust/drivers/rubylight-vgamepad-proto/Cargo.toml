@@ -1,0 +1,29 @@
+# The binary contract and portable controller profiles shared between the Rubylight
+# host and the Rubylight UMDF2 VHF virtual gamepad driver (rust/drivers/rubylight-vgamepad):
+# control IOCTLs, HID descriptors, input/output/feature encoders, DirectInput PID force
+# feedback, Steam Controller haptic/settings rings, report pump, and lifecycle state machine.
+#
+# Self-contained `#![no_std]` crate with no dependencies and no workspace inheritance,
+# because it is both a member of the main workspace (tested by CI and used by the host)
+# and a path dependency of the isolated WDK driver workspace.
+#
+# Ported from Nonary/libvirtualgamepad (https://github.com/Nonary/libvirtualgamepad,
+# Copyright (c) 2026 Chase Payne, MIT License) and adapted for Rubylight by RamazanKara
+# (https://github.com/RamazanKara/Rubylight).
+[package]
+name = "rubylight-vgamepad-proto"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+description = "Host-driver contract and profiles of the Rubylight virtual gamepad driver"
+publish = false
+
+[lints.rust]
+unsafe_code = "forbid"
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"

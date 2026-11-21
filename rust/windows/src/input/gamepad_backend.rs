@@ -21,11 +21,21 @@ impl std::fmt::Display for VigemMissing {
 
 /// What the stream says about a driver that won't open, with what fixes it.
 pub(super) fn unavailable(error: &anyhow::Error) -> String {
+    let recorded = crate::steam::registry_string(
+        windows::Win32::System::Registry::HKEY_LOCAL_MACHINE,
+        "SOFTWARE\\Rubylight\\VirtualGamepad",
+        "Problem",
+    );
+    unavailable_text(error, recorded)
+}
+fn unavailable_text(error: &anyhow::Error, recorded: Option<String>) -> String {
     const IGNORED: &str = "controller input is ignored while keyboard and mouse remain available";
     if let Some(VigemMissing(pad)) = error.downcast_ref::<VigemMissing>() {
         format!(
             "{pad} (ViGEmBus) controller unavailable ({error:#}); {IGNORED}. Rubylight doesn't install ViGEmBus: install it from github.com/nefarius/ViGEmBus/releases, or choose another controller type."
         )
+    } else if let Some(recorded) = recorded.filter(|text| !text.trim().is_empty()) {
+        recorded
     } else {
         format!(
             "Virtual gamepad driver unavailable ({error:#}); {IGNORED}. Run Rubylight setup again with the gamepad driver selected to restore it."
@@ -34,7 +44,8 @@ pub(super) fn unavailable(error: &anyhow::Error) -> String {
 }
 
 /// The VHF gamepad driver's device interface.
-pub(super) const VHF_INTERFACE: GUID = GUID::from_u128(0x27debbf5_1d1e_4e9c_906d_d104b1418b2b);
+pub(super) const VHF_INTERFACE: GUID =
+    GUID::from_u128(rubylight_vgamepad_proto::protocol::DEVICE_INTERFACE_GUID);
 
 /// The VHF driver no longer accepts this client's handle: it answers every
 /// request on it with ERROR_INVALID_HANDLE, as it did about half a second
@@ -110,7 +121,10 @@ impl Backend {
         }
         let mut backend = Self::Vhf(Some(open_interface(VHF_INTERFACE)?));
         let out = backend.ioctl(0x800, &request(8, None), 28)?;
-        if out.len() != 28 || u16::from_le_bytes(out[4..6].try_into().unwrap()) != 2 {
+        if out.len() != 28
+            || u16::from_le_bytes(out[4..6].try_into().unwrap())
+                != rubylight_vgamepad_proto::protocol::PROTOCOL_VERSION
+        {
             bail!("incompatible VHF gamepad protocol");
         }
         let available = u32::from_le_bytes(out[12..16].try_into().unwrap());

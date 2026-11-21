@@ -518,6 +518,7 @@ dependencies = [
  "libloading",
  "rayon",
  "rubylight-vdisplay-proto",
+ "rubylight-vgamepad-proto",
  "serde",
  "serde_json",
  "socket2 0.6.5",
@@ -2699,6 +2700,10 @@ dependencies = [
 
 [[package]]
 name = "rubylight-vdisplay-proto"
+version = "0.1.0"
+
+[[package]]
+name = "rubylight-vgamepad-proto"
 version = "0.1.0"
 
 [[package]]

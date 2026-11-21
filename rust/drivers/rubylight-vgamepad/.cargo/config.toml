@@ -1,0 +1,7 @@
+# windows-drivers-rs requires a UMDF driver to link the static CRT. An explicit build target
+# applies `+crt-static` to the driver only, not to host build scripts and proc macros.
+[build]
+target = "x86_64-pc-windows-msvc"
+
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

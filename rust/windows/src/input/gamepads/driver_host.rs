@@ -30,8 +30,8 @@ use windows::Win32::{
     },
 };
 
-/// The VHF gamepad driver's UMDF module (VibeshineVhfGamepad.inf).
-const DRIVER_DLL: &str = "VibeshineVhfGamepad.dll";
+/// The VHF gamepad driver's UMDF module (`rubylight_vgamepad.inf`).
+const DRIVER_DLL: &str = "rubylight_vgamepad.dll";
 /// How often a holder checks that the raised WUDFHost still runs.
 const CHECK_EVERY: Duration = Duration::from_secs(1);
 
@@ -502,7 +502,7 @@ mod tests {
             co_hosted(&paths(&[
                 r"C:\Windows\System32\WUDFHost.exe",
                 r"C:\Windows\System32\ntdll.dll",
-                &format!(r"{store}\vibeshinevhfgamepad.inf_amd64_1\VIBESHINEVHFGAMEPAD.DLL"),
+                &format!(r"{store}\rubylight_vgamepad.inf_amd64_1\RUBYLIGHT_VGAMEPAD.DLL"),
                 &format!(r"{store}\other.inf_amd64_2\OtherSensor.dll"),
                 r"C:\Windows\System32\drivers\UMDF\WpdFs.dll",
             ])),

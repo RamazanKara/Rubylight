@@ -833,7 +833,7 @@ class Signing(unittest.TestCase):
         script = (ROOT / 'rust/release/sign-artifacts.ps1').read_text(encoding='utf-8')
         staged = set(re.findall(r"'([^']+)'", re.search(r'(?s)\$binaries = @\((.*?)\)', script)[1]))
         includes = {element.get('path') for element in self.configurations['binaries'].iter(f'{NS}include')}
-        self.assertEqual(includes - {'drivers/rubylight-display/*.dll'}, staged)
+        self.assertEqual(includes - {'drivers/rubylight-display/*.dll', 'drivers/rubylight-gamepad/*.dll'}, staged)
 
     def test_the_ffmpeg_build_takes_the_checked_hash_instead_of_sha256sum(self):
         # MSYS sha256sum failed in the laptop gate's scheduled task (no
@@ -938,6 +938,36 @@ class Signing(unittest.TestCase):
         for step in ("pnputil /remove-device", "Where-Object { $_ -notin $before }", "Remove-Trust $signer.Thumbprint", "Set-Problem"):
             self.assertIn(step, rollback)
 
+    def test_the_gamepad_driver_is_packaged_where_setup_and_signing_look(self):
+        build = (ROOT / 'rust/build.ps1').read_text(encoding='utf-8')
+        self.assertIn(r"$distribution 'drivers\rubylight-gamepad'", build)
+        self.assertIn(r"'sunshine\nefconc.exe'", build)
+        self.assertNotIn(r"'drivers\gamepad'", build)
+        self.assertNotIn('VibeshineVhfGamepad.cat', build)
+        self.assertNotIn('libvirtualgamepad v0.1.0-beta.10', build)
+        install = (ROOT / 'rust/setup/src/install.rs').read_text(encoding='utf-8')
+        self.assertIn('crate::libvirtualgamepad::remove(', install)
+        self.assertIn(r'"drivers\\rubylight-gamepad\\install-local.ps1"', install)
+        self.assertNotIn(r'"drivers\\gamepad\\install.ps1"', install)
+        signing = (ROOT / 'rust/release/sign-artifacts.ps1').read_text(encoding='utf-8')
+        self.assertIn(r"$distribution 'drivers\rubylight-gamepad'", signing)
+        workflow = (ROOT / '.github/workflows/rust-windows.yml').read_text(encoding='utf-8')
+        self.assertIn(r'butterpollo-rust-release\drivers\rubylight-gamepad', workflow)
+        installer = (ROOT / 'rust/drivers/rubylight-vgamepad/install-local.ps1').read_text(encoding='utf-8')
+        self.assertIn("Join-Path $PSScriptRoot 'rubylight_vgamepad.inf'", installer)
+        self.assertIn("Join-Path $PSScriptRoot 'nefconc.exe'", installer)
+        self.assertIn("Invoke-Restartable @('/remove-device'", installer)
+        self.assertIn("Invoke-Restartable @('/delete-driver'", installer)
+        self.assertIn('(Get-CurrentPackage) -ne $ours', installer)
+        for check in ('VerifiedAndReputablePolicyState -eq 1', 'SkuPolicyRequired -eq 1',
+                      'UsermodeCodeIntegrityPolicyEnforcementStatus -eq 2', 'DRIVER_UNSUPPORTED: '):
+            self.assertIn(check, installer)
+        refusal = installer[installer.index('$refusal = if'):installer.index('Protect-Catalog (Join-Path $work')]
+        self.assertLess(refusal.index('Remove-Install $recorded'), refusal.index('Set-Problem $refusal'))
+        rollback = installer[installer.index('    } catch {\n        $failure = $_'):]
+        for step in ("pnputil /remove-device", "Where-Object { $_ -notin $before }", "Remove-Trust $signer.Thumbprint", "Set-Problem"):
+            self.assertIn(step, rollback)
+
 
 @unittest.skipUnless(os.name == 'nt', 'Windows PowerShell')
 class DisplayDriverPolicy(unittest.TestCase):
@@ -975,6 +1005,43 @@ class DisplayDriverPolicy(unittest.TestCase):
     def test_memory_integrity_alone_does_not_refuse(self):
         # Kernel-mode code integrity (HVCI) is on in the mock; the driver
         # installs there, as on the development PC.
+        self.assertEqual(self.refusal(), 'NONE')
+
+
+@unittest.skipUnless(os.name == 'nt', 'Windows PowerShell')
+class GamepadDriverPolicy(unittest.TestCase):
+    """install-local.ps1's Get-Refusal for the virtual gamepad driver against the
+    policies that refuse a driver signed on the PC."""
+
+    def refusal(self, sac=0, sku=0, umci=0):
+        installer = (ROOT / 'rust/drivers/rubylight-vgamepad/install-local.ps1').read_text(encoding='utf-8')
+        start = installer.index('function Get-Refusal {')
+        function = installer[start:installer.index('\n}\n', start) + 3]
+        script = textwrap.dedent(f"""
+            function Get-ItemProperty {{ [pscustomobject]@{{ VerifiedAndReputablePolicyState = {sac}; SkuPolicyRequired = {sku} }} }}
+            function Get-CimInstance {{ [pscustomobject]@{{ UsermodeCodeIntegrityPolicyEnforcementStatus = {umci}; CodeIntegrityPolicyEnforcementStatus = 2 }} }}
+            """) + function + "\n$r = Get-Refusal\nif ($r) { $r } else { 'NONE' }\n"
+        result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', '-'],
+                                input=script, capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
+    def test_smart_app_control_on_refuses_and_says_what_to_do(self):
+        text = self.refusal(sac=1)
+        self.assertTrue(text.startswith('Smart App Control is on'), text)
+        self.assertIn('signed Rubylight release', text)
+        self.assertIn('controller input', text)
+
+    def test_smart_app_control_evaluating_does_not_refuse(self):
+        self.assertEqual(self.refusal(sac=2), 'NONE')
+
+    def test_s_mode_refuses(self):
+        self.assertTrue(self.refusal(sku=1).startswith('Windows runs in S mode'))
+
+    def test_an_enforced_app_control_policy_refuses(self):
+        self.assertTrue(self.refusal(umci=2).startswith('An App Control policy'))
+
+    def test_memory_integrity_alone_does_not_refuse(self):
         self.assertEqual(self.refusal(), 'NONE')
 
 

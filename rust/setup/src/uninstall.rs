@@ -97,7 +97,7 @@ fn is_package(folder: &Path) -> bool {
     })
 }
 /// Why --remove-drivers leaves these drivers in a side-by-side installation.
-const SHARED_DRIVERS_KEPT: &str = "The virtual gamepad driver and libvirtualdisplay stay installed, as another host on this PC may use them. Rubylight's own display driver was removed.";
+const SHARED_DRIVERS_KEPT: &str = "The earlier virtual gamepad driver and libvirtualdisplay stay installed, as another host on this PC may use them. Rubylight's own display and virtual gamepad drivers were removed.";
 /// Whether to stop and whether to delete the service named Rubylight's, whose
 /// program this is: another host may hold the name, and then it is left alone.
 fn service_steps(program: Option<&Path>, install: &Path) -> (bool, bool) {
@@ -167,30 +167,43 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<Removed> {
         "{}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
         std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into())
     );
-    // Rubylight's own display driver serves only Rubylight, and the
-    // certificate it trusted must not outlive it: it goes even when the
-    // other drivers stay.
-    let rubylight_display = install.join(crate::install::RUBYLIGHT_DISPLAY_SCRIPT);
-    if rubylight_display.is_file() {
-        progress.set("Removing the Rubylight display driver…");
-        let path = rubylight_display.display().to_string();
-        let arguments = [
-            "-NoLogo",
-            "-NonInteractive",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            path.as_str(),
-            "-Uninstall",
-            "-InstallerBestEffort",
-        ];
-        let result = system::run_as_system(&powershell, &arguments, Duration::from_secs(600));
-        notes.extend(removal_note(
+    // Rubylight's own display and virtual gamepad drivers serve only Rubylight,
+    // and the certificates they trusted must not outlive it: both go even when
+    // the other drivers stay.
+    for (script_rel, progress_label, name, device_id) in [
+        (
+            crate::install::RUBYLIGHT_DISPLAY_SCRIPT,
+            "Removing the Rubylight display driver…",
             "Rubylight display",
-            "Its device (Root\\RubylightVDisplay) or driver package may still be installed",
-            result,
-        ));
+            "Root\\RubylightVDisplay",
+        ),
+        (
+            crate::install::RUBYLIGHT_GAMEPAD_SCRIPT,
+            "Removing the Rubylight virtual gamepad driver…",
+            "Rubylight virtual gamepad",
+            "Root\\RubylightVirtualGamepad",
+        ),
+    ] {
+        let script = install.join(script_rel);
+        if script.is_file() {
+            progress.set(progress_label);
+            let path = script.display().to_string();
+            let arguments = [
+                "-NoLogo",
+                "-NonInteractive",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                path.as_str(),
+                "-Uninstall",
+                "-InstallerBestEffort",
+            ];
+            let result = system::run_as_system(&powershell, &arguments, Duration::from_secs(600));
+            let fallback =
+                format!("Its device ({device_id}) or driver package may still be installed");
+            notes.extend(removal_note(name, &fallback, result));
+        }
     }
     if options.remove_drivers && side_by_side {
         line(format!("note: {SHARED_DRIVERS_KEPT}"));
@@ -228,12 +241,20 @@ pub fn uninstall(options: &Options, progress: &Progress) -> Result<Removed> {
                 notes.extend(removal_note(name, "It may still be installed", result));
             }
         }
-        // The libvirtualdisplay driver earlier versions installed; with
-        // nothing left this changes nothing.
+        // The libvirtualdisplay and earlier virtual gamepad drivers; with
+        // nothing left these change nothing.
         let removal = crate::libvirtualdisplay::remove(&mut crate::libvirtualdisplay::Native);
         if let Some(error) = removal.error {
             notes.extend(removal_note(
                 crate::install::LIBVIRTUALDISPLAY,
+                "It may still be installed",
+                Err(error),
+            ));
+        }
+        let removal = crate::libvirtualgamepad::remove(&mut crate::libvirtualdisplay::Native);
+        if let Some(error) = removal.error {
+            notes.extend(removal_note(
+                crate::install::LIBVIRTUALGAMEPAD,
                 "It may still be installed",
                 Err(error),
             ));

@@ -8,13 +8,13 @@ To install a release instead, see [Getting started](getting-started.md). The [ar
 
 ## Windows prerequisites
 
-Windows x64 with PowerShell, Git, Python 3, Rustup, Node.js 22, MSYS2, and Visual Studio with the C++ workload. The display driver also needs the Windows Driver Kit (CI installs `Microsoft.WindowsWDK.10.0.26100`) and LLVM for its bindings (`winget install LLVM.LLVM`). In an MSYS2 UCRT64 shell, install these packages, matching CI:
+Windows x64 with PowerShell, Git, Python 3, Rustup, Node.js 22, MSYS2, and Visual Studio with the C++ workload. The display and virtual gamepad drivers also need the Windows Driver Kit (CI installs `Microsoft.WindowsWDK.10.0.26100`) and LLVM for their bindings (`winget install LLVM.LLVM`). In an MSYS2 UCRT64 shell, install these packages, matching CI:
 
 ```sh
 pacman -S --needed git mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-vulkan-headers mingw-w64-ucrt-x86_64-opus mingw-w64-ucrt-x86_64-nasm make
 ```
 
-The default MSYS2 path is `C:\msys64`; pass `-MsysRoot` if yours differs. The host uses the GNU Rust target; the display driver uses the MSVC toolchain pinned by its own `rust-toolchain.toml`.
+The default MSYS2 path is `C:\msys64`; pass `-MsysRoot` if yours differs. The host uses the GNU Rust target; the display and virtual gamepad drivers use the MSVC toolchain pinned by each workspace's `rust-toolchain.toml`.
 
 Clone the repository with its submodules and install the pinned toolchains in PowerShell:
 
@@ -32,13 +32,13 @@ The pinned version is defined by [rust-toolchain.toml](../rust-toolchain.toml) a
 
 ## Build and package
 
-Run the full build from the repository root in a **Visual Studio x64 developer PowerShell** so the display driver build finds the Microsoft C++ toolchain and the Windows Driver Kit:
+Run the full build from the repository root in a **Visual Studio x64 developer PowerShell** so the driver builds find the Microsoft C++ toolchain and the Windows Driver Kit:
 
 ```powershell
 .\rust\build.ps1 -FetchDependencies -Package
 ```
 
-The script builds the pinned PyroWave SDK and FFmpeg 8.1.3's AC3 and E-AC3 codecs (LGPL, `rust/tools/build_ffmpeg.sh`, kept when the dependency folder already holds the same build), and extracts the signed gamepad driver package (libvirtualgamepad 0.1.0-beta.10) from the pinned Vibepollo 2.0.6 release, and `nefconc.exe` and the Playnite plugin from the pinned Vibepollo 2.0.0 release. Rubylight's own display driver is built from source in this repository. Archive hashes, the PyroWave and FFmpeg build identities and the gamepad driver's signatures and file hashes are checked. CMake builds the external PyroWave SDK; Cargo builds the host.
+The script builds the pinned PyroWave SDK and FFmpeg 8.1.3's AC3 and E-AC3 codecs (LGPL, `rust/tools/build_ffmpeg.sh`, kept when the dependency folder already holds the same build), and extracts `nefconc.exe` and the Playnite plugin from the pinned Vibepollo 2.0.0 release. Rubylight's own display and virtual gamepad drivers are built from source in this repository. Archive hashes and the PyroWave and FFmpeg build identities are checked. CMake builds the external PyroWave SDK; Cargo builds the host and drivers.
 
 The build checks Rust formatting, runs ordinary workspace tests and Clippy with warnings denied, then builds the release executables, performance probes and the display driver. Packaging also builds the Svelte console and includes runtime libraries, drivers, the Playnite plugin, artwork, licenses, the optional Moonlight source patch and a SHA-256 file manifest. Building a package does not install it. While the service's version is unchanged, the package carries the previous release's `butterpollo-service.exe`, checked against that release's `SHA256SUMS`, so the file stays the same across releases ([the rule](../rust/release/README.md#the-service-executable)); a local build without network keeps the fresh one. Packaging also downloads and verifies the pinned, signed usbip-win2 0.9.8.1 installer (about 26 MB), cached in the dependencies folder, and includes it with its BSD license. It never executes that installer. `rust/drivers/usbip/bundle.ps1` can check this small packaging step independently of a host build.
 
@@ -62,7 +62,7 @@ Useful options:
 | `-DebugBuild` | Build debug executables for development. Use release builds for streaming measurements. |
 | `-PyrowaveRoot` | Reuse an existing PyroWave SDK. Its identity must match the pinned revision and patches. |
 | `-FfmpegRoot` | Reuse an existing `rust/tools/build_ffmpeg.sh` build. Its `build-info.txt` must name the pinned source and the LGPL. |
-| `-DriverRoot <path>` | Take the signed gamepad driver package from a Vibepollo installation's `drivers` folder instead of the pinned releases; its gamepad driver must be libvirtualgamepad 0.1.0-beta.10 (Vibepollo 2.0.6). |
+| `-DriverRoot <path>` | Take `nefconc.exe` and the Playnite plugin from a Vibepollo 2.0.0 tools folder instead of fetching the pinned release. |
 | `-SkipTests` | Skip workspace tests and Clippy for a local iteration. Formatting still runs; this is not the release validation path. |
 | `-Stage Test\|Lint\|Build` | Run one stage: tests, Clippy, or the release build (with `-Package`). CI runs the three as parallel jobs; the default `All` runs them in order. |
 | `-Jobs <n>` | Parallel jobs for Cargo, CMake, PyroWave and FFmpeg (default 4). |

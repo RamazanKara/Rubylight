@@ -489,3 +489,27 @@ NumPy port of Nightjar's SGSR 1 shader (client/app/src/main/assets/shaders/sgsr.
 Snapdragon Game Super Resolution 1, Copyright (c) 2025, Qualcomm Innovation Center, Inc.,
 BSD-3-Clause (client/app/src/main/assets/NOTICE-SGSR1.txt). The harness itself ships in neither
 app.
+
+libvirtualgamepad (rubylight-vgamepad and rubylight-vgamepad-proto)
+
+Rubylight's first-party UMDF2 VHF virtual gamepad driver and its shared protocol/profile
+library adapt Nonary/libvirtualgamepad (https://github.com/Nonary/libvirtualgamepad, commit
+93dc007, MIT License, Copyright (c) 2026 Chase Payne; Steam Controller 2026 profile from
+jlobue10 in PR #6), with MIT notices in third-party/licenses/libvirtualgamepad-LICENSE.txt
+and rust/drivers/rubylight-vgamepad/LICENSE-MIT:
+- Protocol, wire ABI and GUID/slot/lifecycle state machine (from include/libvirtualgamepad/protocol.h
+  and driver/src/driver.cpp): rust/drivers/rubylight-vgamepad-proto/src/protocol.rs and
+  rust/drivers/rubylight-vgamepad-proto/src/lifecycle.rs.
+- Input report pacing pump and Steam Controller haptic/settings rings (from
+  driver/src/report_pump.{h,cpp} and driver/src/steam_haptic_queue.h):
+  rust/drivers/rubylight-vgamepad-proto/src/report_pump.rs and steam_haptic_queue.rs.
+- HID/PID profiles, descriptors, reports, motion/touch/battery encoding and force-feedback engine
+  (from driver/src/{profile,xbox_one,xbox_series,dualshock4,dualsense,switch_pro,steam_controller,
+  pid_ff}.{h,cpp} and include/libvirtualgamepad/{ds4_usb,ds5_usb,sc26_usb}.h):
+  rust/drivers/rubylight-vgamepad-proto/src/profiles/{mod,generic,xbox_one,xbox_series,dualshock4,
+  dualsense,switch_pro,steam_controller,pid_ff}.rs.
+- UMDF 2 VHF source driver entrypoint, PnP/Power callbacks, local I/O target, Configuration
+  Manager child check, PID periodic timer, SC26 high-resolution keepalive worker and INF
+  (from driver/src/driver.cpp and driver/VibeshineVhfGamepad.inf.in):
+  rust/drivers/rubylight-vgamepad/driver/src/{lib,wdf,vhf,keepalive,device,entry}.rs and
+  rust/drivers/rubylight-vgamepad/rubylight_vgamepad.inx.

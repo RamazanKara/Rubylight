@@ -39,6 +39,18 @@ fn a_chosen_vigem_pad_without_its_driver_says_what_to_install() {
     let message = unavailable(&anyhow::anyhow!("no interface"));
     assert!(message.contains("no interface"), "{message}");
     assert!(message.contains("Rubylight setup"), "{message}");
+    // A recorded installation problem takes precedence for VHF, while ViGEmBus keeps its own text.
+    assert_eq!(
+        unavailable_text(
+            &anyhow::anyhow!("no interface"),
+            Some("Smart App Control is on".into())
+        ),
+        "Smart App Control is on"
+    );
+    assert!(
+        unavailable_text(&error, Some("Smart App Control is on".into()))
+            .starts_with("DualShock 4 (ViGEmBus)")
+    );
 }
 
 #[test]

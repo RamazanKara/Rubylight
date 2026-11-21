@@ -1,0 +1,54 @@
+# Rubylight's UMDF2 VHF virtual gamepad driver, as its own cargo workspace.
+#
+# Separate from the main workspace (which excludes this directory) because a UMDF driver is
+# a cdylib built for x86_64-pc-windows-msvc with the static CRT, against the Windows Driver
+# Kit, by windows-drivers-rs (wdk-build / wdk-sys). The main cargo build never sees it;
+# build-package.ps1 builds, packages and (with -TestSign) test-signs it, and rust/build.ps1
+# runs that for every Rubylight package.
+#
+# Protocol logic and HID/PID controller profiles come from Nonary/libvirtualgamepad by
+# Chase Payne (MIT), shared with the host via rubylight-vgamepad-proto.
+[workspace]
+resolver = "2"
+members = ["driver"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.89"
+version = "0.1.0"
+license = "MIT"
+publish = false
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+undocumented_unsafe_blocks = "deny"
+ptr_cast_constness = "deny"
+unnecessary_safety_doc = "deny"
+unnecessary_safety_comment = "deny"
+cast_ptr_alignment = "warn"
+
+[workspace.dependencies]
+wdk-sys = "0.5.1"
+wdk-build = "0.5.1"
+rubylight-vgamepad-proto = { path = "../rubylight-vgamepad-proto" }
+
+# Reuse rubylight-vdisplay's vendored windows-drivers-rs 0.5.1 (omits /INTEGRITYCHECK for UMDF).
+[patch.crates-io]
+wdk-build = { path = "../rubylight-vdisplay/vendor/wdk-build" }
+wdk-sys = { path = "../rubylight-vdisplay/vendor/wdk-sys" }
+
+# wdk-sys reads the driver model from the workspace metadata.
+[workspace.metadata.wdk.driver-model]
+driver-type = "UMDF"
+umdf-version-major = 2
+target-umdf-version-minor = 15
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+lto = true

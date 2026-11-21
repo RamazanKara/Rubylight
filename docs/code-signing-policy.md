@@ -22,13 +22,13 @@ Only files built from this repository's source code by its GitHub Actions workfl
 
 - Rubylight's executables and DLLs: the host, its service and start programs, setup (also installed as `uninstall.exe`), the diagnostic probes and the Vulkan HDR layer.
 - The installer that carries them, `rubylight-setup-<version>.exe`.
-- Rubylight's own virtual display driver: its DLL and catalog.
+- Rubylight's own virtual display and virtual gamepad drivers: their DLLs and catalogs.
 
 Every signed executable and DLL carries the product name **Rubylight** and the release's version, and the signing script refuses files that don't ([sign-local.ps1](../rust/release/sign-local.ps1)). The [code signing guide](code-signing.md) describes the setup.
 
 Files from other projects ship as their projects released them and are never signed with Rubylight's certificate:
 
-- the gamepad driver package (libvirtualgamepad 0.1.0-beta.10) from the Vibepollo 2.0.6 release, whose driver catalog and setup tool are signed by SignPath Foundation for that project, and `nefconc.exe` and the Playnite plugin from the Vibepollo 2.0.0 release;
+- `nefconc.exe` and the Playnite plugin from the Vibepollo 2.0.0 release;
 - the usbip-win2 installer and drivers, bundled unchanged.
 
 ### The NVIDIA component
@@ -49,7 +49,7 @@ Libraries whose projects publish no signed builds ship unsigned: the Opus DLL an
 
 Setup adds certificates to Windows' certificate stores on the PC it installs on. Its first page says so before anything is installed, and uninstalling removes them.
 
-- **Rubylight's virtual display driver.** Windows installs a driver only from a publisher it trusts. For an unsigned catalog (releases up to 4.7.1, and builds of your own), `install-local.ps1` creates a code-signing certificate on the PC, signs the catalog with it, adds the certificate to `LocalMachine\Root` and `LocalMachine\TrustedPublisher`, and deletes its private key, which never leaves the PC and cannot be exported. With the key gone, that certificate can sign nothing else, for Rubylight or for anyone else. Every PC trusts only its own. A release's signed catalog is installed as it is: only its publisher certificate (Open Source Developer Ramazan Kara) goes into `TrustedPublisher`, so Windows does not ask before installing the driver. Reinstalling replaces the previous certificate, and uninstalling Rubylight removes the certificates and the driver even when the other drivers stay. ([Driver README](../rust/drivers/rubylight-vdisplay/README.md#unsigned-packages-signed-on-the-users-pc))
+- **Rubylight's virtual display and virtual gamepad drivers.** Windows installs a driver only from a publisher it trusts. For an unsigned catalog (releases up to 4.7.1, and builds of your own), `install-local.ps1` creates a code-signing certificate on the PC, signs the catalog with it, adds the certificate to `LocalMachine\Root` and `LocalMachine\TrustedPublisher`, and deletes its private key, which never leaves the PC and cannot be exported. With the key gone, that certificate can sign nothing else, for Rubylight or for anyone else. Every PC trusts only its own. A release's signed catalog is installed as it is: only its publisher certificate (Open Source Developer Ramazan Kara) goes into `TrustedPublisher`, so Windows does not ask before installing the driver. Reinstalling replaces the previous certificate, and uninstalling Rubylight removes the certificates and both drivers even when the other drivers stay. ([Display driver README](../rust/drivers/rubylight-vdisplay/README.md#unsigned-packages-signed-on-the-users-pc), [Virtual gamepad driver README](../rust/drivers/rubylight-vgamepad/README.md))
 - **The local web console.** So browsers open `https://localhost` without a warning, the host makes a root certificate named "Rubylight local console", with a random part of its own so no two hosts' roots share a name, on first start, uses it to issue the console's own certificate, and discards its private key. Setup adds that root to `LocalMachine\Root`. It is restricted to `localhost`, `127.0.0.0/8` and `::1`, may not issue further certificate authorities, and cannot vouch for any other site. Uninstalling removes it.
 
 Drivers from other projects that setup installs come with their own install scripts, which may trust their publishers' certificates in the same way.

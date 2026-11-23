@@ -3440,8 +3440,9 @@ namespace {
         }
 
         // False when HDR is on and the window refused it: the stream would look washed out, so it fails loudly.
-        // HLG goes through perform where ANativeWindow_setBuffersDataSpace refuses it (window_dataspace.h);
-        // PQ and SRGB keep the public call, whose refusal means this window has no HDR at all.
+        // HDR (PQ or HLG) goes through perform where ANativeWindow_setBuffersDataSpace refuses it
+        // (window_dataspace.h). Android 11's isDataSpaceValid refuses BT2020_PQ (-22) on an NVIDIA
+        // SHIELD TV whose display lists HDR10, and perform takes it there. SRGB keeps the public call.
         bool applyWindowDataspace() {
             if (!dataspaceOverride || window == nullptr) return true;
             using SetDataSpace = int32_t (*)(ANativeWindow *, int32_t);
@@ -3451,7 +3452,7 @@ namespace {
             const nwds::DataspaceOutcome outcome = nwds::setDataspace(
                     window, dataspace, [](void *w, int32_t d) {
                         return setDataSpace != nullptr ? setDataSpace(static_cast<ANativeWindow *>(w), d) : nwds::kMissing;
-                    }, hdr && hlg);
+                    }, hdr);
             if (!outcome.accepted()) {
                 LOGE("Window dataspace %s (0x%x) was refused (ANativeWindow_setBuffersDataSpace %d%s, perform %d)", name,
                      uint32_t(dataspace), outcome.publicResult, setDataSpace == nullptr ? " missing" : "",

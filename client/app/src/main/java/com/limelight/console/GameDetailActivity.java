@@ -1,22 +1,14 @@
 package com.limelight.console;
 
-import android.graphics.drawable.ColorDrawable;
-import android.graphics.drawable.Drawable;
-import android.net.ConnectivityManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.ImageView;
-import android.widget.TextView;
 
 import androidx.annotation.VisibleForTesting;
-import androidx.appcompat.app.AlertDialog;
-import androidx.core.content.ContextCompat;
 
-import com.google.android.material.button.MaterialButton;
 import com.limelight.R;
 import com.limelight.nativeapi.ConsoleRepository;
 import com.limelight.nativeapi.ConsoleSnapshot;
@@ -25,15 +17,7 @@ import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.wol.WakeOnLanSender;
-import com.limelight.pin.PinGate;
-import com.limelight.preferences.StreamProfilePicker;
-import com.limelight.ui.ActionSheet;
-import com.limelight.ui.AppTheme;
-import com.limelight.ui.BackdropView;
-import com.limelight.ui.NavigationDialogBuilder;
 import com.limelight.ui.NightjarActivity;
-import com.limelight.ui.ShellBar;
-import com.limelight.ui.TopAppBar;
 import com.limelight.utils.LaunchSource;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.UiHelper;
@@ -61,18 +45,9 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     static final String EXTRA_STABLE_ID = "com.limelight.console.STABLE_ID";
 
     private static final long DEBOUNCE_MS = 250;
-    /** How long an automatic start waits for the page to load; a wake that follows has its own limit. */
-    private static final long AUTO_LOAD_LIMIT_MS = 45_000;
-    /** How often an automatic start asks again for what the PC has not said yet. */
-    private static final long AUTO_RETRY_MS = 2_000;
-    /** As on the desktop: how long a start waits for the network, a TV launcher's at boot being ahead of its Wi-Fi. */
-    private static final long NETWORK_LIMIT_MS = 60_000;
-    /** After the network came back: longer than a poll, so the countdown never names a PC not yet heard from. */
-    private static final long NETWORK_SETTLE_MS = 6_000;
-    private static final long NETWORK_CHECK_MS = 500;
 
     /** An automatic start: waiting for the PIN screen to clear, then the network, counting down, then going to the game. */
-    private enum Auto { OFF, WAITING, NETWORK, COUNTING, GOING }
+    enum Auto { OFF, WAITING, NETWORK, COUNTING, GOING }
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
@@ -80,75 +55,44 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         thread.setDaemon(true);
         return thread;
     });
+    private final GameDetailView views = new GameDetailView(this);
+    private final GameDetailOpenPlay openPlay = new GameDetailOpenPlay(this, handler);
+
     private HostFeed feed;
-    private CoverLoaders covers;
+    CoverLoaders covers;
     private volatile ConsoleRepository repository;
-    private String hostUuid;
-    private int appId;
-    private String titleExtra;
-    private String hostNameExtra;
+    String hostUuid;
+    int appId;
+    String titleExtra;
+    String hostNameExtra;
     private int generation;
-    private String loadedSignature;
+    String loadedSignature;
     /** What the last reload drew the PC from; a poll that brings nothing else does not reload. */
     private final HostsDrawn drawn = new HostsDrawn();
     private boolean shown;
-    private boolean focusPending = true;
-    private GameDetailModel model;
+    boolean focusPending = true;
+    GameDetailModel model;
     /** Waking an offline PC to play: the wait, and the Play that follows once the PC answers and the page is fresh. */
     private HostWaker waker;
     private boolean playWhenReady;
-    private Auto auto = Auto.OFF;
+    Auto auto = Auto.OFF;
     /** The way the device was held when the page was laid out: upright it is the sheet, sideways the hero grown to a page. */
     private int laidOutFor;
     /** The way it is held now, as the system last said: this screen's resources keep the configuration they were made with. */
     private int heldNow;
-    private AlertDialog countdown;
-    private long countdownEnd;
-    private long networkLimit;
-    /** When the wait for the network ends, now that it is back; 0 until then. */
-    private long networkSettled;
-    /** {@link #autoLoadLimit} is on its way. */
-    private boolean autoLimitPosted;
-    private String stableId;
+    long countdownEnd;
+    String stableId;
     /** {@link #model} comes from a finished read of the PC, not from what was saved or a poll's redraw of it. */
-    private boolean modelLive;
-    /** The automatic start has acted on a live page. */
-    private boolean autoActed;
-    private final Runnable countdownTick = this::tickCountdown;
-    private final Runnable networkTick = this::tickNetwork;
-    private final Runnable autoLoadLimit = () -> {
-        autoLimitPosted = false;
-        autoLoadFailed();
-    };
+    boolean modelLive;
 
-    private View loading;
-    private ImageView cover;
-    private TextView coverText;
-    private TextView title;
-    private TextView status;
-    private TextView host;
-    /** Genres, themes and time to beat from IGDB; gone without a record or IGDB keys. */
-    private TextView factsView;
-    private String factsShownFor;
-    private TextView note;
-    private MaterialButton play;
-    private MaterialButton end;
-    private MaterialButton favourite;
-    private View profileRow;
-    private TextView profileValues;
-    private TextView profileLayers;
-    private View quitOnLeave;
-    private com.google.android.material.materialswitch.MaterialSwitch quitOnLeaveSwitch;
-    private TextView quitOnLeaveNote;
-    private GameDetailModel quitOnLeaveGame;
-    private ComputerDetails quitOnLeaveComputer;
-    /** The backdrop, and the chip line with the installed and HDR chips. A layout without them (none today) leaves these null and shows the state chip alone. */
-    private BackdropView backdrop;
-    private View chips;
-    private TextView installed;
-    private TextView hdr;
-    private TextView store;
-    private ComputerDetails shownComputer;
+    /** Whether the game is starred, as last read; the toggle flips it and re-renders without a reload. */
+    boolean favouriteCache;
+    /** Counts toggles, so a read that began before one cannot undo it. */
+    private int favouriteVersion;
+    /** Host control as last read; a host that did not answer counts as without. */
+    private volatile boolean controlCache;
+    /** The PC's classic list, as last saved, has this id: a tile its native library does not list. */
+    volatile boolean classicListCache;
 
     private final Runnable reload = this::reloadNow;
 
@@ -160,7 +104,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     /** Starts the stream; the debug demo overrides this so no stream is opened. */
     protected void play(NvApp app, ComputerDetails computer) {
         boolean automatic = auto == Auto.GOING;
-        endAuto();
+        openPlay.endAuto();
         ServerHelper.doStart(this, app, computer, feed.binder(), automatic ? LaunchSource.OPEN_PLAY : LaunchSource.CONSOLE_PLAY);
         // The stream's end lands on Home, not on this page.
         if (automatic) finish();
@@ -193,11 +137,15 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
      */
     @Override
     protected boolean holdsForm() {
-        return auto != Auto.OFF || playWhenReady || (waker != null && waker.isWaiting());
+        return auto != Auto.OFF || playWhenReady || isWakeWaiting();
+    }
+
+    boolean isWakeWaiting() {
+        return waker != null && waker.isWaiting();
     }
 
     /** That work is over, or may be: the page asks again whether it was turned meanwhile. */
-    private void followTurnSoon() {
+    void followTurnSoon() {
         followFormSoon();
         handler.post(this::followTurn);
     }
@@ -219,64 +167,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         heldNow = laidOutFor;
         setContentView(R.layout.activity_game_detail);
         UiHelper.notifyNewRootView(this);
-
-        // The page heads itself with the game's title beside the cover; the bar keeps only the way back.
-        if (titleExtra != null) setTitle(titleExtra);
-        TopAppBar.setUpNavigation(TopAppBar.configure(this, R.id.detail_toolbar, "", 0),
-                View.NO_ID, v -> getOnBackPressedDispatcher().onBackPressed());
-        // A game's page belongs to Home: Home in the bar is the page it came from, so it closes this one. The
-        // other two replace Home's stack the way they do from Home itself.
-        ShellBar.install(this, ShellBar.Destination.HOME);
-        findViewById(R.id.shell_home).setOnClickListener(v -> finish());
-        loading = findViewById(R.id.detail_loading);
-        cover = findViewById(R.id.detail_cover);
-        coverText = findViewById(R.id.detail_cover_text);
-        title = findViewById(R.id.detail_title);
-        status = findViewById(R.id.detail_status);
-        host = findViewById(R.id.detail_host);
-        factsView = new TextView(this);
-        androidx.core.widget.TextViewCompat.setTextAppearance(factsView, R.style.TextAppearance_Nightjar_Supporting);
-        factsView.setTextColor(host.getTextColors());
-        factsView.setPadding(0, getResources().getDimensionPixelSize(R.dimen.space_xs), 0, 0);
-        factsView.setVisibility(View.GONE);
-        ViewGroup hostParent = (ViewGroup) host.getParent();
-        hostParent.addView(factsView, hostParent.indexOfChild(host) + 1);
-        note = findViewById(R.id.detail_note);
-        play = findViewById(R.id.detail_play);
-        end = findViewById(R.id.detail_end);
-        favourite = findViewById(R.id.detail_favourite);
-        profileRow = findViewById(R.id.detail_profile);
-        profileValues = findViewById(R.id.detail_profile_values);
-        profileLayers = findViewById(R.id.detail_profile_layers);
-        profileRow.setOnClickListener(v -> chooseProfile());
-        quitOnLeave = findViewById(R.id.detail_quit_on_leave);
-        quitOnLeaveSwitch = findViewById(R.id.detail_quit_on_leave_switch);
-        quitOnLeaveNote = findViewById(R.id.detail_quit_on_leave_note);
-        quitOnLeave.setOnClickListener(v -> onQuitOnLeave());
-        androidx.core.view.ViewCompat.setAccessibilityDelegate(quitOnLeave, new androidx.core.view.AccessibilityDelegateCompat() {
-            @Override
-            public void onInitializeAccessibilityNodeInfo(View host,
-                    androidx.core.view.accessibility.AccessibilityNodeInfoCompat info) {
-                super.onInitializeAccessibilityNodeInfo(host, info);
-                info.setClassName(android.widget.Switch.class.getName());
-                info.setCheckable(true);
-                info.setChecked(quitOnLeaveSwitch.isChecked());
-            }
-        });
-        chips = findViewById(R.id.detail_chips);
-        installed = findViewById(R.id.detail_installed);
-        hdr = findViewById(R.id.detail_hdr);
-        store = findViewById(R.id.detail_store);
-        backdrop = findViewById(R.id.detail_backdrop);
-        if (backdrop != null) setUpAmbience();
-        play.setOnClickListener(v -> onPlay());
-        end.setOnClickListener(v -> onEnd());
-        favourite.setOnClickListener(v -> onFavourite());
-        title.setText(titleExtra);
-        host.setText(hostNameExtra);
-        play.setEnabled(false);
-        // The first D-pad press after a touch (or an adb start) lands on Play, not on the back arrow at the top.
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) play.setFocusedByDefault(true);
+        views.bind(hostUuid, appId, titleExtra, hostNameExtra, this::onPlay, this::onEnd, this::onFavourite);
 
         feed = new HostFeed(this, this);
         feed.bind();
@@ -284,258 +175,14 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         if (state == null && getIntent().getBooleanExtra(EXTRA_OPEN_PLAY, false)) auto = Auto.WAITING;
     }
 
-    private boolean hasNetwork() {
-        ConnectivityManager connectivity = (ConnectivityManager) getApplicationContext().getSystemService(CONNECTIVITY_SERVICE);
-        return connectivity == null || connectivity.getActiveNetworkInfo() != null;
-    }
-
-    /** No network yet: a wait the player can still say no to, with the same ways out as the countdown. */
-    private void waitForNetwork() {
-        auto = Auto.NETWORK;
-        networkLimit = SystemClock.elapsedRealtime() + NETWORK_LIMIT_MS;
-        networkSettled = 0;
-        countdown = new NavigationDialogBuilder(this)
-                .setTitle(titleExtra)
-                .setMessage(R.string.open_play_waiting_network)
-                .setNegativeButton(android.R.string.cancel, (dialog, which) -> cancelCountdown())
-                .setOnCancelListener(dialog -> cancelCountdown())
-                .show();
-        focusCancel();
-        handler.postDelayed(networkTick, NETWORK_CHECK_MS);
-    }
-
-    /** Also after a touch, or the first press of a pad would only leave touch mode and the game would start. */
-    private void focusCancel() {
-        android.view.View cancel = countdown.getButton(AlertDialog.BUTTON_NEGATIVE);
-        cancel.setFocusableInTouchMode(true);
-        cancel.requestFocus();
-    }
-
-    private void tickNetwork() {
-        if (auto != Auto.NETWORK) return;
-        long now = SystemClock.elapsedRealtime();
-        if (networkSettled == 0 && hasNetwork()) {
-            networkSettled = now + NETWORK_SETTLE_MS;
-            // What the page read without a network says nothing.
-            modelLive = false;
-            loadedSignature = null;
-            scheduleReload();
-        }
-        if (networkSettled == 0 && now >= networkLimit) {
-            countdown.dismiss();
-            countdown = null;
-            // No guard for a start that cannot happen.
-            auto = Auto.GOING;
-            autoFailed(WakeFeedback.said(this, hostNameExtra, getString(R.string.open_play_no_network)));
-        } else if (networkSettled != 0 && now >= networkSettled) {
-            countdown.dismiss();
-            countdown = null;
-            startCountdown();
-        } else {
-            handler.postDelayed(networkTick, NETWORK_CHECK_MS);
-        }
-    }
-
-    /** The 3 seconds in which the player can still say no, naming the game and the PC. */
-    private void startCountdown() {
-        auto = Auto.COUNTING;
-        countdownEnd = SystemClock.elapsedRealtime() + OpenPlayModel.timing()[0];
-        countdown = new NavigationDialogBuilder(this)
-                .setTitle(titleExtra)
-                .setMessage(countdownText())
-                .setNegativeButton(android.R.string.cancel, (dialog, which) -> cancelCountdown())
-                .setOnCancelListener(dialog -> cancelCountdown())
-                .show();
-        focusCancel();
-        handler.postDelayed(countdownTick, 100);
-    }
-
-    private String countdownText() {
-        long left = Math.max(0, countdownEnd - SystemClock.elapsedRealtime());
-        return getString(R.string.open_play_countdown, hostNameExtra, (int) ((left + 999) / 1000));
-    }
-
-    private void tickCountdown() {
-        if (auto != Auto.COUNTING) return;
-        long now = SystemClock.elapsedRealtime();
-        if (now < countdownEnd) {
-            countdown.setMessage(countdownText());
-            // Each tick comes after the last one ran, so a late one moves the rest on: the last waits only for the end.
-            handler.postDelayed(countdownTick, Math.min(100, countdownEnd - now));
-            return;
-        }
-        countdown.dismiss();
-        countdown = null;
-        auto = Auto.GOING;
-        // Armed before anything can go wrong: only a good ending clears it.
-        OpenPlay.arm(this);
-        startAutoLimit();
-        // Another device may have started in these seconds, so only a read from after them decides.
-        generation++;
-        modelLive = false;
-        handler.removeCallbacks(reload);
-        reloadNow();
-    }
-
-    /** The countdown is over without a start; the guard stays as it was. */
-    private void stopCountdown() {
-        handler.removeCallbacks(countdownTick);
-        handler.removeCallbacks(networkTick);
-        if (countdown != null) {
-            countdown.dismiss();
-            countdown = null;
-        }
-        auto = Auto.OFF;
-    }
-
-    /** Cancel, B, Back or Escape: Home, or the list of PCs where that is the first screen. */
-    private void cancelCountdown() {
-        stopCountdown();
-        finish();
-    }
-
-    /** The page is loaded and the countdown over: wake the PC, or start the game. */
-    private void actOnAuto() {
-        ComputerDetails computer = currentHost();
-        if (computer != null && computer.state == ComputerDetails.State.UNKNOWN) {
-            // Not heard from yet is not offline: the next poll's news comes back here, within the limit.
-            modelLive = false;
-            return;
-        }
-        if (computer != null && computer.state == ComputerDetails.State.ONLINE && !model.hostOnline) {
-            // It came back after this page was read, which is out of date: read it again, within the limit.
-            modelLive = false;
-            scheduleReload();
-            return;
-        }
-        autoActed = true;
-        if (wakeable(model)) {
-            // The wake has its own limit.
-            stopAutoLimit();
-            wakeAndPlay();
-        } else {
-            startAuto(model);
-        }
-    }
-
-    private void startAutoLimit() {
-        if (autoLimitPosted) return;
-        autoLimitPosted = true;
-        handler.postDelayed(autoLoadLimit, AUTO_LOAD_LIMIT_MS);
-    }
-
-    private void stopAutoLimit() {
-        autoLimitPosted = false;
-        handler.removeCallbacks(autoLoadLimit);
-    }
-
-    /** The PC answers, or cannot be woken: the game starts, or the player learns why not. */
-    private void startAuto(GameDetailModel m) {
-        if (!m.canStart()) {
-            autoFailed(WakeFeedback.said(this, m.hostName, whyNot(m)));
-        } else if (m.playingElsewhere) {
-            // Nothing went wrong, so the next start is not skipped for it. Never moved automatically.
-            OpenPlay.disarm(this);
-            autoFailed(WakeFeedback.said(this, m.hostName, getString(R.string.open_play_other_device, m.hostName)));
-        } else if (m.libraryRead && (m.source == null ? !classicListCache
-                : !stableId.isEmpty() && !OpenPlay.sameGame(m.source, stableId))) {
-            // Its id is stale, or another game's by now; the PC would be asked for a game it no longer has.
-            autoFailed(WakeFeedback.said(this, m.hostName, getString(R.string.open_play_not_listed, m.hostName)));
-        } else if (m.sessionUnread && (m.source != null || classicListCache)) {
-            // Free is not what a failed read says: ask again, within the limit. (With nothing to start, Play says so.)
-            autoActed = false;
-            modelLive = false;
-            startAutoLimit();
-            handler.removeCallbacks(reload);
-            handler.postDelayed(reload, AUTO_RETRY_MS);
-        } else {
-            onPlay();
-        }
+    void stopAutoLimit() {
+        openPlay.stopAutoLimit();
     }
 
     /** Why Play cannot start the game on this page. */
-    private String whyNot(GameDetailModel m) {
+    String whyNot(GameDetailModel m) {
         if (m.blockedNote() != 0) return getString(m.blockedNote(), m.hostName);
         return getString(m.canWake() ? R.string.wol_no_mac : R.string.error_pc_offline);
-    }
-
-    /** The page never loaded in time: either the PC is away, or it answers without telling what it has. */
-    private void autoLoadFailed() {
-        ComputerDetails computer = currentHost();
-        boolean online = computer != null && computer.state == ComputerDetails.State.ONLINE;
-        autoFailed(WakeFeedback.said(this, hostNameExtra, !online ? getString(R.string.error_pc_offline)
-                : model != null && modelSaidNoSession() ? getString(R.string.open_play_no_answer, hostNameExtra)
-                : getString(R.string.open_play_no_list, hostNameExtra)));
-    }
-
-    /** The list came, and it was the session that kept the start waiting. */
-    private boolean modelSaidNoSession() {
-        return model.sessionUnread && (model.source != null || classicListCache);
-    }
-
-    /** The automatic part is over; what follows is the page's usual behaviour. */
-    private void endAuto() {
-        auto = Auto.OFF;
-        stopAutoLimit();
-        followTurnSoon();
-    }
-
-    /** An automatic start failed and says so: the player lands on Home, and the guard stays armed. */
-    private void autoFailed(AlertDialog said) {
-        if (auto != Auto.GOING) return;
-        endAuto();
-        if (said == null) {
-            finish();
-        } else {
-            said.setOnDismissListener(dialog -> finish());
-        }
-    }
-
-    /** The usual feedback, ending an automatic start: it does not offer to try again, it goes to Home. */
-    private void wakeFailed(int message, Runnable retry) {
-        autoFailed(WakeFeedback.failed(this, model.hostName, message, auto == Auto.GOING ? null : retry));
-    }
-
-    /**
-     * The page sits on the game's backdrop on every form. Opened from Home, it is the picture Home was showing for the game,
-     * shown at once, so the page change keeps the screen's light; otherwise it fades in when the cover is loaded.
-     */
-    private void setUpAmbience() {
-        com.limelight.ui.GlassForm form = com.limelight.ui.GlassForm.of(this);
-        boolean tv = form == com.limelight.ui.GlassForm.TELEVISION;
-        int canvas = tv ? AppTheme.tvCanvas(this)
-                : com.google.android.material.color.MaterialColors.getColor(backdrop, R.attr.glassCanvas);
-        // Held sideways the page is Home's hero grown to a page: the ambient bakes for the theme and fades as Home's does.
-        // That layout is the sideways one whatever the device, so a phone turned on its side bakes as a handheld does.
-        // Held upright the page is the sheet: the ambient is a phone Home's, the art at the top where the cover is.
-        boolean sideways = getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
-        if (!tv) HomeChrome.setUpBackdrop(this, sideways ? com.limelight.ui.GlassForm.HANDHELD : com.limelight.ui.GlassForm.PHONE, backdrop, canvas);
-        getWindow().setBackgroundDrawable(new ColorDrawable(canvas));
-        ((ViewGroup) findViewById(android.R.id.content)).setClipChildren(false);
-        // The system bars' padding sits on the content view as well: the backdrop reaches under the status bar, as Home's does.
-        if (!tv) ((ViewGroup) findViewById(android.R.id.content)).setClipToPadding(false);
-        // Nothing on the page clips its children, so a focus halo and the sheet's foot can draw past their views. Scrolled,
-        // the page would then run over the bar above it: the scrolling part is cut at its own top edge, and only there.
-        View scroll = findViewById(R.id.detail_scroll);
-        if (scroll != null) {
-            int far = getResources().getDisplayMetrics().heightPixels;
-            scroll.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) ->
-                    v.setClipBounds(new android.graphics.Rect(-far, 0, r - l + far, b - t + far)));
-        }
-        backdrop.setCanvasColor(canvas);
-        backdrop.setDim(AppTheme.isHighContrast(this) ? 0.85f : 1f);
-        backdrop.setOnCovered(() -> getWindow().setBackgroundDrawable(null));
-        backdrop.adopt(HomeAmbience.gameKey(hostUuid, appId, titleExtra));
-    }
-
-    /** Asks the backdrop for this game's cover; a cover still loading asks again when it arrives (see the art listener). */
-    private void askBackdrop() {
-        GameDetailModel m = model;
-        if (backdrop == null || covers == null || m == null) return;
-        NvApp app = CoverLoaders.appOf(m.title, m.appId, m.source);
-        ComputerDetails from = CoverLoaders.coverHost(shownComputer, m.source);
-        backdrop.focus(HomeAmbience.gameKey(hostUuid, appId, titleExtra), covers.peek(from, app),
-                covers.lacksArt(from, app), m.title, false);
     }
 
     @Override
@@ -547,25 +194,13 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         // The game may have started or ended while the stream was in front.
         loadedSignature = null;
         scheduleReload();
-        if (auto == Auto.WAITING && !PinGate.needsPinForApp(this)) {
-            if (hasNetwork()) {
-                startCountdown();
-            } else {
-                waitForNetwork();
-            }
-        }
+        openPlay.onResume();
     }
 
     @Override
     protected void onPause() {
         shown = false;
-        if (auto == Auto.COUNTING || auto == Auto.NETWORK) {
-            stopCountdown();
-        } else if (auto == Auto.GOING) {
-            // Leaving the page during the start, the wake's wait for one, is the player's choice.
-            endAuto();
-            OpenPlay.disarm(this);
-        }
+        openPlay.onPause();
         // The feed stops polling with the screen, so a wait could not see the PC come up: it ends here.
         cancelWake();
         if (feed != null) {
@@ -612,7 +247,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     public void onHostsChanged() {
         // An automatic start and a wake wait on the polls themselves, so each one reloads as long as they last.
         // Otherwise every poll reports the PC, changed or not, and only news is worth reading the page again for.
-        boolean waitsOnPolls = auto != Auto.OFF || playWhenReady || (waker != null && waker.isWaiting());
+        boolean waitsOnPolls = auto != Auto.OFF || playWhenReady || isWakeWaiting();
         if (waitsOnPolls || drawn.changed(drawnFrom(feed.host(hostUuid)), false)) {
             scheduleReload();
         }
@@ -622,9 +257,20 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         return host == null ? Collections.<ComputerDetails>emptyList() : Collections.singletonList(host);
     }
 
-    private void scheduleReload() {
+    void scheduleReload() {
+        scheduleReloadDelayed(DEBOUNCE_MS);
+    }
+
+    void scheduleReloadDelayed(long delayMs) {
         handler.removeCallbacks(reload);
-        handler.postDelayed(reload, DEBOUNCE_MS);
+        handler.postDelayed(reload, delayMs);
+    }
+
+    void forceLiveReload() {
+        generation++;
+        modelLive = false;
+        handler.removeCallbacks(reload);
+        reloadNow();
     }
 
     private void reloadNow() {
@@ -643,9 +289,9 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
             float coverWidth = cover != null && cover.getLayoutParams().width > 0 ? cover.getLayoutParams().width
                     : getResources().getDimension(R.dimen.detail_cover_width);
             covers = new CoverLoaders(this, uniqueId, Math.round(coverWidth / getResources().getDisplayMetrics().density));
-            if (backdrop != null) {
+            if (views.hasBackdrop()) {
                 covers.setArtListener(app -> {
-                    if (app.getAppId() == appId) askBackdrop();
+                    if (app.getAppId() == appId) views.askBackdrop();
                 });
             }
         }
@@ -661,7 +307,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         final boolean online = computer.state == ComputerDetails.State.ONLINE;
         final boolean nativeHost = computer.caps.has(HostCapabilities.Feature.NATIVE_API);
         if (refresh) {
-            loading.setVisibility(View.VISIBLE);
+            views.setLoading(true);
         }
         worker.execute(() -> {
             try {
@@ -703,18 +349,6 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         });
     }
 
-    /** Whether the game is starred, as last read; the toggle flips it and re-renders without a reload. */
-    private boolean favouriteCache;
-
-    /** Counts toggles, so a read that began before one cannot undo it. */
-    private int favouriteVersion;
-
-    /** Host control as last read; a host that did not answer counts as without. */
-    private volatile boolean controlCache;
-
-    /** The PC's classic list, as last saved, has this id: a tile its native library does not list. */
-    private volatile boolean classicListCache;
-
     /** The host's stable id of this game in the library, or empty. */
     private String keyIn(ConsoleSnapshot snapshot) {
         ConsoleSnapshot.Host listed = snapshot.host(hostUuid);
@@ -743,14 +377,14 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
             }
             render(next, computer);
             if (done) {
-                loading.setVisibility(View.GONE);
-                if (auto == Auto.GOING && !autoActed) {
-                    if (live) actOnAuto();
-                } else if (playWhenReady && (waker == null || !waker.isWaiting()) && (auto != Auto.GOING || live)) {
+                views.setLoading(false);
+                if (auto == Auto.GOING && !openPlay.autoActed) {
+                    if (live) openPlay.actOnAuto();
+                } else if (playWhenReady && !isWakeWaiting() && (auto != Auto.GOING || live)) {
                     // The PC woke and the page is fresh from it: the Play that started the wait carries on, once.
                     playWhenReady = false;
                     if (auto == Auto.GOING) {
-                        startAuto(next);
+                        openPlay.startAuto(next);
                     } else if (next.canStart()) {
                         onPlay();
                     } else {
@@ -765,214 +399,29 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     void render(GameDetailModel m, ComputerDetails computer) {
         // A wake or a start that ended is drawn here: a turn it kept waiting is followed now.
         if (heldNow != laidOutFor) followTurnSoon();
-        title.setText(m.title);
-        host.setText(m.hostName);
-        setTitle(m.title);
-        covers.bind(CoverLoaders.coverHost(computer, m.source), CoverLoaders.appOf(m.title, m.appId, m.source), cover, coverText);
-        renderFacts(m);
-
-        CharSequence chip = null;
-        if (m.state == GameDetailModel.State.RUNNING) {
-            chip = getString(R.string.console_badge_running);
-        } else if (m.state == GameDetailModel.State.SUSPENDED) {
-            chip = getString(R.string.console_badge_suspended);
-        }
-        status.setText(chip);
-        status.setVisibility(chip == null ? View.GONE : View.VISIBLE);
-        if (chips == null) {
-            // As on the library cards: a running game's chip leads with the green dot.
-            status.setCompoundDrawablesRelativeWithIntrinsicBounds(
-                    m.state == GameDetailModel.State.RUNNING ? R.drawable.status_dot_ok : 0, 0, 0, 0);
-        }
-        if (chips != null) {
-            shownComputer = computer;
-            renderChips(m, chip != null);
-            askBackdrop();
-        }
-
-        renderPlay(m);
-        if (!m.hostOnline) {
-            note.setText(waker != null && waker.isWaiting() ? getString(R.string.console_wake_waiting, m.hostName)
-                    : getString(R.string.library_offline));
-            note.setVisibility(View.VISIBLE);
-        } else if (m.blockedNote() != 0) {
-            // Play is off: say why ("Not installed on Living-room PC").
-            note.setText(getString(m.blockedNote(), m.hostName));
-            note.setVisibility(View.VISIBLE);
-        } else if (m.otherRunningTitle != null) {
-            note.setText(getString(R.string.console_detail_replaces, m.otherRunningTitle));
-            note.setVisibility(View.VISIBLE);
-        } else {
-            note.setVisibility(View.GONE);
-        }
-
-        switch (m.endAction) {
-            case CLOSE_GAME:
-                end.setText(R.string.stream_close_game);
-                end.setVisibility(View.VISIBLE);
-                break;
-            case QUIT:
-                end.setText(R.string.applist_menu_quit);
-                end.setVisibility(View.VISIBLE);
-                break;
-            default:
-                end.setVisibility(View.GONE);
-                break;
-        }
-
-        renderFavourite();
-
-        StreamProfileSummary profile = StreamProfileSummary.of(this, computer,
-                m.source != null ? m.source.appUuid : null, m.appId);
-        profileValues.setText(profile.values);
-        profileLayers.setText(profile.layersOrMain(this));
-        // The profile is the player's to change here, as in the library's menu; without profiles the row only tells.
-        boolean choosable = StreamProfilePicker.inUse(this) != null;
-        profileRow.setClickable(choosable);
-        profileRow.setFocusable(choosable);
-        renderQuitOnLeave(m, computer);
-
-        if (focusPending && play.isEnabled() && !play.isInTouchMode()) {
-            focusPending = false;
-            play.requestFocus();
-        }
+        views.render(m, computer);
     }
 
-    /** Opens the profile chooser; a choice is the active profile, and the values above follow it. */
-    private void chooseProfile() {
-        ActionSheet picker = StreamProfilePicker.chooser(this, this::rerender);
-        if (picker != null) {
-            picker.show();
-        }
-    }
-
-    /** The game's own quit-on-leave switch, under the conditions of the library's long-press menu. */
-    private void renderQuitOnLeave(GameDetailModel m, ComputerDetails computer) {
-        boolean offered = offersQuitOnLeave(m, computer);
-        quitOnLeave.setVisibility(offered ? View.VISIBLE : View.GONE);
-        quitOnLeaveGame = offered ? m : null;
-        quitOnLeaveComputer = offered ? computer : null;
-        if (!offered) return;
-        boolean enabled = com.limelight.preferences.AppQuitOnLeave.isEnabled(this, hostUuid, m.source.appUuid, m.appId);
-        quitOnLeaveSwitch.setChecked(enabled);
-        quitOnLeaveNote.setText(enabled ? R.string.library_quit_on_leave_on : R.string.library_quit_on_leave_off);
-    }
-
-    /**
-     * Only for a game the host has added and this device may start: without the launch permission every Disconnect would
-     * ask the PC to quit and fail. It also needs the game's entry in the library, whose UUID is the key the library,
-     * AppQuitOnLeave and the stream check on a host that reports one; a page without it would write the id-only key.
-     */
     static boolean offersQuitOnLeave(GameDetailModel m, ComputerDetails computer) {
-        return computer != null && computer.hasPermission(ComputerDetails.PERMISSION_LAUNCH)
-                && m.appId > 0 && m.source != null && m.source.added;
+        return GameDetailView.offersQuitOnLeave(m, computer);
     }
 
-    /** Flips it in place, as the library's menu does; the note and a spoken line say what leaving now does. */
-    private void onQuitOnLeave() {
-        GameDetailModel m = quitOnLeaveGame;
-        if (m == null) return;
-        boolean enabled = !quitOnLeaveSwitch.isChecked();
-        com.limelight.preferences.AppQuitOnLeave.setEnabled(this, hostUuid, m.source.appUuid, m.appId, enabled);
-        renderQuitOnLeave(m, quitOnLeaveComputer);
-        quitOnLeave.announceForAccessibility(quitOnLeaveNote.getText());
-    }
-
-    /** The game's facts under the host line, from a record kept on disk or a lookup that runs in the background. */
-    private void renderFacts(GameDetailModel m) {
-        if (factsView == null || !GameInfo.factsWanted(this)) return;
-        GameInfo.Game game = new GameInfo.Game(m.title, m.source == null ? null : m.source.gameId,
-                m.source == null ? null : m.source.storeSource, m.source == null ? null : m.source.storeId);
-        String id = game.name + "\n" + game.gameId + "\n" + game.storeSource + "\n" + game.storeId;
-        if (id.equals(factsShownFor)) return;
-        factsShownFor = id;
-        factsView.setVisibility(View.GONE);
-        java.util.function.Consumer<org.json.JSONObject> show = facts -> {
-            if (isFinishing() || isDestroyed() || !id.equals(factsShownFor)) return;
-            java.util.List<String> lines = GameInfo.describe(this, facts);
-            if (lines.isEmpty()) return;
-            factsView.setText(android.text.TextUtils.join("\n", lines));
-            factsView.setVisibility(View.VISIBLE);
-        };
-        GameInfo info = GameInfo.get(this);
-        Thread thread = new Thread(() -> {
-            org.json.JSONObject kept = info.cachedFacts(game);
-            if (kept != null) runOnUiThread(() -> show.accept(kept));
-            else info.facts(game, show);
-        }, "game-info-facts");
-        thread.setDaemon(true);
-        thread.start();
-    }
-
-    /** The TV chip line: the state with its dot, installed or not when the host says, and HDR when the game has it. */
-    private void renderChips(GameDetailModel m, boolean hasState) {
-        int dot = m.state == GameDetailModel.State.RUNNING ? R.drawable.tv_dot_live : R.drawable.tv_dot_suspended;
-        status.setCompoundDrawablesRelativeWithIntrinsicBounds(hasState ? dot : 0, 0, 0, 0);
-        Boolean isInstalled = m.source != null ? m.source.installed : null;
-        installed.setText(Boolean.FALSE.equals(isInstalled) ? R.string.console_chip_not_installed : R.string.console_detail_installed);
-        installed.setVisibility(isInstalled == null ? View.GONE : View.VISIBLE);
-        hdr.setVisibility(m.source != null && m.source.hdrSupported ? View.VISIBLE : View.GONE);
-        if (store != null) renderStore(m.source);
-        boolean any = hasState || isInstalled != null || hdr.getVisibility() == View.VISIBLE
-                || (store != null && store.getVisibility() == View.VISIBLE);
-        chips.setVisibility(any ? View.VISIBLE : View.GONE);
-        chips.setContentDescription(chipsDescription((ViewGroup) chips));
-    }
-
-    /** The store chip (TV layout only): the store's glyph, at the chip text's size, beside its name; gone for a game no store owns. */
-    private void renderStore(ConsoleSnapshot.Source source) {
-        String key = source == null ? null : source.storeSource;
-        String name = source == null ? null : Stores.name(key, source.storeName);
-        store.setText(name);
-        store.setVisibility(name == null ? View.GONE : View.VISIBLE);
-        int glyph = Stores.glyph(key);
-        Drawable icon = glyph == 0 ? null : ContextCompat.getDrawable(this, glyph);
-        if (icon != null) {
-            icon = icon.mutate();
-            icon.setTint(store.getCurrentTextColor());
-            int size = Math.round(store.getTextSize());
-            icon.setBounds(0, 0, size, size);
-        }
-        store.setCompoundDrawablesRelative(icon, null, null, null);
-    }
-
-    /** What a screen reader hears for the chip line, read as one stop: the shown chips' texts, in order. */
     static CharSequence chipsDescription(ViewGroup chips) {
-        StringBuilder spoken = new StringBuilder();
-        for (int i = 0; i < chips.getChildCount(); i++) {
-            View child = chips.getChildAt(i);
-            if (child.getVisibility() != View.VISIBLE || !(child instanceof TextView)) continue;
-            CharSequence text = ((TextView) child).getText();
-            if (text == null || text.length() == 0) continue;
-            if (spoken.length() > 0) spoken.append(", ");
-            spoken.append(text);
-        }
-        return spoken.length() == 0 ? null : spoken.toString();
-    }
-
-    /** Play, Resume, or for a PC that is away Wake PC and play (Waking PC while the wait lasts); never greyed out then. */
-    private void renderPlay(GameDetailModel m) {
-        boolean waiting = waker != null && waker.isWaiting();
-        if (wakeable(m)) {
-            play.setText(waiting ? R.string.wol_waking_pc : R.string.console_wake_and_play);
-        } else {
-            play.setText(m.resumes() ? R.string.applist_menu_resume : R.string.library_play);
-        }
-        play.setEnabled(m.canStart() || wakeable(m));
+        return GameDetailView.chipsDescription(chips);
     }
 
     /** The PC is away and a wake packet can be sent to it (it has a MAC address); otherwise Play stays greyed out. */
-    private boolean wakeable(GameDetailModel m) {
+    boolean wakeable(GameDetailModel m) {
         return m.canWake() && HostWaker.canWake(this, currentHost());
     }
 
     /** Draws the page again from what it has, so notes that depended on the wait (waiting for the PC) clear. */
-    private void rerender() {
+    void rerender() {
         ComputerDetails computer = currentHost();
         if (model != null && computer != null) {
             render(model, computer);
         } else if (model != null) {
-            renderPlay(model);
+            views.renderPlay(model);
         }
     }
 
@@ -985,13 +434,13 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
     }
 
     /** Play on a PC that is away: send the wake packets, wait for it, and let {@link #show} carry on with the game. */
-    private void wakeAndPlay() {
+    void wakeAndPlay() {
         ComputerDetails computer = currentHost();
-        if (waker != null && waker.isWaiting()) {
+        if (isWakeWaiting()) {
             return;
         }
         if (computer == null) {
-            wakeFailed(R.string.error_pc_offline, null);
+            openPlay.wakeFailed(R.string.error_pc_offline, null);
             return;
         }
         if (computer.state == ComputerDetails.State.ONLINE) {
@@ -999,14 +448,14 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
             // An automatic start has no second press: it plays once the page is fresh.
             playWhenReady = auto == Auto.GOING;
             // No wake to time this: without a limit, a read that never comes back would leave it waiting for good.
-            if (auto == Auto.GOING) startAutoLimit();
+            if (auto == Auto.GOING) openPlay.startAutoLimit();
             modelLive = false;
             loadedSignature = null;
             scheduleReload();
             return;
         }
         if (!HostWaker.canWake(this, computer)) {
-            wakeFailed(R.string.wol_no_mac, null);
+            openPlay.wakeFailed(R.string.wol_no_mac, null);
             return;
         }
         if (waker == null) {
@@ -1018,12 +467,12 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
                         // The service is gone, so the page cannot reload or start anything: say so, start nothing.
                         playWhenReady = false;
                         rerender();
-                        wakeFailed(R.string.error_manager_not_running, null);
+                        openPlay.wakeFailed(R.string.error_manager_not_running, null);
                         return;
                     }
                     // Reload at once: the page needs the PC's library and its running game before it plays.
                     // The wake's limit ended with the wake; a read that never comes back needs its own.
-                    if (auto == Auto.GOING) startAutoLimit();
+                    if (auto == Auto.GOING) openPlay.startAutoLimit();
                     modelLive = false;
                     loadedSignature = null;
                     handler.removeCallbacks(reload);
@@ -1034,7 +483,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
                 public void onTimedOut() {
                     playWhenReady = false;
                     rerender();
-                    autoFailed(WakeFeedback.timedOut(GameDetailActivity.this, model.hostName,
+                    openPlay.autoFailed(WakeFeedback.timedOut(GameDetailActivity.this, model.hostName,
                             auto == Auto.GOING ? null : GameDetailActivity.this::wakeAndPlay));
                 }
 
@@ -1042,18 +491,13 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
                 public void onSendFailed(IOException error) {
                     playWhenReady = false;
                     rerender();
-                    wakeFailed(R.string.wol_fail, GameDetailActivity.this::wakeAndPlay);
+                    openPlay.wakeFailed(R.string.wol_fail, GameDetailActivity.this::wakeAndPlay);
                 }
             });
         }
         playWhenReady = true;
         waker.start();
         render(model, computer);
-    }
-
-    private void renderFavourite() {
-        favourite.setText(favouriteCache ? R.string.console_favourite_remove : R.string.console_favourite_add);
-        favourite.setIconResource(favouriteCache ? R.drawable.ic_star_filled : R.drawable.ic_star);
     }
 
     private void onFavourite() {
@@ -1064,7 +508,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         boolean starred = !favouriteCache;
         favouriteCache = starred;
         favouriteVersion++;
-        renderFavourite();
+        views.renderFavourite(favouriteCache);
         String starTitle = model.title;
         String starHost = model.hostName;
         String starKey = model.source != null ? model.source.stableId() : "";
@@ -1075,11 +519,11 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         return CoverLoaders.appOf(model.title, model.appId, model.source);
     }
 
-    private ComputerDetails currentHost() {
+    ComputerDetails currentHost() {
         return feed.host(hostUuid);
     }
 
-    private void onPlay() {
+    void onPlay() {
         ComputerDetails computer = currentHost();
         if (model != null && wakeable(model)) {
             wakeAndPlay();
@@ -1089,12 +533,12 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
             return;
         }
         if (computer == null) {
-            wakeFailed(R.string.error_pc_offline, null);
+            openPlay.wakeFailed(R.string.error_pc_offline, null);
             return;
         }
         if (feed.binder() == null) {
             // The computer manager service is not connected yet: say so instead of ignoring the press.
-            wakeFailed(R.string.error_manager_not_running, null);
+            openPlay.wakeFailed(R.string.error_manager_not_running, null);
             return;
         }
         NvApp app = app();
@@ -1109,7 +553,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         if (plan.kind == PlayPlan.Kind.START) {
             if (auto == Auto.GOING && model.source == null && !classicListCache) {
                 // Nothing says this id is still good: the PC's list could not be read, and none is saved.
-                autoFailed(WakeFeedback.said(this, model.hostName, getString(R.string.open_play_no_list, model.hostName)));
+                openPlay.autoFailed(WakeFeedback.said(this, model.hostName, getString(R.string.open_play_no_list, model.hostName)));
                 return;
             }
             play(app, computer);
@@ -1117,7 +561,7 @@ public class GameDetailActivity extends NightjarActivity implements HostFeed.Lis
         }
         if (auto == Auto.GOING) {
             // Another game runs there: the player decides now, so this is no longer an automatic start.
-            endAuto();
+            openPlay.endAuto();
             OpenPlay.disarm(this);
         }
         // A host that confirms replacement asks the player itself; elsewhere the client asks, then closes the game.

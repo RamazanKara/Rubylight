@@ -1,6 +1,5 @@
 package com.limelight.preferences;
 
-import androidx.annotation.RequiresApi;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -11,21 +10,12 @@ import android.graphics.Typeface;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
-import android.hardware.SensorManager;
 import android.hardware.input.InputManager;
-import android.hardware.lights.Light;
-import android.hardware.lights.LightState;
-import android.hardware.lights.LightsManager;
-import android.hardware.lights.LightsRequest;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.CombinedVibration;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
-import android.os.VibrationEffect;
-import android.os.Vibrator;
-import android.os.VibratorManager;
 import android.util.AttributeSet;
 import android.view.InputDevice;
 import android.view.KeyEvent;
@@ -34,21 +24,17 @@ import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
-import com.limelight.ui.NightjarActivity;
-
 import com.google.android.material.chip.Chip;
 import com.google.android.material.chip.ChipGroup;
 import com.google.android.material.color.MaterialColors;
-import com.limelight.LimeLog;
 import com.limelight.R;
-import com.limelight.binding.input.ControllerButtonMap;
 import com.limelight.binding.input.ControllerTestModel;
-import com.limelight.binding.input.RumblePolicy;
 import com.limelight.binding.input.driver.AbstractController;
 import com.limelight.binding.input.driver.UsbDriverListener;
 import com.limelight.binding.input.driver.UsbDriverService;
 import com.limelight.nvstream.input.ControllerPacket;
 import com.limelight.nvstream.jni.MoonBridge;
+import com.limelight.ui.NightjarActivity;
 import com.limelight.ui.TopAppBar;
 import com.limelight.utils.UiHelper;
 
@@ -71,21 +57,14 @@ public class ControllerTestActivity extends NightjarActivity implements UsbDrive
     }
 
     private static final long HOLD_TO_LEAVE_MS = 1000;
-    private static final int RUMBLE_MS = 600;
-    private static final int[] LIGHT_COLORS = {0xFFFF0000, 0xFF00FF00, 0xFF0000FF};
-    private static final int[] LIGHT_NAMES = {R.string.controller_test_light_red,
-            R.string.controller_test_light_green, R.string.controller_test_light_blue};
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable leave = this::finish;
-    private final Runnable rumbleTimeout = this::stopRumble;
 
-    private TextView deviceView, pressedView, stickValuesView, axesView, rumbleNote, lightsNote, motionView, touchpadView;
-    private ChipGroup buttonChips, rumbleActions, lightActions;
+    private TextView deviceView, pressedView, stickValuesView, axesView, motionView, touchpadView;
     private final List<Chip> chips = new ArrayList<>();
     private SticksView sticks;
-    private boolean rumbleDisabledForStreams;
-    private RumblePolicy.Feel rumbleFeel = RumblePolicy.Feel.STANDARD;
+    private ControllerTestOutputs outputs;
 
     // The controller under test: an Android input device, or one Nightjar's USB driver owns.
     private InputDevice device;
@@ -97,15 +76,7 @@ public class ControllerTestActivity extends NightjarActivity implements UsbDrive
     private float leftX, leftY, rightX, rightY, leftTrigger, rightTrigger;
     private float[] gyro, accel;
     private String touch;
-    private boolean hasTouchpad, hasMotion, resumed;
-    private boolean motionFallbackToDevice;
-
-    private VibratorManager vibratorManager;
-    private Vibrator vibrator;
-    private LightsManager.LightsSession lightsSession;
-    private final List<Light> rgbLights = new ArrayList<>();
-    private SensorManager sensorManager;
-    private Sensor gyroSensor, accelSensor;
+    private boolean resumed;
 
     private InputManager inputManager;
     private boolean usbBound;
@@ -135,13 +106,13 @@ public class ControllerTestActivity extends NightjarActivity implements UsbDrive
         pressedView = body.findViewById(R.id.controller_test_pressed);
         stickValuesView = body.findViewById(R.id.controller_test_stick_values);
         axesView = body.findViewById(R.id.controller_test_axes);
-        rumbleNote = body.findViewById(R.id.controller_test_rumble_note);
-        lightsNote = body.findViewById(R.id.controller_test_lights_note);
+        TextView rumbleNote = body.findViewById(R.id.controller_test_rumble_note);
+        TextView lightsNote = body.findViewById(R.id.controller_test_lights_note);
         motionView = body.findViewById(R.id.controller_test_motion_values);
         touchpadView = body.findViewById(R.id.controller_test_touchpad_values);
-        buttonChips = body.findViewById(R.id.controller_test_buttons);
-        rumbleActions = body.findViewById(R.id.controller_test_rumble_actions);
-        lightActions = body.findViewById(R.id.controller_test_light_actions);
+        ChipGroup buttonChips = body.findViewById(R.id.controller_test_buttons);
+        ChipGroup rumbleActions = body.findViewById(R.id.controller_test_rumble_actions);
+        ChipGroup lightActions = body.findViewById(R.id.controller_test_light_actions);
         sticks = body.findViewById(R.id.controller_test_sticks);
         for (int flag : ControllerTestModel.BUTTONS) {
             Chip chip = new Chip(this);
@@ -155,17 +126,17 @@ public class ControllerTestActivity extends NightjarActivity implements UsbDrive
             chips.add(chip);
             buttonChips.addView(chip);
         }
+        outputs = new ControllerTestOutputs(this, handler, this, () -> device, () -> usbController,
+                rumbleActions, lightActions, rumbleNote, lightsNote);
         PreferenceConfiguration config = PreferenceConfiguration.readPreferences(this);
-        rumbleDisabledForStreams = config.disableRumble;
-        motionFallbackToDevice = config.gamepadMotionSensorsFallbackToDevice;
-        rumbleFeel = RumblePolicy.Feel.fromKey(config.rumbleFeel);
+        outputs.configure(config);
         usbBound = (config.usbDriver || config.usbDualSense || config.usbSwitchPro) &&
                 bindService(new Intent(this, UsbDriverService.class), usbConnection, Context.BIND_AUTO_CREATE);
         inputManager = (InputManager) getSystemService(Context.INPUT_SERVICE);
         inputManager.registerInputDeviceListener(this, handler);
         UiHelper.notifyNewRootView(this);
         selectSingleConnectedController();
-        buildActions();
+        outputs.buildActions();
         render();
     }
 
@@ -174,24 +145,15 @@ public class ControllerTestActivity extends NightjarActivity implements UsbDrive
         super.onResume();
         resumed = true;
         // Pausing turned a USB pad's motion reports off.
-        armUsbMotion();
-        registerSensors();
-    }
-
-    private void armUsbMotion() {
-        if (usbController == null ||
-                (usbController.getCapabilities() & (MoonBridge.LI_CCAP_ACCEL | MoonBridge.LI_CCAP_GYRO)) == 0) {
-            return;
-        }
-        usbController.setMotionEventState(MoonBridge.LI_MOTION_TYPE_ACCEL, (short) 60);
-        usbController.setMotionEventState(MoonBridge.LI_MOTION_TYPE_GYRO, (short) 60);
+        outputs.armUsbMotion(usbController);
+        outputs.registerSensors();
     }
 
     @Override
     protected void onPause() {
         resumed = false;
         handler.removeCallbacks(leave);
-        releaseOutputs();
+        outputs.release();
         super.onPause();
     }
 
@@ -222,39 +184,17 @@ public class ControllerTestActivity extends NightjarActivity implements UsbDrive
         }
     }
 
-    // Leaves the controller as it was found: no rumble, the system's lights, no sensor listeners.
-    private void releaseOutputs() {
-        stopRumble();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && lightsSession != null) {
-            lightsSession.close();
-            lightsSession = null;
-        }
-        if (sensorManager != null) {
-            sensorManager.unregisterListener(this);
-        }
-        if (usbController != null) {
-            usbController.setMotionEventState(MoonBridge.LI_MOTION_TYPE_ACCEL, (short) 0);
-            usbController.setMotionEventState(MoonBridge.LI_MOTION_TYPE_GYRO, (short) 0);
-        }
-    }
-
     private void resetReadings() {
         keyButtons = hatButtons = usbButtons = lastHat = 0;
         leftX = leftY = rightX = rightY = leftTrigger = rightTrigger = 0;
         gyro = accel = null;
         touch = null;
         axes.clear();
-        vibratorManager = null;
-        vibrator = null;
-        rgbLights.clear();
-        if (sensorManager != null) sensorManager.unregisterListener(this);
-        sensorManager = null;
-        gyroSensor = accelSensor = null;
-        hasTouchpad = hasMotion = false;
+        outputs.reset();
     }
 
     private void select(InputDevice dev) {
-        releaseOutputs();
+        outputs.release();
         resetReadings();
         usbController = null;
         device = dev;
@@ -265,253 +205,12 @@ public class ControllerTestActivity extends NightjarActivity implements UsbDrive
         }
         boolean nonStandardDs4 = dev.getVendorId() == 0x054c && dev.hasKeys(KeyEvent.KEYCODE_BUTTON_C)[0];
         layout = ControllerTestModel.layout(axes, nonStandardDs4);
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            selectOutputs(dev);
-        }
-        else if (dev.getVibrator().hasVibrator()) {
-            vibrator = dev.getVibrator();
-        }
-        selectDeviceMotion(dev.getVendorId(), dev.getProductId(), dev.getName());
-        hasTouchpad = hasTouchpad(dev);
+        outputs.selectInputDevice(dev);
         if (resumed) {
-            registerSensors();
+            outputs.registerSensors();
         }
-        buildActions();
+        outputs.buildActions();
         render();
-    }
-
-    // A pad without motion sensors of its own streams this device's, as player 1 does in a stream
-    // (the test has one pad, so it shows what that pad gets as player 1). `name` is null for a pad
-    // the USB driver runs, as its button map is keyed.
-    private void selectDeviceMotion(int vendorId, int productId, String name) {
-        SensorManager system = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
-        if (system == null) return;
-        Sensor deviceGyro = system.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
-        Sensor deviceAccel = system.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
-        boolean pinnedXbox = ControllerButtonMap.load(this,
-                ControllerButtonMap.deviceKey(vendorId, productId, name))
-                .connectAs() == MoonBridge.LI_CTYPE_XBOX;
-        if (ControllerTestModel.usesDeviceMotion(hasMotion, motionFallbackToDevice, pinnedXbox,
-                deviceGyro != null || deviceAccel != null)) {
-            sensorManager = system;
-            gyroSensor = deviceGyro;
-            accelSensor = deviceAccel;
-            hasMotion = true;
-        }
-    }
-
-    @RequiresApi(31)
-    private void selectOutputs(InputDevice dev) {
-        VibratorManager manager = dev.getVibratorManager();
-        if (manager.getVibratorIds().length > 0) {
-            vibratorManager = manager;
-        }
-        else if (dev.getVibrator().hasVibrator()) {
-            vibrator = dev.getVibrator();
-        }
-        for (Light light : dev.getLightsManager().getLights()) {
-            if (ControllerTestModel.trustRgbLight(Build.VERSION.SDK_INT, dev.getVendorId(), light.hasRgbControl())) {
-                rgbLights.add(light);
-            }
-        }
-        if (ControllerTestModel.canProbeSensors(Build.VERSION.SDK_INT, dev.getVendorId())) {
-            try {
-                SensorManager manager2 = dev.getSensorManager();
-                gyroSensor = manager2.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
-                accelSensor = manager2.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
-                if (gyroSensor != null || accelSensor != null) {
-                    sensorManager = manager2;
-                    hasMotion = true;
-                }
-            } catch (RuntimeException e) {
-                LimeLog.warning("Controller sensors unavailable: " + e);
-            }
-        }
-    }
-
-    private static boolean hasTouchpad(InputDevice dev) {
-        if ((dev.getSources() & InputDevice.SOURCE_TOUCHPAD) == InputDevice.SOURCE_TOUCHPAD) {
-            return true;
-        }
-        // Some kernels split a PlayStation pad's touch pad into its own device.
-        for (int id : InputDevice.getDeviceIds()) {
-            InputDevice other = InputDevice.getDevice(id);
-            if (other != null && other.getId() != dev.getId() && other.getVendorId() == dev.getVendorId() &&
-                    other.getProductId() == dev.getProductId() &&
-                    (other.getSources() & InputDevice.SOURCE_TOUCHPAD) == InputDevice.SOURCE_TOUCHPAD) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private void registerSensors() {
-        if (sensorManager == null) return;
-        if (gyroSensor != null) sensorManager.registerListener(this, gyroSensor, SensorManager.SENSOR_DELAY_UI, handler);
-        if (accelSensor != null) sensorManager.registerListener(this, accelSensor, SensorManager.SENSOR_DELAY_UI, handler);
-    }
-
-    private void buildActions() {
-        rumbleActions.removeAllViews();
-        lightActions.removeAllViews();
-        short caps = usbController != null ? usbController.getCapabilities() : 0;
-        if (usbController != null) {
-            if ((caps & MoonBridge.LI_CCAP_RUMBLE) != 0) {
-                addAction(rumbleActions, R.string.controller_test_rumble_strong, v -> usbRumble((short) 0xFFFF, (short) 0));
-                addAction(rumbleActions, R.string.controller_test_rumble_weak, v -> usbRumble((short) 0, (short) 0xFFFF));
-                addAction(rumbleActions, R.string.controller_test_rumble_all, v -> usbRumble((short) 0xFFFF, (short) 0xFFFF));
-            }
-            if ((caps & MoonBridge.LI_CCAP_TRIGGER_RUMBLE) != 0) {
-                addAction(rumbleActions, R.string.controller_test_rumble_left_trigger, v -> usbTriggerRumble((short) 0xFFFF, (short) 0));
-                addAction(rumbleActions, R.string.controller_test_rumble_right_trigger, v -> usbTriggerRumble((short) 0, (short) 0xFFFF));
-            }
-            if ((caps & MoonBridge.LI_CCAP_RGB_LED) != 0) {
-                for (int i = 0; i < LIGHT_COLORS.length; i++) {
-                    int color = LIGHT_COLORS[i];
-                    addAction(lightActions, LIGHT_NAMES[i], v -> usbController.setLed((byte) (color >> 16), (byte) (color >> 8), (byte) color));
-                }
-                addAction(lightActions, R.string.controller_test_light_off, v -> usbController.setLed((byte) 0, (byte) 0, (byte) 0));
-            }
-        }
-        else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && vibratorManager != null) {
-            addVibratorActions();
-        }
-        else if (vibrator != null) {
-            addAction(rumbleActions, R.string.controller_test_rumble_any, v -> vibrate(vibrator));
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !rgbLights.isEmpty()) {
-            for (int i = 0; i < LIGHT_COLORS.length; i++) {
-                int color = LIGHT_COLORS[i];
-                addAction(lightActions, LIGHT_NAMES[i], v -> setLights(color));
-            }
-            addAction(lightActions, R.string.controller_test_light_reset, v -> resetLights());
-        }
-        if (rumbleActions.getChildCount() > 0) {
-            addAction(rumbleActions, R.string.controller_test_rumble_stop, v -> stopRumble());
-        }
-        rumbleActions.setVisibility(rumbleActions.getChildCount() > 0 ? View.VISIBLE : View.GONE);
-        lightActions.setVisibility(lightActions.getChildCount() > 0 ? View.VISIBLE : View.GONE);
-
-        boolean anyController = device != null || usbController != null;
-        boolean canRumble = rumbleActions.getChildCount() > 0;
-        String rumbleText = !anyController ? getString(R.string.controller_test_waiting_short) :
-                canRumble ? null : getString(R.string.controller_test_not_available);
-        if (canRumble && rumbleDisabledForStreams) {
-            rumbleText = getString(R.string.controller_test_rumble_disabled_note);
-        }
-        setNote(rumbleNote, rumbleText);
-        boolean lightsApi = usbController != null || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S;
-        setNote(lightsNote, lightActions.getChildCount() > 0 ? null : !anyController ?
-                getString(R.string.controller_test_waiting_short) : lightsApi ?
-                getString(R.string.controller_test_not_available) : getString(R.string.controller_test_needs_android_12));
-    }
-
-    @RequiresApi(31)
-    private void addVibratorActions() {
-        int[] ids = vibratorManager.getVibratorIds();
-        ControllerTestModel.Motor[] motors = ControllerTestModel.motors(ids.length);
-        for (int i = 0; i < motors.length; i++) {
-            int id = ids[i];
-            addAction(rumbleActions, motorName(motors[i]), v -> vibrate(new int[] {id}));
-        }
-        addAction(rumbleActions, motors.length > 0 ? R.string.controller_test_rumble_all :
-                R.string.controller_test_rumble_any, v -> vibrate(ids));
-    }
-
-    private static int motorName(ControllerTestModel.Motor motor) {
-        switch (motor) {
-            case WEAK: return R.string.controller_test_rumble_weak;
-            case STRONG: return R.string.controller_test_rumble_strong;
-            case LEFT_TRIGGER: return R.string.controller_test_rumble_left_trigger;
-            default: return R.string.controller_test_rumble_right_trigger;
-        }
-    }
-
-    private static void setNote(TextView view, String text) {
-        view.setText(text);
-        view.setVisibility(text == null ? View.GONE : View.VISIBLE);
-    }
-
-    private void addAction(ChipGroup group, int label, View.OnClickListener onClick) {
-        Chip chip = new Chip(this);
-        chip.setText(label);
-        chip.setCheckable(false);
-        chip.setEnsureMinTouchTargetSize(true);
-        chip.setOnClickListener(onClick);
-        group.addView(chip);
-    }
-
-    @RequiresApi(31)
-    private void vibrate(int[] ids) {
-        CombinedVibration.ParallelCombination combination = CombinedVibration.startParallel();
-        for (int id : ids) {
-            combination.addVibrator(id, VibrationEffect.createOneShot(RUMBLE_MS, VibrationEffect.DEFAULT_AMPLITUDE));
-        }
-        vibratorManager.vibrate(combination.combine());
-    }
-
-    @SuppressWarnings("deprecation")
-    private static void vibrate(Vibrator vibrator) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(VibrationEffect.createOneShot(RUMBLE_MS, VibrationEffect.DEFAULT_AMPLITUDE));
-        }
-        else {
-            vibrator.vibrate(RUMBLE_MS);
-        }
-    }
-
-    private void usbRumble(short strong, short weak) {
-        usbController.rumble(RumblePolicy.shapeMotor(strong, rumbleFeel), RumblePolicy.shapeMotor(weak, rumbleFeel));
-        handler.removeCallbacks(rumbleTimeout);
-        handler.postDelayed(rumbleTimeout, RUMBLE_MS);
-    }
-
-    private void usbTriggerRumble(short left, short right) {
-        usbController.rumbleTriggers(RumblePolicy.shapeMotor(left, rumbleFeel), RumblePolicy.shapeMotor(right, rumbleFeel));
-        handler.removeCallbacks(rumbleTimeout);
-        handler.postDelayed(rumbleTimeout, RUMBLE_MS);
-    }
-
-    private void stopRumble() {
-        handler.removeCallbacks(rumbleTimeout);
-        if (usbController != null) {
-            usbController.rumble((short) 0, (short) 0);
-            usbController.rumbleTriggers((short) 0, (short) 0);
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && vibratorManager != null) {
-            vibratorManager.cancel();
-        }
-        if (vibrator != null) {
-            vibrator.cancel();
-        }
-    }
-
-    @RequiresApi(31)
-    private void setLights(int color) {
-        if (device == null || rgbLights.isEmpty()) return;
-        try {
-            LightState state = new LightState.Builder().setColor(color).build();
-            LightsRequest.Builder request = new LightsRequest.Builder();
-            for (Light light : rgbLights) {
-                request.addLight(light, state);
-            }
-            if (lightsSession == null) {
-                lightsSession = device.getLightsManager().openSession();
-            }
-            lightsSession.requestLights(request.build());
-        } catch (RuntimeException e) {
-            LimeLog.warning("Controller lights unavailable: " + e);
-        }
-    }
-
-    // Closing the session hands the lights back to the system, which restores them.
-    @RequiresApi(31)
-    private void resetLights() {
-        if (lightsSession != null) {
-            lightsSession.close();
-            lightsSession = null;
-        }
     }
 
     private static boolean isController(InputDevice dev, int source) {
@@ -646,7 +345,7 @@ public class ControllerTestActivity extends NightjarActivity implements UsbDrive
     }
 
     private void showTouch(float x, float y) {
-        hasTouchpad = true;
+        outputs.markHasTouchpad();
         touch = getString(R.string.controller_test_touch_at,
                 Math.round(Math.max(0, Math.min(1, x)) * 100), Math.round(Math.max(0, Math.min(1, y)) * 100));
         renderTouch();
@@ -676,10 +375,10 @@ public class ControllerTestActivity extends NightjarActivity implements UsbDrive
     @Override
     public void onInputDeviceRemoved(int deviceId) {
         if (device != null && device.getId() == deviceId) {
-            releaseOutputs();
+            outputs.release();
             resetReadings();
             device = null;
-            buildActions();
+            outputs.buildActions();
             render();
             selectSingleConnectedController();
         }
@@ -729,30 +428,25 @@ public class ControllerTestActivity extends NightjarActivity implements UsbDrive
 
     @Override
     public void deviceAdded(AbstractController controller) {
-        releaseOutputs();
+        outputs.release();
         resetReadings();
         device = null;
         usbController = controller;
-        short caps = controller.getCapabilities();
-        hasTouchpad = (caps & MoonBridge.LI_CCAP_TOUCHPAD) != 0;
-        hasMotion = (caps & (MoonBridge.LI_CCAP_ACCEL | MoonBridge.LI_CCAP_GYRO)) != 0;
-        armUsbMotion();
-        // As ControllerHandler's takesDeviceMotion for a USB pad without its own sensors.
-        selectDeviceMotion(controller.getVendorId(), controller.getProductId(), null);
+        outputs.selectUsbController(controller);
         if (resumed) {
-            registerSensors();
+            outputs.registerSensors();
         }
-        buildActions();
+        outputs.buildActions();
         render();
     }
 
     @Override
     public void deviceRemoved(AbstractController controller) {
         if (usbController != controller) return;
-        handler.removeCallbacks(rumbleTimeout);
+        outputs.cancelRumbleTimeout();
         resetReadings();
         usbController = null;
-        buildActions();
+        outputs.buildActions();
         render();
         selectSingleConnectedController();
     }
@@ -802,6 +496,7 @@ public class ControllerTestActivity extends NightjarActivity implements UsbDrive
     }
 
     private void renderMotion() {
+        boolean hasMotion = outputs.hasMotion();
         motionView.setTypeface(hasMotion ? Typeface.MONOSPACE : Typeface.DEFAULT);
         if (!hasMotion) {
             boolean api = usbController != null || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S;
@@ -819,7 +514,7 @@ public class ControllerTestActivity extends NightjarActivity implements UsbDrive
 
     private void renderTouch() {
         touchpadView.setText(device == null && usbController == null ? getString(R.string.controller_test_waiting_short) :
-                !hasTouchpad ? getString(R.string.controller_test_not_available) :
+                !outputs.hasTouchpad() ? getString(R.string.controller_test_not_available) :
                 touch != null ? touch : getString(R.string.controller_test_touch_none));
     }
 

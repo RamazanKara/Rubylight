@@ -3,7 +3,6 @@ package com.limelight.binding.audio;
 import android.app.Application;
 import android.content.Context;
 import android.content.ContextWrapper;
-import android.media.AudioDeviceInfo;
 import android.media.AudioTrack;
 
 import org.junit.Test;
@@ -21,6 +20,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.*;
 
+/**
+ * Unit tests for {@link AndroidAudioRenderer} stereo downmix, AudioTrack write recovery,
+ * headset volume gating, late-packet drops, and clock-drift trimming.
+ */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 29, application = Application.class,
         shadows = com.limelight.PcViewLifecycleTest.NoNativeMoonBridge.class,
@@ -75,18 +78,18 @@ public class AndroidAudioRendererTest {
         }
     }
 
-    private static final class ScriptedRenderer extends AndroidAudioRenderer {
-        private final int[] results;
-        private int nextResult;
-        private boolean recreationSucceeds = true;
-        private boolean fallbackSucceeds = true;
-        private boolean nativeWriteSucceeds = true;
-        private int recreations;
-        private String fallbackReason;
-        private long now = 1000;
-        private final List<Integer> offsets = new ArrayList<>();
-        private final List<Integer> lengths = new ArrayList<>();
-        private final List<short[]> writtenData = new ArrayList<>();
+    static final class ScriptedRenderer extends AndroidAudioRenderer {
+        final int[] results;
+        int nextResult;
+        boolean recreationSucceeds = true;
+        boolean fallbackSucceeds = true;
+        boolean nativeWriteSucceeds = true;
+        int recreations;
+        String fallbackReason;
+        long now = 1000;
+        final List<Integer> offsets = new ArrayList<>();
+        final List<Integer> lengths = new ArrayList<>();
+        final List<short[]> writtenData = new ArrayList<>();
 
         ScriptedRenderer(int... results) {
             this(null, null, results);
@@ -119,10 +122,10 @@ public class AndroidAudioRendererTest {
 
         // A native write that waits for room in a full output, as nativeWriteAudio does for up to 100 ms
         // (here 10 s), until abortNativeAudio() cuts it short.
-        private final CountDownLatch writeWaiting = new CountDownLatch(1), writeAborted = new CountDownLatch(1);
-        private boolean stallWrites;
-        private volatile boolean writeWasAborted;
-        private volatile int aborts;
+        final CountDownLatch writeWaiting = new CountDownLatch(1), writeAborted = new CountDownLatch(1);
+        boolean stallWrites;
+        volatile boolean writeWasAborted;
+        volatile int aborts;
 
         @Override void abortNativeAudio() {
             aborts++;
@@ -151,8 +154,8 @@ public class AndroidAudioRendererTest {
             return nativeWriteSucceeds ? NATIVE_WRITE_DONE : NATIVE_WRITE_STOPPED;
         }
 
-        private boolean reopenSucceeds;
-        private int reopens, closes, nativeWrites, failNextNativeWrites, stallNextNativeWrites;
+        boolean reopenSucceeds;
+        int reopens, closes, nativeWrites, failNextNativeWrites, stallNextNativeWrites;
 
         @Override boolean openNativeAudio() {
             reopens++;
@@ -172,13 +175,13 @@ public class AndroidAudioRendererTest {
             return now;
         }
 
-        private int pendingMs, queuedFrames;
+        int pendingMs, queuedFrames;
 
         @Override int pendingAudioMs() { return pendingMs; }
         @Override int outputQueuedFrames() { return queuedFrames; }
 
-        private boolean late;
-        private final List<Integer> lateChecks = new ArrayList<>(), latePending = new ArrayList<>();
+        boolean late;
+        final List<Integer> lateChecks = new ArrayList<>(), latePending = new ArrayList<>();
 
         @Override boolean skipLateNativeAudio(int frames, int pendingFrames) {
             lateChecks.add(frames);
@@ -193,28 +196,8 @@ public class AndroidAudioRendererTest {
         void play() { playDecodedAudio(new short[6], 6); }
     }
 
-    @Test public void partialWritesContinueAtTheUnwrittenSamples() {
-        ScriptedRenderer renderer = new ScriptedRenderer(2, 1, 3);
-        assertTrue(renderer.writeAudioTrackFully(new short[6], 6));
-        assertEquals(List.of(0, 2, 3), renderer.offsets);
-        assertEquals(List.of(6, 4, 3), renderer.lengths);
-        assertEquals(0, renderer.recreations);
-    }
-
-    @Test public void persistentNativeUnderrunsSwitchOutputBeforeWritingTheNextPacket() {
-        ScriptedRenderer renderer = new ScriptedRenderer(6);
-        AudioBufferPolicy policy = new AudioBufferPolicy(192, 384, 384, 0, 0);
-        for (int i = 1; i <= 3; i++) policy.sample(i, i * 1000L);
-        ReflectionHelpers.setField(renderer, "nativeAudio", 1L);
-        ReflectionHelpers.setField(renderer, "bufferPolicy", policy);
-        renderer.play();
-        assertEquals("AAudio hardware keeps underrunning at its largest device buffer", renderer.fallbackReason);
-        assertEquals(List.of(0), renderer.offsets);
-        assertEquals(List.of(6), renderer.lengths);
-    }
-
     // TCL C6K TV on Wi-Fi: a 130 ms stall drained the 162 ms reserve to 30 ms, then the stalled audio came at once.
-    private static ScriptedRenderer afterAStall(int... results) {
+    static ScriptedRenderer afterAStall(int... results) {
         ScriptedRenderer renderer = new ScriptedRenderer(results);
         ReflectionHelpers.setField(renderer, "sampleRate", 48000);
         ReflectionHelpers.setField(renderer, "channels", 2);
@@ -222,6 +205,23 @@ public class AndroidAudioRendererTest {
         renderer.queuedFrames = 1440;
         renderer.pendingMs = 130;
         return renderer;
+    }
+
+    static ScriptedRenderer disconnectedAAudio() {
+        ScriptedRenderer renderer = new ScriptedRenderer(6);
+        renderer.nativeWriteSucceeds = false;
+        ReflectionHelpers.setField(renderer, "nativeAudio", 1L);
+        ReflectionHelpers.setField(renderer, "bufferPolicy", new AudioBufferPolicy(192, 384, 384, 0, 0));
+        ReflectionHelpers.setField(renderer, "lastBufferCheckMs", Long.MAX_VALUE);
+        return renderer;
+    }
+
+    @Test public void partialWritesContinueAtTheUnwrittenSamples() {
+        ScriptedRenderer renderer = new ScriptedRenderer(2, 1, 3);
+        assertTrue(renderer.writeAudioTrackFully(new short[6], 6));
+        assertEquals(List.of(0, 2, 3), renderer.offsets);
+        assertEquals(List.of(6, 4, 3), renderer.lengths);
+        assertEquals(0, renderer.recreations);
     }
 
     @Test public void theBurstAfterANetworkStallPlaysInsteadOfBeingDropped() {
@@ -238,55 +238,12 @@ public class AndroidAudioRendererTest {
         assertEquals(Long.valueOf(1), ReflectionHelpers.<Long>getField(renderer, "lateDropped"));
     }
 
-    @Test public void aStallsConcealedPacketsAreSkippedNotWrittenOrCountedAsDrops() {
-        ScriptedRenderer renderer = afterAStall(6);
-        ReflectionHelpers.setField(renderer, "nativeAudio", 1L);
-        ReflectionHelpers.setField(renderer, "bufferPolicy", new AudioBufferPolicy(864, 6912, 1728, 0, 0));
-        ReflectionHelpers.setField(renderer, "lastBufferCheckMs", Long.MAX_VALUE);
-        renderer.nativeWriteSucceeds = false;
-        renderer.late = true;
-        renderer.play();
-        // Asked per packet in frames, with the network queue behind it in frames (130 ms at 48 kHz): those
-        // packets refill the reserve, so the native side skips only the excess. Skipped before any write or fallback.
-        assertEquals(List.of(3), renderer.lateChecks);
-        assertEquals(List.of(6240), renderer.latePending);
-        assertNull(renderer.fallbackReason);
-        assertEquals(0, renderer.nextResult);
-        assertEquals(Long.valueOf(0), ReflectionHelpers.<Long>getField(renderer, "lateDropped"));
-        assertEquals(Long.valueOf(0), ReflectionHelpers.<Long>getField(renderer, "droppedWrites"));
-        // A packet in time is written as before.
-        renderer.late = false;
-        renderer.nativeWriteSucceeds = true;
-        renderer.play();
-        assertNull(renderer.fallbackReason);
-        assertEquals(List.of(3, 3), renderer.lateChecks);
-        ReflectionHelpers.setField(renderer, "nativeAudio", 0L);
-    }
-
     @Test public void theAudioTrackPathNeverAsksForLatePackets() {
         ScriptedRenderer renderer = afterAStall(6);
         renderer.late = true;
         renderer.play();
         assertTrue(renderer.lateChecks.isEmpty());
         assertEquals(1, renderer.nextResult);
-    }
-
-    @Test public void aaudioReserveStarvationDoesNotSwitchToAudioTrack() {
-        ScriptedRenderer renderer = afterAStall();
-        AudioBufferPolicy starved = AudioBufferPolicy.forReserve(192, 384, 384, 0, 0, 0);
-        for (int i = 1; i <= 4; i++) starved.sample(i, i * 1000L);
-        assertTrue(starved.needsFallback());
-        ReflectionHelpers.setField(renderer, "nativeAudio", 1L);
-        ReflectionHelpers.setField(renderer, "bufferPolicy", new AudioBufferPolicy(192, 384, 384, 0, 0));
-        ReflectionHelpers.setField(renderer, "reservePolicy", starved);
-        ReflectionHelpers.setField(renderer, "lastBufferCheckMs", Long.MAX_VALUE);
-        renderer.play();
-        // Late network audio would starve AudioTrack the same way: AAudio keeps it.
-        assertNull(renderer.fallbackReason);
-        assertEquals(0, renderer.nextResult);
-        assertEquals(Long.valueOf(0), ReflectionHelpers.<Long>getField(renderer, "lateDropped"));
-        assertEquals(Long.valueOf(0), ReflectionHelpers.<Long>getField(renderer, "droppedWrites"));
-        ReflectionHelpers.setField(renderer, "nativeAudio", 0L);
     }
 
     @Test public void deadTrackIsRecreatedWithoutReplayingAcceptedSamples() {
@@ -458,247 +415,6 @@ public class AndroidAudioRendererTest {
         assertFalse(renderer.dead);
     }
 
-    // A real renderer whose output can be made to refuse new tracks, as during a route change.
-    private static final class UnavailableOutput extends AndroidAudioRenderer {
-        int refusedTracks;
-        int rateReads, rate = 44100, routedType = -1, pendingMs;
-        int perfMode = AudioBufferPolicy.PERF_NONE, burst = 192;
-        long now = 1000;
-        int[][] attached = new int[0][];
-
-        @Override int nativeOutputRate() {
-            rateReads++;
-            return rate;
-        }
-
-        @Override int routedTrackType() {
-            return routedType;
-        }
-
-        @Override int[][] attachedOutputs() {
-            return attached;
-        }
-
-        // Thrown once a track exists, as when the framework fails it before it plays.
-        RuntimeException trackFailure;
-
-        @Override int trackPerformanceMode() {
-            if (trackFailure != null) throw trackFailure;
-            return perfMode;
-        }
-
-        @Override int outputFramesPerBuffer() {
-            return burst;
-        }
-
-        @Override int pendingAudioMs() {
-            return pendingMs;
-        }
-
-        // The framework minimum in bytes; negative asks the platform.
-        int minBytes = -1;
-
-        @Override int minBufferBytes() {
-            return minBytes >= 0 ? minBytes : super.minBufferBytes();
-        }
-
-        @Override long uptimeMillis() {
-            return now;
-        }
-
-        UnavailableOutput(Context context) {
-            super(context, true, null);
-        }
-
-        @Override AudioTrack createAudioTrack(int channelConfig, int sampleRate, int bufferSize, boolean lowLatency) {
-            if (refusedTracks > 0) {
-                refusedTracks--;
-                throw new UnsupportedOperationException("No audio output available");
-            }
-            return super.createAudioTrack(channelConfig, sampleRate, bufferSize, lowLatency);
-        }
-    }
-
-    @Test public void equalizersReattachAfterARecreationThatFirstFailed() {
-        List<String> effectSessions = new ArrayList<>();
-        Context context = new ContextWrapper(RuntimeEnvironment.getApplication()) {
-            @Override public void sendBroadcast(android.content.Intent intent) {
-                effectSessions.add(intent.getAction().endsWith("OPEN_AUDIO_EFFECT_CONTROL_SESSION") ? "open" : "close");
-            }
-        };
-        UnavailableOutput renderer = new UnavailableOutput(context);
-        assertEquals(0, renderer.setup(new com.limelight.nvstream.jni.MoonBridge.AudioConfiguration(2, 0x3), 48000, 240));
-        renderer.start();
-        assertEquals(List.of("open"), effectSessions);
-
-        // The output is gone: every attempt to build a new track fails, so audio stays down for now.
-        renderer.refusedTracks = Integer.MAX_VALUE;
-        assertFalse(renderer.recreateAudioTrack());
-        assertEquals(List.of("open", "close"), effectSessions);
-        // A second later the output is back.
-        renderer.refusedTracks = 0;
-        assertTrue(renderer.recreateAudioTrack());
-        assertEquals("The equalizer session must follow the replacement track",
-                List.of("open", "close", "open"), effectSessions);
-
-        // A stopped stream does not ask for effects again.
-        renderer.stop();
-        assertTrue(renderer.recreateAudioTrack());
-        assertEquals(List.of("open", "close", "open", "close"), effectSessions);
-        renderer.cleanup();
-    }
-
-    @Test public void noTrackLeavesNoReserveForTheLateBound() {
-        UnavailableOutput renderer = new UnavailableOutput(RuntimeEnvironment.getApplication());
-        assertEquals(0, renderer.setup(STEREO, 48000, 240));
-        assertTrue((int) ReflectionHelpers.getField(renderer, "reserveFrames") > 0);
-        // Every track is built and sized, then fails before it plays: the reserve it was given goes too.
-        renderer.trackFailure = new IllegalStateException("track died");
-        assertFalse(renderer.recreateAudioTrack());
-        assertEquals(0, (int) ReflectionHelpers.getField(renderer, "reserveFrames"));
-        renderer.cleanup();
-    }
-
-    private static String audioReport() {
-        return ReflectionHelpers.getStaticField(com.limelight.utils.ProblemReport.class, "audioDiagnostics");
-    }
-
-    private static final com.limelight.nvstream.jni.MoonBridge.AudioConfiguration STEREO =
-            new com.limelight.nvstream.jni.MoonBridge.AudioConfiguration(2, 0x3);
-
-    @Test public void reportReadsTheNativeRateOnceAndFollowsTheRecreatedOutput() {
-        UnavailableOutput renderer = new UnavailableOutput(RuntimeEnvironment.getApplication());
-        renderer.routedType = AudioDeviceInfo.TYPE_BLUETOOTH_A2DP;
-        renderer.attached = new int[][] {{1, AudioDeviceInfo.TYPE_BUILTIN_SPEAKER}, {7, AudioDeviceInfo.TYPE_BLUETOOTH_A2DP}};
-        assertEquals(0, renderer.setup(STEREO, 48000, 240));
-        // One read for the AAudio decision, reused by the track; reports must not ask again.
-        assertEquals(1, renderer.rateReads);
-        for (int i = 0; i < 3; i++) renderer.outputDetails();
-        assertEquals(1, renderer.rateReads);
-        assertTrue(audioReport(), audioReport().contains("nativeRate=44100"));
-        assertTrue(audioReport(), audioReport().contains("route=bluetooth-a2dp"));
-        assertFalse("only the routed device is named", audioReport().contains("speaker"));
-
-        // The output moved and the track was rebuilt: both values are read again.
-        renderer.rate = 48000;
-        renderer.routedType = AudioDeviceInfo.TYPE_BUILTIN_SPEAKER;
-        assertTrue(renderer.recreateAudioTrack());
-        assertEquals(2, renderer.rateReads);
-        assertTrue(audioReport(), audioReport().contains("nativeRate=48000"));
-        assertTrue(audioReport(), audioReport().contains("route=speaker"));
-        renderer.cleanup();
-    }
-
-    @Test public void reportNamesTheGrantedPathAndTheBufferFloor() {
-        // #15: the fast path was denied, so the track runs on the normal mixer at the framework minimum.
-        UnavailableOutput renderer = new UnavailableOutput(RuntimeEnvironment.getApplication());
-        renderer.rate = 48000;
-        int minFrames = AudioTrack.getMinBufferSize(48000, android.media.AudioFormat.CHANNEL_OUT_STEREO,
-                android.media.AudioFormat.ENCODING_PCM_16BIT) / 4;
-        assertEquals(0, renderer.setup(STEREO, 48000, 240));
-        assertTrue(audioReport(), audioReport().contains("perfMode=none"));
-        assertTrue(audioReport(), audioReport().contains("outputBurst=192"));
-        assertTrue(audioReport(), audioReport().contains("minBufferFrames=" + minFrames));
-        assertTrue(audioReport(), audioReport().contains("floorFrames=" + Math.max(480, minFrames)));
-        renderer.cleanup();
-
-        // A granted fast path keeps the two-packet floor.
-        renderer = new UnavailableOutput(RuntimeEnvironment.getApplication());
-        renderer.rate = 48000;
-        renderer.perfMode = AudioBufferPolicy.PERF_LOW_LATENCY;
-        assertEquals(0, renderer.setup(STEREO, 48000, 240));
-        assertTrue(audioReport(), audioReport().contains("perfMode=lowLatency"));
-        assertTrue(audioReport(), audioReport().contains("floorFrames=480"));
-        renderer.cleanup();
-    }
-
-    // Surround never takes AAudio, and the fast path is not granted to a 6 or 8 channel track: it runs on the
-    // normal mixer. On a Retroid Pocket 6 the 5.1 minimum is 3844 frames; the old two-packet buffer underran
-    // 118 times a minute there.
-    @Test public void surroundTracksRefusedTheFastPathKeepTheirMinimumAndSizeBytesPerChannel() {
-        int[][] layouts = {{6, 0x3F}, {8, 0x63F}};
-        for (int[] layout : layouts) {
-            int channels = layout[0];
-            UnavailableOutput renderer = new UnavailableOutput(RuntimeEnvironment.getApplication());
-            renderer.rate = 48000;
-            renderer.minBytes = 3844 * channels * 2;
-            assertEquals(0, renderer.setup(new com.limelight.nvstream.jni.MoonBridge.AudioConfiguration(channels, layout[1]),
-                    48000, 240));
-            String report = audioReport();
-            assertTrue(report, report.contains("channels=" + channels + ","));
-            // Two packets of 240 frames, two bytes per sample.
-            assertTrue(report, report.contains("bufferBytes=" + 240 * channels * 2 * 2 + ","));
-            assertTrue(report, report.contains("perfMode=none"));
-            assertTrue(report, report.contains("minBufferFrames=3844"));
-            assertTrue(report, report.contains("floorFrames=3844"));
-            assertTrue(report, report.contains("nativeRate=48000"));
-
-            renderer.cleanup();
-        }
-    }
-
-    @Test public void surroundTrackOnAGrantedFastPathKeepsTheTwoPacketFloor() {
-        UnavailableOutput renderer = new UnavailableOutput(RuntimeEnvironment.getApplication());
-        renderer.rate = 48000;
-        renderer.perfMode = AudioBufferPolicy.PERF_LOW_LATENCY;
-        renderer.minBytes = 3844 * 6 * 2;
-        assertEquals(0, renderer.setup(new com.limelight.nvstream.jni.MoonBridge.AudioConfiguration(6, 0x3F), 48000, 240));
-        assertTrue(audioReport(), audioReport().contains("floorFrames=480"));
-        renderer.cleanup();
-    }
-
-    @Test public void unroutedOutputListsEveryAttachedOutputUntilTheTrackIsRouted() {
-        UnavailableOutput renderer = new UnavailableOutput(RuntimeEnvironment.getApplication());
-        renderer.attached = new int[][] {{1, AudioDeviceInfo.TYPE_BUILTIN_SPEAKER}, {7, AudioDeviceInfo.TYPE_BLUETOOTH_A2DP}};
-        assertEquals(0, renderer.setup(STEREO, 48000, 240));
-        assertTrue(audioReport(), audioReport().contains("route=unknown (attached: speaker+bluetooth-a2dp)"));
-
-        // The next periodic report finds the track routed.
-        renderer.routedType = AudioDeviceInfo.TYPE_BLUETOOTH_A2DP;
-        // Late beyond the track's buffer too.
-        renderer.pendingMs = 1000;
-        renderer.playDecodedAudio(new short[6], 6);
-        assertTrue(audioReport(), audioReport().contains("route=bluetooth-a2dp"));
-        assertTrue(audioReport(), audioReport().contains("lateDropped=1"));
-        renderer.cleanup();
-    }
-
-    @Test public void aaudioRouteComesFromTheStreamDeviceId() {
-        UnavailableOutput renderer = new UnavailableOutput(RuntimeEnvironment.getApplication());
-        renderer.attached = new int[][] {{1, AudioDeviceInfo.TYPE_BUILTIN_SPEAKER}, {7, AudioDeviceInfo.TYPE_USB_HEADSET}};
-        // With a stream open the track is irrelevant, whatever it reports.
-        renderer.routedType = AudioDeviceInfo.TYPE_BLUETOOTH_A2DP;
-        ReflectionHelpers.setField(renderer, "nativeAudio", 1L);
-        renderer.refreshRoute(7);
-        assertEquals("usb-headset", ReflectionHelpers.getField(renderer, "routes"));
-        renderer.refreshRoute(0);
-        assertEquals("unknown (attached: speaker+usb-headset)", ReflectionHelpers.getField(renderer, "routes"));
-        ReflectionHelpers.setField(renderer, "nativeAudio", 0L);
-    }
-
-    @Test public void aaudioFailuresThatEndTheBufferAreCountedAsDropped() {
-        // Falling back from persistent underruns fails: the buffer is lost.
-        ScriptedRenderer renderer = new ScriptedRenderer();
-        renderer.fallbackSucceeds = false;
-        AudioBufferPolicy policy = new AudioBufferPolicy(192, 384, 384, 0, 0);
-        for (int i = 1; i <= 3; i++) policy.sample(i, i * 1000L);
-        ReflectionHelpers.setField(renderer, "nativeAudio", 1L);
-        ReflectionHelpers.setField(renderer, "bufferPolicy", policy);
-        renderer.play();
-        assertEquals(Long.valueOf(1), ReflectionHelpers.<Long>getField(renderer, "droppedWrites"));
-
-        // The stream disconnects, AAudio does not reopen and the fallback cannot start either.
-        renderer = new ScriptedRenderer();
-        renderer.fallbackSucceeds = false;
-        renderer.nativeWriteSucceeds = false;
-        ReflectionHelpers.setField(renderer, "nativeAudio", 1L);
-        ReflectionHelpers.setField(renderer, "bufferPolicy", new AudioBufferPolicy(192, 384, 384, 0, 0));
-        renderer.play();
-        assertEquals(1, renderer.reopens);
-        assertEquals("AAudio disconnected and AAudio did not reopen", renderer.fallbackReason);
-        assertEquals(Long.valueOf(1), ReflectionHelpers.<Long>getField(renderer, "droppedWrites"));
-    }
-
     @Test public void clockDriftSurplusTrimsOnePacketAndTheNextFadesInFromIt() {
         // 5 ms stereo packets with 15 ms waiting beyond a full output: surplus a slow device clock built up.
         int[] results = new int[400];
@@ -813,138 +529,6 @@ public class AndroidAudioRendererTest {
         assertEquals(Long.valueOf(0), ReflectionHelpers.<Long>getField(renderer, "driftTrimmed"));
     }
 
-    private static ScriptedRenderer disconnectedAAudio() {
-        ScriptedRenderer renderer = new ScriptedRenderer(6);
-        renderer.nativeWriteSucceeds = false;
-        ReflectionHelpers.setField(renderer, "nativeAudio", 1L);
-        ReflectionHelpers.setField(renderer, "bufferPolicy", new AudioBufferPolicy(192, 384, 384, 0, 0));
-        ReflectionHelpers.setField(renderer, "lastBufferCheckMs", Long.MAX_VALUE);
-        return renderer;
-    }
-
-    @Test public void aRouteChangeReopensAAudioInsteadOfFallingBack() {
-        // Headphones plugged in: the stream disconnects, AAudio opens on the new route and plays the buffer.
-        ScriptedRenderer renderer = disconnectedAAudio();
-        renderer.nativeWriteSucceeds = true;
-        renderer.failNextNativeWrites = 1;
-        renderer.reopenSucceeds = true;
-        renderer.play();
-        assertEquals(1, renderer.closes);
-        assertEquals(1, renderer.reopens);
-        assertNull(renderer.fallbackReason);
-        assertEquals(Long.valueOf(2), ReflectionHelpers.<Long>getField(renderer, "nativeAudio"));
-        assertEquals("the failed write, then the same buffer on the new stream", 2, renderer.nativeWrites);
-        assertEquals(0, renderer.nextResult);
-        assertEquals(Long.valueOf(0), ReflectionHelpers.<Long>getField(renderer, "droppedWrites"));
-        // Unplugged again much later: reopened again, never AudioTrack.
-        renderer.failNextNativeWrites = 1;
-        renderer.now += 60000;
-        renderer.play();
-        assertEquals(2, renderer.reopens);
-        assertNull(renderer.fallbackReason);
-        assertEquals(Long.valueOf(0), ReflectionHelpers.<Long>getField(renderer, "droppedWrites"));
-        ReflectionHelpers.setField(renderer, "nativeAudio", 0L);
-    }
-
-    @Test public void stopAndCleanupDoNotWaitBehindAWriteStalledOnAFullOutput() throws Exception {
-        ScriptedRenderer renderer = disconnectedAAudio();
-        renderer.stallWrites = true;
-        renderer.reopenSucceeds = true;
-        Thread decoder = new Thread(renderer::play);
-        decoder.start();
-        assertTrue(renderer.writeWaiting.await(5, TimeUnit.SECONDS));
-        // The write holds the renderer's monitor: stop() has to reach the output first.
-        long start = System.nanoTime();
-        renderer.stop();
-        decoder.join(5000);
-        assertFalse(decoder.isAlive());
-        assertTrue("the write was cut short by the abort, not its own wait", renderer.writeWasAborted);
-        assertTrue("stop() waited behind the write", System.nanoTime() - start < 5_000_000_000L);
-        // A write the stop cut short is no disconnect: nothing reopens, the buffer is dropped.
-        assertEquals(0, renderer.reopens);
-        assertEquals(0, renderer.closes);
-        assertEquals(Long.valueOf(1), ReflectionHelpers.<Long>getField(renderer, "droppedWrites"));
-        assertEquals(1, renderer.aborts);
-        // cleanup() aborts first too, then closes the output under the monitor (no native stats here).
-        ReflectionHelpers.setField(renderer, "nativeAudio", 0L);
-        renderer.cleanup();
-        assertEquals("stop() and cleanup() each abort before taking the monitor", 2, renderer.aborts);
-    }
-
-    @Test public void aShortAAudioStallDropsTheBufferWithoutReopening() {
-        // The callback held back for 150 ms (a Bluetooth handover) while the stream still runs:
-        // stalls with buffers played between them drop theirs and never reopen or fall back.
-        ScriptedRenderer renderer = disconnectedAAudio();
-        renderer.nativeWriteSucceeds = true;
-        renderer.reopenSucceeds = true;
-        for (int i = 0; i <= AudioBufferPolicy.MAX_QUICK_REOPENS; i++) {
-            for (int stall = 1; stall < AndroidAudioRenderer.MAX_NATIVE_STALLS; stall++) {
-                renderer.stallNextNativeWrites = 1;
-                renderer.play();
-            }
-            renderer.play();
-            renderer.now += 200;
-        }
-        long dropped = (AudioBufferPolicy.MAX_QUICK_REOPENS + 1) * (AndroidAudioRenderer.MAX_NATIVE_STALLS - 1);
-        assertEquals(0, renderer.reopens);
-        assertEquals(0, renderer.closes);
-        assertNull(renderer.fallbackReason);
-        assertEquals(0, renderer.nextResult);
-        assertEquals(Long.valueOf(dropped), ReflectionHelpers.<Long>getField(renderer, "droppedWrites"));
-        // The next buffer plays on the same stream.
-        renderer.play();
-        assertEquals(Long.valueOf(1), ReflectionHelpers.<Long>getField(renderer, "nativeAudio"));
-        assertEquals(Long.valueOf(dropped), ReflectionHelpers.<Long>getField(renderer, "droppedWrites"));
-        ReflectionHelpers.setField(renderer, "nativeAudio", 0L);
-    }
-
-    @Test public void aLastingAAudioStallReopensAndKeepsFallingBackIfItRepeats() {
-        // The callback stopped for good without an error callback: after MAX_NATIVE_STALLS writes in a
-        // row the stream is reopened, and the buffer that found it stopped plays on the new one.
-        ScriptedRenderer renderer = disconnectedAAudio();
-        renderer.nativeWriteSucceeds = true;
-        renderer.reopenSucceeds = true;
-        renderer.stallNextNativeWrites = AndroidAudioRenderer.MAX_NATIVE_STALLS;
-        for (int i = 0; i < AndroidAudioRenderer.MAX_NATIVE_STALLS; i++) renderer.play();
-        assertEquals(1, renderer.reopens);
-        assertEquals(1, renderer.closes);
-        assertNull(renderer.fallbackReason);
-        assertEquals(Long.valueOf(2), ReflectionHelpers.<Long>getField(renderer, "nativeAudio"));
-        assertEquals(Long.valueOf(AndroidAudioRenderer.MAX_NATIVE_STALLS - 1),
-                ReflectionHelpers.<Long>getField(renderer, "droppedWrites"));
-
-        // Stopping again right after each reopen ends on AudioTrack, as a disconnect does.
-        for (int round = 0; round < AudioBufferPolicy.MAX_QUICK_REOPENS && renderer.fallbackReason == null; round++) {
-            renderer.now += 200;
-            renderer.stallNextNativeWrites = AndroidAudioRenderer.MAX_NATIVE_STALLS;
-            for (int i = 0; i < AndroidAudioRenderer.MAX_NATIVE_STALLS; i++) renderer.play();
-        }
-        assertNotNull(renderer.fallbackReason);
-        assertTrue(renderer.fallbackReason, renderer.fallbackReason.startsWith("AAudio stopped taking audio"));
-    }
-
-    @Test public void anAAudioThatDoesNotReopenFallsBackToAudioTrack() {
-        ScriptedRenderer renderer = disconnectedAAudio();
-        renderer.play();
-        assertEquals(1, renderer.reopens);
-        assertEquals("AAudio disconnected and AAudio did not reopen", renderer.fallbackReason);
-        assertEquals("the buffer goes to the AudioTrack", 1, renderer.nextResult);
-    }
-
-    @Test public void anAAudioThatKeepsDyingRightAfterReopeningFallsBack() {
-        ScriptedRenderer renderer = disconnectedAAudio();
-        renderer.reopenSucceeds = true;
-        for (int i = 0; i < AudioBufferPolicy.MAX_QUICK_REOPENS; i++) {
-            renderer.play();
-            renderer.now += 200;
-            assertNull(renderer.fallbackReason);
-        }
-        assertEquals(AudioBufferPolicy.MAX_QUICK_REOPENS, renderer.reopens);
-        renderer.play();
-        assertEquals("no fourth reopen within a second of each", AudioBufferPolicy.MAX_QUICK_REOPENS, renderer.reopens);
-        assertEquals("AAudio disconnected 3 times right after reopening", renderer.fallbackReason);
-    }
-
     @Test public void failedRecreationIsRetriedByALaterBuffer() {
         int dead = AudioTrack.ERROR_DEAD_OBJECT;
         ScriptedRenderer renderer = new ScriptedRenderer(dead, dead, 6);
@@ -956,96 +540,5 @@ public class AndroidAudioRendererTest {
         renderer.play();
         assertEquals(2, renderer.recreations);
         assertEquals(3, renderer.nextResult);
-    }
-
-    private static final class EncodedRenderer extends AndroidAudioRenderer {
-        final List<int[]> tracks = new ArrayList<>();
-        final List<Integer> writes = new ArrayList<>();
-        int writeResult = Integer.MIN_VALUE;
-        boolean refuse;
-        long now = 1000;
-        int pendingMs;
-
-        EncodedRenderer() {
-            super(null, false, null);
-        }
-
-        @Override AudioTrack createEncodedTrack(int encoding, int channelMask, int bufferBytes) {
-            tracks.add(new int[] {encoding, channelMask, bufferBytes});
-            if (refuse) throw new UnsupportedOperationException("Cannot create AudioTrack");
-            return null;
-        }
-
-        @Override int writeEncoded(byte[] frame, int length) {
-            writes.add(length);
-            return writeResult == Integer.MIN_VALUE ? length : writeResult;
-        }
-
-        @Override long uptimeMillis() {
-            return now;
-        }
-
-        @Override int pendingAudioMs() {
-            return pendingMs;
-        }
-    }
-
-    private static final com.limelight.nvstream.jni.MoonBridge.AudioConfiguration SURROUND_51 =
-            new com.limelight.nvstream.jni.MoonBridge.AudioConfiguration(6, 0x3F);
-
-    @Test public void passthroughOpensACompressedTrackOfTheStreamsCodecAndLayout() {
-        EncodedRenderer renderer = new EncodedRenderer();
-        assertEquals(0, renderer.setupEncoded(SURROUND_51, AudioPassthrough.CODEC_EAC3));
-        assertEquals(1, renderer.tracks.size());
-        assertEquals(android.media.AudioFormat.ENCODING_E_AC3, renderer.tracks.get(0)[0]);
-        assertEquals(android.media.AudioFormat.CHANNEL_OUT_5POINT1, renderer.tracks.get(0)[1]);
-        // Room for two of the largest frames at least, so a blocking write never splits one.
-        assertTrue(renderer.tracks.get(0)[2] >= 2 * AudioPassthrough.MAX_FRAME_BYTES);
-        renderer.playEncodedAudio(new byte[2560], 2560);
-        assertEquals(List.of(2560), renderer.writes);
-    }
-
-    @Test public void passthroughRefusesWhatItCannotPlayInsteadOfPlayingSilence() {
-        EncodedRenderer renderer = new EncodedRenderer();
-        // PCM is not a compressed format, and AC3 has no 4.0 layout here.
-        assertEquals(-1, renderer.setupEncoded(SURROUND_51, AudioPassthrough.CODEC_PCM));
-        assertEquals(-1, renderer.setupEncoded(
-                new com.limelight.nvstream.jni.MoonBridge.AudioConfiguration(4, 0x33), AudioPassthrough.CODEC_AC3));
-        assertTrue(renderer.tracks.isEmpty());
-        // The output refuses the format.
-        renderer.refuse = true;
-        assertEquals(-1, renderer.setupEncoded(SURROUND_51, AudioPassthrough.CODEC_AC3));
-        assertEquals(1, renderer.tracks.size());
-    }
-
-    @Test public void deadPassthroughTrackIsRebuiltAtMostOnceASecondAndFailedFramesAreCounted() {
-        EncodedRenderer renderer = new EncodedRenderer();
-        assertEquals(0, renderer.setupEncoded(SURROUND_51, AudioPassthrough.CODEC_AC3));
-        renderer.writeResult = AudioTrack.ERROR_DEAD_OBJECT;
-        renderer.playEncodedAudio(new byte[2560], 2560);
-        assertEquals(2, renderer.tracks.size());
-        renderer.playEncodedAudio(new byte[2560], 2560);
-        assertEquals(2, renderer.tracks.size());
-        renderer.now += 1000;
-        renderer.playEncodedAudio(new byte[2560], 2560);
-        assertEquals(3, renderer.tracks.size());
-        // A partial write is a broken frame too.
-        renderer.writeResult = 100;
-        renderer.playEncodedAudio(new byte[2560], 2560);
-        assertEquals(3, renderer.tracks.size());
-        assertEquals(Long.valueOf(4), ReflectionHelpers.<Long>getField(renderer, "droppedWrites"));
-    }
-
-    @Test public void passthroughFramesKeepTheBoundOnPendingAudioAndStopWithTheStream() {
-        EncodedRenderer renderer = new EncodedRenderer();
-        assertEquals(0, renderer.setupEncoded(SURROUND_51, AudioPassthrough.CODEC_AC3));
-        renderer.pendingMs = 40;
-        renderer.playEncodedAudio(new byte[2560], 2560);
-        assertTrue(renderer.writes.isEmpty());
-        assertEquals(Long.valueOf(1), ReflectionHelpers.<Long>getField(renderer, "lateDropped"));
-        renderer.pendingMs = 0;
-        renderer.stop();
-        renderer.playEncodedAudio(new byte[2560], 2560);
-        assertTrue(renderer.writes.isEmpty());
     }
 }

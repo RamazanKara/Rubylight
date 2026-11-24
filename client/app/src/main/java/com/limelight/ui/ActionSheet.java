@@ -1,9 +1,8 @@
 package com.limelight.ui;
 
 import android.content.Context;
-import android.view.Gravity;
-import android.widget.LinearLayout;
 import android.widget.ImageButton;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.activity.OnBackPressedCallback;
@@ -11,13 +10,17 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
-import com.google.android.material.color.MaterialColors;
 import androidx.core.widget.NestedScrollView;
+
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.button.MaterialButton;
 import com.limelight.R;
 
+/**
+ * Moonlit Glass bottom sheet and floating panel dialog shared by the home screens and the in-stream
+ * menu, handling TV D-pad focus, backdrop blur, anchored placement, and controller/keyboard dismissal.
+ */
 public final class ActionSheet extends BottomSheetDialog {
     private final LinearLayout body;
     private final LinearLayout content;
@@ -133,109 +136,18 @@ public final class ActionSheet extends BottomSheetDialog {
         body = new LinearLayout(context);
         body.setOrientation(LinearLayout.VERTICAL);
         ViewCompat.setAccessibilityPaneTitle(body, title);
-        LinearLayout header = new LinearLayout(context);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(edge, panel ? edge : spacing, panel ? edge : spacing, panel ? spacing : spacing);
         content = new LinearLayout(context);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(edge - spacing, 0, edge - spacing, panel ? spacing / 2 : spacing * 2);
         if (television) content.setClipToPadding(false);
-        heading = new TextView(context);
-        // A panel's title is the game's name over a compact grid: a size down from a sheet's, on one line.
-        heading.setTextAppearance(context, panel ? R.style.TextAppearance_Nightjar_StreamMenuTitle : R.style.TextAppearance_Nightjar_ScreenTitle);
-        heading.setText(title);
-        heading.setMaxLines(panel ? 1 : 2);
-        heading.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        heading.setTextColor(MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurface, 0));
-        heading.setPadding(0, panel ? 0 : spacing, spacing, panel ? 0 : spacing);
-        ViewCompat.setAccessibilityHeading(heading, true);
-        subtitle = new TextView(context);
-        subtitle.setTextAppearance(context, R.style.TextAppearance_Nightjar_Supporting);
-        subtitle.setTextColor(MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
-        subtitle.setSingleLine(true);
-        subtitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        subtitle.setPadding(0, panel ? spacing / 4 : 0, spacing, panel ? 0 : spacing);
-        subtitle.setVisibility(android.view.View.GONE);
-        // Shown on a page: touch gets the same way back to the first page as Back, Escape and B.
-        back = new androidx.appcompat.widget.AppCompatImageButton(context, null, 0);
-        back.setId(R.id.action_sheet_back);
-        back.setImageResource(R.drawable.ic_arrow_back);
-        back.setImageTintList(android.content.res.ColorStateList.valueOf(
-                MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurfaceVariant, 0)));
-        back.setPadding(spacing * 3 / 2, spacing * 3 / 2, spacing * 3 / 2, spacing * 3 / 2);
-        back.setBackgroundResource(R.drawable.bg_icon_button);
-        back.setContentDescription(context.getString(R.string.sheet_back));
-        back.setOnClickListener(view -> {
-            if (backHandler != null) backHandler.run();
-        });
-        back.setVisibility(android.view.View.GONE);
-        LinearLayout.LayoutParams backParams = new LinearLayout.LayoutParams(spacing * 6, spacing * 6);
-        backParams.setMarginEnd(spacing);
-        header.addView(back, backParams);
-        if (panel) {
-            android.content.res.Resources res = context.getResources();
-            int coverRadius = spacing;
-            cover = new android.widget.ImageView(context);
-            cover.setId(R.id.stream_menu_cover);
-            cover.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
-            cover.setImportantForAccessibility(android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            android.graphics.drawable.GradientDrawable coverShape = new android.graphics.drawable.GradientDrawable();
-            coverShape.setCornerRadius(coverRadius);
-            coverShape.setColor(MaterialColors.getColor(context, R.attr.glassPlaceholder, 0));
-            cover.setBackground(coverShape);
-            cover.setClipToOutline(true);
-            cover.setVisibility(android.view.View.GONE);
-            LinearLayout.LayoutParams coverParams = new LinearLayout.LayoutParams(res.getDimensionPixelSize(R.dimen.stream_menu_cover_width),
-                    res.getDimensionPixelSize(R.dimen.stream_menu_cover_height));
-            coverParams.setMarginEnd(spacing * 3 / 2);
-            header.addView(cover, coverParams);
-            int disc = res.getDimensionPixelSize(R.dimen.stream_menu_close);
-            back.setBackground(new GlassControlDrawable(context, GlassControlDrawable.Kind.CONTROL, disc));
-            backParams.width = backParams.height = disc;
-        }
-        LinearLayout titles = new LinearLayout(context);
-        titles.setOrientation(LinearLayout.VERTICAL);
-        titles.addView(heading);
-        titles.addView(subtitle);
-        header.addView(titles, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        ImageButton close = new androidx.appcompat.widget.AppCompatImageButton(context, null, 0);
-        close.setId(R.id.action_sheet_close);
-        close.setImageResource(R.drawable.ic_close);
-        close.setImageTintList(android.content.res.ColorStateList.valueOf(
-                MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurfaceVariant, 0)));
-        close.setPadding(spacing * 3 / 2, spacing * 3 / 2, spacing * 3 / 2, spacing * 3 / 2);
-        // The same round focus ring as the other icon buttons instead of a grey square.
-        close.setBackgroundResource(R.drawable.bg_icon_button);
-        close.setContentDescription(context.getString(R.string.sheet_close));
-        close.setOnClickListener(view -> dismiss());
-        header.addView(close, new LinearLayout.LayoutParams(spacing * 6, spacing * 6));
-        // A panel's way back to the stream is its round X, in the header on every page.
-        if (panel) {
-            close.setVisibility(android.view.View.GONE);
-            int disc = context.getResources().getDimensionPixelSize(R.dimen.stream_menu_close);
-            panelClose = new MaterialButton(context, null, androidx.appcompat.R.attr.borderlessButtonStyle);
-            panelClose.setId(R.id.stream_menu_close);
-            panelClose.setIconResource(R.drawable.ic_close);
-            panelClose.setIconGravity(MaterialButton.ICON_GRAVITY_TEXT_START);
-            panelClose.setIconPadding(0);
-            panelClose.setIconSize(spacing * 5 / 2);
-            panelClose.setIconTint(android.content.res.ColorStateList.valueOf(
-                    MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurface, 0)));
-            panelClose.setInsetTop(0);
-            panelClose.setInsetBottom(0);
-            panelClose.setMinWidth(0);
-            panelClose.setMinimumWidth(0);
-            panelClose.setMinHeight(0);
-            panelClose.setMinimumHeight(0);
-            panelClose.setPadding(0, 0, 0, 0);
-            panelClose.setBackground(new GlassControlDrawable(context, GlassControlDrawable.Kind.CONTROL, disc));
-            panelClose.setContentDescription(context.getString(R.string.sheet_close));
-            panelClose.setOnClickListener(view -> dismiss());
-            LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(disc, disc);
-            closeParams.gravity = Gravity.TOP;
-            header.addView(panelClose, closeParams);
-        }
-        body.addView(header);
+        ActionSheetRows.HeaderViews header = ActionSheetRows.buildHeader(context, title, panel, spacing, edge,
+                () -> { if (backHandler != null) backHandler.run(); }, this::dismiss);
+        heading = header.heading;
+        subtitle = header.subtitle;
+        back = header.back;
+        cover = header.cover;
+        panelClose = header.panelClose;
+        body.addView(header.header);
         scroll = new StillScroll(context);
         scroll.setClipToPadding(false);
         // A panel's rows go on under its footer: they fade there instead of ending on a cut edge.
@@ -263,40 +175,35 @@ public final class ActionSheet extends BottomSheetDialog {
         } else {
             footer = null;
             // A sheet along the bottom says so; a TV's fades in and has no edge to drag it from.
-            if (!television) {
-                android.view.View grabber = new android.view.View(context);
-                grabber.setBackgroundResource(R.drawable.glass_grabber);
-                LinearLayout.LayoutParams grabberParams = new LinearLayout.LayoutParams(spacing * 9 / 2, spacing / 2);
-                grabberParams.gravity = Gravity.CENTER_HORIZONTAL;
-                grabberParams.topMargin = spacing;
-                body.addView(grabber, 0, grabberParams);
-            }
+            if (!television) ActionSheetRows.addGrabber(body, context, spacing);
             setContentView(body);
         }
-        setOnKeyListener((dialog, key, event) -> {
-            if (key != android.view.KeyEvent.KEYCODE_ESCAPE && key != android.view.KeyEvent.KEYCODE_BUTTON_B) {
-                if (keyHandler != null && event.hasNoModifiers()) {
-                    // The release of a key the handler took goes with it, so nothing below sees half a press.
-                    if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
-                        if (event.getRepeatCount() > 0 ? handledKeys.contains(key) : keyHandler.test(key)) {
-                            handledKeys.add(key);
-                            return true;
-                        }
-                    } else if (event.getAction() == android.view.KeyEvent.ACTION_UP && handledKeys.remove(key)) {
+        setOnKeyListener((dialog, key, event) -> handleDialogKey(key, event));
+        getOnBackPressedDispatcher().addCallback(pageBack);
+    }
+
+    private boolean handleDialogKey(int key, android.view.KeyEvent event) {
+        if (key != android.view.KeyEvent.KEYCODE_ESCAPE && key != android.view.KeyEvent.KEYCODE_BUTTON_B) {
+            if (keyHandler != null && event.hasNoModifiers()) {
+                // The release of a key the handler took goes with it, so nothing below sees half a press.
+                if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
+                    if (event.getRepeatCount() > 0 ? handledKeys.contains(key) : keyHandler.test(key)) {
+                        handledKeys.add(key);
                         return true;
                     }
+                } else if (event.getAction() == android.view.KeyEvent.ACTION_UP && handledKeys.remove(key)) {
+                    return true;
                 }
-                // A Y the sheet has no tile for would come back as Space and press the focused action (Nightjar #81).
-                return UiNavigation.swallowsPadY(key, getCurrentFocus());
             }
-            if (!event.hasNoModifiers()) return false;
-            if (event.getAction() == android.view.KeyEvent.ACTION_UP && !event.isCanceled()) {
-                if (pageBack.isEnabled()) pageBack.handleOnBackPressed();
-                else dismiss();
-            }
-            return true;
-        });
-        getOnBackPressedDispatcher().addCallback(pageBack);
+            // A Y the sheet has no tile for would come back as Space and press the focused action (Nightjar #81).
+            return UiNavigation.swallowsPadY(key, getCurrentFocus());
+        }
+        if (!event.hasNoModifiers()) return false;
+        if (event.getAction() == android.view.KeyEvent.ACTION_UP && !event.isCanceled()) {
+            if (pageBack.isEnabled()) pageBack.handleOnBackPressed();
+            else dismiss();
+        }
+        return true;
     }
 
     /**
@@ -427,7 +334,6 @@ public final class ActionSheet extends BottomSheetDialog {
         }
     }
 
-    /** Moves D-pad and keyboard focus to the first row, as when the sheet opens. */
     /**
      * Opened by a controller after a touch: the window leaves touch mode and the first action shows focus at once, as
      * after a D-pad press, instead of the first press only revealing it.
@@ -438,6 +344,7 @@ public final class ActionSheet extends BottomSheetDialog {
         });
     }
 
+    /** Moves D-pad and keyboard focus to the first row, as when the sheet opens. */
     public void focusFirstAction() {
         if (!content.isInTouchMode() && firstAction != null) firstAction.requestFocus();
     }
@@ -476,52 +383,13 @@ public final class ActionSheet extends BottomSheetDialog {
      * instead of down: a TV's View sheet, whose panel hanging under its button has no room below.
      */
     public LinearLayout[] addColumns(int count) {
-        Context context = getContext();
-        LinearLayout columns = new LinearLayout(context);
-        columns.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout[] parts = new LinearLayout[count];
-        for (int i = 0; i < count; i++) {
-            parts[i] = new LinearLayout(context);
-            parts[i].setOrientation(LinearLayout.VERTICAL);
-            columns.addView(parts[i], new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        }
-        content.addView(columns, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-        return parts;
+        return ActionSheetRows.addColumns(content, getContext(), count);
     }
 
     /** A toggle in {@code row}, filled while on. A click flips {@code isChecked()} before its listener runs. */
     public MaterialButton addToggle(LinearLayout row, int icon, CharSequence label, boolean checked) {
-        Context context = getContext();
-        MaterialButton button = new MaterialButton(context, null,
-                com.google.android.material.R.attr.materialButtonOutlinedStyle);
-        button.setCheckable(true);
-        button.setChecked(checked);
-        button.setText(label);
-        button.setAllCaps(false);
-        button.setTextAppearance(context, R.style.TextAppearance_Nightjar_Label);
-        button.setSingleLine(false);
-        button.setMaxLines(2);
-        button.setIconResource(icon);
-        button.setIconGravity(MaterialButton.ICON_GRAVITY_TOP);
-        button.setIconSize(compact ? spacing * 5 / 2 : spacing * 3);
-        button.setIconPadding(spacing / 2);
-        button.setMinHeight(compactTile());
-        // The icon sits above the label, so the label can use nearly the whole width of its share.
-        // A full step above the icon: half a step, or the button's own few pixels, left it against the tile's top edge.
-        if (compact) button.setPaddingRelative(spacing, spacing, spacing, spacing / 2);
-        else button.setPaddingRelative(spacing, Math.max(spacing, button.getPaddingTop()), spacing, button.getPaddingBottom());
-        int[][] states = {new int[] {android.R.attr.state_checked}, new int[] {}};
-        android.content.res.ColorStateList foreground = new android.content.res.ColorStateList(states, new int[] {
-                MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnPrimaryContainer, 0),
-                MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurface, 0)});
-        button.setTextColor(foreground);
-        button.setIconTint(foreground);
-        button.setBackgroundTintList(new android.content.res.ColorStateList(states, new int[] {
-                MaterialColors.getColor(context, com.google.android.material.R.attr.colorPrimaryContainer, 0),
-                android.graphics.Color.TRANSPARENT}));
-        row.addView(button, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
-        styleToggle(button);
+        MaterialButton button = ActionSheetRows.addToggle(getContext(), row, icon, label, checked,
+                spacing, compact, compactTile(), television);
         claimFirstAction(button);
         return button;
     }
@@ -531,131 +399,9 @@ public final class ActionSheet extends BottomSheetDialog {
         return compact ? spacing * 15 / 2 : spacing * 9;
     }
 
-    /**
-     * Equal toggles side by side while every word of their labels fits its share of the width. When they
-     * do not, as four toggles on a phone held upright, they form two columns of tiles; with a large font
-     * or a very narrow sheet they stack, one full-width row each with the icon at the start, so no label
-     * breaks mid-word.
-     */
-    static final class ToggleRow extends LinearLayout {
-        private final int gap;
-        private final int tileHeight;
-        private int columns;
-
-        ToggleRow(Context context, int gap) {
-            this(context, gap, gap * 9);
-        }
-
-        ToggleRow(Context context, int gap, int tileHeight) {
-            super(context);
-            this.gap = gap;
-            this.tileHeight = tileHeight;
-            // Equal buttons in a straight line, whatever the size of their icons or text.
-            setBaselineAligned(false);
-        }
-
-        /** How many toggles share a line: all of them, two, or one. */
-        int columns() {
-            return columns;
-        }
-
-        @Override
-        protected void onMeasure(int widthSpec, int heightSpec) {
-            int count = getChildCount();
-            int width = MeasureSpec.getSize(widthSpec) - getPaddingLeft() - getPaddingRight();
-            boolean bounded = MeasureSpec.getMode(widthSpec) != MeasureSpec.UNSPECIFIED;
-            if (count == 0 || !bounded || wordsFit((width - gap * (count - 1)) / count)) columns = Math.max(count, 1);
-            else if (count > 2 && wordsFit((width - gap) / 2)) columns = 2;
-            else columns = 1;
-            boolean stacked = columns == 1 && count > 1;
-            setOrientation(stacked ? VERTICAL : HORIZONTAL);
-            for (int i = 0; i < count; i++) {
-                MaterialButton button = (MaterialButton) getChildAt(i);
-                LayoutParams params = (LayoutParams) button.getLayoutParams();
-                params.width = stacked ? LayoutParams.MATCH_PARENT : 0;
-                params.height = stacked ? LayoutParams.WRAP_CONTENT : LayoutParams.MATCH_PARENT;
-                params.weight = stacked ? 0 : 1;
-                params.setMarginStart(stacked || i % columns == 0 ? 0 : gap);
-                params.resolveLayoutDirection(getLayoutDirection());
-                params.topMargin = i >= columns ? gap : 0;
-                int iconGravity = stacked ? MaterialButton.ICON_GRAVITY_TEXT_START : MaterialButton.ICON_GRAVITY_TOP;
-                if (button.getIconGravity() != iconGravity) button.setIconGravity(iconGravity);
-                // A stacked toggle has its icon beside the label, so it needs only a list row's height.
-                int minHeight = stacked ? gap * 6 : tileHeight;
-                if (button.getMinHeight() != minHeight) button.setMinHeight(minHeight);
-            }
-            if (columns == count || stacked) {
-                super.onMeasure(widthSpec, heightSpec);
-                return;
-            }
-            // Tiles: equal columns, and each line as tall as its tallest tile so the grid stays even.
-            int cell = (width - gap * (columns - 1)) / columns;
-            int height = getPaddingTop() + getPaddingBottom();
-            for (int line = 0; line * columns < count; line++) {
-                int tallest = 0;
-                for (int i = line * columns; i < Math.min(count, (line + 1) * columns); i++) {
-                    android.view.View child = getChildAt(i);
-                    child.measure(MeasureSpec.makeMeasureSpec(cell, MeasureSpec.EXACTLY),
-                            MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
-                    tallest = Math.max(tallest, child.getMeasuredHeight());
-                }
-                for (int i = line * columns; i < Math.min(count, (line + 1) * columns); i++) {
-                    getChildAt(i).measure(MeasureSpec.makeMeasureSpec(cell, MeasureSpec.EXACTLY),
-                            MeasureSpec.makeMeasureSpec(tallest, MeasureSpec.EXACTLY));
-                }
-                height += tallest + (line > 0 ? gap : 0);
-            }
-            setMeasuredDimension(MeasureSpec.getSize(widthSpec), resolveSize(height, heightSpec));
-        }
-
-        @Override
-        protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
-            int count = getChildCount();
-            if (columns == count || columns == 1) {
-                super.onLayout(changed, left, top, right, bottom);
-                return;
-            }
-            boolean rtl = getLayoutDirection() == LAYOUT_DIRECTION_RTL;
-            int y = getPaddingTop();
-            for (int line = 0; line * columns < count; line++) {
-                int tallest = 0;
-                for (int i = line * columns; i < Math.min(count, (line + 1) * columns); i++) {
-                    android.view.View child = getChildAt(i);
-                    int column = i % columns;
-                    int x = column * (child.getMeasuredWidth() + gap);
-                    int childLeft = rtl ? right - left - getPaddingRight() - x - child.getMeasuredWidth()
-                            : getPaddingLeft() + x;
-                    child.layout(childLeft, y, childLeft + child.getMeasuredWidth(), y + child.getMeasuredHeight());
-                    tallest = Math.max(tallest, child.getMeasuredHeight());
-                }
-                y += tallest + gap;
-            }
-        }
-
-        private boolean wordsFit(int buttonWidth) {
-            for (int i = 0; i < getChildCount(); i++) {
-                MaterialButton button = (MaterialButton) getChildAt(i);
-                int room = buttonWidth - button.getPaddingLeft() - button.getPaddingRight();
-                for (String word : button.getText().toString().split("\\s+")) {
-                    if (button.getPaint().measureText(word) > room) return false;
-                }
-            }
-            return true;
-        }
-    }
-
     /** A grid of compact tiles, as many to a row as fit, for {@link TileGrid#addTile}. */
     public TileGrid addTileGrid() {
-        TileGrid grid = new TileGrid(getContext());
-        // Room around the tiles for a TV's focus ring, which grows a tile; elsewhere the ring sits inside it.
-        grid.setPadding(spacing, spacing / 2, spacing, spacing / 2);
-        if (television) {
-            grid.setClipToPadding(false);
-            grid.setClipChildren(false);
-        }
-        content.addView(grid, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-        return grid;
+        return ActionSheetRows.addTileGrid(content, getContext(), spacing, television);
     }
 
     /**
@@ -678,69 +424,17 @@ public final class ActionSheet extends BottomSheetDialog {
             if (hotkey != null) row.setText(label + "  " + hotkey);
             return row;
         }
-        Context context = getContext();
-        android.content.res.Resources res = context.getResources();
-        TileGrid.Tile button = new TileGrid.Tile(context, androidx.appcompat.R.attr.borderlessButtonStyle);
-        int ink = destructive ? androidx.core.content.ContextCompat.getColor(context, R.color.nj_color_on_danger_fill)
-                : MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurface, 0);
-        button.setText(label);
-        button.setAllCaps(false);
-        button.setTextAppearance(context, R.style.TextAppearance_Nightjar_Label);
-        button.setTextColor(ink);
-        button.setSingleLine(true);
-        button.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        button.setIconResource(icon);
-        button.setIconTint(android.content.res.ColorStateList.valueOf(ink));
-        button.setIconSize(res.getDimensionPixelSize(R.dimen.stream_menu_footer_icon));
-        button.setIconPadding(spacing);
-        button.setIconGravity(MaterialButton.ICON_GRAVITY_TEXT_START);
-        int height = res.getDimensionPixelSize(R.dimen.stream_menu_exit_height);
-        button.setMinHeight(height);
-        button.setMinimumHeight(height);
-        button.setMinWidth(0);
-        button.setMinimumWidth(0);
-        button.setInsetTop(0);
-        button.setInsetBottom(0);
-        // The cap sits at the end, so the end padding makes room for it.
-        boolean cap = hotkey != null && capsShown;
-        button.setPaddingRelative(spacing * 3 / 2, 0, cap ? spacing * 5 : spacing * 3 / 2, 0);
-        button.setHotkey(hotkey);
-        button.setHotkeyAtEnd(true);
-        button.setCapShown(capsShown);
-        if (cap) button.setContentDescription(label + ", " + hotkey);
-        button.setBackground(new GlassControlDrawable(context,
-                destructive ? GlassControlDrawable.Kind.DANGER : GlassControlDrawable.Kind.CONTROL, height));
-        if (television) button.setStateListAnimator(Motion.rowFocus(context));
-        footer.addView(button);
-        return button;
+        return ActionSheetRows.addFooterAction(getContext(), footer, icon, label, destructive, hotkey, spacing, capsShown, television);
     }
 
     /** Rows standing together on one flat tint, hairlines between them. */
     public LinearLayout addRowGroup() {
-        Context context = getContext();
-        android.content.res.Resources res = context.getResources();
-        LinearLayout group = new LinearLayout(context);
-        styleRowGroup(group);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        params.setMargins(spacing, res.getDimensionPixelSize(R.dimen.stream_menu_group_gap) - spacing / 2, spacing, spacing / 2);
-        content.addView(group, params);
-        return group;
+        return ActionSheetRows.addRowGroup(content, getContext(), spacing);
     }
 
     /** The flat tint and hairlines of {@link #addRowGroup}, also for a group a layout holds. */
     static void styleRowGroup(LinearLayout group) {
-        Context context = group.getContext();
-        android.content.res.Resources res = context.getResources();
-        float density = res.getDisplayMetrics().density;
-        group.setOrientation(LinearLayout.VERTICAL);
-        group.setBackground(new GlassControlDrawable(context, GlassControlDrawable.Kind.GROUP, res.getDimension(R.dimen.nj_radius_control)));
-        android.graphics.drawable.GradientDrawable line = new android.graphics.drawable.GradientDrawable();
-        line.setColor(MaterialColors.getColor(context, R.attr.glassSeparator, 0));
-        line.setSize(0, Math.max(1, Math.round(density)));
-        group.setDividerDrawable(line);
-        group.setShowDividers(LinearLayout.SHOW_DIVIDER_MIDDLE);
-        group.setDividerPadding(Math.round(16 * density));
+        ActionSheetRows.styleRowGroup(group);
     }
 
     /** A status row in {@link #addRowGroup}: its name, a value at its end, a chevron. */
@@ -761,248 +455,7 @@ public final class ActionSheet extends BottomSheetDialog {
      * D-pad left and right move it. Answers the line showing the value.
      */
     public TextView addSliderRow(LinearLayout group, CharSequence label, CharSequence value, StepSlider slider) {
-        Context context = getContext();
-        android.content.res.Resources res = context.getResources();
-        LinearLayout row = new LinearLayout(context);
-        row.setOrientation(LinearLayout.VERTICAL);
-        row.setAddStatesFromChildren(true);
-        row.setBackground(new GlassControlDrawable(context, GlassControlDrawable.Kind.ROW, res.getDimension(R.dimen.nj_radius_control)));
-        row.setPadding(spacing * 2, spacing * 3 / 2, spacing * 2, spacing / 2);
-        LinearLayout line = new LinearLayout(context);
-        line.setGravity(Gravity.CENTER_VERTICAL);
-        TextView name = new TextView(context);
-        name.setText(label);
-        name.setTextAppearance(context, R.style.TextAppearance_Nightjar_Label);
-        name.setTextColor(MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurface, 0));
-        TextView shown = new TextView(context);
-        shown.setText(value);
-        shown.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, res.getDimension(R.dimen.stream_menu_row_value));
-        shown.setTextColor(MaterialColors.getColor(context, com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
-        shown.setGravity(Gravity.END);
-        line.addView(name, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        line.addView(shown, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        row.addView(line);
-        int thumb = Math.round(res.getDisplayMetrics().density * 10);
-        slider.setThumbRadius(thumb);
-        slider.setHaloRadius(0);
-        slider.setTrackStopIndicatorSize(0);
-        slider.setThumbTrackGapSize(0);
-        slider.setTrackHeight(Math.round(res.getDisplayMetrics().density * 6));
-        slider.setThumbTintList(android.content.res.ColorStateList.valueOf(
-                androidx.core.content.ContextCompat.getColor(context, R.color.nj_color_label)));
-        slider.setThumbElevation(0);
-        slider.setTrackActiveTintList(android.content.res.ColorStateList.valueOf(MaterialColors.getColor(context, androidx.appcompat.R.attr.colorPrimary, 0)));
-        slider.setTrackInactiveTintList(android.content.res.ColorStateList.valueOf(
-                androidx.core.content.ContextCompat.getColor(context, R.color.nj_tint_track_fill)));
-        slider.setHaloTintList(android.content.res.ColorStateList.valueOf(android.graphics.Color.TRANSPARENT));
-        slider.setContentDescription(label);
-        // The track starts under the name: the slider keeps a margin for its thumb that the row need not pay twice.
-        LinearLayout.LayoutParams sliderParams = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        sliderParams.setMarginStart(-slider.getTrackSidePadding());
-        sliderParams.setMarginEnd(-slider.getTrackSidePadding());
-        row.addView(slider, sliderParams);
-        group.addView(row, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        return shown;
-    }
-
-    /**
-     * A panel's window: the panel docked to the end edge in landscape and centred in portrait, the stream around it,
-     * and a tap beside the panel closing it. The panel is the design's 452 dp where there is room; in landscape it takes at
-     * most two thirds of the width but never less than 360 dp.
-     */
-    static final class PanelFrame extends android.widget.FrameLayout {
-        static final int WIDTH_DP = 452, MIN_WIDTH_DP = 360;
-        static final float LANDSCAPE_SHARE = 0.66f;
-        private final android.view.View panel;
-        private final int margin;
-        private Runnable onOutsideTap;
-        private boolean pressedOutside;
-
-        PanelFrame(Context context, android.view.View panel, int margin) {
-            super(context);
-            this.panel = panel;
-            this.margin = margin;
-            addView(panel, new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT));
-            // Over an immersive stream only a display cutout is left to keep clear of; elsewhere the bars too.
-            ViewCompat.setOnApplyWindowInsetsListener(this, (view, insets) -> {
-                androidx.core.graphics.Insets bars = insets.getInsets(
-                        WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
-                view.setPadding(bars.left, bars.top, bars.right, bars.bottom);
-                return insets;
-            });
-        }
-
-        void setOnOutsideTap(Runnable onOutsideTap) {
-            this.onOutsideTap = onOutsideTap;
-        }
-
-        private android.view.View anchor;
-
-        void setAnchor(android.view.View anchor) {
-            this.anchor = anchor;
-        }
-
-        /**
-         * Under an anchor: {@link #MIN_WIDTH_DP} wide, 8 dp below it, its end on the anchor's end (start in RTL), kept
-         * {@code edge} inside the window. Positions are on screen; the result is the panel's left and top in this frame.
-         */
-        static int[] underAnchor(int[] anchorAt, int anchorWidth, int anchorHeight, int[] frameAt, int frameWidth,
-                                 int panelWidth, int edge, float density, boolean rtl) {
-            int start = rtl ? anchorAt[0] - frameAt[0] : anchorAt[0] - frameAt[0] + anchorWidth - panelWidth;
-            int left = Math.max(edge, Math.min(start, frameWidth - panelWidth - edge));
-            return new int[] {left, anchorAt[1] - frameAt[1] + anchorHeight + Math.round(8 * density)};
-        }
-
-        /** The panel's width in pixels in a window {@code width} × {@code height} pixels big. */
-        static int panelWidth(int width, int height, int margin, float density) {
-            int wide = Math.round(WIDTH_DP * density);
-            int target = width > height
-                    ? Math.max(Math.round(MIN_WIDTH_DP * density), Math.min(wide, Math.round(width * LANDSCAPE_SHARE)))
-                    : wide;
-            return Math.max(0, Math.min(target, width - 2 * margin));
-        }
-
-        @Override
-        protected void onMeasure(int widthSpec, int heightSpec) {
-            int width = MeasureSpec.getSize(widthSpec) - getPaddingLeft() - getPaddingRight();
-            int height = MeasureSpec.getSize(heightSpec) - getPaddingTop() - getPaddingBottom();
-            LayoutParams params = (LayoutParams) panel.getLayoutParams();
-            float density = getResources().getDisplayMetrics().density;
-            if (anchor != null && anchor.isAttachedToWindow()) {
-                params.width = Math.max(0, Math.min(Math.round(MIN_WIDTH_DP * density), width - 2 * margin));
-                params.gravity = Gravity.TOP | Gravity.LEFT;
-                int[] anchorAt = new int[2];
-                int[] frameAt = new int[2];
-                anchor.getLocationOnScreen(anchorAt);
-                getLocationOnScreen(frameAt);
-                frameAt[0] += getPaddingLeft();
-                frameAt[1] += getPaddingTop();
-                int[] at = underAnchor(anchorAt, anchor.getWidth(), anchor.getHeight(), frameAt, width, params.width, margin,
-                        density, getLayoutDirection() == LAYOUT_DIRECTION_RTL);
-                params.setMargins(at[0], at[1], 0, margin);
-            } else {
-                params.width = panelWidth(width, height, margin, density);
-                params.gravity = width > height ? Gravity.END | Gravity.CENTER_VERTICAL : Gravity.CENTER;
-                params.setMargins(margin, margin, margin, margin);
-            }
-            super.onMeasure(widthSpec, heightSpec);
-        }
-
-        private boolean outside(android.view.MotionEvent event) {
-            return event.getX() < panel.getLeft() || event.getX() >= panel.getRight()
-                    || event.getY() < panel.getTop() || event.getY() >= panel.getBottom();
-        }
-
-        // Touches the panel's rows leave fall through to here: beside the panel they close it, on it they do nothing.
-        @Override
-        public boolean onTouchEvent(android.view.MotionEvent event) {
-            switch (event.getActionMasked()) {
-                case android.view.MotionEvent.ACTION_DOWN:
-                    pressedOutside = outside(event);
-                    break;
-                case android.view.MotionEvent.ACTION_UP:
-                    if (pressedOutside && outside(event)) performClick();
-                    pressedOutside = false;
-                    break;
-                case android.view.MotionEvent.ACTION_CANCEL:
-                    pressedOutside = false;
-                    break;
-                default:
-                    break;
-            }
-            return true;
-        }
-
-        @Override
-        public boolean performClick() {
-            super.performClick();
-            if (onOutsideTap != null) onOutsideTap.run();
-            return true;
-        }
-    }
-
-    /**
-     * A panel's footer: the ways out side by side in capsules of equal width. When a label would not fit its share, the last one,
-     * the red one, takes a line of its own.
-     */
-    static final class FooterBar extends android.view.ViewGroup {
-        private final int gap;
-        private boolean split;
-
-        FooterBar(Context context, int gap) {
-            super(context);
-            this.gap = gap;
-        }
-
-        /** True while the last capsule has its own line. */
-        boolean split() {
-            return split;
-        }
-
-        @Override
-        protected void onMeasure(int widthSpec, int heightSpec) {
-            int width = MeasureSpec.getSize(widthSpec);
-            int room = width - getPaddingLeft() - getPaddingRight();
-            int count = getChildCount();
-            if (count == 0) {
-                split = false;
-                setMeasuredDimension(width, 0);
-                return;
-            }
-            int cell = (room - gap * (count - 1)) / count;
-            int widest = 0;
-            for (int i = 0; i < count; i++) {
-                android.view.View child = getChildAt(i);
-                child.measure(MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED), MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
-                widest = Math.max(widest, child.getMeasuredWidth());
-            }
-            split = count > 1 && widest > cell;
-            int height = getPaddingTop() + getPaddingBottom();
-            if (split) {
-                height += measureLine(0, count - 1, (room - gap * (count - 2)) / (count - 1)) + gap;
-                height += measureLine(count - 1, count, room);
-            } else {
-                height += measureLine(0, count, cell);
-            }
-            setMeasuredDimension(width, height);
-        }
-
-        // Children [from, to) on one line, each as tall as the tallest; answers the line's height.
-        private int measureLine(int from, int to, int cell) {
-            int tallest = 0;
-            for (int i = from; i < to; i++) {
-                android.view.View child = getChildAt(i);
-                child.measure(MeasureSpec.makeMeasureSpec(cell, MeasureSpec.EXACTLY),
-                        MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
-                tallest = Math.max(tallest, child.getMeasuredHeight());
-            }
-            for (int i = from; i < to; i++) {
-                android.view.View child = getChildAt(i);
-                child.measure(MeasureSpec.makeMeasureSpec(child.getMeasuredWidth(), MeasureSpec.EXACTLY),
-                        MeasureSpec.makeMeasureSpec(tallest, MeasureSpec.EXACTLY));
-            }
-            return tallest;
-        }
-
-        @Override
-        protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
-            boolean rtl = getLayoutDirection() == LAYOUT_DIRECTION_RTL;
-            int width = right - left;
-            int y = getPaddingTop();
-            int x = 0;
-            int count = getChildCount();
-            for (int i = 0; i < count; i++) {
-                android.view.View child = getChildAt(i);
-                if (split && i == count - 1) {
-                    y += getChildAt(0).getMeasuredHeight() + gap;
-                    x = 0;
-                }
-                int childLeft = rtl ? width - getPaddingRight() - x - child.getMeasuredWidth() : getPaddingLeft() + x;
-                child.layout(childLeft, y, childLeft + child.getMeasuredWidth(), y + child.getMeasuredHeight());
-                x += child.getMeasuredWidth() + gap;
-            }
-        }
+        return ActionSheetRows.addSliderRow(getContext(), group, label, value, slider, spacing);
     }
 
     /** Keys other than Back, Escape and B: {@code handler} gets each key's code once, as it goes down, and takes it by answering true. */
@@ -1012,23 +465,7 @@ public final class ActionSheet extends BottomSheetDialog {
 
     /** An action that opens another page of this sheet, marked with a chevron at its end. */
     public MaterialButton addPageAction(int icon, CharSequence label) {
-        MaterialButton button = addAction(icon, label);
-        content.removeView(button);
-        android.widget.FrameLayout frame = new android.widget.FrameLayout(getContext());
-        if (television) frame.setClipChildren(false);
-        frame.addView(button, new android.widget.FrameLayout.LayoutParams(
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT));
-        android.widget.ImageView chevron = new android.widget.ImageView(getContext());
-        chevron.setImageResource(R.drawable.settings_chevron);
-        chevron.setImportantForAccessibility(android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        android.widget.FrameLayout.LayoutParams chevronParams = new android.widget.FrameLayout.LayoutParams(
-                spacing * 3, spacing * 3, Gravity.END | Gravity.CENTER_VERTICAL);
-        chevronParams.setMarginEnd(spacing);
-        frame.addView(chevron, chevronParams);
-        button.setPaddingRelative(button.getPaddingStart(), button.getPaddingTop(), spacing * 5, button.getPaddingBottom());
-        content.addView(frame, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-        return button;
+        return ActionSheetRows.wrapPageAction(content, getContext(), addAction(icon, label), spacing, television);
     }
 
     private void claimFirstAction(MaterialButton button) {
@@ -1040,24 +477,14 @@ public final class ActionSheet extends BottomSheetDialog {
 
     /** A heading; returned so a sheet can hide it with what it heads. */
     public TextView addSection(int title) {
-        TextView heading = sectionHeading(getContext().getText(title));
+        TextView heading = ActionSheetRows.sectionHeading(getContext(), getContext().getText(title), spacing, compact);
         content.addView(heading);
         return heading;
     }
 
     /** A heading from the host's words, such as a session's game. */
     public void addSection(CharSequence title) {
-        content.addView(sectionHeading(title));
-    }
-
-    private TextView sectionHeading(CharSequence title) {
-        TextView heading = new TextView(getContext());
-        heading.setText(title);
-        heading.setTextAppearance(getContext(), R.style.TextAppearance_Nightjar_Label);
-        heading.setTextColor(MaterialColors.getColor(getContext(), com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
-        heading.setPadding(spacing, compact ? spacing : spacing * 2, spacing, spacing);
-        ViewCompat.setAccessibilityHeading(heading, true);
-        return heading;
+        content.addView(ActionSheetRows.sectionHeading(getContext(), title, spacing, compact));
     }
 
     public int spacing() {
@@ -1069,16 +496,11 @@ public final class ActionSheet extends BottomSheetDialog {
      * the sheet is open. Its rows come from the {@code ViewGroup} variants below.
      */
     public LinearLayout addGroup() {
-        LinearLayout group = new LinearLayout(getContext());
-        group.setOrientation(LinearLayout.VERTICAL);
-        if (television) group.setClipChildren(false);
-        content.addView(group, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-        return group;
+        return ActionSheetRows.addGroup(content, getContext(), television);
     }
 
     public TextView addSection(android.view.ViewGroup parent, int title) {
-        TextView heading = sectionHeading(getContext().getText(title));
+        TextView heading = ActionSheetRows.sectionHeading(getContext(), getContext().getText(title), spacing, compact);
         parent.addView(heading);
         return heading;
     }
@@ -1090,15 +512,7 @@ public final class ActionSheet extends BottomSheetDialog {
 
     /** Text under a row, or on its own: quiet, or in the error colour. */
     public TextView addNote(android.view.ViewGroup parent, CharSequence text, boolean error) {
-        TextView note = new TextView(getContext());
-        note.setText(text);
-        note.setTextAppearance(getContext(), R.style.TextAppearance_Nightjar_Supporting);
-        note.setTextColor(MaterialColors.getColor(getContext(), error ?
-                androidx.appcompat.R.attr.colorError : com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
-        note.setPadding(spacing, 0, spacing, spacing);
-        parent.addView(note, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-        return note;
+        return ActionSheetRows.addNote(getContext(), parent, text, error, spacing);
     }
 
     public void addInfo(CharSequence label, CharSequence value) {
@@ -1107,26 +521,7 @@ public final class ActionSheet extends BottomSheetDialog {
 
     /** A fact with its label at the start and its value at the end. */
     public void addInfo(android.view.ViewGroup parent, CharSequence label, CharSequence value) {
-        LinearLayout row = new LinearLayout(getContext());
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(spacing, spacing / 2, spacing, spacing / 2);
-        TextView name = new TextView(getContext());
-        name.setText(label);
-        name.setTextAppearance(getContext(), R.style.TextAppearance_Nightjar_Supporting);
-        name.setTextColor(MaterialColors.getColor(getContext(), com.google.android.material.R.attr.colorOnSurfaceVariant, 0));
-        TextView text = new TextView(getContext());
-        text.setText(value);
-        text.setTextAppearance(getContext(), R.style.TextAppearance_Nightjar_Body);
-        text.setTextColor(MaterialColors.getColor(getContext(), com.google.android.material.R.attr.colorOnSurface, 0));
-        text.setGravity(Gravity.END);
-        row.addView(name, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-        LinearLayout.LayoutParams valueParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
-        valueParams.setMarginStart(spacing * 2);
-        row.addView(text, valueParams);
-        row.setContentDescription(label + ": " + value);
-        parent.addView(row, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
+        ActionSheetRows.addInfo(getContext(), parent, label, value, spacing);
     }
 
     /**
@@ -1134,17 +529,7 @@ public final class ActionSheet extends BottomSheetDialog {
      * its edges stay in line with the rows around it.
      */
     public void styleRow(MaterialButton button) {
-        button.setBackground(new GlassControlDrawable(getContext(), GlassControlDrawable.Kind.ROW,
-                getContext().getResources().getDimension(R.dimen.nj_radius_control)));
-        if (television) button.setStateListAnimator(Motion.rowFocus(getContext()));
-    }
-
-    /** A toggle on a TV: side by side with room between them, so it may grow a little under the ring. */
-    private void styleToggle(MaterialButton button) {
-        if (television) {
-            button.setStrokeColor(androidx.appcompat.content.res.AppCompatResources.getColorStateList(getContext(), R.color.card_stroke));
-            button.setStateListAnimator(Motion.controlFocus(getContext()));
-        }
+        ActionSheetRows.styleRow(getContext(), television, button);
     }
 
     public MaterialButton addAction(int icon, CharSequence label) {
@@ -1154,23 +539,12 @@ public final class ActionSheet extends BottomSheetDialog {
 
     /** An action with a second, quieter line that says what will happen. */
     public MaterialButton addAction(int icon, CharSequence label, CharSequence note) {
-        return addAction(icon, withNote(label, note));
+        return addAction(icon, ActionSheetRows.withNote(getContext(), label, note));
     }
 
     /** Rewrites an action added with a note, for a row that changes a setting in place. */
     public void setActionText(MaterialButton action, CharSequence label, CharSequence note) {
-        action.setText(withNote(label, note));
-    }
-
-    private CharSequence withNote(CharSequence label, CharSequence note) {
-        android.text.SpannableStringBuilder text = new android.text.SpannableStringBuilder(label).append('\n');
-        int start = text.length();
-        text.append(note);
-        text.setSpan(new android.text.style.TextAppearanceSpan(getContext(), R.style.TextAppearance_Nightjar_Supporting),
-                start, text.length(), 0);
-        text.setSpan(new android.text.style.ForegroundColorSpan(MaterialColors.getColor(getContext(),
-                com.google.android.material.R.attr.colorOnSurfaceVariant, 0)), start, text.length(), 0);
-        return text;
+        action.setText(ActionSheetRows.withNote(getContext(), label, note));
     }
 
     /** An action that removes something, in the error colour and kept last in the sheet. */
@@ -1183,34 +557,13 @@ public final class ActionSheet extends BottomSheetDialog {
     }
 
     private MaterialButton addAction(android.view.ViewGroup parent, int icon, CharSequence label, int textColor, int iconColor) {
-        MaterialButton button = new MaterialButton(getContext(), null, androidx.appcompat.R.attr.borderlessButtonStyle);
-        button.setText(label);
-        button.setTextAppearance(getContext(), R.style.TextAppearance_Nightjar_Body);
-        button.setTextColor(MaterialColors.getColor(getContext(), textColor, 0));
-        button.setAllCaps(false);
-        button.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-        button.setMinHeight(spacing * 7);
-        // Let translated labels and accessibility font sizes grow instead of truncating actions.
-        button.setSingleLine(false);
-        button.setPaddingRelative(spacing, spacing, spacing, spacing);
-        button.setIconResource(icon);
-        button.setIconTint(android.content.res.ColorStateList.valueOf(MaterialColors.getColor(getContext(), iconColor, 0)));
-        button.setIconPadding(spacing * 2);
-        button.setIconSize(spacing * 3);
-        parent.addView(button, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-        styleRow(button);
+        MaterialButton button = ActionSheetRows.addAction(getContext(), parent, icon, label, textColor, iconColor, spacing, television);
         if (parent == content) claimFirstAction(button);
         return button;
     }
 
     public void addDivider() {
-        com.google.android.material.divider.MaterialDivider divider =
-                new com.google.android.material.divider.MaterialDivider(getContext());
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
-        params.setMargins(spacing, spacing, spacing, spacing);
-        content.addView(divider, params);
+        ActionSheetRows.addDivider(content, getContext(), spacing);
     }
 
     /**
@@ -1263,50 +616,6 @@ public final class ActionSheet extends BottomSheetDialog {
         }
         if (getWindow() != null) getWindow().setDimAmount(GlassPanelDrawable.backdropDim(getContext()));
         if (!content.isInTouchMode() && firstAction != null) firstAction.requestFocus();
-    }
-
-    /**
-     * A sheet's scroll that leaves a focused row alone while it is wholly in view. The platform's scroll also keeps a focused
-     * row clear of the fading edge, so focus reaching the stream menu's Bitrate slid the tiles under the head for a few
-     * pixels' fade although everything fitted.
-     */
-    // Not final: a test records the sounds the scroll itself would play.
-    static class StillScroll extends NestedScrollView {
-        StillScroll(Context context) {
-            super(context);
-        }
-
-        @Override
-        protected int computeScrollDeltaToGetChildRectOnScreen(android.graphics.Rect rect) {
-            int top = getScrollY();
-            if (rect.top >= top && rect.bottom <= top + getHeight()) return 0;
-            return super.computeScrollDeltaToGetChildRectOnScreen(rect);
-        }
-
-        /**
-         * Up and Down inside a sheet that scrolls are this scroll's own move: it takes the key before the window does, so
-         * the window's navigation sound, which Left and Right still get, never played for them (nightjar#7). A move that
-         * lands focus on another row plays it here; a press that only scrolls stays silent, as the window's would, also
-         * when it scrolls the focused row away and the scroll itself takes the focus.
-         */
-        @Override
-        public boolean arrowScroll(int direction) {
-            android.view.View before = findFocus();
-            boolean handled = super.arrowScroll(direction);
-            android.view.View after = findFocus();
-            if (handled && after != null && after != before && inside(after)) {
-                after.playSoundEffect(android.view.SoundEffectConstants.getContantForFocusDirection(direction));
-            }
-            return handled;
-        }
-
-        /** Whether {@code view} is one of this scroll's rows or within one, not the scroll itself. */
-        private boolean inside(android.view.View view) {
-            for (android.view.ViewParent parent = view.getParent(); parent instanceof android.view.View; parent = parent.getParent()) {
-                if (parent == this) return true;
-            }
-            return false;
-        }
     }
 
     /** The gap a TV's sheet keeps from the screen's top and bottom edges. */
@@ -1392,5 +701,34 @@ public final class ActionSheet extends BottomSheetDialog {
         content.post(() -> {
             if (!content.isInTouchMode() && firstAction != null && isShowing()) firstAction.requestFocus();
         });
+    }
+
+    static final class ToggleRow extends ActionSheetLayoutViews.ToggleRowBase {
+        ToggleRow(Context context, int gap) {
+            super(context, gap);
+        }
+
+        ToggleRow(Context context, int gap, int tileHeight) {
+            super(context, gap, tileHeight);
+        }
+    }
+
+    static final class PanelFrame extends ActionSheetLayoutViews.PanelFrameBase {
+        PanelFrame(Context context, android.view.View panel, int margin) {
+            super(context, panel, margin);
+        }
+    }
+
+    static final class FooterBar extends ActionSheetLayoutViews.FooterBarBase {
+        FooterBar(Context context, int gap) {
+            super(context, gap);
+        }
+    }
+
+    // Not final: a test records the sounds the scroll itself would play.
+    static class StillScroll extends ActionSheetLayoutViews.StillScrollBase {
+        StillScroll(Context context) {
+            super(context);
+        }
     }
 }

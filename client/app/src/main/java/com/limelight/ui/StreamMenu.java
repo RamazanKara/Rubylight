@@ -4,8 +4,6 @@ import android.app.Activity;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-import androidx.core.view.ViewCompat;
-
 import com.google.android.material.button.MaterialButton;
 import com.limelight.LimeLog;
 import com.limelight.R;
@@ -14,14 +12,11 @@ import com.limelight.binding.video.PerformanceOverlay;
 import com.limelight.console.ConnectionInfo;
 import com.limelight.console.NativeMenuController;
 import com.limelight.nativeapi.NativeAudio;
-import com.limelight.nativeapi.NativeCapabilities;
 import com.limelight.nvstream.http.ComputerDetails;
-import com.limelight.nvstream.http.HostCapabilities;
 import com.limelight.nvstream.http.NvApp;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -177,180 +172,11 @@ public final class StreamMenu {
     }
 
     public static int title(NvApp.Role role) {
-        return role == NvApp.Role.REMOTE_MONITOR ? R.string.stream_monitor_title :
-                role == NvApp.Role.INPUT_ONLY ? R.string.stream_input_title : R.string.stream_menu;
+        return StreamMenuCatalog.title(role);
     }
 
     public static List<Entry> mainPage(Options o) {
-        List<Entry> entries = new ArrayList<>();
-        ComputerDetails host = o.host;
-        HostCapabilities caps = host.caps;
-
-        // The keyboards open and close the menu: actions, not switches. The PC keyboard is the full
-        // layout drawn here; Keyboard is Android's own.
-        if (o.canSendInput) entries.add(action(Section.QUICK, Item.KEYBOARD, R.string.desktop_controls_system_keyboard, R.drawable.ic_keyboard));
-        if (o.canSendInput) entries.add(action(Section.QUICK, Item.PC_KEYBOARD, R.string.pc_keyboard_title, R.drawable.ic_keyboard_keys));
-        if (o.mediaStream()) {
-            entries.add(entry(Section.QUICK, Item.OVERLAY, R.string.stream_overlay_menu, R.drawable.ic_overlay, o.overlayShown));
-        }
-        if (o.microphoneOffered) {
-            entries.add(entry(Section.QUICK, Item.MICROPHONE, R.string.stream_microphone,
-                    o.microphoneMuted ? R.drawable.ic_mic_off : R.drawable.ic_mic, !o.microphoneMuted));
-        }
-        // The host's audio processing for this stream, once the host has said it may change now.
-        if (o.role == NvApp.Role.STREAM && o.hostAudio != null) {
-            NativeAudio.Setting night = o.hostAudio.get(NativeCapabilities.NIGHT_MODE);
-            if (o.nightModeOffered && night != null && night.switchable()) {
-                entries.add(entry(Section.QUICK, Item.NIGHT_MODE, R.string.stream_night_mode, R.drawable.ic_night_mode, night.value));
-            }
-            NativeAudio.Setting surround = o.hostAudio.get(NativeCapabilities.HEADPHONE_SURROUND);
-            if (o.headphoneSurroundOffered && surround != null && surround.switchable()) {
-                entries.add(entry(Section.QUICK, Item.HEADPHONE_SURROUND, R.string.stream_headphone_surround,
-                        R.drawable.ic_headphones, surround.value));
-            }
-        }
-
-        addSession(entries, o);
-
-        if (o.canSendInput) {
-            if (o.localOutput) entries.add(action(Section.INPUT, Item.TOUCH_MODE, R.string.stream_touch_mode, R.drawable.ic_touch));
-            if (o.mouseConnected) {
-                entries.add(action(Section.INPUT, Item.MOUSE_CURSOR, o.cursorVisible ?
-                        R.string.stream_cursor_hide : R.string.stream_cursor_show, R.drawable.ic_mouse_pointer));
-            }
-            if (o.controllerMouseAvailable) {
-                entries.add(entry(Section.INPUT, Item.CONTROLLER_MOUSE, R.string.stream_controller_mouse,
-                        R.drawable.ic_gamepad, o.controllerMouseOn));
-            }
-            entries.add(entry(Section.INPUT, Item.ONSCREEN_CONTROLS, o.onscreenControls ?
-                    R.string.stream_controls_hide : R.string.stream_controls_show, R.drawable.ic_gamepad, o.onscreenControls));
-            if (o.onscreenControls) {
-                entries.add(action(Section.INPUT, Item.CONTROLS_LAYOUT, R.string.stream_controls_layout, R.drawable.ic_edit));
-            }
-            if (o.microphoneOffered && o.micButtonAvailable) {
-                entries.add(action(Section.INPUT, Item.MIC_BUTTON, o.micButtonShown ?
-                        R.string.stream_mic_button_hide : R.string.stream_mic_button_show, R.drawable.ic_mic_button));
-            }
-            if (o.menuButtonAvailable) {
-                entries.add(action(Section.INPUT, Item.MENU_BUTTON, o.menuButtonShown ?
-                        R.string.stream_menu_button_hide : R.string.stream_menu_button_show, R.drawable.ic_menu_button));
-            }
-            if (o.gameControls) {
-                entries.add(action(Section.INPUT, Item.GAME_CONTROLS, R.string.touch_layout_title, R.drawable.ic_touch_controls));
-            }
-            entries.add(action(Section.INPUT, Item.KEYBOARD_KEYS, o.keyboardKeysShown ?
-                    R.string.desktop_controls_close : R.string.desktop_controls_open, R.drawable.ic_keys));
-        }
-
-        if (o.mediaStream()) {
-            if (o.scalingAvailable && o.localOutput) {
-                entries.add(action(Section.DISPLAY, Item.VIDEO_SCALING, R.string.video_scaling_title, R.drawable.ic_stretch));
-            }
-            if (o.localOutput) {
-                entries.add(entry(Section.DISPLAY, Item.ZOOM, o.zoomEnabled ?
-                        R.string.desktop_zoom_disable : R.string.desktop_zoom_enable, R.drawable.ic_zoom_in, o.zoomEnabled));
-                if (o.zoomEnabled) {
-                    entries.add(action(Section.DISPLAY, Item.ZOOM_RESET, R.string.desktop_zoom_reset, R.drawable.ic_zoom_out));
-                }
-            }
-            entries.add(action(Section.DISPLAY, Item.OVERLAY_PAGE, R.string.stream_overlay_page, R.drawable.ic_chart));
-            if (o.pictureInPicture && o.localOutput) {
-                entries.add(action(Section.DISPLAY, Item.PICTURE_IN_PICTURE, R.string.stream_picture_in_picture, R.drawable.ic_picture_in_picture));
-            }
-            if (o.externalDisplays || !o.localOutput) {
-                entries.add(action(Section.DISPLAY, Item.VIDEO_OUTPUT, R.string.desktop_output, R.drawable.ic_monitor));
-            }
-
-            // Bitrate and automatic quality change the host's encoder: they need its runtime bitrate
-            // control and permission to view and launch. A host that offered this stream 0x553C
-            // changes the bitrate and the frame rate in one dialog instead.
-            boolean runtimeBitrate = caps.has(HostCapabilities.Feature.RUNTIME_BITRATE) &&
-                    host.hasPermission(ComputerDetails.PERMISSION_VIEW | ComputerDetails.PERMISSION_LAUNCH);
-            if (o.rateChange && o.role == NvApp.Role.STREAM) {
-                entries.add(action(Section.QUALITY, Item.RATE_CHANGE, R.string.stream_rate_change, R.drawable.ic_speed));
-            } else if (runtimeBitrate) {
-                entries.add(action(Section.QUALITY, Item.BITRATE, R.string.stream_bitrate_manual, R.drawable.ic_speed));
-            }
-            if (runtimeBitrate && o.automaticQuality && o.role == NvApp.Role.STREAM) {
-                entries.add(action(Section.QUALITY, Item.AUTOMATIC_QUALITY, R.string.title_adaptive_quality, R.drawable.ic_tune));
-            }
-            if ((runtimeBitrate && host.encoderBitrateSupported) || o.rateChangeBitrate) {
-                // The setting's own name, checked while it is on, as desktop's switch shows it.
-                entries.add(entry(Section.QUALITY, Item.AUTOMATIC_BITRATE, R.string.title_auto_bitrate,
-                        R.drawable.ic_network, o.automaticBitrateOn));
-            }
-        }
-
-        // A native API host adds its own page: the session actions, the connection and the Radeon settings.
-        if (o.role == NvApp.Role.STREAM && caps.has(HostCapabilities.Feature.NATIVE_API)) {
-            entries.add(action(Section.HOST, Item.NATIVE_PAGE, R.string.native_menu_row, R.drawable.ic_tune));
-        }
-        // Only when the host's native capabilities offer it, whoever made the host.
-        if (o.role == NvApp.Role.STREAM && o.hostMenu) {
-            entries.add(action(Section.HOST, Item.HOST_MENU, R.string.stream_host_menu, R.drawable.ic_computer));
-        }
-        if (o.role != NvApp.Role.REMOTE_MONITOR && host.canRunServerCommand(0)) {
-            entries.add(action(Section.HOST, Item.SERVER_COMMANDS, R.string.stream_server_commands, R.drawable.ic_terminal));
-        }
-        if (o.role != NvApp.Role.REMOTE_MONITOR && host.canWriteClipboard()) {
-            entries.add(action(Section.HOST, Item.CLIPBOARD_SEND, R.string.stream_clipboard_send, R.drawable.ic_clipboard_send));
-        }
-        if (host.canReadClipboard()) {
-            entries.add(action(Section.HOST, Item.CLIPBOARD_RECEIVE, R.string.stream_clipboard_receive, R.drawable.ic_clipboard_receive));
-        }
-        // Images ride the same permissions as text, on a host that offers them.
-        if (o.imageClipboard && o.role != NvApp.Role.REMOTE_MONITOR && host.canWriteClipboard()) {
-            entries.add(action(Section.HOST, Item.IMAGE_CLIPBOARD_SEND, R.string.stream_clipboard_image_send, R.drawable.ic_image_send));
-        }
-        if (o.imageClipboard && host.canReadClipboard()) {
-            entries.add(action(Section.HOST, Item.IMAGE_CLIPBOARD_RECEIVE, R.string.stream_clipboard_image_receive, R.drawable.ic_image_receive));
-        }
-        if (o.role != NvApp.Role.REMOTE_MONITOR && o.usbForwarding) {
-            entries.add(action(Section.HOST, Item.USB_DEVICES, R.string.stream_usb_devices, R.drawable.ic_usb));
-        }
-        // Only the device playing (or one with Host control) manages who joined its game.
-        if (o.role == NvApp.Role.STREAM && o.sessionGuests) {
-            entries.add(action(Section.HOST, Item.GUESTS, R.string.guests_title, R.drawable.ic_guests));
-        }
-        // File transfer belongs to the PC, not the session; its screen says whether this device may use it.
-        if (caps.has(HostCapabilities.Feature.NATIVE_API)) {
-            entries.add(action(Section.HOST, Item.FILES, R.string.files_menu, R.drawable.ic_files));
-        }
-        if (o.webUiAddress && caps.mayHave(HostCapabilities.Feature.WEB_UI)) {
-            entries.add(action(Section.HOST, Item.HOST_WEB_UI, R.string.host_administration_menu, R.drawable.ic_web));
-        }
-        // Without device permissions or a frame limiter the host has no status to show.
-        if (host.permission != -1 || caps.has(HostCapabilities.Feature.FRAME_LIMITER_STATUS)) {
-            entries.add(action(Section.HOST, Item.HOST_STATUS, R.string.stream_host_status, R.drawable.ic_info));
-        }
-
-        return entries;
-    }
-
-    /**
-     * Disconnect first, right under Return to stream; the actions that end the PC's game or session close the group in the
-     * error colour. Under the grid stand Disconnect and the game's end; Reconnect and End session wait on the More page.
-     */
-    private static void addSession(List<Entry> entries, Options o) {
-        ComputerDetails host = o.host;
-        HostCapabilities caps = host.caps;
-        entries.add(action(Section.SESSION, Item.DISCONNECT, R.string.stream_disconnect, R.drawable.ic_close));
-        entries.add(action(Section.SESSION, Item.RECONNECT, R.string.stream_reconnect, R.drawable.ic_refresh));
-        if (host.hasPermission(ComputerDetails.PERMISSION_LAUNCH)) {
-            if (o.role == NvApp.Role.STREAM && caps.has(HostCapabilities.Feature.NATIVE_API)) {
-                // The native API tells ending the session (the game keeps running) from closing the game.
-                entries.add(new Entry(Section.SESSION, Item.END_HOST_SESSION, R.string.stream_end_session, R.drawable.ic_stop, null, true));
-                // Close game needs host control, which is off by default; Quit app (/cancel) does not.
-                entries.add(o.nativeHostControl
-                        ? new Entry(Section.SESSION, Item.CLOSE_GAME, R.string.stream_close_game, R.drawable.ic_stop, null, true)
-                        : new Entry(Section.SESSION, Item.QUIT_GAME, R.string.stream_quit_game, R.drawable.ic_stop, null, true));
-            } else if (o.role == NvApp.Role.STREAM) {
-                entries.add(new Entry(Section.SESSION, Item.QUIT_GAME, R.string.stream_quit_game, R.drawable.ic_stop, null, true));
-            } else {
-                entries.add(new Entry(Section.SESSION, Item.END_SESSION, o.role == NvApp.Role.REMOTE_MONITOR ?
-                        R.string.stream_end_monitor : R.string.stream_end_input, R.drawable.ic_stop, null, true));
-            }
-        }
+        return StreamMenuCatalog.mainPage(o);
     }
 
     /**
@@ -358,10 +184,7 @@ public final class StreamMenu {
      * menu never disconnects or quits.
      */
     public static Item firstFocus(List<Entry> entries) {
-        for (Entry entry : entries) {
-            if (entry.item != Item.DISCONNECT && !entry.destructive) return entry.item;
-        }
-        return entries.isEmpty() ? null : entries.get(0).item;
+        return StreamMenuCatalog.firstFocus(entries);
     }
 
     /**
@@ -370,51 +193,11 @@ public final class StreamMenu {
      * The connection facts and the Radeon panel follow them.
      */
     public static List<Entry> nativePage(Options o) {
-        List<Entry> entries = new ArrayList<>();
-        entries.add(action(Section.NATIVE_SESSION, Item.NATIVE_RESUME, R.string.native_resume, R.drawable.ic_play));
-        entries.add(action(Section.NATIVE_SESSION, Item.DISCONNECT, R.string.stream_disconnect, R.drawable.ic_close));
-        if (o.host.hasPermission(ComputerDetails.PERMISSION_LAUNCH)) {
-            entries.add(new Entry(Section.NATIVE_SESSION, Item.END_HOST_SESSION, R.string.stream_end_session, R.drawable.ic_stop, null, true));
-            entries.add(o.nativeHostControl
-                    ? new Entry(Section.NATIVE_SESSION, Item.CLOSE_GAME, R.string.stream_close_game, R.drawable.ic_stop, null, true)
-                    : new Entry(Section.NATIVE_SESSION, Item.QUIT_GAME, R.string.stream_quit_game, R.drawable.ic_stop, null, true));
-        }
-        return entries;
+        return StreamMenuCatalog.nativePage(o);
     }
 
     public static List<Entry> overlayPage(Options o) {
-        List<Entry> entries = new ArrayList<>();
-        // Off first, like the settings picker; a mode counts as chosen only while the overlay shows.
-        entries.add(entry(Section.OVERLAY_STYLE, Item.OVERLAY_OFF, R.string.overlay_off, R.drawable.ic_check, !o.overlayShown));
-        String[] modes = {PerformanceOverlay.MODE_COMPACT, PerformanceOverlay.MODE_STATISTICS, PerformanceOverlay.MODE_DEBUG};
-        Item[] items = {Item.OVERLAY_COMPACT, Item.OVERLAY_STATISTICS, Item.OVERLAY_DEBUG};
-        int[] labels = {R.string.overlay_compact, R.string.overlay_statistics, R.string.overlay_debug};
-        for (int i = 0; i < modes.length; i++) {
-            entries.add(entry(Section.OVERLAY_STYLE, items[i], labels[i], R.drawable.ic_check,
-                    o.overlayShown && modes[i].equals(o.overlayMode)));
-        }
-        OverlayPlacement.Corner[] corners = OverlayPlacement.Corner.values();
-        Item[] positions = {Item.OVERLAY_TOP_LEFT, Item.OVERLAY_TOP_RIGHT, Item.OVERLAY_BOTTOM_LEFT, Item.OVERLAY_BOTTOM_RIGHT};
-        int[] positionLabels = {R.string.overlay_position_top_left, R.string.overlay_position_top_right,
-                R.string.overlay_position_bottom_left, R.string.overlay_position_bottom_right};
-        OverlayPlacement.Corner current = OverlayPlacement.Corner.parse(o.overlayPosition);
-        for (int i = 0; i < corners.length; i++) {
-            entries.add(entry(Section.OVERLAY_POSITION, positions[i], positionLabels[i], R.drawable.ic_check, corners[i] == current));
-        }
-        entries.add(action(Section.DIAGNOSTICS, Item.OVERLAY_COPY, R.string.overlay_copy, R.drawable.ic_copy));
-        entries.add(action(Section.DIAGNOSTICS, Item.STREAM_HEALTH, R.string.health_title, R.drawable.ic_pulse));
-        if (o.canSendInput) {
-            entries.add(action(Section.DIAGNOSTICS, Item.LATENCY_TEST, R.string.latency_test, R.drawable.ic_timer));
-        }
-        return entries;
-    }
-
-    private static Entry entry(Section section, Item item, int label, int icon, boolean checked) {
-        return new Entry(section, item, label, icon, checked, false);
-    }
-
-    private static Entry action(Section section, Item item, int label, int icon) {
-        return new Entry(section, item, label, icon, null, false);
+        return StreamMenuCatalog.overlayPage(o);
     }
 
     /** Runs a chosen item. Items that close the menu run once it is gone. */
@@ -432,11 +215,17 @@ public final class StreamMenu {
         void send(int[] keys);
     }
 
+    static final List<String> FALLBACK_FOOTER = StreamMenuCatalog.FALLBACK_FOOTER;
+
+    /** Set by a test for a controller that is there (true) or not (false); null asks Android. */
+    static Boolean gamepadForTest;
+
     private final Activity activity;
     private final Supplier<Options> options;
     private final Listener listener;
     private final Shortcuts shortcuts;
     private final ActionSheet sheet;
+    private final StreamMenuShortcutsPage shortcutsPage;
     private final Map<Item, MaterialButton> rows = new EnumMap<>(Item.class);
     private Page page = Page.MAIN;
     private List<Entry> entries = new ArrayList<>();
@@ -453,12 +242,6 @@ public final class StreamMenu {
     // The rate the slider's row shows beside it.
     private TextView bitrateShown;
     private TextView failure;
-    // The shortcut being edited (null for a new one), and the editor's name and keys in their saved names.
-    private KeyboardShortcuts.Shortcut editing;
-    private String draftName = "";
-    private final List<String> draftKeys = new ArrayList<>();
-    private TextView draftChord, draftError;
-    private final Map<String, MaterialButton> keyCaps = new HashMap<>();
 
     public StreamMenu(Activity activity, Supplier<Options> options, Listener listener) {
         this(activity, options, listener, null, null);
@@ -483,6 +266,9 @@ public final class StreamMenu {
         sheet = new ActionSheet(activity, activity.getString(title(current.role)), true);
         sheet.setOnClosed(this::stopRadeon);
         sheet.setKeyHandler(this::hotkey);
+        shortcutsPage = new StreamMenuShortcutsPage(activity, sheet, shortcuts, this::back,
+                () -> render(Page.SHORTCUTS, options.get(), null),
+                () -> render(Page.EDITOR, options.get(), null));
         render(Page.MAIN, current, null);
     }
 
@@ -539,26 +325,12 @@ public final class StreamMenu {
         }
     }
 
-    private static String id(Item item) {
-        return item.name().toLowerCase(Locale.ROOT);
-    }
-
-    private static int heading(Page target, Options o) {
-        switch (target) {
-            case NATIVE: return R.string.native_menu_row;
-            case OVERLAY: return R.string.stream_overlay_page;
-            case MORE: return R.string.stream_menu_more;
-            case SHORTCUTS: return R.string.stream_menu_shortcuts;
-            default: return title(o.role);
-        }
-    }
-
     private void render(Page target, Options o, Item focus) {
         page = target;
         stopRadeon();
         sheet.clearActions();
         rows.clear();
-        keyCaps.clear();
+        shortcutsPage.clearViews();
         grid = null;
         cells = null;
         bitrateSlider = null;
@@ -566,20 +338,22 @@ public final class StreamMenu {
         layout = null;
         failure = null;
         audioNote = null;
-        draftChord = null;
-        draftError = null;
         String[] header = target == Page.MAIN ? header(o) : null;
         sheet.setHeading(target == Page.EDITOR
-                ? activity.getString(editing == null ? R.string.keyboard_shortcuts_add : R.string.keyboard_shortcuts_edit)
-                : header != null ? header[0] : activity.getString(heading(target, o)));
+                ? activity.getString(shortcutsPage.editorHeading())
+                : header != null ? header[0] : activity.getString(StreamMenuCatalog.heading(target, o)));
         sheet.setSubtitle(header == null ? null : header[1]);
         // The game's cover heads the first page only; a page below says where it is, its back button in the cover's place.
         sheet.setCover(target == Page.MAIN && o.role == NvApp.Role.STREAM ? o.cover : null);
         sheet.setBackHandler(target == Page.MAIN ? null : this::back);
         if (target == Page.MAIN) renderGrid(o);
-        else if (target == Page.SHORTCUTS) renderShortcuts();
-        else if (target == Page.EDITOR) renderEditor();
-        else if (target == Page.MORE) renderList(moreEntries(o));
+        else if (target == Page.SHORTCUTS) {
+            entries = new ArrayList<>();
+            failure = shortcutsPage.renderShortcuts();
+        } else if (target == Page.EDITOR) {
+            entries = new ArrayList<>();
+            failure = shortcutsPage.renderEditor();
+        } else if (target == Page.MORE) renderList(StreamMenuCatalog.moreEntries(offered(o)));
         else renderList(target == Page.NATIVE ? nativePage(o) : overlayPage(o));
         if (target == Page.NATIVE) addNativeFacts(o);
         sheet.focusFirstAction();
@@ -589,47 +363,11 @@ public final class StreamMenu {
 
     // What the first page offers: the entries this stream can use, and the shortcuts where they can be sent.
     private List<Entry> offered(Options o) {
-        List<Entry> list = pageEntries(Page.MAIN, o);
+        List<Entry> list = StreamMenuCatalog.pageEntries(activity, Page.MAIN, o);
         if (shortcuts != null && o.canSendInput) {
-            list.add(action(Section.QUICK, Item.SHORTCUTS, R.string.stream_menu_shortcuts, R.drawable.ic_keyboard));
+            list.add(StreamMenuCatalog.action(Section.QUICK, Item.SHORTCUTS, R.string.stream_menu_shortcuts, R.drawable.ic_keyboard));
         }
         return list;
-    }
-
-    private Entry find(List<Entry> list, String id) {
-        for (Entry entry : list) {
-            if (id(entry.item).equals(id)) return entry;
-        }
-        return null;
-    }
-
-    // The More page: its switches first, then the rest in the model's order.
-    private List<Entry> moreEntries(Options o) {
-        List<Entry> offered = offered(o);
-        List<Entry> switches = new ArrayList<>();
-        List<Entry> rest = new ArrayList<>();
-        StreamMenuModel.Layout model;
-        try {
-            model = StreamMenuModel.layout(offers(offered), null);
-        } catch (StreamMenuModel.Refused e) {
-            // Which entries sit behind More is the model's to say: without it, More lists them all.
-            LimeLog.warning("Stream menu: the model failed for More: " + e.getMessage());
-            return offered;
-        }
-        for (String id : model.more) {
-            Entry entry = find(offered, id);
-            if (entry == null) continue;
-            if (entry.section == Section.QUICK) switches.add(entry);
-            else rest.add(entry);
-        }
-        switches.addAll(rest);
-        return switches;
-    }
-
-    private static List<StreamMenuModel.Offer> offers(List<Entry> list) {
-        List<StreamMenuModel.Offer> offers = new ArrayList<>();
-        for (Entry entry : list) offers.add(new StreamMenuModel.Offer(id(entry.item), entry.checked));
-        return offers;
     }
 
     /**
@@ -642,12 +380,12 @@ public final class StreamMenu {
             audioNote = sheet.addNote(sheet.addGroup(), activity.getString(R.string.stream_audio_unread), false);
         }
         List<Entry> offered = offered(o);
-        offeredItems = items(offered);
+        offeredItems = StreamMenuCatalog.items(offered);
         entries = new ArrayList<>();
         List<KeyboardShortcuts.Shortcut> saved = shortcuts != null && o.canSendInput ? shortcuts.saved() : null;
-        java.util.Map<String, String> labels;
+        Map<String, String> labels;
         try {
-            layout = StreamMenuModel.layout(offers(offered), saved == null ? null : saved.size(), buttonChoices(activity));
+            layout = StreamMenuModel.layout(StreamMenuCatalog.offers(offered), saved == null ? null : saved.size(), buttonChoices(activity));
             labels = StreamMenuModel.labels();
         } catch (StreamMenuModel.Refused e) {
             // Without the model the stream still runs: every entry stays
@@ -657,7 +395,7 @@ public final class StreamMenu {
             failure = sheet.addNote(sheet.addGroup(), activity.getString(R.string.stream_menu_model_failed, e.getMessage()), true);
             // The ways out stay the model's two, Disconnect and the game's end; Reconnect and End session join the list.
             List<Entry> plain = new ArrayList<>();
-            for (Entry entry : offered) if (!FALLBACK_FOOTER.contains(id(entry.item))) plain.add(entry);
+            for (Entry entry : offered) if (!FALLBACK_FOOTER.contains(StreamMenuCatalog.id(entry.item))) plain.add(entry);
             addRows(plain);
             entries.addAll(plain);
             addFooter(offered, FALLBACK_FOOTER, null);
@@ -672,7 +410,7 @@ public final class StreamMenu {
         List<StreamMenuModel.Cell> statusCells = new ArrayList<>();
         for (int at = 0; at < layout.grid.size(); at++) {
             StreamMenuModel.Cell cell = layout.grid.get(at);
-            if (cell.kind == StreamMenuModel.Cell.Kind.TILE && isStatusRow(cell.id)) {
+            if (cell.kind == StreamMenuModel.Cell.Kind.TILE && StreamMenuCatalog.isStatusRow(cell.id)) {
                 statusCells.add(cell);
                 continue;
             }
@@ -680,23 +418,23 @@ public final class StreamMenu {
             switch (cell.kind) {
                 case SHORTCUT: {
                     KeyboardShortcuts.Shortcut shortcut = saved.get(cell.shortcut);
-                    tile = grid.addTile(R.drawable.ic_keyboard, shortcut.name, keysUnder(shortcut), null, null);
+                    tile = grid.addTile(R.drawable.ic_keyboard, shortcut.name, StreamMenuShortcutsPage.keysUnder(shortcut), null, null);
                     tile.setOnClickListener(view -> shortcuts.send(shortcut.keys()));
                     break;
                 }
                 case ADD:
-                    tile = grid.addTile(R.drawable.ic_plus, label(labels, StreamMenuModel.ADD), null, null, null);
-                    tile.setOnClickListener(view -> edit(null));
+                    tile = grid.addTile(R.drawable.ic_plus, StreamMenuCatalog.label(activity, labels, StreamMenuModel.ADD), null, null, null);
+                    tile.setOnClickListener(view -> shortcutsPage.edit(null));
                     break;
                 default: {
                     if (StreamMenuModel.MORE.equals(cell.id)) {
-                        tile = grid.addTile(R.drawable.ic_more_horiz, label(labels, StreamMenuModel.MORE), null, null, null);
+                        tile = grid.addTile(R.drawable.ic_more_horiz, StreamMenuCatalog.label(activity, labels, StreamMenuModel.MORE), null, null, null);
                         rows.put(Item.MORE, tile);
                         tile.setOnClickListener(view -> render(Page.MORE, options.get(), null));
                         break;
                     }
-                    Entry entry = find(offered, cell.id);
-                    tile = grid.addTile(entry.icon, label(labels, cell.id), null, cell.on,
+                    Entry entry = StreamMenuCatalog.find(offered, cell.id);
+                    tile = grid.addTile(entry.icon, StreamMenuCatalog.label(activity, labels, cell.id), null, cell.on,
                             cell.hotkey == null ? null : cell.hotkey.toUpperCase(Locale.ROOT));
                     rows.put(entry.item, tile);
                     entries.add(entry);
@@ -710,27 +448,14 @@ public final class StreamMenu {
         addFooter(offered, layout.footer, labels);
     }
 
-    /**
-     * The ways out under the list when the model cannot answer, as its footer has them: Disconnect and what ends the game (or a
-     * remote monitor's or input-only stream's End). End session, which leaves the game running, is a row as on More.
-     */
-    static final List<String> FALLBACK_FOOTER = java.util.Collections.unmodifiableList(java.util.Arrays.asList(
-            id(Item.DISCONNECT), id(Item.CLOSE_GAME), id(Item.QUIT_GAME), id(Item.END_SESSION)));
-
-    // The model's cells that say something about the stream read better as rows with their value than as one more tile.
-    private static boolean isStatusRow(String id) {
-        return id.equals(id(Item.BITRATE)) || id.equals(id(Item.RATE_CHANGE))
-                || id.equals(id(Item.OVERLAY_PAGE)) || id.equals(id(Item.NATIVE_PAGE));
-    }
-
     /** The bitrate slider and the status rows between the tiles and the ways out: the same items, in the model's words. */
-    private void addStatus(Options o, List<Entry> offered, List<StreamMenuModel.Cell> statusCells, java.util.Map<String, String> labels) {
+    private void addStatus(Options o, List<Entry> offered, List<StreamMenuModel.Cell> statusCells, Map<String, String> labels) {
         if (statusCells.isEmpty()) return;
         boolean native_ = false;
         boolean quality = false;
         for (StreamMenuModel.Cell cell : statusCells) {
-            native_ |= cell.id.equals(id(Item.NATIVE_PAGE));
-            quality |= cell.id.equals(id(Item.BITRATE)) || cell.id.equals(id(Item.RATE_CHANGE));
+            native_ |= cell.id.equals(StreamMenuCatalog.id(Item.NATIVE_PAGE));
+            quality |= cell.id.equals(StreamMenuCatalog.id(Item.BITRATE)) || cell.id.equals(StreamMenuCatalog.id(Item.RATE_CHANGE));
         }
         if (quality && o.bitrateKbps > 0 && o.bitrateChange != null) {
             LinearLayout sliders = sheet.addRowGroup();
@@ -748,13 +473,13 @@ public final class StreamMenu {
         LinearLayout group = sheet.addRowGroup();
         String facts = o.connection == null ? null : o.connection.summary(activity);
         for (StreamMenuModel.Cell cell : statusCells) {
-            Entry entry = find(offered, cell.id);
+            Entry entry = StreamMenuCatalog.find(offered, cell.id);
             String value = null;
             if (entry.item == Item.NATIVE_PAGE || (entry.item == Item.OVERLAY_PAGE && !native_)) value = facts;
             // The rate-change row opens the frame-rate dialog; a host without it only has the bitrate row (nightjar #134).
             else if (entry.item == Item.RATE_CHANGE && o.streamFps > 0) value = o.streamFps + " FPS";
             else if (entry.item == Item.BITRATE && o.bitrateKbps > 0) value = BitrateSlider.text(activity, o.bitrateKbps);
-            MenuRow row = sheet.addStatusRow(group, label(labels, cell.id), value,
+            MenuRow row = sheet.addStatusRow(group, StreamMenuCatalog.label(activity, labels, cell.id), value,
                     cell.hotkey == null ? null : cell.hotkey.toUpperCase(Locale.ROOT));
             rows.put(entry.item, row);
             entries.add(entry);
@@ -786,45 +511,9 @@ public final class StreamMenu {
         return bitrateSlider;
     }
 
-    /**
-     * A tile's short name, the same as desktop Nightjar's: the {@code stream_tile_<key>} string for the key the shared
-     * model gives its id. A tile the model names no label for is a disagreement between the two, which a test catches.
-     */
-    private String label(java.util.Map<String, String> labels, String id) {
-        String key = labels.get(id);
-        int label = key == null ? 0 : tileLabel(key);
-        if (label == 0) throw new IllegalStateException("the stream menu model names no label for " + id + " (" + key + ")");
-        return activity.getString(label);
-    }
-
     /** The string for a label key of the shared model ({@code stream_menu::label}), or 0 for a key this client lacks. */
     public static int tileLabel(String key) {
-        switch (key) {
-            case "keyboard": return R.string.stream_tile_keyboard;
-            case "pc_keyboard": return R.string.stream_tile_pc_keyboard;
-            case "mouse": return R.string.stream_tile_mouse;
-            case "overlay": return R.string.stream_tile_overlay;
-            case "shortcuts": return R.string.stream_tile_shortcuts;
-            case "microphone": return R.string.stream_tile_microphone;
-            case "touch_mode": return R.string.stream_tile_touch_mode;
-            case "onscreen_controls": return R.string.stream_tile_onscreen_controls;
-            case "quality": return R.string.stream_tile_quality;
-            case "video_output": return R.string.stream_tile_video_output;
-            case "zoom": return R.string.stream_tile_zoom;
-            case "send_clipboard": return R.string.stream_tile_send_clipboard;
-            case "get_clipboard": return R.string.stream_tile_get_clipboard;
-            case "pc_commands": return R.string.stream_tile_pc_commands;
-            case "diagnostics": return R.string.stream_tile_diagnostics;
-            case "session_graphics": return R.string.stream_tile_session_graphics;
-            case "more": return R.string.stream_tile_more;
-            case "return": return R.string.stream_tile_return;
-            case "add_shortcut": return R.string.stream_tile_add_shortcut;
-            case "disconnect": return R.string.stream_tile_disconnect;
-            case "end_session": return R.string.stream_tile_end_session;
-            case "close_game": return R.string.stream_tile_close_game;
-            case "quit_game": return R.string.stream_tile_quit_game;
-            default: return 0;
-        }
+        return StreamMenuCatalog.tileLabel(key);
     }
 
     /**
@@ -833,25 +522,7 @@ public final class StreamMenu {
      * over the app and PC.
      */
     String[] header(Options o) {
-        String app = o.appName == null ? "" : o.appName.trim();
-        if (o.role == NvApp.Role.STREAM && !app.isEmpty()) {
-            String mode = null;
-            try {
-                mode = StreamMenuModel.modeLine(o.streamWidth, o.streamHeight, o.streamFps, o.videoFormat, o.hdr);
-            } catch (StreamMenuModel.Refused e) {
-                LimeLog.warning("Stream menu: the mode line failed: " + e.getMessage());
-            }
-            String host = o.host.name == null ? "" : o.host.name.trim();
-            return new String[] {app, mode != null ? mode : host};
-        }
-        return new String[] {activity.getString(title(o.role)), subtitle(o)};
-    }
-
-    private String subtitle(Options o) {
-        String app = o.appName == null ? "" : o.appName.trim();
-        String host = o.host.name == null ? "" : o.host.name.trim();
-        if (app.isEmpty() && host.isEmpty()) return null;
-        return app.isEmpty() ? host : host.isEmpty() ? app : app + " · " + host;
+        return StreamMenuCatalog.header(activity, o);
     }
 
     /**
@@ -859,57 +530,30 @@ public final class StreamMenu {
      * this client's words, when it failed); the last that ends something is the one red control. A way out only Android offers, a remote
      * monitor's, keeps its own words.
      */
-    private void addFooter(List<Entry> offered, List<String> footer, java.util.Map<String, String> labels) {
+    private void addFooter(List<Entry> offered, List<String> footer, Map<String, String> labels) {
         // The ways out follow the grid: their caps show only while a controller could press them.
         sheet.setCapsShown(capsShown());
-        String back = labels != null ? label(labels, StreamMenuModel.CLOSE) : activity.getString(R.string.stream_menu_return);
+        String back = labels != null ? StreamMenuCatalog.label(activity, labels, StreamMenuModel.CLOSE)
+                : activity.getString(R.string.stream_menu_return);
         MaterialButton close = sheet.panelClose();
         close.setContentDescription(back + ", B");
         rows.put(Item.CLOSE, close);
         if (grid == null) sheet.setFirstAction(close);
         Entry red = null;
         for (Entry entry : offered) {
-            if (entry.section == Section.SESSION && entry.destructive && (footer == null || footer.contains(id(entry.item)))) red = entry;
+            if (entry.section == Section.SESSION && entry.destructive && (footer == null || footer.contains(StreamMenuCatalog.id(entry.item)))) red = entry;
         }
         for (Entry entry : offered) {
-            if (entry.section != Section.SESSION || (footer != null && !footer.contains(id(entry.item)))) continue;
-            String name = labels != null && labels.containsKey(id(entry.item)) ? label(labels, id(entry.item)) : activity.getString(entry.label);
+            if (entry.section != Section.SESSION || (footer != null && !footer.contains(StreamMenuCatalog.id(entry.item)))) continue;
+            String name = labels != null && labels.containsKey(StreamMenuCatalog.id(entry.item))
+                    ? StreamMenuCatalog.label(activity, labels, StreamMenuCatalog.id(entry.item)) : activity.getString(entry.label);
             int icon = entry == red ? R.drawable.ic_glass_power : entry.item == Item.DISCONNECT ? R.drawable.ic_stream_leave : entry.icon;
-            MaterialButton button = sheet.addFooterAction(icon, name, entry == red, footerHotkey(entry.item));
+            MaterialButton button = sheet.addFooterAction(icon, name, entry == red, StreamMenuCatalog.footerHotkey(layout, entry.item));
             rows.put(entry.item, button);
             entries.add(entry);
             button.setOnClickListener(view -> choose(entry));
         }
     }
-
-    private static List<Item> items(List<Entry> list) {
-        List<Item> items = new ArrayList<>();
-        for (Entry entry : list) items.add(entry.item);
-        return items;
-    }
-
-    // The keys' text the model gives, as Ctrl + Shift + Esc; the saved names when it cannot.
-    /** The keys under a shortcut's name, or null when the name already says them (a shortcut saved unnamed). */
-    private static String keysUnder(KeyboardShortcuts.Shortcut shortcut) {
-        String keys = chordText(shortcut.keys());
-        return keys.equals(shortcut.name) ? null : keys;
-    }
-
-    private static String chordText(int[] keys) {
-        String[] names = names(keys);
-        try {
-            return StreamMenuModel.chordLabel(names);
-        } catch (StreamMenuModel.Refused e) {
-            return String.join(" + ", names);
-        }
-    }
-
-    private static String[] names(int[] keys) {
-        return KeyboardShortcuts.format(keys).split(" \\+ ");
-    }
-
-    /** Set by a test for a controller that is there (true) or not (false); null asks Android. */
-    static Boolean gamepadForTest;
 
     /** A remote has no face buttons: the caps show only while a controller could press them. */
     private static boolean capsShown() {
@@ -917,14 +561,8 @@ public final class StreamMenu {
     }
 
     /** What the user chose in Settings for the controller's buttons here: by button, the buttons left on Default out. */
-    static java.util.Map<String, String> buttonChoices(android.content.Context context) {
-        android.content.SharedPreferences prefs = android.preference.PreferenceManager.getDefaultSharedPreferences(context);
-        java.util.Map<String, String> choices = new java.util.HashMap<>();
-        for (String key : new String[] {"y", "x", "lb", "rb"}) {
-            String choice = buttonChoice(prefs.getString("list_stream_menu_button_" + key, "default"));
-            if (!"default".equals(choice)) choices.put(key, choice);
-        }
-        return choices;
+    static Map<String, String> buttonChoices(android.content.Context context) {
+        return StreamMenuCatalog.buttonChoices(context);
     }
 
     /**
@@ -932,8 +570,7 @@ public final class StreamMenu {
      * More, where no button runs it, so a button that ran it is back on Default.
      */
     static String buttonChoice(String saved) {
-        if ("end_host_session".equals(saved)) return "default";
-        return "close_game".equals(saved) ? "quit_game" : saved;
+        return StreamMenuCatalog.buttonChoice(saved);
     }
 
     /**
@@ -941,16 +578,7 @@ public final class StreamMenu {
      * before the settings screen reads the values; the menu reads either the same way.
      */
     public static void upgradeButtonChoices(android.content.SharedPreferences prefs) {
-        android.content.SharedPreferences.Editor editor = null;
-        for (String key : new String[] {"y", "x", "lb", "rb"}) {
-            String name = "list_stream_menu_button_" + key;
-            String saved = prefs.getString(name, null);
-            if (saved != null && !saved.equals(buttonChoice(saved))) {
-                if (editor == null) editor = prefs.edit();
-                editor.putString(name, buttonChoice(saved));
-            }
-        }
-        if (editor != null) editor.commit();
+        StreamMenuCatalog.upgradeButtonChoices(prefs);
     }
 
     /** A controller button on the first page runs its tile, or a way out under the grid: Y, X, LB or RB. */
@@ -972,7 +600,7 @@ public final class StreamMenu {
         String id = layout.buttons.get(key);
         for (Entry entry : entries) {
             MaterialButton row = rows.get(entry.item);
-            if (row != null && id(entry.item).equals(id)) {
+            if (row != null && StreamMenuCatalog.id(entry.item).equals(id)) {
                 // From a button Disconnect asks first, as Quit, Close and End always do: a stray press must not end the stream.
                 if (entry.item == Item.DISCONNECT) listener.onStreamMenuItem(Item.CONFIRM_DISCONNECT);
                 else row.performClick();
@@ -982,223 +610,20 @@ public final class StreamMenu {
         return false;
     }
 
-    /** The controller button the user gave this way out under the grid, as its cap ({@code "Y"}), or null. */
-    private String footerHotkey(Item item) {
-        if (layout == null) return null;
-        // In the buttons' own order, as a tile shows the first button that names it.
-        for (String key : new String[] {"y", "x", "lb", "rb"}) {
-            if (id(item).equals(layout.buttons.get(key))) return key.toUpperCase(Locale.ROOT);
-        }
-        return null;
-    }
-
-    // The shortcuts page: the user's, in their order, then the built-ins not saved under a name of their own, Add, then a
-    // row to edit each. The user's come first so a new built-in never pushes them along (nightjar#61).
-    private void renderShortcuts() {
-        entries = new ArrayList<>();
-        List<KeyboardShortcuts.Shortcut> saved = shortcuts.saved();
-        List<String[]> keys = new ArrayList<>();
-        for (KeyboardShortcuts.Shortcut shortcut : saved) keys.add(names(shortcut.keys()));
-        List<StreamMenuModel.BuiltIn> builtIns;
-        try {
-            builtIns = StreamMenuModel.builtIns(keys);
-        } catch (StreamMenuModel.Refused e) {
-            failure = sheet.addNote(sheet.addGroup(), activity.getString(R.string.stream_menu_model_failed, e.getMessage()), true);
-            builtIns = new ArrayList<>();
-        }
-        TileGrid tiles = sheet.addTileGrid();
-        for (KeyboardShortcuts.Shortcut shortcut : saved) {
-            MaterialButton tile = tiles.addTile(R.drawable.ic_keyboard, shortcut.name, keysUnder(shortcut), null, null);
-            tile.setOnClickListener(view -> shortcuts.send(shortcut.keys()));
-            if (tiles.getChildCount() == 1) sheet.setFirstAction(tile);
-        }
-        for (StreamMenuModel.BuiltIn builtIn : builtIns) {
-            int[] chord = KeyboardShortcuts.parseChord(String.join("+", builtIn.keys));
-            MaterialButton tile = tiles.addTile(R.drawable.ic_keyboard, activity.getString(builtInLabel(builtIn.id)), builtIn.label, null, null);
-            tile.setOnClickListener(view -> shortcuts.send(chord));
-            if (tiles.getChildCount() == 1) sheet.setFirstAction(tile);
-        }
-        if (saved.size() < KeyboardShortcuts.MAX_SHORTCUTS) {
-            MaterialButton add = tiles.addTile(R.drawable.ic_plus, activity.getString(R.string.keyboard_shortcuts_add), null, null, null);
-            add.setOnClickListener(view -> edit(null));
-            if (tiles.getChildCount() == 1) sheet.setFirstAction(add);
-        }
-        if (saved.isEmpty()) return;
-        sheet.addSection(R.string.desktop_controls_edit_shortcuts);
-        for (KeyboardShortcuts.Shortcut shortcut : saved) {
-            MaterialButton row = sheet.addAction(R.drawable.ic_edit, shortcut.name, chordText(shortcut.keys()));
-            row.setOnClickListener(view -> edit(shortcut));
-        }
-    }
-
     /** A built-in's name in this language. */
     public static int builtInLabel(String id) {
-        switch (id) {
-            case "task_manager": return R.string.keyboard_task_manager;
-            case "switch_window": return R.string.keyboard_switch_window;
-            case "close_window": return R.string.keyboard_close_window;
-            case "start_menu": return R.string.stream_menu_start_menu;
-            case "show_desktop": return R.string.desktop_controls_shortcut_desktop;
-            case "game_bar": return R.string.keyboard_game_bar;
-            case "record_that": return R.string.keyboard_record_that;
-            default: throw new IllegalArgumentException("unknown built-in shortcut " + id);
-        }
-    }
-
-    private void edit(KeyboardShortcuts.Shortcut shortcut) {
-        editing = shortcut;
-        draftName = shortcut == null ? "" : shortcut.name;
-        draftKeys.clear();
-        if (shortcut != null) java.util.Collections.addAll(draftKeys, names(shortcut.keys()));
-        render(Page.EDITOR, options.get(), null);
-    }
-
-    // The editor: a name (the keys' text when left empty), the chord so far, the key picker, then Save, Cancel and Delete.
-    private void renderEditor() {
-        entries = new ArrayList<>();
-        android.widget.LinearLayout group = sheet.addGroup();
-        com.google.android.material.textfield.TextInputLayout box = new com.google.android.material.textfield.TextInputLayout(activity);
-        box.setHint(activity.getString(R.string.keyboard_shortcuts_name));
-        com.google.android.material.textfield.TextInputEditText name = new com.google.android.material.textfield.TextInputEditText(box.getContext());
-        name.setSingleLine(true);
-        name.setText(draftName);
-        name.setFilters(new android.text.InputFilter[] {new android.text.InputFilter.LengthFilter(80)});
-        name.addTextChangedListener(new android.text.TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { }
-            @Override public void afterTextChanged(android.text.Editable s) { draftName = s.toString(); }
-        });
-        box.addView(name);
-        int spacing = sheet.spacing();
-        box.setPadding(spacing, spacing, spacing, 0);
-        group.addView(box);
-        draftChord = new TextView(activity);
-        draftChord.setTextAppearance(activity, R.style.TextAppearance_Nightjar_ScreenTitle);
-        draftChord.setPadding(spacing, spacing * 2, spacing, spacing);
-        group.addView(draftChord);
-        List<StreamMenuModel.Key> picker;
-        try {
-            picker = StreamMenuModel.picker();
-        } catch (StreamMenuModel.Refused e) {
-            failure = sheet.addNote(group, activity.getString(R.string.stream_menu_model_failed, e.getMessage()), true);
-            picker = new ArrayList<>();
-        }
-        TileGrid caps = new TileGrid(activity, spacing / 2, 6, 44);
-        caps.setPadding(spacing, 0, spacing, spacing);
-        group.addView(caps);
-        // Keys an older shortcut saved that the picker lacks (F13, a media key, an Android-only code): caps of their
-        // own first, so they show and can be taken out.
-        java.util.Set<String> offered = new java.util.HashSet<>();
-        for (StreamMenuModel.Key key : picker) offered.add(key.name);
-        for (String key : new ArrayList<>(draftKeys)) {
-            if (!offered.contains(key)) addCap(caps, key, keyText(key));
-        }
-        for (StreamMenuModel.Key key : picker) addCap(caps, key.name, key.label);
-        draftError = sheet.addNote(group, "", true);
-        draftError.setVisibility(android.view.View.GONE);
-        showDraft();
-        MaterialButton save = sheet.addAction(R.drawable.ic_check, activity.getString(R.string.keyboard_shortcuts_save));
-        save.setOnClickListener(view -> saveDraft());
-        MaterialButton cancel = sheet.addAction(R.drawable.ic_close, activity.getString(R.string.applist_menu_cancel));
-        cancel.setOnClickListener(view -> back());
-        if (editing != null) {
-            KeyboardShortcuts.Shortcut target = editing;
-            MaterialButton delete = sheet.addDestructiveAction(R.drawable.ic_delete, activity.getString(R.string.keyboard_shortcuts_delete));
-            delete.setOnClickListener(view -> {
-                List<KeyboardShortcuts.Shortcut> list = new ArrayList<>(shortcuts.saved());
-                list.removeIf(s -> s.id.equals(target.id));
-                shortcuts.save(list);
-                render(Page.SHORTCUTS, options.get(), null);
-            });
-        }
-    }
-
-    // A key's cap text from the model; its saved name when the model cannot say.
-    private static String keyText(String key) {
-        try {
-            return StreamMenuModel.chordLabel(new String[] {key});
-        } catch (StreamMenuModel.Refused e) {
-            return key;
-        }
-    }
-
-    private void addCap(TileGrid caps, String name, String label) {
-        MaterialButton cap = new MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle);
-        cap.setText(label);
-        cap.setAllCaps(false);
-        cap.setTextAppearance(activity, R.style.TextAppearance_Nightjar_Label);
-        cap.setSingleLine(true);
-        cap.setInsetTop(0);
-        cap.setInsetBottom(0);
-        cap.setMinWidth(0);
-        cap.setMinimumWidth(0);
-        cap.setPadding(0, 0, 0, 0);
-        cap.setCheckable(true);
-        int[][] states = {new int[] {android.R.attr.state_checked}, new int[] {}};
-        cap.setBackgroundTintList(new android.content.res.ColorStateList(states, new int[] {
-                com.google.android.material.color.MaterialColors.getColor(activity, com.google.android.material.R.attr.colorPrimaryContainer, 0),
-                android.graphics.Color.TRANSPARENT}));
-        cap.setTextColor(new android.content.res.ColorStateList(states, new int[] {
-                com.google.android.material.color.MaterialColors.getColor(activity, com.google.android.material.R.attr.colorOnPrimaryContainer, 0),
-                com.google.android.material.color.MaterialColors.getColor(activity, com.google.android.material.R.attr.colorOnSurface, 0)}));
-        caps.addView(cap);
-        keyCaps.put(name, cap);
-        cap.setOnClickListener(view -> toggleKey(name));
-        if (caps.getChildCount() == 1) sheet.setFirstAction(cap);
-    }
-
-    private void toggleKey(String key) {
-        if (!draftKeys.remove(key) && draftKeys.size() < KeyboardShortcuts.MAX_KEYS) draftKeys.add(key);
-        showDraft();
-    }
-
-    private void showDraft() {
-        for (Map.Entry<String, MaterialButton> cap : keyCaps.entrySet()) cap.getValue().setChecked(draftKeys.contains(cap.getKey()));
-        String text = "—";
-        if (!draftKeys.isEmpty()) {
-            try {
-                text = StreamMenuModel.chordLabel(draftKeys.toArray(new String[0]));
-            } catch (StreamMenuModel.Refused e) {
-                text = String.join(" + ", draftKeys);
-            }
-        }
-        draftChord.setText(text);
+        return StreamMenuCatalog.builtInLabel(id);
     }
 
     /** The editor's Save: the model checks the chord, then the list is saved with it added or replaced. */
     void saveDraft() {
-        String[] keys = draftKeys.toArray(new String[0]);
-        try {
-            if (keys.length == 0) throw new StreamMenuModel.Refused("chord_length", "");
-            String name = draftName.trim().isEmpty() ? StreamMenuModel.chordLabel(keys) : draftName.trim();
-            String[] checked = StreamMenuModel.validate(name, keys);
-            int[] codes = KeyboardShortcuts.parseChord(String.join("+", checked));
-            List<KeyboardShortcuts.Shortcut> list = new ArrayList<>(shortcuts.saved());
-            String id = editing != null ? editing.id : java.util.UUID.randomUUID().toString();
-            KeyboardShortcuts.Shortcut shortcut = new KeyboardShortcuts.Shortcut(id, name, codes);
-            int at = -1;
-            for (int i = 0; i < list.size(); i++) if (list.get(i).id.equals(id)) at = i;
-            if (at >= 0) list.set(at, shortcut);
-            else if (list.size() < KeyboardShortcuts.MAX_SHORTCUTS) list.add(shortcut);
-            else throw new StreamMenuModel.Refused("too_many", "");
-            shortcuts.save(list);
-            render(Page.SHORTCUTS, options.get(), null);
-        } catch (StreamMenuModel.Refused | IllegalArgumentException e) {
-            String code = e instanceof StreamMenuModel.Refused ? ((StreamMenuModel.Refused) e).code : "";
-            String detail = e instanceof StreamMenuModel.Refused ? ((StreamMenuModel.Refused) e).detail : "";
-            if ("chord_length".equals(code)) draftError.setText(R.string.stream_shortcut_pick_keys);
-            // The key that cannot go in a shortcut, as its cap shows it, so it can be taken out.
-            else if ("unsupported_key".equals(code) && !detail.isEmpty()) {
-                draftError.setText(activity.getString(R.string.stream_shortcut_key_unsupported, keyText(detail)));
-            } else draftError.setText(R.string.keyboard_shortcuts_invalid);
-            draftError.setVisibility(android.view.View.VISIBLE);
-        }
+        shortcutsPage.saveDraft();
     }
 
     // A page of rows: switches side by side at the top, then the rest under their sections.
     private void renderList(List<Entry> list) {
         entries = list;
-        offeredItems = items(list);
+        offeredItems = StreamMenuCatalog.items(list);
         addRows(list);
         sheet.setFirstAction(rows.get(firstFocus(list)));
     }
@@ -1220,24 +645,12 @@ public final class StreamMenu {
                 if (entry.destructive) button = sheet.addDestructiveAction(entry.icon, activity.getString(entry.label));
                 else if (entry.opensPage()) button = sheet.addPageAction(entry.icon, activity.getString(entry.label));
                 else button = sheet.addAction(entry.icon, activity.getString(entry.label));
-                if (entry.checked != null) markChoice(button, entry.checked);
+                if (entry.checked != null) StreamMenuCatalog.markChoice(button, entry.checked);
             }
             section = entry.section;
             rows.put(entry.item, button);
             button.setOnClickListener(view -> choose(entry));
         }
-    }
-
-    private List<Entry> pageEntries(Page target, Options o) {
-        List<Entry> list = target == Page.MAIN ? mainPage(o) : target == Page.NATIVE ? nativePage(o) : overlayPage(o);
-        if ((activity.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_TYPE_MASK)
-                == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION) {
-            list.removeIf(entry -> entry.item == Item.TOUCH_MODE || entry.item == Item.ONSCREEN_CONTROLS ||
-                    entry.item == Item.CONTROLS_LAYOUT || entry.item == Item.MIC_BUTTON || entry.item == Item.MENU_BUTTON ||
-                    entry.item == Item.GAME_CONTROLS ||
-                    entry.item == Item.ZOOM);
-        }
-        return list;
     }
 
     /**
@@ -1247,7 +660,7 @@ public final class StreamMenu {
     public void refresh() {
         if ((page != Page.MAIN && page != Page.MORE) || !sheet.isShowing()) return;
         Options o = options.get();
-        List<Item> now = items(page == Page.MAIN ? offered(o) : moreEntries(o));
+        List<Item> now = StreamMenuCatalog.items(page == Page.MAIN ? offered(o) : StreamMenuCatalog.moreEntries(offered(o)));
         boolean noted = page == Page.MAIN && o.role == NvApp.Role.STREAM && o.hostAudioUnread;
         if (now.equals(offeredItems) && noted == (audioNote != null)) {
             refreshToggles();
@@ -1281,15 +694,6 @@ public final class StreamMenu {
             radeonView = new RadeonPanelView(sheet, sheet.addGroup(), radeon::write);
             radeon.start(radeonView::show);
         }
-    }
-
-    // A choice of several: a check on the chosen one, announced as selected.
-    private static void markChoice(MaterialButton button, boolean chosen) {
-        if (!chosen) {
-            button.setIconTint(android.content.res.ColorStateList.valueOf(android.graphics.Color.TRANSPARENT));
-        }
-        ViewCompat.setStateDescription(button, button.getContext().getString(chosen ?
-                R.string.stream_choice_selected : R.string.stream_choice_not_selected));
     }
 
     private void choose(Entry entry) {

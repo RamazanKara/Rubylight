@@ -1,91 +1,50 @@
 package com.limelight.preferences;
 
-import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Context;
-import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
-import android.media.MediaCodecInfo;
-import android.os.Build;
-import android.os.Bundle;
-import androidx.appcompat.app.AlertDialog;
-import com.limelight.ui.AppTheme;
-import com.limelight.ui.NightjarActivity;
-import androidx.appcompat.widget.SearchView;
-import androidx.activity.OnBackPressedCallback;
-import android.os.Handler;
-import android.os.Vibrator;
-import android.preference.SwitchPreference;
-import android.preference.ListPreference;
-import android.preference.Preference;
-import android.preference.PreferenceCategory;
-import android.preference.PreferenceFragment;
-import android.preference.PreferenceGroup;
-import android.preference.PreferenceManager;
-import android.preference.PreferenceScreen;
-import android.text.TextUtils;
-import android.util.DisplayMetrics;
-import android.util.Range;
-import android.view.Display;
-import android.view.DisplayCutout;
-import android.view.LayoutInflater;
-import android.view.View;
-import android.view.ViewGroup;
-import android.view.WindowInsets;
-import android.widget.Toast;
-import com.limelight.ui.NavigationDialogBuilder;
 import android.content.res.XmlResourceParser;
-import android.widget.TextView;
+import android.os.Bundle;
+import android.preference.Preference;
+import android.preference.PreferenceManager;
+import android.view.Display;
+import android.view.View;
 import android.widget.ListView;
-import com.limelight.update.UpdateFlow;
-import com.limelight.update.UpdatePrefs;
-import com.limelight.utils.HelpLauncher;
-import org.xmlpull.v1.XmlPullParser;
-import org.xmlpull.v1.XmlPullParserException;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Locale;
+import android.widget.TextView;
 
-import com.limelight.BuildConfig;
-import com.limelight.binding.audio.Surround714;
-import com.limelight.binding.input.touch.TouchMode;
+import androidx.activity.OnBackPressedCallback;
+import androidx.appcompat.widget.SearchView;
+
+import com.google.android.material.appbar.MaterialToolbar;
 import com.limelight.LimeLog;
-import com.limelight.PcView;
 import com.limelight.R;
-import com.limelight.binding.video.DisplayFrameRatePolicy;
 import com.limelight.binding.video.GpuDriverStore;
-import com.limelight.binding.video.HdrPolicy;
-import com.limelight.binding.video.MediaCodecHelper;
-import com.limelight.binding.video.MediaCodecDecoderRenderer;
-import com.limelight.binding.video.DecoderBenchmark;
-import com.limelight.binding.video.PyroWaveDecoderRenderer;
+import com.limelight.ui.NightjarActivity;
+import com.limelight.ui.ShellBar;
+import com.limelight.ui.TopAppBar;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.UiHelper;
-import com.limelight.ui.GlassForm;
-import com.limelight.ui.GlassHost;
-import com.limelight.ui.NightSkyView;
-import com.limelight.ui.ShellBar;
-import androidx.core.view.ViewCompat;
-import com.limelight.ui.TopAppBar;
-import com.limelight.ui.StreamOrientation;
-import com.limelight.ui.VideoScaling;
-import com.google.android.material.appbar.MaterialToolbar;
 
-import java.io.File;
-import java.io.FileInputStream;
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
+
 import java.io.IOException;
-import java.io.OutputStream;
-import java.util.Arrays;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Arrays;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * Global streaming settings activity hosting section navigation, two-pane TV/tablet focus
+ * coordination, search, and preference panes.
+ */
 public class StreamSettings extends NightjarActivity {
     /** A TV lays out Settings' screens at {@link com.limelight.ui.AppTheme#TV_COMPACT_PERCENT} of the interface size. */
     @Override
@@ -93,7 +52,7 @@ public class StreamSettings extends NightjarActivity {
         return true;
     }
 
-    private static final int EXPORT_LATENCY_REQUEST = 1;
+    static final int EXPORT_LATENCY_REQUEST = 1;
     private static final String STATE_SECTION = "section";
     private static final String STATE_CUSTOMIZE = "customize_open";
     private static final String STATE_MORE_OPEN = "more_open";
@@ -165,34 +124,54 @@ public class StreamSettings extends NightjarActivity {
     /** The sections in the overview's order, which the phone's chips follow: the ones that always show, then the folded ones. */
     static final List<String> RAIL_SECTIONS = Arrays.asList(
             "simple", "input", "audio", "app", "video", "display", "streaming", "advanced", "debug");
+    /** The overview's Profiles row, under the presets: profiles hold values from every section. */
+    static final String PROFILES_KEY = "stream_profiles";
+
+    final StreamSettingsChrome ui = new StreamSettingsChrome(this);
+    final StreamSettingsNavigation nav = new StreamSettingsNavigation(this);
+    boolean fromShell;
+    String section;
+    /** Customize under Low-latency decoding is open: the individual switches show. */
+    boolean customizeOpen;
+    /** The sections whose More row is open: all their rows show. */
+    final Set<String> moreOpen = new HashSet<>();
+    /**
+     * Rows that do nothing now (SettingRules.WHEN_ROWS) that a search result or a link opened: they show for this
+     * visit, so the value they hold can be seen and changed.
+     */
+    final Set<String> revealed = new HashSet<>();
+    /** What this device has that rows act on; tests replace it. */
+    SettingDevices devices;
+    /** Reads the saved PCs off the UI thread; tests replace it. */
+    java.util.concurrent.Executor savedPcReader = task -> new Thread(task, "Saved PCs").start();
+    /** What the last read of the saved PCs found: any PC, and any whose PyroWave frame pace can be measured or is saved. */
+    boolean anySavedPc;
+    boolean anyPacePc;
+    /** A saved PC offers more than stock 1400-byte video packets (MaxVideoPacket). */
+    boolean anyJumboPc;
+    MaterialToolbar toolbar;
+    String searchQuery = "";
+    SearchView searchView;
+    String searchResultKey;
+    /** Two panes (sections left, one section right): layout-television and layout-w840dp. */
+    boolean twoPane;
+    /** The row named by searchResultKey takes focus once selected: a deep link, or a search result picked in the content pane. */
+    boolean focusRow;
+    String returnSearchQuery;
+    TextView contextLabel;
+    /** Pending section preview during TV D-pad rail navigation (kept on activity for test inspection). */
+    String previewSection;
+    /** TV Settings' rail bar and pane motion; null without the TV layout. */
+    SettingsRail rail;
 
     /** Whether the overview shows the rows behind More settings: the user opened it, or this visit landed on one of them. */
     boolean railOpen() {
         return moreOpen.contains(RAIL);
     }
 
-    /** A section or overview row behind More settings is about to show (a link, a search result): the fold opens for this visit. */
-    private void unfoldRailFor(String row) {
-        if (row != null && RAIL_FOLDED.contains(row)) moreOpen.add(RAIL);
-    }
-
     /** More settings was chosen: the rows below it show or go, and the choice is kept for the next visit. */
     void toggleRail() {
-        boolean open = !moreOpen.remove(RAIL);
-        if (open) moreOpen.add(RAIL);
-        rememberMore(RAIL, open);
-        // The pane cannot keep showing a section whose row just went: it goes back to the first one.
-        if (!open && twoPane && searchQuery.isEmpty() && section != null && RAIL_FOLDED.contains(section)) {
-            showSection(defaultSection());
-            return;
-        }
-        applyRailFold();
-        markSection();
-    }
-
-    private void applyRailFold() {
-        android.app.Fragment fragment = getFragmentManager().findFragmentById(twoPane ? R.id.settings_sections : R.id.stream_settings);
-        if (fragment instanceof RootFragment) ((RootFragment) fragment).applyFold();
+        nav.toggleRail();
     }
 
     /** The main rows of a section (settings_tiers.xml); every other row of it folds. */
@@ -218,70 +197,6 @@ public class StreamSettings extends NightjarActivity {
         return section != null && key != null && !key.equals(MORE_PREFIX + section) &&
                 !LOW_LATENCY_CUSTOMIZED.contains(key) && !mainKeys(context, section).contains(key);
     }
-    // Kept by a reset: the language is applied by the OS, the others are actions
-    private static final List<String> RESET_EXCLUDED_KEYS = Arrays.asList(
-            PreferenceConfiguration.LANGUAGE_PREF_STRING, "export_latency_csv", "about_app", "check_updates_now", "gpu_driver");
-
-    private PreferenceConfiguration previousPrefs;
-    /** The shell root when Settings opened, and whether the bar opened it; see finishSettings. */
-    private ShellBar.Destination startRoot;
-    private boolean fromShell;
-    private int previousDisplayPixelCount;
-    private String section;
-    /** Customize under Low-latency decoding is open: the individual switches show. */
-    private boolean customizeOpen;
-    /** The sections whose More row is open: all their rows show. */
-    final Set<String> moreOpen = new HashSet<>();
-    /**
-     * Rows that do nothing now (SettingRules.WHEN_ROWS) that a search result or a link opened: they show for this
-     * visit, so the value they hold can be seen and changed.
-     */
-    final Set<String> revealed = new HashSet<>();
-    /** What this device has that rows act on; tests replace it. */
-    SettingDevices devices;
-    /** Reads the saved PCs off the UI thread; tests replace it. */
-    java.util.concurrent.Executor savedPcReader = task -> new Thread(task, "Saved PCs").start();
-    /** What the last read of the saved PCs found: any PC, and any whose PyroWave frame pace can be measured or is saved. */
-    private boolean anySavedPc;
-    private boolean anyPacePc;
-    /** A saved PC offers more than stock 1400-byte video packets (MaxVideoPacket). */
-    private boolean anyJumboPc;
-    private static final String MORE_STATE_PREFS = "SettingsScreenState";
-    private static final String MORE_STATE_OPEN = "more_open";
-    /** The two-pane screen shows a section before one is picked; this one is only that default, not the user's choice. */
-    private boolean sectionDefaulted;
-    private MaterialToolbar toolbar;
-    private String searchQuery = "";
-    private SearchView searchView;
-    private String searchResultKey;
-    /** Two panes (sections left, one section right): layout-television and layout-w840dp. */
-    private boolean twoPane;
-    /** The next right-pane list takes focus: a section was opened by the D-pad, or a result or deep link picked a row. */
-    private boolean enterPane;
-    /** The row named by searchResultKey takes focus once selected: a deep link, or a search result picked in the content pane. */
-    private boolean focusRow;
-    private String previewSection;
-    private boolean firstFocusPlaced;
-    private boolean swallowReturnKeyUp;
-    private boolean swallowEnterKeyUp;
-    /** The row each section's pane had selected when focus last left it, so entering it again returns there. */
-    private final java.util.Map<String, Integer> paneSelection = new java.util.HashMap<>();
-    private String returnSearchQuery;
-    private String returnSearchSection;
-    /** The query search showed last, which opening search again brings back with its results; empty once cleared. */
-    private String lastSearchQuery = "";
-    private TextView contextLabel;
-    private boolean changingQuery;
-    private boolean stateSaved;
-    private boolean renderPending;
-    private boolean searchPending;
-    private final Handler navigationHandler = new Handler();
-    private final Runnable searchUpdate = this::renderSearch;
-    private final Runnable sectionPreview = () -> {
-        String key = previewSection;
-        previewSection = null;
-        if (key != null && searchQuery.isEmpty()) showSection(key);
-    };
 
     /** Settings at the stream's size, for a start that failed. */
     public static Intent atStreamSize(Context context) {
@@ -304,7 +219,7 @@ public class StreamSettings extends NightjarActivity {
      */
     public static void open(Context context, String section, String focusKey) {
         Intent intent = intent(context, section, focusKey);
-        if (!(context instanceof android.app.Activity)) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        if (!(context instanceof Activity)) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         context.startActivity(intent);
     }
 
@@ -330,11 +245,6 @@ public class StreamSettings extends NightjarActivity {
                 == Configuration.UI_MODE_TYPE_TELEVISION;
     }
 
-    /** The section the right pane shows before one is picked: Recommended, the first row of the list; a TV opens on Controls in its place. */
-    private String defaultSection() {
-        return isTelevision(this) ? "input" : "simple";
-    }
-
     /** Whether custom GPU drivers can load here. The debug build's demo mode shows their screen anyway. */
     protected boolean supportsGpuDrivers() {
         return GpuDriverStore.isSupported();
@@ -346,267 +256,47 @@ public class StreamSettings extends NightjarActivity {
     }
 
     void reloadSettings() {
-        navigationHandler.removeCallbacks(searchUpdate);
-        navigationHandler.removeCallbacks(sectionPreview);
-        previewSection = null;
-        searchPending = false;
-        if (isFinishing() || isDestroyed()) return;
-        if (stateSaved) {
-            renderPending = true;
-            return;
-        }
-        section = normalizeSection(section);
-        if (twoPane && section == null) {
-            section = defaultSection();
-            sectionDefaulted = true;
-        }
-        // A section behind More settings shows with its row: the fold is open while it does, and on a phone when Back
-        // returns from it to the list.
-        if (searchQuery.isEmpty()) unfoldRailFor(section);
-        applyRailFold();
-        Display.Mode mode = getWindowManager().getDefaultDisplay().getMode();
-        previousDisplayPixelCount = mode.getPhysicalWidth() * mode.getPhysicalHeight();
-        android.app.FragmentTransaction transaction = getFragmentManager().beginTransaction();
-        if (twoPane && getFragmentManager().findFragmentById(R.id.settings_sections) == null) {
-            transaction.add(R.id.settings_sections, new RootFragment());
-        }
-        // Search results count as one page, so typing does not bring the pane in again on every key.
-        if (rail != null) rail.enterPane(searchQuery.isEmpty() ? String.valueOf(section) : "");
-        transaction.replace(R.id.stream_settings, section == null && searchQuery.isEmpty() ?
-                new RootFragment() : SettingsFragment.forSection(section)).commit();
-        updateHeader();
-        markSection();
-        // Rows More settings just unfolded reach the list with its next pass (PreferenceGroupAdapter queues it): the
-        // section's row is marked once it is there.
-        ListView sections = listOf(R.id.settings_sections);
-        if (twoPane && sections != null) sections.post(() -> { if (!isFinishing() && !isDestroyed()) markRail(); });
+        nav.reloadSettings();
     }
 
-    /** The preference list of the fragment in a pane, or null while it has no view. */
-    private ListView listOf(int container) {
-        android.app.Fragment fragment = getFragmentManager().findFragmentById(container);
-        View view = fragment == null ? null : fragment.getView();
-        return view == null ? null : view.findViewById(android.R.id.list);
+    ListView listOf(int container) {
+        return nav.listOf(container);
     }
 
-    /** The list of sections: the left pane, or the whole screen while a phone shows the overview. */
-    private ListView sectionList() {
-        return listOf(twoPane ? R.id.settings_sections : R.id.stream_settings);
+    ListView sectionList() {
+        return nav.sectionList();
     }
 
-    /** The view holding focus in this screen's tree, which is set before the window reports focus. */
-    private View focusOwner() {
-        return findViewById(android.R.id.content).findFocus();
+    void markSection() {
+        nav.markSection();
     }
 
-    private boolean inContentPane(View view) {
-        for (android.view.ViewParent parent = view == null ? null : view.getParent(); parent != null; parent = parent.getParent()) {
-            if (parent instanceof View && ((View) parent).getId() == R.id.stream_settings) return true;
-        }
-        return false;
-    }
-
-    /** Marks the section the right pane shows in the list of sections. */
-    private void markSection() {
-        placeFirstFocus();
-        markRail();
-    }
-
-    /** Marks the shown section's row in the list beside it, and moves TV's bar to it. */
-    private void markRail() {
-        String row = markedRow();
-        android.app.Fragment fragment = getFragmentManager().findFragmentById(R.id.settings_sections);
-        if (twoPane && fragment instanceof RootFragment) ((RootFragment) fragment).mark(row);
-        if (rail != null) {
-            ListView list = listOf(R.id.settings_sections);
-            rail.setList(list);
-            rail.mark(list == null ? -1 : RootFragment.positionOf(list, row));
-        }
-    }
-
-    /** With the D-pad, the list of sections starts on the section shown, not on its first row: one row is highlighted from the start. */
-    private void placeFirstFocus() {
-        ListView list = twoPane && !firstFocusPlaced ? listOf(R.id.settings_sections) : null;
-        // Not before the list has focus: a selected row moves a list that overflows, and nothing needs it yet.
-        if (list == null || list.getAdapter() == null || !list.hasFocus()) return;
-        int position = RootFragment.positionOf(list, markedRow());
-        // In touch mode nothing is selected: the first D-pad press, which leaves it, places it (onCreate's listener).
-        // The section shown is no longer the rail's first row, so the list's own pick on leaving would be another.
-        if (position < 0 || list.isInTouchMode()) return;
-        firstFocusPlaced = true;
-        if (list.getChildCount() > 0) selectInPlace(list, position);
-        else androidx.core.view.OneShotPreDrawListener.add(list, () -> selectInPlace(list, position));
-    }
-
-    /**
-     * Selects a row without moving it: setSelection puts it at the list's top, so a rail that fits its screen opened scrolled,
-     * Presets cut in half, with Video below it selected. A row off screen still comes into view.
-     */
     static void selectInPlace(ListView list, int position) {
-        View row = list.getChildAt(position - list.getFirstVisiblePosition());
-        if (row == null || row.getTop() < list.getListPaddingTop() || row.getBottom() > list.getHeight() - list.getListPaddingBottom()) {
-            list.setSelection(position);
-        } else {
-            list.setSelectionFromTop(position, row.getTop() - list.getListPaddingTop());
-        }
+        StreamSettingsNavigation.selectInPlace(list, position);
     }
 
-    /**
-     * The section the right pane shows: search results are no section, so no row stands for them. A row with no page of its
-     * own (Presets, Profiles) can hold the ring beside this mark: the ring says where focus is, the pill what is on the right.
-     */
     String markedRow() {
-        return searchQuery.isEmpty() ? section : null;
+        return nav.markedRow();
     }
 
-    /** TV Settings' rail bar and pane motion; null without the TV layout. */
-    private SettingsRail rail;
-
-    /** Moves focus from the content pane back to the section it shows. */
-    private void focusSectionList() {
-        ListView list = sectionList();
-        if (list == null) return;
-        ListView content = twoPane ? listOf(R.id.stream_settings) : null;
-        // Search results are not the section's rows: their position is not the one to come back to.
-        if (content != null && section != null && section.equals(markedRow()) && content.hasFocus()) {
-            paneSelection.put(section, content.getSelectedItemPosition());
-        }
-        markSection();
-        int position = RootFragment.positionOf(list, markedRow());
-        if (position >= 0) list.setSelection(position);
-        list.requestFocus();
+    void focusContentPane(ListView list) {
+        nav.focusContentPane(list);
     }
 
-    /** Moves focus into the right pane, onto the row it was left on or else its first focusable row. */
-    private void focusContentPane(ListView list) {
-        list.requestFocus();
-        android.widget.ListAdapter adapter = list.getAdapter();
-        if (adapter == null) return;
-        Integer remembered = section == null ? null : paneSelection.get(section);
-        int position = PaneFocus.target(remembered == null ? -1 : remembered, adapter.getCount(), adapter::isEnabled);
-        // setSelection puts the row at the list's top, and so does the list as it takes focus. For the first row that scrolled
-        // its group's gap out of sight, and the list, now scrolled, laid its top fade over the row and took the top edge of its
-        // ring (nightjar#7, Shield TV). The row stands the fade's length down instead, as the D-pad leaves a row, so the first
-        // row stays under its gap with the list at its top. This comes after requestFocus, which places the row too.
-        if (position >= 0) list.setSelectionFromTop(position, list.getVerticalFadingEdgeLength());
-    }
-
-    /** Called when a section row is selected: the right pane follows after a short pause, so a fast scroll does not rebuild it per row. */
     void previewSection(String key) {
-        if (!twoPane || !searchQuery.isEmpty()) return;
-        navigationHandler.removeCallbacks(sectionPreview);
-        // Back on the section already shown: nothing is pending any more.
-        previewSection = key.equals(section) ? null : key;
-        if (previewSection != null) navigationHandler.postDelayed(sectionPreview, 100);
+        nav.previewSection(key);
     }
 
-    /**
-     * The D-pad moved to a row of the list of sections. A row without a page drops a preview still on its way, or the pane
-     * would change under it. While a preview is on its way the mark waits for it, and moves with the pane.
-     */
     void sectionRowSelected(String key) {
-        if (SECTIONS.containsKey(key)) {
-            previewSection(key);
-        } else {
-            navigationHandler.removeCallbacks(sectionPreview);
-            previewSection = null;
-        }
-        if (previewSection == null) markSection();
+        nav.sectionRowSelected(key);
     }
 
-    /** Opens a section from its row; {@code enter} moves focus into it, which is what Center does after the D-pad. */
     void activateSection(String key, boolean enter) {
-        navigationHandler.removeCallbacks(sectionPreview);
-        previewSection = null;
-        if (twoPane && enter) {
-            enterPane = true;
-            if (key.equals(section) && searchQuery.isEmpty()) {
-                ListView list = listOf(R.id.stream_settings);
-                if (list != null) {
-                    enterPane = false;
-                    focusContentPane(list);
-                }
-                return;
-            }
-        }
-        showSection(key);
+        nav.activateSection(key, enter);
     }
 
-    /** Called by a content list when it is built: whether it takes focus (see {@link #enterPane}). */
     boolean takesFocus(boolean contentPane) {
-        if (!twoPane) return isTelevision(this);
-        if (!contentPane) return isTelevision(this) && !enterPane;
-        boolean enter = enterPane;
-        enterPane = false;
-        return enter;
-    }
-
-    private void updateHeader() {
-        boolean overview = section == null || twoPane;
-        CharSequence title = getString(!searchQuery.isEmpty() ? R.string.settings_search_results :
-                overview ? R.string.settings : sectionTitle(section));
-        if (searchQuery.isEmpty()) {
-            contextLabel.setText(overview ? R.string.settings_global_context : R.string.settings_changes_saved);
-        } else {
-            android.app.Fragment fragment = getFragmentManager().findFragmentById(R.id.stream_settings);
-            if (fragment instanceof SettingsFragment) {
-                int count = ((SettingsFragment) fragment).displayedResultCount;
-                contextLabel.setText(getResources().getQuantityString(R.plurals.settings_search_count, count, count));
-            }
-        }
-        // The shell bar belongs to the list of sections, and its Settings tab is the title there; a section or the search
-        // results keep the back arrow and their title.
-        boolean atRoot = overview && searchQuery.isEmpty();
-        toolbar.setTitle(atRoot ? null : title);
-        setTitle(title);
-        toolbar.setNavigationContentDescription(returnSearchQuery != null ? R.string.settings_back_to_search :
-                overview ? R.string.settings_navigate_up : R.string.settings_back_to_overview);
-        // The words under the title count search results; everything else speaks for itself.
-        contextLabel.setVisibility(searchQuery.isEmpty() ? View.GONE : View.VISIBLE);
-        TextView large = findViewById(R.id.settings_title);
-        if (twoPane) large.setText(searchQuery.isEmpty() && section != null ? sectionTitle(section) : R.string.settings_search_results);
-        updateNavigation();
-        updateChips();
-    }
-
-    /** Where a phone's section chips stand and which is selected. */
-    private void updateChips() {
-        ViewGroup chips = findViewById(R.id.settings_chips);
-        if (chips == null) return;
-        boolean shown = section != null && searchQuery.isEmpty();
-        findViewById(R.id.settings_chips_scroll).setVisibility(shown ? View.VISIBLE : View.GONE);
-        if (!shown) return;
-        List<String> sections = visibleSections();
-        List<Object> built = new ArrayList<>();
-        for (int i = 0; i < chips.getChildCount(); i++) built.add(chips.getChildAt(i).getTag());
-        // Debug comes and goes with Show debug settings: the chips follow.
-        if (!built.equals(new ArrayList<Object>(sections))) chips.removeAllViews();
-        if (chips.getChildCount() == 0) {
-            LayoutInflater inflater = LayoutInflater.from(this);
-            for (String key : sections) {
-                TextView chip = (TextView) inflater.inflate(R.layout.settings_chip, chips, false);
-                chip.setText(sectionTitle(key));
-                chip.setTag(key);
-                chip.setOnClickListener(v -> {
-                    if (!key.equals(section)) showSection(key);
-                });
-                chips.addView(chip);
-            }
-        }
-        for (int i = 0; i < chips.getChildCount(); i++) {
-            View chip = chips.getChildAt(i);
-            boolean selected = chip.getTag().equals(section);
-            chip.setSelected(selected);
-            ViewCompat.setStateDescription(chip, selected ? getString(R.string.shell_current_page) : null);
-            if (selected) chip.post(() -> chip.requestRectangleOnScreen(new android.graphics.Rect(0, 0, chip.getWidth(), chip.getHeight()), true));
-        }
-    }
-
-    /** The sections a chip stands for, as the list of sections has them. */
-    private List<String> visibleSections() {
-        List<String> sections = new ArrayList<>(RAIL_SECTIONS);
-        if (!debugListed()) sections.remove("debug");
-        return sections;
+        return nav.takesFocus(contentPane);
     }
 
     /**
@@ -623,212 +313,33 @@ public class StreamSettings extends NightjarActivity {
         return devices;
     }
 
-    /** The chrome's search takes the place of the bar's menu item; the toolbar only carries the back arrow and a title. */
-    private void setUpGlass() {
-        GlassHost host = findViewById(R.id.glass_host);
-        Context full = fullSizeContext();
-        LayoutInflater.from(full).inflate(R.layout.view_settings_chrome, host, true);
-        ShellBar.install(this, ShellBar.Destination.SETTINGS);
-        View search = findViewById(R.id.settings_search_button);
-        search.setOnClickListener(v -> openSearch());
-        GlassForm form = GlassForm.of(this);
-        if (form == GlassForm.PHONE) {
-            android.content.res.Resources res = full.getResources();
-            ((ViewGroup) search.getParent()).removeView(search);
-            int size = res.getDimensionPixelSize(R.dimen.nj_size_tab_bar_height);
-            android.widget.LinearLayout.LayoutParams params = new android.widget.LinearLayout.LayoutParams(size, size);
-            params.setMarginStart(res.getDimensionPixelSize(R.dimen.space_s));
-            ((ViewGroup) findViewById(R.id.settings_bottom_row)).addView(search, params);
-            findViewById(R.id.settings_chrome).setVisibility(View.GONE);
-        }
-        NightSkyView sky = findViewById(R.id.settings_sky);
-        // A rail and a pane fill the screen: the moon would stand behind the rows' text. A phone's stands over its title.
-        if (form != GlassForm.PHONE) sky.setMoonShown(false);
-        sky.setMoonAtEnd();
-        host.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
-            if (r - l != or - ol || b - t != ob - ot) host.setAmbient(sky.bake(r - l, b - t), false, 0);
-        });
-        chrome = new com.limelight.console.PageChrome(this, host, R.id.settings_tabs, R.id.settings_top_row, R.id.settings_bottom_row, R.id.settings_foot_fade, this::layOutUnderChrome);
-        if (form != GlassForm.PHONE) ShellBar.linkTopRow(this, R.id.settings_search_button);
-    }
-
-    private com.limelight.console.PageChrome chrome;
-    /** What a list keeps free under its last row: the phone's tab bar. */
-    private int listFoot;
-
-    /** The panes take what the chrome and the window leave. The chrome is at full size, the panes may be compact. */
-    private void layOutUnderChrome(int left, int top, int right, int bottom) {
-        android.content.res.Resources res = fullSizeContext().getResources();
-        float density = res.getDisplayMetrics().density;
-        GlassForm form = chrome != null ? chrome.form() : GlassForm.of(this);
-        ((NightSkyView) findViewById(R.id.settings_sky)).setSafeTop(top);
-        View frame = findViewById(R.id.settings_frame);
-        if (form == GlassForm.PHONE) {
-            frame.setPadding(left, top + Math.round(24 * density), right, 0);
-            View bar = findViewById(R.id.settings_bottom_row);
-            int edge = res.getDimensionPixelSize(R.dimen.space_m);
-            bar.setPadding(left + edge, 0, right + edge, bottom + res.getDimensionPixelSize(R.dimen.space_s));
-            listFoot = bottom + res.getDimensionPixelSize(R.dimen.nj_size_tab_bar_height) + 3 * edge;
-            View fade = findViewById(R.id.settings_foot_fade);
-            ViewGroup.LayoutParams size = fade.getLayoutParams();
-            size.height = res.getDimensionPixelSize(R.dimen.home_foot_fade) + bottom;
-            fade.setLayoutParams(size);
-        } else {
-            boolean television = form == GlassForm.TELEVISION;
-            int inset = television ? 0 : Math.round(24 * density);
-            int rowTop = television ? top : top + res.getDimensionPixelSize(R.dimen.space_m);
-            findViewById(R.id.settings_top_row).setPaddingRelative(left + inset, rowTop, right + inset, 0);
-            int side = res.getDimensionPixelSize(R.dimen.shell_overscan_horizontal);
-            int vertical = res.getDimensionPixelSize(R.dimen.shell_overscan_vertical);
-            // The group's edge stands under the tabs' edge: the list keeps its gutter, so the frame gives it back.
-            int gutter = getResources().getDimensionPixelSize(R.dimen.screen_gutter);
-            frame.setPaddingRelative(Math.max(0, left + side + inset - gutter),
-                    rowTop + vertical + res.getDimensionPixelSize(R.dimen.glass_capsule) + res.getDimensionPixelSize(R.dimen.space_m),
-                    right + side + inset, 0);
-            listFoot = bottom + vertical;
-        }
-        applyListFoot(listOf(R.id.stream_settings));
-        applyListFoot(listOf(R.id.settings_sections));
-    }
-
-    private void applyListFoot(ListView list) {
-        if (list == null) return;
-        // A handheld's rail ends on the screen's edge: nothing floats under it, and every row can fit.
-        GlassForm form = chrome != null ? chrome.form() : GlassForm.of(this);
-        boolean handheldRail = list == listOf(R.id.settings_sections) && form == GlassForm.HANDHELD;
-        boolean pane = twoPane && list == listOf(R.id.stream_settings);
-        int foot = handheldRail ? getResources().getDimensionPixelSize(R.dimen.space_xs) : contentFoot(pane, form);
-        list.setPadding(list.getPaddingLeft(), list.getPaddingTop(), list.getPaddingRight(), foot);
-    }
-
-    /**
-     * What a list keeps under its last row. The right pane beside the rail ends on the screen's edge too: a ListView
-     * fills its padding while scrolling down (it does not clip to it) but drops the rows there on the way up, so a deep
-     * foot showed a row going down and a blank band, with the group's card cut, coming back up.
-     */
-    private int contentFoot(boolean rightPane, GlassForm form) {
-        // A TV's pane only: a handheld's foot keeps the system inset, or its last row ends under the navigation bar.
-        if (rightPane && form == GlassForm.TELEVISION) return getResources().getDimensionPixelSize(R.dimen.space_xs);
-        return listFoot;
-    }
-
-    /**
-     * Opened from the shell bar, the list of sections is a top-level page like PCs and Home, so it has no back arrow;
-     * a section, the search field or its results bring the arrow back. Opened any other way, the arrow always shows.
-     */
-    private void updateNavigation() {
-        boolean topLevel = fromShell && searchQuery.isEmpty() && returnSearchQuery == null
-                && searchView.getVisibility() != View.VISIBLE && (section == null || twoPane);
-        // A top-level page needs no bar at all: its tab names it, and a phone's large title stands in its place.
-        toolbar.setVisibility(topLevel ? View.GONE : View.VISIBLE);
-        if (!twoPane) findViewById(R.id.settings_title).setVisibility(section == null && searchQuery.isEmpty() ? View.VISIBLE : View.GONE);
-        if (topLevel == (toolbar.getNavigationIcon() == null)) return;
-        toolbar.setNavigationIcon(topLevel ? null
-                : androidx.appcompat.content.res.AppCompatResources.getDrawable(toolbar.getContext(), R.drawable.ic_arrow_back));
-    }
-
-    private void renderSearch() {
-        searchPending = false;
-        if (isFinishing() || isDestroyed()) return;
-        if (stateSaved) {
-            renderPending = true;
-            return;
-        }
-        android.app.Fragment fragment = getFragmentManager().findFragmentById(R.id.stream_settings);
-        if (fragment instanceof SettingsFragment && !searchQuery.isEmpty()) {
-            ((SettingsFragment) fragment).filterPreferences();
-            updateHeader();
-            // The pane turned from a section into results in place: on a TV the search row takes the mark.
-            markSection();
-        } else {
-            reloadSettings();
-        }
-    }
-
-    private void setSearchQuery(String query) {
-        if (!query.isEmpty()) lastSearchQuery = query;
-        changingQuery = true;
-        searchQuery = query;
-        searchView.setQuery(query, false);
-        changingQuery = false;
-        searchView.clearFocus();
-        searchView.setVisibility(query.isEmpty() ? View.GONE : View.VISIBLE);
-        reloadSettings();
-    }
-
     /**
      * Shows the search field under the top app bar and focuses it; search stays out of the way until asked for. A search
      * left for a section or by Back comes back as it was, its query and its results.
      */
     public void openSearch() {
-        if (searchQuery.isEmpty() && !lastSearchQuery.isEmpty()) {
-            returnSearchQuery = null;
-            returnSearchSection = null;
-            setSearchQuery(lastSearchQuery);
-        }
-        searchView.setVisibility(View.VISIBLE);
-        updateNavigation();
-        linkListsToSearch();
-        searchView.setIconified(false);
-        searchView.requestFocus();
+        nav.openSearch();
     }
 
-    private void openSearchResult(String targetSection, String key) {
-        returnSearchQuery = searchQuery;
-        returnSearchSection = savedSection();
-        // The right pane always shows a section; a result that lives in the list of sections (the presets) keeps the one it had.
-        if (targetSection != null || !twoPane) {
-            section = targetSection;
-            sectionDefaulted = false;
-        } else if (section == null) {
-            section = defaultSection();
-            sectionDefaulted = true;
-        }
-        searchResultKey = key;
-        if (LOW_LATENCY_CUSTOMIZED.contains(key)) customizeOpen = true;
-        if (SettingRules.WHEN_ROWS.contains(key)) revealed.add(key);
-        unfoldFor(targetSection, key);
-        // A result that is a row of the overview itself (the presets) shows there.
-        if (targetSection == null) unfoldRailFor(key);
-        enterPane = focusRow = twoPane && inContentPane(focusOwner());
-        setSearchQuery("");
+    void setSearchQuery(String query) {
+        nav.setSearchQuery(query);
     }
 
-    /** The sections whose More row the user left open, kept between visits apart from the settings themselves. */
-    private Set<String> rememberedMore() {
-        return getSharedPreferences(MORE_STATE_PREFS, MODE_PRIVATE).getStringSet(MORE_STATE_OPEN, new HashSet<>());
+    void openSearchResult(String targetSection, String key) {
+        nav.openSearchResult(targetSection, key);
     }
 
-    /** Only the user's own choice is kept: a search result or link unfolding a section lasts for this visit. */
-    private void rememberMore(String section, boolean open) {
-        rememberMore(this, section, open);
-    }
-
-    private static void rememberMore(Context context, String section, boolean open) {
-        SharedPreferences state = context.getSharedPreferences(MORE_STATE_PREFS, MODE_PRIVATE);
-        Set<String> remembered = new HashSet<>(state.getStringSet(MORE_STATE_OPEN, new HashSet<>()));
-        if (open) remembered.add(section);
-        else remembered.remove(section);
-        state.edit().putStringSet(MORE_STATE_OPEN, remembered).apply();
+    void rememberMore(String section, boolean open) {
+        nav.rememberMore(section, open);
     }
 
     /** Leaves the overview's More settings open or closed for the next visit, as choosing it does. */
     @androidx.annotation.VisibleForTesting
     static void rememberRail(Context context, boolean open) {
-        rememberMore(context, RAIL, open);
+        StreamSettingsNavigation.rememberMore(context, RAIL, open);
     }
 
-    /** A search result or a link that lands on a folded row opens its section's More row first. */
-    private void unfoldFor(String keySection, String key) {
-        if (keySection != null && foldsInSection(this, keySection, key)) moreOpen.add(keySection);
-    }
-
-    /** The section the user picked: not the one a wide screen shows before any is, which a narrow screen would open inside. */
-    private String savedSection() {
-        return sectionDefaulted ? null : section;
-    }
-
-    private static String normalizeSection(String section) {
+    static String normalizeSection(String section) {
         // Restore navigation saved by versions that placed these controls in a separate section.
         if ("developer".equals(section)) return "advanced";
         return section != null && SECTIONS.containsKey(section) ? section : null;
@@ -858,132 +369,11 @@ public class StreamSettings extends NightjarActivity {
     }
 
     void showSection(String newSection) {
-        section = newSection;
-        sectionDefaulted = false;
-        if (twoPane && !searchQuery.isEmpty()) {
-            // Picking a section ends the search; setSearchQuery shows the section.
-            returnSearchQuery = null;
-            returnSearchSection = null;
-            setSearchQuery("");
-            return;
-        }
-        reloadSettings();
+        nav.showSection(newSection);
     }
 
-    private void linkListsToSearch() {
-        linkListToSearch(listOf(R.id.settings_sections), searchView);
-        linkListToSearch(listOf(R.id.stream_settings), searchView);
-    }
-
-    /**
-     * An empty search field closes once focus leaves it: open beside the capsule's search it showed search twice while
-     * nothing was searched (nightjar#7). A field with a query stays; it is the search on screen.
-     */
-    private void closeEmptySearch() {
-        if (!searchQuery.isEmpty() || searchView.getVisibility() != View.VISIBLE || searchView.hasFocus()) return;
-        searchView.setVisibility(View.GONE);
-        updateNavigation();
-        linkListsToSearch();
-    }
-
-    private void navigateBack() {
-        if (searchQuery.isEmpty() && searchView.getVisibility() == View.VISIBLE) {
-            searchView.clearFocus();
-            searchView.setVisibility(View.GONE);
-            updateNavigation();
-            linkListsToSearch();
-            // Back to what opened it. By touch this asks for nothing: the button takes no focus there.
-            findViewById(R.id.settings_search_button).requestFocus();
-        }
-        else if (!searchQuery.isEmpty()) {
-            setSearchQuery("");
-        }
-        else if (returnSearchQuery != null) {
-            String query = returnSearchQuery;
-            section = returnSearchSection;
-            sectionDefaulted = false;
-            returnSearchQuery = null;
-            returnSearchSection = null;
-            setSearchQuery(query);
-        }
-        else if (twoPane && inContentPane(focusOwner())) {
-            focusSectionList();
-        }
-        else if (section != null && !twoPane) {
-            showSection(null);
-        }
-        else {
-            finishSettings();
-        }
-    }
-
-    // Removes every setting shown in these screens, then restores the XML defaults
     static void resetAllSettings(Context context) {
-        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
-        SharedPreferences.Editor editor = prefs.edit();
-        try (XmlResourceParser parser = context.getResources().getXml(R.xml.preferences)) {
-            for (int event = parser.getEventType(); event != XmlPullParser.END_DOCUMENT; event = parser.next()) {
-                if (event == XmlPullParser.START_TAG) {
-                    String key = parser.getAttributeValue("http://schemas.android.com/apk/res/android", "key");
-                    if (key != null && !RESET_EXCLUDED_KEYS.contains(key)) {
-                        editor.remove(key);
-                    }
-                }
-            }
-        } catch (XmlPullParserException | IOException e) {
-            LimeLog.warning("Unable to read preference keys: " + e);
-            return;
-        }
-        // Stored by the frame rate, overlay, theme, touch mode, video scaling and paired-switch pickers, which
-        // have no row of their own for them.
-        editor.remove("checkbox_native_touch")
-                .remove(com.limelight.binding.input.touch.TouchMode.PREF)
-                .remove(com.limelight.binding.input.touch.TouchMode.TRACKPAD_PREF)
-                .remove(com.limelight.ui.VideoScaling.PREF)
-                .remove(com.limelight.ui.VideoScaling.STRETCH_PREF)
-                .remove(PreferenceConfiguration.UNLOCK_FPS_STRING)
-                .remove(PreferenceConfiguration.OVERLAY_MODE_PREF_STRING)
-                .remove(com.limelight.ui.AppTheme.RETIRED_OLED_BLACK)
-                // Display arrangement's switch (DisplayArrangementChoice).
-                .remove(DisplayArrangementChoice.VIRTUAL_DISPLAY_PREF)
-                .remove(com.limelight.ui.AppTheme.RETIRED_ALWAYS_DARK)
-                // The second switches of the rows that are one choice now (SwitchPairChoice).
-                .remove(PreferenceConfiguration.BACK_OPENS_MENU_PREF_STRING)
-                .remove(PreferenceConfiguration.BACK_AS_GUIDE_PREF_STRING)
-                .remove(PreferenceConfiguration.SYSTEM_KEYS_FULLSCREEN_ONLY_PREF_STRING)
-                .remove(PreferenceConfiguration.ROAMING_METERED_PREF_STRING)
-                // Lower bitrate's switches before it was one value (AutoBitrateChoice).
-                .remove(AutoBitrateChoice.RETIRED_BUSY)
-                .remove(AutoBitrateChoice.RETIRED_LOST)
-                .remove(AutoBitrateChoice.RETIRED_KEEP)
-                // The switches Vibration, Trackpad acceleration and Glide after a flick folded into their lists (FoldedChoice).
-                .remove(FoldedChoice.VIBRATION.switchKey)
-                .remove(FoldedChoice.ACCELERATION.switchKey)
-                .remove(FoldedChoice.MOMENTUM.switchKey)
-                .remove(FoldedChoice.RETIRED_ACCELERATION_V1)
-                // Stored by the one switch that tells the PC about this device's network, beside its row's key.
-                .remove(PreferenceConfiguration.TELL_HOST_LINK_SPEED_PREF_STRING)
-                .remove(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING)
-                .remove(PreferenceConfiguration.BITRATE_PREF_OLD_STRING)
-                .remove(PreferenceConfiguration.PREFS_VERSION_PREF_STRING)
-                .remove(PreferenceConfiguration.CODEC_LOW_LATENCY_CORRUPTION_OFF_PREF_STRING)
-                // Stored by the Sharper colored text, Controllers and When Nightjar opens pickers.
-                .remove(PreferenceConfiguration.YUV444_PREF_STRING)
-                .remove(PreferenceConfiguration.PACKED_444_PREF_STRING)
-                .remove(PreferenceConfiguration.SEND_CONTROLLERS_PREF_STRING)
-                .remove(PreferenceConfiguration.MULTI_CONTROLLER_PREF_STRING)
-                .remove(com.limelight.console.HomeSettings.PREF_KEY)
-                // Stored by the Frame pacing, Variable refresh rate and Lower refresh rate pickers beside their row's key.
-                .remove(PreferenceConfiguration.HOST_FRAME_TIMES_PREF_STRING)
-                .remove(SettingRules.DROP_LATE_FRAMES)
-                .remove(PreferenceConfiguration.REAL_VRR_PREF_STRING)
-                .remove(PreferenceConfiguration.CONTENT_RATE_FRAME_RATE_PREF_STRING)
-                .commit();
-        PreferenceManager.setDefaultValues(context, R.xml.preferences, true);
-        PreferenceConfiguration.migrateToNativeDefaults(context);
-        FoldedChoice.migrate(prefs);
-        // The XML default just came back: where Android's low-latency mode can corrupt the picture it starts off again.
-        PreferenceConfiguration.migrateCodecLowLatencyCorruption(prefs);
+        StreamSettingsChrome.resetAllSettings(context);
     }
 
     /** Its chrome follows the form: a rotation into another form lays it out again. */
@@ -998,13 +388,13 @@ public class StreamSettings extends NightjarActivity {
         SimpleProfile.warmCapabilities();
         // Framework fragments are recreated by super.onCreate(), before our views exist, and their lists read this.
         twoPane = getResources().getBoolean(R.bool.settings_two_pane);
-        moreOpen.addAll(rememberedMore());
+        moreOpen.addAll(nav.rememberedMore());
         if (savedInstanceState != null) {
             section = normalizeSection(savedInstanceState.getString(STATE_SECTION));
             searchQuery = savedInstanceState.getString("search", "");
             returnSearchQuery = savedInstanceState.getString("return_search");
-            returnSearchSection = normalizeSection(savedInstanceState.getString("return_section"));
-            lastSearchQuery = savedInstanceState.getString("last_search", "");
+            nav.returnSearchSection = normalizeSection(savedInstanceState.getString("return_section"));
+            nav.lastSearchQuery = savedInstanceState.getString("last_search", "");
             searchResultKey = savedInstanceState.getString("search_result");
             customizeOpen = savedInstanceState.getBoolean(STATE_CUSTOMIZE, false);
             ArrayList<String> open = savedInstanceState.getStringArrayList(STATE_MORE_OPEN);
@@ -1024,13 +414,13 @@ public class StreamSettings extends NightjarActivity {
             if (section != null) searchResultKey = focusKey;
             if (LOW_LATENCY_CUSTOMIZED.contains(focusKey)) customizeOpen = true;
             if (SettingRules.WHEN_ROWS.contains(focusKey)) revealed.add(focusKey);
-            unfoldFor(keySection, focusKey);
-            enterPane = focusRow = searchResultKey != null;
+            nav.unfoldFor(keySection, focusKey);
+            nav.enterPane = focusRow = searchResultKey != null;
         }
         super.onCreate(savedInstanceState);
 
-        previousPrefs = PreferenceConfiguration.readPreferences(this);
-        startRoot = ShellBar.root(this);
+        nav.previousPrefs = PreferenceConfiguration.readPreferences(this);
+        nav.startRoot = ShellBar.root(this);
         fromShell = getIntent().getBooleanExtra(ShellBar.EXTRA_FROM_SHELL, false);
 
         UiHelper.setLocale(this);
@@ -1039,104 +429,41 @@ public class StreamSettings extends NightjarActivity {
         twoPane = findViewById(R.id.settings_sections) != null;
         if (twoPane) {
             getWindow().getDecorView().getViewTreeObserver().addOnTouchModeChangeListener(inTouchMode -> {
-                if (!inTouchMode) placeFirstFocus();
+                if (!inTouchMode) nav.placeFirstFocus();
             });
         }
         rail = SettingsRail.attach(this);
-        dropMisplacedPanes();
+        nav.dropMisplacedPanes();
         toolbar = TopAppBar.configure(this, R.id.settings_toolbar, getString(R.string.settings), 0);
-        TopAppBar.setUpNavigation(toolbar, R.id.settings_back, v -> navigateBack());
-        setUpGlass();
+        TopAppBar.setUpNavigation(toolbar, R.id.settings_back, v -> nav.navigateBack());
+        ui.setUpGlass();
         // Search sits at the end of the tab row: Right from the last tab reaches it, also where the bar ends in a wall (TV).
         findViewById(R.id.shell_settings).setNextFocusRightId(R.id.settings_search_button);
         contextLabel = findViewById(R.id.settings_context);
         searchView = findViewById(R.id.settings_search);
-        searchView.setVisibility(searchQuery.isEmpty() ? View.GONE : View.VISIBLE);
-        searchView.setIconifiedByDefault(false);
-        searchView.setQueryHint(getString(R.string.settings_search_hint));
-        searchView.setQuery(searchQuery, false);
-        searchView.clearFocus();
-        searchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
-            @Override public boolean onQueryTextSubmit(String query) {
-                navigationHandler.removeCallbacks(searchUpdate);
-                renderSearch();
-                searchView.clearFocus();
-                return true;
-            }
-
-            @Override public boolean onQueryTextChange(String query) {
-                if (changingQuery) return true;
-                searchQuery = query.trim();
-                lastSearchQuery = searchQuery;
-                returnSearchQuery = null;
-                returnSearchSection = null;
-                navigationHandler.removeCallbacks(searchUpdate);
-                searchPending = true;
-                navigationHandler.postDelayed(searchUpdate, 120);
-                return true;
-            }
-        });
-        // Once the focus has moved: while it moves, the field still counts as holding it.
-        searchView.setOnQueryTextFocusChangeListener((view, focused) -> {
-            if (!focused) searchView.post(this::closeEmptySearch);
-        });
+        nav.bindSearchView(searchView);
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
-            @Override public void handleOnBackPressed() { navigateBack(); }
+            @Override public void handleOnBackPressed() { nav.navigateBack(); }
         });
-        updateHeader();
+        ui.updateHeader();
 
         UiHelper.notifyNewRootView(this);
     }
 
-    /** A recreated activity gets back the fragments of the layout it had; the other layout has no place for them. */
-    private void dropMisplacedPanes() {
-        android.app.FragmentManager fragments = getFragmentManager();
-        android.app.Fragment sections = fragments.findFragmentById(R.id.settings_sections);
-        android.app.Fragment content = fragments.findFragmentById(R.id.stream_settings);
-        android.app.FragmentTransaction transaction = fragments.beginTransaction();
-        boolean changed = false;
-        if (!twoPane && sections != null) {
-            transaction.remove(sections);
-            changed = true;
-        }
-        // A wide screen's section that nobody picked would open inside it on a narrow one; the list shows instead.
-        boolean unpicked = !twoPane && section == null && searchQuery.isEmpty() && content instanceof SettingsFragment;
-        if (unpicked || (twoPane && content instanceof RootFragment)) {
-            transaction.remove(content);
-            changed = true;
-        }
-        if (changed) {
-            transaction.commitAllowingStateLoss();
-            fragments.executePendingTransactions();
-        }
-    }
-
     @Override
     protected void onSaveInstanceState(Bundle outState) {
-        // Save the screen for the latest query, including a last keystroke before rotation.
-        navigationHandler.removeCallbacks(searchUpdate);
-        if (searchPending) renderSearch();
-        getFragmentManager().executePendingTransactions();
-        stateSaved = true;
+        nav.flushPendingSearchBeforeSave();
         super.onSaveInstanceState(outState);
-        outState.putString(STATE_SECTION, savedSection());
-        outState.putString("search", searchQuery);
-        outState.putString("return_search", returnSearchQuery);
-        outState.putString("return_section", returnSearchSection);
-        outState.putString("last_search", lastSearchQuery);
-        outState.putString("search_result", searchResultKey);
-        outState.putBoolean(STATE_CUSTOMIZE, customizeOpen);
-        outState.putStringArrayList(STATE_MORE_OPEN, new ArrayList<>(moreOpen));
-        outState.putStringArrayList("revealed", new ArrayList<>(revealed));
+        nav.saveInstanceState(outState, STATE_SECTION, STATE_CUSTOMIZE, STATE_MORE_OPEN);
     }
 
     @Override
     protected void onPostResume() {
         super.onPostResume();
-        stateSaved = false;
+        nav.stateSaved = false;
         ShellBar.refresh(this);
-        if (renderPending) {
-            renderPending = false;
+        if (nav.renderPending) {
+            nav.renderPending = false;
             reloadSettings();
         }
     }
@@ -1144,60 +471,14 @@ public class StreamSettings extends NightjarActivity {
     @Override
     protected void onDestroy() {
         Dialog.closeDialogs(this);
-        navigationHandler.removeCallbacksAndMessages(null);
-        if (rail != null) rail.detach();
+        nav.onDestroy();
         super.onDestroy();
-    }
-
-    private void exportLatencyCsv() {
-        if (!new File(getFilesDir(), MediaCodecDecoderRenderer.LATENCY_CSV_NAME).isFile()) {
-            Toast.makeText(this, R.string.latency_csv_empty, Toast.LENGTH_LONG).show();
-            return;
-        }
-        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("text/csv");
-        intent.putExtra(Intent.EXTRA_TITLE, MediaCodecDecoderRenderer.LATENCY_CSV_EXPORT_NAME);
-        try {
-            startActivityForResult(intent, EXPORT_LATENCY_REQUEST);
-        } catch (ActivityNotFoundException e) {
-            Toast.makeText(this, R.string.latency_csv_no_picker, Toast.LENGTH_LONG).show();
-        }
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != EXPORT_LATENCY_REQUEST || resultCode != RESULT_OK || data == null || data.getData() == null) {
-            return;
-        }
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                int message = R.string.latency_csv_saved;
-                try (FileInputStream input = new FileInputStream(new File(getFilesDir(), MediaCodecDecoderRenderer.LATENCY_CSV_NAME));
-                     OutputStream output = getContentResolver().openOutputStream(data.getData(), "wt")) {
-                    if (output == null) {
-                        throw new IOException("Document provider did not open the CSV");
-                    }
-                    byte[] buffer = new byte[16384];
-                    int count;
-                    while ((count = input.read(buffer)) != -1) {
-                        output.write(buffer, 0, count);
-                    }
-                } catch (IOException | SecurityException e) {
-                    LimeLog.warning("Unable to export latency CSV: " + e);
-                    message = R.string.latency_csv_failed;
-                }
-                final int resultMessage = message;
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        Toast.makeText(StreamSettings.this, resultMessage, Toast.LENGTH_LONG).show();
-                    }
-                });
-            }
-        }, "Latency CSV export").start();
+        ui.handleExportLatencyResult(requestCode, resultCode, data);
     }
 
     @Override
@@ -1210,7 +491,7 @@ public class StreamSettings extends NightjarActivity {
             reloadSettings();
         } else {
             Display.Mode mode = getWindowManager().getDefaultDisplay().getMode();
-            previousDisplayPixelCount = mode.getPhysicalWidth() * mode.getPhysicalHeight();
+            nav.previousDisplayPixelCount = mode.getPhysicalWidth() * mode.getPhysicalHeight();
         }
     }
 
@@ -1232,7 +513,7 @@ public class StreamSettings extends NightjarActivity {
         //
         // NB: We aren't using displayId here because that stays the same (DEFAULT_DISPLAY) when
         // switching between screens on a foldable device.
-        if (mode.getPhysicalWidth() * mode.getPhysicalHeight() != previousDisplayPixelCount) {
+        if (mode.getPhysicalWidth() * mode.getPhysicalHeight() != nav.previousDisplayPixelCount) {
             reloadSettings();
         }
     }
@@ -1241,410 +522,45 @@ public class StreamSettings extends NightjarActivity {
     @Override
     // NOTE: This will NOT be called on Android 13+ with android:enableOnBackInvokedCallback="true"
     public void onBackPressed() {
-        navigateBack();
+        nav.navigateBack();
     }
 
     @Override
     public boolean dispatchKeyEvent(android.view.KeyEvent event) {
-        // Right (Left in RTL) from the list of sections enters the pane on a known row: the focus search would
-        // pick whichever row is nearest, and the key's release must not reach the row that gets focus.
-        int towardPane = getResources().getConfiguration().getLayoutDirection() == View.LAYOUT_DIRECTION_RTL ?
-                android.view.KeyEvent.KEYCODE_DPAD_LEFT : android.view.KeyEvent.KEYCODE_DPAD_RIGHT;
-        if (twoPane && event.getKeyCode() == towardPane && event.hasNoModifiers()) {
-            if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) {
-                View owner = focusOwner();
-                ListView sections = sectionList();
-                ListView content = listOf(R.id.stream_settings);
-                if (owner != null && sections != null && content != null && owner == sections && searchQuery.isEmpty()) {
-                    swallowEnterKeyUp = true;
-                    if (event.getRepeatCount() == 0) {
-                        // The pane follows the selected row after a pause: a press inside it opens the row's section.
-                        if (previewSection != null && !previewSection.equals(section)) activateSection(previewSection, true);
-                        else focusContentPane(content);
-                    }
-                    return true;
-                }
-            } else if (event.getAction() == android.view.KeyEvent.ACTION_UP && swallowEnterKeyUp) {
-                swallowEnterKeyUp = false;
-                return true;
-            }
-        }
+        if (nav.handlePaneKeyBeforeSuper(event)) return true;
         if (super.dispatchKeyEvent(event)) return true;
-        // Left (Right in RTL) from the content pane returns to the list; rows that use the key, such as a slider, ran first.
-        int towardList = getResources().getConfiguration().getLayoutDirection() == View.LAYOUT_DIRECTION_RTL ?
-                android.view.KeyEvent.KEYCODE_DPAD_RIGHT : android.view.KeyEvent.KEYCODE_DPAD_LEFT;
-        if (twoPane && event.getKeyCode() == towardList) {
-            if (event.getAction() == android.view.KeyEvent.ACTION_DOWN && inContentPane(focusOwner())) {
-                swallowReturnKeyUp = true;
-                if (event.getRepeatCount() == 0) focusSectionList();
-                return true;
-            }
-            if (event.getAction() == android.view.KeyEvent.ACTION_UP && swallowReturnKeyUp) {
-                swallowReturnKeyUp = false;
-                return true;
-            }
-        }
-        return false;
+        return nav.handlePaneKeyAfterSuper(event);
     }
 
-    private void finishSettings() {
-        // Language changes are handled via configuration changes in Android 13+,
-        // so manual activity relaunching is no longer required.
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            PreferenceConfiguration newPrefs = PreferenceConfiguration.readPreferences(this);
-            if (!newPrefs.language.equals(previousPrefs.language)) {
-                finish();
-                // Restart the PC view to apply UI changes
-                Intent intent = new Intent(this, PcView.class);
-                intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(intent, null);
-                return;
-            }
-        }
-        // Turning Home on or off here moves the root; restart the task on the new one so Back does not
-        // land on a screen that is no longer the first.
-        ShellBar.Destination root = ShellBar.root(this);
-        if (root != startRoot) {
-            finish();
-            startActivity(ShellBar.intentFor(this, root)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
-            return;
-        }
-        if (fromShell) {
-            // Back from Settings opened by the bar goes to the root: Home, or the list of PCs when the app opens there.
-            ShellBar.leave(this, ShellBar.Destination.SETTINGS);
-        } else {
-            finish();
-        }
-    }
-
-    /** Whether this is TV Settings with its rail, whose group headings are settings_category_tv. */
     static boolean hasRail(Activity activity) {
-        return activity != null && activity.findViewById(R.id.settings_rail) != null;
+        return StreamSettingsChrome.hasRail(activity);
     }
 
-    private static void stylePreferences(PreferenceGroup group, Activity activity) {
-        stylePreferences(group, hasRail(activity) ? R.layout.settings_category_tv : R.layout.settings_category);
-    }
-
-    /** By form, not by a resource qualifier: a TV is past w840dp, which outranks television in resource matching. */
-    private static int sectionLayout(Context context) {
-        return GlassForm.of(context) == GlassForm.TELEVISION ? R.layout.settings_section_tv : R.layout.settings_section;
-    }
-
-    /** A row that holds one value says it at its end, whatever opens to change it. */
     static boolean showsValueAtEnd(Preference preference) {
-        if (preference instanceof ListPreference || preference instanceof SeekBarPreference) return true;
-        String key = preference.getKey();
-        return TouchMode.PREF.equals(key) || VideoScaling.PREF.equals(key)
-                || OverlayChoice.ENABLED_KEY.equals(key) || AppTheme.THEME.equals(key) || "gpu_driver".equals(key)
-                || SwitchPairChoice.forKey(key) != null;
+        return StreamSettingsChrome.showsValueAtEnd(preference);
     }
 
-    private static void stylePreferences(PreferenceGroup group, int categoryLayout) {
-        for (int i = 0; i < group.getPreferenceCount(); i++) {
-            Preference preference = group.getPreference(i);
-            if (preference instanceof PresetPreference) continue;
-            if (preference instanceof PreferenceCategory) {
-                // A group without a title continues the section heading above it.
-                preference.setLayoutResource(TextUtils.isEmpty(preference.getTitle()) ?
-                        R.layout.settings_category_spacer : categoryLayout);
-            } else {
-                preference.setLayoutResource(showsValueAtEnd(preference) ? R.layout.settings_preference_value : R.layout.settings_preference);
-            }
-            if (preference instanceof PreferenceGroup) {
-                stylePreferences((PreferenceGroup) preference, categoryLayout);
-            }
-        }
+    static boolean yieldsFirstFocus(Activity activity, View owner) {
+        return StreamSettingsChrome.yieldsFirstFocus(activity, owner);
     }
 
-    /**
-     * UP from the list goes to the search field only while it is shown; hidden, it would be a dead end on
-     * API below 26, so the default search finds the shell bar instead.
-     */
-    private static void linkListToSearch(View list, View search) {
-        if (list == null) return;
-        list.setNextFocusUpId(search != null && search.getVisibility() == View.VISIBLE ? R.id.settings_search : View.NO_ID);
-    }
-
-    private static boolean isWithin(ViewGroup ancestor, View view) {
-        for (android.view.ViewParent p = view.getParent(); p != null; p = p.getParent()) {
-            if (p == ancestor) return true;
-        }
-        return false;
-    }
-
-    /** Whether the first focus may be taken from this view: nothing holds it, or only the bars do, which the window gave it to. */
-    static boolean yieldsFirstFocus(android.app.Activity activity, View owner) {
-        if (owner == null) return true;
-        for (int id : new int[] {R.id.settings_toolbar, R.id.settings_chrome}) {
-            View bar = activity.findViewById(id);
-            if (bar instanceof ViewGroup && isWithin((ViewGroup) bar, owner)) return true;
-        }
-        return false;
-    }
-
-    private static void stylePreferenceList(View view, android.app.Activity activity, boolean contentPane) {
-        ListView list = GroupedListView.adopt(view);
-        com.limelight.ui.UiNavigation.bindPreferencesWhenReady(list);
-        View search = activity.findViewById(R.id.settings_search);
-        linkListToSearch(list, search);
-        // The first focus lands on content, never on the toolbar; with two panes only one list takes it.
-        if (((StreamSettings) activity).takesFocus(contentPane) && (search == null || !search.hasFocus())) {
-            list.requestFocus();
-            // The window may hand focus to the first focusable (the toolbar) once it is laid out; take it back.
-            list.post(() -> {
-                // A pane that was opened to be entered is not attached when it asks, so it did not get focus.
-                if (contentPane && !list.hasFocus() && list.isAttachedToWindow()) {
-                    ((StreamSettings) activity).focusContentPane(list);
-                    return;
-                }
-                View owner = activity.findViewById(android.R.id.content).findFocus();
-                if (!list.hasFocus() && yieldsFirstFocus(activity, owner) && list.isAttachedToWindow()) list.requestFocus();
-            });
-        }
-        list.setDivider(null);
-        list.setDividerHeight(0);
-        list.setSelector(R.drawable.settings_row_focus);
-        // The selector's inset puts rows on their group's edge; under the last one, what the chrome keeps.
-        StreamSettings settings = (StreamSettings) activity;
-        GlassForm form = settings.chrome != null ? settings.chrome.form() : GlassForm.of(activity);
-        int foot = settings.listFoot > 0 ? settings.contentFoot(contentPane && settings.twoPane, form) : 0;
-        list.setPadding(0, 0, 0, foot > 0 ? foot : view.getResources().getDimensionPixelSize(R.dimen.grid_padding_bottom));
-        list.setClipToPadding(false);
-    }
-
-    // "Automatic (recommended)" reads as "Automatic" in a one-line summary
     static CharSequence entryFor(Context context, int names, int values, String value) {
-        String[] valueArray = context.getResources().getStringArray(values);
-        for (int i = 0; i < valueArray.length; i++) {
-            if (valueArray[i].equals(value)) {
-                return context.getResources().getStringArray(names)[i].replaceFirst(" \\(.*\\)$", "");
-            }
-        }
-        return value;
+        return StreamSettingsChrome.entryFor(context, names, values, value);
     }
 
-    /** The overview's Profiles row, under the presets: profiles hold values from every section. */
-    static final String PROFILES_KEY = "stream_profiles";
-
-    public static class RootFragment extends PreferenceFragment {
-        private final SharedPreferences.OnSharedPreferenceChangeListener summaryUpdater = (prefs, key) -> {
-            updateSummaries();
-            // Show debug settings, or a Debug setting changed or set back, adds or removes Debug.
-            applyFold();
-        };
-        /** Every row of the overview by key, in the list or folded away. */
-        private final Map<String, Preference> rows = new HashMap<>();
-
-        @Override
-        public Preference findPreference(CharSequence key) {
-            Preference row = super.findPreference(key);
-            return row != null ? row : rows.get(String.valueOf(key));
-        }
-
-        /** Shows or removes the rows behind More settings, as the activity has it, and points the row's icon. */
-        void applyFold() {
-            PreferenceScreen screen = getPreferenceScreen();
-            StreamSettings activity = (StreamSettings) getActivity();
-            if (screen == null || activity == null) return;
-            boolean open = activity.railOpen();
-            for (String key : RAIL_FOLDED) {
-                Preference row = rows.get(key);
-                if (row == null) continue;
-                boolean listed = screen.findPreference(key) != null;
-                // Debug only on request (Show debug settings), while one of its settings is changed, or while it shows.
-                boolean show = open && (!"debug".equals(key) || activity.debugListed());
-                if (show && !listed) screen.addPreference(row);
-                else if (!show && listed) screen.removePreference(row);
-            }
-            Preference more = rows.get(RAIL_MORE_KEY);
-            if (more instanceof FoldPreference) ((FoldPreference) more).setExpanded(open);
-        }
-
-        private void updateSummaries() {
-            Context context = getActivity();
-            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
-            PreferenceConfiguration config = PreferenceConfiguration.readPreferences(context);
-            String bitrate = config.bitrate % 1000 == 0 ? Integer.toString(config.bitrate / 1000) :
-                    String.format(Locale.getDefault(), "%.1f", config.bitrate / 1000f);
-            findPreference("video").setSummary(getString(R.string.settings_section_video_summary,
-                    config.width * 9 == config.height * 16 ? config.height + "p" : config.width + "×" + config.height,
-                    config.fps + " " + getString(R.string.fps_suffix_fps),
-                    bitrate + " " + getString(R.string.suffix_seekbar_bitrate_mbps),
-                    entryFor(context, R.array.video_format_names, R.array.video_format_values,
-                            prefs.getString(PreferenceConfiguration.VIDEO_FORMAT_PREF_STRING,
-                                    PreferenceConfiguration.DEFAULT_VIDEO_FORMAT))));
-            String upscaling = prefs.getString(PreferenceConfiguration.UPSCALING_PREF_STRING, "off");
-            findPreference("display").setSummary(getString(R.string.settings_joined,
-                    config.vrr ? getString(R.string.settings_display_adaptive) :
-                            entryFor(context, R.array.frame_pacing_choice_names, R.array.frame_pacing_choice_values,
-                                    FramePacingChoice.read(prefs)),
-                    "off".equals(upscaling) ? getString(R.string.settings_display_no_upscaling) :
-                            entryFor(context, R.array.upscaling_names, R.array.upscaling_values, upscaling)));
-            findPreference("audio").setSummary(entryFor(context, R.array.audio_config_names, R.array.audio_config_values,
-                    prefs.getString(PreferenceConfiguration.AUDIO_CONFIG_PREF_STRING, "2")));
-            findPreference("app").setSummary(getString(R.string.settings_section_app_summary, BuildConfig.VERSION_NAME));
-            findPreference(PROFILES_KEY).setSummary(SettingsFragment.profilesSummary(context));
-        }
-
-        @Override
-        public void onCreate(Bundle savedInstanceState) {
-            super.onCreate(savedInstanceState);
-            // One order on every screen: a TV opens on Controls in its place, not with Controls moved to the rail's top.
-            addPreferencesFromResource(R.xml.preferences_root);
-            stylePreferences(getPreferenceScreen(), getActivity());
-            for (int i = 0; i < getPreferenceScreen().getPreferenceCount(); i++) {
-                Preference row = getPreferenceScreen().getPreference(i);
-                // A row taken out keeps its place for when it comes back.
-                row.setOrder(i);
-                rows.put(row.getKey(), row);
-            }
-            Preference more = findPreference(RAIL_MORE_KEY);
-            more.setLayoutResource(GlassForm.of(getActivity()) == GlassForm.TELEVISION ? R.layout.settings_section_tv_fold : R.layout.settings_section_fold);
-            more.setOnPreferenceClickListener(preference -> {
-                ((StreamSettings) getActivity()).toggleRail();
-                return true;
-            });
-            applyFold();
-            for (String key : SECTIONS.keySet()) {
-                Preference row = findPreference(key);
-                if (row == null) continue;
-                row.setLayoutResource(sectionLayout(getActivity()));
-                row.setIcon(SettingsRail.iconOf(key));
-                row.setOnPreferenceClickListener(preference -> {
-                    ListView list = (ListView) getView().findViewById(android.R.id.list);
-                    ((StreamSettings) getActivity()).activateSection(key, list.hasFocus());
-                    return true;
-                });
-            }
-            // Profiles opens its own screen, with a section's look: a title, what is in use, a chevron.
-            Preference profiles = findPreference(PROFILES_KEY);
-            profiles.setLayoutResource(sectionLayout(getActivity()));
-            profiles.setIcon(SettingsRail.iconOf(PROFILES_KEY));
-            profiles.setOnPreferenceClickListener(preference -> {
-                startActivity(new Intent(getActivity(), StreamProfilesActivity.class));
-                return true;
-            });
-        }
-
-        @Override
-        public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
-            View view = super.onCreateView(inflater, container, savedInstanceState);
-            StreamSettings activity = (StreamSettings) getActivity();
-            stylePreferenceList(view, activity, false);
-            if (activity.twoPane) {
-                ListView list = view.findViewById(android.R.id.list);
-                list.setChoiceMode(ListView.CHOICE_MODE_SINGLE);
-                // The right pane follows the row the D-pad is on.
-                list.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-                    @Override
-                    public void onItemSelected(android.widget.AdapterView<?> parent, View row, int position, long id) {
-                        Object item = parent.getItemAtPosition(position);
-                        if (list.hasFocus() && item instanceof Preference) {
-                            activity.sectionRowSelected(((Preference) item).getKey());
-                        }
-                    }
-
-                    @Override
-                    public void onNothingSelected(android.widget.AdapterView<?> parent) { }
-                });
-                list.setOnFocusChangeListener((focused, hasFocus) -> activity.markSection());
-            }
-            return view;
-        }
-
-        @Override
-        public void onActivityCreated(Bundle savedInstanceState) {
-            super.onActivityCreated(savedInstanceState);
-            StreamSettings activity = (StreamSettings) getActivity();
-            ListView list = (ListView) getView().findViewById(android.R.id.list);
-            android.widget.AdapterView.OnItemClickListener inner = list.getOnItemClickListener();
-            if (!activity.twoPane || inner == null) return;
-            // The list marks whatever row was clicked; the highlight belongs to the section shown on the right.
-            list.setOnItemClickListener((parent, row, position, id) -> {
-                inner.onItemClick(parent, row, position, id);
-                activity.markSection();
-            });
-        }
-
+    public static class RootFragment extends SettingsRootFragment {
         static int positionOf(ListView list, String key) {
-            for (int i = 0; key != null && i < list.getCount(); i++) {
-                Object item = list.getItemAtPosition(i);
-                if (item instanceof Preference && key.equals(((Preference) item).getKey())) return i;
-            }
-            return -1;
-        }
-
-        /** Highlights the row of the section shown in the other pane; a null section highlights none. */
-        void mark(String section) {
-            ListView list = getView() == null ? null : (ListView) getView().findViewById(android.R.id.list);
-            if (list == null || list.getAdapter() == null) return;
-            int position = positionOf(list, section);
-            int checked = list.getCheckedItemPosition();
-            if (position >= 0 && position != checked) list.setItemChecked(position, true);
-            else if (section == null && checked >= 0) list.setItemChecked(checked, false);
-        }
-
-        @Override
-        public void onResume() {
-            super.onResume();
-            getPreferenceManager().getSharedPreferences().registerOnSharedPreferenceChangeListener(summaryUpdater);
-            updateSummaries();
-            StreamSettings activity = (StreamSettings) getActivity();
-            if (activity.twoPane) {
-                activity.markSection();
-            } else {
-                activity.searchResultKey = null;
-            }
-        }
-
-        @Override
-        public void onPause() {
-            getPreferenceManager().getSharedPreferences().unregisterOnSharedPreferenceChangeListener(summaryUpdater);
-            super.onPause();
+            return SettingsRootFragment.positionOf(list, key);
         }
     }
 
-    public static class SettingsFragment extends PreferenceFragment {
-        private static final String ARG_SECTION = "section";
-        private static final int MIC_PERMISSION_REQUEST = 2;
-        private final Map<PreferenceCategory, List<Preference>> searchCategories = new LinkedHashMap<>();
-        private final Map<String, Preference> allPreferences = new HashMap<>();
-        /** The category each setting belongs to, so a setting taken out of it can go back to its place. */
-        private final Map<String, PreferenceGroup> homes = new HashMap<>();
-        /** Settings that do not apply right now: out of the list and out of search. */
-        private final Set<String> hidden = new HashSet<>();
-        /** Settings behind Customize or their section's More row while it is closed: out of the list, still found by search. */
-        private final Set<String> folded = new HashSet<>();
-        /**
-         * Rows of SettingRules.WHEN_ROWS that can do nothing now and hold their default: out of the list and its More
-         * count, found by search with the reason.
-         */
-        private final Set<String> idle = new HashSet<>();
-        /** Attaching or removing a mouse, keyboard or touchpad shows or hides their rows at once. */
-        private final android.hardware.input.InputManager.InputDeviceListener deviceListener =
-                new android.hardware.input.InputManager.InputDeviceListener() {
-                    @Override public void onInputDeviceAdded(int deviceId) { devicesChanged(); }
-                    @Override public void onInputDeviceRemoved(int deviceId) { devicesChanged(); }
-                    @Override public void onInputDeviceChanged(int deviceId) { devicesChanged(); }
-                };
-
-        void devicesChanged() {
-            StreamSettings activity = (StreamSettings) getActivity();
-            if (!isAdded() || activity == null || activity.isFinishing()) return;
-            refreshState();
-            if (!activity.searchQuery.isEmpty()) filterPreferences();
+    public static class SettingsFragment extends StreamSettingsFragment {
+        interface DecoderWidthProbe {
+            int probe(Context context);
         }
-        /** Each section's main rows (settings_tiers.xml), read once. */
-        private final Map<String, Set<String>> mainKeys = new HashMap<>();
-        private int displayedResultCount;
 
-        @Override
-        public Preference findPreference(CharSequence key) {
-            Preference preference = super.findPreference(key);
-            return preference != null ? preference : allPreferences.get(key.toString());
-        }
+        // Tests swap in their own probe and wait for the thread.
+        static DecoderWidthProbe decoderWidthProbe = StreamSettingsDisplayOptions::probeDecoderWidths;
 
         static SettingsFragment forSection(String section) {
             SettingsFragment fragment = new SettingsFragment();
@@ -1654,1772 +570,20 @@ public class StreamSettings extends NightjarActivity {
             return fragment;
         }
 
-        // Every category is built first so the device checks below can find their preferences
-        private void filterPreferences() {
-            PreferenceScreen screen = getPreferenceManager().createPreferenceScreen(getActivity());
-            String query = ((StreamSettings) getActivity()).searchQuery;
-            String section = normalizeSection(getArguments() == null ? null : getArguments().getString(ARG_SECTION));
-            String[] categories = section == null ? null : SECTIONS.get(section);
-            int resultCount = 0;
-            if (!query.isEmpty() && SettingsSearch.matches(query, getString(R.string.stream_presets),
-                    getString(R.string.stream_presets_help), String.join(" ", getResources().getStringArray(R.array.stream_preset_names)))) {
-                Preference presets = new Preference(getActivity());
-                presets.setTitle(R.string.stream_presets);
-                presets.setOnPreferenceClickListener(pref -> {
-                    StreamSettings activity = (StreamSettings) getActivity();
-                    activity.openSearchResult(null, "stream_presets");
-                    return true;
-                });
-                screen.addPreference(presets);
-                resultCount++;
-            }
-            // Profiles live on the overview too, outside every section's rows: their result opens them.
-            if (!query.isEmpty() && SettingsSearch.matches(query, getString(R.string.profiles_title),
-                    profilesSummary(getActivity()), null)) {
-                Preference profiles = new Preference(getActivity());
-                profiles.setKey("search_result_" + PROFILES_KEY);
-                profiles.setTitle(R.string.profiles_title);
-                profiles.setSummary(profilesSummary(getActivity()));
-                profiles.setOnPreferenceClickListener(pref -> {
-                    startActivity(new Intent(getActivity(), StreamProfilesActivity.class));
-                    return true;
-                });
-                screen.addPreference(profiles);
-                resultCount++;
-            }
-            for (Map.Entry<PreferenceCategory, List<Preference>> entry : searchCategories.entrySet()) {
-                PreferenceCategory category = entry.getKey();
-                if (query.isEmpty()) {
-                    // A group whose rows are all folded waits for its More row (showGroups).
-                    if ((categories == null || Arrays.asList(categories).contains(category.getKey())) &&
-                            category.getPreferenceCount() > 0) {
-                        screen.addPreference(category);
-                    }
-                    continue;
-                }
-                final String resultSection = sectionOf(category.getKey());
-                PreferenceCategory results = new PreferenceCategory(getActivity());
-                CharSequence sectionTitle = resultSection == null ? null : getString(sectionTitle(resultSection));
-                results.setTitle(sectionTitle == null ? category.getTitle() :
-                        TextUtils.isEmpty(category.getTitle()) ? sectionTitle :
-                        getString(R.string.settings_search_breadcrumb, sectionTitle, category.getTitle()));
-                screen.addPreference(results);
-                for (Preference pref : entry.getValue()) {
-                    if (hidden.contains(pref.getKey()) || pref.getKey().startsWith(MORE_PREFIX)) continue;
-                    if (SettingsSearch.matches(query, pref.getTitle(), pref.getSummary(),
-                            results.getTitle() + " " + java.util.Objects.toString(descriptions.get(pref.getKey()), ""))) {
-                        // Search rows navigate to the original setting so dependency and dialog behavior stay intact.
-                        Preference result = new Preference(getActivity());
-                        result.setKey("search_result_" + pref.getKey());
-                        result.setTitle(pref.getTitle());
-                        result.setSummary(pref.getSummary());
-                        if (idle.contains(pref.getKey()) || SettingRules.NOTE_ROWS.contains(pref.getKey())) {
-                            // A row that does nothing now says why, in one line of its own: one the list leaves out, or
-                            // one always listed whose summary (behind a closed More row) doesn't say it yet.
-                            String reason = SettingRules.whenReason(getActivity(), pref.getKey(),
-                                    getPreferenceManager().getSharedPreferences(), ((StreamSettings) getActivity()).devices());
-                            CharSequence summary = pref.getSummary();
-                            if (reason != null && (summary == null || !summary.toString().contains(reason))) {
-                                result.setSummary(TextUtils.isEmpty(summary) ? reason : summary + "\n" + reason);
-                            }
-                        }
-                        result.setOnPreferenceClickListener(clicked -> {
-                            StreamSettings activity = (StreamSettings) getActivity();
-                            activity.openSearchResult(resultSection, pref.getKey());
-                            return true;
-                        });
-                        results.addPreference(result);
-                        resultCount++;
-                    }
-                }
-                if (results.getPreferenceCount() == 0) screen.removePreference(results);
-            }
-            if (screen.getPreferenceCount() == 0) {
-                Preference empty = new Preference(getActivity());
-                empty.setTitle(R.string.settings_search_empty);
-                empty.setSummary(R.string.settings_search_empty_help);
-                empty.setSelectable(false);
-                empty.setLayoutResource(R.layout.settings_preference);
-                screen.addPreference(empty);
-            }
-            stylePreferences(screen, getActivity());
-            setPreferenceScreen(screen);
-            displayedResultCount = resultCount;
-            TextView label = ((StreamSettings) getActivity()).contextLabel;
-            if (!query.isEmpty() && label != null) {
-                label.setText(getResources().getQuantityString(
-                        R.plurals.settings_search_count, resultCount, resultCount));
-            }
-        }
-
-        // Explanations that search matches besides the visible title and value
-        private final Map<String, CharSequence> descriptions = new HashMap<>();
-        private int codecSummaryGeneration;
-        private final SharedPreferences.OnSharedPreferenceChangeListener summaryUpdater =
-                (prefs, key) -> {
-                    // Only the VRR keys change what the capability scan reads; a simple choice
-                    // clears the cache itself (SimpleProfile.apply).
-                    if (PreferenceConfiguration.VRR_PREF_STRING.equals(key)
-                            || PreferenceConfiguration.REAL_VRR_PREF_STRING.equals(key)
-                            || SimpleProfile.VRR_OPT_IN.equals(key) || SimpleProfile.VRR_LAST.equals(key)) {
-                        SimpleProfile.forgetCapabilities();
-                    }
-                    StreamSettings screen = (StreamSettings) getActivity();
-                    // A row set back to its default while it does nothing stays for this visit, so the edit
-                    // does not lose its row and focus.
-                    if (screen != null && SettingRules.WHEN_ROWS.contains(key) && !idle.contains(key) &&
-                            !SettingRules.whenApplies(screen, key, prefs, screen.devices()) &&
-                            !SettingRules.changed(screen, key, prefs)) {
-                        screen.revealed.add(key);
-                    }
-                    refreshState();
-                    // Show debug settings, or a changed Debug setting, adds or removes Debug's chip.
-                    if (screen != null) screen.updateChips();
-                    if (PreferenceConfiguration.USB_FORWARDING_PREF_STRING.equals(key)) {
-                        com.limelight.binding.usb.UsbForwarding.syncPersistentPermission(getActivity());
-                    }
-                };
-
-        /** Values and summaries follow the stored settings; so do the settings that apply only given the others. */
-        private void refreshState() {
-            // Rules first: a setting that comes back shows the stored value.
-            applySettingRules(getPreferenceManager().getSharedPreferences());
-            updateValueSummaries(getPreferenceScreen());
-            showWhenReasons(getPreferenceManager().getSharedPreferences());
-        }
-
-        /**
-         * A row of SettingRules.WHEN_ROWS in the list while it can do nothing (it holds a changed value, or a search result
-         * opened it) says why: a switch in its summary, a list or slider after its value, as unusedReason's rows do.
-         */
-        private void showWhenReasons(SharedPreferences prefs) {
-            StreamSettings activity = (StreamSettings) getActivity();
-            if (activity == null) return;
-            List<String> rows = new ArrayList<>(SettingRules.WHEN_ROWS);
-            rows.addAll(SettingRules.NOTE_ROWS);
-            for (String key : rows) {
-                Preference pref = allPreferences.get(key);
-                if (pref == null || SettingRules.TAGGED_SWITCHES.contains(key) || hidden.contains(key) || idle.contains(key) ||
-                        folded.contains(key)) {
-                    continue;
-                }
-                String reason = SettingRules.whenReason(activity, key, prefs, activity.devices());
-                if (pref instanceof android.preference.TwoStatePreference) {
-                    pref.setSummary(reason);
-                } else if (SettingRules.IGDB_SECRET.equals(key)) {
-                    String help = getString(R.string.game_info_igdb_secret_summary);
-                    pref.setSummary(reason == null ? help : help + "\n" + reason);
-                } else if (reason != null) {
-                    CharSequence value = pref.getSummary();
-                    String summary = TextUtils.isEmpty(value) ? reason : getString(R.string.settings_joined, value, reason);
-                    // A list formats its summary (updateValueSummaries).
-                    pref.setSummary(pref instanceof ListPreference ? summary.replace("%", "%%") : summary);
-                }
-            }
-        }
-
-        private String networkTestsSummary() {
-            return getString(R.string.summary_network_tests);
-        }
-
-        /** The saved PCs by name: the network tests are a PC's own, on its settings screen. Reads the database. */
-        private static List<com.limelight.nvstream.http.ComputerDetails> savedPcs(Context context) {
-            List<com.limelight.nvstream.http.ComputerDetails> pcs;
-            com.limelight.computers.ComputerDatabaseManager database =
-                    new com.limelight.computers.ComputerDatabaseManager(context);
-            try {
-                pcs = new ArrayList<>(database.getAllComputers());
-            } finally {
-                database.close();
-            }
-            // The name the user gave a PC, as on Home.
-            for (com.limelight.nvstream.http.ComputerDetails pc : pcs) pc.alias = com.limelight.computers.HostNames.get(context, pc.uuid);
-            pcs.sort((a, b) -> String.CASE_INSENSITIVE_ORDER.compare(String.valueOf(a.displayName()),
-                    String.valueOf(b.displayName())));
-            return pcs;
-        }
-
-        /**
-         * The connection test needs a saved PC, and the PyroWave frame pace a saved PC that can measure it or has
-         * one saved: without them the rows are hidden (they leave the More count and search).
-         */
-        private void refreshNetworkTests() {
-            withSavedPcs((pcs, pace) -> {
-                StreamSettings activity = (StreamSettings) getActivity();
-                activity.anySavedPc = !pcs.isEmpty();
-                activity.anyPacePc = !pace.isEmpty();
-                activity.anyJumboPc = anyJumboPc(pcs);
-                if (showKnownPcRows()) {
-                    placeRows();
-                    // Results already on screen were found without the rows' new state.
-                    if (!activity.searchQuery.isEmpty()) filterPreferences();
-                }
-            });
-        }
-
-        /**
-         * Shows or hides the rows as the last read of the saved PCs found (hidden before the first answers); true when
-         * that changed them.
-         */
-        private boolean showKnownPcRows() {
-            StreamSettings activity = (StreamSettings) getActivity();
-            boolean testsHidden = hidden.contains(NETWORK_TESTS_KEY);
-            boolean paceHidden = hidden.contains(PACE_CALIBRATION_KEY);
-            boolean jumboHidden = hidden.contains(PreferenceConfiguration.JUMBO_FRAMES_PREF_STRING);
-            setShown(NETWORK_TESTS_KEY, activity.anySavedPc);
-            setShown(PACE_CALIBRATION_KEY, activity.anyPacePc);
-            // Jumbo frames only where a saved PC offers more than stock packets.
-            setShown(PreferenceConfiguration.JUMBO_FRAMES_PREF_STRING, activity.anyJumboPc);
-            return testsHidden != hidden.contains(NETWORK_TESTS_KEY) || paceHidden != hidden.contains(PACE_CALIBRATION_KEY) ||
-                    jumboHidden != hidden.contains(PreferenceConfiguration.JUMBO_FRAMES_PREF_STRING);
-        }
-
-        /** Whether any saved PC reported a jumbo video packet offer. */
-        private static boolean anyJumboPc(List<com.limelight.nvstream.http.ComputerDetails> pcs) {
-            for (com.limelight.nvstream.http.ComputerDetails pc : pcs) {
-                if (pc.caps != null && pc.caps.maxVideoPacket() > 0) return true;
-            }
-            return false;
-        }
-
-        /**
-         * Reads the saved PCs off the UI thread, and hands them and the ones whose frame pace can be measured to
-         * {@code then} on it; nothing happens when this screen is gone by then.
-         */
-        private void withSavedPcs(java.util.function.BiConsumer<List<com.limelight.nvstream.http.ComputerDetails>,
-                List<com.limelight.nvstream.http.ComputerDetails>> then) {
-            StreamSettings activity = (StreamSettings) getActivity();
-            if (activity == null) return;
-            Context context = activity.getApplicationContext();
-            activity.savedPcReader.execute(() -> {
-                List<com.limelight.nvstream.http.ComputerDetails> pcs;
-                List<com.limelight.nvstream.http.ComputerDetails> pace;
-                try {
-                    pcs = savedPcs(context);
-                    pace = pacePcs(context, pcs);
-                } catch (RuntimeException e) {
-                    LimeLog.warning("Settings could not read the saved PCs: " + e);
-                    return;
-                }
-                activity.runOnUiThread(() -> {
-                    if (isAdded() && getActivity() == activity && !activity.isFinishing()) then.accept(pcs, pace);
-                });
-            });
-        }
-
-        /** The saved PCs whose PyroWave frame pace can be measured, or that have one saved. */
-        private static List<com.limelight.nvstream.http.ComputerDetails> pacePcs(Context context,
-                List<com.limelight.nvstream.http.ComputerDetails> pcs) {
-            List<com.limelight.nvstream.http.ComputerDetails> pace = new ArrayList<>();
-            for (com.limelight.nvstream.http.ComputerDetails pc : pcs) {
-                if (pc.supportsPyroWavePaceCalibration() ||
-                        com.limelight.utils.PyroWavePaceStore.get(context, pc.uuid) != null) pace.add(pc);
-            }
-            return pace;
-        }
-
-        /** One PC opens its tests, where its frame pace is measured; several ask which PC first. */
-        private void openPcTests(List<com.limelight.nvstream.http.ComputerDetails> pcs, int title) {
-            Activity activity = getActivity();
-            if (pcs.isEmpty()) {
-                refreshNetworkTests();
-                return;
-            }
-            if (pcs.size() == 1) {
-                HostStreamSettings.showTests(activity, pcs.get(0).uuid, pcs.get(0).name);
-                return;
-            }
-            String[] names = new String[pcs.size()];
-            for (int i = 0; i < names.length; i++) names[i] = pcs.get(i).displayName();
-            UiHelper.showDialog(activity, new NavigationDialogBuilder(activity)
-                    .setTitle(title)
-                    .setItems(names, (dialog, which) ->
-                            HostStreamSettings.showTests(activity, pcs.get(which).uuid, pcs.get(which).name))
-                    .setNegativeButton(android.R.string.cancel, null)
-                    .create());
-        }
-
-        /** One saved PC opens its tests; several ask which PC first. */
-        private void openNetworkTests() {
-            withSavedPcs((pcs, pace) -> openPcTests(pcs, R.string.network_tests_title));
-        }
-
-        /** Records whether a setting applies; placeRows then puts it in or out of the list. */
-        private void setShown(String key, boolean shown) {
-            if (shown) hidden.remove(key);
-            else hidden.add(key);
-        }
-
-        private void place(String key, boolean attached) {
-            Preference pref = allPreferences.get(key);
-            PreferenceGroup home = homes.get(key);
-            if (pref == null || home == null) return;
-            if (attached) home.addPreference(pref);
-            else home.removePreference(pref);
-        }
-
-        /**
-         * A setting that does nothing for the current choices is hidden, not greyed, and keeps its value: frame
-         * pacing while adaptive refresh replaces it (its On shows frames at the PC's frame times), the sharpness without an upscaler that sharpens, the two minimums while automatic quality is
-         * off, a switch's own rows while it is off (SettingRules), and the new streaming engine's rows with the
-         * classic one. Hidden settings leave search and their section's More count, and come back in their place.
-         */
-        private void applySettingRules(SharedPreferences prefs) {
-            Context context = getActivity();
-            setShown(PreferenceConfiguration.BITRATE_PREF_STRING, SettingRules.bitrateShown(prefs));
-            setShown(SHARP_COLOR_KEY, SettingRules.sharpColorApplies(prefs));
-            setShown("checkbox_enable_sdr_10bit", SettingRules.sdr10Applies(prefs));
-            setShown(SettingRules.FRAME_PACING, SettingRules.framePacingApplies(context, prefs));
-            setShown("checkbox_reduce_refresh_rate", SettingRules.reduceRefreshRateApplies(context, prefs));
-            setShown(PreferenceConfiguration.ARR_FIXED_TIMING_PREF_STRING, SettingRules.arrFixedTimingShown(context, prefs));
-            setShown("checkbox_display_queue_recovery", SettingRules.displayQueueRecoveryApplies(context, prefs));
-            setShown(PreferenceConfiguration.UPSCALING_PREF_STRING, SettingRules.upscalingApplies(prefs));
-            setShown("video_alignment", SettingRules.videoAlignmentApplies(prefs));
-            setShown("seekbar_virtual_display_scale", SettingRules.virtualDisplayScaleApplies(prefs));
-            boolean controllers = SettingRules.controllersOn(prefs);
-            for (String key : SettingRules.CONTROLLER_ROWS) setShown(key, controllers);
-            boolean controllerMouse = SettingRules.controllerMouseApplies(prefs);
-            setShown("analog_scrolling", controllerMouse);
-            setShown("checkbox_mouse_emulation_fixed_step", controllerMouse);
-            setShown("checkbox_usb_bind_all", prefs.getBoolean("checkbox_usb_driver", true));
-            setShown("checkbox_usb_dualsense_haptics", prefs.getBoolean("checkbox_usb_dualsense", false));
-            boolean onScreen = SettingRules.onScreenControlsOn(prefs);
-            for (String key : SettingRules.ON_SCREEN_ROWS) setShown(key, onScreen);
-            boolean mic = SettingRules.micOn(prefs);
-            for (String key : SettingRules.MIC_ROWS) setShown(key, mic);
-            // The rows that do nothing in this mode or on this device leave the list but not search, and a changed value
-            // keeps its row (SettingRules.WHEN_ROWS).
-            StreamSettings activity = (StreamSettings) getActivity();
-            idle.clear();
-            for (String key : SettingRules.WHEN_ROWS) {
-                if (!activity.revealed.contains(key) && !SettingRules.whenApplies(context, key, prefs, activity.devices()) &&
-                        !SettingRules.changed(context, key, prefs)) {
-                    idle.add(key);
-                }
-            }
-            setShown(PreferenceConfiguration.AUDIO_PASSTHROUGH_PREF_STRING,
-                    SettingRules.audioPassthroughApplies(Build.VERSION.SDK_INT));
-            placeRows();
-        }
-
-        /**
-         * Puts every row in or out of its group: out while it does not apply, or while Customize or its section's More
-         * row is closed. Rows come back in XML order, so a setting is attached before the ones that depend on it. Then
-         * the More row counts what it holds, and only groups with a row show.
-         */
-        private void placeRows() {
-            StreamSettings activity = (StreamSettings) getActivity();
-            if (activity == null) return;
-            folded.clear();
-            Map<String, Integer> foldedCount = new HashMap<>();
-            for (Map.Entry<PreferenceCategory, List<Preference>> entry : searchCategories.entrySet()) {
-                String rowSection = sectionOf(entry.getKey().getKey());
-                if (rowSection != null && !mainKeys.containsKey(rowSection)) {
-                    mainKeys.put(rowSection, new HashSet<>(StreamSettings.mainKeys(activity, rowSection)));
-                }
-                for (Preference pref : entry.getValue()) {
-                    String key = pref.getKey();
-                    boolean behindMore = rowSection != null && !key.equals(MORE_PREFIX + rowSection) &&
-                            !LOW_LATENCY_CUSTOMIZED.contains(key) && !mainKeys.get(rowSection).contains(key);
-                    if (behindMore && !hidden.contains(key) && !idle.contains(key)) foldedCount.merge(rowSection, 1, Integer::sum);
-                    if (LOW_LATENCY_CUSTOMIZED.contains(key) ? !activity.customizeOpen :
-                            behindMore && !activity.moreOpen.contains(rowSection)) {
-                        folded.add(key);
-                    }
-                }
-            }
-            for (String section : SECTIONS.keySet()) {
-                String key = MORE_PREFIX + section;
-                Preference more = allPreferences.get(key);
-                Integer count = foldedCount.get(section);
-                // A section whose other rows this device cannot use, or that do not apply now, has nothing to unfold.
-                if (count == null) {
-                    hidden.add(key);
-                } else {
-                    hidden.remove(key);
-                    if (more != null) {
-                        String title = getString(sectionTitle(section));
-                        more.setTitle(activity.moreOpen.contains(section) ? getString(R.string.settings_fewer, title) :
-                                getString(R.string.settings_more_count, title, count));
-                    }
-                }
-            }
-            for (List<Preference> rows : searchCategories.values()) {
-                for (Preference pref : rows) {
-                    String key = pref.getKey();
-                    place(key, !hidden.contains(key) && !idle.contains(key) && !folded.contains(key));
-                }
-            }
-            showGroups();
-        }
-
-        /** The section's groups that have a row to show are in the list, in their place; the others are out of it. */
-        private void showGroups() {
-            String section = normalizeSection(getArguments() == null ? null : getArguments().getString(ARG_SECTION));
-            PreferenceScreen screen = getPreferenceScreen();
-            if (section == null || screen == null || !((StreamSettings) getActivity()).searchQuery.isEmpty()) return;
-            for (String key : SECTIONS.get(section)) {
-                Preference group = allPreferences.get(key);
-                if (!(group instanceof PreferenceGroup)) continue;
-                if (((PreferenceGroup) group).getPreferenceCount() > 0) screen.addPreference(group);
-                else screen.removePreference(group);
-            }
-        }
-
-        /** Which profile streams use: none, the one in use, or the network's choice. */
         static String profilesSummary(Context context) {
-            StreamProfiles.Snapshot profiles = StreamProfiles.load(context);
-            String summary = profiles.exists(profiles.activeId) ?
-                    context.getString(R.string.profiles_summary_in_use, profiles.name(profiles.activeId)) :
-                    context.getString(R.string.profiles_summary_none);
-            return profiles.auto ? summary + "\n" + context.getString(R.string.profiles_summary_auto) : summary;
+            return StreamSettingsSearchAndSummaries.profilesSummary(context);
         }
 
-        private void updateValueSummaries(PreferenceGroup group) {
-            SharedPreferences prefs = getPreferenceManager().getSharedPreferences();
-            for (int i = 0; i < group.getPreferenceCount(); i++) {
-                Preference pref = group.getPreference(i);
-                if (pref instanceof PreferenceGroup) {
-                    updateValueSummaries((PreferenceGroup) pref);
-                    continue;
-                }
-                CharSequence value;
-                if (pref instanceof ListPreference) {
-                    value = ((ListPreference) pref).getEntry();
-                    if (pref instanceof LanguagePreference && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        android.os.LocaleList locales = getActivity().getSystemService(android.app.LocaleManager.class).getApplicationLocales();
-                        if (!locales.isEmpty()) value = locales.get(0).getDisplayName();
-                    }
-                } else if (pref instanceof SeekBarPreference) {
-                    value = ((SeekBarPreference) pref).getValueText();
-                } else if (TouchMode.PREF.equals(pref.getKey())) {
-                    int mode = storedTouchMode(prefs);
-                    value = getResources().getStringArray(R.array.stream_touch_modes)[mode];
-                } else if (SHARP_COLOR_KEY.equals(pref.getKey())) {
-                    value = getResources().getStringArray(R.array.sharp_color_names)[
-                            PreferenceConfiguration.sharpColor(prefs) ? 1 : 0];
-                } else if (SwitchPairChoice.forKey(pref.getKey()) != null) {
-                    SwitchPairChoice pair = SwitchPairChoice.forKey(pref.getKey());
-                    int choice = pair.read(prefs);
-                    value = getResources().getStringArray(pair.names)[choice];
-                } else if (CONTROLLERS_KEY.equals(pref.getKey())) {
-                    value = getResources().getStringArray(R.array.controllers_names)[ControllersChoice.read(prefs)];
-                } else if (MOUSE_MODE_KEY.equals(pref.getKey())) {
-                    value = getResources().getStringArray(R.array.mouse_mode_names)[
-                            prefs.getBoolean(MOUSE_MODE_KEY, false) ? 1 : 0];
-                } else if (com.limelight.console.OpenPlay.SETTING.equals(pref.getKey())) {
-                    value = startScreenName(StartScreenChoice.read(prefs));
-                } else if (pref instanceof ConsoleModePreference) {
-                    // The switch follows the start screen the row above it sets, without writing.
-                    ((ConsoleModePreference) pref).followStored();
-                    continue;
-                } else if (HOST_DISPLAY_KEY.equals(pref.getKey())) {
-                    value = DisplayArrangementChoice.names(getActivity(), true)[DisplayArrangementChoice.readMain(prefs)];
-                } else if (PACE_CALIBRATION_KEY.equals(pref.getKey())) {
-                    continue;
-                } else if (VideoScaling.PREF.equals(pref.getKey())) {
-                    value = getResources().getStringArray(R.array.video_scaling_modes)[storedVideoScaling(prefs)];
-                } else if (OverlayChoice.ENABLED_KEY.equals(pref.getKey())) {
-                    value = getResources().getStringArray(R.array.overlay_choice_names)[OverlayChoice.read(prefs)];
-                } else if (AppTheme.THEME.equals(pref.getKey())) {
-                    value = getResources().getStringArray(R.array.theme_choice_names)[ThemeChoice.read(prefs)];
-                    // High contrast is always black, whatever the picker says.
-                    if (prefs.getBoolean(AppTheme.HIGH_CONTRAST, false)) {
-                        value = value + "\n" + getString(R.string.theme_high_contrast_note);
-                    }
-                } else if (LOW_LATENCY_CUSTOMIZE_KEY.equals(pref.getKey())) {
-                    value = getString(customizeOpen() ? R.string.low_latency_customize_open : R.string.low_latency_customize_closed);
-                } else if (Arrays.asList(PreferenceConfiguration.LOW_LATENCY_DECODING_KEYS).contains(pref.getKey())) {
-                    // The master switch and profiles write preferences without going through these views.
-                    ((SwitchPreference) pref).setChecked(prefs.getBoolean(pref.getKey(), true));
-                    continue;
-                } else if (LOW_LATENCY_DECODING_KEY.equals(pref.getKey())) {
-                    // On only when every part is on; individual switches below can partially disable it.
-                    int on = PreferenceConfiguration.lowLatencyDecodingCount(prefs);
-                    ((SwitchPreference) pref).setChecked(on == PreferenceConfiguration.LOW_LATENCY_DECODING_KEYS.length);
-                    boolean partial = on > 0 && (on < PreferenceConfiguration.LOW_LATENCY_DECODING_KEYS.length ||
-                            prefs.getBoolean(PreferenceConfiguration.DISABLE_HEVC_LOW_LATENCY_PREF_STRING, false));
-                    pref.setSummary(partial ? getString(R.string.settings_low_latency_partial) : null);
-                    continue;
-                } else if (AUTOMATIC_BITRATE_KEY.equals(pref.getKey())) {
-                    // Off once the slider is moved; profiles and presets write the flag without this view.
-                    ((SwitchPreference) pref).setChecked(!PreferenceConfiguration.isBitrateUserSet(prefs));
-                    continue;
-                } else if (SettingRules.TAGGED_SWITCHES.contains(pref.getKey())) {
-                    // A switch has no value line; where it does nothing with the other settings it says why.
-                    pref.setSummary(SettingRules.unusedReason(getActivity(), pref.getKey(), prefs));
-                    continue;
-                } else if ("checkbox_display_queue_recovery".equals(pref.getKey())) {
-                    // A switch has no value line; where the take-back does nothing it says why.
-                    pref.setSummary(SettingRules.displayQueueRecoveryUnused(getActivity(), prefs));
-                    continue;
-                } else if (SettingRules.micEffect(pref.getKey()) != null && !(pref instanceof ListPreference)) {
-                    // The switches have no value line; it says when the device lacks the effect.
-                    pref.setSummary(SettingRules.micEffectMissing(pref.getKey(), prefs, micEffects()) ?
-                            getString(R.string.mic_effect_not_on_device) : null);
-                    continue;
-                } else if ("gpu_driver".equals(pref.getKey())) {
-                    GpuDriverStore.Driver driver = GpuDriverStore.selected(getActivity());
-                    value = driver == null ? getString(R.string.gpu_driver_system) : driver.name;
-                } else {
-                    continue;
-                }
-                if (PreferenceConfiguration.UPSCALING_PREF_STRING.equals(pref.getKey()) &&
-                        !"off".equals(((ListPreference) pref).getValue())) {
-                    // Say in the value line when the chosen upscaler is not the one used.
-                    if (!SettingRules.upscalingApplies(prefs)) {
-                        value = getString(R.string.settings_joined, value, getString(R.string.upscaling_vulkan_short));
-                    } else if (prefs.getBoolean("checkbox_enable_hdr", false)) {
-                        value = getString(R.string.settings_joined, value, getString(R.string.upscaling_hdr_short));
-                    } else if ("forcepyrowave".equals(prefs.getString("video_format", "auto"))) {
-                        value = getString(R.string.settings_joined, value, getString(R.string.upscaling_pyrowave_short));
-                    } else if (prefs.getBoolean("checkbox_enable_sdr_10bit", false) &&
-                            // Only when 10-bit SDR is not refused by settings alone (HDR and PyroWave are above).
-                            // Sharper colored text gives way per PC (NvConnection), so it does not count here.
-                            com.limelight.binding.video.Sdr10Policy.refusal(true, true, false, true, true, false, false) ==
-                                    com.limelight.binding.video.Sdr10Policy.Refusal.NONE) {
-                        value = getString(R.string.settings_joined, value, getString(R.string.upscaling_tenbit_short));
-                    }
-                }
-                if (value != null && !SettingRules.TAGGED_SWITCHES.contains(pref.getKey())) {
-                    String unused = SettingRules.unusedReason(getActivity(), pref.getKey(), prefs);
-                    if (unused != null) value = getString(R.string.settings_joined, value, unused);
-                }
-                if (value != null && SettingRules.FRAME_PACING.equals(pref.getKey())) {
-                    // A choice the renderer ignores says so in the value line, as Upscaling does.
-                    String unused = SettingRules.framePacingUnused(getActivity(), prefs);
-                    if (unused != null) value = getString(R.string.settings_joined, value, unused);
-                }
-                if (value != null && PreferenceConfiguration.BITRATE_PREF_STRING.equals(pref.getKey())) {
-                    // A chosen bitrate below PyroWave's minimum stays; the value line says what it costs.
-                    // Measured at the size the stream gets, also when the resolution follows the screen.
-                    PreferenceConfiguration config = PreferenceConfiguration.readPreferences(getActivity());
-                    String warning = PreferenceConfiguration.pyroWaveBelowMinimumWarning(getActivity(), config);
-                    if (warning != null) value = value + "\n" + warning;
-                }
-                if (value != null && SettingRules.micEffectMissing(pref.getKey(), prefs, micEffects())) {
-                    value = getString(R.string.settings_joined, value, getString(R.string.mic_effect_not_on_device));
-                }
-                if (value != null) {
-                    pref.setSummary(pref instanceof ListPreference ? value.toString().replace("%", "%%") : value);
-                }
-            }
-        }
-
-        private com.limelight.binding.audio.MicProcessing.Availability micEffects;
-
-        /** What this device offers, asked once: Android answers the same until it updates. */
-        private com.limelight.binding.audio.MicProcessing.Availability micEffects() {
-            if (micEffects == null) {
-                java.util.EnumMap<com.limelight.binding.audio.MicProcessing.Effect, Boolean> has =
-                        new java.util.EnumMap<>(com.limelight.binding.audio.MicProcessing.Effect.class);
-                for (com.limelight.binding.audio.MicProcessing.Effect effect : com.limelight.binding.audio.MicProcessing.Effect.values()) {
-                    has.put(effect, com.limelight.binding.audio.MicEffects.DEVICE.has(effect));
-                }
-                boolean own = com.limelight.binding.audio.EchoCanceller.isAvailable();
-                micEffects = new com.limelight.binding.audio.MicProcessing.Availability() {
-                    @Override public boolean has(com.limelight.binding.audio.MicProcessing.Effect effect) {
-                        return Boolean.TRUE.equals(has.get(effect));
-                    }
-
-                    @Override public boolean hasOwnEchoCanceller() {
-                        return own;
-                    }
-                };
-            }
-            return micEffects;
-        }
-
-        private boolean hasMicPermission() {
-            return getActivity().checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
-        }
-
-        private void showMicPermissionDenied() {
-            new NavigationDialogBuilder(getActivity())
-                    .setTitle(R.string.title_checkbox_enable_mic)
-                    .setMessage(R.string.mic_permission_denied)
-                    .setPositiveButton(android.R.string.ok, null)
-                    .show();
-        }
-
-        @Override
-        public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-            if (requestCode != MIC_PERMISSION_REQUEST) {
-                super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-                return;
-            }
-            boolean granted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
-            SwitchPreference mic = (SwitchPreference) findPreference(PreferenceConfiguration.ENABLE_MIC_PREF_STRING);
-            if (mic != null) {
-                mic.setChecked(granted);
-            }
-            LimeLog.info("Microphone: permission " + (granted ? "granted" : "denied"));
-            if (!granted && isAdded()) {
-                showMicPermissionDenied();
-            }
-        }
-
-        /** The Screen row: the size and rate the simple layer streams at, read when the page opens. */
-        private void updateSimpleScreenSummary() {
-            Preference row = findPreference("simple_screen");
-            String nativeResolution = PreferenceConfiguration.nativeResolution(getActivity());
-            if (row == null || nativeResolution == null) return;
-            int refresh = DisplayFrameRatePolicy.streamFrameRate(DisplayFrameRatePolicy.maxRefreshRate(
-                    PreferenceConfiguration.defaultDisplay(getActivity())));
-            row.setSummary(getString(R.string.simple_screen_value,
-                    PreferenceConfiguration.getWidthFromResolutionString(nativeResolution),
-                    PreferenceConfiguration.getHeightFromResolutionString(nativeResolution), refresh));
-        }
-
-        @Override
-        public void onResume() {
-            super.onResume();
-            SimpleProfile.forgetCapabilities();
-            updateSimpleScreenSummary();
-            // Microphone access can be withdrawn in Android settings; the switch follows it.
-            SwitchPreference mic = (SwitchPreference) findPreference(PreferenceConfiguration.ENABLE_MIC_PREF_STRING);
-            if (mic != null && mic.isChecked() && !hasMicPermission()) {
-                mic.setChecked(false);
-                showMicPermissionDenied();
-            }
-            getPreferenceManager().getSharedPreferences().registerOnSharedPreferenceChangeListener(summaryUpdater);
-            android.hardware.input.InputManager input = (android.hardware.input.InputManager)
-                    getActivity().getSystemService(Context.INPUT_SERVICE);
-            if (input != null) input.registerInputDeviceListener(deviceListener, null);
-            ListPreference codec = (ListPreference) findPreference("video_format");
-            if (codec != null) {
-                updateCodecSummary(codec, codec.getValue(), getPreferenceManager().getSharedPreferences()
-                        .getBoolean("checkbox_enable_hdr", false));
-            }
-            refreshState();
-            refreshNetworkTests();
-            // The fragment is replaced after the window got its insets, so ask for them again
-            // to keep the last settings clear of the navigation bar.
-            if (getView() != null) {
-                getView().requestApplyInsets();
-                StreamSettings activity = (StreamSettings) getActivity();
-                if (activity.searchResultKey != null) {
-                    String key = activity.searchResultKey;
-                    boolean focus = activity.focusRow;
-                    activity.searchResultKey = null;
-                    activity.focusRow = false;
-                    ListView list = getView().findViewById(android.R.id.list);
-                    list.post(() -> {
-                        int position = RootFragment.positionOf(list, key);
-                        if (position >= 0) {
-                            // Below the top fade, as focusContentPane places a row: at the very top the fade covered its ring.
-                            list.setSelectionFromTop(position, list.getVerticalFadingEdgeLength());
-                            if (activity.twoPane && focus) list.requestFocus();
-                        } else if (activity.twoPane) {
-                            // A row of the list of sections, such as the presets.
-                            ListView sections = activity.sectionList();
-                            int row = sections == null ? -1 : RootFragment.positionOf(sections, key);
-                            if (row >= 0) {
-                                sections.setSelection(row);
-                                if (focus) sections.requestFocus();
-                            }
-                        }
-                    });
-                }
-            }
-        }
-
-        @Override
-        public void onPause() {
-            getPreferenceManager().getSharedPreferences().unregisterOnSharedPreferenceChangeListener(summaryUpdater);
-            android.hardware.input.InputManager input = (android.hardware.input.InputManager)
-                    getActivity().getSystemService(Context.INPUT_SERVICE);
-            if (input != null) input.unregisterInputDeviceListener(deviceListener);
-            super.onPause();
-        }
-
-        private void setValue(String preferenceKey, String value) {
-            ListPreference pref = (ListPreference) findPreference(preferenceKey);
-
-            pref.setValue(value);
-        }
-
-        private void appendPreferenceEntry(ListPreference pref, String newEntryName, String newEntryValue) {
-            CharSequence[] newEntries = Arrays.copyOf(pref.getEntries(), pref.getEntries().length + 1);
-            CharSequence[] newValues = Arrays.copyOf(pref.getEntryValues(), pref.getEntryValues().length + 1);
-
-            // Add the new option
-            newEntries[newEntries.length - 1] = newEntryName;
-            newValues[newValues.length - 1] = newEntryValue;
-
-            pref.setEntries(newEntries);
-            pref.setEntryValues(newValues);
-        }
-
-        // A size taken from this screen: the panel itself, or the area beside its camera cutout.
-        private void addNativeResolutionEntry(int nativeWidth, int nativeHeight, boolean avoidsCutout, boolean portrait) {
-            ListPreference pref = (ListPreference) findPreference(PreferenceConfiguration.RESOLUTION_PREF_STRING);
-            String newValue = nativeWidth + "x" + nativeHeight;
-
-            // Check if the native resolution is already present
-            for (CharSequence value : pref.getEntryValues()) {
-                if (newValue.equals(value.toString())) {
-                    // It is present in the default list, so don't add it again
-                    return;
-                }
-            }
-
-            String size = nativeWidth + "×" + nativeHeight;
-            String panel = PreferenceConfiguration.nativeResolution(getActivity());
-            String landscape = Math.max(nativeWidth, nativeHeight) + "x" + Math.min(nativeWidth, nativeHeight);
-            String newName;
-            if (avoidsCutout) {
-                newName = getString(portrait ? R.string.resolution_screen_cutout_portrait : R.string.resolution_screen_cutout, size);
-            } else if (panel == null || panel.equals(landscape)) {
-                newName = getString(portrait ? R.string.resolution_screen_portrait : R.string.resolution_screen, size);
-            } else {
-                // Another mode the panel can switch to
-                newName = size;
-            }
-            appendPreferenceEntry(pref, newName, newValue);
-        }
-
-        private void addNativeResolutionEntries(int nativeWidth, int nativeHeight, boolean avoidsCutout) {
-            if (PreferenceConfiguration.isSquarishScreen(nativeWidth, nativeHeight)) {
-                addNativeResolutionEntry(nativeHeight, nativeWidth, avoidsCutout, true);
-            }
-            addNativeResolutionEntry(nativeWidth, nativeHeight, avoidsCutout, false);
-        }
-
-        // Fixed sizes larger than the panel would only be scaled down again; they stay listed while chosen.
         static boolean fitsPanel(String size, String panel) {
-            if (panel == null) return true;
-            return PreferenceConfiguration.getWidthFromResolutionString(size) <= PreferenceConfiguration.getWidthFromResolutionString(panel) &&
-                    PreferenceConfiguration.getHeightFromResolutionString(size) <= PreferenceConfiguration.getHeightFromResolutionString(panel);
+            return StreamSettingsDisplayOptions.fitsPanel(size, panel);
         }
 
-        // Largest first, so this screen's own size leads the list.
-        private void sortResolutionEntries(boolean hideLargerThanPanel) {
-            ListPreference pref = (ListPreference) findPreference(PreferenceConfiguration.RESOLUTION_PREF_STRING);
-            String panel = PreferenceConfiguration.nativeResolution(getActivity());
-            List<String[]> entries = new ArrayList<>();
-            List<CharSequence> presets = Arrays.asList(getResources().getStringArray(R.array.resolution_values));
-            for (int i = 0; i < pref.getEntryValues().length; i++) {
-                String value = pref.getEntryValues()[i].toString();
-                if (hideLargerThanPanel && presets.contains(value) && !fitsPanel(value, panel) && !value.equals(pref.getValue())) {
-                    continue;
-                }
-                entries.add(new String[] {pref.getEntries()[i].toString(), value});
-            }
-            java.util.Collections.sort(entries, (a, b) -> Long.compare(pixels(b[1]), pixels(a[1])));
-            CharSequence[] names = new CharSequence[entries.size()];
-            CharSequence[] values = new CharSequence[entries.size()];
-            for (int i = 0; i < entries.size(); i++) {
-                names[i] = entries.get(i)[0];
-                values[i] = entries.get(i)[1];
-            }
-            pref.setEntries(names);
-            pref.setEntryValues(values);
-        }
-
-        private static long pixels(String size) {
-            return (long) PreferenceConfiguration.getWidthFromResolutionString(size) *
-                    PreferenceConfiguration.getHeightFromResolutionString(size);
-        }
-
-        private void addNativeFrameRateEntry(float framerate) {
-            int frameRateRounded = Math.round(framerate);
-            if (frameRateRounded == 0) {
-                return;
-            }
-
-            ListPreference pref = (ListPreference) findPreference(PreferenceConfiguration.FPS_PREF_STRING);
-            String fpsValue = Integer.toString(frameRateRounded);
-
-            // Check if the native frame rate is already present
-            for (CharSequence value : pref.getEntryValues()) {
-                if (fpsValue.equals(value.toString())) {
-                    // It is present in the default list, so don't add it again
-                    return;
-                }
-            }
-
-            appendPreferenceEntry(pref, getString(R.string.fps_screen, frameRateRounded), fpsValue);
-        }
-
-        private static void labelEntry(ListPreference pref, String value, String label) {
-            CharSequence[] entries = pref.getEntries().clone();
-            for (int i = 0; i < entries.length; i++) {
-                if (value.equals(pref.getEntryValues()[i].toString())) entries[i] = entries[i] + " · " + label;
-            }
-            pref.setEntries(entries);
-        }
-
-        private void removeValue(String preferenceKey, String value, Runnable onMatched) {
-            int matchingCount = 0;
-
-            ListPreference pref = (ListPreference) findPreference(preferenceKey);
-
-            // Explicit dimensions stay fixed even when they match a preset outside the reported
-            // decoder range. Custom dimensions already allow the same sizes; don't reset them here.
-            if (PreferenceConfiguration.RESOLUTION_PREF_STRING.equals(preferenceKey) && value.equals(pref.getValue())) {
-                return;
-            }
-
-            // Count the number of matching entries we'll be removing
-            for (CharSequence seq : pref.getEntryValues()) {
-                if (seq.toString().equalsIgnoreCase(value)) {
-                    matchingCount++;
-                }
-            }
-
-            // Create the new arrays
-            CharSequence[] entries = new CharSequence[pref.getEntries().length-matchingCount];
-            CharSequence[] entryValues = new CharSequence[pref.getEntryValues().length-matchingCount];
-            int outIndex = 0;
-            for (int i = 0; i < pref.getEntryValues().length; i++) {
-                if (pref.getEntryValues()[i].toString().equalsIgnoreCase(value)) {
-                    // Skip matching values
-                    continue;
-                }
-
-                entries[outIndex] = pref.getEntries()[i];
-                entryValues[outIndex] = pref.getEntryValues()[i];
-                outIndex++;
-            }
-
-            if (pref.getValue().equalsIgnoreCase(value)) {
-                onMatched.run();
-            }
-
-            // Update the preference with the new list
-            pref.setEntries(entries);
-            pref.setEntryValues(entryValues);
-        }
-
-        // Drops the fixed sizes above the largest width the display or the decoders take.
-        private void removeUndecodableResolutions(int maxSupportedResW) {
-            LimeLog.info("Maximum resolution slot: "+maxSupportedResW);
-            if (maxSupportedResW == 0) {
-                return;
-            }
-            if (maxSupportedResW < 3840) {
-                // 4K is unsupported
-                removeValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_4K, new Runnable() {
-                    @Override
-                    public void run() {
-                        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(SettingsFragment.this.getActivity());
-                        setValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_1440P);
-                        resetBitrateToDefault(prefs, null, null);
-                    }
-                });
-            }
-            if (maxSupportedResW < 2560) {
-                // 1440p is unsupported
-                removeValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_1440P, new Runnable() {
-                    @Override
-                    public void run() {
-                        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(SettingsFragment.this.getActivity());
-                        setValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_1080P);
-                        resetBitrateToDefault(prefs, null, null);
-                    }
-                });
-            }
-            if (maxSupportedResW < 1920) {
-                // 1080p is unsupported
-                removeValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_1080P, new Runnable() {
-                    @Override
-                    public void run() {
-                        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(SettingsFragment.this.getActivity());
-                        setValue(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.RES_720P);
-                        resetBitrateToDefault(prefs, null, null);
-                    }
-                });
-            }
-            // Never remove 720p
-        }
-
-        interface DecoderWidthProbe {
-            int probe(Context context);
-        }
-
-        // Tests swap in their own probe and wait for the thread.
-        static DecoderWidthProbe decoderWidthProbe = SettingsFragment::probeDecoderWidths;
-        Thread decoderProbe;
-
-        // The widest fixed size the AVC or HEVC decoder takes, or 0 when neither tells.
-        private static int probeDecoderWidths(Context context) {
-            // This must be called to do runtime initialization before calling functions that evaluate
-            // decoder lists.
-            MediaCodecHelper.initialize(context, GlPreferences.readPreferences(context).glRenderer);
-            return Math.max(
-                    decoderWidthSlot(MediaCodecHelper.findProbableSafeDecoder("video/avc", -1), "video/avc", "AVC"),
-                    decoderWidthSlot(MediaCodecHelper.findProbableSafeDecoder("video/hevc", -1), "video/hevc", "HEVC"));
-        }
-
-        private static int decoderWidthSlot(MediaCodecInfo decoder, String mime, String label) {
-            if (decoder == null) {
-                return 0;
-            }
-            Range<Integer> widths = decoder.getCapabilitiesForType(mime).getVideoCapabilities().getSupportedWidths();
-            LimeLog.info(label+" supported width range: "+widths.getLower()+" - "+widths.getUpper());
-
-            // If 720p is not reported as supported, ignore all results from this API
-            if (!widths.contains(1280)) {
-                return 0;
-            }
-            if (widths.contains(3840)) {
-                return 3840;
-            }
-            return widths.contains(1920) ? 1920 : 1280;
-        }
-
-        // Removes a setting this device cannot use from whichever group holds it.
-        private void removeSetting(String key) {
-            Preference preference = findPreference(key);
-            PreferenceScreen screen = getPreferenceScreen();
-            for (int i = 0; preference != null && i < screen.getPreferenceCount(); i++) {
-                if (((PreferenceGroup) screen.getPreference(i)).removePreference(preference)) {
-                    return;
-                }
-            }
-        }
-
-        private void resetBitrateToDefault(SharedPreferences prefs, String res, String fps) {
-            resetBitrateToDefault(prefs, res, fps, null);
-        }
-
-        /**
-         * Automatic bitrate on: the bitrate goes back to the default for the resolution, frame rate and
-         * codec and follows them again. Off: the bitrate shown stays, as the user's.
-         */
         static void setAutomaticBitrate(SharedPreferences prefs, boolean automatic) {
-            SharedPreferences.Editor edit = prefs.edit()
-                    .putBoolean(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING, !automatic);
-            if (automatic || !prefs.contains(PreferenceConfiguration.BITRATE_PREF_STRING)) {
-                edit.putInt(PreferenceConfiguration.BITRATE_PREF_STRING,
-                        PreferenceConfiguration.getShownDefaultBitrate(prefs, null, null, null));
-            }
-            edit.apply();
+            StreamSettingsDisplayOptions.setAutomaticBitrate(prefs, automatic);
         }
 
         static void resetBitrateToDefault(SharedPreferences prefs, String res, String fps, String codec) {
-            // A bitrate the user picked stays; a default one follows the new resolution, frame rate
-            // and codec (PyroWave has its own).
-            if (PreferenceConfiguration.isBitrateUserSet(prefs)) {
-                return;
-            }
-            prefs.edit()
-                    .putInt(PreferenceConfiguration.BITRATE_PREF_STRING,
-                            PreferenceConfiguration.getShownDefaultBitrate(prefs, res, fps, codec))
-                    .putBoolean(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING, false)
-                    .apply();
-        }
-
-        private void updateCodecSummary(ListPreference codec, String value, boolean hdr) {
-            final int generation = ++codecSummaryGeneration;
-            if ("forcepyrowave".equals(value)) {
-                android.app.Activity activity = getActivity();
-                setCodecSummary(codec, getString(R.string.pyrowave_checking));
-                new Thread(() -> {
-                    int summary = PyroWaveDecoderRenderer.getReadinessSummary(activity.getApplicationContext(), hdr);
-                    activity.runOnUiThread(() -> {
-                        if (isAdded() && getActivity() == activity && !activity.isFinishing() &&
-                                generation == codecSummaryGeneration) {
-                            setCodecSummary(codec, getString(summary));
-                        }
-                    });
-                }, "GPU capability check").start();
-                return;
-            }
-            CharSequence help = getString(R.string.summary_video_format);
-            String measured = DecoderBenchmark.summary(getActivity());
-            if (measured != null) {
-                help = help + "\n\n" + getString(R.string.video_format_measured, measured);
-            }
-            setCodecSummary(codec, help);
-        }
-
-        private void setCodecSummary(ListPreference codec, CharSequence help) {
-            descriptions.put("video_format", help);
-            codec.setDialogMessage(help);
-        }
-
-        private void showInfo(int title, int message) {
-            UiHelper.showDialog(getActivity(), new NavigationDialogBuilder(getActivity()).setTitle(title)
-                    .setMessage(message).setPositiveButton(android.R.string.ok, null).create());
-        }
-
-        /**
-         * A key row of Artwork and game info: opens a text box holding the key. The key is kept in the game_info_keys
-         * file, never in the default preferences, and never shown in the row, whose summary is its help.
-         */
-        private void bindGameInfoKey(String row, String storedAs, int title) {
-            findPreference(row).setOnPreferenceClickListener(preference -> {
-                android.content.SharedPreferences keys = com.limelight.console.GameInfo.keyPrefs(getActivity());
-                android.widget.EditText input = new android.widget.EditText(getActivity());
-                input.setSingleLine(true);
-                input.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-                        | android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
-                input.setText(keys.getString(storedAs, ""));
-                input.setSelection(input.getText().length());
-                AlertDialog dialog = new NavigationDialogBuilder(getActivity()).setTitle(title).setView(input)
-                        .setPositiveButton(android.R.string.ok, (d, which) -> {
-                            String value = input.getText().toString().trim();
-                            if (value.isEmpty()) keys.edit().remove(storedAs).apply();
-                            else keys.edit().putString(storedAs, value).apply();
-                            // The client ID shows the secret's row; the keys live outside the settings' listener.
-                            if (isAdded()) refreshState();
-                        })
-                        .setNegativeButton(android.R.string.cancel, null).create();
-                UiHelper.showDialog(getActivity(), dialog);
-                return true;
-            });
-        }
-
-        private void showAbout() {
-            AlertDialog about = new NavigationDialogBuilder(getActivity()).setTitle(R.string.title_about)
-                    .setMessage(getString(R.string.summary_about, BuildConfig.VERSION_NAME) + "\n\n"
-                            + getString(R.string.game_info_credits))
-                    .setPositiveButton(android.R.string.ok, null)
-                    .setNeutralButton(R.string.settings_source, (dialog, which) ->
-                            HelpLauncher.launchUrl(getActivity(), "https://github.com/RamazanKara/nightjar"))
-                    .create();
-            UiHelper.showDialog(getActivity(), about);
-        }
-
-        private static int storedTouchMode(SharedPreferences prefs) {
-            return TouchMode.resolve(prefs.getString(TouchMode.PREF, null),
-                    prefs.getBoolean(TouchMode.TRACKPAD_PREF, true), prefs.getBoolean(TouchMode.NATIVE_TOUCH_PREF, false));
-        }
-
-        /** A one-of-several picker for a row that is not a list preference; Help explains the choices when given. */
-        private void showChoices(int title, int names, int selected, int help, java.util.function.IntConsumer onPick) {
-            showChoices(title, getResources().getTextArray(names), selected, help, onPick);
-        }
-
-        private void showChoices(int title, CharSequence[] names, int selected, int help, java.util.function.IntConsumer onPick) {
-            com.google.android.material.dialog.MaterialAlertDialogBuilder builder = new NavigationDialogBuilder(getActivity()).setTitle(title)
-                    .setSingleChoiceItems(names, selected, (dialog, which) -> {
-                        onPick.accept(which);
-                        dialog.dismiss();
-                    }).setNegativeButton(android.R.string.cancel, null);
-            if (help != 0) builder.setNeutralButton(R.string.help, null);
-            AlertDialog picker = builder.create();
-            UiHelper.showDialog(getActivity(), picker);
-            if (help != 0) {
-                picker.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view -> showInfo(title, help));
-            }
-        }
-
-        /** A start screen's entry: Home, Show my PCs, Continue my last game, or the chosen game's title. */
-        private String startScreenName(String screen) {
-            if (StartScreenChoice.CHOSEN.equals(screen)) {
-                String title = com.limelight.console.OpenPlay.chosenTitle(getActivity());
-                if (title != null) return title;
-            }
-            return getResources().getStringArray(R.array.start_screen_names)[StartScreenChoice.index(screen)];
-        }
-
-        private boolean customizeOpen() {
-            return getActivity() != null && ((StreamSettings) getActivity()).customizeOpen;
-        }
-
-        /**
-         * Opens or closes a section's More row in place. With a D-pad the selection goes to the first row it showed,
-         * or back to the More row when it closes, instead of staying on whatever row now sits there.
-         */
-        private void toggleMore(String section) {
-            StreamSettings activity = (StreamSettings) getActivity();
-            boolean open = !activity.moreOpen.remove(section);
-            if (open) activity.moreOpen.add(section);
-            activity.rememberMore(section, open);
-            refreshState();
-            String first = open ? firstUnfolded(section) : null;
-            String select = first != null ? first : MORE_PREFIX + section;
-            ListView list = getView() == null ? null : getView().findViewById(android.R.id.list);
-            if (list == null || list.isInTouchMode()) return;
-            list.post(() -> {
-                int position = RootFragment.positionOf(list, select);
-                // Below the top fade, as focusContentPane places a row: at the very top the fade covered its ring.
-                if (position >= 0) list.setSelectionFromTop(position, list.getVerticalFadingEdgeLength());
-            });
-        }
-
-        /** The first row, in list order, that the section's More row holds and that applies now; null when none. */
-        String firstUnfolded(String section) {
-            for (Map.Entry<PreferenceCategory, List<Preference>> entry : searchCategories.entrySet()) {
-                if (!section.equals(sectionOf(entry.getKey().getKey()))) continue;
-                for (Preference pref : entry.getValue()) {
-                    String key = pref.getKey();
-                    if (!hidden.contains(key) && !idle.contains(key) && foldsInSection(getActivity(), section, key)) return key;
-                }
-            }
-            return null;
-        }
-
-        private static int storedVideoScaling(SharedPreferences prefs) {
-            return VideoScaling.resolve(prefs.getString(VideoScaling.PREF, null),
-                    prefs.getBoolean(VideoScaling.STRETCH_PREF, false));
-        }
-
-        private void confirmReset() {
-            AlertDialog confirm = new NavigationDialogBuilder(getActivity()).setTitle(R.string.dialog_reset_settings_title)
-                    .setMessage(R.string.dialog_reset_settings_text)
-                    .setNegativeButton(android.R.string.cancel, null)
-                    .setPositiveButton(R.string.dialog_reset_settings_confirm, (dialog, which) -> {
-                        resetAllSettings(getActivity());
-                        ((StreamSettings) getActivity()).reloadSettings();
-                        Toast.makeText(getActivity(), R.string.toast_reset_settings, Toast.LENGTH_SHORT).show();
-                    }).create();
-            UiHelper.showDialog(getActivity(), confirm);
-            UiHelper.markDestructive(confirm);
-        }
-
-        @Override
-        public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
-            View view = super.onCreateView(inflater, container, savedInstanceState);
-            stylePreferenceList(view, getActivity(), true);
-            return view;
-        }
-
-        @Override
-        public void onCreate(Bundle savedInstanceState) {
-            super.onCreate(savedInstanceState);
-
-            SharedPreferences settings = PreferenceManager.getDefaultSharedPreferences(getActivity());
-            // Before the lists read their values, so an older Close game choice shows as Quit game.
-            com.limelight.ui.StreamMenu.upgradeButtonChoices(settings);
-            addPreferencesFromResource(R.xml.preferences);
-            PreferenceScreen screen = getPreferenceScreen();
-            if (!settings.contains(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING)) {
-                // Decide for older installs before a removed resolution or frame rate is replaced below.
-                settings.edit().putBoolean(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING,
-                        PreferenceConfiguration.isBitrateUserSet(settings)).apply();
-            }
-            findPreference(PreferenceConfiguration.BITRATE_PREF_STRING).setOnPreferenceChangeListener((preference, value) -> {
-                settings.edit().putBoolean(PreferenceConfiguration.BITRATE_USER_SET_PREF_STRING, true).apply();
-                return true;
-            });
-            findPreference(AUTOMATIC_BITRATE_KEY).setOnPreferenceChangeListener((preference, value) -> {
-                setAutomaticBitrate(settings, (Boolean) value);
-                return true;
-            });
-            findPreference("checkbox_phone_performance_hints").setEnabled(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S);
-            if (!PyroWaveDecoderRenderer.hasAdrenoGpu()) {
-                removeSetting(PreferenceConfiguration.GPU_MAX_CLOCKS_PREF_STRING);
-            }
-            // The same check as the driver screen: custom drivers load on arm64 Adreno devices only.
-            if (!((StreamSettings) getActivity()).supportsGpuDrivers()) {
-                removeSetting("gpu_driver");
-            }
-            findPreference(LOW_LATENCY_DECODING_KEY).setOnPreferenceChangeListener((preference, value) -> {
-                PreferenceConfiguration.setLowLatencyDecoding(getPreferenceManager().getSharedPreferences(), (Boolean) value);
-                return true;
-            });
-            Preference lowerBitrate = findPreference(AutoBitrateChoice.SETTINGS_KEY);
-            if (lowerBitrate != null) {
-                lowerBitrate.setOnPreferenceChangeListener((preference, value) -> {
-                    // Every PC follows the choice again, including PCs that chose otherwise in the stream menu.
-                    AutoBitrateChoice.clearPcChoices(getActivity());
-                    return true;
-                });
-            }
-            for (SwitchPairChoice pair : SwitchPairChoice.values()) {
-                Preference row = findPreference(pair.key);
-                if (row == null) continue;
-                row.setOnPreferenceClickListener(preference -> {
-                    SharedPreferences prefs = getPreferenceManager().getSharedPreferences();
-                    CharSequence[] all = getResources().getTextArray(pair.names);
-                    int[] order = pair.displayOrder(pair.offered(getActivity(), prefs));
-                    CharSequence[] names = new CharSequence[order.length];
-                    int current = 0;
-                    for (int i = 0; i < order.length; i++) {
-                        names[i] = all[order[i]];
-                        if (order[i] == pair.read(prefs)) current = i;
-                    }
-                    showChoices(pair.title, names, current, pair.help, which -> {
-                        SharedPreferences.Editor editor = prefs.edit();
-                        pair.save(editor, order[which]);
-                        editor.apply();
-                    });
-                    return true;
-                });
-            }
-            ListPreference codec = (ListPreference) findPreference("video_format");
-            SwitchPreference hdr = (SwitchPreference) findPreference("checkbox_enable_hdr");
-            SwitchPreference sdr10 = (SwitchPreference) findPreference("checkbox_enable_sdr_10bit");
-            Preference texture = findPreference("checkbox_texture_view");
-            // A device that can never run PyroWave says why in the list; its GPU is asked once chosen.
-            int noPyroWave = PyroWaveDecoderRenderer.neverAvailableReason();
-            if (noPyroWave != 0) labelEntry(codec, "forcepyrowave", getString(noPyroWave));
-            texture.setEnabled(!hdr.isChecked() && !sdr10.isChecked() && !"forcepyrowave".equals(codec.getValue()));
-            codec.setOnPreferenceChangeListener((preference, value) -> {
-                texture.setEnabled(!hdr.isChecked() && !sdr10.isChecked() && !"forcepyrowave".equals(value));
-                updateCodecSummary(codec, (String) value, hdr.isChecked());
-                resetBitrateToDefault(settings, null, null, (String) value);
-                return true;
-            });
-            hdr.setOnPreferenceChangeListener((preference, value) -> {
-                texture.setEnabled(!(Boolean) value && !sdr10.isChecked() && !"forcepyrowave".equals(codec.getValue()));
-                updateCodecSummary(codec, codec.getValue(), (Boolean) value);
-                return true;
-            });
-            sdr10.setOnPreferenceChangeListener((preference, value) -> {
-                texture.setEnabled(!hdr.isChecked() && !(Boolean) value && !"forcepyrowave".equals(codec.getValue()));
-                return true;
-            });
-            // The simple layer: a read-only line for the screen it streams at, and the one-tap way back.
-            Preference simpleScreen = findPreference("simple_screen");
-            if (simpleScreen != null) {
-                simpleScreen.setOnPreferenceClickListener(preference -> {
-                    ((StreamSettings) getActivity()).showSection("display");
-                    return true;
-                });
-            }
-            Preference recommended = findPreference("simple_back_to_recommended");
-            if (recommended != null) {
-                recommended.setOnPreferenceClickListener(preference -> {
-                    if (!SimpleProfile.applyRecommended(getActivity())) {
-                        Toast.makeText(getActivity(), R.string.simple_profile_failed, Toast.LENGTH_LONG).show();
-                    }
-                    updateSimpleScreenSummary();
-                    return true;
-                });
-            }
-            Preference simpleHdr = findPreference("simple_hdr");
-            if (simpleHdr != null && !SimpleProfile.hdrOffered(getActivity())) removeSetting("simple_hdr");
-            findPreference(SHARP_COLOR_KEY).setOnPreferenceClickListener(preference -> {
-                SharedPreferences prefs = getPreferenceManager().getSharedPreferences();
-                showChoices(R.string.title_sharp_color, R.array.sharp_color_names, PreferenceConfiguration.sharpColor(prefs) ? 1 : 0,
-                        R.string.summary_sharp_color, which -> {
-                            SharedPreferences.Editor editor = prefs.edit();
-                            PreferenceConfiguration.saveSharpColor(editor, which == 1);
-                            editor.apply();
-                            // Switching it is how to ask again a PC that refused it before, and to hear again
-                            // when a stream starts without it.
-                            com.limelight.computers.HostPackedModes.clearRefusals(getActivity());
-                            com.limelight.computers.HostNotices.resetEverywhere(getActivity(),
-                                    com.limelight.computers.HostNotices.Notice.PACKED_UNAVAILABLE);
-                        });
-                return true;
-            });
-            // One switch tells the PC about this device's network: it writes the Wi-Fi and the link speed switches alike.
-            Preference tellHost = findPreference(PreferenceConfiguration.TELL_HOST_WIRELESS_PREF_STRING);
-            if (tellHost != null) {
-                tellHost.setOnPreferenceChangeListener((preference, value) -> {
-                    getPreferenceManager().getSharedPreferences().edit()
-                            .putBoolean(PreferenceConfiguration.TELL_HOST_LINK_SPEED_PREF_STRING, (Boolean) value).apply();
-                    return true;
-                });
-            }
-            findPreference(CONTROLLERS_KEY).setOnPreferenceClickListener(preference -> {
-                SharedPreferences prefs = getPreferenceManager().getSharedPreferences();
-                showChoices(R.string.title_controllers, R.array.controllers_names, ControllersChoice.read(prefs),
-                        R.string.summary_controllers, which -> {
-                            SharedPreferences.Editor editor = prefs.edit();
-                            ControllersChoice.save(editor, which);
-                            editor.apply();
-                        });
-                return true;
-            });
-            Preference mouseMode = findPreference(MOUSE_MODE_KEY);
-            if (mouseMode != null) {
-                mouseMode.setOnPreferenceClickListener(preference -> {
-                    SharedPreferences prefs = getPreferenceManager().getSharedPreferences();
-                    showChoices(R.string.title_checkbox_absolute_mouse_mode, R.array.mouse_mode_names,
-                            prefs.getBoolean(MOUSE_MODE_KEY, false) ? 1 : 0, R.string.summary_checkbox_absolute_mouse_mode,
-                            which -> prefs.edit().putBoolean(MOUSE_MODE_KEY, which == 1).apply());
-                    return true;
-                });
-            }
-            findPreference(com.limelight.console.OpenPlay.SETTING).setOnPreferenceClickListener(preference -> {
-                SharedPreferences prefs = getPreferenceManager().getSharedPreferences();
-                // "A chosen game" is there once a game has been chosen, under its title.
-                List<String> screens = new ArrayList<>(Arrays.asList(StartScreenChoice.SCREENS));
-                if (com.limelight.console.OpenPlay.chosenTitle(getActivity()) == null) screens.remove(StartScreenChoice.CHOSEN);
-                CharSequence[] names = new CharSequence[screens.size()];
-                for (int i = 0; i < names.length; i++) names[i] = startScreenName(screens.get(i));
-                showChoices(R.string.title_open_on_start, names, screens.indexOf(StartScreenChoice.read(prefs)),
-                        R.string.summary_open_on_start, which -> {
-                            SharedPreferences.Editor editor = prefs.edit();
-                            StartScreenChoice.save(prefs, editor, screens.get(which));
-                            editor.apply();
-                        });
-                return true;
-            });
-            findPreference(PACE_CALIBRATION_KEY).setOnPreferenceClickListener(preference -> {
-                withSavedPcs((pcs, pace) -> openPcTests(pace, R.string.pace_calibration_title));
-                return true;
-            });
-            findPreference("about_app").setSummary(getString(R.string.settings_version, BuildConfig.VERSION_NAME));
-            findPreference("about_app").setOnPreferenceClickListener(preference -> {
-                showAbout();
-                return true;
-            });
-            bindGameInfoKey("game_info_steamgriddb", com.limelight.console.GameInfo.KEY_STEAMGRIDDB, R.string.game_info_sgdb_title);
-            bindGameInfoKey("game_info_igdb_client_id", com.limelight.console.GameInfo.KEY_IGDB_ID, R.string.game_info_igdb_id_title);
-            bindGameInfoKey("game_info_igdb_client_secret", com.limelight.console.GameInfo.KEY_IGDB_SECRET, R.string.game_info_igdb_secret_title);
-            findPreference("pin_lock").setOnPreferenceClickListener(preference -> {
-                com.limelight.pin.PinLockSettingsActivity.open(getActivity());
-                return true;
-            });
-            findPreference("help").setOnPreferenceClickListener(preference -> {
-                HelpLauncher.showHelp(getActivity());
-                return true;
-            });
-            // Google Play, or a build made for another store, updates the app itself.
-            if (UpdateFlow.isAvailable(getActivity())) {
-                findPreference("check_updates_now").setOnPreferenceClickListener(preference -> {
-                    UpdateFlow.checkNow(getActivity());
-                    return true;
-                });
-            } else {
-                removeSetting(UpdatePrefs.AUTO_CHECK_PREF_STRING);
-                removeSetting("check_updates_now");
-            }
-            findPreference(HOST_DISPLAY_KEY).setOnPreferenceClickListener(preference -> {
-                SharedPreferences prefs = getPreferenceManager().getSharedPreferences();
-                showChoices(R.string.host_display_menu, DisplayArrangementChoice.names(getActivity(), true),
-                        DisplayArrangementChoice.readMain(prefs), R.string.summary_display_arrangement, which -> {
-                            SharedPreferences.Editor editor = prefs.edit();
-                            DisplayArrangementChoice.saveMain(editor, which);
-                            editor.apply();
-                        });
-                return true;
-            });
-            findPreference("latency_benchmark").setOnPreferenceClickListener(preference -> {
-                startActivity(new Intent(getActivity(), com.limelight.LatencyBenchmarkActivity.class));
-                return true;
-            });
-            // Set before the search descriptions are read: the tests' names find the row.
-            Preference networkTests = findPreference(NETWORK_TESTS_KEY);
-            networkTests.setSummary(networkTestsSummary());
-            networkTests.setOnPreferenceClickListener(preference -> {
-                openNetworkTests();
-                return true;
-            });
-            Preference gpuDriver = findPreference("gpu_driver");
-            if (gpuDriver != null) {
-                gpuDriver.setOnPreferenceClickListener(preference -> {
-                    startActivity(new Intent(getActivity(), GpuDriverSettings.class));
-                    return true;
-                });
-            }
-            findPreference("report_problem").setOnPreferenceClickListener(preference -> {
-                com.limelight.utils.ProblemReport.show(getActivity());
-                return true;
-            });
-            findPreference("reset_all").setOnPreferenceClickListener(preference -> {
-                confirmReset();
-                return true;
-            });
-            findPreference(TouchMode.PREF).setOnPreferenceClickListener(preference -> {
-                SharedPreferences prefs = getPreferenceManager().getSharedPreferences();
-                int selected = storedTouchMode(prefs);
-                AlertDialog picker = new NavigationDialogBuilder(getActivity()).setTitle(R.string.stream_touch_mode)
-                        .setSingleChoiceItems(R.array.stream_touch_modes, selected, (dialog, which) -> {
-                            SharedPreferences.Editor editor = prefs.edit();
-                            TouchMode.save(editor, which);
-                            editor.apply();
-                            dialog.dismiss();
-                        }).setNeutralButton(R.string.help, null)
-                        .setNegativeButton(android.R.string.cancel, null).create();
-                UiHelper.showDialog(getActivity(), picker);
-                // Like the other pickers, Help explains the choices without closing the list.
-                picker.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view ->
-                        showInfo(R.string.stream_touch_mode, R.string.settings_touch_mode_help));
-                return true;
-            });
-            findPreference(VideoScaling.PREF).setOnPreferenceClickListener(preference -> {
-                SharedPreferences prefs = getPreferenceManager().getSharedPreferences();
-                AlertDialog picker = new NavigationDialogBuilder(getActivity()).setTitle(R.string.video_scaling_title)
-                        .setSingleChoiceItems(R.array.video_scaling_modes, storedVideoScaling(prefs), (dialog, which) -> {
-                            SharedPreferences.Editor editor = prefs.edit();
-                            VideoScaling.save(editor, which);
-                            editor.apply();
-                            dialog.dismiss();
-                        }).setNeutralButton(R.string.help, null)
-                        .setNegativeButton(android.R.string.cancel, null).create();
-                UiHelper.showDialog(getActivity(), picker);
-                picker.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view ->
-                        showInfo(R.string.video_scaling_title, R.string.video_scaling_help));
-                return true;
-            });
-            findPreference(OverlayChoice.ENABLED_KEY).setOnPreferenceClickListener(preference -> {
-                SharedPreferences prefs = getPreferenceManager().getSharedPreferences();
-                showChoices(R.string.title_performance_overlay, R.array.overlay_choice_names, OverlayChoice.read(prefs),
-                        R.string.overlay_mode_help, which -> {
-                            SharedPreferences.Editor editor = prefs.edit();
-                            OverlayChoice.save(editor, which);
-                            editor.apply();
-                        });
-                return true;
-            });
-            findPreference(AppTheme.THEME).setOnPreferenceClickListener(preference -> {
-                SharedPreferences prefs = getPreferenceManager().getSharedPreferences();
-                showChoices(R.string.title_theme, R.array.theme_choice_names, ThemeChoice.read(prefs), 0, which -> {
-                    SharedPreferences.Editor editor = prefs.edit();
-                    ThemeChoice.save(editor, which);
-                    editor.apply();
-                });
-                return true;
-            });
-            findPreference(LOW_LATENCY_CUSTOMIZE_KEY).setOnPreferenceClickListener(preference -> {
-                StreamSettings activity = (StreamSettings) getActivity();
-                activity.customizeOpen = !activity.customizeOpen;
-                refreshState();
-                return true;
-            });
-            for (String moreSection : SECTIONS.keySet()) {
-                Preference more = findPreference(MORE_PREFIX + moreSection);
-                if (more == null) continue;
-                more.setOnPreferenceClickListener(preference -> {
-                    toggleMore(moreSection);
-                    return true;
-                });
-            }
-            findPreference("controller_button_mapping").setOnPreferenceClickListener(preference -> {
-                startActivity(new Intent(getActivity(), ControllerMappingActivity.class));
-                return true;
-            });
-            findPreference("controller_test").setOnPreferenceClickListener(preference -> {
-                startActivity(new Intent(getActivity(), ControllerTestActivity.class));
-                return true;
-            });
-            findPreference("gyro_mapping_profiles").setOnPreferenceClickListener(preference -> {
-                GyroProfileEditor.open(getActivity());
-                return true;
-            });
-            findPreference("keyboard_shortcuts_editor").setOnPreferenceClickListener(preference -> {
-                startActivity(new Intent(getActivity(), KeyboardShortcutsActivity.class));
-                return true;
-            });
-            findPreference("stream_hotkeys").setOnPreferenceClickListener(preference -> {
-                startActivity(new Intent(getActivity(), StreamHotkeysActivity.class));
-                return true;
-            });
-            findPreference("export_latency_csv").setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
-                @Override
-                public boolean onPreferenceClick(Preference preference) {
-                    ((StreamSettings) getActivity()).exportLatencyCsv();
-                    return true;
-                }
-            });
-
-            // A TV does not turn.
-            if (getActivity().getPackageManager().hasSystemFeature(PackageManager.FEATURE_LEANBACK)) {
-                removeSetting(StreamOrientation.PREF);
-            }
-
-            // Mobile data rows only where there is mobile data, unless a value set earlier still acts (roaming's
-            // choice of it likewise, SwitchPairChoice.offered).
-            if (!SettingRules.hasMobileData(getActivity())) {
-                SharedPreferences stored = getPreferenceManager().getSharedPreferences();
-                if (!SettingRules.mobileBitrateShown(getActivity(), stored)) {
-                    removeSetting(PreferenceConfiguration.MOBILE_BITRATE_PREF_STRING);
-                }
-            }
-
-            // hide on-screen controls category on non touch screen devices
-            if (!getActivity().getPackageManager().hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)) {
-                PreferenceCategory category =
-                        (PreferenceCategory) findPreference("category_onscreen_controls");
-                screen.removePreference(category);
-                removeSetting("checkbox_show_onscreen_controls");
-                // The floating menu button is for touch; a TV opens the menu from the remote or controller.
-                PreferenceCategory menu = (PreferenceCategory) findPreference("category_stream_menu");
-                Preference floating = findPreference(PreferenceConfiguration.FLOATING_MENU_BUTTON_PREF_STRING);
-                if (menu != null && floating != null) menu.removePreference(floating);
-            }
-
-            // Hide remote desktop mouse mode on pre-Oreo (which doesn't have pointer capture)
-            // and NVIDIA SHIELD devices (which support raw mouse input in pointer capture mode)
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
-                    getActivity().getPackageManager().hasSystemFeature("com.nvidia.feature.shield")) {
-                removeSetting("checkbox_absolute_mouse_mode");
-            }
-
-            // Hide gamepad motion sensor option when running on OSes before Android 12.
-            // Support for motion, LED, battery, and other extensions were introduced in S.
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-                removeSetting("checkbox_gamepad_motion_sensors");
-            }
-
-            // Hide gamepad motion sensor fallback option if the device has no gyro or accelerometer
-            if (!getActivity().getPackageManager().hasSystemFeature(PackageManager.FEATURE_SENSOR_ACCELEROMETER) &&
-                    !getActivity().getPackageManager().hasSystemFeature(PackageManager.FEATURE_SENSOR_GYROSCOPE)) {
-                removeSetting("checkbox_gamepad_motion_fallback");
-            }
-
-            // The microphone switch turns on only once microphone access is allowed.
-            SwitchPreference mic = (SwitchPreference) findPreference(PreferenceConfiguration.ENABLE_MIC_PREF_STRING);
-            mic.setOnPreferenceChangeListener((preference, value) -> {
-                if (!Boolean.TRUE.equals(value) || hasMicPermission()) {
-                    return true;
-                }
-                requestPermissions(new String[] {Manifest.permission.RECORD_AUDIO}, MIC_PERMISSION_REQUEST);
-                return false;
-            });
-
-            SwitchPreference dualSense = (SwitchPreference) findPreference("checkbox_usb_dualsense");
-            dualSense.setOnPreferenceChangeListener((preference, value) -> {
-                if (!Boolean.TRUE.equals(value)) {
-                    return true;
-                }
-                new NavigationDialogBuilder(getActivity())
-                        .setTitle(R.string.title_usb_dualsense)
-                        .setMessage(R.string.usb_dualsense_permission_info)
-                        .setPositiveButton(R.string.usb_dualsense_enable, (dialog, which) -> dualSense.setChecked(true))
-                        .setNegativeButton(android.R.string.cancel, null)
-                        .show();
-                return false;
-            });
-
-            // Hide USB driver options on devices without USB host support
-            if (!((StreamSettings) getActivity()).supportsUsbHost()) {
-                screen.removePreference(findPreference("category_usb_controllers"));
-            }
-
-            // Remove PiP mode on devices pre-Oreo, where the feature is not available (some low RAM devices),
-            // and on Fire OS where it violates the Amazon App Store guidelines for some reason.
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
-                    !getActivity().getPackageManager().hasSystemFeature("android.software.picture_in_picture") ||
-                    getActivity().getPackageManager().hasSystemFeature("com.amazon.software.fireos")) {
-                removeSetting("checkbox_enable_pip");
-            }
-
-            // Remove the vibration options if the device can't vibrate
-            if (!((Vibrator)getActivity().getSystemService(Context.VIBRATOR_SERVICE)).hasVibrator()) {
-                removeSetting("checkbox_vibrate_fallback");
-                removeSetting("seekbar_vibrate_fallback_strength");
-                // The entire OSC category may have already been removed by the touchscreen check above
-                removeSetting("checkbox_vibrate_osc");
-            }
-            else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
-                    !((Vibrator)getActivity().getSystemService(Context.VIBRATOR_SERVICE)).hasAmplitudeControl() ) {
-                // Remove the vibration strength selector of the device doesn't have amplitude control
-                removeSetting("seekbar_vibrate_fallback_strength");
-            }
-
-            Display display = getActivity().getWindowManager().getDefaultDisplay();
-            float maxSupportedFps = display.getRefreshRate();
-            boolean television = getActivity().getPackageManager().hasSystemFeature(PackageManager.FEATURE_TELEVISION);
-
-            // Hide non-supported resolution/FPS combinations
-            int maxSupportedResW = 0;
-
-            // Add a native resolution with any insets included for users that don't want content
-            // behind the notch of their display
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                DisplayCutout cutout;
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    // Use the much nicer Display.getCutout() API on Android 10+
-                    cutout = display.getCutout();
-                }
-                else {
-                    // Android 9 only
-                    WindowInsets insets = getActivity().getWindow().getDecorView().getRootWindowInsets();
-                    cutout = insets == null ? null : insets.getDisplayCutout();
-                }
-
-                if (cutout != null) {
-                    int widthInsets = cutout.getSafeInsetLeft() + cutout.getSafeInsetRight();
-                    int heightInsets = cutout.getSafeInsetBottom() + cutout.getSafeInsetTop();
-
-                    if (widthInsets != 0 || heightInsets != 0) {
-                        DisplayMetrics metrics = new DisplayMetrics();
-                        display.getRealMetrics(metrics);
-
-                        int width = Math.max(metrics.widthPixels - widthInsets, metrics.heightPixels - heightInsets);
-                        int height = Math.min(metrics.widthPixels - widthInsets, metrics.heightPixels - heightInsets);
-
-                        addNativeResolutionEntries(width, height, true);
-                    }
-                }
-            }
-
-            // Always allow resolutions that are smaller or equal to the active
-            // display resolution because decoders can report total non-sense to us.
-            // For example, a p201 device reports:
-            // AVC Decoder: OMX.amlogic.avc.decoder.awesome
-            // HEVC Decoder: OMX.amlogic.hevc.decoder.awesome
-            // AVC supported width range: 64 - 384
-            // HEVC supported width range: 64 - 544
-            for (Display.Mode candidate : display.getSupportedModes()) {
-                // Some devices report their dimensions in the portrait orientation
-                // where height > width. Normalize these to the conventional width > height
-                // arrangement before we process them.
-
-                int width = Math.max(candidate.getPhysicalWidth(), candidate.getPhysicalHeight());
-                int height = Math.min(candidate.getPhysicalWidth(), candidate.getPhysicalHeight());
-
-                // Some TVs report strange values here, so let's avoid native resolutions on a TV
-                // unless they report greater than 4K resolutions.
-                if (!television || (width > 3840 || height > 2160)) {
-                    addNativeResolutionEntries(width, height, false);
-                }
-
-                if ((width >= 3840 || height >= 2160) && maxSupportedResW < 3840) {
-                    maxSupportedResW = 3840;
-                }
-                else if ((width >= 2560 || height >= 1440) && maxSupportedResW < 2560) {
-                    maxSupportedResW = 2560;
-                }
-                else if ((width >= 1920 || height >= 1080) && maxSupportedResW < 1920) {
-                    maxSupportedResW = 1920;
-                }
-
-                if (candidate.getRefreshRate() > maxSupportedFps) {
-                    maxSupportedFps = candidate.getRefreshRate();
-                }
-            }
-
-            // The decoders' width ranges can only raise the slot. Reading them builds a
-            // MediaCodecList, a blocking call to the media service that hit an ANR on a
-            // MediaTek Android 15 device (V+ c519d37): probe off the main thread and drop
-            // the sizes the decoders can't take once it's done.
-            final int displayResW = maxSupportedResW;
-            final android.app.Activity activity = getActivity();
-            final Context appContext = activity.getApplicationContext();
-            final DecoderWidthProbe probe = decoderWidthProbe;
-            decoderProbe = new Thread(() -> {
-                int decoderResW = probe.probe(appContext);
-                activity.runOnUiThread(() -> {
-                    if (isAdded() && getActivity() == activity && !activity.isFinishing()) {
-                        removeUndecodableResolutions(Math.max(displayResW, decoderResW));
-                    }
-                });
-            }, "Decoder resolution probe");
-            decoderProbe.start();
-            // TVs can report a smaller panel than the screen they drive, so they keep every size.
-            ((ResolutionPreference) findPreference(PreferenceConfiguration.RESOLUTION_PREF_STRING))
-                    .ensureSelectedResolutionEntry();
-            sortResolutionEntries(!television);
-
-            if (!PreferenceConfiguration.readPreferences(this.getActivity()).unlockFps) {
-                // We give some extra room in case the FPS is rounded down
-                if (maxSupportedFps < 118) {
-                    removeValue(PreferenceConfiguration.FPS_PREF_STRING, "120", new Runnable() {
-                        @Override
-                        public void run() {
-                            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(SettingsFragment.this.getActivity());
-                            setValue(PreferenceConfiguration.FPS_PREF_STRING, "90");
-                            resetBitrateToDefault(prefs, null, null);
-                        }
-                    });
-                }
-                if (maxSupportedFps < 88) {
-                    // 1080p is unsupported
-                    removeValue(PreferenceConfiguration.FPS_PREF_STRING, "90", new Runnable() {
-                        @Override
-                        public void run() {
-                            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(SettingsFragment.this.getActivity());
-                            setValue(PreferenceConfiguration.FPS_PREF_STRING, "60");
-                            resetBitrateToDefault(prefs, null, null);
-                        }
-                    });
-                }
-                // Never remove 30 FPS or 60 FPS
-            }
-            addNativeFrameRateEntry(maxSupportedFps);
-
-            // 7.1.4 only where this device plays it. A 7.1.4 choice made on another route (spatial
-            // headphones) stays picked; the stream asks for 7.1 while it isn't playable.
-            ListPreference audioConfig = (ListPreference) findPreference(PreferenceConfiguration.AUDIO_CONFIG_PREF_STRING);
-            if (audioConfig != null && !PreferenceConfiguration.AUDIO_CONFIG_714.equals(audioConfig.getValue())
-                    && !Surround714.playable(getActivity())) {
-                LimeLog.info("Excluding 7.1.4 audio: no output plays 12 channels");
-                removeValue(PreferenceConfiguration.AUDIO_CONFIG_PREF_STRING, PreferenceConfiguration.AUDIO_CONFIG_714, () -> { });
-            }
-
-            // Variable refresh rate is gated by vrrOffered: where it is false it can't be turned on, and a
-            // choice saved before reads as off (PreferenceConfiguration and SettingRules do the same).
-            // The row shows off without saving that, so the choice returns on a newer Android.
-            Preference vrr = findPreference(PreferenceConfiguration.VRR_PREF_STRING);
-            if (vrr != null && !DisplayFrameRatePolicy.vrrOffered(getActivity())) {
-                LimeLog.info("Hiding variable refresh rate: not offered");
-                vrr.setPersistent(false);
-                removeSetting(PreferenceConfiguration.VRR_PREF_STRING);
-            }
-
-            // We must now ensure our display is compatible with HDR10 (the capabilities are
-            // null on some devices, e.g. Lenovo Mirage Solo, Android 8.0)
-            boolean foundHdr10 = HdrPolicy.hasHdr10(HdrPolicy.displayHdrTypes(display));
-
-            if (!foundHdr10) {
-                LimeLog.info("Excluding HDR toggle based on display capabilities");
-                removeSetting("checkbox_enable_hdr");
-            }
-            else if (PreferenceConfiguration.isShieldAtvFirmwareWithBrokenHdr()) {
-                LimeLog.info("Disabling HDR toggle on old broken SHIELD TV firmware");
-                hdr.setEnabled(false);
-                hdr.setChecked(false);
-                hdr.setSummary("Update the firmware on your NVIDIA SHIELD Android TV to enable HDR");
-            }
-
-            // Add a listener to the FPS and resolution preference
-            // so the bitrate can be auto-adjusted
-            findPreference(PreferenceConfiguration.RESOLUTION_PREF_STRING).setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
-                @Override
-                public boolean onPreferenceChange(Preference preference, Object newValue) {
-                    SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(SettingsFragment.this.getActivity());
-                    String valueStr = (String) newValue;
-
-                    // Picking this screen's native size keeps following the screen; any other size stays fixed.
-                    prefs.edit().putBoolean(PreferenceConfiguration.RESOLUTION_FOLLOWS_SCREEN_PREF_STRING,
-                            !((ResolutionPreference) preference).isChoosingCustomResolution() &&
-                                    valueStr.equals(PreferenceConfiguration.nativeResolution(getActivity()))).apply();
-
-                    // Write the new bitrate value
-                    resetBitrateToDefault(prefs, valueStr, null);
-
-                    // Allow the original preference change to take place
-                    return true;
-                }
-            });
-            findPreference(PreferenceConfiguration.FPS_PREF_STRING).setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
-                @Override
-                public boolean onPreferenceChange(Preference preference, Object newValue) {
-                    SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(SettingsFragment.this.getActivity());
-                    String valueStr = (String) newValue;
-
-                    // Write the new bitrate value
-                    resetBitrateToDefault(prefs, null, valueStr);
-
-                    // Allow the original preference change to take place
-                    return true;
-                }
-            });
-
-            for (int i = 0; i < screen.getPreferenceCount(); i++) {
-                PreferenceGroup group = (PreferenceGroup) screen.getPreference(i);
-                for (int j = 0; j < group.getPreferenceCount(); j++) {
-                    Preference pref = group.getPreference(j);
-                    descriptions.put(pref.getKey(), pref instanceof MaterialSwitchPreference ?
-                            ((MaterialSwitchPreference) pref).getExplanation() :
-                            pref instanceof android.preference.DialogPreference ?
-                                    ((android.preference.DialogPreference) pref).getDialogMessage() : pref.getSummary());
-                }
-            }
-            updateCodecSummary(codec, codec.getValue(), hdr.isChecked());
-            stylePreferences(screen, getActivity());
-            for (int i = 0; i < screen.getPreferenceCount(); i++) {
-                PreferenceCategory category = (PreferenceCategory) screen.getPreference(i);
-                List<Preference> preferences = new ArrayList<>();
-                allPreferences.put(category.getKey(), category);
-                for (int j = 0; j < category.getPreferenceCount(); j++) {
-                    Preference pref = category.getPreference(j);
-                    preferences.add(pref);
-                    allPreferences.put(pref.getKey(), pref);
-                    homes.put(pref.getKey(), category);
-                }
-                // A group whose settings this device cannot use is left out entirely.
-                if (!preferences.isEmpty()) {
-                    searchCategories.put(category, preferences);
-                }
-            }
-            // The network rows as the last read of the saved PCs found; onResume reads them again.
-            showKnownPcRows();
-            refreshState();
-            screen.removeAll();
-            filterPreferences();
+            StreamSettingsDisplayOptions.resetBitrateToDefault(prefs, res, fps, codec);
         }
     }
 }

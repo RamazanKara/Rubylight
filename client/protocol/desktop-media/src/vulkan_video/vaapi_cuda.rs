@@ -210,11 +210,11 @@ impl Drop for VaapiMap {
 /// Pictures `VaapiMap` mapped in this test process, and of them the ones whose images came from
 /// the per-surface cache (`stream::vulkan_tests_unix`).
 #[cfg(test)]
-pub(crate) static MAPPED_PICTURES: (std::sync::atomic::AtomicU64, std::sync::atomic::AtomicU64) =
+static MAPPED_PICTURES: (std::sync::atomic::AtomicU64, std::sync::atomic::AtomicU64) =
     (std::sync::atomic::AtomicU64::new(0), std::sync::atomic::AtomicU64::new(0));
 
 /// `MAPPED_PICTURES` as (mapped, from the cache).
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 pub(crate) fn mapped_pictures() -> (u64, u64) {
     use std::sync::atomic::Ordering::Relaxed;
     (MAPPED_PICTURES.0.load(Relaxed), MAPPED_PICTURES.1.load(Relaxed))

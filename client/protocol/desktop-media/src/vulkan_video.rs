@@ -77,10 +77,9 @@ pub use sample_state::{
     MAPPED_HELD, SAMPLED_HELD, SAMPLE_ENVIRONMENT,
 };
 pub use vaapi_cuda::{cuda_plan, same_gpu, CudaMap, VaapiMap};
-// Unix (Linux and macOS): `stream::vulkan_tests_unix` reads these test counters.
-#[cfg(test)]
-#[cfg_attr(not(unix), allow(unused_imports))]
-pub(crate) use vaapi_cuda::{mapped_pictures, MAPPED_PICTURES};
+// Linux: `stream::vulkan_tests_unix` reads this test counter.
+#[cfg(all(test, target_os = "linux"))]
+pub(crate) use vaapi_cuda::mapped_pictures;
 
 // Re-exports for existing `imports`, `sample`, `tests`, and `sample_tests` submodules (`use super::*`).
 #[cfg(target_os = "linux")]

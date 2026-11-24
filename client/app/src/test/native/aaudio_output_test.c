@@ -284,6 +284,51 @@ static void writesComeOverInPieces(void) {
 static aaudio_stream_state_t streamState = AAUDIO_STREAM_STATE_STARTED;
 static aaudio_stream_state_t fakeState(AAudioStream* stream) { (void)stream; return streamState; }
 
+// A 5.1 stream: the Java array comes over in pieces of whole frames, in order, and a stall fades back in
+// on every channel from silence, as no concealer runs for surround.
+static void surroundWritesAndFadesKeepEveryChannel(void) {
+    static AudioOutput output, stalled;
+    static int16_t ring[8192 * 6], stalledRing[8192 * 6], input[1000 * 6], pcm[864 * 6];
+    for (int i = 0; i < 1000 * 6; i++) input[i] = (int16_t)(1000 * (i % 6 + 1));
+    FakeShorts packet = {1000 * 6, input};
+    const struct JNINativeInterface functions = {
+        .GetArrayLength = arrayLength,
+        .GetShortArrayRegion = shortRegion,
+    };
+    JNIEnv env = &functions;
+
+    memset(&output, 0, sizeof(output));
+    audioQueueInitChannels(&output.queue, ring, 8192, 8192, 6);
+    jlong handle = (jlong)(intptr_t)&output;
+    regionCalls = 0;
+    assert(Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeWriteAudio(&env, NULL, handle, (jshortArray)&packet, 1000 * 6) == AUDIO_WRITE_DONE);
+    assert(regionCalls == (1000 + AUDIO_WRITE_CHUNK_SAMPLES / 6 - 1) / (AUDIO_WRITE_CHUNK_SAMPLES / 6));
+    assert(atomic_load(&output.queue.writtenFrames) == 1000);
+    assert(memcmp(ring, input, sizeof(input)) == 0);
+    // A length that is not whole frames is refused.
+    assert(Java_com_limelight_binding_audio_AndroidAudioRenderer_nativeWriteAudio(&env, NULL, handle, (jshortArray)&packet, 1000 * 6 - 1) == AUDIO_WRITE_STOPPED);
+    assert(atomic_load(&output.queue.writtenFrames) == 1000);
+
+    // Played, then dry: silence, then the audio that comes back fades in over 5 ms (240 frames).
+    memset(&stalled, 0, sizeof(stalled));
+    audioQueueInitChannels(&stalled.queue, stalledRing, 8192, 864, 6);
+    stalled.rate = 48000;
+    assert(audioQueueWrite(&stalled.queue, input, 864) == 864);
+    audioFill(&stalled, pcm, 864);
+    assert(!stalled.concealing && pcm[0] == 1000 && pcm[5] == 6000);
+    audioFill(&stalled, pcm, 864);
+    assert(stalled.concealing && allEqual(pcm, 864 * 6, 0));
+    assert(audioQueueWrite(&stalled.queue, input, 864) == 864);
+    audioFill(&stalled, pcm, 864);
+    assert(!stalled.concealing);
+    for (int channel = 0; channel < 6; channel++) {
+        assert(pcm[channel] == 0);
+        assert(pcm[6 * 120 + channel] == 500 * (channel + 1));
+        assert(pcm[6 * 240 + channel] == 1000 * (channel + 1));
+        assert(pcm[6 * 863 + channel] == 1000 * (channel + 1));
+    }
+}
+
 // An AAudio callback that drains 50 frames every 40 ms, four times: slower than one write's
 // 100 ms of waiting in total, but never 100 ms without room.
 static void* slowCallback(void* context) {
@@ -440,6 +485,7 @@ int main(void) {
     stallsAreConcealedAndTheirPacketsSkipped();
     gapsAreJitterOrStalls();
     writesComeOverInPieces();
+    surroundWritesAndFadesKeepEveryChannel();
     stallsAreToldApartFromStoppedStreams();
     anAbortEndsAWriteWaitingOnAFullRing();
     puts("AAudio output tests passed");

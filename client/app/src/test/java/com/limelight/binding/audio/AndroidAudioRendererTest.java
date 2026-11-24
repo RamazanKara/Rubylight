@@ -612,7 +612,7 @@ public class AndroidAudioRendererTest {
         renderer.cleanup();
     }
 
-    // Surround never takes AAudio, and the fast path is not granted to a 6 or 8 channel track: it runs on the
+    // With effects on, surround takes AudioTrack, and the fast path is not granted to a 6 or 8 channel track: it runs on the
     // normal mixer. On a Retroid Pocket 6 the 5.1 minimum is 3844 frames; the old two-packet buffer underran
     // 118 times a minute there.
     @Test public void surroundTracksRefusedTheFastPathKeepTheirMinimumAndSizeBytesPerChannel() {

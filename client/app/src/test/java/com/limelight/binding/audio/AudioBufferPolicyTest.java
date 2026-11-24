@@ -156,13 +156,11 @@ public class AudioBufferPolicyTest {
         assertEquals(1440, policy.sample(1, 31000));
     }
 
-    @Test public void oldApiSurroundEffectsAndResamplingUseAudioTrack() {
-        assertTrue(AudioBufferPolicy.useAAudio(27, 2, false, 48000, 48000));
-        assertFalse(AudioBufferPolicy.useAAudio(26, 2, false, 48000, 48000));
-        assertFalse(AudioBufferPolicy.useAAudio(36, 6, false, 48000, 48000));
-        assertFalse(AudioBufferPolicy.useAAudio(36, 8, false, 48000, 48000));
-        assertFalse(AudioBufferPolicy.useAAudio(36, 2, true, 48000, 48000));
-        assertFalse(AudioBufferPolicy.useAAudio(36, 2, false, 48000, 44100));
+    @Test public void oldApiEffectsAndResamplingUseAudioTrack() {
+        assertTrue(AudioBufferPolicy.useAAudio(27, false, 48000, 48000));
+        assertFalse(AudioBufferPolicy.useAAudio(26, false, 48000, 48000));
+        assertFalse(AudioBufferPolicy.useAAudio(36, true, 48000, 48000));
+        assertFalse(AudioBufferPolicy.useAAudio(36, false, 48000, 44100));
     }
 
     @Test public void repeatedStarvationAtTheLimitRequestsFallback() {

@@ -223,7 +223,7 @@ public class EchoProbeActivity extends Activity {
                 return;
             case "aaudio": {
                 Class.forName("com.limelight.nvstream.jni.MoonBridge");
-                Method open = AndroidAudioRenderer.class.getDeclaredMethod("nativeOpenAudio", int.class, long.class);
+                Method open = AndroidAudioRenderer.class.getDeclaredMethod("nativeOpenAudio", int.class, int.class, int.class, long.class);
                 Method write = AndroidAudioRenderer.class.getDeclaredMethod("nativeWriteAudio", long.class, short[].class, int.class);
                 Method queued = AndroidAudioRenderer.class.getDeclaredMethod("nativeAudioQueued", long.class);
                 Method close = AndroidAudioRenderer.class.getDeclaredMethod("nativeCloseAudio", long.class);
@@ -231,7 +231,7 @@ public class EchoProbeActivity extends Activity {
                 write.setAccessible(true);
                 queued.setAccessible(true);
                 close.setAccessible(true);
-                long handle = (long) open.invoke(null, RATE, 0L);
+                long handle = (long) open.invoke(null, RATE, 2, 0x3, 0L);
                 if (handle == 0) throw new IllegalStateException("AAudio did not open");
                 short[] part = new short[chunk];
                 for (int offset = 0; offset < stereo.length; offset += chunk) {

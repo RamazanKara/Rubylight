@@ -189,7 +189,7 @@ If loading, capability checks or initialization fail, Nightjar tries the system 
 
 ## Sound
 
-Nightjar plays stereo, 5.1 and 7.1 Opus, and 7.1.4 from a Rubylight 3.0 PC on a 12-channel output (Android 12L or newer on Android), with low-latency AAudio for stereo on Android 8.1 and later. A lost or late audio packet is filled in from the sound before it instead of a gap of silence, and the audio that arrives late after a network stall is skipped, so audio latency stays where it was. When this device's audio clock runs a little slower than the PC's, the extra audio is trimmed one packet at a time with a short fade, so latency does not creep up.
+Nightjar plays stereo, 5.1 and 7.1 Opus, and 7.1.4 from a Rubylight 3.0 PC on a 12-channel output (Android 12L or newer on Android), with low-latency AAudio on Android 8.1 and later (5.1 and 7.1 need Android 12L, else AudioTrack, which adds latency). A lost or late audio packet is filled in from the sound before it instead of a gap of silence (a network stall on 5.1 and 7.1 plays silence), and the audio that arrives late after a network stall is skipped, so audio latency stays where it was. When this device's audio clock runs a little slower than the PC's, the extra audio is trimmed one packet at a time with a short fade, so latency does not creep up.
 
 **Mute audio** (**Settings → Audio**, off by default, on Android and desktop) streams without sound on this device; the microphone and **Play audio on the PC too** keep working.
 

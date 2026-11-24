@@ -4,9 +4,13 @@ import org.junit.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
@@ -20,11 +24,26 @@ import static org.junit.Assert.assertTrue;
 public class PyroWaveRealVrrTest {
     private static final String DECODER = "src/main/java/com/limelight/binding/video/MediaCodecDecoderRenderer.java";
     private static final String JAVA = "src/main/java/com/limelight/binding/video/PyroWaveDecoderRenderer.java";
-    private static final String NATIVE = "src/main/jni/pyrowave-renderer/pyrowave_renderer.cpp";
+    private static final String NATIVE_DIR = "src/main/jni/pyrowave-renderer";
     private static final String TIMING = "src/main/jni/pyrowave-renderer/present_timing.h";
 
     private static String read(String path) throws Exception {
         return new String(Files.readAllBytes(Paths.get(path)), StandardCharsets.UTF_8).replace("\r\n", "\n");
+    }
+
+    private static String readSources(String directory, String prefix) throws Exception {
+        StringBuilder joined = new StringBuilder();
+        try (Stream<Path> files = Files.list(Paths.get(directory))) {
+            List<Path> sorted = new ArrayList<>();
+            files.filter(path -> {
+                String name = path.getFileName().toString();
+                return name.startsWith(prefix) && (name.endsWith(".cpp") || name.endsWith(".h"));
+            }).sorted().forEach(sorted::add);
+            for (Path path : sorted) {
+                joined.append(read(path.toString())).append('\n');
+            }
+        }
+        return joined.toString();
     }
 
     // Java's mode number is the presenter's: a different one would be another mode, or none
@@ -34,7 +53,7 @@ public class PyroWaveRealVrrTest {
         Matcher mode = Pattern.compile("enum class Mode \\{[^}]*\\bHostTimes = (\\d+)").matcher(read(TIMING));
         assertTrue(mode.find());
         assertEquals(FramePacingPolicy.PYROWAVE_HOST_TIMES, Integer.parseInt(mode.group(1)));
-        String cpp = read(NATIVE);
+        String cpp = readSources(NATIVE_DIR, "pyrowave_");
         assertTrue(cpp.contains("static constexpr int HOST_TIMES_MODE = int(PyroWavePresentTiming::Mode::HostTimes);"));
         assertTrue(cpp.contains("framePacingMode = pacingMode >= 0 && pacingMode <= HOST_TIMES_MODE ? pacingMode : 0;"));
     }
@@ -62,7 +81,7 @@ public class PyroWaveRealVrrTest {
         assertTrue(java.contains("nativeCreate(surface, width, height, fps, displayRefreshRate, topRefreshRate, pacingMode,"));
         assertTrue(java.contains("float displayRefreshRate,\n"
                 + "                                           float topRefreshRate, int pacingMode,"));
-        assertTrue(read(NATIVE).contains("jfloat displayRefreshRate,\n"
+        assertTrue(readSources(NATIVE_DIR, "pyrowave_").contains("jfloat displayRefreshRate,\n"
                 + "                                                                      jfloat topRefreshRate, jint pacingMode,"));
     }
 
@@ -70,7 +89,7 @@ public class PyroWaveRealVrrTest {
     // (android_present_clock.c), and the clock lives as long as the presenter.
     @Test
     public void thePresenterAsksItsOwnSharedClock() throws Exception {
-        String cpp = read(NATIVE);
+        String cpp = readSources(NATIVE_DIR, "pyrowave_");
         int settings = cpp.indexOf("rp_present_settings_adaptive(&settings);");
         int interval = cpp.indexOf("settings.min_interval_us = topRefreshRate > 1.0f && topRefreshRate <= 1000.0f ?");
         int made = cpp.indexOf("presentClock = rp_present_clock_new(&settings);");
@@ -90,7 +109,7 @@ public class PyroWaveRealVrrTest {
     // The overlay names the mode in the decoder line and says how long frames were held.
     @Test
     public void theOverlayNamesTheModeAndTheHold() throws Exception {
-        assertTrue(read(NATIVE).contains("if (renderer->showsHostTimes()) mode += \", PC frame times\";"));
+        assertTrue(readSources(NATIVE_DIR, "pyrowave_").contains("if (renderer->showsHostTimes()) mode += \", PC frame times\";"));
         assertEquals("PC frame times: held 2.3 ms", PyroWaveDecoderRenderer.hostTimesLine(2.34f));
         assertEquals("PC frame times: held 0.0 ms", PyroWaveDecoderRenderer.hostTimesLine(0));
         // Every other mode, and before the first interval: no line.

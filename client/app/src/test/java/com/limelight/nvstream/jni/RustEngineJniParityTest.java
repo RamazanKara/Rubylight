@@ -359,12 +359,27 @@ public class RustEngineJniParityTest {
         String mask = new String(Files.readAllBytes(new File("src/main/jni/frame_warp_mask.h").toPath()),
                 StandardCharsets.UTF_8).replace("\r\n", "\n");
         assertTrue(mask.contains("for (int i = 0; i < FRAME_WARP_FLOATS; ++i) {\n        out[i] = i >= 6 ? 1.0f : 0.0f;"));
-        for (String renderer : new String[] {"vulkan/vulkan_renderer.cpp", "pyrowave-renderer/pyrowave_renderer.cpp"}) {
-            String cpp = new String(Files.readAllBytes(new File("src/main/jni/" + renderer).toPath()),
-                    StandardCharsets.UTF_8).replace("\r\n", "\n");
-            assertFalse(renderer, Pattern.compile("float (?:warpOut|out|peeked)\\[4\\]").matcher(cpp).find());
-            assertTrue(renderer, cpp.contains("float warpOut[FRAME_WARP_FLOATS];\n"));
-            assertTrue(renderer, cpp.contains("[FRAME_WARP_FLOATS] = {};\n"));
+        for (String[] renderer : new String[][] {
+                {"src/main/jni/vulkan", "vulkan_renderer"},
+                {"src/main/jni/pyrowave-renderer", "pyrowave_"},
+        }) {
+            StringBuilder joined = new StringBuilder();
+            try (Stream<Path> files = Files.list(new File(renderer[0]).toPath())) {
+                List<Path> sorted = new ArrayList<>();
+                files.filter(path -> {
+                    String name = path.getFileName().toString();
+                    return name.startsWith(renderer[1]) && (name.endsWith(".cpp") || name.endsWith(".h"));
+                }).sorted().forEach(sorted::add);
+                for (Path path : sorted) {
+                    joined.append(new String(Files.readAllBytes(path), StandardCharsets.UTF_8)
+                            .replace("\r\n", "\n")).append('\n');
+                }
+            }
+            String label = renderer[0] + "/" + renderer[1] + "*";
+            String cpp = joined.toString();
+            assertFalse(label, Pattern.compile("float (?:warpOut|out|peeked)\\[4\\]").matcher(cpp).find());
+            assertTrue(label, cpp.contains("float warpOut[FRAME_WARP_FLOATS];\n"));
+            assertTrue(label, cpp.contains("[FRAME_WARP_FLOATS] = {};\n"));
         }
     }
 

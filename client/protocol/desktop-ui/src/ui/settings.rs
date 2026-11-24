@@ -170,9 +170,6 @@ use widgets::{notice, section_chip, KEYS_IN_HAND};
 #[cfg(test)]
 use widgets::banner;
 
-#[cfg(test)]
-mod tests;
-
 /// Borrowed state passed into the section-drawing submodules of [`Launcher::settings_rows`].
 pub(super) struct SectionsCtx<'a, 'h> {
     pub(super) display: Display,
@@ -687,3 +684,6 @@ impl Launcher {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -4,12 +4,14 @@ import org.junit.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -18,17 +20,33 @@ import static org.junit.Assert.assertTrue;
 /** PyroWave's renderer needs a GPU and a stream, so this pins its JNI exports and how Frame Warp reaches it. */
 public class PyroWaveFrameWarpWiringTest {
     private static final String JAVA = "src/main/java/com/limelight/binding/video/PyroWaveDecoderRenderer.java";
-    private static final String NATIVE = "src/main/jni/pyrowave-renderer/pyrowave_renderer.cpp";
+    private static final String NATIVE_DIR = "src/main/jni/pyrowave-renderer";
+    private static final String VULKAN_DIR = "src/main/jni/vulkan";
 
     private static String read(String path) throws Exception {
-        return new String(Files.readAllBytes(Paths.get(path)), StandardCharsets.UTF_8);
+        return new String(Files.readAllBytes(Paths.get(path)), StandardCharsets.UTF_8).replace("\r\n", "\n");
+    }
+
+    private static String readSources(String directory, String prefix) throws Exception {
+        StringBuilder joined = new StringBuilder();
+        try (Stream<Path> files = Files.list(Paths.get(directory))) {
+            List<Path> sorted = new ArrayList<>();
+            files.filter(path -> {
+                String name = path.getFileName().toString();
+                return name.startsWith(prefix) && (name.endsWith(".cpp") || name.endsWith(".h"));
+            }).sorted().forEach(sorted::add);
+            for (Path path : sorted) {
+                joined.append(read(path.toString())).append('\n');
+            }
+        }
+        return joined.toString();
     }
 
     // A native without its export fails only when a stream first calls it
     @Test
     public void everyPyroWaveNativeHasItsExport() throws Exception {
         String java = read(JAVA);
-        String cpp = read(NATIVE);
+        String cpp = readSources(NATIVE_DIR, "pyrowave_");
         List<String> natives = new ArrayList<>();
         Matcher declared = Pattern.compile("private static native \\w+(?:\\[\\])? (\\w+)\\(").matcher(java);
         while (declared.find()) natives.add(declared.group(1));
@@ -101,13 +119,13 @@ public class PyroWaveFrameWarpWiringTest {
         Matcher member = Pattern.compile("(?m)^\\s*(vec4 \\w+);").matcher(block.group(1));
         while (member.find()) members.add(member.group(1));
         assertEquals(Arrays.asList("vec4 shift", "vec4 lens"), members);
-        String cpp = read(NATIVE);
+        String cpp = readSources(NATIVE_DIR, "pyrowave_");
         assertTrue(cpp.contains("constexpr size_t WARP_SHIFT_FLOATS = 8;"));
         assertTrue(cpp.contains("const VkDescriptorBufferInfo shift = {slot.shift, 0, WARP_SHIFT_FLOATS * sizeof(float)};"));
         assertTrue(cpp.contains("createMappedBuffer(WARP_SHIFT_FLOATS * sizeof(float), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,"));
         assertFalse(cpp.contains("4 * sizeof(float), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT"));
         int still = cpp.indexOf("if (code == FRAME_WARP_INACTIVE) frameWarpStill(out);");
-        int shift = cpp.indexOf("slot.shiftMapped[0] = out[0];\n            slot.shiftMapped[1] = out[1];");
+        int shift = cpp.indexOf("slot.shiftMapped[0] = out[0];\n    slot.shiftMapped[1] = out[1];");
         int lens = cpp.indexOf("std::memcpy(slot.shiftMapped + 4, out + 4, 4 * sizeof(float));");
         assertTrue(still > 0 && shift > still && lens > shift);
     }
@@ -127,7 +145,7 @@ public class PyroWaveFrameWarpWiringTest {
             while (member.find()) members.add(member.group(1));
             assertEquals(shader, expected, members);
         }
-        String cpp = read("src/main/jni/vulkan/vulkan_renderer.cpp");
+        String cpp = readSources(VULKAN_DIR, "vulkan_renderer");
         int start = cpp.indexOf("struct PushConstants {");
         assertTrue(start > 0);
         List<String> fields = new ArrayList<>();
@@ -190,7 +208,7 @@ public class PyroWaveFrameWarpWiringTest {
     // Without Frame Warp nothing new runs: the plain pipelines, no set 1, no redraws
     @Test
     public void withoutFrameWarpThePlainPassesDraw() throws Exception {
-        String cpp = read(NATIVE);
+        String cpp = readSources(NATIVE_DIR, "pyrowave_");
         assertTrue(cpp.contains("warp == nullptr ? upscalePipeline : warpUpscalePipeline"));
         assertTrue(cpp.contains("warp == nullptr ? pipeline : warpPipeline"));
         assertTrue(cpp.contains("if (schedule.held() >= 0 && warpRedraws() && warpWantsVsync()) {"));
@@ -198,7 +216,7 @@ public class PyroWaveFrameWarpWiringTest {
         assertTrue(cpp.contains("return warp != nullptr && warpDrawn.active && (warpLookAfterPicture || warpDrawn.mayMove(warp));"));
         assertTrue(cpp.contains("if (!warpDrawn.mayMove(warp)) return true;"));
         // Only Frame Warp holds a picture for redraws
-        assertTrue(cpp.contains("if (!warpRedraws()) return;\n            std::lock_guard<std::mutex> lock(slotMutex);\n" +
-                "            schedule.hold(index);"));
+        assertTrue(cpp.contains("if (!warpRedraws()) return;\n    std::lock_guard<std::mutex> lock(slotMutex);\n" +
+                "    schedule.hold(index);"));
     }
 }

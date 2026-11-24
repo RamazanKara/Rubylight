@@ -39,98 +39,8 @@ fn the_language_setting_follows_the_system_only_on_auto() {
 
 // ---- The table against the sources. ----
 
-/// The UI sources, up to their test modules.
-const SOURCES: [(&str, &str); 60] = [
-    ("strings.rs", include_str!("../strings.rs")),
-    ("app_types.rs", include_str!("../app_types.rs")),
-    ("gamepad_types.rs", include_str!("../gamepad_types.rs")),
-    ("open_play.rs", include_str!("../../../desktop/src/open_play.rs")),
-    ("full_chroma.rs", include_str!("../../../desktop-media/src/full_chroma.rs")),
-    ("autostart.rs", include_str!("../../../desktop/src/autostart.rs")),
-    ("ui.rs", include_str!("../../../desktop-ui/src/ui.rs")),
-    ("ui/files.rs", include_str!("../../../desktop-ui/src/ui/files.rs")),
-    ("ui/widgets.rs", include_str!("../../../desktop-ui/src/ui/widgets.rs")),
-    ("ui/cards.rs", include_str!("../../../desktop-ui/src/ui/cards.rs")),
-    ("ui/chrome.rs", include_str!("../../../desktop-ui/src/ui/chrome.rs")),
-    ("ui/home.rs", include_str!("../../../desktop-ui/src/ui/home.rs")),
-    ("ui/demo.rs", include_str!("../../../desktop-ui/src/ui/demo.rs")),
-    ("ui/library.rs", include_str!("../../../desktop-ui/src/ui/library.rs")),
-    ("ui/pages.rs", include_str!("../../../desktop-ui/src/ui/pages.rs")),
-    ("ui/pcs.rs", include_str!("../../../desktop-ui/src/ui/pcs.rs")),
-    ("ui/game.rs", include_str!("../../../desktop-ui/src/ui/game.rs")),
-    ("ui/first_run.rs", include_str!("../../../desktop-ui/src/ui/first_run.rs")),
-    ("ui/settings.rs", include_str!("../../../desktop-ui/src/ui/settings.rs")),
-    ("ui/dialogs.rs", include_str!("../../../desktop-ui/src/ui/dialogs.rs")),
-    ("ui/launch_scene.rs", include_str!("../../../desktop-ui/src/ui/launch_scene.rs")),
-    ("host_page.rs", include_str!("../../../desktop-ui/src/host_page.rs")),
-    ("folders_page.rs", include_str!("../../../desktop-ui/src/folders_page.rs")),
-    ("coop_page.rs", include_str!("../../../desktop-ui/src/coop_page.rs")),
-    ("neural_page.rs", include_str!("../../../desktop-ui/src/neural_page.rs")),
-    ("session_ui.rs", include_str!("../../../desktop-ui/src/session_ui.rs")),
-    ("session_page.rs", include_str!("../../../desktop-ui/src/session_page.rs")),
-    ("page_hosts.rs", include_str!("../../../desktop/src/page_hosts.rs")),
-    ("main.rs", include_str!("../../../desktop/src/main.rs")),
-    ("app.rs", include_str!("../../../desktop/src/app.rs")),
-    ("app/launcher.rs", include_str!("../../../desktop/src/app/launcher.rs")),
-    ("app/command.rs", include_str!("../../../desktop/src/app/command.rs")),
-    ("app/renderer.rs", include_str!("../../../desktop/src/app/renderer.rs")),
-    ("app/launch.rs", include_str!("../../../desktop/src/app/launch.rs")),
-    ("app/session.rs", include_str!("../../../desktop/src/app/session.rs")),
-    ("app/overlay.rs", include_str!("../../../desktop/src/app/overlay.rs")),
-    ("stream_overlay_widgets.rs", include_str!("../../../desktop-ui/src/stream_overlay_widgets.rs")),
-    ("console.rs", include_str!("../../../desktop-ui/src/console.rs")),
-    ("hosts_model.rs", include_str!("../../../desktop-ui/src/hosts_model.rs")),
-    ("hosts.rs", include_str!("../../../desktop/src/hosts.rs")),
-    ("hosts/covers.rs", include_str!("../../../desktop/src/hosts/covers.rs")),
-    ("hosts/events.rs", include_str!("../../../desktop/src/hosts/events.rs")),
-    ("hosts/native.rs", include_str!("../../../desktop/src/hosts/native.rs")),
-    ("hosts/pairing.rs", include_str!("../../../desktop/src/hosts/pairing.rs")),
-    ("hosts/power.rs", include_str!("../../../desktop/src/hosts/power.rs")),
-    ("config.rs", include_str!("../config.rs")),
-    ("shortcuts.rs", include_str!("../shortcuts.rs")),
-    ("radeon.rs", include_str!("../../../desktop-ui/src/radeon.rs")),
-    ("gamepad.rs", include_str!("../../../desktop-media/src/gamepad.rs")),
-    ("usb.rs", include_str!("../../../desktop-media/src/usb.rs")),
-    ("usb_linux.rs", include_str!("../../../desktop-media/src/usb_linux.rs")),
-    ("stream/doctor.rs", include_str!("../../../desktop-media/src/stream/doctor.rs")),
-    ("update_banner.rs", include_str!("../../../desktop-ui/src/update_banner.rs")),
-    ("update_check.rs", include_str!("../../../desktop/src/update_check.rs")),
-    ("pin_ui.rs", include_str!("../../../desktop-ui/src/pin_ui.rs")),
-    ("ui/help.rs", include_str!("../../../desktop-ui/src/ui/help.rs")),
-    ("menu_style.rs", include_str!("../../../desktop-ui/src/menu_style.rs")),
-    ("stream_menu.rs", include_str!("../../../desktop-ui/src/stream_menu.rs")),
-    ("ui/about.rs", include_str!("../../../desktop-ui/src/ui/about.rs")),
-    ("ui/latency_bench.rs", include_str!("../../../desktop-ui/src/ui/latency_bench.rs")),
-];
-
-/// Read for its marked texts and its toasts only: the stream code keeps its own overlay lines.
-const MARKED_ONLY: [(&str, &str); 25] = [
-    ("glyphs.rs", include_str!("../../../desktop-ui/src/glyphs.rs")),
-    ("stream_types.rs", include_str!("../stream_types.rs")),
-    ("latency_bench_state.rs", include_str!("../latency_bench_state.rs")),
-    ("power_types.rs", include_str!("../power_types.rs")),
-    ("network_test_ui.rs", include_str!("../../../desktop-ui/src/network_test.rs")),
-    ("network_test.rs", include_str!("../../../desktop/src/network_test.rs")),
-    ("latency_bench.rs", include_str!("../../../desktop-media/src/latency_bench.rs")),
-    ("gpu_adapters.rs", include_str!("../../../desktop-media/src/gpu_adapters.rs")),
-    ("linux_diagnosis.rs", include_str!("../../../desktop-media/src/linux_diagnosis.rs")),
-    ("power.rs", include_str!("../../../desktop/src/power.rs")),
-    ("stream/mod.rs", include_str!("../../../desktop-media/src/stream/mod.rs")),
-    ("stream/negotiate.rs", include_str!("../../../desktop-media/src/stream/negotiate.rs")),
-    ("stream/connect.rs", include_str!("../../../desktop-media/src/stream/connect.rs")),
-    ("stream/stats.rs", include_str!("../../../desktop-media/src/stream/stats.rs")),
-    ("stream/input.rs", include_str!("../../../desktop-media/src/stream/input.rs")),
-    ("stream/render.rs", include_str!("../../../desktop-media/src/stream/render.rs")),
-    ("stream/notices.rs", include_str!("../../../desktop-media/src/stream/notices.rs")),
-    ("stream/menu_extras.rs", include_str!("../../../desktop-media/src/stream/menu_extras.rs")),
-    ("stream/guests.rs", include_str!("../../../desktop-media/src/stream/guests.rs")),
-    ("stream/microphone.rs", include_str!("../../../desktop-media/src/stream/microphone.rs")),
-    ("stream/rate_change.rs", include_str!("../../../desktop-media/src/stream/rate_change.rs")),
-    ("stream/clipboard_sync.rs", include_str!("../../../desktop-media/src/stream/clipboard_sync.rs")),
-    ("stream/frame_warp.rs", include_str!("../../../desktop-media/src/stream/frame_warp.rs")),
-    ("stream/touchpad.rs", include_str!("../../../desktop-media/src/stream/touchpad.rs")),
-    ("stream/pipeline.rs", include_str!("../../../desktop-media/src/stream/pipeline.rs")),
-];
+mod sources;
+use sources::{MARKED_ONLY, SOURCES};
 
 /// The source before its test module: a `#[cfg(test)]` on a single item (a test-only helper)
 /// does not end it, or the production code after the helper would go unscanned.
@@ -539,7 +449,7 @@ fn no_shown_text_says_experimental_in_any_language() {
     }
     let shown = |file: &str, text: &str| marked().iter().any(|m| m.file == file && m.text == text);
     for (file, text) in [("app/overlay.rs", "Send image to PC"), ("app/overlay.rs", "Copy PC image here"), ("ui/pages.rs", "Shared folders"),
-        ("ui/settings.rs", "Sharper colored text"), ("ui/pages.rs", "Co-op"), ("ui/settings.rs", "Keep streaming when the network changes"), ("ui/settings.rs", "Forward USB devices")]
+        ("ui/settings/video_sections.rs", "Sharper colored text"), ("ui/pages.rs", "Co-op"), ("ui/settings/controls_sections.rs", "Keep streaming when the network changes"), ("ui/settings/controls_sections.rs", "Forward USB devices")]
     {
         assert!(shown(file, text), "{file} shows {text:?}");
     }

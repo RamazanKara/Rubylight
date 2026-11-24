@@ -39,7 +39,7 @@ use ash::vk;
 use sdl3_sys::everything::*;
 
 #[cfg(target_os = "linux")]
-use crate::media::ffi::{av_frame_clone, av_frame_unref, AVBufferRef, AVFrame};
+use crate::media::ffi::{av_frame_clone, av_frame_free, av_frame_unref, AVBufferRef, AVFrame};
 #[cfg(any(target_os = "linux", test))]
 use crate::media::ffi::{AVHWFramesContext, AV_PIX_FMT_VULKAN};
 #[cfg(test)]

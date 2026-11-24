@@ -10,14 +10,10 @@ import android.view.View;
 import android.view.animation.AnimationUtils;
 
 import com.limelight.binding.input.LayoutGamepad;
-import com.limelight.binding.input.LayoutStick;
-import com.limelight.binding.input.MouseDeltaAccumulator;
 import com.limelight.binding.input.TouchLayout;
-import com.limelight.binding.input.touch.PointerAcceleration;
-import com.limelight.binding.input.SteamControls;
-import com.limelight.nvstream.jni.MoonBridge;
-import com.limelight.nvstream.input.MouseButtonPacket;
 import com.limelight.ui.Haptics;
+
+import java.util.Arrays;
 
 /**
  * One control of the modern on-screen controller. Each control is its own view so a finger that
@@ -32,77 +28,33 @@ import com.limelight.ui.Haptics;
 @SuppressLint("ViewConstructor") // Created by ModernController for one control.
 final class PadControlView extends View {
     private static final int MAX_POINTERS = 4;
-
-    final PadLayout.Control control;
-    private final PadPainter painter;
-    private final LayoutGamepad gamepad;
-    private final Runnable changed;
-    private final PadPainter.State state = new PadPainter.State();
-    private LayoutStick stick;
-    private final int[] pointerIds = new int[MAX_POINTERS], pointerFlags = new int[MAX_POINTERS];
-    private int stickPointer = -1;
-    // A stick tap (short, barely pushed) arms its click for the next touch; a flick does not.
-    private long stickReleasedAt, stickDownAt;
-    private float stickPush;
-    private boolean stickClick, haptics = true, stickTouch;
-    private float restingAlpha = 1;
-    /** A stick's knob, drawn in a larger view of its own; null for every other control. */
-    private final KnobLayer knobLayer;
-    /** The keys the WASD stick holds; null for every other control. */
-    private final WasdKeys wasd;
-    /** Where a trackpad's touches go; the trackpads send nothing without one. */
-    private ModernController.TouchSink touchSink;
-    /** A trackpad tap in the making: when the finger went down, and how far it has travelled since. */
-    private long padDownAt;
-    /** A tapped trackpad's click is held and its touch not yet ended; where the finger was. */
-    private boolean padClickPending;
-    private float padClickX, padClickY;
-    private final Runnable padClickRelease = this::finishPadClick;
-    private float padTravel, padLastX, padLastY;
-    /** The split cluster this control is a member of; null for every other control. */
-    private Group group;
-    /** The layer under the controls that draws a press's halo past this control's edge; null without one. */
-    private View haloLayer;
-    /** The parts held at the last look ({@link PadPainter#heldParts}), and when each let go while easing back, else 0. */
-    private int heldParts;
-    private final long[] releasedAt = new long[PadPainter.PARTS];
-    private final Runnable easing = this::ease;
-
-    /** Where the pointer touchpad's mouse movement, clicks and scrolls go; it sends nothing without one. */
-    private ModernController.PointerSink pointerSink;
-    private PadPointerMotion pointerMotion;
-    private boolean pointerCamera;
-    private MouseDeltaAccumulator scrollV = new MouseDeltaAccumulator(), scrollH = new MouseDeltaAccumulator();
-    private final int[] pointerDelta = new int[2];
-    private final float density;
-    private static final float SCROLL_DP_PER_NOTCH = 24, SCROLL_UNITS_PER_NOTCH = 120, HORIZONTAL_SCROLL_RATIO = .5f;
-    private static final int CAMERA_TICK_MS = 16;
     /**
      * How long a tapped trackpad's click is held, finger still on the pad, before it releases and the
      * touch ends: a little over the classic controller's 25 ms first resend, so one report carries
      * the press alone. The OSC has no other tap or hold constant to reuse.
      */
     static final long PAD_CLICK_HOLD_MS = 40;
-    private long pointerTickNs;
-    private float pointerTravel;
-    private final float[] pointerLastX = new float[2], pointerLastY = new float[2];
-    private final long[] pointerDownAt = new long[2];
-    private boolean pointerScrolled, pointerSecondDown, pointerTap;
-    /** The event time of the move being handled, in nanoseconds; the pointer touchpad's smoothing needs it. */
-    private long touchTimeNs;
-    private final Runnable cameraTick = new Runnable() {
-        @Override
-        public void run() {
-            if (pointerMotion == null || !pointerCamera) return;
-            long now = System.nanoTime();
-            pointerMotion.tick(now - pointerTickNs);
-            pointerTickNs = now;
-            int slot = slot();
-            gamepad.setStick(slot, TouchLayout.RIGHT, pointerMotion.cameraX(), pointerMotion.cameraY());
-            changed.run();
-            if (pointerMotion.cameraMagnitude() > PadPointerMotion.CAMERA_STOP) postDelayed(this, CAMERA_TICK_MS);
-        }
-    };
+    /** The alpha a press raises a faint, but visible, control to. */
+    static final float PRESSED_ALPHA = .6f;
+
+    final PadLayout.Control control;
+    private final PadPainter painter;
+    private final LayoutGamepad gamepad;
+    private final Runnable changed;
+    private final PadPainter.State state = new PadPainter.State();
+    private final int[] pointerIds = new int[MAX_POINTERS], pointerFlags = new int[MAX_POINTERS];
+    private final float density;
+    private boolean haptics = true;
+    /** A stick's knob, drawn in a larger view of its own; null for every other control. */
+    private final KnobLayer knobLayer;
+    private final PadPressAnimator animator;
+    private final PadStickHandler stickHandler;
+    private final PadTrackpadHandler trackpadHandler;
+    private final PadPointerHandler pointerHandler;
+    /** Kept on this view so {@link PadPointerHandler} and tests share the same motion model field. */
+    PadPointerMotion pointerMotion;
+    /** The split cluster this control is a member of; null for every other control. */
+    private Group group;
 
     PadControlView(Context context, PadLayout.Control control, PadPainter painter, LayoutGamepad gamepad,
                    Runnable changed, WasdKeys.Keys keys) {
@@ -114,10 +66,12 @@ final class PadControlView extends View {
         density = context.getResources().getDisplayMetrics().density;
         setFocusable(false);
         setHapticFeedbackEnabled(true);
-        java.util.Arrays.fill(pointerIds, -1);
-        configureStick(true, .08f);
+        Arrays.fill(pointerIds, -1);
         knobLayer = control.shape == PadLayout.Shape.STICK ? new KnobLayer(context, this) : null;
-        wasd = control == PadLayout.Control.WASD ? new WasdKeys(keys) : null;
+        animator = new PadPressAnimator(this, painter, state);
+        stickHandler = control.shape == PadLayout.Shape.STICK ? new PadStickHandler(this, keys) : null;
+        trackpadHandler = control.shape == PadLayout.Shape.PAD ? new PadTrackpadHandler(this) : null;
+        pointerHandler = control.shape == PadLayout.Shape.TOUCHPAD ? new PadPointerHandler(this) : null;
     }
 
     /**
@@ -179,7 +133,7 @@ final class PadControlView extends View {
             long now = AnimationUtils.currentAnimationTimeMillis();
             boolean running = false;
             for (PadControlView view : controls) {
-                if (view.getVisibility() != VISIBLE || view.restingAlpha <= 0) continue;
+                if (view.getVisibility() != VISIBLE || view.animator.restingAlpha() <= 0) continue;
                 // The controls are this layer's siblings, laid out in the same frame.
                 running |= painter.drawHalo(canvas, view.control, view.getLeft() - getLeft(), view.getTop() - getTop(),
                         view.getWidth(), view.getHeight(), view.state, view.getAlpha(), now);
@@ -196,7 +150,7 @@ final class PadControlView extends View {
 
     /** Where this control's press halo draws ({@link HaloLayer}). */
     void setHaloLayer(View haloLayer) {
-        this.haloLayer = haloLayer;
+        animator.setHaloLayer(haloLayer);
     }
 
     /** The knob's own view for a stick, to add above the controls; null for other controls. */
@@ -215,7 +169,7 @@ final class PadControlView extends View {
         if (knobLayer != null) knobLayer.setVisibility(visibility);
         // A hidden member takes no input, also from a finger that slid onto it from another member.
         if (group != null && visibility != VISIBLE) group.update(null);
-        if (haloLayer != null) haloLayer.invalidate();
+        animator.invalidateHalo();
     }
 
     /**
@@ -303,12 +257,12 @@ final class PadControlView extends View {
     }
 
     void configureStick(boolean floating, float deadzone) {
-        stick = new LayoutStick(floating, Math.max(0, Math.min(.9f, deadzone)));
+        if (stickHandler != null) stickHandler.configure(floating, deadzone);
     }
 
     /** With the Steam Controller controls, a finger on an analog stick also touches that controller's stick. */
     void setStickTouch(boolean stickTouch) {
-        this.stickTouch = stickTouch;
+        if (stickHandler != null) stickHandler.setStickTouch(stickTouch);
     }
 
     void setHaptics(boolean haptics) {
@@ -316,7 +270,7 @@ final class PadControlView extends View {
     }
 
     void setTouchSink(ModernController.TouchSink touchSink) {
-        this.touchSink = touchSink;
+        if (trackpadHandler != null) trackpadHandler.setTouchSink(touchSink);
     }
 
     /**
@@ -324,15 +278,14 @@ final class PadControlView extends View {
      * {@code speedPercent} is the Trackpad speed setting, which sets how far a swipe turns the camera.
      */
     void configurePointer(boolean camera, String curve, int speedPercent) {
-        pointerCamera = camera;
-        pointerMotion = new PadPointerMotion(PointerAcceleration.forCurve(curve), speedPercent);
+        if (pointerHandler != null) pointerHandler.configure(camera, curve, speedPercent);
         // The pad itself says which it does, so a glance tells the Camera mode from the Mouse one.
         state.label = control == PadLayout.Control.POINTER_PAD ? painter.pointerLabel(camera) : "";
         redraw();
     }
 
     void setPointerSink(ModernController.PointerSink sink) {
-        pointerSink = sink;
+        if (pointerHandler != null) pointerHandler.setSink(sink);
     }
 
     /**
@@ -341,12 +294,8 @@ final class PadControlView extends View {
      * draws nothing, not the control, a stick's knob, a touchpad's finger nor the pressed amber.
      */
     void setRestingAlpha(float alpha) {
-        restingAlpha = alpha;
-        applyAlpha();
+        animator.setRestingAlpha(alpha);
     }
-
-    /** The alpha a press raises a faint, but visible, control to. */
-    static final float PRESSED_ALPHA = .6f;
 
     /**
      * The alpha for a control at rest at {@code resting}, pressed in by {@code level}: 1 while held, easing back to 0
@@ -357,109 +306,44 @@ final class PadControlView extends View {
         return resting + (Math.max(resting, PRESSED_ALPHA) - resting) * Math.max(0, Math.min(1, level));
     }
 
-    private void applyAlpha() {
-        trackPress();
-        showAlpha();
-    }
-
-    private void showAlpha() {
-        boolean active = state.flags != 0 || state.pressed || state.stickActive;
-        float alpha = alpha(restingAlpha, active ? 1 : easingLevel());
-        setAlpha(alpha);
-        if (knobLayer != null) knobLayer.setAlpha(alpha);
-    }
-
-    /** The deepest press still easing back, or 0. */
-    private float easingLevel() {
-        float level = 0;
-        for (int i = 0; i < PadPainter.PARTS; i++) {
-            if (releasedAt[i] != 0) level = Math.max(level, state.press[i]);
-        }
-        return level;
-    }
-
-    /**
-     * Follows which parts are held: a part going down shows pressed at once and rings, a part let go eases back over
-     * the next frames ({@link #ease}). At opacity 0 a part only goes in and out, as nothing of it is drawn.
-     */
-    private void trackPress() {
-        int held = PadPainter.heldParts(control, state, painter.facesSwapped());
-        if (held == heldParts) return;
-        long now = AnimationUtils.currentAnimationTimeMillis();
-        boolean visible = restingAlpha > 0, letGo = false;
-        for (int i = 0; i < PadPainter.PARTS; i++) {
-            boolean on = (held & 1 << i) != 0, was = (heldParts & 1 << i) != 0;
-            if (on) {
-                state.press[i] = 1;
-                releasedAt[i] = 0;
-                if (!was) state.pressedAt[i] = visible ? now : 0;
-            } else if (was && visible) {
-                releasedAt[i] = now;
-                letGo = true;
-            } else if (was) {
-                state.press[i] = 0;
-            }
-        }
-        heldParts = held;
-        if (letGo) {
-            removeCallbacks(easing);
-            postOnAnimation(easing);
-        }
-        if (haloLayer != null) haloLayer.invalidate();
-    }
-
-    /** One frame of the let-go parts easing back; it comes again until all of them are out. */
-    private void ease() {
-        long now = AnimationUtils.currentAnimationTimeMillis();
-        boolean running = false;
-        for (int i = 0; i < PadPainter.PARTS; i++) {
-            if (releasedAt[i] == 0) continue;
-            float level = PadPainter.easeBack(now - releasedAt[i]);
-            state.press[i] = level;
-            if (level <= 0) {
-                releasedAt[i] = 0;
-            } else {
-                running = true;
-            }
-        }
-        showAlpha();
-        redraw();
-        if (haloLayer != null) haloLayer.invalidate();
-        if (running) postOnAnimation(easing);
-    }
-
-    /** Drops every easing press at once: input was taken away, so nothing lingers. What is still held stays. */
-    private void stopEasing() {
-        removeCallbacks(easing);
-        java.util.Arrays.fill(releasedAt, 0);
-        heldParts = PadPainter.heldParts(control, state, painter.facesSwapped());
-        for (int i = 0; i < PadPainter.PARTS; i++) {
-            boolean on = (heldParts & 1 << i) != 0;
-            state.press[i] = on ? 1 : 0;
-            if (!on) state.pressedAt[i] = 0;
-        }
-        showAlpha();
-        if (haloLayer != null) haloLayer.invalidate();
+    void applyAlpha() {
+        animator.applyAlpha();
     }
 
     @Override
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
-        removeCallbacks(easing);
-        finishPadClick();
+        animator.detach();
+        if (trackpadHandler != null) trackpadHandler.finishPadClick();
     }
 
-    private void redraw() {
+    void redraw() {
         invalidate();
         if (knobLayer != null) knobLayer.invalidate();
     }
 
-    private int slot() {
+    LayoutGamepad gamepad() {
+        return gamepad;
+    }
+
+    int slot() {
         return control.ordinal();
     }
 
-    private float size() {
+    float size() {
         return Math.min(getWidth(), getHeight());
+    }
+
+    float density() {
+        return density;
+    }
+
+    boolean hapticsEnabled() {
+        return haptics;
+    }
+
+    void clickHaptic() {
+        if (haptics) Haptics.perform(this, Haptics.Kind.CLICK);
     }
 
     @Override
@@ -471,15 +355,15 @@ final class PadControlView extends View {
             painter.draw(canvas, control, 0, 0, getWidth(), getHeight(), state);
         }
         // A touchpad's trail fades over the next frames, also once the finger lifts.
-        if (restingAlpha > 0 && state.trailShows(state.now)) postInvalidateOnAnimation();
+        if (animator.restingAlpha() > 0 && state.trailShows(state.now)) postInvalidateOnAnimation();
     }
 
     /** A touchpad finger at ({@code x}, {@code y}); {@code first} starts a new trail behind it. */
-    private void touchAt(float x, float y, boolean first) {
+    void touchAt(float x, float y, boolean first) {
         state.touchX = x;
         state.touchY = y;
         if (first) state.trailStart = state.trailCount = 0;
-        if (restingAlpha > 0) state.trail(x, y, AnimationUtils.currentAnimationTimeMillis());
+        if (animator.restingAlpha() > 0) state.trail(x, y, AnimationUtils.currentAnimationTimeMillis());
     }
 
     @SuppressLint("ClickableViewAccessibility") // A gamepad control, not a click target.
@@ -489,7 +373,6 @@ final class PadControlView extends View {
             case MotionEvent.ACTION_DOWN:
             case MotionEvent.ACTION_POINTER_DOWN: {
                 int index = event.getActionIndex();
-                touchTimeNs = eventTimeNs(event, -1);
                 down(event.getPointerId(index), event.getX(index), event.getY(index), event.getEventTime());
                 break;
             }
@@ -507,9 +390,9 @@ final class PadControlView extends View {
                 }
                 // Each sample is stamped with its own event time, not the time it happened to be dispatched: the gap
                 // between them is the finger's speed, and a late frame must not read as a slower one.
-                touchTimeNs = eventTimeNs(event, -1);
+                long timeNs = eventTimeNs(event, -1);
                 for (int i = 0; i < event.getPointerCount(); i++) {
-                    move(event.getPointerId(i), event.getX(i), event.getY(i), touchTimeNs);
+                    move(event.getPointerId(i), event.getX(i), event.getY(i), timeNs);
                 }
                 break;
             case MotionEvent.ACTION_UP:
@@ -536,18 +419,7 @@ final class PadControlView extends View {
         }
         switch (control.shape) {
             case STICK:
-                if (stickPointer >= 0) return;
-                stickPointer = pointer;
-                stick.down(x, y, getWidth(), getHeight(), PadPainter.travel(size()));
-                stickClick = PadInput.stickClick(stickReleasedAt, time);
-                stickDownAt = time;
-                stickPush = 0;
-                state.stickActive = true;
-                state.centerX = stick.centerX();
-                state.centerY = stick.centerY();
-                // The WASD stick answers when a key goes down, in updateStick, not on touch.
-                if (wasd == null) feedback(HapticFeedbackConstants.VIRTUAL_KEY);
-                updateStick();
+                stickHandler.down(pointer, x, y, time);
                 break;
             case FACE:
             case DPAD: {
@@ -559,49 +431,10 @@ final class PadControlView extends View {
                 break;
             }
             case PAD:
-                // One finger per pad, as on the controller.
-                if (state.pressed) return;
-                finishPadClick();
-                pointerIds[0] = pointer;
-                state.pressed = true;
-                padDownAt = time;
-                padTravel = 0;
-                padLastX = x;
-                padLastY = y;
-                padTouch(MoonBridge.LI_TOUCH_EVENT_DOWN, x, y);
-                applyAlpha();
-                redraw();
+                trackpadHandler.down(pointer, x, y, time);
                 break;
             case TOUCHPAD:
-                if (!state.pressed) {
-                    // The first finger: a new gesture, from where it landed.
-                    pointerIds[0] = pointer;
-                    pointerIds[1] = -1;
-                    state.pressed = true;
-                    pointerDownAt[0] = time;
-                    pointerTravel = 0;
-                    pointerScrolled = pointerSecondDown = pointerTap = false;
-                    pointerLastX[0] = x;
-                    pointerLastY[0] = y;
-                    if (pointerMotion != null) pointerMotion.reset();
-                    removeCallbacks(cameraTick);
-                    touchAt(x, y, true);
-                    applyAlpha();
-                    redraw();
-                } else if (pointerIds[1] < 0) {
-                    // A second finger turns the gesture into scroll or right-click; the pointer stops where it was.
-                    pointerIds[1] = pointer;
-                    pointerSecondDown = true;
-                    pointerDownAt[1] = time;
-                    pointerLastX[1] = x;
-                    pointerLastY[1] = y;
-                    removeCallbacks(cameraTick);
-                    if (pointerCamera && pointerMotion != null) {
-                        pointerMotion.stopCamera();
-                        gamepad.setStick(slot(), TouchLayout.RIGHT, 0, 0);
-                        changed.run();
-                    }
-                }
+                pointerHandler.down(pointer, x, y, time);
                 break;
             default:
                 if (PadInput.latches(control)) {
@@ -642,7 +475,6 @@ final class PadControlView extends View {
     }
 
     void move(int pointer, float x, float y, long eventTimeNs) {
-        touchTimeNs = eventTimeNs;
         if (group != null) {
             int index = slotFor(pointer);
             if (index >= 0) memberMove(index, x, y);
@@ -650,9 +482,7 @@ final class PadControlView extends View {
         }
         switch (control.shape) {
             case STICK:
-                if (pointer != stickPointer) return;
-                stick.move(x, y);
-                updateStick();
+                stickHandler.move(pointer, x, y);
                 break;
             case FACE:
             case DPAD: {
@@ -674,51 +504,11 @@ final class PadControlView extends View {
                 break;
             }
             case PAD:
-                if (!state.pressed || pointer != pointerIds[0]) return;
-                padTravel += (float) Math.hypot(x - padLastX, y - padLastY);
-                padLastX = x;
-                padLastY = y;
-                padTouch(MoonBridge.LI_TOUCH_EVENT_MOVE, x, y);
-                redraw();
+                trackpadHandler.move(pointer, x, y);
                 break;
-            case TOUCHPAD: {
-                int pointerSlot = pointer == pointerIds[0] ? 0 : pointerIds[1] >= 0 && pointer == pointerIds[1] ? 1 : -1;
-                if (pointerSlot < 0) return;
-                // The centroid travels with the fingers: each contributes its share, so two fingers moving
-                // together scroll once rather than twice, and a finger left after a lift scrolls at its own pace.
-                int fingers = (pointerIds[0] >= 0 ? 1 : 0) + (pointerIds[1] >= 0 ? 1 : 0);
-                float dx = (x - pointerLastX[pointerSlot]) / fingers, dy = (y - pointerLastY[pointerSlot]) / fingers;
-                pointerLastX[pointerSlot] = x;
-                pointerLastY[pointerSlot] = y;
-                pointerTravel += (float) Math.hypot(dx, dy);
-                if (pointerSecondDown) {
-                    // Scrolling starts only past the tap slop, so a two-finger tap with a small drift stays a
-                    // tap and never both scrolls and clicks right; two fingers scroll; neither moves the
-                    // pointer, even after one lifts.
-                    if (!pointerScrolled && pointerTravel > PadInput.TOUCHPAD_TAP_SLOP_DP * density) {
-                        pointerScrolled = true;
-                        pointerTap = false;
-                    }
-                    if (pointerScrolled) scrollBy(dx, dy);
-                    redraw();
-                } else if (pointerSlot == 0) {
-                    touchAt(x, y, false);
-                    if (pointerMotion != null) {
-                        pointerMotion.move(dx, dy, touchTimeNs, density, pointerDelta);
-                        if (pointerCamera) {
-                            pointerTickNs = System.nanoTime();
-                            gamepad.setStick(slot(), TouchLayout.RIGHT, pointerMotion.cameraX(), pointerMotion.cameraY());
-                            changed.run();
-                            removeCallbacks(cameraTick);
-                            postDelayed(cameraTick, CAMERA_TICK_MS);
-                        } else if (pointerDelta[0] != 0 || pointerDelta[1] != 0) {
-                            if (pointerSink != null) pointerSink.move(pointerDelta[0], pointerDelta[1]);
-                        }
-                    }
-                    redraw();
-                }
+            case TOUCHPAD:
+                pointerHandler.move(pointer, x, y, eventTimeNs);
                 break;
-            }
             default:
                 break;
         }
@@ -735,15 +525,7 @@ final class PadControlView extends View {
         }
         switch (control.shape) {
             case STICK:
-                if (pointer != stickPointer) return;
-                stickPointer = -1;
-                stickReleasedAt = !stickClick && PadInput.stickTap(time - stickDownAt, stickPush) ? time : 0;
-                stickClick = false;
-                stick.release();
-                state.stickActive = false;
-                state.centerX = Float.NaN;
-                state.centerY = Float.NaN;
-                updateStick();
+                stickHandler.up(pointer, time);
                 break;
             case FACE:
             case DPAD: {
@@ -755,31 +537,10 @@ final class PadControlView extends View {
                 break;
             }
             case PAD:
-                if (!state.pressed || pointer != pointerIds[0]) return;
-                pointerIds[0] = -1;
-                state.pressed = false;
-                // A tap clicks the pad, as pressing the real one does: short, and the finger stayed
-                // near where it landed, by the pointer touchpad's own thresholds. A drag or a
-                // lingering finger does not. The click goes out with the finger still on the pad
-                // and the touch ends after it, so a click that reads the touch position sees one.
-                if (PadInput.touchpadTap(time - padDownAt, padTravel, density) && PadInput.padClickFlag(control) != 0) {
-                    padClickX = state.touchX;
-                    padClickY = state.touchY;
-                    padClickPending = true;
-                    gamepad.setButtons(slot(), PadInput.padClickFlag(control));
-                    if (haptics) Haptics.perform(this, Haptics.Kind.CLICK);
-                    changed();
-                    postDelayed(padClickRelease, PAD_CLICK_HOLD_MS);
-                } else {
-                    padTouch(MoonBridge.LI_TOUCH_EVENT_UP, state.touchX, state.touchY);
-                }
-                state.touchX = Float.NaN;
-                state.touchY = Float.NaN;
-                applyAlpha();
-                redraw();
+                trackpadHandler.up(pointer, time);
                 break;
             case TOUCHPAD:
-                finishPointerGesture(pointer, time);
+                pointerHandler.up(pointer, time);
                 break;
             default:
                 if (!state.pressed || pointerIds[0] != pointer) return;
@@ -793,39 +554,22 @@ final class PadControlView extends View {
     void release() {
         if (group != null) {
             // Its own fingers let go; a member another member's finger still holds stays held until that one lifts.
-            java.util.Arrays.fill(pointerIds, -1);
-            java.util.Arrays.fill(pointerFlags, 0);
+            Arrays.fill(pointerIds, -1);
+            Arrays.fill(pointerFlags, 0);
             group.update(null);
-            stopEasing();
+            animator.stopEasing();
             redraw();
             return;
         }
-        // A held click ends with its touch, in order, before the rest lets go.
-        finishPadClick();
-        // A pointer touchpad stops at once when input is taken away; nothing can carry on.
-        removeCallbacks(cameraTick);
-        if (control.shape == PadLayout.Shape.TOUCHPAD) {
-            if (pointerCamera) gamepad.setStick(slot(), TouchLayout.RIGHT, 0, 0);
-            pointerSecondDown = pointerScrolled = pointerTap = false;
-            pointerIds[1] = -1;
-            if (pointerMotion != null) pointerMotion.reset();
-            scrollV = new MouseDeltaAccumulator();
-            scrollH = new MouseDeltaAccumulator();
-        }
-        // A trackpad's finger leaves where it last was, as the classic controller's does.
-        if (control.shape == PadLayout.Shape.PAD && state.pressed) {
-            padTouch(MoonBridge.LI_TOUCH_EVENT_CANCEL, state.touchX, state.touchY);
-        }
-        java.util.Arrays.fill(pointerIds, -1);
-        java.util.Arrays.fill(pointerFlags, 0);
-        stickPointer = -1;
-        stickClick = false;
-        stickReleasedAt = 0;
-        padDownAt = 0;
-        stick.release();
+        if (trackpadHandler != null) trackpadHandler.release();
+        if (pointerHandler != null) pointerHandler.release();
+        Arrays.fill(pointerIds, -1);
+        Arrays.fill(pointerFlags, 0);
+        if (stickHandler != null) stickHandler.releaseState();
         boolean was = state.flags != 0 || state.pressed || state.stickActive;
         state.clear();
-        stopEasing();
+        animator.stopEasing();
+        WasdKeys wasd = wasd();
         if (wasd == null) gamepad.setButtons(slot(), 0);
         if (control.shape == PadLayout.Shape.STICK && wasd == null) {
             gamepad.setStick(slot(), control == PadLayout.Control.LEFT_STICK ? TouchLayout.LEFT : TouchLayout.RIGHT, 0, 0);
@@ -843,95 +587,6 @@ final class PadControlView extends View {
         else redraw();
     }
 
-    /** Ends a pointer touchpad touch: a tap clicks, two fingers tap the right button, and a camera push decays. */
-    private void finishPointerGesture(int pointer, long time) {
-        boolean first = pointer == pointerIds[0];
-        boolean second = pointerIds[1] >= 0 && pointer == pointerIds[1];
-        if (!first && !second) return;
-        int slot = first ? 0 : 1;
-        if (first) pointerIds[0] = -1;
-        if (second) pointerIds[1] = -1;
-        // Each finger's own touch decides: short, and staying near where it landed. A finger that lingers
-        // after its partner lifts is not a tap, so it cannot turn a scroll or a long touch into a right click.
-        boolean tap = !pointerScrolled && PadInput.touchpadTap(time - pointerDownAt[slot], pointerTravel, density);
-        if (pointerIds[0] >= 0 || pointerIds[1] >= 0) {
-            // A finger is still down: the right click needs the last lift to be a tap too.
-            pointerTap = tap;
-            return;
-        }
-        if (pointerSecondDown) {
-            if (pointerTap && tap) click(MouseButtonPacket.BUTTON_RIGHT);
-        } else if (tap) {
-            click(MouseButtonPacket.BUTTON_LEFT);
-        }
-        pointerSecondDown = pointerScrolled = pointerTap = false;
-        pointerIds[0] = pointerIds[1] = -1;
-        state.pressed = false;
-        state.touchX = Float.NaN;
-        state.touchY = Float.NaN;
-        scrollV = new MouseDeltaAccumulator();
-        scrollH = new MouseDeltaAccumulator();
-        if (pointerCamera && pointerMotion != null) {
-            // Let go: the camera eases back to the center over the next few frames, not with a jump.
-            pointerTickNs = System.nanoTime();
-            removeCallbacks(cameraTick);
-            postDelayed(cameraTick, CAMERA_TICK_MS);
-        }
-        applyAlpha();
-        redraw();
-    }
-
-    private void click(int button) {
-        if (pointerSink != null) {
-            pointerSink.button(button, true);
-            pointerSink.button(button, false);
-        }
-        if (haptics) Haptics.perform(this, Haptics.Kind.CLICK);
-    }
-
-    /** Two fingers on the pointer touchpad scroll: down moves the wheel down, right moves it right, in whole notches. */
-    private void scrollBy(float dx, float dy) {
-        if (pointerSink == null) return;
-        float unitsPerPixel = SCROLL_UNITS_PER_NOTCH / Math.max(1, SCROLL_DP_PER_NOTCH * density);
-        int vertical = scrollV.scale(dy, unitsPerPixel);
-        int horizontal = scrollH.scale(-dx, unitsPerPixel * HORIZONTAL_SCROLL_RATIO);
-        if (vertical != 0 || horizontal != 0) pointerSink.scroll(vertical, horizontal);
-    }
-
-    /** Sends a finger at ({@code x}, {@code y}) on this trackpad as a touch on its Steam Controller pad. */
-    private void padTouch(byte type, float x, float y) {
-        if (type == MoonBridge.LI_TOUCH_EVENT_DOWN || type == MoonBridge.LI_TOUCH_EVENT_MOVE) {
-            touchAt(x, y, type == MoonBridge.LI_TOUCH_EVENT_DOWN);
-        } else {
-            state.touchX = x;
-            state.touchY = y;
-        }
-        if (touchSink == null) return;
-        int pad = PadInput.steamPad(control);
-        touchSink.touch(type, SteamControls.pointerId(pad), SteamControls.touchX(pad, fraction(x, getWidth())),
-                SteamControls.touchY(fraction(y, getHeight())), SteamControls.PAD_TOUCH_PRESSURE);
-    }
-
-    private static float fraction(float position, int size) {
-        return size > 0 ? position / size : 0f;
-    }
-
-    /**
-     * Ends a tapped pad's click: the release, then the touch's end, so the click went out with the
-     * finger on the pad. The pad's slot holds nothing else, so a resend carries the release as for
-     * any button let go. A no-op when no click is held.
-     */
-    private void finishPadClick() {
-        if (!padClickPending) return;
-        padClickPending = false;
-        removeCallbacks(padClickRelease);
-        gamepad.setButtons(slot(), 0);
-        changed();
-        padTouch(MoonBridge.LI_TOUCH_EVENT_UP, padClickX, padClickY);
-        state.touchX = Float.NaN;
-        state.touchY = Float.NaN;
-    }
-
     private void releaseButton() {
         state.pressed = false;
         if (PadInput.isTrigger(control)) {
@@ -940,44 +595,6 @@ final class PadControlView extends View {
             gamepad.setButtons(slot(), 0);
         }
         changed();
-    }
-
-    private void updateStick() {
-        boolean arcWasDrawn = state.stickX != 0 || state.stickY != 0;
-        state.stickX = stick.x;
-        state.stickY = stick.y;
-        if (wasd != null) {
-            WasdKeys.Feedback entered = wasd.update(stick.x, stick.y);
-            if (haptics && entered != WasdKeys.Feedback.NONE) {
-                Haptics.perform(this, entered == WasdKeys.Feedback.DIAGONAL ? Haptics.Kind.DIAGONAL : Haptics.Kind.DIRECTION);
-            }
-            state.flags = wasd.directions();
-            applyAlpha();
-            redraw();
-            return;
-        }
-        stickPush = Math.max(stickPush, (float) Math.hypot(stick.x, stick.y));
-        int side = control == PadLayout.Control.LEFT_STICK ? TouchLayout.LEFT : TouchLayout.RIGHT;
-        gamepad.setStick(slot(), side, stick.x, stick.y);
-        int flags = stickClick ? PadInput.buttonFlag(control) : 0;
-        if (flags != state.flags && flags != 0) feedback(HapticFeedbackConstants.LONG_PRESS);
-        boolean flagsChanged = flags != state.flags;
-        state.flags = flags;
-        // The touch is held, not pressed: it neither shows nor vibrates, and it goes when the finger lifts.
-        int touch = stickTouch && stickPointer >= 0 ? PadInput.stickTouchFlag(control) : 0;
-        gamepad.setButtons(slot(), flags | touch);
-        stickMoved(flagsChanged, arcWasDrawn);
-    }
-
-    /**
-     * A stick moved. The knob redraws on every move. The base also draws the amber arc from the stick
-     * position, so it redraws only when that arc was or is drawn, or when the buttons it shows changed.
-     */
-    private void stickMoved(boolean flagsChanged, boolean arcWasDrawn) {
-        applyAlpha();
-        if (baseNeedsRedraw(flagsChanged, arcWasDrawn, state.stickX != 0 || state.stickY != 0)) invalidate();
-        if (knobLayer != null) knobLayer.invalidate();
-        changed.run();
     }
 
     /** Whether the base view must redraw: its glass and rim follow the state, its arc follows the stick push. */
@@ -1002,19 +619,23 @@ final class PadControlView extends View {
         return -1;
     }
 
-    private void changed() {
+    void changed() {
         applyAlpha();
         redraw();
         changed.run();
     }
 
-    private void feedback(int constant) {
+    void notifyGamepadChanged() {
+        changed.run();
+    }
+
+    void feedback(int constant) {
         if (haptics) performHapticFeedback(constant);
     }
 
     /** The WASD stick's keys; null for every other control. */
     WasdKeys wasd() {
-        return wasd;
+        return stickHandler != null ? stickHandler.wasd() : null;
     }
 
     PadPainter.State state() {

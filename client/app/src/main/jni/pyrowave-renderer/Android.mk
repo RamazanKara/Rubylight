@@ -14,7 +14,14 @@ include $(PREBUILT_SHARED_LIBRARY)
 
 include $(CLEAR_VARS)
 LOCAL_MODULE := pyrowave-renderer
-LOCAL_SRC_FILES := pyrowave_renderer.cpp
+LOCAL_SRC_FILES := \
+    pyrowave_device.cpp \
+    pyrowave_hdr_timing.cpp \
+    pyrowave_pipeline.cpp \
+    pyrowave_present.cpp \
+    pyrowave_probe.cpp \
+    pyrowave_renderer.cpp \
+    pyrowave_warp.cpp
 LOCAL_CPPFLAGS := -std=c++17 -Wall -Wextra -Wno-missing-field-initializers -fno-exceptions -fno-rtti
 LOCAL_SHARED_LIBRARIES := pyrowave-shared
 LOCAL_STATIC_LIBRARIES := rubylight-protocol

@@ -16,4 +16,9 @@ Sicher einpassen: wie Einpassen, hält aber Abstand zu Kameraaussparungen und ab
         <item>Mitte</item>
         <item>Oben</item>
     </string-array>
+    <string name="picture_position_title">Bildlage</string>
+    <string name="picture_position_horizontal">Links / rechts</string>
+    <string name="picture_position_vertical">Oben / unten</string>
+    <string name="picture_position_center">Zentrieren</string>
+    <string name="summary_picture_position">Verschiebt das Bild, um eine Kameraaussparung oder gewölbte Bildschirmränder auszugleichen, gespeichert für jeden Bildschirm dieses Geräts. Lass es mittig, solange nichts vom Bild verdeckt ist.</string>
 </resources>

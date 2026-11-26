@@ -20,4 +20,6 @@
     </string-array>
     <string name="stream_orientation_scaled">This PC keeps the stream’s shape while it runs, so the picture is scaled to fit the turned screen.</string>
     <string name="stream_orientation_decoder_limit">This device’s decoder cannot take the turned size, so the stream keeps its shape and is scaled to fit.</string>
+    <string name="stream_flip_screen">Flip screen 180°</string>
+    <string name="stream_flip_unavailable">Screen flip isn’t available in windowed or external-display mode.</string>
 </resources>

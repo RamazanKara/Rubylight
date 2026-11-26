@@ -16,4 +16,9 @@
         <item>居中</item>
         <item>顶部</item>
     </string-array>
+    <string name="picture_position_title">画面位置调整</string>
+    <string name="picture_position_horizontal">左 / 右</string>
+    <string name="picture_position_vertical">上 / 下</string>
+    <string name="picture_position_center">居中</string>
+    <string name="summary_picture_position">移动画面以避开摄像头开孔或曲面屏边缘，按本设备的每块屏幕分别保存。除非画面有部分被遮挡，否则保持居中即可。</string>
 </resources>

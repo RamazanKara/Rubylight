@@ -179,6 +179,7 @@ final class GameStreamUiSetup {
         });
         game.streamView.setOnKeyListener(game);
         game.streamView.setInputCallbacks(game);
+        game.safeArea.attach(game.streamView);
         game.adaptiveLayout = AdaptiveLayout.attach(game, game.findViewById(android.R.id.content));
         game.adaptiveLayout.setInsetsObserver(game.keyboardInput::onWindowInsets);
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {

@@ -16,4 +16,9 @@ Adatta sicuro: come Adatta, ma lontano da fori della fotocamera e angoli arroton
         <item>Centro</item>
         <item>In alto</item>
     </string-array>
+    <string name="picture_position_title">Posizione dell’immagine</string>
+    <string name="picture_position_horizontal">Sinistra / destra</string>
+    <string name="picture_position_vertical">Su / giù</string>
+    <string name="picture_position_center">Centra</string>
+    <string name="summary_picture_position">Sposta l’immagine per compensare un foro della fotocamera o bordi curvi, salvato per ogni schermo di questo dispositivo. Lasciala centrata a meno che una parte dell’immagine sia nascosta.</string>
 </resources>

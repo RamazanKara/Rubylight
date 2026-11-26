@@ -12,4 +12,6 @@
     </string-array>
     <string name="stream_orientation_scaled">Ce PC garde le format du flux pendant la diffusion ; l’image est ajustée à l’écran pivoté.</string>
     <string name="stream_orientation_decoder_limit">Le décodeur de cet appareil ne prend pas en charge la taille pivotée ; le flux garde son format et l’image est ajustée.</string>
+    <string name="stream_flip_screen">Retourner l’écran de 180°</string>
+    <string name="stream_flip_unavailable">Le retournement de l’écran n’est pas disponible en fenêtre ni sur un écran externe.</string>
 </resources>

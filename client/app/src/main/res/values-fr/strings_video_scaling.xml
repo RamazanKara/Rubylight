@@ -16,4 +16,9 @@ Ajustement sûr : comme Ajuster, mais à l’écart des encoches de caméra et d
         <item>Centre</item>
         <item>Haut</item>
     </string-array>
+    <string name="picture_position_title">Position de l’image</string>
+    <string name="picture_position_horizontal">Gauche / droite</string>
+    <string name="picture_position_vertical">Haut / bas</string>
+    <string name="picture_position_center">Centrer</string>
+    <string name="summary_picture_position">Déplace l’image pour compenser une encoche de caméra ou des bords incurvés, enregistré pour chaque écran de cet appareil. Laissez-la centrée sauf si une partie de l’image est masquée.</string>
 </resources>

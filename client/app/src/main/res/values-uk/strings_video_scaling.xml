@@ -16,4 +16,9 @@
         <item>По центру</item>
         <item>Угорі</item>
     </string-array>
+    <string name="picture_position_title">Положення картинки</string>
+    <string name="picture_position_horizontal">Ліворуч / праворуч</string>
+    <string name="picture_position_vertical">Вгору / вниз</string>
+    <string name="picture_position_center">По центру</string>
+    <string name="summary_picture_position">Зсуває картинку, щоб обійти виріз камери або вигнуті краї екрана; зберігається для кожного екрана цього пристрою. Залиште по центру, якщо нічого не приховано.</string>
 </resources>

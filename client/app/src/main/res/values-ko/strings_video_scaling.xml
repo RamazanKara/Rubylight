@@ -16,4 +16,9 @@
         <item>가운데</item>
         <item>위쪽</item>
     </string-array>
+    <string name="picture_position_title">화면 위치 조정</string>
+    <string name="picture_position_horizontal">왼쪽 / 오른쪽</string>
+    <string name="picture_position_vertical">위 / 아래</string>
+    <string name="picture_position_center">가운데로</string>
+    <string name="summary_picture_position">카메라 컷아웃이나 곡면 가장자리에 맞춰 화면을 옮기며, 이 기기의 화면마다 저장됩니다. 화면 일부가 가려지지 않는다면 가운데에 두세요.</string>
 </resources>

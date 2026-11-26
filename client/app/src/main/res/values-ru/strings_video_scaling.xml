@@ -16,4 +16,9 @@
         <item>По центру</item>
         <item>Сверху</item>
     </string-array>
+    <string name="picture_position_title">Положение картинки</string>
+    <string name="picture_position_horizontal">Влево / вправо</string>
+    <string name="picture_position_vertical">Вверх / вниз</string>
+    <string name="picture_position_center">По центру</string>
+    <string name="summary_picture_position">Сдвигает картинку, чтобы обойти вырез камеры или изогнутые края экрана; сохраняется для каждого экрана этого устройства. Оставьте по центру, если ничего не скрыто.</string>
 </resources>

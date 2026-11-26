@@ -356,8 +356,8 @@ final class GameVideoOutput {
         boolean squarish = !freeWindow && !largeScreen &&
                 PreferenceConfiguration.isSquarishScreen(game.getWindowManager().getDefaultDisplay());
         PreferenceConfiguration config = game.prefConfig != null ? game.prefConfig : new PreferenceConfiguration();
-        game.setRequestedOrientation(StreamOrientation.requested(game.streamOrientation, freeWindow, largeScreen, squarish,
-                config.onscreenController, game.keepsRequestedShape, config.width, config.height));
+        game.setRequestedOrientation(game.safeArea.requested(StreamOrientation.requested(game.streamOrientation, freeWindow, largeScreen, squarish,
+                config.onscreenController, game.keepsRequestedShape, config.width, config.height), freeWindow));
     }
 
     // A host that draws the stream on its virtual display starts it in the shape the Orientation

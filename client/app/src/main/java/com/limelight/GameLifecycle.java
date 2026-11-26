@@ -234,6 +234,7 @@ final class GameLifecycle {
 
     void onDestroy() {
         DualScreen.end(game);
+        game.safeArea.detach();
         if (game.nativeMenuThread != null) game.nativeMenuThread.shutdownNow();
         if (game.streamHealthThread != null) game.streamHealthThread.shutdownNow();
         game.stagedExitController.onDestroy();

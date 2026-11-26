@@ -12,4 +12,6 @@
     </string-array>
     <string name="stream_orientation_scaled">PC này giữ nguyên hình dạng luồng khi đang truyền, nên hình ảnh được thu vừa với màn hình đã xoay.</string>
     <string name="stream_orientation_decoder_limit">Bộ giải mã của thiết bị này không hỗ trợ kích thước sau khi xoay, nên luồng giữ nguyên hình dạng và được thu vừa màn hình.</string>
+    <string name="stream_flip_screen">Lật màn hình 180°</string>
+    <string name="stream_flip_unavailable">Không thể lật màn hình khi ở chế độ cửa sổ hoặc màn hình ngoài.</string>
 </resources>

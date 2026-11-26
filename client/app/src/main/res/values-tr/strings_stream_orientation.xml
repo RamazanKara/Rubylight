@@ -12,4 +12,6 @@
     </string-array>
     <string name="stream_orientation_scaled">Bu bilgisayar yayın sürerken biçimini korur; bu yüzden görüntü döndürülmüş ekrana sığacak şekilde ölçeklenir.</string>
     <string name="stream_orientation_decoder_limit">Bu cihazın kod çözücüsü döndürülmüş boyutu desteklemiyor; yayın biçimini korur ve ekrana sığdırılır.</string>
+    <string name="stream_flip_screen">Ekranı 180° çevir</string>
+    <string name="stream_flip_unavailable">Ekran çevirme pencere modunda veya harici ekranda kullanılamaz.</string>
 </resources>

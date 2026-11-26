@@ -16,4 +16,9 @@ Güvenli sığdır: Sığdır gibi, ancak kamera çentiğinden ve yuvarlak köş
         <item>Orta</item>
         <item>Üst</item>
     </string-array>
+    <string name="picture_position_title">Görüntü konumu</string>
+    <string name="picture_position_horizontal">Sol / sağ</string>
+    <string name="picture_position_vertical">Yukarı / aşağı</string>
+    <string name="picture_position_center">Ortala</string>
+    <string name="summary_picture_position">Görüntüyü kamera çentiğini veya kavisli ekran kenarlarını telafi edecek şekilde kaydırır; bu cihazın her ekranı için kaydedilir. Görüntünün bir kısmı gizlenmiyorsa ortada bırakın.</string>
 </resources>

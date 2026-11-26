@@ -12,4 +12,6 @@
     </string-array>
     <string name="stream_orientation_scaled">Questo PC mantiene la forma dello stream finché è attivo, quindi l’immagine viene adattata allo schermo ruotato.</string>
     <string name="stream_orientation_decoder_limit">Il decoder di questo dispositivo non supporta la dimensione ruotata, quindi lo stream mantiene la sua forma e viene adattato.</string>
+    <string name="stream_flip_screen">Capovolgi schermo di 180°</string>
+    <string name="stream_flip_unavailable">Il capovolgimento non è disponibile in finestra o su uno schermo esterno.</string>
 </resources>

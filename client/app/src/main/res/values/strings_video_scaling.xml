@@ -20,4 +20,9 @@ Safe fit: like Fit, but keeps clear of camera cutouts and rounded screen corners
         <item>center</item>
         <item>top</item>
     </string-array>
+    <string name="picture_position_title">Picture position</string>
+    <string name="picture_position_horizontal">Left / right</string>
+    <string name="picture_position_vertical">Up / down</string>
+    <string name="picture_position_center">Center</string>
+    <string name="summary_picture_position">Moves the picture to make up for a camera cutout or curved screen edges, saved for each screen of this device. Leave it centered unless part of the picture is hidden.</string>
 </resources>

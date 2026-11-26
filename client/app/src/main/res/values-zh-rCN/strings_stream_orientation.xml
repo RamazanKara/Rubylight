@@ -12,4 +12,6 @@
     </string-array>
     <string name="stream_orientation_scaled">此电脑在串流期间保持串流形状，因此画面会缩放以适应旋转后的屏幕。</string>
     <string name="stream_orientation_decoder_limit">此设备的解码器不支持旋转后的尺寸，因此串流保持原有形状并适应屏幕。</string>
+    <string name="stream_flip_screen">屏幕翻转 180°</string>
+    <string name="stream_flip_unavailable">窗口模式或外接显示器上无法翻转屏幕。</string>
 </resources>

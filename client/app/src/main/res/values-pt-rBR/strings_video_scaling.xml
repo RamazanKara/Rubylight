@@ -16,4 +16,9 @@ Ajuste seguro: como Ajustar, mas longe de recortes da câmera e cantos arredonda
         <item>Centro</item>
         <item>Topo</item>
     </string-array>
+    <string name="picture_position_title">Posição da imagem</string>
+    <string name="picture_position_horizontal">Esquerda / direita</string>
+    <string name="picture_position_vertical">Cima / baixo</string>
+    <string name="picture_position_center">Centralizar</string>
+    <string name="summary_picture_position">Move a imagem para compensar um recorte da câmera ou bordas curvas, salvo para cada tela deste aparelho. Deixe centralizada, a menos que parte da imagem fique escondida.</string>
 </resources>

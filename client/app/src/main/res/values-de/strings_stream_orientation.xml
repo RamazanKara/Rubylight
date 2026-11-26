@@ -12,4 +12,6 @@
     </string-array>
     <string name="stream_orientation_scaled">Dieser PC behält das Format des Streams, solange er läuft; das Bild wird in den gedrehten Bildschirm eingepasst.</string>
     <string name="stream_orientation_decoder_limit">Der Decoder dieses Geräts kann die gedrehte Größe nicht übernehmen; der Stream behält sein Format und wird eingepasst.</string>
+    <string name="stream_flip_screen">Bildschirm um 180° drehen</string>
+    <string name="stream_flip_unavailable">Drehen ist im Fenster oder auf einem externen Bildschirm nicht verfügbar.</string>
 </resources>

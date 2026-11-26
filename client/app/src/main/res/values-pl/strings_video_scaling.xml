@@ -16,4 +16,9 @@ Bezpieczne dopasowanie: jak Dopasuj, ale z dala od wycięcia aparatu i zaokrągl
         <item>Środek</item>
         <item>Góra</item>
     </string-array>
+    <string name="picture_position_title">Położenie obrazu</string>
+    <string name="picture_position_horizontal">Lewo / prawo</string>
+    <string name="picture_position_vertical">Góra / dół</string>
+    <string name="picture_position_center">Wyśrodkuj</string>
+    <string name="summary_picture_position">Przesuwa obraz, aby wyrównać wycięcie aparatu lub zakrzywione krawędzie; zapisywane osobno dla każdego ekranu tego urządzenia. Zostaw na środku, chyba że część obrazu jest zasłonięta.</string>
 </resources>

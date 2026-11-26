@@ -12,4 +12,6 @@
     </string-array>
     <string name="stream_orientation_scaled">Этот ПК сохраняет форму трансляции, пока она идёт, поэтому изображение вписывается в повёрнутый экран.</string>
     <string name="stream_orientation_decoder_limit">Декодер этого устройства не поддерживает повёрнутый размер, поэтому трансляция сохраняет форму и вписывается в экран.</string>
+    <string name="stream_flip_screen">Перевернуть экран на 180°</string>
+    <string name="stream_flip_unavailable">Переворот экрана недоступен в окне и на внешнем дисплее.</string>
 </resources>

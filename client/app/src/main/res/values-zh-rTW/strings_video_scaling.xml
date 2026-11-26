@@ -16,4 +16,9 @@
         <item>置中</item>
         <item>頂端</item>
     </string-array>
+    <string name="picture_position_title">畫面位置調整</string>
+    <string name="picture_position_horizontal">左 / 右</string>
+    <string name="picture_position_vertical">上 / 下</string>
+    <string name="picture_position_center">置中</string>
+    <string name="summary_picture_position">移動畫面以避開相機開孔或曲面螢幕邊緣，依本裝置的每個螢幕分別儲存。除非畫面有部分被遮住，否則維持置中即可。</string>
 </resources>

@@ -16,4 +16,9 @@ Vừa vùng an toàn: như Vừa màn hình, nhưng tránh phần khuyết camer
         <item>Giữa</item>
         <item>Trên cùng</item>
     </string-array>
+    <string name="picture_position_title">Vị trí hình</string>
+    <string name="picture_position_horizontal">Trái / phải</string>
+    <string name="picture_position_vertical">Lên / xuống</string>
+    <string name="picture_position_center">Căn giữa</string>
+    <string name="summary_picture_position">Dịch chuyển hình để bù cho phần khuyết camera hoặc cạnh màn hình cong, lưu riêng cho từng màn hình của thiết bị này. Hãy để ở giữa trừ khi một phần hình bị che.</string>
 </resources>

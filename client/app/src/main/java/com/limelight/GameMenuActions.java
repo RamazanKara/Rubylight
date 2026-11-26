@@ -221,6 +221,8 @@ final class GameMenuActions {
         options.gameControls = game.gameTouchControls != null;
         options.keyboardKeysShown = game.keyboardInput.isKeyboardOverlayVisible();
         options.scalingAvailable = game.videoOutput.canScaleLive();
+        options.picturePositionAvailable = game.safeArea.applies();
+        options.flipAvailable = game.safeArea.canFlip();
         options.zoomEnabled = game.desktopGestures != null && game.desktopGestures.enabled();
         options.zoomed = game.desktopGestures != null && game.desktopGestures.viewport().scale() > 1.01f;
         options.pictureInPicture = game.videoOutput.canEnterPictureInPicture();
@@ -276,6 +278,8 @@ final class GameMenuActions {
             case GAME_CONTROLS: action = game.gameTouchControls == null ? null : game.gameTouchControls::showMenu; break;
             case KEYBOARD_KEYS: action = game.keyboardInput::toggleKeyboardOverlay; break;
             case VIDEO_SCALING: action = game.videoOutput::showVideoScalingDialog; break;
+            case PICTURE_POSITION: action = () -> showStreamDialog(game.safeArea.createPositionDialog()); break;
+            case FLIP_SCREEN: action = () -> game.safeArea.flip(game.externalPresentation != null); break;
             case ZOOM: action = game.videoOutput::toggleDesktopZoom; break;
             case ZOOM_RESET: action = () -> {
                 game.desktopGestures.reset();

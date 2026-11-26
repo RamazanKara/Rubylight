@@ -16,4 +16,9 @@ Ajuste seguro: como Ajustar, pero sin tapar recortes de cámara ni esquinas redo
         <item>Centro</item>
         <item>Arriba</item>
     </string-array>
+    <string name="picture_position_title">Posición de la imagen</string>
+    <string name="picture_position_horizontal">Izquierda / derecha</string>
+    <string name="picture_position_vertical">Arriba / abajo</string>
+    <string name="picture_position_center">Centrar</string>
+    <string name="summary_picture_position">Mueve la imagen para compensar un recorte de cámara o bordes curvos, y se guarda para cada pantalla de este dispositivo. Déjala centrada salvo que quede oculta una parte de la imagen.</string>
 </resources>

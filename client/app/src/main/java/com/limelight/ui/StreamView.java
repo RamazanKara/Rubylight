@@ -347,6 +347,28 @@ public class StreamView extends FrameLayout {
         }
     }
 
+    // Picture position (StreamSafeAreaController): thousandths of the parent's sides to move the
+    // laid-out video by, kept on screen. Touch maps through getX(), so it follows.
+    private int offsetPermilleX, offsetPermilleY;
+
+    public void setPictureOffset(int permilleX, int permilleY) {
+        if (permilleX == offsetPermilleX && permilleY == offsetPermilleY) return;
+        offsetPermilleX = permilleX;
+        offsetPermilleY = permilleY;
+        requestLayout();
+    }
+
+    @Override
+    public void layout(int l, int t, int r, int b) {
+        if ((offsetPermilleX != 0 || offsetPermilleY != 0) && getParent() instanceof android.view.View) {
+            android.view.View parent = (android.view.View) getParent();
+            int dx = SafeAreaPolicy.offsetPx(offsetPermilleX, parent.getWidth(), l, r - l);
+            int dy = SafeAreaPolicy.offsetPx(offsetPermilleY, parent.getHeight(), t, b - t);
+            l += dx; r += dx; t += dy; b += dy;
+        }
+        super.layout(l, t, r, b);
+    }
+
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         if (scalingMode == VideoScaling.STRETCH || videoWidth <= 0 || videoHeight <= 0) {

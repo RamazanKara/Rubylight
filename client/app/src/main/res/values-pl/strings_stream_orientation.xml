@@ -12,4 +12,6 @@
     </string-array>
     <string name="stream_orientation_scaled">Ten komputer zachowuje kształt streamu w trakcie jego trwania, więc obraz jest dopasowywany do obróconego ekranu.</string>
     <string name="stream_orientation_decoder_limit">Dekoder tego urządzenia nie obsługuje obróconego rozmiaru, więc stream zachowuje swój kształt i jest dopasowywany.</string>
+    <string name="stream_flip_screen">Obróć ekran o 180°</string>
+    <string name="stream_flip_unavailable">Obracanie ekranu nie działa w oknie ani na zewnętrznym ekranie.</string>
 </resources>

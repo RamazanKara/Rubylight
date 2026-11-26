@@ -12,4 +12,6 @@
     </string-array>
     <string name="stream_orientation_scaled">この PC はストリーミング中にストリームの形を変更できないため、回転した画面に合わせて映像を表示します。</string>
     <string name="stream_orientation_decoder_limit">このデバイスのデコーダーは回転後のサイズに対応していないため、ストリームの形は変わらず、画面に合わせて表示します。</string>
+    <string name="stream_flip_screen">画面を 180° 反転</string>
+    <string name="stream_flip_unavailable">ウィンドウ表示中や外部ディスプレイでは画面を反転できません。</string>
 </resources>

@@ -123,6 +123,8 @@ pub const TILES: &[Tile] = &[
     more("game_controls"),
     more("picture"),
     more("video_scaling"),
+    more("picture_position"),
+    more("flip_screen"),
     more("zoom_reset"),
     more("picture_in_picture"),
     more("automatic_quality"),

@@ -12,4 +12,6 @@
     </string-array>
     <string name="stream_orientation_scaled">Este PC mantém o formato da transmissão enquanto ela dura, então a imagem é ajustada à tela girada.</string>
     <string name="stream_orientation_decoder_limit">O decodificador deste dispositivo não aceita o tamanho girado, então a transmissão mantém o formato e é ajustada à tela.</string>
+    <string name="stream_flip_screen">Girar tela 180°</string>
+    <string name="stream_flip_unavailable">Girar a tela não está disponível em janela nem em tela externa.</string>
 </resources>

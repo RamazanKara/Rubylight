@@ -12,4 +12,6 @@
     </string-array>
     <string name="stream_orientation_scaled">이 PC는 스트리밍 중 스트림 모양을 유지하므로 회전된 화면에 맞춰 영상을 표시합니다.</string>
     <string name="stream_orientation_decoder_limit">이 기기의 디코더가 회전된 크기를 지원하지 않아 스트림 모양을 유지하고 화면에 맞춰 표시합니다.</string>
+    <string name="stream_flip_screen">화면 180° 뒤집기</string>
+    <string name="stream_flip_unavailable">창 모드나 외부 디스플레이에서는 화면을 뒤집을 수 없습니다.</string>
 </resources>

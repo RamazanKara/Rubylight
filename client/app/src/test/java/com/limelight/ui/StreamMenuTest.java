@@ -206,6 +206,8 @@ public class StreamMenuTest {
         options.onscreenControls = true;
         options.gameControls = true;
         options.scalingAvailable = true;
+        options.picturePositionAvailable = true;
+        options.flipAvailable = true;
         options.zoomEnabled = true;
         options.pictureInPicture = true;
         options.externalDisplays = true;
@@ -217,13 +219,26 @@ public class StreamMenuTest {
             if (entry.section != StreamMenu.Section.OVERLAY_STYLE && entry.section != StreamMenu.Section.OVERLAY_POSITION) entries.add(entry);
         }
         assertTrue(items(entries).containsAll(Arrays.asList(TOUCH_MODE, MOUSE_CURSOR, ONSCREEN_CONTROLS, CONTROLS_LAYOUT,
-                MIC_BUTTON, GAME_CONTROLS, KEYBOARD_KEYS, VIDEO_SCALING, ZOOM, ZOOM_RESET, PICTURE_IN_PICTURE, VIDEO_OUTPUT,
+                MIC_BUTTON, GAME_CONTROLS, KEYBOARD_KEYS, VIDEO_SCALING, PICTURE_POSITION, FLIP_SCREEN, ZOOM, ZOOM_RESET, PICTURE_IN_PICTURE, VIDEO_OUTPUT,
                 OVERLAY_COPY, STREAM_HEALTH, LATENCY_TEST, USB_DEVICES, IMAGE_CLIPBOARD_SEND, IMAGE_CLIPBOARD_RECEIVE)));
         Map<Integer, StreamMenu.Item> seen = new LinkedHashMap<>();
         for (StreamMenu.Entry entry : entries) {
             StreamMenu.Item before = seen.put(entry.icon, entry.item);
             assertNull(entry.item + " has the same icon as " + before, before);
         }
+    }
+
+    @Test
+    public void picturePositionAndFlipShowOnlyWhereTheyApplyOnThisScreen() {
+        StreamMenu.Options options = options("rubylight-serverinfo.xml", NvApp.Role.STREAM);
+        assertFalse(items(StreamMenu.mainPage(options)).contains(PICTURE_POSITION));
+        assertFalse(items(StreamMenu.mainPage(options)).contains(FLIP_SCREEN));
+        options.picturePositionAvailable = options.flipAvailable = true;
+        assertTrue(items(StreamMenu.mainPage(options)).containsAll(Arrays.asList(PICTURE_POSITION, FLIP_SCREEN)));
+        // Video on another display: this phone is the touchpad, there is no picture here to move or turn.
+        options.localOutput = false;
+        assertFalse(items(StreamMenu.mainPage(options)).contains(PICTURE_POSITION));
+        assertFalse(items(StreamMenu.mainPage(options)).contains(FLIP_SCREEN));
     }
 
     @Test

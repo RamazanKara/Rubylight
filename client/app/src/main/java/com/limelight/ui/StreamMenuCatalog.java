@@ -152,6 +152,7 @@ final class StreamMenuCatalog {
         if (o.role == NvApp.Role.STREAM && caps.has(HostCapabilities.Feature.NATIVE_API)) {
             entries.add(action(Section.HOST, Item.NATIVE_PAGE, R.string.native_menu_row, R.drawable.ic_tune));
         }
+        StreamMenuSuspendSection.addTo(entries, o);
         // Only when the host's native capabilities offer it, whoever made the host.
         if (o.role == NvApp.Role.STREAM && o.hostMenu) {
             entries.add(action(Section.HOST, Item.HOST_MENU, R.string.stream_host_menu, R.drawable.ic_computer));
@@ -377,6 +378,8 @@ final class StreamMenuCatalog {
             case "pc_commands": return R.string.stream_tile_pc_commands;
             case "diagnostics": return R.string.stream_tile_diagnostics;
             case "session_graphics": return R.string.stream_tile_session_graphics;
+            case "suspend_game": return R.string.stream_tile_suspend_game;
+            case "resume_game": return R.string.stream_tile_resume_game;
             case "more": return R.string.stream_tile_more;
             case "return": return R.string.stream_tile_return;
             case "add_shortcut": return R.string.stream_tile_add_shortcut;

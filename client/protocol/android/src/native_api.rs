@@ -460,7 +460,9 @@ pub fn execute(host: &dyn Host, op: &str, argument: &str) -> String {
 /// Builds the client and runs the operation.
 pub fn request(endpoint: &Endpoint, op: &str, argument: &str) -> String {
     match client(endpoint) {
-        Ok(client) => execute(&client, op, argument),
+        Ok(client) => {
+            quick_suspend::execute(&client, op).unwrap_or_else(|| execute(&client, op, argument))
+        }
         Err(error) => error_envelope(&error),
     }
 }
@@ -551,6 +553,8 @@ pub extern "system" fn Java_com_limelight_nvstream_jni_NightjarJni_nativeApiRequ
         Err(_) => std::ptr::null_mut(),
     }
 }
+
+mod quick_suspend;
 
 #[cfg(test)]
 mod tests;

@@ -39,7 +39,7 @@ public final class StreamMenu {
         HOST_MENU, SERVER_COMMANDS, CLIPBOARD_SEND, CLIPBOARD_RECEIVE, IMAGE_CLIPBOARD_SEND, IMAGE_CLIPBOARD_RECEIVE,
         USB_DEVICES, GUESTS, FILES, HOST_WEB_UI, HOST_STATUS,
         RECONNECT, DISCONNECT, CONFIRM_DISCONNECT, QUIT_GAME, END_SESSION, END_HOST_SESSION, CLOSE_GAME,
-        NATIVE_PAGE, NATIVE_RESUME, SHORTCUTS, MORE, CLOSE,
+        NATIVE_PAGE, NATIVE_RESUME, SUSPEND_GAME, RESUME_GAME, SHORTCUTS, MORE, CLOSE,
         OVERLAY_OFF, OVERLAY_COMPACT, OVERLAY_STATISTICS, OVERLAY_DEBUG,
         OVERLAY_TOP_LEFT, OVERLAY_TOP_RIGHT, OVERLAY_BOTTOM_LEFT, OVERLAY_BOTTOM_RIGHT, OVERLAY_COPY, STREAM_HEALTH, LATENCY_TEST
     }
@@ -121,6 +121,8 @@ public final class StreamMenu {
         public boolean imageClipboard;
         /** The host offers night mode and headphone surround for this device's stream ({@code audio.*}). */
         public boolean nightModeOffered, headphoneSurroundOffered;
+        /** The host's last Quick Suspend state offers a tile: Resume game while the game is paused, Suspend game otherwise. */
+        public boolean quickSuspendOffered, quickSuspendPaused;
         /** What the host last said about them (GET /audio); null until it answered. */
         public NativeAudio hostAudio;
         /** The host offers them but GET /audio failed: the first page says so in a line. */

@@ -48,10 +48,49 @@ final class GameHostActions {
     private com.limelight.console.NativeMenuController nativeMenuController;
     private final com.limelight.binding.audio.MicNotice.Once microphoneNotice = new com.limelight.binding.audio.MicNotice.Once();
     private boolean latencyTestRunning;
+    // Suspend game and Resume game in the stream menu, on a host that offers Quick Suspend.
+    final com.limelight.ui.StreamMenuSuspendSection quickSuspend;
 
     GameHostActions(Game game, GameMenuActions menu) {
         this.game = game;
         this.menu = menu;
+        this.quickSuspend = new com.limelight.ui.StreamMenuSuspendSection(game, new QuickSuspendHost());
+    }
+
+    // Quick Suspend's reads and requests share the native menu thread with the audio switches and the Radeon panel.
+    private final class QuickSuspendHost implements com.limelight.ui.StreamMenuSuspendSection.Host {
+        @Override public boolean offered() {
+            return game.conn != null && game.app.getRole() == NvApp.Role.STREAM && game.conn.offersQuickSuspend();
+        }
+
+        @Override public com.limelight.nativeapi.NativeApiClient client() {
+            return game.conn == null ? null : game.conn.nativeApiClient();
+        }
+
+        @Override public boolean background(Runnable task) {
+            try {
+                nativeMenuThread().execute(task);
+                return true;
+            } catch (java.util.concurrent.RejectedExecutionException e) {
+                // The stream is over.
+                return false;
+            }
+        }
+
+        // say() checks that the stream still shows; the state an answer brings stays right whatever happened meanwhile.
+        @Override public void ui(Runnable task) {
+            game.runOnUiThread(() -> {
+                if (!game.isFinishing()) task.run();
+            });
+        }
+
+        @Override public void say(CharSequence text) {
+            if (game.foreground && game.connected && !game.isFinishing()) game.messages.alert(text, Toast.LENGTH_LONG);
+        }
+
+        @Override public void refreshMenu() {
+            menu.refreshStreamMenu();
+        }
     }
 
     void resetHostAudio() {

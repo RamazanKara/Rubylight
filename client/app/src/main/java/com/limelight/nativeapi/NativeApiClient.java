@@ -176,6 +176,29 @@ public final class NativeApiClient {
         }
     }
 
+    /** Quick Suspend's state for this device's game. Only for a host that advertises {@link NativeCapabilities#QUICK_SUSPEND}. */
+    public NativeQuickSuspend quickSuspend() throws NativeApiException {
+        return quickSuspend("quick_suspend");
+    }
+
+    /** Pauses the game on the PC; a refusal is the {@code refused} state with the host's reason, not an exception. */
+    public NativeQuickSuspend suspendGame() throws NativeApiException {
+        return quickSuspend("quick_suspend.suspend");
+    }
+
+    /** Resumes the paused game. */
+    public NativeQuickSuspend resumeGame() throws NativeApiException {
+        return quickSuspend("quick_suspend.resume");
+    }
+
+    private NativeQuickSuspend quickSuspend(String op) throws NativeApiException {
+        try {
+            return NativeQuickSuspend.parse(call(op, ""));
+        } catch (Json.SyntaxException e) {
+            throw malformed("quick suspend", e);
+        }
+    }
+
     /** A game's Neural Rendering switches; {@code app} is the library's app id. */
     public NativeNeural neural(String app) throws NativeApiException {
         try {

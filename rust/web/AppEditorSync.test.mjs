@@ -50,3 +50,20 @@ test('the editor links to All settings \u203a Games for the global defaults', ()
   assert.match(editor({}), /<a href="\/settings\/games#app-behavior"[^>]*>All settings \u203a Games<\/a>/);
   assert.doesNotMatch(source, /Games & automation|Settings \u2192/);
 });
+
+test('the save bar shows only while a change waits; launching and deleting sit in the page', () => {
+  // A saved game with nothing edited: no bar to float over the page.
+  const clean = editor({});
+  assert.doesNotMatch(clean, /<footer class="bar/);
+  assert.doesNotMatch(clean, />Save<|>Discard</);
+  assert.match(clean, /<div class="game-actions[^"]*">[\s\S]*Launch on PC[\s\S]*Delete[\s\S]*<\/div>/);
+  // A new app has nothing to launch or delete, and keeps Save in place.
+  const fresh = editor({ uuid: '' });
+  assert.match(fresh, /<footer class="bar[^"]*"/);
+  assert.doesNotMatch(fresh, /game-actions|Launch on PC/);
+  assert.match(source, /\{#if draft\.changed \|\| isNew\}\s*<footer class="bar" class:dirty=\{draft\.changed\}>/);
+  // Only the bar with a change floats.
+  assert.match(source, /\.bar\.dirty \{\s*position: sticky;/);
+  assert.doesNotMatch(source.match(/\n  \.bar \{[^}]*\}/)[0], /sticky/);
+  assert.doesNotMatch(source.match(/<footer class="bar"[\s\S]*?<\/footer>/)[0], /Launch on PC|Delete|Close app/);
+});

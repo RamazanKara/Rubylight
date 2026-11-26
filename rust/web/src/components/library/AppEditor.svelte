@@ -456,35 +456,41 @@
     {/if}
     </div>
 
-    <footer class="bar" class:dirty={draft.changed}>
-      <Button type="submit" variant="primary" busy={saving} disabled={!draft.changed || draft.invalid}>Save</Button>
-      <Button disabled={!draft.changed || saving} onclick={discard}>Discard</Button>
-      <span class="status muted" aria-live="polite">{draft.changed ? 'Unsaved changes' : ''}</span>
-      {#if !isNew}
-        <span class="end">
-          {#if isRunning}
-            <Button icon="stop" busy={busy === 'close'} onclick={close}>Close app</Button>
-          {:else}
-            <Button
-              icon="play"
-              busy={busy === 'launch'}
-              disabled={running !== '' || busy !== ''}
-              title={running
-                ? `Close ${running} first`
-                : draft.changed
-                  ? 'Starts it with the saved settings'
-                  : undefined}
-              onclick={launch}
-            >
-              Launch on PC
-            </Button>
-          {/if}
-          <Button variant="danger" icon="trash" busy={busy === 'delete'} disabled={saving} onclick={remove}>
-            Delete
+    {#if !isNew}
+      <!-- What happens to the game itself sits in the page; the bar below is only for unsaved changes. -->
+      <div class="game-actions">
+        {#if isRunning}
+          <Button icon="stop" busy={busy === 'close'} onclick={close}>Close app</Button>
+        {:else}
+          <Button
+            icon="play"
+            busy={busy === 'launch'}
+            disabled={running !== '' || busy !== ''}
+            title={running
+              ? `Close ${running} first`
+              : draft.changed
+                ? 'Starts it with the saved settings'
+                : undefined}
+            onclick={launch}
+          >
+            Launch on PC
           </Button>
-        </span>
-      {/if}
-    </footer>
+        {/if}
+        <Button variant="danger" icon="trash" busy={busy === 'delete'} disabled={saving} onclick={remove}>
+          Delete
+        </Button>
+      </div>
+    {/if}
+
+    <p class="visually-hidden" role="status">{draft.changed ? 'This page has unsaved changes.' : ''}</p>
+    <!-- Nothing to save, no bar: it floats over the page only while a change waits. A new app keeps it in place. -->
+    {#if draft.changed || isNew}
+      <footer class="bar" class:dirty={draft.changed}>
+        <Button type="submit" variant="primary" busy={saving} disabled={!draft.changed || draft.invalid}>Save</Button>
+        <Button disabled={!draft.changed || saving} onclick={discard}>Discard</Button>
+        {#if draft.changed}<span class="status muted">Unsaved changes</span>{/if}
+      </footer>
+    {/if}
   </form>
 </div>
 
@@ -563,10 +569,18 @@
   .note code {
     color: var(--ink-2);
   }
+  .game-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    background: var(--panel);
+  }
   .bar {
-    position: sticky;
-    bottom: var(--space-3);
-    z-index: var(--z-bar);
     display: flex;
     align-items: center;
     gap: var(--space-2);
@@ -575,35 +589,31 @@
     border: 1px solid var(--line);
     border-radius: var(--radius-lg);
     background: var(--panel);
+  }
+  .bar.dirty {
+    position: sticky;
+    bottom: var(--space-3);
+    z-index: var(--z-bar);
+    border-color: var(--line-strong);
+    background: var(--panel-raised);
     box-shadow: var(--shadow-pop);
   }
   .status {
     font-size: var(--text-xs);
     margin-left: var(--space-1);
   }
-  .end {
-    display: flex;
-    gap: var(--space-2);
-    flex-wrap: wrap;
-    margin-left: auto;
-  }
   @media (max-width: 900px) {
     .top {
       grid-template-columns: minmax(0, 1fr);
     }
   }
-  /* On a phone the bar takes two rows: it floats only while there is something to save. */
   @media (max-width: 520px) {
-    .bar:not(.dirty) {
-      position: static;
-      box-shadow: var(--shadow);
-    }
-    .bar {
-      bottom: var(--space-2);
+    .bar,
+    .game-actions {
       padding: var(--space-3);
     }
-    .end {
-      margin-left: 0;
+    .bar.dirty {
+      bottom: var(--space-2);
     }
   }
 </style>

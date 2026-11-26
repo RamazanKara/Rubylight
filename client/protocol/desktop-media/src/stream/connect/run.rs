@@ -499,7 +499,11 @@ pub(crate) fn connect(
             .host_control_messages
             .contains(&nightjar_core::frame_warp::FRAME_WARP_REQUEST_MESSAGE_TYPE)
     });
-    let frame_warp_refused = settings.frame_warp && role == AppRole::Stream && frame_warp.is_none();
+    let frame_warp_refused = if settings.frame_warp && role == AppRole::Stream && frame_warp.is_none() {
+        super::super::frame_warp_v2::Refusal::of(plan.info.capabilities.availability(Feature::FrameWarp))
+    } else {
+        super::super::frame_warp_v2::Refusal::None
+    };
     let mut facts = Facts {
         frame_warp,
         frame_warp_refused,

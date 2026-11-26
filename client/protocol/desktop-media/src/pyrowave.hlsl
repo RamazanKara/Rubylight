@@ -20,10 +20,11 @@ cbuffer Picture : register(b0) {
     // Flag 8192 (with 4096): the gamma 2.2 range, minNits to the peak (invRange = 1 / (peak - minNits)).
     float minNits; float invRange; float2 unusedEncoding;
     // Flag 512: Frame Warp (stream/frame_warp.rs), the shift in fractions of the picture, then
-    // the HUD mask's size in cells (0 for none). All zero draws the picture where it is. Then
-    // its lens terms (0, 0, 1, 1 for a flat picture).
+    // the HUD mask's size in cells (0 for none; all zero draws the picture where it is), its
+    // lens terms (0, 0, 1, 1 for a flat picture), and its fill and probe (`WarpDraw::v2_row`).
     float4 warp;
     float4 warpLens;
+    float4 warpV2;
 #endif
 };
 float4 vertex(uint id : SV_VertexID) : SV_Position {

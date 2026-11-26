@@ -47,6 +47,7 @@ pub fn metalfx_supported() -> bool {
     false
 }
 pub mod frame_warp;
+pub mod frame_warp_v2;
 pub mod enhance;
 #[cfg(windows)]
 mod amf_scaler;

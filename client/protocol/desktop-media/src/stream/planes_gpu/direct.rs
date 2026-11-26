@@ -58,6 +58,7 @@ impl PlanesPass {
                 let mask = self.ready_mask(renderer, warp);
                 uniforms.warp = warp.row(mask);
                 uniforms.warp_lens = warp.lens_row();
+                uniforms.warp_v2 = warp.v2_row();
             }
             self.set_uniforms(&uniforms)?;
             let drawn = SDL_SetGPURenderState(renderer, self.active_state()) && SDL_RenderFillRect(renderer, destination);
@@ -159,6 +160,8 @@ pub struct Uniforms {
     pub warp: [f32; 4],
     /// Its lens terms (`WarpDraw::lens_row`), read only beside a row that shifts.
     pub warp_lens: [f32; 4],
+    /// Its edge fill and HUD probe (`WarpDraw::v2_row`), read only beside a row that shifts.
+    pub warp_v2: [f32; 4],
 }
 
 /// The shader's flag for a draw straight into the target rectangle.
@@ -256,5 +259,6 @@ pub fn direct_uniforms(parameters: &[u32; 8], destination: &SDL_FRect, origin: (
         encoding: if gamma22 { [min_nits, inv_range, 0.0, 0.0] } else { [0.0; 4] },
         warp: [0.0; 4],
         warp_lens: nightjar_core::frame_warp::FLAT,
+        warp_v2: [0.0; 4],
     }
 }

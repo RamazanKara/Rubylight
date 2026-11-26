@@ -227,9 +227,10 @@ struct Constants {
     tonemap: [f32; 2],
     /// The HLG display's peak in nits and system gamma.
     hlg: [f32; 2],
-    /// Frame Warp's rows (`WarpDraw::row`, `WarpDraw::lens_row`).
+    /// Frame Warp's rows (`WarpDraw::row`, `WarpDraw::lens_row`, `WarpDraw::v2_row`).
     warp: [f32; 4],
     warp_lens: [f32; 4],
+    warp_v2: [f32; 4],
 }
 
 fn free_staging_slot(pending: &std::collections::VecDeque<(usize, u64)>, total: usize) -> Option<usize> {
@@ -544,6 +545,7 @@ impl Direct {
                 hlg: [hlg.peak, hlg.gamma],
                 warp: warp.row(mask.is_some()),
                 warp_lens: warp.lens_row(),
+                warp_v2: warp.v2_row(),
             };
             let c = &self.deferred;
             c.ClearState();
@@ -647,16 +649,15 @@ mod tests {
     /// The constants fill the shader's `Draw` block, Frame Warp's rows last.
     #[test]
     fn the_constants_end_with_frame_warps_rows() {
-        assert_eq!(std::mem::size_of::<Constants>(), 80);
+        assert_eq!(std::mem::size_of::<Constants>(), 96);
         assert_eq!(std::mem::offset_of!(Constants, warp), 48);
         assert_eq!(std::mem::offset_of!(Constants, warp_lens), 64);
+        assert_eq!(std::mem::offset_of!(Constants, warp_v2), 80);
         let shader = include_str!("../direct.hlsl");
         let gamma = shader.find("float hlgGamma;").expect("the HLG row");
         let warp = shader.find("float4 warp;").expect("the warp row");
         assert!(gamma < warp && !shader[gamma + "float hlgGamma;".len()..warp].contains(';'), "the warp row follows the HLG row");
-        let lens = shader[warp..].trim_start_matches("float4 warp;").trim_start();
-        assert!(lens.starts_with("float4 warpLens;") && lens.trim_start_matches("float4 warpLens;").trim_start().starts_with("};"),
-            "the lens row follows it and ends the block");
+        assert!(crate::stream::frame_warp_v2::rows_end_block(&shader[warp..]),"the lens row and Frame Warp 2's row follow it and end the block");
         assert!(shader.contains("Texture2D<float> hudMask : register(t2);"));
     }
 

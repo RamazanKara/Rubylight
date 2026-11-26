@@ -30,7 +30,7 @@ unsafe fn virtual_pad((vid, pid): (u16, u16)) -> SDL_JoystickID {
 }
 
 fn forwarded((vid, pid): (u16, u16)) -> Forwarded {
-    Forwarded { vid, pid, busid: "1-2".into() }
+    Forwarded::new(vid, pid, "1-2")
 }
 
 fn open_ids(pads: &Gamepads) -> Vec<u32> {
@@ -91,8 +91,22 @@ fn a_forwarded_controller_pauses_and_comes_back_whenever_forwarding_stops() {
         assert!(pads.arbitrate(None).is_empty());
         assert_eq!(open_ids(&pads), vec![xbox.0]);
 
-        // A forwarded device of another model leaves every controller alone.
+        // The forwarded controller leaves SDL (its driver went to the forwarding), and another
+        // of the model arrives meanwhile: it is opened, and later claims don't guess it either.
+        let other_dualsense = virtual_pad(DUALSENSE);
+        let claim = registry.claim(registry.owner(), forwarded(DUALSENSE));
+        pads.arbitrate(None);
+        pads.added(other_dualsense).unwrap();
+        assert!(open_ids(&pads).contains(&other_dualsense.0), "a newcomer is never paused on a guess");
         let _webcam = registry.claim(registry.owner(), forwarded((0x046d, 0x085e)));
+        pads.arbitrate(None);
+        assert!(open_ids(&pads).contains(&other_dualsense.0), "nor by the next claim's arbitration");
+        drop(claim);
+        pads.arbitrate(None);
+        pads.removed(other_dualsense);
+        SDL_DetachVirtualJoystick(other_dualsense);
+
+        // A forwarded device of another model leaves every controller alone.
         pads.arbitrate(None);
         assert_eq!(open_ids(&pads), vec![xbox.0]);
 

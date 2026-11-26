@@ -22,6 +22,15 @@ pub struct Forwarded {
     pub pid: u16,
     /// Linux's name for its port (`1-2.4`, [`crate::usb::busid`]).
     pub busid: String,
+    /// The generation its claim made ([`Registry::claim`] sets it): a pad opened since then is
+    /// never paused for it on a guess.
+    pub since: u64,
+}
+
+impl Forwarded {
+    pub fn new(vid: u16, pid: u16, busid: &str) -> Self {
+        Self { vid, pid, busid: busid.to_owned(), since: 0 }
+    }
 }
 
 /// A local gamepad as SDL describes it before opening it: its vendor and product and, where
@@ -31,6 +40,9 @@ pub struct PadIdentity {
     pub vid: u16,
     pub pid: u16,
     pub busid: Option<String>,
+    /// The generation when it was opened here ([`Registry::generation`]); `u64::MAX` when not
+    /// known, which no guess pauses.
+    pub seen: u64,
 }
 
 #[derive(Default)]
@@ -89,11 +101,16 @@ impl Registry {
     }
 
     /// Marks `device` as forwarded by `owner` until the returned claim is released or dropped.
-    pub fn claim(&self, owner: u64, device: Forwarded) -> Claim {
+    pub fn claim(&self, owner: u64, mut device: Forwarded) -> Claim {
         let id = self.0.next.fetch_add(1, Ordering::Relaxed) + 1;
         eprintln!("nightjar: USB {}: forwarded; a controller it is pauses here", device.busid);
-        self.claims().push((id, owner, device));
-        let generation = self.bump();
+        let generation = {
+            let mut claims = self.claims();
+            let generation = self.bump();
+            device.since = generation;
+            claims.push((id, owner, device));
+            generation
+        };
         Claim { registry: self.clone(), id, generation, released: AtomicBool::new(false) }
     }
 
@@ -132,9 +149,14 @@ impl Registry {
         self.claims().iter().map(|(_, _, device)| device.clone()).collect()
     }
 
+    /// The gamepads look at this registry: claims wait for them ([`Claim::wait_applied`]).
+    pub fn watch(&self) {
+        if !self.0.watched.load(Ordering::Relaxed) { self.0.watched.store(true, Ordering::Release); }
+    }
+
     /// The gamepads applied `generation`.
     pub fn applied(&self, generation: u64) {
-        self.0.watched.store(true, Ordering::Release);
+        self.watch();
         self.0.applied.fetch_max(generation, Ordering::AcqRel);
     }
 }
@@ -223,8 +245,10 @@ impl UsbDevice for Arbitrated {
 /// Which pads to pause while `forwarded` devices are attached to the host, by position in
 /// `pads` (every local gamepad, open or paused). A pad whose busid is known pauses when a
 /// device of its vendor and product is forwarded from that busid. One whose busid isn't known
-/// pauses only when it is the one pad of its vendor and product here and exactly one such
-/// device is forwarded: a second controller of the same model never goes dark on a guess.
+/// pauses only on a guess that can't hit another controller: it was open here before the
+/// claim, it is the one pad of its vendor and product, and exactly one such device is
+/// forwarded. A controller that arrives during the forwarding (another of the same model
+/// waking up) is never paused on a guess.
 pub fn paused(pads: &[PadIdentity], forwarded: &[Forwarded]) -> Vec<bool> {
     let same = |pad: &PadIdentity, device: &Forwarded| (pad.vid, pad.pid) == (device.vid, device.pid);
     pads.iter()
@@ -234,9 +258,10 @@ pub fn paused(pads: &[PadIdentity], forwarded: &[Forwarded]) -> Vec<bool> {
                 let model = |p: &&PadIdentity| (p.vid, p.pid) == (pad.vid, pad.pid);
                 let models_here = pads.iter().filter(model).count();
                 let models_forwarded = forwarded.iter().filter(|device| same(pad, device)).count();
+                let claimed_after_it = forwarded.iter().any(|device| same(pad, device) && device.since > pad.seen);
                 // A busid-known pad of this model that is forwarded accounts for the claim.
                 let accounted = pads.iter().filter(model).any(|p| p.busid.as_ref().is_some_and(|b| forwarded.iter().any(|d| same(p, d) && d.busid == *b)));
-                (pad.vid, pad.pid) != (0, 0) && models_here == 1 && models_forwarded == 1 && !accounted
+                (pad.vid, pad.pid) != (0, 0) && models_here == 1 && models_forwarded == 1 && claimed_after_it && !accounted
             }
         })
         .collect()

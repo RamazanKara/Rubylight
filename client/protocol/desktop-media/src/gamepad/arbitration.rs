@@ -8,8 +8,9 @@ use sdl3_sys::everything::*;
 use super::{Gamepads, NotOpened};
 use crate::usb_arbitration::{self, PadIdentity};
 
-/// What SDL tells of a gamepad before it is opened: vendor, product and the busid behind its path.
-fn pad_identity(id: SDL_JoystickID) -> PadIdentity {
+/// What SDL tells of a gamepad before it is opened: vendor, product and the busid behind its
+/// path; `seen`, when it was opened here.
+fn pad_identity(id: SDL_JoystickID, seen: u64) -> PadIdentity {
     // SAFETY: SDL queries by instance id on the main thread; the path is copied at once.
     unsafe {
         let path = SDL_GetGamepadPathForID(id);
@@ -18,22 +19,37 @@ fn pad_identity(id: SDL_JoystickID) -> PadIdentity {
             vid: SDL_GetGamepadVendorForID(id),
             pid: SDL_GetGamepadProductForID(id),
             busid: path.as_deref().and_then(usb_arbitration::busid_of_path),
+            seen,
         }
     }
 }
 
 impl Gamepads {
+    /// Records that `id` opened now.
+    pub(super) fn note_opened(&mut self, id: SDL_JoystickID) {
+        let now = self.arbitration.generation();
+        self.opened_at.retain(|(opened, _)| *opened != id);
+        self.opened_at.push((id, now));
+    }
+
+    pub(super) fn forget_opened(&mut self) {
+        self.opened_at.clear();
+    }
+
     /// The open pads with what SDL tells of them.
     fn open_identities(&self) -> Vec<(SDL_JoystickID, PadIdentity)> {
-        self.pads.iter().map(|pad| (pad.id, pad_identity(pad.id))).collect()
+        let seen = |id| self.opened_at.iter().find(|(opened, _)| *opened == id).map_or(u64::MAX, |(_, at)| *at);
+        self.pads.iter().map(|pad| (pad.id, pad_identity(pad.id, seen(pad.id)))).collect()
     }
 
     /// Whether `id`, being added, is a controller forwarded over USB: it is kept paused and
-    /// left closed.
+    /// left closed. One paused already keeps when it was opened; a newcomer counts as opened
+    /// now, so no claim made before it pauses it on a guess.
     pub(super) fn forwarded_here(&mut self, id: SDL_JoystickID) -> bool {
         let forwarded = self.arbitration.forwarded();
         if forwarded.is_empty() { return false; }
-        let identity = pad_identity(id);
+        let seen = self.paused.iter().find(|(p, _)| *p == id).map_or_else(|| self.arbitration.generation(), |(_, identity)| identity.seen);
+        let identity = pad_identity(id, seen);
         let mut open = self.open_identities();
         open.push((id, identity.clone()));
         let paused: Vec<_> = self.paused.iter().filter(|(p, _)| *p != id).cloned().collect();
@@ -44,8 +60,10 @@ impl Gamepads {
         true
     }
 
-    /// Whether USB forwarding changed since [`Self::arbitrate`] last ran: one atomic load.
+    /// Whether USB forwarding changed since [`Self::arbitrate`] last ran: an atomic load or two.
+    /// Calling it each loop tells claims that the gamepads look ([`usb_arbitration::Registry::watch`]).
     pub fn arbitration_due(&self) -> bool {
+        self.arbitration.watch();
         self.arbitration.generation() != self.arbitrated
     }
 

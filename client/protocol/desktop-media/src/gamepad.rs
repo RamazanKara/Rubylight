@@ -91,6 +91,8 @@ pub struct Gamepads {
     /// The devices being forwarded, and the generation of them last applied.
     arbitration: crate::usb_arbitration::Registry,
     arbitrated: u64,
+    /// When each open pad was opened, as a generation of `arbitration`.
+    opened_at: Vec<(SDL_JoystickID, u64)>,
 }
 
 /// The physical buttons of a quit combo, as bits of `1 << SDL_GamepadButton`. Face buttons are
@@ -228,6 +230,7 @@ impl Gamepads {
             guide: Guide::Up,
             guide_bit: 1 << SDL_GAMEPAD_BUTTON_GUIDE.0,
         });
+        self.note_opened(id);
         self.assign_slots();
         Ok(())
     }
@@ -237,6 +240,7 @@ impl Gamepads {
     /// ([`Self::assign_slots`]).
     pub fn removed(&mut self, id: SDL_JoystickID) -> Option<u8> {
         self.paused.retain(|(paused, _)| *paused != id);
+        self.opened_at.retain(|(opened, _)| *opened != id);
         let position = self.pads.iter().position(|p| p.id == id)?;
         let pad = self.pads.remove(position);
         let slot = pad.slot();

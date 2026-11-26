@@ -183,6 +183,7 @@ impl Gamepads {
     }
 
     pub fn close_all(&mut self) {
+        self.forget_opened();
         for pad in self.pads.drain(..) {
             if let Some(audio) = &pad.audio { audio.reset(pad.handle); }
             drop(pad.audio);

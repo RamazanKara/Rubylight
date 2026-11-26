@@ -5,12 +5,18 @@ use std::sync::atomic::AtomicU32;
 
 use super::*;
 
+/// A device claimed at generation 1.
 fn device(busid: &str, vid: u16, pid: u16) -> Forwarded {
-    Forwarded { vid, pid, busid: busid.to_owned() }
+    Forwarded { since: 1, ..Forwarded::new(vid, pid, busid) }
 }
 
+/// A pad open since before any claim.
 fn pad(vid: u16, pid: u16, busid: Option<&str>) -> PadIdentity {
-    PadIdentity { vid, pid, busid: busid.map(str::to_owned) }
+    PadIdentity { vid, pid, busid: busid.map(str::to_owned), seen: 0 }
+}
+
+fn busids(registry: &Registry) -> Vec<String> {
+    registry.forwarded().into_iter().map(|d| d.busid).collect()
 }
 
 #[test]
@@ -18,7 +24,8 @@ fn a_claim_is_released_once_by_release_or_drop() {
     let registry = Registry::new();
     let start = registry.generation();
     let claim = registry.claim(1, device("1-2", 0x054c, 0x0ce6));
-    assert_eq!(registry.forwarded(), vec![device("1-2", 0x054c, 0x0ce6)]);
+    assert_eq!(busids(&registry), vec!["1-2"]);
+    assert_eq!(registry.forwarded()[0].since, registry.generation(), "the claim's own generation");
     assert_eq!(registry.generation(), start + 1);
     claim.release();
     assert!(registry.forwarded().is_empty());
@@ -43,7 +50,7 @@ fn the_end_of_a_stream_releases_its_claims_and_no_other() {
     let _b = registry.claim(ours, device("1-3", 1, 2));
     let _c = registry.claim(theirs, device("2-1", 3, 4));
     registry.release_owner(ours);
-    assert_eq!(registry.forwarded(), vec![device("2-1", 3, 4)]);
+    assert_eq!(busids(&registry), vec!["2-1"]);
     let generation = registry.generation();
     a.release();
     registry.release_owner(ours);
@@ -95,7 +102,7 @@ fn waiting_for_the_gamepads_ends_at_once_unwatched_and_at_the_limit_otherwise() 
     let registry = Registry::new();
     let claim = registry.claim(1, device("1-2", 1, 2));
     assert!(claim.wait_applied(Duration::from_secs(5)), "nobody watches: no wait");
-    registry.applied(0);
+    registry.watch();
     let started = Instant::now();
     assert!(!claim.wait_applied(Duration::from_millis(30)));
     assert!(started.elapsed() < Duration::from_secs(2));
@@ -123,6 +130,11 @@ fn a_pad_pauses_only_while_a_claim_matches_it() {
     // A busid-known pad of the model accounts for the claim; the unknown one stays.
     let mixed = [pad(dualsense.0, dualsense.1, Some("1-2")), pad(dualsense.0, dualsense.1, None)];
     assert_eq!(paused(&mixed, &forwarded), vec![true, false]);
+    // One that arrived after the claim (another of the model waking up) is never guessed.
+    let newcomer = PadIdentity { seen: 1, ..pad(dualsense.0, dualsense.1, None) };
+    assert_eq!(paused(&[newcomer], &forwarded), vec![false]);
+    let unknown_since = PadIdentity { seen: u64::MAX, ..pad(dualsense.0, dualsense.1, None) };
+    assert_eq!(paused(&[unknown_since], &forwarded), vec![false]);
 }
 
 #[test]

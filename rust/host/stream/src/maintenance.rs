@@ -1,12 +1,14 @@
 use crate::state::Shared;
+
+mod support_bundle;
 use anyhow::{Context, Result, bail};
 use butterpollo_session::version::newer;
 use serde_json::{Value, json};
 use std::{
-    io::{Read, Seek, SeekFrom, Write},
     path::PathBuf,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+pub use support_bundle::{bundle, manifest as bundle_manifest};
 
 fn compatible_release(release: &Value, config: &butterpollo_config::config::Config) -> bool {
     release["draft"] != true
@@ -379,10 +381,6 @@ pub fn baseline(h: &Shared) -> Result<Option<butterpollo_win_display::display::S
     }
     Ok(None)
 }
-pub fn bundle_manifest(h: &Shared) -> Value {
-    let dump = newest_dump(h).map_or(0, |d| d.size);
-    json!({"status":true,"parts":[{"index":1,"filename":"butterpollo-support.zip","estimated_size_bytes":dump+8*1024*1024}]})
-}
 /// The host log, honouring `log_path`; the default file when the host could
 /// not use it and logs there instead.
 pub fn log_path(h: &Shared) -> PathBuf {
@@ -396,76 +394,6 @@ pub fn log_path(h: &Shared) -> PathBuf {
     } else {
         h.directory.join("logs/butterpollo.log")
     }
-}
-pub fn bundle(h: &Shared) -> Result<PathBuf> {
-    bundle_with_dump(h, || newest_dump(h))
-}
-fn bundle_with_dump(h: &Shared, dump: impl FnOnce() -> Option<Dump>) -> Result<PathBuf> {
-    use zip::{ZipWriter, write::SimpleFileOptions};
-    let directory = h.directory.join("support");
-    std::fs::create_dir_all(&directory)?;
-    let path = directory.join(format!("{}.zip", uuid::Uuid::new_v4()));
-    let mut writer = ZipWriter::new(std::fs::File::create(&path)?);
-    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
-    let host_log = log_path(h);
-    let service_log = h.directory.join("logs/service.log");
-    for (name, path) in [
-        ("logs/butterpollo.log", host_log.clone()),
-        (
-            "logs/butterpollo.log.1",
-            butterpollo_session::logfile::RotatingFile::rotated(&host_log, 1),
-        ),
-        ("logs/service.log", service_log),
-        ("crashes/panic.txt", h.directory.join("crashes/panic.txt")),
-    ] {
-        if let Ok(mut file) = std::fs::File::open(path) {
-            let length = file.metadata()?.len();
-            file.seek(SeekFrom::Start(length.saturating_sub(8 * 1024 * 1024)))?;
-            writer.start_file(name, options)?;
-            std::io::copy(&mut file.take(8 * 1024 * 1024), &mut writer)?;
-        }
-    }
-    writer.start_file("diagnostics.json", options)?;
-    let config = h.config.read().unwrap();
-    let values: serde_json::Map<_, _> = config
-        .values
-        .iter()
-        .map(|(k, v)| {
-            (
-                k.clone(),
-                if [
-                    "password", "token", "key", "secret", "command", "cmd", "webhook",
-                ]
-                .iter()
-                .any(|s| k.contains(s))
-                {
-                    json!("[redacted]")
-                } else {
-                    json!(v)
-                },
-            )
-        })
-        .collect();
-    writer.write_all(&serde_json::to_vec_pretty(&json!({"version":env!("CARGO_PKG_VERSION"),"platform":"windows","config":values,"codecs":h.codecs.load(std::sync::atomic::Ordering::Acquire)}))?)?;
-    drop(config);
-    if let Some(dump) = dump() {
-        writer.start_file(
-            format!(
-                "crashes/{}",
-                dump.path
-                    .file_name()
-                    .context("dump filename missing")?
-                    .to_string_lossy()
-            ),
-            options,
-        )?;
-        std::io::copy(
-            &mut std::fs::File::open(dump.path)?.take(512 * 1024 * 1024),
-            &mut writer,
-        )?;
-    }
-    writer.finish()?.sync_all()?;
-    Ok(path)
 }
 pub fn integration_status(h: &Shared) -> Value {
     butterpollo_win_io::limiter::status(&h.config.read().unwrap())
@@ -576,39 +504,5 @@ mod tests {
             Config::default().updates(),
             butterpollo_config::config::UpdatesMode::TellMe
         );
-    }
-    #[test]
-    fn support_bundle_contains_logs_and_redacts_configuration_secrets() {
-        use crate::state::test_support::Fixture;
-        use std::io::Read;
-        let f = Fixture::new();
-        let logs = f.host.directory.join("logs");
-        std::fs::create_dir(&logs).unwrap();
-        std::fs::write(logs.join("butterpollo.log"), "host log\n").unwrap();
-        std::fs::write(logs.join("service.log"), "service log fixture\n").unwrap();
-        *f.host.config.write().unwrap() = butterpollo_config::config::Config::parse("sunshine_name=Test PC\npassword=secret-password\nserver_cmd=[{\"cmd\":\"secret-command\"}]\napi_token=secret-token").unwrap();
-        let path = bundle_with_dump(&f.host, || None).unwrap();
-        let mut archive = zip::ZipArchive::new(std::fs::File::open(path).unwrap()).unwrap();
-        let names: Vec<_> = archive.file_names().map(str::to_owned).collect();
-        assert_eq!(names.len(), 3);
-        let mut diagnostics = String::new();
-        archive
-            .by_name("diagnostics.json")
-            .unwrap()
-            .read_to_string(&mut diagnostics)
-            .unwrap();
-        for secret in ["secret-password", "secret-command", "secret-token"] {
-            assert!(!diagnostics.contains(secret));
-        }
-        let diagnostics: Value = serde_json::from_str(&diagnostics).unwrap();
-        assert_eq!(diagnostics["config"]["sunshine_name"], "Test PC");
-        assert_eq!(diagnostics["config"]["server_cmd"], "[redacted]");
-        let mut log = String::new();
-        archive
-            .by_name("logs/butterpollo.log")
-            .unwrap()
-            .read_to_string(&mut log)
-            .unwrap();
-        assert_eq!(log, "host log\n");
     }
 }

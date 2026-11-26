@@ -1414,5 +1414,12 @@
       "files": "Soubory",
       "advanced": "Pokročilé"
     }
+  },
+  "support": {
+    "bundle_desc": "Balíček podpory obsahuje protokoly a diagnostiku hostitele pro řešení problémů; adresy, jména uživatelů a zařízení a názvy her jsou nahrazeny značkami.",
+    "bundle_download": "Stáhnout balíček podpory",
+    "dump_warning": "Výpis paměti z pádu může obsahovat cokoli, co měl Rubylight v paměti, například jména, adresy a hesla. Přiložte ho jen na vyžádání a sdílejte ho soukromě.",
+    "dump_download": "Stáhnout s výpisem paměti z pádu",
+    "crash_available": "Je k dispozici hlášení o pádu. Chcete-li ho přiložit, stáhněte balíček podpory s výpisem paměti z pádu."
   }
 }

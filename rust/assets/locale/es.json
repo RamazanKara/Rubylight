@@ -1414,5 +1414,12 @@
       "files": "Archivos",
       "advanced": "Avanzado"
     }
+  },
+  "support": {
+    "bundle_desc": "El paquete de soporte incluye los registros y diagnósticos del host para resolver problemas, con las direcciones, los nombres de usuarios y dispositivos y los títulos de juegos sustituidos por marcas.",
+    "bundle_download": "Descargar paquete de soporte",
+    "dump_warning": "Un volcado de memoria del fallo puede contener cualquier cosa que Rubylight tuviera en memoria, como nombres, direcciones y contraseñas. Inclúyelo solo si te lo piden y compártelo en privado.",
+    "dump_download": "Descargar con el volcado de memoria del fallo",
+    "crash_available": "Hay un informe de fallo disponible. Descarga el paquete de soporte con el volcado de memoria del fallo para incluirlo."
   }
 }

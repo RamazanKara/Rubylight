@@ -434,7 +434,7 @@ pub(crate) async fn api(
         return apps::purge_autosync(&h).await;
     }
     if method == Method::GET && path == "/api/logs/export_crash" {
-        return logs::export_crash(&h).await;
+        return logs::export_crash(&h, logs::include_dump(&uri)).await;
     }
     if method == Method::GET && path == "/api/logs/tail" {
         let h = h.clone();
@@ -484,7 +484,7 @@ pub(crate) async fn api(
             ("GET", "/api/health/crashdump")
             | ("POST", "/api/health/crashdump/dismiss")
             | ("GET", "/api/logs/export_crash/manifest") => {
-                logs::handle(&h, method.as_str(), path, &data)?
+                logs::handle(&h, method.as_str(), path, &data, logs::include_dump(&uri))?
             }
             ("GET", "/api/display/golden_status")
             | ("POST", "/api/display/export_golden")

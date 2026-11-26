@@ -79,7 +79,7 @@ Deadlines, by name: [`ENCODER_RECOVERY`](../rust/host/stream/src/stream/video.rs
 | Invites to play over the internet | `session/src/invites.rs` (links, invited devices) | | `invites.rs`, `nvhttp/pairing.rs`, `multiclient.rs`, `internet_play.rs`, `native_api/guests.rs`, `web/session_guests.rs` |
 | Console, API | `crypto/src/auth.rs`, `session/src/log_analysis.rs` | | `web.rs`, `web/`, `console/`, `web_sessions.rs`, `webhooks.rs` |
 | Browser play | `session/src/webrtc/` | | `webrtc/` |
-| Update, service | `src/update_files.rs`, `src/update_recovery.rs` | `io/src/service.rs` | `updater.rs`, `updater/`, `maintenance.rs`, `service_tasks.rs` |
+| Update, service | `src/update_files.rs`, `src/update_recovery.rs` | `io/src/service.rs` | `updater.rs`, `updater/`, `maintenance.rs`, `maintenance/`, `service_tasks.rs` |
 
 Outside those crates: the installer in `rust/setup/src/`, the service in `rust/service/src/`, the display and virtual gamepad drivers and their protocols in `rust/drivers/`, capture and encoder probes in `rust/probes/src/` (run with `python tools/dev.py cargo -- run -p butterpollo-probes --bin <name>`; several change real settings and say so in their header).
 
@@ -152,6 +152,7 @@ The host says what it offers in three places: serverinfo fields ([`serverinfo_fi
 | Known failures in words | [`RULES`](../rust/core/session/src/log_analysis.rs) maps warnings and errors to the explanations the console shows. Read it to learn what a log line means; add a rule when a new failure has a known cause. |
 | A stalled stream thread | `rust/host/stream/src/stall_watch.rs` logs where it is. |
 | Console warnings | `rust/host/stream/src/host_warnings.rs`, kept in `host-warnings.json` until dismissed |
+| Support bundle | `rust/host/stream/src/maintenance/support_bundle.rs` writes it with the logs redacted by `rust/core/session/src/log_redact.rs`; the crash memory dump only on request (`include_dump`). |
 | Per-frame timings | `BUTTERPOLLO_TIMING_RECORD` writes the [timing record](timing-record.md); `rust/release/timing_report.py` turns host and receiver records into a stage table. |
 | Which stage lost the stream's time | The console's **Stream details & performance**, the end-of-stream `stream stutter report` line, and `rust/core/media-policy/src/stutter_report.rs` over the stage samples `rust/core/media-policy/src/performance.rs` keeps. |
 | A stream run | `rust/release/e2e.py` leaves `result.json`, `frames.csv` and the host's record in the run's folder. |

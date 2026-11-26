@@ -1417,5 +1417,12 @@
       "files": "Files",
       "advanced": "Advanced"
     }
+  },
+  "support": {
+    "bundle_desc": "The support bundle includes host logs and diagnostics for troubleshooting, with addresses, user and device names and game titles replaced by marks.",
+    "bundle_download": "Download support bundle",
+    "dump_warning": "A crash memory dump can hold anything Rubylight had in memory, such as names, addresses and passwords. Include it only when asked, and share it privately.",
+    "dump_download": "Download with the crash memory dump",
+    "crash_available": "A crash report is available. Download the support bundle with the crash memory dump to include it."
   }
 }

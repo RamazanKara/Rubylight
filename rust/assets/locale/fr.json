@@ -1414,5 +1414,12 @@
       "files": "Fichiers",
       "advanced": "Avancé"
     }
+  },
+  "support": {
+    "bundle_desc": "Le paquet d’assistance contient les journaux et diagnostics de l’hôte pour le dépannage ; les adresses, les noms d’utilisateurs et d’appareils et les titres de jeux y sont remplacés par des marqueurs.",
+    "bundle_download": "Télécharger le paquet d’assistance",
+    "dump_warning": "Un vidage mémoire du plantage peut contenir tout ce que Rubylight avait en mémoire, comme des noms, des adresses et des mots de passe. Ne l’incluez que si on vous le demande, et partagez-le en privé.",
+    "dump_download": "Télécharger avec le vidage mémoire du plantage",
+    "crash_available": "Un rapport de plantage est disponible. Téléchargez le paquet d’assistance avec le vidage mémoire du plantage pour l’inclure."
   }
 }

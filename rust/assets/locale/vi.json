@@ -1414,5 +1414,12 @@
       "files": "Tệp",
       "advanced": "Nâng cao"
     }
+  },
+  "support": {
+    "bundle_desc": "Gói hỗ trợ gồm nhật ký và thông tin chẩn đoán của máy chủ để khắc phục sự cố, trong đó địa chỉ, tên người dùng và thiết bị cùng tên trò chơi được thay bằng ký hiệu.",
+    "bundle_download": "Tải gói hỗ trợ",
+    "dump_warning": "Tệp kết xuất bộ nhớ khi gặp sự cố có thể chứa mọi thứ Rubylight có trong bộ nhớ, như tên, địa chỉ và mật khẩu. Chỉ đính kèm khi được yêu cầu và chia sẻ riêng tư.",
+    "dump_download": "Tải kèm tệp kết xuất bộ nhớ khi gặp sự cố",
+    "crash_available": "Có báo cáo sự cố. Hãy tải gói hỗ trợ kèm tệp kết xuất bộ nhớ khi gặp sự cố để đính kèm."
   }
 }

@@ -8,24 +8,37 @@ use axum::{
 use butterpollo_stream::state::Shared;
 use serde_json::{Value, json};
 
-pub(super) fn handle(h: &Shared, method: &str, path: &str, data: &Value) -> anyhow::Result<Value> {
+/// Whether a support bundle request asks for the crash memory dump (`include_dump=1`): left out
+/// unless asked for, since it holds whatever the host had in memory.
+pub(super) fn include_dump(uri: &axum::http::Uri) -> bool {
+    url::form_urlencoded::parse(uri.query().unwrap_or("").as_bytes())
+        .any(|(key, value)| key == "include_dump" && matches!(value.as_ref(), "1" | "true"))
+}
+
+pub(super) fn handle(
+    h: &Shared,
+    method: &str,
+    path: &str,
+    data: &Value,
+    include_dump: bool,
+) -> anyhow::Result<Value> {
     Ok(match (method, path) {
         ("GET", "/api/health/crashdump") => butterpollo_stream::maintenance::crash_status(h)?,
         ("POST", "/api/health/crashdump/dismiss") => {
             butterpollo_stream::maintenance::dismiss_crash(h, data)?
         }
         ("GET", "/api/logs/export_crash/manifest") => {
-            butterpollo_stream::maintenance::bundle_manifest(h)
+            butterpollo_stream::maintenance::bundle_manifest(h, include_dump)
         }
         _ => return Err(anyhow::anyhow!("unknown API endpoint")),
     })
 }
 
-pub(super) async fn export_crash(h: &Shared) -> Response {
+pub(super) async fn export_crash(h: &Shared, include_dump: bool) -> Response {
     let h = h.clone();
     let result = tokio::task::spawn_blocking(move || -> anyhow::Result<std::fs::File> {
         use std::os::windows::fs::OpenOptionsExt;
-        let path = butterpollo_stream::maintenance::bundle(&h)?;
+        let path = butterpollo_stream::maintenance::bundle(&h, include_dump)?;
         Ok(std::fs::OpenOptions::new()
             .access_mode(0x80000000 | 0x00010000)
             .share_mode(1 | 4)
@@ -207,6 +220,21 @@ pub(super) fn export(h: &Shared, path: &str) -> Response {
 #[cfg(test)]
 mod tests {
     use super::analyze_file;
+
+    #[test]
+    fn only_an_explicit_request_includes_the_crash_memory_dump() {
+        let asks = |uri: &str| super::include_dump(&uri.parse().unwrap());
+        assert!(asks("/api/logs/export_crash?include_dump=1"));
+        assert!(asks("/api/logs/export_crash?x=y&include_dump=true"));
+        for uri in [
+            "/api/logs/export_crash",
+            "/api/logs/export_crash?include_dump=0",
+            "/api/logs/export_crash?include_dump=",
+            "/api/logs/export_crash?include_dumps=1",
+        ] {
+            assert!(!asks(uri), "{uri}");
+        }
+    }
 
     #[test]
     fn the_analysis_explains_the_logs_end_and_skips_the_cut_line() {

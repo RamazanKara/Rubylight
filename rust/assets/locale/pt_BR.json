@@ -1414,5 +1414,12 @@
       "files": "Arquivos",
       "advanced": "Avançado"
     }
+  },
+  "support": {
+    "bundle_desc": "O pacote de suporte inclui os logs e diagnósticos do host para solução de problemas, com endereços, nomes de usuários e dispositivos e títulos de jogos substituídos por marcas.",
+    "bundle_download": "Baixar pacote de suporte",
+    "dump_warning": "Um despejo de memória da falha pode conter tudo o que o Rubylight tinha na memória, como nomes, endereços e senhas. Inclua-o apenas quando pedirem e compartilhe-o em particular.",
+    "dump_download": "Baixar com o despejo de memória da falha",
+    "crash_available": "Há um relatório de falha disponível. Baixe o pacote de suporte com o despejo de memória da falha para incluí-lo."
   }
 }

@@ -301,7 +301,7 @@ pub(super) async fn maintenance(
             if crash["dismissed"] == true {
                 "No new crash reports. The last report was dismissed."
             } else {
-                "A crash report is available in the support bundle."
+                "A crash report is available. Download the support bundle with the crash memory dump to include it."
             },
             i18n::data(text(&crash, "filename")),
             i18n::data(text(&crash, "captured_at")),
@@ -323,6 +323,6 @@ pub(super) async fn maintenance(
     Ok(content
         + &card(
             "Support",
-            "<p>The support bundle includes host logs and diagnostics for troubleshooting.</p><a class=\"button secondary\" href=\"/api/logs/export_crash\">Download support bundle</a>",
+            "<p>The support bundle includes host logs and diagnostics for troubleshooting, with addresses, user and device names and game titles replaced by marks.</p><a class=\"button secondary\" href=\"/api/logs/export_crash\">Download support bundle</a><p>A crash memory dump can hold anything Rubylight had in memory, such as names, addresses and passwords. Include it only when asked, and share it privately.</p><a class=\"button secondary\" href=\"/api/logs/export_crash?include_dump=1\">Download with the crash memory dump</a>",
         ))
 }

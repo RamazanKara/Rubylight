@@ -1414,5 +1414,12 @@
       "files": "Filer",
       "advanced": "Avancerat"
     }
+  },
+  "support": {
+    "bundle_desc": "Supportpaketet innehåller värdens loggar och diagnostik för felsökning, med adresser, användar- och enhetsnamn och speltitlar ersatta av markörer.",
+    "bundle_download": "Ladda ned supportpaket",
+    "dump_warning": "En minnesdump från kraschen kan innehålla allt Rubylight hade i minnet, till exempel namn, adresser och lösenord. Ta bara med den när någon ber om det och dela den privat.",
+    "dump_download": "Ladda ned med minnesdumpen från kraschen",
+    "crash_available": "En kraschrapport finns. Ladda ned supportpaketet med minnesdumpen från kraschen för att ta med den."
   }
 }

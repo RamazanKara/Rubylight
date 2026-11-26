@@ -525,6 +525,8 @@ export const api = {
     analysis: () => get<LogAnalysis>('/api/logs/analysis'),
     downloadUrl: '/api/logs/export',
     supportBundleUrl: '/api/logs/export_crash',
+    /** The support bundle with the newest crash memory dump, which is left out unless asked for. */
+    supportBundleWithDumpUrl: '/api/logs/export_crash?include_dump=1',
   },
   updates: {
     state: () => get<UpdatesState>('/api/updates'),

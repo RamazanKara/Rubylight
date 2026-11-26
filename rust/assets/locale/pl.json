@@ -1414,5 +1414,12 @@
       "files": "Pliki",
       "advanced": "Zaawansowane"
     }
+  },
+  "support": {
+    "bundle_desc": "Pakiet pomocy zawiera dzienniki i diagnostykę hosta do rozwiązywania problemów; adresy, nazwy użytkowników i urządzeń oraz tytuły gier są zastąpione znacznikami.",
+    "bundle_download": "Pobierz pakiet pomocy",
+    "dump_warning": "Zrzut pamięci z awarii może zawierać wszystko, co Rubylight miał w pamięci, np. nazwy, adresy i hasła. Dołączaj go tylko na prośbę i udostępniaj prywatnie.",
+    "dump_download": "Pobierz ze zrzutem pamięci z awarii",
+    "crash_available": "Dostępny jest raport o awarii. Aby go dołączyć, pobierz pakiet pomocy ze zrzutem pamięci z awarii."
   }
 }

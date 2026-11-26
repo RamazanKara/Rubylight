@@ -1414,5 +1414,12 @@
       "files": "Dosyalar",
       "advanced": "Gelişmiş"
     }
+  },
+  "support": {
+    "bundle_desc": "Destek paketi, sorun giderme için ana bilgisayarın günlüklerini ve tanılama bilgilerini içerir; adresler, kullanıcı ve cihaz adları ve oyun adları işaretlerle değiştirilir.",
+    "bundle_download": "Destek paketini indir",
+    "dump_warning": "Çökme bellek dökümü, adlar, adresler ve parolalar gibi Rubylight’ın bellekte tuttuğu her şeyi içerebilir. Yalnızca istendiğinde ekleyin ve özel olarak paylaşın.",
+    "dump_download": "Çökme bellek dökümüyle indir",
+    "crash_available": "Bir çökme raporu var. Eklemek için destek paketini çökme bellek dökümüyle indirin."
   }
 }

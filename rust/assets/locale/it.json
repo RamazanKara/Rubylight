@@ -1414,5 +1414,12 @@
       "files": "File",
       "advanced": "Avanzate"
     }
+  },
+  "support": {
+    "bundle_desc": "Il pacchetto di supporto contiene i log e la diagnostica dell’host per la risoluzione dei problemi, con indirizzi, nomi di utenti e dispositivi e titoli dei giochi sostituiti da segnaposto.",
+    "bundle_download": "Scarica il pacchetto di supporto",
+    "dump_warning": "Un dump di memoria dell’arresto anomalo può contenere qualsiasi cosa Rubylight avesse in memoria, come nomi, indirizzi e password. Includilo solo se richiesto e condividilo in privato.",
+    "dump_download": "Scarica con il dump di memoria dell’arresto anomalo",
+    "crash_available": "È disponibile un rapporto di arresto anomalo. Per includerlo, scarica il pacchetto di supporto con il dump di memoria dell’arresto anomalo."
   }
 }

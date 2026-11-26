@@ -1414,5 +1414,12 @@
       "files": "Fájlok",
       "advanced": "Speciális"
     }
+  },
+  "support": {
+    "bundle_desc": "A támogatási csomag a gazdagép naplóit és diagnosztikai adatait tartalmazza a hibakereséshez; a címeket, a felhasználó- és eszközneveket és a játékcímeket jelölők helyettesítik.",
+    "bundle_download": "Támogatási csomag letöltése",
+    "dump_warning": "Az összeomláskori memóriakép bármit tartalmazhat, ami a Rubylight memóriájában volt, például neveket, címeket és jelszavakat. Csak kérésre csatolja, és ne ossza meg nyilvánosan.",
+    "dump_download": "Letöltés az összeomláskori memóriaképpel",
+    "crash_available": "Összeomlási jelentés érhető el. Csatolásához töltse le a támogatási csomagot az összeomláskori memóriaképpel."
   }
 }

@@ -1443,5 +1443,12 @@
       "encoder_focus": "Encoder-Fokus",
       "sleep_after_idle_minutes": "Ruhezustand bei Inaktivität"
     }
+  },
+  "support": {
+    "bundle_desc": "Das Support-Paket enthält die Protokolle und Diagnosedaten des Hosts zur Fehlersuche; Adressen, Benutzer- und Gerätenamen sowie Spieltitel sind durch Platzhalter ersetzt.",
+    "bundle_download": "Support-Paket herunterladen",
+    "dump_warning": "Ein Speicherabbild des Absturzes kann alles enthalten, was Rubylight im Speicher hatte, etwa Namen, Adressen und Passwörter. Fügen Sie es nur auf Nachfrage bei und teilen Sie es nicht öffentlich.",
+    "dump_download": "Mit Speicherabbild des Absturzes herunterladen",
+    "crash_available": "Ein Absturzbericht liegt vor. Laden Sie das Support-Paket mit dem Speicherabbild des Absturzes herunter, um ihn beizufügen."
   }
 }

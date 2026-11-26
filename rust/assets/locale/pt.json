@@ -1414,5 +1414,12 @@
       "files": "Ficheiros",
       "advanced": "Avançadas"
     }
+  },
+  "support": {
+    "bundle_desc": "O pacote de suporte inclui os registos e diagnósticos do anfitrião para resolução de problemas, com endereços, nomes de utilizadores e dispositivos e títulos de jogos substituídos por marcas.",
+    "bundle_download": "Transferir pacote de suporte",
+    "dump_warning": "Um despejo de memória da falha pode conter tudo o que o Rubylight tinha em memória, como nomes, endereços e palavras-passe. Inclua-o apenas quando lhe for pedido e partilhe-o em privado.",
+    "dump_download": "Transferir com o despejo de memória da falha",
+    "crash_available": "Está disponível um relatório de falha. Transfira o pacote de suporte com o despejo de memória da falha para o incluir."
   }
 }

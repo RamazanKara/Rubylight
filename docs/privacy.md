@@ -47,7 +47,7 @@ Everything else stays between your PC and devices on your network or your own VP
 - **Your router.** With `upnp` on (off by default), the host asks your router to forward its streaming ports through UPnP, PCP or NAT-PMP, and to open them in its IPv6 firewall, and with the WebRTC server on also the browser guest ports. The router receives the host's local addresses, the ports and, through UPnP, a description that includes the host ID.
 - **Your devices away from home.** With **Play over the internet** on, a paired Nightjar device fetches its rendezvous key and the PC's public endpoints over the paired HTTPS connection, and streams over a direct path sealed with keys only the two hold.
 
-The installer makes no internet connections. Support bundles and crash dumps are files on your PC; you decide whether to share them.
+The installer makes no internet connections. Support bundles and crash dumps are files on your PC; you decide whether to share them. A support bundle's logs and diagnostics have addresses, names and secrets replaced by marks, and it holds a crash memory dump only when you ask for one.
 
 ## Code signing
 

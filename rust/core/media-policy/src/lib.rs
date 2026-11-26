@@ -143,6 +143,7 @@ pub mod display_caps;
 pub mod display_policy;
 pub mod display_session_machine;
 pub mod dovi;
+pub mod dvr;
 pub mod edid;
 pub mod encoder_backlog;
 pub mod encoder_focus;

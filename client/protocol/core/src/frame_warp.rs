@@ -36,6 +36,8 @@
 //! - [`Tags`] (0x5545, host to client, unreliable) for each frame as it goes out, with the
 //!   previous frames' tags so one lost message costs nothing.
 //! - [`Mask`] (0x5546, host to client, reliable) whenever the HUD mask changes.
+//! - Frame Warp 2's per-frame meta (0x5549, host to client, unreliable) for a version 2
+//!   request ([`crate::frame_warp_v2`]).
 //!
 //! A host lists the ids on its second `a=x-rl-control` line and `FrameWarpVersion` in
 //! serverinfo. All integers are little-endian; floats are IEEE 754 binary32.
@@ -50,6 +52,8 @@ pub const FRAME_WARP_MODEL_MESSAGE_TYPE: u16 = 0x5544;
 pub const FRAME_WARP_TAGS_MESSAGE_TYPE: u16 = 0x5545;
 /// Host to client: the HUD [`Mask`].
 pub const FRAME_WARP_MASK_MESSAGE_TYPE: u16 = 0x5546;
+/// Host to client: Frame Warp 2's per-frame meta ([`crate::frame_warp_v2`]).
+pub use crate::frame_warp_v2::FRAME_WARP_V2_META_MESSAGE_TYPE;
 /// Serverinfo element: the host learns and sends models, tags and masks.
 pub const SERVERINFO_FIELD: &str = "FrameWarpVersion";
 /// Format version of every message here.

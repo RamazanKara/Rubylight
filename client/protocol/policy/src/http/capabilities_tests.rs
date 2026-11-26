@@ -415,3 +415,26 @@ fn power_update_and_pairing_approve_follow_native_permissions() {
         caps
     );
 }
+
+#[test]
+fn frame_warp_2_needs_frame_warp_version_2() {
+    let xml =
+        include_str!("../../../../app/src/test/resources/protocol/rubylight-30-serverinfo.xml");
+    let caps = |extra: &str| {
+        let xml = xml.replacen("</root>", &format!("{extra}</root>"), 1);
+        super::super::serverinfo::ServerInfo::parse(&xml, 47989)
+            .unwrap()
+            .capabilities
+    };
+    for (field, v1, v2) in [
+        ("", false, false),
+        ("<FrameWarpVersion>1</FrameWarpVersion>", true, false),
+        ("<FrameWarpVersion>2</FrameWarpVersion>", true, true),
+        ("<FrameWarpVersion>3</FrameWarpVersion>", true, true),
+        ("<FrameWarpVersion>bad</FrameWarpVersion>", false, false),
+    ] {
+        let caps = caps(field);
+        assert_eq!(caps.has(Feature::FrameWarp), v1, "{field}");
+        assert_eq!(caps.has(Feature::FrameWarpV2), v2, "{field}");
+    }
+}

@@ -333,6 +333,13 @@ impl Evidence {
                     self.absent(false)
                 }
             }
+            Feature::FrameWarpV2 => {
+                if self.frame_warp_version >= 2 {
+                    Supported
+                } else {
+                    self.absent(false)
+                }
+            }
             // The host reports 0 over plain HTTP and to an unpaired certificate.
             Feature::NativeApi => {
                 if self.native_api_version == -1 {

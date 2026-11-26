@@ -96,11 +96,18 @@ pub const CONTROL_IDS: &[(u16, &str)] = &[
         transport_feedback::TRANSPORT_FEEDBACK_MESSAGE_TYPE,
         "transport feedback",
     ),
+    (
+        frame_warp::FRAME_WARP_V2_META_MESSAGE_TYPE,
+        "frame warp 2 meta",
+    ),
     (0x5601, "DualSense haptics"),
 ];
 
 /// Control message types held back for a message that may be needed later.
-pub const RESERVED_CONTROL_IDS: &[(u16, &str)] = &[(0x5542, "cursor position")];
+pub const RESERVED_CONTROL_IDS: &[(u16, &str)] = &[
+    (0x5542, "cursor position"),
+    (0x554F, "Rubylight 7.0.x headroom"),
+];
 
 /// Control message types other clients use; Rubylight defines nothing here.
 pub const OTHER_CLIENTS_CONTROL_IDS: RangeInclusive<u16> = 0x5506..=0x5510;
@@ -116,6 +123,9 @@ pub const HAPTICS_CAPABILITY: u16 = 0x8000;
 
 /// The first and last control message types Rubylight 3.0 defines.
 pub const RUBYLIGHT_3_CONTROL_IDS: RangeInclusive<u16> = 0x5539..=0x5546;
+
+/// The first and last control message types Rubylight 7.0 defines (the last held back).
+pub const RUBYLIGHT_7_CONTROL_IDS: RangeInclusive<u16> = 0x5548..=0x554F;
 
 /// Input packet magics in use, with what they carry.
 pub const INPUT_MAGICS: &[(u32, &str)] = &[
@@ -195,7 +205,10 @@ mod tests {
     #[test]
     fn reserved_ids_stay_free() {
         for (reserved, _) in RESERVED_CONTROL_IDS {
-            assert!(RUBYLIGHT_3_CONTROL_IDS.contains(reserved));
+            assert!(
+                RUBYLIGHT_3_CONTROL_IDS.contains(reserved)
+                    || RUBYLIGHT_7_CONTROL_IDS.contains(reserved)
+            );
             assert!(
                 CONTROL_IDS.iter().all(|(id, _)| id != reserved),
                 "{reserved:#06x}"
@@ -206,7 +219,7 @@ mod tests {
                 .iter()
                 .map(|(id, _)| *id)
                 .collect::<Vec<_>>(),
-            [0x5542]
+            [0x5542, 0x554F]
         );
         let new: Vec<u16> = CONTROL_IDS
             .iter()
@@ -220,6 +233,21 @@ mod tests {
                 0x5545, 0x5546
             ]
         );
+    }
+
+    #[test]
+    fn rubylight_7_ids_stay_in_their_range() {
+        let mut new: Vec<u16> = CONTROL_IDS
+            .iter()
+            .map(|(id, _)| *id)
+            .filter(|id| RUBYLIGHT_7_CONTROL_IDS.contains(id))
+            .collect();
+        new.sort_unstable();
+        // One line per id, so items that add one merge cleanly.
+        let expected: &[u16] = &[
+            0x5549, // frame warp 2 meta
+        ];
+        assert_eq!(new, expected);
     }
 
     #[test]

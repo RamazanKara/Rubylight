@@ -413,6 +413,9 @@ public class HostCapabilitiesTest {
                 "<appversion>7.1.431.0</appversion>"}) {
             assertTrue(host, caps(host + "<FrameWarpVersion>1</FrameWarpVersion>").has(FRAME_WARP));
             assertTrue(host, caps(host + "<FrameWarpVersion>2</FrameWarpVersion>").has(FRAME_WARP));
+            // Frame Warp 2 needs version 2: a version 1 host runs Frame Warp as before.
+            assertFalse(host, caps(host + "<FrameWarpVersion>1</FrameWarpVersion>").has(FRAME_WARP_V2));
+            assertTrue(host, caps(host + "<FrameWarpVersion>2</FrameWarpVersion>").has(FRAME_WARP_V2));
             for (String version : new String[] {"0", "-1", "bad", "", "65536"}) {
                 assertFalse(host + " " + version, caps(host + "<FrameWarpVersion>" + version +
                         "</FrameWarpVersion>").has(FRAME_WARP));

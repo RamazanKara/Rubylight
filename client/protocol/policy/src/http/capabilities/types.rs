@@ -113,10 +113,13 @@ pub enum Feature {
     HostUpdate,
     /// Devices waiting to pair, approved from here (`pairing.approve` in native features).
     PairingApprove,
+    /// Frame Warp 2 (`FrameWarpVersion` 2 or more): a version 2 request, the gyro, and the
+    /// per-frame confidence and fill hints (0x5549, `rubylight_protocol::frame_warp_v2`).
+    FrameWarpV2,
 }
 
 impl Feature {
-    pub const ALL: [Feature; 54] = [
+    pub const ALL: [Feature; 55] = [
         Feature::Permissions,
         Feature::OtpPairing,
         Feature::Clipboard,
@@ -171,6 +174,7 @@ impl Feature {
         Feature::PcShutdown,
         Feature::HostUpdate,
         Feature::PairingApprove,
+        Feature::FrameWarpV2,
     ];
 }
 

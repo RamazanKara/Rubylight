@@ -22,6 +22,7 @@ pub mod controller_identity;
 pub mod cursor_shape;
 pub mod fec_report;
 pub mod frame_warp;
+pub mod frame_warp_v2;
 pub mod hdr;
 pub mod ids;
 pub mod invite_uri;

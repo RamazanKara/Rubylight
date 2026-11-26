@@ -5,7 +5,7 @@
 //! milliseconds each); a local fuzz run raises it to about a minute per target.
 
 use crate::{
-    audio_ext, control, controller_identity, cursor_shape, fec_report, frame_warp, keyboard_layout, pairing_uri,
+    audio_ext, control, controller_identity, cursor_shape, fec_report, frame_warp, frame_warp_v2, keyboard_layout, pairing_uri,
     pen, phase_lock, pipeline_rates, rate_change, roaming, steam_controller, text_input, transport_feedback, usb, usbip,
 };
 use alloc::{string::String, vec, vec::Vec};
@@ -362,6 +362,52 @@ round_trip!(
     ),
     |b| frame_warp::Mask::decode(b),
     |v| v.encode()
+);
+round_trip!(
+    frame_warp_v2_request,
+    (any::<[u8; 4]>(), 0u16..2100, any::<u8>(), any::<u8>(), 0u16..1100).prop_map(
+        |([flags, controller, gyro_controller, enabled], width, axes, _, max_offset)| {
+            let mut wire = frame_warp_v2::RequestV2::new(frame_warp::FrameWarpRequest {
+                enabled: enabled & 1 != 0,
+                controller: (controller < 20).then_some(controller),
+                mask_max_width: width,
+                lens: flags & 1 != 0,
+            })
+            .encode();
+            wire[3] = flags;
+            wire[8] = gyro_controller;
+            wire[9] = axes;
+            wire[10..12].copy_from_slice(&max_offset.to_le_bytes());
+            wire.to_vec()
+        }
+    ),
+    |b| frame_warp_v2::RequestV2::decode(b),
+    |v| Some(v.encode().to_vec())
+);
+round_trip!(
+    frame_warp_v2_meta,
+    (any::<[u8; 4]>(), any::<[u32; 4]>(), any::<[i32; 2]>(), any::<[f32; 2]>()).prop_map(
+        |([flags, edge, guard, _], [frame, seq, held, packed], omega, gain)| {
+            frame_warp_v2::FrameWarpV2Meta {
+                flags,
+                model_generation: packed as u16,
+                frame,
+                camera_confidence: (packed >> 16) as u16,
+                hud_stability: packed.rotate_left(7) as u16,
+                gyro_seq: seq,
+                gyro_held_us: held,
+                gyro_gain: gain.map(|g| if g.is_finite() { g % frame_warp::MAX_GAIN } else { 0.0 }),
+                omega_mrad_s: omega,
+                edge_fade_strength: edge,
+                hud_guard: guard % 10,
+            }
+            .encode()
+            .map(|m| m.to_vec())
+            .unwrap_or_default()
+        }
+    ),
+    |b| frame_warp_v2::FrameWarpV2Meta::decode(b),
+    |v| v.encode().map(|m| m.to_vec())
 );
 round_trip!(
     fec_report,

@@ -718,3 +718,57 @@ fn congestion_running_sums_match_full_window_scan() {
         assert_eq!(cc.losses_lost_sum, expected_lost);
     }
 }
+
+/// Deltas between groups for ten frames at `period`, three packets 100 µs apart each.
+fn frame_deltas(inter: &mut InterArrival, period: Duration) -> usize {
+    let frame_us = period.as_micros() as u64;
+    let mut deltas = 0;
+    for frame in 0..10u64 {
+        for i in 0..3u64 {
+            let sent_us = frame * frame_us + i * 100;
+            let p = PacketResult {
+                sent_us,
+                arrival_us: Some(sent_us + 2_000),
+                wire_bytes: PACKET,
+            };
+            deltas += usize::from(inter.add(&p, sent_us + 2_000).is_some());
+        }
+    }
+    deltas
+}
+
+#[test]
+fn above_120_fps_each_frame_is_its_own_group() {
+    let at = |millihz| crate::framegen::Rate(millihz).period();
+    // 240 Hz: 5 ms groups take two frames each, five groups and three deltas; half-frame
+    // groups take one, ten groups and eight deltas.
+    let mut fixed = InterArrival::default();
+    assert_eq!(frame_deltas(&mut fixed, at(240_000)), 3);
+    let mut scaled = InterArrival::default();
+    scaled.set_burst_us(crate::pacing_high_hz::group_burst_us(at(240_000)));
+    assert_eq!(frame_deltas(&mut scaled, at(240_000)), 8);
+    // 120 Hz keeps the 5 ms window, which already holds one frame.
+    let mut at_120 = InterArrival::default();
+    at_120.set_burst_us(crate::pacing_high_hz::group_burst_us(at(120_000)));
+    assert_eq!(at_120.burst_us(), BURST_US);
+    assert_eq!(frame_deltas(&mut at_120, at(120_000)), 8);
+}
+
+#[test]
+fn the_controller_follows_the_frame_period_only_above_120_fps() {
+    let at = |millihz| crate::framegen::Rate(millihz).period();
+    let mut cc = Congestion::new(2_000_000, 100_000_000);
+    assert_eq!(cc.group_burst_us(), BURST_US);
+    for millihz in [30_000, 60_000, 119_880, 120_000] {
+        cc.set_frame_period(at(millihz));
+        assert_eq!(cc.group_burst_us(), BURST_US, "{millihz}");
+    }
+    cc.set_frame_period(Duration::ZERO);
+    assert_eq!(cc.group_burst_us(), BURST_US);
+    cc.set_frame_period(at(240_000));
+    assert_eq!(cc.group_burst_us(), 2_083);
+    cc.set_frame_period(at(480_000));
+    assert_eq!(cc.group_burst_us(), 1_041);
+    cc.set_frame_period(at(120_000));
+    assert_eq!(cc.group_burst_us(), BURST_US);
+}

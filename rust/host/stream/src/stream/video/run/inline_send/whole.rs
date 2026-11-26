@@ -191,12 +191,13 @@ impl InlineSender {
                     ctx.timer.until_paced(self.network_pacer.due());
                     pacing_wait += now.elapsed();
                 }
-                let budget = butterpollo_media_policy::network_pacing::startup_batch_payload_limit(
+                let budget = butterpollo_media_policy::pacing_high_hz::startup_batch_payload_limit(
                     wire_frame,
                     bps,
                     remaining[0].len(),
                     peer.ip().to_canonical().is_ipv6(),
                     self.batch_kb * 1024,
+                    ctx.stream_period,
                 );
                 let count = butterpollo_win_io::net::Batch::count(remaining, budget);
                 let send_started = Instant::now();

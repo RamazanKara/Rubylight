@@ -166,6 +166,7 @@ pub mod nvenc;
 pub mod nvidia_component;
 pub mod nvidia_enhance;
 pub mod os_gate;
+pub mod pacing_high_hz;
 pub mod packet;
 pub mod performance;
 pub mod phase_sync;

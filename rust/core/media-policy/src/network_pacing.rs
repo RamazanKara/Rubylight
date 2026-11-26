@@ -301,12 +301,17 @@ pub fn startup_batch_payload_limit(
     ipv6: bool,
     maximum: usize,
 ) -> usize {
-    let cap = if (1..=STARTUP_BATCH_FRAMES).contains(&frame) {
+    batch_payload_limit(bps, datagram, ipv6, startup_batch_cap(frame, maximum))
+}
+
+/// The payload ceiling of wire frame `frame`: [`STARTUP_BATCH_CAP_BYTES`] during
+/// [`STARTUP_BATCH_FRAMES`], else `maximum`.
+pub fn startup_batch_cap(frame: u32, maximum: usize) -> usize {
+    if (1..=STARTUP_BATCH_FRAMES).contains(&frame) {
         maximum.min(STARTUP_BATCH_CAP_BYTES)
     } else {
         maximum
-    };
-    batch_payload_limit(bps, datagram, ipv6, cap)
+    }
 }
 
 pub fn video_wire_rate_bps(

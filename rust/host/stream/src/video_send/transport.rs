@@ -372,12 +372,13 @@ impl Transport<'_> {
         let bps = cur.bps;
         // The datagram size, pace and batch cap are constant for the frame,
         // so the batch payload limit is computed once, not for every batch.
-        let budget = network_pacing::startup_batch_payload_limit(
+        let budget = butterpollo_media_policy::pacing_high_hz::startup_batch_payload_limit(
             frame.wire_frame,
             bps,
             super::early::datagram(&frame.packetizer),
             ipv6,
             self.batch_kb * 1024,
+            period,
         );
         let part_packets: usize = frame.counts.iter().sum();
         let part_bytes: usize = frame

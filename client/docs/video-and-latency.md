@@ -160,18 +160,18 @@ Sharpening ranges from 0–100%, default 50%. At 0%, FSR bypasses extra sharpeni
 
 ## Frame Warp
 
-**Frame Warp** (Video settings on Android and the desktop, off by default) shows a mouse or right-stick camera turn on the next refresh of this screen instead of a network round trip and the game's own delay later. Each picture is shifted by the part of your turn the PC has not drawn yet, and the game's HUD (crosshair, health, minimap, weapon) stays where it is. On a screen faster than the stream, such as a 60 fps stream on a 120 Hz screen, the picture is drawn again with a new shift between frames while you turn, so the turn moves at the screen's rate.
+**Frame Warp** (Video settings on Android and the desktop, off by default) shows a mouse, right-stick or gyro camera turn on the next refresh of this screen instead of a network round trip and the game's own delay later. Each picture is shifted by the part of your turn the PC has not drawn yet, and the game's HUD (crosshair, health, minimap, weapon) stays where it is. On a screen faster than the stream, such as a 60 fps stream on a 120 Hz screen, the picture is drawn again with a new shift between frames while you turn, so the turn moves at the screen's rate.
 
-It needs a PC that offers it (Rubylight). The PC learns each game while you play: how far the picture moves per mouse count and per second of stick, how long the game takes to show an input, and where the HUD is. Until a game's model locks, the overlay reads **Frame Warp: learning** and nothing is shifted; a PC remembers what it learned for the next session. Menus, cutscenes and a mouse pointer unlock it again.
+It needs a PC that offers it (Rubylight 7.0 or newer) and the current Nightjar: Frame Warp 2 replaced the first Frame Warp, and the two don't mix, so with an older Rubylight Nightjar says that Frame Warp needs the current version on the PC and streams without it. The PC learns each game while you play: how far the picture moves per mouse count, per second of stick and per turn of the pad's gyro, how long the game takes to show an input, and where the HUD is. Until a game's model locks, the overlay reads **Frame Warp: learning** and nothing is shifted; a PC remembers what it learned for the next session. Menus, cutscenes and a mouse pointer fade the shift out within a tenth of a second, and it fades back in when the camera moves again.
 
 What to expect:
 
 - The shift turns the picture as the game's camera would. A game's perspective moves the picture's edges farther than its centre in a turn, twice as far at the sides of a 90° view, so the PC also learns the game's field of view from your turns (Rubylight 4.1 and newer), usually within some seven seconds of turning; until then, and for a map or a side-scroller that moves alike everywhere, the picture slides by one shift.
-- It does not predict moving or strafing, and a turn while looking far up or down also rolls the picture a little, which the shift leaves out. While turning, the edge the picture moves away from shows a darkened mirror of the picture until the PC's frame arrives.
+- It does not predict moving or strafing, and a turn while looking far up or down also rolls the picture a little, which the shift leaves out. While turning, the edge the picture moves away from shows the picture's edge stretched and darkened until the PC's frame arrives.
 - A HUD element that moves or fades can be shifted for a moment, and a scene that hardly changes can keep a few cells unshifted.
 - Turning the in-game sensitivity refits within a few seconds. Mouse acceleration in the game makes the fit worse and can keep it from locking.
 
-The Statistics and Debug overlays show its state: not offered by the PC, learning, or locked with the learned gain, the game's delay and the current and largest shift.
+The Statistics and Debug overlays show its state: not offered by the PC, needs the current version on the PC, learning, or locked with the learned gain, the game's delay and the current and largest shift.
 
 On Android it draws through Vulkan where the device has it (Android 10 and newer), even if the renderer was not set to Vulkan, or else through OpenGL ES without upscaling; PyroWave streams draw it in PyroWave's own renderer, with its upscaling and HDR. It is off for a stream with Full chroma, and for HDR on a device without Vulkan, with a message saying why. On the desktop every presenter draws it; with beam racing on, the shift is set once per frame and the picture is not drawn again between frames.
 

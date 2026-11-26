@@ -684,6 +684,14 @@ Each app's **Behavior → Close the app when the last device disconnects** offer
 
 Closing an app runs its normal shutdown and cleanup; unsaved progress may be lost. This setting controls what happens when a device disconnects. Ending the stream when a game exits remains governed by app process tracking, **Keep the stream when a launcher exits within 5 seconds** and **Wait for every process the app starts**.
 
+## Quick Suspend
+
+**Settings → Games → Quick Suspend** (`quick_suspend`, default `off`) lets a device pause the running game and resume it later, also from another device, so the PC stays cool and quiet meanwhile. With **When a device asks** (`manual`), Nightjar's stream menu and the console's session page offer **Suspend game**: the game's own processes stop until **Resume**, the next stream of the game, End session, Close game, the game's stop, the grace period running out or the host's shutdown. The stream stays connected and shows the game's last frame. Only the device that owns the session, one with Host control, or the console may suspend or resume.
+
+Only the app's verified game processes and what they started are paused, children first. An anti-cheat in that tree, or one that started with the game anywhere on the PC, refuses the whole suspend, as do a protected or system process, the host itself, guests and co-op sessions; launchers and console hosts keep running. A refusal says why and changes nothing, and a process that refuses midway gets everything resumed again. Leave it off for online games and games that disconnect when paused.
+
+Before the first process stops, the host writes `quick-suspend.json` to the profile and starts a watchdog beside itself, outside the service's job: if the host crashes or is ended, the watchdog resumes the game, and the next host start resumes whatever is left (after a reboot nothing is). The watchdog logs to `logs/quick-suspend-watch.log`.
+
 ## When a Playnite game closes
 
 The stream of a Playnite game ends once Playnite reports the game closed and no program in the game's folder has run for **Wait after a game closes** (`playnite_exit_wait_secs`, default `15` seconds, under **All settings → Games › Playnite**). The wait keeps the stream open while a launcher hands over to its game or a game restarts itself; until it is over, the stream shows the desktop. Lower it to leave sooner, or set `0` to end the stream at the first check after the game closed; raise it if a stream ends while a game is still starting. It applies to the next game started.

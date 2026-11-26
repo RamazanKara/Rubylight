@@ -83,6 +83,8 @@ All paths start with `/api/native/v1`. "Owner" means the caller owns the current
 | POST | `/session/close-game` | Launch + **host control**, owner, or no session | Session |
 | POST | `/session/continue-here` | View and Launch | Session. Moves the running game's stream to this device (feature `session.continue_here`). 403 `permission_required`, 409 `no_session`, `session_busy` or `host_in_use` |
 | POST | `/session/couch-menu` `{"open": true}` | View or Launch, a live stream of the caller's own | `{"open"}`: whether the menu is open now (feature `session.couch_menu`). 409 `no_session`, 503 `temporarily_unavailable` with the reason the stream can't show it |
+| GET | `/session/suspend` | View or Launch | QuickSuspendStatus (feature `session.quick_suspend`, see [Quick Suspend](#quick-suspend-sessionquick_suspend)) |
+| POST | `/session/suspend`, `/session/resume` `{}` | Launch or **host control**; the session's owner unless host control | QuickSuspendStatus; a refusal is `state` `refused` with `reason` and `message`. 403 `permission_required` |
 | GET | `/launch`, `/resume` (existing) | Launch / View | Play and Resume, unchanged |
 | GET | `/radeon` | View or Launch | Radeon |
 | POST | `/radeon/settings` | View + **host control**, owner of a `streaming` or `suspended` session | Radeon |
@@ -613,6 +615,22 @@ Restart and Shut down work as Sleep PC does on `/power-actions/v1` (Vibepollo's 
   "wake_from_off": true, "last_refusal": null, "last_refusal_unconfirmed": false }
 ```
 
+## Quick Suspend (`session.quick_suspend`)
+
+Listed while the host's `quick_suspend` is `manual` (off by default). `GET /session/suspend` reads the running game's state for a device with View or Launch; `POST /session/suspend` pauses its processes and `POST /session/resume` resumes them, for the device that owns the session and may launch apps, or one with Host control. The bodies are `{}` (or empty; an unknown field is `invalid_request`). Each answer is the state after the request:
+
+- `state`: `unavailable` (off, no game, or a game without a process the host launched; `reason` says which), `ready`, `suspended`, `resuming`, or, only in a POST's answer, `refused`, with the state unchanged.
+- `reason`: `none`, `disabled_for_app`, `no_owned_process`, `anti_cheat_detected`, `protected_process`, `denylisted_process`, `guests_active`, `coop_session`, `not_owner`, `session_busy`, `no_session` or `io_or_os_error`, the names of the control message `0x554B`'s reasons; `message` says it in plain English, null with `none`.
+- `app_title`, `suspended_count`, `suspended_since_unix_ms` and `suspended_by` (the device or "the console").
+
+The host pauses the app's verified game processes and every process they started, children first, and nothing else: an anti-cheat in the tree, or one that started with the game anywhere on the PC, refuses the whole suspend, as do a system process, the host, guests and co-op sessions; launchers and console hosts keep running. It writes `quick-suspend.json` to the profile and starts its watchdog before the first process stops, and resumes what it paused if one refuses. A resume repeats nothing that ran again: a process that exited, or whose id Windows gave to another program, is left alone. The next stream of the game, End session, Close game, the game's stop, the grace period running out and a clean shutdown resume the game first; after a crash the watchdog, or the next host start, does.
+
+```json
+{ "state": "suspended", "reason": "none", "message": null,
+  "app_title": "Hollow Knight", "suspended_count": 2,
+  "suspended_since_unix_ms": 1763772200000, "suspended_by": "Living room TV" }
+```
+
 ## Approve a device (`pairing.approve`)
 
 A device with **Approve new devices** or Host control approves a new one from the couch: it reads the waiting devices and types the PIN the new device shows. The Moonlight key comes from the PIN, so the host needs it and one click cannot do; the protocol and `PROTOCOL_VERSION` stay as they are.
@@ -737,6 +755,7 @@ Modules (serde shapes as in the examples above, all `snake_case`; the source is 
 | `coop` | `Coop`, `Game`, `Session`, `Player`, `Phase`, `End`, `EndReason`, `JoinRequest`, `Joined` |
 | `power` | `Power`, `Availability`, `PowerRequest`, `PowerAccepted`, `Update` |
 | `pairing` | `PairingRequests`, `PairingRequest`, `PairingApprove`, `PairingDeny`, `PairingApproved` |
+| `quick_suspend` | `QuickSuspendStatus`, `SuspendState`, `QuickSuspendRequest` |
 | `usb` | `TUNNEL_PATH`, `UPGRADE`, `TOKEN_HEADER`, `TOKEN_BYTES`, `TOKEN_TTL_SECS` |
 | `error` | `ErrorBody`, `ApiError`, `ErrorCode` with `ErrorCode::status()`, the table in [Errors](#errors) |
 

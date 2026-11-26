@@ -36,6 +36,7 @@ pub mod power_action;
 pub mod process;
 pub mod pyrowave_probe;
 pub mod pyrowave_send;
+pub mod quick_suspend;
 pub mod radeon_profile;
 pub mod radeon_session;
 pub mod remote_display;

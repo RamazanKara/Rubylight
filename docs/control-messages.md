@@ -220,6 +220,7 @@ The second line appears only when the host offers something, and stock clients i
 | `0x5546` | Frame Warp HUD mask | `frame_warp::Mask` | host to client | with `0x5543` | `FrameWarpProtocol` |
 | `0x5549` | Frame Warp meta | `frame_warp_v2::FrameWarpV2Meta` | host to client | with `0x5543` | `FrameWarpProtocol` |
 | `0x5547` | Transport feedback | `transport_feedback::TransportFeedback` | client to host | while `bitrate_adaptation` is `delay` (not the default) | none |
+| `0x554B` | Quick Suspend | `quick_suspend::ClientRequest`, `quick_suspend::HostState` | both | while `quick_suspend` is `manual` (not the default) | `QuickSuspendVersion` |
 
 `0x5508` (clipboard sync, above) goes on the same second line. `0x5542` is reserved. `0x5506`-`0x5510` belong to other clients and hosts: Rubylight takes `0x5508` with Moonlight V+'s frame unchanged and defines nothing else there. Nightjar sends `0x5510` (FEC summary, Moonlight V+'s format) only to a host whose `DESCRIBE` has `x-ss-video[0].fecControlVersion`, which Rubylight does not send.
 
@@ -327,6 +328,21 @@ As [Frame Warp](frame-warp.md) and Nightjar's [protocol document](../client/docs
 
 [Protocol](../client/docs/protocol/frame-warp.md#0x5549-meta-host-to-client-40-bytes-unreliable). The host lists `FrameWarpProtocol` 2 and `0x5549` beside `0x5543` to `0x5546`; the client's request names the gyro's controller and axes, and the host then sends one meta per tagged frame after its tags, unreliable and unsequenced: the camera confidence, HUD stability, the gyro packet the frame reflects and the gyro's gain, the measured turn rate and the fill hints. Versions do not mix: a host ignores an older client's 8-byte version 1 request and sends nothing for it, and no longer lists `FrameWarpVersion`, so an older client sees no Frame Warp; a current client sends nothing to a host without `0x5549`. The id is the first of the 7.0 range `0x5548` to `0x554F`.
 
+### 0x554B Quick Suspend (9 or 20 bytes)
+
+Pausing the running game's processes on the host and resuming them ([configuration](configuration.md#quick-suspend)). A host lists `QuickSuspendVersion` `1` and `0x554B` while `quick_suspend` is `manual`; a client sends it only then, reliable and encrypted (a plaintext one is dropped). Every frame starts with the same 8 bytes:
+
+| Bytes | Field | Meaning |
+| --- | --- | --- |
+| 0 | `version` | `1` |
+| 1 | `kind` | `1` client request, `2` host state |
+| 2-3 | `flags u16` | reserved, 0 |
+| 4-7 | `request_id u32` | the client's request; the host echoes it, and pushes a change no request caused with 0 |
+
+A client request adds `op` at byte 8: `1` query the state, `2` suspend, `3` resume. A host state adds 12 bytes: `state` (`0` unavailable, `1` ready, `2` suspended, `3` resuming, `4` refused), `reason` (`0` none, `1` off on the host, `2` no game process the host launched, or only a launcher, `3` anti-cheat, `4` a protected process, `5` a system process or the host, `6` guests, `7` co-op, `8` not the session's owner, `9` a launch or session end under way, `10` no game, `11` Windows failed), the suspended process count (`u16`) and since when (Unix ms, `u64`), both 0 unless suspended. A reason a client does not know reads as `11`.
+
+The host answers each request on a worker of its own, never on the control loop, and after a device's first request also tells it each change another device or the console made. Only the device that owns the session, or one with Host control, may suspend or resume; the stream stays connected and shows the game's last frame. The next stream of the game, the session's end, the game's stop, the grace period running out and the host's shutdown resume it first. A host crash leaves the journal `quick-suspend.json` in the profile, which a watchdog beside the host, or the next host start, resumes.
+
 ### 0x5547 transport feedback (20 bytes and the entries)
 
 Per-packet arrival times of the video stream, for the host's congestion control ([configuration](configuration.md#adapt-to-network-congestion)). The client sends them only to a host that lists `0x5547` in `a=x-rl-control`, unreliable and unsequenced, about every 50 ms while video arrives, and drops a report rather than queue it behind a backlog.
@@ -394,6 +410,7 @@ Each is absent until the host offers it.
 | serverinfo | `SecondScreenVersion` | the host reads `rlSecondScreen` |
 | serverinfo | `RustHostInternetPlayVersion` | paired only: `1` while `internet_play` is on (else `0`): the host serves `GET /internet-play/v1` on the paired port and answers hole punches ([Play over the internet](internet-play.md)) |
 | serverinfo | `ExternalIP` | paired only: the router's public IPv4 address, while `upnp` or `internet_play` is on and the host knows it (Moonlight's remote address) |
+| serverinfo | `QuickSuspendVersion` | `1` while `quick_suspend` is `manual`: the host takes `0x554B` and serves `/api/native/v1/session/suspend` and `/session/resume` (feature `session.quick_suspend`) |
 | serverinfo | `FrameWarpProtocol` | `2` while `frame_warp` is on: the host takes the 12-byte `0x5543` and sends `0x5544` to `0x5546` and `0x5549`. Hosts before 7.0 listed `FrameWarpVersion` `1` instead, which a current host no longer sends |
 | every HTTPS request | `rlSecondScreen` | `1` marks a request of a paired device's second screen (Nightjar's Dual screen mode). On `/launch` and `/resume` it starts or resumes that screen's stream, which the host keeps beside the device's first stream as a device of its own under the same pairing, and lays the two displays out as the user left them. The second screen always has a display of its own: a virtual display beside the first screen's, also when it resumes the game the first screen plays (it never joins the game's display), or, when the device's streams show physical displays, the PC's other monitor (the same one only when there is no other). The second screen's process sends it on every other request too (`/bitrate`, `/api/abr/capabilities`, `/api/network-path`, `/api/hardware-metrics`, `/actions/clipboard`, the native API), so each reaches its own stream; without it a request is the device's first screen's. Permissions, the enabled switch and the device's settings are the device's for both screens, except the resolution and scale kept from a stream, which each screen keeps for itself; a second screen takes no Nucleus Co-op seat. Unpairing or turning the device off ends both and releases what both held. Any other value is the device itself |
 | `/launch` | `rlDisplayScale` | the Windows scale (text and interface size) of the stream's virtual display in percent, one of 100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450 or 500; anything else is refused. Sent with or without `virtualDisplay=1`, since the host may make a virtual display of its own; ignored for a stream on a physical display. It comes before the device, app and host `dd_virtual_display_scale`, is lowered, with a warning, to the largest the display's resolution allows, and a scale Windows refuses is a warning, not a failed stream. `scaleFactor` is the render size, not this |

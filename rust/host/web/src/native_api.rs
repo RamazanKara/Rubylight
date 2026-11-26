@@ -15,6 +15,7 @@ mod guests;
 mod neural;
 pub mod pairing;
 mod power;
+mod quick_suspend;
 pub mod radeon;
 pub mod wake;
 
@@ -129,6 +130,16 @@ pub fn router() -> Router<Shared> {
         .route(
             &path("/session/couch-menu"),
             post(couch_menu).fallback(unknown),
+        )
+        .route(
+            &path("/session/suspend"),
+            get(quick_suspend::read)
+                .post(quick_suspend::suspend)
+                .fallback(unknown),
+        )
+        .route(
+            &path("/session/resume"),
+            post(quick_suspend::resume).fallback(unknown),
         )
         .route(&path("/radeon"), get(radeon::read).fallback(unknown))
         .route(

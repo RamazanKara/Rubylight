@@ -61,6 +61,8 @@ pub(in crate::stream) struct ControlPeer {
     pub(super) focus_watch: Option<butterpollo_win_io::text_focus::FocusWatch>,
     /// Clipboard sync (0x5508), from the device's first frame; its worker ends with the peer.
     pub(super) clipboard_sync: clipboard_sync::PeerSync,
+    /// Quick Suspend (0x554B), from the device's first request.
+    pub(super) quick_suspend: super::quick_suspend::PeerSuspend,
     /// The session's settings for control packets that read them.
     pub(super) config: PeerConfig,
     /// The display scale a client-drawn cursor's shapes are sized for, read off this thread.
@@ -125,6 +127,7 @@ impl ControlPeer {
             cursor_owner: peer_id.0,
             focus_watch: None,
             clipboard_sync: Default::default(),
+            quick_suspend: Default::default(),
             config: Default::default(),
             cursor_scale: Default::default(),
             pre_active_packets: std::collections::VecDeque::new(),

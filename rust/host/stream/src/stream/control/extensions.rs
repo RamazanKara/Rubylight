@@ -51,6 +51,10 @@ pub(super) fn handle_extension_packet(
                 tracing::warn!(error=%e, "configured server command failed");
             }
         }
+        // Quick Suspend (0x554B): the work runs on a worker of its own.
+        rubylight_protocol::quick_suspend::QUICK_SUSPEND_MESSAGE_TYPE => {
+            super::quick_suspend::request(h, control_wake, p, s, payload, encrypted);
+        }
         // Frame Warp (0x5543): while offered, the host learns the game's
         // camera response and tags every frame for a client that asked;
         // the pass below sends the model, mask, tags and metas. The host runs

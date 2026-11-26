@@ -194,6 +194,8 @@ pub struct Host {
     pub usb: crate::usb_forward::UsbForwarding,
     /// The session state machine and its journal.
     pub session: Mutex<crate::session_control::Control>,
+    /// The game Quick Suspend paused, if any (`quick_suspend`).
+    pub quick_suspend: crate::quick_suspend::Tracker,
     /// Ended streams for the console's Sessions page, saved in the profile directory.
     pub session_history: crate::session_history::History,
     pub confirmations: Mutex<butterpollo_session::remote::Confirmations>,

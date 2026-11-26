@@ -629,6 +629,7 @@ fn poll_peer(
     }
     tick_and_send_qos(host, peer_id, p, &s, poll_feedback);
     send_extension_updates(h, host, peer_id, p, &s);
+    super::quick_suspend::send(h, control_wake, host, peer_id, p, &s);
     send_clipboard_and_focus_updates(h, control_wake, host, peer_id, p, &s);
     if !ensure_input_ready(h, control_wake, p, &s) {
         return true;

@@ -12,8 +12,8 @@ use std::collections::BTreeMap;
 use anyhow::{Result, bail};
 use rubylight_protocol::{
     audio_ext, clipboard_sync, controller_identity, cursor_shape, fec_report, frame_warp,
-    frame_warp_v2, hdr, keyboard_layout, pen, pipeline_rates, rate_change, text_input,
-    transport_feedback, usb, video_packet,
+    frame_warp_v2, hdr, keyboard_layout, pen, pipeline_rates, quick_suspend, rate_change,
+    text_input, transport_feedback, usb, video_packet,
 };
 
 pub use rubylight_protocol::fec_report::FecChoice;
@@ -111,6 +111,9 @@ pub struct Offered {
     /// Per-packet arrival feedback (0x5547) for congestion control, while
     /// `congestion_control` is on; a DESCRIBE id only, no serverinfo element.
     pub transport_feedback: bool,
+    /// `QuickSuspendVersion` and Quick Suspend (0x554B), while `quick_suspend`
+    /// is on: a device may pause the running game and resume it.
+    pub quick_suspend: bool,
     /// `NvidiaEnhancements`: the NVIDIA image enhancements the GPU and
     /// driver offer with the NVIDIA component (`nvidia_enhance` bits), which a
     /// launch may ask for with `rlRtxHdr` and `rlRtxVideo`. 0 without it.
@@ -145,6 +148,7 @@ impl Offered {
         rate_change: false,
         clipboard_sync: false,
         transport_feedback: false,
+        quick_suspend: false,
         nvidia_enhancements: 0,
         max_video_packet: 0,
     };
@@ -214,6 +218,12 @@ impl Offered {
         }
         if self.controller_identity {
             fields.push((controller_identity::SERVERINFO_FIELD, version()));
+        }
+        if self.quick_suspend {
+            fields.push((
+                quick_suspend::SERVERINFO_FIELD,
+                quick_suspend::SERVERINFO_VERSION.to_string(),
+            ));
         }
         let nvidia = self.nvidia_enhancements & crate::nvidia_enhance::ALL;
         if nvidia != 0 {
@@ -295,6 +305,10 @@ impl Offered {
             (
                 self.transport_feedback,
                 transport_feedback::TRANSPORT_FEEDBACK_MESSAGE_TYPE,
+            ),
+            (
+                self.quick_suspend,
+                quick_suspend::QUICK_SUSPEND_MESSAGE_TYPE,
             ),
         ]
         .into_iter()

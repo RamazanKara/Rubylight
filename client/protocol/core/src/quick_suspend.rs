@@ -16,6 +16,10 @@
 
 /// Control-stream message type (`client/protocol/core/src/ids.rs`).
 pub const QUICK_SUSPEND_MESSAGE_TYPE: u16 = 0x554b;
+/// The serverinfo element of a host that takes it, while `quick_suspend` is on.
+pub const SERVERINFO_FIELD: &str = "QuickSuspendVersion";
+/// Its value: this frame version.
+pub const SERVERINFO_VERSION: u8 = 1;
 /// The frame version this crate reads and writes.
 pub const VERSION: u8 = 1;
 /// Size of the header every frame starts with.

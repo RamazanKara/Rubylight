@@ -187,6 +187,17 @@ impl RunningApp {
     pub fn is_desktop(&self) -> bool {
         !self.launches && !self.has_game_process()
     }
+    /// The verified game processes (pid → creation time) among `processes`
+    /// that Quick Suspend starts from; none for Desktop or a detached command.
+    pub(crate) fn suspend_roots(
+        &self,
+        processes: &[butterpollo_session::steam::Process],
+    ) -> Result<BTreeMap<u32, u64>> {
+        if !self.has_game_process() {
+            return Ok(BTreeMap::new());
+        }
+        self.owned_processes(processes)
+    }
     fn has_game_process(&self) -> bool {
         self.steam.is_some()
             || self.playnite.is_some()

@@ -355,6 +355,7 @@ impl Host {
     /// tick.
     pub fn session_tick(&self) {
         self.with_session(|_, _, _| ());
+        crate::quick_suspend::tick(self);
         // Each running stream's frame rate, for the Sessions page's p95 figure.
         let now = std::time::Instant::now();
         let sessions = locked(&self.sessions);
@@ -589,7 +590,7 @@ impl Host {
         caller: Option<&str>,
         plan: impl FnOnce(&Machine, &Facts) -> Result<Plan, Refusal>,
     ) -> Result<Option<(Teardown<'_>, String)>, Refusal> {
-        self.with_session(|machine, facts, now| {
+        let begun = self.with_session(|machine, facts, now| {
             if plan(machine, facts)? == Plan::Skip {
                 return Ok(None);
             }
@@ -607,7 +608,11 @@ impl Host {
                 },
                 owner,
             )))
-        })
+        });
+        if let Ok(Some(_)) = &begun {
+            crate::quick_suspend::resume_for(self, "the session ends");
+        }
+        begun
     }
 
     /// Mark a teardown the host starts on its own: stock `/cancel`, the
@@ -627,6 +632,9 @@ impl Host {
             };
             wanted && enter_stopping(machine, facts, None, now)
         });
+        if entered {
+            crate::quick_suspend::resume_for(self, "the session ends");
+        }
         Teardown {
             host: self,
             entered,
@@ -690,6 +698,7 @@ impl Host {
     }
     /// A clean shutdown: no session survives, and no journal.
     pub fn session_shutdown(&self) {
+        crate::quick_suspend::resume_for(self, "the host shuts down");
         self.with_session(|machine, _, now| machine.reset(now));
         self.session_flush();
         // The last stream's entry, written on the saver thread.

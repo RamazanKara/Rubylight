@@ -9,6 +9,7 @@ mod haptics;
 mod input;
 mod peer;
 mod qos;
+mod quick_suspend;
 mod socket;
 
 pub use haptics::{RUMBLE_DATA, RUMBLE_TRIGGER_DATA, feedback_packets};

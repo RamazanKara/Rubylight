@@ -572,6 +572,10 @@ pub(super) fn prepare_launch_app(
     if resume && launch.role == Role::Stream && h.current_app.lock().unwrap().is_none() {
         bail!(NOTHING_TO_RESUME);
     }
+    // A stream of a paused game runs it again before its capture starts.
+    if launch.role == Role::Stream {
+        crate::quick_suspend::resume_for(h, "a stream of the game starts");
+    }
     #[cfg(any(test, feature = "test-support"))]
     if let Some(fixture) = &h.reconnect_fixture {
         return fixture.prepare_app(h, app, launch);

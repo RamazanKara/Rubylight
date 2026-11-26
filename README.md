@@ -322,6 +322,7 @@ Rubylight is licensed under **GPL-3.0**. Everyone who helped, with their GitHub 
 - KosmicKrisp, the Vulkan-on-Metal driver Nightjar for macOS bundles, is by **LunarG and the Mesa contributors** (MIT); the Vulkan loader and SPIRV-Tools are by **The Khronos Group** (Apache-2.0).
 - PyroWave and Granite are by **Themaister** (MIT); the PyroWave Moonlight protocol and clients are **joemossjr16's** work.
 - Composite DualSense haptics draw on **Nonary's** Vibepollo protocol and its DualSense rumble-stop fix, **Chase Payne's** libvirtualgamepad USB reports and **HIDMaestro contributors'** composite descriptors.
+- PlayStation controller speakers for Nonary's Moonlight and Nightjar's speaker over Bluetooth follow **Nonary's** speaker PCM format and **Chase Payne's** Bluetooth audio reports in Nonary's moonlight-qt, built on **mrFunkill's** DualSense research.
 - The virtual Steam Controller is **jlobue10's** profile in Nonary's libvirtualgamepad, and the host maps clients onto it as **Nonary's** Vibepollo does.
 - The DualShock 4 on ViGEmBus follows **Nonary's** Vibepollo, built on **LizardByte and the Sunshine contributors'** DualShock 4 emulation.
 - The virtual Switch 2 Pro Controller follows **Alia5's** libVIIPER, **Luiz Filipe Bandeira's and the contributors'** Solstice and **SDL's** Switch 2 driver by **Sam Lantinga and the SDL contributors** (zlib).

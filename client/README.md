@@ -300,7 +300,7 @@ Nightjar is a fork of [Moonlight Android](https://github.com/moonlight-stream/mo
 - [jvanderv42's Nightjar fork](https://github.com/jvanderv42/nightjar), for the per-controller gyroscope mapping (axes, inversion, sensitivity and the Flydigi preset) and the in-stream motion readings
 - [moonlight-noir](https://github.com/derflacco/moonlight-android) by derflacco, for decoder low-latency settings
 - Nonary's moonlight-qt fork, the reference for the desktop client's VRR pacing and D3D11VA rendering, and the source of the Linux high-performance GPU power hold (`client/protocol/desktop-media/src/stream/gpu_hold.rs`), the Windows VRR sync switch `blank` (`stream/present/{pacer,vrr}.rs` and `stream/render/pacing.rs`) and the macOS refresh range (`client/protocol/desktop-media/src/mac_display.rs`), all from commit 19758e5e6
-- [Nonary/moonlight-common-c](https://github.com/Nonary/moonlight-common-c), for the DualSense waveform protocol
+- [Nonary/moonlight-common-c](https://github.com/Nonary/moonlight-common-c), for the DualSense waveform protocol and the controller speaker PCM format, and Nonary's moonlight-qt fork by Chase Payne at commit b72d0c2, for the DualSense speaker over Bluetooth (`client/protocol/desktop-media/src/dualsense_bt_audio.rs`), built on mrFunkill's [decky-dualsense-wired](https://github.com/mrFunkill/decky-dualsense-wired) research
 
 The bundled third-party components (PyroWave, Granite, volk, KosmicKrisp from Mesa, the Khronos Vulkan loader, SPIRV-Tools, SPIRV-Headers, libadrenotools, AMD FSR 1, Qualcomm SGSR 1, SDL, FFmpeg, the Figtree font and others) keep their own licenses. [License and credits](docs/index.md#license-and-credits) names each contribution and the notices to retain when redistributing.
 

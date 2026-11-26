@@ -88,6 +88,12 @@ fn a_recording_starts_with_a_state_and_stops_with_a_clip() {
     let done = ClipResult { duration_secs: 134, file_bytes: 1_250_000_000, ..clip(stop.request_id, Outcome::Saved, Reason::None) };
     assert_eq!(dvr.clip(&done), "Recording saved (02:14, 1.2 GB)");
 
+    // The host refuses a start with a clip result, not a state.
+    let guest = dvr.request(Op::StartRecord, now);
+    let refusal = clip(guest.request_id, Outcome::Refused, Reason::PermissionDenied);
+    assert_eq!(dvr.clip(&refusal), reason_text(Reason::PermissionDenied));
+    assert!(dvr.entries(now)[1].enabled, "the row works again");
+
     let refused = dvr.request(Op::StartRecord, now);
     let toast = dvr.state(HostState { request_id: refused.request_id, ..state(State::Error, Reason::DiskFull) });
     assert!(toast.is_some_and(|t| t.starts_with("Not enough free disk space")));

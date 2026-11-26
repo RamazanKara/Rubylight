@@ -82,6 +82,25 @@ public class StreamMenuDvrSectionTest {
         assertTrue(rows[0].problem);
         assertEquals(context.getString(R.string.stream_dvr_reason_pyrowave), rows[0].detail);
         assertTrue("no toast for a state nobody asked for", toasts.isEmpty());
+
+        // A state a newer host added greys the rows out; an unknown reason reads as the plain one.
+        dvr.onState(0, 42, 77, 60, 0);
+        rows = dvr.rows();
+        assertFalse(rows[0].enabled || rows[1].enabled);
+        assertEquals(context.getString(R.string.stream_dvr_reason_unknown), rows[0].detail);
+    }
+
+    @Test
+    public void aRefusedStartAndAStopWithNothingRecordingComeAsClipResults() {
+        StreamMenuDvrSection dvr = section();
+        dvr.onState(0, StreamMenuDvrSection.ARMED, StreamMenuDvrSection.NONE, 60, 0);
+        dvr.request(StreamMenuDvrSection.OP_START);
+        dvr.onClip(sent.get(0)[0], 1, StreamMenuDvrSection.PERMISSION_DENIED, 0, 0);
+        assertEquals(context.getString(R.string.stream_dvr_reason_permission), toasts.get(0));
+        assertTrue("the row works again", dvr.rows()[1].enabled);
+        dvr.request(StreamMenuDvrSection.OP_STOP);
+        dvr.onClip(sent.get(1)[0], 1, StreamMenuDvrSection.NO_KEYFRAME_YET, 0, 0);
+        assertEquals(context.getString(R.string.stream_dvr_reason_no_keyframe), toasts.get(1));
     }
 
     @Test

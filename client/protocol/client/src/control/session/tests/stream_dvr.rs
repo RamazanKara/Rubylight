@@ -89,3 +89,31 @@ fn stream_dvr_is_asked_and_answered_only_where_announced() {
         .unwrap();
     assert!(bare.take_events().is_empty());
 }
+
+#[test]
+fn an_unknown_state_reads_as_unsupported_and_an_unknown_reason_as_unknown() {
+    let mut s = ControlSession::new(
+        HostCapabilities {
+            control_messages: vec![0x5530, 0x554a],
+            ..rubylight()
+        },
+        &KEY,
+        SessionOptions::default(),
+    );
+    let t0 = Instant::now();
+    s.start(t0);
+    host_reads(&mut s);
+    let mut payload = Message::State(state(3)).encode().unwrap();
+    payload[8] = 200;
+    payload[9] = 201;
+    s.handle_datagram(t0, &from_host(1, 0x554A, &payload))
+        .unwrap();
+    assert_eq!(
+        s.take_events(),
+        [ControlEvent::StreamDvrState(HostState {
+            state: State::Unsupported,
+            reason: Reason::Unknown,
+            ..state(3)
+        })]
+    );
+}

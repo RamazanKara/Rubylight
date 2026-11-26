@@ -147,18 +147,19 @@ public final class StreamMenuDvrSection {
         boolean saveOn = true, recordOn = true, problem = false;
         if (known) {
             switch (state) {
-                case OFF: case UNSUPPORTED: case ERROR:
-                    saveDetail = reasonText(context, reason);
-                    problem = true;
-                    saveOn = recordOn = false;
+                case ARMED: case RECORDING:
+                    saveDetail = bufferedSecs <= 0 ? reasonText(context, NO_KEYFRAME_YET)
+                            : context.getString(R.string.stream_dvr_buffered, bufferedSecs);
                     break;
                 case SAVING:
                     saveDetail = context.getString(R.string.stream_dvr_saving);
                     saveOn = false;
                     break;
                 default:
-                    saveDetail = bufferedSecs <= 0 ? reasonText(context, NO_KEYFRAME_YET)
-                            : context.getString(R.string.stream_dvr_buffered, bufferedSecs);
+                    // Off, unsupported, an error, or a state a newer host added: greyed out with the reason.
+                    saveDetail = reasonText(context, reason);
+                    problem = true;
+                    saveOn = recordOn = false;
             }
         }
         if (waiting(OP_SAVE, now)) {

@@ -493,8 +493,18 @@ pub(crate) fn rate_change(p: &[u8]) -> Option<ControlEvent> {
 /// A Stream DVR state or clip result; a request (the client's own kind) or a frame that breaks
 /// the format is dropped.
 pub(crate) fn stream_dvr(p: &[u8]) -> Option<ControlEvent> {
-    use rubylight_protocol::stream_dvr::Message;
-    match Message::decode(p)? {
+    use rubylight_protocol::stream_dvr::{HEADER_BYTES, KIND_STATE, Message, State, VERSION};
+    // A state a newer host added reads as unsupported, so the menu greys out rather than lies.
+    let message = Message::decode(p).or_else(|| {
+        let known = p.get(HEADER_BYTES).and_then(|&state| State::from_u8(state)).is_some();
+        if p.first() != Some(&VERSION) || p.get(1) != Some(&KIND_STATE) || known {
+            return None;
+        }
+        let mut patched = p.to_vec();
+        patched[HEADER_BYTES] = State::Unsupported as u8;
+        Message::decode(&patched)
+    })?;
+    match message {
         Message::State(state) => Some(ControlEvent::StreamDvrState(state)),
         Message::Clip(clip) => Some(ControlEvent::StreamDvrClip(clip)),
         Message::Request(_) => None,

@@ -30,6 +30,7 @@ pub(crate) fn open_audio_encoder(
 }
 
 type Route = butterpollo_win_io::audio_route::Route;
+use butterpollo_win_io::audio_route::notify;
 
 /// The `audio_surround` warning when the device has fewer channels (`applied`)
 /// than the capture `requested`. They differ from the client's own layout only
@@ -123,9 +124,10 @@ fn route_upkeep(
     }
 }
 
-/// The audio route's once-a-second upkeep, on its own thread. Each round
-/// asks the Windows audio service for the default devices, several COM calls;
-/// on the audio sender they held up the read after them about once a second.
+/// The audio route's upkeep, on its own thread: once a second and at once on
+/// an endpoint change. Each round asks the Windows audio service for the
+/// default devices, several COM calls; on the audio sender they held up the
+/// read after them about once a second.
 struct RouteUpkeep {
     sink: Arc<Mutex<String>>,
     stop: Arc<AtomicBool>,
@@ -163,11 +165,18 @@ impl RouteUpkeep {
                         return;
                     }
                 };
+                // Endpoint changes wake the next round at once; the poll stays the safety net.
+                let upkeep = thread::current();
+                let _watch = notify::EndpointWatch::new(Arc::new(move || upkeep.unpark()))
+                    .inspect_err(|error| tracing::warn!("audio endpoint notifications unavailable; polling only: {error:#}"))
+                    .ok();
+                let mut last_round = Instant::now();
                 loop {
-                    thread::park_timeout(Duration::from_secs(1));
+                    notify::park_until_round(last_round);
                     if stop.load(Ordering::Acquire) {
                         break;
                     }
+                    last_round = Instant::now();
                     let previous = sink.lock().unwrap().clone();
                     let selected = route_upkeep(&route, &config, &warnings, &previous);
                     *sink.lock().unwrap() = selected;

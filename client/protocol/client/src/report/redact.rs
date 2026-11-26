@@ -1,6 +1,7 @@
 //! Log redaction shared with the Android app's `utils/RedactedLog.redact`: names and addresses of
-//! the user's PCs, URLs, e-mail, IP and MAC addresses, UUIDs, keys, Android paths and PINs are
-//! replaced by marks such as `[PC]` or `[address]`.
+//! the user's PCs, URLs, e-mail, IP and MAC addresses, UUIDs, keys, Android paths, the user's
+//! name in Windows, macOS and Linux home folders, and PINs are replaced by marks such as `[PC]`,
+//! `[user]` or `[address]`.
 //!
 //! The cases in `tests/fixtures/redact` are replayed against both (cargo `redact_contract` and
 //! JUnit `RedactedLogContractTest`), so the two stay equal. The patterns use Java's ASCII
@@ -70,6 +71,20 @@ static SENSITIVE: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
     .into_iter()
     .map(|(pattern, mark)| (Regex::new(&pattern).expect("redaction pattern"), mark))
     .collect()
+});
+
+/// A folder or file name in a path: no separator, space or character Windows forbids in names.
+const PATH_NAME: &str = r#"[^\\/ \t\n\x0B\x0C\r"'<>|:*?]+"#;
+
+/// A user's home folder in a path, up to the user's name, which becomes `[user]`: `C:\Users\`
+/// (any case, either separator, doubled in escaped text) and `Documents and Settings` on
+/// Windows, `/Users/` on macOS and `/home/` on Linux. A name with spaces counts as one only up
+/// to the separator after it; at the end of the path its first word goes.
+static USER_PATH: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(&format!(
+        r"((?-u:\b)[A-Za-z]:[\\/]+(?i-u:users|documents and settings)[\\/]+|/(?:Users|home)/+)(?:{PATH_NAME}(?: +{PATH_NAME})*([\\/])|{PATH_NAME})"
+    ))
+    .expect("user path pattern")
 });
 
 /// A secret's keyword and up to three separators, then the secret itself.
@@ -154,6 +169,9 @@ impl Secrets {
         }
         if marked {
             text = text.replace(PC_PLACEHOLDER, "[PC]");
+        }
+        if let std::borrow::Cow::Owned(replaced) = USER_PATH.replace_all(&text, "${1}[user]${2}") {
+            text = replaced;
         }
         for (pattern, mark) in SENSITIVE.iter() {
             if let std::borrow::Cow::Owned(replaced) = pattern.replace_all(&text, *mark) {

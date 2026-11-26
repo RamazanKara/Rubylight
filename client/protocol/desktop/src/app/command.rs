@@ -300,11 +300,25 @@ impl App {
                     self.launcher.message(tr("Could not open the logs folder"), e);
                 }
             }
-            // Android's ProblemReport: the redacted logs as one file, shown in the logs folder.
+            // Android's ProblemReport: the redacted logs as one file, shown in the logs folder, with
+            // the renderer and decoder; crash dumps are named, never included.
             Command::ReportProblem => {
+                let decoder = match self.hardware(&self.launcher.settings) {
+                    Hardware::None => "software",
+                    Hardware::D3d11(_) => "Direct3D 11",
+                    Hardware::Auto(..) => "automatic",
+                    Hardware::Vaapi => "VA-API",
+                    #[cfg(target_os = "macos")]
+                    Hardware::VideoToolbox => "VideoToolbox",
+                    Hardware::Vulkan(_) => "Vulkan video",
+                    Hardware::Cuda => "NVDEC",
+                    Hardware::V4l2m2m => "V4L2",
+                };
                 let header = format!("Nightjar {VERSION} / {} {}
-Redacted logs, oldest line first; addresses, PC names, PINs and credentials are removed.",
-                    std::env::consts::OS, std::env::consts::ARCH);
+Renderer {}, decoder {decoder} (setting {:?})
+Redacted logs, oldest line first; addresses, PC names, user folders, PINs and credentials are removed.",
+                    std::env::consts::OS, std::env::consts::ARCH, sdl::renderer_name(self.renderer),
+                    self.launcher.settings.decoder);
                 match logfile::logs_dir().and_then(|dir| logfile::write_report(&dir, &header)) {
                     Ok(_) => {
                         self.launcher.toast(tr("Problem report saved."));

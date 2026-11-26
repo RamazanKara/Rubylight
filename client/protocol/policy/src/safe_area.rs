@@ -108,20 +108,12 @@ impl Subject for Traced {
             "screen_offset_x" | "screen_offset_y" => {
                 let [x, y, rotation] = ints(args)?;
                 let (sx, sy) = to_screen(x, y, rotation);
-                if method == "screen_offset_x" {
-                    sx
-                } else {
-                    sy
-                }
+                if method == "screen_offset_x" { sx } else { sy }
             }
             "natural_offset_x" | "natural_offset_y" => {
                 let [x, y, rotation] = ints(args)?;
                 let (nx, ny) = to_natural(x, y, rotation);
-                if method == "natural_offset_x" {
-                    nx
-                } else {
-                    ny
-                }
+                if method == "natural_offset_x" { nx } else { ny }
             }
             _ => return Err(format!("unknown call {method}")),
         };

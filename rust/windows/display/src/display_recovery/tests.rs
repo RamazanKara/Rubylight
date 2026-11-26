@@ -515,3 +515,39 @@ fn pending_leftover_entries_remain_recoverable_when_journal_marked_stale() -> Re
     assert!(ran);
     Ok(())
 }
+
+#[test]
+fn a_scale_is_put_back_after_a_crash_unless_it_is_already_the_original() {
+    // 150 % before the stream, 100 % requested.
+    // A clean end recorded the scale that landed: only that one is put back,
+    // and a scale the user picked since stays.
+    assert!(restore_scale_needed(false, 100, 100, 150));
+    assert!(!restore_scale_needed(false, 125, 100, 150));
+    assert!(!restore_scale_needed(false, 150, 100, 150));
+    // A crash inside the apply: Windows may have landed on a scale of its own,
+    // and the original comes back from anything else.
+    assert!(restore_scale_needed(true, 100, 100, 150));
+    assert!(restore_scale_needed(true, 125, 100, 150));
+    // Nothing to do when the original never changed.
+    assert!(!restore_scale_needed(true, 150, 100, 150));
+}
+
+#[test]
+fn releasing_a_display_clears_its_requested_scale() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("display-recovery.json");
+    let mut journal = Journal::default();
+    journal.entries.insert(
+        "primary".into(),
+        Entry {
+            scale: Some((150, 100)),
+            scale_requested: true,
+            ..Default::default()
+        },
+    );
+    butterpollo_session::state::write_json(&path, &journal).unwrap();
+    assert_eq!(pending_in(&path, "primary").unwrap().scale, Some(150));
+    release_in(&path, "primary").unwrap();
+    let journal: Journal = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert!(journal.entries.is_empty());
+}

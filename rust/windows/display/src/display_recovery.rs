@@ -15,14 +15,17 @@ use std::{os::windows::io::AsRawHandle, process::Command};
 #[cfg(test)]
 use windows::Win32::{Foundation::*, System::Threading::*};
 
+mod dpi;
+mod dpi_settle;
 mod hooks;
 mod restore;
 mod watcher;
 
+pub use dpi::{DpiBaseline, settle_scale};
 pub use hooks::{RecoveryHooks, initialize_with, set_hooks, wait_and_recover_with};
 use restore::recover;
 #[cfg(test)]
-use restore::{restore_mode_needed, restored, restored_all};
+use restore::{restore_mode_needed, restore_scale_needed, restored, restored_all};
 pub use watcher::wait_and_recover;
 #[cfg(test)]
 use watcher::{KILLED_WATCH_EXIT_MS, stop_watch, wait_for_watch, watch_done};
@@ -73,6 +76,15 @@ struct Entry {
     /// The Windows scale in percent, (original, applied).
     #[serde(default)]
     scale: Option<(u32, u32)>,
+    /// The recorded `scale` applied value is the one requested before the
+    /// apply: after a crash, recovery puts the original back whenever the
+    /// display shows anything else, as it cannot tell what landed.
+    #[serde(default)]
+    scale_requested: bool,
+    /// Every physical display's Windows scale (device id to percent) from
+    /// before a virtual display joined the desktop ([`DpiBaseline`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dpi_baseline: Option<BTreeMap<String, u32>>,
     /// Inherited from a prior crashed host while this process already started streaming.
     #[serde(default, skip_serializing_if = "is_false")]
     stale: bool,
@@ -99,6 +111,8 @@ impl Entry {
             activation: self.activation.clone(),
             rotation: self.rotation,
             scale: self.scale,
+            scale_requested: self.scale_requested,
+            dpi_baseline: self.dpi_baseline.clone(),
             ..Default::default()
         }
     }
@@ -116,6 +130,7 @@ impl Entry {
             || self.activation.is_some()
             || self.rotation.is_some()
             || self.scale.is_some()
+            || self.dpi_baseline.as_ref().is_some_and(|b| !b.is_empty())
     }
 }
 
@@ -261,6 +276,16 @@ fn recover_pending_at(path: &Path, recover_fn: impl FnOnce(&Path) -> Result<()>)
 }
 
 fn change(id: &str, output: &str, update: impl FnOnce(&mut Entry)) -> Result<()> {
+    change_journal(|journal| {
+        let entry = journal.entries.entry(id.into()).or_default();
+        entry.output = output.into();
+        entry.stale = false;
+        update(entry);
+    })
+}
+
+/// [`change`] for an update that spans entries.
+fn change_journal(update: impl FnOnce(&mut Journal)) -> Result<()> {
     let path = PATH.get().context("display recovery is not initialized")?;
     let guard = lock(path)?;
     let current_pid = std::process::id();
@@ -292,10 +317,7 @@ fn change(id: &str, output: &str, update: impl FnOnce(&mut Entry)) -> Result<()>
     let prior = journal.clone();
     journal.pid = current_pid;
     journal.started = identity(journal.pid)?.context("host identity unavailable")?;
-    let entry = journal.entries.entry(id.into()).or_default();
-    entry.output = output.into();
-    entry.stale = false;
-    update(entry);
+    update(&mut journal);
     journal.entries.retain(|_, entry| entry.pending());
     butterpollo_session::state::write_json(path, &journal)?;
     if journal.entries.is_empty() {
@@ -355,10 +377,27 @@ pub fn rotation(id: &str, output: &str, before: u32, applied: u32) -> Result<()>
     })
 }
 
-/// A display's Windows scale, in percent.
+/// A display's Windows scale, in percent, as it landed.
 pub fn scale(id: &str, output: &str, before: u32, applied: u32) -> Result<()> {
-    change(id, output, |e| {
-        e.scale = Some((e.scale.map_or(before, |(original, _)| original), applied))
+    scale_entry(id, output, before, applied, false)
+}
+
+/// Journal the scale a stream is about to apply, before the apply; [`scale`]
+/// records what landed afterwards.
+pub fn scale_requested(id: &str, output: &str, before: u32, requested: u32) -> Result<()> {
+    scale_entry(id, output, before, requested, true)
+}
+
+/// A stream that leases a display's scale restores it itself, so the display
+/// leaves the physical baseline and is not set twice.
+fn scale_entry(id: &str, output: &str, before: u32, applied: u32, requested: bool) -> Result<()> {
+    change_journal(|journal| {
+        dpi::forget(journal, id);
+        let e = journal.entries.entry(id.into()).or_default();
+        e.output = output.into();
+        e.stale = false;
+        e.scale = Some((e.scale.map_or(before, |(original, _)| original), applied));
+        e.scale_requested = requested;
     })
 }
 
@@ -498,6 +537,7 @@ pub(crate) fn release_in(path: &Path, id: &str) -> Result<()> {
         entry.hdr = None;
         entry.rotation = None;
         entry.scale = None;
+        entry.scale_requested = false;
     }
     journal.entries.retain(|_, e| e.pending());
     butterpollo_session::state::write_json(path, &journal)

@@ -1,0 +1,2 @@
+# Display scale restore
+- **Your monitors keep their Windows scale after a virtual display stream.** The host records each monitor's scale before the virtual display joins the desktop and puts it back once the last one is gone, also after a crash, and then checks it for up to 1.5 seconds, because Windows can move a scale again just after a display leaves (#129). A monitor that was scaled for a stream is checked the same way when the stream ends.

@@ -63,6 +63,9 @@ pub struct VirtualDisplay {
     driver_route: Option<Route>,
     /// Windows left this display off and the host switched it on.
     pub switched_on: bool,
+    /// Dropped after [`Drop`] removed the display: the last virtual display
+    /// gone puts the physical displays' scales back (issue #129).
+    _dpi_baseline: crate::display_recovery::DpiBaseline,
 }
 impl VirtualDisplay {
     pub fn create(stable_id: &str, width: u32, height: u32, fps: u32) -> Result<Self> {
@@ -90,6 +93,8 @@ impl VirtualDisplay {
             bail!("virtual display mode is outside the driver limits");
         }
         let driver = Control::open_recovering()?;
+        // Before the display joins the desktop and Windows rescales the others.
+        let dpi_baseline = crate::display_recovery::DpiBaseline::acquire();
         let id = butterpollo_media_policy::display_policy::virtual_display_id(stable_id);
         apply_render_adapter(&driver, &options);
         // A previous host's display can survive a session handover until its
@@ -132,6 +137,7 @@ impl VirtualDisplay {
             resolved_target: None,
             driver_route: None,
             switched_on: false,
+            _dpi_baseline: dpi_baseline,
         };
         display.resolve(&result)?;
         display.check_hotplug("created")?;

@@ -317,12 +317,20 @@ impl Guard {
             &mut settings.scale,
             current,
             requested,
-            |before, applied| {
-                crate::display_recovery::scale(&self.identity, &self.output, before, applied)
+            |before, requested| {
+                crate::display_recovery::scale_requested(
+                    &self.identity,
+                    &self.output,
+                    before,
+                    requested,
+                )
             },
             |percent| set_dpi_scale(monitor, percent),
         )?;
         if scaled {
+            // Windows took the scale: recovery after a crash from now on puts
+            // the original back only while the display still has it.
+            crate::display_recovery::scale(&self.identity, &self.output, current, requested)?;
             tracing::info!(output = %self.output, scale = requested, "display scaled for the stream");
         } else if current != requested {
             tracing::warn!(output = %self.output, scale = current, "another stream uses this display; keeping its scale");
@@ -579,7 +587,10 @@ impl Drop for Guard {
                     dpi_scale(monitor),
                     previous,
                     applied,
-                    |previous| set_dpi_scale(monitor, previous),
+                    |previous| {
+                        set_dpi_scale(monitor, previous)?;
+                        crate::display_recovery::settle_scale(&self.identity, previous)
+                    },
                 )
             },
         );

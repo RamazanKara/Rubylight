@@ -1,6 +1,6 @@
 //! Journal replay and per-display restoration after a host crash or interrupted session.
 
-use super::{Entry, Journal, Mode, hooks, put_back};
+use super::{Entry, Journal, Mode, dpi, hooks, put_back};
 use anyhow::{Context, Result, bail};
 use std::{collections::BTreeMap, path::Path};
 
@@ -121,6 +121,8 @@ fn recover_inline(path: &Path) -> Result<()> {
         step("display list", Err(error));
         Vec::new()
     });
+    // Scales put back below, checked once the layout is restored.
+    let mut scales = BTreeMap::new();
     for (id, (arrangement, stale)) in pending_arrangements {
         let kept_entry = kept.entries.entry(id).or_default();
         kept_entry.arrangement = arrangement;
@@ -263,12 +265,15 @@ fn recover_inline(path: &Path) -> Result<()> {
                 &what("scale"),
                 restored(
                     &mut pending.scale,
-                    put_back(
-                        crate::display::dpi_scale(m),
-                        previous,
-                        applied,
-                        |previous| crate::display::set_dpi_scale(m, previous),
-                    ),
+                    crate::display::dpi_scale(m).and_then(|current| {
+                        if !restore_scale_needed(entry.scale_requested, current, applied, previous)
+                        {
+                            return Ok(());
+                        }
+                        crate::display::set_dpi_scale(m, previous)?;
+                        scales.insert(id.clone(), previous);
+                        Ok(())
+                    }),
                 ),
             );
         }
@@ -329,6 +334,30 @@ fn recover_inline(path: &Path) -> Result<()> {
             );
         }
     }
+    // Last, as every step above can make Windows move a scale: the physical
+    // baseline from before a virtual display, and the scales put back above.
+    for entry in journal.entries.values().filter(|e| !stale_only || e.stale) {
+        if let Some(baseline) = &entry.dpi_baseline {
+            for (id, percent) in baseline {
+                scales.entry(id.clone()).or_insert(*percent);
+            }
+        }
+    }
+    if !scales.is_empty() {
+        let outcome = dpi::settle(&scales);
+        for entry in kept.entries.values_mut().filter(|e| !stale_only || e.stale) {
+            dpi::keep_drifted(&mut entry.dpi_baseline, &outcome);
+        }
+        if !outcome.drifted.is_empty() {
+            step(
+                "Windows scale",
+                Err(anyhow::anyhow!(
+                    "did not stay on {}",
+                    outcome.drifted.join(", ")
+                )),
+            );
+        }
+    }
     // Keep a valid document so interrupted reads never see partial JSON. Non-stale
     // entries keep this host's PID/start token; un-recovered crash entries have
     // no live lease when `stale_only` is false.
@@ -343,6 +372,20 @@ fn recover_inline(path: &Path) -> Result<()> {
         bail!("display recovery incomplete: {}", failures.join("; "));
     }
     Ok(())
+}
+
+/// Whether the scale a stream left on a display is put back. A clean end
+/// recorded the scale that landed, so it is put back only while the display
+/// still has it. After a crash inside the apply (`requested`) the original
+/// comes back whenever the display shows anything else: Windows may have
+/// landed on a scale of its own.
+pub(super) fn restore_scale_needed(
+    requested: bool,
+    current: u32,
+    applied: u32,
+    previous: u32,
+) -> bool {
+    current != previous && (requested || current == applied)
 }
 
 /// Whether the mode a stream left on a display is put back. `requested`: the

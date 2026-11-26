@@ -88,7 +88,7 @@ Desktop:
 
 1. Declare the setting in `protocol/policy/settings.toml` and run `python scripts/generate-settings.py` (which updates `protocol/policy/src/settings_catalog_gen.rs`, `protocol/desktop-config/src/config/defaults_gen.rs`, `app/src/main/java/com/limelight/preferences/SettingsCatalogGen.java`, and `docs/settings.md`), then add the field to [`Settings`](../protocol/desktop-config/src/config.rs) with a doc comment and its default. A stored name is never renamed: an old value is read with a serde alias or in [`migrate`](../protocol/desktop-config/src/config/migrate.rs). Per-PC and per-game values are [`Overrides`](../protocol/desktop-config/src/config/profiles.rs).
 2. A row in [`settings_rows`](../protocol/desktop-ui/src/ui/settings.rs), in the section the setting belongs to.
-3. Its words: the English literal inside [`tr`, `trf`, `en`](../protocol/desktop-config/src/strings.rs) is the key, and every table in `protocol/desktop-config/src/strings/` needs an entry for it. A test fails for a missing one.
+3. Its words: the English literal inside [`tr`, `trf`, `en`](../protocol/desktop-config/src/strings.rs) is the key, and every language needs an entry for it in `protocol/desktop-config/src/strings/<code>.rs` (frozen, never grows) or, for any text new since 7.0, `protocol/desktop-config/src/strings_70/<code>.rs`; `python tools/i18n.py apply` writes new keys there. A test fails for a missing one.
 4. Tests in `protocol/desktop-ui/src/ui/settings_tests.rs`.
 
 Android:
@@ -130,7 +130,7 @@ Add it to [`Feature`](../protocol/policy/src/http/capabilities.rs) with the evid
 The fix history repeats a few shapes. Check a change against them before calling it done.
 
 - **One app only.** A setting, a text or a behaviour that reached Android or desktop and not the other. `with` on the file you changed shows what the other side touched last time.
-- **One language only.** A new text needs every table in `protocol/desktop-config/src/strings/` and every translated `strings.xml`.
+- **One language only.** A new text needs an entry in every `protocol/desktop-config/src/strings_70/<code>.rs` (never in the frozen `strings/<code>.rs`) and every translated `strings.xml`.
 - **Gated by name or model.** A feature follows what the host announced and what the device's decoder reports at run time, not a host brand, a vendor or an Android version.
 - **Recovery.** A reconnect, a network change or a stopped stream meets state the first launch set. The cases live in `protocol/desktop-media/src/stream/recovery.rs`, `protocol/policy/src/recovery.rs` and [`GameRecoveryTest`](../app/src/test/java/com/limelight/GameRecoveryTest.java).
 - **Linux code compiled for macOS.** `cfg(unix)` is both; the macOS build runs only in CI.

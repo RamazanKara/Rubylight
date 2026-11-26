@@ -54,6 +54,8 @@ def seed_temp_repo(base):
             '];\n'
         )
         write_lf(base / i18n.DESKTOP_REL / f'{lang}.rs', table)
+        # The 7.0 table starts empty, as it did in the repository.
+        write_lf(base / i18n.DESKTOP_70_REL / f'{lang}.rs', f'//! {lang} 7.0 strings\npub const TABLE: &[(&str, &str)] = &[\n];\n')
 
     # 3. Android: values, 14 values-<lang>, values-television, 14 values-<lang>-television, values-w600dp
     def xml_doc(body):
@@ -200,9 +202,10 @@ class DesktopSurfaceTests(unittest.TestCase):
         rc, out, err = run_cli(['--root', str(self.root), 'apply', str(spec)])
         self.assertEqual(rc, 0, out + err)
         self.assertIn('desktop=1', out)
-        de_txt = (self.root / i18n.DESKTOP_REL / 'de.rs').read_text(encoding='utf-8')
-        self.assertIn('// Section comment preserved', de_txt)
-        self.assertIn('    ("Settings", "Einstellungen"),\n];', de_txt)
+        frozen = (self.root / i18n.DESKTOP_REL / 'de.rs').read_text(encoding='utf-8')
+        self.assertNotIn('"Settings"', frozen, 'the frozen table never grows')
+        de_txt = (self.root / i18n.DESKTOP_70_REL / 'de.rs').read_text(encoding='utf-8')
+        self.assertEqual(de_txt, '//! de 7.0 strings\npub const TABLE: &[(&str, &str)] = &[\n    ("Settings", "Einstellungen"),\n];\n')
 
         rc, out, err = run_cli(['--root', str(self.root), 'check', '--surface', 'desktop'])
         self.assertEqual(rc, 0, out + err)
@@ -210,7 +213,7 @@ class DesktopSurfaceTests(unittest.TestCase):
         # Rename preserves translation and table structure
         rc, out, err = run_cli(['--root', str(self.root), 'rename', 'desktop', 'Settings', 'Preferences'])
         self.assertEqual(rc, 0, out + err)
-        de_txt = (self.root / i18n.DESKTOP_REL / 'de.rs').read_text(encoding='utf-8')
+        de_txt = (self.root / i18n.DESKTOP_70_REL / 'de.rs').read_text(encoding='utf-8')
         self.assertIn('("Preferences", "Einstellungen"),', de_txt)
         self.assertNotIn('("Settings",', de_txt)
 
@@ -219,7 +222,48 @@ class DesktopSurfaceTests(unittest.TestCase):
         self.assertEqual(rc, 0, out + err)
         rc, out, err = run_cli(['--root', str(self.root), 'check', '--surface', 'desktop'])
         self.assertEqual(rc, 0, out + err)
-        self.assertNotIn('Preferences', (self.root / i18n.DESKTOP_REL / 'de.rs').read_text(encoding='utf-8'))
+        self.assertNotIn('Preferences', (self.root / i18n.DESKTOP_70_REL / 'de.rs').read_text(encoding='utf-8'))
+
+    def test_desktop_existing_key_is_updated_in_its_table_and_keys_live_in_one_table(self):
+        # Updating a key of the frozen table edits it in place and adds nothing to strings_70/.
+        new_tr = {lang: f'Abbrechen_{lang}' for lang in i18n.DESKTOP_LOCALES}
+        spec = self.root / 'upd.json'
+        write_lf(spec, json.dumps({'desktop': [{'key': 'Cancel', 'translations': new_tr}]}))
+        rc, out, err = run_cli(['--root', str(self.root), 'apply', str(spec)])
+        self.assertEqual(rc, 0, out + err)
+        self.assertIn('("Cancel", "Abbrechen_de"),', (self.root / i18n.DESKTOP_REL / 'de.rs').read_text(encoding='utf-8'))
+        self.assertNotIn('Cancel', (self.root / i18n.DESKTOP_70_REL / 'de.rs').read_text(encoding='utf-8'))
+
+        # Renaming a frozen key keeps it in the frozen table; a target in strings_70/ is refused.
+        write_lf(spec, json.dumps({'desktop': [{'key': 'Settings', 'translations': {}}]}))
+        rc, out, err = run_cli(['--root', str(self.root), 'apply', str(spec)])
+        self.assertEqual(rc, 0, out + err)
+        rc, _, err = run_cli(['--root', str(self.root), 'rename', 'desktop', 'Cancel', 'Settings'])
+        self.assertEqual(rc, 1)
+        self.assertIn('already exists', err)
+        rc, out, err = run_cli(['--root', str(self.root), 'rename', 'desktop', 'Cancel', 'Close'])
+        self.assertEqual(rc, 0, out + err)
+        self.assertIn('("Close", "Abbrechen_de"),', (self.root / i18n.DESKTOP_REL / 'de.rs').read_text(encoding='utf-8'))
+
+        # Prune reaches both tables.
+        rc, out, err = run_cli(['--root', str(self.root), 'prune', 'desktop', 'Close', 'Settings'])
+        self.assertEqual(rc, 0, out + err)
+        self.assertIn('28 entry(ies) across 28 file(s)', out)
+
+        # Check covers the union: a key in both tables, or missing from a language's union, fails.
+        dup = self.root / i18n.DESKTOP_70_REL / 'fr.rs'
+        write_lf(dup, '//! fr\npub const TABLE: &[(&str, &str)] = &[\n    ("Remove {}?", "Retirer {} ?"),\n];\n')
+        rc, out, err = run_cli(['--root', str(self.root), 'check', '--surface', 'desktop'])
+        self.assertEqual(rc, 1)
+        self.assertIn("desktop/strings_70/fr.rs: duplicate key 'Remove {}?'", out + err)
+        write_lf(dup, '//! fr\npub const TABLE: &[(&str, &str)] = &[\n    ("Only in French", "Seulement en français"),\n];\n')
+        rc, out, err = run_cli(['--root', str(self.root), 'check', '--surface', 'desktop'])
+        self.assertEqual(rc, 1)
+        self.assertIn("desktop/de.rs: missing key 'Only in French'", out + err)
+        dup.unlink()
+        rc, out, err = run_cli(['--root', str(self.root), 'check', '--surface', 'desktop'])
+        self.assertEqual(rc, 1)
+        self.assertIn('desktop/strings_70/fr.rs: missing table file', out + err)
 
     def test_desktop_apply_preserves_git_merge_union_without_conflicts(self):
         def git(*args):
@@ -257,7 +301,7 @@ class DesktopSurfaceTests(unittest.TestCase):
         git('merge', '-q', '--no-edit', 'branch-b')
         rc, out, err = run_cli(['--root', str(self.root), 'check', '--surface', 'desktop'])
         self.assertEqual(rc, 0, out + err)
-        de_txt = (self.root / i18n.DESKTOP_REL / 'de.rs').read_text(encoding='utf-8')
+        de_txt = (self.root / i18n.DESKTOP_70_REL / 'de.rs').read_text(encoding='utf-8')
         self.assertIn('"Settings"', de_txt)
         self.assertIn('"Profiles"', de_txt)
 
@@ -353,7 +397,7 @@ class AndroidAndCrossFillTests(unittest.TestCase):
         and_de = (self.root / i18n.ANDROID_REL / 'values-de/strings.xml').read_text(encoding='utf-8')
         self.assertIn('<string name="from_desk">Desktop_de %1$s</string>', and_de)
         self.assertIn('<string name="from_batch">Batch_de</string>', and_de)
-        desk_de = (self.root / i18n.DESKTOP_REL / 'de.rs').read_text(encoding='utf-8')
+        desk_de = (self.root / i18n.DESKTOP_70_REL / 'de.rs').read_text(encoding='utf-8')
         self.assertIn('("PC\'s item {}", "PC_de\'s item {}"),', desk_de)
 
     def test_dry_run_and_no_cross_fill_and_update_glossary(self):
@@ -368,11 +412,11 @@ class AndroidAndCrossFillTests(unittest.TestCase):
         self.assertIn('missing translations', err)
 
         # --dry-run succeeds without touching disk
-        before = (self.root / i18n.DESKTOP_REL / 'de.rs').read_text(encoding='utf-8')
+        before = (self.root / i18n.DESKTOP_70_REL / 'de.rs').read_text(encoding='utf-8')
         rc, out, err = run_cli(['--root', str(self.root), '--glossary', str(tmp_glossary), 'apply', str(spec), '--dry-run'])
         self.assertEqual(rc, 0, out + err)
         self.assertIn('[dry-run]', out)
-        self.assertEqual((self.root / i18n.DESKTOP_REL / 'de.rs').read_text(encoding='utf-8'), before)
+        self.assertEqual((self.root / i18n.DESKTOP_70_REL / 'de.rs').read_text(encoding='utf-8'), before)
 
         # --update-glossary persists brand new term
         new_tr = {lang: f'Custom_{lang}' for lang in i18n.DESKTOP_LOCALES}

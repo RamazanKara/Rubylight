@@ -16,6 +16,7 @@ pub mod power_types;
 pub mod shortcuts;
 pub mod stream_types;
 pub mod strings;
+mod strings_70;
 pub mod version_name;
 pub mod window_place_types;
 pub mod wol_types;

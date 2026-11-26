@@ -24,6 +24,8 @@ rust/core/media-policy/src/audio_dsp/*.bin binary
 # change then appears twice, which strings/tests.rs every_table_is_clean rejects.
 client/protocol/desktop-config/src/strings/*.rs text eol=lf merge=union
 client/protocol/desktop-config/src/strings/tests.rs !merge
+client/protocol/desktop-config/src/strings_70/*.rs text eol=lf merge=union
+client/protocol/desktop-config/src/strings_70/mod.rs !merge
 # Generated docs and host settings catalog: `python tools/generated_docs.py install`
 # registers the driver, which takes one side's generated output on a conflict inside
 # it; regenerate it afterwards with `python tools/generated_docs.py`.

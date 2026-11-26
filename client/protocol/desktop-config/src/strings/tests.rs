@@ -360,8 +360,8 @@ const SAME_IN_ENGLISH: &[&str] = &[
 
 #[test]
 fn no_table_leaves_a_label_in_english() {
-    for (lang, _, _, table) in &LANGS[1..] {
-        let untranslated: Vec<&str> = table.iter().filter(|(english, text)| english == text && !SAME_IN_ENGLISH.contains(english)).map(|e| e.0).collect();
+    for (lang, ..) in &LANGS[1..] {
+        let untranslated: Vec<&str> = lang.entries().filter(|(english, text)| english == text && !SAME_IN_ENGLISH.contains(english)).map(|e| e.0).collect();
         assert!(untranslated.is_empty(), "the {lang:?} table leaves these in English: {untranslated:?}");
     }
 }
@@ -381,10 +381,11 @@ fn a_test_only_item_does_not_end_the_scanned_source() {
 #[test]
 fn every_table_is_clean() {
     let used: std::collections::HashSet<String> = marked().into_iter().map(|m| m.text).collect();
-    for (lang, _, _, table) in &LANGS[1..] {
+    for (lang, ..) in &LANGS[1..] {
         let mut seen = std::collections::HashSet::new();
-        for (english, text) in *table {
-            assert!(seen.insert(*english), "{english:?} is in the {lang:?} table twice");
+        for (english, text) in lang.entries() {
+            // Both tables count: a key in strings/ and strings_70/ is a duplicate too.
+            assert!(seen.insert(*english), "{english:?} is in the {lang:?} tables twice");
             assert!(!english.trim().is_empty() && !text.trim().is_empty(), "{english:?} has an empty side in {lang:?}");
             let (e, t) = (placeholders(english), placeholders(text));
             let sorted = |p: &[(usize, bool)]| {
@@ -402,7 +403,7 @@ fn every_table_is_clean() {
             assert_eq!(english.ends_with('\n'), text.ends_with('\n'), "trailing newline differs in {lang:?} {english:?}");
             assert_eq!(english.matches('\n').count(), text.matches('\n').count(), "line breaks differ in {lang:?} {english:?}");
         }
-        let unused: Vec<&str> = table.iter().map(|(e, _)| *e).filter(|e| !used.contains(*e)).collect();
+        let unused: Vec<&str> = lang.entries().map(|(e, _)| *e).filter(|e| !used.contains(*e)).collect();
         assert!(unused.is_empty(), "{lang:?} entries no source uses (renamed English text?):\n{}", unused.join("\n"));
     }
 }
@@ -443,8 +444,8 @@ fn no_shown_text_says_experimental_in_any_language() {
     assert!(labelled.is_empty(), "English text says Experimental:\n{}", labelled.join("\n"));
     // The word in each language, as its Android translation would say it.
     let words = ["experiment", "expérimental", "sperimental", "eksperyment", "эксперимент", "експеримент", "deneysel", "実験", "실험", "实验", "實驗"];
-    for (lang, _, _, table) in &LANGS[1..] {
-        let found: Vec<&str> = table.iter().map(|(_, t)| *t).filter(|t| words.iter().any(|w| t.to_lowercase().contains(w))).collect();
+    for (lang, ..) in &LANGS[1..] {
+        let found: Vec<&str> = lang.entries().map(|(_, t)| *t).filter(|t| words.iter().any(|w| t.to_lowercase().contains(w))).collect();
         assert!(found.is_empty(), "{lang:?} text says Experimental:\n{}", found.join("\n"));
     }
     let shown = |file: &str, text: &str| marked().iter().any(|m| m.file == file && m.text == text);

@@ -1,6 +1,7 @@
 //! The launcher's words. English is the source: the literal at the call site is the key, and
 //! [`tr`] returns it unchanged for English. Every other language has a table keyed by the English
-//! literal (`strings/<code>.rs`), worded like the Android app's translations of the same text.
+//! literal (`strings/<code>.rs`, frozen, plus `strings_70/<code>.rs` for every text added since
+//! 7.0), worded like the Android app's translations of the same text. A key is in one of the two.
 //!
 //! - `tr("Add PC")` is the text of a button, label or message.
 //! - `trf("Remove {}?", &[&name])` fills `{}` (or `{0}`, `{1}` when a language needs another order).
@@ -17,6 +18,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::OnceLock;
 
 use crate::config::Language;
+use crate::strings_70 as s70;
 
 mod de;
 mod es;
@@ -56,23 +58,24 @@ pub enum Lang {
 /// A language's entries: (English, its text).
 type Table = &'static [(&'static str, &'static str)];
 
-/// Each language: the system language code it answers to, its own name and its table.
-const LANGS: [(Lang, &str, &str, Table); 15] = [
-    (Lang::En, "en", "English", &[]),
-    (Lang::De, "de", "Deutsch", de::TABLE),
-    (Lang::Es, "es", "Español", es::TABLE),
-    (Lang::Fr, "fr", "Français", fr::TABLE),
-    (Lang::It, "it", "Italiano", it::TABLE),
-    (Lang::Ja, "ja", "日本語", ja::TABLE),
-    (Lang::Ko, "ko", "한국어", ko::TABLE),
-    (Lang::Pl, "pl", "Polski", pl::TABLE),
-    (Lang::PtBr, "pt", "Português (Brasil)", pt_br::TABLE),
-    (Lang::Ru, "ru", "Русский", ru::TABLE),
-    (Lang::Tr, "tr", "Türkçe", tr::TABLE),
-    (Lang::Uk, "uk", "Українська", uk::TABLE),
-    (Lang::Vi, "vi", "Tiếng Việt", vi::TABLE),
-    (Lang::ZhHans, "zh-hans", "简体中文", zh_hans::TABLE),
-    (Lang::ZhHant, "zh-hant", "繁體中文", zh_hant::TABLE),
+/// Each language: the system language code it answers to, its own name, its frozen table and its
+/// 7.0 table.
+const LANGS: [(Lang, &str, &str, Table, Table); 15] = [
+    (Lang::En, "en", "English", &[], &[]),
+    (Lang::De, "de", "Deutsch", de::TABLE, s70::de::TABLE),
+    (Lang::Es, "es", "Español", es::TABLE, s70::es::TABLE),
+    (Lang::Fr, "fr", "Français", fr::TABLE, s70::fr::TABLE),
+    (Lang::It, "it", "Italiano", it::TABLE, s70::it::TABLE),
+    (Lang::Ja, "ja", "日本語", ja::TABLE, s70::ja::TABLE),
+    (Lang::Ko, "ko", "한국어", ko::TABLE, s70::ko::TABLE),
+    (Lang::Pl, "pl", "Polski", pl::TABLE, s70::pl::TABLE),
+    (Lang::PtBr, "pt", "Português (Brasil)", pt_br::TABLE, s70::pt_br::TABLE),
+    (Lang::Ru, "ru", "Русский", ru::TABLE, s70::ru::TABLE),
+    (Lang::Tr, "tr", "Türkçe", tr::TABLE, s70::tr::TABLE),
+    (Lang::Uk, "uk", "Українська", uk::TABLE, s70::uk::TABLE),
+    (Lang::Vi, "vi", "Tiếng Việt", vi::TABLE, s70::vi::TABLE),
+    (Lang::ZhHans, "zh-hans", "简体中文", zh_hans::TABLE, s70::zh_hans::TABLE),
+    (Lang::ZhHant, "zh-hant", "繁體中文", zh_hant::TABLE, s70::zh_hant::TABLE),
 ];
 
 impl Lang {
@@ -120,11 +123,13 @@ impl Lang {
 
     /// The text of its table: what the fonts have to draw.
     pub fn texts(self) -> impl Iterator<Item = &'static str> {
-        self.table().iter().map(|e| e.1)
+        self.entries().map(|e| e.1)
     }
 
-    fn table(self) -> Table {
-        LANGS[self.index()].3
+    /// Its entries: the frozen table's, then the 7.0 table's.
+    fn entries(self) -> impl Iterator<Item = &'static (&'static str, &'static str)> {
+        let l = &LANGS[self.index()];
+        l.3.iter().chain(l.4.iter())
     }
 }
 
@@ -197,7 +202,7 @@ pub fn chosen(setting: Language) -> Option<Lang> {
 
 fn lookup(lang: Lang) -> &'static HashMap<&'static str, &'static str> {
     static TABLES: [OnceLock<HashMap<&'static str, &'static str>>; LANGS.len()] = [const { OnceLock::new() }; LANGS.len()];
-    TABLES[lang.index()].get_or_init(|| lang.table().iter().copied().collect())
+    TABLES[lang.index()].get_or_init(|| lang.entries().copied().collect())
 }
 
 /// `text` in `lang`: its entry when there is one, else `text` itself.

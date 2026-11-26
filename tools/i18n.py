@@ -2,7 +2,10 @@
 
 Spans all three localization surfaces in Rubylight / Nightjar:
   - Host JSONs:    rust/assets/locale/*.json (22 locales)
-  - Desktop Rust:  client/protocol/desktop-config/src/strings/*.rs (14 tables, merge=union)
+  - Desktop Rust:  client/protocol/desktop-config/src/strings/*.rs (14 frozen tables, merge=union)
+                   + client/protocol/desktop-config/src/strings_70/*.rs (14 tables for 7.0 text);
+                   checks cover the union per language, a key lives in exactly one of the two,
+                   `apply` writes new keys to strings_70/ and updates an existing key in place
   - Android XML:   client/app/src/main/res/values*/ (all 42 values* folders: base + TV + qualifiers)
 
 Usage:
@@ -27,6 +30,9 @@ DEFAULT_GLOSSARY = pathlib.Path(__file__).resolve().parent / 'i18n_glossary.json
 HOST_REL = pathlib.PurePosixPath('rust/assets/locale')
 HOST_LOCALE_RS = pathlib.PurePosixPath('rust/host/stream/src/locale.rs')
 DESKTOP_REL = pathlib.PurePosixPath('client/protocol/desktop-config/src/strings')
+DESKTOP_70_REL = pathlib.PurePosixPath('client/protocol/desktop-config/src/strings_70')
+# A language's tables: the frozen one (size-ratcheted, never grows) first, then 7.0's.
+DESKTOP_TABLE_DIRS = (DESKTOP_REL, DESKTOP_70_REL)
 DESKTOP_TESTS_RS = DESKTOP_REL / 'tests.rs'
 ANDROID_REL = pathlib.PurePosixPath('client/app/src/main/res')
 ANDROID_TESTS_JAVA = pathlib.PurePosixPath('client/app/src/test/java/com/limelight/TranslationResourcesTest.java')
@@ -377,8 +383,9 @@ def parse_rust_table(text):
         raise ValueError('missing `= &[\\n` table header')
     body_start = idx + len(marker)
     body_end = text.rfind('\n];')
-    if body_end == -1 or body_end < body_start:
+    if body_end == -1 or body_end < body_start - 1:
         raise ValueError('missing `\\n];` table footer')
+    body_end = max(body_end, body_start)  # an empty table: `= &[\n];`
 
     entries = []
     i = body_start
@@ -520,26 +527,27 @@ def check_desktop(root):
     same_in_english = load_same_in_english(root)
     tables = {}
     for lang in DESKTOP_LOCALES:
-        path = desk_dir / f'{lang}.rs'
-        if not path.is_file():
-            issues.append(f'desktop/{lang}.rs: missing table file')
-            continue
-        if not check_lf(path):
-            issues.append(f'desktop/{lang}.rs: contains CRLF line endings')
-        text = path.read_text(encoding='utf-8')
-        try:
-            parsed = parse_rust_table(text)
-        except ValueError as exc:
-            issues.append(f'desktop/{lang}.rs: {exc}')
-            continue
         seen = {}
-        for row in parsed['entries']:
-            en, tr = row['en'], row['tr']
-            if en in seen:
-                issues.append(f'desktop/{lang}.rs: duplicate key {en!r}')
+        for rel in DESKTOP_TABLE_DIRS:
+            where = f'desktop/{desktop_table_name(rel, lang)}'
+            path = root / rel / f'{lang}.rs'
+            if not path.is_file():
+                issues.append(f'{where}: missing table file')
                 continue
-            seen[en] = tr
-            issues.extend(validate_desktop_pair(lang, en, tr, same_in_english))
+            if not check_lf(path):
+                issues.append(f'{where}: contains CRLF line endings')
+            try:
+                parsed = parse_rust_table(path.read_text(encoding='utf-8'))
+            except ValueError as exc:
+                issues.append(f'{where}: {exc}')
+                continue
+            for row in parsed['entries']:
+                en, tr = row['en'], row['tr']
+                if en in seen:
+                    issues.append(f'{where}: duplicate key {en!r} (a key lives in one table of a language)')
+                    continue
+                seen[en] = tr
+                issues.extend(validate_desktop_pair(lang, en, tr, same_in_english))
         tables[lang] = seen
 
     if tables:
@@ -572,6 +580,21 @@ def check_desktop(root):
                     )
 
     return {'locales': len(tables), 'keys': len(all_keys), 'issues': issues}
+
+
+def desktop_table_name(rel, lang):
+    """`de.rs` for the frozen table, `strings_70/de.rs` for 7.0's (as issues name them)."""
+    return f'{lang}.rs' if rel == DESKTOP_REL else f'{rel.name}/{lang}.rs'
+
+
+def desktop_table_texts(root, lang):
+    """[(path, text)] of a language's existing tables, frozen first."""
+    paths = [root / rel / f'{lang}.rs' for rel in DESKTOP_TABLE_DIRS]
+    return [(p, p.read_text(encoding='utf-8')) for p in paths if p.is_file()]
+
+
+def desktop_keys(text):
+    return {row['en'] for row in parse_rust_table(text)['entries']}
 
 
 def apply_desktop_edit(text, updates):
@@ -1065,16 +1088,14 @@ def build_cross_fill_index(root, glossary, spec):
     if desk_dir.is_dir():
         desk_by_en = {}
         for lang in DESKTOP_LOCALES:
-            p = desk_dir / f'{lang}.rs'
-            if not p.is_file():
-                continue
-            try:
-                parsed = parse_rust_table(p.read_text(encoding='utf-8'))
-            except ValueError:
-                continue
             canon = DESKTOP_TO_CANON[lang]
-            for row in parsed['entries']:
-                desk_by_en.setdefault(row['en'], {})[canon] = row['tr']
+            for _, text in desktop_table_texts(root, lang):
+                try:
+                    parsed = parse_rust_table(text)
+                except ValueError:
+                    continue
+                for row in parsed['entries']:
+                    desk_by_en.setdefault(row['en'], {})[canon] = row['tr']
         for en, tr in desk_by_en.items():
             add_source(en, tr, 'desktop')
 
@@ -1271,7 +1292,6 @@ def cmd_apply(args):
     # 2. Desktop Rust table entries
     desk_items = spec.get('desktop') or []
     if desk_items:
-        desk_dir = root / DESKTOP_REL
         same_in_english = load_same_in_english(root)
         per_lang_updates = {lang: [] for lang in DESKTOP_LOCALES}
         needed_canon = [DESKTOP_TO_CANON[lang] for lang in DESKTOP_LOCALES]
@@ -1308,11 +1328,24 @@ def cmd_apply(args):
 
         if not errors:
             for lang, updates in per_lang_updates.items():
-                p = desk_dir / f'{lang}.rs'
-                if not p.is_file():
-                    errors.append(f'desktop/{lang}.rs: missing table file')
+                frozen, new = (root / rel / f'{lang}.rs' for rel in DESKTOP_TABLE_DIRS)
+                if not frozen.is_file() or not new.is_file():
+                    errors.append(f'desktop/{lang}: missing table file in strings/ or strings_70/')
                     continue
-                planned_writes[p] = apply_desktop_edit(p.read_text(encoding='utf-8'), updates)
+                # An existing key is updated where it is; a new key goes to strings_70/ only,
+                # since the frozen tables may never grow.
+                frozen_text = frozen.read_text(encoding='utf-8')
+                try:
+                    in_frozen = desktop_keys(frozen_text)
+                except ValueError as exc:
+                    errors.append(f'desktop/{lang}.rs: {exc}')
+                    continue
+                old = [u for u in updates if u[0] in in_frozen]
+                added = [u for u in updates if u[0] not in in_frozen]
+                if old:
+                    planned_writes[frozen] = apply_desktop_edit(frozen_text, old)
+                if added:
+                    planned_writes[new] = apply_desktop_edit(new.read_text(encoding='utf-8'), added)
 
     # 3. Android XML entries (base + optional android_tv)
     tight_labels = load_tight_labels(root)
@@ -1482,16 +1515,24 @@ def cmd_rename(args):
             planned[p] = json.dumps(doc, indent=2, ensure_ascii=False) + '\n'
 
     elif surface == 'desktop':
-        desk_dir = root / DESKTOP_REL
         for lang in DESKTOP_LOCALES:
-            p = desk_dir / f'{lang}.rs'
-            if not p.is_file():
+            tables = desktop_table_texts(root, lang)
+            if not tables:
                 continue
             try:
-                planned[p] = rename_desktop_key(p.read_text(encoding='utf-8'), old_key, new_key)
-            except (KeyError, ValueError) as exc:
-                print(f'ERROR: desktop/{lang}.rs: {exc}', file=sys.stderr)
+                keyed = [(p, text, desktop_keys(text)) for p, text in tables]
+            except ValueError as exc:
+                print(f'ERROR: desktop/{lang}: {exc}', file=sys.stderr)
                 return 1
+            if any(new_key in keys for _, _, keys in keyed):
+                print(f'ERROR: desktop/{lang}: target key already exists: {new_key!r}', file=sys.stderr)
+                return 1
+            holders = [(p, text) for p, text, keys in keyed if old_key in keys]
+            if not holders:
+                print(f'ERROR: desktop/{lang}: {old_key!r} is in neither table', file=sys.stderr)
+                return 1
+            for p, text in holders:
+                planned[p] = rename_desktop_key(text, old_key, new_key)
 
     elif surface in ('android', 'android-tv'):
         res_dir = root / ANDROID_REL
@@ -1554,15 +1595,12 @@ def cmd_prune(args):
         if args.stale and not keys:
             print('ERROR: desktop prune requires explicit KEY arguments', file=sys.stderr)
             return 1
-        desk_dir = root / DESKTOP_REL
         for lang in DESKTOP_LOCALES:
-            p = desk_dir / f'{lang}.rs'
-            if not p.is_file():
-                continue
-            updated, removed = prune_desktop_keys(p.read_text(encoding='utf-8'), keys)
-            if removed:
-                planned[p] = updated
-                removed_total += len(removed)
+            for p, text in desktop_table_texts(root, lang):
+                updated, removed = prune_desktop_keys(text, keys)
+                if removed:
+                    planned[p] = updated
+                    removed_total += len(removed)
 
     elif surface in ('android', 'android-tv'):
         res_dir = root / ANDROID_REL

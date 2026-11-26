@@ -438,6 +438,11 @@ public final class PerformanceOverlay {
                         hardwareValue(locale, values, "gpu_usage_percent", "%.1f"),
                         hardwareValue(locale, values, "gpu_temperature_c", "%.1f"),
                         hardwareValue(locale, values, "gpu_power_w", "%.1f")));
+                // The encoder load is left out where the PC sends none, as older PCs do.
+                if (values.containsKey("gpu_encoder_percent")) {
+                    hardware.append(" · ").append(context.getString(R.string.hardware_gpu_encoder_summary,
+                            hardwareValue(locale, values, "gpu_encoder_percent", "%.1f")));
+                }
                 continue;
             }
             hardware.append("\n\n").append(context.getString(R.string.hardware_gpu_name, gpu.id,
@@ -446,6 +451,10 @@ public final class PerformanceOverlay {
                     hardwareValue(locale, values, "gpu_usage_percent", "%.1f"),
                     hardwareValue(locale, values, "gpu_clock_mhz", "%.0f"),
                     hardwareValue(locale, values, "gpu_memory_clock_mhz", "%.0f")));
+            if (values.containsKey("gpu_encoder_percent")) {
+                hardware.append('\n').append(context.getString(R.string.hardware_gpu_encoder,
+                        hardwareValue(locale, values, "gpu_encoder_percent", "%.1f")));
+            }
             hardware.append('\n').append(context.getString(R.string.hardware_gpu_temperatures,
                     hardwareValue(locale, values, "gpu_temperature_c", "%.1f"),
                     hardwareValue(locale, values, "gpu_hotspot_temperature_c", "%.1f"),

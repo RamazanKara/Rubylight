@@ -571,4 +571,6 @@
     <string name="summary_hdr_shield_firmware_update">Mettez à jour le micrologiciel de votre NVIDIA SHIELD Android TV pour activer le HDR</string>
     <string name="full_range_vulkan_switched">Le décodeur a ignoré la plage complète. Passage à Vulkan pour des noirs corrects.</string>
     <string name="full_range_vulkan_unavailable">Plage complète ignorée, pas de Vulkan : noirs faussés. Désactivez la plage complète.</string>
+    <string name="launch_warning_virtual_display_unavailable">L’écran virtuel du PC n’est pas disponible, ce flux affiche donc son écran physique.</string>
+    <string name="launch_warning_virtual_display_disabled_by_client">Cet appareil a demandé l’écran du PC lui-même, le flux n’utilise donc pas d’écran virtuel.</string>
 </resources>

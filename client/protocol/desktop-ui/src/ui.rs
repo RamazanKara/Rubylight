@@ -15,6 +15,7 @@ mod first_run;
 mod game;
 mod help;
 mod home;
+mod host_details_limiter;
 mod icons;
 mod launch_scene;
 mod latency_bench;

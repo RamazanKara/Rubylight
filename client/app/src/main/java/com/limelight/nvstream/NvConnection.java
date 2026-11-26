@@ -219,6 +219,8 @@ public class NvConnection {
 
     public ComputerDetails getHostDetails() { return hostDetails; }
     public int getStartBitrateKbps() { return context.startBitrateKbps; }
+    public String getLaunchWarningCode() { return context.launchWarningCode; }
+    public String getLaunchWarningMessage() { return context.launchWarningMessage; }
 
     /**
      * The packet size a reconnect of this session keeps, as desktop's carried_packet_size: the negotiated

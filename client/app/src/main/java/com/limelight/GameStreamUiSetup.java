@@ -426,6 +426,7 @@ final class GameStreamUiSetup {
                 .setSharpColor(mediaStream && (game.prefConfig.enableYuv444 || game.prefConfig.experimentalPacked444),
                         game.prefConfig.videoFormat == PreferenceConfiguration.FormatOption.FORCE_PYROWAVE)
                 .setAttachedGamepadMask(gamepadMask)
+                .setPlayStationGamepadMask(ControllerHandler.getAttachedPlayStationMask(game))
                 .setClientRefreshRateX100(clientRefreshRateX100(launchRefreshRateX100, streamRefreshRate, game.desiredRefreshRate))
                 .setVirtualDisplay(!smallStream && game.prefConfig.virtualDisplay, game.prefConfig.virtualDisplayScale)
                 .setVirtualDisplayDpi(game.prefConfig.virtualDisplayDpi)

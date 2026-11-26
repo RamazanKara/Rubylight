@@ -651,6 +651,7 @@ mod tests {
                 }),
                 Ok(Some(Launched {
                     rtsp_session_url: Some("rtsp://127.0.0.1".into()),
+                    warning: None,
                 })),
             ]),
             quit_result: Ok(true),

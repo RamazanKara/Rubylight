@@ -571,4 +571,6 @@
     <string name="summary_hdr_shield_firmware_update">Actualiza el firmware de tu NVIDIA SHIELD Android TV para activar HDR</string>
     <string name="full_range_vulkan_switched">El decodificador descartó el rango completo. Cambiado a Vulkan para corregir los negros.</string>
     <string name="full_range_vulkan_unavailable">Rango completo descartado y sin Vulkan: negros erróneos. Desactiva «Rango de color completo».</string>
+    <string name="launch_warning_virtual_display_unavailable">La pantalla virtual del PC no está disponible, así que esta transmisión muestra su pantalla física.</string>
+    <string name="launch_warning_virtual_display_disabled_by_client">Este dispositivo pidió la pantalla propia del PC, así que la transmisión no usa una pantalla virtual.</string>
 </resources>

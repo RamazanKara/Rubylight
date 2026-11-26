@@ -22,4 +22,6 @@
     <string name="hardware_gpu_fan_voltage">電壓：%1$s mV · 風扇：%2$s RPM (%3$s%%)</string>
     <string name="hardware_gpu_power">GPU 功耗：%1$s W · 板卡功耗：%2$s W</string>
     <string name="hardware_gpu_memory">VRAM：%1$s MB (%2$s%%)</string>
+    <string name="hardware_gpu_encoder_summary">編碼器 %1$s%%</string>
+    <string name="hardware_gpu_encoder">視訊編碼器：%1$s%%</string>
 </resources>

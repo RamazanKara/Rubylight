@@ -30,6 +30,9 @@ public class ConnectionContext {
 
     // This is the sessionUrl0 tag from /resume and /launch
     public String rtspSessionUrl;
+    // The host's launch warning (<clientWarning>, <clientWarningMessage>), already cleaned; null for none.
+    public String launchWarningCode;
+    public String launchWarningMessage;
     public boolean launchActionCompleted;
     public String preparedControllers = "";
     // The video FEC to ask for; null leaves it to the host and sends nothing

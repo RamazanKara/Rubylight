@@ -40,7 +40,7 @@ fn plain_sunshine_launch() {
         request().query(&caps, false),
         format!(
             "appid=881448767&mode=1920x1080x60&additionalStates=1&sops=1&rikey={KEY}&rikeyid=-2147483525\
-                 &localAudioPlayMode=0&surroundAudioInfo=196610&remoteControllersBitmap=0&gcmap=0&gcpersist=0&corever=1"
+                 &localAudioPlayMode=0&surroundAudioInfo=196610&remoteControllersBitmap=0&gcmap=0&psmap=0&gcpersist=0&corever=1"
         )
     );
 }
@@ -166,7 +166,7 @@ fn rubylight_launch_with_every_extension() {
                  &clientHdrCapSupportedFlagsInUint32=0&clientHdrCapMetaDataId=NV_STATIC_METADATA_TYPE_1\
                  &clientHdrCapDisplayData=0x0x0x0x0x0x0x0x0x0x0&localAudioPlayMode=1\
                  &surroundAudioInfo=104792072&rlControllers=0:dualsense&remoteControllersBitmap=3&gcmap=3\
-                 &gcpersist=1&rlConfirmReplace=0&corever=1"
+                 &psmap=0&gcpersist=1&rlConfirmReplace=0&corever=1"
         )
     );
     assert_eq!(request.stream_frame_rate_millihz(&rubylight(), 60), 59_940);
@@ -416,7 +416,7 @@ fn roles_and_gamestream_quirks() {
     };
     let q = monitor.query(&rubylight(), false);
     assert!(q.contains("&remote_monitor=1&mode="));
-    assert!(q.contains("&remoteControllersBitmap=0&gcmap=0&gcpersist=0"));
+    assert!(q.contains("&remoteControllersBitmap=0&gcmap=0&psmap=0&gcpersist=0"));
     let input = LaunchRequest {
         role: AppRole::InputOnly,
         hdr: true,
@@ -456,7 +456,8 @@ fn launch_replies() {
     assert_eq!(
         parse_launch_reply(ok, false).unwrap(),
         Some(Launched {
-            rtsp_session_url: Some("rtspenc://10.0.0.2:48010".into())
+            rtsp_session_url: Some("rtspenc://10.0.0.2:48010".into()),
+            warning: None,
         })
     );
     assert_eq!(
@@ -471,4 +472,20 @@ fn launch_replies() {
         ),
         Err(Error::Status { code: 503, .. })
     ));
+}
+
+#[test]
+fn psmap_lists_playstation_slots_within_the_sent_gamepads() {
+    let mut request = LaunchRequest {
+        gamepad_mask: 0b0101,
+        playstation_mask: 0x1_0007,
+        ..LaunchRequest::default()
+    };
+    assert!(request
+        .query(&HostCapabilities::UNKNOWN, false)
+        .contains("&gcmap=5&psmap=5&gcpersist=0"));
+    request.role = AppRole::RemoteMonitor;
+    assert!(request
+        .query(&HostCapabilities::UNKNOWN, false)
+        .contains("&gcmap=0&psmap=0&"));
 }

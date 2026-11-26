@@ -97,6 +97,7 @@ impl App {
             eprintln!("nightjar: {}", controllers_line(&plan.settings, &plan.controllers_from, &pads, mask));
         }
         plan.gamepad_mask = mask;
+        plan.playstation_mask = self.pads.launch_playstation_mask(&plan.settings);
         plan.prepared_controllers = self.pads.launch_controllers(&plan.settings);
     }
 
@@ -681,6 +682,7 @@ impl App {
             pacing,
             vrr,
             gamepad_mask: self.pads.launch_mask(&settings),
+            playstation_mask: self.pads.launch_playstation_mask(&settings),
             prepared_controllers: self.pads.launch_controllers(&settings),
             controllers_from,
             network: self.launcher.network.clone(),

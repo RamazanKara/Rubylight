@@ -16,6 +16,11 @@ impl Streaming {
                 Notice::DecoderFallback(text) => self.show_toast(text),
                 Notice::EchoCancelOff(text) => self.show_toast(text),
                 Notice::PassthroughOpus => self.show_toast(tr("The PC did not offer PCM audio. This stream plays Opus.")),
+                Notice::LaunchWarning(warning) => {
+                    if let Some(text) = launch_warning_text(&warning) {
+                        self.show_toast(text);
+                    }
+                }
                 Notice::DecoderFailed(text) => {
                     self.exit.get_or_insert(Exit::Ended(Some(text)));
                 }
@@ -401,10 +406,34 @@ fn apply_host_abr_notice(
     }
 }
 
+/// What a launch warning shows: the PC's own cleaned text, else this app's text for a known code;
+/// an unknown code without text shows nothing.
+fn launch_warning_text(warning: &nightjar_core::http::LaunchWarning) -> Option<String> {
+    use nightjar_core::http::launch_warning::{VIRTUAL_DISPLAY_DISABLED_BY_CLIENT, VIRTUAL_DISPLAY_UNAVAILABLE};
+    if let Some(message) = &warning.message {
+        return Some(message.clone());
+    }
+    match warning.code.as_str() {
+        VIRTUAL_DISPLAY_UNAVAILABLE => Some(tr("The PC’s virtual display is unavailable, so this stream shows its physical display.").into()),
+        VIRTUAL_DISPLAY_DISABLED_BY_CLIENT => Some(tr("This device asked for the PC’s own display, so the stream does not use a virtual display.").into()),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use nightjar_core::http::foundation::AbrConfigured;
+
+    #[test]
+    fn launch_warnings_prefer_the_pcs_text_and_know_two_codes() {
+        use nightjar_core::http::LaunchWarning;
+        let warning = |code: &str, message: Option<&str>| LaunchWarning { code: code.into(), message: message.map(Into::into) };
+        assert_eq!(launch_warning_text(&warning("display_scale", Some("Scale lowered."))).as_deref(), Some("Scale lowered."));
+        assert!(launch_warning_text(&warning("virtual_display_unavailable", None)).is_some_and(|t| t.contains("physical display")));
+        assert!(launch_warning_text(&warning("virtual_display_disabled_by_client", None)).is_some());
+        assert_eq!(launch_warning_text(&warning("future_code", None)), None);
+    }
 
     #[test]
     fn late_adaptive_bitrate_completion_after_disable_is_ignored_and_clears_busy() {

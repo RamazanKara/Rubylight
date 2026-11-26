@@ -527,6 +527,17 @@ public class PerformanceOverlayTest {
         assertTrue(text.contains("Voltage: 950 mV · Fan: 0 RPM (0.0%)"));
         assertTrue(text.contains("GPU power: 28.0 W · Board power: 40.0 W"));
         assertTrue(text.contains("VRAM: 2679 MB (13.1%)"));
+        assertFalse("no encoder line without a reading", text.contains("Video encoder"));
+    }
+
+    @Test
+    public void encoderLoadShowsOnlyWhereThePcSendsIt() throws Exception {
+        HardwareMetrics metrics = HardwareMetrics.parse("{\"version\":1,\"sampled_at_unix_ms\":1,\"interval_ms\":1000," +
+                "\"cpu\":{},\"gpus\":[{\"id\":-5,\"name\":\"NVIDIA\",\"metrics\":{\"gpu_usage_percent\":60,\"gpu_encoder_percent\":22.5}}]}");
+        String compact = PerformanceOverlay.withHardwareMetrics(context(Locale.US), "S", metrics, false).toString();
+        assertTrue(compact, compact.endsWith("PC GPU -5: 60.0% · — °C · — W · Encoder 22.5%"));
+        String debug = PerformanceOverlay.withHardwareMetrics(context(Locale.US), "S", metrics, true).toString();
+        assertTrue(debug, debug.contains("Video encoder: 22.5%"));
     }
 
     @Test

@@ -65,6 +65,7 @@ public class StreamConfiguration {
     // PyroWave is the chosen codec, whose 4:4:4 is its own.
     private boolean pyroWaveChosen;
     private int attachedGamepadMask;
+    private int playStationGamepadMask;
     private int colorRange;
     private int colorSpace;
     private boolean persistGamepadsAfterDisconnect;
@@ -204,6 +205,12 @@ public class StreamConfiguration {
 
         public StreamConfiguration.Builder setAttachedGamepadMask(int attachedGamepadMask) {
             config.attachedGamepadMask = attachedGamepadMask;
+            return this;
+        }
+
+        // The PlayStation controllers' slots (psmap); the launch masks them by the gamepad mask.
+        public StreamConfiguration.Builder setPlayStationGamepadMask(int playStationGamepadMask) {
+            config.playStationGamepadMask = playStationGamepadMask;
             return this;
         }
 
@@ -454,6 +461,10 @@ public class StreamConfiguration {
 
     public int getAttachedGamepadMask() {
         return attachedGamepadMask;
+    }
+
+    public int getPlayStationGamepadMask() {
+        return playStationGamepadMask;
     }
 
     public boolean getPersistGamepadsAfterDisconnect() {

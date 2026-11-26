@@ -571,4 +571,6 @@
     <string name="summary_hdr_shield_firmware_update">Оновіть прошивку NVIDIA SHIELD Android TV, щоб увімкнути HDR</string>
     <string name="full_range_vulkan_switched">Декодер відкинув повний діапазон. Увімкнено Vulkan, щоб чорний був правильним.</string>
     <string name="full_range_vulkan_unavailable">Повний діапазон відкинуто, Vulkan нема: чорний може бути хибним. Вимкніть цей діапазон.</string>
+    <string name="launch_warning_virtual_display_unavailable">Віртуальний дисплей ПК недоступний, тому ця трансляція показує його фізичний дисплей.</string>
+    <string name="launch_warning_virtual_display_disabled_by_client">Цей пристрій запросив власний дисплей ПК, тому трансляція не використовує віртуальний дисплей.</string>
 </resources>

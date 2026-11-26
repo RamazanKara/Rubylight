@@ -571,4 +571,6 @@
     <string name="summary_hdr_shield_firmware_update">Cập nhật chương trình cơ sở trên NVIDIA SHIELD Android TV để bật HDR</string>
     <string name="full_range_vulkan_switched">Bộ giải mã đã bỏ dải màu đầy đủ. Đã chuyển sang Vulkan để giữ đúng mức đen.</string>
     <string name="full_range_vulkan_unavailable">Dải đầy đủ bị bỏ, không có Vulkan: màu đen có thể sai. Hãy tắt “Dải màu đầy đủ”.</string>
+    <string name="launch_warning_virtual_display_unavailable">Màn hình ảo của PC không khả dụng, nên luồng này hiển thị màn hình vật lý.</string>
+    <string name="launch_warning_virtual_display_disabled_by_client">Thiết bị này đã yêu cầu màn hình riêng của PC, nên luồng không dùng màn hình ảo.</string>
 </resources>

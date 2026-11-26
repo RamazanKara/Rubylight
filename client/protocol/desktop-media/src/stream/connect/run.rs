@@ -56,6 +56,7 @@ pub(crate) fn connect(
         play_local_audio: settings.play_audio_on_host,
         sops: settings.sops,
         gamepad_mask: plan.gamepad_mask,
+        playstation_mask: plan.playstation_mask,
         persist_gamepads: crate::gamepad::one_player(settings),
         confirm_replace: plan.confirm_replace,
         prepared_controllers: if role != AppRole::RemoteMonitor
@@ -272,7 +273,13 @@ pub(crate) fn connect(
                 cause: None,
             });
         }
-        Ok(Some(launched)) => launched,
+        Ok(Some(mut launched)) => {
+            // Shown once the stream runs; an automatic reconnect does not show it again.
+            if let Some(warning) = launched.warning.take().filter(|_| !auto_reconnect) {
+                shared.notify(crate::stream::pipeline::Notice::LaunchWarning(warning));
+            }
+            launched
+        }
         Ok(None) => return Err(refused("The PC declined to start the app.".into())),
         Err(nightjar_core::http::Error::Status { code, message }) => {
             if let Some(why) = plan

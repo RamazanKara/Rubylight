@@ -53,7 +53,7 @@ public class HardwareMetricsTest {
         String[] keys = {"gpu_usage_percent", "gpu_clock_mhz", "gpu_memory_clock_mhz",
                 "gpu_temperature_c", "gpu_hotspot_temperature_c", "gpu_memory_temperature_c",
                 "gpu_voltage_mv", "gpu_fan_rpm", "gpu_fan_percent", "gpu_power_w",
-                "gpu_board_power_w", "gpu_vram_used_mb", "gpu_vram_usage_percent"};
+                "gpu_board_power_w", "gpu_vram_used_mb", "gpu_vram_usage_percent", "gpu_encoder_percent"};
         StringBuilder readings = new StringBuilder();
         for (String key : keys) {
             if (readings.length() != 0) readings.append(',');

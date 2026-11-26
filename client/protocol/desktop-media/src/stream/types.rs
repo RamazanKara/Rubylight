@@ -72,6 +72,8 @@ pub struct LaunchPlan {
     pub pacing: PacingMode,
     pub vrr: bool,
     pub gamepad_mask: u32,
+    /// The PlayStation controllers among the gamepads (`psmap`).
+    pub playstation_mask: u32,
     pub prepared_controllers: String,
     /// The settings layer that made the "Controllers" choice, for the start's notice when it is Off.
     pub controllers_from: crate::app_types::ControllersFrom,

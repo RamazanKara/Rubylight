@@ -120,7 +120,12 @@ impl Lang {
 
     /// The text of its table: what the fonts have to draw.
     pub fn texts(self) -> impl Iterator<Item = &'static str> {
-        self.table().iter().map(|e| e.1)
+        self.table().iter().chain(crate::strings_70::table(self)).map(|e| e.1)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn older_table_has(self, english: &str) -> bool {
+        self.table().iter().any(|e| e.0 == english)
     }
 
     fn table(self) -> Table {
@@ -197,7 +202,7 @@ pub fn chosen(setting: Language) -> Option<Lang> {
 
 fn lookup(lang: Lang) -> &'static HashMap<&'static str, &'static str> {
     static TABLES: [OnceLock<HashMap<&'static str, &'static str>>; LANGS.len()] = [const { OnceLock::new() }; LANGS.len()];
-    TABLES[lang.index()].get_or_init(|| lang.table().iter().copied().collect())
+    TABLES[lang.index()].get_or_init(|| lang.table().iter().chain(crate::strings_70::table(lang)).copied().collect())
 }
 
 /// `text` in `lang`: its entry when there is one, else `text` itself.

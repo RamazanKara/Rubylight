@@ -2,8 +2,9 @@
 //! to the client as `<clientWarning>` (a code) and `<clientWarningMessage>` (plain text). Older
 //! clients ignore the tags. The rules match the client's parser
 //! (`client/protocol/client/src/http/launch_warning.rs`), so either side can trust the other's
-//! output: the element names and limits follow the launch-warning response of Vibepollo
-//! (Nonary's Sunshine fork, GPL-3.0) and its moonlight-qt client.
+//! output. The element names and codes match the launch-warning response of Vibepollo (Nonary's
+//! Sunshine fork, GPL-3.0) and its moonlight-qt client for interoperability; the code is written
+//! independently, none is taken from them.
 
 use crate::session::Warning;
 

@@ -255,6 +255,8 @@ impl LaunchTransport for AndroidLaunchBridge<'_, '_> {
                     .and_then(Value::as_str)
                     .filter(|s| !s.is_empty())
                     .map(str::to_owned),
+                // Android reads and shows the launch warning in Java (NvHTTP).
+                warning: None,
             }))
         } else {
             Ok(None)

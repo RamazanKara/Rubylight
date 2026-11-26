@@ -22,4 +22,6 @@
     <string name="hardware_gpu_fan_voltage">Напруга: %1$s мВ · Вентилятор: %2$s об/хв (%3$s%%)</string>
     <string name="hardware_gpu_power">Потужність GPU: %1$s Вт · Потужність плати: %2$s Вт</string>
     <string name="hardware_gpu_memory">VRAM: %1$s МБ (%2$s%%)</string>
+    <string name="hardware_gpu_encoder_summary">Кодувальник %1$s%%</string>
+    <string name="hardware_gpu_encoder">Відеокодувальник: %1$s%%</string>
 </resources>

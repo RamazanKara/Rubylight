@@ -571,4 +571,6 @@
     <string name="summary_hdr_shield_firmware_update">Atualize o firmware da sua NVIDIA SHIELD Android TV para ativar o HDR</string>
     <string name="full_range_vulkan_switched">O decodificador ignorou a faixa completa. Mudou para Vulkan para manter os pretos certos.</string>
     <string name="full_range_vulkan_unavailable">Faixa completa ignorada e sem Vulkan: pretos errados. Desative “Faixa de cor completa”.</string>
+    <string name="launch_warning_virtual_display_unavailable">A tela virtual do PC não está disponível, então esta transmissão mostra a tela física.</string>
+    <string name="launch_warning_virtual_display_disabled_by_client">Este dispositivo pediu a tela do próprio PC, então a transmissão não usa uma tela virtual.</string>
 </resources>

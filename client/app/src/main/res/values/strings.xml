@@ -616,4 +616,6 @@
     <string name="home_setup_dismiss">Dismiss</string>
     <string name="full_range_vulkan_switched">The decoder dropped full color range. Switched to Vulkan to keep black levels right.</string>
     <string name="full_range_vulkan_unavailable">Decoder dropped full color range, no Vulkan: blacks may be off. Turn off Full color range.</string>
+    <string name="launch_warning_virtual_display_unavailable">The PC’s virtual display is unavailable, so this stream shows its physical display.</string>
+    <string name="launch_warning_virtual_display_disabled_by_client">This device asked for the PC’s own display, so the stream does not use a virtual display.</string>
 </resources>

@@ -571,4 +571,6 @@
     <string name="summary_hdr_shield_firmware_update">Aggiorna il firmware del tuo NVIDIA SHIELD Android TV per abilitare l’HDR</string>
     <string name="full_range_vulkan_switched">Il decoder ha ignorato la gamma completa. Passaggio a Vulkan per neri corretti.</string>
     <string name="full_range_vulkan_unavailable">Gamma completa ignorata, niente Vulkan: neri errati. Disattiva «Gamma colori completa».</string>
+    <string name="launch_warning_virtual_display_unavailable">Lo schermo virtuale del PC non è disponibile, quindi questo stream mostra il suo schermo fisico.</string>
+    <string name="launch_warning_virtual_display_disabled_by_client">Questo dispositivo ha chiesto lo schermo del PC stesso, quindi lo stream non usa uno schermo virtuale.</string>
 </resources>

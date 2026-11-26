@@ -22,4 +22,6 @@
     <string name="hardware_gpu_fan_voltage">Điện áp: %1$s mV · Quạt: %2$s RPM (%3$s%%)</string>
     <string name="hardware_gpu_power">Công suất GPU: %1$s W · Công suất bo mạch: %2$s W</string>
     <string name="hardware_gpu_memory">VRAM: %1$s MB (%2$s%%)</string>
+    <string name="hardware_gpu_encoder_summary">Bộ mã hóa %1$s%%</string>
+    <string name="hardware_gpu_encoder">Bộ mã hóa video: %1$s%%</string>
 </resources>

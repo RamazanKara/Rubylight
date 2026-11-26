@@ -22,4 +22,6 @@
     <string name="hardware_gpu_fan_voltage">Tensione: %1$s mV · Ventola: %2$s RPM (%3$s%%)</string>
     <string name="hardware_gpu_power">Potenza GPU: %1$s W · Potenza scheda: %2$s W</string>
     <string name="hardware_gpu_memory">VRAM: %1$s MB (%2$s%%)</string>
+    <string name="hardware_gpu_encoder_summary">Encoder %1$s%%</string>
+    <string name="hardware_gpu_encoder">Encoder video: %1$s%%</string>
 </resources>

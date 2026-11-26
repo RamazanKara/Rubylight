@@ -63,6 +63,8 @@ pub enum Notice {
     EchoCancelOff(String),
     /// Audio passthrough was asked for, but the PC sends Opus; the stream plays on with a message.
     PassthroughOpus,
+    /// The PC started the stream after a setup fallback (`<clientWarning>`); shown once.
+    LaunchWarning(nightjar_core::http::LaunchWarning),
     Clipboard(Result<Option<String>, String>),
     /// An image sent to the PC (`None`) or taken from it, ready for the clipboard here; the
     /// error is the text to show.

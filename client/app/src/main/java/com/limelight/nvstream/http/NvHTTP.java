@@ -562,6 +562,9 @@ public class NvHTTP implements AutoCloseable {
         }
         if (!ok.optBoolean("ok", false)) return false;
         context.rtspSessionUrl = NvHttpJson.optNullString(ok, "session_url");
+        // Checked and cleaned by the shared parser (launch_warning.rs); shown once after connecting.
+        context.launchWarningCode = NvHttpJson.optNullString(ok, "warning_code");
+        context.launchWarningMessage = NvHttpJson.optNullString(ok, "warning_message");
         return true;
     }
 

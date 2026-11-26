@@ -571,4 +571,6 @@
     <string name="summary_hdr_shield_firmware_update">HDR’yi etkinleştirmek için NVIDIA SHIELD Android TV’nizin ürün yazılımını güncelleyin</string>
     <string name="full_range_vulkan_switched">Kod çözücü tam aralığı bıraktı. Siyahlar doğru kalsın diye Vulkan\'a geçildi.</string>
     <string name="full_range_vulkan_unavailable">Tam aralık bırakıldı, Vulkan yok: siyahlar yanlış olabilir. “Tam renk aralığı”nı kapatın.</string>
+    <string name="launch_warning_virtual_display_unavailable">Bilgisayarın sanal ekranı kullanılamıyor, bu yüzden bu yayın fiziksel ekranını gösteriyor.</string>
+    <string name="launch_warning_virtual_display_disabled_by_client">Bu cihaz bilgisayarın kendi ekranını istedi, bu yüzden yayın sanal ekran kullanmıyor.</string>
 </resources>

@@ -415,6 +415,14 @@ final class GameConnection {
             if (!game.streamRecovery.isRecoveryAttempt()) {
                 com.limelight.update.UpdateFlow.notifyForStream(game, game.conn.getHostDetails(),
                         () -> game.foreground && game.connected, text -> game.messages.alert(text, Toast.LENGTH_LONG));
+                // The PC's setup fallback, once per launch: a recovery's resume does not repeat it.
+                String warning = com.limelight.nvstream.http.LaunchWarning.text(
+                        game.conn.getLaunchWarningCode(), game.conn.getLaunchWarningMessage(),
+                        game.getString(R.string.launch_warning_virtual_display_unavailable),
+                        game.getString(R.string.launch_warning_virtual_display_disabled_by_client));
+                if (warning != null) {
+                    game.messages.alert(warning, Toast.LENGTH_LONG);
+                }
             }
             if (game.app.getRole() != NvApp.Role.INPUT_ONLY && !game.app.isControlAction()) {
                 game.displayCapsReporter = new DisplayCapsReporter(MoonBridge::sendDisplayCaps);

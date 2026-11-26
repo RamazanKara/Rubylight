@@ -19,6 +19,7 @@ mod hardware_metrics;
 pub(crate) mod identity;
 mod internet_play;
 mod launch;
+pub mod launch_warning;
 mod native;
 mod network_path;
 mod neural;
@@ -60,6 +61,7 @@ pub use hardware_metrics::{
 };
 pub use identity::ClientIdentity;
 pub use internet_play::{InternetPlay, MAX_INTERNET_PLAY_BYTES};
+pub use launch_warning::LaunchWarning;
 pub use launch::{
     CONFIRM_REPLACE, CORE_LAUNCH_PARAMETERS, HostDisplay, LaunchRequest, Launched,
     asks_to_confirm_replace, asks_to_confirm_terminate, is_role_completed, is_terminate_completed,

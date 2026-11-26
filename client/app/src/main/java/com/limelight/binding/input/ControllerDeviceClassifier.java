@@ -133,8 +133,23 @@ final class ControllerDeviceClassifier {
     }
 
     static short getAttachedControllerMask(Context context) {
+        return attachedMasks(context)[0];
+    }
+
+    /** The slots of {@link #getAttachedControllerMask} that hold PlayStation controllers (psmap). */
+    static short getAttachedPlayStationMask(Context context) {
+        return attachedMasks(context)[1];
+    }
+
+    private static boolean isPlayStation(int vendorId, int productId) {
+        return vendorId == 0x054c || MoonBridge.guessControllerType(vendorId, productId) == MoonBridge.LI_CTYPE_PS;
+    }
+
+    /** {every counted controller's slot, the PlayStation ones among them}. */
+    private static short[] attachedMasks(Context context) {
         int count = 0;
         short mask = 0;
+        short playStation = 0;
 
         // Count all input devices that are gamepads
         InputManager im = (InputManager) context.getSystemService(Context.INPUT_SERVICE);
@@ -146,6 +161,9 @@ final class ControllerDeviceClassifier {
 
             if (hasJoystickAxes(dev)) {
                 LimeLog.info("Counting InputDevice: " + dev.getName());
+                if (isPlayStation(dev.getVendorId(), dev.getProductId())) {
+                    playStation |= 1 << count;
+                }
                 mask |= 1 << count++;
             }
         }
@@ -161,6 +179,9 @@ final class ControllerDeviceClassifier {
                     if (UsbDriverService.shouldClaimDevice(dev, config) &&
                             !UsbDriverService.isRecognizedInputDevice(dev)) {
                         LimeLog.info("Counting UsbDevice: " + dev.getDeviceName());
+                        if (isPlayStation(dev.getVendorId(), dev.getProductId())) {
+                            playStation |= 1 << count;
+                        }
                         mask |= 1 << count++;
                     }
                 }
@@ -170,6 +191,7 @@ final class ControllerDeviceClassifier {
         if (ControllerHandler.onscreenOwnsPlayerOne(config)) {
             // The pads counted above arrive from controller 2 up.
             mask = (short) (mask << 1);
+            playStation = (short) (playStation << 1);
         }
 
         if (config.onscreenController) {
@@ -178,7 +200,7 @@ final class ControllerDeviceClassifier {
         }
 
         LimeLog.info("Enumerated " + count + " gamepads");
-        return mask;
+        return new short[] {mask, playStation};
     }
 
     static boolean isAssociatedJoystick(InputDevice originalDevice, InputDevice possibleAssociatedJoystick) {

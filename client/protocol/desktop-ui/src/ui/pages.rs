@@ -258,6 +258,9 @@ impl Launcher {
                     ui.label(RichText::new(why).color(ERROR));
                 }
             }
+            if let Some(info) = host.info.as_ref() {
+                self.frame_limiter_status(ui, info, caps);
+            }
             section(ui, "Play away from home");
             // A quiet button: the web UI's above is the page's other action, and neither is the main one.
             let button = row(ui, "Remote access", "Checks whether this PC answers from the network you are on now, for example away from home. It does not start a stream.", |ui| {

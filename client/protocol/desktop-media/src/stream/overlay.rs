@@ -224,14 +224,23 @@ pub fn hardware(metrics: &HardwareMetrics, debug: bool) -> Vec<(String, String)>
     }
     for gpu in &metrics.gpus {
         let r = &gpu.metrics;
+        // The encoder load is left out where the host sends none, as older hosts do.
+        let encoder = r.get("gpu_encoder_percent").map(|_| reading(r, "gpu_encoder_percent", 1));
         if !debug {
-            lines.push((format!("PC GPU {}", gpu.id), format!("{}% · {} °C · {} W",
-                reading(r, "gpu_usage_percent", 1), reading(r, "gpu_temperature_c", 1), reading(r, "gpu_power_w", 1))));
+            let mut line = format!("{}% · {} °C · {} W",
+                reading(r, "gpu_usage_percent", 1), reading(r, "gpu_temperature_c", 1), reading(r, "gpu_power_w", 1));
+            if let Some(encoder) = &encoder {
+                line.push_str(&format!(" · Encoder {encoder}%"));
+            }
+            lines.push((format!("PC GPU {}", gpu.id), line));
             continue;
         }
         lines.push((format!("GPU {}", gpu.id), if gpu.name.is_empty() { "Unnamed GPU".into() } else { gpu.name.clone() }));
         lines.push(("Usage".into(), format!("{}% · GPU clock: {} MHz · Memory clock: {} MHz",
             reading(r, "gpu_usage_percent", 1), reading(r, "gpu_clock_mhz", 0), reading(r, "gpu_memory_clock_mhz", 0))));
+        if let Some(encoder) = encoder {
+            lines.push(("Video encoder".into(), format!("{encoder}%")));
+        }
         lines.push(("Temperatures".into(), format!("GPU: {} °C · Hotspot: {} °C · Memory: {} °C",
             reading(r, "gpu_temperature_c", 1), reading(r, "gpu_hotspot_temperature_c", 1), reading(r, "gpu_memory_temperature_c", 1))));
         lines.push(("Voltage".into(), format!("{} mV · Fan: {} RPM ({}%)",
@@ -370,5 +379,11 @@ mod tests {
         assert_eq!(debug[2], ("GPU 0".to_owned(), "Unnamed GPU".to_owned()));
         assert_eq!(debug[3].1, "0.0% · GPU clock: 2400 MHz · Memory clock: — MHz");
         assert_eq!(debug.len(), 8);
+        let encoding = HardwareMetrics::parse(r#"{"version":1,"sampled_at_unix_ms":1,"interval_ms":1000,"cpu":{},
+            "gpus":[{"id":-5,"name":"NVIDIA","metrics":{"gpu_usage_percent":60,"gpu_encoder_percent":22.5}}]}"#).unwrap();
+        assert_eq!(hardware(&encoding, false)[1].1, "60.0% · — °C · — W · Encoder 22.5%");
+        let debug = hardware(&encoding, true);
+        assert_eq!(debug[4], ("Video encoder".to_owned(), "22.5%".to_owned()));
+        assert_eq!(debug.len(), 9);
     }
 }

@@ -33,6 +33,16 @@ impl Gamepads {
         }).collect::<Vec<_>>().join(",")
     }
 
+    /// The gamepad slots a launch sends as PlayStation controllers (`psmap`), as
+    /// [`Self::launch_controllers`] numbers them; the launch masks it by the gamepad mask.
+    pub fn launch_playstation_mask(&self, settings: &crate::config::Settings) -> u32 {
+        let players = Controllers::from_saved(settings.controllers, settings.multi_controller);
+        self.pads.iter().fold(0, |mask, pad| match players.sent_index(pad.index) {
+            Some(sent) if describe(pad).0 == CTYPE_PS && sent < 16 => mask | (1 << sent),
+            _ => mask,
+        })
+    }
+
     /// Tells the host about every controller (at stream start).
     pub fn announce_all(&mut self, queue: &mut InputQueue) {
         let mask = self.active_mask();

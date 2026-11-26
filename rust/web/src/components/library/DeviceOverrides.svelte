@@ -153,11 +153,12 @@
             onchange={(event) => draft.setDeviceSetting(device, CAPTURE_WINDOW, event.currentTarget.value || undefined)}
           >
             <option value="">Same as the game</option>
-            {#if capture && capture !== 'display' && capture !== 'window'}
+            {#if capture && capture !== 'display' && capture !== 'window' && capture !== 'window_focus'}
               <option value={capture}>{capture} (not a choice)</option>
             {/if}
             <option value="display">The display</option>
             <option value="window">The game’s window</option>
+            <option value="window_focus">The game’s window, the display while it’s in the background</option>
           </select>
         </Field>
         <Field

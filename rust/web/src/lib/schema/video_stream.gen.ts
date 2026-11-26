@@ -29,12 +29,12 @@ export const settings: Setting[] = [
   {
     key: 'capture_window',
     label: 'What to stream',
-    description: 'Streams the whole display, or only the launched app’s window. Leave it on The display unless you want one app alone in the stream; apps and devices can choose their own.',
-    details: 'While the window is minimised, before it appears, or after it closes, the stream shows the display and the device says why. The app’s window is found among the programs the app started, or by the program name and title an app sets. It keeps its shape, with black bars if needed, and mouse and touch input land on the window. Windows Graphics Capture captures the window, whatever the capture method.',
+    description: 'Streams the whole display, or only the launched app’s window, or the app’s window while it is in front and the display while another program is. Leave it on The display unless you want one app alone in the stream; apps and devices can choose their own.',
+    details: 'While the window is minimised, before it appears, or after it closes, the stream shows the display and the device says why. The app’s window is found among the programs the app started, or by the program name and title an app sets. It keeps its shape, with black bars if needed, and mouse and touch input land on the window. Windows Graphics Capture captures the window, whatever the capture method. With the display while it’s in the background, Alt+Tab or a click outside the game shows the display about a second later, and the game in front again shows its window at once, without restarting the stream.',
     category: 'video',
     group: 'Capture',
-    control: { kind: 'select', options: [{ value: 'display', label: 'The display' }, { value: 'window', label: 'The app’s window' }] },
-    aliases: { match: 'case', spellings: { '1': 'window', app: 'window', true: 'window', on: 'window', yes: 'window', enabled: 'window' } },
+    control: { kind: 'select', options: [{ value: 'display', label: 'The display' }, { value: 'window', label: 'The app’s window' }, { value: 'window_focus', label: 'The app’s window, the display while it’s in the background' }] },
+    aliases: { match: 'case', spellings: { '1': 'window', app: 'window', true: 'window', on: 'window', yes: 'window', enabled: 'window', focus: 'window_focus' } },
     default: 'display',
   },
   {

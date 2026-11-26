@@ -68,6 +68,11 @@
       label: 'The app’s window',
       hint: 'Only the app’s window, kept in shape. While it is minimised, not yet open or closed, the stream shows the display and the device says why.',
     },
+    {
+      value: 'window_focus',
+      label: 'The app’s window, the display while it’s in the background',
+      hint: 'The app’s window while it is in front. After Alt+Tab or a click outside it, the stream shows the display until the app is in front again.',
+    },
   ];
 
   const CLOSED: Choice[] = [
@@ -86,7 +91,9 @@
 
   /** app_window.rs wants_window. */
   const streamsWindow = $derived(
-    ['window', 'app', 'true', 'on', 'yes', '1', 'enabled'].includes(draft.text('capture-window').trim().toLowerCase()),
+    ['window', 'app', 'true', 'on', 'yes', '1', 'enabled', 'window_focus', 'focus'].includes(
+      draft.text('capture-window').trim().toLowerCase(),
+    ),
   );
 
   const ACTIVATION: Choice[] = [

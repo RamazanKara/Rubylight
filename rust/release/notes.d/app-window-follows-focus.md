@@ -1,0 +1,2 @@
+# The app's window follows the focus
+- **What to stream follows the PC's focus.** A new choice, **The app’s window, the display while it’s in the background** (`capture_window = window_focus`), streams the game's window while it is in front and the whole display while you Alt+Tab or click outside it, then the game's window again when it is back in front, without restarting the stream. A launcher that takes the focus for a moment at launch doesn't switch it. **The app’s window** works as before.

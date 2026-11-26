@@ -2886,11 +2886,11 @@ override_allowed = true
 category = "video"
 group = "Capture"
 label = "What to stream"
-description = "Streams the whole display, or only the launched app’s window. Leave it on The display unless you want one app alone in the stream; apps and devices can choose their own."
-details = "While the window is minimised, before it appears, or after it closes, the stream shows the display and the device says why. The app’s window is found among the programs the app started, or by the program name and title an app sets. It keeps its shape, with black bars if needed, and mouse and touch input land on the window. Windows Graphics Capture captures the window, whatever the capture method."
-control = { kind = "select", options = [{ value = "display", label = "The display" }, { value = "window", label = "The app’s window" }] }
-aliases = { match = "case", spellings = { 1 = "window", app = "window", true = "window", on = "window", yes = "window", enabled = "window" } }
-doc_summary = "The display, or only the launched app’s window. Apps and devices can choose their own. See [The app's window in place of a display](#the-apps-window-in-place-of-a-display)."
+description = "Streams the whole display, or only the launched app’s window, or the app’s window while it is in front and the display while another program is. Leave it on The display unless you want one app alone in the stream; apps and devices can choose their own."
+details = "While the window is minimised, before it appears, or after it closes, the stream shows the display and the device says why. The app’s window is found among the programs the app started, or by the program name and title an app sets. It keeps its shape, with black bars if needed, and mouse and touch input land on the window. Windows Graphics Capture captures the window, whatever the capture method. With the display while it’s in the background, Alt+Tab or a click outside the game shows the display about a second later, and the game in front again shows its window at once, without restarting the stream."
+control = { kind = "select", options = [{ value = "display", label = "The display" }, { value = "window", label = "The app’s window" }, { value = "window_focus", label = "The app’s window, the display while it’s in the background" }] }
+aliases = { match = "case", spellings = { 1 = "window", app = "window", true = "window", on = "window", yes = "window", enabled = "window", focus = "window_focus" } }
+doc_summary = "The display, the launched app’s window, or the app’s window while it is in front and the display while another program is (`window_focus`). Apps and devices can choose their own. See [The app's window in place of a display](#the-apps-window-in-place-of-a-display)."
 
 [[setting]]
 key = "capture_window_closed"

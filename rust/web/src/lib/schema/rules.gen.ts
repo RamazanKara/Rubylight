@@ -40,7 +40,7 @@ export const rumbleOn = (values: Values): boolean => controllerOn(values) && on(
 export const audioHapticsOn = (values: Values): boolean => rumbleOn(values) && on(values, 'audio_haptics', false);
 
 export const streamsWindow = (values: Values): boolean =>
-  ['window', 'app', 'true', 'on', 'yes', '1', 'enabled'].includes(read(values, 'capture_window', 'display').trim().toLowerCase());
+  ['window', 'app', 'true', 'on', 'yes', '1', 'enabled', 'window_focus', 'focus'].includes(read(values, 'capture_window', 'display').trim().toLowerCase());
 export const gridPacing = (values: Values): boolean => ['grid', 'fixed'].includes(read(values, 'frame_pacing', 'arrival').toLowerCase());
 
 function encoder(values: Values): string {

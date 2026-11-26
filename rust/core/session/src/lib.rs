@@ -41,6 +41,7 @@ pub mod nucleus;
 pub mod paths;
 pub mod playnite;
 pub mod power_action;
+pub mod quick_suspend;
 pub mod remote;
 pub mod roaming;
 pub mod session;

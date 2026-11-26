@@ -1,5 +1,6 @@
-// A picture of a QR code that encodes nothing: shown faded while pairing is off, so the
-// code's place keeps its shape until one click allows pairing and a real code replaces it.
+// The outline of a QR code that encodes nothing: drawn faded in the page's own ink while pairing
+// is off, so the code's place keeps its shape until one click allows pairing and a real code
+// replaces it. It is no white paper: nothing here is scanned.
 const SIZE = 25;
 
 function sample(): string {
@@ -30,8 +31,8 @@ function sample(): string {
     const [x, y] = cell.split(',');
     return `M${x} ${y}h1v1h-1z`;
   });
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-1 -1 ${SIZE + 2} ${SIZE + 2}" shape-rendering="crispEdges"><rect x="-1" y="-1" width="${SIZE + 2}" height="${SIZE + 2}" fill="#fff"/><path d="${cells.join('')}" fill="#000"/></svg>`;
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  return cells.join('');
 }
 
-export const SAMPLE_QR = sample();
+/** The sample's modules as one SVG path, and the box that holds them with a quiet zone. */
+export const SAMPLE_QR = { path: sample(), box: `-1 -1 ${SIZE + 2} ${SIZE + 2}` };

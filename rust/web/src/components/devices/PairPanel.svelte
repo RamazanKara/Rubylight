@@ -134,7 +134,7 @@
       <section class="way" aria-labelledby="pair-qr">
         <h3 id="pair-qr"><Icon name="image" size={18} />Scan with Nightjar</h3>
         <QrPairing {access} lock={pairingOff || qrOff ? unlock : undefined}
-          lockNote={!pairingOff ? 'Pairing with a QR code is off.' : (session.metadata?.paired_devices ?? 0) > 0 ? 'Devices already paired keep working.' : 'Pairing is off.'} />
+          lockNote={pairingOff ? 'A code shows here once pairing is allowed.' : 'Pairing with a QR code is off.'} />
       </section>
     {/if}
     <section class="way pin" aria-labelledby="pair-pin">

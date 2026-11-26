@@ -11,7 +11,7 @@
   let { facts, children }: { facts: PairingFacts; children: Snippet } = $props();
 
   const stage = $derived(pairingStage(facts));
-  const steps = $derived(pairingSteps(stage));
+  const steps = $derived(pairingSteps(stage, facts.off));
   const lead = $derived(pairingLead(facts));
 </script>
 

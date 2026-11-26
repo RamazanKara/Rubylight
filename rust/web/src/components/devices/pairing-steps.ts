@@ -28,9 +28,12 @@ export interface PairingStep {
 
 const TITLES: [PairingStage, string][] = [['code', 'Show the code'], ['confirm', 'Confirm the device'], ['ready', 'Ready to play']];
 
-/** The rail: every step before the current one is done. Once a device is ready, all are. */
-export function pairingSteps(stage: PairingStage): PairingStep[] {
-  const at = TITLES.findIndex(([id]) => id === stage);
+/**
+ * The rail: every step before the current one is done. Once a device is ready, all are. While
+ * pairing is off no code shows, so no step is the current one.
+ */
+export function pairingSteps(stage: PairingStage, off = false): PairingStep[] {
+  const at = off && stage === 'code' ? -1 : TITLES.findIndex(([id]) => id === stage);
   return TITLES.map(([id, title], index) => ({
     id,
     title,

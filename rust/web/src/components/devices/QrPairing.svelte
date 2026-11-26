@@ -99,9 +99,9 @@
 </script>
 
 <div class="qr" bind:this={root}>
-  <div class="frame" class:expired={expired || Boolean(lock)} aria-busy={busy && !code}>
+  <div class="frame" class:expired={expired && !lock} class:locked={Boolean(lock)} aria-busy={busy && !code}>
     {#if lock}
-      <img src={SAMPLE_QR} alt="" width="200" height="200" />
+      <svg class="sample" viewBox={SAMPLE_QR.box} width="200" height="200" shape-rendering="crispEdges" aria-hidden="true"><path d={SAMPLE_QR.path} /></svg>
       <div class="again">{@render lock()}</div>
     {:else if code}
       <img src={image} alt="Pairing QR code for {code.address}" width="200" height="200" />
@@ -174,7 +174,19 @@
     opacity: 0.55;
     transition: inline-size var(--duration-slow) linear;
   }
+  /* No code is made while pairing is off: its place is a quiet outline, never white paper in the dark theme. */
+  .frame.locked {
+    border-style: dashed;
+    background: var(--sunken);
+    box-shadow: none;
+  }
+  .sample {
+    color: var(--muted);
+    fill: currentColor;
+    opacity: 0.22;
+  }
   img,
+  .sample,
   .blank {
     display: block;
     width: 200px;

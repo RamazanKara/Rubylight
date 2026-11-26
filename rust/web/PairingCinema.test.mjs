@@ -27,6 +27,9 @@ test('the step follows the host: a code, a PIN request that waits, a device that
   assert.deepEqual(steps.pairingSteps('confirm').map(step => step.state), ['done', 'now', 'next']);
   assert.deepEqual(steps.pairingSteps('ready').map(step => step.state), ['done', 'done', 'done']);
   assert.deepEqual(steps.pairingSteps('code').map(step => step.title), ['Show the code', 'Confirm the device', 'Ready to play']);
+  // While pairing is off no code shows, so no step is the current one.
+  assert.deepEqual(steps.pairingSteps('code', true).map(step => step.state), ['next', 'next', 'next']);
+  assert.deepEqual(steps.pairingSteps('ready', true).map(step => step.state), ['done', 'done', 'done']);
 });
 
 test('one sentence says what to do now, and never shows an address', () => {
@@ -65,6 +68,22 @@ test('the pairing panel sits in the cinema, and a waiting PIN request leads on o
   assert.match(qr, /background: var\(--qr-paper\);/);
   assert.match(qr, /const LIFETIME = 180;/);
   assert.match(qr, /\{#if code && !expired && !lock\}<span class="time" aria-hidden="true">/);
+});
+
+test('while pairing is off no step is current, it is said once, and the code’s place is no white paper', () => {
+  const off = render(Cinema, { props: { facts: { off: true, qr: true }, children: () => {} } }).body;
+  assert.doesNotMatch(off, /aria-current="step"/);
+  assert.doesNotMatch(off, /: done</);
+  assert.equal((off.match(/Devices already paired keep working\./g) ?? []).length, 1);
+  // The lead says it; the note beside the code's place says what brings a code.
+  const panel = source('PairPanel.svelte');
+  assert.doesNotMatch(panel, /already paired keep working/);
+  assert.match(panel, /lockNote=\{pairingOff \? 'A code shows here once pairing is allowed\.' : 'Pairing with a QR code is off\.'\}/);
+  const qr = source('QrPairing.svelte');
+  assert.match(qr, /class:locked=\{Boolean\(lock\)\}/);
+  assert.match(qr, /\.frame\.locked \{[^}]*background: var\(--sunken\);/);
+  assert.match(qr, /<svg class="sample"[^>]*aria-hidden="true">/);
+  assert.doesNotMatch(source('sample-qr.ts'), /#fff|data:image/);
 });
 
 test('access is a choice of tier cards: one radio group, the recommended one marked', () => {

@@ -14,7 +14,7 @@ pub const APP: &[Setting] = console_settings! {
         "menu-cmd", "Stream menu commands for this app (name, command, undo when the app closes)", Json;
         "exclude-global-menu-cmd", "Hide the host-wide PC commands while this app runs", Bool;
         "exclude-global-state-cmd", "Exclude global pause and resume commands", Bool;
-        "background-stream", "Stream in the background (Nucleus Co-op, controllers only)", Bool;
+        "background-stream", "Stream in the background (co-op splitter, controllers only)", Bool;
         "coop-entry", "Show the game's co-op entry in the library", Bool;
         "state-cmd", "App resume and pause commands", Json;
         "output", "App log path (null discards output)", Text;
@@ -58,7 +58,7 @@ pub const CLIENT: &[Setting] = console_settings! {
         "output_name_override", "Display override", Text;
         "always_use_virtual_display", "Always use a virtual display", Bool;
         "remember_display_mode", "Remember the virtual display resolution and scale chosen in Windows", Bool;
-        "background_stream", "Stream in the background (Nucleus Co-op, controllers only)", Bool;
+        "background_stream", "Stream in the background (co-op splitter, controllers only)", Bool;
         "virtual_display_mode", "Virtual display mode", Choice(&["disabled", "per_client", "shared"]);
         "virtual_display_layout", "Virtual display layout", Choice(&["exclusive", "extended", "extended_primary", "extended_isolated", "extended_primary_isolated"]);
         "prefer_10bit_sdr", "Prefer 10-bit SDR", Bool;

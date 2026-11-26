@@ -506,11 +506,11 @@
   <section>
     <Toggle
       label="Stream in the background"
-      hint="Lets this device play while someone keeps using the PC. Nucleus Co-op runs its games in their own window, away from your monitors, and only their own sound streams. Controllers work; this device's keyboard, mouse, touch and clipboard are off."
+      hint="Lets this device play while someone keeps using the PC. The co-op splitter runs its games in their own window, away from your monitors, and only their own sound streams. Controllers work; this device's keyboard, mouse, touch and clipboard are off."
       bind:checked={draft.background_stream}
     />
     <p class="note">
-      Nucleus Co-op tells the game it has the focus, so the PC keeps its own. A game Nucleus Co-op cannot run this
+      The co-op splitter tells the game it has the focus, so the PC keeps its own. A game the co-op splitter cannot run this
       way, such as one with anti-cheat, is refused with the reason and never streams your monitors instead. Exclusive
       fullscreen and Steam Input do not work this way.
     </p>

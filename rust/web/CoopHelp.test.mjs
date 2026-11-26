@@ -31,34 +31,34 @@ test('Troubleshoot shows where co-op runs from and links to the folder’s one h
   const { settingLink } = await server.ssrLoadModule('/src/lib/quick-switch.ts');
   const { schema } = await server.ssrLoadModule('/src/lib/settings-schema.ts');
   const out = html(status({}));
-  assert.match(out, /Nucleus Co-op/);
+  assert.match(out, /Co-op splitter/);
   // An earlier Rubylight's install keeps working.
   assert.match(out, /Earlier install/);
   assert.match(out, /2\.4\.2/);
   assert.match(out, /nucleus\\2\.4\.2/);
   // No second folder picker: the folder is set in its setting (or in place on a game's page).
-  assert.doesNotMatch(out, /Use this folder|Forget this folder|aria-label="Nucleus Co-op’s folder"/);
+  assert.doesNotMatch(out, /Use this folder|Forget this folder|aria-label="Co-op splitter folder"/);
   assert.ok(schema.settings.some((setting) => setting.key === 'nucleus_path'), 'the folder setting exists');
   const link = settingLink('nucleus_path');
   assert.match(link, /^\/settings\/[a-z]+\?setting=nucleus_path$/);
   assert.ok(out.includes(`href="${link}"`), out);
   assert.match(out, /Choose folder/);
   // Something runs, so no download link; no sentences explain what the host says for itself.
-  assert.doesNotMatch(out, /Download Nucleus Co-op|Rubylight downloads nothing|handler hub|build 20348/);
+  assert.doesNotMatch(out, /Download the co-op splitter|Rubylight downloads nothing|handler hub|build 20348/);
   assert.doesNotMatch(out, /SHA-256|Try again|Downloading/);
   // Live games are on Home, and nothing here says Experimental or names child sessions.
   assert.doesNotMatch(out, /End session|>Remove<|No session runs/);
   assert.doesNotMatch(out, /Experimental|untested|Expected|child session/i);
   // Not set up yet: the release's page, and choosing the folder is the main action.
   const missing = html(status({ install: { state: 'missing', path: null, chosen: '', version: null, problem: null, error: null, release } }));
-  assert.ok(missing.includes(`href="${PAGE}" target="_blank" rel="noreferrer">Download Nucleus Co-op 2.4.2`), missing);
+  assert.ok(missing.includes(`href="${PAGE}" target="_blank" rel="noreferrer">Download the co-op splitter 2.4.2`), missing);
   assert.match(missing, /Not set up yet/);
   assert.match(missing, /class="button primary[^"]*"[^>]*href="\/settings\/[a-z]+\?setting=nucleus_path"/);
 });
 
 test('the panel loads with a skeleton', () => {
   const out = render(Panel, { props: {} }).body;
-  assert.match(out, /Nucleus Co-op/);
+  assert.match(out, /Co-op splitter/);
 });
 
 test('a PC that can’t run co-op, a folder it can’t run from and handlers that didn’t load say why, loudly', () => {
@@ -76,7 +76,7 @@ test('a PC that can’t run co-op, a folder it can’t run from and handlers tha
   assert.match(out, /the host does not run as the service\./);
   assert.match(out, /AppData folder failed\./);
   assert.doesNotMatch(out, /its folder\.\./);
-  assert.match(out, /Rubylight won’t run Nucleus Co-op from the folder chosen/);
+  assert.match(out, /Rubylight won’t run the co-op splitter from the folder chosen/);
   assert.match(out, /Folder refused/);
   assert.match(out, /only administrators may change its folder/);
   assert.match(out, /Folder chosen[\s\S]*D:\\Nucleus/);

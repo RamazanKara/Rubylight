@@ -52,9 +52,9 @@
     busy = 'open';
     try {
       await api.coop.open();
-      notify('Nucleus Co-op is opening on the PC’s screen.', 'ok');
+      notify('The co-op splitter is opening on the PC’s screen.', 'ok');
     } catch (error) {
-      failed('Opening Nucleus Co-op failed', error);
+      failed('Opening the co-op splitter failed', error);
     } finally {
       busy = '';
     }
@@ -65,9 +65,9 @@
     busy = 'close';
     try {
       const { closed } = await api.coop.close();
-      notify(closed ? 'Nucleus Co-op closed on the PC.' : 'Nucleus Co-op was already closed.', 'ok');
+      notify(closed ? 'The co-op splitter closed on the PC.' : 'The co-op splitter was already closed.', 'ok');
     } catch (error) {
-      failed('Closing Nucleus Co-op failed', error);
+      failed('Closing the co-op splitter failed', error);
     } finally {
       busy = '';
     }
@@ -84,7 +84,7 @@
 </script>
 
 {#snippet closeAction()}
-  <Button busy={busy === 'close'} disabled={busy !== '' && busy !== 'close'} onclick={close}>Close Nucleus Co-op</Button>
+  <Button busy={busy === 'close'} disabled={busy !== '' && busy !== 'close'} onclick={close}>Close the co-op splitter</Button>
 {/snippet}
 
 {#if loadError && !status}
@@ -109,21 +109,21 @@
         <Banner tone="danger" title={view.title} live>{view.error}</Banner>
         <NucleusFolder {status} onchosen={load} />
       {:else if view.kind === 'broken'}
-        <Banner tone="danger" title="Nucleus Co-op’s handlers didn’t load">{view.error}</Banner>
+        <Banner tone="danger" title="The co-op handlers didn’t load">{view.error}</Banner>
       {:else if view.kind === 'taken'}
         <Banner tone="warn" title="Co-op isn’t in the library">{view.reason}</Banner>
       {:else if view.kind === 'anti_cheat'}
         <Banner tone="warn" title="No co-op or background streams for this game">{view.reason}</Banner>
       {:else if view.kind === 'checking'}
-        <p class="muted" role="status">Checking Nucleus Co-op’s handlers…</p>
+        <p class="muted" role="status">Checking the co-op handlers…</p>
       {:else if view.kind === 'handler'}
         <p class="lead">{view.text}</p>
         {#if view.runs}<p class="muted note">{view.runs}</p>{/if}
         {#if view.openRefusal}
-          <Banner tone="warn" title="Nucleus Co-op can’t open on this account">{view.openRefusal}</Banner>
+          <Banner tone="warn" title="The co-op splitter can’t open on this account">{view.openRefusal}</Banner>
         {/if}
         <div class="action">
-          <Button variant="primary" busy={busy === 'open'} disabled={status?.opened === true || view.openRefusal !== null} onclick={open}>Open Nucleus Co-op on this PC</Button>
+          <Button variant="primary" busy={busy === 'open'} disabled={status?.opened === true || view.openRefusal !== null} onclick={open}>Open the co-op splitter on this PC</Button>
           {#if status?.opened}{@render closeAction()}{/if}
         </div>
         <p class="muted note">{view.steps}</p>

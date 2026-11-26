@@ -381,7 +381,7 @@
         {@render flag(
           'background-stream',
           'Stream in the background',
-          'Runs in Nucleus Co-op while someone uses the PC: the game’s own window, game sound only, controllers only. A game Nucleus Co-op cannot run this way, such as one with anti-cheat, is refused with the reason. Devices can turn this on for every app under Devices.',
+          'Runs in the co-op splitter while someone uses the PC: the game’s own window, game sound only, controllers only. A game the co-op splitter cannot run this way, such as one with anti-cheat, is refused with the reason. Devices can turn this on for every app under Devices.',
         )}
       </div>
       <div class="form-grid behaviour-numbers">

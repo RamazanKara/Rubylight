@@ -64,6 +64,8 @@ import type {
   WebhookStatus,
 } from './api/types-network';
 
+import { neutral } from './neutral';
+
 export * from './api/types-core';
 export * from './api/types-sessions';
 export * from './api/types-network';
@@ -73,7 +75,8 @@ export class ApiError extends Error {
     readonly status: number,
     message: string,
   ) {
-    super(message);
+    // The host's words, without the name of a third-party component (lib/neutral.ts).
+    super(neutral(message));
   }
 }
 

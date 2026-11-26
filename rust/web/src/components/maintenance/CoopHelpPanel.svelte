@@ -46,7 +46,7 @@
   });
 </script>
 
-<Panel title="Nucleus Co-op" level={3} description="Co-op games, and games played while someone uses this PC.">
+<Panel title="Co-op splitter" level={3} description="Co-op games, and games played while someone uses this PC.">
   {#snippet actions()}
     {#if install}<StatusPill status={install.status} label={install.label} />{/if}
   {/snippet}
@@ -78,12 +78,12 @@
         <Banner tone="warn" title="Rubylight runs the earlier copy">{sentence(status.install.notice)} {EARLIER_COPY_GAMES}</Banner>
       {/if}
       {#if status.catalog_error}
-        <Banner tone="danger" title="Nucleus Co-op’s handlers didn’t load">{sentence(status.catalog_error)}</Banner>
+        <Banner tone="danger" title="The co-op handlers didn’t load">{sentence(status.catalog_error)}</Banner>
       {/if}
       <div class="row">
         {#if needsDownload}
           <a class="button-link" href={release.page} target="_blank" rel="noreferrer">
-            Download Nucleus Co-op {release.version}<Icon name="external" size={14} />
+            Download the co-op splitter {release.version}<Icon name="external" size={14} />
           </a>
         {/if}
         <Button href={folderLink} icon="folder" variant={status.install.state === 'missing' ? 'primary' : 'secondary'}>

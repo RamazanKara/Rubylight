@@ -951,7 +951,7 @@ control = "bool"
 [[console.app]]
 key = "background-stream"
 group = "App behavior"
-label = "Stream in the background (Nucleus Co-op, controllers only)"
+label = "Stream in the background (co-op splitter, controllers only)"
 control = "bool"
 
 [[console.app]]
@@ -1169,7 +1169,7 @@ control = "bool"
 [[console.client]]
 key = "background_stream"
 group = "Device preferences"
-label = "Stream in the background (Nucleus Co-op, controllers only)"
+label = "Stream in the background (co-op splitter, controllers only)"
 control = "bool"
 
 [[console.client]]
@@ -5498,10 +5498,10 @@ settings_30 = true
 settings_30_default = ""
 category = "library"
 group = "Play together"
-label = "Nucleus Co-op folder"
-description = "The folder you unpacked Nucleus Co-op 2.4.2 into, under C:\\Program Files; co-op and background streaming need it. Empty uses an earlier Rubylight's install, if any."
-details = "Checked as it is saved, as on a game's Play together panel; a folder Nucleus Co-op can't run from is refused with the reason."
-control = { kind = "text", placeholder = "C:\\Program Files\\Nucleus Co-op", mono = true, browse = "directory" }
+label = "Co-op splitter folder"
+description = "The folder you unpacked the co-op splitter 2.4.2 into, under C:\\Program Files; co-op and background streaming need it. Empty uses an earlier Rubylight's install, if any."
+details = "Checked as it is saved, as on a game's Play together panel; a folder the co-op splitter can't run from is refused with the reason."
+control = { kind = "text", placeholder = "C:\\Program Files\\Co-op splitter", mono = true, browse = "directory" }
 rust_accessor = { kind = "opt_path", method = "nucleus_path", doc = "The Nucleus Co-op folder: `nucleus_path`, or None for an earlier Rubylight's install, if any." }
 
 [[setting]]
@@ -5514,7 +5514,7 @@ settings_30_default = "4"
 category = "library"
 group = "Play together"
 label = "Co-op players"
-description = "The most players a Nucleus co-op session gets, 1 to 4; each player runs their own instance of the game on this PC. The game's handler and the free controller slots can allow fewer."
+description = "The most players a co-op session gets, 1 to 4; each player runs their own instance of the game on this PC. The game's handler and the free controller slots can allow fewer."
 control = { kind = "number", min = 1, max = 4, step = 1 }
 rust_accessor = { kind = "ranged_int", method = "nucleus_coop_players", ret = "u32", min = 1, max = 4, doc = "The most players a co-op session gets (1 to 4, 4 by default)." }
 

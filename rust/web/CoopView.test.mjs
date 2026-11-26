@@ -103,9 +103,9 @@ test('not set up: a link to the release’s page and its folder to choose, nothi
   const out = html(fixtures.setup);
   assert.match(out, /Play together/);
   // The release page opens in a new tab; Rubylight downloads nothing itself.
-  assert.ok(out.includes(`href="${PAGE}" target="_blank" rel="noreferrer">Download Nucleus Co-op 2.4.2`), out);
+  assert.ok(out.includes(`href="${PAGE}" target="_blank" rel="noreferrer">Download the co-op splitter 2.4.2`), out);
   assert.match(out, /Unpacked in a folder under C:\\Program Files, which only administrators can change\./);
-  assert.match(out, /aria-label="Nucleus Co-op’s folder"/);
+  assert.match(out, /aria-label="Co-op splitter folder"/);
   assert.match(out, /Use this folder/);
   assert.doesNotMatch(out, /Set up co-op|progressbar|\u00a0MB/);
   // A host that doesn't name the page links the same release.
@@ -137,19 +137,19 @@ test('the folder Nucleus Co-op already runs from offers Forget, not a second Use
 
 test('a folder Nucleus Co-op can’t run from is loud, says why, and another can be chosen', () => {
   const view = playTogether(fixtures.failed, 'portal');
-  assert.equal(view.title, 'The folder chosen holds another Nucleus Co-op');
-  assert.match(view.error, /isn't Nucleus Co-op 2\.4\.2's: download 2\.4\.2 from its release page and choose its folder\.$/);
+  assert.equal(view.title, 'The folder chosen holds another version of the co-op splitter');
+  assert.match(view.error, /isn't the co-op splitter 2\.4\.2's: download 2\.4\.2 from its release page and choose its folder\.$/);
   const out = html(fixtures.failed);
-  assert.match(out, /The folder chosen holds another Nucleus Co-op/);
+  assert.match(out, /The folder chosen holds another version of the co-op splitter/);
   assert.match(out, /role="alert"/);
   assert.match(out, /value="D:\\Nucleus"/);
   assert.match(out, /Use this folder/);
   // Each reason has its title; one the host couldn't check still shows.
-  assert.equal(folderTitle('missing'), 'Nucleus Co-op isn’t in the folder chosen');
-  assert.equal(folderTitle('untrusted'), 'Rubylight won’t run Nucleus Co-op from the folder chosen');
-  assert.equal(folderTitle(null), 'Nucleus Co-op can’t run');
+  assert.equal(folderTitle('missing'), 'The co-op splitter isn’t in the folder chosen');
+  assert.equal(folderTitle('untrusted'), 'Rubylight won’t run the co-op splitter from the folder chosen');
+  assert.equal(folderTitle(null), 'The co-op splitter can’t run');
   const unchecked = playTogether(status({ install: install({ state: 'failed', error: null }) }), 'portal');
-  assert.equal(unchecked.error, 'Nucleus Co-op’s folder could not be checked.');
+  assert.equal(unchecked.error, 'The co-op splitter’s folder could not be checked.');
   // A folder chosen and kept can be forgotten from the same card.
   assert.match(out, /Forget this folder/);
   assert.doesNotMatch(html(fixtures.setup), /Forget this folder/);
@@ -190,9 +190,9 @@ test('a kept folder that isn’t 2.4.2 runs the earlier copy, says why, and keep
 });
 
 test('a change refused while a session runs, or a # in the path, shows the host’s reason under its own title', () => {
-  assert.equal(home.refusalTitle(409, false), 'Nucleus Co-op is in use');
-  assert.equal(home.refusalTitle(409, true), 'Nucleus Co-op is in use');
-  assert.equal(home.refusalTitle(400, false), 'This folder can’t run Nucleus Co-op');
+  assert.equal(home.refusalTitle(409, false), 'The co-op splitter is in use');
+  assert.equal(home.refusalTitle(409, true), 'The co-op splitter is in use');
+  assert.equal(home.refusalTitle(400, false), 'This folder can’t run the co-op splitter');
   assert.equal(home.refusalTitle(400, true), 'The folder wasn’t forgotten');
   assert.equal(home.earlierCopyRuns({ state: 'installed' }), true);
   assert.equal(home.earlierCopyRuns({ state: 'configured', notice: null }), false);
@@ -230,7 +230,7 @@ test('choosing a folder posts it, and a refusal carries the host’s reason', as
     });
   };
   try {
-    await assert.rejects(api.coop.folder('D:\\Downloads'), /holds no NucleusCoop\.exe/);
+    await assert.rejects(api.coop.folder('D:\\Downloads'), /holds no co-op splitter program/);
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -242,28 +242,28 @@ test('choosing a folder posts it, and a refusal carries the host’s reason', as
 
 test('no handler: what is missing, the button that opens Nucleus Co-op on the PC, and the steps from a phone', () => {
   const view = playTogether(fixtures.handler, 'portal');
-  assert.equal(view.text, 'Portal 2 streams in the background without a handler. To play it together, Nucleus Co-op needs one.');
+  assert.equal(view.text, 'Portal 2 streams in the background without a handler. To play it together, the co-op splitter needs one.');
   assert.match(view.steps, /search its handler hub for Portal 2/);
   const out = html(fixtures.handler);
-  assert.match(out, /Open Nucleus Co-op on this PC/);
+  assert.match(out, /Open the co-op splitter on this PC/);
   assert.match(out, /Using this console away from the PC\?/);
   assert.ok(out.includes(AWAY_FROM_PC));
   const added = playTogether(fixtures.added, 'portal');
-  assert.equal(added.text, 'Nucleus Co-op has a handler for Portal 2, but the game isn’t added yet.');
+  assert.equal(added.text, 'The co-op splitter has a handler for Portal 2, but the game isn’t added yet.');
   assert.match(added.steps, /add Portal 2 once/);
 });
 
 test('the window the console opened can be closed from the panel, and Open waits for it', () => {
   // Closed (or an older host): Open only.
-  assert.doesNotMatch(html(fixtures.handler), /Close Nucleus Co-op/);
-  assert.doesNotMatch(html(fixtures.ready), /Close Nucleus Co-op/);
+  assert.doesNotMatch(html(fixtures.handler), /Close the co-op splitter/);
+  assert.doesNotMatch(html(fixtures.ready), /Close the co-op splitter/);
   const open = html({ ...fixtures.handler, opened: true });
-  assert.match(open, /Close Nucleus Co-op/);
+  assert.match(open, /Close the co-op splitter/);
   // A second Open would be refused while it runs.
-  assert.match(open, /<button[^>]*disabled[^>]*>(<!--[^>]*-->|\s|<[^>]+>)*Open Nucleus Co-op on this PC/);
+  assert.match(open, /<button[^>]*disabled[^>]*>(<!--[^>]*-->|\s|<[^>]+>)*Open the co-op splitter on this PC/);
   // Once the handler is in, the window may still be open: say so, and offer Close there too.
   const ready = html({ ...fixtures.ready, opened: true });
-  assert.match(ready, /Close Nucleus Co-op/);
+  assert.match(ready, /Close the co-op splitter/);
   assert.ok(ready.includes(home.OPEN_ON_PC));
 });
 
@@ -307,7 +307,7 @@ test('a game with anti-cheat says so in the host’s words, with nothing to open
   const out = html(fixtures.antiCheat);
   assert.match(out, /No co-op or background streams for this game/);
   assert.match(out, /Easy Anti-Cheat/);
-  assert.doesNotMatch(out, /Set up co-op|Open Nucleus Co-op|in the library/);
+  assert.doesNotMatch(out, /Set up co-op|Open the co-op splitter|in the library/);
   // An older reason-less answer still says why.
   assert.match(playTogether(status({}, { status: 'anti_cheat' }), 'portal').reason, /never hooks a game with anti-cheat\.$/);
 });
@@ -361,11 +361,11 @@ test('a game that needs administrator rights on an account Windows doesn’t ele
   });
   const view = playTogether(refused, 'portal');
   assert.equal(view.kind, 'anti_cheat');
-  assert.match(view.reason, /keeps them from Rubylight, so Nucleus Co-op can't run this game on this PC; games Rubylight adds itself still stream if they need no administrator rights\.$/);
+  assert.match(view.reason, /keeps them from Rubylight, so the co-op splitter can't run this game on this PC; games Rubylight adds itself still stream if they need no administrator rights\.$/);
   const out = html(refused);
   assert.match(out, /No co-op or background streams for this game/);
   assert.match(out, /Administrator protection/);
-  assert.doesNotMatch(out, /A background stream runs it|Open Nucleus Co-op/);
+  assert.doesNotMatch(out, /A background stream runs it|Open the co-op splitter/);
 });
 
 test('on an account Windows doesn’t elevate, a hub handler’s game says so before launch, and what to do', () => {
@@ -391,7 +391,7 @@ test('on an account Windows doesn’t elevate, a hub handler’s game says so be
   );
   assert.equal(
     playTogether(shielded, 'portal').refusal,
-    'Portal 2’s handler needs administrator rights, and Windows’ Administrator protection keeps them from Rubylight, so Nucleus Co-op can’t run this game on this PC; games Rubylight adds itself still stream if they need no administrator rights.',
+    'Portal 2’s handler needs administrator rights, and Windows’ Administrator protection keeps them from Rubylight, so the co-op splitter can’t run this game on this PC; games Rubylight adds itself still stream if they need no administrator rights.',
   );
   assert.doesNotMatch(html(shielded), /sign in|turn it off|restart/i);
   assert.doesNotMatch(out, /Start “Portal 2 \(Co-op\)” from Nightjar|A background stream runs it as administrator/);
@@ -413,23 +413,23 @@ test('on an account Windows doesn’t elevate, a hub handler’s game says so be
 
 test('on an account Windows doesn’t elevate, Open Nucleus Co-op says why before it is pressed and stays off', () => {
   const words = 'Nucleus Co-op needs administrator rights, and Windows doesn\'t give this account any: sign in to Windows on this PC as an administrator';
-  const openButton = /<button[^>]*disabled[^>]*>(<!--[^>]*-->|\s|<[^>]+>)*Open Nucleus Co-op on this PC/;
+  const openButton = /<button[^>]*disabled[^>]*>(<!--[^>]*-->|\s|<[^>]+>)*Open the co-op splitter on this PC/;
   for (const fixture of [fixtures.handler, fixtures.added]) {
     const name = fixture.games[0].status;
     const refused = { ...fixture, elevates: false, open_refusal: words };
     assert.equal(
       playTogether(refused, 'portal').openRefusal,
-      'Nucleus Co-op needs administrator rights, and Windows doesn’t give this account any: sign in to Windows on this PC as an administrator.',
+      'The co-op splitter needs administrator rights, and Windows doesn’t give this account any: sign in to Windows on this PC as an administrator.',
       name,
     );
     const out = html(refused);
-    assert.match(out, /Nucleus Co-op can’t open on this account/, name);
+    assert.match(out, /The co-op splitter can’t open on this account/, name);
     assert.doesNotMatch(out, /Administrator protection/, name);
     // The host's words under Windows' Administrator protection: what still runs, never to turn it off.
     const shielded = { ...refused, admin_protection: true };
     assert.equal(
       playTogether(shielded, 'portal').openRefusal,
-      'Nucleus Co-op needs administrator rights, and Windows’ Administrator protection keeps them from Rubylight, so Nucleus Co-op can’t open on this PC; games Rubylight adds itself still stream if they need no administrator rights.',
+      'The co-op splitter needs administrator rights, and Windows’ Administrator protection keeps them from Rubylight, so the co-op splitter can’t open on this PC; games Rubylight adds itself still stream if they need no administrator rights.',
       name,
     );
     assert.doesNotMatch(html(shielded), /sign in|turn it off|restart/i, name);
@@ -450,7 +450,7 @@ test('a game a launcher starts says how to make co-op possible, with nothing to 
   const view = playTogether(fixtures.launcher, 'portal');
   assert.equal(view.text, 'Co-op finds a game by its .exe, and Counter-Strike 2 starts through a launcher. To play it together, set the command above to the game’s .exe.');
   const out = html(fixtures.launcher);
-  assert.doesNotMatch(out, /Set up co-op|Open Nucleus Co-op/);
+  assert.doesNotMatch(out, /Set up co-op|Open the co-op splitter/);
 });
 
 test('a PC that can’t run co-op says why and offers no download', () => {
@@ -543,7 +543,7 @@ test('Home says why the last session ended, while the host still lists it', () =
   assert.equal(home.lastEnded(null), null);
   assert.equal(home.endedTitle(crashed), 'Co-op in Portal 2 ended');
   assert.equal(home.endedTitle(ended(5, { reason: 'failed', detail: null }, { kind: 'background' })), 'The background stream of Portal 2 ended');
-  assert.equal(home.endText(crashed.end), 'A game instance or Nucleus Co-op exited: portal2.exe exited.');
+  assert.equal(home.endText(crashed.end), 'A game instance or the co-op splitter exited: portal2.exe exited.');
   assert.equal(home.endText({ reason: 'empty', detail: null }), 'Every player left and none came back in time.');
   assert.equal(home.endText({ reason: 'ended', detail: null }), 'It was ended from this console or by the host.');
   assert.equal(home.endText({ reason: 'newer', detail: null }), 'It ended (newer).');

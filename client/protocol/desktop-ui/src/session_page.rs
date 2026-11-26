@@ -119,6 +119,10 @@ fn blocked(exit: HostExit, session: &Session) -> Option<&'static str> {
 
 /// Why an exit action failed, as the page shows it.
 pub fn exit_failure_text(failure: &Failure) -> String {
+    failure.with_host_parts(exit_failure_words(failure))
+}
+
+fn exit_failure_words(failure: &Failure) -> String {
     match failure.kind {
         FailureKind::HostControl => tr("Turn on Host control for this device in the PC’s web UI to close games.").into(),
         FailureKind::NoSession => tr("This device does not own the session on the PC.").into(),

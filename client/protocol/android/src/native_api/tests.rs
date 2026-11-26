@@ -478,6 +478,29 @@ fn other_errors_have_a_kind_and_the_status_when_the_host_answered() {
 }
 
 #[test]
+fn the_hosts_plain_english_parts_reach_java_only_when_sent() {
+    let mut error = ApiError::new(ErrorCode::DriverRejected, "wrote 3 and the driver reads back 1");
+    error.title = Some("The graphics driver refused the change".into());
+    error.next_step = Some("Choose another value.".into());
+    error.technical_detail = Some("ADLX_FAIL".into());
+    let explained = Error::Api { status: 409, error };
+    for envelope in [error_envelope(&explained), crate::http::error_json(&explained)] {
+        let body = parse(&envelope);
+        assert_eq!(body["error"]["message"], "wrote 3 and the driver reads back 1");
+        assert_eq!(body["error"]["title"], "The graphics driver refused the change");
+        assert_eq!(body["error"]["next_step"], "Choose another value.");
+        assert_eq!(body["error"]["technical_detail"], "ADLX_FAIL");
+    }
+    let old = Error::Api { status: 409, error: ApiError::new(ErrorCode::HostInUse, "TV is streaming from this PC.") };
+    for envelope in [error_envelope(&old), crate::http::error_json(&old)] {
+        let body = parse(&envelope);
+        for part in ["title", "next_step", "technical_detail"] {
+            assert!(body["error"].get(part).is_none(), "{part}: {body}");
+        }
+    }
+}
+
+#[test]
 fn radeon_writes_parse_strictly_before_they_reach_the_host() {
     let fake = Fake::default();
     let write = r#"{"gpu":11520,"changes":[{"id":"chill.enabled","value":true},{"id":"chill.max_fps","value":144}]}"#;

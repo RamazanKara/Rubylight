@@ -577,4 +577,6 @@
     <string name="frame_warp_overlay_update_host">Frame Warp: потрібна поточна версія на ПК</string>
     <string name="frame_warp_overlay_confidence">%1$s, впевненість %2$s%%</string>
     <string name="frame_warp_overlay_confidence_gyro">%1$s, впевненість %2$s%%, гіроскоп зафіксовано</string>
+    <string name="host_error_next_step">Що робити: %1$s</string>
+    <string name="host_error_technical_detail">Технічні подробиці: %1$s</string>
 </resources>

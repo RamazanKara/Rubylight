@@ -577,4 +577,6 @@
     <string name="frame_warp_overlay_update_host">Frame Warp: PC에 최신 버전이 필요합니다</string>
     <string name="frame_warp_overlay_confidence">%1$s, 신뢰도 %2$s%%</string>
     <string name="frame_warp_overlay_confidence_gyro">%1$s, 신뢰도 %2$s%%, 자이로 고정</string>
+    <string name="host_error_next_step">해결 방법: %1$s</string>
+    <string name="host_error_technical_detail">기술 세부 정보: %1$s</string>
 </resources>

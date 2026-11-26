@@ -30,4 +30,6 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Still shared through usbipd-win since Nightjar closed: {}", "Nightjar 종료 후에도 usbipd-win으로 공유 중: {}"),
     ("Giving back…", "돌려주는 중…"),
     ("Give back to Windows", "Windows에 돌려주기"),
+    ("What to do: {}", "해결 방법: {}"),
+    ("Technical details: {}", "기술 세부 정보: {}"),
 ];

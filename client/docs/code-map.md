@@ -55,7 +55,7 @@ A feature lands in both apps in one change. What they share goes into `nightjar-
 | Windows only (`desktop-media/src/`) | `stream/direct.rs`, `stream/d3d11.rs` (`stream/d3d11/`), `stream/amf_scaler.rs`, `stream/wasapi.rs`, `stream/microphone.rs` |
 | Linux only (`desktop-media/src/`) | `dmabuf.rs` (`dmabuf/linux.rs`), `vulkan_video.rs` (`vulkan_video/`), `stream/wl_scanout.rs` (`stream/wl_scanout/`), `stream/wl_presentation.rs`, `stream/drm_vrr.rs`, `stream/planes_gpu.rs` (`stream/planes_gpu/`), `kms/` with `stream/kms_scanout.rs` (`stream/kms_scanout/`, DRM/KMS output without a desktop), `stream/touchpad/evdev.rs` |
 | macOS only (`desktop-media/src/`) | `metal/`, `stream/macos_video_check.rs`, `stream/metalfx.rs` with its Objective-C bridge `stream/metalfx.m` (MetalFX upscaling, compiled by `desktop-media`'s build script), `stream/pyrowave_sdk/own_vulkan.rs` (PyroWave's GPU decoder on the bundled KosmicKrisp Vulkan driver; `desktop-media/macos-vulkan.sh` builds the driver and loader) |
-| Settings, text (`desktop-config/src/`) | `config.rs` (`config/defaults_gen.rs`, `config/enums.rs`, `config/host.rs`, `config/migrate.rs`, `config/profiles.rs`, `config/store.rs`, `config/art.rs`), `strings.rs`, `strings/` |
+| Settings, text (`desktop-config/src/`) | `config.rs` (`config/defaults_gen.rs`, `config/enums.rs`, `config/host.rs`, `config/migrate.rs`, `config/profiles.rs`, `config/store.rs`, `config/art.rs`), `strings.rs`, `strings/`, `strings_70/`, `host_error.rs` (a host error's title, next step and technical detail around a dialog's words) |
 | Artwork and game facts | `desktop/src/game_info.rs` (keys, HTTPS, the record and image cache) over `nightjar_policy::game_info`; the HTTPS is `desktop/src/update_net.rs`'s `exchange` |
 
 `cfg(unix)` includes macOS: Linux-only code takes `target_os = "linux"`. A changed shader `.spv` needs its Metal translation from `protocol/desktop-media/src/metal/generate.py`.
@@ -76,7 +76,7 @@ A stream and the shared JSON models run on the Rust engine, `nightjar-core`, thr
 | PCs, library, UI | `computers/`, `console/`, `ui/`, `grid/` |
 | Artwork and game facts | `console/GameInfo.java` (keys, `NightjarHttpJni` `WebPkiTransport`, cache), `console/GameInfoModel.java` (`nightjar_policy::game_info` through `protocol/android/src/game_info.rs`), `console/GameInfoFilter.java` |
 | PIN lock, updates | `pin/` (over `nightjar_core::pin_lock`), `update/` (over `nightjar_policy::update` and `nightjar_core::update`) |
-| Native API, files | `nativeapi/`, `files/` |
+| Native API, files | `nativeapi/` (`HostErrorText` adds a host error's title, next step and technical detail to a dialog), `files/` |
 
 Native code beside the engines, in `app/src/main/jni/`: `pyrowave-renderer/`, `vulkan/`, `evdev_reader/`, `window-dataspace/`.
 

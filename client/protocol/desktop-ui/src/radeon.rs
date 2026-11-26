@@ -12,7 +12,8 @@
 //! Setting ids this client has no name for are drawn from their kind, range, options and unit.
 //! No egui and no network here, so it is all tested.
 
-use rubylight_native_api::error::ErrorCode;
+use nightjar_desktop_config::host_error;
+use rubylight_native_api::error::{ApiError, ErrorCode};
 use rubylight_native_api::radeon::{Choice, ControlState, Kind, Radeon, Range, Restore, Setting, Value};
 use nightjar_policy::http::Error;
 
@@ -383,6 +384,9 @@ pub struct Failure {
     pub setting: Option<String>,
     /// The host's own text, shown when there is no better one.
     pub host_message: Option<String>,
+    /// The host's error body when it sent one: its title, next step and technical detail go
+    /// with the text ([`Failure::with_host_parts`]).
+    pub host_error: Option<ApiError>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -404,6 +408,7 @@ impl Failure {
     }
 
     pub fn of_gpu(error: &Error, gpu: Option<i32>, requested: Option<&str>) -> Failure {
+        let host_error = error.api_error().cloned();
         let (kind, setting, host_message) = match error {
             Error::Api { status, error } => {
                 let kind = match error.code {
@@ -423,10 +428,25 @@ impl Failure {
             }
             other => (FailureKind::Generic, None, Some(other.to_string())),
         };
-        Failure { kind, gpu, setting: setting.or_else(|| requested.map(str::to_owned)), host_message }
+        Failure { kind, gpu, setting: setting.or_else(|| requested.map(str::to_owned)), host_message, host_error }
+    }
+
+    /// `words` (what the page says for this failure) with the host's plain-English parts: all
+    /// of them when `words` are the host's own message, else its next step and technical
+    /// detail. Without them, `words` as they are.
+    pub fn with_host_parts(&self, words: String) -> String {
+        match &self.host_error {
+            None => words,
+            Some(error) if !error.message.is_empty() && self.host_message.as_deref() == Some(words.as_str()) => host_error::host_text(error),
+            Some(error) => host_error::with_host_help(words, error),
+        }
     }
 
     pub fn text(&self) -> String {
+        self.with_host_parts(self.words())
+    }
+
+    fn words(&self) -> String {
         match self.kind {
             FailureKind::InvalidValue => tr("The PC does not accept that value.").into(),
             FailureKind::NotWritable => tr("This setting cannot be changed.").into(),

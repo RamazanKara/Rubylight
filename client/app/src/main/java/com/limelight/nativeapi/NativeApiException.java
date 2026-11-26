@@ -25,15 +25,27 @@ public class NativeApiException extends Exception {
     private final String code;
     private final String setting;
     private final long retryAfterMs;
+    private final String title;
+    private final String nextStep;
+    private final String technicalDetail;
 
     public NativeApiException(Kind kind, String message, int httpStatus, String code, String setting,
                               long retryAfterMs) {
+        this(kind, message, httpStatus, code, setting, retryAfterMs, null, null, null);
+    }
+
+    /** With the host's plain-English parts of its error body, each null when it sent none. */
+    public NativeApiException(Kind kind, String message, int httpStatus, String code, String setting,
+                              long retryAfterMs, String title, String nextStep, String technicalDetail) {
         super(message);
         this.kind = kind;
         this.httpStatus = httpStatus;
         this.code = code;
         this.setting = setting;
         this.retryAfterMs = retryAfterMs;
+        this.title = title;
+        this.nextStep = nextStep;
+        this.technicalDetail = technicalDetail;
     }
 
     public NativeApiException(Kind kind, String message) {
@@ -62,6 +74,21 @@ public class NativeApiException extends Exception {
     /** How long the host asks to wait before retrying, 0 when it does not. */
     public long getRetryAfterMs() {
         return retryAfterMs;
+    }
+
+    /** The host's short plain-English headline for the error, or null. */
+    public String getTitle() {
+        return title;
+    }
+
+    /** What the host says to do about it, or null (the message may already say). */
+    public String getNextStep() {
+        return nextStep;
+    }
+
+    /** Codes and error chains the host sent for a bug report, or null. */
+    public String getTechnicalDetail() {
+        return technicalDetail;
     }
 
     /** Whether the host could not be reached at all, as opposed to answering with a refusal. */

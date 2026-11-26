@@ -335,10 +335,14 @@ fn error_from_json(err: &Value) -> Error {
     match kind {
         "network" | "tls" => Error::Io(std::io::Error::other(message)),
         "not_paired" => Error::NotPaired,
-        "api" => Error::Api {
-            status: http_status,
-            error: ApiError::new(ErrorCode::InvalidRequest, message),
-        },
+        "api" => {
+            let part = |key: &str| err.get(key).and_then(Value::as_str).map(str::to_owned);
+            let mut error = ApiError::new(ErrorCode::InvalidRequest, message);
+            error.title = part("title");
+            error.next_step = part("next_step");
+            error.technical_detail = part("technical_detail");
+            Error::Api { status: http_status, error }
+        }
         "cancelled" => Error::Cancelled,
         _ => Error::Malformed(message),
     }

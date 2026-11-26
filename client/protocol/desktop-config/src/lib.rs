@@ -7,6 +7,7 @@ pub const VERSION: &str = env!("NIGHTJAR_VERSION");
 pub mod app_types;
 pub mod config;
 pub mod gamepad_types;
+pub mod host_error;
 pub mod hosts_types;
 pub mod latency_bench_state;
 pub mod network_types;

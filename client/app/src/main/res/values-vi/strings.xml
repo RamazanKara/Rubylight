@@ -577,4 +577,6 @@
     <string name="frame_warp_overlay_update_host">Frame Warp: cần phiên bản hiện tại trên PC</string>
     <string name="frame_warp_overlay_confidence">%1$s, độ tin cậy %2$s%%</string>
     <string name="frame_warp_overlay_confidence_gyro">%1$s, độ tin cậy %2$s%%, con quay đã khóa</string>
+    <string name="host_error_next_step">Cách khắc phục: %1$s</string>
+    <string name="host_error_technical_detail">Chi tiết kỹ thuật: %1$s</string>
 </resources>

@@ -432,6 +432,9 @@ public final class NativeApiClient {
                     .put("retry_after_ms", e.getRetryAfterMs());
             if (e.getCode() != null) err.put("code", e.getCode());
             if (e.getSetting() != null) err.put("setting", e.getSetting());
+            if (e.getTitle() != null) err.put("title", e.getTitle());
+            if (e.getNextStep() != null) err.put("next_step", e.getNextStep());
+            if (e.getTechnicalDetail() != null) err.put("technical_detail", e.getTechnicalDetail());
             return Json.obj().put("error", err).toString();
         }
         if ("update".equals(op)) {
@@ -496,7 +499,10 @@ public final class NativeApiClient {
                     error.optString("message", "Native API error"), error.optInt("http_status", 0),
                     error.isNull("code") ? null : error.optString("code", null),
                     error.isNull("setting") ? null : error.optString("setting", null),
-                    error.optLong("retry_after_ms"));
+                    error.optLong("retry_after_ms"),
+                    error.isNull("title") ? null : error.optString("title", null),
+                    error.isNull("next_step") ? null : error.optString("next_step", null),
+                    error.isNull("technical_detail") ? null : error.optString("technical_detail", null));
         } catch (Json.SyntaxException e) {
             throw malformed("envelope", e);
         }

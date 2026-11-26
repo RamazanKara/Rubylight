@@ -18,6 +18,7 @@ import androidx.appcompat.app.AlertDialog;
 
 import com.google.android.material.button.MaterialButton;
 import com.limelight.R;
+import com.limelight.nativeapi.HostErrorText;
 import com.limelight.nativeapi.NativeApiException;
 import com.limelight.nativeapi.NativePairing;
 import com.limelight.nvstream.http.ComputerDetails;
@@ -83,7 +84,7 @@ final class PairingDialogs {
                     }
                 });
             } catch (NativeApiException e) {
-                main.execute(() -> errors.show(activity.getString(R.string.host_menu_pair_another), e.getMessage()));
+                main.execute(() -> errors.show(activity.getString(R.string.host_menu_pair_another), HostErrorText.of(activity.getResources(), e)));
             }
         });
     }
@@ -286,7 +287,7 @@ final class PairingDialogs {
             main.execute(() -> {
                 finish(dialog);
                 if (failed != null) {
-                    errors.show(activity.getString(R.string.pairing_wants_to_pair, name), failed.getMessage());
+                    errors.show(activity.getString(R.string.pairing_wants_to_pair, name), HostErrorText.of(activity.getResources(), failed));
                 } else {
                     Toast.makeText(activity.getApplicationContext(),
                             activity.getString(R.string.pairing_approved, approved), Toast.LENGTH_LONG).show();
@@ -310,7 +311,7 @@ final class PairingDialogs {
                 finish(dialog);
                 if (failed != null) {
                     errors.show(activity.getString(R.string.pairing_wants_to_pair, waiting.shownName()),
-                            failed.getMessage());
+                            HostErrorText.of(activity.getResources(), failed));
                 }
                 changed.run();
             });

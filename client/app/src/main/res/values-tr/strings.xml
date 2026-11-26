@@ -577,4 +577,6 @@
     <string name="frame_warp_overlay_update_host">Frame Warp: bilgisayarda güncel sürüm gerekiyor</string>
     <string name="frame_warp_overlay_confidence">%1$s, güven %%%2$s</string>
     <string name="frame_warp_overlay_confidence_gyro">%1$s, güven %%%2$s, jiroskop kilitli</string>
+    <string name="host_error_next_step">Ne yapmalı: %1$s</string>
+    <string name="host_error_technical_detail">Teknik ayrıntılar: %1$s</string>
 </resources>

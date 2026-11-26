@@ -139,8 +139,13 @@ pub(super) fn follow_update(
     }
 }
 
+/// The PC's own words (with its title, next step and technical detail when it sent them), else
+/// what failed.
 pub(super) fn native_error(error: &nightjar_core::http::Error) -> String {
-    nightjar_core::http::host_words(error).unwrap_or_else(|| describe(error))
+    match error.api_error().filter(|api| !api.message.is_empty()) {
+        Some(api) => nightjar_desktop_config::host_error::host_text(api),
+        None => describe(error),
+    }
 }
 
 fn format_pc_power_failure(err: PcPowerFailure) -> String {

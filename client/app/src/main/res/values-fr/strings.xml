@@ -577,4 +577,6 @@
     <string name="frame_warp_overlay_update_host">Frame Warp : nécessite la version actuelle sur le PC</string>
     <string name="frame_warp_overlay_confidence">%1$s, confiance %2$s %%</string>
     <string name="frame_warp_overlay_confidence_gyro">%1$s, confiance %2$s %%, gyroscope calé</string>
+    <string name="host_error_next_step">Que faire : %1$s</string>
+    <string name="host_error_technical_detail">Détails techniques : %1$s</string>
 </resources>

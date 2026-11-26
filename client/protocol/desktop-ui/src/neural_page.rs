@@ -262,10 +262,11 @@ fn spawn(name: &str, work: impl FnOnce() + Send + 'static) -> Result<(), String>
         .map_err(|e| trf("Could not start the request: {}", &[&e]))
 }
 
-/// The PC's own words for a refusal, else what failed.
+/// The PC's own words for a refusal, with its title, next step and technical detail when it
+/// sent them, else what failed.
 fn said(error: &Error) -> String {
     match error {
-        Error::Api { error, .. } if !error.message.is_empty() => error.message.clone(),
+        Error::Api { error, .. } if !error.message.is_empty() => nightjar_desktop_config::host_error::host_text(error),
         other => other.to_string(),
     }
 }

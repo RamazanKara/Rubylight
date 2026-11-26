@@ -7,6 +7,7 @@ import androidx.annotation.VisibleForTesting;
 
 import com.limelight.LimeLog;
 import com.limelight.R;
+import com.limelight.nativeapi.HostErrorText;
 import com.limelight.nativeapi.NativeApiClient;
 import com.limelight.nativeapi.NativeApiException;
 import com.limelight.nativeapi.NativeCoop;
@@ -242,11 +243,11 @@ final class CoopSheet {
         }
     }
 
-    /** The host's own words, or the status when it sent none. */
+    /** The host's own words (with its title, next step and technical detail when sent), or the status. */
     static String problemMessage(Context context, NativeApiException error) {
         String message = error.getMessage();
         if (message != null && !message.isEmpty()) {
-            return message;
+            return HostErrorText.of(context.getResources(), error);
         }
         return context.getString(R.string.coop_problem_no_message, error.getHttpStatus());
     }

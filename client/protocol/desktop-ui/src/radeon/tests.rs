@@ -266,6 +266,26 @@ fn failures_follow_the_hosts_code_and_name_the_setting() {
 }
 
 #[test]
+fn a_host_that_explains_adds_its_next_step_and_detail() {
+    let explained = |code| {
+        let mut error = ApiError::new(code, "host words");
+        error.title = Some("Host title".into());
+        error.next_step = Some("Host step.".into());
+        error.technical_detail = Some("ADLX_FAIL".into());
+        Error::Api { status: 409, error }
+    };
+    let rejected = Failure::of(&explained(ErrorCode::DriverRejected), None);
+    assert_eq!(
+        rejected.text(),
+        "The graphics driver rejected this change.\n\nWhat to do: Host step.\n\nTechnical details: ADLX_FAIL",
+        "Nightjar's words lead; the host's title would repeat them"
+    );
+    let generic = Failure::of(&explained(ErrorCode::Internal), None);
+    assert_eq!(generic.text(), "Host title\n\nhost words\n\nWhat to do: Host step.\n\nTechnical details: ADLX_FAIL");
+    assert_eq!(crate::session_page::exit_failure_text(&generic), generic.text());
+}
+
+#[test]
 fn a_host_without_radeon_endpoints_is_told_apart() {
     assert!(is_missing(&Error::NotFound("radeon".into())));
     assert!(is_missing(&api_error(404, ErrorCode::NotFound, None)));

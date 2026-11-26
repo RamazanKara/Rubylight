@@ -299,11 +299,23 @@ public final class RadeonPanelModel {
         public final String settingId;
         /** The host's own text, shown when the app has no better one; may be null. */
         public final String hostMessage;
+        /** The host's headline, next step and technical detail, each null when it sent none. */
+        public final String hostTitle;
+        public final String nextStep;
+        public final String technicalDetail;
 
         Failure(int messageRes, String settingId, String hostMessage) {
+            this(messageRes, settingId, hostMessage, null, null, null);
+        }
+
+        Failure(int messageRes, String settingId, String hostMessage, String hostTitle, String nextStep,
+                String technicalDetail) {
             this.messageRes = messageRes;
             this.settingId = settingId;
             this.hostMessage = hostMessage;
+            this.hostTitle = hostTitle;
+            this.nextStep = nextStep;
+            this.technicalDetail = technicalDetail;
         }
 
         /** The failure as the panel shows it: the host's code decides, not its English. */
@@ -338,7 +350,8 @@ public final class RadeonPanelModel {
                             : e.getHttpStatus() == 503 ? R.string.native_error_busy : R.string.native_error_generic;
                     break;
             }
-            return new Failure(message, setting, message == R.string.native_error_generic ? e.getMessage() : null);
+            return new Failure(message, setting, message == R.string.native_error_generic ? e.getMessage() : null,
+                    e.getTitle(), e.getNextStep(), e.getTechnicalDetail());
         }
 
         @Override

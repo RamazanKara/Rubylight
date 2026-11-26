@@ -577,4 +577,6 @@
     <string name="frame_warp_overlay_update_host">Frame Warp: PC に最新バージョンが必要です</string>
     <string name="frame_warp_overlay_confidence">%1$s、信頼度 %2$s%%</string>
     <string name="frame_warp_overlay_confidence_gyro">%1$s、信頼度 %2$s%%、ジャイロ確定</string>
+    <string name="host_error_next_step">対処方法: %1$s</string>
+    <string name="host_error_technical_detail">技術的な詳細: %1$s</string>
 </resources>

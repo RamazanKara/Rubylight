@@ -17,6 +17,7 @@ import com.limelight.R;
 import com.limelight.binding.PlatformBinding;
 import com.limelight.nativeapi.ConsoleRepository;
 import com.limelight.nativeapi.KnownUpdates;
+import com.limelight.nativeapi.HostErrorText;
 import com.limelight.nativeapi.NativeApiClient;
 import com.limelight.nativeapi.NativeApiException;
 import com.limelight.nativeapi.NativePcPower;
@@ -124,7 +125,8 @@ final class HostFlowRoutes {
     static String sleepFailedText(Context context, NativeApiException error) {
         if (sleepRetries(error)) return context.getString(R.string.host_sleep_failed);
         if (error.getKind() == NativeApiException.Kind.NOT_PAIRED) return context.getString(R.string.host_feature_reason_pair);
-        return context.getString(R.string.host_sleep_error, error.getMessage());
+        return HostErrorText.around(context.getResources(),
+                context.getString(R.string.host_sleep_error, error.getMessage()), error);
     }
 
     static String powerUnavailableText(Context context, String reason) {

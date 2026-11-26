@@ -577,4 +577,6 @@
     <string name="frame_warp_overlay_update_host">Frame Warp：電腦需要最新版本</string>
     <string name="frame_warp_overlay_confidence">%1$s，信賴度 %2$s%%</string>
     <string name="frame_warp_overlay_confidence_gyro">%1$s，信賴度 %2$s%%，陀螺儀已鎖定</string>
+    <string name="host_error_next_step">解決方法：%1$s</string>
+    <string name="host_error_technical_detail">技術詳情：%1$s</string>
 </resources>

@@ -14,6 +14,7 @@ import com.google.android.material.slider.Slider;
 import com.limelight.R;
 import com.limelight.console.NativeMenuController;
 import com.limelight.console.RadeonPanelModel;
+import com.limelight.nativeapi.HostErrorText;
 import com.limelight.nativeapi.NativeRadeon;
 
 import java.util.HashMap;
@@ -337,11 +338,16 @@ final class RadeonPanelView {
         }
     }
 
+    /** Nightjar's words for the code, or the host's own, with the host's next step and technical detail. */
     private String failureText(RadeonPanelModel.Failure failure) {
+        String next = resources.getString(R.string.host_error_next_step);
+        String detail = resources.getString(R.string.host_error_technical_detail);
         if (failure.messageRes == R.string.native_error_generic && failure.hostMessage != null
                 && !failure.hostMessage.isEmpty()) {
-            return failure.hostMessage;
+            return HostErrorText.compose(failure.hostTitle, failure.hostMessage, failure.nextStep,
+                    failure.technicalDetail, next, detail);
         }
-        return resources.getString(failure.messageRes);
+        return HostErrorText.compose(null, resources.getString(failure.messageRes), failure.nextStep,
+                failure.technicalDetail, next, detail);
     }
 }

@@ -230,6 +230,7 @@ pub fn error_envelope(error: &Error) -> String {
         body["code"] = serde_json::to_value(api.code).unwrap_or(Value::Null);
         body["setting"] = json!(api.setting);
         body["retry_after_ms"] = json!(api.retry_after_ms);
+        crate::http::put_explanation(&mut body, api);
     }
     json!({ "error": body }).to_string()
 }

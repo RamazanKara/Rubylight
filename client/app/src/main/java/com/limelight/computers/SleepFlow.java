@@ -141,6 +141,9 @@ final class SleepFlow {
                 err.optInt("http_status", 0),
                 err.isNull("code") ? null : err.optString("code", null),
                 err.isNull("setting") ? null : err.optString("setting", null),
-                err.optLong("retry_after_ms", 0));
+                err.optLong("retry_after_ms", 0),
+                err.isNull("title") ? null : err.optString("title", null),
+                err.isNull("next_step") ? null : err.optString("next_step", null),
+                err.isNull("technical_detail") ? null : err.optString("technical_detail", null));
     }
 }

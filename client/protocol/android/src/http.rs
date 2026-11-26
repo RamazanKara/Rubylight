@@ -68,8 +68,19 @@ pub(crate) fn error_json(error: &Error) -> String {
         body["code"] = serde_json::to_value(api.code).unwrap_or(Value::Null);
         body["setting"] = json!(api.setting);
         body["retry_after_ms"] = json!(api.retry_after_ms);
+        put_explanation(&mut body, api);
     }
     json!({"error": body}).to_string()
+}
+
+/// The host's `title`, `next_step` and `technical_detail`, each only when it sent it, so Java's
+/// error text is the message alone for a host without them.
+pub(crate) fn put_explanation(body: &mut Value, api: &nightjar_core::http::native_api::error::ApiError) {
+    for (key, part) in [("title", &api.title), ("next_step", &api.next_step), ("technical_detail", &api.technical_detail)] {
+        if let Some(part) = part {
+            body[key] = json!(part);
+        }
+    }
 }
 
 pub(crate) fn server_info_json(info: &ServerInfo) -> Value {

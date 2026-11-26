@@ -234,8 +234,13 @@ pub(crate) fn describe(error: &nightjar_core::http::Error) -> String {
         other => {
             let text = other.to_string();
             let mut chars = text.chars();
-            match chars.next() {
+            let text: String = match chars.next() {
                 Some(first) => first.to_uppercase().chain(chars).collect(),
+                None => text,
+            };
+            // The PC's title, next step and technical detail, when it sent them.
+            match other.api_error() {
+                Some(api) => nightjar_desktop_config::host_error::compose(api.title.as_deref(), &text, api.next_step.as_deref(), api.technical_detail.as_deref()),
                 None => text,
             }
         }

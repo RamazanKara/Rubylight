@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_stream_orientation">Orientation</string>
-    <string name="summary_stream_orientation">Le sens dans lequel le stream peut pivoter. « Automatique » garde les téléphones en paysage et laisse pivoter les tablettes ; « Paysage », « Paysage inversé » et « Portrait » le verrouillent ; « Pivoter avec l’appareil » suit l’appareil.</string>
+    <string name="summary_stream_orientation">Le sens dans lequel le stream peut pivoter. « Automatique » garde les téléphones en paysage et laisse pivoter les tablettes ; « Paysage », « Paysage inversé » et « Portrait » le verrouillent ; « Pivoter avec l’appareil » suit l’appareil. Paysage (des deux côtés) se retourne avec le téléphone, même si la rotation est verrouillée.</string>
     <string-array name="stream_orientation_names">
         <item>Automatique</item>
         <item>Paysage</item>
         <item>Portrait</item>
         <item>Pivoter avec l’appareil</item>
         <item>Paysage inversé</item>
+        <item>Paysage (des deux côtés)</item>
     </string-array>
     <string name="stream_orientation_scaled">Ce PC garde le format du flux pendant la diffusion ; l’image est ajustée à l’écran pivoté.</string>
     <string name="stream_orientation_decoder_limit">Le décodeur de cet appareil ne prend pas en charge la taille pivotée ; le flux garde son format et l’image est ajustée.</string>

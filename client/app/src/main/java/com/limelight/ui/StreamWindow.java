@@ -9,6 +9,11 @@ public interface StreamWindow {
     /** True when the video should cover the whole panel, cutout included. */
     boolean usesFullDisplayForVideo();
 
+    /** True for Safe fit: the video also keeps clear of rounded screen corners and the swipe-home strip. */
+    default boolean keepsCornersClear() {
+        return false;
+    }
+
     /**
      * True in split screen or a free-form window smaller than the display. A multi-window
      * activity whose window still covers the whole display streams like a full-screen one.

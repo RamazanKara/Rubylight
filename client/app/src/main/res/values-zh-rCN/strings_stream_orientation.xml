@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_stream_orientation">屏幕方向</string>
-    <string name="summary_stream_orientation">串流画面可以转向哪个方向。“自动”让手机保持横屏，平板可以旋转；“横屏”、“反向横屏”和“竖屏”会锁定方向；“随设备旋转”跟随设备。</string>
+    <string name="summary_stream_orientation">串流画面可以转向哪个方向。“自动”让手机保持横屏，平板可以旋转；“横屏”、“反向横屏”和“竖屏”会锁定方向；“随设备旋转”跟随设备。 横向（双向）即使锁定了旋转，也会随手机翻转。</string>
     <string-array name="stream_orientation_names">
         <item>自动</item>
         <item>横屏</item>
         <item>竖屏</item>
         <item>随设备旋转</item>
         <item>反向横屏</item>
+        <item>横向（双向）</item>
     </string-array>
     <string name="stream_orientation_scaled">此电脑在串流期间保持串流形状，因此画面会缩放以适应旋转后的屏幕。</string>
     <string name="stream_orientation_decoder_limit">此设备的解码器不支持旋转后的尺寸，因此串流保持原有形状并适应屏幕。</string>

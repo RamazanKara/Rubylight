@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_stream_orientation">Ausrichtung</string>
-    <string name="summary_stream_orientation">Wie sich der Stream drehen darf. „Automatisch“ hält Handys im Querformat und lässt Tablets drehen; „Querformat“, „Querformat (umgekehrt)“ und „Hochformat“ legen die Ausrichtung fest; „Mit dem Gerät drehen“ folgt dem Gerät.</string>
+    <string name="summary_stream_orientation">Wie sich der Stream drehen darf. „Automatisch“ hält Handys im Querformat und lässt Tablets drehen; „Querformat“, „Querformat (umgekehrt)“ und „Hochformat“ legen die Ausrichtung fest; „Mit dem Gerät drehen“ folgt dem Gerät. „Querformat (beide Seiten)“ dreht mit dem Handy um, auch bei gesperrter Drehung.</string>
     <string-array name="stream_orientation_names">
         <item>Automatisch</item>
         <item>Querformat</item>
         <item>Hochformat</item>
         <item>Mit dem Gerät drehen</item>
         <item>Querformat (umgekehrt)</item>
+        <item>Querformat (beide Seiten)</item>
     </string-array>
     <string name="stream_orientation_scaled">Dieser PC behält das Format des Streams, solange er läuft; das Bild wird in den gedrehten Bildschirm eingepasst.</string>
     <string name="stream_orientation_decoder_limit">Der Decoder dieses Geräts kann die gedrehte Größe nicht übernehmen; der Stream behält sein Format und wird eingepasst.</string>

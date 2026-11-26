@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_stream_orientation">Hướng màn hình</string>
-    <string name="summary_stream_orientation">Stream có thể xoay theo hướng nào. “Tự động” giữ điện thoại ở chiều ngang và cho máy tính bảng xoay; “Ngang”, “Ngang đảo ngược” và “Dọc” khóa hướng; “Xoay theo thiết bị” đi theo thiết bị.</string>
+    <string name="summary_stream_orientation">Stream có thể xoay theo hướng nào. “Tự động” giữ điện thoại ở chiều ngang và cho máy tính bảng xoay; “Ngang”, “Ngang đảo ngược” và “Dọc” khóa hướng; “Xoay theo thiết bị” đi theo thiết bị. Ngang (cả hai chiều) lật theo điện thoại ngay cả khi đã khóa xoay.</string>
     <string-array name="stream_orientation_names">
         <item>Tự động</item>
         <item>Ngang</item>
         <item>Dọc</item>
         <item>Xoay theo thiết bị</item>
         <item>Ngang đảo ngược</item>
+        <item>Ngang (cả hai chiều)</item>
     </string-array>
     <string name="stream_orientation_scaled">PC này giữ nguyên hình dạng luồng khi đang truyền, nên hình ảnh được thu vừa với màn hình đã xoay.</string>
     <string name="stream_orientation_decoder_limit">Bộ giải mã của thiết bị này không hỗ trợ kích thước sau khi xoay, nên luồng giữ nguyên hình dạng và được thu vừa màn hình.</string>

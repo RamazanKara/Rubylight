@@ -5,6 +5,7 @@ import android.content.SharedPreferences;
 /**
  * How the video fills the space it is given, and the way between a point on screen and a stream
  * pixel through that rectangle and pinch zoom. Fit and 1:1 can leave borders; Fill and 1:1 can crop.
+ * Safe fit is Fit inside a smaller space that keeps clear of a camera cutout and rounded corners.
  * Older versions store only the Stretch switch; the {@link #PREF} value adds the newer modes and is
  * trusted only while it agrees with that switch, so a choice made in an older version still wins.
  */
@@ -18,12 +19,13 @@ public final class VideoScaling {
     public static final int FILL = 1;
     public static final int STRETCH = 2;
     public static final int NATIVE = 3;
+    public static final int SAFE_FIT = 4;
 
     // Positions in the video_alignment_values array.
     public static final int CENTER = 0;
     public static final int TOP = 1;
 
-    private static final String[] VALUES = {"fit", "fill", "stretch", "native"};
+    private static final String[] VALUES = {"fit", "fill", "stretch", "native", "safe_fit"};
     private static final String[] ALIGNMENTS = {"center", "top"};
 
     private int left, top, width, height;
@@ -44,7 +46,7 @@ public final class VideoScaling {
         editor.putString(PREF, value(mode)).putBoolean(STRETCH_PREF, legacyStretch(mode));
     }
 
-    /** What an older version reads: Fill and 1:1 keep the stream's shape, so they fall back to Fit there. */
+    /** What an older version reads: Fill, 1:1 and Safe fit keep the stream's shape, so they fall back to Fit there. */
     public static boolean legacyStretch(int mode) {
         return mode == STRETCH;
     }
@@ -58,6 +60,11 @@ public final class VideoScaling {
         return mode == FILL || mode == STRETCH;
     }
 
+    /** Safe fit keeps the picture clear of a cutout and rounded corners, whatever the stream's size. */
+    public static boolean keepsCornersClear(int mode) {
+        return mode == SAFE_FIT;
+    }
+
     /** Picture-in-picture shows the whole stream: cropped or at 1:1, a small window would show only part of it. */
     public static int forPictureInPicture(int mode) {
         return mode == STRETCH ? STRETCH : FIT;
@@ -65,7 +72,7 @@ public final class VideoScaling {
 
     /** Top alignment moves a Fit or 1:1 picture up; Fill and Stretch have no border to move into. */
     public static boolean alignsTop(int mode, int alignment) {
-        return alignment == TOP && (mode == FIT || mode == NATIVE);
+        return alignment == TOP && (mode == FIT || mode == SAFE_FIT || mode == NATIVE);
     }
 
     /**
@@ -78,7 +85,7 @@ public final class VideoScaling {
         if (videoWidth > 0 && videoHeight > 0 && areaWidth > 0 && areaHeight > 0) {
             double aspect = (double) videoWidth / videoHeight;
             boolean areaWider = areaWidth > areaHeight * aspect;
-            if (mode == FIT) {
+            if (mode == FIT || mode == SAFE_FIT) {
                 // Round, never truncate, and never exceed the space: a stream of the panel's exact size
                 // (2184 / 1968 is not exact in floating point) must fill it rather than leave a 1 px line.
                 if (areaWider) w = Math.min(areaWidth, (int) Math.round(areaHeight * aspect));

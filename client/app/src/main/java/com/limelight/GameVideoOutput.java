@@ -552,7 +552,7 @@ final class GameVideoOutput {
     boolean usesFullDisplayForVideo() {
         // Only the user's fill/follow choice or an exact panel size spans a notch, a preset one
         // included (nativeResolutionStream leaves that out); the cutout-safe entry keeps clear of it.
-        return game.prefConfig != null && (VideoScaling.coversArea(game.prefConfig.videoScaling) ||
+        return game.prefConfig != null && !VideoScaling.keepsCornersClear(game.prefConfig.videoScaling) && (VideoScaling.coversArea(game.prefConfig.videoScaling) ||
                 game.prefConfig.resolutionFollowsScreen || shouldIgnoreInsetsForResolution(game.prefConfig.width, game.prefConfig.height));
     }
 

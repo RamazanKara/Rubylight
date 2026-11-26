@@ -146,6 +146,25 @@ public class StreamWindowLayoutTest {
     }
 
     @Test
+    public void safeFitKeepsTheCutoutClearEvenForAPanelSizedStream() {
+        Game game = foldStream(true, false, FOLD_WIDTH, FOLD_HEIGHT);
+        useFoldPanelMode(game);
+        PreferenceConfiguration preferences = ReflectionHelpers.getField(game, "prefConfig");
+        preferences.setVideoScaling(VideoScaling.SAFE_FIT);
+        assertTrue(game.keepsCornersClear());
+        assertFalse(game.usesFullDisplayForVideo());
+        View root = root(game);
+        root.layout(0, 0, FOLD_WIDTH, FOLD_HEIGHT);
+        applyInsets(root, Insets.of(0, 0, FOLD_CUTOUT, 0));
+        // Android 11 reports no rounded corners: the cutout alone.
+        assertPadding(root, 0, 0, FOLD_CUTOUT, 0);
+        // Fit keeps its old behaviour.
+        preferences.setVideoScaling(VideoScaling.FIT);
+        assertFalse(game.keepsCornersClear());
+        assertTrue(game.usesFullDisplayForVideo());
+    }
+
+    @Test
     public void exactNativeSizeCountsAsFullPanelEvenWhenTheModeListDisagrees() {
         Game game = foldStream(false, false, 2400, 1080);
         Display display = game.getWindowManager().getDefaultDisplay();

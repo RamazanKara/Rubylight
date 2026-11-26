@@ -6,8 +6,10 @@
         <item>Fill (crop)</item>
         <item>Stretch</item>
         <item>1:1 pixels</item>
+        <item>Safe fit</item>
     </string-array>
-    <string name="video_scaling_help">Fit: the whole picture, with bars where the screen has another shape.\nFill (crop): fills the screen without distortion; edges that do not fit are cut off.\nStretch: fills the screen; shapes may look wider or taller.\n1:1 pixels: one stream pixel per screen pixel. A smaller stream gets a border; a larger one is cropped.\nVideo position moves a Fit or 1:1 picture to the top. Pinch zoom works in every mode, and picture-in-picture always shows the whole picture.</string>
+    <string name="video_scaling_help">Fit: the whole picture, with bars where the screen has another shape.\nFill (crop): fills the screen without distortion; edges that do not fit are cut off.\nStretch: fills the screen; shapes may look wider or taller.\n1:1 pixels: one stream pixel per screen pixel. A smaller stream gets a border; a larger one is cropped.\nVideo position moves a Fit or 1:1 picture to the top. Pinch zoom works in every mode, and picture-in-picture always shows the whole picture.
+Safe fit: like Fit, but keeps clear of camera cutouts and rounded screen corners.</string>
     <string name="title_video_alignment">Video position</string>
     <string name="summary_video_alignment">Where a Fit or 1:1 picture sits: center or top. Top leaves the space below the picture free.</string>
     <string-array name="video_alignment_names">

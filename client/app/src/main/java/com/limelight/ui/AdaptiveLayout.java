@@ -4,10 +4,13 @@ import android.app.Activity;
 import android.content.res.Configuration;
 import android.graphics.Rect;
 import android.os.Build;
+import android.view.RoundedCorner;
 import android.view.View;
+import android.view.WindowInsets;
 
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
+import androidx.annotation.RequiresApi;
 import androidx.core.util.Consumer;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -164,6 +167,9 @@ public final class AdaptiveLayout {
             types = ((StreamWindow) activity).usesFullDisplayForVideo() ? 0 : WindowInsetsCompat.Type.displayCutout();
         }
         Insets insets = windowInsets.getInsets(types);
+        if (types == WindowInsetsCompat.Type.displayCutout() && ((StreamWindow) activity).keepsCornersClear()) {
+            insets = safeFitArea(insets);
+        }
         if (!handleSystemInsets) {
             // Material accounts for system bars, but a landscape camera cutout may extend farther.
             @SuppressWarnings("deprecation") int materialTop = windowInsets.getSystemWindowInsetTop();
@@ -199,6 +205,37 @@ public final class AdaptiveLayout {
         Rect pane = usablePane(available, hinge, fold.getOrientation() == FoldingFeature.Orientation.VERTICAL,
                 ViewCompat.getLayoutDirection(root) == ViewCompat.LAYOUT_DIRECTION_RTL);
         root.setPadding(pane.left, pane.top, width - pane.right, height - pane.bottom);
+    }
+
+    /**
+     * Safe fit: the cutout's insets widened to keep the picture's corners on the lit panel inside
+     * rounded screen corners (reported from Android 12) and clear of the swipe-home strip.
+     */
+    private Insets safeFitArea(Insets cutout) {
+        int tl = 0, tr = 0, br = 0, bl = 0;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            WindowInsets platform = windowInsets.toWindowInsets();
+            if (platform != null) {
+                tl = cornerRadius(platform, RoundedCorner.POSITION_TOP_LEFT);
+                tr = cornerRadius(platform, RoundedCorner.POSITION_TOP_RIGHT);
+                br = cornerRadius(platform, RoundedCorner.POSITION_BOTTOM_RIGHT);
+                bl = cornerRadius(platform, RoundedCorner.POSITION_BOTTOM_LEFT);
+            }
+        }
+        return safeFitArea(cutout, windowInsets.getInsets(WindowInsetsCompat.Type.mandatorySystemGestures()), tl, tr, br, bl);
+    }
+
+    static Insets safeFitArea(Insets cutout, Insets gestures, int tl, int tr, int br, int bl) {
+        return Insets.of(Math.max(gestures.left, SafeAreaPolicy.edgeInset(cutout.left, tl, bl)),
+                Math.max(gestures.top, SafeAreaPolicy.edgeInset(cutout.top, tl, tr)),
+                Math.max(gestures.right, SafeAreaPolicy.edgeInset(cutout.right, tr, br)),
+                Math.max(gestures.bottom, SafeAreaPolicy.edgeInset(cutout.bottom, bl, br)));
+    }
+
+    @RequiresApi(Build.VERSION_CODES.S)
+    private static int cornerRadius(WindowInsets insets, int position) {
+        RoundedCorner corner = insets.getRoundedCorner(position);
+        return corner == null ? 0 : corner.getRadius();
     }
 
     /**

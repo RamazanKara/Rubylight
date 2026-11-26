@@ -34,6 +34,7 @@ import com.limelight.ui.LegacyKeyboardInsets;
 import com.limelight.ui.PcKeyboardOverlay;
 import com.limelight.ui.StreamOrientation;
 import com.limelight.ui.StreamView;
+import com.limelight.ui.VideoScaling;
 import com.limelight.utils.UiHelper;
 
 import android.annotation.SuppressLint;
@@ -455,6 +456,7 @@ public class Game extends Activity implements SurfaceHolder.Callback, TextureVie
     @Override public boolean isWindowedStream() { return videoOutput.isWindowedStream(); }
     protected boolean windowCoversDisplay() { return videoOutput.windowCoversDisplay(); }
     @Override public boolean usesFullDisplayForVideo() { return videoOutput.usesFullDisplayForVideo(); }
+    @Override public boolean keepsCornersClear() { return prefConfig != null && VideoScaling.keepsCornersClear(prefConfig.videoScaling); }
 
     @Override
     public void onMultiWindowModeChanged(boolean isInMultiWindowMode) {

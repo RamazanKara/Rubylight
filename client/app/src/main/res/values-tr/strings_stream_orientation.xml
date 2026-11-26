@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="title_stream_orientation">Yönlendirme</string>
-    <string name="summary_stream_orientation">Yayının hangi yöne dönebileceği. “Otomatik” telefonları yatay tutar, tabletlerin dönmesine izin verir; “Yatay”, “Ters yatay” ve “Dikey” yönü kilitler; “Cihazla döndür” cihazı izler.</string>
+    <string name="summary_stream_orientation">Yayının hangi yöne dönebileceği. “Otomatik” telefonları yatay tutar, tabletlerin dönmesine izin verir; “Yatay”, “Ters yatay” ve “Dikey” yönü kilitler; “Cihazla döndür” cihazı izler. Yatay (her iki yön), döndürme kilitli olsa bile telefonla birlikte ters döner.</string>
     <string-array name="stream_orientation_names">
         <item>Otomatik</item>
         <item>Yatay</item>
         <item>Dikey</item>
         <item>Cihazla döndür</item>
         <item>Ters yatay</item>
+        <item>Yatay (her iki yön)</item>
     </string-array>
     <string name="stream_orientation_scaled">Bu bilgisayar yayın sürerken biçimini korur; bu yüzden görüntü döndürülmüş ekrana sığacak şekilde ölçeklenir.</string>
     <string name="stream_orientation_decoder_limit">Bu cihazın kod çözücüsü döndürülmüş boyutu desteklemiyor; yayın biçimini korur ve ekrana sığdırılır.</string>

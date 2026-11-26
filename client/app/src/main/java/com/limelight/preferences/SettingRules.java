@@ -307,11 +307,11 @@ final class SettingRules {
         return null;
     }
 
-    /** Video position moves a picture that leaves room: Fit or 1:1 pixels. */
+    /** Video position moves a picture that leaves room: Fit, Safe fit or 1:1 pixels. */
     static boolean videoAlignmentApplies(SharedPreferences prefs) {
         int mode = com.limelight.ui.VideoScaling.resolve(prefs.getString(com.limelight.ui.VideoScaling.PREF, null),
                 prefs.getBoolean(com.limelight.ui.VideoScaling.STRETCH_PREF, false));
-        return mode == com.limelight.ui.VideoScaling.FIT || mode == com.limelight.ui.VideoScaling.NATIVE;
+        return !com.limelight.ui.VideoScaling.coversArea(mode);
     }
 
     /** The PC renders at a scale of the stream only on its virtual display: a Display arrangement that asks for one. */

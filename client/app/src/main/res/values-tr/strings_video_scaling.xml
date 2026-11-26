@@ -6,8 +6,10 @@
         <item>Doldur (kırp)</item>
         <item>Uzat</item>
         <item>1:1 piksel</item>
+        <item>Güvenli sığdır</item>
     </string-array>
-    <string name="video_scaling_help">Sığdır: görüntünün tamamı; ekranın şekli farklıysa kenarlarda şeritler olur.\nDoldur (kırp): görüntüyü bozmadan ekranı doldurur; sığmayan kenarlar kırpılır.\nUzat: ekranı doldurur; şekiller daha geniş veya daha uzun görünebilir.\n1:1 piksel: her yayın pikseli için bir ekran pikseli. Daha küçük bir yayının çevresinde boşluk kalır, daha büyük bir yayın kırpılır.\nVideo konumu, Sığdır veya 1:1 görüntüsünü üste taşır. Sıkıştırarak yakınlaştırma her modda çalışır ve pencere içinde pencere her zaman görüntünün tamamını gösterir.</string>
+    <string name="video_scaling_help">Sığdır: görüntünün tamamı; ekranın şekli farklıysa kenarlarda şeritler olur.\nDoldur (kırp): görüntüyü bozmadan ekranı doldurur; sığmayan kenarlar kırpılır.\nUzat: ekranı doldurur; şekiller daha geniş veya daha uzun görünebilir.\n1:1 piksel: her yayın pikseli için bir ekran pikseli. Daha küçük bir yayının çevresinde boşluk kalır, daha büyük bir yayın kırpılır.\nVideo konumu, Sığdır veya 1:1 görüntüsünü üste taşır. Sıkıştırarak yakınlaştırma her modda çalışır ve pencere içinde pencere her zaman görüntünün tamamını gösterir.
+Güvenli sığdır: Sığdır gibi, ancak kamera çentiğinden ve yuvarlak köşelerden uzak durur.</string>
     <string name="title_video_alignment">Video konumu</string>
     <string name="summary_video_alignment">“Sığdır” veya “1:1 piksel” modunda görüntünün durduğu yer: orta veya üst. “Üst”, görüntünün altındaki alanı boş bırakır.</string>
     <string-array name="video_alignment_names">

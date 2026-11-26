@@ -8,7 +8,9 @@ import com.limelight.binding.video.StreamResizePolicy;
  * Which way the stream window may turn, and the stream's shape when it does. Automatic keeps the
  * long-standing rule: phones in landscape; tablets, desktop-class devices, squarish screens,
  * windows and video on another display in any orientation. Landscape and Portrait lock the window;
- * Rotate follows the device within the system rotation lock.
+ * Rotate follows the device within the system rotation lock. Landscape (either side) turns the
+ * window over with the phone even when rotation is locked, but never to portrait; Flip 180° turns a
+ * landscape window over for the rest of the stream.
  * <p>
  * The stream itself turns only where the host draws it at the shape asked for, on a host virtual
  * display. It then starts in the window's shape, and while it runs a host that takes in-stream
@@ -24,12 +26,13 @@ public final class StreamOrientation {
     public static final int PORTRAIT = 2;
     public static final int ROTATE = 3;
     public static final int REVERSE_LANDSCAPE = 4;
+    public static final int LANDSCAPE_FLIP = 5;
 
     // A turn waits longer than a fold or window change before the host is asked for a new size, so
     // the rotation animation, or a phone turned over and straight back, sends nothing.
     public static final long ROTATION_SETTLE_MS = 1000;
 
-    private static final String[] VALUES = {"auto", "landscape", "portrait", "rotate", "reverse_landscape"};
+    private static final String[] VALUES = {"auto", "landscape", "portrait", "rotate", "reverse_landscape", "landscape_flip"};
 
     private StreamOrientation() {}
 
@@ -66,6 +69,8 @@ public final class StreamOrientation {
                 return ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE;
             case REVERSE_LANDSCAPE:
                 return ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE;
+            case LANDSCAPE_FLIP:
+                return ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE;
             case PORTRAIT:
                 return ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT;
             case ROTATE:
@@ -130,6 +135,21 @@ public final class StreamOrientation {
         return StreamResizePolicy.nativeSize(width, height, 1,
                 landscape ? StreamResizePolicy.ORIENTATION_LANDSCAPE : StreamResizePolicy.ORIENTATION_PORTRAIT,
                 maxWidth, maxHeight, widthAlignment, heightAlignment);
+    }
+
+    /**
+     * Flip 180°: the landscape opposite the one shown, as an {@code ActivityInfo} constant, or -1
+     * when the window is not landscape. A phone's natural orientation is portrait, so its landscape
+     * is rotation 90 and reverse landscape 270; a tablet's or handheld's landscape is rotation 0.
+     *
+     * @param rotation        the display's {@code Surface.ROTATION_*}
+     * @param naturalPortrait the panel is taller than wide at rotation 0
+     */
+    public static int flipped(int rotation, boolean naturalPortrait) {
+        int landscape = naturalPortrait ? 1 : 0;
+        if (rotation == landscape) return ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE;
+        if (rotation == landscape + 2) return ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE;
+        return -1;
     }
 
     /** How long a change waits before the host is asked for a new size. */

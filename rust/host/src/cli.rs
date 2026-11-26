@@ -51,6 +51,9 @@ pub struct Args {
     pub service_stop_source: Option<String>,
     #[arg(long, hide = true)]
     pub display_watch: Option<u32>,
+    /// Quick Suspend's watchdog for the host with this id (suspend_recovery.rs).
+    #[arg(long, hide = true, requires = "config_dir")]
+    pub quick_suspend_watch: Option<u32>,
     #[arg(long, hide = true)]
     pub crash_reporter: bool,
     /// The NVIDIA component's check of NGX, in a process of its own; the
@@ -190,6 +193,9 @@ pub fn run() -> Result<()> {
             port,
             args.open_web_page.as_deref().unwrap_or("/"),
         );
+    }
+    if let (Some(pid), Some(profile)) = (args.quick_suspend_watch, &args.config_dir) {
+        std::process::exit(crate::suspend_recovery::watch_exit_code(pid, profile));
     }
     if let Some(pid) = args.display_watch {
         win_bridge::install_hooks();

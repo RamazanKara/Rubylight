@@ -276,6 +276,8 @@ async fn run_logged(
             "display settings from an interrupted stream were not all restored"
         );
     }
+    // Games a host that stopped mid-suspend left frozen run again first.
+    crate::suspend_recovery::at_start(&h.directory);
     // Once logging runs: an unreadable file says so.
     butterpollo_win_display::display_arrangement::initialize_remembered(&h.directory);
     if let Err(error) = butterpollo_win_io::audio_app_route::recover(&h.directory) {

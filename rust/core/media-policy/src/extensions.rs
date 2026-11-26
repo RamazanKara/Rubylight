@@ -11,9 +11,9 @@ use std::collections::BTreeMap;
 
 use anyhow::{Result, bail};
 use rubylight_protocol::{
-    audio_ext, clipboard_sync, controller_identity, cursor_shape, fec_report, frame_warp, hdr,
-    keyboard_layout, pen, pipeline_rates, rate_change, text_input, transport_feedback, usb,
-    video_packet,
+    audio_ext, clipboard_sync, controller_identity, cursor_shape, fec_report, frame_warp,
+    frame_warp_v2, hdr, keyboard_layout, pen, pipeline_rates, rate_change, text_input,
+    transport_feedback, usb, video_packet,
 };
 
 pub use rubylight_protocol::fec_report::FecChoice;
@@ -95,7 +95,9 @@ pub struct Offered {
     pub display_scale: bool,
     /// `SecondScreenVersion` and the `rlSecondScreen` launch option.
     pub second_screen: bool,
-    /// `FrameWarpVersion` and Frame Warp's messages (0x5543-0x5546).
+    /// `FrameWarpProtocol` 2 and Frame Warp 2's messages (0x5543-0x5546 and 0x5549). The
+    /// host lists no `FrameWarpVersion`: it takes no version 1 request, so a client from before
+    /// Frame Warp 2 sees no Frame Warp.
     pub frame_warp: bool,
     /// `ControllerIdentityVersion`: controller identity packets (0x55000080)
     /// and the C button flag.
@@ -199,15 +201,19 @@ impl Offered {
                 self.second_screen,
                 crate::display_policy::SECOND_SCREEN_SERVERINFO_FIELD,
             ),
-            (self.frame_warp, frame_warp::SERVERINFO_FIELD),
-            (
-                self.controller_identity,
-                controller_identity::SERVERINFO_FIELD,
-            ),
         ] {
             if offered {
                 fields.push((field, version()));
             }
+        }
+        if self.frame_warp {
+            fields.push((
+                frame_warp_v2::SERVERINFO_FIELD,
+                frame_warp_v2::SERVERINFO_VERSION.to_string(),
+            ));
+        }
+        if self.controller_identity {
+            fields.push((controller_identity::SERVERINFO_FIELD, version()));
         }
         let nvidia = self.nvidia_enhancements & crate::nvidia_enhance::ALL;
         if nvidia != 0 {
@@ -282,6 +288,10 @@ impl Offered {
             (self.frame_warp, frame_warp::FRAME_WARP_MODEL_MESSAGE_TYPE),
             (self.frame_warp, frame_warp::FRAME_WARP_TAGS_MESSAGE_TYPE),
             (self.frame_warp, frame_warp::FRAME_WARP_MASK_MESSAGE_TYPE),
+            (
+                self.frame_warp,
+                frame_warp_v2::FRAME_WARP_V2_META_MESSAGE_TYPE,
+            ),
             (
                 self.transport_feedback,
                 transport_feedback::TRANSPORT_FEEDBACK_MESSAGE_TYPE,

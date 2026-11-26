@@ -38,13 +38,13 @@ const FADE: f64 = 0.995;
 const MIN_MOVES: f64 = 30.0;
 const MIN_TRAVEL: f64 = 200.0;
 /// A move shorter than this (thumbnail pixels at the median cell) says too little.
-const MIN_MOVE: f32 = 1.0;
+pub(super) const MIN_MOVE: f32 = 1.0;
 /// Cells a move needs to tell a lens from a zoom or a roll.
-const MIN_CELLS: usize = 6;
+pub(super) const MIN_CELLS: usize = 6;
 /// A lens is taken when it leaves at most this share of what a flat picture leaves, and given
 /// up when it leaves more than [`DROP`] of it.
-const TAKE: f64 = 0.75;
-const DROP: f64 = 0.9;
+pub(super) const TAKE: f64 = 0.75;
+pub(super) const DROP: f64 = 0.9;
 /// A lens in force gives way to one at least this many degrees away that leaves at most this
 /// share of what it leaves: the estimate wobbles by a degree as moves fade.
 const CHANGE_DEGREES: f64 = 1.5;
@@ -53,7 +53,7 @@ const CHANGE: f64 = 0.98;
 /// is left out of that candidate's fit, and no cell costs a candidate more than this far would:
 /// something else moves there, and a move that is no camera turn at all (a cut, a menu opening)
 /// then costs every candidate alike instead of choosing among them by chance.
-const OUTLIER: f64 = 0.5;
+pub(super) const OUTLIER: f64 = 0.5;
 /// Cells within this many thumbnail pixels of the fitted turn agree with it
 /// ([`Layout::resolve`]), as cells within it of the median do in the flat estimate.
 const AGREE: f64 = 1.5;
@@ -173,7 +173,7 @@ impl Layout {
     /// `motion`'s cells fitted under `lens`, leaving out up to two cells farther than
     /// `tolerance` thumbnail pixels (plus a tenth of the move) from where the fit puts them.
     /// `None` with fewer than three cells.
-    fn fit(&self, motion: &Motion, lens: f64, tolerance: f64) -> Option<Fitted> {
+    pub(super) fn fit(&self, motion: &Motion, lens: f64, tolerance: f64) -> Option<Fitted> {
         let mut used: [bool; CELLS] = core::array::from_fn(|i| motion.cells[i].is_some());
         let tolerance = (tolerance + 0.1 * f64::from(motion.dx.hypot(motion.dy))) * self.scale[0];
         let mut dropped = 0;
@@ -315,17 +315,17 @@ impl Layout {
     }
 }
 
-struct Fitted {
+pub(super) struct Fitted {
     /// The centre's shift in picture pixels.
     turn: [f64; 2],
     /// The cells within the tolerance of the fit.
     agree: [bool; CELLS],
     /// The squared remainder, picture pixels.
-    rest: f64,
+    pub(super) rest: f64,
 }
 
 /// The squared tangent of half a field of view of `degrees`.
-fn tangent_of(degrees: f64) -> f64 {
+pub(super) fn tangent_of(degrees: f64) -> f64 {
     let half = degrees.to_radians() * 0.5;
     half.tan() * half.tan()
 }

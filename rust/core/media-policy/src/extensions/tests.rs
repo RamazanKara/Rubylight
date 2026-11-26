@@ -61,7 +61,7 @@ fn everything_offered_gives_the_exact_fields_and_lines() {
             ("PipelineRatesVersion", "1"),
             ("DisplayScaleVersion", "1"),
             ("SecondScreenVersion", "1"),
-            ("FrameWarpVersion", "1"),
+            ("FrameWarpProtocol", "2"),
             ("ControllerIdentityVersion", "1"),
             ("NvidiaEnhancements", "3"),
         ]
@@ -77,13 +77,13 @@ fn everything_offered_gives_the_exact_fields_and_lines() {
              a=fmtp:97 surround-params=12,12,0,0,1,2,3,4,5,6,7,8,9,10,11\r\n\
              a=x-ss-general.penBarrelRoll:1\r\n\
              a=x-rl-control:0x5508,0x5539,0x553a,0x553b,0x553c,0x553d,0x553e,0x5540,0x5543,\
-             0x5544,0x5545,0x5546,0x5547\r\n"
+             0x5544,0x5545,0x5546,0x5547,0x5549\r\n"
     );
     assert_eq!(
         ALL_ON.control_ids(),
         [
             0x5508, 0x5539, 0x553A, 0x553B, 0x553C, 0x553D, 0x553E, 0x5540, 0x5543, 0x5544, 0x5545,
-            0x5546, 0x5547
+            0x5546, 0x5547, 0x5549
         ]
     );
 }
@@ -590,4 +590,27 @@ fn fec_choice_reads_the_launch_parameter() {
         let error = fec_choice(&options(Some(bad))).unwrap_err();
         assert_eq!(error.to_string(), "invalid rlFecPercentage", "{bad}");
     }
+}
+
+#[test]
+fn frame_warp_is_offered_as_frame_warp_2_only() {
+    let offered = Offered {
+        frame_warp: true,
+        ..Offered::NONE
+    };
+    // A client from before Frame Warp 2 reads `FrameWarpVersion` and finds none.
+    assert_eq!(
+        offered.serverinfo_fields(),
+        [("FrameWarpProtocol", "2".to_owned())]
+    );
+    assert_eq!(
+        offered.describe_lines(),
+        "a=x-rl-control:0x5543,0x5544,0x5545,0x5546,0x5549\r\n"
+    );
+    assert!(
+        Offered::NONE
+            .serverinfo_fields()
+            .iter()
+            .all(|(field, _)| !field.starts_with("FrameWarp"))
+    );
 }

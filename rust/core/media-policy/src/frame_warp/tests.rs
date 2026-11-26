@@ -1,6 +1,17 @@
 use super::*;
 use motion::tests::scene;
 
+/// A request as a client sends it: version 2, as the host takes no other.
+pub(crate) trait Wire {
+    fn wire(&self) -> [u8; rubylight_protocol::frame_warp_v2::REQUEST_BYTES];
+}
+
+impl Wire for FrameWarpRequest {
+    fn wire(&self) -> [u8; rubylight_protocol::frame_warp_v2::REQUEST_BYTES] {
+        RequestV2::new(*self).encode()
+    }
+}
+
 /// The GPU's HUD bits, shaped, as the worker hands them over.
 fn hud(host: &mut FrameWarpHost, shaped: &Mask, now_us: u64) -> Option<(usize, usize)> {
     let placement = host.placement();
@@ -15,18 +26,25 @@ fn enabled(picture: (u16, u16)) -> FrameWarpHost {
         mask_max_width: 480,
         lens: true,
     };
-    assert_eq!(host.on_request(&request.encode()), Some(true));
+    assert_eq!(host.on_request(&request.wire()), Some(true));
     host
 }
 
-/// A thumbnail through the worker's steps (`FrameWarpState::on_thumbnail`), in place.
-fn learn(host: &mut FrameWarpHost, measurer: &mut Measurer, thumbnail: Thumbnail, now: u64) {
+/// A thumbnail through the worker's steps (`FrameWarpState::on_thumbnail`), in place, and the
+/// model taken as the control loop takes it after every hold.
+pub(crate) fn learn(
+    host: &mut FrameWarpHost,
+    measurer: &mut Measurer,
+    thumbnail: Thumbnail,
+    now: u64,
+) {
     let measured = measurer.measure(&thumbnail);
     let keep = host.on_measured(&measured, now);
     measurer.keep(thumbnail, keep, host.resets());
     if let Some(job) = host.fit_job(now) {
         host.publish_fit(job.run());
     }
+    host.take_model();
 }
 
 #[test]
@@ -46,7 +64,7 @@ fn only_a_client_that_draws_the_lens_is_sent_one() {
             mask_max_width: 480,
             lens,
         }
-        .encode()
+        .wire()
     };
     let focal = |host: &mut FrameWarpHost| {
         let model = host.take_model().expect("a model for the request");
@@ -157,7 +175,7 @@ fn a_reset_drops_what_was_measured_against_before_it() {
             mask_max_width: 480,
             lens: true,
         }
-        .encode(),
+        .wire(),
     );
     host.publish_fit(job.run());
     assert!(host.fit_job(300_000).is_some());
@@ -214,7 +232,7 @@ fn a_start_request_restarts_the_counts_and_a_repeat_keeps_them() {
             mask_max_width: 480,
             lens: true,
         }
-        .encode()
+        .wire()
     };
     let mut host = enabled((1920, 1080));
     host.on_mouse(30, 0, 1_000);
@@ -244,7 +262,7 @@ fn another_pad_counts_from_zero_and_drops_what_named_the_old_one() {
             mask_max_width: 480,
             lens: true,
         }
-        .encode()
+        .wire()
     };
     let mut host = enabled((1920, 1080));
     host.on_mouse(30, 0, 1_000);
@@ -442,7 +460,7 @@ fn hud_masks_are_shaped_halved_to_fit_and_rate_limited() {
         mask_max_width: 480,
         lens: true,
     };
-    host.on_request(&again.encode());
+    host.on_request(&again.wire());
     assert!(host.take_mask().is_some());
 }
 
@@ -481,7 +499,7 @@ fn a_narrow_client_gets_a_halved_mask() {
         mask_max_width: 300,
         lens: true,
     };
-    host.on_request(&request.encode());
+    host.on_request(&request.wire());
     assert_eq!(host.mask_width(), 240);
     let mut mask = Mask::new(0, 960, 540);
     mask.set(100, 100, true);
@@ -502,7 +520,7 @@ fn a_letterboxed_capture_is_measured_alone_and_its_hud_lands_where_it_shows() {
             mask_max_width: 720,
             lens: true,
         }
-        .encode(),
+        .wire(),
     );
     assert_eq!(host.thumbnail_size(), (256, 144));
     let placement = host.placement();
@@ -573,7 +591,7 @@ fn a_narrower_or_zero_request_resends_within_its_limit() {
             mask_max_width: 0,
             lens: true,
         }
-        .encode(),
+        .wire(),
     );
     assert_eq!(host.take_mask(), None);
 
@@ -585,7 +603,7 @@ fn a_narrower_or_zero_request_resends_within_its_limit() {
             mask_max_width: 0,
             lens: true,
         }
-        .encode(),
+        .wire(),
     );
     host.on_request(
         &FrameWarpRequest {
@@ -594,7 +612,7 @@ fn a_narrower_or_zero_request_resends_within_its_limit() {
             mask_max_width: 240,
             lens: true,
         }
-        .encode(),
+        .wire(),
     );
     let narrowed = Mask::decode(&host.take_mask().unwrap()).unwrap();
     assert_eq!((narrowed.width, narrowed.height), (240, 135));

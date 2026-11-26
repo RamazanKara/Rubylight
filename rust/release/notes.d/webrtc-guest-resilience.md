@@ -1,0 +1,3 @@
+# Browser streams through short network drops
+- **Browser streams survive a short Wi-Fi drop.** When the PC sees the connection of a browser stream or guest drop, it now waits 10 seconds instead of 3 for it to come back, and the stream resumes with a fresh picture when it does.
+- **A guest on a poor connection no longer floods your stream with keyframes.** A guest that keeps losing its picture waits longer for each new one (2, then 4, then 8 seconds) while its losses go on, and starts at 2 seconds again once its connection settles. Every keyframe a guest asks for also lands in your own stream, so this keeps the PC owner's picture steadier. A guest that joins or comes back after a drop is not held back by this.

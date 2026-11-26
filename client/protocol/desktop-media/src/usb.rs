@@ -255,6 +255,9 @@ pub struct Panel {
     auto_changed: bool,
     /// Dropped with the panel, which ends the thread that attaches `auto`'s devices.
     auto_thread: Option<std::sync::mpsc::Sender<()>>,
+    /// What this stream's forwarded devices are claimed as ([`crate::usb_arbitration`]), so
+    /// the panel's end gives every controller among them back.
+    owner: u64,
 }
 
 #[derive(Default)]
@@ -329,9 +332,9 @@ fn auto_due(
 
 /// Opens and attaches `local`, which the caller marked as being opened; returns whether attach
 /// succeeded, and records any failure on the panel.
-fn attach_tracked(forwarder: &Forwarder, opening: &Mutex<Opening>, local: &Local) -> bool {
+fn attach_tracked(forwarder: &Forwarder, owner: u64, opening: &Mutex<Opening>, local: &Local) -> bool {
     let _guard = OpeningGuard { opening, busid: local.busid.clone() };
-    match attach_now(forwarder, local) {
+    match attach_now(forwarder, owner, local) {
         Ok(_) => true,
         Err(e) => {
             opening.lock().unwrap_or_else(PoisonError::into_inner).failed = Some(e);
@@ -347,6 +350,7 @@ impl Panel {
             forwarder: Arc::new(forwarder), local: None, error: None, opening: Arc::default(),
             listing: Arc::new(AtomicBool::new(false)), listed: Arc::default(),
             auto: Arc::new(Mutex::new(auto)), auto_changed: false, auto_thread: None,
+            owner: crate::usb_arbitration::Registry::global().owner(),
         };
         panel.start_auto();
         panel
@@ -382,7 +386,7 @@ impl Panel {
     fn start_auto(&mut self) {
         if self.auto_thread.is_some() || self.auto().is_empty() { return; }
         let (stop, stopped) = std::sync::mpsc::channel::<()>();
-        let (forwarder, opening, auto) = (self.forwarder.clone(), self.opening.clone(), self.auto.clone());
+        let (forwarder, opening, auto, owner) = (self.forwarder.clone(), self.opening.clone(), self.auto.clone(), self.owner);
         let spawned = std::thread::Builder::new().name("usb-auto".into()).spawn(move || {
             let mut tried = HashMap::new();
             let mut context: Option<rusb::Context> = None;
@@ -407,7 +411,7 @@ impl Panel {
                                     continue;
                                 }
                                 eprintln!("nightjar: USB {}: attaching {} automatically", device.busid, device.name);
-                                if !attach_tracked(&forwarder, &opening, &device) {
+                                if !attach_tracked(&forwarder, owner, &opening, &device) {
                                     tried.insert(device.busid, Some(Instant::now() + AUTO_RETRY_COOLDOWN));
                                 }
                             }
@@ -517,9 +521,9 @@ impl Panel {
         if !self.opening().try_start(&local.busid) { return; }
         // Opening devices (SetupAPI/libusb string reads, WinUSB handles, usbip-host bind) runs off the drawing thread.
         let busid = local.busid.clone();
-        let (forwarder, opening, local) = (self.forwarder.clone(), self.opening.clone(), local.clone());
+        let (forwarder, opening, local, owner) = (self.forwarder.clone(), self.opening.clone(), local.clone(), self.owner);
         let spawned = std::thread::Builder::new().name("usb-open".into()).spawn(move || {
-            let _ = attach_tracked(&forwarder, &opening, &local);
+            let _ = attach_tracked(&forwarder, owner, &opening, &local);
         });
         if let Err(e) = spawned {
             self.opening().finish(&busid);
@@ -565,15 +569,26 @@ pub fn refusal(availability: Availability) -> Option<&'static str> {
 }
 
 impl Drop for Panel {
-    /// The stream is over: a device still being opened finds the forwarder ended.
+    /// The stream is over: a device still being opened finds the forwarder ended, and every
+    /// controller forwarded during it is read here again.
     fn drop(&mut self) {
         self.forwarder.end();
+        crate::usb_arbitration::Registry::global().release_owner(self.owner);
     }
 }
 
-/// Opens `local` and asks the PC to attach it; what failed, for the user.
-fn attach_now(forwarder: &Forwarder, local: &Local) -> Result<u32, String> {
-    let attached = open(local).and_then(|device| forwarder.attach(device, &local.name).map_err(|e| attach_error(&e)));
+/// How long opening a device waits for the gamepads to let go of it, should it be one.
+const ARBITRATION_WAIT: Duration = Duration::from_millis(500);
+
+/// Opens `local` and asks the PC to attach it; what failed, for the user. A controller among
+/// them is paused here from now until the attachment ends ([`crate::usb_arbitration`]).
+fn attach_now(forwarder: &Forwarder, owner: u64, local: &Local) -> Result<u32, String> {
+    use crate::usb_arbitration::{Arbitrated, Forwarded, Registry};
+    let claim = Registry::global().claim(owner, Forwarded { vid: local.vid, pid: local.pid, busid: local.busid.clone() });
+    if !claim.wait_applied(ARBITRATION_WAIT) {
+        eprintln!("nightjar: USB {}: the controllers did not let go in time; opening it anyway", local.busid);
+    }
+    let attached = open(local).and_then(|device| forwarder.attach(Arbitrated::new(device, claim), &local.name).map_err(|e| attach_error(&e)));
     match &attached {
         Ok(request_id) => eprintln!("nightjar: USB {}: asked the PC to attach {} ({:04x}:{:04x}), request {request_id}", local.busid, local.name, local.vid, local.pid),
         Err(e) => eprintln!("nightjar: USB {}: attaching {} failed: {e}", local.busid, local.name),

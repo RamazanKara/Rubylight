@@ -158,6 +158,12 @@ impl App {
         for ended in self.attempts.drain_teardowns() {
             self.push_teardown(ended);
         }
+        // A controller paused while it was forwarded over USB comes back after the stream.
+        if self.pads.arbitration_due() {
+            for why in self.pads.arbitrate(None) {
+                self.launcher.notify(tr("Controller not connected"), why.message());
+            }
+        }
         #[cfg(target_os = "linux")]
         self.apply_renderer_choice();
         #[cfg(windows)]

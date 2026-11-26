@@ -17,6 +17,7 @@ use sdl3_sys::everything::*;
 
 pub use crate::gamepad_types::*;
 
+mod arbitration;
 mod audio;
 mod pad;
 mod protocol;
@@ -84,6 +85,12 @@ pub struct Gamepads {
     limit: Option<u8>,
     /// The stream's one notice for controllers past [`Self::limit`] has been shown.
     refused_notice_shown: bool,
+    /// Controllers left closed while they are forwarded over USB to the host, with what matched
+    /// them ([`crate::usb_arbitration`]); reopened once the forwarding stops.
+    paused: Vec<(SDL_JoystickID, crate::usb_arbitration::PadIdentity)>,
+    /// The devices being forwarded, and the generation of them last applied.
+    arbitration: crate::usb_arbitration::Registry,
+    arbitrated: u64,
 }
 
 /// The physical buttons of a quit combo, as bits of `1 << SDL_GamepadButton`. Face buttons are
@@ -159,6 +166,9 @@ impl Gamepads {
             return Ok(());
         }
         let used: Vec<u8> = self.pads.iter().map(|p| p.index).collect();
+        if self.forwarded_here(id) {
+            return Ok(());
+        }
         let Some(index) = (0..MAX_PADS as u8).find(|i| !used.contains(i)) else {
             eprintln!("nightjar: controller {}: left out, {MAX_PADS} are already connected", id.0);
             return Err(NotOpened::Limit);
@@ -226,6 +236,7 @@ impl Gamepads {
     /// host had no slot for it. A controller the host had refused takes the slot it leaves
     /// ([`Self::assign_slots`]).
     pub fn removed(&mut self, id: SDL_JoystickID) -> Option<u8> {
+        self.paused.retain(|(paused, _)| *paused != id);
         let position = self.pads.iter().position(|p| p.id == id)?;
         let pad = self.pads.remove(position);
         let slot = pad.slot();

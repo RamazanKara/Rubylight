@@ -184,6 +184,11 @@ impl Streaming {
             }
         }
         self.poll_guests();
+        // A controller forwarded over USB pauses here and comes back once that stops.
+        if pads.arbitration_due() {
+            let failed = if self.sends_controllers() { self.session.input(|q| pads.arbitrate(Some(q))) } else { pads.arbitrate(None) };
+            for why in failed { self.show_toast(why.message()); }
+        }
         self.route_microphones(pads);
         *lock(&self.shared.controller_audio) = pads.pads.iter().filter_map(|p| p.audio.as_ref().map(|audio| Arc::downgrade(&audio.playback))).collect();
         self.controller_mouse_active = false;

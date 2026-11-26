@@ -534,6 +534,9 @@ pub(crate) fn connect(
         clock_sync: outcome
             .host_control_messages
             .contains(&CLOCK_SYNC_MESSAGE_TYPE),
+        quick_suspend: outcome
+            .host_control_messages
+            .contains(&rubylight_protocol::quick_suspend::QUICK_SUSPEND_MESSAGE_TYPE),
         display_caps: outcome
             .host_control_messages
             .contains(&rubylight_protocol::control::DISPLAY_CAPS_MESSAGE_TYPE),

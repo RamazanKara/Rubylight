@@ -368,6 +368,7 @@ pub fn show(ui: &mut Ui, pieces: &[Piece]) -> Rect {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Icon {
     Play,
+    Pause,
     Overlay,
     Corner,
     Screen,
@@ -417,6 +418,10 @@ pub fn icon(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color32) {
     match icon {
         Icon::Play => {
             painter.add(egui::Shape::convex_polygon(vec![p(-4.0, -6.5), p(6.5, 0.0), p(-4.0, 6.5)], color, Stroke::NONE));
+        }
+        Icon::Pause => {
+            painter.rect_filled(r(-5.5, -6.5, -1.5, 6.5), CornerRadius::same(1), color);
+            painter.rect_filled(r(1.5, -6.5, 5.5, 6.5), CornerRadius::same(1), color);
         }
         Icon::Overlay => {
             round(r(-7.5, -6.5, 7.5, 6.5), 2.0);

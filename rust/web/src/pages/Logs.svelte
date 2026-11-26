@@ -64,18 +64,19 @@
           ? `${position} of ${hits.total}`
           : `${hits.total} ${hits.total === 1 ? 'match' : 'matches'}`,
   );
-  const placeholder = $derived(
+  const placeholder = $derived(!loaded ? (error ? 'The log could not be read.' : 'Loading the log…') : '');
+  /** Nothing to show, said as the card Sessions and Tokens use. */
+  const empty = $derived(
     !loaded
-      ? error
-        ? 'The log could not be read.'
-        : 'Loading the log…'
+      ? null
       : lines.length === 0
-        ? 'The log is empty.'
+        ? { title: 'The log is empty', text: 'Messages from the host show here as it writes them.' }
         : visible.length === 0
-          ? filter === 'error'
-            ? `No errors in the last ${lines.length} lines.`
-            : `No warnings or errors in the last ${lines.length} lines.`
-          : '',
+          ? {
+              title: filter === 'error' ? 'No errors' : 'No warnings or errors',
+              text: `Nothing at this level in the last ${lines.length} lines. All levels shows every line.`,
+            }
+          : null,
   );
 
   /** The chunk began partway through the file, so its first line is cut. */
@@ -211,7 +212,7 @@
     <p class="notice danger" role="alert">Could not read the log: {error}. {paused ? 'Resume updates to try again.' : 'Trying again every second.'}</p>
   {/if}
 
-  <LogView lines={visible} {pattern} {matched} {current} {placeholder} bind:follow />
+  <LogView lines={visible} {pattern} {matched} {current} {placeholder} {empty} bind:follow />
 </div>
 
 <style>

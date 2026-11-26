@@ -158,13 +158,16 @@
     description={history ? (query ? `Showing ${shown.length} of ${history.length}` : `${history.length} sessions`) : undefined}
     flush
   >
-    <div class="toolbar">
-      <label class="search">
-        <Icon name="search" size={16} />
-        <span class="visually-hidden">Search sessions</span>
-        <input type="search" placeholder="Search a device or game" bind:value={query} autocomplete="off" />
-      </label>
-    </div>
+    <!-- Nothing to search once the history is known to be empty. -->
+    {#if history === null || history.length > 0}
+      <div class="toolbar">
+        <label class="search">
+          <Icon name="search" size={16} />
+          <span class="visually-hidden">Search sessions</span>
+          <input type="search" placeholder="Search a device or game" bind:value={query} autocomplete="off" />
+        </label>
+      </div>
+    {/if}
     {#if history === null}
       <div class="pad"><LoadState error={historyError} what="the session history" onretry={loadHistory} /></div>
     {:else if historyError}

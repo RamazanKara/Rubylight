@@ -1,5 +1,6 @@
 <script lang="ts">
   import Button from '../Button.svelte';
+  import EmptyState from '../EmptyState.svelte';
   import { indexOfId, markedRange, pieces, type LogLine } from './logtext';
 
   let {
@@ -8,6 +9,7 @@
     matched,
     current,
     placeholder,
+    empty = null,
     follow = $bindable(true),
   }: {
     lines: LogLine[];
@@ -17,6 +19,8 @@
     current: { id: number; n: number } | null;
     /** Shown instead of the lines when set. */
     placeholder: string;
+    /** The log holds nothing to show (empty, or nothing at the chosen level): an icon card says so. */
+    empty?: { title: string; text: string } | null;
     /** Keep the newest line in view. */
     follow?: boolean;
   } = $props();
@@ -102,6 +106,8 @@
   <div class="viewer" bind:this={scroller} {onscroll} style:height="{height}px" role="log" aria-live="off" aria-label="Host log">
     {#if placeholder}
       <p class="placeholder">{placeholder}</p>
+    {:else if empty}
+      <div class="placeholder"><EmptyState icon="logs" title={empty.title}><p>{empty.text}</p></EmptyState></div>
     {:else}
       <div class="lines">
         <!-- Lines keep their spacing (white-space: pre), so nothing may sit between these tags. -->
@@ -111,7 +117,7 @@
       </div>
     {/if}
   </div>
-  {#if !follow && !placeholder}
+  {#if !follow && !placeholder && !empty}
     <div class="jump">
       <Button size="sm" variant="primary" onclick={() => (follow = true)}>Jump to latest</Button>
     </div>

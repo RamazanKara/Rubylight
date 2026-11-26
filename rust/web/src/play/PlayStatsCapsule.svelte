@@ -6,11 +6,14 @@
    * Opaque media tokens and no blur: it sits over live video. The numbers are the browser's own
    * (`lib/webrtc/stats.ts`); a dash stands for one it does not have yet.
    */
+  import { CODECS } from '../lib/webrtc/client';
   import { statText, type StreamStats } from '../lib/webrtc/stats';
 
   let { stats, codec }: { stats: StreamStats | null; /** What the page asked for, until the browser names what it decodes. */ codec: string } = $props();
 
-  const picture = $derived(stats?.height ? `${stats.codec || codec} ${stats.height}p` : codec);
+  /** The browser says "H265"; the page says HEVC everywhere else. */
+  const named = (raw: string) => CODECS.find((known) => known.mimeType === `video/${raw.toLowerCase()}`)?.name ?? raw;
+  const picture = $derived(stats?.height ? `${stats.codec ? named(stats.codec) : codec} ${stats.height}p` : codec);
 </script>
 
 <!-- It changes every second: a screen reader reads it when asked, not as it ticks. -->

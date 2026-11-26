@@ -193,6 +193,10 @@
 />
 
 <style>
+  /* A typed mode (2560x1600x120) is monospace; the placeholder is a sentence. */
+  .input.mono::placeholder {
+    font-family: var(--font);
+  }
   .note {
     font-size: var(--text-xs);
     color: var(--muted);

@@ -6,6 +6,7 @@
    * A remote, a pad and the arrow keys move over the tiles (`data-nav`, Play.svelte's `move`); a
    * pointer hovers. The light is a still, dimmed image, and no video plays on this screen.
    */
+  import { initials } from '../lib/initials';
   import type { AppEntry } from '../lib/webrtc/client';
 
   let {
@@ -24,12 +25,6 @@
   /** The tile with the focus or under the pointer; the first game until one has it. */
   let focusedId = $state('');
   const focused = $derived(apps.find((app) => app.id === focusedId) ?? apps[0]);
-
-  /** Up to two initials for a game without a cover: "Portal 2" is "P2". */
-  function initials(title: string): string {
-    const words = title.trim().split(/\s+/).filter(Boolean);
-    return ((words[0]?.[0] ?? '') + (words.length > 1 ? (words[words.length - 1]?.[0] ?? '') : '')).toUpperCase() || '?';
-  }
 
   /** A hue of its own for each title, so cover-less games are told apart. */
   function hue(title: string): number {
@@ -70,7 +65,7 @@
           onpointerenter={() => (focusedId = app.id)}
         >
           <span class="cover" style:--hue={hue(app.title)}>
-            {#if covers[app.id]}<img src={covers[app.id]} alt="" />{:else}<span class="initial" aria-hidden="true">{initials(app.title)}</span>{/if}
+            {#if covers[app.id]}<img src={covers[app.id]} alt="" />{:else}<span class="initial" aria-hidden="true">{initials(app.title) || '?'}</span>{/if}
             {#if app.running}<span class="badge"><span class="dot" aria-hidden="true"></span>Running</span>{/if}
           </span>
           <span class="title" aria-hidden="true">{app.title}</span>

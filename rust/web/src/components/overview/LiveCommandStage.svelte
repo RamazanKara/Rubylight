@@ -293,6 +293,7 @@
     max-width: 22ch;
     font-size: clamp(var(--text-xl), 3.2vw, var(--text-2xl));
     letter-spacing: var(--tracking-display);
+    text-wrap: balance;
   }
   .pills {
     display: flex;

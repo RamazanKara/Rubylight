@@ -270,7 +270,7 @@ test('the capsule’s numbers come from two looks at the browser’s own count',
   assert.match(body, /HEVC · 1080p60/);
   assert.equal((body.match(/–/g) ?? []).length, 3, 'FPS, Mbps and RTT wait for the browser');
   body = render(StatsCapsule, { props: { stats: second.stats, codec: 'HEVC · 1080p60' } }).body;
-  for (const shown of ['>60<', '>20.0<', '>4<', 'H265 1080p']) assert.ok(body.includes(shown), shown);
+  for (const shown of ['>60<', '>20.0<', '>4<', 'HEVC 1080p']) assert.ok(body.includes(shown), shown);
   assert.match(readFileSync(new URL('./src/play/PlayStatsCapsule.svelte', import.meta.url), 'utf8'), /font-variant-numeric: tabular-nums/);
 });
 
@@ -346,8 +346,8 @@ test('the library names the game in focus and gives every game a tile a remote r
   assert.match(body, /Running on the PC/);
   assert.match(body, /aria-label="Portal 2, running"/);
   assert.match(body, /<img src="data:image\/png;base64,AAAA" alt=""/);
-  // A game without a cover shows its initials.
-  assert.match(body, />F5</);
+  // A game without a cover shows its initials, the ones the console shows.
+  assert.match(body, />FH</);
   body = render(Library, { props: { apps: [], covers: {}, loading: false, onstart() {} } }).body;
   assert.match(body, /No games yet/);
   assert.match(body, /Add them in the Rubylight console/);

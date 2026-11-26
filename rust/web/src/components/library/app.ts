@@ -1,20 +1,10 @@
 // Helpers shared by the library grid and the app editor.
 import { api, type App, type SessionStatus } from '../../lib/api';
 import { confirm, failed, notify } from '../../lib/feedback.svelte';
+import { initials } from '../../lib/initials';
 
-/** A sequel's roman numeral, read as its number. */
-const ROMAN: Record<string, string> = { II: '2', III: '3', IV: '4', V: '5', VI: '6', VII: '7', VIII: '8', IX: '9', X: '10' };
-
-/** "Half-Life 2" → "HL", "Hades II" → "H2": the cover placeholder. */
-export function initials(name: string): string {
-  const words = name.trim().split(/[\s\-_:]+/).filter(Boolean);
-  return words
-    .slice(0, 2)
-    // After the first word a numeral is a number, not a word: "Diablo IV" is D4, not DI.
-    .map((word, index) => (index > 0 && ROMAN[word]) || (Array.from(word)[0] ?? ''))
-    .join('')
-    .toUpperCase();
-}
+/** The cover placeholder's letters, shared with the play page (lib/initials.ts). */
+export { initials };
 
 /** Hues (OKLCH degrees) a cover without art is tinted with: red, amber, green, teal, cyan, blue, violet, magenta. */
 const COVER_HUES = [25, 70, 145, 180, 215, 255, 295, 335];

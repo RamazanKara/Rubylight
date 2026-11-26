@@ -60,7 +60,7 @@
   header {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
+    align-items: center;
     flex-wrap: wrap;
     gap: var(--space-4);
     padding: var(--space-4) var(--space-5);

@@ -146,8 +146,17 @@ export async function sessionCsrfToken(): Promise<string> {
 let refreshing: Promise<boolean> | null = null;
 function refreshSession(): Promise<boolean> {
   refreshing ??= (async () => {
+    // The refresh cookie goes with every request to the console, so the host wants the page's
+    // CSRF token with it: the session's, or after a reload the anonymous one /api/csrf-token gives.
+    const attempt = () =>
+      exchange('/api/auth/refresh', { method: 'POST', headers: { 'X-CSRF-Token': csrfToken } }, REQUEST_TIMEOUT_MS);
     const run = async (): Promise<boolean> => {
-      const { response, text } = await exchange('/api/auth/refresh', { method: 'POST' }, REQUEST_TIMEOUT_MS);
+      if (!csrfToken) await refreshCsrf();
+      let { response, text } = await attempt();
+      if (response.status === 400 && text.includes('CSRF token required')) {
+        await refreshCsrf();
+        ({ response, text } = await attempt());
+      }
       if (!response.ok) return false;
       let body: IssuedSession;
       try {

@@ -22,7 +22,7 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex, OnceLock};
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../native-api/tests/fixtures");
-const NAMES: [&str; 17] = [
+const NAMES: [&str; 18] = [
     "capabilities",
     "library",
     "session",
@@ -30,6 +30,7 @@ const NAMES: [&str; 17] = [
     "radeon",
     "settings_write",
     "error",
+    "error_explained",
     "wake",
     "audio",
     "audio_write",
@@ -89,6 +90,9 @@ fn the_hosts_fixtures_parse_and_write_back() {
     assert_eq!((write.gpu, write.changes.len()), (11520, 2));
     let error: ErrorBody = round_trip("error");
     assert_eq!(error.error.code, ErrorCode::HostControlRequired);
+    let explained: ErrorBody = round_trip("error_explained");
+    assert_eq!(explained.error.code, ErrorCode::DriverRejected);
+    assert!(explained.error.title.is_some() && explained.error.technical_detail.is_some());
     let wake: Wake = round_trip("wake");
     assert_eq!(wake.primary.as_deref(), Some("02:7C:16:B4:13:4F"));
     assert_eq!(

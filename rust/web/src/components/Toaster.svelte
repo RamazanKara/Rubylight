@@ -15,11 +15,11 @@
 <style>
   .toasts {
     position: fixed;
-    right: var(--space-4);
-    bottom: var(--space-4);
+    inset-inline-end: var(--space-4);
+    inset-block-end: var(--space-4);
     display: grid;
     gap: var(--space-2);
-    z-index: 50;
+    z-index: var(--z-toast);
     width: min(380px, calc(100vw - 32px));
   }
   .toast {
@@ -31,18 +31,18 @@
     border-radius: var(--radius);
     background: var(--panel-raised);
     border: 1px solid var(--line);
-    border-left: 3px solid var(--ink-2);
-    box-shadow: var(--shadow-pop);
+    border-inline-start: 3px solid var(--ink-2);
+    box-shadow: var(--edge), var(--shadow-pop);
     font-size: var(--text-sm);
   }
   .ok {
-    border-left-color: var(--ok);
+    border-inline-start-color: var(--ok);
   }
   .warn {
-    border-left-color: var(--warn);
+    border-inline-start-color: var(--warn);
   }
   .danger {
-    border-left-color: var(--danger);
+    border-inline-start-color: var(--danger);
   }
   .toast > span {
     min-width: 0;

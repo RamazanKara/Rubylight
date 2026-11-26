@@ -199,7 +199,7 @@
     transition: transform var(--duration-base) var(--ease-standard);
   }
   .indeterminate .fill {
-    animation: sweep 1.4s var(--ease-standard) infinite;
+    animation: sweep var(--pulse-duration) var(--ease-standard) infinite;
   }
   @keyframes sweep {
     from {

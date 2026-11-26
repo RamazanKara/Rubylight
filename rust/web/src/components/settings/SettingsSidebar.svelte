@@ -125,7 +125,7 @@
   .tabs a[aria-current='page'] {
     background: var(--panel);
     color: var(--ink);
-    box-shadow: inset 0 -3px 0 var(--accent);
+    box-shadow: var(--mark-tab);
   }
   .name {
     display: flex;

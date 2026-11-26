@@ -181,7 +181,7 @@
     border-top: 1px solid var(--line);
   }
   li.marked {
-    box-shadow: inset 3px 0 0 var(--accent);
+    box-shadow: var(--mark-accent);
   }
   .value {
     display: flex;

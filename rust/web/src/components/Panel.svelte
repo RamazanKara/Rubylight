@@ -53,7 +53,7 @@
     background: var(--panel);
     border: 1px solid var(--line);
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow);
+    box-shadow: var(--edge), var(--shadow);
     min-width: 0;
     scroll-margin-top: var(--sticky-offset, var(--space-4));
   }
@@ -72,6 +72,7 @@
   /* A card title: one step below the page's section headings (Section.svelte). */
   .title {
     font-size: var(--text-md);
+    letter-spacing: var(--tracking-tight);
   }
   header p {
     font-size: var(--text-sm);

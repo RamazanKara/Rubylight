@@ -271,9 +271,7 @@
   }
   .metrics div {
     padding: var(--space-2) var(--space-3);
-    box-shadow:
-      1px 0 0 var(--line),
-      0 1px 0 var(--line);
+    box-shadow: var(--rule-grid);
   }
   dt {
     font-size: var(--text-xs);

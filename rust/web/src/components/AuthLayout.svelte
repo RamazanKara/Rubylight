@@ -38,7 +38,7 @@
     font-family: var(--font-display);
     font-weight: var(--weight-bold);
     font-size: var(--text-lg);
-    letter-spacing: -0.01em;
+    letter-spacing: var(--tracking-display);
   }
   .card {
     display: grid;
@@ -46,8 +46,8 @@
     padding: var(--space-6);
     background: var(--panel);
     border: 1px solid var(--line);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-raised);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--edge), var(--shadow-raised);
   }
   .card > :global(form) {
     display: grid;

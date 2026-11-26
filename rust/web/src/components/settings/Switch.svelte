@@ -53,11 +53,11 @@
     margin: 0;
     opacity: 0;
     cursor: pointer;
-    z-index: 1;
+    z-index: var(--z-base);
   }
   .track {
     position: relative;
-    border-radius: 11px;
+    border-radius: var(--radius-pill);
     border: 1px solid var(--muted);
     background: var(--panel);
     transition:

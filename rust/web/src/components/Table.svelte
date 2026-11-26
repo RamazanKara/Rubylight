@@ -35,7 +35,7 @@
     outline-offset: calc(var(--focus-width) * -1);
   }
   caption {
-    text-align: left;
+    text-align: start;
     padding: var(--space-3) var(--space-5);
     font-weight: var(--weight-semibold);
   }
@@ -47,7 +47,7 @@
     padding-block: var(--space-1);
   }
   .table :global(.numeric) {
-    text-align: right;
+    text-align: end;
     font-variant-numeric: tabular-nums;
     /* A number and its unit stay together ("48.2 Mbps"). */
     white-space: nowrap;

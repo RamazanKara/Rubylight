@@ -332,7 +332,7 @@
     position: relative;
     aspect-ratio: 16 / 9;
     max-height: calc(100vh - 5rem);
-    background: #000;
+    background: var(--media-black);
     border-radius: var(--radius);
     overflow: hidden;
     touch-action: none;
@@ -357,6 +357,6 @@
     inset: 0;
     display: grid;
     place-items: center;
-    background: rgb(0 0 0 / 0.5);
+    background: var(--media-scrim-soft);
   }
 </style>

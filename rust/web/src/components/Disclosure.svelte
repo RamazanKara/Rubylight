@@ -69,7 +69,7 @@
     background: var(--panel);
     border: 1px solid var(--line);
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow);
+    box-shadow: var(--edge), var(--shadow);
   }
   .card > summary {
     display: grid;
@@ -88,7 +88,7 @@
   .card > summary::after {
     grid-column: 2;
     grid-row: 1 / span 2;
-    margin-right: var(--space-1);
+    margin-inline-end: var(--space-1);
   }
   .card[open] > summary {
     border-bottom: 1px solid var(--line);
@@ -107,6 +107,7 @@
     font-family: var(--font-display);
     font-size: var(--text-md);
     font-weight: var(--weight-bold);
+    letter-spacing: var(--tracking-tight);
     line-height: var(--leading-tight);
     color: var(--ink);
   }
@@ -138,7 +139,7 @@
     font-weight: var(--weight-medium);
   }
   .inline > summary::after {
-    margin-left: 2px;
+    margin-inline-start: 2px;
   }
   .inline > summary:hover {
     color: var(--ink);

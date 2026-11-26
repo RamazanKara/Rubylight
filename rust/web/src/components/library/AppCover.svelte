@@ -75,7 +75,7 @@
     background:
       radial-gradient(130% 70% at 15% 0%, oklch(from var(--media-bg) calc(l + 0.26) 0.09 var(--hue) / 0.85), transparent 70%),
       linear-gradient(165deg, oklch(from var(--media-bg) calc(l + 0.14) 0.06 var(--hue)), oklch(from var(--media-bg) calc(l + 0.02) 0.03 var(--hue)));
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--media-ink) 10%, transparent);
+    box-shadow: var(--ring-media);
     color: var(--media-ink);
   }
   .mark {

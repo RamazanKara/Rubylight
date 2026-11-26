@@ -52,7 +52,7 @@
     background: var(--panel);
     border: 1px solid var(--line);
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow);
+    box-shadow: var(--edge), var(--shadow);
     color: inherit;
     text-decoration: none;
   }
@@ -64,7 +64,7 @@
   }
   .interactive:hover {
     border-color: var(--line-strong);
-    box-shadow: var(--shadow-raised);
+    box-shadow: var(--edge), var(--shadow-raised);
     transform: translateY(-1px);
   }
   .interactive:active {
@@ -72,7 +72,7 @@
   }
   .selected {
     border-color: var(--accent);
-    box-shadow: 0 0 0 1px var(--accent);
+    box-shadow: var(--ring-accent);
   }
   .media {
     background: var(--media-bg);

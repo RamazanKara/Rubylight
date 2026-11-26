@@ -141,8 +141,9 @@
     padding: 0 var(--space-2);
     border-radius: var(--radius-pill);
     background: var(--accent-soft);
-    color: var(--ink);
+    color: var(--accent-text);
     font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
     line-height: var(--leading);
   }
   .panel {

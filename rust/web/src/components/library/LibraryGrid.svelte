@@ -592,7 +592,7 @@
     border: 2px solid currentColor;
     border-right-color: transparent;
     border-radius: var(--radius-pill);
-    animation: spin 0.8s linear infinite;
+    animation: spin var(--spin-duration) linear infinite;
   }
   @keyframes spin {
     to {

@@ -158,7 +158,7 @@
   mark {
     background: var(--accent-soft);
     color: inherit;
-    border-radius: 2px;
+    border-radius: var(--radius-xs);
     outline: 1px solid var(--accent);
   }
   mark.current {

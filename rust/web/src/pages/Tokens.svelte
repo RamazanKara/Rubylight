@@ -46,7 +46,7 @@
   code {
     padding: 1px 6px;
     border: 1px solid var(--line);
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     background: var(--panel);
     white-space: normal;
   }

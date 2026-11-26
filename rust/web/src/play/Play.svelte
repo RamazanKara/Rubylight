@@ -542,7 +542,7 @@
   .action {
     padding: 0.6em 1.2em;
     border: 2px solid var(--line);
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: var(--panel);
   }
   .action {
@@ -581,7 +581,7 @@
   }
   .error,
   .notice {
-    color: var(--danger, #ff8a8a);
+    color: var(--media-danger);
   }
   .grid {
     display: grid;
@@ -600,7 +600,7 @@
     border-radius: var(--radius);
     background: none;
     text-align: left;
-    transition: transform 0.12s;
+    transition: transform var(--duration-fast);
   }
   .tile:focus {
     transform: scale(1.05);
@@ -628,9 +628,9 @@
     top: 0.5em;
     left: 0.5em;
     padding: 0.2em 0.6em;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: var(--accent);
-    color: #fff;
+    color: var(--media-ink);
     font-size: 0.8em;
   }
   .title {
@@ -641,7 +641,7 @@
   .player {
     position: fixed;
     inset: 0;
-    background: #000;
+    background: var(--media-black);
   }
   .surface {
     position: absolute;
@@ -663,8 +663,8 @@
     transform: translateX(-50%);
     padding: 0.5em 1em;
     border-radius: var(--radius);
-    background: rgb(0 0 0 / 0.7);
-    color: #fff;
+    background: var(--media-scrim-strong);
+    color: var(--media-ink);
   }
   .status {
     top: 45%;
@@ -678,6 +678,6 @@
     display: grid;
     gap: 1em;
     place-content: center;
-    background: rgb(0 0 0 / 0.75);
+    background: var(--media-scrim-strong);
   }
 </style>

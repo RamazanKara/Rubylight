@@ -22,8 +22,12 @@ const label = process.argv[3] || 'shot';
 const auth = process.env.SHOT_AUTH || '';
 if (auth && !['signed-out', 'setup'].includes(auth)) throw new Error(`SHOT_AUTH is signed-out or setup, not ${auth}`);
 const pages = (process.env.SHOT_PAGES || { 'signed-out': '/login', setup: '/setup' }[auth] || '/,/devices,/settings,/help').split(',');
-const themes = ['light', 'dark'];
-const forms = { desktop: { width: 1440, height: 900 }, phone: { width: 390, height: 844 } };
+// SHOT_THEMES=dark picks themes; SHOT_FORMS=360,768,1440 picks viewport widths instead of desktop and phone
+// (a width under 900 px is shot as a full page, like the phone).
+const themes = (process.env.SHOT_THEMES || 'light,dark').split(',');
+const forms = process.env.SHOT_FORMS
+  ? Object.fromEntries(process.env.SHOT_FORMS.split(',').map(width => [width, { width: Number(width), height: Number(width) < 900 ? 844 : 900 }]))
+  : { desktop: { width: 1440, height: 900 }, phone: { width: 390, height: 844 } };
 
 const metadata = {
   version: '3.0.0-rc.3', host_name: 'Gaming PC', pc_address: '192.168.4.20', pc_addresses: ['192.168.4.20'],
@@ -270,7 +274,7 @@ function power(ready = false) {
           }
           const name = where === '/' ? 'home' : where.slice(1).replace(/\.html$/, '').replace(/\//g, '-');
           const file = path.join(out, `${label}-${name}-${theme}-${form}.png`);
-          await page.screenshot({ path: file, fullPage: form !== 'desktop' || !!process.env.SHOT_FULL });
+          await page.screenshot({ path: file, fullPage: viewport.width < 900 || !!process.env.SHOT_FULL });
           console.log(file);
         }
         await page.close();

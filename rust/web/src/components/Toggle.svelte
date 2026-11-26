@@ -52,7 +52,7 @@
     /* Matches the Settings page's switch: an outlined track when off. */
     width: 40px;
     height: 22px;
-    border-radius: 11px;
+    border-radius: var(--radius-pill);
     border: 1px solid var(--muted);
     background: var(--panel);
     position: relative;
@@ -63,12 +63,12 @@
   .thumb {
     position: absolute;
     top: 4px;
-    left: 4px;
+    inset-inline-start: 4px;
     width: 12px;
     height: 12px;
     border-radius: 50%;
     background: var(--ink-2);
-    transition: transform var(--duration-fast);
+    transition: transform var(--duration-base) var(--ease-spring);
   }
   .toggle:not(.disabled):hover .track {
     border-color: var(--ink-2);

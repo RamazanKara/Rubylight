@@ -514,7 +514,7 @@
   .surface {
     position: relative;
     aspect-ratio: 16 / 9;
-    background: #000;
+    background: var(--media-black);
     border-radius: var(--radius);
     overflow: hidden;
     /* Touch drags are the host's pointer, not the page's scroll or zoom. */

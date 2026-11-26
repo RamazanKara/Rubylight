@@ -141,7 +141,7 @@
   .search-icon { position: absolute; left: var(--space-3); top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
   .search .input { padding-left: 38px; }
   .scanning { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-5) 0; font-size: var(--text-sm); }
-  .spinner { width: 18px; height: 18px; border: 2px solid var(--line-strong); border-top-color: var(--accent); border-radius: var(--radius-pill); animation: spin 0.8s linear infinite; }
+  .spinner { width: 18px; height: 18px; border: 2px solid var(--line-strong); border-top-color: var(--accent); border-radius: var(--radius-pill); animation: spin var(--spin-duration) linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
   .games { list-style: none; margin: 0; padding: 0; }

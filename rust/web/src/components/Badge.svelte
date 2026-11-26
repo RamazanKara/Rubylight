@@ -31,22 +31,22 @@
   .live {
     background: var(--ok-soft);
     color: var(--ok);
-    border-color: transparent;
+    border-color: var(--ok-line);
   }
   .warn {
     background: var(--warn-soft);
     color: var(--warn);
-    border-color: transparent;
+    border-color: var(--warn-line);
   }
   .danger {
     background: var(--danger-soft);
     color: var(--danger);
-    border-color: transparent;
+    border-color: var(--danger-line);
   }
   .accent {
     background: var(--accent-soft);
-    color: var(--ink);
-    border-color: transparent;
+    color: var(--accent-text);
+    border-color: var(--accent-line);
   }
   .dot {
     width: 7px;

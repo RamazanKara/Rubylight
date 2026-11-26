@@ -28,7 +28,7 @@ function contrast(theme, fg, bg) {
   return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 }
 
-const surfaces = ['--bg', '--panel', '--panel-raised', '--sunken'];
+const surfaces = ['--bg', '--panel', '--panel-raised', '--sunken', '--field'];
 const tints = ['--accent-soft', '--ok-soft', '--warn-soft', '--danger-soft'];
 // Every pair the console draws text with. Status colours sit on surfaces and on their own tint.
 const textPairs = [
@@ -36,14 +36,19 @@ const textPairs = [
   ...['--ok', '--warn', '--danger', '--accent-text', '--live'].flatMap((fg) => surfaces.map((bg) => [fg, bg])),
   ['--ok', '--ok-soft'], ['--warn', '--warn-soft'], ['--danger', '--danger-soft'], ['--accent-text', '--accent-soft'],
   ['--accent-ink', '--accent'], ['--accent-ink', '--accent-strong'], ['--brand-ink', '--brand'],
-  ['--media-ink', '--media-bg'], ['--media-ink-2', '--media-bg'], ['--media-idle', '--media-bg'],
+  ...['--media-ink', '--media-ink-2', '--media-idle', '--media-accent-text', '--media-danger']
+    .flatMap((fg) => ['--media-bg', '--media-panel', '--media-panel-raised'].map((bg) => [fg, bg])),
+  ['--media-accent-ink', '--media-accent'], ['--media-accent-ink', '--media-accent-strong'],
+  ['--qr-ink', '--qr-paper'],
 ];
 // Non-text UI: focus rings, the off switch outline and the on switch track need 3:1 (WCAG 1.4.11).
 const uiPairs = [
   ...surfaces.map((bg) => ['--focus', bg]),
   ...surfaces.map((bg) => ['--muted', bg]),
   ['--accent', '--panel'], ['--accent', '--bg'],
-  ['--media-ok', '--media-bg'], ['--media-warn', '--media-bg'],
+  ...['--media-ok', '--media-warn', '--media-focus', '--media-accent',
+    '--media-viz-1', '--media-viz-2', '--media-viz-3', '--media-viz-4']
+    .flatMap((fg) => ['--media-bg', '--media-panel'].map((bg) => [fg, bg])),
 ];
 
 for (const [name, theme] of Object.entries(themes)) {
@@ -62,8 +67,9 @@ test('the system dark theme is the same as the chosen dark theme', () => {
 });
 
 test('the dark theme sets every colour the light theme sets', () => {
-  // Media colours sit on game art and video, so they are the same in both themes.
-  const colours = Object.keys(light).filter((name) => !name.startsWith('--media-')
+  // Media colours sit on game art and video, a QR code is black on white and a mask is opaque:
+  // the same in both themes.
+  const colours = Object.keys(light).filter((name) => !/^--(?:media|qr|mask)-/.test(name)
     && (/^#|^rgb/.test(light[name]) || name.startsWith('--shadow')));
   assert.deepEqual(colours.filter((name) => !(name in dark)), []);
 });
@@ -78,9 +84,10 @@ test('reduced motion zeroes every duration token', () => {
 test('scales only grow', () => {
   const px = (names) => names.map((name) => parseFloat(light[name]));
   const ascending = (values) => values.every((value, i) => i === 0 || value > values[i - 1]);
-  assert.ok(ascending(px(['--text-xs', '--text-sm', '--text', '--text-md', '--text-lg', '--text-xl', '--text-2xl'])));
+  assert.ok(ascending(px(['--text-xs', '--text-sm', '--text', '--text-md', '--text-lg', '--text-xl', '--text-2xl', '--text-hero'])));
   assert.ok(ascending(px(Array.from({ length: 8 }, (_, i) => `--space-${i + 1}`))));
-  assert.ok(ascending(px(['--radius-sm', '--radius', '--radius-lg'])));
+  assert.ok(ascending(px(['--radius-xs', '--radius-sm', '--radius', '--radius-lg', '--radius-xl'])));
+  assert.ok(ascending(px(['--z-below', '--z-base', '--z-raised', '--z-bar', '--z-sticky', '--z-dock', '--z-overlay', '--z-toast', '--z-skip'])));
   assert.ok(ascending(px(['--duration-fast', '--duration-base', '--duration-slow'])));
 });
 
@@ -92,4 +99,16 @@ test('no theme block declares a token twice', () => {
     const names = [...body.matchAll(/(--[\w-]+):/g)].map(([, name]) => name);
     assert.deepEqual(names.filter((name, index) => names.indexOf(name) !== index), [], selector);
   }
+});
+
+test('every hit target token is at least 44 px', () => {
+  assert.ok(parseFloat(light['--control-height']) >= 44);
+});
+
+test('the 7.0 palette is the one the other host surfaces mirror', () => {
+  // The scriptless console, the couch menu, the tray and setup copy these values (DESIGN.md, "Surfaces").
+  assert.deepEqual([dark['--bg'], dark['--panel'], dark['--accent'], dark['--ink']], ['#090a0d', '#111319', '#ce1e49', '#f5f7fa']);
+  assert.deepEqual([light['--bg'], light['--panel'], light['--accent'], light['--ink']], ['#f3f4f7', '#ffffff', '#c81942', '#111318']);
+  assert.deepEqual([light['--brand'], light['--media-bg'], light['--media-ok'], light['--media-warn'], light['--media-danger']],
+    ['#c41242', '#0b0d12', '#45e0a0', '#f5b041', '#ff7070']);
 });

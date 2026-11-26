@@ -600,7 +600,7 @@
     padding: var(--space-3) var(--space-5);
     background: var(--panel);
     /* Sits on the last section's rule; stays visible when the footer sticks. */
-    box-shadow: 0 -1px 0 var(--line);
+    box-shadow: var(--rule-above);
   }
   .status {
     font-size: var(--text-xs);

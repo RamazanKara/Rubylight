@@ -77,7 +77,7 @@
     border-radius: var(--radius-lg);
     background: var(--panel-raised);
     color: var(--ink);
-    box-shadow: var(--shadow-pop);
+    box-shadow: var(--edge), var(--shadow-pop);
   }
   .sm {
     --dialog-width: 400px;
@@ -101,6 +101,7 @@
   }
   h2 {
     font-size: var(--text-lg);
+    letter-spacing: var(--tracking-tight);
   }
   header p {
     margin-top: var(--space-2);

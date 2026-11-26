@@ -60,7 +60,7 @@
   .save-bar {
     position: sticky;
     bottom: var(--space-3);
-    z-index: 5;
+    z-index: var(--z-bar);
     display: flex;
     align-items: center;
     justify-content: space-between;

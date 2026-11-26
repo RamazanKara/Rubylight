@@ -545,7 +545,7 @@
   .bar {
     position: sticky;
     bottom: var(--space-3);
-    z-index: 5;
+    z-index: var(--z-bar);
     display: flex;
     align-items: center;
     gap: var(--space-2);

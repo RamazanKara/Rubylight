@@ -206,10 +206,10 @@
       'meta control';
   }
   .marked .layout {
-    box-shadow: inset 3px 0 0 var(--accent);
+    box-shadow: var(--mark-accent);
   }
   .invalid .layout {
-    box-shadow: inset 3px 0 0 var(--danger);
+    box-shadow: var(--mark-danger);
   }
   .text {
     grid-area: text;

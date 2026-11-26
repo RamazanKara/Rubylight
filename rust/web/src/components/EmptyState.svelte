@@ -27,9 +27,10 @@
     width: 56px;
     height: 56px;
     margin-bottom: var(--space-2);
-    border-radius: 50%;
+    border-radius: var(--radius-lg);
     background: var(--sunken);
     border: 1px solid var(--line);
+    box-shadow: var(--edge);
     color: var(--ink-2);
   }
   h3 {

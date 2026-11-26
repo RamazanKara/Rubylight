@@ -38,10 +38,11 @@ h3 {
 }
 h1 {
   font-size: var(--text-2xl);
-  letter-spacing: -0.02em;
+  letter-spacing: var(--tracking-display);
 }
 h2 {
   font-size: var(--text-lg);
+  letter-spacing: var(--tracking-tight);
 }
 h3 {
   font-size: var(--text);
@@ -70,6 +71,16 @@ pre,
 
 .muted {
   color: var(--muted);
+}
+
+/* A small uppercase label above a title or a figure. */
+.eyebrow {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-label);
+  line-height: var(--leading-snug);
+  text-transform: uppercase;
 }
 
 :focus-visible {
@@ -128,7 +139,7 @@ button {
   display: inline-block;
   width: 6px;
   height: 6px;
-  margin-left: var(--space-2);
+  margin-inline-start: var(--space-2);
   border-right: 1.5px solid currentColor;
   border-bottom: 1.5px solid currentColor;
   vertical-align: middle;
@@ -150,8 +161,8 @@ button {
   *,
   *::before,
   *::after {
-    animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
+    animation-duration: var(--motion-none) !important;
+    transition-duration: var(--motion-none) !important;
     /* One near-instant run, not a flicker: pulses and spinners hold still. */
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;

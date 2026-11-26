@@ -185,7 +185,7 @@ test('a console that loses the host shows Cannot connect over the page and comes
   assert.equal(unreachable(new TimeoutError(20_000)), true);
   assert.equal(unreachable(new ApiError(500, 'boom')), false);
   assert.equal(unreachable(new ApiError(401, 'signed out')), false);
-  const before = { state: session.state, metadata: session.metadata, pending: session.pending };
+  const before = { state: session.state, metadata: session.metadata, pending: session.pending, live: session.live };
   session.state = 'signed-in';
   const realFetch = globalThis.fetch;
   globalThis.fetch = async () => { throw new TypeError('Failed to fetch'); };
@@ -205,17 +205,20 @@ test('a console that loses the host shows Cannot connect over the page and comes
     ['/api/auth/status', { credentials_configured: true, authenticated: true }],
     ['/api/metadata', metadata],
     ['/api/clients/pending', { status: true, requests: [] }],
+    ['/api/session/status', { activeSessions: 1, appRunning: true, appName: 'Portal 2' }],
   ]);
   try {
     await heartbeat();
-    for (let wait = 0; wait < 50 && sent.length < 3; wait++) await new Promise((resolve) => setTimeout(resolve, 1));
+    for (let wait = 0; wait < 50 && (sent.length < 4 || !session.live); wait++) await new Promise((resolve) => setTimeout(resolve, 1));
   } finally {
     restore();
   }
   assert.equal(session.reconnecting, false);
   assert.equal(session.state, 'signed-in');
   assert.equal(session.error, '');
-  assert.deepEqual(sent.map(([, url]) => url), ['/api/auth/status', '/api/metadata', '/api/clients/pending']);
+  // The command bar's live badge is asked for with the rest, so it is right as soon as the host is back.
+  assert.deepEqual(sent.map(([, url]) => url), ['/api/auth/status', '/api/metadata', '/api/clients/pending', '/api/session/status']);
+  assert.deepEqual(session.live, { streams: 1, app: 'Portal 2' });
   // The shell covers the page instead of replacing it, so unsaved edits survive the outage.
   const app = source('App.svelte');
   assert.match(app, /return poll\(heartbeat, 3000\);/);

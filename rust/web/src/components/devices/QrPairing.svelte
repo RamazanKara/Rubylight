@@ -151,7 +151,7 @@
     padding: var(--space-1);
     border: 1px solid var(--line-strong);
     border-radius: var(--radius);
-    background: #fff;
+    background: var(--qr-paper);
   }
   img,
   .blank {

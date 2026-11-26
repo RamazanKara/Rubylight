@@ -49,18 +49,18 @@
   .ready,
   .streaming {
     background: var(--ok-soft);
-    border-color: transparent;
+    border-color: var(--ok-line);
     color: var(--ok);
   }
   .warning,
   .busy {
     background: var(--warn-soft);
-    border-color: transparent;
+    border-color: var(--warn-line);
     color: var(--warn);
   }
   .error {
     background: var(--danger-soft);
-    border-color: transparent;
+    border-color: var(--danger-line);
     color: var(--danger);
   }
   .ready .dot,
@@ -72,7 +72,7 @@
   }
   .offline .dot {
     background: none;
-    box-shadow: inset 0 0 0 1.5px var(--muted);
+    box-shadow: var(--ring-hollow);
   }
   .streaming .dot {
     animation: pulse var(--pulse-duration) ease-in-out infinite;

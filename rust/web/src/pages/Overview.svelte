@@ -398,7 +398,7 @@
   /* The top: status over art, dark in both themes like game art. */
   .hero { position: relative; isolation: isolate; overflow: hidden; border: 1px solid var(--media-line); border-radius: var(--radius-lg); background: var(--media-bg); color: var(--media-ink); box-shadow: var(--shadow); }
   .hero-main :focus-visible, .hero-foot :focus-visible { outline-color: var(--media-ink); }
-  .backdrop { position: absolute; inset: 0; z-index: -1; background-color: var(--media-bg); background-size: cover; background-position: center; }
+  .backdrop { position: absolute; inset: 0; z-index: var(--z-below); background-color: var(--media-bg); background-size: cover; background-position: center; }
   /* A cover is a poster: blurred to a wash of its colours behind the text, sharp in its frame. */
   .backdrop.blur { inset: -48px; filter: blur(32px) saturate(1.3); opacity: 0.9; }
   .backdrop.tint {
@@ -412,9 +412,9 @@
   .hero.art .hero-main, .first .hero-main { background: linear-gradient(90deg, color-mix(in srgb, var(--media-bg) 93%, transparent) 0%, color-mix(in srgb, var(--media-bg) 65%, transparent) 45%, transparent 78%); }
   .hero-body { display: grid; align-content: center; justify-items: start; gap: var(--space-3); min-width: 0; }
   .hero h2 { display: flex; align-items: center; gap: var(--space-3); font-size: clamp(26px, 3vw, 36px); letter-spacing: -0.01em; max-width: 680px; }
-  .status-dot { width: 12px; height: 12px; flex: none; border-radius: 50%; --dot: var(--media-idle); background: var(--dot); box-shadow: 0 0 0 4px color-mix(in srgb, var(--dot) 22%, transparent); }
-  .status-dot.ready { --dot: var(--media-ok); }
-  .status-dot.warn { --dot: var(--media-warn); }
+  .status-dot { width: 12px; height: 12px; flex: none; border-radius: 50%; --dot: var(--media-idle); --halo: var(--media-halo-idle); background: var(--dot); box-shadow: var(--halo); }
+  .status-dot.ready { --dot: var(--media-ok); --halo: var(--media-halo-ok); }
+  .status-dot.warn { --dot: var(--media-warn); --halo: var(--media-halo-warn); }
   .hero-copy { max-width: 520px; font-size: var(--text-md); color: var(--media-ink-2); }
   .hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-5); margin-top: var(--space-2); }
   .hero-actions :global(.primary) { min-width: 168px; min-height: 48px; padding-inline: var(--space-5); font-size: var(--text); }
@@ -429,9 +429,9 @@
   /* The game: its cover, like the library's, with what it is to Home. */
   .now { display: grid; gap: var(--space-2); width: 148px; color: inherit; text-decoration: none; border-radius: var(--radius); }
   .art-frame { display: block; border-radius: var(--radius); transition: transform var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard); }
-  .now .art-frame { box-shadow: 0 8px 24px rgb(0 0 0 / 35%); }
+  .now .art-frame { box-shadow: var(--media-shadow); }
   .now:hover .art-frame, .game:hover .art-frame { transform: translateY(-2px); box-shadow: var(--shadow-raised); }
-  .now:hover .art-frame { box-shadow: 0 10px 28px rgb(0 0 0 / 45%); }
+  .now:hover .art-frame { box-shadow: var(--media-shadow); }
   .now-text { display: grid; gap: 2px; min-width: 0; }
   .now-label { font-size: var(--text-xs); font-weight: var(--weight-semibold); letter-spacing: 0.04em; text-transform: uppercase; color: var(--media-ink-2); }
   .now strong { font-size: var(--text-sm); font-weight: var(--weight-semibold); line-height: var(--leading-snug); overflow-wrap: anywhere; }

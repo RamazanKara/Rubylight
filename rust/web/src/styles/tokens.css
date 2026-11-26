@@ -79,13 +79,26 @@
   --z-dock: 50;
   --z-overlay: 100;
   --z-toast: 200;
+  --z-bar: 5;
   --z-skip: 300;
+
+  /* Rings and marks: token colours with fixed geometry, so components never write a shadow. */
+  --ring-accent: 0 0 0 1px var(--accent);
+  --ring-focus: 0 0 0 2px var(--focus);
+  --ring-hollow: inset 0 0 0 1.5px var(--muted);
+  --ring-media: inset 0 0 0 1px var(--media-line);
+  --mark-accent: inset 3px 0 0 var(--accent);
+  --mark-danger: inset 3px 0 0 var(--danger);
+  --mark-tab: inset 0 -3px 0 var(--accent);
+  --rule-above: 0 -1px 0 var(--line);
+  --rule-grid: 1px 0 0 var(--line), 0 1px 0 var(--line);
 
   color-scheme: light;
   --bg: #f3f4f7;
   --panel: #ffffff;
   --panel-raised: #ffffff;
   --sunken: #e8ebf0;
+  --field: #ffffff; /* text fields: paper in light, a recessed well in dark */
   --ink: #111318;
   --ink-2: #383e4a;
   --muted: #596170;
@@ -152,6 +165,16 @@
   --media-edge: inset 0 1px 0 rgb(255 255 255 / 7%);
   --media-shadow: 0 16px 44px rgb(0 0 0 / 55%);
   --media-art-dim: brightness(0.82) saturate(1.08);
+  --media-black: #000000; /* letterbox behind video */
+  --media-scrim-soft: rgb(0 0 0 / 50%);
+  --media-scrim-strong: rgb(0 0 0 / 75%);
+  --media-halo-ok: 0 0 0 4px rgb(69 224 160 / 22%);
+  --media-halo-idle: 0 0 0 4px rgb(155 164 181 / 22%);
+  --media-halo-warn: 0 0 0 4px rgb(245 176 65 / 22%);
+  /* A QR code is black on white in both themes, with its quiet zone. */
+  --qr-paper: #ffffff;
+  --qr-ink: #000000;
+  --mask-solid: #000000; /* the opaque stop of a fade mask */
 }
 
 :root[data-theme='dark'] {
@@ -160,6 +183,7 @@
   --panel: #111319;
   --panel-raised: #181b24;
   --sunken: #0e1015;
+  --field: #0b0c10;
   --ink: #f5f7fa;
   --ink-2: #c8cedb;
   --muted: #9aa3b5;
@@ -202,6 +226,7 @@
     --panel: #111319;
     --panel-raised: #181b24;
     --sunken: #0e1015;
+    --field: #0b0c10;
     --ink: #f5f7fa;
     --ink-2: #c8cedb;
     --muted: #9aa3b5;

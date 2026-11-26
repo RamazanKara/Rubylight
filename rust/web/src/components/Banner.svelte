@@ -53,19 +53,19 @@
   }
   .ok {
     background: var(--ok-soft);
-    border-color: transparent;
+    border-color: var(--ok-line);
   }
   .warn {
     background: var(--warn-soft);
-    border-color: transparent;
+    border-color: var(--warn-line);
   }
   .danger {
     background: var(--danger-soft);
-    border-color: transparent;
+    border-color: var(--danger-line);
   }
   .accent {
     background: var(--accent-soft);
-    border-color: transparent;
+    border-color: var(--accent-line);
   }
   .icon {
     display: grid;
@@ -106,7 +106,8 @@
   .dismiss {
     display: grid;
     place-items: center;
-    margin: calc(var(--space-3) * -1) calc(var(--space-3) * -1) calc(var(--space-3) * -1) 0;
+    margin-block: calc(var(--space-3) * -1);
+    margin-inline: 0 calc(var(--space-3) * -1);
     border: 0;
     border-radius: var(--radius);
     background: none;

@@ -71,7 +71,7 @@
       overflow-x: auto;
       scrollbar-width: none;
       padding-right: var(--space-6);
-      mask-image: linear-gradient(to left, transparent, #000 var(--space-6));
+      mask-image: linear-gradient(to left, transparent, var(--mask-solid) var(--space-6));
     }
   }
 </style>

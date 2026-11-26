@@ -292,7 +292,7 @@
   }
   .candidate:hover:not(:disabled) .thumb {
     border-color: var(--accent);
-    box-shadow: 0 0 0 1px var(--accent);
+    box-shadow: var(--ring-accent);
   }
   .thumb img {
     width: 100%;
@@ -312,7 +312,7 @@
     border: 2px solid var(--panel);
     border-right-color: transparent;
     border-radius: 50%;
-    animation: spin 0.7s linear infinite;
+    animation: spin var(--spin-duration) linear infinite;
   }
   @keyframes spin {
     to {

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import Icon, { type IconName } from './components/Icon.svelte';
+  import Icon from './components/Icon.svelte';
   import Button from './components/Button.svelte';
   import AuthLayout from './components/AuthLayout.svelte';
   import BrandMark from './components/BrandMark.svelte';
@@ -9,12 +9,15 @@
   import Toaster from './components/Toaster.svelte';
   import PairingBanner from './components/PairingBanner.svelte';
   import QuickSwitcher from './components/QuickSwitcher.svelte';
+  import LiveBadge from './components/shell/LiveBadge.svelte';
+  import ThemeSwitch from './components/shell/ThemeSwitch.svelte';
   import { api, setSignedOutHandler } from './lib/api';
   import { failed } from './lib/feedback.svelte';
   import { poll } from './lib/format';
   import { advanced, isCurrent, primary, type NavItem } from './lib/navigation';
   import { link, match, mayLeave, route } from './lib/router.svelte';
   import { checkSession, heartbeat, session, signedOut } from './lib/session.svelte';
+  import { liveBadge } from './lib/shell';
   import { applyTheme, storedTheme, type Theme } from './lib/theme';
   import Overview from './pages/Overview.svelte';
   import Library from './pages/Library.svelte';
@@ -34,12 +37,6 @@
   import NotFound from './pages/NotFound.svelte';
 
   // The sidebar: the everyday pages, Help last; everything else in Advanced, folded (lib/navigation.ts).
-  const themes: { value: Theme; label: string; icon: IconName }[] = [
-    { value: 'system', label: 'System', icon: 'monitor' },
-    { value: 'light', label: 'Light', icon: 'sun' },
-    { value: 'dark', label: 'Dark', icon: 'moon' },
-  ];
-
   let theme = $state<Theme>(storedTheme());
   let menuOpen = $state(false);
   let signingOut = $state(false);
@@ -51,6 +48,10 @@
   /** Bumped to draw the page again after the switcher synced the games the Games page lists. */
   let pageKey = $state(0);
   const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent);
+  /** A phone or a narrow window: the rail becomes a top bar and takes Search and the theme into its menu. */
+  const narrow = typeof matchMedia === 'function' ? matchMedia('(max-width: 860px)') : null;
+  let compact = $state(narrow?.matches ?? false);
+  const badge = $derived(liveBadge(session.live));
 
   const current = (item: NavItem) => isCurrent(item, route.path);
   const inAdvanced = $derived(advanced.some(current));
@@ -122,6 +123,11 @@
     void checkSession();
     return poll(heartbeat, 3000);
   });
+  onMount(() => {
+    const resized = () => (compact = narrow?.matches ?? false);
+    narrow?.addEventListener('change', resized);
+    return () => narrow?.removeEventListener('change', resized);
+  });
   $effect(() => {
     const path = route.path;
     if (path === lastPath) return;
@@ -153,6 +159,22 @@
   </AuthLayout>
 {/snippet}
 
+{#snippet search()}
+  <button
+    type="button"
+    class="find"
+    aria-label="Search"
+    aria-haspopup="dialog"
+    aria-keyshortcuts="Control+K Meta+K"
+    title="Search ({mac ? '⌘K' : 'Ctrl+K'})"
+    onclick={openSwitcher}
+  >
+    <Icon name="search" size={compact ? 20 : 17} />
+    <span class="find-label">Search games, devices and settings</span>
+    <kbd aria-hidden="true">{mac ? '⌘K' : 'Ctrl K'}</kbd>
+  </button>
+{/snippet}
+
 {#if session.state === 'checking'}
   <div class="loading" aria-busy="true"></div>
 {:else if session.state === 'unavailable'}
@@ -171,19 +193,7 @@
             <BrandMark size={32} />
             <span>Rubylight</span>
           </a>
-          <button
-            type="button"
-            class="find"
-            aria-label="Search"
-            aria-haspopup="dialog"
-            aria-keyshortcuts="Control+K Meta+K"
-            title="Search ({mac ? '⌘K' : 'Ctrl+K'})"
-            onclick={openSwitcher}
-          >
-            <Icon name="search" size={16} />
-            <span class="find-label">Search</span>
-            <kbd aria-hidden="true">{mac ? '⌘K' : 'Ctrl K'}</kbd>
-          </button>
+          {#if compact}{@render search()}{/if}
           <button bind:this={menuButton} class="menu" aria-label="Menu" aria-controls="main-navigation" aria-expanded={menuOpen} onclick={() => (menuOpen = !menuOpen)}>
             <Icon name="menu" />
           </button>
@@ -194,6 +204,7 @@
               <a href={item.path} use:link aria-current={current(item) ? 'page' : undefined}>
                 <Icon name={item.icon} />
                 {item.label}
+                {#if item.path === '/' && compact && badge?.streaming}<LiveBadge {badge} dot />{/if}
               </a>
             {/each}
           {/snippet}
@@ -206,7 +217,7 @@
         <div class="foot">
           {#if session.metadata}
             <div class="host">
-              <span class="name">{session.metadata.host_name}</span>
+              <span class="name"><Icon name="monitor" size={16} />{session.metadata.host_name}</span>
               <span class="address">
                 <span class="num" title={session.metadata.pc_address}>{session.metadata.pc_address}</span>
                 <CopyButton value={session.metadata.pc_address} label="Copy address" what="the address" />
@@ -214,19 +225,7 @@
               <span class="version">Version <span class="num">{session.metadata.version}</span></span>
             </div>
           {/if}
-          <div class="theme" role="group" aria-label="Theme">
-            {#each themes as option (option.value)}
-              <button
-                type="button"
-                aria-pressed={theme === option.value}
-                aria-label="{option.label} theme"
-                title="Theme: {option.label}"
-                onclick={() => setTheme(option.value)}
-              >
-                <Icon name={option.icon} size={16} />
-              </button>
-            {/each}
-          </div>
+          {#if compact}<ThemeSwitch {theme} onchange={setTheme} />{/if}
           <button class="foot-button" disabled={signingOut} aria-busy={signingOut} onclick={signOut}>
             <Icon name="signout" size={16} />
             {signingOut ? 'Signing out…' : 'Sign out'}
@@ -234,12 +233,24 @@
         </div>
       </div>
     </aside>
-    <main id="main-content" tabindex="-1" bind:this={content}>
-      {#if session.pending.length && route.path !== '/devices'}
-        <PairingBanner requests={session.pending} />
+    <div class="stage">
+      {#if !compact}
+        <!-- The command bar: find anything, see what plays now, pick the theme. -->
+        <div class="bar" role="toolbar" aria-label="Console">
+          {@render search()}
+          <span class="bar-end">
+            {#if badge}<LiveBadge {badge} />{/if}
+            <ThemeSwitch {theme} onchange={setTheme} />
+          </span>
+        </div>
       {/if}
-      {#key pageKey}<Page />{/key}
-    </main>
+      <main id="main-content" tabindex="-1" bind:this={content}>
+        {#if session.pending.length && route.path !== '/devices'}
+          <PairingBanner requests={session.pending} />
+        {/if}
+        {#key pageKey}<Page />{/key}
+      </main>
+    </div>
   </div>
   <QuickSwitcher bind:open={switcherOpen} onlibrarychanged={() => route.path === '/library' && pageKey++} />
 {/if}
@@ -250,9 +261,9 @@
 <style>
   .skip-link {
     position: fixed;
-    z-index: 100;
-    top: 8px;
-    left: 8px;
+    z-index: var(--z-skip);
+    inset-block-start: var(--space-2);
+    inset-inline-start: var(--space-2);
     padding: 10px var(--space-4);
     background: var(--panel);
     border: 2px solid var(--focus);
@@ -281,11 +292,11 @@
     min-height: 100vh;
     min-height: 100dvh;
   }
-  /* The sidebar's background runs the full page height; its content stays in
-     view. Only the links scroll on a short window: the brand and the footer
-     (host, theme, sign out) stay reachable. */
+  /* The rail's background runs the full page height; its content stays in view.
+     Only the links scroll on a short window: the brand and the footer (host,
+     sign out) stay reachable. */
   aside {
-    border-right: 1px solid var(--line);
+    border-inline-end: 1px solid var(--line);
     background: var(--bg);
   }
   .side {
@@ -296,62 +307,69 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
-    padding: var(--space-4) var(--space-3);
+    padding: var(--space-3) var(--space-3) var(--space-4);
   }
   .brand-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    min-height: var(--control-height);
-    padding: 0 var(--space-2);
+    gap: var(--space-1);
+    min-height: calc(var(--bar-height) - var(--space-3));
+    padding-inline: var(--space-2) 0;
   }
   .brand {
     display: inline-flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-3);
     min-height: var(--control-height);
+    margin-inline-end: auto;
     border-radius: var(--radius);
     font-family: var(--font-display);
     font-weight: var(--weight-bold);
     font-size: var(--text-lg);
     text-decoration: none;
-    letter-spacing: -0.01em;
+    letter-spacing: var(--tracking-display);
   }
-  /* Search: a field-like button across the sidebar, under the name. It opens the quick switcher. */
-  .brand-row {
-    flex-wrap: wrap;
-  }
+  /* Search: a field-like button at the head of the command bar. It opens the quick switcher. */
   .find {
-    order: 1;
-    flex: 1 0 100%;
+    flex: 0 1 460px;
     display: flex;
     align-items: center;
-    gap: var(--space-2);
-    margin: var(--space-3) calc(var(--space-2) * -1) 0;
-    padding: 0 var(--space-2) 0 var(--space-3);
+    gap: var(--space-3);
+    min-width: 0;
+    padding-inline: var(--space-4) var(--space-2);
     border: 1px solid var(--line);
-    border-radius: var(--radius);
+    border-radius: var(--radius-pill);
     background: var(--panel);
+    box-shadow: var(--edge);
     color: var(--muted);
     font-size: var(--text-sm);
-    text-align: left;
+    text-align: start;
     cursor: pointer;
-    transition: background var(--duration-fast), color var(--duration-fast), border-color var(--duration-fast);
+    transition:
+      background var(--duration-fast),
+      color var(--duration-fast),
+      border-color var(--duration-fast);
   }
   .find:hover {
-    background: var(--sunken);
+    border-color: var(--line-strong);
     color: var(--ink);
   }
   .find-label {
     flex: 1 1 auto;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
   .find kbd {
-    padding: 1px 6px;
+    flex: none;
+    padding: 2px var(--space-2);
     border: 1px solid var(--line);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-pill);
     background: var(--sunken);
+    color: var(--ink-2);
     font-size: var(--text-xs);
-    line-height: 1.4;
+    line-height: var(--leading-snug);
   }
   .menu {
     display: none;
@@ -373,8 +391,8 @@
     min-height: 0;
     flex-direction: column;
     gap: var(--space-3);
-    margin: 0 calc(var(--space-1) * -1);
-    padding: 0 var(--space-1);
+    margin-inline: calc(var(--space-1) * -1);
+    padding-inline: var(--space-1);
     overflow-y: auto;
     overscroll-behavior: contain;
   }
@@ -394,9 +412,13 @@
     padding: 0 var(--space-3);
     border-radius: var(--radius);
     color: var(--muted);
-    font-size: var(--text-sm);
-    font-weight: var(--weight-medium);
-    transition: background var(--duration-fast), color var(--duration-fast);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    transition:
+      background var(--duration-fast),
+      color var(--duration-fast);
   }
   .advanced summary:hover {
     background: var(--sunken);
@@ -415,6 +437,7 @@
     font-size: var(--text-sm);
   }
   nav a {
+    position: relative;
     display: flex;
     align-items: center;
     gap: var(--space-3);
@@ -424,7 +447,9 @@
     color: var(--ink-2);
     text-decoration: none;
     font-weight: var(--weight-medium);
-    transition: background var(--duration-fast), color var(--duration-fast);
+    transition:
+      background var(--duration-fast),
+      color var(--duration-fast);
   }
   nav a :global(svg) {
     flex: none;
@@ -438,10 +463,20 @@
   nav a:hover :global(svg) {
     color: var(--ink-2);
   }
+  /* The page shown: a tinted row with a ruby marker at its leading edge. */
   nav a[aria-current='page'] {
     background: var(--accent-soft);
     color: var(--ink);
     font-weight: var(--weight-semibold);
+  }
+  nav a[aria-current='page']::before {
+    content: '';
+    position: absolute;
+    inset-inline-start: 0;
+    inset-block: var(--space-3);
+    width: 3px;
+    border-radius: var(--radius-pill);
+    background: var(--accent);
   }
   nav a[aria-current='page'] :global(svg) {
     color: var(--accent-text);
@@ -450,18 +485,28 @@
     flex: none;
     display: grid;
     gap: var(--space-2);
-    padding: var(--space-3) 0 0;
-    border-top: 1px solid var(--line);
   }
+  /* This PC, as a small card: its name, the address a device connects to, and the version. */
   .host {
     display: grid;
     min-width: 0;
-    padding: 0 var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel);
+    box-shadow: var(--edge);
     font-size: var(--text-sm);
   }
   .host .name {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
     font-weight: var(--weight-semibold);
     overflow-wrap: anywhere;
+  }
+  .host .name :global(svg) {
+    flex: none;
+    color: var(--muted);
   }
   /* The copy button keeps its 44 px target but overlaps the lines around it. */
   .address {
@@ -469,7 +514,7 @@
     align-items: center;
     gap: 2px;
     min-width: 0;
-    margin: -10px 0 -10px;
+    margin-block: -8px;
     font-size: var(--text-xs);
     color: var(--ink-2);
   }
@@ -484,39 +529,6 @@
     font-size: var(--text-xs);
     color: var(--muted);
   }
-  .theme {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(var(--control-height), 1fr));
-    overflow: hidden;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-  }
-  .theme button {
-    display: grid;
-    place-items: center;
-    height: var(--control-height);
-    padding: 0;
-    border: 0;
-    border-radius: 0;
-    background: none;
-    color: var(--muted);
-    cursor: pointer;
-    transition: background var(--duration-fast), color var(--duration-fast);
-  }
-  .theme button:hover {
-    color: var(--ink);
-    background: var(--sunken);
-  }
-  .theme button + button {
-    border-left: 1px solid var(--line);
-  }
-  .theme button:focus-visible {
-    outline-offset: -3px;
-  }
-  .theme button[aria-pressed='true'] {
-    background: var(--accent-soft);
-    color: var(--accent-text);
-  }
   .foot-button {
     display: flex;
     align-items: center;
@@ -529,7 +541,9 @@
     font-weight: var(--weight-medium);
     color: var(--ink-2);
     cursor: pointer;
-    transition: background var(--duration-fast), color var(--duration-fast);
+    transition:
+      background var(--duration-fast),
+      color var(--duration-fast);
   }
   .foot-button :global(svg) {
     color: var(--muted);
@@ -540,21 +554,44 @@
   }
   .foot-button:disabled {
     cursor: default;
-    opacity: 0.6;
+    color: var(--muted);
+  }
+  /* The page column: the command bar, then the page. */
+  .stage {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    align-content: start;
+    min-width: 0;
+    width: 100%;
+    max-width: 1500px;
+    padding-inline: var(--space-6);
+  }
+  .bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    min-height: var(--bar-height);
+    padding-block: var(--space-3) 0;
+  }
+  .bar-end {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
   }
   main {
-    padding: var(--space-6) var(--space-6) var(--space-7);
-    max-width: 1500px;
-    width: 100%;
+    padding-block: var(--space-5) var(--space-7);
+    min-width: 0;
     display: grid;
     align-content: start;
     gap: var(--space-5);
     isolation: isolate;
   }
-  /* Page changes (lib/router.svelte.ts starts them; none under reduced motion): the sidebar
+  /* Page changes (lib/router.svelte.ts starts them; none under reduced motion): the rail
      switches at once and stays on top, the window behind it fades up, and a game's cover morphs
      into its page and back. Only elements no taller than the window carry a name: Firefox
-     snapshots a taller one (the page, the full-height sidebar) as a cut-off slice that shrinks
+     snapshots a taller one (the page, the full-height rail) as a cut-off slice that shrinks
      and then jumps back to full size. */
   aside {
     isolation: isolate;
@@ -570,7 +607,7 @@
     animation: none;
   }
   :global(::view-transition-group(shell)) {
-    z-index: 1;
+    z-index: var(--z-base);
   }
   :global(::view-transition-old(root)) {
     animation: var(--duration-fast) var(--ease-exit) both rubylight-page-out;
@@ -605,7 +642,7 @@
       position: sticky;
       top: 0;
       z-index: var(--z-sticky);
-      border-right: 0;
+      border-inline-end: 0;
       border-bottom: 1px solid var(--line);
       view-transition-name: shell;
     }
@@ -620,23 +657,22 @@
       gap: var(--space-3);
     }
     .brand-row {
-      flex-wrap: nowrap;
-      gap: var(--space-1);
-      padding-right: 0;
-    }
-    .brand {
-      margin-right: auto;
+      min-height: var(--control-height);
     }
     /* In the phone's top bar Search is an icon beside the menu, always in reach. */
     .find {
-      order: 0;
       flex: none;
       justify-content: center;
-      margin: 0;
       padding: 0;
       border-color: transparent;
+      border-radius: var(--radius);
       background: none;
+      box-shadow: none;
       color: var(--ink-2);
+    }
+    .find:hover {
+      border-color: transparent;
+      background: var(--sunken);
     }
     .find-label,
     .find kbd {
@@ -661,8 +697,11 @@
     .advanced {
       margin-top: 0;
     }
+    .stage {
+      padding-inline: var(--space-4);
+    }
     main {
-      padding: var(--space-5) var(--space-4) var(--space-6);
+      padding-block: var(--space-5) var(--space-6);
     }
   }
 </style>

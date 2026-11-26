@@ -48,7 +48,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 7px;
+    gap: var(--space-2);
     border: 1px solid var(--line-strong);
     border-radius: var(--radius);
     background: var(--panel);
@@ -56,7 +56,8 @@
     font-weight: var(--weight-medium);
     font-size: var(--text-sm);
     line-height: 1.3;
-    padding: 11px 18px;
+    padding: 11px var(--space-5);
+    box-shadow: var(--edge);
     min-height: var(--control-height);
     cursor: pointer;
     text-decoration: none;
@@ -70,6 +71,7 @@
       background var(--duration-fast) var(--ease-standard),
       border-color var(--duration-fast) var(--ease-standard),
       color var(--duration-fast) var(--ease-standard),
+      box-shadow var(--duration-fast) var(--ease-standard),
       transform var(--duration-fast) var(--ease-standard);
   }
   /* A press nudges the button down a pixel: feedback without a layout shift. */
@@ -77,7 +79,7 @@
     transform: translateY(1px);
   }
   .sm {
-    padding: 9px 13px;
+    padding: 9px var(--space-4);
   }
   .button:hover:not(:disabled) {
     background: var(--sunken);
@@ -91,8 +93,10 @@
   .primary:hover:not(:disabled) {
     background: var(--accent-strong);
     border-color: var(--accent-strong);
+    box-shadow: var(--shadow-accent);
   }
   .danger {
+    border-color: var(--danger-line);
     color: var(--danger);
   }
   .danger:hover:not(:disabled) {
@@ -102,6 +106,7 @@
   .ghost {
     border-color: transparent;
     background: transparent;
+    box-shadow: none;
     color: var(--ink-2);
   }
   .ghost:hover:not(:disabled) {
@@ -113,6 +118,7 @@
   .button:disabled:not([aria-busy='true']) {
     background: var(--sunken);
     border-color: var(--line);
+    box-shadow: none;
     color: var(--muted);
     cursor: not-allowed;
   }
@@ -135,7 +141,7 @@
     border: 2px solid currentColor;
     border-right-color: transparent;
     border-radius: 50%;
-    animation: spin 0.7s linear infinite;
+    animation: spin var(--spin-duration) linear infinite;
   }
   @keyframes spin {
     to {
